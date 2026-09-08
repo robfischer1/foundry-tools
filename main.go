@@ -115,8 +115,31 @@ func (m *FoundryTools) Verdicts(
 	// by name or you do not get it.
 	// +optional
 	stage string,
+	// Only these atom ids, comma-separated — e.g.
+	// "sweep:digest-pins,sweep:kubeconform". Empty means every atom the stage
+	// admits.
+	//
+	// THIS SELECTS WHAT IS REPORTED BY SELECTING WHAT IS RUN, which is the
+	// only honest way to split a cadence: ca-sweep runs digest-pins nightly
+	// and the rest weekly, and a nightly that evaluated all five and printed
+	// one would be computing findings it then threw away. It names ATOMS, not
+	// directories — the charter is that nothing below New takes a tree, and
+	// this takes no tree.
+	//
+	// An id that is not in the table, or is not admitted by the stage, is an
+	// ERROR rather than a silent empty vector: a sweep asked for an atom that
+	// does not exist must not answer "nothing to report".
+	// +optional
+	only string,
 ) (string, error) {
 	selected := checks.AtomsForStage(stage)
+	if only != "" {
+		var err error
+		selected, err = checks.Select(selected, only)
+		if err != nil {
+			return "", err
+		}
+	}
 	out := make([]checks.Verdict, 0, len(selected))
 	for _, a := range selected {
 		v, err := m.verdict(ctx, a.ID)
