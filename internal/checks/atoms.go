@@ -1,5 +1,10 @@
 package checks
 
+import (
+	"fmt"
+	"strings"
+)
+
 // Stage names where in a pull's life an atom fires. The catalogue carries the
 // same values (nereus.antibody_store.stage), so a row and its code agree by
 // construction.
@@ -506,4 +511,48 @@ func AtomsForStage(stage string) []AtomDef {
 		out = append(out, a)
 	}
 	return out
+}
+
+// Select narrows a stage's atoms to a comma-separated list of ids.
+//
+// An id that names nothing, or names an atom the stage does not admit, is an
+// ERROR rather than an omission. A selector is written by hand into a CronJob's
+// env, where a typo is invisible: `sweep:digest_pins` for `sweep:digest-pins`
+// would otherwise produce an empty vector, the sweep would report nothing, and
+// nothing reported reads exactly like nothing wrong. That is the same shape as
+// a ruleset matching zero files, and it gets the same answer — refuse.
+func Select(from []AtomDef, ids string) ([]AtomDef, error) {
+	have := map[string]AtomDef{}
+	for _, a := range from {
+		have[a.ID] = a
+	}
+	out := make([]AtomDef, 0, len(from))
+	for _, id := range strings.Split(ids, ",") {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		a, ok := have[id]
+		if !ok {
+			if AtomExists(id) {
+				return nil, fmt.Errorf("atom %q exists but this stage does not admit it — a selector that silently drops an atom reports nothing, and nothing reported reads exactly like nothing wrong", id)
+			}
+			return nil, fmt.Errorf("no atom %q — check the id against `dagger check -l`", id)
+		}
+		out = append(out, a)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("the selector %q chose no atom; refusing to answer an empty vector", ids)
+	}
+	return out, nil
+}
+
+// AtomExists reports whether the table carries this id, without panicking.
+func AtomExists(id string) bool {
+	for _, a := range Atoms {
+		if a.ID == id {
+			return true
+		}
+	}
+	return false
 }
