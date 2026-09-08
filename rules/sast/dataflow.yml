@@ -1,0 +1,188 @@
+# Curated SAST ruleset for Forge GO stars (#1471) - opengrep / semgrep.
+#
+# REPLACES A COPY OF THE PYTHON RULESET. Until 2026-08-18 this file was
+# python-repo-template's dataflow.yml verbatim - four rules declaring
+# `languages: [python]` shipped into repos that contain no python. opengrep
+# matched nothing, exited 0, and the gate printed Passed. Measured on cql:
+#
+#     Scanning 84 files tracked by git with 4 Code rules:
+#     Ran 4 rules on 0 files: 0 findings.
+#
+# Every Go star in the fleet had a security gate that had never examined a
+# single file (foundry-stocks#4415, found by session Maple13).
+#
+# GO TAINT mode, by design. Scoped to data-FLOW issues - an untrusted SOURCE
+# reaching a dangerous SINK - which is the semantic layer above `go vet` and
+# staticcheck's AST lint, the Go analogue of ruff `S` for the python template.
+# Non-overlapping with them by construction.
+#
+# Sources are external/untrusted inputs (HTTP request data, argv, stdin), NOT
+# os.Getenv / config values, to avoid config-flow false positives. os.Args is a
+# source in three of the four rules and deliberately NOT in path-traversal - see
+# the note there. Vendored + pinned (no registry / `auto`); that local, offline
+# posture is why we run opengrep. ASCII-only on purpose: opengrep reads rule
+# files under the runner's C locale, which chokes on non-ASCII punctuation.
+#
+# net/http ONLY, and that is a correction rather than a scoping choice. The first
+# cut also carried gin/echo shapes as SOURCES - `$C.Query(...)` and
+# `$C.Param(...)`. A bare metavariable receiver matches ANY method named Query,
+# so `pool.Query(ctx, sql)` was matched as a SOURCE by the same rule that matches
+# it as a SINK. Every pgx call in the fleet was therefore a guaranteed finding:
+# measured 5/5 false positives on ananke, all static SQL literals with correctly
+# bound parameters, and they survived both focus-metavariable and dropping
+# os.Args. A framework source cannot be expressed safely without type
+# information, so net/http's unambiguous accessors are the whole source list.
+#
+# SEED set, and it has NOT yet fired on real flows. The SCOPING (local, curated,
+# taint-mode, non-overlap) is settled; the rule *content* grows as real flows
+# surface. A rule that has never fired is not yet evidence of anything - the one
+# thing that IS now true, and was not before, is that these rules match Go files
+# at all.
+rules:
+  - id: forge-go-taint-ssrf
+    mode: taint
+    languages: [go]
+    severity: ERROR
+    message: >
+      Untrusted input flows into an outbound HTTP call (SSRF). An attacker could
+      coerce the request toward internal services or the cloud metadata endpoint.
+      Validate the URL host against an allowlist before the call.
+    metadata:
+      category: security
+      cwe: "CWE-918: Server-Side Request Forgery (SSRF)"
+    pattern-sources:
+      - pattern-either:
+          - pattern: $R.URL.Query().Get(...)
+          - pattern: $R.URL.RawQuery
+          - pattern: $R.FormValue(...)
+          - pattern: $R.PostFormValue(...)
+          - pattern: $R.Header.Get(...)
+          - pattern: os.Args
+    pattern-sinks:
+      # focus-metavariable, NOT the bare call. Without it the SINK is the whole
+      # call expression, so ANY .Get()/.Query() matches whether or not tainted
+      # data reaches the argument that matters. Measured 2026-08-18: the bare
+      # form reported 5/5 false positives on ananke - every one a static SQL
+      # literal - and 2 on argus. Focusing the URL/query metavariable is what
+      # makes this a data-flow rule rather than a call-name grep.
+      - patterns:
+          - pattern-either:
+              - pattern: http.Get($URL, ...)
+              - pattern: http.Head($URL, ...)
+              - pattern: http.Post($URL, ...)
+              - pattern: http.PostForm($URL, ...)
+              - pattern: http.NewRequest($M, $URL, ...)
+              - pattern: http.NewRequestWithContext($CTX, $M, $URL, ...)
+          - focus-metavariable: $URL
+
+  - id: forge-go-taint-sql-injection
+    mode: taint
+    languages: [go]
+    severity: ERROR
+    message: >
+      Untrusted input flows into a SQL execution sink. Use placeholder parameters
+      (db.Query("... WHERE id = $1", id)); never fmt.Sprintf or concatenation
+      into the query string.
+    metadata:
+      category: security
+      cwe: "CWE-89: SQL Injection"
+    pattern-sources:
+      - pattern-either:
+          - pattern: $R.URL.Query().Get(...)
+          - pattern: $R.FormValue(...)
+          - pattern: $R.PostFormValue(...)
+          - pattern: $R.Header.Get(...)
+          - pattern: os.Args
+    pattern-sinks:
+      # BOTH call shapes, and focused on the query string. database/sql puts the
+      # query first; pgx puts ctx first (pool.Query(ctx, sql, args...)) - so a
+      # single $SQL-in-first-position pattern binds ctx on pgx and matches every
+      # call in the repo. That is exactly how the first cut produced 5 findings
+      # on ananke, all of them static literals with correctly bound params.
+      - patterns:
+          - pattern-either:
+              - pattern: $DB.Query($SQL, ...)
+              - pattern: $DB.QueryRow($SQL, ...)
+              - pattern: $DB.Exec($SQL, ...)
+              - pattern: $DB.Prepare($SQL)
+              - pattern: $DB.QueryContext($CTX, $SQL, ...)
+              - pattern: $DB.QueryRowContext($CTX, $SQL, ...)
+              - pattern: $DB.ExecContext($CTX, $SQL, ...)
+              - pattern: $DB.PrepareContext($CTX, $SQL)
+          - focus-metavariable: $SQL
+
+  - id: forge-go-taint-command-injection
+    mode: taint
+    languages: [go]
+    severity: ERROR
+    message: >
+      Untrusted input flows into an OS command sink. Never build a shell string;
+      pass an argv slice to exec.Command and validate inputs against an allowlist.
+      Passing tainted data as the command NAME is worse than as an argument.
+    metadata:
+      category: security
+      cwe: "CWE-78: OS Command Injection"
+    pattern-sources:
+      - pattern-either:
+          - pattern: $R.URL.Query().Get(...)
+          - pattern: $R.FormValue(...)
+          - pattern: $R.PostFormValue(...)
+          - pattern: $R.Header.Get(...)
+          - pattern: os.Args
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: exec.Command($NAME, ...)
+              - pattern: exec.CommandContext($CTX, $NAME, ...)
+              - pattern: syscall.Exec($NAME, ...)
+          - focus-metavariable: $NAME
+
+  - id: forge-go-taint-path-traversal
+    mode: taint
+    languages: [go]
+    severity: WARNING
+    message: >
+      Untrusted input flows into a filesystem path. An attacker could traverse
+      with '../' to read or write arbitrary files. filepath.Join does NOT confine
+      a path - it cleans it. Resolve, then verify the result is still under an
+      intended base directory.
+    metadata:
+      category: security
+      cwe: "CWE-22: Path Traversal"
+    pattern-sources:
+      # os.Args is NOT a source HERE, deliberately - the source-side sibling of
+      # the net/http-only correction above. Path traversal is a CONFUSED-DEPUTY
+      # bug: it needs an authority gap, where the process reaches files the
+      # input's supplier cannot, so `../` buys the supplier something. An HTTP
+      # client -> os.ReadFile has that gap. argv does not - whoever sets argv
+      # already runs the process at its own privilege, so `tool /etc/passwd` is
+      # `cat` with extra steps.
+      # Measured 2026-08-19 across every Go/Rust/Python star (1213 files):
+      # argv-as-source fired TWICE fleet-wide and was wrong both times, both in
+      # dev-only CLI tooling reading the file it was handed - cerberus
+      # examples/bb2_replay.rs:30 and vault-mcp benchmarks/benchmark_live.py:248.
+      # Zero true positives. Go's own count was 0/396 files, so this costs the Go
+      # lane nothing today and closes the shape before it fires.
+      # It stays a source in the SSRF / SQLi / command-injection rules above -
+      # but NOT because it is clean there. Pointed at cerberus's 29 .py (a tree
+      # no lane scans, since star lanes are single-language) the python twin of
+      # command-injection fires 5/5 on the identical shape: argv -> subprocess in
+      # dev probe drivers. Same confused-deputy argument, same verdict. Left
+      # alone HERE only because it is a separate change on different evidence -
+      # foundry-stocks#4585, not this commit. foundry-stocks#4582.
+      - pattern-either:
+          - pattern: $R.URL.Query().Get(...)
+          - pattern: $R.URL.Path
+          - pattern: $R.FormValue(...)
+          - pattern: $R.PostFormValue(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: os.Open($P, ...)
+              - pattern: os.OpenFile($P, ...)
+              - pattern: os.Create($P, ...)
+              - pattern: os.ReadFile($P, ...)
+              - pattern: os.WriteFile($P, ...)
+              - pattern: os.Remove($P, ...)
+              - pattern: os.RemoveAll($P, ...)
+          - focus-metavariable: $P
