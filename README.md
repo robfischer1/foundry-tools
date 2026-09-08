@@ -28,6 +28,11 @@ dagger check go:staticcheck      # one atom
 
 # The verdict VECTOR — one element per atom, each preserving its own 0/1/2,
 # rather than a single exit code that flattens a 2 into "the run failed".
+# Standing in ANOTHER repo with the module resolved remotely, name the tree —
+# see "A remotely-resolved module binds its own tree" below. --source is the
+# constructor's parameter; nothing below New takes a directory.
+dagger call -m git.notusmi.com/rob/foundry-tools@<sha> --source=. verdicts --stage=sweep
+
 dagger call verdicts                 # every PULL stage — precommit and prepush
 dagger call verdicts --stage=prepush
 dagger call verdicts --stage=sweep   # the clock's vector, asked for by name
@@ -35,7 +40,17 @@ dagger call catalogue            # the atom table as catalogue rows
 dagger call lanes                # which lanes this repository actually builds
 ```
 
-A gate resolves this module **at a pinned git ref through the door** — `git.notusmi.com` serves `go-import` without SSO; `forgejo.notusmi.com` sits behind the portal and a machine cannot log in. Hephaestus renders that pin into each repo's `dagger.json` (CA F4), which is also what binds `+defaultPath="/"` to the repo being gated rather than to this one.
+A gate resolves this module **at a pinned git ref through the door** — `git.notusmi.com` serves `go-import` without SSO; `forgejo.notusmi.com` sits behind the portal and a machine cannot log in. Hephaestus renders that pin into each repo's `dagger.json` (CA F4).
+
+**A remotely-resolved module binds ITS OWN tree, not yours — name the source.** Measured 2026-09-08 against the in-cluster engine: standing in `infra` and running `dagger call -m git.notusmi.com/rob/foundry-tools@<sha> lanes` answers `go (go.mod)`. `infra` has no `go.mod`; foundry-tools does. `+defaultPath="/"` resolves against the module's context, and for a module fetched from git that context is the module's git tree. `dagger check -m <remote>` behaves the same way — `sweep:kube-linter` returned OK in 0.4s against a tree that yields 371 findings in nine seconds.
+
+That failure is silent and it is green, which makes it the exact shape this repository exists to delete: a sweep over sixty repos would have returned sixty identical passes, every one of them a true statement about the wrong repository. So a caller that is not standing inside a repo whose own `dagger.json` declares the dependency **must name the tree**:
+
+```sh
+dagger call -m git.notusmi.com/rob/foundry-tools@<sha> --source=. verdicts --stage=sweep
+```
+
+`--source` is the constructor's parameter and the ONLY place a directory may be named — the charter is that nothing *below* `New` takes one, so no atom can be pointed somewhere else once the tree is bound. `ca-sweep` invokes exactly the line above, once per repo. Once F4 has rendered the pin into a repo's own `dagger.json`, `dagger check` from inside that repo binds the repo's workspace and the flag is unnecessary.
 
 ## The atoms
 
