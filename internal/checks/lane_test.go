@@ -86,7 +86,7 @@ func TestManifestForNamesTheDeclaringFile(t *testing.T) {
 func TestEveryAtomIsWellFormed(t *testing.T) {
 	seen := map[string]bool{}
 	lanes := map[Lane]bool{LaneAny: true, LaneGo: true, LanePython: true, LaneRust: true, LaneTS: true}
-	stages := map[string]bool{StagePrecommit: true, StagePrepush: true}
+	stages := map[string]bool{StagePrecommit: true, StagePrepush: true, StageSweep: true}
 
 	for _, a := range Atoms {
 		if seen[a.ID] {
@@ -100,8 +100,24 @@ func TestEveryAtomIsWellFormed(t *testing.T) {
 		if a.Lane != LaneAny && !strings.HasPrefix(a.ID, string(a.Lane)+":") {
 			t.Errorf("atom %q sits in lane %q; its id must carry that namespace", a.ID, a.Lane)
 		}
-		if a.Lane == LaneAny && !strings.HasPrefix(a.ID, "fleet:") {
-			t.Errorf("cross-lane atom %q must be namespaced fleet:", a.ID)
+		// A cross-lane atom is namespaced by WHEN it runs, because that is
+		// the only thing left to namespace it by: fleet: on a pull's path,
+		// sweep: on the clock. The two must not blur — the sweep's whole
+		// acceptance is that its atoms are absent from a pull.
+		if a.Lane == LaneAny {
+			wantNS := "fleet:"
+			if a.Stage == StageSweep {
+				wantNS = "sweep:"
+			}
+			if !strings.HasPrefix(a.ID, wantNS) {
+				t.Errorf("cross-lane %s atom %q must be namespaced %s", a.Stage, a.ID, wantNS)
+			}
+		}
+		if a.Stage == StageSweep && !strings.HasPrefix(a.ID, "sweep:") {
+			t.Errorf("atom %q is stage sweep but is not in the sweep: namespace", a.ID)
+		}
+		if strings.HasPrefix(a.ID, "sweep:") && a.Stage != StageSweep {
+			t.Errorf("atom %q is in the sweep: namespace but declares stage %q — the namespace and the stage are one fact", a.ID, a.Stage)
 		}
 		if !lanes[a.Lane] {
 			t.Errorf("atom %q declares unknown lane %q", a.ID, a.Lane)

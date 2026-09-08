@@ -55,6 +55,11 @@ func (m *FoundryTools) Python() *PythonLane { return &PythonLane{Source: m.Sourc
 // Cargo.toml.
 func (m *FoundryTools) Rust() *RustLane { return &RustLane{Source: m.Source} }
 
+// Sweep holds the repo-cadence atoms — the checks that describe a REPOSITORY
+// rather than a change. They run on a clock (CA F9's ca-sweep CronJob) and
+// never in a pull's path; `Verdicts` with no stage cannot reach them.
+func (m *FoundryTools) Sweep() *Sweep { return &Sweep{Source: m.Source} }
+
 // Ts holds the TypeScript lane's atoms. They report ABSENT on a repo with no
 // package.json.
 func (m *FoundryTools) Ts() *TSLane { return &TSLane{Source: m.Source} }
@@ -103,15 +108,17 @@ func (m *FoundryTools) Catalogue(ctx context.Context) (string, error) {
 // instead of being flattened into the run's overall failure.
 func (m *FoundryTools) Verdicts(
 	ctx context.Context,
-	// Only atoms at this stage: precommit, prepush, or empty for all.
+	// Only atoms at this stage: precommit, prepush or sweep. EMPTY MEANS EVERY
+	// PULL-PATH STAGE — precommit and prepush — and deliberately NOT sweep: a
+	// door that asks for "the vector" is asking about a pull, and CA F9's
+	// acceptance is that no sweep atom ever appears in one. Ask for the sweep
+	// by name or you do not get it.
 	// +optional
 	stage string,
 ) (string, error) {
-	out := make([]checks.Verdict, 0, len(checks.Atoms))
-	for _, a := range checks.Atoms {
-		if stage != "" && a.Stage != stage {
-			continue
-		}
+	selected := checks.AtomsForStage(stage)
+	out := make([]checks.Verdict, 0, len(selected))
+	for _, a := range selected {
 		v, err := m.verdict(ctx, a.ID)
 		if err != nil {
 			return "", err
@@ -151,6 +158,15 @@ func verdictFor(ctx context.Context, src *dagger.Directory, id string) (checks.V
 		// this. The engine IS the CI boundary; saying so beats each atom
 		// guessing.
 		WithEnvVariable("CI", "true").
+		// The sweep's fetch coordinates. They live in internal/checks so the
+		// digest-pins sweep lands on ONE block (images.go) rather than on a
+		// string buried in a shell body, and they are set for every atom
+		// rather than only the sweep's because a conditional here would be a
+		// second place for the atom table to disagree with itself.
+		WithEnvVariable("CRD_SCHEMA_LOCATION", checks.CRDSchemaLocation).
+		WithEnvVariable("CRD_SCHEMA_PROBE", checks.CRDSchemaProbe).
+		WithEnvVariable("ORAS_MIRROR", checks.OrasMirror).
+		WithEnvVariable("ORAS_URL", checks.OrasURL).
 		WithMountedDirectory("/src", src).
 		WithWorkdir("/src")
 	if a.NeedsStocks {
