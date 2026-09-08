@@ -15,6 +15,11 @@
 name: ci
 on:
   pull_request:
+  # BY HAND, AT A BRANCH. A pull opened through the door is not a Forgejo pull,
+  # and a brand-new repo's first run has nothing to compare itself against —
+  # `ourea_workflows run ci.yml ref <branch>` is how this file gets proved
+  # before it is trusted. Same reason foundry-stocks' own self-ci carries it.
+  workflow_dispatch:
 jobs:
   gate:
     runs-on: nas01
@@ -24,14 +29,10 @@ jobs:
       # so this pin moves when someone moves it. Named here rather than floated
       # on a tag because a floating base has broken this fleet twice.
       image: forgejo.notusmi.com/rob/stellar_core:go-ci@sha256:aeb43e74f78f467e31cde95bfc9c0ac825a5cb615050e0dff1d497f95f917b71
-      volumes:
-        - go-mod-cache:/go/pkg/mod
-        - go-build-cache:/opt/go-build-cache
     env:
       # worktree-guard and its siblings stand down when this is set, and a CI
       # checkout is always a primary checkout. Set explicitly, not inherited.
       CI: "true"
-      GOFLAGS: -mod=mod
     steps:
       - uses: https://forgejo.notusmi.com/actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -39,25 +40,31 @@ jobs:
       # step it is not a gate at all — the step goes green over unformatted code.
       # The -z is the assertion.
       - name: gofmt
+        shell: bash
         run: test -z "$(gofmt -l . )"
 
       - name: go vet
+        shell: bash
         run: go vet ./...
 
       - name: go build
+        shell: bash
         run: go build ./...
 
       # -race, matching the atom this repo ships as `go:test-race`. The pure core
       # (internal/checks) is engine-free, which is what makes this runnable with
       # no Dagger engine in the lane — the in-cluster engine is CA F5.
       - name: go test -race
+        shell: bash
         run: go test -race ./...
 
       - name: staticcheck
+        shell: bash
         run: staticcheck ./...
 
       # The module's own dependency tree, held to the rule it enforces on
       # everyone else. See the justfile for why `dagger develop` must be
       # followed by a drop of the SDK's otel replaces.
       - name: govulncheck
+        shell: bash
         run: govulncheck ./...
