@@ -1,0 +1,149 @@
+# Pre-commit hooks for foundry-tools.
+#
+# The atoms this module SHIPS are the ones a repo will run engine-side once the
+# pin is declared (CA F4) and the engine is in the cluster (CA F5). Until then
+# this repo is gated the way the rest of the fleet is, by its own hooks — which
+# is also the honest test of the port: if an atom's assertion is wrong, it is
+# wrong in both places at once.
+#
+# Hook repos come from the fleet's MIRROR, not github. pre-commit clones each
+# `repo:`, and a cold-cache github fetch is what reddened a cerberus gate with
+# "Executable `detect-secrets-hook` not found" while the env was still building.
+#
+# trailing-whitespace and end-of-file-fixer are deliberately absent. Both were
+# removed fleet-wide on measurement (0.7% and 0.75% yield across 998 and 8276
+# files), and the second cost an outage: a 24-repo red-CI cascade over an
+# unterminated `#copier updated` sentinel.
+default_install_hook_types: [pre-commit, pre-push, post-commit]
+exclude: '^\.(claude|specify|furnace)/|(^|/)(vendor|node_modules)/'
+repos:
+  - repo: https://forgejo.notusmi.com/hooks/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        stages: [pre-commit]
+  - repo: https://forgejo.notusmi.com/hooks/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+        stages: [pre-commit]
+      - id: check-added-large-files
+        stages: [pre-commit]
+      - id: check-merge-conflict
+        stages: [pre-commit]
+  - repo: local
+    hooks:
+      # THE GENERATED BINDINGS ARE IN SCOPE, deliberately. `dagger.gen.go` and
+      # `internal/dagger/` are committed here (CI has no engine until CA F5), so
+      # they are this repository's tracked source whatever generated them — and
+      # a gate that excluded them would be reporting on a fraction of the tree,
+      # which is the partial-scan shape this whole repo exists to argue against.
+      # Measured: both are gofmt-clean, vet-clean and staticcheck-clean as
+      # generated.
+      - id: gofmt
+        name: gofmt (-l, fail on unformatted)
+        # `gofmt -l` PRINTS the offenders and EXITS 0 either way, so a bare
+        # invocation here would be a hook that can never fail. The -n test is
+        # the assertion.
+        entry: bash -c 'unformatted="$(gofmt -l . 2>/dev/null)"; if [ -n "$unformatted" ]; then echo "gofmt needed on:"; echo "$unformatted"; exit 1; fi'
+        language: system
+        pass_filenames: false
+        types: [go]
+        stages: [pre-commit]
+      - id: go-vet
+        name: go vet
+        entry: bash -c 'go vet ./...'
+        language: system
+        pass_filenames: false
+        types: [go]
+        stages: [pre-commit]
+      - id: go-build
+        name: go build ./...
+        entry: bash -c 'go build ./...'
+        language: system
+        pass_filenames: false
+        types: [go]
+        stages: [pre-commit]
+      - id: go-test-race
+        name: go test -race ./... (CI parity — pre-push)
+        entry: bash -c 'go test -race ./...'
+        language: system
+        stages: [pre-push]
+        pass_filenames: false
+        types: [go]
+      - id: staticcheck
+        name: staticcheck ./... (CI parity — pre-push; notice if absent)
+        entry: >-
+          bash -c 'command -v staticcheck >/dev/null 2>&1 ||
+          { echo "staticcheck: CANNOT RUN - not installed. Install it (go install honnef.co/go/tools/cmd/staticcheck@latest). Refusing to report success without scanning." >&2; exit 2; };
+          staticcheck ./...'
+        language: system
+        stages: [pre-push]
+        pass_filenames: false
+        types: [go]
+      - id: govulncheck
+        name: govulncheck ./... (CI parity — pre-push; notice if absent)
+        # `dagger develop` re-adds four otel `replace` directives pinning
+        # otlplog to v0.16.0, which carries GO-2026-4985. `just develop` drops
+        # them again. This hook is why that recipe exists rather than a comment
+        # asking someone to remember.
+        entry: >-
+          bash -c 'command -v govulncheck >/dev/null 2>&1 ||
+          { echo "govulncheck: CANNOT RUN - not installed. Install it (go install golang.org/x/vuln/cmd/govulncheck@latest). Refusing to report success without scanning." >&2; exit 2; };
+          govulncheck ./...'
+        language: system
+        stages: [pre-push]
+        pass_filenames: false
+        types: [go]
+      - id: worktree-guard
+        name: commit from a linked worktree, not the shared checkout
+        entry: >-
+          bash -c 'S="${FOUNDRY_STOCKS:-}"; C="${STOCKS_CACHE:-}";
+          P=ci/lib/verified_worktree.py;
+          if [ -n "$C" ]; then
+          git -C "$C" cat-file -e "$S:$P" 2>/dev/null || {
+          echo "worktree-guard: CANNOT RUN - STOCKS_CACHE is set, so FOUNDRY_STOCKS must be a git REF carrying $P; got ref=$S cache=$C" >&2;
+          echo "worktree-guard: refusing to fall back to a possibly-drifted checkout, and refusing to report success without checking." >&2;
+          exit 2; };
+          t=$(mktemp); git -C "$C" show "$S:$P" >"$t"; python3 "$t" .; rc=$?; rm -f "$t"; exit $rc; fi;
+          if [ -n "$S" ] && [ -f "$S/$P" ]; then python3 "$S/$P" .; exit $?; fi;
+          G=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null);
+          D="${G%/.git}/../foundry-stocks";
+          if [ -f "$D/$P" ]; then python3 "$D/$P" .; exit $?; fi;
+          echo "worktree-guard: CANNOT RUN - no canonical source (FOUNDRY_STOCKS=$S STOCKS_CACHE=$C)" >&2;
+          echo "worktree-guard: set STOCKS_CACHE plus a FOUNDRY_STOCKS git REF (canonical gate), or FOUNDRY_STOCKS as a checkout PATH. Refusing to report success without checking." >&2;
+          exit 2'
+        language: system
+        stages: [pre-commit]
+        pass_filenames: false
+        always_run: true
+      - id: stop-justifications
+        name: "no silent suppression of any gate - excuse with a tool-conflict line"
+        entry: >-
+          bash -c 'S="${FOUNDRY_STOCKS:-}"; C="${STOCKS_CACHE:-}";
+          P=ci/lib/stop_justifications.py;
+          if [ -n "$C" ]; then
+          git -C "$C" cat-file -e "$S:$P" 2>/dev/null || {
+          echo "stop-justifications: CANNOT RUN - STOCKS_CACHE is set, so FOUNDRY_STOCKS must be a git REF carrying $P; got ref=$S cache=$C" >&2;
+          echo "stop-justifications: refusing to fall back to a possibly-drifted checkout, and refusing to report success without scanning." >&2;
+          exit 2; };
+          t=$(mktemp); git -C "$C" show "$S:$P" >"$t"; python3 "$t" .; rc=$?; rm -f "$t"; exit $rc; fi;
+          if [ -n "$S" ] && [ -f "$S/$P" ]; then python3 "$S/$P" .; exit $?; fi;
+          G=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null);
+          D="${G%/.git}/../foundry-stocks";
+          if [ -f "$D/$P" ]; then python3 "$D/$P" .; exit $?; fi;
+          echo "stop-justifications: CANNOT RUN - no canonical source (FOUNDRY_STOCKS=$S STOCKS_CACHE=$C)" >&2;
+          echo "stop-justifications: set STOCKS_CACHE plus a FOUNDRY_STOCKS git REF (canonical gate), or FOUNDRY_STOCKS as a checkout PATH. Refusing to report success without scanning." >&2;
+          exit 2'
+        language: system
+        stages: [pre-commit]
+        pass_filenames: false
+        always_run: true
+      - id: fetch-origin
+        name: fetch origin (keep refs fresh)
+        entry: bash -c '(git fetch origin --prune --quiet >/dev/null 2>&1 </dev/null &)'
+        language: system
+        stages: [post-commit]
+        always_run: true
+        pass_filenames: false
