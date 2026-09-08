@@ -12,7 +12,7 @@ So: **a check that could not run is never a pass.** That discipline already exis
 | **One repository** | The tree under check is bound once, in `New`, from the caller's own context directory (`+defaultPath="/"`). |
 | **Three states** | `0` pass · `1` findings · `2` could not run. Every exit that is not 0 or 1 — a 127 missing binary, a 137 OOM kill, a 143 cancellation — maps to **2**, because reading any of those as findings is wrong and reading them as a pass is the failure this module deletes. |
 | **Absent says so** | A lane with no surface in the tree — no `go.mod`, no `pyproject.toml` — reports `ABSENT`, exits 0, and **prints why**. Silence would be indistinguishable from a clean scan. |
-| **Namespaced** | `fleet:` · `go:` · `python:` · `rust:` · `ts:`. `dagger check -l` lists all of them with descriptions. |
+| **Namespaced** | `fleet:` · `go:` · `python:` · `rust:` · `ts:` on a pull's path; `sweep:` on the clock. `dagger check -l` lists all of them with descriptions. |
 | **One definition** | The atom table in `internal/checks/atoms.go` drives both the check functions and the verdict vector, so `dagger check -l` and the catalogue cannot drift apart. The census counted that drift 31 times across two independently-maintained surfaces; there is one surface here. |
 
 ## Using it
@@ -28,7 +28,9 @@ dagger check go:staticcheck      # one atom
 
 # The verdict VECTOR — one element per atom, each preserving its own 0/1/2,
 # rather than a single exit code that flattens a 2 into "the run failed".
+dagger call verdicts                 # every PULL stage — precommit and prepush
 dagger call verdicts --stage=prepush
+dagger call verdicts --stage=sweep   # the clock's vector, asked for by name
 dagger call catalogue            # the atom table as catalogue rows
 dagger call lanes                # which lanes this repository actually builds
 ```
@@ -48,6 +50,25 @@ A gate resolves this module **at a pinned git ref through the door** — `git.no
 
 **`ts:`** (`package.json`) — `bun-gate-commit` (pre-commit) · `bun-gate` · `bun-audit` (pre-push)
 
+**`sweep:`** — repo cadence, on a clock, **never in a pull's path**.
+`digest-pins` (nightly) · `portfolio-sbom` · `template-render-matrix` · `kubeconform` · `kube-linter` (weekly)
+
+These describe a **repository** rather than a change, so their answer cannot differ between two pulls against the same repo — and running them per pull leaves every repository nobody opened a PR against unevaluated indefinitely. `digest-pins` is the worked example: both outages it exists for were caused by an image being *rebuilt*, with no merge anywhere near the five stars that went red. The digest rots while the tree sits still, so the probe has to be a clock, not a diff.
+
+| atom | what it asks | ABSENT when |
+| :-- | :-- | :-- |
+| `sweep:digest-pins` | every image digest this repo's workflows pin still resolves in the registry | no `.forgejo/workflows` |
+| `sweep:portfolio-sbom` | a repo that builds an image builds it through the workflow that **attests** its SBOM | no `Dockerfile` |
+| `sweep:template-render-matrix` | every case in this template's `ci-matrix.toml` still renders | no `ci-matrix.toml` |
+| `sweep:kubeconform` | every manifest under `flux/` validates against its Kubernetes schema | no `flux/` |
+| `sweep:kube-linter` | every workload under `flux/` passes kube-linter's default checks | no `flux/` |
+
+**The absence is the acceptance.** CA F9's success criterion is that no `stage: sweep` atom ever appears in a pull's path, and that is structural here rather than conventional: `dagger call verdicts` with **no stage** answers the *pull-path* vector — precommit and prepush — so a door that asks for "the vector" cannot be handed a sweep atom by omission. You get the sweep by naming it (`--stage=sweep`, or `dagger check sweep:`) and no other way. `TestNoSweepAtomOnThePullPath` asserts it.
+
+`sweep:portfolio-sbom` **does not re-run the portfolio scan.** That scan is fleet-wide and already scheduled — CronJob `portfolio-weekly` (Mondays 07:00 UTC) drives `ci-portfolio-pipeline`, which re-scores the SBOM attestations the registry holds — and it stays exactly where it is. What the atom closes is the hole that scan structurally cannot see: the re-score reads *attestations*, so a repo whose image is never attested contributes nothing to read and scores clean by being invisible, forever.
+
+The one caller that runs any of this is the `ca-sweep` CronJob (`infra/flux/apps/ca-sweep.yaml`).
+
 ### What is deliberately NOT here
 
 - **`pyright`** — two type checkers ran on every python pre-push with no incident behind the duplication. One type checker, `mypy --strict`. Ratified.
@@ -56,7 +77,7 @@ A gate resolves this module **at a pinned git ref through the door** — `git.no
 - **`lint-staged`** — defined over the git **index**. The engine receives a directory, not an index; an atom claiming to be lint-staged would be checking a different population than the hook it replaced, which is the silent-drift failure this module exists to end.
 - **`fetch-origin`** — a background convenience with no verdict. It was never a check.
 
-Sweep-cadence checks (mutation, digest-pins, portfolio SBOM) are not here either — they belong to the sweep, not to a pull's path.
+Sweep-cadence checks live in the `sweep:` namespace above, not on a pull's path. The one that is deliberately **absent entirely** is the **mutation nightly full-run**: the machinery exists in `foundry-stocks` and stays unwired and unscheduled (decided, Rob). Mutation gates PR-time on the diff; there are no nightlies until further notice.
 
 ## Working on it
 
@@ -74,11 +95,12 @@ The generated bindings (`dagger.gen.go`, `internal/dagger/`) are **committed**, 
 ```
 main.go             the module root: the source binding, the lane namespaces, the vector
 checks_*.go         the // +check functions — one per atom, each a call into the table
+                    (checks_sweep.go is the clock's namespace)
 internal/checks/    the pure core, engine-free and unit-tested
   atoms.go          THE TABLE: id, stage, lane, image, description, body
   lane.go           lane detection from root manifests
   verdict.go        the three states and the exit-code mapping
-  images.go         the lane images, in one place, for the digest-pins sweep to land on
+  images.go         the lane AND sweep images, in one place, for digest-pins to land on
 ```
 
 `internal/checks` imports nothing from the Dagger SDK, which is why `go test ./...` runs without an engine.

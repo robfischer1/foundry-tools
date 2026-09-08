@@ -6,6 +6,12 @@ package checks
 const (
 	StagePrecommit = "precommit"
 	StagePrepush   = "prepush"
+	// StageSweep is repo cadence, and it is NOT a pull stage. An atom
+	// carrying it answers a question about the repository rather than about
+	// the change, so it runs on a clock (CA F9's ca-sweep CronJob) and never
+	// in a pull's path. PullPathStages is the enforcement; the vocabulary
+	// matches nereus.antibody_store.stage, which admits exactly these three.
+	StageSweep = "sweep"
 )
 
 // AtomDef is one catalogued check, as code.
@@ -299,6 +305,137 @@ bun run gate || exit 1`,
 		Script: `BUN_CONFIG_REGISTRY=https://registry.npmjs.org/ bun audit --audit-level=high || exit 1
 echo "ts:bun-audit: clean"`,
 	},
+
+	// ---- sweep: repo cadence. NEVER IN A PULL'S PATH ----
+	//
+	// These describe a REPOSITORY rather than a change, so their answer cannot
+	// differ between two pulls against the same repo — and running them per
+	// pull leaves every repository nobody opened a PR against unevaluated
+	// indefinitely. That is the whole of CA F9: the digest rots while the tree
+	// sits still, so the probe has to be a clock, not a diff
+	// (foundry-stocks/ci/lib/digest-pins.sh says exactly that in its own
+	// header, and nothing had ever dispatched it).
+	//
+	// The absence is the acceptance: no atom below may appear in a pull's
+	// path. PullPathAtoms is what makes that structural rather than a
+	// convention, and TestNoSweepAtomOnThePullPath asserts it.
+	{
+		ID: "sweep:digest-pins", Stage: StageSweep, Lane: LaneAny, Image: imageFleet,
+		Desc: "Every image digest this repo's workflows pin still resolves in the registry.",
+		// The canonical script, READ AT ITS ONE HOME. It already carries the
+		// three states this module requires — 0 every pin resolves, 1 a pin is
+		// BROKEN, 2 no pins found at all ("the scan is broken, not the tree
+		// clean") — which is why this atom wraps it instead of reimplementing
+		// it. Twice in five days a collected digest took out the same five
+		// stars, and both times a human found it by noticing a red landing.
+		Script: provisionGuard + `test -d .forgejo/workflows || { echo "sweep:digest-pins: ABSENT - no .forgejo/workflows in this tree, so nothing here pins a digest."; exit 0; }
+test -f /stocks/ci/lib/digest-pins.sh || { echo "sweep:digest-pins: CANNOT RUN - the canonical script is not reachable through the door." >&2; exit 2; }
+if ! command -v oras >/dev/null 2>&1; then
+  python3 - "$ORAS_MIRROR" "$ORAS_URL" <<'PY' || { echo "sweep:digest-pins: CANNOT RUN - could not fetch oras from the mirror or from upstream. Resolving zero pins and calling them all healthy is the outage this check exists to catch, running backwards." >&2; exit 2; }
+import sys, urllib.request
+for url in sys.argv[1:]:
+    try:
+        urllib.request.urlretrieve(url, "/tmp/oras.tgz")
+        sys.exit(0)
+    except Exception as exc:
+        print("could not fetch %s: %s" % (url, exc), file=sys.stderr)
+sys.exit(1)
+PY
+  tar -xzf /tmp/oras.tgz -C /usr/local/bin oras || { echo "sweep:digest-pins: CANNOT RUN - the oras archive did not unpack." >&2; exit 2; }
+fi
+guard oras version
+PINS_DIR=.forgejo/workflows bash /stocks/ci/lib/digest-pins.sh`,
+		NeedsStocks: true,
+	},
+	{
+		ID: "sweep:portfolio-sbom", Stage: StageSweep, Lane: LaneAny, Image: imageFleet,
+		Desc: "A repository that builds an image builds it through the workflow that attests its SBOM.",
+		// THIS DOES NOT RE-RUN THE PORTFOLIO SCAN, and that is deliberate. The
+		// scan is fleet-wide, already scheduled, and stays exactly where it
+		// is: CronJob portfolio-weekly (infra, ci-foundry, Mondays 07:00 UTC)
+		// drives ci-portfolio-pipeline, which re-scores the SBOM attestations
+		// the registry already holds. A per-repo copy would be a second
+		// surface free to disagree with the first — the drift this module
+		// exists to delete.
+		//
+		// What it closes is the hole that scan structurally cannot see. The
+		// re-score reads ATTESTATIONS; a repo whose image is never attested
+		// contributes nothing to read, so it scores clean by being invisible,
+		// forever, and no pull will ever say so. That is CA F9's own value
+		// statement — "repos nobody has opened a PR against stop being
+		// invisible" — asked at the one place where the answer is a fact about
+		// the tree rather than a fact about the database.
+		Script: `test -f Dockerfile || { echo "sweep:portfolio-sbom: ABSENT - no Dockerfile at the repository root. The portfolio re-scores image SBOMs, and this repo builds no image."; exit 0; }
+test -d .forgejo/workflows || { echo "sweep:portfolio-sbom: CANNOT RUN - a Dockerfile and no workflow tree. Nothing here says whether the image is ever built, so nothing here can say whether it is attested." >&2; exit 2; }
+if grep -q -r -E "uses:[[:space:]]*foundry/foundry-stocks/\.forgejo/workflows/(build|frontend-build|bake-blade)\.yml@" .forgejo/workflows; then
+  echo "sweep:portfolio-sbom: the image is built through the attesting workflow, so the weekly re-score can see this repo."; exit 0
+fi
+echo "sweep:portfolio-sbom: this repo has a Dockerfile but no workflow calling foundry-stocks build.yml (or frontend-build.yml / bake-blade.yml)." >&2
+echo "The weekly portfolio re-score reads cosign SBOM attestations out of the registry. An image nobody attests contributes no SBOM, so it is not scored badly - it is not scored at all, and the digest reports clean because it never looked." >&2
+exit 1`,
+	},
+	{
+		ID: "sweep:template-render-matrix", Stage: StageSweep, Lane: LaneAny, Image: imageFleet,
+		Desc: "Every case in this template's ci-matrix.toml still renders.",
+		// A template bug does not break the template. It propagates into every
+		// repo stamped afterward and surfaces later, in someone else's repo,
+		// where the cause is expensive to trace — which is exactly why this is
+		// a cadence check and not a pull check: the stamped population keeps
+		// growing while the template tree sits still.
+		Script: provisionGuard + `test -f ci-matrix.toml || { echo "sweep:template-render-matrix: ABSENT - no ci-matrix.toml at the repository root, so this repo declares no render matrix."; exit 0; }
+test -f /stocks/ci/lib/template_render_matrix.py || { echo "sweep:template-render-matrix: CANNOT RUN - the canonical gate is not reachable through the door." >&2; exit 2; }
+test -d .git || { echo "sweep:template-render-matrix: CANNOT RUN - no .git in the tree under check. The matrix renders the template AT ITS GIT HEAD (--vcs-ref=HEAD is load-bearing, foundry#130); without a repository copier resolves some other tree, and a green from that would be a green about something else." >&2; exit 2; }
+guard uvx --version
+python3 /stocks/ci/lib/template_render_matrix.py --template .`,
+		NeedsStocks: true,
+	},
+	{
+		ID: "sweep:kubeconform", Stage: StageSweep, Lane: LaneAny, Image: imageKubeconform,
+		Desc: "Every manifest under flux/ validates against its Kubernetes schema.",
+		// The zero-scan refusal in this atom's dialect. kubeconform reports
+		// `skipped` both for a CRD genuinely absent from the catalogue and for
+		// a catalogue it could not reach, and the second of those is a CANNOT
+		// RUN — so the catalogue is PROBED before the scan, and a scan that
+		// validated nothing at all is a 2 rather than a green.
+		Script: `test -d flux || { echo "sweep:kubeconform: ABSENT - no flux/ tree at the repository root."; exit 0; }
+wget -q -O /dev/null "$CRD_SCHEMA_PROBE" || { echo "sweep:kubeconform: CANNOT RUN - the CRD schema catalogue is unreachable. Every custom resource would then report as skipped, which is indistinguishable from a clean validation and is not one." >&2; exit 2; }
+/kubeconform -ignore-missing-schemas -ignore-filename-pattern "\.json$" -schema-location default -schema-location "$CRD_SCHEMA_LOCATION" -summary -n 8 flux/ > /tmp/kc.out 2>/tmp/kc.err
+rc=$?
+sum=$(cat /tmp/kc.out /tmp/kc.err | grep -m1 "^Summary:")
+valid=$(printf "%s" "$sum" | sed -n "s/.*Valid: \([0-9]*\).*/\1/p")
+if [ -z "$valid" ]; then
+  cat /tmp/kc.err /tmp/kc.out >&2
+  echo "sweep:kubeconform: CANNOT RUN - kubeconform printed no summary, so there is no count to read and nothing was measured." >&2
+  exit 2
+fi
+if [ "$valid" -eq 0 ]; then
+  printf "%s\n" "$sum" >&2
+  echo "sweep:kubeconform: REFUSING a zero-resource validation. Nothing under flux/ was checked against a schema, so 0 invalid means NOTHING WAS EXAMINED - not that the tree is correct." >&2
+  exit 2
+fi
+printf "%s\n" "$sum"
+if [ "$rc" -ne 0 ]; then grep -v "^Summary:" /tmp/kc.out | head -80; exit 1; fi
+echo "sweep:kubeconform: clean"`,
+	},
+	{
+		ID: "sweep:kube-linter", Stage: StageSweep, Lane: LaneAny, Image: imageKubeLinter,
+		Desc: "Every workload under flux/ passes kube-linter's default checks.",
+		// --fail-if-no-objects-found is kube-linter's own zero-population
+		// refusal, and it exits 1 for it — the same code it uses for findings.
+		// Reading that as findings would be wrong in the direction that still
+		// looks like the check worked, so the message is matched and remapped
+		// to 2.
+		Script: `test -d flux || { echo "sweep:kube-linter: ABSENT - no flux/ tree at the repository root."; exit 0; }
+out=$(/kube-linter lint --fail-if-no-objects-found flux/ 2>&1); rc=$?
+if printf "%s" "$out" | grep -q "no valid objects found"; then
+  echo "sweep:kube-linter: CANNOT RUN - kube-linter parsed no object under flux/. That is the same exit code as a finding, and it is not one." >&2
+  exit 2
+fi
+if [ "$rc" -eq 0 ]; then echo "sweep:kube-linter: clean"; exit 0; fi
+printf "%s\n" "$out" | tail -3 >&2
+printf "%s\n" "$out" | head -120
+exit 1`,
+	},
 }
 
 // forgeTestkit builds one of the three forge-testkit lint bodies. The three
@@ -321,4 +458,52 @@ func AtomByID(id string) AtomDef {
 		}
 	}
 	panic("no atom defined for id " + id)
+}
+
+// PullPathStages are the stages a pull's gate may run. Sweep is deliberately
+// not one of them.
+var PullPathStages = []string{StagePrecommit, StagePrepush}
+
+// IsPullPath reports whether a stage belongs on a pull's path.
+//
+// The empty stage means "every stage a pull runs", which is every stage EXCEPT
+// sweep — not "everything in the table". That distinction is the whole of CA
+// F9's acceptance ("no `stage: sweep` atom appears in any pull's path"), and
+// making it the default here is what turns the acceptance from a convention
+// somebody has to remember into a fact about the code: a gate that asks for the
+// vector and names no stage cannot be handed a sweep atom.
+func IsPullPath(stage string) bool {
+	for _, s := range PullPathStages {
+		if s == stage {
+			return true
+		}
+	}
+	return false
+}
+
+// PullPathAtoms answers every atom a pull may run — the set the door reads.
+func PullPathAtoms() []AtomDef {
+	return AtomsForStage("")
+}
+
+// SweepAtoms answers every repo-cadence atom — the set ca-sweep runs.
+func SweepAtoms() []AtomDef {
+	return AtomsForStage(StageSweep)
+}
+
+// AtomsForStage selects the atoms for one stage; the empty stage selects every
+// PULL-PATH atom, never the sweep. See IsPullPath for why that is the default.
+func AtomsForStage(stage string) []AtomDef {
+	out := make([]AtomDef, 0, len(Atoms))
+	for _, a := range Atoms {
+		if stage == "" {
+			if !IsPullPath(a.Stage) {
+				continue
+			}
+		} else if a.Stage != stage {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
 }
