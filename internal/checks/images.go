@@ -69,3 +69,37 @@ const (
 	OrasMirror  = "https://nexus.notusmi.com/repository/github-raw/oras-project/oras/releases/download/v" + OrasVersion + "/oras_" + OrasVersion + "_linux_amd64.tar.gz"
 	OrasURL     = "https://github.com/oras-project/oras/releases/download/v" + OrasVersion + "/oras_" + OrasVersion + "_linux_amd64.tar.gz"
 )
+
+// PinSurfacePattern and PinRefPattern are the two questions the digest-pins
+// atom has to ask SEPARATELY. Conflating them is the defect this pair exists
+// to end.
+//
+// MEASURED, not theorised. ca-sweep-manual-1788973171 (2026-09-09) answered
+// `cannot-run` on 57 of the 86 repos in custody, every one of them with:
+//
+//	0 pin(s) checked, 0 broken, 0 drifted
+//	no pins found under .forgejo/workflows - the scan is broken, not the tree clean
+//
+// That sentence is TRUE in foundry-stocks, where the script lives and where
+// cast.yml carries several pins. It is false everywhere else: a star calls the
+// reusable workflow (`uses: foundry/foundry-stocks/.forgejo/workflows/gate.yml@main`)
+// and the image pin lives in the CALLEE's tree. Those 57 repos have an empty
+// pin population, which is an absence, not a broken scan - and 57 false
+// could-not-runs is how the one real finding in that run got buried.
+//
+//	PinSurfacePattern - does this tree carry ANY digest reference at all?
+//	  no  -> ABSENT. Nothing was checked and nothing needed to be.
+//	  yes -> the population is not empty, so the extractor must find it.
+//	PinRefPattern     - the canonical extractor's own form, mirrored from
+//	  digest_pins() in foundry-stocks/ci/lib/digest-pins.sh. When the surface
+//	  is there and this extracts nothing, THAT is the broken scan the script's
+//	  message names, and it stays a CANNOT RUN.
+//
+// The surface pattern must be the BROADER of the two - every reference the
+// canonical extractor accepts has to match it - or the atom would file a real
+// pin as an absence, which is the failure direction that matters.
+// TestPinSurfaceAdmitsEveryCanonicalRef holds that invariant.
+const (
+	PinSurfacePattern = `@sha256:[0-9a-f]{64}`
+	PinRefPattern     = `[a-zA-Z0-9._-]+\.[a-zA-Z]+/[a-zA-Z0-9._/-]+(:[a-zA-Z0-9._-]+)?@sha256:[0-9a-f]{64}`
+)

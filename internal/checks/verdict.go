@@ -1,6 +1,9 @@
 package checks
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // State is an atom's verdict. THREE STATES, NEVER TWO.
 //
@@ -65,8 +68,31 @@ type Verdict struct {
 }
 
 // VerdictOf builds one element of the vector from a raw exit code.
+//
+// AN ATOM THAT DECLARED ITSELF ABSENT IS NOT REPORTED AS A PASS. Half the
+// atoms here find their own absence in the tree rather than off a root
+// manifest — no rules/sast, no Dockerfile, no digest reference under
+// .forgejo/workflows — and they say so on stdout before exiting 0. Rendering
+// that as "pass" flattens "there was nothing to check" into "I checked and it
+// was clean", which is the same conflation StateCannotRun exists to prevent,
+// one shelf up: measured on ca-sweep-manual-1788973171, 28 of the run's 86
+// verdicts read `pass` and `absent=0` while nothing had been examined. The
+// state stays 0 — an absence is not a failure — and AbsentVerdict's own shape
+// is what it borrows.
 func VerdictOf(a AtomDef, exit int, output string) Verdict {
 	s := StateFor(exit)
+	if s == StatePass {
+		if line, ok := AnnouncedAbsence(a.ID, output); ok {
+			return Verdict{
+				Atom:   a.ID,
+				Stage:  a.Stage,
+				Lane:   string(a.Lane),
+				State:  int(StatePass),
+				Result: "absent",
+				Reason: line,
+			}
+		}
+	}
 	return Verdict{
 		Atom:   a.ID,
 		Stage:  a.Stage,
@@ -75,6 +101,24 @@ func VerdictOf(a AtomDef, exit int, output string) Verdict {
 		Result: s.String(),
 		Reason: reasonFor(a.ID, s, exit, output),
 	}
+}
+
+// AnnouncedAbsence reports whether the atom's own output declared ABSENT, and
+// returns the line that did.
+//
+// The prefix is the atom's id, deliberately: a script that merely mentions the
+// word — a message about some OTHER check's absence, a grep hit in a scanned
+// file — must not be read as this atom standing down. Every absence in the
+// table is written `<id>: ABSENT - <why>`, which is the shape this reads.
+func AnnouncedAbsence(id, output string) (string, bool) {
+	prefix := id + ": ABSENT"
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, prefix) {
+			return line, true
+		}
+	}
+	return "", false
 }
 
 // AbsentVerdict is the fourth shape and it is still a three-state answer: a lane
