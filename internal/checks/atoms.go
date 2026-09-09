@@ -53,8 +53,19 @@ type AtomDef struct {
 const provisionGuard = `guard() { "$@" >/dev/null 2>&1 || { echo "CANNOT RUN - could not provision: $*" >&2; exit 2; }; }
 `
 
-// worktreeRepo makes the mounted tree readable BY git, for the atoms that shell
-// out to it.
+// worktreeRepo makes the mounted tree readable BY git, and refuses when git is
+// absent. Every atom that asks the REPOSITORY what its files are begins here.
+//
+// THE POPULATION IS git's, NOT A TREE WALK, and that is the second half of what
+// this prelude buys. The engine receives a directory, so the fleet atoms used to
+// enumerate it by walking one — which sweeps in every build artifact a developer
+// happens to have on disk. Measured 2026-09-09 on tongs, a rust star:
+// fleet:check-added-large-files answered 40+ findings, every one a file under
+// target/ that git ignores and no commit could ever carry. A gitignored file
+// cannot be committed, so it cannot be a finding ABOUT THE REPOSITORY — and a
+// check that refuses every rust and node developer's push over their own build
+// directory is a check nobody will leave switched on. With the prelude below
+// there is always an index to ask.
 //
 // A LINKED WORKTREE'S `.git` IS A FILE, AND IT DANGLES IN HERE. It holds
 // `gitdir: <primary>/.git/worktrees/<name>`, an absolute host path that does not
@@ -74,7 +85,8 @@ const provisionGuard = `guard() { "$@" >/dev/null 2>&1 || { echo "CANNOT RUN - c
 //
 // A PRIMARY CHECKOUT IS UNTOUCHED: `.git` is a directory there, the index rides
 // along with it, and this is a no-op.
-const worktreeRepo = `if [ -f .git ]; then
+const worktreeRepo = `command -v git >/dev/null 2>&1 || { echo "CANNOT RUN - git is not on PATH in this lane image, and this check reads the repository through it. Nothing was scanned." >&2; exit 2; }
+if [ -f .git ]; then
   primary=$(sed -n 's|^gitdir: \(.*\)/\.git/worktrees/.*$|\1|p' .git)
   rm -f .git
   git init -q . || { echo "CANNOT RUN - the tree came from a linked worktree and could not be given a readable repository." >&2; exit 2; }
@@ -88,20 +100,22 @@ var Atoms = []AtomDef{
 	{
 		ID: "fleet:check-yaml", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
 		Desc: "Every YAML file in the tree parses.",
-		Script: provisionGuard + `guard uvx --from pre-commit-hooks check-yaml --help
-files=$(find . -path ./.git -prune -o -path '*/node_modules' -prune -o -path '*/vendor' -prune -o -type f \( -name '*.yml' -o -name '*.yaml' \) -print)
-if [ -z "$files" ]; then echo "fleet:check-yaml: no YAML in this tree"; exit 0; fi
+		Script: provisionGuard + worktreeRepo + `guard uvx --from pre-commit-hooks check-yaml --help
+files=$(git ls-files -- '*.yml' '*.yaml')
+if [ -z "$files" ]; then echo "fleet:check-yaml: no YAML in this repository"; exit 0; fi
 uvx --from pre-commit-hooks check-yaml $files || exit 1
 echo "fleet:check-yaml: parsed all YAML"`,
 	},
 	{
 		ID: "fleet:check-added-large-files", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
 		Desc: "No file in the tree exceeds 500 KB.",
-		// Ported to a tree walk rather than pre-commit's git-index form: the
-		// engine receives a DIRECTORY, not an index, so a body that shelled out
-		// to `git diff --cached` would report CANNOT RUN forever. The assertion
-		// is unchanged; the population it reads is the tree.
-		Script: `big=$(find . -path ./.git -prune -o -path '*/node_modules' -prune -o -type f -size +500k -print)
+		// THE POPULATION IS THE REPOSITORY'S TRACKED FILES. pre-commit's own
+		// hook reads the index; this reads the nearest thing the engine can be
+		// handed (see worktreeRepo). It walked the directory until 2026-09-09,
+		// when tongs answered 40+ findings, every one a file under target/ that
+		// git ignores. The assertion is unchanged: over 500 KiB, the same
+		// threshold as --maxkb=500.
+		Script: worktreeRepo + `big=$(git ls-files -z | xargs -0 -r stat -c '%s %n' 2>/dev/null | awk '$1 > 512000 { $1=""; sub(/^ /, ""); print }')
 if [ -n "$big" ]; then echo "files over 500 KB:"; echo "$big"; exit 1; fi
 echo "fleet:check-added-large-files: nothing over 500 KB"`,
 	},
@@ -112,7 +126,12 @@ echo "fleet:check-added-large-files: nothing over 500 KB"`,
 		// is a setext heading in Markdown and a table rule in reStructuredText,
 		// and matching it turns every docs repo red for a reason nobody can act
 		// on.
-		Script: `hits=$(grep -rIn --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=vendor -E '^(<<<<<<< |>>>>>>> )' . || true)
+		//
+		// OVER THE TRACKED FILES, not the directory. A conflict marker inside a
+		// gitignored build artifact was never committed, and no --exclude-dir
+		// list can name every generator (target/, .venv/, dist/, …). See
+		// worktreeRepo.
+		Script: worktreeRepo + `hits=$(git ls-files -z | xargs -0 -r grep -In -E '^(<<<<<<< |>>>>>>> )' 2>/dev/null || true)
 if [ -n "$hits" ]; then echo "$hits"; exit 1; fi
 echo "fleet:check-merge-conflict: no conflict markers"`,
 	},
@@ -138,7 +157,6 @@ echo "fleet:check-merge-conflict: no conflict markers"`,
 		// that run), which cannot be committed and so cannot be a finding
 		// about this repository.
 		Script: provisionGuard + `if [ ! -f .secrets.baseline ]; then echo "fleet:detect-secrets: CANNOT RUN - no .secrets.baseline at the repository root. Refusing to report success without scanning." >&2; exit 2; fi
-command -v git >/dev/null 2>&1 || { echo "fleet:detect-secrets: CANNOT RUN - git is not on PATH in this lane image, and detect-secrets reads the repository through it." >&2; exit 2; }
 ` + worktreeRepo + `guard uvx --from detect-secrets detect-secrets-hook --help
 files=$(git ls-files)
 if [ -z "$files" ]; then echo "fleet:detect-secrets: CANNOT RUN - the repository has no tracked file to scan" >&2; exit 2; fi
@@ -180,7 +198,6 @@ echo "fleet:detect-secrets: clean against .secrets.baseline"`,
 		// DIRECTORY_EXEMPT rows are keyed on the repository, and an exemption
 		// Rob granted must not evaporate because the push came from a worktree.
 		Script: `if [ ! -f /stocks/ci/lib/stop_justifications.py ]; then echo "fleet:stop-justifications: CANNOT RUN - canonical source not reachable through the door" >&2; exit 2; fi
-command -v git >/dev/null 2>&1 || { echo "fleet:stop-justifications: CANNOT RUN - git is not on PATH in this lane image, and the canonical script enumerates the tree with it. Nothing was scanned." >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "fleet:stop-justifications: CANNOT RUN - python3 is not on PATH in this lane image." >&2; exit 2; }
 ` + worktreeRepo + `python3 /stocks/ci/lib/stop_justifications.py .
 code=$?

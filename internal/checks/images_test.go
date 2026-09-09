@@ -121,6 +121,9 @@ func TestStopJustificationsCallsAMissingGitACannotRun(t *testing.T) {
 	if !strings.Contains(body, "CANNOT RUN - git is not on PATH") {
 		t.Error("a missing git does not say it could not run")
 	}
+	if !strings.Contains(body, "command -v python3 >/dev/null 2>&1 ||") {
+		t.Error("the atom does not probe for the interpreter the canonical script needs")
+	}
 	if strings.Contains(body, "stop_justifications.py . || exit 1") {
 		t.Error("the script's exit code is flattened to 1 — its own CANNOT RUN (exit 2) would be reported as findings")
 	}
@@ -132,6 +135,52 @@ func TestStopJustificationsCallsAMissingGitACannotRun(t *testing.T) {
 // A LINKED WORKTREE'S `.git` IS A FILE, and it dangles inside the container:
 // the gate hook hands the engine `--source="$PWD"` and this fleet works in
 // linked worktrees, so this is the common case, not an edge one.
+// THE FLEET ATOMS GRADE THE REPOSITORY, NOT THE DIRECTORY ON DISK.
+//
+// Measured 2026-09-09 on tongs, a rust star: fleet:check-added-large-files
+// answered 40+ findings, every one a file under target/ that git ignores and no
+// commit could carry. The same walk fed fleet:detect-secrets a gitignored
+// .pytest_cache. A check that refuses every rust and node developer's push over
+// their own build directory is a check nobody leaves switched on, and a finding
+// about a file that cannot be committed is not a finding about the repository.
+func TestTheFleetFileAtomsTakeTheirPopulationFromGit(t *testing.T) {
+	// Each of these enumerates files and grades what it finds.
+	for _, id := range []string{
+		"fleet:check-yaml",
+		"fleet:check-added-large-files",
+		"fleet:check-merge-conflict",
+		"fleet:detect-secrets",
+		"fleet:stop-justifications",
+	} {
+		body := AtomByID(id).Script
+		if !strings.Contains(body, worktreeRepo) {
+			t.Errorf("atom %q enumerates files and does not carry the git prelude", id)
+		}
+		if strings.Contains(body, "find . -path ./.git") {
+			t.Errorf("atom %q still walks the directory — gitignored build artifacts would be findings about the repository", id)
+		}
+	}
+}
+
+// git ABSENT IS A CANNOT RUN FOR EVERY ONE OF THEM, and the prelude is the one
+// place that says so — an atom that reaches its own body without git would
+// enumerate nothing and call it clean.
+func TestTheGitPreludeRefusesRatherThanScanningNothing(t *testing.T) {
+	if !strings.Contains(worktreeRepo, "command -v git >/dev/null 2>&1 ||") {
+		t.Fatal("the prelude does not probe for git")
+	}
+	if !strings.Contains(worktreeRepo, "CANNOT RUN - git is not on PATH") {
+		t.Error("a missing git does not say it could not run")
+	}
+	if !strings.Contains(worktreeRepo, "exit 2") {
+		t.Error("a missing git is not a 2")
+	}
+	// The probe has to come FIRST: the normalisation below it is itself git.
+	if strings.Index(worktreeRepo, "command -v git") > strings.Index(worktreeRepo, "git init") {
+		t.Error("the prelude runs git before checking git is there")
+	}
+}
+
 func TestEveryAtomThatShellsToGitSurvivesALinkedWorktree(t *testing.T) {
 	// MEASURED on two atoms, which is why the prelude is shared rather than
 	// copied: stop-justifications answered CANNOT RUN on its `git ls-files`
