@@ -190,6 +190,21 @@ func verdictFor(ctx context.Context, src *dagger.Directory, id string) (checks.V
 		WithEnvVariable("CRD_SCHEMA_PROBE", checks.CRDSchemaProbe).
 		WithEnvVariable("ORAS_MIRROR", checks.OrasMirror).
 		WithEnvVariable("ORAS_URL", checks.OrasURL).
+		// The go command's coordinates. Set on EVERY atom's container, not
+		// only the go lane's, for the reason the sweep's coordinates above are:
+		// a conditional here is a second place for this file and the atom table
+		// to disagree, and three variables that mean nothing to a shell script
+		// cost nothing. See checks.GoProxy for the measurement — without them
+		// every go:* atom died resolving forgejo.notusmi.com against the
+		// forge's SSO portal.
+		//
+		// GOPRIVATE IS SET TO THE EMPTY STRING ON PURPOSE and must be set:
+		// go-ci bakes one, GOPRIVATE is GONOPROXY's default, and a GONOPROXY
+		// naming the forge sends the fetch direct to it however right GOPROXY
+		// is.
+		WithEnvVariable("GOPROXY", checks.GoProxy).
+		WithEnvVariable("GONOSUMDB", checks.GoNoSumDB).
+		WithEnvVariable("GOPRIVATE", checks.GoPrivate).
 		WithMountedDirectory("/src", src).
 		WithWorkdir("/src")
 	if a.NeedsStocks {

@@ -103,8 +103,46 @@ echo "fleet:detect-secrets: clean against .secrets.baseline"`,
 		// exit 2, never 0 — the same contract the pre-commit hook states, for
 		// the same reason: pre-commit hides a passing hook's output, so a silent
 		// skip is indistinguishable from a clean scan.
+		//
+		// TWO THINGS ABOUT git, BOTH MEASURED (foundry-tools#7626, 2026-09-09).
+		//
+		// FIRST, git ABSENT IS A CANNOT RUN, not a finding. The canonical script
+		// enumerates the tree with subprocess.run(["git", ...]), which raises
+		// FileNotFoundError when git is not on PATH — an uncaught traceback, so
+		// python exited 1 and the old `|| exit 1` filed it as FINDINGS. A check
+		// that could not find its tool has not found anything wrong; it has not
+		// looked. The guard below is the shape every other provisioning probe in
+		// this table takes, and the exit code is now passed through rather than
+		// flattened to 1, so a CANNOT RUN the script itself reports (its own
+		// exit 2 — "refusing to report success without scanning") survives.
+		//
+		// SECOND, A LINKED WORKTREE'S `.git` IS A FILE, AND IT DANGLES IN HERE.
+		// It holds `gitdir: <primary>/.git/worktrees/<name>`, an absolute host
+		// path that does not exist inside the container, so `git ls-files`
+		// answers "fatal: not a git repository" and the script reports CANNOT
+		// RUN — measured against a tartarus worktree in the engine. That is not
+		// an edge case: the pre-push gate hook hands the engine `--source="$PWD"`
+		// and this fleet works in linked worktrees, so it is the COMMON case.
+		// The mounted tree is therefore given a throwaway repository of its own
+		// and its index filled from the non-ignored files, which is the same
+		// population every other atom here scans (they all walk with `find .`)
+		// and is the tree the push is actually carrying. The origin URL is
+		// reconstructed from the gitdir path because repo_name() reads it: the
+		// DIRECTORY_EXEMPT rows are keyed on the repository, and an exemption
+		// Rob granted must not evaporate because the push came from a worktree.
 		Script: `if [ ! -f /stocks/ci/lib/stop_justifications.py ]; then echo "fleet:stop-justifications: CANNOT RUN - canonical source not reachable through the door" >&2; exit 2; fi
-python3 /stocks/ci/lib/stop_justifications.py . || exit 1
+command -v git >/dev/null 2>&1 || { echo "fleet:stop-justifications: CANNOT RUN - git is not on PATH in this lane image, and the canonical script enumerates the tree with it. Nothing was scanned." >&2; exit 2; }
+command -v python3 >/dev/null 2>&1 || { echo "fleet:stop-justifications: CANNOT RUN - python3 is not on PATH in this lane image." >&2; exit 2; }
+if [ -f .git ]; then
+  primary=$(sed -n 's|^gitdir: \(.*\)/\.git/worktrees/.*$|\1|p' .git)
+  rm -f .git
+  git init -q . || { echo "fleet:stop-justifications: CANNOT RUN - the tree came from a linked worktree and could not be given a readable repository." >&2; exit 2; }
+  if [ -n "$primary" ]; then git remote add origin "${primary}.git" >/dev/null 2>&1 || true; fi
+  git ls-files -o --exclude-standard -z | git update-index -z --add --stdin || { echo "fleet:stop-justifications: CANNOT RUN - could not index the worktree's files." >&2; exit 2; }
+fi
+python3 /stocks/ci/lib/stop_justifications.py .
+code=$?
+[ "$code" -eq 0 ] || exit "$code"
 echo "fleet:stop-justifications: no unexcused suppressions"`,
 		NeedsStocks: true,
 	},
@@ -140,8 +178,15 @@ exit 2`,
 		// from a clean scan — go-repo-template and rust-repo-template shipped
 		// the PYTHON ruleset, so every Go and Rust star's security gate had
 		// never examined a single file (foundry-stocks#4415).
+		// THE BINARY IS BAKED INTO THE LANE IMAGE (stellar_core:*-ci carries
+		// opengrep 1.25.0 — measured inside the engine 2026-09-09). The curl
+		// install below is the FALLBACK now rather than the path, and that is
+		// what closes foundry-tools#7626's first defect: on the old uv base
+		// there was no curl at all, so this atom was cannot-run in every
+		// repository in the fleet and no push could go green anywhere.
 		Script: `test -d rules/sast || { echo "fleet:opengrep-sast: ABSENT - no rules/sast in this tree"; exit 0; }
 if ! command -v opengrep >/dev/null 2>&1; then
+  command -v curl >/dev/null 2>&1 || { echo "opengrep: CANNOT RUN - not baked into this lane image and no curl to fetch the installer. Refusing to report success without scanning." >&2; exit 2; }
   curl -fsSL https://raw.githubusercontent.com/opengrep/opengrep/main/install.sh -o /tmp/opengrep-install.sh || { echo "opengrep: CANNOT RUN - installer unreachable. Refusing to report success without scanning." >&2; exit 2; }
   sh /tmp/opengrep-install.sh >/dev/null 2>&1 || { echo "opengrep: CANNOT RUN - install failed. Refusing to report success without scanning." >&2; exit 2; }
   PATH="$HOME/.opengrep/cli/latest:$PATH"; export PATH
