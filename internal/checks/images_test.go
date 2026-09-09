@@ -132,19 +132,34 @@ func TestStopJustificationsCallsAMissingGitACannotRun(t *testing.T) {
 // A LINKED WORKTREE'S `.git` IS A FILE, and it dangles inside the container:
 // the gate hook hands the engine `--source="$PWD"` and this fleet works in
 // linked worktrees, so this is the common case, not an edge one.
-func TestStopJustificationsSurvivesALinkedWorktree(t *testing.T) {
-	body := AtomByID("fleet:stop-justifications").Script
-	if !strings.Contains(body, "if [ -f .git ]; then") {
-		t.Error("the atom does not notice a linked worktree's .git FILE")
+func TestEveryAtomThatShellsToGitSurvivesALinkedWorktree(t *testing.T) {
+	// MEASURED on two atoms, which is why the prelude is shared rather than
+	// copied: stop-justifications answered CANNOT RUN on its `git ls-files`
+	// walk, and detect-secrets exited 1 — a FINDING, for a scan that never
+	// happened — having printed nothing but git's own refusal.
+	for _, id := range []string{"fleet:stop-justifications", "fleet:detect-secrets"} {
+		body := AtomByID(id).Script
+		if !strings.Contains(body, worktreeRepo) {
+			t.Errorf("atom %q shells out to git and does not carry the worktree prelude", id)
+		}
 	}
-	if !strings.Contains(body, "git init -q .") {
-		t.Error("the atom does not give the mounted tree a readable repository")
+	if !strings.Contains(worktreeRepo, "if [ -f .git ]; then") {
+		t.Error("the prelude does not notice a linked worktree's .git FILE")
 	}
-	if !strings.Contains(body, "git remote add origin") {
+	if !strings.Contains(worktreeRepo, "git init -q .") {
+		t.Error("the prelude does not give the mounted tree a readable repository")
+	}
+	if !strings.Contains(worktreeRepo, "git remote add origin") {
 		t.Error("origin is not reconstructed — repo_name() keys DIRECTORY_EXEMPT on it, so an exemption Rob granted would evaporate on a worktree push")
 	}
-	if !strings.Contains(body, "git update-index -z --add --stdin") {
+	if !strings.Contains(worktreeRepo, "git update-index -z --add --stdin") {
 		t.Error("the synthesised index is never filled, so `git ls-files` would answer an empty tree")
+	}
+	// A PRIMARY CHECKOUT MUST BE UNTOUCHED: there `.git` is a directory, the
+	// real index rides along with it, and re-initialising would throw away the
+	// tracked-file population the atom is supposed to read.
+	if !strings.Contains(worktreeRepo, "[ -f .git ]") || strings.Contains(worktreeRepo, "[ -d .git ]") {
+		t.Error("the prelude does not key on .git being a FILE, so it could fire on a primary checkout")
 	}
 }
 

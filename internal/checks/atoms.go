@@ -53,6 +53,36 @@ type AtomDef struct {
 const provisionGuard = `guard() { "$@" >/dev/null 2>&1 || { echo "CANNOT RUN - could not provision: $*" >&2; exit 2; }; }
 `
 
+// worktreeRepo makes the mounted tree readable BY git, for the atoms that shell
+// out to it.
+//
+// A LINKED WORKTREE'S `.git` IS A FILE, AND IT DANGLES IN HERE. It holds
+// `gitdir: <primary>/.git/worktrees/<name>`, an absolute host path that does not
+// exist inside the container, so every git command against the tree answers
+// "fatal: not a git repository". Measured 2026-09-09 on two different atoms:
+// fleet:stop-justifications reported CANNOT RUN (its `git ls-files` walk), and
+// fleet:detect-secrets exited 1 having printed nothing but that line. That is
+// not an edge case — the pre-push gate hook hands the engine `--source="$PWD"`
+// and this fleet works in linked worktrees, so it is the COMMON case.
+//
+// The tree is given a throwaway repository of its own and its index filled from
+// the non-ignored files: the same population every other atom already walks with
+// `find .`, and the tree the push is actually carrying. origin is reconstructed
+// from the gitdir path because stop_justifications' repo_name() reads it —
+// DIRECTORY_EXEMPT is keyed on the repository, and an exemption Rob granted must
+// not evaporate because the push came from a worktree.
+//
+// A PRIMARY CHECKOUT IS UNTOUCHED: `.git` is a directory there, the index rides
+// along with it, and this is a no-op.
+const worktreeRepo = `if [ -f .git ]; then
+  primary=$(sed -n 's|^gitdir: \(.*\)/\.git/worktrees/.*$|\1|p' .git)
+  rm -f .git
+  git init -q . || { echo "CANNOT RUN - the tree came from a linked worktree and could not be given a readable repository." >&2; exit 2; }
+  if [ -n "$primary" ]; then git remote add origin "${primary}.git" >/dev/null 2>&1 || true; fi
+  git ls-files -o --exclude-standard -z | git update-index -z --add --stdin || { echo "CANNOT RUN - could not index the worktree's files." >&2; exit 2; }
+fi
+`
+
 var Atoms = []AtomDef{
 	// ---- fleet: every repository, whatever it is written in ----
 	{
@@ -89,10 +119,29 @@ echo "fleet:check-merge-conflict: no conflict markers"`,
 	{
 		ID: "fleet:detect-secrets", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
 		Desc: "No new secret against the repository's .secrets.baseline.",
+		// THE TREE HAS TO BE A REPOSITORY git CAN READ, for two reasons.
+		//
+		// detect-secrets-hook shells out to git while it decides whether the
+		// baseline is current, and on a linked worktree that answered "fatal:
+		// not a git repository" and exited 1 — a FINDING, for a scan that never
+		// happened. Measured on a foundry-stocks worktree 2026-09-09. See
+		// worktreeRepo.
+		//
+		// AND THE POPULATION IS git ls-files, NOT A TREE WALK. The baseline is
+		// keyed on the path AS THE SCANNER WAS GIVEN IT, and the fleet's
+		// baselines are written by pre-commit, which passes git-relative paths.
+		// The old `find . -print` handed detect-secrets "./bases/x.yaml", which
+		// matches no key in a baseline holding "bases/x.yaml", so EVERY
+		// excused finding came back as a new secret — 200+ of them on
+		// foundry-stocks, all of them already in its baseline. The walk also
+		// scanned gitignored build junk (a stray .pytest_cache turned up in
+		// that run), which cannot be committed and so cannot be a finding
+		// about this repository.
 		Script: provisionGuard + `if [ ! -f .secrets.baseline ]; then echo "fleet:detect-secrets: CANNOT RUN - no .secrets.baseline at the repository root. Refusing to report success without scanning." >&2; exit 2; fi
-guard uvx --from detect-secrets detect-secrets-hook --help
-files=$(find . -path ./.git -prune -o -path '*/node_modules' -prune -o -path '*/vendor' -prune -o -path ./testdata -prune -o -type f -print)
-if [ -z "$files" ]; then echo "fleet:detect-secrets: CANNOT RUN - empty tree" >&2; exit 2; fi
+command -v git >/dev/null 2>&1 || { echo "fleet:detect-secrets: CANNOT RUN - git is not on PATH in this lane image, and detect-secrets reads the repository through it." >&2; exit 2; }
+` + worktreeRepo + `guard uvx --from detect-secrets detect-secrets-hook --help
+files=$(git ls-files)
+if [ -z "$files" ]; then echo "fleet:detect-secrets: CANNOT RUN - the repository has no tracked file to scan" >&2; exit 2; fi
 uvx --from detect-secrets detect-secrets-hook --baseline .secrets.baseline $files || exit 1
 echo "fleet:detect-secrets: clean against .secrets.baseline"`,
 	},
@@ -133,14 +182,7 @@ echo "fleet:detect-secrets: clean against .secrets.baseline"`,
 		Script: `if [ ! -f /stocks/ci/lib/stop_justifications.py ]; then echo "fleet:stop-justifications: CANNOT RUN - canonical source not reachable through the door" >&2; exit 2; fi
 command -v git >/dev/null 2>&1 || { echo "fleet:stop-justifications: CANNOT RUN - git is not on PATH in this lane image, and the canonical script enumerates the tree with it. Nothing was scanned." >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "fleet:stop-justifications: CANNOT RUN - python3 is not on PATH in this lane image." >&2; exit 2; }
-if [ -f .git ]; then
-  primary=$(sed -n 's|^gitdir: \(.*\)/\.git/worktrees/.*$|\1|p' .git)
-  rm -f .git
-  git init -q . || { echo "fleet:stop-justifications: CANNOT RUN - the tree came from a linked worktree and could not be given a readable repository." >&2; exit 2; }
-  if [ -n "$primary" ]; then git remote add origin "${primary}.git" >/dev/null 2>&1 || true; fi
-  git ls-files -o --exclude-standard -z | git update-index -z --add --stdin || { echo "fleet:stop-justifications: CANNOT RUN - could not index the worktree's files." >&2; exit 2; }
-fi
-python3 /stocks/ci/lib/stop_justifications.py .
+` + worktreeRepo + `python3 /stocks/ci/lib/stop_justifications.py .
 code=$?
 [ "$code" -eq 0 ] || exit "$code"
 echo "fleet:stop-justifications: no unexcused suppressions"`,
