@@ -11,7 +11,7 @@ So: **a check that could not run is never a pass.** That discipline already exis
 | **Zero-argument** | Every `// +check` function takes a `context.Context` and nothing else. There is no directory parameter anywhere below the constructor, so no atom can be pointed at a tree other than the one being gated. |
 | **One repository** | The tree under check is bound once, in `New`, from the caller's own context directory (`+defaultPath="/"`). |
 | **Three states** | `0` pass · `1` findings · `2` could not run. Every exit that is not 0 or 1 — a 127 missing binary, a 137 OOM kill, a 143 cancellation — maps to **2**, because reading any of those as findings is wrong and reading them as a pass is the failure this module deletes. |
-| **Absent says so** | A lane with no surface in the tree — no `go.mod`, no `pyproject.toml` — reports `ABSENT`, exits 0, and **prints why**. Silence would be indistinguishable from a clean scan. |
+| **Absent says so** | A lane with no surface in the tree — no `go.mod`, no `pyproject.toml` — reports `ABSENT`, exits 0, and **prints why**. Silence would be indistinguishable from a clean scan. An atom that finds its own absence *inside* the tree says so on stdout, and the vector renders that as `absent` rather than `pass` — "nothing to check" is not "checked and clean". |
 | **Namespaced** | `fleet:` · `go:` · `python:` · `rust:` · `ts:` on a pull's path; `sweep:` on the clock. `dagger check -l` lists all of them with descriptions. |
 | **One definition** | The atom table in `internal/checks/atoms.go` drives both the check functions and the verdict vector, so `dagger check -l` and the catalogue cannot drift apart. The census counted that drift 31 times across two independently-maintained surfaces; there is one surface here. |
 
@@ -68,11 +68,13 @@ dagger call -m git.notusmi.com/rob/foundry-tools@<sha> --source=. verdicts --sta
 **`sweep:`** — repo cadence, on a clock, **never in a pull's path**.
 `digest-pins` (nightly) · `portfolio-sbom` · `template-render-matrix` · `kubeconform` · `kube-linter` (weekly)
 
+`digest-pins` probes for a **pin surface** before it scans: a repo whose `.forgejo/workflows` carries no `@sha256:` reference at all calls the reusable workflows, so its pin population is *empty* and the answer is `ABSENT`. Only a tree that **has** a digest reference the canonical extractor could not read is a `CANNOT RUN`, and it says which. Without that split the fleet-wide sweep read 57 of 86 repos as could-not-run (`ca-sweep-manual-1788973171`, 2026-09-09) and buried the run's one real finding — the canonical script's "the scan is broken, not the tree clean" is true where it lives, in `foundry-stocks`, and false in every star that calls `gate.yml@main`.
+
 These describe a **repository** rather than a change, so their answer cannot differ between two pulls against the same repo — and running them per pull leaves every repository nobody opened a PR against unevaluated indefinitely. `digest-pins` is the worked example: both outages it exists for were caused by an image being *rebuilt*, with no merge anywhere near the five stars that went red. The digest rots while the tree sits still, so the probe has to be a clock, not a diff.
 
 | atom | what it asks | ABSENT when |
 | :-- | :-- | :-- |
-| `sweep:digest-pins` | every image digest this repo's workflows pin still resolves in the registry | no `.forgejo/workflows` |
+| `sweep:digest-pins` | every image digest this repo's workflows pin still resolves in the registry | no `.forgejo/workflows`, **or no digest reference under it** |
 | `sweep:portfolio-sbom` | a repo that builds an image builds it through the workflow that **attests** its SBOM | no `Dockerfile` |
 | `sweep:template-render-matrix` | every case in this template's `ci-matrix.toml` still renders | no `ci-matrix.toml` |
 | `sweep:kubeconform` | every manifest under `flux/` validates against its Kubernetes schema | no `flux/` |

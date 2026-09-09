@@ -333,7 +333,21 @@ echo "ts:bun-audit: clean"`,
 		// clean") — which is why this atom wraps it instead of reimplementing
 		// it. Twice in five days a collected digest took out the same five
 		// stars, and both times a human found it by noticing a red landing.
+		//
+		// THE SURFACE PROBE IS THE ATOM'S OWN, and it is what the script
+		// cannot do for itself. The script was written for foundry-stocks,
+		// where cast.yml carries several pins, so it is right to call zero
+		// pins a broken scan THERE. Dispatched over all 86 repos in custody it
+		// is wrong on most of them: a star calls the reusable workflow and the
+		// pin lives in the callee's tree. Measured on
+		// ca-sweep-manual-1788973171 (2026-09-09), that turned 57 of 86 repos
+		// into cannot-run and buried the run's one real finding. So the atom
+		// asks first whether there is a pin surface at all
+		// (checks.PinSurfacePattern): no surface is ABSENT, and a surface the
+		// extractor could not read stays a CANNOT RUN — now saying which of
+		// the two it is, because a check that could not run must also say why.
 		Script: provisionGuard + `test -d .forgejo/workflows || { echo "sweep:digest-pins: ABSENT - no .forgejo/workflows in this tree, so nothing here pins a digest."; exit 0; }
+grep -rqE '` + PinSurfacePattern + `' .forgejo/workflows || { echo "sweep:digest-pins: ABSENT - .forgejo/workflows carries no digest reference at all, so this repo's pin population is EMPTY rather than unscanned. It calls the reusable workflows and the image pin lives in the callee's tree."; exit 0; }
 test -f /stocks/ci/lib/digest-pins.sh || { echo "sweep:digest-pins: CANNOT RUN - the canonical script is not reachable through the door." >&2; exit 2; }
 if ! command -v oras >/dev/null 2>&1; then
   python3 - "$ORAS_MIRROR" "$ORAS_URL" <<'PY' || { echo "sweep:digest-pins: CANNOT RUN - could not fetch oras from the mirror or from upstream. Resolving zero pins and calling them all healthy is the outage this check exists to catch, running backwards." >&2; exit 2; }
@@ -349,7 +363,12 @@ PY
   tar -xzf /tmp/oras.tgz -C /usr/local/bin oras || { echo "sweep:digest-pins: CANNOT RUN - the oras archive did not unpack." >&2; exit 2; }
 fi
 guard oras version
-PINS_DIR=.forgejo/workflows bash /stocks/ci/lib/digest-pins.sh`,
+PINS_DIR=.forgejo/workflows bash /stocks/ci/lib/digest-pins.sh
+code=$?
+if [ "$code" -eq 2 ]; then
+  echo "sweep:digest-pins: CANNOT RUN - this tree DOES carry a digest reference (it matches ` + PinSurfacePattern + `) and the canonical extractor still returned none, so the SCAN is broken rather than the tree unpinned. Compare digest_pins() in foundry-stocks/ci/lib/digest-pins.sh against the pin forms under .forgejo/workflows." >&2
+fi
+exit $code`,
 		NeedsStocks: true,
 	},
 	{
