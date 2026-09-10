@@ -114,6 +114,52 @@ fi
 // same in both. A config with no exclude admits everything, as pre-commit does.
 const gatePopulation = `EXCL="$(sed -n 's/^exclude:[[:space:]]*//p' .pre-commit-config.yaml 2>/dev/null | head -1 | sed -e "s/^'//" -e "s/'$//" -e 's/^"//' -e 's/"$//')"
 population() { if [ -n "$EXCL" ]; then git ls-files "$@" | grep -v -E "$EXCL" || true; else git ls-files "$@"; fi; }
+hookmeta() { python3 - "$1" "$2" <<'PYHOOK' 2>/dev/null
+import re, sys
+hook, want = sys.argv[1], sys.argv[2]
+try:
+    lines = open(".pre-commit-config.yaml", encoding="utf-8").read().splitlines()
+except OSError:
+    sys.exit(0)
+block, inside, depth = [], False, None
+for line in lines:
+    stripped = line.strip()
+    if re.match(r"-\s*id:\s*" + re.escape(hook) + r"\s*$", stripped):
+        inside, depth = True, len(line) - len(line.lstrip())
+        continue
+    if inside:
+        ind = len(line) - len(line.lstrip())
+        if stripped.startswith("- ") and ind <= depth:
+            break
+        if stripped and ind <= depth and not stripped.startswith("#"):
+            break
+        block.append(stripped)
+def unq(v):
+    v = v.strip()
+    return v[1:-1] if len(v) >= 2 and v[0] == v[-1] and v[0] in "'\"" else v
+if want == "exclude":
+    for b in block:
+        if b.startswith("exclude:"):
+            print(unq(b.split(":", 1)[1])); break
+    sys.exit(0)
+args = []
+i = 0
+while i < len(block):
+    b = block[i]
+    if b.startswith("args:"):
+        rest = b.split(":", 1)[1].strip()
+        if rest.startswith("["):
+            args += [unq(x) for x in re.split(r",\s*", rest.strip("[]")) if x.strip()]
+        else:
+            i += 1
+            while i < len(block) and block[i].startswith("- "):
+                args.append(unq(block[i][2:])); i += 1
+            continue
+    i += 1
+print(" ".join(args))
+PYHOOK
+}
+hookpopulation() { ex="$(hookmeta "$1" exclude)"; shift; if [ -n "$ex" ]; then population "$@" | grep -v -E "$ex" || true; else population "$@"; fi; }
 `
 
 var Atoms = []AtomDef{
@@ -121,10 +167,21 @@ var Atoms = []AtomDef{
 	{
 		ID: "fleet:check-yaml", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
 		Desc: "Every YAML file in the tree parses.",
+		// THE HOOK'S OWN ARGS AND EXCLUDE, when the repo's config states them;
+		// and multi-document YAML is VALID YAML here whatever the config says.
+		// pre-commit's check-yaml refuses a second document by default, a
+		// stylistic guard no repo in this fleet relies on — while every
+		// Kubernetes manifest (infra, the host stacks, ansible's k3s files)
+		// is a stream of them. MEASURED 2026-09-10T01:2xZ on infra, a repo
+		// with no pre-commit config at all: "expected a single document …
+		// but found another document" on a k3s manifest, red on the runner's
+		// gate for a file kubectl applies daily.
 		Script: provisionGuard + worktreeRepo + gatePopulation + `guard uvx --from pre-commit-hooks check-yaml --help
-files=$(population -- '*.yml' '*.yaml')
+files=$(hookpopulation check-yaml -- '*.yml' '*.yaml')
 if [ -z "$files" ]; then echo "fleet:check-yaml: no YAML in this repository"; exit 0; fi
-uvx --from pre-commit-hooks check-yaml $files || exit 1
+args="$(hookmeta check-yaml args)"
+case " $args " in *" --allow-multiple-documents "*|*" -m "*) ;; *) args="$args --allow-multiple-documents";; esac
+uvx --from pre-commit-hooks check-yaml $args $files || exit 1
 echo "fleet:check-yaml: parsed all YAML"`,
 	},
 	{
@@ -136,9 +193,14 @@ echo "fleet:check-yaml: parsed all YAML"`,
 		// when tongs answered 40+ findings, every one a file under target/ that
 		// git ignores. The assertion is unchanged: over 500 KiB, the same
 		// threshold as --maxkb=500.
-		Script: worktreeRepo + gatePopulation + `big=$(population | tr '\n' '\0' | xargs -0 -r stat -c '%s %n' 2>/dev/null | awk '$1 > 512000 { $1=""; sub(/^ /, ""); print }')
-if [ -n "$big" ]; then echo "files over 500 KB:"; echo "$big"; exit 1; fi
-echo "fleet:check-added-large-files: nothing over 500 KB"`,
+		// --maxkb from the repo's own hook args when stated (pre-commit's
+		// default is 500); the hook-level exclude applies to the population.
+		Script: worktreeRepo + gatePopulation + `maxkb=500
+for a in $(hookmeta check-added-large-files args); do case "$a" in --maxkb=*) maxkb="${a#--maxkb=}";; esac; done
+limit=$((maxkb * 1024))
+big=$(hookpopulation check-added-large-files | tr '\n' '\0' | xargs -0 -r stat -c '%s %n' 2>/dev/null | awk -v lim="$limit" '$1 > lim { $1=""; sub(/^ /, ""); print }')
+if [ -n "$big" ]; then echo "files over ${maxkb} KB:"; echo "$big"; exit 1; fi
+echo "fleet:check-added-large-files: nothing over ${maxkb} KB"`,
 	},
 	{
 		ID: "fleet:check-merge-conflict", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
@@ -179,9 +241,11 @@ echo "fleet:check-merge-conflict: no conflict markers"`,
 		// about this repository.
 		Script: provisionGuard + `if [ ! -f .secrets.baseline ]; then echo "fleet:detect-secrets: CANNOT RUN - no .secrets.baseline at the repository root. Refusing to report success without scanning." >&2; exit 2; fi
 ` + worktreeRepo + gatePopulation + `guard uvx --from detect-secrets detect-secrets-hook --help
-files=$(population)
+files=$(hookpopulation detect-secrets)
 if [ -z "$files" ]; then echo "fleet:detect-secrets: CANNOT RUN - the repository has no tracked file to scan" >&2; exit 2; fi
-uvx --from detect-secrets detect-secrets-hook --baseline .secrets.baseline $files || exit 1
+args="$(hookmeta detect-secrets args)"
+case " $args " in *" --baseline "*) ;; *) args="$args --baseline .secrets.baseline";; esac
+uvx --from detect-secrets detect-secrets-hook $args $files || exit 1
 echo "fleet:detect-secrets: clean against .secrets.baseline"`,
 	},
 	{
@@ -354,17 +418,17 @@ echo "python:ruff-format: clean"`,
 	{
 		ID: "python:forge-testkit-assertion-free", Stage: StagePrecommit, Lane: LanePython, Image: imagePython,
 		Desc:   "No assertion-free test bodies (forge-testkit).",
-		Script: forgeTestkit("assertion-free"),
+		Script: forgeTestkit("assertion-free", "tests/*.py"),
 	},
 	{
 		ID: "python:forge-testkit-fake-placement", Stage: StagePrecommit, Lane: LanePython, Image: imagePython,
 		Desc:   "Fake and Stub doubles live where they belong (forge-testkit).",
-		Script: forgeTestkit("fake-placement"),
+		Script: forgeTestkit("fake-placement", "*.py"),
 	},
 	{
 		ID: "python:forge-testkit-schema-budget", Stage: StagePrecommit, Lane: LanePython, Image: imagePython,
 		Desc:   "MCP verb descriptions stay inside the schema budget (forge-testkit).",
-		Script: forgeTestkit("schema-budget"),
+		Script: forgeTestkit("schema-budget", "src/*.py"),
 	},
 	{
 		ID: "python:mypy", Stage: StagePrepush, Lane: LanePython, Image: imagePython,
@@ -382,8 +446,17 @@ echo "python:mypy: clean"`,
 	{
 		ID: "python:pytest", Stage: StagePrepush, Lane: LanePython, Image: imagePython,
 		Desc: "pytest passes.",
-		Script: provisionGuard + `guard uv --version
-uv run --all-extras pytest -q || exit 1`,
+		// A repo with nothing for pytest to collect is ABSENT, not red: pytest
+		// exits 5 for "no tests ran", and mypy already says ABSENT for the
+		// same tree. MEASURED 2026-09-10T01:25Z gate-helios-057545b: a go
+		// star with one .py file and no tests/ was red on "no tests ran in
+		// 0.39s" — the permanent state of that repo, not a finding.
+		Script: provisionGuard + worktreeRepo + gatePopulation + `guard uv --version
+if [ ! -d tests ] && [ -z "$(population -- 'test_*.py' '*_test.py')" ]; then echo "python:pytest: ABSENT - no tests/ and no test files"; exit 0; fi
+rc=0; uv run --all-extras pytest -q || rc=$?
+if [ "$rc" -eq 5 ]; then echo "python:pytest: ABSENT - pytest collected no tests (exit 5)"; exit 0; fi
+[ "$rc" -eq 0 ] || exit 1
+echo "python:pytest: clean"`,
 	},
 	{
 		ID: "python:pip-audit", Stage: StagePrepush, Lane: LanePython, Image: imagePython,
@@ -590,9 +663,22 @@ exit 1`,
 // forgeTestkit builds one of the three forge-testkit lint bodies. The three
 // differ only by mode, and three copies of the provisioning guard is exactly
 // the duplication this repository exists to delete.
-func forgeTestkit(mode string) string {
-	return provisionGuard + `guard uv --version
-uv run --extra dev forge-testkit-lint ` + mode + ` || exit 1
+// forgeTestkit ports one forge-testkit-lint pre-commit hook. The hook takes
+// PATHS — pre-commit appends the files its `files:` pattern matched, and the
+// CLI refuses to run without them ("the following arguments are required:
+// paths"). MEASURED 2026-09-10T01:25Z gate-helios-057545b: fake-placement and
+// schema-budget red on that usage error in every repo the gate touched, go
+// and python alike. The pattern is the template hook's `files:` (python-repo-
+// template .pre-commit-config.yaml), read over the gate's own population so
+// the repo's exclude applies; no files, or no forge-testkit in the project,
+// is ABSENT — pre-commit skips a hook with an empty file list, and a repo
+// that never took the dependency has nothing for it to read.
+func forgeTestkit(mode, pattern string) string {
+	return provisionGuard + worktreeRepo + gatePopulation + `guard uv --version
+if ! grep -qs 'forge-testkit' pyproject.toml; then echo "forge-testkit ` + mode + `: ABSENT - forge-testkit is not a dependency of this project"; exit 0; fi
+files=$(hookpopulation forge-testkit-` + mode + ` -- '` + pattern + `')
+if [ -z "$files" ]; then echo "forge-testkit ` + mode + `: ABSENT - no files match ` + pattern + `"; exit 0; fi
+printf '%s\n' "$files" | xargs -r uv run --extra dev forge-testkit-lint ` + mode + ` || exit 1
 echo "forge-testkit ` + mode + `: clean"`
 }
 
