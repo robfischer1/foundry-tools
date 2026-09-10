@@ -79,6 +79,46 @@ func (r *FoundryTools) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+func (r Compose) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Source *dagger.Directory
+	}
+	concrete.Source = r.Source
+	return json.Marshal(&concrete)
+}
+
+func (r *Compose) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Source *dagger.Directory
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Source = concrete.Source
+	return nil
+}
+
+func (r Dies) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Source *dagger.Directory
+	}
+	concrete.Source = r.Source
+	return json.Marshal(&concrete)
+}
+
+func (r *Dies) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Source *dagger.Directory
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Source = concrete.Source
+	return nil
+}
+
 func (r Fleet) MarshalJSON() ([]byte, error) {
 	var concrete struct {
 		Source *dagger.Directory
@@ -316,6 +356,79 @@ func dispatch(ctx context.Context) (rerr error) {
 func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName string, inputArgs map[string][]byte) (_ any, err error) {
 	_ = inputArgs
 	switch parentName {
+	case "Compose":
+		switch fnName {
+		case "Config":
+			var parent Compose
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Compose).Config(&parent, ctx)
+		case "NoTrackedSecrets":
+			var parent Compose
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Compose).NoTrackedSecrets(&parent, ctx)
+		case "ThirdPartyPins":
+			var parent Compose
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Compose).ThirdPartyPins(&parent, ctx)
+		default:
+			return nil, fmt.Errorf("unknown function %s", fnName)
+		}
+	case "Dies":
+		switch fnName {
+		case "AdmissionDogfood":
+			var parent Dies
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Dies).AdmissionDogfood(&parent, ctx)
+		case "CanaryVisibility":
+			var parent Dies
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Dies).CanaryVisibility(&parent, ctx)
+		case "Contracts":
+			var parent Dies
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Dies).Contracts(&parent, ctx)
+		case "DataKeys":
+			var parent Dies
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Dies).DataKeys(&parent, ctx)
+		case "OpaTest":
+			var parent Dies
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Dies).OpaTest(&parent, ctx)
+		case "Schema":
+			var parent Dies
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Dies).Schema(&parent, ctx)
+		default:
+			return nil, fmt.Errorf("unknown function %s", fnName)
+		}
 	case "Fleet":
 		switch fnName {
 		case "CheckAddedLargeFiles":
@@ -379,6 +492,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*FoundryTools).Catalogue(&parent, ctx)
+		case "Compose":
+			var parent FoundryTools
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*FoundryTools).Compose(&parent), nil
+		case "Dies":
+			var parent FoundryTools
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*FoundryTools).Dies(&parent), nil
 		case "Fleet":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)

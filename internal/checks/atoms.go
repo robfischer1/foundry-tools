@@ -162,6 +162,138 @@ PYHOOK
 hookpopulation() { ex="$(hookmeta "$1" exclude)"; shift; if [ -n "$ex" ]; then population "$@" | grep -v -E "$ex" || true; else population "$@"; fi; }
 `
 
+// fetchBinary is the mirror-then-upstream download the sweep's oras
+// provisioning already spells out, lifted into a function because two more
+// atoms now need it.
+//
+// BOTH SOURCES FAILING IS A 2, NEVER A FALLTHROUGH. A compose spec that was
+// never parsed and a policy suite that never ran are not a clean tree; they are
+// the same shape as the zero-file scan this module exists to delete, arriving
+// through the provisioning door instead of the ruleset one.
+const fetchBinary = `fetch_binary() {
+  dest=$1; shift
+  command -v python3 >/dev/null 2>&1 || return 1
+  python3 - "$dest" "$@" <<'PYFETCH'
+import sys, urllib.request
+dest = sys.argv[1]
+for url in sys.argv[2:]:
+    try:
+        urllib.request.urlretrieve(url, dest)
+        sys.exit(0)
+    except Exception as exc:
+        print("could not fetch %s: %s" % (url, exc), file=sys.stderr)
+sys.exit(1)
+PYFETCH
+}
+`
+
+// composeSurface is the condition every compose: atom shares — does this
+// repository track a compose spec at all?
+//
+// THE SURFACE IS TRACKED FILES, NOT A TREE WALK, for the reason worktreeRepo
+// states: a compose file sitting in a gitignored scratch directory is not a
+// spec this repository ships, and no repo's gate should turn on one.
+//
+// AND THE SCAN'S OWN EXIT CODE IS READ, because "no compose file" and "the scan
+// broke" are the same empty string. That conflation is the exact defect the
+// ported workflows had to fix twice in their own bodies (nas01-stacks
+// validate.yml:63-79, llm01-stacks validate.yml:56-70) and the one that turned
+// 57 repos into false cannot-runs on ca-sweep-manual-1788973171. An ABSENT read
+// off a broken scan is an absence this repository never declared.
+func composeSurface(id string) string {
+	return `git ls-files > /tmp/tracked-files 2>/dev/null || { echo "` + id + `: CANNOT RUN - git ls-files could not enumerate the repository, so its compose surface is unknown rather than empty." >&2; exit 2; }
+surface_rc=0
+specs=$(grep -E '(^|/)(docker-)?compose\.ya?ml$' /tmp/tracked-files) || surface_rc=$?
+if [ "$surface_rc" -gt 1 ]; then echo "` + id + `: CANNOT RUN - the compose-surface scan itself failed (grep exit $surface_rc). An empty surface read off a broken scan is an absence this repository never declared." >&2; exit 2; fi
+if [ -z "$specs" ]; then echo "` + id + `: ABSENT - this repository tracks no compose.yaml/compose.yml, so it declares no compose spec. Most of the fleet is Kubernetes YAML, which this says nothing about."; exit 0; fi
+`
+}
+
+// composeClient provisions the parser, PINNED.
+//
+// The lane images carry no docker and no compose plugin — they are CI images
+// for language toolchains — so the client is fetched the way oras is: the Nexus
+// mirror first, upstream second, and a failure of both is a 2. An existing
+// `docker compose` or `docker-compose` is preferred when an image happens to
+// carry one, because parsing with the client already present beats a 75 MB
+// download for the same answer.
+//
+// NO DAEMON IS INVOLVED. `config` is a pure client-side parse — it reads the
+// file, resolves extends/include and validates the schema — so nothing here
+// needs a docker socket, which is what lets the atom run in a container that
+// has no access to one.
+const composeClient = `if docker compose version >/dev/null 2>&1; then
+  compose_client() { docker compose "$@"; }
+elif command -v docker-compose >/dev/null 2>&1; then
+  compose_client() { docker-compose "$@"; }
+else
+  fetch_binary /usr/local/bin/docker-compose "$COMPOSE_MIRROR" "$COMPOSE_URL" || { echo "compose:config: CANNOT RUN - the pinned docker/compose client (v${COMPOSE_VERSION}) could not be fetched from the mirror or from upstream. Refusing to report a parsed tree that was never parsed." >&2; exit 2; }
+  chmod +x /usr/local/bin/docker-compose || { echo "compose:config: CANNOT RUN - the compose client downloaded but could not be made executable." >&2; exit 2; }
+  compose_client() { /usr/local/bin/docker-compose "$@"; }
+fi
+compose_client version >/dev/null 2>&1 || { echo "compose:config: CANNOT RUN - a compose client is present but does not run, so no spec was parsed." >&2; exit 2; }
+`
+
+// diesShape is the condition every dies: atom shares.
+//
+// TWO MARKERS, BOTH REQUIRED, because either alone is ambiguous: policy/ turns
+// up in more than one repo in this fleet, and fleet/stars/ is a name a fleet
+// inventory could reasonably take. Together they name foundry-dies — the repo
+// that owns the policy bundle AND the star roster the bundle is built from —
+// and nothing else in custody carries both. Everywhere else these atoms report
+// ABSENT and say why, rather than going quiet.
+func diesShape(id string) string {
+	return `if [ ! -f policy/.manifest ] || [ ! -d fleet/stars ]; then echo "` + id + `: ABSENT - this tree is not the policy die's source. It needs both policy/.manifest and fleet/stars/, and this one does not carry both."; exit 0; fi
+`
+}
+
+// opaClient provisions opa AT THE PINNED VERSION, and the pin is load-bearing.
+//
+// The rego language version is a property of the binary: a suite written for v1
+// semantics graded by a different major answers a different question, and "the
+// policy suite passed" would then be a true statement about the wrong language.
+// The workflow this ports pinned 1.18.0 by hand (foundry-dies
+// .forgejo/workflows/ci.yml:47-53); the pin moves here with it.
+//
+// The version is CHECKED rather than assumed, so an image that already ships
+// some opa cannot silently supply it — and so the download does not repeat when
+// what is on disk is already the right one.
+func opaClient(id string) string {
+	return `OPA=/usr/local/bin/opa
+if ! "$OPA" version 2>/dev/null | grep -qx "Version: ${OPA_VERSION}"; then
+  fetch_binary "$OPA" "$OPA_MIRROR" "$OPA_URL" || { echo "` + id + `: CANNOT RUN - opa ${OPA_VERSION} could not be fetched from the mirror or from upstream. A policy suite that never ran is not a policy suite that passed." >&2; exit 2; }
+  chmod +x "$OPA" || { echo "` + id + `: CANNOT RUN - the opa binary downloaded but could not be made executable." >&2; exit 2; }
+fi
+"$OPA" version >/dev/null 2>&1 || { echo "` + id + `: CANNOT RUN - opa is on disk but does not run." >&2; exit 2; }
+`
+}
+
+// diesBundle builds the artifact and takes its data document out, because THE
+// SOURCE TREE IS NOT A PROXY FOR THE ARTIFACT.
+//
+// That is the whole reason ci.yml's third gate exists, and it is worth keeping
+// verbatim: `opa test policy/` passes on a tree whose BUILT BUNDLE is empty.
+// Directory (--data) mode loads every *.json and merges by top-level key;
+// bundle mode reads ONLY files literally named data.json. A tree using
+// arbitrary JSON names tests green and builds an artifact with data.json == {},
+// which makes star_only undefined, which makes the visibility comprehension
+// collect nothing, which makes EVERY verb visible to EVERY principal.
+// Fail-open, silent, and green the whole way down.
+//
+// A BUILD THAT DID NOT COMPLETE IS A 2; A BUILD THAT PRODUCED A BUNDLE WITH NO
+// data.json IS A 1. The first is provisioning — opa could not do its job. The
+// second IS the defect above, arriving exactly as described, and calling it
+// "could not run" would file the finding as an absence.
+func diesBundle(id string) string {
+	return `"$OPA" build -b policy/ -o /tmp/dies-bundle.tar.gz --revision "$(git rev-parse HEAD 2>/dev/null || echo unknown)" --ignore '*_test.rego' > /tmp/dies-build.out 2>&1 || { echo "` + id + `: CANNOT RUN - opa build did not produce a bundle, so there is no artifact to interrogate." >&2; cat /tmp/dies-build.out >&2; exit 2; }
+if ! tar xzOf /tmp/dies-bundle.tar.gz /data.json > /tmp/dies-data.json 2>/tmp/dies-tar.err; then
+  cat /tmp/dies-tar.err >&2
+  echo "` + id + `: the built bundle carries NO data.json member at all. Bundle mode reads only files literally named data.json, so a tree using arbitrary JSON names tests green and ships an empty data document - star_only undefined, the visibility comprehension collecting nothing, every verb visible to every principal." >&2
+  exit 1
+fi
+`
+}
+
 var Atoms = []AtomDef{
 	// ---- fleet: every repository, whatever it is written in ----
 	{
@@ -514,6 +646,420 @@ bun run gate || exit 1`,
 echo "ts:bun-audit: clean"`,
 	},
 
+	// ---- compose: the host stacks. Ported off the act-runner's validate.yml ----
+	//
+	// nas01-stacks and llm01-stacks ARE the boxes: every compose spec, the
+	// Caddyfile, the runner config. Their `validate.yml` was the only thing that
+	// had ever validated any of it, and the act-runner it ran on is being
+	// removed — so these three atoms are what "validated by the gate or not at
+	// all" means for those repos.
+	//
+	// WHAT A GREEN HERE MEANS, kept from the workflow's own header: "this parses
+	// and its schema is valid", nothing stronger. It does not say the file
+	// matches what is RUNNING on the box; that is drift, not syntax, and no gate
+	// can see it from here.
+	{
+		ID: "compose:config", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
+		Desc: "Every tracked compose spec parses and its schema validates.",
+		// --no-interpolate IS LOAD-BEARING. These files use ${VAR:?message} to
+		// make a missing variable a DEPLOY-TIME error, which is correct on the
+		// box and fatal anywhere no variable is set. Without it the gate would
+		// fail on every file for the wrong reason. Schema validation still runs.
+		//
+		// THE env_file TARGETS ARE STUBBED FIRST, and the stub scan reads its
+		// own exit code. env_file targets are secrets and are correctly absent
+		// from the repo, but `compose config` hard-errors on a missing env_file
+		// before it ever reaches the schema. Nothing here reads a VALUE —
+		// --no-interpolate is set — so an empty file is enough.
+		//
+		// grep is three-valued (0 selected · 1 selected nothing · >=2 the scan
+		// broke) and both workflows had to learn that the hard way: a `|| true`
+		// collapsed all three into an empty list, printed "nothing to stub",
+		// stubbed nothing, and handed the parse a tree missing every file it was
+		// supposed to create — a green step reporting a clean scan it never
+		// performed (nas01-stacks validate.yml:63-79). rc 1 is the ANSWER; rc
+		// >=2 is a refusal.
+		Script: worktreeRepo + composeSurface("compose:config") + fetchBinary + composeClient + `stub_rc=0
+raw=$(grep -rhoE '[./A-Za-z0-9_-]+\.env' --include='*.yml' --include='*.yaml' . 2>/dev/null) || stub_rc=$?
+if [ "$stub_rc" -gt 1 ]; then echo "compose:config: CANNOT RUN - the env_file scan failed (grep exit $stub_rc). Refusing to report 'nothing to stub' from a scan that did not run, and then to parse a tree missing every file it was supposed to create." >&2; exit 2; fi
+if [ "$stub_rc" -eq 0 ]; then
+  printf '%s\n' "$raw" | sort -u | while read -r p; do
+    [ -n "$p" ] || continue
+    mkdir -p "$(dirname "$p")" 2>/dev/null
+    [ -e "$p" ] || touch "$p" 2>/dev/null || echo "could not stub $p"
+  done
+else
+  echo "no env_file references - nothing to stub"
+fi
+printf '%s\n' "$specs" > /tmp/compose-specs
+fail=0
+while read -r f; do
+  [ -n "$f" ] || continue
+  printf '%-48s' "$f"
+  if out=$(compose_client -f "$f" config --no-interpolate --quiet 2>&1); then
+    echo "OK"
+  else
+    echo "FAIL"; printf '%s\n' "$out" | sed 's/^/      /'; fail=1
+  fi
+done < /tmp/compose-specs
+[ "$fail" -eq 0 ] || exit 1
+echo "compose:config: every tracked compose spec parses"`,
+	},
+	{
+		ID: "compose:no-tracked-secrets", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
+		Desc: "No credential-shaped file is tracked in a repository that ships compose specs.",
+		// THE IGNORE RULE IS ASSERTED, NOT TRUSTED. Both repos' .gitignore state
+		// the rule — "if it holds a credential, it is IGNORED" — and nothing
+		// enforced it. An ignore rule only protects files it was written before;
+		// this asserts the OUTCOME.
+		//
+		// THE POPULATION IS BARE `git ls-files`, deliberately NOT the gate
+		// population the fleet atoms use. A .env that a repo's pre-commit
+		// `exclude:` keeps out of its hooks is still a tracked .env, and a
+		// credential does not stop being one because a config said not to look
+		// at it. The argument that carries gatePopulation everywhere else —
+		// grade the population the hook graded — argues the other way here,
+		// because the hook is not what is being ported: the assertion is.
+		//
+		// The scan's exit code is read for the reason it is read in every other
+		// atom on this page: a broken scan and a clean repository produce the
+		// same empty string, and only one of them is a pass.
+		Script: worktreeRepo + composeSurface("compose:no-tracked-secrets") + `secret_rc=0
+hits=$(grep -E '(^|/)\.env$|\.env\.|(^|/)envs/|\.pem$|\.key$|_rsa$' /tmp/tracked-files) || secret_rc=$?
+if [ "$secret_rc" -gt 1 ]; then echo "compose:no-tracked-secrets: CANNOT RUN - the credential-shape scan failed (grep exit $secret_rc). Refusing to report a clean tree from a scan that did not run." >&2; exit 2; fi
+if [ -n "$hits" ]; then
+  echo "Tracked files that must never be committed:" >&2
+  printf '%s\n' "$hits" | sed 's/^/  /' >&2
+  exit 1
+fi
+echo "compose:no-tracked-secrets: no credential-shaped file is tracked"`,
+	},
+	{
+		ID: "compose:third-party-pins", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
+		Desc: "Zero ${PIN_} image interpolations — the BP6b ratchet stays closed.",
+		// The BP6b ratchet (BDTH, Rob-ratified 2026-08-08), fully tightened the
+		// night it landed: the literal lane took every third-party image off
+		// ${PIN_}, the staged :stable conversion took all 32 first-party stars
+		// off it, and compose/pins.env is deleted. A COUNT gate stays closed
+		// where a list gate reopens — ANY ${PIN_} image interpolation is a red
+		// merge, and the pin era does not reopen (nas01-stacks
+		// validate.yml:149-176).
+		//
+		// A COUNT GATE ONLY STAYS CLOSED IF THE COUNT HAPPENED. grep's rc 1 is
+		// the ANSWER this gate wants; rc >=2 is a refusal, because a ratchet
+		// cannot report closed on a scan that did not run.
+		Script: worktreeRepo + composeSurface("compose:third-party-pins") + `pin_rc=0
+hits=$(grep -rn 'image:.*\${PIN_' --include='*.yaml' --include='*.yml' --exclude-dir=.forgejo .) || pin_rc=$?
+if [ "$pin_rc" -gt 1 ]; then echo "compose:third-party-pins: CANNOT RUN - the \${PIN_} scan itself failed (grep exit $pin_rc). Refusing to report a closed ratchet on a scan that did not run." >&2; exit 2; fi
+n=0
+if [ -n "$hits" ]; then n=$(printf '%s\n' "$hits" | wc -l | tr -d ' '); fi
+if [ "$n" -ne 0 ]; then
+  echo "compose:third-party-pins: ${n} \${PIN_} interpolation(s) found - the pin era does not reopen:" >&2
+  printf '%s\n' "$hits" >&2
+  exit 1
+fi
+echo "compose:third-party-pins: zero \${PIN_} interpolations; the pin era stays closed"`,
+	},
+
+	// ---- dies: the policy die's source. Ported off ci / contracts / schema ----
+	//
+	// Six atoms, and THE SPLIT BETWEEN THE FIRST TWO AND THE NEXT TWO IS THE
+	// ARGUMENT. `opa test` and the dogfood eval grade the SOURCE; data-keys and
+	// canary-visibility grade the ARTIFACT, and the gap between them is
+	// measured rather than theoretical: a source tree can pass 312 assertions
+	// and build a bundle that admits everything. See diesBundle.
+	//
+	// build.yml and fleet-bundle.yml are deliberately NOT here. They publish
+	// rather than validate, and the bundle recipe lane owns them.
+	{
+		ID: "dies:opa-test", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
+		Desc: "The rego unit and invariant suite passes.",
+		// A ZERO-TEST RUN IS REFUSED, which the workflow did not do and this
+		// module cannot skip: `opa test` over a policy tree containing no test
+		// at all exits 0 (measured against an empty directory, 2026-09-10).
+		// That renders as a clean suite and is not one — it is opengrep matching
+		// zero files wearing different clothes, and it gets the same answer.
+		//
+		// opa's OWN CODES ARE THREE-VALUED TOO, and they do not line up with
+		// this module's: a failing assertion is exit 2 and a rego parse error is
+		// exit 1 (both measured). Passing either through would file a real
+		// finding as CANNOT RUN, so both fold to 1 and only a code opa does not
+		// use becomes a 2.
+		Script: diesShape("dies:opa-test") + fetchBinary + opaClient("dies:opa-test") + `out=$("$OPA" test policy/ -v 2>&1); rc=$?
+printf '%s\n' "$out"
+case "$rc" in
+  0) ;;
+  1|2) exit 1 ;;
+  *) echo "dies:opa-test: CANNOT RUN - opa exited $rc, which is neither a clean suite (0), a load error (1) nor a failing assertion (2)." >&2; exit 2 ;;
+esac
+n=$(printf '%s\n' "$out" | sed -n 's|^PASS: \([0-9][0-9]*\)/[0-9][0-9]*$|\1|p' | tail -1)
+if [ -z "$n" ] || [ "$n" -eq 0 ]; then
+  echo "dies:opa-test: REFUSING a zero-test run. opa test exits 0 over a policy tree with no assertion in it, which renders as a clean suite and is not one - nothing was examined." >&2
+  exit 2
+fi
+echo "dies:opa-test: $n assertion(s) pass"`,
+	},
+	{
+		ID: "dies:admission-dogfood", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
+		Desc: "The admission domain admits this repo's own star shape.",
+		// The domain that judges every star's slag is asked about the one star
+		// whose shape lives in the same repo as the rule. A deny here means the
+		// policy has drifted from the fleet it governs, and it shows up on the
+		// repo that OWNS the rule rather than on whichever star was poured next
+		// — the same alarm-asymmetry argument contracts.yml makes at length.
+		//
+		// A MISSING FIXTURE IS A 2. The atom's whole content is "the domain
+		// admitted THIS input"; with no input there is no claim to make, and
+		// exiting 0 would make one anyway.
+		//
+		// python3 READS THE RESULT, NOT jq. The workflow's runner image carried
+		// jq; the lane images are not promised to, and provisioning a second
+		// binary to count the length of a JSON array buys nothing. The value
+		// extracted is the same one, and a shape this atom cannot read is a 2
+		// rather than a deny count nobody computed.
+		Script: diesShape("dies:admission-dogfood") + fetchBinary + opaClient("dies:admission-dogfood") + `[ -d policy/admission ] || { echo "dies:admission-dogfood: CANNOT RUN - policy/admission is absent, so there is no admission domain to ask." >&2; exit 2; }
+[ -f tests/fixtures/ouranos-self.json ] || { echo "dies:admission-dogfood: CANNOT RUN - tests/fixtures/ouranos-self.json is absent, so there is no own-star shape to submit." >&2; exit 2; }
+"$OPA" eval -d policy/admission -i tests/fixtures/ouranos-self.json "data.admission.deny" --format json > /tmp/dies-dogfood.json 2>/tmp/dies-dogfood.err || { echo "dies:admission-dogfood: CANNOT RUN - opa eval did not complete." >&2; cat /tmp/dies-dogfood.err >&2; exit 2; }
+cat > /tmp/dies-dogfood.py <<'PYDOG'
+import json, sys
+try:
+    doc = json.load(open("/tmp/dies-dogfood.json"))
+    deny = doc["result"][0]["expressions"][0]["value"]
+except Exception as exc:
+    print("dies:admission-dogfood: CANNOT RUN - opa eval answered a shape this atom cannot read (%s), so there is no deny set to count." % exc, file=sys.stderr)
+    sys.exit(2)
+print("deny count = %d" % len(deny))
+if deny:
+    for d in deny:
+        print("  %s" % (d,), file=sys.stderr)
+    sys.exit(1)
+PYDOG
+python3 /tmp/dies-dogfood.py
+dog_rc=$?
+[ "$dog_rc" -eq 0 ] || exit "$dog_rc"
+echo "dies:admission-dogfood: the admission domain admits our own star shape"`,
+	},
+	{
+		ID: "dies:data-keys", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
+		Desc: "The BUILT bundle carries every data root the policy reads, non-empty.",
+		// The artifact gate, asked of the artifact. An empty or partial data
+		// document is the silent fail-open diesBundle describes, so the
+		// documents the policy actually reads are asserted PRESENT and
+		// NON-EMPTY, by name.
+		Script: diesShape("dies:data-keys") + fetchBinary + opaClient("dies:data-keys") + diesBundle("dies:data-keys") + `cat > /tmp/dies-datakeys.py <<'PYKEYS'
+import json, sys
+d = json.load(open("/tmp/dies-data.json"))
+required = ["authz_audience", "authz_grants", "authz_meta", "path_grants", "subject_aliases"]
+missing = [k for k in required if not d.get(k)]
+if missing:
+    print("::error::bundle data.json is missing/empty: %s. Bundle mode reads ONLY files named data.json - check the policy/<root>/data.json layout." % missing, file=sys.stderr)
+    sys.exit(1)
+stars = len(d["authz_audience"].get("star_only", {}))
+print("data roots ok; star_only carries %d stars" % stars)
+PYKEYS
+python3 /tmp/dies-datakeys.py || exit 1
+echo "dies:data-keys: the built bundle carries its data"`,
+	},
+	{
+		ID: "dies:canary-visibility", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
+		Desc: "The BUILT bundle still hides a curated verb from a session principal.",
+		// THE CANARY IS READ OFF THE ROSTER, NOT NAMED, and that is the
+		// post-mortem's own recommendation (2026-08-22). The first canary named
+		// graph_subscribe, a verb chaos retired in F2; the second named
+		// graph_nodes. A named canary goes stale the day its verb leaves the
+		// roster and the gate then goes red on a roster that is MORE correct —
+		// twice now. So the built bundle's own data.json is asked for chaos's
+		// first star_only verb and THAT one is proved: whatever chaos curates
+		// first is, by construction, curated. chaos because it is the star with
+		// the largest curated surface, and an empty chaos row is itself the
+		// failure — nothing curated means the roster did not survive the build.
+		//
+		// BOTH DIRECTIONS ARE ASSERTED. A curated verb visible to a session
+		// principal is the fail-open. A curated verb INVISIBLE to a star
+		// principal is the opposite error and just as wrong: curation that
+		// narrowed both audiences instead of one.
+		Script: diesShape("dies:canary-visibility") + fetchBinary + opaClient("dies:canary-visibility") + diesBundle("dies:canary-visibility") + `CANARY=$(python3 -c 'import json; d = json.load(open("/tmp/dies-data.json")); v = d.get("authz_audience", {}).get("star_only", {}).get("chaos") or []; print(v[0] if v else "")' 2>/dev/null)
+if [ -z "$CANARY" ]; then
+  echo "dies:canary-visibility: chaos has no star_only row in the built bundle - the roster did not survive the build." >&2
+  exit 1
+fi
+echo "canary: $CANARY (chaos's first star_only verb, read off the bundle)"
+probe() {
+  printf '{"principal":{"type":"%s","subject":"s"},"verbs":["search","%s"]}' "$1" "$CANARY" > /tmp/dies-probe-in.json
+  "$OPA" eval -b /tmp/dies-bundle.tar.gz --stdin-input --format json 'data.authz.visible.allowed' < /tmp/dies-probe-in.json > /tmp/dies-probe-out.json 2>/tmp/dies-probe.err || return 2
+  python3 -c 'import json; print(json.dumps(json.load(open("/tmp/dies-probe-out.json"))["result"][0]["expressions"][0]["value"]))' 2>/dev/null || return 2
+}
+SESSION=$(probe session) || { echo "dies:canary-visibility: CANNOT RUN - the session-principal probe against the built bundle did not evaluate." >&2; cat /tmp/dies-probe.err >&2; exit 2; }
+STAR=$(probe star) || { echo "dies:canary-visibility: CANNOT RUN - the star-principal probe against the built bundle did not evaluate." >&2; cat /tmp/dies-probe.err >&2; exit 2; }
+echo "session: $SESSION"
+echo "star:    $STAR"
+if [ "$SESSION" != '["search"]' ]; then
+  echo "dies:canary-visibility: a curated verb is VISIBLE to a session principal in the built bundle - the roster did not survive the build." >&2
+  exit 1
+fi
+printf '%s' "$STAR" | python3 -c 'import json, sys; sys.exit(0 if sys.argv[1] in json.load(sys.stdin) else 1)' "$CANARY" || {
+  echo "dies:canary-visibility: a curated verb is INVISIBLE to a star principal - curation narrowed both audiences, not one." >&2
+  exit 1
+}
+echo "dies:canary-visibility: the built bundle still hides what it should"`,
+	},
+	{
+		ID: "dies:contracts", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
+		Desc: "Every copy of every shared closed set agrees — and the checker is proved to detect first.",
+		// THE FIXTURES RUN FIRST AND MUST FAIL. The live check cannot prove the
+		// checker DETECTS anything while it is green, so seven fixtures must be
+		// caught and three controls must pass. Without the controls the failure
+		// loop could be satisfied by a checker that simply fails everything —
+		// including a pending entry whose grounds genuinely still hold, which is
+		// a legitimate deferral. A gate that cannot fail is a gate that is not
+		// there.
+		//
+		// THE FIXTURES TOUCH NO NETWORK, by the fixture manifest's own design,
+		// which is what lets the detection proof stand while the door is down.
+		//
+		// THE DOOR IS PROBED BEFORE THE LIVE CHECK, and the probe target is READ
+		// OUT OF THE MANIFEST rather than named — the same lesson as the canary
+		// above. check_contracts.py raises ContractError on an unreachable copy
+		// and main() returns 1 for it, which is right for a gate whose runner
+		// sat on the same network as the door and wrong for an atom: a copy that
+		// could not be FETCHED is not a copy that DISAGREES, and reporting one
+		// as the other sends a reader to reconcile lists that may be identical.
+		// So an unreachable door is a 2 here and every other answer stays the
+		// checker's own.
+		Script: provisionGuard + diesShape("dies:contracts") + `[ -f tools/check_contracts.py ] || { echo "dies:contracts: CANNOT RUN - tools/check_contracts.py is absent, so there is no checker to run." >&2; exit 2; }
+[ -f tests/contracts/fixtures.toml ] || { echo "dies:contracts: CANNOT RUN - tests/contracts/fixtures.toml is absent, and a gate that cannot prove it detects is a gate that is not there." >&2; exit 2; }
+[ -f contracts/contracts.toml ] || { echo "dies:contracts: CANNOT RUN - contracts/contracts.toml is absent, so there is no live manifest to check." >&2; exit 2; }
+command -v python3 >/dev/null 2>&1 || { echo "dies:contracts: CANNOT RUN - python3 is not on PATH in this lane image." >&2; exit 2; }
+runpy() { python3 "$@"; }
+if ! python3 -c 'import tomllib' >/dev/null 2>&1; then
+  guard uv --version
+  runpy() { uv run --no-project --quiet --with 'tomli>=2.0' python3 "$@"; }
+  runpy -c 'import tomli' >/dev/null 2>&1 || { echo "dies:contracts: CANNOT RUN - neither tomllib nor tomli is importable, so the checker cannot read a manifest." >&2; exit 2; }
+fi
+fail=0
+for c in lagging undeclared bad_pending unreadable expired_pending undated_pending old_shape_pending; do
+  if runpy tools/check_contracts.py --manifest tests/contracts/fixtures.toml --contract "$c" >/dev/null 2>&1; then
+    echo "::error::fixture '$c' PASSED - the checker no longer detects it" >&2; fail=1
+  else
+    echo "  fixture $c: correctly detected"
+  fi
+done
+for c in agreeing holding_pending unmeasurable_pending; do
+  if runpy tools/check_contracts.py --manifest tests/contracts/fixtures.toml --contract "$c" >/dev/null 2>&1; then
+    echo "  control $c: correctly passed"
+  else
+    echo "::error::control '$c' FAILED - the checker invents divergence" >&2; fail=1
+  fi
+done
+[ "$fail" -eq 0 ] || exit 1
+cat > /tmp/dies-door-probe.py <<'PYDOOR'
+import sys, urllib.error, urllib.request
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
+DOOR = "https://forgejo.notusmi.com/api/v1/repos/rob"
+try:
+    doc = tomllib.loads(open("contracts/contracts.toml", encoding="utf-8").read())
+except Exception as exc:
+    print("could not read the manifest for the reachability probe (%s); letting the checker be the judge" % exc)
+    sys.exit(0)
+target = None
+for spec in doc.get("contracts", {}).values():
+    for copy in spec.get("copies", []):
+        src = copy.get("source", {})
+        if "repo" in src and "path" in src:
+            target = "%s/%s/raw/%s" % (DOOR, src["repo"], src["path"])
+            break
+    if target:
+        break
+if target is None:
+    print("every declared copy is local; the live check needs no network")
+    sys.exit(0)
+try:
+    with urllib.request.urlopen(target, timeout=30) as resp:
+        print("door raw API reachable (%s -> HTTP %s)" % (target, resp.status))
+except urllib.error.HTTPError as exc:
+    print("door raw API answered HTTP %s for %s; that is the checker's finding to make, not a provisioning failure" % (exc.code, target))
+except Exception as exc:
+    print("the door's raw API is unreachable (%s): %s" % (target, exc), file=sys.stderr)
+    sys.exit(2)
+PYDOOR
+runpy /tmp/dies-door-probe.py
+probe_rc=$?
+if [ "$probe_rc" -ne 0 ]; then
+  echo "dies:contracts: CANNOT RUN - the door's raw API is unreachable, so the remote copies cannot be read. A copy that could not be fetched is not a copy that agrees." >&2
+  exit 2
+fi
+runpy tools/check_contracts.py || exit 1
+echo "dies:contracts: the fixtures prove the gate detects, and every copy of every shared closed set agrees"`,
+	},
+	{
+		ID: "dies:schema", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
+		Desc: "The slag schema is a valid Draft 2020-12 document and every v2 record satisfies it.",
+		// TWO ASSERTIONS ABOUT THE SCHEMA, and the second is the one
+		// check_schema does not make. `required` naming a property that is not
+		// DEFINED is legal to the metaschema and, under additionalProperties
+		// false, makes the schema reject EVERY document — so pour would refuse
+		// every well-formed melt, and the failure would surface at a pour rather
+		// than here.
+		//
+		// AND THE v2 RECORDS ARE VALIDATED, which v1's never were: nothing in CI
+		// ever checked a slag record against the schema, so the schema drifted
+		// silently. The filename and meta.name rules ride along because a record
+		// named anything other than <name>.slag beside its own directory is one
+		// the loader will not find.
+		//
+		// jsonschema COMES THROUGH uv, NOT pip. The workflow's `python3 -m pip
+		// install` assumed the act image's interpreter; the lane images are
+		// uv-managed, where that install is refused outright as an
+		// externally-managed environment. The provision is PROBED before the
+		// gate runs, so a resolver that could not reach an index is a 2 rather
+		// than a schema finding nobody made.
+		Script: provisionGuard + diesShape("dies:schema") + `[ -f schema/slag.schema.json ] || { echo "dies:schema: CANNOT RUN - schema/slag.schema.json is absent, so there is no payload to validate." >&2; exit 2; }
+[ -f schema/slag-v2.schema.json ] || { echo "dies:schema: CANNOT RUN - schema/slag-v2.schema.json is absent, so the v2 records cannot be discriminated." >&2; exit 2; }
+guard uv --version
+uv run --no-project --quiet --with 'jsonschema>=4.20' python3 -c 'import jsonschema' >/dev/null 2>&1 || { echo "dies:schema: CANNOT RUN - jsonschema could not be provisioned. Refusing to report a validated schema that was never validated." >&2; exit 2; }
+cat > /tmp/dies-schema.py <<'PYSCHEMA'
+import glob, json, sys
+from jsonschema import Draft202012Validator
+
+schema = json.load(open("schema/slag.schema.json"))
+Draft202012Validator.check_schema(schema)
+props = set(schema.get("properties", {}))
+missing = [k for k in schema.get("required", []) if k not in props]
+if missing:
+    sys.exit("::error::required names properties that are not defined: %s" % missing)
+print("valid Draft 2020-12 schema - %s" % schema.get("$id"))
+print("%d required keys, all defined in properties" % len(schema.get("required", [])))
+
+v2 = json.load(open("schema/slag-v2.schema.json"))
+Draft202012Validator.check_schema(v2)
+v = Draft202012Validator(v2)
+bad = 0
+records = sorted(glob.glob("fleet/stars/*/*.slag"))
+for rec in records:
+    name = rec.split("/")[2]
+    doc = json.load(open(rec))
+    findings = [
+        "%s: %s" % ("/".join(str(x) for x in e.path) or "<root>", e.message)
+        for e in sorted(v.iter_errors(doc), key=lambda e: list(e.path))
+    ]
+    if rec != "fleet/stars/%s/%s.slag" % (name, name):
+        findings.append("<root>: a v2 record is named <name>.slag beside its own directory, not %s" % rec)
+    if doc.get("meta", {}).get("name") != name:
+        findings.append("meta/name: meta.name must equal the directory name %r" % name)
+    for f in findings:
+        bad += 1
+        print("::error file=%s::%s" % (rec, f), file=sys.stderr)
+print("%d v2 record(s) validated against %s" % (len(records), v2.get("$id")))
+if bad:
+    sys.exit("::error::%d v2 record finding(s)" % bad)
+PYSCHEMA
+uv run --no-project --quiet --with 'jsonschema>=4.20' python3 /tmp/dies-schema.py || exit 1
+echo "dies:schema: the payload is a valid, satisfiable schema and every v2 record conforms"`,
+	},
+
 	// ---- sweep: repo cadence. NEVER IN A PULL'S PATH ----
 	//
 	// These describe a REPOSITORY rather than a change, so their answer cannot
@@ -683,9 +1229,9 @@ exit 1`,
 // Lovelace13, 2026-09-10 — the first cut grepped the bare word).
 func forgeTestkit(mode, pattern string) string {
 	return provisionGuard + worktreeRepo + gatePopulation + `guard uv --version
-if ! grep -Eqs '^[[:space:]]*"forge-testkit([<>=!~ \["]|$)' pyproject.toml; then echo "forge-testkit ` + mode + `: ABSENT - forge-testkit is not a dependency of this project"; exit 0; fi
+if ! grep -Eqs '^[[:space:]]*"forge-testkit([<>=!~ \["]|$)' pyproject.toml; then echo "python:forge-testkit-` + mode + `: ABSENT - forge-testkit is not a dependency of this project"; exit 0; fi
 files=$(hookpopulation forge-testkit-` + mode + ` -- '` + pattern + `')
-if [ -z "$files" ]; then echo "forge-testkit ` + mode + `: ABSENT - no files match ` + pattern + `"; exit 0; fi
+if [ -z "$files" ]; then echo "python:forge-testkit-` + mode + `: ABSENT - no files match ` + pattern + `"; exit 0; fi
 printf '%s\n' "$files" | xargs -r uv run --extra dev forge-testkit-lint ` + mode + ` || exit 1
 echo "forge-testkit ` + mode + `: clean"`
 }

@@ -41,6 +41,14 @@ func New(
 	return &FoundryTools{Source: source}
 }
 
+// Compose holds the host-stacks atoms. They report ABSENT on a repo that
+// tracks no compose spec, which is most of the fleet.
+func (m *FoundryTools) Compose() *Compose { return &Compose{Source: m.Source} }
+
+// Dies holds the policy die's atoms. They report ABSENT on any tree that is not
+// foundry-dies-shaped — policy/.manifest and fleet/stars/ together.
+func (m *FoundryTools) Dies() *Dies { return &Dies{Source: m.Source} }
+
 // Fleet holds the atoms that run in every repository, whatever it is written in.
 func (m *FoundryTools) Fleet() *Fleet { return &Fleet{Source: m.Source} }
 
@@ -190,6 +198,17 @@ func verdictFor(ctx context.Context, src *dagger.Directory, id string) (checks.V
 		WithEnvVariable("CRD_SCHEMA_PROBE", checks.CRDSchemaProbe).
 		WithEnvVariable("ORAS_MIRROR", checks.OrasMirror).
 		WithEnvVariable("ORAS_URL", checks.OrasURL).
+		// The compose: and dies: fetch coordinates, here for the same reason
+		// the sweep's are: the pinned version lives in internal/checks so the
+		// digest-pins sweep and any future pin audit land on ONE block, and a
+		// conditional here would be a second place for this file and the atom
+		// table to disagree about which tool an atom provisions.
+		WithEnvVariable("COMPOSE_VERSION", checks.ComposeVersion).
+		WithEnvVariable("COMPOSE_MIRROR", checks.ComposeMirror).
+		WithEnvVariable("COMPOSE_URL", checks.ComposeURL).
+		WithEnvVariable("OPA_VERSION", checks.OpaVersion).
+		WithEnvVariable("OPA_MIRROR", checks.OpaMirror).
+		WithEnvVariable("OPA_URL", checks.OpaURL).
 		// The go command's coordinates. Set on EVERY atom's container, not
 		// only the go lane's, for the reason the sweep's coordinates above are:
 		// a conditional here is a second place for this file and the atom table

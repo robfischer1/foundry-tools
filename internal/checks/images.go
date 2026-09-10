@@ -152,6 +152,44 @@ const (
 	OrasURL     = "https://github.com/oras-project/oras/releases/download/v" + OrasVersion + "/oras_" + OrasVersion + "_linux_amd64.tar.gz"
 )
 
+// ComposeVersion / ComposeMirror / ComposeURL fetch the client the compose:
+// atoms parse specs with. Same Nexus-then-upstream shape as oras above, and the
+// same refusal: a spec that was never parsed is not a spec that parses.
+//
+// THE LANE IMAGES CARRY NO COMPOSE CLIENT. They are language CI images — go,
+// python, rust, frontend — and none of the four ships docker or the compose
+// plugin, so this is a provision rather than a fallback. `config` needs no
+// docker daemon (it is a client-side parse), which is why an atom in a
+// socket-less container can ask the question at all.
+//
+// PINNED BY VERSION for the reason every other tool on this page is: a floating
+// client is a gate whose verdict is not a function of the pin the door
+// declared. v2.39.2 is the version the fleet's own hosts run, so the gate and
+// the box parse with the same schema.
+const (
+	ComposeVersion = "2.39.2"
+	ComposeMirror  = "https://nexus.notusmi.com/repository/github-raw/docker/compose/releases/download/v" + ComposeVersion + "/docker-compose-linux-x86_64"
+	ComposeURL     = "https://github.com/docker/compose/releases/download/v" + ComposeVersion + "/docker-compose-linux-x86_64"
+)
+
+// OpaVersion / OpaMirror / OpaURL fetch the policy engine the dies: atoms grade
+// with, and THE VERSION IS PART OF THE QUESTION.
+//
+// Rego's language semantics are a property of the binary. A suite written for
+// v1 and graded by another major answers a different question, and "the policy
+// suite passed" would be a true statement about the wrong language. foundry-dies
+// pinned 1.18.0 in its own workflow; the pin moves here rather than being left
+// behind with the runner.
+//
+// The static build deliberately: `opa_linux_amd64_static` needs no libc the lane
+// image may not have, which is the same reasoning that picks the alpine variants
+// for kubeconform and kube-linter above.
+const (
+	OpaVersion = "1.18.0"
+	OpaMirror  = "https://nexus.notusmi.com/repository/github-raw/open-policy-agent/opa/releases/download/v" + OpaVersion + "/opa_linux_amd64_static"
+	OpaURL     = "https://openpolicyagent.org/downloads/v" + OpaVersion + "/opa_linux_amd64_static"
+)
+
 // PinSurfacePattern and PinRefPattern are the two questions the digest-pins
 // atom has to ask SEPARATELY. Conflating them is the defect this pair exists
 // to end.

@@ -1,6 +1,9 @@
 package checks
 
-import "sort"
+import (
+	"sort"
+	"strings"
+)
 
 // Lane is a language a repository actually builds. A lane is a FACT ABOUT THE
 // TREE — the presence of the manifest that declares it — not a label somebody
@@ -60,6 +63,46 @@ func LanesOf(entries []string) []Lane {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	return out
+}
+
+// SurfaceNamespaces are the cross-lane namespaces that are NOT `fleet:`, and
+// the surface each one's atoms find for themselves inside the tree.
+//
+// WHY THIS EXISTS. Until 2026-09-10 every cross-lane atom on a pull's path was
+// `fleet:`, and the rule was written as "a cross-lane atom is namespaced by WHEN
+// it runs, because that is the only thing left to namespace it by". That premise
+// was true while `fleet:` meant BOTH "runs everywhere" and "cross-lane", and it
+// stopped being true when the act-runner's last workflows were ported: those
+// atoms run in every repository the way a fleet atom does, and in almost all of
+// them the answer is ABSENT, because their surface is a fact about the tree
+// rather than a root manifest Lane can name.
+//
+// Calling them `fleet:` would have been the actual defect. `fleet:` is the
+// namespace whose atoms have something to say about EVERY repository — that is
+// what makes `dagger check fleet:` a meaningful thing to type — and filing nine
+// atoms there that report ABSENT in 80-odd of 86 repos would drown the six that
+// do not. So the namespace names the surface.
+//
+// THE SET IS CLOSED, and that is what keeps this from being a licence to invent
+// a namespace per atom. A new one is an edit here, next to the sentence saying
+// what surface it claims, and TestEveryAtomIsWellFormed refuses any cross-lane
+// id that is neither `fleet:` nor a member. The sweep's own invariant is
+// untouched and unweakened: no surface namespace may carry StageSweep, so the
+// pull path and the clock still cannot blur.
+var SurfaceNamespaces = map[string]string{
+	"compose": "a tracked compose.yaml/compose.yml — the host-stacks repos",
+	"dies":    "policy/.manifest and fleet/stars/ together — the policy die's source",
+}
+
+// IsSurfaceNamespace reports whether an atom id sits in a declared surface
+// namespace.
+func IsSurfaceNamespace(id string) bool {
+	for ns := range SurfaceNamespaces {
+		if strings.HasPrefix(id, ns+":") {
+			return true
+		}
+	}
+	return false
 }
 
 // DeclaresLane reports whether these repository-root entries declare the lane.
