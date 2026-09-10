@@ -114,6 +114,52 @@ fi
 // same in both. A config with no exclude admits everything, as pre-commit does.
 const gatePopulation = `EXCL="$(sed -n 's/^exclude:[[:space:]]*//p' .pre-commit-config.yaml 2>/dev/null | head -1 | sed -e "s/^'//" -e "s/'$//" -e 's/^"//' -e 's/"$//')"
 population() { if [ -n "$EXCL" ]; then git ls-files "$@" | grep -v -E "$EXCL" || true; else git ls-files "$@"; fi; }
+hookmeta() { python3 - "$1" "$2" <<'PYHOOK' 2>/dev/null
+import re, sys
+hook, want = sys.argv[1], sys.argv[2]
+try:
+    lines = open(".pre-commit-config.yaml", encoding="utf-8").read().splitlines()
+except OSError:
+    sys.exit(0)
+block, inside, depth = [], False, None
+for line in lines:
+    stripped = line.strip()
+    if re.match(r"-\s*id:\s*" + re.escape(hook) + r"\s*$", stripped):
+        inside, depth = True, len(line) - len(line.lstrip())
+        continue
+    if inside:
+        ind = len(line) - len(line.lstrip())
+        if stripped.startswith("- ") and ind <= depth:
+            break
+        if stripped and ind <= depth and not stripped.startswith("#"):
+            break
+        block.append(stripped)
+def unq(v):
+    v = v.strip()
+    return v[1:-1] if len(v) >= 2 and v[0] == v[-1] and v[0] in "'\"" else v
+if want == "exclude":
+    for b in block:
+        if b.startswith("exclude:"):
+            print(unq(b.split(":", 1)[1])); break
+    sys.exit(0)
+args = []
+i = 0
+while i < len(block):
+    b = block[i]
+    if b.startswith("args:"):
+        rest = b.split(":", 1)[1].strip()
+        if rest.startswith("["):
+            args += [unq(x) for x in re.split(r",\s*", rest.strip("[]")) if x.strip()]
+        else:
+            i += 1
+            while i < len(block) and block[i].startswith("- "):
+                args.append(unq(block[i][2:])); i += 1
+            continue
+    i += 1
+print(" ".join(args))
+PYHOOK
+}
+hookpopulation() { ex="$(hookmeta "$1" exclude)"; shift; if [ -n "$ex" ]; then population "$@" | grep -v -E "$ex" || true; else population "$@"; fi; }
 `
 
 var Atoms = []AtomDef{
@@ -121,10 +167,21 @@ var Atoms = []AtomDef{
 	{
 		ID: "fleet:check-yaml", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
 		Desc: "Every YAML file in the tree parses.",
+		// THE HOOK'S OWN ARGS AND EXCLUDE, when the repo's config states them;
+		// and multi-document YAML is VALID YAML here whatever the config says.
+		// pre-commit's check-yaml refuses a second document by default, a
+		// stylistic guard no repo in this fleet relies on — while every
+		// Kubernetes manifest (infra, the host stacks, ansible's k3s files)
+		// is a stream of them. MEASURED 2026-09-10T01:2xZ on infra, a repo
+		// with no pre-commit config at all: "expected a single document …
+		// but found another document" on a k3s manifest, red on the runner's
+		// gate for a file kubectl applies daily.
 		Script: provisionGuard + worktreeRepo + gatePopulation + `guard uvx --from pre-commit-hooks check-yaml --help
-files=$(population -- '*.yml' '*.yaml')
+files=$(hookpopulation check-yaml -- '*.yml' '*.yaml')
 if [ -z "$files" ]; then echo "fleet:check-yaml: no YAML in this repository"; exit 0; fi
-uvx --from pre-commit-hooks check-yaml $files || exit 1
+args="$(hookmeta check-yaml args)"
+case " $args " in *" --allow-multiple-documents "*|*" -m "*) ;; *) args="$args --allow-multiple-documents";; esac
+uvx --from pre-commit-hooks check-yaml $args $files || exit 1
 echo "fleet:check-yaml: parsed all YAML"`,
 	},
 	{
@@ -136,9 +193,14 @@ echo "fleet:check-yaml: parsed all YAML"`,
 		// when tongs answered 40+ findings, every one a file under target/ that
 		// git ignores. The assertion is unchanged: over 500 KiB, the same
 		// threshold as --maxkb=500.
-		Script: worktreeRepo + gatePopulation + `big=$(population | tr '\n' '\0' | xargs -0 -r stat -c '%s %n' 2>/dev/null | awk '$1 > 512000 { $1=""; sub(/^ /, ""); print }')
-if [ -n "$big" ]; then echo "files over 500 KB:"; echo "$big"; exit 1; fi
-echo "fleet:check-added-large-files: nothing over 500 KB"`,
+		// --maxkb from the repo's own hook args when stated (pre-commit's
+		// default is 500); the hook-level exclude applies to the population.
+		Script: worktreeRepo + gatePopulation + `maxkb=500
+for a in $(hookmeta check-added-large-files args); do case "$a" in --maxkb=*) maxkb="${a#--maxkb=}";; esac; done
+limit=$((maxkb * 1024))
+big=$(hookpopulation check-added-large-files | tr '\n' '\0' | xargs -0 -r stat -c '%s %n' 2>/dev/null | awk -v lim="$limit" '$1 > lim { $1=""; sub(/^ /, ""); print }')
+if [ -n "$big" ]; then echo "files over ${maxkb} KB:"; echo "$big"; exit 1; fi
+echo "fleet:check-added-large-files: nothing over ${maxkb} KB"`,
 	},
 	{
 		ID: "fleet:check-merge-conflict", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
@@ -179,9 +241,11 @@ echo "fleet:check-merge-conflict: no conflict markers"`,
 		// about this repository.
 		Script: provisionGuard + `if [ ! -f .secrets.baseline ]; then echo "fleet:detect-secrets: CANNOT RUN - no .secrets.baseline at the repository root. Refusing to report success without scanning." >&2; exit 2; fi
 ` + worktreeRepo + gatePopulation + `guard uvx --from detect-secrets detect-secrets-hook --help
-files=$(population)
+files=$(hookpopulation detect-secrets)
 if [ -z "$files" ]; then echo "fleet:detect-secrets: CANNOT RUN - the repository has no tracked file to scan" >&2; exit 2; fi
-uvx --from detect-secrets detect-secrets-hook --baseline .secrets.baseline $files || exit 1
+args="$(hookmeta detect-secrets args)"
+case " $args " in *" --baseline "*) ;; *) args="$args --baseline .secrets.baseline";; esac
+uvx --from detect-secrets detect-secrets-hook $args $files || exit 1
 echo "fleet:detect-secrets: clean against .secrets.baseline"`,
 	},
 	{
