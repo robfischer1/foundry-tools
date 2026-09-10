@@ -139,6 +139,13 @@ func (m *FoundryTools) Verdicts(
 	// does not exist must not answer "nothing to report".
 	// +optional
 	only string,
+	// The change set's base — the pull's merge base, as the door names it
+	// (CA_GATE_BASE). Empty means the tip against its parent. Only an atom
+	// that judges the CHANGE rather than the tree reads it (fleet:witness);
+	// it rides into every atom's environment as GATE_BASE so there is one
+	// way to learn it and not a conditional here.
+	// +optional
+	base string,
 ) (string, error) {
 	selected := checks.AtomsForStage(stage)
 	if only != "" {
@@ -150,7 +157,7 @@ func (m *FoundryTools) Verdicts(
 	}
 	out := make([]checks.Verdict, 0, len(selected))
 	for _, a := range selected {
-		v, err := m.verdict(ctx, a.ID)
+		v, err := verdictFor(ctx, m.Source, a.ID, base)
 		if err != nil {
 			return "", err
 		}
@@ -163,12 +170,8 @@ func (m *FoundryTools) Verdicts(
 	return string(b), nil
 }
 
-func (m *FoundryTools) verdict(ctx context.Context, id string) (checks.Verdict, error) {
-	return verdictFor(ctx, m.Source, id)
-}
-
 // verdictFor is the one place an atom actually runs.
-func verdictFor(ctx context.Context, src *dagger.Directory, id string) (checks.Verdict, error) {
+func verdictFor(ctx context.Context, src *dagger.Directory, id string, base string) (checks.Verdict, error) {
 	a := checks.AtomByID(id)
 
 	if a.Lane != checks.LaneAny {
@@ -189,6 +192,9 @@ func verdictFor(ctx context.Context, src *dagger.Directory, id string) (checks.V
 		// this. The engine IS the CI boundary; saying so beats each atom
 		// guessing.
 		WithEnvVariable("CI", "true").
+		// The change set's base, for the atoms that judge the change (see
+		// Verdicts). Empty on a tip and on a local run.
+		WithEnvVariable("GATE_BASE", base).
 		// The sweep's fetch coordinates. They live in internal/checks so the
 		// digest-pins sweep lands on ONE block (images.go) rather than on a
 		// string buried in a shell body, and they are set for every atom
@@ -251,7 +257,7 @@ func verdictFor(ctx context.Context, src *dagger.Directory, id string) (checks.V
 // run is what every check function calls: one atom, one verdict, answered the
 // way `dagger check` reads it.
 func run(ctx context.Context, src *dagger.Directory, id string) (string, error) {
-	v, err := verdictFor(ctx, src, id)
+	v, err := verdictFor(ctx, src, id, "")
 	if err != nil {
 		return "", err
 	}

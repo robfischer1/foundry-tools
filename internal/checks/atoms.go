@@ -995,6 +995,36 @@ runpy tools/check_contracts.py || exit 1
 echo "dies:contracts: the fixtures prove the gate detects, and every copy of every shared closed set agrees"`,
 	},
 	{
+		ID: "fleet:witness", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet, NeedsStocks: true,
+		Desc: "Every changed .py/.go file is shown to the code witness (narcissus): a canonical-class or Standard match is a finding, a Convention is advisory, novel is clean.",
+		// THE PRE-GATE SOCKET, BACK AS AN ATOM. Born as a Tekton Task beside the
+		// gate (The Thesis Project F8) that reached narcissus through hades over
+		// mTLS with an identity minted for that Task alone; Tekton left on
+		// 2026-09-09 and the socket went with it. The identity was that
+		// pipeline's contrivance, not the witness's requirement: narcissus's
+		// plaintext MCP port answers any in-cluster caller, MEASURED 2026-09-10
+		// from inside a container on the fleet's dagger engine. So the atom
+		// speaks to narcissus directly and needs nothing the other atoms lack.
+		//
+		// THE SCRIPT LIVES IN foundry-stocks (ci/lib/gate/witness.py, tested
+		// offline by witness.test.sh) and is READ AT ITS ONE HOME through the
+		// /stocks mount — the same rule the permit script follows. This body
+		// only provisions and points: python3, git (worktreeRepo), the script.
+		//
+		// WHAT IT NEEDS THAT OTHER ATOMS DO NOT: the change set. GATE_BASE is
+		// the pull's merge base, handed in by Verdicts' `base` argument (the
+		// door passes CA_GATE_BASE); empty means the tip against its parent,
+		// which is also what a local run gets. And the in-cluster port: a dev
+		// box that cannot reach narcissus lands on 2, could-not-consult, and
+		// says so — never a pass.
+		Script: provisionGuard + worktreeRepo + `guard python3 --version
+[ -f /stocks/ci/lib/gate/witness.py ] || { echo "fleet:witness: CANNOT RUN - /stocks/ci/lib/gate/witness.py is absent; foundry-stocks did not mount at its one home." >&2; exit 2; }
+export WITNESS_DIR=/tmp/witness
+python3 /stocks/ci/lib/gate/witness.py; rc=$?
+[ -f /tmp/witness/reason ] && cat /tmp/witness/reason
+exit $rc`,
+	},
+	{
 		ID: "dies:schema", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
 		Desc: "The slag schema is a valid Draft 2020-12 document and every v2 record satisfies it.",
 		// TWO ASSERTIONS ABOUT THE SCHEMA, and the second is the one
