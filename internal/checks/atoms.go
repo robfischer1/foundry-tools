@@ -493,8 +493,13 @@ echo "rust:cargo-audit: clean"`,
 	// ---- ts ----
 	{
 		ID: "ts:bun-gate-commit", Stage: StagePrecommit, Lane: LaneTS, Image: imageTS,
-		Desc:   "bun run gate (format, lint, typecheck, test, build) passes.",
-		Script: `bun run gate || exit 1`,
+		Desc: "bun run gate (format, lint, typecheck, test, build) passes.",
+		// The pre-commit hook this ports runs in a checkout that already has
+		// node_modules; the gate's checkout has none. MEASURED 2026-09-10T02:38Z
+		// gate-calliope-9ed7599: `bun run format:check` → "prettier: command
+		// not found", exit 127, a red about the runner, not the repo.
+		Script: `bun install --frozen-lockfile || { echo "ts:bun-gate-commit: CANNOT RUN - frozen lockfile install failed" >&2; exit 2; }
+bun run gate || exit 1`,
 	},
 	{
 		ID: "ts:bun-gate", Stage: StagePrepush, Lane: LaneTS, Image: imageTS,
@@ -670,12 +675,15 @@ exit 1`,
 // schema-budget red on that usage error in every repo the gate touched, go
 // and python alike. The pattern is the template hook's `files:` (python-repo-
 // template .pre-commit-config.yaml), read over the gate's own population so
-// the repo's exclude applies; no files, or no forge-testkit in the project,
-// is ABSENT — pre-commit skips a hook with an empty file list, and a repo
-// that never took the dependency has nothing for it to read.
+// the repo's exclude applies; no files, or no forge-testkit DEPENDENCY ENTRY
+// in pyproject.toml, is ABSENT — pre-commit skips a hook with an empty file
+// list, and a repo that never took the dependency has nothing for it to
+// read. The entry is a quoted "forge-testkit…" line: a comment naming the
+// package, or go.mod's forge-testkit-go, is not one (measured on helios by
+// Lovelace13, 2026-09-10 — the first cut grepped the bare word).
 func forgeTestkit(mode, pattern string) string {
 	return provisionGuard + worktreeRepo + gatePopulation + `guard uv --version
-if ! grep -qs 'forge-testkit' pyproject.toml; then echo "forge-testkit ` + mode + `: ABSENT - forge-testkit is not a dependency of this project"; exit 0; fi
+if ! grep -Eqs '^[[:space:]]*"forge-testkit([<>=!~ \["]|$)' pyproject.toml; then echo "forge-testkit ` + mode + `: ABSENT - forge-testkit is not a dependency of this project"; exit 0; fi
 files=$(hookpopulation forge-testkit-` + mode + ` -- '` + pattern + `')
 if [ -z "$files" ]; then echo "forge-testkit ` + mode + `: ABSENT - no files match ` + pattern + `"; exit 0; fi
 printf '%s\n' "$files" | xargs -r uv run --extra dev forge-testkit-lint ` + mode + ` || exit 1
