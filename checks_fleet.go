@@ -23,6 +23,16 @@ func (f *Fleet) Witness(ctx context.Context) (string, error) {
 	return run(ctx, f.Source, "fleet:witness")
 }
 
+// This repo's declared seams still agree with the canonical contracts in
+// foundry-dies/orbits. Compares a CONTENT DIGEST, not a version integer; an
+// edge that pins nothing is a finding, and a door it could not reach is a
+// cannot-run.
+//
+// +check
+func (f *Fleet) OrbitDrift(ctx context.Context) (string, error) {
+	return run(ctx, f.Source, "fleet:orbit-drift")
+}
+
 // Every YAML file in the tree parses.
 //
 // +check
