@@ -13,6 +13,16 @@ type Fleet struct {
 	Source *dagger.Directory
 }
 
+// Every changed .py/.go file is shown to the code witness (narcissus): a
+// canonical-class or Standard match is a finding, a Convention is advisory,
+// novel is clean. Reads GATE_BASE for the change set; a local run diffs the
+// tip against its parent and needs the in-cluster port to answer at all.
+//
+// +check
+func (f *Fleet) Witness(ctx context.Context) (string, error) {
+	return run(ctx, f.Source, "fleet:witness")
+}
+
 // Every YAML file in the tree parses.
 //
 // +check

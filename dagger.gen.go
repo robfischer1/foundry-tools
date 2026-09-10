@@ -445,6 +445,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Fleet).CheckMergeConflict(&parent, ctx)
+		case "Witness":
+			var parent Fleet
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Fleet).Witness(&parent, ctx)
 		case "CheckYaml":
 			var parent Fleet
 			err = json.Unmarshal(parentJSON, &parent)
@@ -575,7 +582,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg only", err))
 				}
 			}
-			return (*FoundryTools).Verdicts(&parent, ctx, stage, only)
+			var base string
+			if inputArgs["base"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["base"]), &base)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg base", err))
+				}
+			}
+			return (*FoundryTools).Verdicts(&parent, ctx, stage, only, base)
 		case "":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
