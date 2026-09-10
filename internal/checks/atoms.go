@@ -418,17 +418,17 @@ echo "python:ruff-format: clean"`,
 	{
 		ID: "python:forge-testkit-assertion-free", Stage: StagePrecommit, Lane: LanePython, Image: imagePython,
 		Desc:   "No assertion-free test bodies (forge-testkit).",
-		Script: forgeTestkit("assertion-free"),
+		Script: forgeTestkit("assertion-free", "tests/*.py"),
 	},
 	{
 		ID: "python:forge-testkit-fake-placement", Stage: StagePrecommit, Lane: LanePython, Image: imagePython,
 		Desc:   "Fake and Stub doubles live where they belong (forge-testkit).",
-		Script: forgeTestkit("fake-placement"),
+		Script: forgeTestkit("fake-placement", "*.py"),
 	},
 	{
 		ID: "python:forge-testkit-schema-budget", Stage: StagePrecommit, Lane: LanePython, Image: imagePython,
 		Desc:   "MCP verb descriptions stay inside the schema budget (forge-testkit).",
-		Script: forgeTestkit("schema-budget"),
+		Script: forgeTestkit("schema-budget", "src/*.py"),
 	},
 	{
 		ID: "python:mypy", Stage: StagePrepush, Lane: LanePython, Image: imagePython,
@@ -446,8 +446,17 @@ echo "python:mypy: clean"`,
 	{
 		ID: "python:pytest", Stage: StagePrepush, Lane: LanePython, Image: imagePython,
 		Desc: "pytest passes.",
-		Script: provisionGuard + `guard uv --version
-uv run --all-extras pytest -q || exit 1`,
+		// A repo with nothing for pytest to collect is ABSENT, not red: pytest
+		// exits 5 for "no tests ran", and mypy already says ABSENT for the
+		// same tree. MEASURED 2026-09-10T01:25Z gate-helios-057545b: a go
+		// star with one .py file and no tests/ was red on "no tests ran in
+		// 0.39s" — the permanent state of that repo, not a finding.
+		Script: provisionGuard + worktreeRepo + gatePopulation + `guard uv --version
+if [ ! -d tests ] && [ -z "$(population -- 'test_*.py' '*_test.py')" ]; then echo "python:pytest: ABSENT - no tests/ and no test files"; exit 0; fi
+rc=0; uv run --all-extras pytest -q || rc=$?
+if [ "$rc" -eq 5 ]; then echo "python:pytest: ABSENT - pytest collected no tests (exit 5)"; exit 0; fi
+[ "$rc" -eq 0 ] || exit 1
+echo "python:pytest: clean"`,
 	},
 	{
 		ID: "python:pip-audit", Stage: StagePrepush, Lane: LanePython, Image: imagePython,
@@ -654,9 +663,22 @@ exit 1`,
 // forgeTestkit builds one of the three forge-testkit lint bodies. The three
 // differ only by mode, and three copies of the provisioning guard is exactly
 // the duplication this repository exists to delete.
-func forgeTestkit(mode string) string {
-	return provisionGuard + `guard uv --version
-uv run --extra dev forge-testkit-lint ` + mode + ` || exit 1
+// forgeTestkit ports one forge-testkit-lint pre-commit hook. The hook takes
+// PATHS — pre-commit appends the files its `files:` pattern matched, and the
+// CLI refuses to run without them ("the following arguments are required:
+// paths"). MEASURED 2026-09-10T01:25Z gate-helios-057545b: fake-placement and
+// schema-budget red on that usage error in every repo the gate touched, go
+// and python alike. The pattern is the template hook's `files:` (python-repo-
+// template .pre-commit-config.yaml), read over the gate's own population so
+// the repo's exclude applies; no files, or no forge-testkit in the project,
+// is ABSENT — pre-commit skips a hook with an empty file list, and a repo
+// that never took the dependency has nothing for it to read.
+func forgeTestkit(mode, pattern string) string {
+	return provisionGuard + worktreeRepo + gatePopulation + `guard uv --version
+if ! grep -qs 'forge-testkit' pyproject.toml; then echo "forge-testkit ` + mode + `: ABSENT - forge-testkit is not a dependency of this project"; exit 0; fi
+files=$(hookpopulation forge-testkit-` + mode + ` -- '` + pattern + `')
+if [ -z "$files" ]; then echo "forge-testkit ` + mode + `: ABSENT - no files match ` + pattern + `"; exit 0; fi
+printf '%s\n' "$files" | xargs -r uv run --extra dev forge-testkit-lint ` + mode + ` || exit 1
 echo "forge-testkit ` + mode + `: clean"`
 }
 
