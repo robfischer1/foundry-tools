@@ -683,9 +683,9 @@ exit 1`,
 // Lovelace13, 2026-09-10 — the first cut grepped the bare word).
 func forgeTestkit(mode, pattern string) string {
 	return provisionGuard + worktreeRepo + gatePopulation + `guard uv --version
-if ! grep -Eqs '^[[:space:]]*"forge-testkit([<>=!~ \["]|$)' pyproject.toml; then echo "forge-testkit ` + mode + `: ABSENT - forge-testkit is not a dependency of this project"; exit 0; fi
+if ! grep -Eqs '^[[:space:]]*"forge-testkit([<>=!~ \["]|$)' pyproject.toml; then echo "python:forge-testkit-` + mode + `: ABSENT - forge-testkit is not a dependency of this project"; exit 0; fi
 files=$(hookpopulation forge-testkit-` + mode + ` -- '` + pattern + `')
-if [ -z "$files" ]; then echo "forge-testkit ` + mode + `: ABSENT - no files match ` + pattern + `"; exit 0; fi
+if [ -z "$files" ]; then echo "python:forge-testkit-` + mode + `: ABSENT - no files match ` + pattern + `"; exit 0; fi
 printf '%s\n' "$files" | xargs -r uv run --extra dev forge-testkit-lint ` + mode + ` || exit 1
 echo "forge-testkit ` + mode + `: clean"`
 }
