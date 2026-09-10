@@ -20,8 +20,14 @@ import (
 // The images the atoms run in must be the fleet's own CI images. A public base
 // is a base nobody in this fleet controls the contents of, and the contents are
 // exactly what broke.
+//
+// THE HOST IS zot, AND MOVING IT BACK TO THE FORGE IS THE REGRESSION. This read
+// forgejo.notusmi.com until 2026-09-10. The digests did not change in that move
+// and must not: the assertion is about WHERE the fleet's images are addressed,
+// not which images they are. Two of the four now exist only on zot, so a revert
+// of this one string is an unpullable gate.
 func TestEveryLaneImageIsAFleetCIImage(t *testing.T) {
-	const want = "forgejo.notusmi.com/rob/stellar_core:"
+	const want = "registry.notusmi.com/rob/stellar_core:"
 	for _, img := range []string{imageGo, imagePython, imageRust, imageTS, imageFleet} {
 		if !strings.HasPrefix(img, want) {
 			t.Errorf("lane image %q is not one of the fleet's CI images (%s…) — the engine and CI would grade with two toolchains free to disagree", img, want)
