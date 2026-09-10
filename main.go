@@ -238,6 +238,16 @@ func verdictFor(ctx context.Context, src *dagger.Directory, id string, base stri
 		// to catch.
 		ctr = ctr.WithMountedDirectory("/stocks", dag.Git(checks.StocksRepo).Ref(checks.StocksRef).Tree())
 	}
+	if a.NeedsDies {
+		// The fleet's record tree, for atoms that grade the fleet rather than
+		// the repo under test. NAMED IN THE ENVIRONMENT rather than left as a
+		// path constant in each consumer: the tests that read it live in
+		// another repository, and two spellings of one path is the shape this
+		// mount exists to end.
+		ctr = ctr.
+			WithMountedDirectory("/dies", dag.Git(checks.DiesRepo).Ref(checks.DiesRef).Tree()).
+			WithEnvVariable("FOUNDRY_DIES", "/dies")
+	}
 	ctr = ctr.WithExec(
 		[]string{"sh", "-c", a.Script},
 		dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny},
