@@ -86,6 +86,7 @@ const provisionGuard = `guard() { "$@" >/dev/null 2>&1 || { echo "CANNOT RUN - c
 // A PRIMARY CHECKOUT IS UNTOUCHED: `.git` is a directory there, the index rides
 // along with it, and this is a no-op.
 const worktreeRepo = `command -v git >/dev/null 2>&1 || { echo "CANNOT RUN - git is not on PATH in this lane image, and this check reads the repository through it. Nothing was scanned." >&2; exit 2; }
+git config --global --add safe.directory '*' >/dev/null 2>&1 || true
 if [ -f .git ]; then
   primary=$(sed -n 's|^gitdir: \(.*\)/\.git/worktrees/.*$|\1|p' .git)
   rm -f .git
@@ -95,13 +96,33 @@ if [ -f .git ]; then
 fi
 `
 
+// gatePopulation is THE GATE'S OWN POPULATION: the repository's tracked
+// files, minus what the repository's own pre-commit config excludes. The
+// three fleet atoms below are ports of pre-commit hooks, and pre-commit
+// applies the config's top-level `exclude:` to every hook's file list —
+// so a port that reads a bare `git ls-files` grades a different population
+// than the hook it replaced. MEASURED 2026-09-10T01:13Z, the runner's first
+// gate on ourea: check-yaml, check-added-large-files and detect-secrets all
+// red, every finding under vendor/ — a tree the repo's exclude
+// (`(^|/)(vendor|node_modules)/`) keeps out of the hooks and the Tekton gate
+// running pre-commit itself had never seen. stop_justifications.py already
+// reads the same line (foundry-stocks ci/lib, gate_exclusions); this is the
+// shell form of it for the atoms that take a file list.
+//
+// The regex is pre-commit's (Python re) fed to grep -E; the shapes the fleet
+// writes — anchors, alternation, character classes, escaped dots — mean the
+// same in both. A config with no exclude admits everything, as pre-commit does.
+const gatePopulation = `EXCL="$(sed -n 's/^exclude:[[:space:]]*//p' .pre-commit-config.yaml 2>/dev/null | head -1 | sed -e "s/^'//" -e "s/'$//" -e 's/^"//' -e 's/"$//')"
+population() { if [ -n "$EXCL" ]; then git ls-files "$@" | grep -v -E "$EXCL" || true; else git ls-files "$@"; fi; }
+`
+
 var Atoms = []AtomDef{
 	// ---- fleet: every repository, whatever it is written in ----
 	{
 		ID: "fleet:check-yaml", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
 		Desc: "Every YAML file in the tree parses.",
-		Script: provisionGuard + worktreeRepo + `guard uvx --from pre-commit-hooks check-yaml --help
-files=$(git ls-files -- '*.yml' '*.yaml')
+		Script: provisionGuard + worktreeRepo + gatePopulation + `guard uvx --from pre-commit-hooks check-yaml --help
+files=$(population -- '*.yml' '*.yaml')
 if [ -z "$files" ]; then echo "fleet:check-yaml: no YAML in this repository"; exit 0; fi
 uvx --from pre-commit-hooks check-yaml $files || exit 1
 echo "fleet:check-yaml: parsed all YAML"`,
@@ -115,7 +136,7 @@ echo "fleet:check-yaml: parsed all YAML"`,
 		// when tongs answered 40+ findings, every one a file under target/ that
 		// git ignores. The assertion is unchanged: over 500 KiB, the same
 		// threshold as --maxkb=500.
-		Script: worktreeRepo + `big=$(git ls-files -z | xargs -0 -r stat -c '%s %n' 2>/dev/null | awk '$1 > 512000 { $1=""; sub(/^ /, ""); print }')
+		Script: worktreeRepo + gatePopulation + `big=$(population | tr '\n' '\0' | xargs -0 -r stat -c '%s %n' 2>/dev/null | awk '$1 > 512000 { $1=""; sub(/^ /, ""); print }')
 if [ -n "$big" ]; then echo "files over 500 KB:"; echo "$big"; exit 1; fi
 echo "fleet:check-added-large-files: nothing over 500 KB"`,
 	},
@@ -157,8 +178,8 @@ echo "fleet:check-merge-conflict: no conflict markers"`,
 		// that run), which cannot be committed and so cannot be a finding
 		// about this repository.
 		Script: provisionGuard + `if [ ! -f .secrets.baseline ]; then echo "fleet:detect-secrets: CANNOT RUN - no .secrets.baseline at the repository root. Refusing to report success without scanning." >&2; exit 2; fi
-` + worktreeRepo + `guard uvx --from detect-secrets detect-secrets-hook --help
-files=$(git ls-files)
+` + worktreeRepo + gatePopulation + `guard uvx --from detect-secrets detect-secrets-hook --help
+files=$(population)
 if [ -z "$files" ]; then echo "fleet:detect-secrets: CANNOT RUN - the repository has no tracked file to scan" >&2; exit 2; fi
 uvx --from detect-secrets detect-secrets-hook --baseline .secrets.baseline $files || exit 1
 echo "fleet:detect-secrets: clean against .secrets.baseline"`,
