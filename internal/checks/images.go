@@ -25,9 +25,10 @@ package checks
 //	                        main.go are the other half of that fix.)
 //
 // These four are the images the CANONICAL GATE already runs every star's checks
-// in (foundry-stocks .forgejo/workflows/gate.yml carries the same four
-// references, digest for digest). Measured inside the engine on 2026-09-09,
-// each carries what its atoms exec:
+// in. They named foundry-stocks .forgejo/workflows/gate.yml as their peer until
+// that file left with the rest of the Forgejo workflows — the gate is the
+// door's runner now, and this block is the only place the four are declared.
+// Measured inside the engine on 2026-09-09, each carries what its atoms exec:
 //
 //	go-ci        git curl python3 uv go opengrep tar wget bash
 //	python-ci    git curl python3 uv uvx node opengrep tar bash
@@ -42,11 +43,22 @@ package checks
 // rebuilds them every Monday, and base-rescan rebuilds them whenever the vuln
 // DB moves. A gate whose image floats is a gate whose verdict is not a function
 // of the pin the door declared, and the pin is the whole of F7's join.
+//
+// THE HOST IS registry.notusmi.com (zot), NOT THE FORGE. Storing anything on
+// Forgejo is not an end state, and two of these four digests now exist ONLY on
+// zot. The digests are unchanged by the move — the same four bytes-for-bytes
+// images, addressed at the registry that will outlive the forge. Verified
+// present before the move: all four answer 200 on
+// /v2/rob/stellar_core/manifests/sha256:<digest>, and zot serves manifests AND
+// blobs ANONYMOUSLY (measured: 200, 14867 bytes for python-ci's config blob
+// with no credential), so the engine needs no auths entry for this host —
+// ca-gate-pull's CA_GATE_DOCKER_CONFIG_JSON still names only the forge and
+// does not have to change.
 const (
-	imageGo     = "forgejo.notusmi.com/rob/stellar_core:go-ci@sha256:aeb43e74f78f467e31cde95bfc9c0ac825a5cb615050e0dff1d497f95f917b71"
-	imagePython = "forgejo.notusmi.com/rob/stellar_core:python-ci@sha256:9a3b945979f280a565fcd5fb7efb779949344bd12744bd91e74ae00d0aae7ef8"
-	imageRust   = "forgejo.notusmi.com/rob/stellar_core:rust-ci@sha256:85d31a89f0536c32eb9574e8285f5cdfb80e5b93b5846859f73bc2ed4b1027ce"
-	imageTS     = "forgejo.notusmi.com/rob/stellar_core:frontend-ci@sha256:745401b9df433aa33e44a2e11550245cccbe3f3d1f336d64c94957bdf7ab8e2f"
+	imageGo     = "registry.notusmi.com/rob/stellar_core:go-ci@sha256:aeb43e74f78f467e31cde95bfc9c0ac825a5cb615050e0dff1d497f95f917b71"
+	imagePython = "registry.notusmi.com/rob/stellar_core:python-ci@sha256:9a3b945979f280a565fcd5fb7efb779949344bd12744bd91e74ae00d0aae7ef8"
+	imageRust   = "registry.notusmi.com/rob/stellar_core:rust-ci@sha256:85d31a89f0536c32eb9574e8285f5cdfb80e5b93b5846859f73bc2ed4b1027ce"
+	imageTS     = "registry.notusmi.com/rob/stellar_core:frontend-ci@sha256:745401b9df433aa33e44a2e11550245cccbe3f3d1f336d64c94957bdf7ab8e2f"
 	// The fleet atoms run in python-ci: they are python and shell, and it is
 	// the only one of the four carrying uvx, which three of them provision
 	// with.
