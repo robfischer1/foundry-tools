@@ -77,7 +77,15 @@ const (
 	// GoProxy puts the DOOR FIRST. It answers 404 for anything that is not a
 	// fleet module, so the go command moves on to the public proxy by itself;
 	// `direct` is the last resort rather than the first.
-	GoProxy = "http://ourea.default.svc.cluster.local:8215/goproxy,https://proxy.golang.org,direct"
+	//
+	// The separator after the door is `|`, not `,`: a comma falls through
+	// only on 404/410, a pipe on ANY error. The door restarts on every
+	// config change and image roll, and a gate running through one of those
+	// windows saw "Get http://ourea…/goproxy/…: connection refused" as a
+	// findings red — MEASURED 2026-09-10T02:58Z, gate-hades-c099a35,
+	// govulncheck "loading packages" while the door rolled onto 9a5313fb.
+	// A door that is briefly gone is not a verdict on the code.
+	GoProxy = "http://ourea.default.svc.cluster.local:8215/goproxy|https://proxy.golang.org,direct"
 	// GoNoSumDB keeps the one thing GOPRIVATE was doing for the forge host.
 	GoNoSumDB = "forgejo.notusmi.com"
 	// GoPrivate is DELIBERATELY EMPTY and must be set anyway. go-ci BAKES
