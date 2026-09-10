@@ -65,6 +65,36 @@ dagger call -m git.notusmi.com/rob/foundry-tools@<sha> --source=. verdicts --sta
 
 **`ts:`** (`package.json`) — `bun-gate-commit` (pre-commit) · `bun-gate` · `bun-audit` (pre-push)
 
+**`compose:`** (a tracked `compose.ya?ml`) — `config` · `no-tracked-secrets` · `third-party-pins` (pre-commit)
+
+**`dies:`** (`policy/.manifest` **and** `fleet/stars/`) — `opa-test` · `admission-dogfood` · `data-keys` · `canary-visibility` · `contracts` · `schema` (pre-push)
+
+### Two namespaces that are neither a lane nor a clock
+
+`compose:` and `dies:` are cross-lane like `fleet:`, run on a pull's path like `fleet:`, and are **not** `fleet:` — because `fleet:` is the namespace whose atoms have something to say about *every* repository, which is what makes `dagger check fleet:` worth typing. These have something to say about six of the eighty-six. Their condition is a **surface** the atom finds inside the tree rather than a root manifest a `Lane` can name, so the namespace names the surface and everywhere else they report `ABSENT` and say why. The set of surface namespaces is **closed** (`checks.SurfaceNamespaces`), none may carry `stage: sweep`, and `TestEveryAtomIsWellFormed` refuses an id in an undeclared one.
+
+They exist because the **act-runner is being removed**, and what it validated is validated by the gate or not at all:
+
+| atom | ported from | what it asks | ABSENT when |
+| :-- | :-- | :-- | :-- |
+| `compose:config` | `{nas01,llm01}-stacks/.forgejo/workflows/validate.yml` | every tracked compose spec parses, env_file targets stubbed, `--no-interpolate` | no tracked `compose.ya?ml` |
+| `compose:no-tracked-secrets` | same | no `.env` / `envs/` / `.pem` / `.key` / `_rsa` file is **tracked** | ″ |
+| `compose:third-party-pins` | nas01's BP6b ratchet | zero `${PIN_}` image interpolations, as a **count** | ″ |
+| `dies:opa-test` | `foundry-dies/.forgejo/workflows/ci.yml` | the rego unit + invariant suite passes | not `policy/.manifest` + `fleet/stars/` |
+| `dies:admission-dogfood` | ″ | the admission domain admits our own star shape | ″ |
+| `dies:data-keys` | ″ | the **built bundle** carries every data root, non-empty | ″ |
+| `dies:canary-visibility` | ″ | the **built bundle** still hides a curated verb from a session principal | ″ |
+| `dies:contracts` | `contracts.yml` | every copy of every shared closed set agrees — after 7 fixtures fail and 3 controls pass | ″ |
+| `dies:schema` | `schema.yml` | the slag schema is valid Draft 2020-12 and every v2 record satisfies it | ″ |
+
+Three things the ports changed on purpose, each because the workflow's assumption was about its runner rather than about the check:
+
+- **`--no-interpolate` stays, and the env stub reads grep's exit code.** `grep` is three-valued — 0 selected, 1 selected nothing, ≥2 *the scan broke* — and a `|| true` collapses all three into "nothing to stub", stubs nothing, and hands the parse a tree missing every file it was supposed to create. Both workflows had to fix that in their own bodies; here rc 1 is the answer and rc ≥2 is a refusal.
+- **`opa test` over a policy tree with no assertion in it exits 0** (measured 2026-09-10). That renders as a clean suite and is not one, so `dies:opa-test` reads the `PASS: n/n` count and refuses a zero-test run — `opengrep` matching zero files, wearing different clothes.
+- **An unreachable door is a `CANNOT RUN`, not a divergence.** `check_contracts.py` returns 1 for a copy it could not fetch, which is right for a runner sitting on the door's own network and wrong for an atom: a copy that could not be *fetched* is not a copy that *disagrees*, and reporting one as the other sends a reader to reconcile lists that may be identical. The atom probes the door first, and the probe target is read **out of the manifest** rather than named — the same lesson the canary learned twice.
+
+`dies:data-keys` and `dies:canary-visibility` interrogate the **artifact, never the source tree**, and that distinction is measured: rename every `policy/*/data.json` to `values.json` and `opa test` still passes 312 assertions while the built bundle ships `data.json == {}` — `star_only` undefined, the visibility comprehension collecting nothing, **every verb visible to every principal**. Fail-open, silent, and green the whole way down.
+
 **`sweep:`** — repo cadence, on a clock, **never in a pull's path**.
 `digest-pins` (nightly) · `portfolio-sbom` · `template-render-matrix` · `kubeconform` · `kube-linter` (weekly)
 

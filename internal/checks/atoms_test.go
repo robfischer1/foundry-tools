@@ -82,3 +82,103 @@ func TestEveryAnnouncedAbsenceCarriesItsOwnAtomID(t *testing.T) {
 		}
 	}
 }
+
+// The compose: ports carry the surface guard, the workflow's own regexes, and
+// the three-valued reading of grep that both validate.yml bodies had to learn.
+func TestComposeAtomsGuardTheirSurfaceAndReadGrepsExitCode(t *testing.T) {
+	for _, id := range []string{"compose:config", "compose:no-tracked-secrets", "compose:third-party-pins"} {
+		s := AtomByID(id).Script
+		for _, want := range []string{
+			// The surface: tracked files, from a git the atom made readable.
+			"git ls-files > /tmp/tracked-files",
+			`(^|/)(docker-)?compose\.ya?ml$`,
+			id + ": ABSENT",
+			// rc >= 2 is a refusal, never an empty answer.
+			`-gt 1 ]`,
+			"CANNOT RUN",
+		} {
+			if !strings.Contains(s, want) {
+				t.Errorf("%s lacks %q", id, want)
+			}
+		}
+	}
+	// The parse is the workflow's, --no-interpolate included: these specs use
+	// ${VAR:?message} to make a missing variable a DEPLOY-time error, and
+	// interpolating would fail every file for the wrong reason.
+	if s := AtomByID("compose:config").Script; !strings.Contains(s, "config --no-interpolate --quiet") {
+		t.Errorf("compose:config does not parse with --no-interpolate:\n%s", s)
+	}
+	// The credential scan reads the INDEX, not the gate population: a .env a
+	// repo's pre-commit exclude hides is still a tracked .env.
+	if s := AtomByID("compose:no-tracked-secrets").Script; strings.Contains(s, "hookpopulation") || strings.Contains(s, "population(") {
+		t.Errorf("compose:no-tracked-secrets honours a pre-commit exclude; a credential does not stop being one because a config said not to look:\n%s", s)
+	}
+	// The ratchet is a COUNT gate. A list gate reopens; a count does not.
+	if s := AtomByID("compose:third-party-pins").Script; !strings.Contains(s, `image:.*\${PIN_`) || !strings.Contains(s, "wc -l") {
+		t.Errorf("compose:third-party-pins is not the counted ${PIN_} ratchet:\n%s", s)
+	}
+}
+
+// The dies: ports are conditioned on the tree's SHAPE and pin their engine.
+func TestDiesAtomsGuardTheirShapeAndPinOpa(t *testing.T) {
+	opaAtoms := map[string]bool{
+		"dies:opa-test": true, "dies:admission-dogfood": true,
+		"dies:data-keys": true, "dies:canary-visibility": true,
+	}
+	for _, id := range []string{
+		"dies:opa-test", "dies:admission-dogfood", "dies:data-keys",
+		"dies:canary-visibility", "dies:contracts", "dies:schema",
+	} {
+		s := AtomByID(id).Script
+		for _, want := range []string{"policy/.manifest", "fleet/stars", id + ": ABSENT"} {
+			if !strings.Contains(s, want) {
+				t.Errorf("%s lacks its shape guard %q", id, want)
+			}
+		}
+		if !opaAtoms[id] {
+			continue
+		}
+		// The pin is the question, not a detail: rego semantics are a
+		// property of the binary, so a suite graded by another major answers
+		// a different question.
+		if !strings.Contains(s, `"Version: ${OPA_VERSION}"`) || !strings.Contains(s, "$OPA_MIRROR") {
+			t.Errorf("%s does not provision opa at the pinned version from the mirror:\n%s", id, s)
+		}
+	}
+	// opa test exits 0 over a policy tree with no assertion in it, which
+	// renders as a clean suite and is not one.
+	if s := AtomByID("dies:opa-test").Script; !strings.Contains(s, "REFUSING a zero-test run") {
+		t.Errorf("dies:opa-test does not refuse a zero-test run:\n%s", s)
+	}
+	// Both artifact atoms interrogate the BUILT bundle, because a source tree
+	// that passes every assertion can still build one that admits everything.
+	for _, id := range []string{"dies:data-keys", "dies:canary-visibility"} {
+		s := AtomByID(id).Script
+		if !strings.Contains(s, "opa build -b policy/") && !strings.Contains(s, `"$OPA" build -b policy/`) {
+			t.Errorf("%s grades the source tree rather than the built bundle:\n%s", id, s)
+		}
+		if !strings.Contains(s, "/dies-data.json") {
+			t.Errorf("%s does not read the bundle's own data.json:\n%s", id, s)
+		}
+	}
+	// The canary is READ OFF THE ROSTER. Naming one goes stale the day its
+	// verb is retired, and it did — twice.
+	if s := AtomByID("dies:canary-visibility").Script; !strings.Contains(s, `get("chaos")`) {
+		t.Errorf("dies:canary-visibility names a canary instead of reading one off the bundle:\n%s", s)
+	}
+	// The gate must prove it DETECTS before the live check is worth anything:
+	// seven fixtures that must fail, three controls that must pass.
+	s := AtomByID("dies:contracts").Script
+	for _, c := range []string{
+		"lagging", "undeclared", "bad_pending", "unreadable",
+		"expired_pending", "undated_pending", "old_shape_pending",
+		"agreeing", "holding_pending", "unmeasurable_pending",
+	} {
+		if !strings.Contains(s, c) {
+			t.Errorf("dies:contracts does not exercise fixture %q", c)
+		}
+	}
+	if !strings.Contains(s, "the door's raw API is unreachable") {
+		t.Errorf("dies:contracts reads an unreachable door as divergence rather than as a cannot-run:\n%s", s)
+	}
+}
