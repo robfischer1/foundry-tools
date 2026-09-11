@@ -313,31 +313,40 @@ func atomTable() []AtomDef {
 		{
 			ID: "fleet:check-yaml", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
 			Desc: "Every YAML file in the tree parses.",
-			// Multi-document YAML is VALID YAML here, and that is the fleet's
-			// only argument. pre-commit's check-yaml refuses a second document by
-			// default, a stylistic guard no repo in this fleet relies on — while
-			// every Kubernetes manifest (infra, the host stacks, ansible's k3s
-			// files) is a stream of them. MEASURED 2026-09-10T01:2xZ on infra:
+			// Multi-document YAML is VALID YAML here, and SYNTAX is the question.
+			// pre-commit's check-yaml refuses a second document by default and
+			// LOADS the file, so a custom tag (Home Assistant's !include, an
+			// ansible vault) is "could not determine a constructor" — neither is
+			// a fact about the YAML. MEASURED 2026-09-10T01:2xZ on infra:
 			// "expected a single document … but found another document" on a
-			// k3s manifest, red on the runner's gate for a file kubectl applies
-			// daily. The repo's hook args are not read (they never said more).
+			// k3s manifest; and 2026-09-11 16:0xZ, the first gate after the
+			// atoms stopped reading a repo's hook args: infra red on
+			// hass01/homeassistant/configuration.yaml's !include, which its own
+			// config had passed with --unsafe. --unsafe parses instead of
+			// loading, which is the check the fleet means: every document is
+			// well-formed YAML. Both flags are the fleet's, unconditionally.
 			Script: provisionGuard + worktreeRepo + gatePopulation + `guard uvx --from pre-commit-hooks check-yaml --help
 files=$(population -- '*.yml' '*.yaml')
 if [ -z "$files" ]; then echo "fleet:check-yaml: no YAML in this repository"; exit 0; fi
-uvx --from pre-commit-hooks check-yaml --allow-multiple-documents $files || exit 1
+uvx --from pre-commit-hooks check-yaml --allow-multiple-documents --unsafe $files || exit 1
 echo "fleet:check-yaml: parsed all YAML"`,
 		},
 		{
 			ID: "fleet:check-added-large-files", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
-			Desc: "No file in the tree exceeds 500 KB.",
+			Desc: "No file in the tree exceeds 2 MB.",
 			// THE POPULATION IS THE REPOSITORY'S TRACKED FILES. pre-commit's own
 			// hook reads the index; this reads the nearest thing the engine can be
 			// handed (see worktreeRepo). It walked the directory until 2026-09-09,
 			// when tongs answered 40+ findings, every one a file under target/ that
 			// git ignores. The assertion is unchanged: over 500 KiB, the same
-			// threshold as --maxkb=500, and the fleet's: a repo's own --maxkb is
-			// not read (Rob, 2026-09-11 — no template ever set one anyway).
-			Script: worktreeRepo + gatePopulation + `maxkb=500
+			// threshold as --maxkb=500 until 2026-09-11, when the atoms stopped
+			// reading a repo's hook args and infra went red on
+			// flux/infrastructure/cert-manager.yaml — 1010 KB, cert-manager's own
+			// vendored CRD bundle, which infra's config had passed with
+			// --maxkb=2048. The rule exists to catch an accidental binary or
+			// dataset, not a text manifest a vendor ships at a megabyte; two is
+			// the fleet's ceiling now, measured against the one file over it.
+			Script: worktreeRepo + gatePopulation + `maxkb=2048
 limit=$((maxkb * 1024))
 big=$(population | tr '\n' '\0' | xargs -0 -r stat -c '%s %n' 2>/dev/null | awk -v lim="$limit" '$1 > lim { $1=""; sub(/^ /, ""); print }')
 if [ -n "$big" ]; then echo "files over ${maxkb} KB:"; echo "$big"; exit 1; fi
