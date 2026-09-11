@@ -1048,8 +1048,11 @@ echo "dies:canary-visibility: the built bundle still hides what it should"`,
 		ID: "dies:contracts", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
 		Desc: "Every copy of every shared closed set agrees — and the checker is proved to detect first.",
 		// THE FIXTURES RUN FIRST AND MUST FAIL. The live check cannot prove the
-		// checker DETECTS anything while it is green, so seven fixtures must be
-		// caught and three controls must pass. Without the controls the failure
+		// checker DETECTS anything while it is green, so nine fixtures must be
+		// caught and four controls must pass (the retiring pair and its control
+		// joined 2026-09-11 with check_contracts' `retiring`, pending's mirror
+		// for a member the authority dropped while a consumer still carries
+		// it). Without the controls the failure
 		// loop could be satisfied by a checker that simply fails everything —
 		// including a pending entry whose grounds genuinely still hold, which is
 		// a legitimate deferral. A gate that cannot fail is a gate that is not
@@ -1078,14 +1081,14 @@ if ! python3 -c 'import tomllib' >/dev/null 2>&1; then
   runpy -c 'import tomli' >/dev/null 2>&1 || { echo "dies:contracts: CANNOT RUN - neither tomllib nor tomli is importable, so the checker cannot read a manifest." >&2; exit 2; }
 fi
 fail=0
-for c in lagging undeclared bad_pending unreadable expired_pending undated_pending old_shape_pending; do
+for c in lagging undeclared bad_pending unreadable expired_pending undated_pending old_shape_pending bad_retiring expired_retiring; do
   if runpy tools/check_contracts.py --manifest tests/contracts/fixtures.toml --contract "$c" >/dev/null 2>&1; then
     echo "::error::fixture '$c' PASSED - the checker no longer detects it" >&2; fail=1
   else
     echo "  fixture $c: correctly detected"
   fi
 done
-for c in agreeing holding_pending unmeasurable_pending; do
+for c in agreeing holding_pending unmeasurable_pending retiring; do
   if runpy tools/check_contracts.py --manifest tests/contracts/fixtures.toml --contract "$c" >/dev/null 2>&1; then
     echo "  control $c: correctly passed"
   else
@@ -1285,7 +1288,15 @@ echo "dies:schema: the payload is a valid, satisfiable schema and every v2 recor
 	// should. The retired mutation-go.yml carried the same exclusion per repo;
 	// here it is the go atom's default, and it is the same for every repo.
 	{
-		ID: "go:mutation", Stage: StageMutation, Lane: LaneGo, Image: imageGo, NeedsStocks: true,
+		// NeedsDies FOR THE SAME REASON go:test-race CARRIES IT: gremlins
+		// gathers coverage by running `go test`, and hephaestus's internal/slag
+		// goldens are armed on CI=true — in a container with no /dies they
+		// refuse (FATAL, exit 1), gremlins' coverage run dies, and the lane
+		// answers could-not-run on every hephaestus pull. MEASURED 2026-09-11,
+		// hephaestus #53: "failed to gather coverage: impossible to
+		// executeCoverage coverage: exit status 1". Any atom that runs a
+		// repo's `go test` runs its armed goldens, and needs the tree they read.
+		ID: "go:mutation", Stage: StageMutation, Lane: LaneGo, Image: imageGo, NeedsStocks: true, NeedsDies: true,
 		Desc: "Every mutant gremlins makes of this pull's changed Go is killed by the tests.",
 		Script: provisionGuard + worktreeRepo + `guard bash --version
 [ -f /stocks/ci/lib/mutation/go.sh ] || { echo "go:mutation: CANNOT RUN - /stocks/ci/lib/mutation/go.sh is absent; foundry-stocks did not mount at its one home." >&2; exit 2; }
