@@ -314,84 +314,93 @@ fi
 `
 }
 
-var Atoms = []AtomDef{
-	// ---- fleet: every repository, whatever it is written in ----
-	{
-		ID: "fleet:check-yaml", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
-		Desc: "Every YAML file in the tree parses.",
-		// THE HOOK'S OWN ARGS AND EXCLUDE, when the repo's config states them;
-		// and multi-document YAML is VALID YAML here whatever the config says.
-		// pre-commit's check-yaml refuses a second document by default, a
-		// stylistic guard no repo in this fleet relies on — while every
-		// Kubernetes manifest (infra, the host stacks, ansible's k3s files)
-		// is a stream of them. MEASURED 2026-09-10T01:2xZ on infra, a repo
-		// with no pre-commit config at all: "expected a single document …
-		// but found another document" on a k3s manifest, red on the runner's
-		// gate for a file kubectl applies daily.
-		Script: provisionGuard + worktreeRepo + gatePopulation + `guard uvx --from pre-commit-hooks check-yaml --help
+var Atoms = atomTable()
+
+// atomTable builds the table inside a function, and that is deliberate:
+// Go instruments coverage counters in function bodies only, so a
+// package-level composite literal has none, and every `+` that joins a
+// script's preludes read NOT COVERED to the mutation lane on the first pull
+// that touched one (foundry-tools #25, mutation-foundry-tools-84e09d2). The
+// tests read every row through this; a mutant in a row is a mutant they see.
+func atomTable() []AtomDef {
+	return []AtomDef{
+		// ---- fleet: every repository, whatever it is written in ----
+		{
+			ID: "fleet:check-yaml", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
+			Desc: "Every YAML file in the tree parses.",
+			// THE HOOK'S OWN ARGS AND EXCLUDE, when the repo's config states them;
+			// and multi-document YAML is VALID YAML here whatever the config says.
+			// pre-commit's check-yaml refuses a second document by default, a
+			// stylistic guard no repo in this fleet relies on — while every
+			// Kubernetes manifest (infra, the host stacks, ansible's k3s files)
+			// is a stream of them. MEASURED 2026-09-10T01:2xZ on infra, a repo
+			// with no pre-commit config at all: "expected a single document …
+			// but found another document" on a k3s manifest, red on the runner's
+			// gate for a file kubectl applies daily.
+			Script: provisionGuard + worktreeRepo + gatePopulation + `guard uvx --from pre-commit-hooks check-yaml --help
 files=$(hookpopulation check-yaml -- '*.yml' '*.yaml')
 if [ -z "$files" ]; then echo "fleet:check-yaml: no YAML in this repository"; exit 0; fi
 args="$(hookmeta check-yaml args)"
 case " $args " in *" --allow-multiple-documents "*|*" -m "*) ;; *) args="$args --allow-multiple-documents";; esac
 uvx --from pre-commit-hooks check-yaml $args $files || exit 1
 echo "fleet:check-yaml: parsed all YAML"`,
-	},
-	{
-		ID: "fleet:check-added-large-files", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
-		Desc: "No file in the tree exceeds 500 KB.",
-		// THE POPULATION IS THE REPOSITORY'S TRACKED FILES. pre-commit's own
-		// hook reads the index; this reads the nearest thing the engine can be
-		// handed (see worktreeRepo). It walked the directory until 2026-09-09,
-		// when tongs answered 40+ findings, every one a file under target/ that
-		// git ignores. The assertion is unchanged: over 500 KiB, the same
-		// threshold as --maxkb=500.
-		// --maxkb from the repo's own hook args when stated (pre-commit's
-		// default is 500); the hook-level exclude applies to the population.
-		Script: worktreeRepo + gatePopulation + `maxkb=500
+		},
+		{
+			ID: "fleet:check-added-large-files", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
+			Desc: "No file in the tree exceeds 500 KB.",
+			// THE POPULATION IS THE REPOSITORY'S TRACKED FILES. pre-commit's own
+			// hook reads the index; this reads the nearest thing the engine can be
+			// handed (see worktreeRepo). It walked the directory until 2026-09-09,
+			// when tongs answered 40+ findings, every one a file under target/ that
+			// git ignores. The assertion is unchanged: over 500 KiB, the same
+			// threshold as --maxkb=500.
+			// --maxkb from the repo's own hook args when stated (pre-commit's
+			// default is 500); the hook-level exclude applies to the population.
+			Script: worktreeRepo + gatePopulation + `maxkb=500
 for a in $(hookmeta check-added-large-files args); do case "$a" in --maxkb=*) maxkb="${a#--maxkb=}";; esac; done
 limit=$((maxkb * 1024))
 big=$(hookpopulation check-added-large-files | tr '\n' '\0' | xargs -0 -r stat -c '%s %n' 2>/dev/null | awk -v lim="$limit" '$1 > lim { $1=""; sub(/^ /, ""); print }')
 if [ -n "$big" ]; then echo "files over ${maxkb} KB:"; echo "$big"; exit 1; fi
 echo "fleet:check-added-large-files: nothing over ${maxkb} KB"`,
-	},
-	{
-		ID: "fleet:check-merge-conflict", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
-		Desc: "No conflict markers were committed.",
-		// Only the two ANCHORED markers, not the bare row of equals signs: that
-		// is a setext heading in Markdown and a table rule in reStructuredText,
-		// and matching it turns every docs repo red for a reason nobody can act
-		// on.
-		//
-		// OVER THE TRACKED FILES, not the directory. A conflict marker inside a
-		// gitignored build artifact was never committed, and no --exclude-dir
-		// list can name every generator (target/, .venv/, dist/, …). See
-		// worktreeRepo.
-		Script: worktreeRepo + `hits=$(git ls-files -z | xargs -0 -r grep -In -E '^(<<<<<<< |>>>>>>> )' 2>/dev/null || true)
+		},
+		{
+			ID: "fleet:check-merge-conflict", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
+			Desc: "No conflict markers were committed.",
+			// Only the two ANCHORED markers, not the bare row of equals signs: that
+			// is a setext heading in Markdown and a table rule in reStructuredText,
+			// and matching it turns every docs repo red for a reason nobody can act
+			// on.
+			//
+			// OVER THE TRACKED FILES, not the directory. A conflict marker inside a
+			// gitignored build artifact was never committed, and no --exclude-dir
+			// list can name every generator (target/, .venv/, dist/, …). See
+			// worktreeRepo.
+			Script: worktreeRepo + `hits=$(git ls-files -z | xargs -0 -r grep -In -E '^(<<<<<<< |>>>>>>> )' 2>/dev/null || true)
 if [ -n "$hits" ]; then echo "$hits"; exit 1; fi
 echo "fleet:check-merge-conflict: no conflict markers"`,
-	},
-	{
-		ID: "fleet:detect-secrets", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
-		Desc: "No new secret against the repository's .secrets.baseline.",
-		// THE TREE HAS TO BE A REPOSITORY git CAN READ, for two reasons.
-		//
-		// detect-secrets-hook shells out to git while it decides whether the
-		// baseline is current, and on a linked worktree that answered "fatal:
-		// not a git repository" and exited 1 — a FINDING, for a scan that never
-		// happened. Measured on a foundry-stocks worktree 2026-09-09. See
-		// worktreeRepo.
-		//
-		// AND THE POPULATION IS git ls-files, NOT A TREE WALK. The baseline is
-		// keyed on the path AS THE SCANNER WAS GIVEN IT, and the fleet's
-		// baselines are written by pre-commit, which passes git-relative paths.
-		// The old `find . -print` handed detect-secrets "./bases/x.yaml", which
-		// matches no key in a baseline holding "bases/x.yaml", so EVERY
-		// excused finding came back as a new secret — 200+ of them on
-		// foundry-stocks, all of them already in its baseline. The walk also
-		// scanned gitignored build junk (a stray .pytest_cache turned up in
-		// that run), which cannot be committed and so cannot be a finding
-		// about this repository.
-		Script: provisionGuard + `if [ ! -f .secrets.baseline ]; then echo "fleet:detect-secrets: CANNOT RUN - no .secrets.baseline at the repository root. Refusing to report success without scanning." >&2; exit 2; fi
+		},
+		{
+			ID: "fleet:detect-secrets", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
+			Desc: "No new secret against the repository's .secrets.baseline.",
+			// THE TREE HAS TO BE A REPOSITORY git CAN READ, for two reasons.
+			//
+			// detect-secrets-hook shells out to git while it decides whether the
+			// baseline is current, and on a linked worktree that answered "fatal:
+			// not a git repository" and exited 1 — a FINDING, for a scan that never
+			// happened. Measured on a foundry-stocks worktree 2026-09-09. See
+			// worktreeRepo.
+			//
+			// AND THE POPULATION IS git ls-files, NOT A TREE WALK. The baseline is
+			// keyed on the path AS THE SCANNER WAS GIVEN IT, and the fleet's
+			// baselines are written by pre-commit, which passes git-relative paths.
+			// The old `find . -print` handed detect-secrets "./bases/x.yaml", which
+			// matches no key in a baseline holding "bases/x.yaml", so EVERY
+			// excused finding came back as a new secret — 200+ of them on
+			// foundry-stocks, all of them already in its baseline. The walk also
+			// scanned gitignored build junk (a stray .pytest_cache turned up in
+			// that run), which cannot be committed and so cannot be a finding
+			// about this repository.
+			Script: provisionGuard + `if [ ! -f .secrets.baseline ]; then echo "fleet:detect-secrets: CANNOT RUN - no .secrets.baseline at the repository root. Refusing to report success without scanning." >&2; exit 2; fi
 ` + worktreeRepo + gatePopulation + `guard uvx --from detect-secrets detect-secrets-hook --help
 files=$(hookpopulation detect-secrets)
 if [ -z "$files" ]; then echo "fleet:detect-secrets: CANNOT RUN - the repository has no tracked file to scan" >&2; exit 2; fi
@@ -399,58 +408,58 @@ args="$(hookmeta detect-secrets args)"
 case " $args " in *" --baseline "*) ;; *) args="$args --baseline .secrets.baseline";; esac
 uvx --from detect-secrets detect-secrets-hook $args $files || exit 1
 echo "fleet:detect-secrets: clean against .secrets.baseline"`,
-	},
-	{
-		ID: "fleet:stop-justifications", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
-		Desc: "No silent suppression of any gate — a suppression carries a tool-conflict line.",
-		// The script is READ AT ITS ONE HOME, not vendored. A missing source is
-		// exit 2, never 0 — the same contract the pre-commit hook states, for
-		// the same reason: pre-commit hides a passing hook's output, so a silent
-		// skip is indistinguishable from a clean scan.
-		//
-		// TWO THINGS ABOUT git, BOTH MEASURED (foundry-tools#7626, 2026-09-09).
-		//
-		// FIRST, git ABSENT IS A CANNOT RUN, not a finding. The canonical script
-		// enumerates the tree with subprocess.run(["git", ...]), which raises
-		// FileNotFoundError when git is not on PATH — an uncaught traceback, so
-		// python exited 1 and the old `|| exit 1` filed it as FINDINGS. A check
-		// that could not find its tool has not found anything wrong; it has not
-		// looked. The guard below is the shape every other provisioning probe in
-		// this table takes, and the exit code is now passed through rather than
-		// flattened to 1, so a CANNOT RUN the script itself reports (its own
-		// exit 2 — "refusing to report success without scanning") survives.
-		//
-		// SECOND, A LINKED WORKTREE'S `.git` IS A FILE, AND IT DANGLES IN HERE.
-		// It holds `gitdir: <primary>/.git/worktrees/<name>`, an absolute host
-		// path that does not exist inside the container, so `git ls-files`
-		// answers "fatal: not a git repository" and the script reports CANNOT
-		// RUN — measured against a tartarus worktree in the engine. That is not
-		// an edge case: the pre-push gate hook hands the engine `--source="$PWD"`
-		// and this fleet works in linked worktrees, so it is the COMMON case.
-		// The mounted tree is therefore given a throwaway repository of its own
-		// and its index filled from the non-ignored files, which is the same
-		// population every other atom here scans (they all walk with `find .`)
-		// and is the tree the push is actually carrying. The origin URL is
-		// reconstructed from the gitdir path because repo_name() reads it: the
-		// DIRECTORY_EXEMPT rows are keyed on the repository, and an exemption
-		// Rob granted must not evaporate because the push came from a worktree.
-		Script: `if [ ! -f /stocks/ci/lib/stop_justifications.py ]; then echo "fleet:stop-justifications: CANNOT RUN - canonical source not reachable through the door" >&2; exit 2; fi
+		},
+		{
+			ID: "fleet:stop-justifications", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
+			Desc: "No silent suppression of any gate — a suppression carries a tool-conflict line.",
+			// The script is READ AT ITS ONE HOME, not vendored. A missing source is
+			// exit 2, never 0 — the same contract the pre-commit hook states, for
+			// the same reason: pre-commit hides a passing hook's output, so a silent
+			// skip is indistinguishable from a clean scan.
+			//
+			// TWO THINGS ABOUT git, BOTH MEASURED (foundry-tools#7626, 2026-09-09).
+			//
+			// FIRST, git ABSENT IS A CANNOT RUN, not a finding. The canonical script
+			// enumerates the tree with subprocess.run(["git", ...]), which raises
+			// FileNotFoundError when git is not on PATH — an uncaught traceback, so
+			// python exited 1 and the old `|| exit 1` filed it as FINDINGS. A check
+			// that could not find its tool has not found anything wrong; it has not
+			// looked. The guard below is the shape every other provisioning probe in
+			// this table takes, and the exit code is now passed through rather than
+			// flattened to 1, so a CANNOT RUN the script itself reports (its own
+			// exit 2 — "refusing to report success without scanning") survives.
+			//
+			// SECOND, A LINKED WORKTREE'S `.git` IS A FILE, AND IT DANGLES IN HERE.
+			// It holds `gitdir: <primary>/.git/worktrees/<name>`, an absolute host
+			// path that does not exist inside the container, so `git ls-files`
+			// answers "fatal: not a git repository" and the script reports CANNOT
+			// RUN — measured against a tartarus worktree in the engine. That is not
+			// an edge case: the pre-push gate hook hands the engine `--source="$PWD"`
+			// and this fleet works in linked worktrees, so it is the COMMON case.
+			// The mounted tree is therefore given a throwaway repository of its own
+			// and its index filled from the non-ignored files, which is the same
+			// population every other atom here scans (they all walk with `find .`)
+			// and is the tree the push is actually carrying. The origin URL is
+			// reconstructed from the gitdir path because repo_name() reads it: the
+			// DIRECTORY_EXEMPT rows are keyed on the repository, and an exemption
+			// Rob granted must not evaporate because the push came from a worktree.
+			Script: `if [ ! -f /stocks/ci/lib/stop_justifications.py ]; then echo "fleet:stop-justifications: CANNOT RUN - canonical source not reachable through the door" >&2; exit 2; fi
 command -v python3 >/dev/null 2>&1 || { echo "fleet:stop-justifications: CANNOT RUN - python3 is not on PATH in this lane image." >&2; exit 2; }
 ` + worktreeRepo + `python3 /stocks/ci/lib/stop_justifications.py .
 code=$?
 [ "$code" -eq 0 ] || exit "$code"
 echo "fleet:stop-justifications: no unexcused suppressions"`,
-		NeedsStocks: true,
-	},
-	{
-		ID: "fleet:sast-ruleset-lanes", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
-		Desc: "The SAST ruleset declares every lane this repository actually builds.",
-		// Ported from the go_B pre-commit hook. It is the companion to the
-		// zero-file refusal and closes the one case that refusal structurally
-		// cannot see: a ruleset that matches SOMETHING and misses the rest still
-		// exits 0 (foundry-stocks#4949 — chaos scanned 28 of 2636 files, themis
-		// 26 of 2221, both green).
-		Script: `test -d rules/sast || { echo "fleet:sast-ruleset-lanes: ABSENT - no rules/sast in this tree"; exit 0; }
+			NeedsStocks: true,
+		},
+		{
+			ID: "fleet:sast-ruleset-lanes", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
+			Desc: "The SAST ruleset declares every lane this repository actually builds.",
+			// Ported from the go_B pre-commit hook. It is the companion to the
+			// zero-file refusal and closes the one case that refusal structurally
+			// cannot see: a ruleset that matches SOMETHING and misses the rest still
+			// exits 0 (foundry-stocks#4949 — chaos scanned 28 of 2636 files, themis
+			// 26 of 2221, both green).
+			Script: `test -d rules/sast || { echo "fleet:sast-ruleset-lanes: ABSENT - no rules/sast in this tree"; exit 0; }
 decl=$(cat rules/sast/*.yml 2>/dev/null | grep -vE "^[[:space:]]*#" | grep -oE "languages:[[:space:]]*\[[^]]*\]" | sed -E "s/.*\[//;s/\]//" | tr "," "\n" | sed -E "s/[^a-z]//g" | grep -vE "^$" | sort -u)
 missing=""
 for pair in go.mod:go Cargo.toml:rust pyproject.toml:python; do
@@ -465,32 +474,32 @@ if test -z "$missing"; then echo "fleet:sast-ruleset-lanes: ruleset declares eve
 echo "sast-ruleset-lanes: rules/sast declares [$(printf '%s' "$decl" | tr '\n' ' ')] but this repo also builds:$missing" >&2
 echo "A ruleset that never names a lane never examines it, and opengrep still exits 0 whenever some OTHER language matched - the partial-scan case the zero-file refusal cannot see (foundry-stocks#4949)." >&2
 exit 2`,
-	},
-	{
-		ID: "fleet:orbit-drift", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
-		Desc: "This repo's declared seams agree with the canonical contracts in foundry-dies/orbits.",
-		// The seam half of blast radius. A star's orbit.toml says which edges it
-		// takes part in, so a session standing in the repo can see who it breaks
-		// without cloning anything; this atom asks whether that declaration still
-		// matches the canonical contract.
-		//
-		// IT COMPARES A DIGEST, NOT A VERSION INTEGER, and that is deliberate.
-		// Two hand-bumped integers, in two repos, raised in two separate commits,
-		// will skew — and skew across a seam is precisely the contract-drift
-		// condition these files exist to detect. A check whose own failure mode is
-		// the thing it detects is not a check. Bytes either hash to what the star
-		// recorded or they do not.
-		//
-		// THE DOOR IS THE SAME ONE dies:contracts READS, anonymously, over the raw
-		// API. It is still forgejo, which is being sunset; when that read moves,
-		// it moves for both atoms together rather than one of them drifting off
-		// alone.
-		//
-		// An edge that declares no digest is a FINDING, not a pass. It means the
-		// repo named a seam and pinned nothing, so this atom compared nothing —
-		// and "nothing to check" is not "checked and clean", which is this
-		// module's founding argument.
-		Script: provisionGuard + `test -f orbit.toml || { echo "fleet:orbit-drift: ABSENT - no orbit.toml in this tree, so this repo declares no seams"; exit 0; }
+		},
+		{
+			ID: "fleet:orbit-drift", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
+			Desc: "This repo's declared seams agree with the canonical contracts in foundry-dies/orbits.",
+			// The seam half of blast radius. A star's orbit.toml says which edges it
+			// takes part in, so a session standing in the repo can see who it breaks
+			// without cloning anything; this atom asks whether that declaration still
+			// matches the canonical contract.
+			//
+			// IT COMPARES A DIGEST, NOT A VERSION INTEGER, and that is deliberate.
+			// Two hand-bumped integers, in two repos, raised in two separate commits,
+			// will skew — and skew across a seam is precisely the contract-drift
+			// condition these files exist to detect. A check whose own failure mode is
+			// the thing it detects is not a check. Bytes either hash to what the star
+			// recorded or they do not.
+			//
+			// THE DOOR IS THE SAME ONE dies:contracts READS, anonymously, over the raw
+			// API. It is still forgejo, which is being sunset; when that read moves,
+			// it moves for both atoms together rather than one of them drifting off
+			// alone.
+			//
+			// An edge that declares no digest is a FINDING, not a pass. It means the
+			// repo named a seam and pinned nothing, so this atom compared nothing —
+			// and "nothing to check" is not "checked and clean", which is this
+			// module's founding argument.
+			Script: provisionGuard + `test -f orbit.toml || { echo "fleet:orbit-drift: ABSENT - no orbit.toml in this tree, so this repo declares no seams"; exit 0; }
 command -v python3 >/dev/null 2>&1 || { echo "fleet:orbit-drift: CANNOT RUN - python3 is not on PATH in this lane image." >&2; exit 2; }
 runpy() { python3 "$@"; }
 if ! python3 -c 'import tomllib' >/dev/null 2>&1; then
@@ -577,22 +586,22 @@ if drift or unpinned:
 print("fleet:orbit-drift: %d seam(s) agree with foundry-dies/orbits" % len(agree))
 PYORBIT
 runpy /tmp/orbit-drift.py`,
-	},
-	{
-		ID: "fleet:opengrep-sast", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
-		Desc: "SAST scan that refuses a zero-file scan.",
-		// The zero-file refusal, kept as written. "Ran N rules on 0 files: 0
-		// findings" exits 0 and renders as Passed, which is indistinguishable
-		// from a clean scan — go-repo-template and rust-repo-template shipped
-		// the PYTHON ruleset, so every Go and Rust star's security gate had
-		// never examined a single file (foundry-stocks#4415).
-		// THE BINARY IS BAKED INTO THE LANE IMAGE (stellar_core:*-ci carries
-		// opengrep 1.25.0 — measured inside the engine 2026-09-09). The curl
-		// install below is the FALLBACK now rather than the path, and that is
-		// what closes foundry-tools#7626's first defect: on the old uv base
-		// there was no curl at all, so this atom was cannot-run in every
-		// repository in the fleet and no push could go green anywhere.
-		Script: `test -d rules/sast || { echo "fleet:opengrep-sast: ABSENT - no rules/sast in this tree"; exit 0; }
+		},
+		{
+			ID: "fleet:opengrep-sast", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
+			Desc: "SAST scan that refuses a zero-file scan.",
+			// The zero-file refusal, kept as written. "Ran N rules on 0 files: 0
+			// findings" exits 0 and renders as Passed, which is indistinguishable
+			// from a clean scan — go-repo-template and rust-repo-template shipped
+			// the PYTHON ruleset, so every Go and Rust star's security gate had
+			// never examined a single file (foundry-stocks#4415).
+			// THE BINARY IS BAKED INTO THE LANE IMAGE (stellar_core:*-ci carries
+			// opengrep 1.25.0 — measured inside the engine 2026-09-09). The curl
+			// install below is the FALLBACK now rather than the path, and that is
+			// what closes foundry-tools#7626's first defect: on the old uv base
+			// there was no curl at all, so this atom was cannot-run in every
+			// repository in the fleet and no push could go green anywhere.
+			Script: `test -d rules/sast || { echo "fleet:opengrep-sast: ABSENT - no rules/sast in this tree"; exit 0; }
 if ! command -v opengrep >/dev/null 2>&1; then
   command -v curl >/dev/null 2>&1 || { echo "opengrep: CANNOT RUN - not baked into this lane image and no curl to fetch the installer. Refusing to report success without scanning." >&2; exit 2; }
   curl -fsSL https://raw.githubusercontent.com/opengrep/opengrep/main/install.sh -o /tmp/opengrep-install.sh || { echo "opengrep: CANNOT RUN - installer unreachable. Refusing to report success without scanning." >&2; exit 2; }
@@ -608,76 +617,84 @@ if printf "%s" "$out" | grep -qE "Ran [0-9]+ rules on 0 files"; then
   exit 2
 fi
 exit $rc`,
-	},
+		},
 
-	// ---- go ----
-	{
-		ID: "go:gofmt", Stage: StagePrecommit, Lane: LaneGo, Image: imageGo,
-		Desc: "Every Go file is gofmt-clean.",
-		Script: `unformatted=$(gofmt -l $(find . -path ./vendor -prune -o -name '*.go' -print) 2>/dev/null)
+		// ---- go ----
+		{
+			ID: "go:gofmt", Stage: StagePrecommit, Lane: LaneGo, Image: imageGo,
+			Desc: "Every Go file is gofmt-clean.",
+			Script: `unformatted=$(gofmt -l $(find . -path ./vendor -prune -o -name '*.go' -print) 2>/dev/null)
 if [ -n "$unformatted" ]; then echo "gofmt needed on:"; echo "$unformatted"; exit 1; fi
 echo "go:gofmt: clean"`,
-	},
-	{
-		ID: "go:vet", Stage: StagePrecommit, Lane: LaneGo, Image: imageGo,
-		Desc:   "go vet ./... reports nothing.",
-		Script: `go vet ./... || exit 1; echo "go:vet: clean"`,
-	},
-	{
-		ID: "go:build", Stage: StagePrecommit, Lane: LaneGo, Image: imageGo,
-		Desc:   "go build ./... succeeds.",
-		Script: `go build ./... || exit 1; echo "go:build: clean"`,
-	},
-	{
-		ID: "go:test-race", Stage: StagePrepush, Lane: LaneGo, Image: imageGo,
-		Desc: "go test -race ./... passes.",
-		// NeedsDies IS NOT A FACT ABOUT THE GO LANE. hephaestus's internal/slag
-		// goldens grade every record committed in foundry-dies, the lane checks
-		// out one repo, so they resolved nothing and SKIPPED — which `go test`
-		// prints as ok and the gate settles as success. That is #2453, and then
-		// #8118 for the same defect one level up: the fix that replaced the
-		// home-directory constant documented an arming step nobody built.
-		// Mounting the tree here is what lets a repo arm them. A repo with no
-		// such test reads FOUNDRY_DIES and does nothing with it.
-		NeedsDies: true,
-		Script:    `go test -race ./... || exit 1`,
-	},
-	{
-		ID: "go:staticcheck", Stage: StagePrepush, Lane: LaneGo, Image: imageGo,
-		Desc: "staticcheck ./... reports nothing.",
-		// The engine ends the "CANNOT RUN when not installed locally" branch this
-		// check has carried since it was a pre-push hook: the toolchain is the
-		// module's, so an absent staticcheck is a provisioning failure — still a
-		// 2, never a 0.
-		Script: provisionGuard + `guard go install honnef.co/go/tools/cmd/staticcheck@latest
+		},
+		{
+			ID: "go:vet", Stage: StagePrecommit, Lane: LaneGo, Image: imageGo,
+			Desc:   "go vet ./... reports nothing.",
+			Script: `go vet ./... || exit 1; echo "go:vet: clean"`,
+		},
+		{
+			ID: "go:build", Stage: StagePrecommit, Lane: LaneGo, Image: imageGo,
+			Desc:   "go build ./... succeeds.",
+			Script: `go build ./... || exit 1; echo "go:build: clean"`,
+		},
+		{
+			ID: "go:test-race", Stage: StagePrepush, Lane: LaneGo, Image: imageGo,
+			Desc: "go test -race ./... passes.",
+			// NeedsDies IS NOT A FACT ABOUT THE GO LANE. hephaestus's internal/slag
+			// goldens grade every record committed in foundry-dies, the lane checks
+			// out one repo, so they resolved nothing and SKIPPED — which `go test`
+			// prints as ok and the gate settles as success. That is #2453, and then
+			// #8118 for the same defect one level up: the fix that replaced the
+			// home-directory constant documented an arming step nobody built.
+			// Mounting the tree here is what lets a repo arm them. A repo with no
+			// such test reads FOUNDRY_DIES and does nothing with it.
+			//
+			// NO TESTS IS A FINDING. `go test ./...` prints "[no test files]" per
+			// package and exits 0, so a module with no test anywhere read green.
+			// Rob, 2026-09-11: nothing is built without tests. The count is
+			// go's own (TestGoFiles + XTestGoFiles per package); a module where
+			// every package answers 0 is red before the suite runs.
+			NeedsDies: true,
+			Script: `n="$(go list -f '{{len .TestGoFiles}}{{len .XTestGoFiles}}' ./... 2>&1)" || { echo "go:test-race: FINDINGS - go list ./... failed, so the tests cannot be counted: $(printf '%s' "$n" | tail -1)"; exit 1; }
+[ -n "$(printf '%s' "$n" | tr -d '\n0')" ] || { echo "go:test-race: FINDINGS - no test file in any package; nothing is built without tests"; exit 1; }
+go test -race ./... || exit 1`,
+		},
+		{
+			ID: "go:staticcheck", Stage: StagePrepush, Lane: LaneGo, Image: imageGo,
+			Desc: "staticcheck ./... reports nothing.",
+			// The engine ends the "CANNOT RUN when not installed locally" branch this
+			// check has carried since it was a pre-push hook: the toolchain is the
+			// module's, so an absent staticcheck is a provisioning failure — still a
+			// 2, never a 0.
+			Script: provisionGuard + `guard go install honnef.co/go/tools/cmd/staticcheck@latest
 staticcheck ./... || exit 1
 echo "go:staticcheck: clean"`,
-	},
-	{
-		ID: "go:govulncheck", Stage: StagePrepush, Lane: LaneGo, Image: imageGo,
-		Desc: "govulncheck ./... reports no known vulnerability.",
-		Script: provisionGuard + `guard go install golang.org/x/vuln/cmd/govulncheck@latest
+		},
+		{
+			ID: "go:govulncheck", Stage: StagePrepush, Lane: LaneGo, Image: imageGo,
+			Desc: "govulncheck ./... reports no known vulnerability.",
+			Script: provisionGuard + `guard go install golang.org/x/vuln/cmd/govulncheck@latest
 govulncheck ./... || exit 1
 echo "go:govulncheck: clean"`,
-	},
+		},
 
-	// ---- python ----
-	{
-		ID: "python:ruff-check", Stage: StagePrecommit, Lane: LanePython, Image: imagePython,
-		Desc: "ruff lint is clean over every .py in the tree.",
-		Script: provisionGuard + `guard uvx ruff@0.16.3 --version
+		// ---- python ----
+		{
+			ID: "python:ruff-check", Stage: StagePrecommit, Lane: LanePython, Image: imagePython,
+			Desc: "ruff lint is clean over every .py in the tree.",
+			Script: provisionGuard + `guard uvx ruff@0.16.3 --version
 uvx ruff@0.16.3 check . || exit 1
 echo "python:ruff-check: clean"`,
-	},
-	{
-		ID: "python:ruff-format", Stage: StagePrecommit, Lane: LanePython, Image: imagePython,
-		Desc: "ruff format --check is clean over the product python.",
-		// --check, NEVER the rewrite. The stock hook reformats in place and
-		// fails so you re-stage, which has aborted a commit in this fleet before
-		// (themis). The path scope is the measurement the go stars' hook
-		// records: incidental python (scripts/, conformance recorders) is
-		// linted but not formatted; product python under src/ and tests/ is.
-		Script: provisionGuard + `guard uvx ruff@0.16.3 --version
+		},
+		{
+			ID: "python:ruff-format", Stage: StagePrecommit, Lane: LanePython, Image: imagePython,
+			Desc: "ruff format --check is clean over the product python.",
+			// --check, NEVER the rewrite. The stock hook reformats in place and
+			// fails so you re-stage, which has aborted a commit in this fleet before
+			// (themis). The path scope is the measurement the go stars' hook
+			// records: incidental python (scripts/, conformance recorders) is
+			// linted but not formatted; product python under src/ and tests/ is.
+			Script: provisionGuard + `guard uvx ruff@0.16.3 --version
 if [ -f go.mod ]; then
   targets=""
   for d in src tests; do [ -d "$d" ] && targets="$targets $d"; done
@@ -687,140 +704,157 @@ else
 fi
 uvx ruff@0.16.3 format --check $targets || exit 1
 echo "python:ruff-format: clean"`,
-	},
-	{
-		ID: "python:forge-testkit-assertion-free", Stage: StagePrecommit, Lane: LanePython, Image: imagePython,
-		Desc:   "No assertion-free test bodies (forge-testkit).",
-		Script: forgeTestkit("assertion-free", "tests/*.py"),
-	},
-	{
-		ID: "python:forge-testkit-fake-placement", Stage: StagePrecommit, Lane: LanePython, Image: imagePython,
-		Desc:   "Fake and Stub doubles live where they belong (forge-testkit).",
-		Script: forgeTestkit("fake-placement", "*.py"),
-	},
-	{
-		ID: "python:forge-testkit-schema-budget", Stage: StagePrecommit, Lane: LanePython, Image: imagePython,
-		Desc:   "MCP verb descriptions stay inside the schema budget (forge-testkit).",
-		Script: forgeTestkit("schema-budget", "src/*.py"),
-	},
-	{
-		ID: "python:mypy", Stage: StagePrepush, Lane: LanePython, Image: imagePython,
-		Desc: "mypy --strict is clean over src and tests.",
-		// ONE type checker. pyright ran redundantly on every python pre-push
-		// with no incident behind it and is dropped fleet-wide (decided, Rob) —
-		// it is deliberately absent from this table, not overlooked.
-		Script: provisionGuard + `guard uv --version
+		},
+		{
+			ID: "python:forge-testkit-assertion-free", Stage: StagePrecommit, Lane: LanePython, Image: imagePython,
+			Desc:   "No assertion-free test bodies (forge-testkit).",
+			Script: forgeTestkit("assertion-free", "tests/*.py"),
+		},
+		{
+			ID: "python:forge-testkit-fake-placement", Stage: StagePrecommit, Lane: LanePython, Image: imagePython,
+			Desc:   "Fake and Stub doubles live where they belong (forge-testkit).",
+			Script: forgeTestkit("fake-placement", "*.py"),
+		},
+		{
+			ID: "python:forge-testkit-schema-budget", Stage: StagePrecommit, Lane: LanePython, Image: imagePython,
+			Desc:   "MCP verb descriptions stay inside the schema budget (forge-testkit).",
+			Script: forgeTestkit("schema-budget", "src/*.py"),
+		},
+		{
+			ID: "python:mypy", Stage: StagePrepush, Lane: LanePython, Image: imagePython,
+			Desc: "mypy --strict is clean over src and tests.",
+			// ONE type checker. pyright ran redundantly on every python pre-push
+			// with no incident behind it and is dropped fleet-wide (decided, Rob) —
+			// it is deliberately absent from this table, not overlooked.
+			Script: provisionGuard + `guard uv --version
 targets=""
 for d in src tests; do [ -d "$d" ] && targets="$targets $d"; done
 if [ -z "$targets" ]; then echo "python:mypy: ABSENT - no src/ or tests/ to type-check"; exit 0; fi
 uv run --all-extras mypy --strict $targets || exit 1
 echo "python:mypy: clean"`,
-	},
-	{
-		ID: "python:pytest", Stage: StagePrepush, Lane: LanePython, Image: imagePython,
-		Desc: "pytest passes.",
-		// A repo with nothing for pytest to collect is ABSENT, not red: pytest
-		// exits 5 for "no tests ran", and mypy already says ABSENT for the
-		// same tree. MEASURED 2026-09-10T01:25Z gate-helios-057545b: a go
-		// star with one .py file and no tests/ was red on "no tests ran in
-		// 0.39s" — the permanent state of that repo, not a finding.
-		Script: provisionGuard + worktreeRepo + gatePopulation + `guard uv --version
-if [ ! -d tests ] && [ -z "$(population -- 'test_*.py' '*_test.py')" ]; then echo "python:pytest: ABSENT - no tests/ and no test files"; exit 0; fi
+		},
+		{
+			ID: "python:pytest", Stage: StagePrepush, Lane: LanePython, Image: imagePython,
+			Desc: "pytest passes, and there is something for it to pass.",
+			// NO TESTS IS A FINDING. This atom used to answer ABSENT — exit 0 —
+			// for a tree with no tests/ and for pytest's exit 5 ("no tests ran"),
+			// on the reasoning that a go star with one .py file (gate-helios-
+			// 057545b, 2026-09-10) was in its permanent state, not at fault. Rob,
+			// 2026-09-11: nothing is built without tests. A python lane with
+			// nothing to collect is red, and the go star with a stray .py file is
+			// a repo that should not carry a pyproject.
+			Script: provisionGuard + worktreeRepo + gatePopulation + `guard uv --version
+if [ ! -d tests ] && [ -z "$(population -- 'test_*.py' '*_test.py')" ]; then echo "python:pytest: FINDINGS - no tests/ and no test files; nothing is built without tests"; exit 1; fi
 rc=0; uv run --all-extras pytest -q || rc=$?
-if [ "$rc" -eq 5 ]; then echo "python:pytest: ABSENT - pytest collected no tests (exit 5)"; exit 0; fi
+if [ "$rc" -eq 5 ]; then echo "python:pytest: FINDINGS - pytest collected no tests (exit 5); nothing is built without tests"; exit 1; fi
 [ "$rc" -eq 0 ] || exit 1
 echo "python:pytest: clean"`,
-	},
-	{
-		ID: "python:pip-audit", Stage: StagePrepush, Lane: LanePython, Image: imagePython,
-		Desc: "pip-audit reports no known vulnerability.",
-		Script: provisionGuard + `guard uv --version
+		},
+		{
+			ID: "python:pip-audit", Stage: StagePrepush, Lane: LanePython, Image: imagePython,
+			Desc: "pip-audit reports no known vulnerability.",
+			Script: provisionGuard + `guard uv --version
 uv run --with pip-audit pip-audit || exit 1
 echo "python:pip-audit: clean"`,
-	},
+		},
 
-	// ---- rust ----
-	{
-		ID: "rust:cargo-fmt", Stage: StagePrecommit, Lane: LaneRust, Image: imageRust,
-		Desc:   "cargo fmt --all --check is clean.",
-		Script: `cargo fmt --all --check || exit 1; echo "rust:cargo-fmt: clean"`,
-	},
-	{
-		ID: "rust:cargo-clippy", Stage: StagePrecommit, Lane: LaneRust, Image: imageRust,
-		Desc:   "cargo clippy is clean with warnings denied.",
-		Script: `cargo clippy --workspace --all-targets -- -D warnings || exit 1; echo "rust:cargo-clippy: clean"`,
-	},
-	{
-		ID: "rust:cargo-test", Stage: StagePrepush, Lane: LaneRust, Image: imageRust,
-		Desc:   "cargo test --workspace passes.",
-		Script: `cargo test --workspace || exit 1`,
-	},
-	{
-		ID: "rust:cargo-audit", Stage: StagePrepush, Lane: LaneRust, Image: imageRust,
-		Desc: "cargo audit reports no known vulnerability.",
-		Script: provisionGuard + `guard cargo install cargo-audit --locked
+		// ---- rust ----
+		{
+			ID: "rust:cargo-fmt", Stage: StagePrecommit, Lane: LaneRust, Image: imageRust,
+			Desc:   "cargo fmt --all --check is clean.",
+			Script: `cargo fmt --all --check || exit 1; echo "rust:cargo-fmt: clean"`,
+		},
+		{
+			ID: "rust:cargo-clippy", Stage: StagePrecommit, Lane: LaneRust, Image: imageRust,
+			Desc:   "cargo clippy is clean with warnings denied.",
+			Script: `cargo clippy --workspace --all-targets -- -D warnings || exit 1; echo "rust:cargo-clippy: clean"`,
+		},
+		{
+			ID: "rust:cargo-test", Stage: StagePrepush, Lane: LaneRust, Image: imageRust,
+			Desc: "cargo test --workspace passes, and there is something for it to pass.",
+			// NO TESTS IS A FINDING. A workspace with no #[test] prints "running 0
+			// tests" and exits 0. Rob, 2026-09-11: nothing is built without tests.
+			// libtest's own --list names every test as `<path>: test`; a workspace
+			// that lists none is red before the suite runs. The list build is the
+			// suite's build, so nothing is compiled twice.
+			Script: `listed="$(cargo test --workspace -- --list 2>&1)" || { echo "rust:cargo-test: FINDINGS - the tests did not build: $(printf '%s' "$listed" | grep -m1 -E '^error' | cut -c1-200)"; exit 1; }
+printf '%s\n' "$listed" | grep -q ': test$' || { echo "rust:cargo-test: FINDINGS - no test in the workspace; nothing is built without tests"; exit 1; }
+cargo test --workspace || exit 1`,
+		},
+		{
+			ID: "rust:cargo-audit", Stage: StagePrepush, Lane: LaneRust, Image: imageRust,
+			Desc: "cargo audit reports no known vulnerability.",
+			Script: provisionGuard + `guard cargo install cargo-audit --locked
 cargo audit || exit 1
 echo "rust:cargo-audit: clean"`,
-	},
+		},
 
-	// ---- ts ----
-	{
-		ID: "ts:bun-gate-commit", Stage: StagePrecommit, Lane: LaneTS, Image: imageTS,
-		Desc: "bun run gate (format, lint, typecheck, test, build) passes.",
-		// The pre-commit hook this ports runs in a checkout that already has
-		// node_modules; the gate's checkout has none. MEASURED 2026-09-10T02:38Z
-		// gate-calliope-9ed7599: `bun run format:check` → "prettier: command
-		// not found", exit 127, a red about the runner, not the repo.
-		Script: `bun install --frozen-lockfile || { echo "ts:bun-gate-commit: CANNOT RUN - frozen lockfile install failed" >&2; exit 2; }
+		// ---- ts ----
+		{
+			ID: "ts:bun-gate-commit", Stage: StagePrecommit, Lane: LaneTS, Image: imageTS,
+			Desc: "bun run gate (format, lint, typecheck, test, build) passes.",
+			// The pre-commit hook this ports runs in a checkout that already has
+			// node_modules; the gate's checkout has none. MEASURED 2026-09-10T02:38Z
+			// gate-calliope-9ed7599: `bun run format:check` → "prettier: command
+			// not found", exit 127, a red about the runner, not the repo.
+			Script: `bun install --frozen-lockfile || { echo "ts:bun-gate-commit: CANNOT RUN - frozen lockfile install failed" >&2; exit 2; }
 bun run gate || exit 1`,
-	},
-	{
-		ID: "ts:bun-gate", Stage: StagePrepush, Lane: LaneTS, Image: imageTS,
-		Desc: "bun run gate passes against a frozen lockfile.",
-		Script: `bun install --frozen-lockfile || { echo "ts:bun-gate: CANNOT RUN - frozen lockfile install failed" >&2; exit 2; }
+		},
+		{
+			ID: "ts:bun-gate", Stage: StagePrepush, Lane: LaneTS, Image: imageTS,
+			Desc: "bun run gate passes against a frozen lockfile, and the tree carries tests for it to run.",
+			// NO TESTS IS A FINDING. `bun test` itself refuses a tree with no test
+			// file (exit 1, "0 test files matching"), but this atom runs the
+			// repo's gate script, which may not reach bun test at all — so the
+			// presence check is the atom's own, over bun's default pattern
+			// ({.test,.spec,_test_,_spec_}.{js,ts,jsx,tsx}). Rob, 2026-09-11:
+			// nothing is built without tests.
+			Script: `bun install --frozen-lockfile || { echo "ts:bun-gate: CANNOT RUN - frozen lockfile install failed" >&2; exit 2; }
+t="$(find . -path ./node_modules -prune -o -type f \( -name '*.test.ts' -o -name '*.test.tsx' -o -name '*.test.js' -o -name '*.test.jsx' -o -name '*.spec.ts' -o -name '*.spec.tsx' -o -name '*.spec.js' -o -name '*.spec.jsx' -o -name '*_test_*' -o -name '*_spec_*' \) -print 2>/dev/null | head -1)"
+[ -n "$t" ] || { echo "ts:bun-gate: FINDINGS - no test file in the tree (bun's pattern: {.test,.spec,_test_,_spec_}.{js,ts,jsx,tsx}); nothing is built without tests"; exit 1; }
 bun run gate || exit 1`,
-	},
-	{
-		ID: "ts:bun-audit", Stage: StagePrepush, Lane: LaneTS, Image: imageTS,
-		Desc: "bun audit reports nothing at high or above.",
-		Script: `BUN_CONFIG_REGISTRY=https://registry.npmjs.org/ bun audit --audit-level=high || exit 1
+		},
+		{
+			ID: "ts:bun-audit", Stage: StagePrepush, Lane: LaneTS, Image: imageTS,
+			Desc: "bun audit reports nothing at high or above.",
+			Script: `BUN_CONFIG_REGISTRY=https://registry.npmjs.org/ bun audit --audit-level=high || exit 1
 echo "ts:bun-audit: clean"`,
-	},
+		},
 
-	// ---- compose: the host stacks. Ported off the act-runner's validate.yml ----
-	//
-	// nas01-stacks and llm01-stacks ARE the boxes: every compose spec, the
-	// Caddyfile, the runner config. Their `validate.yml` was the only thing that
-	// had ever validated any of it, and the act-runner it ran on is being
-	// removed — so these three atoms are what "validated by the gate or not at
-	// all" means for those repos.
-	//
-	// WHAT A GREEN HERE MEANS, kept from the workflow's own header: "this parses
-	// and its schema is valid", nothing stronger. It does not say the file
-	// matches what is RUNNING on the box; that is drift, not syntax, and no gate
-	// can see it from here.
-	{
-		ID: "compose:config", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
-		Desc: "Every tracked compose spec parses and its schema validates.",
-		// --no-interpolate IS LOAD-BEARING. These files use ${VAR:?message} to
-		// make a missing variable a DEPLOY-TIME error, which is correct on the
-		// box and fatal anywhere no variable is set. Without it the gate would
-		// fail on every file for the wrong reason. Schema validation still runs.
+		// ---- compose: the host stacks. Ported off the act-runner's validate.yml ----
 		//
-		// THE env_file TARGETS ARE STUBBED FIRST, and the stub scan reads its
-		// own exit code. env_file targets are secrets and are correctly absent
-		// from the repo, but `compose config` hard-errors on a missing env_file
-		// before it ever reaches the schema. Nothing here reads a VALUE —
-		// --no-interpolate is set — so an empty file is enough.
+		// nas01-stacks and llm01-stacks ARE the boxes: every compose spec, the
+		// Caddyfile, the runner config. Their `validate.yml` was the only thing that
+		// had ever validated any of it, and the act-runner it ran on is being
+		// removed — so these three atoms are what "validated by the gate or not at
+		// all" means for those repos.
 		//
-		// grep is three-valued (0 selected · 1 selected nothing · >=2 the scan
-		// broke) and both workflows had to learn that the hard way: a `|| true`
-		// collapsed all three into an empty list, printed "nothing to stub",
-		// stubbed nothing, and handed the parse a tree missing every file it was
-		// supposed to create — a green step reporting a clean scan it never
-		// performed (nas01-stacks validate.yml:63-79). rc 1 is the ANSWER; rc
-		// >=2 is a refusal.
-		Script: worktreeRepo + composeSurface("compose:config") + fetchBinary + composeClient + `stub_rc=0
+		// WHAT A GREEN HERE MEANS, kept from the workflow's own header: "this parses
+		// and its schema is valid", nothing stronger. It does not say the file
+		// matches what is RUNNING on the box; that is drift, not syntax, and no gate
+		// can see it from here.
+		{
+			ID: "compose:config", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
+			Desc: "Every tracked compose spec parses and its schema validates.",
+			// --no-interpolate IS LOAD-BEARING. These files use ${VAR:?message} to
+			// make a missing variable a DEPLOY-TIME error, which is correct on the
+			// box and fatal anywhere no variable is set. Without it the gate would
+			// fail on every file for the wrong reason. Schema validation still runs.
+			//
+			// THE env_file TARGETS ARE STUBBED FIRST, and the stub scan reads its
+			// own exit code. env_file targets are secrets and are correctly absent
+			// from the repo, but `compose config` hard-errors on a missing env_file
+			// before it ever reaches the schema. Nothing here reads a VALUE —
+			// --no-interpolate is set — so an empty file is enough.
+			//
+			// grep is three-valued (0 selected · 1 selected nothing · >=2 the scan
+			// broke) and both workflows had to learn that the hard way: a `|| true`
+			// collapsed all three into an empty list, printed "nothing to stub",
+			// stubbed nothing, and handed the parse a tree missing every file it was
+			// supposed to create — a green step reporting a clean scan it never
+			// performed (nas01-stacks validate.yml:63-79). rc 1 is the ANSWER; rc
+			// >=2 is a refusal.
+			Script: worktreeRepo + composeSurface("compose:config") + fetchBinary + composeClient + `stub_rc=0
 raw=$(grep -rhoE '[./A-Za-z0-9_-]+\.env' --include='*.yml' --include='*.yaml' . 2>/dev/null) || stub_rc=$?
 if [ "$stub_rc" -gt 1 ]; then echo "compose:config: CANNOT RUN - the env_file scan failed (grep exit $stub_rc). Refusing to report 'nothing to stub' from a scan that did not run, and then to parse a tree missing every file it was supposed to create." >&2; exit 2; fi
 if [ "$stub_rc" -eq 0 ]; then
@@ -845,27 +879,27 @@ while read -r f; do
 done < /tmp/compose-specs
 [ "$fail" -eq 0 ] || exit 1
 echo "compose:config: every tracked compose spec parses"`,
-	},
-	{
-		ID: "compose:no-tracked-secrets", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
-		Desc: "No credential-shaped file is tracked in a repository that ships compose specs.",
-		// THE IGNORE RULE IS ASSERTED, NOT TRUSTED. Both repos' .gitignore state
-		// the rule — "if it holds a credential, it is IGNORED" — and nothing
-		// enforced it. An ignore rule only protects files it was written before;
-		// this asserts the OUTCOME.
-		//
-		// THE POPULATION IS BARE `git ls-files`, deliberately NOT the gate
-		// population the fleet atoms use. A .env that a repo's pre-commit
-		// `exclude:` keeps out of its hooks is still a tracked .env, and a
-		// credential does not stop being one because a config said not to look
-		// at it. The argument that carries gatePopulation everywhere else —
-		// grade the population the hook graded — argues the other way here,
-		// because the hook is not what is being ported: the assertion is.
-		//
-		// The scan's exit code is read for the reason it is read in every other
-		// atom on this page: a broken scan and a clean repository produce the
-		// same empty string, and only one of them is a pass.
-		Script: worktreeRepo + composeSurface("compose:no-tracked-secrets") + `secret_rc=0
+		},
+		{
+			ID: "compose:no-tracked-secrets", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
+			Desc: "No credential-shaped file is tracked in a repository that ships compose specs.",
+			// THE IGNORE RULE IS ASSERTED, NOT TRUSTED. Both repos' .gitignore state
+			// the rule — "if it holds a credential, it is IGNORED" — and nothing
+			// enforced it. An ignore rule only protects files it was written before;
+			// this asserts the OUTCOME.
+			//
+			// THE POPULATION IS BARE `git ls-files`, deliberately NOT the gate
+			// population the fleet atoms use. A .env that a repo's pre-commit
+			// `exclude:` keeps out of its hooks is still a tracked .env, and a
+			// credential does not stop being one because a config said not to look
+			// at it. The argument that carries gatePopulation everywhere else —
+			// grade the population the hook graded — argues the other way here,
+			// because the hook is not what is being ported: the assertion is.
+			//
+			// The scan's exit code is read for the reason it is read in every other
+			// atom on this page: a broken scan and a clean repository produce the
+			// same empty string, and only one of them is a pass.
+			Script: worktreeRepo + composeSurface("compose:no-tracked-secrets") + `secret_rc=0
 hits=$(grep -E '(^|/)\.env$|\.env\.|(^|/)envs/|\.pem$|\.key$|_rsa$' /tmp/tracked-files) || secret_rc=$?
 if [ "$secret_rc" -gt 1 ]; then echo "compose:no-tracked-secrets: CANNOT RUN - the credential-shape scan failed (grep exit $secret_rc). Refusing to report a clean tree from a scan that did not run." >&2; exit 2; fi
 if [ -n "$hits" ]; then
@@ -874,22 +908,22 @@ if [ -n "$hits" ]; then
   exit 1
 fi
 echo "compose:no-tracked-secrets: no credential-shaped file is tracked"`,
-	},
-	{
-		ID: "compose:third-party-pins", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
-		Desc: "Zero ${PIN_} image interpolations — the BP6b ratchet stays closed.",
-		// The BP6b ratchet (BDTH, Rob-ratified 2026-08-08), fully tightened the
-		// night it landed: the literal lane took every third-party image off
-		// ${PIN_}, the staged :stable conversion took all 32 first-party stars
-		// off it, and compose/pins.env is deleted. A COUNT gate stays closed
-		// where a list gate reopens — ANY ${PIN_} image interpolation is a red
-		// merge, and the pin era does not reopen (nas01-stacks
-		// validate.yml:149-176).
-		//
-		// A COUNT GATE ONLY STAYS CLOSED IF THE COUNT HAPPENED. grep's rc 1 is
-		// the ANSWER this gate wants; rc >=2 is a refusal, because a ratchet
-		// cannot report closed on a scan that did not run.
-		Script: worktreeRepo + composeSurface("compose:third-party-pins") + `pin_rc=0
+		},
+		{
+			ID: "compose:third-party-pins", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
+			Desc: "Zero ${PIN_} image interpolations — the BP6b ratchet stays closed.",
+			// The BP6b ratchet (BDTH, Rob-ratified 2026-08-08), fully tightened the
+			// night it landed: the literal lane took every third-party image off
+			// ${PIN_}, the staged :stable conversion took all 32 first-party stars
+			// off it, and compose/pins.env is deleted. A COUNT gate stays closed
+			// where a list gate reopens — ANY ${PIN_} image interpolation is a red
+			// merge, and the pin era does not reopen (nas01-stacks
+			// validate.yml:149-176).
+			//
+			// A COUNT GATE ONLY STAYS CLOSED IF THE COUNT HAPPENED. grep's rc 1 is
+			// the ANSWER this gate wants; rc >=2 is a refusal, because a ratchet
+			// cannot report closed on a scan that did not run.
+			Script: worktreeRepo + composeSurface("compose:third-party-pins") + `pin_rc=0
 hits=$(grep -rn 'image:.*\${PIN_' --include='*.yaml' --include='*.yml' --exclude-dir=.forgejo .) || pin_rc=$?
 if [ "$pin_rc" -gt 1 ]; then echo "compose:third-party-pins: CANNOT RUN - the \${PIN_} scan itself failed (grep exit $pin_rc). Refusing to report a closed ratchet on a scan that did not run." >&2; exit 2; fi
 n=0
@@ -900,33 +934,33 @@ if [ "$n" -ne 0 ]; then
   exit 1
 fi
 echo "compose:third-party-pins: zero \${PIN_} interpolations; the pin era stays closed"`,
-	},
+		},
 
-	// ---- dies: the policy die's source. Ported off ci / contracts / schema ----
-	//
-	// Six atoms, and THE SPLIT BETWEEN THE FIRST TWO AND THE NEXT TWO IS THE
-	// ARGUMENT. `opa test` and the dogfood eval grade the SOURCE; data-keys and
-	// canary-visibility grade the ARTIFACT, and the gap between them is
-	// measured rather than theoretical: a source tree can pass 312 assertions
-	// and build a bundle that admits everything. See diesBundle.
-	//
-	// build.yml and fleet-bundle.yml are deliberately NOT here. They publish
-	// rather than validate, and the bundle recipe lane owns them.
-	{
-		ID: "dies:opa-test", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
-		Desc: "The rego unit and invariant suite passes.",
-		// A ZERO-TEST RUN IS REFUSED, which the workflow did not do and this
-		// module cannot skip: `opa test` over a policy tree containing no test
-		// at all exits 0 (measured against an empty directory, 2026-09-10).
-		// That renders as a clean suite and is not one — it is opengrep matching
-		// zero files wearing different clothes, and it gets the same answer.
+		// ---- dies: the policy die's source. Ported off ci / contracts / schema ----
 		//
-		// opa's OWN CODES ARE THREE-VALUED TOO, and they do not line up with
-		// this module's: a failing assertion is exit 2 and a rego parse error is
-		// exit 1 (both measured). Passing either through would file a real
-		// finding as CANNOT RUN, so both fold to 1 and only a code opa does not
-		// use becomes a 2.
-		Script: diesShape("dies:opa-test") + fetchBinary + opaClient("dies:opa-test") + `out=$("$OPA" test policy/ -v 2>&1); rc=$?
+		// Six atoms, and THE SPLIT BETWEEN THE FIRST TWO AND THE NEXT TWO IS THE
+		// ARGUMENT. `opa test` and the dogfood eval grade the SOURCE; data-keys and
+		// canary-visibility grade the ARTIFACT, and the gap between them is
+		// measured rather than theoretical: a source tree can pass 312 assertions
+		// and build a bundle that admits everything. See diesBundle.
+		//
+		// build.yml and fleet-bundle.yml are deliberately NOT here. They publish
+		// rather than validate, and the bundle recipe lane owns them.
+		{
+			ID: "dies:opa-test", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
+			Desc: "The rego unit and invariant suite passes.",
+			// A ZERO-TEST RUN IS REFUSED, which the workflow did not do and this
+			// module cannot skip: `opa test` over a policy tree containing no test
+			// at all exits 0 (measured against an empty directory, 2026-09-10).
+			// That renders as a clean suite and is not one — it is opengrep matching
+			// zero files wearing different clothes, and it gets the same answer.
+			//
+			// opa's OWN CODES ARE THREE-VALUED TOO, and they do not line up with
+			// this module's: a failing assertion is exit 2 and a rego parse error is
+			// exit 1 (both measured). Passing either through would file a real
+			// finding as CANNOT RUN, so both fold to 1 and only a code opa does not
+			// use becomes a 2.
+			Script: diesShape("dies:opa-test") + fetchBinary + opaClient("dies:opa-test") + `out=$("$OPA" test policy/ -v 2>&1); rc=$?
 printf '%s\n' "$out"
 case "$rc" in
   0) ;;
@@ -939,26 +973,26 @@ if [ -z "$n" ] || [ "$n" -eq 0 ]; then
   exit 2
 fi
 echo "dies:opa-test: $n assertion(s) pass"`,
-	},
-	{
-		ID: "dies:admission-dogfood", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
-		Desc: "The admission domain admits this repo's own star shape.",
-		// The domain that judges every star's slag is asked about the one star
-		// whose shape lives in the same repo as the rule. A deny here means the
-		// policy has drifted from the fleet it governs, and it shows up on the
-		// repo that OWNS the rule rather than on whichever star was poured next
-		// — the same alarm-asymmetry argument contracts.yml makes at length.
-		//
-		// A MISSING FIXTURE IS A 2. The atom's whole content is "the domain
-		// admitted THIS input"; with no input there is no claim to make, and
-		// exiting 0 would make one anyway.
-		//
-		// python3 READS THE RESULT, NOT jq. The workflow's runner image carried
-		// jq; the lane images are not promised to, and provisioning a second
-		// binary to count the length of a JSON array buys nothing. The value
-		// extracted is the same one, and a shape this atom cannot read is a 2
-		// rather than a deny count nobody computed.
-		Script: diesShape("dies:admission-dogfood") + fetchBinary + opaClient("dies:admission-dogfood") + `[ -d policy/admission ] || { echo "dies:admission-dogfood: CANNOT RUN - policy/admission is absent, so there is no admission domain to ask." >&2; exit 2; }
+		},
+		{
+			ID: "dies:admission-dogfood", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
+			Desc: "The admission domain admits this repo's own star shape.",
+			// The domain that judges every star's slag is asked about the one star
+			// whose shape lives in the same repo as the rule. A deny here means the
+			// policy has drifted from the fleet it governs, and it shows up on the
+			// repo that OWNS the rule rather than on whichever star was poured next
+			// — the same alarm-asymmetry argument contracts.yml makes at length.
+			//
+			// A MISSING FIXTURE IS A 2. The atom's whole content is "the domain
+			// admitted THIS input"; with no input there is no claim to make, and
+			// exiting 0 would make one anyway.
+			//
+			// python3 READS THE RESULT, NOT jq. The workflow's runner image carried
+			// jq; the lane images are not promised to, and provisioning a second
+			// binary to count the length of a JSON array buys nothing. The value
+			// extracted is the same one, and a shape this atom cannot read is a 2
+			// rather than a deny count nobody computed.
+			Script: diesShape("dies:admission-dogfood") + fetchBinary + opaClient("dies:admission-dogfood") + `[ -d policy/admission ] || { echo "dies:admission-dogfood: CANNOT RUN - policy/admission is absent, so there is no admission domain to ask." >&2; exit 2; }
 [ -f tests/fixtures/ouranos-self.json ] || { echo "dies:admission-dogfood: CANNOT RUN - tests/fixtures/ouranos-self.json is absent, so there is no own-star shape to submit." >&2; exit 2; }
 "$OPA" eval -d policy/admission -i tests/fixtures/ouranos-self.json "data.admission.deny" --format json > /tmp/dies-dogfood.json 2>/tmp/dies-dogfood.err || { echo "dies:admission-dogfood: CANNOT RUN - opa eval did not complete." >&2; cat /tmp/dies-dogfood.err >&2; exit 2; }
 cat > /tmp/dies-dogfood.py <<'PYDOG'
@@ -979,15 +1013,15 @@ python3 /tmp/dies-dogfood.py
 dog_rc=$?
 [ "$dog_rc" -eq 0 ] || exit "$dog_rc"
 echo "dies:admission-dogfood: the admission domain admits our own star shape"`,
-	},
-	{
-		ID: "dies:data-keys", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
-		Desc: "The BUILT bundle carries every data root the policy reads, non-empty.",
-		// The artifact gate, asked of the artifact. An empty or partial data
-		// document is the silent fail-open diesBundle describes, so the
-		// documents the policy actually reads are asserted PRESENT and
-		// NON-EMPTY, by name.
-		Script: diesShape("dies:data-keys") + fetchBinary + opaClient("dies:data-keys") + diesBundle("dies:data-keys") + `cat > /tmp/dies-datakeys.py <<'PYKEYS'
+		},
+		{
+			ID: "dies:data-keys", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
+			Desc: "The BUILT bundle carries every data root the policy reads, non-empty.",
+			// The artifact gate, asked of the artifact. An empty or partial data
+			// document is the silent fail-open diesBundle describes, so the
+			// documents the policy actually reads are asserted PRESENT and
+			// NON-EMPTY, by name.
+			Script: diesShape("dies:data-keys") + fetchBinary + opaClient("dies:data-keys") + diesBundle("dies:data-keys") + `cat > /tmp/dies-datakeys.py <<'PYKEYS'
 import json, sys
 d = json.load(open("/tmp/dies-data.json"))
 required = ["authz_audience", "authz_grants", "authz_meta", "path_grants", "subject_aliases"]
@@ -1000,26 +1034,26 @@ print("data roots ok; star_only carries %d stars" % stars)
 PYKEYS
 python3 /tmp/dies-datakeys.py || exit 1
 echo "dies:data-keys: the built bundle carries its data"`,
-	},
-	{
-		ID: "dies:canary-visibility", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
-		Desc: "The BUILT bundle still hides a curated verb from a session principal.",
-		// THE CANARY IS READ OFF THE ROSTER, NOT NAMED, and that is the
-		// post-mortem's own recommendation (2026-08-22). The first canary named
-		// graph_subscribe, a verb chaos retired in F2; the second named
-		// graph_nodes. A named canary goes stale the day its verb leaves the
-		// roster and the gate then goes red on a roster that is MORE correct —
-		// twice now. So the built bundle's own data.json is asked for chaos's
-		// first star_only verb and THAT one is proved: whatever chaos curates
-		// first is, by construction, curated. chaos because it is the star with
-		// the largest curated surface, and an empty chaos row is itself the
-		// failure — nothing curated means the roster did not survive the build.
-		//
-		// BOTH DIRECTIONS ARE ASSERTED. A curated verb visible to a session
-		// principal is the fail-open. A curated verb INVISIBLE to a star
-		// principal is the opposite error and just as wrong: curation that
-		// narrowed both audiences instead of one.
-		Script: diesShape("dies:canary-visibility") + fetchBinary + opaClient("dies:canary-visibility") + diesBundle("dies:canary-visibility") + `CANARY=$(python3 -c 'import json; d = json.load(open("/tmp/dies-data.json")); v = d.get("authz_audience", {}).get("star_only", {}).get("chaos") or []; print(v[0] if v else "")' 2>/dev/null)
+		},
+		{
+			ID: "dies:canary-visibility", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
+			Desc: "The BUILT bundle still hides a curated verb from a session principal.",
+			// THE CANARY IS READ OFF THE ROSTER, NOT NAMED, and that is the
+			// post-mortem's own recommendation (2026-08-22). The first canary named
+			// graph_subscribe, a verb chaos retired in F2; the second named
+			// graph_nodes. A named canary goes stale the day its verb leaves the
+			// roster and the gate then goes red on a roster that is MORE correct —
+			// twice now. So the built bundle's own data.json is asked for chaos's
+			// first star_only verb and THAT one is proved: whatever chaos curates
+			// first is, by construction, curated. chaos because it is the star with
+			// the largest curated surface, and an empty chaos row is itself the
+			// failure — nothing curated means the roster did not survive the build.
+			//
+			// BOTH DIRECTIONS ARE ASSERTED. A curated verb visible to a session
+			// principal is the fail-open. A curated verb INVISIBLE to a star
+			// principal is the opposite error and just as wrong: curation that
+			// narrowed both audiences instead of one.
+			Script: diesShape("dies:canary-visibility") + fetchBinary + opaClient("dies:canary-visibility") + diesBundle("dies:canary-visibility") + `CANARY=$(python3 -c 'import json; d = json.load(open("/tmp/dies-data.json")); v = d.get("authz_audience", {}).get("star_only", {}).get("chaos") or []; print(v[0] if v else "")' 2>/dev/null)
 if [ -z "$CANARY" ]; then
   echo "dies:canary-visibility: chaos has no star_only row in the built bundle - the roster did not survive the build." >&2
   exit 1
@@ -1043,34 +1077,34 @@ printf '%s' "$STAR" | python3 -c 'import json, sys; sys.exit(0 if sys.argv[1] in
   exit 1
 }
 echo "dies:canary-visibility: the built bundle still hides what it should"`,
-	},
-	{
-		ID: "dies:contracts", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
-		Desc: "Every copy of every shared closed set agrees — and the checker is proved to detect first.",
-		// THE FIXTURES RUN FIRST AND MUST FAIL. The live check cannot prove the
-		// checker DETECTS anything while it is green, so nine fixtures must be
-		// caught and four controls must pass (the retiring pair and its control
-		// joined 2026-09-11 with check_contracts' `retiring`, pending's mirror
-		// for a member the authority dropped while a consumer still carries
-		// it). Without the controls the failure
-		// loop could be satisfied by a checker that simply fails everything —
-		// including a pending entry whose grounds genuinely still hold, which is
-		// a legitimate deferral. A gate that cannot fail is a gate that is not
-		// there.
-		//
-		// THE FIXTURES TOUCH NO NETWORK, by the fixture manifest's own design,
-		// which is what lets the detection proof stand while the door is down.
-		//
-		// THE DOOR IS PROBED BEFORE THE LIVE CHECK, and the probe target is READ
-		// OUT OF THE MANIFEST rather than named — the same lesson as the canary
-		// above. check_contracts.py raises ContractError on an unreachable copy
-		// and main() returns 1 for it, which is right for a gate whose runner
-		// sat on the same network as the door and wrong for an atom: a copy that
-		// could not be FETCHED is not a copy that DISAGREES, and reporting one
-		// as the other sends a reader to reconcile lists that may be identical.
-		// So an unreachable door is a 2 here and every other answer stays the
-		// checker's own.
-		Script: provisionGuard + diesShape("dies:contracts") + `[ -f tools/check_contracts.py ] || { echo "dies:contracts: CANNOT RUN - tools/check_contracts.py is absent, so there is no checker to run." >&2; exit 2; }
+		},
+		{
+			ID: "dies:contracts", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
+			Desc: "Every copy of every shared closed set agrees — and the checker is proved to detect first.",
+			// THE FIXTURES RUN FIRST AND MUST FAIL. The live check cannot prove the
+			// checker DETECTS anything while it is green, so nine fixtures must be
+			// caught and four controls must pass (the retiring pair and its control
+			// joined 2026-09-11 with check_contracts' `retiring`, pending's mirror
+			// for a member the authority dropped while a consumer still carries
+			// it). Without the controls the failure
+			// loop could be satisfied by a checker that simply fails everything —
+			// including a pending entry whose grounds genuinely still hold, which is
+			// a legitimate deferral. A gate that cannot fail is a gate that is not
+			// there.
+			//
+			// THE FIXTURES TOUCH NO NETWORK, by the fixture manifest's own design,
+			// which is what lets the detection proof stand while the door is down.
+			//
+			// THE DOOR IS PROBED BEFORE THE LIVE CHECK, and the probe target is READ
+			// OUT OF THE MANIFEST rather than named — the same lesson as the canary
+			// above. check_contracts.py raises ContractError on an unreachable copy
+			// and main() returns 1 for it, which is right for a gate whose runner
+			// sat on the same network as the door and wrong for an atom: a copy that
+			// could not be FETCHED is not a copy that DISAGREES, and reporting one
+			// as the other sends a reader to reconcile lists that may be identical.
+			// So an unreachable door is a 2 here and every other answer stays the
+			// checker's own.
+			Script: provisionGuard + diesShape("dies:contracts") + `[ -f tools/check_contracts.py ] || { echo "dies:contracts: CANNOT RUN - tools/check_contracts.py is absent, so there is no checker to run." >&2; exit 2; }
 [ -f tests/contracts/fixtures.toml ] || { echo "dies:contracts: CANNOT RUN - tests/contracts/fixtures.toml is absent, and a gate that cannot prove it detects is a gate that is not there." >&2; exit 2; }
 [ -f contracts/contracts.toml ] || { echo "dies:contracts: CANNOT RUN - contracts/contracts.toml is absent, so there is no live manifest to check." >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "dies:contracts: CANNOT RUN - python3 is not on PATH in this lane image." >&2; exit 2; }
@@ -1137,60 +1171,60 @@ if [ "$probe_rc" -ne 0 ]; then
 fi
 runpy tools/check_contracts.py || exit 1
 echo "dies:contracts: the fixtures prove the gate detects, and every copy of every shared closed set agrees"`,
-	},
-	{
-		ID: "fleet:witness", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet, NeedsStocks: true,
-		Desc: "Every changed .py/.go file is shown to the code witness (narcissus): a canonical-class or Standard match is a finding, a Convention is advisory, novel is clean.",
-		// THE PRE-GATE SOCKET, BACK AS AN ATOM. Born as a Tekton Task beside the
-		// gate (The Thesis Project F8) that reached narcissus through hades over
-		// mTLS with an identity minted for that Task alone; Tekton left on
-		// 2026-09-09 and the socket went with it. The identity was that
-		// pipeline's contrivance, not the witness's requirement: narcissus's
-		// plaintext MCP port answers any in-cluster caller, MEASURED 2026-09-10
-		// from inside a container on the fleet's dagger engine. So the atom
-		// speaks to narcissus directly and needs nothing the other atoms lack.
-		//
-		// THE SCRIPT LIVES IN foundry-stocks (ci/lib/gate/witness.py, tested
-		// offline by witness.test.sh) and is READ AT ITS ONE HOME through the
-		// /stocks mount — the same rule the permit script follows. This body
-		// only provisions and points: python3, git (worktreeRepo), the script.
-		//
-		// WHAT IT NEEDS THAT OTHER ATOMS DO NOT: the change set. GATE_BASE is
-		// the pull's merge base, handed in by Verdicts' `base` argument (the
-		// door passes CA_GATE_BASE); empty means the tip against its parent,
-		// which is also what a local run gets. And the in-cluster port: a dev
-		// box that cannot reach narcissus lands on 2, could-not-consult, and
-		// says so — never a pass.
-		Script: provisionGuard + worktreeRepo + `guard python3 --version
+		},
+		{
+			ID: "fleet:witness", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet, NeedsStocks: true,
+			Desc: "Every changed .py/.go file is shown to the code witness (narcissus): a canonical-class or Standard match is a finding, a Convention is advisory, novel is clean.",
+			// THE PRE-GATE SOCKET, BACK AS AN ATOM. Born as a Tekton Task beside the
+			// gate (The Thesis Project F8) that reached narcissus through hades over
+			// mTLS with an identity minted for that Task alone; Tekton left on
+			// 2026-09-09 and the socket went with it. The identity was that
+			// pipeline's contrivance, not the witness's requirement: narcissus's
+			// plaintext MCP port answers any in-cluster caller, MEASURED 2026-09-10
+			// from inside a container on the fleet's dagger engine. So the atom
+			// speaks to narcissus directly and needs nothing the other atoms lack.
+			//
+			// THE SCRIPT LIVES IN foundry-stocks (ci/lib/gate/witness.py, tested
+			// offline by witness.test.sh) and is READ AT ITS ONE HOME through the
+			// /stocks mount — the same rule the permit script follows. This body
+			// only provisions and points: python3, git (worktreeRepo), the script.
+			//
+			// WHAT IT NEEDS THAT OTHER ATOMS DO NOT: the change set. GATE_BASE is
+			// the pull's merge base, handed in by Verdicts' `base` argument (the
+			// door passes CA_GATE_BASE); empty means the tip against its parent,
+			// which is also what a local run gets. And the in-cluster port: a dev
+			// box that cannot reach narcissus lands on 2, could-not-consult, and
+			// says so — never a pass.
+			Script: provisionGuard + worktreeRepo + `guard python3 --version
 [ -f /stocks/ci/lib/gate/witness.py ] || { echo "fleet:witness: CANNOT RUN - /stocks/ci/lib/gate/witness.py is absent; foundry-stocks did not mount at its one home." >&2; exit 2; }
 export WITNESS_DIR=/tmp/witness
 python3 /stocks/ci/lib/gate/witness.py; rc=$?
 [ -f /tmp/witness/reason ] && cat /tmp/witness/reason
 exit $rc`,
-	},
-	{
-		ID: "dies:schema", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
-		Desc: "The slag schema is a valid Draft 2020-12 document and every v2 record satisfies it.",
-		// TWO ASSERTIONS ABOUT THE SCHEMA, and the second is the one
-		// check_schema does not make. `required` naming a property that is not
-		// DEFINED is legal to the metaschema and, under additionalProperties
-		// false, makes the schema reject EVERY document — so pour would refuse
-		// every well-formed melt, and the failure would surface at a pour rather
-		// than here.
-		//
-		// AND THE v2 RECORDS ARE VALIDATED, which v1's never were: nothing in CI
-		// ever checked a slag record against the schema, so the schema drifted
-		// silently. The filename and meta.name rules ride along because a record
-		// named anything other than <name>.slag beside its own directory is one
-		// the loader will not find.
-		//
-		// jsonschema COMES THROUGH uv, NOT pip. The workflow's `python3 -m pip
-		// install` assumed the act image's interpreter; the lane images are
-		// uv-managed, where that install is refused outright as an
-		// externally-managed environment. The provision is PROBED before the
-		// gate runs, so a resolver that could not reach an index is a 2 rather
-		// than a schema finding nobody made.
-		Script: provisionGuard + diesShape("dies:schema") + `[ -f schema/slag.schema.json ] || { echo "dies:schema: CANNOT RUN - schema/slag.schema.json is absent, so there is no payload to validate." >&2; exit 2; }
+		},
+		{
+			ID: "dies:schema", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
+			Desc: "The slag schema is a valid Draft 2020-12 document and every v2 record satisfies it.",
+			// TWO ASSERTIONS ABOUT THE SCHEMA, and the second is the one
+			// check_schema does not make. `required` naming a property that is not
+			// DEFINED is legal to the metaschema and, under additionalProperties
+			// false, makes the schema reject EVERY document — so pour would refuse
+			// every well-formed melt, and the failure would surface at a pour rather
+			// than here.
+			//
+			// AND THE v2 RECORDS ARE VALIDATED, which v1's never were: nothing in CI
+			// ever checked a slag record against the schema, so the schema drifted
+			// silently. The filename and meta.name rules ride along because a record
+			// named anything other than <name>.slag beside its own directory is one
+			// the loader will not find.
+			//
+			// jsonschema COMES THROUGH uv, NOT pip. The workflow's `python3 -m pip
+			// install` assumed the act image's interpreter; the lane images are
+			// uv-managed, where that install is refused outright as an
+			// externally-managed environment. The provision is PROBED before the
+			// gate runs, so a resolver that could not reach an index is a 2 rather
+			// than a schema finding nobody made.
+			Script: provisionGuard + diesShape("dies:schema") + `[ -f schema/slag.schema.json ] || { echo "dies:schema: CANNOT RUN - schema/slag.schema.json is absent, so there is no payload to validate." >&2; exit 2; }
 [ -f schema/slag-v2.schema.json ] || { echo "dies:schema: CANNOT RUN - schema/slag-v2.schema.json is absent, so the v2 records cannot be discriminated." >&2; exit 2; }
 guard uv --version
 uv run --no-project --quiet --with 'jsonschema>=4.20' python3 -c 'import jsonschema' >/dev/null 2>&1 || { echo "dies:schema: CANNOT RUN - jsonschema could not be provisioned. Refusing to report a validated schema that was never validated." >&2; exit 2; }
@@ -1232,73 +1266,73 @@ if bad:
 PYSCHEMA
 uv run --no-project --quiet --with 'jsonschema>=4.20' python3 /tmp/dies-schema.py || exit 1
 echo "dies:schema: the payload is a valid, satisfiable schema and every v2 record conforms"`,
-	},
+		},
 
-	// ---- sweep: repo cadence. NEVER IN A PULL'S PATH ----
-	//
-	// These describe a REPOSITORY rather than a change, so their answer cannot
-	// differ between two pulls against the same repo — and running them per
-	// pull leaves every repository nobody opened a PR against unevaluated
-	// indefinitely. That is the whole of CA F9: the digest rots while the tree
-	// sits still, so the probe has to be a clock, not a diff
-	// (foundry-stocks/ci/lib/digest-pins.sh says exactly that in its own
-	// header, and nothing had ever dispatched it).
-	//
-	// The absence is the acceptance: no atom below may appear in a pull's
-	// path. PullPathAtoms is what makes that structural rather than a
-	// convention, and TestNoSweepAtomOnThePullPath asserts it.
-	// ---- mutation ----
-	//
-	// ONE SHAPE, FOUR LANGUAGES. Each atom runs the canonical script at its one
-	// home (/stocks/ci/lib/mutation/<lang>.sh) phase by phase, in DIFF mode
-	// against GATE_BASE — the pull's merge base as the door names it — and
-	// exits with the verdict the score phase wrote: 0 clean, 1 survivors, 2
-	// could not measure. The phases themselves never exit non-zero (reaching a
-	// verdict is the score phase's job), so a phase that does is a broken
-	// script, said as CANNOT RUN.
-	//
-	// THE HISTORY IS THERE IN THE LANE THAT MATTERS. The mutation Job clones the
-	// repository whole and checks the head out, so `git cat-file -e <base>`
-	// answers and the diff is real. A local pre-push run hands the engine a
-	// linked worktree, which worktreeRepo turns into a throwaway repository
-	// with no history: the resolve phase then stands down 0 with "no usable PR
-	// base sha", printed, and the door's Job is the one that measures.
-	//
-	// critical_modules IS THE REPO'S DECLARATION for python, rust and ts, read
-	// off .copier-answers.yml where the template question puts it — the same
-	// string the retired mutation.yml rendered into its `modules` input. Blank
-	// means the repo opted out (the template's own help text says so), which is
-	// ABSENT, not a finding. Go needs none: gremlins scopes to the diff itself,
-	// exactly as mutation-go did.
-	//
-	// A REPO HAS NO SAY. The first cut of these atoms sourced a repo-root
-	// ci/mutation.env — MUT_* knobs standing in for the retired workflow's
-	// inputs — and Rob asked why a repo should have a say in anything
-	// (2026-09-11). It should not: the scripts honour MUT_GATE=false, so that
-	// file was a one-line switch to turn a fleet gate off, the exact shape
-	// stop-justifications exists to refuse (Rule #2: one canonical gate,
-	// always the latest, a red is the committer's to fix). It is gone. The
-	// one repo fact the lane reads is critical_modules, in the answers file
-	// the template question put it in — a declaration of WHAT matters, not a
-	// dial on HOW hard to look. Everything else is the fleet's default, here.
-	//
-	// GENERATED GO IS EXCLUDED BY DEFAULT, FLEET-WIDE, NOT PER REPO. MEASURED on this stage's first live
-	// run (2026-09-11, foundry-tools' own diff): of 14 survivors, one was in
-	// dagger.gen.go — dagger's codegen, which no test of ours covers and none
-	// should. The retired mutation-go.yml carried the same exclusion per repo;
-	// here it is the go atom's default, and it is the same for every repo.
-	{
-		// NeedsDies FOR THE SAME REASON go:test-race CARRIES IT: gremlins
-		// gathers coverage by running `go test`, and hephaestus's internal/slag
-		// goldens are armed on CI=true — in a container with no /dies they
-		// refuse (FATAL, exit 1), gremlins' coverage run dies, and the lane
-		// answers could-not-run on every hephaestus pull. MEASURED 2026-09-11,
-		// hephaestus #53: "failed to gather coverage: impossible to
-		// executeCoverage coverage: exit status 1". Any atom that runs a
-		// repo's `go test` runs its armed goldens, and needs the tree they read.
-		ID: "go:mutation", Stage: StageMutation, Lane: LaneGo, Image: imageGo, NeedsStocks: true, NeedsDies: true,
-		Desc: "Every mutant gremlins makes of this pull's changed Go is killed by the tests.",
-		Script: provisionGuard + worktreeRepo + `guard bash --version
+		// ---- sweep: repo cadence. NEVER IN A PULL'S PATH ----
+		//
+		// These describe a REPOSITORY rather than a change, so their answer cannot
+		// differ between two pulls against the same repo — and running them per
+		// pull leaves every repository nobody opened a PR against unevaluated
+		// indefinitely. That is the whole of CA F9: the digest rots while the tree
+		// sits still, so the probe has to be a clock, not a diff
+		// (foundry-stocks/ci/lib/digest-pins.sh says exactly that in its own
+		// header, and nothing had ever dispatched it).
+		//
+		// The absence is the acceptance: no atom below may appear in a pull's
+		// path. PullPathAtoms is what makes that structural rather than a
+		// convention, and TestNoSweepAtomOnThePullPath asserts it.
+		// ---- mutation ----
+		//
+		// ONE SHAPE, FOUR LANGUAGES. Each atom runs the canonical script at its one
+		// home (/stocks/ci/lib/mutation/<lang>.sh) phase by phase, in DIFF mode
+		// against GATE_BASE — the pull's merge base as the door names it — and
+		// exits with the verdict the score phase wrote: 0 clean, 1 survivors, 2
+		// could not measure. The phases themselves never exit non-zero (reaching a
+		// verdict is the score phase's job), so a phase that does is a broken
+		// script, said as CANNOT RUN.
+		//
+		// THE HISTORY IS THERE IN THE LANE THAT MATTERS. The mutation Job clones the
+		// repository whole and checks the head out, so `git cat-file -e <base>`
+		// answers and the diff is real. A local pre-push run hands the engine a
+		// linked worktree, which worktreeRepo turns into a throwaway repository
+		// with no history: the resolve phase then stands down 0 with "no usable PR
+		// base sha", printed, and the door's Job is the one that measures.
+		//
+		// critical_modules IS THE REPO'S DECLARATION for python, rust and ts, read
+		// off .copier-answers.yml where the template question puts it — the same
+		// string the retired mutation.yml rendered into its `modules` input. Blank
+		// means the repo opted out (the template's own help text says so), which is
+		// ABSENT, not a finding. Go needs none: gremlins scopes to the diff itself,
+		// exactly as mutation-go did.
+		//
+		// A REPO HAS NO SAY. The first cut of these atoms sourced a repo-root
+		// ci/mutation.env — MUT_* knobs standing in for the retired workflow's
+		// inputs — and Rob asked why a repo should have a say in anything
+		// (2026-09-11). It should not: the scripts honour MUT_GATE=false, so that
+		// file was a one-line switch to turn a fleet gate off, the exact shape
+		// stop-justifications exists to refuse (Rule #2: one canonical gate,
+		// always the latest, a red is the committer's to fix). It is gone. The
+		// one repo fact the lane reads is critical_modules, in the answers file
+		// the template question put it in — a declaration of WHAT matters, not a
+		// dial on HOW hard to look. Everything else is the fleet's default, here.
+		//
+		// GENERATED GO IS EXCLUDED BY DEFAULT, FLEET-WIDE, NOT PER REPO. MEASURED on this stage's first live
+		// run (2026-09-11, foundry-tools' own diff): of 14 survivors, one was in
+		// dagger.gen.go — dagger's codegen, which no test of ours covers and none
+		// should. The retired mutation-go.yml carried the same exclusion per repo;
+		// here it is the go atom's default, and it is the same for every repo.
+		{
+			// NeedsDies FOR THE SAME REASON go:test-race CARRIES IT: gremlins
+			// gathers coverage by running `go test`, and hephaestus's internal/slag
+			// goldens are armed on CI=true — in a container with no /dies they
+			// refuse (FATAL, exit 1), gremlins' coverage run dies, and the lane
+			// answers could-not-run on every hephaestus pull. MEASURED 2026-09-11,
+			// hephaestus #53: "failed to gather coverage: impossible to
+			// executeCoverage coverage: exit status 1". Any atom that runs a
+			// repo's `go test` runs its armed goldens, and needs the tree they read.
+			ID: "go:mutation", Stage: StageMutation, Lane: LaneGo, Image: imageGo, NeedsStocks: true, NeedsDies: true,
+			Desc: "Every mutant gremlins makes of this pull's changed Go is killed by the tests.",
+			Script: provisionGuard + worktreeRepo + `guard bash --version
 [ -f /stocks/ci/lib/mutation/go.sh ] || { echo "go:mutation: CANNOT RUN - /stocks/ci/lib/mutation/go.sh is absent; foundry-stocks did not mount at its one home." >&2; exit 2; }
 export MUT_DIR=/tmp/mutation MUT_MODE=diff MUT_BASE="${GATE_BASE:-}" MUT_EXCLUDE='^vendor/|(^|/)dagger\.gen\.go$|\.pb\.go$|(^|/)zz_generated'
 for phase in resolve setup cover mutate teardown score; do
@@ -1308,15 +1342,15 @@ v="$(cat /tmp/mutation/verdict 2>/dev/null)"
 [ -n "$v" ] || { echo "go:mutation: CANNOT RUN - the score phase wrote no verdict" >&2; exit 2; }
 echo "go:mutation: $(cat /tmp/mutation/reason 2>/dev/null)"
 exit "$v"`,
-	},
-	{
-		ID: "python:mutation", Stage: StageMutation, Lane: LanePython, Image: imagePython, NeedsStocks: true,
-		Desc: "Every mutant cosmic-ray makes of this pull's changes to the declared critical modules is killed by the tests.",
-		Script: provisionGuard + worktreeRepo + `guard bash --version
+		},
+		{
+			ID: "python:mutation", Stage: StageMutation, Lane: LanePython, Image: imagePython, NeedsStocks: true,
+			Desc: "Every mutant cosmic-ray makes of this pull's changes to the declared critical modules is killed by the tests.",
+			Script: provisionGuard + worktreeRepo + `guard bash --version
 guard uv --version
 [ -f /stocks/ci/lib/mutation/python.sh ] || { echo "python:mutation: CANNOT RUN - /stocks/ci/lib/mutation/python.sh is absent; foundry-stocks did not mount at its one home." >&2; exit 2; }
 MODS="$(sed -n 's/^critical_modules:[[:space:]]*//p' .copier-answers.yml 2>/dev/null | head -1 | sed -e "s/^['\"]//" -e "s/['\"]$//")"
-[ -n "$(printf '%s' "$MODS" | tr -d ' ')" ] || { echo "python:mutation: ABSENT - no critical_modules declared in .copier-answers.yml; this repository opted out of the mutation gate"; exit 0; }
+[ -n "$(printf '%s' "$MODS" | tr -d ' ')" ] && echo "python:mutation: scoped to the declared critical modules: $MODS" || echo "python:mutation: no critical modules declared - the whole diff is the scope; an empty list is not an opt-out"
 export MUT_DIR=/tmp/mutation MUT_MODE=diff MUT_BASE="${GATE_BASE:-}" MUT_MODULES="$MODS"
 for phase in resolve sync config init scope exec score; do
   bash /stocks/ci/lib/mutation/python.sh "$phase" || { echo "python:mutation: CANNOT RUN - phase $phase exited non-zero; the phases never do on their own" >&2; exit 2; }
@@ -1325,15 +1359,15 @@ v="$(cat /tmp/mutation/verdict 2>/dev/null)"
 [ -n "$v" ] || { echo "python:mutation: CANNOT RUN - the score phase wrote no verdict" >&2; exit 2; }
 echo "python:mutation: $(cat /tmp/mutation/reason 2>/dev/null)"
 exit "$v"`,
-	},
-	{
-		ID: "rust:mutation", Stage: StageMutation, Lane: LaneRust, Image: imageRust, NeedsStocks: true,
-		Desc: "Every viable mutant cargo-mutants makes of this pull's changes to the declared critical modules is killed by the tests.",
-		Script: provisionGuard + worktreeRepo + `guard bash --version
+		},
+		{
+			ID: "rust:mutation", Stage: StageMutation, Lane: LaneRust, Image: imageRust, NeedsStocks: true,
+			Desc: "Every viable mutant cargo-mutants makes of this pull's changes to the declared critical modules is killed by the tests.",
+			Script: provisionGuard + worktreeRepo + `guard bash --version
 guard cargo mutants --version
 [ -f /stocks/ci/lib/mutation/rust.sh ] || { echo "rust:mutation: CANNOT RUN - /stocks/ci/lib/mutation/rust.sh is absent; foundry-stocks did not mount at its one home." >&2; exit 2; }
 MODS="$(sed -n 's/^critical_modules:[[:space:]]*//p' .copier-answers.yml 2>/dev/null | head -1 | sed -e "s/^['\"]//" -e "s/['\"]$//")"
-[ -n "$(printf '%s' "$MODS" | tr -d ' ')" ] || { echo "rust:mutation: ABSENT - no critical_modules declared in .copier-answers.yml; this repository opted out of the mutation gate"; exit 0; }
+[ -n "$(printf '%s' "$MODS" | tr -d ' ')" ] && echo "rust:mutation: scoped to the declared critical modules: $MODS" || echo "rust:mutation: no critical modules declared - the whole diff is the scope; an empty list is not an opt-out"
 export MUT_DIR=/tmp/mutation MUT_MODE=diff MUT_BASE="${GATE_BASE:-}" MUT_MODULES="$MODS"
 for phase in resolve mutate score; do
   bash /stocks/ci/lib/mutation/rust.sh "$phase" || { echo "rust:mutation: CANNOT RUN - phase $phase exited non-zero; the phases never do on their own" >&2; exit 2; }
@@ -1342,15 +1376,15 @@ v="$(cat /tmp/mutation/verdict 2>/dev/null)"
 [ -n "$v" ] || { echo "rust:mutation: CANNOT RUN - the score phase wrote no verdict" >&2; exit 2; }
 echo "rust:mutation: $(cat /tmp/mutation/reason 2>/dev/null)"
 exit "$v"`,
-	},
-	{
-		ID: "ts:mutation", Stage: StageMutation, Lane: LaneTS, Image: imageTS, NeedsStocks: true,
-		Desc: "Every mutant StrykerJS makes of this pull's changes to the declared critical modules is killed by the tests.",
-		Script: provisionGuard + worktreeRepo + `guard bash --version
+		},
+		{
+			ID: "ts:mutation", Stage: StageMutation, Lane: LaneTS, Image: imageTS, NeedsStocks: true,
+			Desc: "Every mutant StrykerJS makes of this pull's changes to the declared critical modules is killed by the tests.",
+			Script: provisionGuard + worktreeRepo + `guard bash --version
 guard bun --version
 [ -f /stocks/ci/lib/mutation/ts.sh ] || { echo "ts:mutation: CANNOT RUN - /stocks/ci/lib/mutation/ts.sh is absent; foundry-stocks did not mount at its one home." >&2; exit 2; }
 MODS="$(sed -n 's/^critical_modules:[[:space:]]*//p' .copier-answers.yml 2>/dev/null | head -1 | sed -e "s/^['\"]//" -e "s/['\"]$//")"
-[ -n "$(printf '%s' "$MODS" | tr -d ' ')" ] || { echo "ts:mutation: ABSENT - no critical_modules declared in .copier-answers.yml; this repository opted out of the mutation gate"; exit 0; }
+[ -n "$(printf '%s' "$MODS" | tr -d ' ')" ] && echo "ts:mutation: scoped to the declared critical modules: $MODS" || echo "ts:mutation: no critical modules declared - the whole diff is the scope; an empty list is not an opt-out"
 export MUT_DIR=/tmp/mutation MUT_MODE=diff MUT_BASE="${GATE_BASE:-}" MUT_MODULES="$MODS"
 for phase in resolve install build mutate score; do
   bash /stocks/ci/lib/mutation/ts.sh "$phase" || { echo "ts:mutation: CANNOT RUN - phase $phase exited non-zero; the phases never do on their own" >&2; exit 2; }
@@ -1359,30 +1393,30 @@ v="$(cat /tmp/mutation/verdict 2>/dev/null)"
 [ -n "$v" ] || { echo "ts:mutation: CANNOT RUN - the score phase wrote no verdict" >&2; exit 2; }
 echo "ts:mutation: $(cat /tmp/mutation/reason 2>/dev/null)"
 exit "$v"`,
-	},
-	{
-		ID: "sweep:digest-pins", Stage: StageSweep, Lane: LaneAny, Image: imageFleet,
-		Desc: "Every image digest this repo's workflows pin still resolves in the registry.",
-		// The canonical script, READ AT ITS ONE HOME. It already carries the
-		// three states this module requires — 0 every pin resolves, 1 a pin is
-		// BROKEN, 2 no pins found at all ("the scan is broken, not the tree
-		// clean") — which is why this atom wraps it instead of reimplementing
-		// it. Twice in five days a collected digest took out the same five
-		// stars, and both times a human found it by noticing a red landing.
-		//
-		// THE SURFACE PROBE IS THE ATOM'S OWN, and it is what the script
-		// cannot do for itself. The script was written for foundry-stocks,
-		// where cast.yml carries several pins, so it is right to call zero
-		// pins a broken scan THERE. Dispatched over all 86 repos in custody it
-		// is wrong on most of them: a star calls the reusable workflow and the
-		// pin lives in the callee's tree. Measured on
-		// ca-sweep-manual-1788973171 (2026-09-09), that turned 57 of 86 repos
-		// into cannot-run and buried the run's one real finding. So the atom
-		// asks first whether there is a pin surface at all
-		// (checks.PinSurfacePattern): no surface is ABSENT, and a surface the
-		// extractor could not read stays a CANNOT RUN — now saying which of
-		// the two it is, because a check that could not run must also say why.
-		Script: provisionGuard + `test -d .forgejo/workflows || { echo "sweep:digest-pins: ABSENT - no .forgejo/workflows in this tree, so nothing here pins a digest."; exit 0; }
+		},
+		{
+			ID: "sweep:digest-pins", Stage: StageSweep, Lane: LaneAny, Image: imageFleet,
+			Desc: "Every image digest this repo's workflows pin still resolves in the registry.",
+			// The canonical script, READ AT ITS ONE HOME. It already carries the
+			// three states this module requires — 0 every pin resolves, 1 a pin is
+			// BROKEN, 2 no pins found at all ("the scan is broken, not the tree
+			// clean") — which is why this atom wraps it instead of reimplementing
+			// it. Twice in five days a collected digest took out the same five
+			// stars, and both times a human found it by noticing a red landing.
+			//
+			// THE SURFACE PROBE IS THE ATOM'S OWN, and it is what the script
+			// cannot do for itself. The script was written for foundry-stocks,
+			// where cast.yml carries several pins, so it is right to call zero
+			// pins a broken scan THERE. Dispatched over all 86 repos in custody it
+			// is wrong on most of them: a star calls the reusable workflow and the
+			// pin lives in the callee's tree. Measured on
+			// ca-sweep-manual-1788973171 (2026-09-09), that turned 57 of 86 repos
+			// into cannot-run and buried the run's one real finding. So the atom
+			// asks first whether there is a pin surface at all
+			// (checks.PinSurfacePattern): no surface is ABSENT, and a surface the
+			// extractor could not read stays a CANNOT RUN — now saying which of
+			// the two it is, because a check that could not run must also say why.
+			Script: provisionGuard + `test -d .forgejo/workflows || { echo "sweep:digest-pins: ABSENT - no .forgejo/workflows in this tree, so nothing here pins a digest."; exit 0; }
 grep -rqE '` + PinSurfacePattern + `' .forgejo/workflows || { echo "sweep:digest-pins: ABSENT - .forgejo/workflows carries no digest reference at all, so this repo's pin population is EMPTY rather than unscanned. It calls the reusable workflows and the image pin lives in the callee's tree."; exit 0; }
 test -f /stocks/ci/lib/digest-pins.sh || { echo "sweep:digest-pins: CANNOT RUN - the canonical script is not reachable through the door." >&2; exit 2; }
 if ! command -v oras >/dev/null 2>&1; then
@@ -1405,27 +1439,27 @@ if [ "$code" -eq 2 ]; then
   echo "sweep:digest-pins: CANNOT RUN - this tree DOES carry a digest reference (it matches ` + PinSurfacePattern + `) and the canonical extractor still returned none, so the SCAN is broken rather than the tree unpinned. Compare digest_pins() in foundry-stocks/ci/lib/digest-pins.sh against the pin forms under .forgejo/workflows." >&2
 fi
 exit $code`,
-		NeedsStocks: true,
-	},
-	{
-		ID: "sweep:portfolio-sbom", Stage: StageSweep, Lane: LaneAny, Image: imageFleet,
-		Desc: "A repository that builds an image builds it through the workflow that attests its SBOM.",
-		// THIS DOES NOT RE-RUN THE PORTFOLIO SCAN, and that is deliberate. The
-		// scan is fleet-wide, already scheduled, and stays exactly where it
-		// is: CronJob portfolio-weekly (infra, ci-foundry, Mondays 07:00 UTC)
-		// drives ci-portfolio-pipeline, which re-scores the SBOM attestations
-		// the registry already holds. A per-repo copy would be a second
-		// surface free to disagree with the first — the drift this module
-		// exists to delete.
-		//
-		// What it closes is the hole that scan structurally cannot see. The
-		// re-score reads ATTESTATIONS; a repo whose image is never attested
-		// contributes nothing to read, so it scores clean by being invisible,
-		// forever, and no pull will ever say so. That is CA F9's own value
-		// statement — "repos nobody has opened a PR against stop being
-		// invisible" — asked at the one place where the answer is a fact about
-		// the tree rather than a fact about the database.
-		Script: `test -f Dockerfile || { echo "sweep:portfolio-sbom: ABSENT - no Dockerfile at the repository root. The portfolio re-scores image SBOMs, and this repo builds no image."; exit 0; }
+			NeedsStocks: true,
+		},
+		{
+			ID: "sweep:portfolio-sbom", Stage: StageSweep, Lane: LaneAny, Image: imageFleet,
+			Desc: "A repository that builds an image builds it through the workflow that attests its SBOM.",
+			// THIS DOES NOT RE-RUN THE PORTFOLIO SCAN, and that is deliberate. The
+			// scan is fleet-wide, already scheduled, and stays exactly where it
+			// is: CronJob portfolio-weekly (infra, ci-foundry, Mondays 07:00 UTC)
+			// drives ci-portfolio-pipeline, which re-scores the SBOM attestations
+			// the registry already holds. A per-repo copy would be a second
+			// surface free to disagree with the first — the drift this module
+			// exists to delete.
+			//
+			// What it closes is the hole that scan structurally cannot see. The
+			// re-score reads ATTESTATIONS; a repo whose image is never attested
+			// contributes nothing to read, so it scores clean by being invisible,
+			// forever, and no pull will ever say so. That is CA F9's own value
+			// statement — "repos nobody has opened a PR against stop being
+			// invisible" — asked at the one place where the answer is a fact about
+			// the tree rather than a fact about the database.
+			Script: `test -f Dockerfile || { echo "sweep:portfolio-sbom: ABSENT - no Dockerfile at the repository root. The portfolio re-scores image SBOMs, and this repo builds no image."; exit 0; }
 test -d .forgejo/workflows || { echo "sweep:portfolio-sbom: CANNOT RUN - a Dockerfile and no workflow tree. Nothing here says whether the image is ever built, so nothing here can say whether it is attested." >&2; exit 2; }
 if grep -q -r -E "uses:[[:space:]]*foundry/foundry-stocks/\.forgejo/workflows/(build|frontend-build|bake-blade)\.yml@" .forgejo/workflows; then
   echo "sweep:portfolio-sbom: the image is built through the attesting workflow, so the weekly re-score can see this repo."; exit 0
@@ -1433,31 +1467,31 @@ fi
 echo "sweep:portfolio-sbom: this repo has a Dockerfile but no workflow calling foundry-stocks build.yml (or frontend-build.yml / bake-blade.yml)." >&2
 echo "The weekly portfolio re-score reads cosign SBOM attestations out of the registry. An image nobody attests contributes no SBOM, so it is not scored badly - it is not scored at all, and the digest reports clean because it never looked." >&2
 exit 1`,
-	},
-	{
-		ID: "sweep:template-render-matrix", Stage: StageSweep, Lane: LaneAny, Image: imageFleet,
-		Desc: "Every case in this template's ci-matrix.toml still renders.",
-		// A template bug does not break the template. It propagates into every
-		// repo stamped afterward and surfaces later, in someone else's repo,
-		// where the cause is expensive to trace — which is exactly why this is
-		// a cadence check and not a pull check: the stamped population keeps
-		// growing while the template tree sits still.
-		Script: provisionGuard + `test -f ci-matrix.toml || { echo "sweep:template-render-matrix: ABSENT - no ci-matrix.toml at the repository root, so this repo declares no render matrix."; exit 0; }
+		},
+		{
+			ID: "sweep:template-render-matrix", Stage: StageSweep, Lane: LaneAny, Image: imageFleet,
+			Desc: "Every case in this template's ci-matrix.toml still renders.",
+			// A template bug does not break the template. It propagates into every
+			// repo stamped afterward and surfaces later, in someone else's repo,
+			// where the cause is expensive to trace — which is exactly why this is
+			// a cadence check and not a pull check: the stamped population keeps
+			// growing while the template tree sits still.
+			Script: provisionGuard + `test -f ci-matrix.toml || { echo "sweep:template-render-matrix: ABSENT - no ci-matrix.toml at the repository root, so this repo declares no render matrix."; exit 0; }
 test -f /stocks/ci/lib/template_render_matrix.py || { echo "sweep:template-render-matrix: CANNOT RUN - the canonical gate is not reachable through the door." >&2; exit 2; }
 test -d .git || { echo "sweep:template-render-matrix: CANNOT RUN - no .git in the tree under check. The matrix renders the template AT ITS GIT HEAD (--vcs-ref=HEAD is load-bearing, foundry#130); without a repository copier resolves some other tree, and a green from that would be a green about something else." >&2; exit 2; }
 guard uvx --version
 python3 /stocks/ci/lib/template_render_matrix.py --template .`,
-		NeedsStocks: true,
-	},
-	{
-		ID: "sweep:kubeconform", Stage: StageSweep, Lane: LaneAny, Image: imageKubeconform,
-		Desc: "Every manifest under flux/ validates against its Kubernetes schema.",
-		// The zero-scan refusal in this atom's dialect. kubeconform reports
-		// `skipped` both for a CRD genuinely absent from the catalogue and for
-		// a catalogue it could not reach, and the second of those is a CANNOT
-		// RUN — so the catalogue is PROBED before the scan, and a scan that
-		// validated nothing at all is a 2 rather than a green.
-		Script: `test -d flux || { echo "sweep:kubeconform: ABSENT - no flux/ tree at the repository root."; exit 0; }
+			NeedsStocks: true,
+		},
+		{
+			ID: "sweep:kubeconform", Stage: StageSweep, Lane: LaneAny, Image: imageKubeconform,
+			Desc: "Every manifest under flux/ validates against its Kubernetes schema.",
+			// The zero-scan refusal in this atom's dialect. kubeconform reports
+			// `skipped` both for a CRD genuinely absent from the catalogue and for
+			// a catalogue it could not reach, and the second of those is a CANNOT
+			// RUN — so the catalogue is PROBED before the scan, and a scan that
+			// validated nothing at all is a 2 rather than a green.
+			Script: `test -d flux || { echo "sweep:kubeconform: ABSENT - no flux/ tree at the repository root."; exit 0; }
 wget -q -O /dev/null "$CRD_SCHEMA_PROBE" || { echo "sweep:kubeconform: CANNOT RUN - the CRD schema catalogue is unreachable. Every custom resource would then report as skipped, which is indistinguishable from a clean validation and is not one." >&2; exit 2; }
 /kubeconform -ignore-missing-schemas -ignore-filename-pattern "\.json$" -schema-location default -schema-location "$CRD_SCHEMA_LOCATION" -summary -n 8 flux/ > /tmp/kc.out 2>/tmp/kc.err
 rc=$?
@@ -1476,16 +1510,16 @@ fi
 printf "%s\n" "$sum"
 if [ "$rc" -ne 0 ]; then grep -v "^Summary:" /tmp/kc.out | head -80; exit 1; fi
 echo "sweep:kubeconform: clean"`,
-	},
-	{
-		ID: "sweep:kube-linter", Stage: StageSweep, Lane: LaneAny, Image: imageKubeLinter,
-		Desc: "Every workload under flux/ passes kube-linter's default checks.",
-		// --fail-if-no-objects-found is kube-linter's own zero-population
-		// refusal, and it exits 1 for it — the same code it uses for findings.
-		// Reading that as findings would be wrong in the direction that still
-		// looks like the check worked, so the message is matched and remapped
-		// to 2.
-		Script: `test -d flux || { echo "sweep:kube-linter: ABSENT - no flux/ tree at the repository root."; exit 0; }
+		},
+		{
+			ID: "sweep:kube-linter", Stage: StageSweep, Lane: LaneAny, Image: imageKubeLinter,
+			Desc: "Every workload under flux/ passes kube-linter's default checks.",
+			// --fail-if-no-objects-found is kube-linter's own zero-population
+			// refusal, and it exits 1 for it — the same code it uses for findings.
+			// Reading that as findings would be wrong in the direction that still
+			// looks like the check worked, so the message is matched and remapped
+			// to 2.
+			Script: `test -d flux || { echo "sweep:kube-linter: ABSENT - no flux/ tree at the repository root."; exit 0; }
 out=$(/kube-linter lint --fail-if-no-objects-found flux/ 2>&1); rc=$?
 if printf "%s" "$out" | grep -q "no valid objects found"; then
   echo "sweep:kube-linter: CANNOT RUN - kube-linter parsed no object under flux/. That is the same exit code as a finding, and it is not one." >&2
@@ -1495,7 +1529,8 @@ if [ "$rc" -eq 0 ]; then echo "sweep:kube-linter: clean"; exit 0; fi
 printf "%s\n" "$out" | tail -3 >&2
 printf "%s\n" "$out" | head -120
 exit 1`,
-	},
+		},
+	}
 }
 
 // forgeTestkit builds one of the three forge-testkit lint bodies. The three
