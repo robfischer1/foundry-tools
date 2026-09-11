@@ -40,9 +40,12 @@ func TestTheEmptyStageIsThePullPathNotEverything(t *testing.T) {
 	if len(all) == len(Atoms) {
 		t.Fatal("the empty stage selected the whole table — a door asking for the vector would be handed the sweep")
 	}
-	if len(all)+len(SweepAtoms()) != len(Atoms) {
-		t.Fatalf("pull-path %d + sweep %d != %d atoms — some atom belongs to neither",
-			len(all), len(SweepAtoms()), len(Atoms))
+	// Three sets, asked for three ways: the vector by default, the sweep by
+	// name, the mutation stage by name from its own lane. Every atom is in
+	// exactly one of them.
+	if len(all)+len(SweepAtoms())+len(MutationAtoms()) != len(Atoms) {
+		t.Fatalf("pull-path %d + sweep %d + mutation %d != %d atoms — some atom belongs to none of them",
+			len(all), len(SweepAtoms()), len(MutationAtoms()), len(Atoms))
 	}
 	for _, a := range all {
 		if !IsPullPath(a.Stage) {

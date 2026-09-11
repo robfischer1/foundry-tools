@@ -41,3 +41,13 @@ func (t *TSLane) BunGate(ctx context.Context) (string, error) {
 func (t *TSLane) BunAudit(ctx context.Context) (string, error) {
 	return run(ctx, t.Source, "ts:bun-audit")
 }
+
+// This pull's changed critical modules survive no mutant: the mutation gate,
+// diff-scoped against GATE_BASE, run as the door's `mutation` lane beside the
+// gate rather than inside it. Reads critical_modules from .copier-answers.yml
+// and is ABSENT where none are declared.
+//
+// +check
+func (t *TSLane) Mutation(ctx context.Context) (string, error) {
+	return run(ctx, t.Source, "ts:mutation")
+}

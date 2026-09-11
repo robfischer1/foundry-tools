@@ -116,11 +116,12 @@ func (m *FoundryTools) Catalogue(ctx context.Context) (string, error) {
 // instead of being flattened into the run's overall failure.
 func (m *FoundryTools) Verdicts(
 	ctx context.Context,
-	// Only atoms at this stage: precommit, prepush or sweep. EMPTY MEANS EVERY
-	// PULL-PATH STAGE — precommit and prepush — and deliberately NOT sweep: a
-	// door that asks for "the vector" is asking about a pull, and CA F9's
-	// acceptance is that no sweep atom ever appears in one. Ask for the sweep
-	// by name or you do not get it.
+	// Only atoms at this stage: precommit, prepush, sweep or mutation. EMPTY
+	// MEANS EVERY PULL-PATH STAGE — precommit and prepush — and deliberately
+	// NOT sweep: a door that asks for "the vector" is asking about a pull, and
+	// CA F9's acceptance is that no sweep atom ever appears in one. Ask for the
+	// sweep by name or you do not get it. Mutation is asked for by name too —
+	// it blocks the same pull, as its own lane, so the gate's slot stays short.
 	// +optional
 	stage string,
 	// Only these atom ids, comma-separated — e.g.
