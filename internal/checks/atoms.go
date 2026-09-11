@@ -44,6 +44,11 @@ type AtomDef struct {
 	// atom can read the canonical script at its ONE home rather than carry a
 	// vendored second copy.
 	NeedsStocks bool
+	// NeedsDies asks the caller to mount foundry-dies at /dies and name it in
+	// the environment, for the atoms whose subject is the fleet's record tree
+	// rather than the repo under test. A gate lane checks out ONE repository,
+	// so an atom that grades the fleet has no other way to see it.
+	NeedsDies bool
 }
 
 // provisionGuard is the shape every provisioning probe takes: a tool that is
@@ -610,8 +615,17 @@ echo "go:gofmt: clean"`,
 	},
 	{
 		ID: "go:test-race", Stage: StagePrepush, Lane: LaneGo, Image: imageGo,
-		Desc:   "go test -race ./... passes.",
-		Script: `go test -race ./... || exit 1`,
+		Desc: "go test -race ./... passes.",
+		// NeedsDies IS NOT A FACT ABOUT THE GO LANE. hephaestus's internal/slag
+		// goldens grade every record committed in foundry-dies, the lane checks
+		// out one repo, so they resolved nothing and SKIPPED — which `go test`
+		// prints as ok and the gate settles as success. That is #2453, and then
+		// #8118 for the same defect one level up: the fix that replaced the
+		// home-directory constant documented an arming step nobody built.
+		// Mounting the tree here is what lets a repo arm them. A repo with no
+		// such test reads FOUNDRY_DIES and does nothing with it.
+		NeedsDies: true,
+		Script:    `go test -race ./... || exit 1`,
 	},
 	{
 		ID: "go:staticcheck", Stage: StagePrepush, Lane: LaneGo, Image: imageGo,

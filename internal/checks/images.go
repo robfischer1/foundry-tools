@@ -120,6 +120,24 @@ const (
 	StocksRef  = "main"
 )
 
+// DiesRepo / DiesRef pin the fleet's RECORD tree — foundry-dies — for the
+// atoms whose subject is the fleet rather than the repository under test.
+//
+// WHY A MOVING REF AND NOT A SHA. #8118 proposed a committed ref "so the
+// goldens are reproducible rather than reading a mutable working tree", and
+// the mutable working tree is the half that mattered: what they used to
+// resolve was a constant naming ONE DEVELOPER'S HOME DIRECTORY, so what they
+// graded was whatever happened to be on that disk. A door clone is a
+// committed tree either way. Pinning a sha would freeze the population the
+// goldens walk, and these goldens exist to assert that a projection still
+// agrees with EVERY record the fleet CURRENTLY carries — a record added after
+// the pin would be graded by nothing, which is the silent-skip again wearing
+// a version number. Same ref, and the same reasoning, as StocksRef above.
+const (
+	DiesRepo = "https://git.notusmi.com/foundry/foundry-dies.git"
+	DiesRef  = "main"
+)
+
 // The sweep's images. Same rule as the lane images above — one place, so the
 // digest-pins sweep lands on a single block — but these are pinned by DIGEST
 // today rather than by tag, because the two of them are the atoms that judge

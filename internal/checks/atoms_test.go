@@ -182,3 +182,38 @@ func TestDiesAtomsGuardTheirShapeAndPinOpa(t *testing.T) {
 		t.Errorf("dies:contracts reads an unreachable door as divergence rather than as a cannot-run:\n%s", s)
 	}
 }
+
+// THE GO TEST ATOM MOUNTS THE FLEET'S RECORD TREE, and the reason is not
+// visible from the go lane — which is exactly why this test exists.
+//
+// hephaestus's internal/slag goldens grade every record committed in
+// foundry-dies. A gate lane checks out one repository, so before the mount
+// they resolved nothing and SKIPPED, and a skipped test is `ok` to `go test`
+// and a success to the gate: three whole-fleet gates reported green having
+// examined nothing (#2453, and #8118 for the same defect one level up).
+//
+// A future reader sees an unexplained field on a plain `go test -race` row and
+// drops it as dead weight. Dropping it does not break a build, does not red a
+// gate, and silently returns those goldens to reporting success without
+// running — so the guard has to be a test rather than a comment.
+func TestTheGoTestAtomCarriesTheFleetRecordTree(t *testing.T) {
+	if !AtomByID("go:test-race").NeedsDies {
+		t.Error("go:test-race no longer asks for foundry-dies. hephaestus's " +
+			"internal/slag goldens are its reader: without the mount they " +
+			"resolve nothing, SKIP, and report success — which is the whole " +
+			"of #2453 and #8118. Restore NeedsDies, or move the goldens.")
+	}
+	// The mount is a fetch on every run of every atom that asks for it, so the
+	// ask stays deliberate. Widening it is a decision, not a default.
+	var asked []string
+	for _, a := range Atoms {
+		if a.NeedsDies {
+			asked = append(asked, a.ID)
+		}
+	}
+	if len(asked) != 1 || asked[0] != "go:test-race" {
+		t.Errorf("NeedsDies is declared by %v; only go:test-race is expected. "+
+			"Adding one is fine — say why here, because each one is another "+
+			"clone of foundry-dies on every gate run in the fleet.", asked)
+	}
+}
