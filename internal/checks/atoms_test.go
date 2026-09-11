@@ -110,10 +110,10 @@ func TestTheAtomsCarryTheFleetsRulesetsNotTheRepositorys(t *testing.T) {
 	if s := AtomByID("fleet:detect-secrets").Script; !strings.Contains(s, "--baseline .secrets.baseline") || !strings.Contains(s, `(^|/)testdata/|^tests/fixtures/`) {
 		t.Errorf("fleet:detect-secrets: baseline and fixture excludes must be the fleet's:\n%s", s)
 	}
-	if s := AtomByID("fleet:check-yaml").Script; !strings.Contains(s, "check-yaml --allow-multiple-documents $files") {
+	if s := AtomByID("fleet:check-yaml").Script; !strings.Contains(s, "check-yaml --allow-multiple-documents --unsafe $files") {
 		t.Errorf("fleet:check-yaml: the argument is the fleet's, unconditionally:\n%s", s)
 	}
-	if s := AtomByID("fleet:check-added-large-files").Script; !strings.Contains(s, "maxkb=500\nlimit=") {
+	if s := AtomByID("fleet:check-added-large-files").Script; !strings.Contains(s, "maxkb=2048\nlimit=") {
 		t.Errorf("fleet:check-added-large-files: the threshold is the fleet's, unconditionally:\n%s", s)
 	}
 }
