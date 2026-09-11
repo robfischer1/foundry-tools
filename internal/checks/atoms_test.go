@@ -40,7 +40,7 @@ func TestForgeTestkitAtomsCarryPathsAndGuards(t *testing.T) {
 		"python:forge-testkit-schema-budget":  "src/*.py",
 	} {
 		s := AtomByID(id).Script
-		for _, want := range []string{"hookpopulation forge-testkit-", "'" + pattern + "'", "xargs -r uv run --extra dev forge-testkit-lint", "not a dependency"} {
+		for _, want := range []string{"population -- '" + pattern + "'", "xargs -r uv run --extra dev forge-testkit-lint", "not a dependency"} {
 			if !strings.Contains(s, want) {
 				t.Errorf("%s lacks %q", id, want)
 			}
@@ -51,6 +51,70 @@ func TestForgeTestkitAtomsCarryPathsAndGuards(t *testing.T) {
 	// exit code is still read rather than flattened into a generic red.
 	if s := AtomByID("python:pytest").Script; !strings.Contains(s, `"$rc" -eq 5`) || strings.Contains(s, "python:pytest: ABSENT") {
 		t.Errorf("pytest must read exit 5 and answer it as a finding, never ABSENT:\n%s", s)
+	}
+}
+
+// THE RULESET IS THE FLEET'S, AND NO ATOM READS THE REPOSITORY'S. Rob,
+// 2026-09-11: a repo has no say in anything that runs; the fleet decides the
+// atoms AND their rulesets. Until then ruff read the repo's pyproject, mypy
+// its [tool.mypy], eslint its eslint.config.mjs, staticcheck any
+// staticcheck.conf, clippy the manifest's [lints], and the fleet atoms read
+// .pre-commit-config.yaml for their population and their arguments — seven
+// repos had drifted from the template's ruleset and three carried none. This
+// pins the move: the linting atoms point at foundry-stocks ci/lib/rulesets and
+// ask for the mount, the population exclude is a constant, and nothing in the
+// table names the repository's config files or the hook-args parser.
+func TestTheAtomsCarryTheFleetsRulesetsNotTheRepositorys(t *testing.T) {
+	for id, want := range map[string][]string{
+		"python:ruff-check":  {"--config " + rulesetsDir + "/ruff.toml"},
+		"python:ruff-format": {"--config " + rulesetsDir + "/ruff.toml", "--check"},
+		"python:mypy":        {"--config-file " + rulesetsDir + "/mypy.ini"},
+		"ts:bun-gate":        {"cp " + rulesetsDir + "/eslint.config.mjs ./eslint.config.mjs"},
+		"ts:bun-gate-commit": {"cp " + rulesetsDir + "/eslint.config.mjs ./eslint.config.mjs"},
+	} {
+		a := AtomByID(id)
+		if !a.NeedsStocks {
+			t.Errorf("%s: reads a fleet ruleset but does not ask for the /stocks mount", id)
+		}
+		for _, w := range want {
+			if !strings.Contains(a.Script, w) {
+				t.Errorf("%s: does not carry %q", id, w)
+			}
+		}
+		if !strings.Contains(a.Script, rulesetsDir+"/") || !strings.Contains(a.Script, "CANNOT RUN") {
+			t.Errorf("%s: a missing ruleset must be CANNOT RUN, never a pass", id)
+		}
+	}
+	if s := AtomByID("python:mypy").Script; strings.Contains(s, "mypy --strict") {
+		t.Error("python:mypy: strict lives in the fleet's mypy.ini, not on the flag — two places is one too many")
+	}
+	if s := AtomByID("go:staticcheck").Script; !strings.Contains(s, "-checks 'all,") {
+		t.Error("go:staticcheck: the check set must be named on the command line, so a staticcheck.conf in the tree changes nothing")
+	}
+	if s := AtomByID("rust:cargo-clippy").Script; !strings.Contains(s, "-- -W clippy::all -D warnings") {
+		t.Error("rust:cargo-clippy: the lint set must be named after `--`, so the manifest's [lints] table changes nothing")
+	}
+	if !strings.Contains(gatePopulation, "EXCL='"+gateExclude+"'") || strings.Contains(gatePopulation, "sed") {
+		t.Errorf("the gate population's exclude must be the fleet constant, never read from a file:\n%s", gatePopulation)
+	}
+	for _, a := range Atoms {
+		for _, forbidden := range []string{".pre-commit-config.yaml", "hookmeta", "hookpopulation", "staticcheck.conf"} {
+			if strings.Contains(a.Script, forbidden) {
+				t.Errorf("%s: reads %q — a repo-authored surface deciding what the gate does", a.ID, forbidden)
+			}
+		}
+	}
+	// detect-secrets: the baseline is the one repo-side file that survives this
+	// pass (its fleet-side home is a ledger of its own); the population's
+	// fixture excludes are the fleet's union, not a hook's.
+	if s := AtomByID("fleet:detect-secrets").Script; !strings.Contains(s, "--baseline .secrets.baseline") || !strings.Contains(s, `(^|/)testdata/|^tests/fixtures/`) {
+		t.Errorf("fleet:detect-secrets: baseline and fixture excludes must be the fleet's:\n%s", s)
+	}
+	if s := AtomByID("fleet:check-yaml").Script; !strings.Contains(s, "check-yaml --allow-multiple-documents $files") {
+		t.Errorf("fleet:check-yaml: the argument is the fleet's, unconditionally:\n%s", s)
+	}
+	if s := AtomByID("fleet:check-added-large-files").Script; !strings.Contains(s, "maxkb=500\nlimit=") {
+		t.Errorf("fleet:check-added-large-files: the threshold is the fleet's, unconditionally:\n%s", s)
 	}
 }
 
