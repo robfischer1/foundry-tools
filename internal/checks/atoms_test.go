@@ -217,3 +217,50 @@ func TestTheGoTestAtomCarriesTheFleetRecordTree(t *testing.T) {
 			"clone of foundry-dies on every gate run in the fleet.", asked)
 	}
 }
+
+// The mutation stage is four atoms, one per lane, and it is asked for BY NAME:
+// the default vector (a pull's gate) must never carry one, and neither may the
+// sweep. Each runs the canonical script at its one home in diff mode against
+// the base the door names, and the three that need a declaration read it off
+// the answers file and say ABSENT when there is none.
+func TestTheMutationStageIsFourLanesAskedForByName(t *testing.T) {
+	got := MutationAtoms()
+	want := map[string]Lane{"go:mutation": LaneGo, "python:mutation": LanePython, "rust:mutation": LaneRust, "ts:mutation": LaneTS}
+	if len(got) != len(want) {
+		t.Fatalf("mutation stage has %d atoms, want %d", len(got), len(want))
+	}
+	for _, a := range got {
+		lane, ok := want[a.ID]
+		if !ok || a.Lane != lane {
+			t.Errorf("%s: lane %q, want a mutation atom per lane", a.ID, a.Lane)
+		}
+		if !a.NeedsStocks {
+			t.Errorf("%s: must mount foundry-stocks — the script lives there and nowhere else", a.ID)
+		}
+		script := "/stocks/ci/lib/mutation/" + string(a.Lane) + ".sh"
+		for _, need := range []string{script, "MUT_MODE=diff", `MUT_BASE="${GATE_BASE:-}"`, "guard bash --version", "/tmp/mutation/verdict",
+			"if [ -f ci/mutation.env ]; then set -a; . ./ci/mutation.env; set +a;"} {
+			if !strings.Contains(a.Script, need) {
+				t.Errorf("%s: script lacks %q", a.ID, need)
+			}
+		}
+		if a.Lane == LaneGo && !strings.Contains(a.Script, `dagger\.gen\.go`) {
+			t.Errorf("%s: generated Go must be excluded by default", a.ID)
+		}
+		if a.Lane != LaneGo {
+			if !strings.Contains(a.Script, "critical_modules") || !strings.Contains(a.Script, a.ID+": ABSENT") {
+				t.Errorf("%s: must read critical_modules and say ABSENT under its own id when none are declared", a.ID)
+			}
+		}
+	}
+	for _, a := range PullPathAtoms() {
+		if a.Stage == StageMutation {
+			t.Errorf("%s: a mutation atom in the default vector — the gate would run it", a.ID)
+		}
+	}
+	for _, a := range SweepAtoms() {
+		if a.Stage == StageMutation {
+			t.Errorf("%s: a mutation atom in the sweep", a.ID)
+		}
+	}
+}

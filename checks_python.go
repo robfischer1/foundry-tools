@@ -74,3 +74,13 @@ func (p *PythonLane) Pytest(ctx context.Context) (string, error) {
 func (p *PythonLane) PipAudit(ctx context.Context) (string, error) {
 	return run(ctx, p.Source, "python:pip-audit")
 }
+
+// This pull's changed critical modules survive no mutant: the mutation gate,
+// diff-scoped against GATE_BASE, run as the door's `mutation` lane beside the
+// gate rather than inside it. Reads critical_modules from .copier-answers.yml
+// and is ABSENT where none are declared.
+//
+// +check
+func (p *PythonLane) Mutation(ctx context.Context) (string, error) {
+	return run(ctx, p.Source, "python:mutation")
+}

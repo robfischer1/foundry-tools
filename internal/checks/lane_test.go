@@ -86,7 +86,7 @@ func TestManifestForNamesTheDeclaringFile(t *testing.T) {
 func TestEveryAtomIsWellFormed(t *testing.T) {
 	seen := map[string]bool{}
 	lanes := map[Lane]bool{LaneAny: true, LaneGo: true, LanePython: true, LaneRust: true, LaneTS: true}
-	stages := map[string]bool{StagePrecommit: true, StagePrepush: true, StageSweep: true}
+	stages := map[string]bool{StagePrecommit: true, StagePrepush: true, StageSweep: true, StageMutation: true}
 
 	for _, a := range Atoms {
 		if seen[a.ID] {

@@ -56,3 +56,13 @@ func (g *GoLane) Staticcheck(ctx context.Context) (string, error) {
 func (g *GoLane) Govulncheck(ctx context.Context) (string, error) {
 	return run(ctx, g.Source, "go:govulncheck")
 }
+
+// This pull's changed Go survive no mutant: the mutation gate,
+// diff-scoped against GATE_BASE, run as the door's `mutation` lane beside the
+// gate rather than inside it. Reads critical_modules from .copier-answers.yml
+// and is ABSENT where none are declared.
+//
+// +check
+func (g *GoLane) Mutation(ctx context.Context) (string, error) {
+	return run(ctx, g.Source, "go:mutation")
+}

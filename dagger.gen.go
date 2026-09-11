@@ -445,20 +445,6 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Fleet).CheckMergeConflict(&parent, ctx)
-		case "OrbitDrift":
-			var parent Fleet
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			return (*Fleet).OrbitDrift(&parent, ctx)
-		case "Witness":
-			var parent Fleet
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			return (*Fleet).Witness(&parent, ctx)
 		case "CheckYaml":
 			var parent Fleet
 			err = json.Unmarshal(parentJSON, &parent)
@@ -480,6 +466,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Fleet).OpengrepSast(&parent, ctx)
+		case "OrbitDrift":
+			var parent Fleet
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Fleet).OrbitDrift(&parent, ctx)
 		case "SastRulesetLanes":
 			var parent Fleet
 			err = json.Unmarshal(parentJSON, &parent)
@@ -494,6 +487,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Fleet).StopJustifications(&parent, ctx)
+		case "Witness":
+			var parent Fleet
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Fleet).Witness(&parent, ctx)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
@@ -637,6 +637,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*GoLane).Govulncheck(&parent, ctx)
+		case "Mutation":
+			var parent GoLane
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*GoLane).Mutation(&parent, ctx)
 		case "Staticcheck":
 			var parent GoLane
 			err = json.Unmarshal(parentJSON, &parent)
@@ -684,6 +691,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*PythonLane).ForgeTestkitSchemaBudget(&parent, ctx)
+		case "Mutation":
+			var parent PythonLane
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*PythonLane).Mutation(&parent, ctx)
 		case "Mypy":
 			var parent PythonLane
 			err = json.Unmarshal(parentJSON, &parent)
@@ -752,6 +766,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*RustLane).CargoTest(&parent, ctx)
+		case "Mutation":
+			var parent RustLane
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*RustLane).Mutation(&parent, ctx)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
@@ -818,6 +839,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*TSLane).BunGateCommit(&parent, ctx)
+		case "Mutation":
+			var parent TSLane
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*TSLane).Mutation(&parent, ctx)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
