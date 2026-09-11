@@ -614,15 +614,26 @@ exit $rc`,
 if [ -n "$unformatted" ]; then echo "gofmt needed on:"; echo "$unformatted"; exit 1; fi
 echo "go:gofmt: clean"`,
 		},
+		// THE MODULES ARE PROVISIONED BEFORE THE TOOLCHAIN SPEAKS. `go vet` and
+		// `go build` exit 1 for a module the proxy would not serve exactly as
+		// they exit 1 for a finding, and an atom that reads exit 1 as FINDINGS
+		// turns a proxy's bad hour into a terminal red the sweep will not
+		// re-ask. MEASURED 2026-09-11 17:26Z on foundry-tools#29: go:vet
+		// "FINDINGS", the finding being `proxy.golang.org …: 502 Bad Gateway`;
+		// the same proxy answered 200 four minutes later. So the download is
+		// its own step under guard — state 2, could not run, re-asked — and
+		// the tool runs only on a tree whose modules are all on disk.
 		{
 			ID: "go:vet", Stage: StagePrecommit, Lane: LaneGo, Image: imageGo,
-			Desc:   "go vet ./... reports nothing.",
-			Script: `go vet ./... || exit 1; echo "go:vet: clean"`,
+			Desc: "go vet ./... reports nothing.",
+			Script: provisionGuard + `guard go mod download
+go vet ./... || exit 1; echo "go:vet: clean"`,
 		},
 		{
 			ID: "go:build", Stage: StagePrecommit, Lane: LaneGo, Image: imageGo,
-			Desc:   "go build ./... succeeds.",
-			Script: `go build ./... || exit 1; echo "go:build: clean"`,
+			Desc: "go build ./... succeeds.",
+			Script: provisionGuard + `guard go mod download
+go build ./... || exit 1; echo "go:build: clean"`,
 		},
 		{
 			ID: "go:test-race", Stage: StagePrepush, Lane: LaneGo, Image: imageGo,
@@ -642,7 +653,8 @@ echo "go:gofmt: clean"`,
 			// go's own (TestGoFiles + XTestGoFiles per package); a module where
 			// every package answers 0 is red before the suite runs.
 			NeedsDies: true,
-			Script: `n="$(go list -f '{{len .TestGoFiles}}{{len .XTestGoFiles}}' ./... 2>&1)" || { echo "go:test-race: FINDINGS - go list ./... failed, so the tests cannot be counted: $(printf '%s' "$n" | tail -1)"; exit 1; }
+			Script: provisionGuard + `guard go mod download
+n="$(go list -f '{{len .TestGoFiles}}{{len .XTestGoFiles}}' ./... 2>&1)" || { echo "go:test-race: FINDINGS - go list ./... failed, so the tests cannot be counted: $(printf '%s' "$n" | tail -1)"; exit 1; }
 [ -n "$(printf '%s' "$n" | tr -d '\n0')" ] || { echo "go:test-race: FINDINGS - no test file in any package; nothing is built without tests"; exit 1; }
 go test -race ./... || exit 1`,
 		},
@@ -667,7 +679,8 @@ go test -race ./... || exit 1`,
 			// on a pre-existing `var fs billy.Filesystem = …` in a test file.
 			// This is staticcheck's shipped default, verbatim; a stricter fleet
 			// set is a decision to make on purpose, not by omission.
-			Script: provisionGuard + `guard go install honnef.co/go/tools/cmd/staticcheck@latest
+			Script: provisionGuard + `guard go mod download
+guard go install honnef.co/go/tools/cmd/staticcheck@latest
 staticcheck -checks 'all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-ST1023' ./... || exit 1
 echo "go:staticcheck: clean"`,
 		},
@@ -1360,6 +1373,7 @@ echo "dies:schema: the payload is a valid, satisfiable schema and every v2 recor
 			ID: "go:mutation", Stage: StageMutation, Lane: LaneGo, Image: imageGo, NeedsStocks: true, NeedsDies: true,
 			Desc: "Every mutant gremlins makes of this pull's changed Go is killed by the tests.",
 			Script: provisionGuard + worktreeRepo + `guard bash --version
+guard go mod download
 [ -f /stocks/ci/lib/mutation/go.sh ] || { echo "go:mutation: CANNOT RUN - /stocks/ci/lib/mutation/go.sh is absent; foundry-stocks did not mount at its one home." >&2; exit 2; }
 export MUT_DIR=/tmp/mutation MUT_MODE=diff MUT_BASE="${GATE_BASE:-}" MUT_EXCLUDE='^vendor/|(^|/)dagger\.gen\.go$|\.pb\.go$|(^|/)zz_generated'
 for phase in resolve setup cover mutate teardown score; do

@@ -383,3 +383,43 @@ func TestNoTestsIsAFindingNotAnAbsence(t *testing.T) {
 		t.Error("python:pytest: exit 5 (no tests collected) is not a finding")
 	}
 }
+
+// Every Go atom that runs the toolchain provisions the modules first, under
+// guard. `go vet` and `go build` exit 1 for a module the proxy would not
+// serve exactly as they exit 1 for a finding; without this step a proxy's
+// 502 is a terminal FINDINGS the sweep never re-asks. MEASURED 2026-09-11
+// 17:26Z, foundry-tools#29: go:vet red on `proxy.golang.org …: 502 Bad
+// Gateway`, the proxy answering 200 four minutes later.
+func TestTheGoAtomsProvisionModulesBeforeTheToolchainSpeaks(t *testing.T) {
+	atomByID := func(id string) (AtomDef, bool) {
+		for _, a := range Atoms {
+			if a.ID == id {
+				return a, true
+			}
+		}
+		return AtomDef{}, false
+	}
+	for _, id := range []string{"go:vet", "go:build", "go:test-race", "go:staticcheck", "go:mutation"} {
+		a, ok := atomByID(id)
+		if !ok {
+			t.Fatalf("%s is not in the table", id)
+		}
+		if !strings.Contains(a.Script, provisionGuard) {
+			t.Errorf("%s carries no guard, so a failed download could not read as could-not-run", id)
+		}
+		dl := strings.Index(a.Script, "guard go mod download")
+		if dl < 0 {
+			t.Errorf("%s does not provision its modules before running", id)
+			continue
+		}
+		for _, tool := range []string{"go vet", "go build", "go list", "go test", "staticcheck ", "mutation/go.sh"} {
+			if i := strings.Index(a.Script, tool); i >= 0 && i < dl {
+				t.Errorf("%s runs %q before its modules are provisioned", id, tool)
+			}
+		}
+	}
+	// gofmt reads files, not modules: no download, nothing to provision.
+	if a, _ := atomByID("go:gofmt"); strings.Contains(a.Script, "go mod download") {
+		t.Error("go:gofmt downloads modules it does not read")
+	}
+}
