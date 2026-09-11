@@ -88,8 +88,8 @@ func TestTheAtomsCarryTheFleetsRulesetsNotTheRepositorys(t *testing.T) {
 	if s := AtomByID("python:mypy").Script; strings.Contains(s, "mypy --strict") {
 		t.Error("python:mypy: strict lives in the fleet's mypy.ini, not on the flag — two places is one too many")
 	}
-	if s := AtomByID("go:staticcheck").Script; !strings.Contains(s, "-checks 'all,") {
-		t.Error("go:staticcheck: the check set must be named on the command line, so a staticcheck.conf in the tree changes nothing")
+	if s := AtomByID("go:staticcheck").Script; !strings.Contains(s, "-checks 'all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-ST1023'") {
+		t.Error("go:staticcheck: the check set must be named on the command line and be staticcheck's shipped default (eight exclusions), so a staticcheck.conf in the tree changes nothing and no check arrives by omission")
 	}
 	if s := AtomByID("rust:cargo-clippy").Script; !strings.Contains(s, "-- -W clippy::all -D warnings") {
 		t.Error("rust:cargo-clippy: the lint set must be named after `--`, so the manifest's [lints] table changes nothing")
@@ -381,5 +381,45 @@ func TestNoTestsIsAFindingNotAnAbsence(t *testing.T) {
 	// pytest's "no tests ran" is exit 5, and it must be a finding, not a pass.
 	if s := AtomByID("python:pytest").Script; !strings.Contains(s, `if [ "$rc" -eq 5 ]; then echo "python:pytest: FINDINGS`) {
 		t.Error("python:pytest: exit 5 (no tests collected) is not a finding")
+	}
+}
+
+// Every Go atom that runs the toolchain provisions the modules first, under
+// guard. `go vet` and `go build` exit 1 for a module the proxy would not
+// serve exactly as they exit 1 for a finding; without this step a proxy's
+// 502 is a terminal FINDINGS the sweep never re-asks. MEASURED 2026-09-11
+// 17:26Z, foundry-tools#29: go:vet red on `proxy.golang.org …: 502 Bad
+// Gateway`, the proxy answering 200 four minutes later.
+func TestTheGoAtomsProvisionModulesBeforeTheToolchainSpeaks(t *testing.T) {
+	atomByID := func(id string) (AtomDef, bool) {
+		for _, a := range Atoms {
+			if a.ID == id {
+				return a, true
+			}
+		}
+		return AtomDef{}, false
+	}
+	for _, id := range []string{"go:vet", "go:build", "go:test-race", "go:staticcheck", "go:mutation"} {
+		a, ok := atomByID(id)
+		if !ok {
+			t.Fatalf("%s is not in the table", id)
+		}
+		if !strings.Contains(a.Script, provisionGuard) {
+			t.Errorf("%s carries no guard, so a failed download could not read as could-not-run", id)
+		}
+		dl := strings.Index(a.Script, "guard go mod download")
+		if dl < 0 {
+			t.Errorf("%s does not provision its modules before running", id)
+			continue
+		}
+		for _, tool := range []string{"go vet", "go build", "go list", "go test", "staticcheck ", "mutation/go.sh"} {
+			if i := strings.Index(a.Script, tool); i >= 0 && i < dl {
+				t.Errorf("%s runs %q before its modules are provisioned", id, tool)
+			}
+		}
+	}
+	// gofmt reads files, not modules: no download, nothing to provision.
+	if a, _ := atomByID("go:gofmt"); strings.Contains(a.Script, "go mod download") {
+		t.Error("go:gofmt downloads modules it does not read")
 	}
 }
