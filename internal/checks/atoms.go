@@ -129,58 +129,43 @@ fi
 // reads the same line (foundry-stocks ci/lib, gate_exclusions); this is the
 // shell form of it for the atoms that take a file list.
 //
-// The regex is pre-commit's (Python re) fed to grep -E; the shapes the fleet
-// writes — anchors, alternation, character classes, escaped dots — mean the
-// same in both. A config with no exclude admits everything, as pre-commit does.
-const gatePopulation = `EXCL="$(sed -n 's/^exclude:[[:space:]]*//p' .pre-commit-config.yaml 2>/dev/null | head -1 | sed -e "s/^'//" -e "s/'$//" -e 's/^"//' -e 's/"$//')"
-population() { if [ -n "$EXCL" ]; then git ls-files "$@" | grep -v -E "$EXCL" || true; else git ls-files "$@"; fi; }
-hookmeta() { python3 - "$1" "$2" <<'PYHOOK' 2>/dev/null
-import re, sys
-hook, want = sys.argv[1], sys.argv[2]
-try:
-    lines = open(".pre-commit-config.yaml", encoding="utf-8").read().splitlines()
-except OSError:
-    sys.exit(0)
-block, inside, depth = [], False, None
-for line in lines:
-    stripped = line.strip()
-    if re.match(r"-\s*id:\s*" + re.escape(hook) + r"\s*$", stripped):
-        inside, depth = True, len(line) - len(line.lstrip())
-        continue
-    if inside:
-        ind = len(line) - len(line.lstrip())
-        if stripped.startswith("- ") and ind <= depth:
-            break
-        if stripped and ind <= depth and not stripped.startswith("#"):
-            break
-        block.append(stripped)
-def unq(v):
-    v = v.strip()
-    return v[1:-1] if len(v) >= 2 and v[0] == v[-1] and v[0] in "'\"" else v
-if want == "exclude":
-    for b in block:
-        if b.startswith("exclude:"):
-            print(unq(b.split(":", 1)[1])); break
-    sys.exit(0)
-args = []
-i = 0
-while i < len(block):
-    b = block[i]
-    if b.startswith("args:"):
-        rest = b.split(":", 1)[1].strip()
-        if rest.startswith("["):
-            args += [unq(x) for x in re.split(r",\s*", rest.strip("[]")) if x.strip()]
-        else:
-            i += 1
-            while i < len(block) and block[i].startswith("- "):
-                args.append(unq(block[i][2:])); i += 1
-            continue
-    i += 1
-print(" ".join(args))
-PYHOOK
-}
-hookpopulation() { ex="$(hookmeta "$1" exclude)"; shift; if [ -n "$ex" ]; then population "$@" | grep -v -E "$ex" || true; else population "$@"; fi; }
+// THE EXCLUDE IS THE FLEET'S, NOT THE REPOSITORY'S. Until 2026-09-11 this
+// prelude read the repo's own .pre-commit-config.yaml — its top-level
+// `exclude:` for the population, and each hook's `args:` and `exclude:`
+// through a hookmeta parser — so a repo decided what the gate looked at and
+// how. Rob, 2026-09-11: a repo has no say in anything that runs. The four
+// repo templates pour one identical exclude line (measured: byte for byte
+// across go/python/rust/frontend), and that line is now this constant; a
+// repo's config is not read. The regex is pre-commit's (Python re) fed to
+// grep -E; the shapes here — anchors, alternation, character classes,
+// escaped dots — mean the same in both.
+const gateExclude = `^\.(claude|specify|furnace)/|(^|/)(vendor|node_modules)/|\.melt$`
+
+var gatePopulation = populationPrelude()
+
+// populationPrelude is a function for the same reason atomTable is: a
+// package-level constant expression carries no coverage counters, so the
+// mutation lane read the joins here as NOT COVERED (foundry-tools #27,
+// mutation-foundry-tools-26cec76). The tests read the result.
+func populationPrelude() string {
+	return `EXCL='` + gateExclude + `'
+population() { git ls-files "$@" | grep -v -E "$EXCL" || true; }
 `
+}
+
+// rulesetsDir is where the fleet's lint rulesets live inside an atom that
+// asked for foundry-stocks (NeedsStocks): foundry-stocks ci/lib/rulesets,
+// mounted at /stocks. A tool pointed at a file here ignores whatever config
+// the repository carries — which is the point (Rob, 2026-09-11: the fleet
+// decides the atoms AND their rulesets). rulesetGuard is the CANNOT RUN a
+// missing file answers: a ruleset the atom cannot read is a gate that never
+// looked, and that is never a pass.
+const rulesetsDir = "/stocks/ci/lib/rulesets"
+
+func rulesetGuard(id, file string) string {
+	return `[ -f ` + rulesetsDir + `/` + file + ` ] || { echo "` + id + `: CANNOT RUN - ` + rulesetsDir + `/` + file + ` is absent; foundry-stocks did not mount at its one home, so the fleet's ruleset cannot be read." >&2; exit 2; }
+`
+}
 
 // fetchBinary is the mirror-then-upstream download the sweep's oras
 // provisioning already spells out, lifted into a function because two more
@@ -328,21 +313,18 @@ func atomTable() []AtomDef {
 		{
 			ID: "fleet:check-yaml", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
 			Desc: "Every YAML file in the tree parses.",
-			// THE HOOK'S OWN ARGS AND EXCLUDE, when the repo's config states them;
-			// and multi-document YAML is VALID YAML here whatever the config says.
-			// pre-commit's check-yaml refuses a second document by default, a
-			// stylistic guard no repo in this fleet relies on — while every
-			// Kubernetes manifest (infra, the host stacks, ansible's k3s files)
-			// is a stream of them. MEASURED 2026-09-10T01:2xZ on infra, a repo
-			// with no pre-commit config at all: "expected a single document …
-			// but found another document" on a k3s manifest, red on the runner's
-			// gate for a file kubectl applies daily.
+			// Multi-document YAML is VALID YAML here, and that is the fleet's
+			// only argument. pre-commit's check-yaml refuses a second document by
+			// default, a stylistic guard no repo in this fleet relies on — while
+			// every Kubernetes manifest (infra, the host stacks, ansible's k3s
+			// files) is a stream of them. MEASURED 2026-09-10T01:2xZ on infra:
+			// "expected a single document … but found another document" on a
+			// k3s manifest, red on the runner's gate for a file kubectl applies
+			// daily. The repo's hook args are not read (they never said more).
 			Script: provisionGuard + worktreeRepo + gatePopulation + `guard uvx --from pre-commit-hooks check-yaml --help
-files=$(hookpopulation check-yaml -- '*.yml' '*.yaml')
+files=$(population -- '*.yml' '*.yaml')
 if [ -z "$files" ]; then echo "fleet:check-yaml: no YAML in this repository"; exit 0; fi
-args="$(hookmeta check-yaml args)"
-case " $args " in *" --allow-multiple-documents "*|*" -m "*) ;; *) args="$args --allow-multiple-documents";; esac
-uvx --from pre-commit-hooks check-yaml $args $files || exit 1
+uvx --from pre-commit-hooks check-yaml --allow-multiple-documents $files || exit 1
 echo "fleet:check-yaml: parsed all YAML"`,
 		},
 		{
@@ -353,13 +335,11 @@ echo "fleet:check-yaml: parsed all YAML"`,
 			// handed (see worktreeRepo). It walked the directory until 2026-09-09,
 			// when tongs answered 40+ findings, every one a file under target/ that
 			// git ignores. The assertion is unchanged: over 500 KiB, the same
-			// threshold as --maxkb=500.
-			// --maxkb from the repo's own hook args when stated (pre-commit's
-			// default is 500); the hook-level exclude applies to the population.
+			// threshold as --maxkb=500, and the fleet's: a repo's own --maxkb is
+			// not read (Rob, 2026-09-11 — no template ever set one anyway).
 			Script: worktreeRepo + gatePopulation + `maxkb=500
-for a in $(hookmeta check-added-large-files args); do case "$a" in --maxkb=*) maxkb="${a#--maxkb=}";; esac; done
 limit=$((maxkb * 1024))
-big=$(hookpopulation check-added-large-files | tr '\n' '\0' | xargs -0 -r stat -c '%s %n' 2>/dev/null | awk -v lim="$limit" '$1 > lim { $1=""; sub(/^ /, ""); print }')
+big=$(population | tr '\n' '\0' | xargs -0 -r stat -c '%s %n' 2>/dev/null | awk -v lim="$limit" '$1 > lim { $1=""; sub(/^ /, ""); print }')
 if [ -n "$big" ]; then echo "files over ${maxkb} KB:"; echo "$big"; exit 1; fi
 echo "fleet:check-added-large-files: nothing over ${maxkb} KB"`,
 		},
@@ -402,11 +382,9 @@ echo "fleet:check-merge-conflict: no conflict markers"`,
 			// about this repository.
 			Script: provisionGuard + `if [ ! -f .secrets.baseline ]; then echo "fleet:detect-secrets: CANNOT RUN - no .secrets.baseline at the repository root. Refusing to report success without scanning." >&2; exit 2; fi
 ` + worktreeRepo + gatePopulation + `guard uvx --from detect-secrets detect-secrets-hook --help
-files=$(hookpopulation detect-secrets)
+files=$(population | grep -v -E '(^|/)testdata/|^tests/fixtures/' || true)
 if [ -z "$files" ]; then echo "fleet:detect-secrets: CANNOT RUN - the repository has no tracked file to scan" >&2; exit 2; fi
-args="$(hookmeta detect-secrets args)"
-case " $args " in *" --baseline "*) ;; *) args="$args --baseline .secrets.baseline";; esac
-uvx --from detect-secrets detect-secrets-hook $args $files || exit 1
+uvx --from detect-secrets detect-secrets-hook --baseline .secrets.baseline $files || exit 1
 echo "fleet:detect-secrets: clean against .secrets.baseline"`,
 		},
 		{
@@ -666,8 +644,14 @@ go test -race ./... || exit 1`,
 			// check has carried since it was a pre-push hook: the toolchain is the
 			// module's, so an absent staticcheck is a provisioning failure — still a
 			// 2, never a 0.
+			//
+			// THE CHECK SET IS NAMED ON THE COMMAND LINE. staticcheck reads a
+			// staticcheck.conf from the tree when there is one, and -checks
+			// overrides it; naming the fleet's set here (staticcheck's own
+			// default) means a conf a repo adds later changes nothing in the
+			// gate. Measured 2026-09-11: no repo carries one today.
 			Script: provisionGuard + `guard go install honnef.co/go/tools/cmd/staticcheck@latest
-staticcheck ./... || exit 1
+staticcheck -checks 'all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022' ./... || exit 1
 echo "go:staticcheck: clean"`,
 		},
 		{
@@ -680,21 +664,28 @@ echo "go:govulncheck: clean"`,
 
 		// ---- python ----
 		{
-			ID: "python:ruff-check", Stage: StagePrecommit, Lane: LanePython, Image: imagePython,
-			Desc: "ruff lint is clean over every .py in the tree.",
-			Script: provisionGuard + `guard uvx ruff@0.16.3 --version
-uvx ruff@0.16.3 check . || exit 1
+			ID: "python:ruff-check", Stage: StagePrecommit, Lane: LanePython, Image: imagePython, NeedsStocks: true,
+			Desc: "ruff lint is clean over every .py in the tree, under the fleet's ruleset.",
+			// THE RULESET IS THE FLEET'S. `--config <file>` makes ruff ignore every
+			// pyproject.toml and ruff.toml in the tree, so the repository's copy —
+			// the template pours one, and seven repos had drifted from it by
+			// 2026-09-11 — decides nothing here. foundry-stocks ci/lib/rulesets/
+			// ruff.toml is the template's ruleset with one home (Rob, 2026-09-11:
+			// the fleet decides the atoms AND their rulesets).
+			Script: provisionGuard + rulesetGuard("python:ruff-check", "ruff.toml") + `guard uvx ruff@0.16.3 --version
+uvx ruff@0.16.3 check --config ` + rulesetsDir + `/ruff.toml . || exit 1
 echo "python:ruff-check: clean"`,
 		},
 		{
-			ID: "python:ruff-format", Stage: StagePrecommit, Lane: LanePython, Image: imagePython,
-			Desc: "ruff format --check is clean over the product python.",
+			ID: "python:ruff-format", Stage: StagePrecommit, Lane: LanePython, Image: imagePython, NeedsStocks: true,
+			Desc: "ruff format --check is clean over the product python, under the fleet's ruleset.",
 			// --check, NEVER the rewrite. The stock hook reformats in place and
 			// fails so you re-stage, which has aborted a commit in this fleet before
 			// (themis). The path scope is the measurement the go stars' hook
 			// records: incidental python (scripts/, conformance recorders) is
 			// linted but not formatted; product python under src/ and tests/ is.
-			Script: provisionGuard + `guard uvx ruff@0.16.3 --version
+			// The width and the rest come from the fleet's ruff.toml, as above.
+			Script: provisionGuard + rulesetGuard("python:ruff-format", "ruff.toml") + `guard uvx ruff@0.16.3 --version
 if [ -f go.mod ]; then
   targets=""
   for d in src tests; do [ -d "$d" ] && targets="$targets $d"; done
@@ -702,7 +693,7 @@ if [ -f go.mod ]; then
 else
   targets="."
 fi
-uvx ruff@0.16.3 format --check $targets || exit 1
+uvx ruff@0.16.3 format --config ` + rulesetsDir + `/ruff.toml --check $targets || exit 1
 echo "python:ruff-format: clean"`,
 		},
 		{
@@ -721,16 +712,20 @@ echo "python:ruff-format: clean"`,
 			Script: forgeTestkit("schema-budget", "src/*.py"),
 		},
 		{
-			ID: "python:mypy", Stage: StagePrepush, Lane: LanePython, Image: imagePython,
-			Desc: "mypy --strict is clean over src and tests.",
+			ID: "python:mypy", Stage: StagePrepush, Lane: LanePython, Image: imagePython, NeedsStocks: true,
+			Desc: "mypy is clean over src and tests, under the fleet's strict configuration.",
 			// ONE type checker. pyright ran redundantly on every python pre-push
 			// with no incident behind it and is dropped fleet-wide (decided, Rob) —
 			// it is deliberately absent from this table, not overlooked.
-			Script: provisionGuard + `guard uv --version
+			//
+			// THE CONFIGURATION IS THE FLEET'S: --config-file makes mypy ignore the
+			// [tool.mypy] table in the repository's pyproject.toml. Strict is in
+			// the file, not the flag, so there is one place the rules live.
+			Script: provisionGuard + rulesetGuard("python:mypy", "mypy.ini") + `guard uv --version
 targets=""
 for d in src tests; do [ -d "$d" ] && targets="$targets $d"; done
 if [ -z "$targets" ]; then echo "python:mypy: ABSENT - no src/ or tests/ to type-check"; exit 0; fi
-uv run --all-extras mypy --strict $targets || exit 1
+uv run --all-extras mypy --config-file ` + rulesetsDir + `/mypy.ini $targets || exit 1
 echo "python:mypy: clean"`,
 		},
 		{
@@ -766,8 +761,14 @@ echo "python:pip-audit: clean"`,
 		},
 		{
 			ID: "rust:cargo-clippy", Stage: StagePrecommit, Lane: LaneRust, Image: imageRust,
-			Desc:   "cargo clippy is clean with warnings denied.",
-			Script: `cargo clippy --workspace --all-targets -- -D warnings || exit 1; echo "rust:cargo-clippy: clean"`,
+			Desc: "cargo clippy is clean under the fleet's lint set, warnings denied.",
+			// THE LINT SET IS NAMED ON THE COMMAND LINE. The rust template pours
+			// `[workspace.lints.clippy] all = "warn"` into Cargo.toml; a crate can
+			// edit that table, and `#![allow]` in source is stop-justifications'
+			// to catch. Flags after `--` reach rustc last and win over the
+			// table, so the fleet's set is the one enforced whatever the manifest
+			// says (Rob, 2026-09-11).
+			Script: `cargo clippy --workspace --all-targets -- -W clippy::all -D warnings || exit 1; echo "rust:cargo-clippy: clean"`,
 		},
 		{
 			ID: "rust:cargo-test", Stage: StagePrepush, Lane: LaneRust, Image: imageRust,
@@ -791,25 +792,34 @@ echo "rust:cargo-audit: clean"`,
 
 		// ---- ts ----
 		{
-			ID: "ts:bun-gate-commit", Stage: StagePrecommit, Lane: LaneTS, Image: imageTS,
-			Desc: "bun run gate (format, lint, typecheck, test, build) passes.",
+			ID: "ts:bun-gate-commit", Stage: StagePrecommit, Lane: LaneTS, Image: imageTS, NeedsStocks: true,
+			Desc: "bun run gate (format, lint, typecheck, test, build) passes under the fleet's eslint config.",
 			// The pre-commit hook this ports runs in a checkout that already has
 			// node_modules; the gate's checkout has none. MEASURED 2026-09-10T02:38Z
 			// gate-calliope-9ed7599: `bun run format:check` → "prettier: command
 			// not found", exit 127, a red about the runner, not the repo.
-			Script: `bun install --frozen-lockfile || { echo "ts:bun-gate-commit: CANNOT RUN - frozen lockfile install failed" >&2; exit 2; }
+			//
+			// THE ESLINT CONFIG IS THE FLEET'S, WRITTEN OVER THE REPOSITORY'S. eslint
+			// resolves its plugins relative to the config file, so a config outside
+			// the tree cannot load them; the fleet's file is copied to the root
+			// before the gate runs, and every package's `eslint .` finds it there
+			// (the template pours one root config and no per-package one). What
+			// the repo's copy said decides nothing (Rob, 2026-09-11).
+			Script: rulesetGuard("ts:bun-gate-commit", "eslint.config.mjs") + `cp ` + rulesetsDir + `/eslint.config.mjs ./eslint.config.mjs
+bun install --frozen-lockfile || { echo "ts:bun-gate-commit: CANNOT RUN - frozen lockfile install failed" >&2; exit 2; }
 bun run gate || exit 1`,
 		},
 		{
-			ID: "ts:bun-gate", Stage: StagePrepush, Lane: LaneTS, Image: imageTS,
-			Desc: "bun run gate passes against a frozen lockfile, and the tree carries tests for it to run.",
+			ID: "ts:bun-gate", Stage: StagePrepush, Lane: LaneTS, Image: imageTS, NeedsStocks: true,
+			Desc: "bun run gate passes against a frozen lockfile under the fleet's eslint config, and the tree carries tests for it to run.",
 			// NO TESTS IS A FINDING. `bun test` itself refuses a tree with no test
 			// file (exit 1, "0 test files matching"), but this atom runs the
 			// repo's gate script, which may not reach bun test at all — so the
 			// presence check is the atom's own, over bun's default pattern
 			// ({.test,.spec,_test_,_spec_}.{js,ts,jsx,tsx}). Rob, 2026-09-11:
 			// nothing is built without tests.
-			Script: `bun install --frozen-lockfile || { echo "ts:bun-gate: CANNOT RUN - frozen lockfile install failed" >&2; exit 2; }
+			Script: rulesetGuard("ts:bun-gate", "eslint.config.mjs") + `cp ` + rulesetsDir + `/eslint.config.mjs ./eslint.config.mjs
+bun install --frozen-lockfile || { echo "ts:bun-gate: CANNOT RUN - frozen lockfile install failed" >&2; exit 2; }
 t="$(find . -path ./node_modules -prune -o -type f \( -name '*.test.ts' -o -name '*.test.tsx' -o -name '*.test.js' -o -name '*.test.jsx' -o -name '*.spec.ts' -o -name '*.spec.tsx' -o -name '*.spec.js' -o -name '*.spec.jsx' -o -name '*_test_*' -o -name '*_spec_*' \) -print 2>/dev/null | head -1)"
 [ -n "$t" ] || { echo "ts:bun-gate: FINDINGS - no test file in the tree (bun's pattern: {.test,.spec,_test_,_spec_}.{js,ts,jsx,tsx}); nothing is built without tests"; exit 1; }
 bun run gate || exit 1`,
@@ -1552,7 +1562,7 @@ exit 1`,
 func forgeTestkit(mode, pattern string) string {
 	return provisionGuard + worktreeRepo + gatePopulation + `guard uv --version
 if ! grep -Eqs '^[[:space:]]*"forge-testkit([<>=!~ \["]|$)' pyproject.toml; then echo "python:forge-testkit-` + mode + `: ABSENT - forge-testkit is not a dependency of this project"; exit 0; fi
-files=$(hookpopulation forge-testkit-` + mode + ` -- '` + pattern + `')
+files=$(population -- '` + pattern + `')
 if [ -z "$files" ]; then echo "python:forge-testkit-` + mode + `: ABSENT - no files match ` + pattern + `"; exit 0; fi
 printf '%s\n' "$files" | xargs -r uv run --extra dev forge-testkit-lint ` + mode + ` || exit 1
 echo "forge-testkit ` + mode + `: clean"`
