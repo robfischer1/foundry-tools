@@ -3,6 +3,7 @@ package checks
 import (
 	"os/exec"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -205,16 +206,25 @@ func TestTheGoTestAtomCarriesTheFleetRecordTree(t *testing.T) {
 	}
 	// The mount is a fetch on every run of every atom that asks for it, so the
 	// ask stays deliberate. Widening it is a decision, not a default.
+	//
+	// WHY TWO. go:mutation runs the repo's `go test` too (gremlins gathers
+	// coverage with it), and hephaestus's armed goldens refuse in any
+	// container that runs `go test` under CI=true without /dies — measured
+	// 2026-09-11 on hephaestus #53, the mutation lane could-not-run on every
+	// hephaestus pull. The rule is: an atom that runs `go test` needs the
+	// tree the armed goldens read. Those are the two.
 	var asked []string
 	for _, a := range Atoms {
 		if a.NeedsDies {
 			asked = append(asked, a.ID)
 		}
 	}
-	if len(asked) != 1 || asked[0] != "go:test-race" {
-		t.Errorf("NeedsDies is declared by %v; only go:test-race is expected. "+
-			"Adding one is fine — say why here, because each one is another "+
-			"clone of foundry-dies on every gate run in the fleet.", asked)
+	sort.Strings(asked)
+	if strings.Join(asked, ",") != "go:mutation,go:test-race" {
+		t.Errorf("NeedsDies is declared by %v; go:test-race and go:mutation are expected — "+
+			"the two atoms that run a repo's `go test`. Adding one is fine — say why "+
+			"here, because each one is another clone of foundry-dies on every gate "+
+			"run in the fleet.", asked)
 	}
 }
 
