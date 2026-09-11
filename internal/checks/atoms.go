@@ -141,9 +141,17 @@ fi
 // escaped dots — mean the same in both.
 const gateExclude = `^\.(claude|specify|furnace)/|(^|/)(vendor|node_modules)/|\.melt$`
 
-const gatePopulation = `EXCL='` + gateExclude + `'
+var gatePopulation = populationPrelude()
+
+// populationPrelude is a function for the same reason atomTable is: a
+// package-level constant expression carries no coverage counters, so the
+// mutation lane read the joins here as NOT COVERED (foundry-tools #27,
+// mutation-foundry-tools-26cec76). The tests read the result.
+func populationPrelude() string {
+	return `EXCL='` + gateExclude + `'
 population() { git ls-files "$@" | grep -v -E "$EXCL" || true; }
 `
+}
 
 // rulesetsDir is where the fleet's lint rulesets live inside an atom that
 // asked for foundry-stocks (NeedsStocks): foundry-stocks ci/lib/rulesets,
