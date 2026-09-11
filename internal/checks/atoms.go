@@ -1268,25 +1268,28 @@ echo "dies:schema: the payload is a valid, satisfiable schema and every v2 recor
 	// ABSENT, not a finding. Go needs none: gremlins scopes to the diff itself,
 	// exactly as mutation-go did.
 	//
-	// ci/mutation.env IS THE REPO'S KNOBS, when it has any: KEY=VALUE lines of
-	// MUT_* the atom sources before the phases, so a repo can say what the
-	// retired workflow's inputs said — a workdir, a setup command, an exclude,
-	// a test CPU bound — without a workflow file to say it in. Absent means
-	// the script's own defaults, and a repo that never needs one never has one.
-	// Sourced AFTER the atom's own exports so the repo wins.
+	// A REPO HAS NO SAY. The first cut of these atoms sourced a repo-root
+	// ci/mutation.env — MUT_* knobs standing in for the retired workflow's
+	// inputs — and Rob asked why a repo should have a say in anything
+	// (2026-09-11). It should not: the scripts honour MUT_GATE=false, so that
+	// file was a one-line switch to turn a fleet gate off, the exact shape
+	// stop-justifications exists to refuse (Rule #2: one canonical gate,
+	// always the latest, a red is the committer's to fix). It is gone. The
+	// one repo fact the lane reads is critical_modules, in the answers file
+	// the template question put it in — a declaration of WHAT matters, not a
+	// dial on HOW hard to look. Everything else is the fleet's default, here.
 	//
-	// GENERATED GO IS EXCLUDED BY DEFAULT. MEASURED on this stage's first live
+	// GENERATED GO IS EXCLUDED BY DEFAULT, FLEET-WIDE, NOT PER REPO. MEASURED on this stage's first live
 	// run (2026-09-11, foundry-tools' own diff): of 14 survivors, one was in
 	// dagger.gen.go — dagger's codegen, which no test of ours covers and none
 	// should. The retired mutation-go.yml carried the same exclusion per repo;
-	// here it is the go atom's default, and ci/mutation.env can widen it.
+	// here it is the go atom's default, and it is the same for every repo.
 	{
 		ID: "go:mutation", Stage: StageMutation, Lane: LaneGo, Image: imageGo, NeedsStocks: true,
 		Desc: "Every mutant gremlins makes of this pull's changed Go is killed by the tests.",
 		Script: provisionGuard + worktreeRepo + `guard bash --version
 [ -f /stocks/ci/lib/mutation/go.sh ] || { echo "go:mutation: CANNOT RUN - /stocks/ci/lib/mutation/go.sh is absent; foundry-stocks did not mount at its one home." >&2; exit 2; }
 export MUT_DIR=/tmp/mutation MUT_MODE=diff MUT_BASE="${GATE_BASE:-}" MUT_EXCLUDE='^vendor/|(^|/)dagger\.gen\.go$|\.pb\.go$|(^|/)zz_generated'
-if [ -f ci/mutation.env ]; then set -a; . ./ci/mutation.env; set +a; echo "go:mutation: knobs from ci/mutation.env"; fi
 for phase in resolve setup cover mutate teardown score; do
   bash /stocks/ci/lib/mutation/go.sh "$phase" || { echo "go:mutation: CANNOT RUN - phase $phase exited non-zero; the phases never do on their own" >&2; exit 2; }
 done
@@ -1304,7 +1307,6 @@ guard uv --version
 MODS="$(sed -n 's/^critical_modules:[[:space:]]*//p' .copier-answers.yml 2>/dev/null | head -1 | sed -e "s/^['\"]//" -e "s/['\"]$//")"
 [ -n "$(printf '%s' "$MODS" | tr -d ' ')" ] || { echo "python:mutation: ABSENT - no critical_modules declared in .copier-answers.yml; this repository opted out of the mutation gate"; exit 0; }
 export MUT_DIR=/tmp/mutation MUT_MODE=diff MUT_BASE="${GATE_BASE:-}" MUT_MODULES="$MODS"
-if [ -f ci/mutation.env ]; then set -a; . ./ci/mutation.env; set +a; echo "python:mutation: knobs from ci/mutation.env"; fi
 for phase in resolve sync config init scope exec score; do
   bash /stocks/ci/lib/mutation/python.sh "$phase" || { echo "python:mutation: CANNOT RUN - phase $phase exited non-zero; the phases never do on their own" >&2; exit 2; }
 done
@@ -1322,7 +1324,6 @@ guard cargo mutants --version
 MODS="$(sed -n 's/^critical_modules:[[:space:]]*//p' .copier-answers.yml 2>/dev/null | head -1 | sed -e "s/^['\"]//" -e "s/['\"]$//")"
 [ -n "$(printf '%s' "$MODS" | tr -d ' ')" ] || { echo "rust:mutation: ABSENT - no critical_modules declared in .copier-answers.yml; this repository opted out of the mutation gate"; exit 0; }
 export MUT_DIR=/tmp/mutation MUT_MODE=diff MUT_BASE="${GATE_BASE:-}" MUT_MODULES="$MODS"
-if [ -f ci/mutation.env ]; then set -a; . ./ci/mutation.env; set +a; echo "rust:mutation: knobs from ci/mutation.env"; fi
 for phase in resolve mutate score; do
   bash /stocks/ci/lib/mutation/rust.sh "$phase" || { echo "rust:mutation: CANNOT RUN - phase $phase exited non-zero; the phases never do on their own" >&2; exit 2; }
 done
@@ -1340,7 +1341,6 @@ guard bun --version
 MODS="$(sed -n 's/^critical_modules:[[:space:]]*//p' .copier-answers.yml 2>/dev/null | head -1 | sed -e "s/^['\"]//" -e "s/['\"]$//")"
 [ -n "$(printf '%s' "$MODS" | tr -d ' ')" ] || { echo "ts:mutation: ABSENT - no critical_modules declared in .copier-answers.yml; this repository opted out of the mutation gate"; exit 0; }
 export MUT_DIR=/tmp/mutation MUT_MODE=diff MUT_BASE="${GATE_BASE:-}" MUT_MODULES="$MODS"
-if [ -f ci/mutation.env ]; then set -a; . ./ci/mutation.env; set +a; echo "ts:mutation: knobs from ci/mutation.env"; fi
 for phase in resolve install build mutate score; do
   bash /stocks/ci/lib/mutation/ts.sh "$phase" || { echo "ts:mutation: CANNOT RUN - phase $phase exited non-zero; the phases never do on their own" >&2; exit 2; }
 done

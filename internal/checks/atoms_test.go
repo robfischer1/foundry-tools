@@ -238,10 +238,16 @@ func TestTheMutationStageIsFourLanesAskedForByName(t *testing.T) {
 			t.Errorf("%s: must mount foundry-stocks — the script lives there and nowhere else", a.ID)
 		}
 		script := "/stocks/ci/lib/mutation/" + string(a.Lane) + ".sh"
-		for _, need := range []string{script, "MUT_MODE=diff", `MUT_BASE="${GATE_BASE:-}"`, "guard bash --version", "/tmp/mutation/verdict",
-			"if [ -f ci/mutation.env ]; then set -a; . ./ci/mutation.env; set +a;"} {
+		for _, need := range []string{script, "MUT_MODE=diff", `MUT_BASE="${GATE_BASE:-}"`, "guard bash --version", "/tmp/mutation/verdict"} {
 			if !strings.Contains(a.Script, need) {
 				t.Errorf("%s: script lacks %q", a.ID, need)
+			}
+		}
+		// A repo has no say: no env file, no MUT_GATE, nothing sourced from the
+		// tree but critical_modules (Rob, 2026-09-11).
+		for _, forbidden := range []string{"mutation.env", "MUT_GATE", "MUT_SETUP", "MUT_WORKDIR"} {
+			if strings.Contains(a.Script, forbidden) {
+				t.Errorf("%s: script reads %q — a repo-level dial on a fleet gate", a.ID, forbidden)
 			}
 		}
 		if a.Lane == LaneGo && !strings.Contains(a.Script, `dagger\.gen\.go`) {
