@@ -639,8 +639,16 @@ echo "go:gofmt: clean"`,
 		// home-directory constant documented an arming step nobody built.
 		// Mounting the tree here is what lets a repo arm them. A repo with no
 		// such test reads FOUNDRY_DIES and does nothing with it.
+		//
+		// NO TESTS IS A FINDING. `go test ./...` prints "[no test files]" per
+		// package and exits 0, so a module with no test anywhere read green.
+		// Rob, 2026-09-11: nothing is built without tests. The count is
+		// go's own (TestGoFiles + XTestGoFiles per package); a module where
+		// every package answers 0 is red before the suite runs.
 		NeedsDies: true,
-		Script:    `go test -race ./... || exit 1`,
+		Script: `n="$(go list -f '{{len .TestGoFiles}}{{len .XTestGoFiles}}' ./... 2>&1)" || { echo "go:test-race: FINDINGS - go list ./... failed, so the tests cannot be counted: $(printf '%s' "$n" | tail -1)"; exit 1; }
+[ -n "$(printf '%s' "$n" | tr -d '\n0')" ] || { echo "go:test-race: FINDINGS - no test file in any package; nothing is built without tests"; exit 1; }
+go test -race ./... || exit 1`,
 	},
 	{
 		ID: "go:staticcheck", Stage: StagePrepush, Lane: LaneGo, Image: imageGo,
@@ -718,16 +726,18 @@ echo "python:mypy: clean"`,
 	},
 	{
 		ID: "python:pytest", Stage: StagePrepush, Lane: LanePython, Image: imagePython,
-		Desc: "pytest passes.",
-		// A repo with nothing for pytest to collect is ABSENT, not red: pytest
-		// exits 5 for "no tests ran", and mypy already says ABSENT for the
-		// same tree. MEASURED 2026-09-10T01:25Z gate-helios-057545b: a go
-		// star with one .py file and no tests/ was red on "no tests ran in
-		// 0.39s" — the permanent state of that repo, not a finding.
+		Desc: "pytest passes, and there is something for it to pass.",
+		// NO TESTS IS A FINDING. This atom used to answer ABSENT — exit 0 —
+		// for a tree with no tests/ and for pytest's exit 5 ("no tests ran"),
+		// on the reasoning that a go star with one .py file (gate-helios-
+		// 057545b, 2026-09-10) was in its permanent state, not at fault. Rob,
+		// 2026-09-11: nothing is built without tests. A python lane with
+		// nothing to collect is red, and the go star with a stray .py file is
+		// a repo that should not carry a pyproject.
 		Script: provisionGuard + worktreeRepo + gatePopulation + `guard uv --version
-if [ ! -d tests ] && [ -z "$(population -- 'test_*.py' '*_test.py')" ]; then echo "python:pytest: ABSENT - no tests/ and no test files"; exit 0; fi
+if [ ! -d tests ] && [ -z "$(population -- 'test_*.py' '*_test.py')" ]; then echo "python:pytest: FINDINGS - no tests/ and no test files; nothing is built without tests"; exit 1; fi
 rc=0; uv run --all-extras pytest -q || rc=$?
-if [ "$rc" -eq 5 ]; then echo "python:pytest: ABSENT - pytest collected no tests (exit 5)"; exit 0; fi
+if [ "$rc" -eq 5 ]; then echo "python:pytest: FINDINGS - pytest collected no tests (exit 5); nothing is built without tests"; exit 1; fi
 [ "$rc" -eq 0 ] || exit 1
 echo "python:pytest: clean"`,
 	},
@@ -752,8 +762,15 @@ echo "python:pip-audit: clean"`,
 	},
 	{
 		ID: "rust:cargo-test", Stage: StagePrepush, Lane: LaneRust, Image: imageRust,
-		Desc:   "cargo test --workspace passes.",
-		Script: `cargo test --workspace || exit 1`,
+		Desc: "cargo test --workspace passes, and there is something for it to pass.",
+		// NO TESTS IS A FINDING. A workspace with no #[test] prints "running 0
+		// tests" and exits 0. Rob, 2026-09-11: nothing is built without tests.
+		// libtest's own --list names every test as `<path>: test`; a workspace
+		// that lists none is red before the suite runs. The list build is the
+		// suite's build, so nothing is compiled twice.
+		Script: `listed="$(cargo test --workspace -- --list 2>&1)" || { echo "rust:cargo-test: FINDINGS - the tests did not build: $(printf '%s' "$listed" | grep -m1 -E '^error' | cut -c1-200)"; exit 1; }
+printf '%s\n' "$listed" | grep -q ': test$' || { echo "rust:cargo-test: FINDINGS - no test in the workspace; nothing is built without tests"; exit 1; }
+cargo test --workspace || exit 1`,
 	},
 	{
 		ID: "rust:cargo-audit", Stage: StagePrepush, Lane: LaneRust, Image: imageRust,
@@ -776,8 +793,16 @@ bun run gate || exit 1`,
 	},
 	{
 		ID: "ts:bun-gate", Stage: StagePrepush, Lane: LaneTS, Image: imageTS,
-		Desc: "bun run gate passes against a frozen lockfile.",
+		Desc: "bun run gate passes against a frozen lockfile, and the tree carries tests for it to run.",
+		// NO TESTS IS A FINDING. `bun test` itself refuses a tree with no test
+		// file (exit 1, "0 test files matching"), but this atom runs the
+		// repo's gate script, which may not reach bun test at all — so the
+		// presence check is the atom's own, over bun's default pattern
+		// ({.test,.spec,_test_,_spec_}.{js,ts,jsx,tsx}). Rob, 2026-09-11:
+		// nothing is built without tests.
 		Script: `bun install --frozen-lockfile || { echo "ts:bun-gate: CANNOT RUN - frozen lockfile install failed" >&2; exit 2; }
+t="$(find . -path ./node_modules -prune -o -type f \( -name '*.test.ts' -o -name '*.test.tsx' -o -name '*.test.js' -o -name '*.test.jsx' -o -name '*.spec.ts' -o -name '*.spec.tsx' -o -name '*.spec.js' -o -name '*.spec.jsx' -o -name '*_test_*' -o -name '*_spec_*' \) -print 2>/dev/null | head -1)"
+[ -n "$t" ] || { echo "ts:bun-gate: FINDINGS - no test file in the tree (bun's pattern: {.test,.spec,_test_,_spec_}.{js,ts,jsx,tsx}); nothing is built without tests"; exit 1; }
 bun run gate || exit 1`,
 	},
 	{
@@ -1316,7 +1341,7 @@ exit "$v"`,
 guard uv --version
 [ -f /stocks/ci/lib/mutation/python.sh ] || { echo "python:mutation: CANNOT RUN - /stocks/ci/lib/mutation/python.sh is absent; foundry-stocks did not mount at its one home." >&2; exit 2; }
 MODS="$(sed -n 's/^critical_modules:[[:space:]]*//p' .copier-answers.yml 2>/dev/null | head -1 | sed -e "s/^['\"]//" -e "s/['\"]$//")"
-[ -n "$(printf '%s' "$MODS" | tr -d ' ')" ] || { echo "python:mutation: ABSENT - no critical_modules declared in .copier-answers.yml; this repository opted out of the mutation gate"; exit 0; }
+[ -n "$(printf '%s' "$MODS" | tr -d ' ')" ] && echo "python:mutation: scoped to the declared critical modules: $MODS" || echo "python:mutation: no critical modules declared - the whole diff is the scope; an empty list is not an opt-out"
 export MUT_DIR=/tmp/mutation MUT_MODE=diff MUT_BASE="${GATE_BASE:-}" MUT_MODULES="$MODS"
 for phase in resolve sync config init scope exec score; do
   bash /stocks/ci/lib/mutation/python.sh "$phase" || { echo "python:mutation: CANNOT RUN - phase $phase exited non-zero; the phases never do on their own" >&2; exit 2; }
@@ -1333,7 +1358,7 @@ exit "$v"`,
 guard cargo mutants --version
 [ -f /stocks/ci/lib/mutation/rust.sh ] || { echo "rust:mutation: CANNOT RUN - /stocks/ci/lib/mutation/rust.sh is absent; foundry-stocks did not mount at its one home." >&2; exit 2; }
 MODS="$(sed -n 's/^critical_modules:[[:space:]]*//p' .copier-answers.yml 2>/dev/null | head -1 | sed -e "s/^['\"]//" -e "s/['\"]$//")"
-[ -n "$(printf '%s' "$MODS" | tr -d ' ')" ] || { echo "rust:mutation: ABSENT - no critical_modules declared in .copier-answers.yml; this repository opted out of the mutation gate"; exit 0; }
+[ -n "$(printf '%s' "$MODS" | tr -d ' ')" ] && echo "rust:mutation: scoped to the declared critical modules: $MODS" || echo "rust:mutation: no critical modules declared - the whole diff is the scope; an empty list is not an opt-out"
 export MUT_DIR=/tmp/mutation MUT_MODE=diff MUT_BASE="${GATE_BASE:-}" MUT_MODULES="$MODS"
 for phase in resolve mutate score; do
   bash /stocks/ci/lib/mutation/rust.sh "$phase" || { echo "rust:mutation: CANNOT RUN - phase $phase exited non-zero; the phases never do on their own" >&2; exit 2; }
@@ -1350,7 +1375,7 @@ exit "$v"`,
 guard bun --version
 [ -f /stocks/ci/lib/mutation/ts.sh ] || { echo "ts:mutation: CANNOT RUN - /stocks/ci/lib/mutation/ts.sh is absent; foundry-stocks did not mount at its one home." >&2; exit 2; }
 MODS="$(sed -n 's/^critical_modules:[[:space:]]*//p' .copier-answers.yml 2>/dev/null | head -1 | sed -e "s/^['\"]//" -e "s/['\"]$//")"
-[ -n "$(printf '%s' "$MODS" | tr -d ' ')" ] || { echo "ts:mutation: ABSENT - no critical_modules declared in .copier-answers.yml; this repository opted out of the mutation gate"; exit 0; }
+[ -n "$(printf '%s' "$MODS" | tr -d ' ')" ] && echo "ts:mutation: scoped to the declared critical modules: $MODS" || echo "ts:mutation: no critical modules declared - the whole diff is the scope; an empty list is not an opt-out"
 export MUT_DIR=/tmp/mutation MUT_MODE=diff MUT_BASE="${GATE_BASE:-}" MUT_MODULES="$MODS"
 for phase in resolve install build mutate score; do
   bash /stocks/ci/lib/mutation/ts.sh "$phase" || { echo "ts:mutation: CANNOT RUN - phase $phase exited non-zero; the phases never do on their own" >&2; exit 2; }

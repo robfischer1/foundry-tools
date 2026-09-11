@@ -46,8 +46,11 @@ func TestForgeTestkitAtomsCarryPathsAndGuards(t *testing.T) {
 			}
 		}
 	}
-	if s := AtomByID("python:pytest").Script; !strings.Contains(s, `"$rc" -eq 5`) || !strings.Contains(s, "ABSENT") {
-		t.Errorf("pytest does not fold an empty collection to ABSENT:\n%s", s)
+	// pytest's exit 5 (nothing collected) used to fold to ABSENT here; it is a
+	// finding now (TestNoTestsIsAFindingNotAnAbsence), and this guards that the
+	// exit code is still read rather than flattened into a generic red.
+	if s := AtomByID("python:pytest").Script; !strings.Contains(s, `"$rc" -eq 5`) || strings.Contains(s, "python:pytest: ABSENT") {
+		t.Errorf("pytest must read exit 5 and answer it as a finding, never ABSENT:\n%s", s)
 	}
 }
 
@@ -263,10 +266,15 @@ func TestTheMutationStageIsFourLanesAskedForByName(t *testing.T) {
 		if a.Lane == LaneGo && !strings.Contains(a.Script, `dagger\.gen\.go`) {
 			t.Errorf("%s: generated Go must be excluded by default", a.ID)
 		}
-		if a.Lane != LaneGo {
-			if !strings.Contains(a.Script, "critical_modules") || !strings.Contains(a.Script, a.ID+": ABSENT") {
-				t.Errorf("%s: must read critical_modules and say ABSENT under its own id when none are declared", a.ID)
-			}
+		// AN EMPTY MODULE LIST IS NOT AN OPT-OUT. Rob, 2026-09-11: nothing
+		// with tests goes un-mutation-tested. The three that read a
+		// declaration still scope to it when there is one; with none, the
+		// script mutates the whole diff, and the atom must never say ABSENT.
+		if a.Lane != LaneGo && !strings.Contains(a.Script, "critical_modules") {
+			t.Errorf("%s: must still read critical_modules to scope a declared list", a.ID)
+		}
+		if strings.Contains(a.Script, ": ABSENT") {
+			t.Errorf("%s: says ABSENT — a repo cannot opt out of the mutation gate by declaring nothing", a.ID)
 		}
 	}
 	for _, a := range PullPathAtoms() {
@@ -278,5 +286,36 @@ func TestTheMutationStageIsFourLanesAskedForByName(t *testing.T) {
 		if a.Stage == StageMutation {
 			t.Errorf("%s: a mutation atom in the sweep", a.ID)
 		}
+	}
+}
+
+// NO TESTS IS A FINDING, NOT AN ABSENCE. Rob, 2026-09-11: "absent tests red
+// the PR and refuse the publish. We don't build anything without tests."
+// Each language's test atom used to read green on a tree with nothing to
+// run — go test prints "[no test files]" and exits 0, cargo test runs 0
+// tests and exits 0, pytest's exit 5 was mapped to ABSENT, and a repo's gate
+// script may never reach bun test. Each now counts before it runs and exits
+// 1 with a line that names the rule.
+func TestNoTestsIsAFindingNotAnAbsence(t *testing.T) {
+	for id, counter := range map[string]string{
+		"go:test-race":    `go list -f '{{len .TestGoFiles}}{{len .XTestGoFiles}}'`,
+		"python:pytest":   `population -- 'test_*.py' '*_test.py'`,
+		"rust:cargo-test": `-- --list`,
+		"ts:bun-gate":     `-name '*.test.ts'`,
+	} {
+		s := AtomByID(id).Script
+		if strings.Contains(s, ": ABSENT") {
+			t.Errorf("%s: answers ABSENT — a tree with no tests is red, never green", id)
+		}
+		if !strings.Contains(s, counter) {
+			t.Errorf("%s: does not count its tests with %q before running them", id, counter)
+		}
+		if !strings.Contains(s, "nothing is built without tests") || !strings.Contains(s, id+": FINDINGS - no test") {
+			t.Errorf("%s: a tree with no tests must exit 1 under its own id and say why", id)
+		}
+	}
+	// pytest's "no tests ran" is exit 5, and it must be a finding, not a pass.
+	if s := AtomByID("python:pytest").Script; !strings.Contains(s, `if [ "$rc" -eq 5 ]; then echo "python:pytest: FINDINGS`) {
+		t.Error("python:pytest: exit 5 (no tests collected) is not a finding")
 	}
 }
