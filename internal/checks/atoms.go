@@ -659,8 +659,16 @@ go test -race ./... || exit 1`,
 			// overrides it; naming the fleet's set here (staticcheck's own
 			// default) means a conf a repo adds later changes nothing in the
 			// gate. Measured 2026-09-11: no repo carries one today.
+			//
+			// THE DEFAULT IS EIGHT EXCLUSIONS, NOT SEVEN. The first cut listed
+			// -ST1000 … -ST1022 and left out -ST1023 (redundant type in a
+			// declaration), which staticcheck's own default config also
+			// disables — so the first Go pull through it (ourea #127) went red
+			// on a pre-existing `var fs billy.Filesystem = …` in a test file.
+			// This is staticcheck's shipped default, verbatim; a stricter fleet
+			// set is a decision to make on purpose, not by omission.
 			Script: provisionGuard + `guard go install honnef.co/go/tools/cmd/staticcheck@latest
-staticcheck -checks 'all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022' ./... || exit 1
+staticcheck -checks 'all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-ST1023' ./... || exit 1
 echo "go:staticcheck: clean"`,
 		},
 		{

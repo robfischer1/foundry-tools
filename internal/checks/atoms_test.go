@@ -88,8 +88,8 @@ func TestTheAtomsCarryTheFleetsRulesetsNotTheRepositorys(t *testing.T) {
 	if s := AtomByID("python:mypy").Script; strings.Contains(s, "mypy --strict") {
 		t.Error("python:mypy: strict lives in the fleet's mypy.ini, not on the flag — two places is one too many")
 	}
-	if s := AtomByID("go:staticcheck").Script; !strings.Contains(s, "-checks 'all,") {
-		t.Error("go:staticcheck: the check set must be named on the command line, so a staticcheck.conf in the tree changes nothing")
+	if s := AtomByID("go:staticcheck").Script; !strings.Contains(s, "-checks 'all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-ST1023'") {
+		t.Error("go:staticcheck: the check set must be named on the command line and be staticcheck's shipped default (eight exclusions), so a staticcheck.conf in the tree changes nothing and no check arrives by omission")
 	}
 	if s := AtomByID("rust:cargo-clippy").Script; !strings.Contains(s, "-- -W clippy::all -D warnings") {
 		t.Error("rust:cargo-clippy: the lint set must be named after `--`, so the manifest's [lints] table changes nothing")
