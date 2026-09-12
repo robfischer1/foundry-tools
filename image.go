@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"dagger/foundry-tools/internal/dagger"
@@ -71,13 +70,9 @@ func (m *FoundryTools) Image(
 	if len(revision) < 12 {
 		return nil, fmt.Errorf("image: the revision %q is too short for a version label", revision)
 	}
-	args := make([]dagger.BuildArg, 0, len(buildArgs))
-	for _, kv := range buildArgs {
-		name, value, ok := strings.Cut(kv, "=")
-		if !ok || name == "" {
-			return nil, fmt.Errorf("image: build arg %q is not KEY=VALUE", kv)
-		}
-		args = append(args, dagger.BuildArg{Name: name, Value: value})
+	args, err := buildArgsOf(buildArgs)
+	if err != nil {
+		return nil, fmt.Errorf("image: %w", err)
 	}
 	return &Image{Source: m.Source, Revision: revision, SourceURL: sourceURL, Title: title, BuildArgs: args}, nil
 }
@@ -109,13 +104,11 @@ func (i *Image) Publish(
 	// That account's password.
 	registryPassword *dagger.Secret,
 ) (string, error) {
-	host, _, ok := strings.Cut(ref, "/")
-	if !ok || host == "" {
-		return "", fmt.Errorf("image: %q names no registry host", ref)
+	out, err := publish(ctx, i.Container(), ref, registryUser, registryPassword)
+	if err != nil {
+		return "", fmt.Errorf("image: %w", err)
 	}
-	return i.Container().
-		WithRegistryAuth(host, registryUser, registryPassword).
-		Publish(ctx, ref, dagger.ContainerPublishOpts{MediaTypes: dagger.ImageMediaTypesOcimediaTypes})
+	return out, nil
 }
 
 // Tarball is the built image as an OCI layout tar — the pull-time run's
