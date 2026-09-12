@@ -205,10 +205,14 @@ const staticcheckChecks = "all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-
 // while the door rolled onto 9a5313fb. A door that is briefly gone is not a
 // verdict on the code, so the fetch is its own step and its failure is a 2.
 func goGovulncheck(ctx context.Context, r *run) checks.Verdict {
-	return verdict(ctx, checks.AtomByID("go:govulncheck"),
-		r.goModules().
-			WithExec([]string{"govulncheck", "-version"}).
-			WithExec([]string{"govulncheck", "./..."}, anyExit))
+	a := checks.AtomByID("go:govulncheck")
+	out, code, err := output(ctx, r.goModules().
+		WithExec([]string{"govulncheck", "-version"}).
+		WithExec([]string{"govulncheck", "./..."}, anyExit))
+	if err != nil {
+		return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
+	}
+	return checks.VerdictOf(a, checks.GovulncheckExit(code), out)
 }
 
 // Every mutant gremlins makes of this pull's changed Go is killed by the tests.

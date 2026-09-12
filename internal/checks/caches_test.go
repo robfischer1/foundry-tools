@@ -1,6 +1,9 @@
 package checks
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // Every lane image mounts at least one toolchain cache, and every cache key
 // is unique across the fleet — two toolchains sharing a volume would write
@@ -69,5 +72,20 @@ func TestGoHasTestFilesReadsTheCounts(t *testing.T) {
 	}
 	if !GoHasTestFiles("30\n") {
 		t.Errorf("a package with test files read as having none")
+	}
+}
+
+func TestNeedsArgFileTurnsAtTheBudgetExactly(t *testing.T) {
+	// One file of exactly the budget minus its NUL fits; one byte more does not.
+	fits := []string{strings.Repeat("a", argvBudget-1)}
+	if NeedsArgFile(fits) {
+		t.Errorf("a list exactly at the budget must fit")
+	}
+	over := []string{strings.Repeat("a", argvBudget)}
+	if !NeedsArgFile(over) {
+		t.Errorf("a list one byte over the budget must go in a file")
+	}
+	if NeedsArgFile(nil) {
+		t.Errorf("no files need no file")
 	}
 }

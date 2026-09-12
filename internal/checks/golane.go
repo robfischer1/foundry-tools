@@ -103,3 +103,16 @@ func NeedsArgFile(files []string) bool {
 	}
 	return false
 }
+
+// GovulncheckExit translates govulncheck's exit vocabulary into the atom's:
+// govulncheck answers 3 when it FOUND A VULNERABILITY, 0 when it found none,
+// and 1 or 2 when it could not load or run. StateFor reads a 3 as could-not-
+// run, so without this a real finding would be filed as a broken check — the
+// old shell body's `|| exit 1` hid the code entirely, and the first typed cut
+// passed it through raw (caught by the paper engine, 2026-09-12).
+func GovulncheckExit(code int) int {
+	if code == 3 {
+		return 1
+	}
+	return code
+}
