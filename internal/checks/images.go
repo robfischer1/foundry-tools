@@ -72,9 +72,14 @@ const (
 //
 // opa is NOT here: the dies atoms fetch it themselves at checks.OpaVersion
 // (below), mirror then upstream, and verify the version they got.
+//
+// OpengrepMirror is a LITERAL, not a join: a `+` in a const block is a
+// declaration no coverage profile can mark, so the mutation lane reads it
+// as NOT COVERED forever (foundry-tools#35, twice). The test holds the two
+// in step instead.
 const (
 	OpengrepVersion = "v1.25.0"
-	OpengrepMirror  = "https://nexus.notusmi.com/repository/github-raw/opengrep/opengrep/releases/download/" + OpengrepVersion + "/opengrep_manylinux_x86"
+	OpengrepMirror  = "https://nexus.notusmi.com/repository/github-raw/opengrep/opengrep/releases/download/v1.25.0/opengrep_manylinux_x86"
 
 	StaticcheckModule   = "honnef.co/go/tools/cmd/staticcheck@2025.1.1"
 	GovulncheckModule   = "golang.org/x/vuln/cmd/govulncheck@v1.1.4"
