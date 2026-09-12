@@ -406,11 +406,29 @@ func TestFleetDetectSecretsRebuildsALinkedWorktreesRepository(t *testing.T) {
 	wantCalls(t, c,
 		[]string{"withExec", `args:["git","config","--global","--add","safe.directory","*"]`},
 		[]string{"withExec", `args:["git","init","-q","."]`},
+		// The throwaway is marked in its own config, so an atom that needs a
+		// change set (fleet:witness reads HEAD) can say "snapshot" instead of
+		// exiting 128 on a repository with no commit.
+		[]string{"withExec", `args:["git","config","--local","ca.snapshot","linked-worktree"]`},
 		[]string{"withExec", `args:["git","add","-A"]`},
 		// repo_name() reads origin, and an exemption Rob granted must not
 		// evaporate because the push came from a worktree.
 		[]string{"withExec", `args:["git","remote","add","origin","/x.git"]`},
 	)
+	// THE MOUNT SWAP PRECEDES EVERY git COMMAND, the --global config included.
+	// git discovers the repository at startup whatever the subcommand, and a
+	// `.git` file whose gitdir does not exist is a hard error there: with the
+	// swap after the config exec, `git config --global` in /src answered
+	// "fatal: not a git repository: /x/.git/worktrees/y" and exited 128, so no
+	// atom behind gitReady ever ran on a worktree (foundry-tools#8736). Order
+	// is what this pins; wantCalls above only pins presence.
+	// Two /src mounts sit in the chain — the source as bound, then the swap
+	// without .git — so it is the LAST one that must precede the first git.
+	swap := strings.LastIndex(c, `withMountedDirectory(path:"/src"`)
+	global := strings.Index(c, `"safe.directory"`)
+	if swap < 0 || global < 0 || swap > global {
+		t.Errorf("the /src mount without .git must be established before the first git exec (swap at %d, safe.directory at %d):\n%s", swap, global, c)
+	}
 
 	// A `.git` file that is not a worktree pointer leaves origin alone.
 	engine.reset()
