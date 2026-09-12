@@ -37,20 +37,28 @@ import (
 // print`) — and unlike that awk, a path containing runs of spaces survives
 // intact, because the split is on the FIRST space rather than a field rebuild
 // with OFS.
+//
+// THE SPLIT IS strings.Cut, NOT AN INDEX AND A BOUNDARY. It was
+// `cut := strings.IndexByte(line, ' '); if cut <= 0`, and that comparison
+// carried an EQUIVALENT MUTANT the suite could not kill: a line whose first
+// byte is a space has cut == 0, and `line[:0]` is "", which ParseInt rejects —
+// so `<= 0` and `< 0` skip the same lines by two different routes. Cut says
+// "there was a space" once, with no boundary to get wrong (gremlins 45:10,
+// LIVED on PR #31).
 func FilesOver(statOut string, limitBytes int64) []string {
 	var over []string
 	for _, line := range strings.Split(statOut, "\n") {
 		line = strings.TrimRight(line, "\r")
-		cut := strings.IndexByte(line, ' ')
-		if cut <= 0 {
+		sizeText, name, ok := strings.Cut(line, " ")
+		if !ok {
 			continue
 		}
-		size, err := strconv.ParseInt(line[:cut], 10, 64)
+		size, err := strconv.ParseInt(sizeText, 10, 64)
 		if err != nil {
 			continue
 		}
 		if size > limitBytes {
-			over = append(over, line[cut+1:])
+			over = append(over, name)
 		}
 	}
 	return over
@@ -198,7 +206,14 @@ func SastLanesMissing(rulesBodies []string, rootEntries []string) (declared []st
 				continue
 			}
 			for _, m := range languagesDecl.FindAllString(line, -1) {
-				inner := m[strings.IndexByte(m, '[')+1 : len(m)-1]
+				// The array's contents, by the brackets the regexp already
+				// matched rather than by index arithmetic — `[`+1 and len-1
+				// were a pair of EQUIVALENT MUTANTS (gremlins 201:41, LIVED):
+				// everything the off-by-one dragged in (the `:` or the space
+				// before the bracket) is stripped by notLower anyway, so no
+				// input could tell the mutant from the original.
+				_, inner, _ := strings.Cut(m, "[")
+				inner = strings.TrimSuffix(inner, "]")
 				for _, lang := range strings.Split(inner, ",") {
 					lang = notLower.ReplaceAllString(lang, "")
 					if lang != "" {

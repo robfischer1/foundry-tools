@@ -62,6 +62,29 @@ func TestFilesOverKeepsSpacesInAPath(t *testing.T) {
 	}
 }
 
+// THE TWO BOUNDARIES OF THE SPLIT, named because the comparison that used to
+// stand here (`cut <= 0`) carried a mutant the suite could not kill: a line
+// starting with a space has cut == 0 and is skipped by the boundary OR by
+// ParseInt("") failing, so `<=` and `<` behaved identically on every possible
+// input. strings.Cut has no boundary to mutate; these are the cases that pin
+// the behaviour it has to keep.
+func TestFilesOverSkipsALineWithNoSpaceAndALineThatStartsWithOne(t *testing.T) {
+	for _, line := range []string{
+		"4194304",              // no space at all: not a `<size> <path>` line
+		" 4194304 leading.bin", // the size field is empty
+		" ",                    // one space, nothing either side
+		"\t4194304 tabbed.bin", // stat writes one space, not a tab
+	} {
+		if got := FilesOver(line, 1); len(got) != 0 {
+			t.Errorf("FilesOver(%q) = %q, want none — a line that is not `<size> <path>` is not a file", line, got)
+		}
+	}
+	// And the line that IS that shape still answers, with one space exactly.
+	if got := FilesOver("4194304 a.bin", 1); !reflect.DeepEqual(got, []string{"a.bin"}) {
+		t.Errorf("FilesOver = %q, want [a.bin]", got)
+	}
+}
+
 // THE HITS DOMINATE THE CODE. xargs answers 123 for the ordinary mixed run —
 // one chunk matched, another did not — so a non-empty stdout is the only honest
 // evidence of a conflict marker.
@@ -171,6 +194,42 @@ func TestSastLanesMissingMirrorsTheShell(t *testing.T) {
 	wantMissing := []string{"rust(Cargo.toml)", "typescript-or-javascript(package.json)"}
 	if !reflect.DeepEqual(missing, wantMissing) {
 		t.Errorf("missing = %q, want %q", missing, wantMissing)
+	}
+}
+
+// EVERY DECLARATION ON A LINE COUNTS, not the first one. Flow-style YAML puts
+// several rules on one line, and reading only the first would silently under-
+// report the declared set — the ruleset would look like it misses a lane it
+// actually names, or (worse, one edit later) like it names one it misses.
+// `FindAllString(line, -1)` is what says "all of them"; this is the case that
+// kills a mutant which caps it (gremlins 200:56, LIVED on PR #31).
+func TestSastLanesMissingReadsEveryDeclarationOnOneLine(t *testing.T) {
+	line := `rules: [{id: a, languages: [go]}, {id: b, languages: [rust]}, {id: c, languages: [python]}]`
+	declared, missing := SastLanesMissing([]string{line}, []string{"go.mod", "Cargo.toml", "pyproject.toml"})
+	if !reflect.DeepEqual(declared, []string{"go", "python", "rust"}) {
+		t.Errorf("declared = %q, want [go python rust] — every array on the line counts", declared)
+	}
+	if len(missing) != 0 {
+		t.Errorf("missing = %q, want none", missing)
+	}
+}
+
+// The bracket is found by the regexp, not by counting characters: no space
+// before it, several after it, and a nested `[` inside all read the same.
+func TestSastLanesMissingReadsTheArrayWhateverPrecedesTheBracket(t *testing.T) {
+	for _, body := range []string{
+		"languages:[go]",
+		"languages:  [go]",
+		"languages:\t[ go ]",
+		"    languages: [go]\n",
+	} {
+		declared, missing := SastLanesMissing([]string{body}, []string{"go.mod"})
+		if !reflect.DeepEqual(declared, []string{"go"}) {
+			t.Errorf("%q: declared = %q, want [go]", body, declared)
+		}
+		if len(missing) != 0 {
+			t.Errorf("%q: missing = %q, want none", body, missing)
+		}
 	}
 }
 
