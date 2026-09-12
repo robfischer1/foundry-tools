@@ -79,6 +79,38 @@ func (r *FoundryTools) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+func (r Bake) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Context    *dagger.Directory
+		Dockerfile string
+		BuildArgs  []dagger.BuildArg
+		Labels     []string
+	}
+	concrete.Context = r.Context
+	concrete.Dockerfile = r.Dockerfile
+	concrete.BuildArgs = r.BuildArgs
+	concrete.Labels = r.Labels
+	return json.Marshal(&concrete)
+}
+
+func (r *Bake) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Context    *dagger.Directory
+		Dockerfile string
+		BuildArgs  []dagger.BuildArg
+		Labels     []string
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Context = concrete.Context
+	r.Dockerfile = concrete.Dockerfile
+	r.BuildArgs = concrete.BuildArgs
+	r.Labels = concrete.Labels
+	return nil
+}
+
 func (r Compose) MarshalJSON() ([]byte, error) {
 	var concrete struct {
 		Source *dagger.Directory
@@ -392,6 +424,53 @@ func dispatch(ctx context.Context) (rerr error) {
 func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName string, inputArgs map[string][]byte) (_ any, err error) {
 	_ = inputArgs
 	switch parentName {
+	case "Bake":
+		switch fnName {
+		case "Container":
+			var parent Bake
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Bake).Container(&parent), nil
+		case "Publish":
+			var parent Bake
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var ref string
+			if inputArgs["ref"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["ref"]), &ref)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg ref", err))
+				}
+			}
+			var registryUser string
+			if inputArgs["registryUser"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["registryUser"]), &registryUser)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registryUser", err))
+				}
+			}
+			var registryPassword *dagger.Secret
+			if inputArgs["registryPassword"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["registryPassword"]), &registryPassword)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registryPassword", err))
+				}
+			}
+			return (*Bake).Publish(&parent, ctx, ref, registryUser, registryPassword)
+		case "Tarball":
+			var parent Bake
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Bake).Tarball(&parent), nil
+		default:
+			return nil, fmt.Errorf("unknown function %s", fnName)
+		}
 	case "Compose":
 		switch fnName {
 		case "Config":
@@ -535,6 +614,41 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		}
 	case "FoundryTools":
 		switch fnName {
+		case "Bake":
+			var parent FoundryTools
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var context string
+			if inputArgs["context"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["context"]), &context)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg context", err))
+				}
+			}
+			var dockerfile string
+			if inputArgs["dockerfile"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["dockerfile"]), &dockerfile)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg dockerfile", err))
+				}
+			}
+			var buildArgs []string
+			if inputArgs["buildArgs"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["buildArgs"]), &buildArgs)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg buildArgs", err))
+				}
+			}
+			var labels []string
+			if inputArgs["labels"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["labels"]), &labels)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg labels", err))
+				}
+			}
+			return (*FoundryTools).Bake(&parent, context, dockerfile, buildArgs, labels)
 		case "Catalogue":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
