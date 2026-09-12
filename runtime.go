@@ -200,3 +200,54 @@ func output(ctx context.Context, ctr *dagger.Container) (stdout string, code int
 	}
 	return strings.TrimSpace(stdout), code, nil
 }
+
+// gitReady makes /src readable BY git, for the atoms that read the repository
+// through it — history (fleet:witness, the mutation lane), the origin URL
+// (stop_justifications' repo_name), a revision (the dies bundle). Most atoms
+// never need it: population() answers the file list without git.
+//
+// A LINKED WORKTREE'S `.git` IS A FILE, AND IT DANGLES IN HERE. It holds
+// `gitdir: <primary>/.git/worktrees/<name>`, an absolute host path that does
+// not exist inside the container, so every git command answers "fatal: not a
+// git repository". The pre-push hook hands the engine a worktree, and this
+// fleet works in worktrees, so it is the COMMON case for a local run (the
+// door's Job clones whole, and its `.git` is a directory — untouched here).
+// The tree is given a throwaway repository whose index holds the committable
+// files, and origin is reconstructed from the gitdir path because an
+// exemption keyed on the repository must not evaporate because the push came
+// from a worktree.
+func (r *run) gitReady(ctx context.Context, ctr *dagger.Container) *dagger.Container {
+	// The clone is owned by whoever made it; git refuses a repository it does
+	// not own (exit 128, "dubious ownership") and the process here is root.
+	ctr = ctr.WithExec([]string{"git", "config", "--global", "--add", "safe.directory", "*"})
+	gitdir, err := r.src.File(".git").Contents(ctx)
+	if err != nil {
+		// `.git` is a directory (a primary checkout) or absent: nothing to rebuild.
+		return ctr
+	}
+	ctr = ctr.
+		WithMountedDirectory("/src", r.src.WithoutFile(".git")).
+		WithExec([]string{"git", "init", "-q", "."}).
+		WithExec([]string{"git", "add", "-A"})
+	if primary := checks.WorktreePrimary(gitdir); primary != "" {
+		ctr = ctr.WithExec([]string{"git", "remote", "add", "origin", primary + ".git"})
+	}
+	return ctr
+}
+
+// fetchTool resolves a pinned binary the lane images do not carry: the Nexus
+// mirror first, upstream second. BOTH FAILING IS THE ERROR — the caller files
+// state 2 — never a fallthrough: a spec that was never parsed and a policy
+// suite that never ran are not a clean tree.
+func fetchTool(ctx context.Context, mirror, upstream string) (*dagger.File, error) {
+	var failures []string
+	for _, url := range []string{mirror, upstream} {
+		f := dag.HTTP(url)
+		if _, err := f.Sync(ctx); err == nil {
+			return f, nil
+		} else {
+			failures = append(failures, fmt.Sprintf("%s: %v", url, err))
+		}
+	}
+	return nil, fmt.Errorf("could not fetch from the mirror or from upstream: %s", strings.Join(failures, "; "))
+}
