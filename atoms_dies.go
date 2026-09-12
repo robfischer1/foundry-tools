@@ -497,10 +497,7 @@ func diesContracts(ctx context.Context, r *run) checks.Verdict {
 		return *stop
 	}
 
-	probe, err := scripts.Dies.ReadFile("dies_door_probe.py")
-	if err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the embedded door probe could not be read: "+err.Error())
-	}
+	probe := scripts.DiesDoorProbe
 
 	// `uv --version` is the provisioning probe, on its own exec under the
 	// default Expect: an image without uv is a could-not-run, not a finding.
@@ -574,10 +571,7 @@ func diesSchema(ctx context.Context, r *run) checks.Verdict {
 		return *stop
 	}
 
-	body, err := scripts.Dies.ReadFile("dies_schema.py")
-	if err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the embedded schema validator could not be read: "+err.Error())
-	}
+	body := scripts.DiesSchema
 
 	return verdict(ctx, a, r.lane(checks.ImageFleet).
 		WithExec([]string{"uv", "--version"}).

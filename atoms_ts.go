@@ -20,7 +20,7 @@ func init() {
 }
 
 // eslintConfig is the fleet's eslint config inside the foundry-stocks tree.
-const eslintConfig = checks.StocksRulesets + "/eslint.config.mjs"
+const eslintConfig = "ci/lib/rulesets/eslint.config.mjs" // under checks.StocksRulesets; spelled out so no package-level `+` sits uncovered
 
 // bun run gate (format, lint, typecheck, test, build) passes under the fleet's
 // eslint config.

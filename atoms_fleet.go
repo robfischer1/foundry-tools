@@ -389,11 +389,7 @@ func fleetOrbitDrift(ctx context.Context, r *run) checks.Verdict {
 		return checks.VerdictOf(a, 0, "fleet:orbit-drift: ABSENT - no orbit.toml in this tree, so this repo declares no seams")
 	}
 
-	body, err := scripts.Fleet.ReadFile("fleet_orbit_drift.py")
-	if err != nil {
-		// The embed is compiled in; this is an authoring error, not a tree's.
-		return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - the embedded checker is missing from the module: %v", a.ID, err))
-	}
+	body := scripts.FleetOrbitDrift
 
 	return verdict(ctx, a, r.lane(checks.ImageFleet).
 		WithNewFile("/tmp/orbit-drift.py", string(body)).

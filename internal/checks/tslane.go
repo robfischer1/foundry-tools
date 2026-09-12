@@ -14,7 +14,10 @@ package checks
 // that is never a pass.
 const (
 	StocksRulesets = "ci/lib/rulesets"
-	RulesetsDir    = "/stocks/" + StocksRulesets
+	// Spelled out rather than composed: a package-level `+` is a line no
+	// test can cover, so the mutation lane reads it as NOT COVERED forever.
+	// TestRulesetsDirIsTheLiteralPathTheAtomsPrint holds the two together.
+	RulesetsDir = "/stocks/ci/lib/rulesets"
 )
 
 // TSTestPatterns is BUN'S OWN TEST-FILE PATTERN as globs over the gate's
