@@ -88,69 +88,8 @@ func TestCargoListsTestsReadsLibtestsOwnListing(t *testing.T) {
 	}
 }
 
-func TestMutationScoreRefusesAnythingThatIsNotAVerdict(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		in     string
-		want   int
-		wantOk bool
-	}{
-		{"clean", "0\n", 0, true},
-		{"survivors", "1", 1, true},
-		{"could not measure", " 2 \n", 2, true},
-		{"an empty file is no verdict", "", 0, false},
-		{"whitespace is no verdict", "  \n\t", 0, false},
-		{"prose is no verdict", "clean", 0, false},
-		{"two numbers are no verdict", "0 1", 0, false},
-	} {
-		got, ok := MutationScore(tc.in)
-		if got != tc.want || ok != tc.wantOk {
-			t.Errorf("%s: MutationScore(%q) = (%d, %v), want (%d, %v)", tc.name, tc.in, got, ok, tc.want, tc.wantOk)
-		}
-	}
-}
-
-func TestCriticalModulesReadsTheTemplatesAnswer(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		in   string
-		want string
-	}{
-		{"no answers file at all", "", ""},
-		{"the key is absent", "_src_path: x\nproject_name: foo\n", ""},
-		{"bare value", "critical_modules: src/engine\n", "src/engine"},
-		{"single quoted", "critical_modules: 'src/engine src/core'\n", "src/engine src/core"},
-		{"double quoted", "critical_modules: \"src/engine\"\n", "src/engine"},
-		{"no space after the colon", "critical_modules:src/engine\n", "src/engine"},
-		{"declared empty", "critical_modules: ''\n", ""},
-		{"declared blank", "critical_modules:   \n", ""},
-		{"the first line wins", "critical_modules: a\ncritical_modules: b\n", "a"},
-		{"the key must start the line", "  critical_modules: a\n", ""},
-		{"a longer key is not this key", "critical_modules_extra: a\ncritical_modules: b\n", "b"},
-		{"windows line endings", "critical_modules: src/x\r\n", "src/x"},
-	} {
-		if got := criticalModules(tc.in); got != tc.want {
-			t.Errorf("%s: criticalModules(%q) = %q, want %q", tc.name, tc.in, got, tc.want)
-		}
-		if got := RustCriticalModules(tc.in); got != tc.want {
-			t.Errorf("%s: RustCriticalModules(%q) = %q, want %q", tc.name, tc.in, got, tc.want)
-		}
-	}
-}
-
-func TestModulesDeclaredTreatsBlankAsUndeclared(t *testing.T) {
-	for _, tc := range []struct {
-		in   string
-		want bool
-	}{
-		{"", false},
-		{"   ", false},
-		{"\t", false},
-		{"src/engine", true},
-		{" src/engine ", true},
-	} {
-		if got := ModulesDeclared(tc.in); got != tc.want {
-			t.Errorf("ModulesDeclared(%q) = %v, want %v", tc.in, got, tc.want)
-		}
-	}
-}
+// MutationScore, RustCriticalModules/criticalModules and ModulesDeclared were
+// this lane's copies of three helpers every mutation lane needed. They are one
+// each now: checks.MutationVerdict (golane.go, golane_test.go),
+// checks.CriticalModules and checks.MutationScope (pythonlane.go,
+// pythonlane_test.go). This lane's distinct cases moved into those tables.

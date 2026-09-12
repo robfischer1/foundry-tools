@@ -2,7 +2,6 @@ package checks
 
 import (
 	"regexp"
-	"strconv"
 	"strings"
 )
 
@@ -151,44 +150,21 @@ func CriticalModules(yaml string) string {
 	return ""
 }
 
-// PythonMutationScope is the line the atom prints about what the run was
+// MutationScope is the line a mutation atom prints about what the run was
 // scoped to, and it is printed EITHER WAY.
 //
 // AN EMPTY LIST IS NOT AN OPT-OUT. A repo that declared nothing gets the whole
 // diff as its scope, and the line says so — silence would read as the atom
 // having quietly narrowed itself to nothing, which is the shape this module
 // exists to refuse. The blank test is the shell's `tr -d ' '`: a value that is
-// only spaces is no declaration.
-func PythonMutationScope(mods string) string {
+// only spaces is no declaration, and it is the whole of the ModulesDeclared
+// predicate the rust port carried separately.
+//
+// It takes the atom id because three lanes print this sentence — python, rust
+// and ts — and three copies of it is three places for the wording to drift.
+func MutationScope(id, mods string) string {
 	if strings.ReplaceAll(mods, " ", "") != "" {
-		return "python:mutation: scoped to the declared critical modules: " + mods
+		return id + ": scoped to the declared critical modules: " + mods
 	}
-	return "python:mutation: no critical modules declared - the whole diff is the scope; an empty list is not an opt-out"
-}
-
-// MutationOutcome reads the two files the mutation script's score phase wrote
-// — /tmp/mutation/verdict and /tmp/mutation/reason — and answers the atom's
-// state and the sentence that goes with it.
-//
-// THE SCORE PHASE OWNS THE VERDICT. The phases themselves never exit non-zero
-// (reaching a verdict is score's job), so the only thing left to read is what
-// score wrote: 0 clean, 1 survivors, 2 could not measure. A verdict file that
-// is empty, or that holds something no `exit` could have taken, is a broken
-// script rather than a clean tree — ok is false and the caller answers CANNOT
-// RUN. An integer outside the three needs no special case: StateFor already
-// calls everything but 0 and 1 a could-not-run.
-//
-// Named MutationOutcome rather than MutationVerdict because golane.go carries
-// the go lane's own reader of the same two files; the two are one function
-// once both lanes have landed.
-func MutationOutcome(verdictFile, reasonFile string) (state int, reason string, ok bool) {
-	v := strings.TrimSpace(verdictFile)
-	if v == "" {
-		return 0, "", false
-	}
-	n, err := strconv.Atoi(v)
-	if err != nil {
-		return 0, "", false
-	}
-	return n, strings.TrimSpace(reasonFile), true
+	return id + ": no critical modules declared - the whole diff is the scope; an empty list is not an opt-out"
 }

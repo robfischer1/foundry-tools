@@ -293,7 +293,7 @@ var mutationPhasesPython = []string{"resolve", "sync", "config", "init", "scope"
 // why a repo should have a say in anything (2026-09-11). It should not — the
 // scripts honour MUT_GATE=false, so that file was a one-line switch to turn a
 // fleet gate off. An empty declaration is the whole diff, not an opt-out, and
-// checks.PythonMutationScope prints which of the two happened.
+// checks.MutationScope prints which of the two happened.
 //
 // GATE_BASE reaches this atom, and almost no other: withBase is what rule 8
 // restricts, so every atom that does not judge the change keeps a cache key
@@ -309,7 +309,7 @@ func pythonMutation(ctx context.Context, r *run) checks.Verdict {
 	// Absent answers file, absent declaration: "" is the whole diff.
 	answers, _ := r.src.File(".copier-answers.yml").Contents(ctx)
 	mods := checks.CriticalModules(answers)
-	scope := checks.PythonMutationScope(mods)
+	scope := checks.MutationScope(a.ID, mods)
 
 	ctr := r.gitReady(ctx, r.withBase(r.withStocks(r.lane(checks.ImagePython)))).
 		WithExec([]string{"bash", "--version"}).
@@ -336,9 +336,9 @@ func pythonMutation(ctx context.Context, r *run) checks.Verdict {
 
 	verdictFile, _ := ctr.File("/tmp/mutation/verdict").Contents(ctx)
 	reasonFile, _ := ctr.File("/tmp/mutation/reason").Contents(ctx)
-	state, reason, ok := checks.MutationOutcome(verdictFile, reasonFile)
-	if !ok {
-		return checks.VerdictOf(a, 2, scope+"\n"+a.ID+": CANNOT RUN - the score phase wrote no verdict")
+	state, reason, err := checks.MutationVerdict(verdictFile, reasonFile)
+	if err != nil {
+		return checks.VerdictOf(a, 2, scope+"\n"+a.ID+": CANNOT RUN - "+err.Error())
 	}
 	return checks.VerdictOf(a, state, scope+"\n"+a.ID+": "+reason)
 }

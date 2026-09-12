@@ -7,6 +7,12 @@ import (
 
 // The verdict the mutation lane answers with is the score phase's, and the two
 // ways it can be missing are the two ways a mutation gate goes quietly green.
+//
+// ONE TABLE FOR FOUR LANES. Each lane port landed its own reader of these two
+// files — MutationOutcome (python) and MutationScore (rust/ts) — because three
+// branches could not declare one exported name without colliding at the merge.
+// This is the survivor and this is the table; the cases below the blank line
+// came off those two.
 func TestMutationVerdictReadsWhatTheScorePhaseWrote(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -70,6 +76,26 @@ func TestMutationVerdictReadsWhatTheScorePhaseWrote(t *testing.T) {
 			reason:     "gremlins crashed",
 			wantState:  3,
 			wantReason: "gremlins crashed",
+		},
+
+		{
+			name:       "padding either side is still a verdict",
+			verdict:    " 2 \n",
+			reason:     "cosmic-ray could not run",
+			wantState:  2,
+			wantReason: "cosmic-ray could not run",
+		},
+		{
+			name:    "two numbers are not one verdict",
+			verdict: "0 1",
+			reason:  "whatever",
+			wantErr: "not a verdict",
+		},
+		{
+			name:    "a newline alone is not a verdict",
+			verdict: "\n",
+			reason:  "whatever",
+			wantErr: "wrote no verdict",
 		},
 	}
 

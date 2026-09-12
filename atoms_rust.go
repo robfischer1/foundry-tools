@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"strings"
 
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
@@ -168,9 +167,9 @@ type mutationSpec struct {
 }
 
 // rustTSMutation is ONE SHAPE, TWO LANGUAGES — rust:mutation and ts:mutation,
-// which differ only by mutationSpec. (go: and python: carry the same shape on
-// the other port branches; the name is group-scoped so three branches can
-// declare it without colliding, and Tesla19 unifies the copies.)
+// which differ only by mutationSpec. go: and python: carry the same shape in
+// their own files; the three read the score phase's two files through one
+// checks.MutationVerdict and print one checks.MutationScope line.
 //
 // Each runs the canonical script at its one home (/stocks/ci/lib/mutation/<lang>.sh)
 // PHASE BY PHASE, in DIFF mode against GATE_BASE — the pull's merge base as the
@@ -214,11 +213,8 @@ func rustTSMutation(ctx context.Context, r *run, s mutationSpec) checks.Verdict 
 	// A missing answers file is an empty declaration, exactly as the old
 	// body's `2>/dev/null` made it.
 	answers, _ := r.src.File(".copier-answers.yml").Contents(ctx)
-	mods := checks.RustCriticalModules(answers)
-	scope := a.ID + ": no critical modules declared - the whole diff is the scope; an empty list is not an opt-out"
-	if checks.ModulesDeclared(mods) {
-		scope = a.ID + ": scoped to the declared critical modules: " + mods
-	}
+	mods := checks.CriticalModules(answers)
+	scope := checks.MutationScope(a.ID, mods)
 
 	base := r.lane(s.image)
 	if s.prepare != nil {
@@ -248,16 +244,13 @@ func rustTSMutation(ctx context.Context, r *run, s mutationSpec) checks.Verdict 
 		ctr = next
 	}
 
-	raw, err := ctr.File(mutDir + "/verdict").Contents(ctx)
-	if err != nil {
-		raw = ""
-	}
-	state, ok := checks.MutationScore(raw)
-	if !ok {
-		return checks.VerdictOf(a, 2, scope+"\n"+a.ID+": CANNOT RUN - the score phase wrote no verdict")
-	}
+	raw, _ := ctr.File(mutDir + "/verdict").Contents(ctx)
 	reason, _ := ctr.File(mutDir + "/reason").Contents(ctx)
-	return checks.VerdictOf(a, state, scope+"\n"+a.ID+": "+strings.TrimSpace(reason))
+	state, line, err := checks.MutationVerdict(raw, reason)
+	if err != nil {
+		return checks.VerdictOf(a, 2, scope+"\n"+a.ID+": CANNOT RUN - "+err.Error())
+	}
+	return checks.VerdictOf(a, state, scope+"\n"+a.ID+": "+line)
 }
 
 // mutDir is where the canonical scripts are told to keep their working state

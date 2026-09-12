@@ -48,6 +48,17 @@ func GoHasTestFiles(goListOutput string) bool {
 //
 // It takes no atom id, because the four mutation atoms differ only in which
 // script wrote the two files.
+//
+// ONE READER FOR FOUR LANES. The lane ports each landed their own — golane's
+// MutationVerdict, pythonlane's MutationOutcome (an `ok` bool where this
+// returns an error) and rustlane's MutationScore (the verdict file alone) —
+// because three branches could not declare one exported name without colliding
+// at the merge. This is the survivor, and it is the strictest of the three: a
+// missing, empty or non-integer verdict is state 2 WITH a sentence saying which
+// of those it was, where the other two answered a bare false the caller had to
+// turn back into prose. The reason-file synthesis went with it, so a score
+// phase that wrote a verdict and no reason now says so instead of rendering
+// "<atom>: " and nothing after it.
 func MutationVerdict(verdictText, reasonText string) (int, string, error) {
 	v := strings.TrimSpace(verdictText)
 	if v == "" {

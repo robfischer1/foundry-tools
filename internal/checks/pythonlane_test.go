@@ -2,6 +2,7 @@ package checks
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -94,6 +95,12 @@ func TestPytestStateFoldsEveryNonZeroToAFinding(t *testing.T) {
 	}
 }
 
+// ONE READER FOR THE THREE LANES THAT DECLARE. python, rust and ts each landed
+// their own parse of .copier-answers.yml on their port branch — CriticalModules
+// here, criticalModules/RustCriticalModules in rustlane.go — because three
+// branches could not declare one exported name without colliding at the merge.
+// This is the survivor and this is the one table; the cases below the blank
+// line came off the rust copy, and both parses agreed on every one of them.
 func TestCriticalModulesReadsTheFirstDeclarationAndUnquotesIt(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -113,6 +120,11 @@ func TestCriticalModulesReadsTheFirstDeclarationAndUnquotesIt(t *testing.T) {
 		{"a key that merely starts the same", "critical_modules_extra: src/a\n", ""},
 		{"nothing at all", "", ""},
 		{"carriage returns survive the split", "critical_modules: \"src/a\"\r\n", "src/a"},
+
+		{"no answers file at all", "", ""},
+		{"declared blank", "critical_modules:   \n", ""},
+		{"a longer key does not shadow this one", "critical_modules_extra: a\ncritical_modules: b\n", "b"},
+		{"windows line endings, bare value", "critical_modules: src/x\r\n", "src/x"},
 	} {
 		if got := CriticalModules(tc.yaml); got != tc.want {
 			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
@@ -120,43 +132,36 @@ func TestCriticalModulesReadsTheFirstDeclarationAndUnquotesIt(t *testing.T) {
 	}
 }
 
-func TestPythonMutationScopeSaysSoEitherWay(t *testing.T) {
-	scoped := PythonMutationScope("src/a src/b")
-	if got, want := scoped, "python:mutation: scoped to the declared critical modules: src/a src/b"; got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
-	for _, blank := range []string{"", " ", "    "} {
-		line := PythonMutationScope(blank)
-		if line == "" || line == scoped {
-			t.Errorf("%q: got %q, want the not-scoped line", blank, line)
+// THE SCOPE LINE IS PRINTED EITHER WAY, IN EVERY LANE THAT DECLARES. It carries
+// the atom's own id because three lanes print it and three copies of one
+// sentence is three places for the wording to drift — the rust port had built
+// it inline from a ModulesDeclared predicate, which is folded in here.
+//
+// AND IT MUST NOT READ AS AN ABSENCE: the line shares the atom's id prefix with
+// every announcement, and an "an empty list is not an opt-out" that VerdictOf
+// read as ABSENT would be a repo opting out of the mutation gate by declaring
+// nothing.
+func TestMutationScopeSaysSoEitherWayInEveryLane(t *testing.T) {
+	for _, id := range []string{"python:mutation", "rust:mutation", "ts:mutation"} {
+		scoped := MutationScope(id, "src/a src/b")
+		if want := id + ": scoped to the declared critical modules: src/a src/b"; scoped != want {
+			t.Errorf("got %q, want %q", scoped, want)
 		}
-		if readsAsAbsence(line) {
-			t.Errorf("%q: the scope line must not read as an absence", blank)
-		}
-	}
-}
-
-// readsAsAbsence is the test's own reader: the scope line shares the atom's id
-// prefix with every announcement, and must not be mistaken for the ABSENT one.
-func readsAsAbsence(line string) bool {
-	_, ok := AnnouncedAbsence("python:mutation", line)
-	return ok
-}
-
-func TestMutationOutcomeRefusesAnEmptyOrUnreadableVerdict(t *testing.T) {
-	state, reason, ok := MutationOutcome("1\n", "3 mutants survived on src/a\n")
-	if !ok || state != 1 || reason != "3 mutants survived on src/a" {
-		t.Errorf("got %d/%q/%v", state, reason, ok)
-	}
-	if state, _, ok := MutationOutcome(" 0 ", ""); !ok || state != 0 {
-		t.Errorf("a clean verdict: got %d/%v", state, ok)
-	}
-	if state, _, ok := MutationOutcome("2", "cosmic-ray could not run"); !ok || state != 2 {
-		t.Errorf("a could-not-measure verdict: got %d/%v", state, ok)
-	}
-	for _, bad := range []string{"", "   ", "\n", "clean", "1 survivor"} {
-		if _, _, ok := MutationOutcome(bad, "whatever"); ok {
-			t.Errorf("%q: should not be readable as a verdict", bad)
+		// The blank test is the shell's `tr -d ' '`: only spaces is no
+		// declaration. A tab-only value stays a declaration, which is what the
+		// shell did — the rust port's TrimSpace predicate called it blank, and
+		// that is the one input the two disagreed on.
+		for _, blank := range []string{"", " ", "    "} {
+			line := MutationScope(id, blank)
+			if line == "" || line == scoped {
+				t.Errorf("%s/%q: got %q, want the not-scoped line", id, blank, line)
+			}
+			if !strings.Contains(line, "an empty list is not an opt-out") {
+				t.Errorf("%s/%q: the not-scoped line does not say the list is not an opt-out: %q", id, blank, line)
+			}
+			if _, ok := AnnouncedAbsence(id, line); ok {
+				t.Errorf("%s/%q: the scope line reads as an absence", id, blank)
+			}
 		}
 	}
 }

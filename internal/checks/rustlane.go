@@ -1,7 +1,6 @@
 package checks
 
 import (
-	"strconv"
 	"strings"
 )
 
@@ -74,79 +73,4 @@ func CargoListsTests(list string) bool {
 		}
 	}
 	return false
-}
-
-// MutationScore reads the integer the mutation script's score phase wrote to
-// MUT_DIR/verdict: 0 clean, 1 survivors, 2 could not measure.
-//
-// THE SCORE PHASE IS THE ONE THAT DECIDES, which is why the atom exits with
-// what this returns rather than with any phase's own status. An empty file —
-// or one holding something that is not a number — is not a verdict, and the
-// atom says CANNOT RUN rather than guessing: the shell body's `exit "$v"`
-// would have failed the shell itself on a non-integer, which is the same
-// refusal wearing a worse error message.
-func MutationScore(verdictFile string) (int, bool) {
-	s := strings.TrimSpace(verdictFile)
-	if s == "" {
-		return 0, false
-	}
-	n, err := strconv.Atoi(s)
-	if err != nil {
-		return 0, false
-	}
-	return n, true
-}
-
-// RustCriticalModules is criticalModules under an exported name package main
-// can call.
-//
-// THE NAME IS GROUP-SCOPED ON PURPOSE, and it is temporary. Three lane ports
-// land this same parse at once (python, rust, ts all read critical_modules);
-// one exported `CriticalModules` declared in three files is one compile error
-// at the merge. Tesla19 collapses the copies into a single exported function
-// and deletes this wrapper.
-func RustCriticalModules(answers string) string { return criticalModules(answers) }
-
-// criticalModules reads the repository's `critical_modules:` declaration out of
-// .copier-answers.yml — THE ONE REPO FACT THE MUTATION LANE READS.
-//
-// A repo has no say in anything that runs (Rob, 2026-09-11): the first cut of
-// the mutation atoms sourced a repo-root ci/mutation.env of MUT_* knobs, and
-// since the scripts honour MUT_GATE=false that file was a one-line switch to
-// turn a fleet gate off. It is gone. critical_modules survives because it
-// declares WHAT matters, not how hard to look — and it is read where the
-// template question put it, the same string the retired mutation.yml rendered
-// into its `modules` input.
-//
-// This is `sed -n 's/^critical_modules:[[:space:]]*//p' | head -1` plus the two
-// quote-stripping seds, exactly: the FIRST line that starts with the key, the
-// whitespace after the colon dropped, and ONE leading and ONE trailing quote
-// character removed. A missing file or a missing key is the empty string, which
-// the caller reads as "not declared" — an absence, never a finding.
-func criticalModules(answers string) string {
-	for _, line := range strings.Split(answers, "\n") {
-		line = strings.TrimSuffix(line, "\r")
-		rest, ok := strings.CutPrefix(line, "critical_modules:")
-		if !ok {
-			continue
-		}
-		rest = strings.TrimLeft(rest, " \t")
-		if len(rest) > 0 && (rest[0] == '\'' || rest[0] == '"') {
-			rest = rest[1:]
-		}
-		if len(rest) > 0 && (rest[len(rest)-1] == '\'' || rest[len(rest)-1] == '"') {
-			rest = rest[:len(rest)-1]
-		}
-		return rest
-	}
-	return ""
-}
-
-// ModulesDeclared reports whether a critical_modules value declares anything.
-//
-// The shell asked `[ -n "$(printf '%s' "$MODS" | tr -d ' ')" ]` — a value of
-// nothing but spaces is not a declaration — and an undeclared list is the whole
-// diff, not an opt-out.
-func ModulesDeclared(mods string) bool {
-	return strings.TrimSpace(mods) != ""
 }
