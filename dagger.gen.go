@@ -159,6 +159,42 @@ func (r *GoLane) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+func (r Image) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Source    *dagger.Directory
+		Revision  string
+		SourceURL string
+		Title     string
+		BuildArgs []dagger.BuildArg
+	}
+	concrete.Source = r.Source
+	concrete.Revision = r.Revision
+	concrete.SourceURL = r.SourceURL
+	concrete.Title = r.Title
+	concrete.BuildArgs = r.BuildArgs
+	return json.Marshal(&concrete)
+}
+
+func (r *Image) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Source    *dagger.Directory
+		Revision  string
+		SourceURL string
+		Title     string
+		BuildArgs []dagger.BuildArg
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Source = concrete.Source
+	r.Revision = concrete.Revision
+	r.SourceURL = concrete.SourceURL
+	r.Title = concrete.Title
+	r.BuildArgs = concrete.BuildArgs
+	return nil
+}
+
 func (r PythonLane) MarshalJSON() ([]byte, error) {
 	var concrete struct {
 		Source *dagger.Directory
@@ -534,6 +570,41 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*FoundryTools).Go(&parent), nil
+		case "Image":
+			var parent FoundryTools
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var revision string
+			if inputArgs["revision"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["revision"]), &revision)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg revision", err))
+				}
+			}
+			var sourceUrl string
+			if inputArgs["sourceURL"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["sourceURL"]), &sourceUrl)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg sourceURL", err))
+				}
+			}
+			var title string
+			if inputArgs["title"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["title"]), &title)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg title", err))
+				}
+			}
+			var buildArgs []string
+			if inputArgs["buildArgs"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["buildArgs"]), &buildArgs)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg buildArgs", err))
+				}
+			}
+			return (*FoundryTools).Image(&parent, revision, sourceUrl, title, buildArgs)
 		case "Lanes":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
@@ -665,6 +736,60 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*GoLane).Vet(&parent, ctx)
+		default:
+			return nil, fmt.Errorf("unknown function %s", fnName)
+		}
+	case "Image":
+		switch fnName {
+		case "Builder":
+			var parent Image
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Image).Builder(&parent), nil
+		case "Container":
+			var parent Image
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Image).Container(&parent), nil
+		case "Publish":
+			var parent Image
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var ref string
+			if inputArgs["ref"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["ref"]), &ref)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg ref", err))
+				}
+			}
+			var registryUser string
+			if inputArgs["registryUser"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["registryUser"]), &registryUser)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registryUser", err))
+				}
+			}
+			var registryPassword *dagger.Secret
+			if inputArgs["registryPassword"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["registryPassword"]), &registryPassword)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registryPassword", err))
+				}
+			}
+			return (*Image).Publish(&parent, ctx, ref, registryUser, registryPassword)
+		case "Tarball":
+			var parent Image
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Image).Tarball(&parent), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}

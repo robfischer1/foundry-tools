@@ -402,6 +402,17 @@ func (e *fakeEngine) answer(q string) (data any, errMsg string) {
 		val = 1
 	case "id", "sync":
 		val = fakeID(q)
+	case "publish":
+		// The registry's answer to a push: the ref at the digest it minted.
+		// Scripted by a test that wants a particular digest; otherwise the
+		// address pushed, at a digest that is a function of the chain.
+		val = "registry.notusmi.com/rob/x@sha256:" + strings.Repeat("d", 64)
+		if v, ok := scripted("publish"); ok {
+			val = v
+		}
+	case "export":
+		p, _ := leaf.arg("path")
+		val = p
 	default:
 		return nil, "the paper engine has no answer for leaf " + leaf.name + " in: " + q
 	}
