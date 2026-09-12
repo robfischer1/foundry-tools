@@ -27,22 +27,6 @@ const (
 	ImageKubeLinterSweep  = imageKubeLinter
 )
 
-// HasRootEntry reports whether a Directory.Entries listing names this entry.
-//
-// A TRAILING SLASH IS TOLERATED because the two enumerations disagree about
-// one: Directory.Glob names a directory "flux/" and Directory.Entries names it
-// "flux" (runtime.go's population() drops the slashed ones for exactly this
-// reason). An atom asking "is there a flux tree" must not answer no over a
-// separator.
-func HasRootEntry(entries []string, name string) bool {
-	for _, e := range entries {
-		if strings.TrimSuffix(e, "/") == name {
-			return true
-		}
-	}
-	return false
-}
-
 var pinSurfaceRE = regexp.MustCompile(PinSurfacePattern)
 
 // HasPinSurface reports whether any of these file bodies carries a digest

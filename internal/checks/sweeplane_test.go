@@ -7,7 +7,7 @@ import (
 
 // The two enumerations spell a directory differently, and an atom that reads
 // the wrong one reports ABSENT on a tree that is right there.
-func TestHasRootEntryReadsEitherSpelling(t *testing.T) {
+func TestHasEntryReadsEitherSpelling(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		entries []string
@@ -23,8 +23,8 @@ func TestHasRootEntryReadsEitherSpelling(t *testing.T) {
 		{"an empty tree", nil, "flux", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := HasRootEntry(tc.entries, tc.want); got != tc.found {
-				t.Fatalf("HasRootEntry(%v, %q) = %v, want %v", tc.entries, tc.want, got, tc.found)
+			if got := HasEntry(tc.entries, tc.want); got != tc.found {
+				t.Fatalf("HasEntry(%v, %q) = %v, want %v", tc.entries, tc.want, got, tc.found)
 			}
 		})
 	}

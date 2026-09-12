@@ -15,17 +15,6 @@ import (
 // panics without an engine — so every decision an atom makes about what a tool
 // SAID lives on this side of the boundary.
 
-// HasEntry reports whether a Dagger directory listing carries an entry, with or
-// without the trailing slash Dagger names a directory by.
-func HasEntry(entries []string, name string) bool {
-	for _, e := range entries {
-		if strings.TrimSuffix(e, "/") == name {
-			return true
-		}
-	}
-	return false
-}
-
 // OpaVersionOK reads `opa version` and answers whether the binary IS the pin.
 //
 // THE PIN IS PART OF THE QUESTION. Rego's semantics are a property of the

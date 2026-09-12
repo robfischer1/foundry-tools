@@ -11,15 +11,19 @@ import (
 // THE RUST LANE, AS TYPED CHAINS. Read runtime.go's eight rules and
 // atoms_go.go's exemplar first; this file follows both.
 //
-// THERE IS NO PROVISIONING STEP HERE, and that is a decision rather than an
-// omission. The go lane needs one (`go mod download` on its own, so a proxy's
-// 502 is a could-not-run instead of a finding — atoms_go.go carries the
-// measurement); cargo resolves its own registry as part of the command, and
-// the registry, git and target caches are already volumes the runtime mounts
-// (checks.CachesFor: /usr/local/cargo/registry seeded from the image, the
-// config.toml routing crates through Nexus left uncovered so the route
-// survives, and CARGO_TARGET_DIR pointed at a volume of its own). A tree whose
-// Cargo.lock did not move compiles nothing it compiled last run.
+// THE DEPENDENCIES ARE FETCHED ONCE, ON THEIR OWN (cargoDeps), and every
+// atom that compiles branches from that layer. The first cut had no
+// provisioning step — cargo resolves its registry as part of the command —
+// and it was wrong in a way only the engine could show: MEASURED 2026-09-12 on
+// tongs, rust:cargo-clippy and rust:cargo-test running concurrently against
+// the shared registry volume, cargo-test answered "failed to download
+// `deranged v0.5.8`" while clippy fetched the same crate. cargo's
+// package-cache lock lives in CARGO_HOME, which the mount does not cover, so
+// two containers do not see each other's lock. One fetch, cached as a layer
+// keyed on the tree, and the parallel atoms only read.
+//
+// The fetch is also rule 1 of runtime.go: a registry outage is a could-not-run
+// the door re-asks, not a finding the committer is told to fix.
 
 func init() {
 	register("rust:cargo-fmt", rustCargoFmt)
@@ -49,6 +53,12 @@ func cargoVerdict(ctx context.Context, a checks.AtomDef, ctr *dagger.Container) 
 // would have rewritten, so there is nothing to provision, nothing to count and
 // nothing to parse. --all is the workspace, not the crate the manifest happens
 // to point at first.
+// cargoDeps is the rust lane's provisioned base: the lane container with the
+// dependency graph fetched. See the file header for the measurement behind it.
+func (r *run) cargoDeps() *dagger.Container {
+	return r.lane(checks.ImageRust).WithExec([]string{"cargo", "fetch"})
+}
+
 func rustCargoFmt(ctx context.Context, r *run) checks.Verdict {
 	return cargoVerdict(ctx, checks.AtomByID("rust:cargo-fmt"),
 		r.lane(checks.ImageRust).WithExec([]string{"cargo", "fmt", "--all", "--check"}, anyExit))
@@ -67,7 +77,7 @@ func rustCargoFmt(ctx context.Context, r *run) checks.Verdict {
 // reporting a clean one.
 func rustCargoClippy(ctx context.Context, r *run) checks.Verdict {
 	return cargoVerdict(ctx, checks.AtomByID("rust:cargo-clippy"),
-		r.lane(checks.ImageRust).WithExec([]string{
+		r.cargoDeps().WithExec([]string{
 			"cargo", "clippy", "--workspace", "--all-targets", "--",
 			"-W", "clippy::all", "-D", "warnings",
 		}, anyExit))
@@ -93,7 +103,7 @@ func rustCargoClippy(ctx context.Context, r *run) checks.Verdict {
 // rest of the output is that error's fallout.
 func rustCargoTest(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("rust:cargo-test")
-	lane := r.lane(checks.ImageRust)
+	lane := r.cargoDeps()
 
 	listed, code, err := output(ctx, lane.WithExec(
 		[]string{"cargo", "test", "--workspace", "--", "--list"}, anyExit))
@@ -125,7 +135,7 @@ func rustCargoTest(ctx context.Context, r *run) checks.Verdict {
 // could-not-run and should read as one.
 func rustCargoAudit(ctx context.Context, r *run) checks.Verdict {
 	return verdict(ctx, checks.AtomByID("rust:cargo-audit"),
-		r.lane(checks.ImageRust).
+		r.cargoDeps().
 			WithExec([]string{"cargo", "audit", "--version"}).
 			WithExec([]string{"cargo", "audit"}, anyExit))
 }
@@ -134,11 +144,12 @@ func rustCargoAudit(ctx context.Context, r *run) checks.Verdict {
 // declared critical modules is killed by the tests.
 func rustMutation(ctx context.Context, r *run) checks.Verdict {
 	return rustTSMutation(ctx, r, mutationSpec{
-		id:     "rust:mutation",
-		image:  checks.ImageRust,
-		script: "ci/lib/mutation/rust.sh",
-		probes: [][]string{{"bash", "--version"}, {"cargo", "mutants", "--version"}},
-		phases: []string{"resolve", "mutate", "score"},
+		id:      "rust:mutation",
+		image:   checks.ImageRust,
+		prepare: func(r *run) *dagger.Container { return r.cargoDeps() },
+		script:  "ci/lib/mutation/rust.sh",
+		probes:  [][]string{{"bash", "--version"}, {"cargo", "mutants", "--version"}},
+		phases:  []string{"resolve", "mutate", "score"},
 	})
 }
 
@@ -146,11 +157,14 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 // atoms: the image, the canonical script, what has to be on the PATH for it,
 // and the phases that script defines.
 type mutationSpec struct {
-	id     string
-	image  string
-	script string // relative to the foundry-stocks tree
-	probes [][]string
-	phases []string
+	id    string
+	image string
+	// prepare, when set, replaces the bare lane container as the base — the
+	// rust lane hands its fetched-dependencies layer here.
+	prepare func(r *run) *dagger.Container
+	script  string // relative to the foundry-stocks tree
+	probes  [][]string
+	phases  []string
 }
 
 // rustTSMutation is ONE SHAPE, TWO LANGUAGES — rust:mutation and ts:mutation,
@@ -206,7 +220,11 @@ func rustTSMutation(ctx context.Context, r *run, s mutationSpec) checks.Verdict 
 		scope = a.ID + ": scoped to the declared critical modules: " + mods
 	}
 
-	ctr := r.gitReady(ctx, r.withBase(r.withStocks(r.lane(s.image))))
+	base := r.lane(s.image)
+	if s.prepare != nil {
+		base = s.prepare(r)
+	}
+	ctr := r.gitReady(ctx, r.withBase(r.withStocks(base)))
 	for _, probe := range s.probes {
 		// Provisioning, under the default Expect: a missing toolchain is a
 		// Dagger error and verdict() files it as state 2.

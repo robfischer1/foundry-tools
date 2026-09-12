@@ -6,20 +6,6 @@ import (
 	"testing"
 )
 
-func TestHasEntryReadsDaggersTrailingSlash(t *testing.T) {
-	entries := []string{"policy/", "fleet/", "README.md"}
-	for _, name := range []string{"policy", "fleet", "README.md"} {
-		if !HasEntry(entries, name) {
-			t.Errorf("%q: want present", name)
-		}
-	}
-	for _, name := range []string{"stars", "policy/.manifest", ""} {
-		if HasEntry(entries, name) {
-			t.Errorf("%q: want absent", name)
-		}
-	}
-}
-
 func TestOpaVersionOKMatchesAWholeLineOnly(t *testing.T) {
 	out := "Version: 1.18.0\nBuild Commit: abc\nGo Version: go1.24\n"
 	if !OpaVersionOK(out, "1.18.0") {

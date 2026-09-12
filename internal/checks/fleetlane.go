@@ -239,17 +239,3 @@ var zeroFileScan = regexp.MustCompile(`Ran [0-9]+ rules on 0 files`)
 func OpengrepZeroFiles(out string) bool {
 	return zeroFileScan.MatchString(out)
 }
-
-// HasEntry reports whether a Directory.Entries listing carries this name.
-//
-// The engine names a DIRECTORY with a trailing slash and a file without one, so
-// a caller asking for "rules" and a caller asking for "orbit.toml" both get a
-// straight answer here rather than each remembering which shape it wanted.
-func HasEntry(entries []string, name string) bool {
-	for _, e := range entries {
-		if e == name || e == name+"/" {
-			return true
-		}
-	}
-	return false
-}

@@ -135,7 +135,7 @@ func sweepPortfolioSbom(ctx context.Context, r *run) checks.Verdict {
 	if err != nil {
 		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the repository root could not be read: "+err.Error())
 	}
-	if !checks.HasRootEntry(entries, "Dockerfile") {
+	if !checks.HasEntry(entries, "Dockerfile") {
 		return checks.VerdictOf(a, 0, a.ID+": ABSENT - no Dockerfile at the repository root. The portfolio re-scores image SBOMs, and this repo builds no image.")
 	}
 
@@ -182,7 +182,7 @@ func sweepTemplateRenderMatrix(ctx context.Context, r *run) checks.Verdict {
 	if err != nil {
 		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the repository root could not be read: "+err.Error())
 	}
-	if !checks.HasRootEntry(entries, "ci-matrix.toml") {
+	if !checks.HasEntry(entries, "ci-matrix.toml") {
 		return checks.VerdictOf(a, 0, a.ID+": ABSENT - no ci-matrix.toml at the repository root, so this repo declares no render matrix.")
 	}
 	if _, err := r.stocks.File("ci/lib/template_render_matrix.py").Sync(ctx); err != nil {
@@ -190,7 +190,7 @@ func sweepTemplateRenderMatrix(ctx context.Context, r *run) checks.Verdict {
 	}
 
 	const noRepository = ": CANNOT RUN - no .git in the tree under check. The matrix renders the template AT ITS GIT HEAD (--vcs-ref=HEAD is load-bearing, foundry#130); without a repository copier resolves some other tree, and a green from that would be a green about something else."
-	if !checks.HasRootEntry(entries, ".git") {
+	if !checks.HasEntry(entries, ".git") {
 		return checks.VerdictOf(a, 2, a.ID+noRepository)
 	}
 	if _, err := r.src.File(".git").Contents(ctx); err == nil {
@@ -231,7 +231,7 @@ func sweepKubeconform(ctx context.Context, r *run) checks.Verdict {
 	if err != nil {
 		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the repository root could not be read: "+err.Error())
 	}
-	if !checks.HasRootEntry(entries, "flux") {
+	if !checks.HasEntry(entries, "flux") {
 		return checks.VerdictOf(a, 0, a.ID+": ABSENT - no flux/ tree at the repository root.")
 	}
 	if _, err := dag.HTTP(checks.CRDSchemaProbe).Sync(ctx); err != nil {
@@ -285,7 +285,7 @@ func sweepKubeLinter(ctx context.Context, r *run) checks.Verdict {
 	if err != nil {
 		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the repository root could not be read: "+err.Error())
 	}
-	if !checks.HasRootEntry(entries, "flux") {
+	if !checks.HasEntry(entries, "flux") {
 		return checks.VerdictOf(a, 0, a.ID+": ABSENT - no flux/ tree at the repository root.")
 	}
 
@@ -321,14 +321,14 @@ func (r *run) forgejoWorkflows(ctx context.Context) (bodies []string, present bo
 	if err != nil {
 		return nil, false, err
 	}
-	if !checks.HasRootEntry(entries, ".forgejo") {
+	if !checks.HasEntry(entries, ".forgejo") {
 		return nil, false, nil
 	}
 	sub, err := r.src.Directory(".forgejo").Entries(ctx)
 	if err != nil {
 		return nil, false, err
 	}
-	if !checks.HasRootEntry(sub, "workflows") {
+	if !checks.HasEntry(sub, "workflows") {
 		return nil, false, nil
 	}
 	paths, err := r.src.Glob(ctx, ".forgejo/workflows/**")
