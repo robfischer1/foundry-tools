@@ -6,16 +6,6 @@ import (
 	"strings"
 )
 
-// RulesetsDir is where the fleet's lint rulesets live inside an atom that
-// mounted foundry-stocks: ci/lib/rulesets in that repository, under /stocks.
-//
-// A tool pointed at a file here ignores whatever config the repository carries
-// — which is the point (Rob, 2026-09-11: the fleet decides the atoms AND their
-// rulesets). It is the exported twin of atoms.go's `rulesetsDir`, which is
-// spelled into the shell bodies; the typed atoms are in package main and
-// cannot read that one. Both die as one when the scripts go.
-const RulesetsDir = "/stocks/ci/lib/rulesets"
-
 // pythonProductDirs are the two directories the fleet calls PRODUCT python.
 // Order matters: it is the order the shell loop walked (`for d in src tests`),
 // and it is the order the targets reach ruff and mypy.
