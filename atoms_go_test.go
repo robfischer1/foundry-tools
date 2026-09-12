@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -260,4 +261,35 @@ func TestNoAtomExecsAShell(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestGoMutationRefusesWithoutItsScriptAndOnAnEngineError(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.fail(`path:"ci/lib/mutation/go.sh"`, "no such file")
+	wantState(t, runAtom(t, "go:mutation", "abc"), 2, "did not mount at its one home")
+	if engine.chain(`go.sh","resolve"`) != "" {
+		t.Errorf("a missing script must stop the atom before any phase runs")
+	}
+
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.fail(`go.sh","resolve"`, "engine gone")
+	wantState(t, runAtom(t, "go:mutation", "abc"), 2, "never ran", "engine gone")
+}
+
+func TestGoGofmtHandsAHugePopulationInAsAFile(t *testing.T) {
+	engine.reset()
+	tree := map[string]string{"go.mod": "module x\n"}
+	for i := 0; i < 2000; i++ {
+		tree[fmt.Sprintf("pkg%04d/a_rather_long_file_name_to_fill_the_argv_budget_quickly_%04d.go", i, i)] = "package p\n"
+	}
+	engine.withTree(tree)
+	wantState(t, runAtom(t, "go:gofmt", ""), 0)
+	c := engine.chain(`"xargs","-0","-a"`)
+	if c == "" || !hasCall(c, "withNewFile", `path:"`+gofmtArgFile+`"`) || !hasCall(c, "withExec", `expect:ANY`, `"gofmt","-l"`) {
+		t.Errorf("a population over the argv budget goes in as a NUL file through xargs:\n%s", c)
+	}
+	engine.stdout(`"xargs","-0","-a"`, "pkg0001/x.go\n")
+	wantState(t, runAtom(t, "go:gofmt", ""), 1, "pkg0001/x.go")
 }

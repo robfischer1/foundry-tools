@@ -158,3 +158,11 @@ func TestNeedsArgFileOnlyForAListNoArgvWouldCarry(t *testing.T) {
 		t.Error("a single path past the budget must go through a file")
 	}
 }
+
+func TestGovulncheckExitReadsThreeAsAFinding(t *testing.T) {
+	for code, want := range map[int]int{0: 0, 1: 1, 2: 2, 3: 1, 137: 137} {
+		if got := GovulncheckExit(code); got != want {
+			t.Errorf("GovulncheckExit(%d) = %d, want %d", code, got, want)
+		}
+	}
+}

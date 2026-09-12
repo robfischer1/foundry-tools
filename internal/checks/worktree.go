@@ -13,9 +13,11 @@ func WorktreePrimary(gitdirFile string) string {
 		return ""
 	}
 	path := strings.TrimSpace(strings.TrimPrefix(line, "gitdir:"))
-	i := strings.Index(path, "/.git/worktrees/")
-	if i <= 0 {
+	primary, _, found := strings.Cut(path, "/.git/worktrees/")
+	if !found || primary == "" {
+		// Not a worktree's gitdir, or one rooted at "/" — neither names a
+		// primary checkout an origin could be built from.
 		return ""
 	}
-	return path[:i]
+	return primary
 }
