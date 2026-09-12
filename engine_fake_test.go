@@ -447,10 +447,15 @@ func TestMain(m *testing.M) {
 // goTree is a tree that declares every lane, so an atom's happy path has a
 // surface to stand on.
 var everyLaneTree = map[string]string{
-	"go.mod":                           "module x\n\ngo 1.26\n",
-	"main.go":                          "package main\n",
-	"main_test.go":                     "package main\n",
-	"pyproject.toml":                   "[project]\nname = \"x\"\ndependencies = [\"forge-testkit>=1\"]\n",
+	"go.mod":       "module x\n\ngo 1.26\n",
+	"main.go":      "package main\n",
+	"main_test.go": "package main\n",
+	// The dependency array is spelled one entry per line because that is what
+	// checks.DeclaresForgeTestkit reads — a quoted entry at the start of a
+	// line, never the bare word. On one line the tree LOOKED like it took the
+	// dependency and the three forge-testkit atoms stood down ABSENT against
+	// it, so their happy path had no surface here.
+	"pyproject.toml":                   "[project]\nname = \"x\"\ndependencies = [\n    \"forge-testkit>=1\",\n]\n",
 	"src/x.py":                         "",
 	"tests/test_x.py":                  "",
 	"Cargo.toml":                       "[package]\nname = \"x\"\n",

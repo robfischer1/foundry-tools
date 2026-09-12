@@ -19,6 +19,10 @@ func TestPythonSourceDirsKeepsTheShellsOrder(t *testing.T) {
 		{"only tests", []string{"tests"}, []string{"tests"}},
 		{"neither", []string{"pyproject.toml", "scripts"}, nil},
 		{"a file named src is still the entry we see", []string{"src"}, []string{"src"}},
+		{"both spellings at once", []string{"./src/", "./tests/"}, []string{"src", "tests"}},
+		{"the same dir twice is one target", []string{"src", "src/"}, []string{"src"}},
+		{"a path below the root is not a root entry", []string{"src/x.py", "tests/test_x.py"}, nil},
+		{"no entries at all", nil, nil},
 	} {
 		if got := PythonSourceDirs(tc.entries); !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
@@ -38,7 +42,14 @@ func TestRuffFormatTargetsScopesAGoStarToItsProductPython(t *testing.T) {
 		{"a go star with both", []string{"go.mod", "pyproject.toml", "src", "tests"}, []string{"src", "tests"}, true},
 		{"a go star with only tests", []string{"go.mod", "tests"}, []string{"tests"}, true},
 		{"a go star with neither is absent", []string{"go.mod", "pyproject.toml", "scripts"}, nil, false},
+		{"a go star with only src", []string{"go.mod", "src"}, []string{"src"}, true},
 		{"go.mod under a directory does not make a go star", []string{"pyproject.toml", "vendor/go.mod"}, []string{"."}, true},
+		{"./go.mod is still the root manifest", []string{"./go.mod", "src"}, []string{"src"}, true},
+		// The manifest is a FILE. Dagger names a directory with a trailing
+		// slash, so a directory called go.mod is not the thing that declares
+		// the Go lane and the tree formats itself whole.
+		{"a directory named go.mod is not the manifest", []string{"go.mod/", "pyproject.toml"}, []string{"."}, true},
+		{"an empty tree formats itself whole", nil, []string{"."}, true},
 	} {
 		got, ok := RuffFormatTargets(tc.entries)
 		if ok != tc.wantOK || !reflect.DeepEqual(got, tc.want) {
@@ -57,6 +68,9 @@ func TestDeclaresForgeTestkitReadsTheDependencyEntryNotTheWord(t *testing.T) {
 		`    "forge-testkit`,
 		`    "forge-testkit!=0.3",`,
 		`    "forge-testkit~=0.4",`,
+		"    \"forge-testkit>=1\",\r",
+		`    "forge-testkit>1",`,
+		`    "forge-testkit<2",`,
 	}
 	for _, line := range declares {
 		if !DeclaresForgeTestkit("[project]\ndependencies = [\n" + line + "\n]\n") {
@@ -71,6 +85,11 @@ func TestDeclaresForgeTestkitReadsTheDependencyEntryNotTheWord(t *testing.T) {
 		`    "forge-testkit-extras>=1",`,
 		`    'forge-testkit>=0.5',`,
 		``,
+		// The one entry on the one line the array opens on is not an entry
+		// this reads: the quote has to start the line. everyLaneTree spelled
+		// it this way and the three forge-testkit atoms stood down ABSENT.
+		`dependencies = ["forge-testkit>=1"]`,
+		`    "forge_testkit>=1",`,
 	}
 	for _, line := range mentions {
 		if DeclaresForgeTestkit(line) {
@@ -87,7 +106,9 @@ func TestPytestStateFoldsEveryNonZeroToAFinding(t *testing.T) {
 	if state != 1 || reason == "" {
 		t.Errorf("5: got %d/%q, want a finding with its own reason", state, reason)
 	}
-	for _, code := range []int{1, 2, 3, 4, 127, 137} {
+	// 4 and 6 bracket the one code that carries its own sentence, so a mutant
+	// that moves the boundary off 5 dies here.
+	for _, code := range []int{1, 2, 3, 4, 6, 127, 137, -1} {
 		state, reason := PytestState(code)
 		if state != 1 || reason != "" {
 			t.Errorf("%d: got %d/%q, want 1 with the tool's own output as the reason", code, state, reason)
@@ -125,6 +146,22 @@ func TestCriticalModulesReadsTheFirstDeclarationAndUnquotesIt(t *testing.T) {
 		{"declared blank", "critical_modules:   \n", ""},
 		{"a longer key does not shadow this one", "critical_modules_extra: a\ncritical_modules: b\n", "b"},
 		{"windows line endings, bare value", "critical_modules: src/x\r\n", "src/x"},
+
+		// ONE QUOTE OFF EACH END, AND ONLY ONE — sed's `s/^['"]//` then
+		// `s/['"]$//`, which is what the shell did and what the two index
+		// arithmetics here have to keep doing.
+		{"opening quote only", `critical_modules: "src/a`, "src/a"},
+		{"closing quote only", `critical_modules: src/a"`, "src/a"},
+		{"mismatched quotes come off anyway", `critical_modules: "src/a'`, "src/a"},
+		{"only the outermost quote comes off", `critical_modules: ""src/a""`, `"src/a"`},
+		{"a value that is one quote character", `critical_modules: "`, ""},
+		{"a value that is two quote characters", `critical_modules: ''`, ""},
+		// The leading whitespace is the regex's; the trailing whitespace is
+		// nobody's, and the shell kept it too.
+		{"trailing whitespace survives", "critical_modules: src/a  \n", "src/a  "},
+		{"a value with a colon in it", "critical_modules: src/a:b\n", "src/a:b"},
+		{"a carriage return is the whole value", "critical_modules:\r\n", ""},
+		{"the last line needs no newline", "critical_modules: src/a", "src/a"},
 	} {
 		if got := CriticalModules(tc.yaml); got != tc.want {
 			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
@@ -162,6 +199,24 @@ func TestMutationScopeSaysSoEitherWayInEveryLane(t *testing.T) {
 			if _, ok := AnnouncedAbsence(id, line); ok {
 				t.Errorf("%s/%q: the scope line reads as an absence", id, blank)
 			}
+		}
+		// THE ONE INPUT THE TWO PARSES DISAGREED ON, asserted rather than left
+		// in the comment: `tr -d ' '` deletes spaces and nothing else, so a
+		// tab-only value is still a declaration. The rust port's TrimSpace
+		// predicate called it blank; this is the shell's answer.
+		for _, tabbed := range []string{"\t", " \t ", "\n"} {
+			if line := MutationScope(id, tabbed); line != id+": scoped to the declared critical modules: "+tabbed {
+				t.Errorf("%s/%q: a value the shell's `tr -d ' '` does not empty is still a declaration: %q", id, tabbed, line)
+			}
+		}
+		// The declared value is printed verbatim, padding and all.
+		if line := MutationScope(id, " src/a "); !strings.HasSuffix(line, ": scoped to the declared critical modules:  src/a ") {
+			t.Errorf("%s: the declaration is printed verbatim: %q", id, line)
+		}
+		// Every line this module answers with leads with the atom's id, so a
+		// reader (and AnnouncedAbsence) can tell whose sentence it is.
+		if !strings.HasPrefix(scoped, id+": ") {
+			t.Errorf("%s: the scope line must lead with the atom id: %q", id, scoped)
 		}
 	}
 }
