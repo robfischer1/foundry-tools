@@ -153,7 +153,7 @@ func TestDiesOpaClientRefusesEveryProvisioningFailure(t *testing.T) {
 	engine.withTree(everyLaneTree)
 	withOpa()
 	engine.stdout(`"opa","test"`, "PASS: 3/3\n")
-	engine.fail("nexus.notusmi.com", "502")
+	engine.fail(checks.OpaMirror, "502")
 	wantState(t, runAtom(t, "dies:opa-test", ""), 0)
 	if engine.chain(`http(url:"`+checks.OpaURL+`")`, "id") == "" {
 		t.Errorf("a dead mirror must place the upstream's file:\n%v", engine.chains())

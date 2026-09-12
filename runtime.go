@@ -97,6 +97,7 @@ func (r *run) lane(image string) *dagger.Container {
 		WithEnvVariable("GOPROXY", checks.GoProxy).
 		WithEnvVariable("GONOSUMDB", checks.GoNoSumDB).
 		WithEnvVariable("GOPRIVATE", checks.GoPrivate)
+	ctr = provision(ctr, image)
 	for _, c := range checks.CachesFor(image) {
 		opts := dagger.ContainerWithMountedCacheOpts{}
 		if c.Seed {
@@ -110,6 +111,81 @@ func (r *run) lane(image string) *dagger.Container {
 	return ctr.
 		WithMountedDirectory("/src", r.src).
 		WithWorkdir("/src")
+}
+
+// provision installs what a lane's atoms exec that the upstream toolchain
+// image does not carry — the work the fleet's own CI images used to bake
+// (Rob, 2026-09-12: "We're going to stop maintaining CI images. We'll
+// leverage dagger's caching instead."). ONE EXEC PER TOOL, EVERY VERSION
+// PINNED (checks/images.go), IN VOLATILITY ORDER: the distro packages the
+// image lacks, then the stable binaries copied out of their own images, then
+// the pinned scanners, then the tools built from source at the versions that
+// move most. The engine caches each exec by its inputs, so a tool is fetched
+// or compiled once per pin and a cache hit survives everything but the last
+// layer moving. Runs BEFORE the cache volumes are mounted, so a layer never
+// depends on what a volume happens to hold.
+//
+// NO SHELL. Every step is an argv the engine runs directly, exactly as the
+// atoms are; a download is dag.HTTP into the container, never `curl | sh`.
+func provision(ctr *dagger.Container, image string) *dagger.Container {
+	switch image {
+	case checks.ImageGo:
+		// golang:bookworm carries git, curl and bash; go.sh scores with
+		// python3 (go_score.py), which it does not.
+		return ctr.
+			WithExec([]string{"apt-get", "update"}).
+			WithExec([]string{"apt-get", "install", "-y", "--no-install-recommends", "python3"}).
+			WithExec([]string{"rm", "-rf", "/var/lib/apt/lists"}).
+			WithFile("/usr/local/bin/opengrep", dag.HTTP(checks.OpengrepMirror), dagger.ContainerWithFileOpts{Permissions: 0o755}).
+			WithExec([]string{"opengrep", "--version"}).
+			WithExec([]string{"go", "install", checks.GremlinsModule}).
+			WithExec([]string{"go", "install", checks.StaticcheckModule}).
+			WithExec([]string{"go", "install", checks.GovulncheckModule}).
+			WithExec([]string{"staticcheck", "-version"}).
+			WithExec([]string{"govulncheck", "-version"})
+	case checks.ImagePython:
+		// python:slim carries python3 and tar and nothing else the atoms
+		// exec: git and curl come from apt, uv/uvx out of their own image,
+		// opengrep from the mirror. opa and oras the dies and sweep atoms
+		// fetch themselves.
+		uv := dag.Container().From(checks.ImageUV)
+		return ctr.
+			WithExec([]string{"apt-get", "update"}).
+			WithExec([]string{"apt-get", "install", "-y", "--no-install-recommends", "git", "curl", "ca-certificates"}).
+			WithExec([]string{"rm", "-rf", "/var/lib/apt/lists"}).
+			WithFile("/usr/local/bin/uv", uv.File("/uv")).
+			WithFile("/usr/local/bin/uvx", uv.File("/uvx")).
+			WithFile("/usr/local/bin/opengrep", dag.HTTP(checks.OpengrepMirror), dagger.ContainerWithFileOpts{Permissions: 0o755}).
+			WithExec([]string{"uv", "--version"}).
+			WithExec([]string{"opengrep", "--version"})
+	case checks.ImageRust:
+		// rust:bookworm carries cargo, git, curl and bash. rustfmt and
+		// clippy are rustup components; cargo-audit and cargo-mutants are
+		// built from source at their pins — minutes on the first run, a
+		// cached layer on every later one.
+		return ctr.
+			WithExec([]string{"rustup", "component", "add", "rustfmt", "clippy"}).
+			WithFile("/usr/local/bin/opengrep", dag.HTTP(checks.OpengrepMirror), dagger.ContainerWithFileOpts{Permissions: 0o755}).
+			WithExec([]string{"cargo", "install", "cargo-audit", "--locked", "--version", checks.CargoAuditVersion}).
+			WithExec([]string{"cargo", "install", "cargo-mutants", "--locked", "--version", checks.CargoMutantsVersion}).
+			WithExec([]string{"cargo", "fmt", "--version"}).
+			WithExec([]string{"cargo", "clippy", "--version"}).
+			WithExec([]string{"cargo", "mutants", "--version"})
+	case checks.ImageTS:
+		// bun:slim runs as the bun user and carries neither git nor node;
+		// ts.sh runs stryker under node. Root for the installs, then back.
+		node := dag.Container().From(checks.ImageNode)
+		return ctr.
+			WithUser("root").
+			WithExec([]string{"apt-get", "update"}).
+			WithExec([]string{"apt-get", "install", "-y", "--no-install-recommends", "git", "curl", "ca-certificates"}).
+			WithExec([]string{"rm", "-rf", "/var/lib/apt/lists"}).
+			WithFile("/usr/local/bin/node", node.File("/usr/local/bin/node")).
+			WithFile("/usr/local/bin/opengrep", dag.HTTP(checks.OpengrepMirror), dagger.ContainerWithFileOpts{Permissions: 0o755}).
+			WithExec([]string{"node", "--version"}).
+			WithExec([]string{"opengrep", "--version"})
+	}
+	return ctr
 }
 
 // withStocks mounts foundry-stocks at /stocks — the rulesets and the scripts

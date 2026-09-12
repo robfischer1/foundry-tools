@@ -17,20 +17,21 @@ func TestLaneMountsEachCacheAndExportsOnlyTheOneEnvVar(t *testing.T) {
 	runAtom(t, "rust:cargo-clippy", "")
 	c := engine.chain(`"cargo","clippy"`, "exitCode")
 	wantCalls(t, c,
-		[]string{"withMountedCache", `path:"/usr/local/cargo/registry"`, `source:`},
+		[]string{"withMountedCache", `path:"/usr/local/cargo/registry"`},
 		[]string{"withMountedCache", `path:"/usr/local/cargo/git"`},
 		[]string{"withMountedCache", `path:"/cache/cargo-target"`},
 		[]string{"withEnvVariable", `name:"CARGO_TARGET_DIR"`, `value:"/cache/cargo-target"`},
 	)
-	if hasCall(c, "withMountedCache", `path:"/usr/local/cargo/git"`, `source:`) {
-		t.Errorf("the cargo git cache has no seed in the image and must not be seeded:\n%s", c)
+	if hasCall(c, "withMountedCache", `source:`) {
+		t.Errorf("the upstream toolchains carry no warm layer; no cache may be seeded:\n%s", c)
 	}
 
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	runAtom(t, "go:vet", "")
 	c = engine.chain(`"go","vet"`, "exitCode")
-	if strings.Contains(c, "CARGO_TARGET_DIR") || hasCall(c, "withEnvVariable", `value:"/go/pkg/mod"`) || hasCall(c, "withEnvVariable", `value:"/opt/go-build-cache"`) {
+	wantCalls(t, c, []string{"withEnvVariable", `name:"GOCACHE"`, `value:"/opt/go-build-cache"`})
+	if strings.Contains(c, "CARGO_TARGET_DIR") || hasCall(c, "withEnvVariable", `value:"/go/pkg/mod"`) {
 		t.Errorf("a cache without an EnvVar must export nothing:\n%s", c)
 	}
 }
@@ -176,4 +177,77 @@ func TestCheckAnswersTheWayDaggerCheckReads(t *testing.T) {
 	if _, err := check(context.Background(), dag.Directory(), "go:vet"); err == nil {
 		t.Errorf("findings are the error dagger check reads")
 	}
+}
+
+// The lanes provision what their atoms exec, in the chain, pinned, in
+// volatility order — the distro packages first, the copied binaries next,
+// the scanner, the source-built tools last — and before any cache volume is
+// mounted, so no layer depends on what a volume holds. A file copied out of
+// another image or fetched from the mirror is its own query; the lane's chain
+// carries it by id at the path it lands on.
+func TestLanesProvisionTheirToolsPinnedAndInVolatilityOrder(t *testing.T) {
+	order := func(t *testing.T, chain string, marks ...string) {
+		t.Helper()
+		last := -1
+		for _, m := range marks {
+			i := strings.Index(chain, m)
+			if i < 0 {
+				t.Errorf("chain lacks %s:\n%s", m, chain)
+				return
+			}
+			if i < last {
+				t.Errorf("%s is out of volatility order:\n%s", m, chain)
+			}
+			last = i
+		}
+	}
+	fetched := func(t *testing.T, needle string) {
+		t.Helper()
+		if engine.chain(needle) == "" {
+			t.Errorf("nothing asked the engine for %s", needle)
+		}
+	}
+	noShell := func(t *testing.T, chain string) {
+		t.Helper()
+		if strings.Contains(chain, `"sh","-c"`) || strings.Contains(chain, `"bash","-c"`) || strings.Contains(chain, `"curl","-`) {
+			t.Errorf("provisioning runs no shell and pipes nothing through curl:\n%s", chain)
+		}
+	}
+
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	runAtom(t, "go:vet", "")
+	c := engine.chain(`"go","vet"`, "exitCode")
+	order(t, c, `from(address:"`+checks.ImageGo+`")`, `"apt-get","install"`, `"python3"`, `path:"/usr/local/bin/opengrep"`,
+		`"go","install","`+checks.GremlinsModule+`"`, `"go","install","`+checks.StaticcheckModule+`"`, `"go","install","`+checks.GovulncheckModule+`"`, `withMountedCache`)
+	fetched(t, `http(url:"`+checks.OpengrepMirror+`")`)
+	noShell(t, c)
+
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	runAtom(t, "python:ruff-check", "")
+	c = engine.chain(`"uvx","ruff@`, "exitCode")
+	order(t, c, `from(address:"`+checks.ImagePython+`")`, `"apt-get","install"`, `"git"`, `path:"/usr/local/bin/uv"`, `path:"/usr/local/bin/uvx"`,
+		`path:"/usr/local/bin/opengrep"`, `withMountedCache`)
+	wantCalls(t, c, []string{"withEnvVariable", `name:"UV_CACHE_DIR"`, `value:"/opt/uv-cache"`})
+	fetched(t, `from(address:"`+checks.ImageUV+`")`)
+	noShell(t, c)
+
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	runAtom(t, "rust:cargo-fmt", "")
+	c = engine.chain(`"cargo","fmt"`, "exitCode")
+	order(t, c, `from(address:"`+checks.ImageRust+`")`, `"rustup","component","add","rustfmt","clippy"`, `path:"/usr/local/bin/opengrep"`,
+		`"cargo","install","cargo-audit","--locked","--version","`+checks.CargoAuditVersion+`"`,
+		`"cargo","install","cargo-mutants","--locked","--version","`+checks.CargoMutantsVersion+`"`, `withMountedCache`)
+	noShell(t, c)
+
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	runAtom(t, "ts:bun-audit", "")
+	c = engine.chain(`"bun","audit"`, "exitCode")
+	order(t, c, `from(address:"`+checks.ImageTS+`")`, `withUser(name:"root")`, `"apt-get","install"`, `path:"/usr/local/bin/node"`,
+		`path:"/usr/local/bin/opengrep"`, `withMountedCache`)
+	fetched(t, `from(address:"`+checks.ImageNode+`")`)
+	noShell(t, c)
 }

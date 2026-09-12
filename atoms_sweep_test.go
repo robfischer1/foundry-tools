@@ -189,7 +189,7 @@ func TestSweepDigestPinsCannotRunWhenTheTreeOrTheScriptOrOrasIsUnreachable(t *te
 	// refusal, it is the fallback doing its job.
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	engine.fail("nexus.notusmi.com", "502 from the mirror")
+	engine.fail(checks.OrasMirror, "502 from the mirror")
 	wantState(t, runAtom(t, "sweep:digest-pins", ""), 0)
 	if q := engine.chain("github.com/oras-project"); q == "" {
 		t.Error("a dead mirror must fall through to upstream")

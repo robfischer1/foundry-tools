@@ -55,7 +55,7 @@ func TestTSBunGateCommitRemountsTheTreeCarryingTheFleetsEslintConfig(t *testing.
 		t.Errorf("the config laid into the tree is not the stocks file:\n%s", remount)
 	}
 	wantCalls(t, c,
-		[]string{"withMountedCache", `path:"/root/.bun/install/cache"`, `source:`},
+		[]string{"withMountedCache", `path:"/root/.bun/install/cache"`},
 		[]string{"withMountedDirectory", `path:"/src"`, `source:"` + fakeID(remount) + `"`},
 		[]string{"withWorkdir", `path:"/src"`},
 		[]string{"withExec", `expect:ANY`, `args:["bun","install","--frozen-lockfile"]`},

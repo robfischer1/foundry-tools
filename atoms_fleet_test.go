@@ -95,7 +95,7 @@ func TestFleetCheckYAMLRunsTheYAMLPopulationThroughXargs(t *testing.T) {
 	}
 	wantCalls(t, c,
 		[]string{"withEnvVariable", `name:"CI"`, `value:"true"`},
-		[]string{"withMountedCache", `path:"/opt/uv-cache"`, `source:`},
+		[]string{"withMountedCache", `path:"/opt/uv-cache"`},
 		[]string{"withMountedDirectory", `path:"/src"`},
 		[]string{"withWorkdir", `path:"/src"`},
 		[]string{"withNewFile", `path:"/tmp/files0"`},
@@ -708,8 +708,13 @@ func TestFleetOpengrepProbesTheBakedBinaryAndSetsTheLocale(t *testing.T) {
 	if hasCall(c, "withExec", `"opengrep","--version"`, `expect:ANY`) {
 		t.Errorf("the version probe is provisioning and must run under the default Expect:\n%s", c)
 	}
-	if strings.Contains(c, "curl") || strings.Contains(c, "install") {
-		t.Errorf("nothing may fetch or install opengrep — it is baked into the image:\n%s", c)
+	// opengrep is provisioned ONCE by the lane, from the mirror at its pin,
+	// as a file — never fetched by the atom, never through curl.
+	if !hasCall(c, "withFile", `path:"/usr/local/bin/opengrep"`) || engine.chain(`http(url:"`+checks.OpengrepMirror+`")`) == "" {
+		t.Errorf("the lane provisions opengrep from the mirror at its pin:\n%s", c)
+	}
+	if strings.Contains(c, `"curl","-`) || strings.Count(c, `path:"/usr/local/bin/opengrep"`) != 1 {
+		t.Errorf("opengrep is laid in once and never curled:\n%s", c)
 	}
 }
 

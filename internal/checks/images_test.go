@@ -31,11 +31,14 @@ import (
 // and must not: the assertion is about WHERE the fleet's images are addressed,
 // not which images they are. Two of the four now exist only on zot, so a revert
 // of this one string is an unpullable gate.
-func TestEveryLaneImageIsAFleetCIImage(t *testing.T) {
-	const want = "registry.notusmi.com/rob/stellar_core:"
-	for _, img := range []string{ImageGo, ImagePython, ImageRust, ImageTS, ImageFleet} {
+func TestEveryLaneImageIsAnUpstreamToolchainOnTheMirror(t *testing.T) {
+	const want = "docker.notusmi.com/"
+	for _, img := range []string{ImageGo, ImagePython, ImageRust, ImageTS, ImageFleet, ImageUV, ImageNode} {
 		if !strings.HasPrefix(img, want) {
-			t.Errorf("lane image %q is not one of the fleet's CI images (%s…) — the engine and CI would grade with two toolchains free to disagree", img, want)
+			t.Errorf("lane image %q is not an upstream toolchain on the fleet's mirror (%s…) — the CI images retired 2026-09-12 and docker.io is never dialled directly", img, want)
+		}
+		if strings.Contains(img, "stellar_core:") {
+			t.Errorf("lane image %q is one of the fleet's own images — those are what Rob stopped maintaining", img)
 		}
 	}
 }
@@ -116,5 +119,29 @@ func TestGoPrivateIsEmptySoTheImagesBakedOneCannotWin(t *testing.T) {
 	}
 	if GoNoSumDB != "forgejo.notusmi.com" {
 		t.Errorf("GONOSUMDB is %q — the forge host is what GOPRIVATE was covering", GoNoSumDB)
+	}
+}
+
+// The tools the lanes provision are pinned, and the pins are legible: the
+// opengrep download names its version on the mirror's github-raw route, the
+// go tools carry a version after @ that is never @latest, and the cargo
+// tools are plain versions.
+func TestTheProvisionedToolsArePinnedAndTheMirrorRouteCarriesTheVersion(t *testing.T) {
+	if !strings.HasPrefix(OpengrepMirror, "https://nexus.notusmi.com/repository/github-raw/opengrep/opengrep/releases/download/") {
+		t.Errorf("opengrep is fetched from somewhere other than the mirror's github-raw route: %s", OpengrepMirror)
+	}
+	if !strings.Contains(OpengrepMirror, "/"+OpengrepVersion+"/") || !strings.HasSuffix(OpengrepMirror, "/opengrep_manylinux_x86") {
+		t.Errorf("the opengrep route does not name the pin and the artefact: %s", OpengrepMirror)
+	}
+	for _, mod := range []string{StaticcheckModule, GovulncheckModule, GremlinsModule} {
+		at := strings.LastIndex(mod, "@")
+		if at < 0 || at == len(mod)-1 || mod[at+1:] == "latest" {
+			t.Errorf("go tool %q is not pinned to a version", mod)
+		}
+	}
+	for _, v := range []string{CargoAuditVersion, CargoMutantsVersion} {
+		if !regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(v) {
+			t.Errorf("cargo tool version %q is not a plain semver pin", v)
+		}
 	}
 }
