@@ -17,6 +17,10 @@ develop:
     go mod tidy
 
 # What CI runs. Same commands, same order.
+#
+# Package main's tests run against a paper engine (engine_fake_test.go); the
+# session it needs is defaulted by internal/checks/session.go, so nothing here
+# has to export it.
 gate:
     test -z "$(gofmt -l . )"
     go vet ./...

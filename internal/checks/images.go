@@ -65,14 +65,14 @@ package checks
 // ca-gate-pull's CA_GATE_DOCKER_CONFIG_JSON still names only the forge and
 // does not have to change.
 const (
-	imageGo     = "registry.notusmi.com/rob/stellar_core:go-ci@sha256:5f684657c2ba294752edcb456efbdf3237290b8a666ebdcd4cb7025431bbdf7a"
-	imagePython = "registry.notusmi.com/rob/stellar_core:python-ci@sha256:b2e0985bacc458d2619606b10e68f5d938275db37152fb408b9c7b69dff0ac32"
-	imageRust   = "registry.notusmi.com/rob/stellar_core:rust-ci@sha256:3c8159334177745d7526e26e16bafbcfa268ccfb7ca194cac2ddddd9d39343e9"
-	imageTS     = "registry.notusmi.com/rob/stellar_core:frontend-ci@sha256:966e17d2853028dc5a6fe202435171bbdf7f0271bcba9b114ed1aef3e78f31ec"
+	ImageGo     = "registry.notusmi.com/rob/stellar_core:go-ci@sha256:5f684657c2ba294752edcb456efbdf3237290b8a666ebdcd4cb7025431bbdf7a"
+	ImagePython = "registry.notusmi.com/rob/stellar_core:python-ci@sha256:b2e0985bacc458d2619606b10e68f5d938275db37152fb408b9c7b69dff0ac32"
+	ImageRust   = "registry.notusmi.com/rob/stellar_core:rust-ci@sha256:3c8159334177745d7526e26e16bafbcfa268ccfb7ca194cac2ddddd9d39343e9"
+	ImageTS     = "registry.notusmi.com/rob/stellar_core:frontend-ci@sha256:966e17d2853028dc5a6fe202435171bbdf7f0271bcba9b114ed1aef3e78f31ec"
 	// The fleet atoms run in python-ci: they are python and shell, and it is
 	// the only one of the four carrying uvx, which three of them provision
 	// with.
-	imageFleet = imagePython
+	ImageFleet = ImagePython
 )
 
 // LaneImages is every image an atom may run in, so a test can assert the ONE
@@ -80,8 +80,8 @@ const (
 // rather than derived from Atoms because an image nothing currently references
 // is still an image this module would ship.
 var LaneImages = []string{
-	imageGo, imagePython, imageRust, imageTS, imageFleet,
-	imageKubeconform, imageKubeLinter,
+	ImageGo, ImagePython, ImageRust, ImageTS, ImageFleet,
+	ImageKubeconform, ImageKubeLinter,
 }
 
 // The go command's coordinates inside a lane container.
@@ -153,12 +153,16 @@ const (
 // today rather than by tag, because the two of them are the atoms that judge
 // pinning and a floating base under a pin checker is the joke telling itself.
 const (
-	// imageKubeconform is the ALPINE variant deliberately: the scratch image
-	// carries the binary and nothing else, and every atom body here is a
-	// shell script that has to read an exit code and a summary line.
-	imageKubeconform = "ghcr.io/yannh/kubeconform:v0.7.0-alpine@sha256:8f0eeaaa96ba27ba1500b0e4b1c215acc358d159c62a7ecae58d7a03403287b0"
-	// imageKubeLinter — likewise alpine, for the shell.
-	imageKubeLinter = "docker.io/stackrox/kube-linter:v0.8.3-alpine@sha256:b8311611c27032d4922bc67719225e373e4a0ab0c767bbdcf5f20a9306b1a3bb"
+	// ImageKubeconform is the ALPINE variant, and the pin is the alpine one:
+	// the atom's body was a shell script that had to read an exit code and a
+	// summary line, which the scratch variant carries nothing to run. The
+	// typed atom execs /kubeconform directly and no longer needs the shell,
+	// but the DIGEST is what this block exists to hold still — re-pinning to
+	// scratch is a decision to make on purpose against a measured pull, not a
+	// side effect of deleting the shell.
+	ImageKubeconform = "ghcr.io/yannh/kubeconform:v0.7.0-alpine@sha256:8f0eeaaa96ba27ba1500b0e4b1c215acc358d159c62a7ecae58d7a03403287b0"
+	// ImageKubeLinter — likewise alpine, and likewise held still.
+	ImageKubeLinter = "docker.io/stackrox/kube-linter:v0.8.3-alpine@sha256:b8311611c27032d4922bc67719225e373e4a0ab0c767bbdcf5f20a9306b1a3bb"
 )
 
 // CRDSchema is the schema location the kubeconform atom adds to the default

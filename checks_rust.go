@@ -17,21 +17,21 @@ type RustLane struct {
 //
 // +check
 func (r *RustLane) CargoFmt(ctx context.Context) (string, error) {
-	return run(ctx, r.Source, "rust:cargo-fmt")
+	return check(ctx, r.Source, "rust:cargo-fmt")
 }
 
 // cargo clippy is clean with warnings denied.
 //
 // +check
 func (r *RustLane) CargoClippy(ctx context.Context) (string, error) {
-	return run(ctx, r.Source, "rust:cargo-clippy")
+	return check(ctx, r.Source, "rust:cargo-clippy")
 }
 
 // cargo test --workspace passes.
 //
 // +check
 func (r *RustLane) CargoTest(ctx context.Context) (string, error) {
-	return run(ctx, r.Source, "rust:cargo-test")
+	return check(ctx, r.Source, "rust:cargo-test")
 }
 
 // cargo audit reports no known vulnerability. An absent cargo-audit is a
@@ -39,7 +39,7 @@ func (r *RustLane) CargoTest(ctx context.Context) (string, error) {
 //
 // +check
 func (r *RustLane) CargoAudit(ctx context.Context) (string, error) {
-	return run(ctx, r.Source, "rust:cargo-audit")
+	return check(ctx, r.Source, "rust:cargo-audit")
 }
 
 // This pull's changed critical modules survive no mutant: the mutation gate,
@@ -49,5 +49,5 @@ func (r *RustLane) CargoAudit(ctx context.Context) (string, error) {
 //
 // +check
 func (r *RustLane) Mutation(ctx context.Context) (string, error) {
-	return run(ctx, r.Source, "rust:mutation")
+	return check(ctx, r.Source, "rust:mutation")
 }

@@ -59,36 +59,12 @@ func TestPinSurfaceRejectsWhatIsNotADigestPin(t *testing.T) {
 // THE DEFECT, ASSERTED. `no pins found under .forgejo/workflows — the scan is
 // broken, not the tree clean` is right in foundry-stocks and wrong in the 57
 // stars that call the reusable workflow, and the atom is the only layer that
-// can tell the two apart. It must probe the surface FIRST — before it pays a
-// network fetch for oras it does not need — and it must keep an unreadable
-// surface a CANNOT RUN.
-func TestDigestPinsTellsAnEmptySurfaceFromABrokenScan(t *testing.T) {
-	body := AtomByID("sweep:digest-pins").Script
-
-	probe := strings.Index(body, PinSurfacePattern)
-	if probe < 0 {
-		t.Fatal("sweep:digest-pins never probes for a pin surface, so an empty population is still a broken scan")
-	}
-	if !strings.Contains(body, "sweep:digest-pins: ABSENT - .forgejo/workflows carries no digest reference") {
-		t.Error("an empty pin population must report ABSENT and say why, not CANNOT RUN")
-	}
-	if !strings.Contains(body, "the SCAN is broken rather than the tree unpinned") {
-		t.Error("a surface the extractor could not read must stay CANNOT RUN and NAME the cause — a check that could not run has to say why")
-	}
-
-	fetch := strings.Index(body, "ORAS_MIRROR")
-	if fetch < 0 {
-		t.Fatal("sweep:digest-pins no longer provisions oras")
-	}
-	if probe > fetch {
-		t.Error("the surface probe runs after the oras fetch — every repo with nothing to check would pay a network round trip to learn it")
-	}
-
-	code := strings.Index(body, "code=$?")
-	if code < 0 || code < strings.Index(body, "digest-pins.sh\n") {
-		t.Error("the atom no longer reads the canonical script's own exit code, so it cannot classify a 2")
-	}
-}
+// can tell the two apart. The probe itself is HasPinSurface, with its own table
+// in sweeplane_test.go; what the atom does with the answer — ABSENT for no
+// surface, CANNOT RUN for a surface the canonical extractor could not read — is
+// a pair of literals in sweepDigestPins, and the ORDER (probe before the oras
+// fetch, so a repo with nothing to check pays no network round trip) is now the
+// order of the statements rather than the order of two strings in one script.
 
 // An atom that found no surface said so on stdout. Reading that as a pass is
 // the same conflation as reading a could-not-run as a pass, one shelf up.

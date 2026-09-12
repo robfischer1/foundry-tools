@@ -35,7 +35,7 @@ type Dies struct {
 //
 // +check
 func (d *Dies) OpaTest(ctx context.Context) (string, error) {
-	return run(ctx, d.Source, "dies:opa-test")
+	return check(ctx, d.Source, "dies:opa-test")
 }
 
 // The admission domain admits this repo's own star shape. A deny means the
@@ -44,7 +44,7 @@ func (d *Dies) OpaTest(ctx context.Context) (string, error) {
 //
 // +check
 func (d *Dies) AdmissionDogfood(ctx context.Context) (string, error) {
-	return run(ctx, d.Source, "dies:admission-dogfood")
+	return check(ctx, d.Source, "dies:admission-dogfood")
 }
 
 // The BUILT bundle carries every data root the policy reads, non-empty. An
@@ -53,7 +53,7 @@ func (d *Dies) AdmissionDogfood(ctx context.Context) (string, error) {
 //
 // +check
 func (d *Dies) DataKeys(ctx context.Context) (string, error) {
-	return run(ctx, d.Source, "dies:data-keys")
+	return check(ctx, d.Source, "dies:data-keys")
 }
 
 // The BUILT bundle still hides what it should: a curated verb is invisible to a
@@ -63,7 +63,7 @@ func (d *Dies) DataKeys(ctx context.Context) (string, error) {
 //
 // +check
 func (d *Dies) CanaryVisibility(ctx context.Context) (string, error) {
-	return run(ctx, d.Source, "dies:canary-visibility")
+	return check(ctx, d.Source, "dies:canary-visibility")
 }
 
 // Every copy of every shared closed set agrees, after the fixtures prove the
@@ -72,7 +72,7 @@ func (d *Dies) CanaryVisibility(ctx context.Context) (string, error) {
 //
 // +check
 func (d *Dies) Contracts(ctx context.Context) (string, error) {
-	return run(ctx, d.Source, "dies:contracts")
+	return check(ctx, d.Source, "dies:contracts")
 }
 
 // The slag schema is a valid Draft 2020-12 document whose `required` names only
@@ -80,5 +80,5 @@ func (d *Dies) Contracts(ctx context.Context) (string, error) {
 //
 // +check
 func (d *Dies) Schema(ctx context.Context) (string, error) {
-	return run(ctx, d.Source, "dies:schema")
+	return check(ctx, d.Source, "dies:schema")
 }

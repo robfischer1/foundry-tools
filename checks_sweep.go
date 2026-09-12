@@ -35,7 +35,7 @@ type Sweep struct {
 //
 // +check
 func (s *Sweep) DigestPins(ctx context.Context) (string, error) {
-	return run(ctx, s.Source, "sweep:digest-pins")
+	return check(ctx, s.Source, "sweep:digest-pins")
 }
 
 // A repository that builds an image builds it through the workflow that
@@ -44,7 +44,7 @@ func (s *Sweep) DigestPins(ctx context.Context) (string, error) {
 //
 // +check
 func (s *Sweep) PortfolioSbom(ctx context.Context) (string, error) {
-	return run(ctx, s.Source, "sweep:portfolio-sbom")
+	return check(ctx, s.Source, "sweep:portfolio-sbom")
 }
 
 // Every case in this template's ci-matrix.toml still renders. A template bug
@@ -52,7 +52,7 @@ func (s *Sweep) PortfolioSbom(ctx context.Context) (string, error) {
 //
 // +check
 func (s *Sweep) TemplateRenderMatrix(ctx context.Context) (string, error) {
-	return run(ctx, s.Source, "sweep:template-render-matrix")
+	return check(ctx, s.Source, "sweep:template-render-matrix")
 }
 
 // Every manifest under flux/ validates against its Kubernetes schema, with the
@@ -61,12 +61,12 @@ func (s *Sweep) TemplateRenderMatrix(ctx context.Context) (string, error) {
 //
 // +check
 func (s *Sweep) Kubeconform(ctx context.Context) (string, error) {
-	return run(ctx, s.Source, "sweep:kubeconform")
+	return check(ctx, s.Source, "sweep:kubeconform")
 }
 
 // Every workload under flux/ passes kube-linter's default checks.
 //
 // +check
 func (s *Sweep) KubeLinter(ctx context.Context) (string, error) {
-	return run(ctx, s.Source, "sweep:kube-linter")
+	return check(ctx, s.Source, "sweep:kube-linter")
 }

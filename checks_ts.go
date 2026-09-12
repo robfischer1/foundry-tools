@@ -24,7 +24,7 @@ type TSLane struct {
 //
 // +check
 func (t *TSLane) BunGateCommit(ctx context.Context) (string, error) {
-	return run(ctx, t.Source, "ts:bun-gate-commit")
+	return check(ctx, t.Source, "ts:bun-gate-commit")
 }
 
 // bun run gate passes against a frozen lockfile. A lockfile that will not
@@ -32,14 +32,14 @@ func (t *TSLane) BunGateCommit(ctx context.Context) (string, error) {
 //
 // +check
 func (t *TSLane) BunGate(ctx context.Context) (string, error) {
-	return run(ctx, t.Source, "ts:bun-gate")
+	return check(ctx, t.Source, "ts:bun-gate")
 }
 
 // bun audit reports nothing at high or above.
 //
 // +check
 func (t *TSLane) BunAudit(ctx context.Context) (string, error) {
-	return run(ctx, t.Source, "ts:bun-audit")
+	return check(ctx, t.Source, "ts:bun-audit")
 }
 
 // This pull's changed critical modules survive no mutant: the mutation gate,
@@ -49,5 +49,5 @@ func (t *TSLane) BunAudit(ctx context.Context) (string, error) {
 //
 // +check
 func (t *TSLane) Mutation(ctx context.Context) (string, error) {
-	return run(ctx, t.Source, "ts:mutation")
+	return check(ctx, t.Source, "ts:mutation")
 }
