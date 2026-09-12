@@ -1,6 +1,7 @@
 package checks
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -268,5 +269,125 @@ func TestKubeLinterStateTailIgnoresTheTrailingNewline(t *testing.T) {
 	_, reason := KubeLinterState(1, "one\ntwo\nthree\nfour\n")
 	if !strings.HasPrefix(reason, "two\nthree\nfour\n") {
 		t.Fatalf("the tail was %q, want the last three real lines", reason)
+	}
+}
+
+// THE COMPOSITION, SPELLED OUT. The finding's reason is the LAST three lines
+// and then the FIRST 120, in that order — kube-linter closes with its own
+// count and that is the line a human reads first. A test that only counts
+// lines cannot tell that composition from its reverse, so this asserts the
+// exact string.
+func TestKubeLinterStateComposesTheTailThenTheHead(t *testing.T) {
+	_, reason := KubeLinterState(1, "l1\nl2\nl3\nl4\nl5\n")
+	if want := "l3\nl4\nl5\nl1\nl2\nl3\nl4\nl5"; reason != want {
+		t.Fatalf("KubeLinterState composed\n%q\nwant\n%q", reason, want)
+	}
+
+	var lines []string
+	for i := 1; i <= 130; i++ {
+		lines = append(lines, "l"+strconv.Itoa(i))
+	}
+	_, reason = KubeLinterState(1, strings.Join(lines, "\n")+"\n")
+	want := strings.Join(append([]string{"l128", "l129", "l130"}, lines[:120]...), "\n")
+	if reason != want {
+		got := strings.Split(reason, "\n")
+		t.Fatalf("a 130-line report composed %d lines leading %q; want 123 leading [l128 l129 l130] then l1..l120", len(got), got[:min(3, len(got))])
+	}
+}
+
+// A REPORT SHORTER THAN THE TAIL. The body is sized len(lines)+3 because the
+// tail and the head OVERLAP on a short report — every line is emitted twice —
+// so the capacity is len plus the tail's width, not len minus anything. An
+// arithmetic slip there is a panic on any report under three lines, which is
+// every report kube-linter writes when one object fails one check.
+func TestKubeLinterStateSurvivesAReportShorterThanTheTail(t *testing.T) {
+	for _, tc := range []struct {
+		name, out, want string
+	}{
+		{"nothing printed", "", ""},
+		{"one line", "only\n", "only\nonly"},
+		{"two lines", "one\ntwo\n", "one\ntwo\none\ntwo"},
+		{"exactly the tail", "one\ntwo\nthree\n", "one\ntwo\nthree\none\ntwo\nthree"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			state, reason := KubeLinterState(1, tc.out)
+			if state != 1 {
+				t.Fatalf("state = %d, want 1", state)
+			}
+			if reason != tc.want {
+				t.Fatalf("KubeLinterState(1, %q) = %q, want %q", tc.out, reason, tc.want)
+			}
+		})
+	}
+}
+
+// THE TWO CUTS, AT EVERY BOUNDARY THEY HAVE. n below the length, n AT it, n
+// one past it, n one under it, n zero, and nothing to cut: a cut that is off
+// by one either drops the count kube-linter prints last or panics on a report
+// shorter than the cap.
+func TestHeadAndTailLinesAtTheirBoundaries(t *testing.T) {
+	four := []string{"a", "b", "c", "d"}
+	for _, tc := range []struct {
+		name       string
+		lines      []string
+		n          int
+		head, tail []string
+	}{
+		{"n well under the length", four, 2, []string{"a", "b"}, []string{"c", "d"}},
+		{"n one under the length", four, 3, []string{"a", "b", "c"}, []string{"b", "c", "d"}},
+		{"n is the length", four, 4, four, four},
+		{"n one past the length", four, 5, four, four},
+		{"n well past the length", four, 120, four, four},
+		{"n is zero", four, 0, nil, nil},
+		{"one line, n is one", []string{"a"}, 1, []string{"a"}, []string{"a"}},
+		{"nothing to cut", nil, 3, nil, nil},
+		{"nothing to cut, n is zero", nil, 0, nil, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := headLines(tc.lines, tc.n); !sameLines(got, tc.head) {
+				t.Errorf("headLines(%v, %d) = %v, want %v", tc.lines, tc.n, got, tc.head)
+			}
+			if got := tailLines(tc.lines, tc.n); !sameLines(got, tc.tail) {
+				t.Errorf("tailLines(%v, %d) = %v, want %v", tc.lines, tc.n, got, tc.tail)
+			}
+		})
+	}
+}
+
+// sameLines compares two cuts; an empty cut and a nil one are the same cut,
+// because strings.Join renders both as "".
+func sameLines(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestSplitOutputLinesDropsTheTrailingNewlineAndNothingElse(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		out  string
+		want []string
+	}{
+		{"nothing", "", nil},
+		{"only a newline", "\n", nil},
+		{"only newlines", "\n\n\n", nil},
+		{"one line, unterminated", "a", []string{"a"}},
+		{"one line, terminated", "a\n", []string{"a"}},
+		{"a CRLF terminator", "a\r\n", []string{"a"}},
+		// A blank line INSIDE the output is a line: kube-linter separates its
+		// findings from its count with one, and eating it would shift the tail.
+		{"a blank line inside", "a\n\nb\n", []string{"a", "", "b"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := splitOutputLines(tc.out); !sameLines(got, tc.want) {
+				t.Errorf("splitOutputLines(%q) = %v, want %v", tc.out, got, tc.want)
+			}
+		})
 	}
 }
