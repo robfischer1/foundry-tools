@@ -2,77 +2,85 @@ package checks
 
 // The image map — the toolchain lives in the module, not on a laptop.
 //
-// ONE PLACE, deliberately. Every lane image is named here so digest pinning is
-// a single edit rather than a sweep: the fleet has been broken twice by a
-// floating base, and `digest-pins` is the sweep that will land on this block.
+// ONE PLACE, deliberately. Every lane image and every tool pin is named here
+// so digest pinning is a single edit rather than a sweep: the fleet has been
+// broken twice by a floating base, and `digest-pins` is the sweep that will
+// land on this block.
 //
-// THE FLEET'S OWN CI IMAGES, BY DIGEST, SINCE 2026-09-09. They were public
-// bases on floating tags (golang:1.26-bookworm, ghcr.io/astral-sh/uv, rust:1,
-// oven/bun) and the gate could not go green in ANY repo at the declared pin
-// because of what those images do not carry (foundry-tools#7626, measured on
-// tartarus and foundry-stocks):
+// THE LANES RUN ON UPSTREAM TOOLCHAINS, SINCE 2026-09-12. Rob: "We're going
+// to stop maintaining CI images. We'll leverage dagger's caching instead.
+// Maintaining our own was a mistake." Until then the four lanes ran in the
+// fleet's own go-ci / python-ci / rust-ci / frontend-ci images — bases that
+// baked every tool an atom execs, rebuilt weekly, reaped by digest three
+// times in nine days (each time a fleet-wide red nobody saw until a landing).
+// Now each lane is the upstream toolchain image from the mirror, by digest,
+// and runtime.go's lane() installs what the atoms exec IN THE CHAIN, one
+// exec per tool, every version pinned below. The engine caches each exec by
+// its inputs, so a tool is fetched or compiled once per pin and every later
+// gate starts from the cached layer — the same property the baked image had,
+// without a second artifact to rebuild, reap and repin.
 //
-//	fleet:opengrep-sast     cannot-run — "sh: 3: curl: not found"; the atom
-//	                        provisions opengrep with curl and the uv image has
-//	                        no curl.
-//	fleet:stop-justifications  FileNotFoundError: 'git' — the canonical script
-//	                        enumerates the tree with `git ls-files` and the uv
-//	                        image has no git.
-//	every go:* atom         "Get https://auth.notusmi.com/portals/main: stopped
-//	                        after 10 redirects" — golang:1.26-bookworm resolves
-//	                        forgejo.notusmi.com modules straight at the forge,
-//	                        where the SSO portal answers. (The proxy vars in
-//	                        main.go are the other half of that fix.)
+// LAYERED BY VOLATILITY, in Rob's words: "layer the new images to optimize
+// for caching, and order the layers by volatility. Upstream base, least
+// volatile tools in the next layer, most volatile tools last." So: from(the
+// toolchain) → the distro packages the image lacks → the stable binaries
+// (uv, node) → the pinned scanner (opengrep) → the tools built from
+// source at a version that moves most (staticcheck, govulncheck, gremlins;
+// cargo-audit, cargo-mutants). A cache hit survives everything but the last
+// layer moving.
 //
-// These four are the images the CANONICAL GATE already runs every star's checks
-// in. They named foundry-stocks .forgejo/workflows/gate.yml as their peer until
-// that file left with the rest of the Forgejo workflows — the gate is the
-// door's runner now, and this block is the only place the four are declared.
-// Measured inside the engine on 2026-09-09, each carries what its atoms exec:
+// WHAT EACH LANE EXECS, measured at the exec sites (atoms_*.go and the
+// mutation scripts in foundry-stocks ci/lib/mutation/):
 //
-//	go-ci        git curl python3 uv go opengrep tar wget bash
-//	python-ci    git curl python3 uv uvx node opengrep tar bash
-//	rust-ci      git curl python3 uv cargo node opengrep tar wget bash
-//	frontend-ci  git curl bun node opengrep tar bash
+//	go       go, staticcheck, govulncheck, gremlins (go.sh), python3
+//	         (go.sh scores with go_score.py), git, bash
+//	python   uv, uvx, python3, opengrep, git, tar, bash; opa (dies) and
+//	         oras (sweep) the atoms fetch themselves, pinned below
+//	rust     cargo (+ rustfmt, clippy, audit, mutants), git, bash
+//	ts       bun, node (ts.sh runs stryker under node), git, bash
 //
-// So the engine and CI grade with ONE toolchain rather than two that are free
-// to disagree — which is the same argument StocksRepo below makes for the
-// scripts, applied to the containers they run in.
-//
-// BY DIGEST, NEVER BY TAG. All four are moving tags: CronJob foundry-weekly
-// rebuilds them every Monday, and base-rescan rebuilds them whenever the vuln
-// DB moves. A gate whose image floats is a gate whose verdict is not a function
-// of the pin the door declared, and the pin is the whole of F7's join.
-//
-// REPINNED 2026-09-11, ALL FOUR AT ONCE. The bases were rebuilt and the
-// registry collected every previous digest: go-ci, python-ci, rust-ci and
-// frontend-ci all answered 404 by digest while their tags resolved fine, so
-// every lane's mutation stage failed ~200ms in with an error naming the
-// REGISTRY rather than the pin. Third time in nine days (foundry-stocks'
-// ci/lib/digest-pins.sh records 09-02 and 09-07). That probe lives in the
-// wrong repo to catch THIS file — the pins it checks are cast.yml's, and
-// these are the gate's own. Until a schedule watches these four, a rebuild
-// of stellar_core is a fleet-wide red that nobody sees until a landing.
-//
-// THE HOST IS registry.notusmi.com (zot), NOT THE FORGE. Storing anything on
-// Forgejo is not an end state, and two of these four digests now exist ONLY on
-// zot. The digests are unchanged by the move — the same four bytes-for-bytes
-// images, addressed at the registry that will outlive the forge. Verified
-// present before the move: all four answer 200 on
-// /v2/rob/stellar_core/manifests/sha256:<digest>, and zot serves manifests AND
-// blobs ANONYMOUSLY (measured: 200, 14867 bytes for python-ci's config blob
-// with no credential), so the engine needs no auths entry for this host —
-// ca-gate-pull's CA_GATE_DOCKER_CONFIG_JSON still names only the forge and
-// does not have to change.
+// BY DIGEST, NEVER BY TAG. Every image here is a moving tag upstream; a gate
+// whose image floats is a gate whose verdict is not a function of the pin
+// the door declared, and the pin is the whole of F7's join. The host is the
+// fleet's docker mirror (docker.notusmi.com), never docker.io directly.
 const (
-	ImageGo     = "registry.notusmi.com/rob/stellar_core:go-ci@sha256:5f684657c2ba294752edcb456efbdf3237290b8a666ebdcd4cb7025431bbdf7a"
-	ImagePython = "registry.notusmi.com/rob/stellar_core:python-ci@sha256:b2e0985bacc458d2619606b10e68f5d938275db37152fb408b9c7b69dff0ac32"
-	ImageRust   = "registry.notusmi.com/rob/stellar_core:rust-ci@sha256:3c8159334177745d7526e26e16bafbcfa268ccfb7ca194cac2ddddd9d39343e9"
-	ImageTS     = "registry.notusmi.com/rob/stellar_core:frontend-ci@sha256:966e17d2853028dc5a6fe202435171bbdf7f0271bcba9b114ed1aef3e78f31ec"
-	// The fleet atoms run in python-ci: they are python and shell, and it is
-	// the only one of the four carrying uvx, which three of them provision
-	// with.
+	ImageGo     = "docker.notusmi.com/library/golang:1.26.6-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36"
+	ImagePython = "docker.notusmi.com/library/python:3.14-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f"
+	ImageRust   = "docker.notusmi.com/library/rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e75fea57e2a2a5c3073"
+	ImageTS     = "docker.notusmi.com/oven/bun:1.4-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61"
+	// The fleet atoms run in the python lane: they are python and shell, and
+	// three of them provision with uvx.
 	ImageFleet = ImagePython
+)
+
+// The tool images a lane copies ONE binary out of. Both are scratch upstream
+// (no shell), which is why the binary is taken by File and never by exec.
+const (
+	// ImageUV carries /uv and /uvx — the python lane's whole package
+	// manager, and the version the fleet's uv.lock files were written under.
+	ImageUV = "docker.notusmi.com/astral-sh/uv:0.12.13@sha256:b485bd65cc2cf1c9a93b3554012c9c3778cf7b1b5fd3d3096ce9e1226c97e1e6"
+	// ImageNode carries the node the ts mutation script runs stryker under
+	// (`./node_modules/.bin/stryker` under node, never `bunx --bun` — ts.sh
+	// says why). The bun image ships no node.
+	ImageNode = "docker.notusmi.com/library/node:24-bookworm-slim@sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553"
+)
+
+// The tools the lanes install, pinned. Binaries come through Nexus's
+// github-raw proxy (the same route the retired CI images fetched them by);
+// the go tools are built by `go install pkg@version` through GoProxy; the
+// cargo tools by `cargo install --locked --version`.
+//
+// opa is NOT here: the dies atoms fetch it themselves at checks.OpaVersion
+// (below), mirror then upstream, and verify the version they got.
+const (
+	OpengrepVersion = "v1.25.0"
+	OpengrepMirror  = "https://nexus.notusmi.com/repository/github-raw/opengrep/opengrep/releases/download/" + OpengrepVersion + "/opengrep_manylinux_x86"
+
+	StaticcheckModule   = "honnef.co/go/tools/cmd/staticcheck@2025.1.1"
+	GovulncheckModule   = "golang.org/x/vuln/cmd/govulncheck@v1.1.4"
+	GremlinsModule      = "github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0"
+	CargoAuditVersion   = "0.22.2"
+	CargoMutantsVersion = "27.1.0"
 )
 
 // LaneImages is every image an atom may run in, so a test can assert the ONE
@@ -81,6 +89,7 @@ const (
 // is still an image this module would ship.
 var LaneImages = []string{
 	ImageGo, ImagePython, ImageRust, ImageTS, ImageFleet,
+	ImageUV, ImageNode,
 	ImageKubeconform, ImageKubeLinter,
 }
 
@@ -110,11 +119,12 @@ const (
 	GoProxy = "http://ourea.default.svc.cluster.local:8215/goproxy|https://proxy.golang.org,direct"
 	// GoNoSumDB keeps the one thing GOPRIVATE was doing for the forge host.
 	GoNoSumDB = "forgejo.notusmi.com"
-	// GoPrivate is DELIBERATELY EMPTY and must be set anyway. go-ci BAKES
+	// GoPrivate is DELIBERATELY EMPTY and set anyway. The retired go-ci BAKED
 	// GOPRIVATE=git.notusmi.com,forgejo.notusmi.com for the act lane's netrc,
 	// GOPRIVATE is the default for GONOPROXY, and a GONOPROXY naming the forge
 	// sends the fetch direct to it — the SSO redirect again, with GOPROXY
-	// correctly set. Setting it empty overrides the image's.
+	// correctly set. The upstream image bakes nothing; setting it empty keeps
+	// the invariant explicit rather than inherited.
 	GoPrivate = ""
 )
 

@@ -31,11 +31,14 @@ import (
 // and must not: the assertion is about WHERE the fleet's images are addressed,
 // not which images they are. Two of the four now exist only on zot, so a revert
 // of this one string is an unpullable gate.
-func TestEveryLaneImageIsAFleetCIImage(t *testing.T) {
-	const want = "registry.notusmi.com/rob/stellar_core:"
-	for _, img := range []string{ImageGo, ImagePython, ImageRust, ImageTS, ImageFleet} {
+func TestEveryLaneImageIsAnUpstreamToolchainOnTheMirror(t *testing.T) {
+	const want = "docker.notusmi.com/"
+	for _, img := range []string{ImageGo, ImagePython, ImageRust, ImageTS, ImageFleet, ImageUV, ImageNode} {
 		if !strings.HasPrefix(img, want) {
-			t.Errorf("lane image %q is not one of the fleet's CI images (%s…) — the engine and CI would grade with two toolchains free to disagree", img, want)
+			t.Errorf("lane image %q is not an upstream toolchain on the fleet's mirror (%s…) — the CI images retired 2026-09-12 and docker.io is never dialled directly", img, want)
+		}
+		if strings.Contains(img, "stellar_core:") {
+			t.Errorf("lane image %q is one of the fleet's own images — those are what Rob stopped maintaining", img)
 		}
 	}
 }

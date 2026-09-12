@@ -158,7 +158,7 @@ func TestComposeConfigFallsBackFromTheMirrorToUpstream(t *testing.T) {
 
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	engine.fail("nexus.notusmi.com", "502 from the mirror")
+	engine.fail(checks.ComposeMirror, "502 from the mirror")
 	wantState(t, runAtom(t, "compose:config", ""), 0)
 	if engine.chain(`http(url:"`+checks.ComposeURL+`")`, "id") == "" {
 		t.Errorf("a dead mirror must place the UPSTREAM's file:\n%v", engine.chains())

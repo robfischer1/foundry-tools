@@ -27,7 +27,7 @@ func TestGoVetBuildsTheModulesChainAndReadsTheExit(t *testing.T) {
 	wantCalls(t, c,
 		[]string{"withEnvVariable", `name:"CI"`, `value:"true"`},
 		[]string{"withMountedCache", `path:"/go/pkg/mod"`},
-		[]string{"withMountedCache", `path:"/opt/go-build-cache"`, `source:`},
+		[]string{"withMountedCache", `path:"/opt/go-build-cache"`},
 		[]string{"withMountedDirectory", `path:"/src"`},
 		[]string{"withWorkdir", `path:"/src"`},
 		[]string{"withExec", `args:["go","mod","download"]`},
@@ -150,8 +150,10 @@ func TestGoStaticcheckAndGovulncheckUseTheBakedBinaries(t *testing.T) {
 	engine.withTree(everyLaneTree)
 	wantState(t, runAtom(t, "go:staticcheck", ""), 0)
 	c := engine.chain(`"staticcheck","-checks"`, "exitCode")
-	if strings.Contains(c, "go\",\"install") {
-		t.Errorf("staticcheck is baked; nothing may go install it:\n%s", c)
+	// staticcheck is provisioned ONCE, pinned, by the lane — never by the
+	// atom, and never at @latest.
+	if n := strings.Count(c, `"go","install"`); n != 3 || !strings.Contains(c, checks.StaticcheckModule) || strings.Contains(c, "@latest") {
+		t.Errorf("the lane provisions gremlins, staticcheck and govulncheck at their pins, and nothing else installs:\n%s", c)
 	}
 	wantCalls(t, c, []string{"withExec", `args:["staticcheck","-version"]`}, []string{"withExec", `expect:ANY`, `-ST1023`})
 	engine.exitCode(`"staticcheck","-checks"`, 1)

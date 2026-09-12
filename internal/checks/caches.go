@@ -42,24 +42,32 @@ type CacheMount struct {
 // (the sweep's kubeconform and kube-linter) mounts none.
 func CachesFor(image string) []CacheMount {
 	switch image {
+	// NOTHING IS SEEDED ANY MORE. The seeds copied a CI image's warm layer
+	// (a built stdlib, a uv cache) into the volume on first creation; the
+	// upstream toolchains carry no such layer, so a seed would name a
+	// directory that does not exist. The volumes still persist across runs —
+	// the second gate downloads nothing the first did — they just start
+	// empty. The two paths the toolchain does not default to are exported
+	// (GOCACHE, UV_CACHE_DIR); cargo and bun find theirs where they always
+	// looked.
 	case ImageGo:
 		return []CacheMount{
 			{Path: "/go/pkg/mod", Key: "foundry-go-mod"},
-			{Path: "/opt/go-build-cache", Key: "foundry-go-build", Seed: true},
+			{Path: "/opt/go-build-cache", Key: "foundry-go-build", EnvVar: "GOCACHE"},
 		}
 	case ImagePython:
 		return []CacheMount{
-			{Path: "/opt/uv-cache", Key: "foundry-uv", Seed: true},
+			{Path: "/opt/uv-cache", Key: "foundry-uv", EnvVar: "UV_CACHE_DIR"},
 		}
 	case ImageRust:
 		return []CacheMount{
-			{Path: "/usr/local/cargo/registry", Key: "foundry-cargo-registry", Seed: true},
+			{Path: "/usr/local/cargo/registry", Key: "foundry-cargo-registry"},
 			{Path: "/usr/local/cargo/git", Key: "foundry-cargo-git"},
 			{Path: "/cache/cargo-target", Key: "foundry-cargo-target", EnvVar: "CARGO_TARGET_DIR"},
 		}
 	case ImageTS:
 		return []CacheMount{
-			{Path: "/root/.bun/install/cache", Key: "foundry-bun", Seed: true},
+			{Path: "/root/.bun/install/cache", Key: "foundry-bun"},
 		}
 	}
 	return nil

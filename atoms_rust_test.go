@@ -46,7 +46,7 @@ func TestRustCargoFmtCompilesNothingAndFetchesNothing(t *testing.T) {
 	}
 	wantCalls(t, c,
 		[]string{"withEnvVariable", `name:"CI"`, `value:"true"`},
-		[]string{"withMountedCache", `path:"/usr/local/cargo/registry"`, `source:`},
+		[]string{"withMountedCache", `path:"/usr/local/cargo/registry"`},
 		[]string{"withMountedCache", `path:"/usr/local/cargo/git"`},
 		[]string{"withMountedCache", `path:"/cache/cargo-target"`},
 		[]string{"withEnvVariable", `name:"CARGO_TARGET_DIR"`, `value:"/cache/cargo-target"`},
@@ -230,8 +230,10 @@ func TestRustCargoAuditPassesItsOwnExitCodeThroughRaw(t *testing.T) {
 	if hasCall(c, "withExec", `args:["cargo","audit","--version"]`, "expect:ANY") {
 		t.Errorf("the version probe is provisioning and must run under the default Expect:\n%s", c)
 	}
-	if strings.Contains(c, `"cargo","install"`) {
-		t.Errorf("cargo-audit is baked into rust-ci; nothing may cargo install it:\n%s", c)
+	// cargo-audit is provisioned ONCE, pinned, by the lane — never by the
+	// atom.
+	if !strings.Contains(c, `"cargo","install","cargo-audit","--locked","--version","`+checks.CargoAuditVersion+`"`) || strings.Count(c, `"cargo","install","cargo-audit"`) != 1 {
+		t.Errorf("the lane provisions cargo-audit at its pin, once:\n%s", c)
 	}
 
 	engine.exitCode(`args:["cargo","audit"]`, 1)

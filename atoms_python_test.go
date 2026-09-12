@@ -60,7 +60,7 @@ func TestPythonRuffCheckRunsTheFleetsRulesetAndReadsTheExit(t *testing.T) {
 	}
 	wantCalls(t, c,
 		[]string{"withEnvVariable", `name:"CI"`, `value:"true"`},
-		[]string{"withMountedCache", `path:"/opt/uv-cache"`, `source:`},
+		[]string{"withMountedCache", `path:"/opt/uv-cache"`},
 		[]string{"withMountedDirectory", `path:"/src"`},
 		[]string{"withMountedDirectory", `path:"/stocks"`},
 		[]string{"withWorkdir", `path:"/src"`},
