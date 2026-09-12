@@ -219,13 +219,11 @@ func verdictFor(ctx context.Context, r *run, id string) (checks.Verdict, error) 
 
 	fn, ok := registry[id]
 	if !ok {
-		if a.Script != "" {
-			// TRANSITIONAL: an atom not yet ported to a typed chain still runs
-			// its shell body. This branch is deleted with the Script field once
-			// every lane is registered.
-			return legacyVerdict(ctx, r, a), nil
-		}
-		return checks.Verdict{}, fmt.Errorf("%s has no runner registered and no script", id)
+		// A catalogue row with no runner is an AUTHORING ERROR, not a verdict.
+		// register() panics at load for a runner naming a row that does not
+		// exist; this is the other direction, and TestEveryCatalogueIDIsRegistered
+		// catches it in the tests rather than on a gate.
+		return checks.Verdict{}, fmt.Errorf("%s has no runner registered", id)
 	}
 	return fn(ctx, r), nil
 }

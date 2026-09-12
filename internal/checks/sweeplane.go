@@ -13,20 +13,6 @@ import (
 // package main is unit-testable (dag panics without an engine), so a judgement
 // that is not in this package is a judgement nobody checks.
 
-// ImageKubeconformSweep and ImageKubeLinterSweep are the two sweep images,
-// re-exported for package main.
-//
-// FOR TESLA19 TO FOLD. imageKubeconform and imageKubeLinter are unexported in
-// images.go, and images.go is not mine to edit on this branch; atoms_sweep.go
-// is in package main and cannot see them. These two are the SAME package as
-// the originals, so they are aliases and not copies — there is still one
-// digest per image, which is the property that pin block exists to hold. When
-// the port lands, export the originals in images.go and delete this pair.
-const (
-	ImageKubeconformSweep = imageKubeconform
-	ImageKubeLinterSweep  = imageKubeLinter
-)
-
 var pinSurfaceRE = regexp.MustCompile(PinSurfacePattern)
 
 // HasPinSurface reports whether any of these file bodies carries a digest

@@ -7,7 +7,6 @@ import (
 
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/checks/scripts"
-	"dagger/foundry-tools/internal/dagger"
 )
 
 // THE FLEET LANE, AS TYPED CHAINS. These nine atoms run in every repository in
@@ -29,32 +28,6 @@ func init() {
 	register("fleet:orbit-drift", fleetOrbitDrift)
 	register("fleet:opengrep-sast", fleetOpengrepSast)
 	register("fleet:witness", fleetWitness)
-}
-
-// fileList is where a population too long for an argv is handed to the tool.
-//
-// RULE 4 SAYS THE LIST IS COMPUTED IN GO AND PASSED AS ARGUMENTS, and for most
-// lanes the argument vector is where it ends. The fleet lane is the exception:
-// its population is EVERY file in the repository, and infra's YAML alone runs
-// to thousands of paths. A NUL-joined file read by `xargs -0 -a` is still a
-// typed exec of one program with a fixed argument vector — the list is data on
-// disk rather than a word-split shell expansion, which is exactly what `$files`
-// was not.
-const fileList = "/tmp/files0"
-
-// withFileList writes the population where xargs will read it. NUL-joined
-// because a path may contain anything but a NUL, which is the whole reason
-// `-print0`/`-0` exists; the shell's `tr '\n' '\0'` was the same idea one
-// process later.
-func withFileList(ctr *dagger.Container, files []string) *dagger.Container {
-	return ctr.WithNewFile(fileList, strings.Join(files, "\x00"))
-}
-
-// xargsExec is the tool run over that population: one program, its fixed
-// arguments, and the file list appended by xargs in as many invocations as the
-// argv takes. NOT a pipe and not a shell — xargs is the exec'd binary.
-func xargsExec(tool ...string) []string {
-	return append([]string{"xargs", "-0", "-a", fileList}, tool...)
 }
 
 // cannotEnumerate is the verdict when the TREE ITSELF would not answer. It is a

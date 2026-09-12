@@ -18,6 +18,9 @@ import (
 // re-provisioned every toolchain on every run (measured: `go mod download`
 // five times per gate, zero cache volumes, 48 atoms strictly serial).
 //
+// The shell is gone. The last 48 scripts, AtomDef.Script and the legacyVerdict
+// bridge that ran them left together once registry.go named every atom.
+//
 // This file is the runtime every typed atom is built from. The rules it sets,
 // and that atoms_*.go follow:
 //
@@ -34,7 +37,9 @@ import (
 //  5. FETCHED TOOLS COME THROUGH dag.HTTP, mirror first, upstream second.
 //  6. A SCRIPT THAT IS THE TOOL (foundry-stocks' python and bash) stays the
 //     tool: one exec per script, or one per phase.
-//  7. NO `sh -c` ANYWHERE. A pipe is a sign the rest belongs in Go.
+//  7. NO `sh -c` ANYWHERE. A pipe is a sign the rest belongs in Go. Asserted
+//     over the source, not left as prose: registry_test.go's
+//     TestNoLaneFileExecsAShell reads every atoms_*.go for the composite.
 //  8. GATE_BASE REACHES ONLY THE ATOMS THAT READ IT, so every other atom's
 //     cache key is a function of the tree alone, not of the pull.
 
@@ -199,6 +204,61 @@ func output(ctx context.Context, ctr *dagger.Container) (stdout string, code int
 		stdout += stderr
 	}
 	return strings.TrimSpace(stdout), code, nil
+}
+
+// outputBoth evaluates a chain whose last exec carries anyExit and answers
+// EVERYTHING it printed — stdout then stderr — with the tool's own exit code.
+//
+// It is output()'s sibling, and the difference is the whole reason it exists:
+// output() folds stderr in only when the code is non-zero, which is right when
+// stderr is an error report and wrong when it is half the measurement.
+// kubeconform prints its summary to either stream and the summary is the count
+// this atom refuses a zero of; kube-linter prints its zero-population refusal
+// to stderr with the same exit code it uses for findings. Both have to read
+// both on a clean exit.
+//
+// THE TWO FAILURES STAY DISTINCT, as in output(): err is the engine's (state 2
+// for the caller) and code is the tool's (the caller's to interpret).
+func outputBoth(ctx context.Context, ctr *dagger.Container) (out string, code int, err error) {
+	code, err = ctr.ExitCode(ctx)
+	if err != nil {
+		return "", 0, err
+	}
+	stdout, err := ctr.Stdout(ctx)
+	if err != nil {
+		return "", 0, err
+	}
+	stderr, err := ctr.Stderr(ctx)
+	if err != nil {
+		return "", 0, err
+	}
+	return stdout + stderr, code, nil
+}
+
+// fileList is where a population too long for an argv is handed to the tool.
+//
+// RULE 4 SAYS THE LIST IS COMPUTED IN GO AND PASSED AS ARGUMENTS, and for most
+// atoms the argument vector is where it ends. The fleet lane is the exception:
+// its population is EVERY file in the repository, and infra's YAML alone runs
+// to thousands of paths. A NUL-joined file read by `xargs -0 -a` is still a
+// typed exec of one program with a fixed argument vector — the list is data on
+// disk rather than a word-split shell expansion, which is exactly what `$files`
+// was not.
+const fileList = "/tmp/files0"
+
+// withFileList writes the population where xargs will read it. NUL-joined
+// because a path may contain anything but a NUL, which is the whole reason
+// `-print0`/`-0` exists; the shell's `tr '\n' '\0'` was the same idea one
+// process later.
+func withFileList(ctr *dagger.Container, files []string) *dagger.Container {
+	return ctr.WithNewFile(fileList, strings.Join(files, "\x00"))
+}
+
+// xargsExec is the tool run over that population: one program, its fixed
+// arguments, and the file list appended by xargs in as many invocations as the
+// argv takes. NOT a pipe and not a shell — xargs is the exec'd binary.
+func xargsExec(tool ...string) []string {
+	return append([]string{"xargs", "-0", "-a", fileList}, tool...)
 }
 
 // gitReady makes /src readable BY git, for the atoms that read the repository

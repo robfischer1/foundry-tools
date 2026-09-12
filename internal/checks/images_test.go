@@ -15,7 +15,12 @@ import (
 // the forge's SSO portal. A verdict vector whose max state is 2 refuses the
 // push, so every repo taking the delivered hook stopped being pushable.
 //
-// Each test below pins one of the properties that fix rests on.
+// Each test below pins one of the properties that fix rests on — the ones that
+// are properties of the IMAGES. The three that read the atom bodies (a git
+// probe, a worktree prelude, opengrep's curl fallback) went with the bodies:
+// provisioning is its own exec under the default Expect now, so a tool that is
+// not there is a Dagger error and verdict() files it as state 2 by
+// construction rather than by a guard a test had to find in a string.
 
 // The images the atoms run in must be the fleet's own CI images. A public base
 // is a base nobody in this fleet controls the contents of, and the contents are
@@ -111,124 +116,5 @@ func TestGoPrivateIsEmptySoTheImagesBakedOneCannotWin(t *testing.T) {
 	}
 	if GoNoSumDB != "forgejo.notusmi.com" {
 		t.Errorf("GONOSUMDB is %q — the forge host is what GOPRIVATE was covering", GoNoSumDB)
-	}
-}
-
-// ── the atom bodies whose classification the fix changed ─────────────────────
-
-// A CHECK THAT CANNOT FIND ITS TOOL HAS NOT FOUND ANYTHING WRONG. The canonical
-// script raises FileNotFoundError when git is absent — an uncaught traceback,
-// so python exits 1 — and the old body's `|| exit 1` filed that as FINDINGS.
-func TestStopJustificationsCallsAMissingGitACannotRun(t *testing.T) {
-	body := AtomByID("fleet:stop-justifications").Script
-	if !strings.Contains(body, "command -v git >/dev/null 2>&1 ||") {
-		t.Error("the atom does not probe for git before running the script")
-	}
-	if !strings.Contains(body, "CANNOT RUN - git is not on PATH") {
-		t.Error("a missing git does not say it could not run")
-	}
-	if !strings.Contains(body, "command -v python3 >/dev/null 2>&1 ||") {
-		t.Error("the atom does not probe for the interpreter the canonical script needs")
-	}
-	if strings.Contains(body, "stop_justifications.py . || exit 1") {
-		t.Error("the script's exit code is flattened to 1 — its own CANNOT RUN (exit 2) would be reported as findings")
-	}
-	if !strings.Contains(body, `[ "$code" -eq 0 ] || exit "$code"`) {
-		t.Error("the script's exit code is not passed through")
-	}
-}
-
-// A LINKED WORKTREE'S `.git` IS A FILE, and it dangles inside the container:
-// the gate hook hands the engine `--source="$PWD"` and this fleet works in
-// linked worktrees, so this is the common case, not an edge one.
-// THE FLEET ATOMS GRADE THE REPOSITORY, NOT THE DIRECTORY ON DISK.
-//
-// Measured 2026-09-09 on tongs, a rust star: fleet:check-added-large-files
-// answered 40+ findings, every one a file under target/ that git ignores and no
-// commit could carry. The same walk fed fleet:detect-secrets a gitignored
-// .pytest_cache. A check that refuses every rust and node developer's push over
-// their own build directory is a check nobody leaves switched on, and a finding
-// about a file that cannot be committed is not a finding about the repository.
-func TestTheFleetFileAtomsTakeTheirPopulationFromGit(t *testing.T) {
-	// Each of these enumerates files and grades what it finds.
-	for _, id := range []string{
-		"fleet:check-yaml",
-		"fleet:check-added-large-files",
-		"fleet:check-merge-conflict",
-		"fleet:detect-secrets",
-		"fleet:stop-justifications",
-	} {
-		body := AtomByID(id).Script
-		if !strings.Contains(body, worktreeRepo) {
-			t.Errorf("atom %q enumerates files and does not carry the git prelude", id)
-		}
-		if strings.Contains(body, "find . -path ./.git") {
-			t.Errorf("atom %q still walks the directory — gitignored build artifacts would be findings about the repository", id)
-		}
-	}
-}
-
-// git ABSENT IS A CANNOT RUN FOR EVERY ONE OF THEM, and the prelude is the one
-// place that says so — an atom that reaches its own body without git would
-// enumerate nothing and call it clean.
-func TestTheGitPreludeRefusesRatherThanScanningNothing(t *testing.T) {
-	if !strings.Contains(worktreeRepo, "command -v git >/dev/null 2>&1 ||") {
-		t.Fatal("the prelude does not probe for git")
-	}
-	if !strings.Contains(worktreeRepo, "CANNOT RUN - git is not on PATH") {
-		t.Error("a missing git does not say it could not run")
-	}
-	if !strings.Contains(worktreeRepo, "exit 2") {
-		t.Error("a missing git is not a 2")
-	}
-	// The probe has to come FIRST: the normalisation below it is itself git.
-	if strings.Index(worktreeRepo, "command -v git") > strings.Index(worktreeRepo, "git init") {
-		t.Error("the prelude runs git before checking git is there")
-	}
-}
-
-func TestEveryAtomThatShellsToGitSurvivesALinkedWorktree(t *testing.T) {
-	// MEASURED on two atoms, which is why the prelude is shared rather than
-	// copied: stop-justifications answered CANNOT RUN on its `git ls-files`
-	// walk, and detect-secrets exited 1 — a FINDING, for a scan that never
-	// happened — having printed nothing but git's own refusal.
-	for _, id := range []string{"fleet:stop-justifications", "fleet:detect-secrets"} {
-		body := AtomByID(id).Script
-		if !strings.Contains(body, worktreeRepo) {
-			t.Errorf("atom %q shells out to git and does not carry the worktree prelude", id)
-		}
-	}
-	if !strings.Contains(worktreeRepo, "if [ -f .git ]; then") {
-		t.Error("the prelude does not notice a linked worktree's .git FILE")
-	}
-	if !strings.Contains(worktreeRepo, "git init -q .") {
-		t.Error("the prelude does not give the mounted tree a readable repository")
-	}
-	if !strings.Contains(worktreeRepo, "git remote add origin") {
-		t.Error("origin is not reconstructed — repo_name() keys DIRECTORY_EXEMPT on it, so an exemption Rob granted would evaporate on a worktree push")
-	}
-	if !strings.Contains(worktreeRepo, "git update-index -z --add --stdin") {
-		t.Error("the synthesised index is never filled, so `git ls-files` would answer an empty tree")
-	}
-	// A PRIMARY CHECKOUT MUST BE UNTOUCHED: there `.git` is a directory, the
-	// real index rides along with it, and re-initialising would throw away the
-	// tracked-file population the atom is supposed to read.
-	if !strings.Contains(worktreeRepo, "[ -f .git ]") || strings.Contains(worktreeRepo, "[ -d .git ]") {
-		t.Error("the prelude does not key on .git being a FILE, so it could fire on a primary checkout")
-	}
-}
-
-// opengrep is baked into every lane image now, and the curl installer is the
-// fallback. Neither absent is a pass.
-func TestOpengrepRefusesRatherThanPassingWhenItCannotBeProvisioned(t *testing.T) {
-	body := AtomByID("fleet:opengrep-sast").Script
-	if !strings.Contains(body, "command -v curl >/dev/null 2>&1 ||") {
-		t.Error("the atom runs the curl installer without checking curl is there — `sh: 3: curl: not found` was the measured cannot-run")
-	}
-	if !strings.Contains(body, "not baked into this lane image and no curl") {
-		t.Error("a missing curl does not name the fix")
-	}
-	if strings.Count(body, "exit 2") < 2 {
-		t.Error("a provisioning failure must be a 2, never a 0")
 	}
 }

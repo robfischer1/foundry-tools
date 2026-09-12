@@ -81,7 +81,7 @@ const (
 // is still an image this module would ship.
 var LaneImages = []string{
 	ImageGo, ImagePython, ImageRust, ImageTS, ImageFleet,
-	imageKubeconform, imageKubeLinter,
+	ImageKubeconform, ImageKubeLinter,
 }
 
 // The go command's coordinates inside a lane container.
@@ -153,12 +153,16 @@ const (
 // today rather than by tag, because the two of them are the atoms that judge
 // pinning and a floating base under a pin checker is the joke telling itself.
 const (
-	// imageKubeconform is the ALPINE variant deliberately: the scratch image
-	// carries the binary and nothing else, and every atom body here is a
-	// shell script that has to read an exit code and a summary line.
-	imageKubeconform = "ghcr.io/yannh/kubeconform:v0.7.0-alpine@sha256:8f0eeaaa96ba27ba1500b0e4b1c215acc358d159c62a7ecae58d7a03403287b0"
-	// imageKubeLinter — likewise alpine, for the shell.
-	imageKubeLinter = "docker.io/stackrox/kube-linter:v0.8.3-alpine@sha256:b8311611c27032d4922bc67719225e373e4a0ab0c767bbdcf5f20a9306b1a3bb"
+	// ImageKubeconform is the ALPINE variant, and the pin is the alpine one:
+	// the atom's body was a shell script that had to read an exit code and a
+	// summary line, which the scratch variant carries nothing to run. The
+	// typed atom execs /kubeconform directly and no longer needs the shell,
+	// but the DIGEST is what this block exists to hold still — re-pinning to
+	// scratch is a decision to make on purpose against a measured pull, not a
+	// side effect of deleting the shell.
+	ImageKubeconform = "ghcr.io/yannh/kubeconform:v0.7.0-alpine@sha256:8f0eeaaa96ba27ba1500b0e4b1c215acc358d159c62a7ecae58d7a03403287b0"
+	// ImageKubeLinter — likewise alpine, and likewise held still.
+	ImageKubeLinter = "docker.io/stackrox/kube-linter:v0.8.3-alpine@sha256:b8311611c27032d4922bc67719225e373e4a0ab0c767bbdcf5f20a9306b1a3bb"
 )
 
 // CRDSchema is the schema location the kubeconform atom adds to the default

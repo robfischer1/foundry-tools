@@ -21,6 +21,12 @@ var registry = map[string]atomFn{}
 // runner for an id the catalogue does not carry, is an authoring error and
 // panics at load — `dagger functions` fails, and so does every gate, loudly,
 // before any verdict is answered.
+//
+// THE OTHER DIRECTION CANNOT BE SEEN FROM HERE. A catalogue row that no
+// atoms_*.go registers is an atom `dagger check -l` lists and verdictFor
+// errors on, and no amount of load-time checking finds it because nothing
+// calls register() with it. internal/checks/registry_test.go reads these calls
+// out of the source and holds both directions at once.
 func register(id string, fn atomFn) {
 	if !checks.AtomExists(id) {
 		panic(fmt.Sprintf("registry: %q is not in the catalogue", id))

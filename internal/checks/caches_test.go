@@ -23,7 +23,7 @@ func TestEveryLaneImageMountsACacheWithADistinctKey(t *testing.T) {
 			keys[m.Key] = m.Path
 		}
 	}
-	if CachesFor(imageKubeconform) != nil {
+	if CachesFor(ImageKubeconform) != nil {
 		t.Errorf("the kubeconform image has no toolchain and must mount no cache")
 	}
 }

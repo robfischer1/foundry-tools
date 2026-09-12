@@ -87,32 +87,10 @@ func TestIsPullPathRefusesTheSweep(t *testing.T) {
 	}
 }
 
-// A sweep atom runs unattended on a clock, which is precisely where a silent
-// pass does the most damage: nobody is watching the run, so a body that exits 0
-// because its tool never arrived reads as a clean fleet for as long as it takes
-// somebody to look. Every one of them must carry an explicit CANNOT RUN.
-func TestEverySweepAtomCanRefuse(t *testing.T) {
-	for _, a := range SweepAtoms() {
-		if !strings.Contains(a.Script, "CANNOT RUN") {
-			t.Errorf("sweep atom %q has no CANNOT RUN branch — an unattended check that cannot refuse will report a clean fleet it never examined", a.ID)
-		}
-		if !strings.Contains(a.Script, "exit 2") {
-			t.Errorf("sweep atom %q never exits 2, so it has only two states", a.ID)
-		}
-	}
-}
-
-// A sweep atom that finds no surface must SAY SO rather than pass in silence —
-// the same rule the lane atoms carry, restated here because a sweep runs
-// against every repo in custody and most repos have no surface for most of
-// these.
-func TestEverySweepAtomAnnouncesAbsence(t *testing.T) {
-	for _, a := range SweepAtoms() {
-		if !strings.Contains(a.Script, "ABSENT") {
-			t.Errorf("sweep atom %q never reports ABSENT; on a repo with no surface it would exit 0 in silence, which is indistinguishable from a scan that found nothing", a.ID)
-		}
-	}
-}
+// The two invariants that used to be read off a sweep atom's shell body — it
+// can say CANNOT RUN, and it announces an absence — are asserted over the
+// runner's own source in registry_test.go
+// (TestEverySweepAtomCanRefuseAndAnnounceAbsence).
 
 // The two atoms that judge pinning are themselves pinned by digest. Anything
 // else is the joke telling itself.

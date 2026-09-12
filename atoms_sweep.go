@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"dagger/foundry-tools/internal/checks"
-	"dagger/foundry-tools/internal/dagger"
 )
 
 // THE SWEEP, AS TYPED CHAINS. These five describe a REPOSITORY rather than a
@@ -238,7 +237,7 @@ func sweepKubeconform(ctx context.Context, r *run) checks.Verdict {
 		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the CRD schema catalogue is unreachable. Every custom resource would then report as skipped, which is indistinguishable from a clean validation and is not one.\n"+err.Error())
 	}
 
-	ctr := r.lane(checks.ImageKubeconformSweep).WithExec([]string{
+	ctr := r.lane(checks.ImageKubeconform).WithExec([]string{
 		"/kubeconform",
 		"-ignore-missing-schemas",
 		"-ignore-filename-pattern", `\.json$`,
@@ -292,7 +291,7 @@ func sweepKubeLinter(ctx context.Context, r *run) checks.Verdict {
 	// The refusal arrives on stderr and the findings on stdout, and the code
 	// is the same 1 for both — so both streams are read before anything is
 	// decided.
-	out, code, err := outputBoth(ctx, r.lane(checks.ImageKubeLinterSweep).
+	out, code, err := outputBoth(ctx, r.lane(checks.ImageKubeLinter).
 		WithExec([]string{"/kube-linter", "lint", "--fail-if-no-objects-found", "flux/"}, anyExit))
 	if err != nil {
 		return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
@@ -348,36 +347,4 @@ func (r *run) forgejoWorkflows(ctx context.Context) (bodies []string, present bo
 		bodies = append(bodies, body)
 	}
 	return bodies, true, nil
-}
-
-// outputBoth evaluates a chain whose last exec carries anyExit and answers
-// EVERYTHING it printed — stdout then stderr — with the tool's own exit code.
-//
-// It is output()'s sibling, and the difference is the whole reason it exists:
-// output() folds stderr in only when the code is non-zero, which is right when
-// stderr is an error report and wrong when it is half the measurement.
-// kubeconform prints its summary to either stream and the summary is the count
-// this atom refuses a zero of; kube-linter prints its zero-population refusal
-// to stderr with the same exit code it uses for findings. Both have to read
-// both on a clean exit.
-//
-// THE TWO FAILURES STAY DISTINCT, as in output(): err is the engine's (state 2
-// for the caller) and code is the tool's (the caller's to interpret).
-//
-// FOR TESLA19: this belongs beside output() in runtime.go if a second lane
-// wants it.
-func outputBoth(ctx context.Context, ctr *dagger.Container) (out string, code int, err error) {
-	code, err = ctr.ExitCode(ctx)
-	if err != nil {
-		return "", 0, err
-	}
-	stdout, err := ctr.Stdout(ctx)
-	if err != nil {
-		return "", 0, err
-	}
-	stderr, err := ctr.Stderr(ctx)
-	if err != nil {
-		return "", 0, err
-	}
-	return stdout + stderr, code, nil
 }

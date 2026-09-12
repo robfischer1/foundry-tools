@@ -148,29 +148,8 @@ func TestEveryAtomIsWellFormed(t *testing.T) {
 		if a.Image == "" {
 			t.Errorf("atom %q names no lane image", a.ID)
 		}
-		if strings.TrimSpace(a.Script) == "" {
-			t.Errorf("atom %q has an empty body", a.ID)
-		}
 		if strings.TrimSpace(a.Desc) == "" {
 			t.Errorf("atom %q has no description — `dagger check -l` would list it unexplained", a.ID)
-		}
-	}
-}
-
-// Every atom that provisions a tool must refuse rather than pass when the
-// provisioning fails. This asserts the guard is present wherever the body
-// installs something, because that is the exact branch that used to exit 0.
-func TestProvisioningAtomsRefuseRatherThanPass(t *testing.T) {
-	for _, a := range Atoms {
-		installs := strings.Contains(a.Script, "go install ") ||
-			strings.Contains(a.Script, "cargo install ") ||
-			strings.Contains(a.Script, "uvx ") ||
-			strings.Contains(a.Script, "uv run ")
-		if !installs {
-			continue
-		}
-		if !strings.Contains(a.Script, "guard ") {
-			t.Errorf("atom %q provisions a tool without a CANNOT-RUN guard", a.ID)
 		}
 	}
 }
