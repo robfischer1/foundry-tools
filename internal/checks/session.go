@@ -1,6 +1,10 @@
 package checks
 
-import "os"
+import (
+	"net"
+	"os"
+	"strconv"
+)
 
 // THE MODULE'S OWN TESTS NEED A DAGGER SESSION TO EXIST, and this is where it
 // comes from.
@@ -23,16 +27,33 @@ import "os"
 //
 // INERT IN A REAL ENGINE: the module runtime sets both variables before the
 // binary starts, and this touches neither when they are present.
-const (
-	TestSessionPort  = "41421"
-	TestSessionToken = "paper-engine"
-)
+//
+// THE PORT IS WHATEVER IS FREE, NOT A CONSTANT. The first cut pinned 41421
+// and two checkouts testing at once on one host raced for it — measured
+// 2026-09-12, 4 of 12 full runs on rob02 dying with "bind: address already
+// in use" while a sibling worktree's test binary held the port. A listener
+// on :0 hands back a port the kernel knows is free; it is closed at once and
+// the test binary's TestMain re-opens it. The gap between the two is
+// microseconds on a loopback nobody else is racing for.
+const TestSessionToken = "paper-engine"
 
 func init() {
 	if os.Getenv("DAGGER_SESSION_PORT") == "" {
-		_ = os.Setenv("DAGGER_SESSION_PORT", TestSessionPort)
+		_ = os.Setenv("DAGGER_SESSION_PORT", freeLoopbackPort())
 	}
 	if os.Getenv("DAGGER_SESSION_TOKEN") == "" {
 		_ = os.Setenv("DAGGER_SESSION_TOKEN", TestSessionToken)
 	}
+}
+
+// freeLoopbackPort asks the kernel for an unused loopback port. On the one
+// host with no loopback at all it answers "1", which the paper engine will
+// refuse to listen on — loudly, in TestMain, rather than here at init.
+func freeLoopbackPort() string {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "1"
+	}
+	defer ln.Close()
+	return strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
 }
