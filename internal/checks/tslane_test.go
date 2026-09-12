@@ -63,3 +63,18 @@ func matchesAny(patterns []string, name string) bool {
 	}
 	return false
 }
+
+// AND IT IS THE PATH THE ATOMS PRINT. The assertion above is
+// self-referential — an edit to StocksRulesets moves both of its sides at once
+// — so the two spellings are also held against their literals: /stocks is the
+// mount runtime.go's withStocks makes, and ci/lib/rulesets is where
+// foundry-stocks keeps them. A change to either is a change to a message a
+// human reads off a red gate, and to where the file is looked for.
+func TestRulesetsDirIsTheLiteralPathTheAtomsPrint(t *testing.T) {
+	if StocksRulesets != "ci/lib/rulesets" {
+		t.Errorf("StocksRulesets = %q, want ci/lib/rulesets", StocksRulesets)
+	}
+	if RulesetsDir != "/stocks/ci/lib/rulesets" {
+		t.Errorf("RulesetsDir = %q, want /stocks/ci/lib/rulesets", RulesetsDir)
+	}
+}

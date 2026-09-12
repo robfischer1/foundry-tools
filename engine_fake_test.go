@@ -393,8 +393,7 @@ func (e *fakeEngine) answer(q string) (data any, errMsg string) {
 	case "size":
 		val = 1
 	case "id", "sync":
-		sum := sha256.Sum256([]byte(q))
-		val = "id-" + hex.EncodeToString(sum[:4])
+		val = fakeID(q)
 	default:
 		return nil, "the paper engine has no answer for leaf " + leaf.name + " in: " + q
 	}
@@ -404,6 +403,21 @@ func (e *fakeEngine) answer(q string) (data any, errMsg string) {
 	}
 	return out, ""
 }
+
+// fakeID is the id this engine answers for a query, and it is A FUNCTION OF
+// THE QUERY — which is what lets a test follow an object from the chain that
+// BUILT it to the call that CONSUMED it. The querybuilder marshals an object
+// argument as its id, so `withMountedDirectory(path:"/src", source:"id-...")`
+// names a directory whose own chain was recorded separately; idOf is how a
+// test says which one.
+func fakeID(q string) string {
+	sum := sha256.Sum256([]byte(q))
+	return "id-" + hex.EncodeToString(sum[:4])
+}
+
+// idOf answers the id the engine gave the newest recorded query matching every
+// needle, or the id of "" when there is none.
+func (e *fakeEngine) idOf(needles ...string) string { return fakeID(e.chain(needles...)) }
 
 func (e *fakeEngine) serve(w http.ResponseWriter, r *http.Request) {
 	b, _ := io.ReadAll(r.Body)
