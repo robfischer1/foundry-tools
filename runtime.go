@@ -353,17 +353,35 @@ func xargsExec(tool ...string) []string {
 // exemption keyed on the repository must not evaporate because the push came
 // from a worktree.
 func (r *run) gitReady(ctx context.Context, ctr *dagger.Container) *dagger.Container {
+	gitdir, err := r.src.File(".git").Contents(ctx)
+	if err == nil {
+		// THE MOUNT SWAP COMES FIRST, before ANY git command — including the
+		// --global config below, which needs no repository. git discovers the
+		// repository at startup regardless of the subcommand, and a `.git` file
+		// whose gitdir does not exist is a hard error there, not a "no repo":
+		// `git config --global` in /src answered "fatal: not a git repository:
+		// /home/rob/Forge/Outputs/eros/.git/worktrees/<name>" and exited 128,
+		// so every atom behind this helper never ran (foundry-tools#8736,
+		// measured 2026-09-12 on eros and ares worktrees against the cluster
+		// engine and a local one; the f0566e9b shell prelude removed the file
+		// first and passed). The rebuild below never got to run.
+		ctr = ctr.WithMountedDirectory("/src", r.src.WithoutFile(".git"))
+	}
 	// The clone is owned by whoever made it; git refuses a repository it does
 	// not own (exit 128, "dubious ownership") and the process here is root.
 	ctr = ctr.WithExec([]string{"git", "config", "--global", "--add", "safe.directory", "*"})
-	gitdir, err := r.src.File(".git").Contents(ctx)
 	if err != nil {
 		// `.git` is a directory (a primary checkout) or absent: nothing to rebuild.
 		return ctr
 	}
+	// The snapshot is MARKED, in the one place every atom that reads the
+	// repository can see it: the throwaway's own config. A snapshot has no
+	// commits, so an atom that needs a change set (fleet:witness reads HEAD)
+	// cannot answer here and must say so instead of exiting 128 — the landing's
+	// Job clones whole and grades the real commits.
 	ctr = ctr.
-		WithMountedDirectory("/src", r.src.WithoutFile(".git")).
 		WithExec([]string{"git", "init", "-q", "."}).
+		WithExec([]string{"git", "config", "--local", "ca.snapshot", "linked-worktree"}).
 		WithExec([]string{"git", "add", "-A"})
 	if primary := checks.WorktreePrimary(gitdir); primary != "" {
 		ctr = ctr.WithExec([]string{"git", "remote", "add", "origin", primary + ".git"})
