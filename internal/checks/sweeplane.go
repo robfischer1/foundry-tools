@@ -160,16 +160,22 @@ func splitOutputLines(out string) []string {
 	return strings.Split(out, "\n")
 }
 
+// headLines and tailLines are the two cuts KubeLinterState composes, and they
+// are CLAMPS rather than branches on purpose.
+//
+// `if len(lines) > n { return lines[:n] }; return lines` and the same line with
+// `>=` answer identically for every input — at n == len(lines) the cut IS the
+// whole slice — so the boundary mutant on that comparison is EQUIVALENT, and an
+// equivalent mutant is a red mutation gate that no test can ever clear. Both
+// LIVED on PR #31 (internal/checks/sweeplane.go 164:16 and 171:16, measured
+// 2026-09-12) and both were still alive after a table test covering n == len,
+// n == len±1 and n == 0. A clamp has no comparison to mutate. The behaviour is
+// unchanged and TestHeadAndTailLinesAtTheirBoundaries holds it at every
+// boundary the branch used to decide.
 func headLines(lines []string, n int) []string {
-	if len(lines) > n {
-		return lines[:n]
-	}
-	return lines
+	return lines[:min(n, len(lines))]
 }
 
 func tailLines(lines []string, n int) []string {
-	if len(lines) > n {
-		return lines[len(lines)-n:]
-	}
-	return lines
+	return lines[len(lines)-min(n, len(lines)):]
 }

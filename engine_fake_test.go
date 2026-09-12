@@ -100,6 +100,14 @@ func (e *fakeEngine) stderr(match, out string) {
 // dead engine look like to the SDK.
 func (e *fakeEngine) fail(match, message string) { e.script(script{match: match, fail: message}) }
 
+// failLeaf is fail() narrowed to ONE leaf: the chain answers normally until the
+// atom reads that field. It is how "the exec ran and its output could not be
+// read" is written — output() and outputBoth() read two and three leaves off
+// one container, and each read is its own chance for the engine to go away.
+func (e *fakeEngine) failLeaf(match, leaf, message string) {
+	e.script(script{match: match, leaf: leaf, fail: message})
+}
+
 func (e *fakeEngine) script(s script) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
