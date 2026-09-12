@@ -311,7 +311,7 @@ func atomTable() []AtomDef {
 	return []AtomDef{
 		// ---- fleet: every repository, whatever it is written in ----
 		{
-			ID: "fleet:check-yaml", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
+			ID: "fleet:check-yaml", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every YAML file in the tree parses.",
 			// Multi-document YAML is VALID YAML here, and SYNTAX is the question.
 			// pre-commit's check-yaml refuses a second document by default and
@@ -332,7 +332,7 @@ uvx --from pre-commit-hooks check-yaml --allow-multiple-documents --unsafe $file
 echo "fleet:check-yaml: parsed all YAML"`,
 		},
 		{
-			ID: "fleet:check-added-large-files", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
+			ID: "fleet:check-added-large-files", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "No file in the tree exceeds 2 MB.",
 			// THE POPULATION IS THE REPOSITORY'S TRACKED FILES. pre-commit's own
 			// hook reads the index; this reads the nearest thing the engine can be
@@ -353,7 +353,7 @@ if [ -n "$big" ]; then echo "files over ${maxkb} KB:"; echo "$big"; exit 1; fi
 echo "fleet:check-added-large-files: nothing over ${maxkb} KB"`,
 		},
 		{
-			ID: "fleet:check-merge-conflict", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
+			ID: "fleet:check-merge-conflict", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "No conflict markers were committed.",
 			// Only the two ANCHORED markers, not the bare row of equals signs: that
 			// is a setext heading in Markdown and a table rule in reStructuredText,
@@ -369,7 +369,7 @@ if [ -n "$hits" ]; then echo "$hits"; exit 1; fi
 echo "fleet:check-merge-conflict: no conflict markers"`,
 		},
 		{
-			ID: "fleet:detect-secrets", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
+			ID: "fleet:detect-secrets", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "No new secret against the repository's .secrets.baseline.",
 			// THE TREE HAS TO BE A REPOSITORY git CAN READ, for two reasons.
 			//
@@ -397,7 +397,7 @@ uvx --from detect-secrets detect-secrets-hook --baseline .secrets.baseline $file
 echo "fleet:detect-secrets: clean against .secrets.baseline"`,
 		},
 		{
-			ID: "fleet:stop-justifications", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
+			ID: "fleet:stop-justifications", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "No silent suppression of any gate — a suppression carries a tool-conflict line.",
 			// The script is READ AT ITS ONE HOME, not vendored. A missing source is
 			// exit 2, never 0 — the same contract the pre-commit hook states, for
@@ -439,7 +439,7 @@ echo "fleet:stop-justifications: no unexcused suppressions"`,
 			NeedsStocks: true,
 		},
 		{
-			ID: "fleet:sast-ruleset-lanes", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
+			ID: "fleet:sast-ruleset-lanes", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
 			Desc: "The SAST ruleset declares every lane this repository actually builds.",
 			// Ported from the go_B pre-commit hook. It is the companion to the
 			// zero-file refusal and closes the one case that refusal structurally
@@ -463,7 +463,7 @@ echo "A ruleset that never names a lane never examines it, and opengrep still ex
 exit 2`,
 		},
 		{
-			ID: "fleet:orbit-drift", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
+			ID: "fleet:orbit-drift", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
 			Desc: "This repo's declared seams agree with the canonical contracts in foundry-dies/orbits.",
 			// The seam half of blast radius. A star's orbit.toml says which edges it
 			// takes part in, so a session standing in the repo can see who it breaks
@@ -575,7 +575,7 @@ PYORBIT
 runpy /tmp/orbit-drift.py`,
 		},
 		{
-			ID: "fleet:opengrep-sast", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
+			ID: "fleet:opengrep-sast", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
 			Desc: "SAST scan that refuses a zero-file scan.",
 			// The zero-file refusal, kept as written. "Ran N rules on 0 files: 0
 			// findings" exits 0 and renders as Passed, which is indistinguishable
@@ -608,7 +608,7 @@ exit $rc`,
 
 		// ---- go ----
 		{
-			ID: "go:gofmt", Stage: StagePrecommit, Lane: LaneGo, Image: imageGo,
+			ID: "go:gofmt", Stage: StagePrecommit, Lane: LaneGo, Image: ImageGo,
 			Desc: "Every Go file is gofmt-clean.",
 			Script: `unformatted=$(gofmt -l $(find . -path ./vendor -prune -o -name '*.go' -print) 2>/dev/null)
 if [ -n "$unformatted" ]; then echo "gofmt needed on:"; echo "$unformatted"; exit 1; fi
@@ -624,19 +624,19 @@ echo "go:gofmt: clean"`,
 		// its own step under guard — state 2, could not run, re-asked — and
 		// the tool runs only on a tree whose modules are all on disk.
 		{
-			ID: "go:vet", Stage: StagePrecommit, Lane: LaneGo, Image: imageGo,
+			ID: "go:vet", Stage: StagePrecommit, Lane: LaneGo, Image: ImageGo,
 			Desc: "go vet ./... reports nothing.",
 			Script: provisionGuard + `guard go mod download
 go vet ./... || exit 1; echo "go:vet: clean"`,
 		},
 		{
-			ID: "go:build", Stage: StagePrecommit, Lane: LaneGo, Image: imageGo,
+			ID: "go:build", Stage: StagePrecommit, Lane: LaneGo, Image: ImageGo,
 			Desc: "go build ./... succeeds.",
 			Script: provisionGuard + `guard go mod download
 go build ./... || exit 1; echo "go:build: clean"`,
 		},
 		{
-			ID: "go:test-race", Stage: StagePrepush, Lane: LaneGo, Image: imageGo,
+			ID: "go:test-race", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo,
 			Desc: "go test -race ./... passes.",
 			// NeedsDies IS NOT A FACT ABOUT THE GO LANE. hephaestus's internal/slag
 			// goldens grade every record committed in foundry-dies, the lane checks
@@ -659,7 +659,7 @@ n="$(go list -f '{{len .TestGoFiles}}{{len .XTestGoFiles}}' ./... 2>&1)" || { ec
 go test -race ./... || exit 1`,
 		},
 		{
-			ID: "go:staticcheck", Stage: StagePrepush, Lane: LaneGo, Image: imageGo,
+			ID: "go:staticcheck", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo,
 			Desc: "staticcheck ./... reports nothing.",
 			// The engine ends the "CANNOT RUN when not installed locally" branch this
 			// check has carried since it was a pre-push hook: the toolchain is the
@@ -685,7 +685,7 @@ staticcheck -checks 'all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-ST1023
 echo "go:staticcheck: clean"`,
 		},
 		{
-			ID: "go:govulncheck", Stage: StagePrepush, Lane: LaneGo, Image: imageGo,
+			ID: "go:govulncheck", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo,
 			Desc: "govulncheck ./... reports no known vulnerability.",
 			Script: provisionGuard + `guard go install golang.org/x/vuln/cmd/govulncheck@latest
 govulncheck ./... || exit 1
@@ -694,7 +694,7 @@ echo "go:govulncheck: clean"`,
 
 		// ---- python ----
 		{
-			ID: "python:ruff-check", Stage: StagePrecommit, Lane: LanePython, Image: imagePython, NeedsStocks: true,
+			ID: "python:ruff-check", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython, NeedsStocks: true,
 			Desc: "ruff lint is clean over every .py in the tree, under the fleet's ruleset.",
 			// THE RULESET IS THE FLEET'S. `--config <file>` makes ruff ignore every
 			// pyproject.toml and ruff.toml in the tree, so the repository's copy —
@@ -707,7 +707,7 @@ uvx ruff@0.16.3 check --config ` + rulesetsDir + `/ruff.toml . || exit 1
 echo "python:ruff-check: clean"`,
 		},
 		{
-			ID: "python:ruff-format", Stage: StagePrecommit, Lane: LanePython, Image: imagePython, NeedsStocks: true,
+			ID: "python:ruff-format", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython, NeedsStocks: true,
 			Desc: "ruff format --check is clean over the product python, under the fleet's ruleset.",
 			// --check, NEVER the rewrite. The stock hook reformats in place and
 			// fails so you re-stage, which has aborted a commit in this fleet before
@@ -727,22 +727,22 @@ uvx ruff@0.16.3 format --config ` + rulesetsDir + `/ruff.toml --check $targets |
 echo "python:ruff-format: clean"`,
 		},
 		{
-			ID: "python:forge-testkit-assertion-free", Stage: StagePrecommit, Lane: LanePython, Image: imagePython,
+			ID: "python:forge-testkit-assertion-free", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython,
 			Desc:   "No assertion-free test bodies (forge-testkit).",
 			Script: forgeTestkit("assertion-free", "tests/*.py"),
 		},
 		{
-			ID: "python:forge-testkit-fake-placement", Stage: StagePrecommit, Lane: LanePython, Image: imagePython,
+			ID: "python:forge-testkit-fake-placement", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython,
 			Desc:   "Fake and Stub doubles live where they belong (forge-testkit).",
 			Script: forgeTestkit("fake-placement", "*.py"),
 		},
 		{
-			ID: "python:forge-testkit-schema-budget", Stage: StagePrecommit, Lane: LanePython, Image: imagePython,
+			ID: "python:forge-testkit-schema-budget", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython,
 			Desc:   "MCP verb descriptions stay inside the schema budget (forge-testkit).",
 			Script: forgeTestkit("schema-budget", "src/*.py"),
 		},
 		{
-			ID: "python:mypy", Stage: StagePrepush, Lane: LanePython, Image: imagePython, NeedsStocks: true,
+			ID: "python:mypy", Stage: StagePrepush, Lane: LanePython, Image: ImagePython, NeedsStocks: true,
 			Desc: "mypy is clean over src and tests, under the fleet's strict configuration.",
 			// ONE type checker. pyright ran redundantly on every python pre-push
 			// with no incident behind it and is dropped fleet-wide (decided, Rob) —
@@ -759,7 +759,7 @@ uv run --all-extras mypy --config-file ` + rulesetsDir + `/mypy.ini $targets || 
 echo "python:mypy: clean"`,
 		},
 		{
-			ID: "python:pytest", Stage: StagePrepush, Lane: LanePython, Image: imagePython,
+			ID: "python:pytest", Stage: StagePrepush, Lane: LanePython, Image: ImagePython,
 			Desc: "pytest passes, and there is something for it to pass.",
 			// NO TESTS IS A FINDING. This atom used to answer ABSENT — exit 0 —
 			// for a tree with no tests/ and for pytest's exit 5 ("no tests ran"),
@@ -776,7 +776,7 @@ if [ "$rc" -eq 5 ]; then echo "python:pytest: FINDINGS - pytest collected no tes
 echo "python:pytest: clean"`,
 		},
 		{
-			ID: "python:pip-audit", Stage: StagePrepush, Lane: LanePython, Image: imagePython,
+			ID: "python:pip-audit", Stage: StagePrepush, Lane: LanePython, Image: ImagePython,
 			Desc: "pip-audit reports no known vulnerability.",
 			Script: provisionGuard + `guard uv --version
 uv run --with pip-audit pip-audit || exit 1
@@ -785,12 +785,12 @@ echo "python:pip-audit: clean"`,
 
 		// ---- rust ----
 		{
-			ID: "rust:cargo-fmt", Stage: StagePrecommit, Lane: LaneRust, Image: imageRust,
+			ID: "rust:cargo-fmt", Stage: StagePrecommit, Lane: LaneRust, Image: ImageRust,
 			Desc:   "cargo fmt --all --check is clean.",
 			Script: `cargo fmt --all --check || exit 1; echo "rust:cargo-fmt: clean"`,
 		},
 		{
-			ID: "rust:cargo-clippy", Stage: StagePrecommit, Lane: LaneRust, Image: imageRust,
+			ID: "rust:cargo-clippy", Stage: StagePrecommit, Lane: LaneRust, Image: ImageRust,
 			Desc: "cargo clippy is clean under the fleet's lint set, warnings denied.",
 			// THE LINT SET IS NAMED ON THE COMMAND LINE. The rust template pours
 			// `[workspace.lints.clippy] all = "warn"` into Cargo.toml; a crate can
@@ -801,7 +801,7 @@ echo "python:pip-audit: clean"`,
 			Script: `cargo clippy --workspace --all-targets -- -W clippy::all -D warnings || exit 1; echo "rust:cargo-clippy: clean"`,
 		},
 		{
-			ID: "rust:cargo-test", Stage: StagePrepush, Lane: LaneRust, Image: imageRust,
+			ID: "rust:cargo-test", Stage: StagePrepush, Lane: LaneRust, Image: ImageRust,
 			Desc: "cargo test --workspace passes, and there is something for it to pass.",
 			// NO TESTS IS A FINDING. A workspace with no #[test] prints "running 0
 			// tests" and exits 0. Rob, 2026-09-11: nothing is built without tests.
@@ -813,7 +813,7 @@ printf '%s\n' "$listed" | grep -q ': test$' || { echo "rust:cargo-test: FINDINGS
 cargo test --workspace || exit 1`,
 		},
 		{
-			ID: "rust:cargo-audit", Stage: StagePrepush, Lane: LaneRust, Image: imageRust,
+			ID: "rust:cargo-audit", Stage: StagePrepush, Lane: LaneRust, Image: ImageRust,
 			Desc: "cargo audit reports no known vulnerability.",
 			Script: provisionGuard + `guard cargo install cargo-audit --locked
 cargo audit || exit 1
@@ -822,7 +822,7 @@ echo "rust:cargo-audit: clean"`,
 
 		// ---- ts ----
 		{
-			ID: "ts:bun-gate-commit", Stage: StagePrecommit, Lane: LaneTS, Image: imageTS, NeedsStocks: true,
+			ID: "ts:bun-gate-commit", Stage: StagePrecommit, Lane: LaneTS, Image: ImageTS, NeedsStocks: true,
 			Desc: "bun run gate (format, lint, typecheck, test, build) passes under the fleet's eslint config.",
 			// The pre-commit hook this ports runs in a checkout that already has
 			// node_modules; the gate's checkout has none. MEASURED 2026-09-10T02:38Z
@@ -840,7 +840,7 @@ bun install --frozen-lockfile || { echo "ts:bun-gate-commit: CANNOT RUN - frozen
 bun run gate || exit 1`,
 		},
 		{
-			ID: "ts:bun-gate", Stage: StagePrepush, Lane: LaneTS, Image: imageTS, NeedsStocks: true,
+			ID: "ts:bun-gate", Stage: StagePrepush, Lane: LaneTS, Image: ImageTS, NeedsStocks: true,
 			Desc: "bun run gate passes against a frozen lockfile under the fleet's eslint config, and the tree carries tests for it to run.",
 			// NO TESTS IS A FINDING. `bun test` itself refuses a tree with no test
 			// file (exit 1, "0 test files matching"), but this atom runs the
@@ -855,7 +855,7 @@ t="$(find . -path ./node_modules -prune -o -type f \( -name '*.test.ts' -o -name
 bun run gate || exit 1`,
 		},
 		{
-			ID: "ts:bun-audit", Stage: StagePrepush, Lane: LaneTS, Image: imageTS,
+			ID: "ts:bun-audit", Stage: StagePrepush, Lane: LaneTS, Image: ImageTS,
 			Desc: "bun audit reports nothing at high or above.",
 			Script: `BUN_CONFIG_REGISTRY=https://registry.npmjs.org/ bun audit --audit-level=high || exit 1
 echo "ts:bun-audit: clean"`,
@@ -874,7 +874,7 @@ echo "ts:bun-audit: clean"`,
 		// matches what is RUNNING on the box; that is drift, not syntax, and no gate
 		// can see it from here.
 		{
-			ID: "compose:config", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
+			ID: "compose:config", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every tracked compose spec parses and its schema validates.",
 			// --no-interpolate IS LOAD-BEARING. These files use ${VAR:?message} to
 			// make a missing variable a DEPLOY-TIME error, which is correct on the
@@ -921,7 +921,7 @@ done < /tmp/compose-specs
 echo "compose:config: every tracked compose spec parses"`,
 		},
 		{
-			ID: "compose:no-tracked-secrets", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
+			ID: "compose:no-tracked-secrets", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "No credential-shaped file is tracked in a repository that ships compose specs.",
 			// THE IGNORE RULE IS ASSERTED, NOT TRUSTED. Both repos' .gitignore state
 			// the rule — "if it holds a credential, it is IGNORED" — and nothing
@@ -950,7 +950,7 @@ fi
 echo "compose:no-tracked-secrets: no credential-shaped file is tracked"`,
 		},
 		{
-			ID: "compose:third-party-pins", Stage: StagePrecommit, Lane: LaneAny, Image: imageFleet,
+			ID: "compose:third-party-pins", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Zero ${PIN_} image interpolations — the BP6b ratchet stays closed.",
 			// The BP6b ratchet (BDTH, Rob-ratified 2026-08-08), fully tightened the
 			// night it landed: the literal lane took every third-party image off
@@ -987,7 +987,7 @@ echo "compose:third-party-pins: zero \${PIN_} interpolations; the pin era stays 
 		// build.yml and fleet-bundle.yml are deliberately NOT here. They publish
 		// rather than validate, and the bundle recipe lane owns them.
 		{
-			ID: "dies:opa-test", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
+			ID: "dies:opa-test", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
 			Desc: "The rego unit and invariant suite passes.",
 			// A ZERO-TEST RUN IS REFUSED, which the workflow did not do and this
 			// module cannot skip: `opa test` over a policy tree containing no test
@@ -1015,7 +1015,7 @@ fi
 echo "dies:opa-test: $n assertion(s) pass"`,
 		},
 		{
-			ID: "dies:admission-dogfood", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
+			ID: "dies:admission-dogfood", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
 			Desc: "The admission domain admits this repo's own star shape.",
 			// The domain that judges every star's slag is asked about the one star
 			// whose shape lives in the same repo as the rule. A deny here means the
@@ -1055,7 +1055,7 @@ dog_rc=$?
 echo "dies:admission-dogfood: the admission domain admits our own star shape"`,
 		},
 		{
-			ID: "dies:data-keys", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
+			ID: "dies:data-keys", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
 			Desc: "The BUILT bundle carries every data root the policy reads, non-empty.",
 			// The artifact gate, asked of the artifact. An empty or partial data
 			// document is the silent fail-open diesBundle describes, so the
@@ -1076,7 +1076,7 @@ python3 /tmp/dies-datakeys.py || exit 1
 echo "dies:data-keys: the built bundle carries its data"`,
 		},
 		{
-			ID: "dies:canary-visibility", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
+			ID: "dies:canary-visibility", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
 			Desc: "The BUILT bundle still hides a curated verb from a session principal.",
 			// THE CANARY IS READ OFF THE ROSTER, NOT NAMED, and that is the
 			// post-mortem's own recommendation (2026-08-22). The first canary named
@@ -1119,7 +1119,7 @@ printf '%s' "$STAR" | python3 -c 'import json, sys; sys.exit(0 if sys.argv[1] in
 echo "dies:canary-visibility: the built bundle still hides what it should"`,
 		},
 		{
-			ID: "dies:contracts", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
+			ID: "dies:contracts", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every copy of every shared closed set agrees — and the checker is proved to detect first.",
 			// THE FIXTURES RUN FIRST AND MUST FAIL. The live check cannot prove the
 			// checker DETECTS anything while it is green, so nine fixtures must be
@@ -1213,7 +1213,7 @@ runpy tools/check_contracts.py || exit 1
 echo "dies:contracts: the fixtures prove the gate detects, and every copy of every shared closed set agrees"`,
 		},
 		{
-			ID: "fleet:witness", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet, NeedsStocks: true,
+			ID: "fleet:witness", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet, NeedsStocks: true,
 			Desc: "Every changed .py/.go file is shown to the code witness (narcissus): a canonical-class or Standard match is a finding, a Convention is advisory, novel is clean.",
 			// THE PRE-GATE SOCKET, BACK AS AN ATOM. Born as a Tekton Task beside the
 			// gate (The Thesis Project F8) that reached narcissus through hades over
@@ -1243,7 +1243,7 @@ python3 /stocks/ci/lib/gate/witness.py; rc=$?
 exit $rc`,
 		},
 		{
-			ID: "dies:schema", Stage: StagePrepush, Lane: LaneAny, Image: imageFleet,
+			ID: "dies:schema", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
 			Desc: "The slag schema is a valid Draft 2020-12 document and every v2 record satisfies it.",
 			// TWO ASSERTIONS ABOUT THE SCHEMA, and the second is the one
 			// check_schema does not make. `required` naming a property that is not
@@ -1370,7 +1370,7 @@ echo "dies:schema: the payload is a valid, satisfiable schema and every v2 recor
 			// hephaestus #53: "failed to gather coverage: impossible to
 			// executeCoverage coverage: exit status 1". Any atom that runs a
 			// repo's `go test` runs its armed goldens, and needs the tree they read.
-			ID: "go:mutation", Stage: StageMutation, Lane: LaneGo, Image: imageGo, NeedsStocks: true, NeedsDies: true,
+			ID: "go:mutation", Stage: StageMutation, Lane: LaneGo, Image: ImageGo, NeedsStocks: true, NeedsDies: true,
 			Desc: "Every mutant gremlins makes of this pull's changed Go is killed by the tests.",
 			Script: provisionGuard + worktreeRepo + `guard bash --version
 guard go mod download
@@ -1385,7 +1385,7 @@ echo "go:mutation: $(cat /tmp/mutation/reason 2>/dev/null)"
 exit "$v"`,
 		},
 		{
-			ID: "python:mutation", Stage: StageMutation, Lane: LanePython, Image: imagePython, NeedsStocks: true,
+			ID: "python:mutation", Stage: StageMutation, Lane: LanePython, Image: ImagePython, NeedsStocks: true,
 			Desc: "Every mutant cosmic-ray makes of this pull's changes to the declared critical modules is killed by the tests.",
 			Script: provisionGuard + worktreeRepo + `guard bash --version
 guard uv --version
@@ -1402,7 +1402,7 @@ echo "python:mutation: $(cat /tmp/mutation/reason 2>/dev/null)"
 exit "$v"`,
 		},
 		{
-			ID: "rust:mutation", Stage: StageMutation, Lane: LaneRust, Image: imageRust, NeedsStocks: true,
+			ID: "rust:mutation", Stage: StageMutation, Lane: LaneRust, Image: ImageRust, NeedsStocks: true,
 			Desc: "Every viable mutant cargo-mutants makes of this pull's changes to the declared critical modules is killed by the tests.",
 			Script: provisionGuard + worktreeRepo + `guard bash --version
 guard cargo mutants --version
@@ -1419,7 +1419,7 @@ echo "rust:mutation: $(cat /tmp/mutation/reason 2>/dev/null)"
 exit "$v"`,
 		},
 		{
-			ID: "ts:mutation", Stage: StageMutation, Lane: LaneTS, Image: imageTS, NeedsStocks: true,
+			ID: "ts:mutation", Stage: StageMutation, Lane: LaneTS, Image: ImageTS, NeedsStocks: true,
 			Desc: "Every mutant StrykerJS makes of this pull's changes to the declared critical modules is killed by the tests.",
 			Script: provisionGuard + worktreeRepo + `guard bash --version
 guard bun --version
@@ -1436,7 +1436,7 @@ echo "ts:mutation: $(cat /tmp/mutation/reason 2>/dev/null)"
 exit "$v"`,
 		},
 		{
-			ID: "sweep:digest-pins", Stage: StageSweep, Lane: LaneAny, Image: imageFleet,
+			ID: "sweep:digest-pins", Stage: StageSweep, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every image digest this repo's workflows pin still resolves in the registry.",
 			// The canonical script, READ AT ITS ONE HOME. It already carries the
 			// three states this module requires — 0 every pin resolves, 1 a pin is
@@ -1483,7 +1483,7 @@ exit $code`,
 			NeedsStocks: true,
 		},
 		{
-			ID: "sweep:portfolio-sbom", Stage: StageSweep, Lane: LaneAny, Image: imageFleet,
+			ID: "sweep:portfolio-sbom", Stage: StageSweep, Lane: LaneAny, Image: ImageFleet,
 			Desc: "A repository that builds an image builds it through the workflow that attests its SBOM.",
 			// THIS DOES NOT RE-RUN THE PORTFOLIO SCAN, and that is deliberate. The
 			// scan is fleet-wide, already scheduled, and stays exactly where it
@@ -1510,7 +1510,7 @@ echo "The weekly portfolio re-score reads cosign SBOM attestations out of the re
 exit 1`,
 		},
 		{
-			ID: "sweep:template-render-matrix", Stage: StageSweep, Lane: LaneAny, Image: imageFleet,
+			ID: "sweep:template-render-matrix", Stage: StageSweep, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every case in this template's ci-matrix.toml still renders.",
 			// A template bug does not break the template. It propagates into every
 			// repo stamped afterward and surfaces later, in someone else's repo,

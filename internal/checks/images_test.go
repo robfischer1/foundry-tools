@@ -28,7 +28,7 @@ import (
 // of this one string is an unpullable gate.
 func TestEveryLaneImageIsAFleetCIImage(t *testing.T) {
 	const want = "registry.notusmi.com/rob/stellar_core:"
-	for _, img := range []string{imageGo, imagePython, imageRust, imageTS, imageFleet} {
+	for _, img := range []string{ImageGo, ImagePython, ImageRust, ImageTS, ImageFleet} {
 		if !strings.HasPrefix(img, want) {
 			t.Errorf("lane image %q is not one of the fleet's CI images (%s…) — the engine and CI would grade with two toolchains free to disagree", img, want)
 		}

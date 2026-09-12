@@ -18,28 +18,28 @@ type GoLane struct {
 //
 // +check
 func (g *GoLane) Gofmt(ctx context.Context) (string, error) {
-	return run(ctx, g.Source, "go:gofmt")
+	return check(ctx, g.Source, "go:gofmt")
 }
 
 // go vet ./... reports nothing.
 //
 // +check
 func (g *GoLane) Vet(ctx context.Context) (string, error) {
-	return run(ctx, g.Source, "go:vet")
+	return check(ctx, g.Source, "go:vet")
 }
 
 // go build ./... succeeds.
 //
 // +check
 func (g *GoLane) Build(ctx context.Context) (string, error) {
-	return run(ctx, g.Source, "go:build")
+	return check(ctx, g.Source, "go:build")
 }
 
 // go test -race ./... passes.
 //
 // +check
 func (g *GoLane) TestRace(ctx context.Context) (string, error) {
-	return run(ctx, g.Source, "go:test-race")
+	return check(ctx, g.Source, "go:test-race")
 }
 
 // staticcheck ./... reports nothing. The toolchain is the module's, so an
@@ -47,14 +47,14 @@ func (g *GoLane) TestRace(ctx context.Context) (string, error) {
 //
 // +check
 func (g *GoLane) Staticcheck(ctx context.Context) (string, error) {
-	return run(ctx, g.Source, "go:staticcheck")
+	return check(ctx, g.Source, "go:staticcheck")
 }
 
 // govulncheck ./... reports no known vulnerability.
 //
 // +check
 func (g *GoLane) Govulncheck(ctx context.Context) (string, error) {
-	return run(ctx, g.Source, "go:govulncheck")
+	return check(ctx, g.Source, "go:govulncheck")
 }
 
 // This pull's changed Go survive no mutant: the mutation gate,
@@ -64,5 +64,5 @@ func (g *GoLane) Govulncheck(ctx context.Context) (string, error) {
 //
 // +check
 func (g *GoLane) Mutation(ctx context.Context) (string, error) {
-	return run(ctx, g.Source, "go:mutation")
+	return check(ctx, g.Source, "go:mutation")
 }

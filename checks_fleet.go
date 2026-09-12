@@ -20,7 +20,7 @@ type Fleet struct {
 //
 // +check
 func (f *Fleet) Witness(ctx context.Context) (string, error) {
-	return run(ctx, f.Source, "fleet:witness")
+	return check(ctx, f.Source, "fleet:witness")
 }
 
 // This repo's declared seams still agree with the canonical contracts in
@@ -30,28 +30,28 @@ func (f *Fleet) Witness(ctx context.Context) (string, error) {
 //
 // +check
 func (f *Fleet) OrbitDrift(ctx context.Context) (string, error) {
-	return run(ctx, f.Source, "fleet:orbit-drift")
+	return check(ctx, f.Source, "fleet:orbit-drift")
 }
 
 // Every YAML file in the tree parses.
 //
 // +check
 func (f *Fleet) CheckYaml(ctx context.Context) (string, error) {
-	return run(ctx, f.Source, "fleet:check-yaml")
+	return check(ctx, f.Source, "fleet:check-yaml")
 }
 
 // No file in the tree exceeds 500 KB.
 //
 // +check
 func (f *Fleet) CheckAddedLargeFiles(ctx context.Context) (string, error) {
-	return run(ctx, f.Source, "fleet:check-added-large-files")
+	return check(ctx, f.Source, "fleet:check-added-large-files")
 }
 
 // No conflict markers were committed.
 //
 // +check
 func (f *Fleet) CheckMergeConflict(ctx context.Context) (string, error) {
-	return run(ctx, f.Source, "fleet:check-merge-conflict")
+	return check(ctx, f.Source, "fleet:check-merge-conflict")
 }
 
 // No new secret against the repository's .secrets.baseline. A missing baseline
@@ -59,7 +59,7 @@ func (f *Fleet) CheckMergeConflict(ctx context.Context) (string, error) {
 //
 // +check
 func (f *Fleet) DetectSecrets(ctx context.Context) (string, error) {
-	return run(ctx, f.Source, "fleet:detect-secrets")
+	return check(ctx, f.Source, "fleet:detect-secrets")
 }
 
 // No silent suppression of any gate — a suppression is a claim that the tool is
@@ -67,7 +67,7 @@ func (f *Fleet) DetectSecrets(ctx context.Context) (string, error) {
 //
 // +check
 func (f *Fleet) StopJustifications(ctx context.Context) (string, error) {
-	return run(ctx, f.Source, "fleet:stop-justifications")
+	return check(ctx, f.Source, "fleet:stop-justifications")
 }
 
 // The SAST ruleset declares every lane this repository actually builds — the
@@ -75,7 +75,7 @@ func (f *Fleet) StopJustifications(ctx context.Context) (string, error) {
 //
 // +check
 func (f *Fleet) SastRulesetLanes(ctx context.Context) (string, error) {
-	return run(ctx, f.Source, "fleet:sast-ruleset-lanes")
+	return check(ctx, f.Source, "fleet:sast-ruleset-lanes")
 }
 
 // SAST scan that refuses a zero-file scan: 0 findings over 0 files means
@@ -83,5 +83,5 @@ func (f *Fleet) SastRulesetLanes(ctx context.Context) (string, error) {
 //
 // +check
 func (f *Fleet) OpengrepSast(ctx context.Context) (string, error) {
-	return run(ctx, f.Source, "fleet:opengrep-sast")
+	return check(ctx, f.Source, "fleet:opengrep-sast")
 }

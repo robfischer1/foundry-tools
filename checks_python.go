@@ -21,7 +21,7 @@ type PythonLane struct {
 //
 // +check
 func (p *PythonLane) RuffCheck(ctx context.Context) (string, error) {
-	return run(ctx, p.Source, "python:ruff-check")
+	return check(ctx, p.Source, "python:ruff-check")
 }
 
 // ruff format --check is clean over the product python. It reports, never
@@ -30,49 +30,49 @@ func (p *PythonLane) RuffCheck(ctx context.Context) (string, error) {
 //
 // +check
 func (p *PythonLane) RuffFormat(ctx context.Context) (string, error) {
-	return run(ctx, p.Source, "python:ruff-format")
+	return check(ctx, p.Source, "python:ruff-format")
 }
 
 // No assertion-free test bodies (forge-testkit).
 //
 // +check
 func (p *PythonLane) ForgeTestkitAssertionFree(ctx context.Context) (string, error) {
-	return run(ctx, p.Source, "python:forge-testkit-assertion-free")
+	return check(ctx, p.Source, "python:forge-testkit-assertion-free")
 }
 
 // Fake and Stub doubles live where they belong (forge-testkit).
 //
 // +check
 func (p *PythonLane) ForgeTestkitFakePlacement(ctx context.Context) (string, error) {
-	return run(ctx, p.Source, "python:forge-testkit-fake-placement")
+	return check(ctx, p.Source, "python:forge-testkit-fake-placement")
 }
 
 // MCP verb descriptions stay inside the schema budget (forge-testkit).
 //
 // +check
 func (p *PythonLane) ForgeTestkitSchemaBudget(ctx context.Context) (string, error) {
-	return run(ctx, p.Source, "python:forge-testkit-schema-budget")
+	return check(ctx, p.Source, "python:forge-testkit-schema-budget")
 }
 
 // mypy --strict is clean over src and tests. One type checker, not two.
 //
 // +check
 func (p *PythonLane) Mypy(ctx context.Context) (string, error) {
-	return run(ctx, p.Source, "python:mypy")
+	return check(ctx, p.Source, "python:mypy")
 }
 
 // pytest passes.
 //
 // +check
 func (p *PythonLane) Pytest(ctx context.Context) (string, error) {
-	return run(ctx, p.Source, "python:pytest")
+	return check(ctx, p.Source, "python:pytest")
 }
 
 // pip-audit reports no known vulnerability.
 //
 // +check
 func (p *PythonLane) PipAudit(ctx context.Context) (string, error) {
-	return run(ctx, p.Source, "python:pip-audit")
+	return check(ctx, p.Source, "python:pip-audit")
 }
 
 // This pull's changed critical modules survive no mutant: the mutation gate,
@@ -82,5 +82,5 @@ func (p *PythonLane) PipAudit(ctx context.Context) (string, error) {
 //
 // +check
 func (p *PythonLane) Mutation(ctx context.Context) (string, error) {
-	return run(ctx, p.Source, "python:mutation")
+	return check(ctx, p.Source, "python:mutation")
 }

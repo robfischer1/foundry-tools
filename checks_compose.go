@@ -32,7 +32,7 @@ type Compose struct {
 //
 // +check
 func (c *Compose) Config(ctx context.Context) (string, error) {
-	return run(ctx, c.Source, "compose:config")
+	return check(ctx, c.Source, "compose:config")
 }
 
 // No credential-shaped file is tracked. The .gitignore states the rule; this
@@ -41,7 +41,7 @@ func (c *Compose) Config(ctx context.Context) (string, error) {
 //
 // +check
 func (c *Compose) NoTrackedSecrets(ctx context.Context) (string, error) {
-	return run(ctx, c.Source, "compose:no-tracked-secrets")
+	return check(ctx, c.Source, "compose:no-tracked-secrets")
 }
 
 // Zero ${PIN_} image interpolations anywhere — the BP6b ratchet, kept as a
@@ -49,5 +49,5 @@ func (c *Compose) NoTrackedSecrets(ctx context.Context) (string, error) {
 //
 // +check
 func (c *Compose) ThirdPartyPins(ctx context.Context) (string, error) {
-	return run(ctx, c.Source, "compose:third-party-pins")
+	return check(ctx, c.Source, "compose:third-party-pins")
 }

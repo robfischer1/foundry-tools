@@ -65,14 +65,14 @@ package checks
 // ca-gate-pull's CA_GATE_DOCKER_CONFIG_JSON still names only the forge and
 // does not have to change.
 const (
-	imageGo     = "registry.notusmi.com/rob/stellar_core:go-ci@sha256:5f684657c2ba294752edcb456efbdf3237290b8a666ebdcd4cb7025431bbdf7a"
-	imagePython = "registry.notusmi.com/rob/stellar_core:python-ci@sha256:b2e0985bacc458d2619606b10e68f5d938275db37152fb408b9c7b69dff0ac32"
-	imageRust   = "registry.notusmi.com/rob/stellar_core:rust-ci@sha256:3c8159334177745d7526e26e16bafbcfa268ccfb7ca194cac2ddddd9d39343e9"
-	imageTS     = "registry.notusmi.com/rob/stellar_core:frontend-ci@sha256:966e17d2853028dc5a6fe202435171bbdf7f0271bcba9b114ed1aef3e78f31ec"
+	ImageGo     = "registry.notusmi.com/rob/stellar_core:go-ci@sha256:5f684657c2ba294752edcb456efbdf3237290b8a666ebdcd4cb7025431bbdf7a"
+	ImagePython = "registry.notusmi.com/rob/stellar_core:python-ci@sha256:b2e0985bacc458d2619606b10e68f5d938275db37152fb408b9c7b69dff0ac32"
+	ImageRust   = "registry.notusmi.com/rob/stellar_core:rust-ci@sha256:3c8159334177745d7526e26e16bafbcfa268ccfb7ca194cac2ddddd9d39343e9"
+	ImageTS     = "registry.notusmi.com/rob/stellar_core:frontend-ci@sha256:966e17d2853028dc5a6fe202435171bbdf7f0271bcba9b114ed1aef3e78f31ec"
 	// The fleet atoms run in python-ci: they are python and shell, and it is
 	// the only one of the four carrying uvx, which three of them provision
 	// with.
-	imageFleet = imagePython
+	ImageFleet = ImagePython
 )
 
 // LaneImages is every image an atom may run in, so a test can assert the ONE
@@ -80,7 +80,7 @@ const (
 // rather than derived from Atoms because an image nothing currently references
 // is still an image this module would ship.
 var LaneImages = []string{
-	imageGo, imagePython, imageRust, imageTS, imageFleet,
+	ImageGo, ImagePython, ImageRust, ImageTS, ImageFleet,
 	imageKubeconform, imageKubeLinter,
 }
 
