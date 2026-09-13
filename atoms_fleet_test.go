@@ -900,6 +900,204 @@ func TestFleetWitnessRebuildsALinkedWorktreesRepository(t *testing.T) {
 	)
 }
 
+// ---- fleet:hadolint ----
+
+// hadolintPinned scripts the one thing every hadolint happy path needs: the
+// version probe answering the pin. The paper engine's default stdout is "",
+// which the atom reads — correctly — as a binary that is not the pinned one.
+func hadolintPinned() {
+	engine.stdout(`"hadolint","--version"`, "Haskell Dockerfile Linter "+checks.HadolintVersion+"\n")
+}
+
+// hadolintTool is the tool exec's distinguishing text: the fleet config path
+// appears in no other exec.
+const hadolintTool = `"--config","` + checks.HadolintConfigPath + `"`
+
+// repoHadolintConfig is the repository's own file, spelled by concatenation:
+// registry_test.go reads every literal in atoms_*.go — this file included —
+// and refuses the name, which is the guard this test exists to exercise, not
+// to trip.
+const repoHadolintConfig = ".hadolint" + ".yaml"
+
+func TestFleetHadolintIsAbsentWithoutADockerfile(t *testing.T) {
+	engine.reset()
+	engine.withTree(fleetTree(nil, "Dockerfile"))
+	v := runAtom(t, "fleet:hadolint", "")
+	wantState(t, v, 0, "ABSENT", "tracks no Dockerfile or Containerfile")
+	if v.Result != "absent" {
+		t.Errorf("want absent, got %q", v.Result)
+	}
+	fleetNoContainer(t, "no Dockerfile in the tree")
+
+	// A vendored Dockerfile is not this repository's: the fleet exclude drops
+	// it before the predicate sees it, and the atom stands down ABSENT rather
+	// than linting a dependency's build recipe.
+	engine.reset()
+	engine.withTree(fleetTree(map[string]string{
+		"vendor/go.opentelemetry.io/otel/dependencies.Dockerfile": "FROM scratch\n",
+	}, "Dockerfile"))
+	wantState(t, runAtom(t, "fleet:hadolint", ""), 0, "ABSENT")
+	fleetNoContainer(t, "only a vendored Dockerfile")
+}
+
+// THE FLEET'S RULESET REACHES hadolint AS A FILE OUTSIDE /src, NAMED BY
+// --config — which is what shuts the repository's .hadolint.yaml out — and
+// the binary is fetched at its pin, mirror first, and proved before it judges.
+func TestFleetHadolintProvisionsThePinAndPointsItAtTheFleetRuleset(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	hadolintPinned()
+
+	wantState(t, runAtom(t, "fleet:hadolint", ""), 0)
+
+	c := engine.chain(hadolintTool, "exitCode")
+	if !strings.Contains(c, checks.ImageFleet) {
+		t.Errorf("fleet:hadolint must run in the fleet lane image:\n%s", c)
+	}
+	wantCalls(t, c,
+		[]string{"withEnvVariable", `name:"CI"`, `value:"true"`},
+		[]string{"withMountedDirectory", `path:"/src"`},
+		[]string{"withWorkdir", `path:"/src"`},
+		[]string{"withFile", `path:"/usr/local/bin/hadolint"`, `permissions:493`},
+		[]string{"withNewFile", `path:"` + checks.HadolintConfigPath + `"`, `failure-threshold: warning`, `trustedRegistries:`},
+		[]string{"withExec", `args:["hadolint","--version"]`},
+		[]string{"withExec", `expect:ANY`, `args:["hadolint","--no-color","--config","` + checks.HadolintConfigPath + `","--","Dockerfile"]`},
+	)
+	if hasCall(c, "withExec", `"hadolint","--version"`, `expect:ANY`) {
+		t.Errorf("the version probe is provisioning and must run under the default Expect:\n%s", c)
+	}
+	if engine.chain(`http(url:"`+checks.HadolintMirror+`")`, "id") == "" {
+		t.Errorf("the happy path must place the MIRROR's file:\n%v", engine.chains())
+	}
+	if strings.Contains(c, "GATE_BASE") {
+		t.Errorf("rule 8: fleet:hadolint must not read GATE_BASE — it would key the cache on the pull:\n%s", c)
+	}
+	if strings.Contains(c, "disable-ignore-pragma") || strings.Contains(c, "no-fail") {
+		t.Errorf("pragmas stay honoured and the exit code stays live:\n%s", c)
+	}
+	// The config is placed OUTSIDE the tree: nothing writes into /src, no
+	// chain reads the repository's own file, and --config never names it.
+	if hasCall(c, "withNewFile", `path:"/src/`) || hasCall(c, "withExec", `"--config","`+repoHadolintConfig+`"`) {
+		t.Errorf("the ruleset is the fleet's, written outside /src, and --config never names the repo's file:\n%s", c)
+	}
+	for _, q := range engine.chains() {
+		if hasCall(q, "file", `path:"`+repoHadolintConfig+`"`) {
+			t.Errorf("no chain may read the repository's %s:\n%s", repoHadolintConfig, q)
+		}
+	}
+}
+
+// EVERY DOCKERFILE THE REPOSITORY SHIPS, IN ONE ARGV, SORTED — and nothing
+// that is not one. Rule 4 with no xargs: the population is ones per repo.
+func TestFleetHadolintHandsTheWholeDockerfilePopulationToOneExec(t *testing.T) {
+	engine.reset()
+	engine.withTree(fleetTree(map[string]string{
+		"bases/go-ci/Dockerfile":            "FROM scratch\n",
+		"docker/serving/serving.Dockerfile": "FROM scratch\n",
+		"Containerfile.dev":                 "FROM scratch\n",
+		"src/trash/Dockerfile-old":          "FROM scratch\n", // hyphenated: not a Dockerfile
+		"vendor/x/Dockerfile":               "FROM scratch\n", // vendored: the exclude's
+		"docs/dockerfiles.rst":              "",
+	}))
+	hadolintPinned()
+	wantState(t, runAtom(t, "fleet:hadolint", ""), 0)
+
+	c := engine.chain(hadolintTool, "exitCode")
+	want := `args:["hadolint","--no-color","--config","` + checks.HadolintConfigPath + `","--",` +
+		`"Containerfile.dev","Dockerfile","bases/go-ci/Dockerfile","docker/serving/serving.Dockerfile"]`
+	if !hasCall(c, "withExec", want) {
+		t.Errorf("the tool exec must name every Dockerfile once, sorted, and nothing else; want %s in:\n%s", want, c)
+	}
+	if strings.Contains(c, "Dockerfile-old") || strings.Contains(c, "vendor/") {
+		t.Errorf("a hyphenated name and a vendored file are not this repository's Dockerfiles:\n%s", c)
+	}
+	if strings.Contains(c, `"xargs"`) {
+		t.Errorf("Dockerfiles number in the ones; the population is the argv, not an xargs list:\n%s", c)
+	}
+}
+
+// THE TOOL'S OWN EXIT IS THE VERDICT: 0 pass, 1 findings (a rule at the
+// threshold OR a Dockerfile that does not parse), anything else could-not-run.
+func TestFleetHadolintMapsTheToolsExit(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	hadolintPinned()
+
+	engine.exitCode(hadolintTool, 1)
+	engine.stdout(hadolintTool, "Dockerfile:9 DL3025 warning: Use arguments JSON notation for CMD and ENTRYPOINT arguments")
+	wantState(t, runAtom(t, "fleet:hadolint", ""), 1, "DL3025", "JSON notation")
+
+	engine.exitCode(hadolintTool, 1)
+	engine.stdout(hadolintTool, "Dockerfile:2:4 missing whitespace")
+	wantState(t, runAtom(t, "fleet:hadolint", ""), 1, "missing whitespace")
+
+	engine.exitCode(hadolintTool, 137)
+	engine.stdout(hadolintTool, "")
+	wantState(t, runAtom(t, "fleet:hadolint", ""), 2, "CANNOT RUN (exit 137)")
+
+	// Info-level notes below the threshold exit 0 and are a pass.
+	engine.exitCode(hadolintTool, 0)
+	engine.stdout(hadolintTool, "Dockerfile:12 DL3064 info: Potentially sensitive data should not be used in the `ARG` or `ENV` commands")
+	wantState(t, runAtom(t, "fleet:hadolint", ""), 0)
+}
+
+// THE PIN IS PART OF THE QUESTION: a binary that answers another version, or
+// no version, has not been proved to carry the pinned rules.
+func TestFleetHadolintRefusesABinaryThatIsNotThePin(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.stdout(`"hadolint","--version"`, "Haskell Dockerfile Linter 2.12.0\n")
+	wantState(t, runAtom(t, "fleet:hadolint", ""), 2,
+		"CANNOT RUN", "does not answer", checks.HadolintVersion, "2.12.0", "never linted is not a Dockerfile that passed")
+	if engine.chain(hadolintTool, "exitCode") != "" {
+		t.Errorf("no Dockerfile may be judged by a binary that is not the pin:\n%v", engine.chains())
+	}
+
+	// The engine's default — an empty answer — is refused too.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	wantState(t, runAtom(t, "fleet:hadolint", ""), 2, "does not answer")
+}
+
+// THE BINARY IS FETCHED MIRROR-FIRST; upstream is the fallback, and both
+// failing is a could-not-run rather than a fallthrough.
+func TestFleetHadolintFallsBackFromTheMirrorToUpstream(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	hadolintPinned()
+	engine.fail(checks.HadolintMirror, "502 from the mirror")
+	wantState(t, runAtom(t, "fleet:hadolint", ""), 0)
+	if engine.chain(`http(url:"`+checks.HadolintURL+`")`, "id") == "" {
+		t.Errorf("a dead mirror must place the UPSTREAM's file:\n%v", engine.chains())
+	}
+
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	hadolintPinned()
+	engine.fail("hadolint/hadolint/releases", "404")
+	wantState(t, runAtom(t, "fleet:hadolint", ""), 2,
+		"could not be fetched from the mirror or from upstream", checks.HadolintVersion, "never linted")
+	fleetNoContainer(t, "neither source served the binary")
+}
+
+func TestFleetHadolintEngineFailures(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.fail(`glob(pattern:"**")`, "the tree went away")
+	wantState(t, runAtom(t, "fleet:hadolint", ""), 2, "the tree would not enumerate")
+
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.fail(`"hadolint","--version"`, "exit code: 126: cannot execute binary file")
+	wantState(t, runAtom(t, "fleet:hadolint", ""), 2, "the hadolint version probe never ran", "cannot execute")
+
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	hadolintPinned()
+	engine.failLeaf(hadolintTool, "exitCode", "the engine went away")
+	wantState(t, runAtom(t, "fleet:hadolint", ""), 2, "the atom never ran", "the engine went away")
+}
+
 // ---- the lane as a whole ----
 
 // Rule 1, read off the wire: every fleet atom's provisioning exec runs under
@@ -912,6 +1110,7 @@ func TestFleetProbesNeverCarryAnyExit(t *testing.T) {
 		`"python3","--version"`,
 		`"uv","--version"`,
 		`"opengrep","--version"`,
+		`"hadolint","--version"`,
 		`"git","config","--global","--add","safe.directory","*"`,
 	}
 	for _, a := range checks.Atoms {

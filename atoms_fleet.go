@@ -7,9 +7,10 @@ import (
 
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/checks/scripts"
+	"dagger/foundry-tools/internal/dagger"
 )
 
-// THE FLEET LANE, AS TYPED CHAINS. These nine atoms run in every repository in
+// THE FLEET LANE, AS TYPED CHAINS. These ten atoms run in every repository in
 // custody, whatever it is written in, so they are the ones a shell string cost
 // the most: eight of them opened with the same forty-line prelude — a
 // provisioning guard, a throwaway git repository, a `population()` shell
@@ -28,6 +29,7 @@ func init() {
 	register("fleet:orbit-drift", fleetOrbitDrift)
 	register("fleet:opengrep-sast", fleetOpengrepSast)
 	register("fleet:witness", fleetWitness)
+	register("fleet:hadolint", fleetHadolint)
 }
 
 // cannotEnumerate is the verdict when the TREE ITSELF would not answer. It is a
@@ -523,4 +525,86 @@ func fleetWitness(ctx context.Context, r *run) checks.Verdict {
 		out = strings.TrimRight(reason, "\n") + "\n" + out
 	}
 	return checks.VerdictOf(a, code, out)
+}
+
+// hadolintClient provisions the Dockerfile linter, PINNED, and proves it.
+//
+// THE LANE IMAGES CARRY NO hadolint — it is a Haskell binary no language
+// toolchain ships — so it is fetched the way opa and compose are: the Nexus
+// mirror first, upstream second, and a failure of both is the caller's state
+// 2 rather than a fallthrough. The version probe runs under the DEFAULT
+// Expect (a binary that downloaded but does not run is a provisioning
+// failure) and its one line is read back and matched against the pin, because
+// the rule set is a property of the binary (checks.HadolintVersionOK).
+//
+// THE FLEET'S RULESET IS WRITTEN INTO THE CONTAINER, outside /src, and named
+// by --config. hadolint's default is to read `.hadolint.yaml` from the working
+// directory, and an explicit --config replaces that lookup rather than merging
+// with it — measured, checks.HadolintConfigPath has the numbers. That
+// replacement is what makes the ruleset the fleet's: the repository's file
+// serves its local hook and the gate never opens it.
+func (r *run) hadolintClient(ctx context.Context) (*dagger.Container, error) {
+	f, err := fetchTool(ctx, checks.HadolintMirror, checks.HadolintURL)
+	if err != nil {
+		return nil, fmt.Errorf("hadolint %s could not be fetched from the mirror or from upstream: %w", checks.HadolintVersion, err)
+	}
+	ctr := r.lane(checks.ImageFleet).
+		WithFile("/usr/local/bin/hadolint", f, dagger.ContainerWithFileOpts{Permissions: 0o755}).
+		WithNewFile(checks.HadolintConfigPath, checks.HadolintConfig).
+		WithExec([]string{"hadolint", "--version"})
+	out, err := ctr.Stdout(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("the hadolint version probe never ran: %w", err)
+	}
+	if !checks.HadolintVersionOK(out, checks.HadolintVersion) {
+		return nil, fmt.Errorf("the binary on disk does not answer %q, so the rules are not the pinned ones: %s", "Haskell Dockerfile Linter "+checks.HadolintVersion, strings.TrimSpace(out))
+	}
+	return ctr, nil
+}
+
+// Every Dockerfile in the tree passes hadolint under the fleet's ruleset.
+//
+// THE POPULATION IS WHAT THE REPOSITORY WOULD COMMIT, filtered in Go by ONE
+// predicate (checks.DockerfilePopulation) rather than by a second spelling of
+// it as engine globs. The fleet exclude has already dropped vendor/ — four Go
+// stars vendor go.opentelemetry.io's dependencies.Dockerfile, and a vendored
+// Dockerfile is not one this repository ships.
+//
+// NO DOCKERFILE IS ABSENT, not a pass. A repository that ships no image has
+// nothing for this atom to say, and it says so in the shape AnnouncedAbsence
+// reads; most of the fleet's config repos land here, and infra does not —
+// its tf-runner image is a Dockerfile like any other.
+//
+// THE TOOL'S OWN EXIT CODE IS THE VERDICT, 0/1 straight through StateFor: 0
+// when nothing reached the threshold (info and style findings are printed and
+// do not fail), 1 for a finding at warning or above — and 1 too for a
+// Dockerfile that does not PARSE, which hadolint reports as a finding on the
+// line, which is right: an unparseable Dockerfile is a finding about the
+// repository. Anything else is a could-not-run. The whole population goes in
+// one argv behind `--`: Dockerfiles number in the ones per repository, not
+// the thousands, so this is rule 4 with no xargs.
+//
+// INLINE PRAGMAS ARE HONOURED. `# hadolint ignore=DL3003` beside a reason is
+// the fleet's sanctioned shape for a line the rule gets wrong, as `noqa` is
+// under stop-justifications; --disable-ignore-pragma is deliberately not
+// passed.
+func fleetHadolint(ctx context.Context, r *run) checks.Verdict {
+	a := checks.AtomByID("fleet:hadolint")
+
+	files, err := r.population(ctx)
+	if err != nil {
+		return cannotEnumerate(a, err)
+	}
+	dockerfiles := checks.DockerfilePopulation(files)
+	if len(dockerfiles) == 0 {
+		return checks.VerdictOf(a, 0, "fleet:hadolint: ABSENT - this repository tracks no Dockerfile or Containerfile, so it ships no image for hadolint to read")
+	}
+
+	ctr, err := r.hadolintClient(ctx)
+	if err != nil {
+		return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - %v. A Dockerfile that was never linted is not a Dockerfile that passed.", a.ID, err))
+	}
+
+	args := append([]string{"hadolint", "--no-color", "--config", checks.HadolintConfigPath, "--"}, dockerfiles...)
+	return verdict(ctx, a, ctr.WithExec(args, anyExit))
 }

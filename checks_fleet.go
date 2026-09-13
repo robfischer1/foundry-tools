@@ -85,3 +85,13 @@ func (f *Fleet) SastRulesetLanes(ctx context.Context) (string, error) {
 func (f *Fleet) OpengrepSast(ctx context.Context) (string, error) {
 	return check(ctx, f.Source, "fleet:opengrep-sast")
 }
+
+// Every Dockerfile in the tree passes hadolint under the fleet's ruleset: the
+// repository's own .hadolint.yaml is not read, inline `# hadolint ignore=`
+// pragmas beside a reason are honoured, and a tree with no Dockerfile is
+// ABSENT rather than a pass.
+//
+// +check
+func (f *Fleet) Hadolint(ctx context.Context) (string, error) {
+	return check(ctx, f.Source, "fleet:hadolint")
+}
