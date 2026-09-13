@@ -51,15 +51,9 @@ const HadolintConfigPath = "/etc/hadolint/fleet.yaml"
 // HadolintConfig is THE FLEET'S RULESET, and no atom reads the repository's.
 // Rob, 2026-09-11: a repo has no say in anything that runs; the fleet decides
 // the atoms AND their rulesets. Every line below is hadolint's own default
-// except three decisions, each measured against every Dockerfile the fleet
+// except two decisions, each measured against every Dockerfile the fleet
 // tracks (47 files: 39 image stars' root Dockerfiles, the six bases, infra's
 // tf-runner, fleet-crew's exec image — 2026-09-13):
-//
-//   - failure-threshold: warning. An error or a warning is a finding; info
-//     and style are reported and do not fail. hadolint's own default is info,
-//     which would make DL3066 ("non-numeric user-id", 12 stars — the template
-//     pours `USER app`) and DL3059 ("consecutive RUNs") gate reds over
-//     advice. They stay visible in the tool's output; they do not block.
 //
 //   - DL3008 ignored — `apt-get install foo` without `=version`. The fleet
 //     does not pin distro packages by version: it pins the base image by
@@ -88,7 +82,17 @@ const HadolintConfigPath = "/etc/hadolint/fleet.yaml"
 //     which hadolint cannot resolve through the ARG even when its default is
 //     a trusted host — that line carries a reasoned pragma.
 //
-// RETURNED TO THE DEFAULT. DL3064 ("potentially sensitive data in ARG or
+// RETURNED TO THE DEFAULT. The failure threshold was warning while DL3066
+// ("non-numeric user-id": 12 stars, the template poured `USER app`) and
+// DL3059 ("consecutive RUNs") were advice the fleet had not yet taken. The
+// 2026-09-13 sweep pinned every USER to the numeric identity its running
+// image already had, merged the consecutive RUNs, and cleared the last info
+// findings (foundry-stocks#155's masked cp, calliope's untyped wasm spike),
+// so hadolint's own default is the threshold again: an info finding is a
+// red. It is written out rather than left implicit, so a change to
+// hadolint's default cannot move the fleet's.
+//
+// DL3064 ("potentially sensitive data in ARG or
 // ENV") was demoted to info while its only population was Go module
 // coordinates: the heuristic is a variable-NAME substring match, and
 // `GOPRIVATE` contains PRIVATE (26 of 26 Go stars measured). The sweep of
@@ -115,7 +119,7 @@ const HadolintConfigPath = "/etc/hadolint/fleet.yaml"
 const HadolintConfig = `# The fleet's hadolint ruleset. Written by foundry-tools into the lane
 # container; the repository's own .hadolint.yaml is not read. The reasons
 # for every line are in internal/checks/hadolintlane.go.
-failure-threshold: warning
+failure-threshold: info
 ignored:
   - DL3008
 trustedRegistries:
