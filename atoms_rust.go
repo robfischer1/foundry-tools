@@ -100,9 +100,16 @@ func rustCargoClippy(ctx context.Context, r *run) checks.Verdict {
 // does not compile is the committer's to fix, and the old body said so; what
 // it named is the first rustc diagnostic (checks.FirstCargoError), because the
 // rest of the output is that error's fallout.
+//
+// THE SUITE RUNS IN A TREE GIT CAN READ. A test may probe the repository it
+// runs in, and cerberus's porosity probe does (`rev-parse --is-inside-work-tree`
+// on its own crate directory). From a linked worktree, /src keeps a `.git` FILE
+// whose gitdir is a host path that does not exist in here, so that probe read
+// "not a repository" and the pre-push refused a suite the door's whole clone
+// passes. gitReady is the fix the mutation atom already carries.
 func rustCargoTest(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("rust:cargo-test")
-	lane := r.cargoDeps()
+	lane := r.gitReady(ctx, r.cargoDeps())
 
 	listed, code, err := output(ctx, lane.WithExec(
 		[]string{"cargo", "test", "--workspace", "--", "--list"}, anyExit))

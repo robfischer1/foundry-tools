@@ -158,6 +158,42 @@ func TestRustCargoTestListsTheSuiteBeforeItRunsIt(t *testing.T) {
 	wantState(t, runAtom(t, "rust:cargo-test", ""), 2)
 }
 
+// A linked worktree's `.git` is a FILE whose gitdir does not exist in here. A
+// test that probes the repository it runs in (cerberus's porosity probe) read
+// "not a repository" from the pre-push while the door's whole clone passed. The
+// suite runs in gitReady's snapshot: the /src swap, then the throwaway
+// repository, then cargo test.
+func TestRustCargoTestRunsInATreeGitCanRead(t *testing.T) {
+	engine.reset()
+	engine.withTree(fleetTree(map[string]string{".git": "gitdir: /x/.git/worktrees/y\n"}, ".git/HEAD"))
+	engine.stdout(`"--list"`, "a::b: test\n")
+
+	wantState(t, runAtom(t, "rust:cargo-test", ""), 0)
+
+	run := engine.chain(`args:["cargo","test","--workspace"]`, "exitCode")
+	wantCalls(t, run,
+		[]string{"withExec", `args:["git","init","-q","."]`},
+		[]string{"withExec", `args:["git","add","-A"]`},
+		[]string{"withExec", `expect:ANY`, `args:["cargo","test","--workspace"]`},
+	)
+	swap := lastCall(run, "withMountedDirectory", `path:"/src"`)
+	gitInit := strings.Index(run, `"git","init"`)
+	suite := strings.Index(run, `"cargo","test","--workspace"]`)
+	if swap < 0 || gitInit < 0 || suite < 0 || swap > gitInit || gitInit > suite {
+		t.Errorf("the /src swap, the snapshot and the suite must run in that order (swap %d, init %d, suite %d):\n%s",
+			swap, gitInit, suite, run)
+	}
+
+	// A primary checkout's `.git` is a directory: nothing is rebuilt.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.stdout(`"--list"`, "a::b: test\n")
+	wantState(t, runAtom(t, "rust:cargo-test", ""), 0)
+	if hasCall(engine.chain(`args:["cargo","test","--workspace"]`, "exitCode"), "withExec", `"git","init"`) {
+		t.Errorf("a primary checkout needs no throwaway repository")
+	}
+}
+
 func TestRustCargoTestReadsTheListingsOwnAnswers(t *testing.T) {
 	// A listing that would not BUILD is a finding naming the first rustc
 	// diagnostic — not a could-not-run, and not the whole 400-line fallout.
