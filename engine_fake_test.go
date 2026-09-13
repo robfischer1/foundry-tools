@@ -234,6 +234,30 @@ func (f field) arg(name string) (string, bool) {
 
 // dirOf answers the directory a chain is standing in: the last directory(path)
 // step, or the root.
+// gitMount is where an atom mounts the repository a git field names —
+// runtime.go's withDies and withStocks — so a test can place that checkout in
+// the tree under the same path the atoms read it at.
+func gitMount(git field) string {
+	url, _ := git.arg("url")
+	switch {
+	case strings.Contains(url, "foundry-dies"):
+		return "/dies"
+	case strings.Contains(url, "foundry-stocks"):
+		return "/stocks"
+	}
+	return ""
+}
+
+// hasDir answers whether the tree holds anything under dir.
+func (e *fakeEngine) hasDir(dir string) bool {
+	for k := range e.tree {
+		if strings.HasPrefix(k, dir+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 func dirOf(fields []field) string {
 	dir := ""
 	for _, f := range fields {
@@ -381,7 +405,28 @@ func (e *fakeEngine) answer(q string) (data any, errMsg string) {
 	case "contents":
 		if fields[0].name == "git" {
 			// foundry-stocks / foundry-dies: every script and ruleset the atoms
-			// read at its one home is present, and says so.
+			// read at its one home is present, and says so — UNLESS the test
+			// placed a checkout of that repository in the tree under its mount
+			// path (/dies/…, /stocks/…), in which case the checkout is what is
+			// read, and a path it lacks is absent. That is how a test hands an
+			// atom a star's RECORD (fleet/stars/<star>/slag.json) and how it
+			// models a star the dies do not know.
+			if mount := gitMount(fields[0]); mount != "" && e.hasDir(mount) {
+				fp := ""
+				for _, f := range fields {
+					if f.name == "file" {
+						if p, ok := f.arg("path"); ok {
+							fp = path.Join(mount, p)
+						}
+					}
+				}
+				c, ok := e.tree[fp]
+				if !ok {
+					return nil, fmt.Sprintf("no such file or directory: %s", fp)
+				}
+				val = c
+				break
+			}
 			val = "# the paper engine's copy\n"
 			break
 		}

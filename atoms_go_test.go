@@ -145,6 +145,105 @@ func TestGoTestRaceCountsTestFilesBeforeRunning(t *testing.T) {
 	wantState(t, runAtom(t, "go:test-race", ""), 2, "engine went away")
 }
 
+// THE RECORD SAYS POSTGRES, THE TREE SAYS WHICH TAGS, THE LANE BRINGS THE
+// DATABASE (checks/testdb.go). Before this the DB-gated suites never compiled
+// and every DB-touching line read NOT COVERED (foundry-tools#8608).
+func TestGoTestRaceBringsTheRecordsPostgres(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{
+		".copier-answers.yml":           "service_name: x\n",
+		"/dies/fleet/stars/x/slag.json": `{"backends":{"postgres":{"cnpg_cluster":"x-db","database":"x","owner":"x"}}}`,
+	})
+	engine.stdout(`"go","list"`, "11\n")
+	engine.stdout(`"grep","-rhoE"`, "//go:build live_db\n//go:build live_db_novector\n//go:build integration\n")
+
+	wantState(t, runAtom(t, "go:test-race", ""), 0,
+		"live_db → TEST_DATABASE_URL", "live_db_novector → TEST_NOVECTOR_DATABASE_URL", "uncompiled", "integration")
+	c := engine.chain(`"go","test","-race"`, "exitCode")
+	wantCalls(t, c,
+		[]string{"withServiceBinding", `alias:"db"`},
+		[]string{"withServiceBinding", `alias:"db-novector"`},
+		[]string{"withEnvVariable", `name:"TEST_DATABASE_URL"`, `value:"` + checks.TestDBs[0].DSN() + `"`},
+		[]string{"withEnvVariable", `name:"TEST_NOVECTOR_DATABASE_URL"`, `value:"` + checks.TestDBs[1].DSN() + `"`},
+		// The vocabulary's two tags, in its order, and one database at a time.
+		[]string{"withExec", `expect:ANY`, `args:["go","test","-race","-tags","live_db,live_db_novector","-p","1","./..."]`},
+	)
+	// The servers are the pinned images, run as services on their port.
+	for _, img := range []string{checks.ImagePgvector, checks.ImagePostgres} {
+		if engine.chain(img, "asService") == "" {
+			t.Errorf("no service chain runs %s:\n%v", img, engine.chains())
+		}
+	}
+	if !hasCall(engine.chain(checks.ImagePgvector, "asService"), "withExposedPort", "5432") {
+		t.Errorf("the pgvector service must expose 5432:\n%v", engine.chains())
+	}
+	// The tag enumeration is one grep, in the lane, off the tree — not a
+	// judgement: the exec runs under ANY because "no match" is exit 1.
+	if !hasCall(engine.chain(`"grep","-rhoE"`, "exitCode"), "withExec", "expect:ANY", `--include=*_test.go`) {
+		t.Errorf("the build-tag read must tolerate grep's exit 1:\n%v", engine.chains())
+	}
+
+	// NO BACKEND IN THE RECORD: nothing is bound, the tags stay uncompiled,
+	// and the scope line says why.
+	engine.withTree(map[string]string{"/dies/fleet/stars/x/slag.json": `{"backends":{}}`})
+	wantState(t, runAtom(t, "go:test-race", ""), 0, "test databases: none", "no postgres backend")
+	c = engine.chain(`"go","test","-race"`, "exitCode")
+	if hasCall(c, "withServiceBinding") || !hasCall(c, "withExec", `args:["go","test","-race","./..."]`) {
+		t.Errorf("a record without postgres binds nothing and compiles no tag:\n%s", c)
+	}
+
+	// A BACKEND BUT NO TAGGED SUITE: nothing to bind, said.
+	engine.withTree(map[string]string{"/dies/fleet/stars/x/slag.json": `{"backends":{"postgres":{}}}`})
+	engine.stdout(`"grep","-rhoE"`, "")
+	engine.exitCode(`"grep","-rhoE"`, 1)
+	wantState(t, runAtom(t, "go:test-race", ""), 0, "test databases: none", "no test file sits behind a tag")
+
+	// NO RECORD AT ALL — a star the dies do not know — is none, not an error.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{
+		".copier-answers.yml":           "service_name: nobody\n",
+		"/dies/fleet/stars/x/slag.json": `{"backends":{"postgres":{}}}`, // someone else's
+	})
+	engine.stdout(`"go","list"`, "11\n")
+	wantState(t, runAtom(t, "go:test-race", ""), 0, "no record at fleet/stars/nobody")
+}
+
+func TestGoMutationCompilesTheRecordsDBTags(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{
+		".copier-answers.yml":           "service_name: x\n",
+		"/dies/fleet/stars/x/slag.json": `{"backends":{"postgres":{}}}`,
+		"/tmp/mutation/verdict":         "0\n",
+		"/tmp/mutation/reason":          "every mutant killed",
+	})
+	engine.stdout(`"grep","-rhoE"`, "//go:build live_db\n")
+	// A pass keeps no output (checks.VerdictOf); the scope line is set on
+	// the verdict and survives it.
+	wantState(t, runAtom(t, "go:mutation", "abc123"), 0, "live_db → TEST_DATABASE_URL")
+	c := engine.chain(`go.sh","score"`, "exitCode")
+	wantCalls(t, c,
+		[]string{"withServiceBinding", `alias:"db"`},
+		[]string{"withEnvVariable", `name:"TEST_DATABASE_URL"`},
+		[]string{"withEnvVariable", `name:"MUT_BUILD_TAGS"`, `value:"live_db"`},
+	)
+	if hasCall(c, "withServiceBinding", `alias:"db-novector"`) {
+		t.Errorf("only the tags the tree carries are bound:\n%s", c)
+	}
+
+	// NO BACKEND, NO MUT_BUILD_TAGS AT ALL — not an empty one. go.sh reads
+	// the variable's presence: an empty -tags word is still `-tags ""` and
+	// `-p 1` on a suite that shares no database.
+	engine.withTree(map[string]string{"/dies/fleet/stars/x/slag.json": `{"backends":{}}`})
+	wantState(t, runAtom(t, "go:mutation", "abc123"), 0, "test databases: none")
+	c = engine.chain(`go.sh","score"`, "exitCode")
+	if hasCall(c, "withEnvVariable", `name:"MUT_BUILD_TAGS"`) || hasCall(c, "withServiceBinding") {
+		t.Errorf("a record without postgres sets no tags and binds nothing:\n%s", c)
+	}
+}
+
 func TestGoStaticcheckAndGovulncheckUseTheBakedBinaries(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)

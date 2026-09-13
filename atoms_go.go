@@ -59,6 +59,12 @@ func goVet(ctx context.Context, r *run) checks.Verdict {
 // without the mount they resolved nothing and SKIPPED, which `go test` prints
 // as ok (#2453, #8118). A repo with no such test reads FOUNDRY_DIES and does
 // nothing with it.
+//
+// AND THE RECORD'S DATABASE RIDES ALONG. A star whose slag record declares
+// backends.postgres gets the fleet's test servers bound beside the lane and
+// its DB-gated suites compiled (withTestDatabases); `-p 1` with them, because
+// every package shares the one database and the suites reset its schema per
+// test (chaos's own README says so of its lane).
 func goTestRace(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("go:test-race")
 	mods := r.withDies(r.goModules())
@@ -78,7 +84,69 @@ func goTestRace(ctx context.Context, r *run) checks.Verdict {
 	if !checks.GoHasTestFiles(counts) {
 		return checks.VerdictOf(a, 1, "go:test-race: FINDINGS - no test file in any package; nothing is built without tests")
 	}
-	return verdict(ctx, a, mods.WithExec([]string{"go", "test", "-race", "./..."}, anyExit))
+	mods, dbs, scope := r.withTestDatabases(ctx, mods)
+	args := []string{"go", "test", "-race"}
+	if len(dbs) > 0 {
+		args = append(args, "-tags", checks.BuildTags(dbs), "-p", "1")
+	}
+	args = append(args, "./...")
+	v := verdict(ctx, a, mods.WithExec(args, anyExit))
+	v.Reason = scope + "\n" + v.Reason
+	return v
+}
+
+// withTestDatabases binds the fleet's test servers to a lane container for
+// the DB-gated suites the tree carries, when the star's RECORD says it has a
+// Postgres — checks/testdb.go carries the reasoning and the vocabulary. It
+// answers the container (bound or untouched), the databases bound, and the
+// scope line the atom prints either way.
+//
+// Three reads decide it, none of them a knob: the star's name off the
+// answers file (rule 3, in Go off the tree), its record off the mounted
+// dies, and the tree's single-tag `//go:build` lines off one recursive grep
+// in the lane — an enumeration, not a judgement; the judgement is
+// checks.TestDBsFor. A missing name, a missing record or a record without
+// the backend all answer "none", said in the scope line with the reason.
+//
+// THE SERVICE IS THE ENGINE'S, NOT A SCRIPT'S. Dagger starts a bound service
+// just in time, health-checks its exposed port before the client runs, and
+// stops it when nothing needs it — the fixture the retired star.toml
+// provisioned through the Docker Engine API, without the socket.
+func (r *run) withTestDatabases(ctx context.Context, ctr *dagger.Container) (*dagger.Container, []checks.TestDB, string) {
+	answers, _ := r.src.File(".copier-answers.yml").Contents(ctx)
+	star := checks.ServiceName(answers)
+	if star == "" {
+		return ctr, nil, checks.TestDBScope(nil, nil, "no service_name in .copier-answers.yml, so no record to read")
+	}
+	slag, err := r.dies.File("fleet/stars/" + star + "/slag.json").Contents(ctx)
+	if err != nil {
+		return ctr, nil, checks.TestDBScope(nil, nil, "no record at fleet/stars/"+star+"/slag.json")
+	}
+	if !checks.PostgresBackend(slag) {
+		return ctr, nil, checks.TestDBScope(nil, nil, "the record declares no postgres backend")
+	}
+	// grep exits 1 for no match, which is an answer; 2 and up is grep failing.
+	out, code, err := output(ctx, ctr.WithExec([]string{
+		"grep", "-rhoE", `^//go:build [A-Za-z0-9_]+$`, "--include=*_test.go", ".",
+	}, anyExit))
+	if err != nil || code > 1 {
+		return ctr, nil, checks.TestDBScope(nil, nil, "the tree's build tags could not be read")
+	}
+	tags := checks.GoBuildTags(out)
+	dbs := checks.TestDBsFor(tags)
+	if len(dbs) == 0 {
+		return ctr, nil, checks.TestDBScope(nil, nil, "the record declares postgres but no test file sits behind a tag the fleet names")
+	}
+	for _, d := range dbs {
+		svc := dag.Container().From(d.Image).
+			WithEnvVariable("POSTGRES_USER", checks.TestDBRole).
+			WithEnvVariable("POSTGRES_PASSWORD", checks.TestDBRole).
+			WithEnvVariable("POSTGRES_DB", checks.TestDBName).
+			WithExposedPort(5432).
+			AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true})
+		ctr = ctr.WithServiceBinding(d.Alias, svc).WithEnvVariable(d.Env, d.DSN())
+	}
+	return ctr, dbs, checks.TestDBScope(dbs, checks.UncompiledTags(tags, dbs), "")
 }
 
 // Every Go file is gofmt-clean.
@@ -279,6 +347,15 @@ func goMutation(ctx context.Context, r *run) checks.Verdict {
 		WithEnvVariable("MUT_MODE", "diff").
 		WithEnvVariable("MUT_BASE", r.base).
 		WithEnvVariable("MUT_EXCLUDE", goMutationExclude)
+	// THE RECORD'S DATABASE, as go:test-race brings it: the DB-gated suites
+	// are compiled for gremlins' coverage run (go.sh's MUT_BUILD_TAGS, which
+	// also serialises the run on one database) and the servers are bound.
+	// Without this every DB-touching line read NOT COVERED by construction
+	// (foundry-tools#8608).
+	ctr, dbs, scope := r.withTestDatabases(ctx, ctr)
+	if len(dbs) > 0 {
+		ctr = ctr.WithEnvVariable("MUT_BUILD_TAGS", checks.BuildTags(dbs))
+	}
 
 	for _, phase := range []string{"resolve", "setup", "cover", "mutate", "teardown", "score"} {
 		ctr = ctr.WithExec([]string{"bash", "/stocks/" + goMutationScript, phase}, anyExit)
@@ -299,9 +376,16 @@ func goMutation(ctx context.Context, r *run) checks.Verdict {
 	reasonText, _ := ctr.File(mutationDir + "/reason").Contents(ctx)
 	state, reason, err := checks.MutationVerdict(verdictText, reasonText)
 	if err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+err.Error())
+		v := checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+err.Error())
+		v.Reason = scope + "\n" + v.Reason
+		return v
 	}
-	return checks.VerdictOf(a, state, a.ID+": "+reason)
+	// The scope line is set on the verdict, not folded into the output: a
+	// pass keeps no output (checks.VerdictOf), and the line is printed
+	// either way.
+	v := checks.VerdictOf(a, state, a.ID+": "+reason)
+	v.Reason = scope + "\n" + v.Reason
+	return v
 }
 
 const (
