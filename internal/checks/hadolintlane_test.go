@@ -97,12 +97,12 @@ func TestVendoredDockerfilesLeaveWithTheGatePopulation(t *testing.T) {
 	}
 }
 
-// THE FLEET'S RULESET, DECISION BY DECISION. Each row is one of the four
+// THE FLEET'S RULESET, DECISION BY DECISION. Each row is one of the three
 // measured departures from hadolint's defaults, and a change to any of them
 // is a change to what every pull in the fleet is graded by — so each is held
 // here by name, with the config parsed the coarse way (line by line) rather
 // than through a YAML dependency this module does not carry.
-func TestHadolintConfigCarriesTheFleetsFourDecisions(t *testing.T) {
+func TestHadolintConfigCarriesTheFleetsThreeDecisions(t *testing.T) {
 	lines := map[string]bool{}
 	for _, l := range strings.Split(HadolintConfig, "\n") {
 		lines[strings.TrimSpace(l)] = true
@@ -110,7 +110,6 @@ func TestHadolintConfigCarriesTheFleetsFourDecisions(t *testing.T) {
 	for _, want := range []string{
 		"failure-threshold: warning", // info/style are notes, not reds
 		"- DL3008",                   // apt pins: the digest pins the output
-		"- DL3064",                   // GOPRIVATE contains PRIVATE
 		"- docker.notusmi.com",       // the mirror
 		"- registry.notusmi.com",     // the forge's own images
 	} {
@@ -118,22 +117,14 @@ func TestHadolintConfigCarriesTheFleetsFourDecisions(t *testing.T) {
 			t.Errorf("the fleet ruleset lacks %q:\n%s", want, HadolintConfig)
 		}
 	}
-	// DL3064 is DEMOTED, not ignored: it sits under override.info, and a
-	// refactor that moved it into `ignored:` would silence the note.
-	ignoredBlock := between(HadolintConfig, "ignored:", "override:")
-	if strings.Contains(ignoredBlock, "DL3064") {
-		t.Errorf("DL3064 is demoted to info, never ignored; found it under ignored:\n%s", ignoredBlock)
-	}
-	infoBlock := between(HadolintConfig, "info:", "trustedRegistries:")
-	if !strings.Contains(infoBlock, "DL3064") {
-		t.Errorf("DL3064 must sit under override.info:\n%s", HadolintConfig)
-	}
 	// What is deliberately NOT relaxed. DL3025 (JSON notation) and DL3026
 	// (untrusted registry) are the two rules with something to say about the
 	// fleet today, and neither may be ignored or demoted by this file. DL3018
 	// (unpinned apk) left the ignore list when its only population, infra's
-	// tf-runner, retired; it may not quietly return.
-	for _, keep := range []string{"DL3018", "DL3025", "DL3026", "DL4006", "DL3002", "DL3003"} {
+	// tf-runner, retired; it may not quietly return. Nor may DL3064 (a
+	// secret-looking ARG/ENV name): it left override.info once no Go star
+	// spelled its module hosts as GOPRIVATE.
+	for _, keep := range []string{"DL3018", "DL3064", "DL3025", "DL3026", "DL4006", "DL3002", "DL3003"} {
 		if strings.Contains(HadolintConfig, keep) {
 			t.Errorf("%s is a rule the fleet keeps at its own severity; it must not appear in the ruleset", keep)
 		}
