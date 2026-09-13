@@ -114,6 +114,43 @@ func atomTable() []AtomDef {
 			Desc: "Every Dockerfile in the tree passes hadolint under the fleet's ruleset.",
 		},
 
+		// ---- ops: the trees the cluster and the hosts converge to ----
+		// Ported off Tekton's ci-ops-pipeline (retired 2026-09-09); the body is
+		// foundry-stocks ci/lib/ops/ops.sh at the pin, one phase per atom.
+		// Every one is ABSENT on a repo with no ops shape (checks.IsOpsTree).
+		{
+			ID: "ops:shell", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet, NeedsStocks: true,
+			Desc: "Every tracked shell script passes shellcheck at the ops body's gating profile (error); the warning-profile count is reported, not gated.",
+		},
+		{
+			ID: "ops:chezmoi", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet, NeedsStocks: true,
+			Desc: "Every tracked chezmoi *.tmpl renders with `chezmoi execute-template` — the one check a dotfiles source tree has.",
+		},
+		{
+			ID: "ops:yaml", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet, NeedsStocks: true,
+			Desc: "No duplicate keys anywhere under flux/, ansible/ or compose/ — the defect a YAML loader resolves last-wins and never reports.",
+		},
+		{
+			ID: "ops:dup", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet, NeedsStocks: true,
+			Desc: "The repo's own tools/dup-check (infra) finds no blocking duplicate; ABSENT where the tree has no such tool.",
+		},
+		{
+			ID: "ops:declaration", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet, NeedsStocks: true,
+			Desc: "The repo's own tools/declaration-integrity (infra) holds: every declared host file has its payload and every payload is declared.",
+		},
+		{
+			ID: "ops:specs", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet, NeedsStocks: true,
+			Desc: "The repo's own tools/console-specs (infra): the console ConfigMap's read-model specs follow the stacks' emits, or it names which drifted.",
+		},
+		{
+			ID: "ops:ansible", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet, NeedsStocks: true,
+			Desc: "Every playbook under ansible/playbooks passes ansible-playbook --syntax-check and ansible-lint at profile min; the basic-profile count is reported, not gated.",
+		},
+		{
+			ID: "ops:flux", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet, NeedsStocks: true,
+			Desc: "Every Flux Kustomization under flux/ builds with kubectl kustomize — a duplicate resource id, a missing base or a bad patch is a finding before flux meets it.",
+		},
+
 		// ---- go ----
 		{
 			ID: "go:gofmt", Stage: StagePrecommit, Lane: LaneGo, Image: ImageGo,
