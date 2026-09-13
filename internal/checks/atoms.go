@@ -109,6 +109,10 @@ func atomTable() []AtomDef {
 			ID: "fleet:opengrep-sast", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
 			Desc: "SAST scan that refuses a zero-file scan.",
 		},
+		{
+			ID: "fleet:hadolint", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "Every Dockerfile in the tree passes hadolint under the fleet's ruleset.",
+		},
 
 		// ---- go ----
 		{

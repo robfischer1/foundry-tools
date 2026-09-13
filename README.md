@@ -55,7 +55,7 @@ dagger call -m git.notusmi.com/rob/foundry-tools@<sha> --source=. verdicts --sta
 ## The atoms
 
 **`fleet:`** — every repository, whatever it is written in.
-`check-yaml` · `check-added-large-files` · `check-merge-conflict` · `detect-secrets` · `stop-justifications` (pre-commit) · `sast-ruleset-lanes` · `opengrep-sast` (pre-push)
+`check-yaml` · `check-added-large-files` · `check-merge-conflict` · `detect-secrets` · `stop-justifications` · `hadolint` (pre-commit) · `sast-ruleset-lanes` · `orbit-drift` · `opengrep-sast` · `witness` (pre-push)
 
 **`go:`** (`go.mod`) — `gofmt` · `vet` · `build` (pre-commit) · `test-race` · `staticcheck` · `govulncheck` (pre-push)
 
@@ -68,6 +68,10 @@ dagger call -m git.notusmi.com/rob/foundry-tools@<sha> --source=. verdicts --sta
 **`compose:`** (a tracked `compose.ya?ml`) — `config` · `no-tracked-secrets` · `third-party-pins` (pre-commit)
 
 **`dies:`** (`policy/.manifest` **and** `fleet/stars/`) — `opa-test` · `admission-dogfood` · `data-keys` · `canary-visibility` · `contracts` · `schema` (pre-push)
+
+### The rulesets are the fleet's
+
+No atom reads a configuration the repository authored — not `pyproject.toml`'s `[tool.ruff]`, not `staticcheck.conf`, not `.pre-commit-config.yaml`, and not `.hadolint.yaml`. `fleet:hadolint` is the worked example: hadolint reads `.hadolint.yaml` from the working directory by default, so the atom writes the fleet's ruleset (`checks.HadolintConfig`) to `/etc/hadolint/fleet.yaml` inside the lane container and names it with `--config`, which *replaces* that lookup rather than merging with it (measured). The ruleset is hadolint's own defaults plus four measured decisions — threshold at warning, distro package pins (DL3008/DL3018) ignored because the digest pins the output, DL3064 demoted to info because `GOPRIVATE` contains `PRIVATE`, and `trustedRegistries` set to the mirror and the forge so a `FROM docker.io/…` is the finding images.go says it is. Every reason is beside its line in `internal/checks/hadolintlane.go`. A repository's own `.hadolint.yaml` serves its local pre-commit hook and nothing else; inline `# hadolint ignore=` pragmas beside a reason are honoured, as `noqa` is under `stop-justifications`.
 
 ### Two namespaces that are neither a lane nor a clock
 

@@ -574,6 +574,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Fleet).DetectSecrets(&parent, ctx)
+		case "Hadolint":
+			var parent Fleet
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Fleet).Hadolint(&parent, ctx)
 		case "OpengrepSast":
 			var parent Fleet
 			err = json.Unmarshal(parentJSON, &parent)

@@ -330,7 +330,7 @@ func TestEveryAnnouncedAbsenceCarriesItsOwnAtomID(t *testing.T) {
 func TestNoAtomReadsARepoAuthoredConfigSurface(t *testing.T) {
 	src := parseLaneFiles(t)
 	for _, s := range src.allLiterals() {
-		for _, forbidden := range []string{".pre-commit-config.yaml", "hookmeta", "hookpopulation", "staticcheck.conf"} {
+		for _, forbidden := range []string{".pre-commit-config.yaml", "hookmeta", "hookpopulation", "staticcheck.conf", ".hadolint.yaml"} {
 			if strings.Contains(s, forbidden) {
 				t.Errorf("a lane file names %q in %q — a repo-authored surface deciding what the gate does", forbidden, s)
 			}
