@@ -92,6 +92,11 @@ func LanesOf(entries []string) []Lane {
 var SurfaceNamespaces = map[string]string{
 	"compose": "a tracked compose.yaml/compose.yml — the host-stacks repos",
 	"dies":    "policy/.manifest and fleet/stars/ together — the policy die's source",
+	// ops: the trees the cluster and the hosts converge to (2026-09-13,
+	// Tekton's ci-ops-pipeline ported): flux/, ansible/ playbooks, a chezmoi
+	// source, a compose spec, a rego policy, or one of infra's own tools —
+	// IsOpsTree, the shape ops.sh gated and never a star.
+	"ops": "an ops tree — flux/, ansible/playbooks, a chezmoi source, a compose spec, a rego policy or an infra tool (IsOpsTree)",
 }
 
 // IsSurfaceNamespace reports whether an atom id sits in a declared surface

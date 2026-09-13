@@ -403,6 +403,13 @@ func (e *fakeEngine) answer(q string) (data any, errMsg string) {
 		gitless := strings.Contains(q, "filter(")
 		val = e.glob(dirOf(fields), p, gitless)
 	case "contents":
+		// A scripted answer first: a test may hand an atom the file a body
+		// wrote inside the container (an rc file, a reason) without placing it
+		// in the repository's tree.
+		if v, ok := scripted("contents"); ok {
+			val = v
+			break
+		}
 		if fields[0].name == "git" {
 			// foundry-stocks / foundry-dies: every script and ruleset the atoms
 			// read at its one home is present, and says so — UNLESS the test
