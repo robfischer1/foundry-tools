@@ -132,9 +132,17 @@ var criticalModulesLine = regexp.MustCompile(`^critical_modules:[[:space:]]*`)
 // `s/['"]$//`). A value that is quoted on one side only loses that one quote,
 // because that is what sed did.
 func CriticalModules(yaml string) string {
+	return answersValue(yaml, criticalModulesLine)
+}
+
+// answersValue is the shell's read of one .copier-answers.yml key, shared by
+// every answer the lane reads (CriticalModules, ServiceName): the FIRST line
+// whose start matches key, the value with its leading whitespace stripped,
+// and one leading and one trailing quote character removed.
+func answersValue(yaml string, key *regexp.Regexp) string {
 	for _, line := range strings.Split(yaml, "\n") {
 		line = strings.TrimRight(line, "\r")
-		loc := criticalModulesLine.FindStringIndex(line)
+		loc := key.FindStringIndex(line)
 		if loc == nil {
 			continue
 		}

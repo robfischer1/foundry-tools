@@ -63,6 +63,14 @@ const (
 	// (`./node_modules/.bin/stryker` under node, never `bunx --bun` — ts.sh
 	// says why). The bun image ships no node.
 	ImageNode = "docker.notusmi.com/library/node:24-bookworm-slim@sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553"
+
+	// THE TEST DATABASES a Go star's DB-gated suites run against (testdb.go):
+	// pgvector's own image for `live_db`, and library/postgres at the same
+	// major — no extension installed — for `live_db_novector`. Bound as
+	// Dagger services beside the lane container, never pulled by a script.
+	// Digests resolved 2026-09-13 through docker.notusmi.com.
+	ImagePgvector = "docker.notusmi.com/pgvector/pgvector:pg18@sha256:1d50c689b0a6511b9ea0a15615281c81a59fd04a08eb35057ec8646fb3a2118a"
+	ImagePostgres = "docker.notusmi.com/library/postgres:18-bookworm@sha256:a10c981235b4f635e65df0cfb66a5598064628128505dbc6a3ed4ca303717521"
 )
 
 // The tools the lanes install, pinned. Binaries come through Nexus's
@@ -96,6 +104,7 @@ var LaneImages = []string{
 	ImageGo, ImagePython, ImageRust, ImageTS, ImageFleet,
 	ImageUV, ImageNode,
 	ImageKubeconform, ImageKubeLinter,
+	ImagePgvector, ImagePostgres,
 }
 
 // The go command's coordinates inside a lane container.
