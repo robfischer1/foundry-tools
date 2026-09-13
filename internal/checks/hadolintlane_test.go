@@ -97,21 +97,21 @@ func TestVendoredDockerfilesLeaveWithTheGatePopulation(t *testing.T) {
 	}
 }
 
-// THE FLEET'S RULESET, DECISION BY DECISION. Each row is one of the three
+// THE FLEET'S RULESET, DECISION BY DECISION. Each row is one of the two
 // measured departures from hadolint's defaults, and a change to any of them
 // is a change to what every pull in the fleet is graded by — so each is held
 // here by name, with the config parsed the coarse way (line by line) rather
 // than through a YAML dependency this module does not carry.
-func TestHadolintConfigCarriesTheFleetsThreeDecisions(t *testing.T) {
+func TestHadolintConfigCarriesTheFleetsTwoDecisions(t *testing.T) {
 	lines := map[string]bool{}
 	for _, l := range strings.Split(HadolintConfig, "\n") {
 		lines[strings.TrimSpace(l)] = true
 	}
 	for _, want := range []string{
-		"failure-threshold: warning", // info/style are notes, not reds
-		"- DL3008",                   // apt pins: the digest pins the output
-		"- docker.notusmi.com",       // the mirror
-		"- registry.notusmi.com",     // the forge's own images
+		"failure-threshold: info", // hadolint's own default, written out
+		"- DL3008",                // apt pins: the digest pins the output
+		"- docker.notusmi.com",    // the mirror
+		"- registry.notusmi.com",  // the forge's own images
 	} {
 		if !lines[want] {
 			t.Errorf("the fleet ruleset lacks %q:\n%s", want, HadolintConfig)

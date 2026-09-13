@@ -961,7 +961,7 @@ func TestFleetHadolintProvisionsThePinAndPointsItAtTheFleetRuleset(t *testing.T)
 		[]string{"withMountedDirectory", `path:"/src"`},
 		[]string{"withWorkdir", `path:"/src"`},
 		[]string{"withFile", `path:"/usr/local/bin/hadolint"`, `permissions:493`},
-		[]string{"withNewFile", `path:"` + checks.HadolintConfigPath + `"`, `failure-threshold: warning`, `trustedRegistries:`},
+		[]string{"withNewFile", `path:"` + checks.HadolintConfigPath + `"`, `failure-threshold: info`, `trustedRegistries:`},
 		[]string{"withExec", `args:["hadolint","--version"]`},
 		[]string{"withExec", `expect:ANY`, `args:["hadolint","--no-color","--config","` + checks.HadolintConfigPath + `","--","Dockerfile"]`},
 	)
