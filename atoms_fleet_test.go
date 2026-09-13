@@ -424,7 +424,9 @@ func TestFleetDetectSecretsRebuildsALinkedWorktreesRepository(t *testing.T) {
 	// is what this pins; wantCalls above only pins presence.
 	// Two /src mounts sit in the chain — the source as bound, then the swap
 	// without .git — so it is the LAST one that must precede the first git.
-	swap := strings.LastIndex(c, `withMountedDirectory(path:"/src"`)
+	// Found by its arguments, not by one spelling of the call: the
+	// querybuilder orders a call's arguments as it pleases (lastCall).
+	swap := lastCall(c, "withMountedDirectory", `path:"/src"`)
 	global := strings.Index(c, `"safe.directory"`)
 	if swap < 0 || global < 0 || swap > global {
 		t.Errorf("the /src mount without .git must be established before the first git exec (swap at %d, safe.directory at %d):\n%s", swap, global, c)

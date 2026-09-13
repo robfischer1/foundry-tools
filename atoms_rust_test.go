@@ -333,8 +333,8 @@ func TestRustMutationRunsItsThreePhasesFromTheFetchedLayer(t *testing.T) {
 		[]string{"withoutMount", `path:"/cache/cargo-target"`},
 		[]string{"withEnvVariable", `name:"MUT_JOBS"`, `value:"2"`},
 	)
-	fetch := strings.Index(c, `args:["cargo","fetch"]`)
-	drop := strings.Index(c, `withoutEnvVariable(name:"CARGO_TARGET_DIR")`)
+	fetch := lastCall(c, "withExec", `args:["cargo","fetch"]`)
+	drop := lastCall(c, "withoutEnvVariable", `name:"CARGO_TARGET_DIR"`)
 	if fetch < 0 || drop < 0 || drop < fetch {
 		t.Errorf("the target dir must be dropped after the fetch layer, not before it:\n%s", c)
 	}

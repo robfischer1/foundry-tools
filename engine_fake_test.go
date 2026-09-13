@@ -553,6 +553,38 @@ func hasCall(chain, name string, needles ...string) bool {
 	}
 }
 
+// lastCall answers the offset of the LAST call to name whose arguments carry
+// every needle, or -1 — hasCall's search, for the tests that pin ORDER between
+// calls. The same argument-order rule applies: `withMountedDirectory(path:"/src"`
+// is one of two spellings the querybuilder emits for one call, and a LastIndex
+// on that spelling read -1 on foundry-tools main 2d881a5, where the chain was
+// spelled `withMountedDirectory(source:…, path:"/src")` — a red tip on a test
+// that pins nothing about arguments.
+func lastCall(chain, name string, needles ...string) int {
+	last := -1
+	for i := 0; ; {
+		k := strings.Index(chain[i:], name+"(")
+		if k < 0 {
+			return last
+		}
+		start := i + k
+		argStart := start + len(name)
+		end := argStart + matching(chain[argStart:], '(', ')')
+		args := chain[argStart : end+1]
+		ok := true
+		for _, n := range needles {
+			if !strings.Contains(args, n) {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			last = start
+		}
+		i = end + 1
+	}
+}
+
 // wantCalls fails the test for every call the chain lacks; each want is a
 // call name followed by needles that must all sit inside its arguments.
 func wantCalls(t *testing.T, chain string, wants ...[]string) {
