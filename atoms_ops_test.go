@@ -56,8 +56,14 @@ func TestOpsShellRunsTheBodyFromTheStocks(t *testing.T) {
 		t.Errorf("ops:shell must run in the fleet lane image:\n%s", c)
 	}
 	wantCalls(t, c,
+		// The tracked tree, not the directory as mounted: a developer's
+		// linked worktrees and scratch never reach dup-check or shellcheck.
 		[]string{"withMountedDirectory", `path:"/src"`},
 		[]string{"withMountedDirectory", `path:"/stocks"`},
+		// A fresh index over the tracked tree, so `git ls-files` answers the
+		// same set on a clone and on a linked worktree.
+		[]string{"withExec", `args:["git","init","-q","."]`},
+		[]string{"withExec", `args:["git","add","-A"]`},
 		[]string{"withEnvVariable", `name:"OPS_DIR"`, `value:"/tmp/ops"`},
 		[]string{"withEnvVariable", `name:"OPS_LIB"`, `value:"/stocks/ci/lib/ops"`},
 		[]string{"withEnvVariable", `name:"OPS_UV_INDEX"`},
@@ -66,6 +72,12 @@ func TestOpsShellRunsTheBodyFromTheStocks(t *testing.T) {
 		[]string{"withExec", `expect:ANY`, `args:["bash","/stocks/ci/lib/ops/ops.sh","detect"]`},
 		[]string{"withExec", `expect:ANY`, `args:["bash","/stocks/ci/lib/ops/ops.sh","shell"]`},
 	)
+	// The tree under /src is the gitignore-filtered one — its own query, the
+	// mount carries it by id — so a developer's linked worktrees and scratch
+	// never reach dup-check or shellcheck.
+	if engine.chain(`filter(`, `gitignore:true`, `exclude:[".git"]`, "id") == "" {
+		t.Errorf("ops:shell must mount the gitignore-filtered tree:\n%s", strings.Join(engine.chains(), "\n"))
+	}
 	if hasCall(c, "withExec", `"shellcheck","--version"`, `expect:ANY`) {
 		t.Errorf("the --version probe is provisioning and must run under the default Expect:\n%s", c)
 	}
