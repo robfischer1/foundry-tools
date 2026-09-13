@@ -322,6 +322,22 @@ func TestRustMutationRunsItsThreePhasesFromTheFetchedLayer(t *testing.T) {
 			t.Errorf("%s is provisioning and must run under the default Expect:\n%s", probe, c)
 		}
 	}
+	// THE COPIES BUILD IN THEIR OWN TARGET DIRECTORIES. cargo's artifact
+	// hash is workspace-relative, so cargo-mutants' parallel copies sharing
+	// the gate's /cache/cargo-target ran each other's test binaries and the
+	// gate ran theirs (foundry-tools#8869). The lane's variable and its mount
+	// are both removed AFTER the fetch layer, and the job count is the
+	// engine's two, not rust.sh's four.
+	wantCalls(t, c,
+		[]string{"withoutEnvVariable", `name:"CARGO_TARGET_DIR"`},
+		[]string{"withoutMount", `path:"/cache/cargo-target"`},
+		[]string{"withEnvVariable", `name:"MUT_JOBS"`, `value:"2"`},
+	)
+	fetch := strings.Index(c, `args:["cargo","fetch"]`)
+	drop := strings.Index(c, `withoutEnvVariable(name:"CARGO_TARGET_DIR")`)
+	if fetch < 0 || drop < 0 || drop < fetch {
+		t.Errorf("the target dir must be dropped after the fetch layer, not before it:\n%s", c)
+	}
 	for _, phase := range []string{"resolve", "mutate", "score"} {
 		if !hasCall(c, "withExec", "expect:ANY", `"/stocks/ci/lib/mutation/rust.sh","`+phase+`"`) {
 			t.Errorf("rust:mutation lacks phase %s under ANY:\n%s", phase, c)

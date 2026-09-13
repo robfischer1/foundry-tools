@@ -27,6 +27,13 @@ type CacheMount struct {
 	// every repo the gate grades — a module cache is content-addressed, a
 	// build cache is keyed on its inputs, and cargo's registry and target dir
 	// are keyed on package id, so sharing is safe and is the point.
+	//
+	// SAFE ACROSS REPOS, NOT ACROSS COPIES OF ONE REPO. cargo's package id
+	// is hashed relative to the workspace root, so the same crate checked
+	// out at two paths shares one artifact name and one dep-info in the
+	// target dir; the rust mutation atom, which builds cargo-mutants' copies,
+	// therefore drops this mount and its variable (atoms_rust.go,
+	// foundry-tools#8869). The gate's own atoms build one tree at one path.
 	Key string
 	// Seed copies the image's directory at Path into the volume on first
 	// creation. False where the image has nothing there (a target dir, a

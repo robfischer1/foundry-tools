@@ -141,14 +141,45 @@ func rustCargoAudit(ctx context.Context, r *run) checks.Verdict {
 
 // Every viable mutant cargo-mutants makes of this pull's changes to the
 // declared critical modules is killed by the tests.
+//
+// THE COPIES BUILD IN THEIR OWN TARGET DIRECTORIES, NOT THE GATE'S CACHE.
+// cargo-mutants copies the tree once per job and mutates each copy under
+// /tmp/mutation/tmp/cargo-mutants-src-*; with CARGO_TARGET_DIR exported by
+// the lane (checks.CachesFor) every copy AND the gate's cargo-test built into
+// one /cache/cargo-target. cargo's artifact hash is the package id RELATIVE
+// TO THE WORKSPACE ROOT, so two copies of one crate at two paths name the
+// same deps/<crate>-<hash> — measured 2026-09-13 with cargo 1.97.1: two
+// copies, one target dir, one artifact `oracle-3bf3bdcccbbc7eb8` — and the
+// dep-info that decides freshness lists the OTHER copy's absolute source
+// paths, so a copy whose own source changed still reads fresh and runs the
+// sibling's binary (the same oracle: a copy's f() changed, no Compiling
+// line, the sibling's test passed for it). That is foundry-tools#8869 as
+// seen across gavel #21, furnace #33, bellows #25/#26: `String + &str`
+// mutants reported VIABLE, a same-file unit test reported MISSED, the gate
+// red on NotFound with a mutants copy baked into CARGO_MANIFEST_DIR.
+//
+// WITHOUT THE VARIABLE cargo builds each copy under its own `target`, which
+// cargo-mutants creates per job ("one build directory per job"). Correct
+// and slower: the dependency graph compiles once per run instead of once
+// per volume; the registry volume still serves the sources. The mount goes
+// too, so nothing in this container can reach the gate's artifacts by
+// accident. MUT_JOBS is two, not rust.sh's four: two copies is two
+// concurrent cargo builds, and the engine's exec tree is bounded at 6G with
+// two steps in flight (infra#8830) — four copies at a rustc each is the
+// shape that gets a compile killed and the atom filed as could-not-run.
 func rustMutation(ctx context.Context, r *run) checks.Verdict {
 	return rustTSMutation(ctx, r, mutationSpec{
-		id:      "rust:mutation",
-		image:   checks.ImageRust,
-		prepare: func(r *run) *dagger.Container { return r.cargoDeps() },
-		script:  "ci/lib/mutation/rust.sh",
-		probes:  [][]string{{"bash", "--version"}, {"cargo", "mutants", "--version"}},
-		phases:  []string{"resolve", "mutate", "score"},
+		id:    "rust:mutation",
+		image: checks.ImageRust,
+		prepare: func(r *run) *dagger.Container {
+			return r.cargoDeps().
+				WithoutEnvVariable("CARGO_TARGET_DIR").
+				WithoutMount("/cache/cargo-target").
+				WithEnvVariable("MUT_JOBS", "2")
+		},
+		script: "ci/lib/mutation/rust.sh",
+		probes: [][]string{{"bash", "--version"}, {"cargo", "mutants", "--version"}},
+		phases: []string{"resolve", "mutate", "score"},
 	})
 }
 
