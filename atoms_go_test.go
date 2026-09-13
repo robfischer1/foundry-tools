@@ -232,6 +232,16 @@ func TestGoMutationCompilesTheRecordsDBTags(t *testing.T) {
 	if hasCall(c, "withServiceBinding", `alias:"db-novector"`) {
 		t.Errorf("only the tags the tree carries are bound:\n%s", c)
 	}
+
+	// NO BACKEND, NO MUT_BUILD_TAGS AT ALL — not an empty one. go.sh reads
+	// the variable's presence: an empty -tags word is still `-tags ""` and
+	// `-p 1` on a suite that shares no database.
+	engine.withTree(map[string]string{"/dies/fleet/stars/x/slag.json": `{"backends":{}}`})
+	wantState(t, runAtom(t, "go:mutation", "abc123"), 0, "test databases: none")
+	c = engine.chain(`go.sh","score"`, "exitCode")
+	if hasCall(c, "withEnvVariable", `name:"MUT_BUILD_TAGS"`) || hasCall(c, "withServiceBinding") {
+		t.Errorf("a record without postgres sets no tags and binds nothing:\n%s", c)
+	}
 }
 
 func TestGoStaticcheckAndGovulncheckUseTheBakedBinaries(t *testing.T) {
