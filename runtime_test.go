@@ -246,7 +246,7 @@ func TestLanesProvisionTheirToolsPinnedAndInVolatilityOrder(t *testing.T) {
 	engine.withTree(everyLaneTree)
 	runAtom(t, "ts:bun-audit", "")
 	c = engine.chain(`"bun","audit"`, "exitCode")
-	order(t, c, `from(address:"`+checks.ImageTS+`")`, `withUser(name:"root")`, `"apt-get","install"`, `path:"/usr/local/bin/node"`,
+	order(t, c, `from(address:"`+checks.ImageTS+`")`, `withUser(name:"root")`, `"apt-get","install"`, `"procps"`, `path:"/usr/local/bin/node"`,
 		`path:"/usr/local/bin/opengrep"`, `withMountedCache`)
 	fetched(t, `from(address:"`+checks.ImageNode+`")`)
 	noShell(t, c)
