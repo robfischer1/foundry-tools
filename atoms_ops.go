@@ -86,13 +86,39 @@ func opsAbsent(a checks.AtomDef) checks.Verdict {
 // command and the rc file is the answer they were written to give.
 const opsDir = "/tmp/ops"
 
-// opsContainer is the phase's container: the fleet lane image with the tree
-// and the stocks mounted, git ready for the script's `git ls-files` and `git
-// diff`, and the script's own environment. OPS_BASE is deliberately NOT set
-// (rule 8): the base only changes detect's printed file list, and keying the
-// atom on the pull would key its cache on the pull.
-func (r *run) opsContainer(ctx context.Context, image string) *dagger.Container {
-	return r.gitReady(ctx, r.withStocks(r.lane(image))).
+// opsContainer is the phase's container: the fleet lane image with the
+// TRACKED tree and the stocks mounted, a fresh index over it for the body's
+// `git ls-files`, and the script's own environment. OPS_BASE is deliberately
+// NOT set (rule 8): the base only changes detect's printed file list, and
+// keying the atom on the pull would key its cache on the pull.
+//
+// THE TREE IS THE GITIGNORE-FILTERED ONE, not the directory as mounted.
+// MEASURED 2026-09-13 on the first live run over infra from a developer's
+// checkout: ops:dup reported every fleet fact "duplicated in code, 13
+// occurrences" — thirteen being the number of linked worktrees under
+// .claude/worktrees/, each carrying its own modules/fleet, all inside the
+// mounted directory and none of them tracked (dup-check on a clean export
+// of the same main: 0 findings). The gate's Job clones clean and would never
+// see them; the pre-push hook on a session's machine sees exactly this. The
+// body walks the filesystem it is given (dup-check, declaration-integrity,
+// ansible-lint), so the filter has to be on the mount.
+//
+// AND THE INDEX IS BUILT HERE, NOT BY gitReady. gitReady re-mounts /src from
+// the unfiltered source whenever .git is a file (a linked worktree — the
+// developer case again), which would undo the filter; and on a real clone it
+// leaves the checkout's own .git in place, which the filter has excluded.
+// So the ops tree is always the same shape: the tracked files, no .git, and
+// a fresh `git init` + `git add -A` over them, which is what gitReady does
+// for a worktree and what makes `git ls-files` answer the tracked set on
+// either kind of checkout.
+func (r *run) opsContainer(image string) *dagger.Container {
+	tracked := r.src.Filter(dagger.DirectoryFilterOpts{Gitignore: true, Exclude: []string{".git"}})
+	return r.withStocks(r.lane(image)).
+		WithMountedDirectory("/src", tracked).
+		WithExec([]string{"git", "config", "--global", "--add", "safe.directory", "*"}).
+		WithExec([]string{"git", "init", "-q", "."}).
+		WithExec([]string{"git", "config", "--local", "ca.snapshot", "ops-tracked"}).
+		WithExec([]string{"git", "add", "-A"}).
 		WithEnvVariable("OPS_DIR", opsDir).
 		WithEnvVariable("OPS_LIB", "/stocks/ci/lib/ops").
 		WithEnvVariable("OPS_HEAD", "HEAD").
@@ -105,7 +131,7 @@ func (r *run) opsContainer(ctx context.Context, image string) *dagger.Container 
 // is a provisioning failure (2), never a finding.
 func opsRun(ctx context.Context, r *run, a checks.AtomDef, phase string,
 	prep func(*dagger.Container) (*dagger.Container, error)) checks.Verdict {
-	ctr := r.opsContainer(ctx, a.Image)
+	ctr := r.opsContainer(a.Image)
 	if prep != nil {
 		var err error
 		if ctr, err = prep(ctr); err != nil {
