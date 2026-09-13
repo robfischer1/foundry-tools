@@ -51,7 +51,7 @@ const HadolintConfigPath = "/etc/hadolint/fleet.yaml"
 // HadolintConfig is THE FLEET'S RULESET, and no atom reads the repository's.
 // Rob, 2026-09-11: a repo has no say in anything that runs; the fleet decides
 // the atoms AND their rulesets. Every line below is hadolint's own default
-// except four decisions, each measured against every Dockerfile the fleet
+// except three decisions, each measured against every Dockerfile the fleet
 // tracks (47 files: 39 image stars' root Dockerfiles, the six bases, infra's
 // tf-runner, fleet-crew's exec image — 2026-09-13):
 //
@@ -79,13 +79,6 @@ const HadolintConfigPath = "/etc/hadolint/fleet.yaml"
 //     (infra#490, 2026-09-13). It is hadolint's default again: an Alpine
 //     image that enters the fleet meets the rule.
 //
-//   - DL3064 demoted to info — "potentially sensitive data in ARG or ENV".
-//     The heuristic is a variable-NAME substring match, and `GOPRIVATE`
-//     contains PRIVATE: it fires on the Go module coordinates every Go star
-//     sets (26 of 26 measured), and on nothing else in the fleet. The fleet's
-//     secret scanner is fleet:detect-secrets, which reads every tracked file,
-//     Dockerfiles included, against a baseline. This stays a note, not a red.
-//
 //   - trustedRegistries: the fleet's two hosts. images.go states the
 //     invariant — "the host is the fleet's docker mirror (docker.notusmi.com),
 //     never docker.io directly" — and DL3026 is hadolint saying it about a
@@ -94,6 +87,18 @@ const HadolintConfigPath = "/etc/hadolint/fleet.yaml"
 //     and ONE false positive, `FROM ${PYTHON_BASE}` in python-base-image,
 //     which hadolint cannot resolve through the ARG even when its default is
 //     a trusted host — that line carries a reasoned pragma.
+//
+// RETURNED TO THE DEFAULT. DL3064 ("potentially sensitive data in ARG or
+// ENV") was demoted to info while its only population was Go module
+// coordinates: the heuristic is a variable-NAME substring match, and
+// `GOPRIVATE` contains PRIVATE (26 of 26 Go stars measured). The sweep of
+// 2026-09-13 spelled every one as GONOPROXY + GONOSUMDB with the same hosts
+// (`go env` identical before and after, star by star; in hephaestus and
+// tartarus it also closed a latent trap, since a GONOSUMDB set beside
+// GOPRIVATE replaces the default GOPRIVATE would give it). No Dockerfile on
+// main trips the rule now (75 measured), so a name that reads as a secret is
+// a warning again; fleet:detect-secrets still reads every tracked file for
+// the values themselves.
 //
 // WHAT IS DELIBERATELY NOT HERE. DL3025 (JSON notation for CMD, ENTRYPOINT
 // and HEALTHCHECK) stays a warning: eleven stars carry a template-poured
@@ -113,9 +118,6 @@ const HadolintConfig = `# The fleet's hadolint ruleset. Written by foundry-tools
 failure-threshold: warning
 ignored:
   - DL3008
-override:
-  info:
-    - DL3064
 trustedRegistries:
   - docker.notusmi.com
   - registry.notusmi.com
