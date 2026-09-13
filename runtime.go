@@ -174,11 +174,16 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 	case checks.ImageTS:
 		// bun:slim runs as the bun user and carries neither git nor node;
 		// ts.sh runs stryker under node. Root for the installs, then back.
+		// procps, for ps: Stryker tears its test-runner processes down with
+		// tree-kill, which spawns `ps -o pid --no-headers --ppid <pid>`. With no
+		// ps on PATH the spawn's unhandled ENOENT kills Stryker right after the
+		// dry run, so every ts:mutation run read CANNOT RUN with no report
+		// (theia #57, 2026-09-13).
 		node := dag.Container().From(checks.ImageNode)
 		return ctr.
 			WithUser("root").
 			WithExec([]string{"apt-get", "update"}).
-			WithExec([]string{"apt-get", "install", "-y", "--no-install-recommends", "git", "curl", "ca-certificates"}).
+			WithExec([]string{"apt-get", "install", "-y", "--no-install-recommends", "git", "curl", "ca-certificates", "procps"}).
 			WithExec([]string{"rm", "-rf", "/var/lib/apt/lists"}).
 			WithFile("/usr/local/bin/node", node.File("/usr/local/bin/node")).
 			WithFile("/usr/local/bin/opengrep", dag.HTTP(checks.OpengrepMirror), dagger.ContainerWithFileOpts{Permissions: 0o755}).
