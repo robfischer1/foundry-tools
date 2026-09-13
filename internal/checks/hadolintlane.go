@@ -61,13 +61,23 @@ const HadolintConfigPath = "/etc/hadolint/fleet.yaml"
 //     pours `USER app`) and DL3059 ("consecutive RUNs") gate reds over
 //     advice. They stay visible in the tool's output; they do not block.
 //
-//   - DL3008 and DL3018 ignored — `apt-get install foo` / `apk add foo`
-//     without `=version`. The fleet does not pin distro packages by version:
-//     it pins the base image by digest and the OUTPUT by digest, and a Debian
-//     or Alpine point release moves the only version the mirror serves, so a
-//     pinned `foo=1.2.3-1` is a build that breaks on the next sync for no
-//     reproducibility the digest pin does not already give. Measured: every
-//     one of the six bases and infra's tf-runner would be red on this alone.
+//   - DL3008 ignored — `apt-get install foo` without `=version`. The fleet
+//     does not pin distro packages by version: it pins the base image by
+//     digest and the OUTPUT by digest, and a Debian point release moves the
+//     only version the mirror serves, so a hand-pinned `foo=1.2.3-1` is a
+//     build that breaks on the next sync for no reproducibility the digest
+//     pin does not already give. A Renovate-managed pin is worse, not better:
+//     Renovate's deb datasource reads Packages.gz only, and Debian ships
+//     bookworm-security and bookworm-updates as .xz only (measured
+//     2026-09-13, at the mirror and at deb.debian.org). A managed pin could
+//     never see the security pocket — ca-certificates would sit on main's
+//     20230311 bundle while security carries 20250419. The unlock is
+//     upstream (xz in the deb datasource), not here.
+//
+//     DL3018 (`apk add foo` without `=version`) was ignored beside it until
+//     its only population, infra's host-support/tf-runner, retired
+//     (infra#490, 2026-09-13). It is hadolint's default again: an Alpine
+//     image that enters the fleet meets the rule.
 //
 //   - DL3064 demoted to info — "potentially sensitive data in ARG or ENV".
 //     The heuristic is a variable-NAME substring match, and `GOPRIVATE`
@@ -95,7 +105,7 @@ const HadolintConfigPath = "/etc/hadolint/fleet.yaml"
 // fleet's sanctioned shape for a line the rule gets wrong, exactly as `noqa`
 // is under stop-justifications.
 //
-// The seven repositories' own `.hadolint.yaml` files serve the LOCAL hook and
+// The repositories' own `.hadolint.yaml` mirrors serve the LOCAL hook and
 // nothing else: the gate never reads them.
 const HadolintConfig = `# The fleet's hadolint ruleset. Written by foundry-tools into the lane
 # container; the repository's own .hadolint.yaml is not read. The reasons
@@ -103,7 +113,6 @@ const HadolintConfig = `# The fleet's hadolint ruleset. Written by foundry-tools
 failure-threshold: warning
 ignored:
   - DL3008
-  - DL3018
 override:
   info:
     - DL3064

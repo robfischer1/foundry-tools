@@ -572,8 +572,8 @@ func (r *run) hadolintClient(ctx context.Context) (*dagger.Container, error) {
 //
 // NO DOCKERFILE IS ABSENT, not a pass. A repository that ships no image has
 // nothing for this atom to say, and it says so in the shape AnnouncedAbsence
-// reads; most of the fleet's config repos land here, and infra does not —
-// its tf-runner image is a Dockerfile like any other.
+// reads; most of the fleet's config repos land here, and since its tf-runner
+// image retired (infra#490, 2026-09-13) so does infra.
 //
 // THE TOOL'S OWN EXIT CODE IS THE VERDICT, 0/1 straight through StateFor: 0
 // when nothing reached the threshold (info and style findings are printed and

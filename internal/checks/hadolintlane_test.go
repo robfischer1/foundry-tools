@@ -110,7 +110,6 @@ func TestHadolintConfigCarriesTheFleetsFourDecisions(t *testing.T) {
 	for _, want := range []string{
 		"failure-threshold: warning", // info/style are notes, not reds
 		"- DL3008",                   // apt pins: the digest pins the output
-		"- DL3018",                   // apk pins: likewise
 		"- DL3064",                   // GOPRIVATE contains PRIVATE
 		"- docker.notusmi.com",       // the mirror
 		"- registry.notusmi.com",     // the forge's own images
@@ -131,8 +130,10 @@ func TestHadolintConfigCarriesTheFleetsFourDecisions(t *testing.T) {
 	}
 	// What is deliberately NOT relaxed. DL3025 (JSON notation) and DL3026
 	// (untrusted registry) are the two rules with something to say about the
-	// fleet today, and neither may be ignored or demoted by this file.
-	for _, keep := range []string{"DL3025", "DL3026", "DL4006", "DL3002", "DL3003"} {
+	// fleet today, and neither may be ignored or demoted by this file. DL3018
+	// (unpinned apk) left the ignore list when its only population, infra's
+	// tf-runner, retired; it may not quietly return.
+	for _, keep := range []string{"DL3018", "DL3025", "DL3026", "DL4006", "DL3002", "DL3003"} {
 		if strings.Contains(HadolintConfig, keep) {
 			t.Errorf("%s is a rule the fleet keeps at its own severity; it must not appear in the ruleset", keep)
 		}
