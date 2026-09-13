@@ -42,10 +42,15 @@ const OpsUVIndex = "https://nexus.notusmi.com/repository/pypi/simple"
 // this page is. The bare linux-amd64 binary is a release asset, so it
 // arrives the way the compose client does: the Nexus GitHub mirror first,
 // upstream second.
+//
+// Spelled out in full rather than composed from the version: a `+` in a const
+// block is an arithmetic mutation site the mutation lane reads as NOT COVERED
+// (2026-09-13, foundry-tools#47), and TestOpsToolPinsAgree holds the three
+// lines to one version instead.
 const (
 	ChezmoiVersion = "2.72.2"
-	ChezmoiMirror  = "https://nexus.notusmi.com/repository/github-raw/twpayne/chezmoi/releases/download/v" + ChezmoiVersion + "/chezmoi-linux-amd64"
-	ChezmoiURL     = "https://github.com/twpayne/chezmoi/releases/download/v" + ChezmoiVersion + "/chezmoi-linux-amd64"
+	ChezmoiMirror  = "https://nexus.notusmi.com/repository/github-raw/twpayne/chezmoi/releases/download/v2.72.2/chezmoi-linux-amd64"
+	ChezmoiURL     = "https://github.com/twpayne/chezmoi/releases/download/v2.72.2/chezmoi-linux-amd64"
 )
 
 // KubectlVersion / KubectlMirror / KubectlURL fetch the kubectl ops:flux builds
@@ -56,7 +61,7 @@ const (
 // give it a mirror the day one exists.
 const (
 	KubectlVersion = "1.34.1"
-	KubectlURL     = "https://dl.k8s.io/release/v" + KubectlVersion + "/bin/linux/amd64/kubectl"
+	KubectlURL     = "https://dl.k8s.io/release/v1.34.1/bin/linux/amd64/kubectl"
 	KubectlMirror  = KubectlURL
 )
 

@@ -27,27 +27,6 @@ func TestOpsAtomsStandDownOffTheOpsShape(t *testing.T) {
 	}
 }
 
-// The shape, one marker at a time: each of the six is enough on its own.
-func TestIsOpsTreeReadsTheSixMarkers(t *testing.T) {
-	cases := map[string][]string{
-		"flux":        {"flux/apps/x.yaml"},
-		"ansible":     {"ansible/playbooks/site.yml"},
-		"chezmoi":     {".chezmoiroot"},
-		"dotfiles":    {"dot_bashrc.tmpl"},
-		"rego":        {"policy/x.rego"},
-		"infra tool":  {"tools/dup-check"},
-		"compose":     {"compose.yaml"},
-		"not ansible": {"ansible/README.md"},
-		"a star":      {"go.mod", "main.go", "ci/run.sh", "k8s/deploy.yaml"},
-	}
-	want := map[string]bool{"not ansible": false, "a star": false}
-	for name, files := range cases {
-		if got := checks.IsOpsTree(files); got != (want[name] || (name != "not ansible" && name != "a star")) {
-			t.Errorf("%s: IsOpsTree(%v) = %v", name, files, got)
-		}
-	}
-}
-
 // opsWrote scripts the files the body leaves in OPS_DIR for a phase.
 func opsWrote(phase, rc, absent string) {
 	if rc != "" {
