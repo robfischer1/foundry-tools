@@ -156,6 +156,16 @@ func TestAFailedStepIsCouldNotRunOnlyOnANetworkFault(t *testing.T) {
 	if v, _ := Failed("publish", "unexpected media type application/x for "+digest+": not found"); v != CouldNotRun {
 		t.Fatal("a reaped blob read as findings")
 	}
+	// uv's wording, through reqwest, for an index it could not reach.
+	for _, out := range []string{
+		"error: Failed to publish `/dist/x-1.0.tar.gz`\n  Caused by: tcp connect error: Connection timed out (os error 110)",
+		"  Caused by: dns error: failed to lookup address information: Temporary failure in name resolution",
+		"  Caused by: operation timed out",
+	} {
+		if v, _ := Failed("uv publish", out); v != CouldNotRun {
+			t.Errorf("an unreachable index read as findings: %q", out)
+		}
+	}
 }
 
 // The refusals are the pinned tools' own words, captured 2026-09-14 from
