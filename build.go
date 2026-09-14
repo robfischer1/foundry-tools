@@ -409,6 +409,15 @@ func (l *buildLane) permit(ctx context.Context, star string) (int, string) {
 // hadesCaller is the container hadescall runs in: the binary built from this
 // module's own source, on the empty static base, with the socket the caller
 // forwarded.
+//
+// THE SOCKET IS OWNED BY THE EXEC'S USER. A forwarded socket appears in the
+// container as srw------- root:root, but the static base runs as nonroot
+// (65532), which cannot connect to it. go-spiffe retries the refused connect
+// silently until its deadline. That is how the first tip permit through here
+// failed: athena b66d46f, 2026-09-14, settled "no identity … within 2m0s"
+// twice. Measured in a ca-build pod on llm01, the same exec fetched ca-build
+// at once either as root or with the socket owned by 65532. F0's probe had
+// passed only because spire-agent ran as root in its own image.
 func hadesCaller(spire *dagger.Socket, hades, hadesID, stamp string) *dagger.Container {
 	bin := goToolchain().
 		WithMountedDirectory("/src", dag.CurrentModule().Source()).
@@ -417,7 +426,7 @@ func hadesCaller(spire *dagger.Socket, hades, hadesID, stamp string) *dagger.Con
 		File("/out/hadescall")
 	return dag.Container().From(checks.ImageStatic).
 		WithFile("/usr/local/bin/hadescall", bin).
-		WithUnixSocket("/run/spire/agent.sock", spire).
+		WithUnixSocket("/run/spire/agent.sock", spire, dagger.ContainerWithUnixSocketOpts{Owner: "65532:65532"}).
 		WithEnvVariable("HADESCALL_SOCKET", "unix:///run/spire/agent.sock").
 		WithEnvVariable("HADESCALL_HADES", hades).
 		WithEnvVariable("HADESCALL_HADES_ID", hadesID).

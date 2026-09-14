@@ -59,7 +59,7 @@ func TestACleanGateIsAttestedAsThePodAndSettlesClean(t *testing.T) {
 	engine.stdout(`"tartarus_attest_emit"`, "HTTP 200\n{\"ok\":true}")
 	runGate(t, m, "", true)
 	wantCalls(t, engine.chain(`"tartarus_attest_emit"`),
-		[]string{"withUnixSocket", `"/run/spire/agent.sock"`},
+		[]string{"withUnixSocket", `"/run/spire/agent.sock"`, `owner:"65532:65532"`},
 		[]string{"withEnvVariable", `"HADESCALL_SVID_FIELD"`, `"svid"`},
 		[]string{"withExec", `"/usr/local/bin/hadescall"`, `"tartarus_attest_emit"`, "module_pin", "foundry-tools@deadbeef", "ca-gate/ares:" + fakeTree},
 	)
