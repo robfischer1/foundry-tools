@@ -214,6 +214,27 @@ func Failed(step, output string) (int, string) {
 	return Findings, fmt.Sprintf("findings in %s — read its log above; running again changes nothing", step)
 }
 
+// refused is a CLI rejecting the arguments it was called with, in cobra's
+// wording, which cosign and syft share. The tool exits before it looks at
+// anything, so the fault is in the lane's call, not the image. The pattern is
+// anchored at the start of a line, allowing cosign's two prefixes, so that
+// BuildKit's "dockerfile parse error on line 2: unknown flag: --x", a finding
+// in the tree, never matches it.
+var refused = regexp.MustCompile(`(?m)^(?:Error: |error during command execution: )?(?:unknown (?:shorthand )?flag: |unknown command "|flag needs an argument: |(?:requires|accepts) .*arg\(s\)|required flag\(s\) ).*$`)
+
+// ToolFailed gives the verdict for a tool exec that failed with output. It is
+// could-not-run when the tool refused the lane's own arguments, and otherwise
+// whatever Failed says. Measured 2026-09-14 on athena a446514: cosign v2.5.3
+// answered the lane's sign with "Error: unknown flag: --use-signing-config",
+// and Failed filed that as findings in sign, a verdict about an image no tool
+// had looked at.
+func ToolFailed(step, output string) (int, string) {
+	if hit := refused.FindString(output); hit != "" {
+		return CouldNotRun, fmt.Sprintf("could not run: %s refused the lane's own arguments (%s) — the tool never looked; the lane's call is wrong, not the image", step, strings.TrimSpace(hit))
+	}
+	return Failed(step, output)
+}
+
 // ParseCall reads hadescall's output: "HTTP <status>" and then the body.
 func ParseCall(out string) (status int, body string, err error) {
 	head, body, _ := strings.Cut(out, "\n")

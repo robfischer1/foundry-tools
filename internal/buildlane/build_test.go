@@ -158,6 +158,38 @@ func TestAFailedStepIsCouldNotRunOnlyOnANetworkFault(t *testing.T) {
 	}
 }
 
+// The refusals are the pinned tools' own words, captured 2026-09-14 from
+// cosign v3.1.1 and syft v1.33.0.
+func TestAToolThatRefusesTheLanesArgumentsIsCouldNotRun(t *testing.T) {
+	for _, out := range []string{
+		"Error: unknown flag: --use-signing-config\nerror during command execution: unknown flag: --use-signing-config",
+		"Error: unknown shorthand flag: 'Z' in -Z",
+		"Error: requires at least 1 arg(s), only received 0",
+		"Error: flag needs an argument: --key",
+		"Error: unknown command \"bogus\" for \"cosign\"\nRun 'cosign --help' for usage.",
+		"unknown flag: --bogus-flag",
+		"WARNING: something first\nerror during command execution: unknown flag: --x",
+	} {
+		if v, r := ToolFailed("sign", out); v != CouldNotRun || !strings.Contains(r, "sign refused the lane's own arguments") {
+			t.Errorf("%q: %d %q", out, v, r)
+		}
+	}
+	if _, r := ToolFailed("sign", "Error: unknown flag: --use-signing-config\n"); !strings.Contains(r, "(Error: unknown flag: --use-signing-config)") {
+		t.Errorf("the refusal is not named: %q", r)
+	}
+	// The same words in the middle of a line belong to someone else: BuildKit
+	// refusing a Dockerfile's flag is a finding in the tree.
+	if v, _ := ToolFailed("sign", "ERROR: failed to build: failed to solve: dockerfile parse error on line 2: unknown flag: --bogus"); v != Findings {
+		t.Error("a Dockerfile's refused flag read as the lane's call")
+	}
+	if v, r := ToolFailed("sign", "Error: no signatures found"); v != Findings || !strings.Contains(r, "findings in sign") {
+		t.Errorf("a signature that does not verify: %d %q", v, r)
+	}
+	if v, r := ToolFailed("sign (SBOM)", "Error: GET https://registry: 503 Service Unavailable"); v != CouldNotRun || !strings.Contains(r, "network fault") {
+		t.Errorf("a network fault through a tool: %d %q", v, r)
+	}
+}
+
 func TestTheCallOutputIsReadOrRefused(t *testing.T) {
 	status, body, err := ParseCall("HTTP 403\n{\"detail\":\"no\"}")
 	if err != nil || status != 403 || body != `{"detail":"no"}` {

@@ -315,7 +315,7 @@ func (l *buildLane) sign(ctx context.Context, img *Image, ref, star string) (int
 		return buildlane.CouldNotRun, fmt.Sprintf("could not run: the signature check did not run: %v", err)
 	}
 	if code != 0 {
-		return buildlane.Failed("sign (verify)", out)
+		return buildlane.ToolFailed("sign (verify)", out)
 	}
 	say("DEPLOY_DIGEST=%s", ref)
 	return buildlane.Clean, ""
@@ -339,7 +339,7 @@ func orVerify(ctx context.Context, step string, act, check *dagger.Container) (i
 	if cerr == nil && ccode == 0 {
 		return buildlane.Clean, ""
 	}
-	return buildlane.Failed(step, out+"\n"+checked)
+	return buildlane.ToolFailed(step, out+"\n"+checked)
 }
 
 // sbom reads the published image's CycloneDX SBOM, folding in the builder
@@ -354,7 +354,7 @@ func (l *buildLane) sbom(ctx context.Context, img *Image, ref string) (string, i
 		return "", buildlane.CouldNotRun, fmt.Sprintf("could not run: syft did not run: %v", err)
 	}
 	if code != 0 {
-		c, why := buildlane.Failed("sign (SBOM)", image)
+		c, why := buildlane.ToolFailed("sign (SBOM)", image)
 		return "", c, why
 	}
 	dockerfile, _, err := fileIn(ctx, l.m.Source, "Dockerfile")
