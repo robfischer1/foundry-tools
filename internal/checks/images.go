@@ -71,6 +71,15 @@ const (
 	// Digests resolved 2026-09-13 through docker.notusmi.com.
 	ImagePgvector = "docker.notusmi.com/pgvector/pgvector:pg18@sha256:1d50c689b0a6511b9ea0a15615281c81a59fd04a08eb35057ec8646fb3a2118a"
 	ImagePostgres = "docker.notusmi.com/library/postgres:18-bookworm@sha256:a10c981235b4f635e65df0cfb66a5598064628128505dbc6a3ed4ca303717521"
+
+	// THE BUILD LANE'S TOOLS, run by their own entrypoints: cosign signs the
+	// published image and attests its SBOM, syft reads that SBOM, and the
+	// empty static base runs the lane's own two binaries (verdict, hadescall).
+	// cosign is ghcr's, through the mirror's ghcr path. Digests resolved
+	// 2026-09-14 through docker.notusmi.com.
+	ImageCosign = "docker.notusmi.com/sigstore/cosign/cosign:v2.5.3@sha256:f1946d0f30fc8e3777b02f2201e02efdba9fe38f4918162f937052fac98e083f"
+	ImageSyft   = "docker.notusmi.com/anchore/syft:v1.33.0@sha256:f94e5d9fce1f2278491a8e3a63bd5f6ddb81fdfdbb8bf7a1637565c1d5344357"
+	ImageStatic = "docker.notusmi.com/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab"
 )
 
 // The tools the lanes install, pinned. Binaries come through Nexus's
