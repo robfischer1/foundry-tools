@@ -273,8 +273,13 @@ func (l *buildLane) sign(ctx context.Context, img *Image, ref, star string) (int
 	}
 	cosign = cosign.WithNewFile("/run/cosign/key.pub", pub+"\n")
 
+	// NO --use-signing-config. ImageCosign is v2.5.3, whose sign and attest have
+	// no such flag (its `sign --help`, 2026-09-14). Passing it failed the first
+	// tip build under this lane at sign, "unknown flag", and the verify fallback
+	// then found no signature (athena a446514). v3 defaults the flag to true, so
+	// the bump past v2.5.3 is where it is decided.
 	if code, why := orVerify(ctx, "sign",
-		cosign.WithExec([]string{"sign", "--key", "/run/cosign/key", "--yes", "--tlog-upload=false", "--use-signing-config=false", ref}, entrypointAnyExit),
+		cosign.WithExec([]string{"sign", "--key", "/run/cosign/key", "--yes", "--tlog-upload=false", ref}, entrypointAnyExit),
 		cosign.WithExec([]string{"verify", "--key", "/run/cosign/key.pub", "--insecure-ignore-tlog=true", ref}, entrypointAnyExit),
 	); code != buildlane.Clean {
 		return code, why
@@ -287,7 +292,7 @@ func (l *buildLane) sign(ctx context.Context, img *Image, ref, star string) (int
 	}
 	attesting := cosign.WithNewFile("/in/sbom.cdx.json", sbom)
 	if code, why := orVerify(ctx, "sign (SBOM attestation)",
-		attesting.WithExec([]string{"attest", "--key", "/run/cosign/key", "--type", "cyclonedx", "--predicate", "/in/sbom.cdx.json", "--yes", "--tlog-upload=false", "--use-signing-config=false", ref}, entrypointAnyExit),
+		attesting.WithExec([]string{"attest", "--key", "/run/cosign/key", "--type", "cyclonedx", "--predicate", "/in/sbom.cdx.json", "--yes", "--tlog-upload=false", ref}, entrypointAnyExit),
 		attesting.WithExec([]string{"verify-attestation", "--key", "/run/cosign/key.pub", "--type", "cyclonedx", "--insecure-ignore-tlog=true", ref}, entrypointAnyExit),
 	); code != buildlane.Clean {
 		return code, why

@@ -219,6 +219,13 @@ func TestATipPublishesSignsAttestsAndIsPermitted(t *testing.T) {
 		[]string{"withNewFile", `"/in/sbom.cdx.json"`, "pkg:deb/runtime@1"},
 		[]string{"withExec", `"attest"`, `"cyclonedx"`, ref},
 	)
+	// The pinned cosign has no --use-signing-config: a sign or attest that
+	// passes it stops at "unknown flag" and never signs (athena a446514).
+	for _, chain := range []string{engine.chain(`"sign","--key"`), engine.chain(`"attest"`)} {
+		if strings.Contains(chain, "use-signing-config") {
+			t.Errorf("%s has no --use-signing-config, and a call that passes it never signs:\n%s", checks.ImageCosign, chain)
+		}
+	}
 	if engine.chain(`"verify","--key","/run/cosign/key.pub"`) == "" {
 		t.Error("the signature was never verified")
 	}
