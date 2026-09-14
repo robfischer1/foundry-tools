@@ -95,6 +95,12 @@ func (e *fakeEngine) stderr(match, out string) {
 	e.script(script{match: match, leaf: "stderr", value: out})
 }
 
+// label scripts an image label read off every chain whose query text contains
+// match — how a test hands the build lane a :stable's revision.
+func (e *fakeEngine) label(match, value string) {
+	e.script(script{match: match, leaf: "label", value: value})
+}
+
 // fail makes every query whose text contains match answer an engine error —
 // what a provisioning exec under the default Expect, an unpullable image or a
 // dead engine look like to the SDK.
@@ -450,6 +456,12 @@ func (e *fakeEngine) answer(q string) (data any, errMsg string) {
 			return nil, fmt.Sprintf("no such file or directory: %s", fp)
 		}
 		val = c
+	case "label":
+		// An image label: what the test scripted for this chain, or none.
+		val = ""
+		if v, ok := scripted("label"); ok {
+			val = v
+		}
 	case "size":
 		val = 1
 	case "plaintext":

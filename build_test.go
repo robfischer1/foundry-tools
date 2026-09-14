@@ -120,15 +120,123 @@ func TestATipBuildWithoutItsCredentialsIsCouldNotRun(t *testing.T) {
 	}
 }
 
-// A push that changed only inert paths builds nothing and settles clean.
-func TestAnInertOnlyPushStandsDownWithoutBuilding(t *testing.T) {
+// permittedSha is the commit a star's :stable was built from: what the permit
+// last delivered, and what a change set is taken since. Built, not written: a
+// forty-hex literal reads as a secret to detect-secrets.
+var permittedSha = strings.Repeat("fedcba98", 5)
+
+// A commit whose every change since the last permitted build is inert builds
+// nothing and settles clean: :stable already carries its source. The change
+// set runs from :stable's commit, never from the parent.
+func TestACommitInertSinceTheLastPermitStandsDownWithoutBuilding(t *testing.T) {
 	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	engine.label(":stable", permittedSha)
 	engine.stdout("--name-only", "README.md\ndocs/guide.md\n.claude/settings.json\n")
 	pull(t, m)
-	settledOn(t, "0", "stood down: inert-only push")
+	settledOn(t, "0", "stood down: every change since "+permittedSha[:12]+", the last permitted build (:stable), is inert")
+	wantCalls(t, engine.chain("--is-ancestor"), []string{"withExec", `"merge-base"`, `"--is-ancestor"`, `"` + permittedSha + `"`, `"HEAD"`})
+	wantCalls(t, engine.chain("--name-only"), []string{"withExec", `"diff"`, `"--name-only"`, `"` + permittedSha + `"`, `"HEAD"`})
 	if engine.chain("dockerBuild") != "" {
-		t.Fatal("an inert-only push was built")
+		t.Fatal("a commit inert since the last permit was built")
 	}
+	if engine.chain("HEAD^1") != "" {
+		t.Fatal("the lane took its change set from the parent")
+	}
+}
+
+// A commit inert against its parent still builds when the parent's build never
+// reached a permit, because the change set since :stable's commit carries the
+// source that build did not deliver. Measured on athena 2026-09-14: a446514
+// changed source and failed at sign; 570be49, quickstart.md alone on top of
+// it, diffed inert against its parent and stood down.
+func TestACommitInertAgainstAnUnpermittedParentStillBuilds(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	engine.label(":stable", permittedSha)
+	engine.stdout("--name-only", "cmd/ares/main.go\ndocs/quickstart.md\n")
+	pull(t, m)
+	settledOn(t, "0", "clean: built ares")
+	if engine.chain("dockerBuild") == "" {
+		t.Fatal("source the last permit never delivered was not built")
+	}
+}
+
+// With no permitted build to compare against the lane builds, and reads no
+// history: no :stable, a :stable that does not read, or one whose image names
+// no commit.
+func TestWithNoPermittedBuildToCompareAgainstTheLaneBuilds(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	// The needle is the address, not ":stable": a stood-down verdict's reason
+	// names :stable too, and would fail with it.
+	engine.fail(`rob/ares:stable"`, "failed to resolve source metadata for registry.notusmi.com/rob/ares:stable: not found")
+	engine.stdout("--name-only", "README.md\n")
+	pull(t, m)
+	settledOn(t, "0", "clean: built ares")
+	if engine.chain("--is-ancestor") != "" || engine.chain("--name-only") != "" {
+		t.Fatal("the lane read the history against a :stable it could not read")
+	}
+
+	for _, revision := range []string{"", "v1.4.0", permittedSha[:12]} {
+		m = buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+		engine.label(":stable", revision)
+		engine.stdout("--name-only", "README.md\n")
+		pull(t, m)
+		settledOn(t, "0", "clean: built ares")
+		if engine.chain("--is-ancestor") != "" {
+			t.Fatalf("the lane compared against a :stable whose revision is %q", revision)
+		}
+	}
+}
+
+// A permitted build outside this commit's history says nothing about its tree,
+// so the lane builds without diffing — git's "not an ancestor" (exit 1) and a
+// commit absent from the clone (exit 128) alike.
+func TestAPermitOutsideThisHistoryBuildsWithoutDiffing(t *testing.T) {
+	for _, exit := range []int{1, 128} {
+		m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+		engine.label(":stable", permittedSha)
+		engine.exitCode("--is-ancestor", exit)
+		engine.stdout("--name-only", "README.md\n")
+		pull(t, m)
+		settledOn(t, "0", "clean: built ares")
+		if engine.chain("--name-only") != "" {
+			t.Fatalf("git exit %d: the lane diffed against a permit outside this history", exit)
+		}
+	}
+}
+
+// A history or change set the engine cannot read is neither a reason to build
+// nor one to stand down.
+func TestAHistoryOrChangeSetThatCannotBeReadIsCouldNotRun(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	engine.label(":stable", permittedSha)
+	engine.fail("--is-ancestor", "the engine went away")
+	pull(t, m)
+	settledOn(t, "2", "the history could not be read")
+
+	m = buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	engine.label(":stable", permittedSha)
+	engine.exitCode("--name-only", 128)
+	pull(t, m)
+	settledOn(t, "2", "the change set could not be read")
+	if engine.chain("dockerBuild") != "" {
+		t.Fatal("a commit whose change set could not be read was built")
+	}
+}
+
+// The permit's output is read where the image is pushed: the compose file's
+// declared image on the lane's registry, not the star's name.
+func TestThePermittedRevisionIsReadWhereTheImageIsPushed(t *testing.T) {
+	m := buildOn(t, map[string]string{
+		"Dockerfile":   "FROM scratch\n",
+		"compose.yaml": "services:\n  web:\n    image: registry.notusmi.com/rob/ares-web:latest\n",
+	})
+	engine.label(":stable", permittedSha)
+	engine.stdout("--name-only", "README.md\n")
+	pull(t, m)
+	wantCalls(t, engine.chain("label("),
+		[]string{"from", `"registry.notusmi.com/rob/ares-web:stable"`},
+		[]string{"label", `"org.opencontainers.image.revision"`},
+	)
 }
 
 // A pull builds the image — its build args and labels — and publishes nothing.
@@ -154,6 +262,7 @@ func TestAWidePushNamesItsFirstEightChanges(t *testing.T) {
 	for _, f := range []string{"a", "b", "c", "d", "e", "f", "g", "h", "i"} {
 		files = append(files, "cmd/"+f+".go")
 	}
+	engine.label(":stable", permittedSha)
 	engine.stdout("--name-only", strings.Join(files, "\n"))
 	pull(t, m)
 	settledOn(t, "0", "clean: built ares")
@@ -177,17 +286,6 @@ func TestAnImageThatDoesNotBuildIsFindingsUnlessTheNetworkFailed(t *testing.T) {
 	engine.fail("dockerBuild", "failed to resolve source metadata for docker.notusmi.com/x: 503 Service Unavailable")
 	pull(t, m)
 	settledOn(t, "2", "network fault")
-}
-
-// A commit with no first parent has nothing to diff against, so it builds.
-func TestACommitWithNoFirstParentBuildsToBeSafe(t *testing.T) {
-	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
-	engine.exitCode("HEAD^1^{commit}", 1)
-	pull(t, m)
-	settledOn(t, "0", "clean: built ares")
-	if engine.chain("--name-only") != "" {
-		t.Fatal("the lane diffed against a parent that does not exist")
-	}
 }
 
 // A tip that goes through: published under the g-pin as the registry's
