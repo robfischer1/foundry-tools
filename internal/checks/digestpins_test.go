@@ -16,6 +16,10 @@ var canonicalPins = []string{
 	"ghcr.io/yannh/kubeconform:v0.7.0-alpine@sha256:8f0eeaaa96ba27ba1500b0e4b1c215acc358d159c62a7ecae58d7a03403287b0",
 	"docker.io/stackrox/kube-linter:v0.8.3-alpine@sha256:b8311611c27032d4922bc67719225e373e4a0ab0c767bbdcf5f20a9306b1a3bb",
 	"ghcr.io/astral-sh/uv@sha256:b1a409c4a80c24709cffc02ae458e45157f37ebdf3805749cc9064757c371170",
+	// The same two pins through the fleet mirror, the form images.go carries
+	// since 2026-09-14.
+	"docker.notusmi.com/yannh/kubeconform:v0.7.0-alpine@sha256:8f0eeaaa96ba27ba1500b0e4b1c215acc358d159c62a7ecae58d7a03403287b0",
+	"docker.notusmi.com/stackrox/kube-linter:v0.8.3-alpine@sha256:b8311611c27032d4922bc67719225e373e4a0ab0c767bbdcf5f20a9306b1a3bb",
 }
 
 // THE INVARIANT THE FIX RESTS ON. The surface probe decides whether a repo has
