@@ -77,7 +77,15 @@ const (
 	// empty static base runs the lane's own two binaries (verdict, hadescall).
 	// cosign is ghcr's, through the mirror's ghcr path. Digests resolved
 	// 2026-09-14 through docker.notusmi.com.
-	ImageCosign = "docker.notusmi.com/sigstore/cosign/cosign:v2.5.3@sha256:f1946d0f30fc8e3777b02f2201e02efdba9fe38f4918162f937052fac98e083f"
+	//
+	// COSIGN IS V3, THE FLEET'S (foundry-stocks versions.env COSIGN_VERSION).
+	// Constellation signatures are v3 bundles, which the registry serves only
+	// through the OCI referrers API, and build.go's argv is cosign 3's
+	// (--use-signing-config=false, copied from the phase script it replaced).
+	// v2.5.3 was pinned here first. It has no such flag, so every tip build
+	// failed at sign (athena a446514), and it would have written legacy
+	// .sig tags that nothing in the fleet reads. The digest is the index's.
+	ImageCosign = "docker.notusmi.com/sigstore/cosign/cosign:v3.1.1@sha256:6bbe0d281d955c79f85b325f0f7e651c1bcab5a4fa4ad4903d74955178a3b2eb"
 	ImageSyft   = "docker.notusmi.com/anchore/syft:v1.33.0@sha256:f94e5d9fce1f2278491a8e3a63bd5f6ddb81fdfdbb8bf7a1637565c1d5344357"
 	ImageStatic = "docker.notusmi.com/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab"
 )
