@@ -120,3 +120,43 @@ func TestTreeAnswersTheTreeHashOrRefuses(t *testing.T) {
 		t.Errorf("the engine's error is carried: %v", err)
 	}
 }
+
+// THE BASE RIDES IN WITH A FETCHED TREE, and only then. An atom that reads
+// GATE_BASE on an engine-fetched Source fetches the base from the same door
+// by sha before its tool runs; on the caller's own tree nothing is fetched,
+// because the clone that tree came from already reaches it.
+func TestWithBaseFetchesTheBaseOnlyForAFetchedTree(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	m := &FoundryTools{Source: dag.Directory(), Repo: "http://door:8215/infra.git"}
+	if _, err := m.Verdicts(context.Background(), "", "fleet:witness", fakeSha); err != nil {
+		t.Fatal(err)
+	}
+	c := engine.chain(`witness.py`)
+	if !strings.Contains(c, `args:["git","-c","safe.directory=*","-C","/src","fetch","--quiet","--no-tags","http://door:8215/infra.git","`+fakeSha+`"]`) {
+		t.Errorf("the witness chain on a fetched tree must fetch the base from the door: %s", c)
+	}
+	if strings.Index(c, `"fetch"`) > strings.Index(c, `witness.py`) {
+		t.Errorf("the fetch must precede the tool: %s", c)
+	}
+
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	m = &FoundryTools{Source: dag.Directory()}
+	if _, err := m.Verdicts(context.Background(), "", "fleet:witness", fakeSha); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(engine.chain(`witness.py`), `"fetch"`) {
+		t.Errorf("the caller's own tree already reaches the base; nothing must be fetched")
+	}
+
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	m = &FoundryTools{Source: dag.Directory(), Repo: "http://door:8215/infra.git"}
+	if _, err := m.Verdicts(context.Background(), "", "fleet:witness", ""); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(engine.chain(`witness.py`), `"fetch"`) {
+		t.Errorf("a tip has no base to fetch")
+	}
+}

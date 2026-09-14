@@ -348,7 +348,7 @@ func TestTheTSLaneIsAbsentWithoutAPackageJson(t *testing.T) {
 	for _, id := range []string{"ts:bun-gate-commit", "ts:bun-gate", "ts:bun-audit", "ts:mutation"} {
 		engine.reset()
 		engine.withTree(map[string]string{"Cargo.toml": "[package]\nname = \"x\"\n"})
-		v, err := verdictFor(t.Context(), newRun(dag.Directory(), ""), id)
+		v, err := verdictFor(t.Context(), newRun(dag.Directory(), "", ""), id)
 		if err != nil {
 			t.Fatal(err)
 		}

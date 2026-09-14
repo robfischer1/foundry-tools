@@ -574,7 +574,7 @@ func runAtom(t *testing.T, id string, base string) checks.Verdict {
 	if !ok {
 		t.Fatalf("%s has no runner", id)
 	}
-	return fn(context.Background(), newRun(dag.Directory(), base))
+	return fn(context.Background(), newRun(dag.Directory(), "", base))
 }
 
 // hasCall reports whether the chain carries a call to name whose argument

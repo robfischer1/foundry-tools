@@ -31,6 +31,13 @@ type FoundryTools struct {
 	// below takes a context and nothing more.
 	// +private
 	Source *dagger.Directory
+	// Repo is where Source was fetched FROM when New was given a repo and a
+	// sha, and "" when the caller handed over its own tree. The atoms that
+	// read the change set's base need it: a tree the engine fetched carries
+	// one ref's history, and the base the door names is a commit on ANOTHER
+	// branch (the pull's base at dispatch), which is not in it.
+	// +private
+	Repo string
 }
 
 // New binds the module to the caller's repository — the tree it is standing
@@ -81,7 +88,7 @@ func New(
 	// Depth -1 is "all of it" to the SDK (the zero value is dropped from
 	// the query and the engine's default is 1). Measured 2026-09-13 against
 	// the cluster engine: default 1 commit, -1 the whole 135.
-	return &FoundryTools{Source: dag.Git(repo).Ref(sha).Tree(dagger.GitRefTreeOpts{Depth: -1})}, nil
+	return &FoundryTools{Source: dag.Git(repo).Ref(sha).Tree(dagger.GitRefTreeOpts{Depth: -1}), Repo: repo}, nil
 }
 
 // Tree answers the git tree hash of the bound repository — the key the
@@ -91,7 +98,7 @@ func New(
 // it (a linked worktree's snapshot, which gitReady rebuilds without history)
 // is an error, not an empty string: nothing keyed on "" may be attested.
 func (m *FoundryTools) Tree(ctx context.Context) (string, error) {
-	r := newRun(m.Source, "")
+	r := newRun(m.Source, m.Repo, "")
 	out, code, err := output(ctx, r.gitReady(ctx, r.lane(checks.ImageFleet)).
 		WithExec([]string{"git", "rev-parse", "HEAD^{tree}"}, anyExit))
 	if err != nil {
@@ -225,7 +232,7 @@ func (m *FoundryTools) Verdicts(
 			return "", err
 		}
 	}
-	r := newRun(m.Source, base)
+	r := newRun(m.Source, m.Repo, base)
 	out := make([]checks.Verdict, len(selected))
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(atomsInFlight)
@@ -280,7 +287,7 @@ func verdictFor(ctx context.Context, r *run, id string) (checks.Verdict, error) 
 // check is what every `+check` function calls: one atom, one verdict, answered the
 // way `dagger check` reads it.
 func check(ctx context.Context, src *dagger.Directory, id string) (string, error) {
-	v, err := verdictFor(ctx, newRun(src, ""), id)
+	v, err := verdictFor(ctx, newRun(src, "", ""), id)
 	if err != nil {
 		return "", err
 	}
