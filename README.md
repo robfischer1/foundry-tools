@@ -40,7 +40,23 @@ dagger call catalogue            # the atom table as catalogue rows
 dagger call lanes                # which lanes this repository actually builds
 ```
 
-A gate resolves this module **at a pinned git ref through the door** — `git.notusmi.com` serves `go-import` without SSO; `forgejo.notusmi.com` sits behind the portal and a machine cannot log in. Hephaestus renders that pin into each repo's `dagger.json` (CA F4).
+A gate resolves this module **at a pinned git ref through the door** — `git.notusmi.com` serves `go-import` without SSO; `forgejo.notusmi.com` sits behind the portal and a machine cannot log in.
+
+**A repository declares this module as its toolchain** (2026-09-14). The four repo templates render a `dagger.json` — name, `engineVersion`, one unpinned entry under `toolchains` naming `git.notusmi.com/rob/foundry-tools` — and infra carries the same file by hand. Standing in such a repo, `dagger check` and `dagger call foundry-tools …` bind **that repo's** tree, which is the documented Dagger workflow and the end of the `--source=.` trap below. Unpinned on purpose: the door resolves this module at `main` for every dispatch (ourea #109), and an unpinned toolchain resolves the same way (measured 2026-09-13 against the cluster engine). A consumer's `dagger.json` declares no `sdk`; that key is how hephaestus's tree probe tells a consumer from a module.
+
+```sh
+dagger check                          # every atom, against the repo you are standing in
+dagger check foundry-tools:go:        # one namespace
+dagger call foundry-tools lanes       # a function, same binding
+```
+
+**The door's runner names the commit instead of a tree.** `New` also takes `--repo` (the door's clone URL) and `--sha`: the engine fetches the commit itself, with full history (`fleet:witness` and the mutation lane diff against the pull's base, which the engine also fetches by sha), caches it by commit, and `dagger call … tree` answers `HEAD^{tree}` so the runner still proves it is grading the tree the door named before it asks for a vector. `ca-gate` (infra `flux/apps/ca-gate.yaml`) is the one caller; a session never needs it.
+
+```sh
+dagger call -m git.notusmi.com/rob/foundry-tools@<sha> \
+  --repo=http://ourea.default.svc.cluster.local:8215/<repo>.git --sha=<commit> \
+  verdicts --base=<merge-base>
+```
 
 **A remotely-resolved module binds ITS OWN tree, not yours — name the source.** Measured 2026-09-08 against the in-cluster engine: standing in `infra` and running `dagger call -m git.notusmi.com/rob/foundry-tools@<sha> lanes` answers `go (go.mod)`. `infra` has no `go.mod`; foundry-tools does. `+defaultPath="/"` resolves against the module's context, and for a module fetched from git that context is the module's git tree. `dagger check -m <remote>` behaves the same way — `sweep:kube-linter` returned OK in 0.4s against a tree that yields 371 findings in nine seconds.
 
@@ -50,7 +66,7 @@ That failure is silent and it is green, which makes it the exact shape this repo
 dagger call -m git.notusmi.com/rob/foundry-tools@<sha> --source=. verdicts --stage=sweep
 ```
 
-`--source` is the constructor's parameter and the ONLY place a directory may be named — the charter is that nothing *below* `New` takes one, so no atom can be pointed somewhere else once the tree is bound. `ca-sweep` invokes exactly the line above, once per repo. Once F4 has rendered the pin into a repo's own `dagger.json`, `dagger check` from inside that repo binds the repo's workspace and the flag is unnecessary.
+`--source` is the constructor's parameter and the ONLY place a directory may be named — the charter is that nothing *below* `New` takes one, so no atom can be pointed somewhere else once the tree is bound. `ca-sweep` invokes exactly the line above, once per repo. A repo that carries the toolchain declaration above binds its own workspace from `dagger check` and needs neither flag.
 
 ## The atoms
 
