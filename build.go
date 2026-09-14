@@ -38,7 +38,8 @@ import (
 // Build builds the commit the module was constructed on and settles the
 // build lane. A pull builds the image and publishes nothing; a tip publishes
 // it under the g-pin, signs it, attests its SBOM and asks hades for the
-// permit. A push that changed only inert paths builds nothing.
+// permit. A commit whose every change since the last permitted build (:stable)
+// is inert builds nothing.
 func (m *FoundryTools) Build(
 	ctx context.Context,
 	// The default branch's tip: publish, sign, attest and permit. Without it
@@ -133,15 +134,6 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 	star := starOf(m.Repo)
 	say("%s for %s at %.12s", map[bool]string{true: "tip build", false: "pull-time build (publishes nothing)"}[l.tip], star, m.Sha)
 
-	needed, why, code := l.detect(ctx)
-	say("%s", why)
-	if code != buildlane.Clean {
-		return code, why
-	}
-	if !needed {
-		return buildlane.Clean, "stood down: " + why
-	}
-
 	compose := ""
 	for _, f := range buildlane.ComposeFiles {
 		body, ok, err := fileIn(ctx, m.Source, f)
@@ -154,6 +146,15 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 		}
 	}
 	pushRepo := buildlane.PushRepo(l.registry, buildlane.DeclaredImage(compose, star))
+
+	needed, why, code := l.detect(ctx, pushRepo)
+	say("%s", why)
+	if code != buildlane.Clean {
+		return code, why
+	}
+	if !needed {
+		return buildlane.Clean, "stood down: " + why
+	}
 
 	var args []string
 	if env, ok, err := fileIn(ctx, m.Source, ".forgejo/build-args.env"); err != nil {
@@ -191,29 +192,46 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 	return buildlane.Clean, fmt.Sprintf("clean: published and signed %s; %s", ref, why)
 }
 
-// detect answers whether this commit needs building: anything but an
-// inert-only change against its first parent does, and so does a commit with
-// no first parent to compare against.
-func (l *buildLane) detect(ctx context.Context) (needed bool, why string, code int) {
+// detect answers whether this commit needs building. The question is whether
+// :stable already carries its source, not whether this push changed any.
+// :stable is the permit's own output (hephaestus' mold stamps it), and the
+// image under it names the commit it was built from. So the change set is
+// taken since THAT commit: every change inert stands down, anything else
+// builds.
+//
+// THE PARENT WAS THE WRONG BEFORE-REF, measured 2026-09-14 on athena. a446514
+// changed source and failed at sign, so nothing was permitted; 570be49,
+// quickstart.md alone on top of it, diffed inert against its parent and stood
+// down, leaving main two landings ahead of :stable with no build coming until
+// someone changed source again. build.sh's detect had the same rule.
+//
+// Anything that leaves the permitted source unknown builds: no :stable, a
+// :stable whose image names no commit, a permitted commit outside this
+// history.
+func (l *buildLane) detect(ctx context.Context, pushRepo string) (needed bool, why string, code int) {
+	label, err := dag.Container().From(pushRepo+":stable").Label(ctx, "org.opencontainers.image.revision")
+	if err != nil {
+		return true, fmt.Sprintf("no permitted build to compare against: %s:stable did not read (%.200s) — building to be safe", pushRepo, err.Error()), buildlane.Clean
+	}
+	permitted := strings.TrimSpace(label)
+	if !buildlane.IsCommit(permitted) {
+		return true, fmt.Sprintf("no permitted build to compare against: %s:stable names no commit (revision %q) — building to be safe", pushRepo, permitted), buildlane.Clean
+	}
 	r := newRun(l.m.Source, l.m.Repo, "")
 	git := r.gitReady(ctx, r.lane(checks.ImageFleet))
-	_, parent, err := output(ctx, git.WithExec([]string{"git", "rev-parse", "-q", "--verify", "HEAD^1^{commit}"}, anyExit))
+	_, ancestry, err := output(ctx, git.WithExec([]string{"git", "merge-base", "--is-ancestor", permitted, "HEAD"}, anyExit))
 	if err != nil {
-		return false, fmt.Sprintf("could not run: the commit's parent could not be read: %v", err), buildlane.CouldNotRun
+		return false, fmt.Sprintf("could not run: the history could not be read: %v", err), buildlane.CouldNotRun
 	}
-	if parent != 0 {
-		return true, "no usable before-ref (HEAD has no first parent) — building to be safe", buildlane.Clean
+	if ancestry != 0 {
+		return true, fmt.Sprintf("the last permitted build %.12s is not in this commit's history (git exit %d) — building", permitted, ancestry), buildlane.Clean
 	}
-	changed, rc, err := output(ctx, git.WithExec([]string{"git", "diff", "--name-only", "HEAD^1", "HEAD"}, anyExit))
+	changed, rc, err := output(ctx, git.WithExec([]string{"git", "diff", "--name-only", permitted, "HEAD"}, anyExit))
 	if err != nil || rc != 0 {
 		return false, fmt.Sprintf("could not run: the change set could not be read (exit %d): %v %s", rc, err, changed), buildlane.CouldNotRun
 	}
-	nonInert := buildlane.NonInert(changed)
-	if len(nonInert) == 0 {
-		return false, "inert-only push — nothing built, published or permitted; the last published image is unchanged", buildlane.Clean
-	}
-	shown := nonInert[:min(len(nonInert), 8)]
-	return true, fmt.Sprintf("%d source or deploy change(s), building: %s", len(nonInert), strings.Join(shown, ", ")), buildlane.Clean
+	needed, why = buildlane.Standing(permitted, changed)
+	return needed, why, buildlane.Clean
 }
 
 // publish pushes the image under the g-pin and answers `<repo>@<digest>`.
