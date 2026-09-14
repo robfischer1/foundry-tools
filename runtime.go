@@ -53,15 +53,17 @@ var anyExit = dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny}
 // mounts them shares the fetch.
 type run struct {
 	src  *dagger.Directory
+	repo string
 	base string
 
 	stocks *dagger.Directory
 	dies   *dagger.Directory
 }
 
-func newRun(src *dagger.Directory, base string) *run {
+func newRun(src *dagger.Directory, repo, base string) *run {
 	return &run{
 		src:  src,
+		repo: repo,
 		base: base,
 		// The canonical scripts and rulesets, READ AT THEIR ONE HOME rather than
 		// vendored (checks.StocksRepo says why). Lazy: nothing is fetched until
@@ -213,7 +215,23 @@ func (r *run) withDies(ctr *dagger.Container) *dagger.Container {
 // change (fleet:witness, the mutation lane) call this — on every other atom
 // it would make the cache key a function of the pull rather than of the tree.
 func (r *run) withBase(ctr *dagger.Container) *dagger.Container {
-	return ctr.WithEnvVariable("GATE_BASE", r.base)
+	ctr = ctr.WithEnvVariable("GATE_BASE", r.base)
+	// THE BASE RIDES IN WITH A FETCHED TREE. When the engine fetched Source
+	// (New --repo/--sha) it fetched ONE ref's history, and the base the door
+	// names is the pull's base branch at dispatch — a commit that history does
+	// not reach. The runner's old clone had every head; the fetched tree has
+	// its own. MEASURED 2026-09-14 02:10Z, the first gate under the fetch
+	// (gate-infra-8b2ea83): `git diff 049baaf6..HEAD` exit 128, fleet:witness
+	// CANNOT RUN on every pull, tips untouched (an empty base reads HEAD^).
+	// So the base is fetched here, from the same door, by sha — the door
+	// serves a raw-sha want (verified) — and ONLY here: this is the one seam
+	// the base crosses (rule 8), so the fetch lands only in the atoms whose
+	// cache key already carries the pull. `-c safe.directory=*` because this
+	// exec precedes gitReady's global config in every chain that wraps it.
+	if r.repo != "" && r.base != "" {
+		ctr = ctr.WithExec([]string{"git", "-c", "safe.directory=*", "-C", "/src", "fetch", "--quiet", "--no-tags", r.repo, r.base})
+	}
+	return ctr
 }
 
 // population is THE GATE'S OWN POPULATION: the files the repository would

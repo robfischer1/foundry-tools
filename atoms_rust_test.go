@@ -487,7 +487,7 @@ func TestTheRustLaneIsAbsentWithoutACargoToml(t *testing.T) {
 	} {
 		engine.reset()
 		engine.withTree(map[string]string{"package.json": "{}"})
-		v, err := verdictFor(t.Context(), newRun(dag.Directory(), ""), id)
+		v, err := verdictFor(t.Context(), newRun(dag.Directory(), "", ""), id)
 		if err != nil {
 			t.Fatal(err)
 		}

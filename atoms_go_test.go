@@ -53,7 +53,7 @@ func TestGoVetBuildsTheModulesChainAndReadsTheExit(t *testing.T) {
 func TestGoLaneIsAbsentWithoutAGoMod(t *testing.T) {
 	engine.reset()
 	engine.withTree(map[string]string{"pyproject.toml": ""})
-	v, err := verdictFor(t.Context(), newRun(dag.Directory(), ""), "go:vet")
+	v, err := verdictFor(t.Context(), newRun(dag.Directory(), "", ""), "go:vet")
 	if err != nil {
 		t.Fatal(err)
 	}

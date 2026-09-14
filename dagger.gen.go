@@ -62,20 +62,24 @@ func convertSlice[I any, O any](in []I, f func(I) O) []O {
 func (r FoundryTools) MarshalJSON() ([]byte, error) {
 	var concrete struct {
 		Source *dagger.Directory
+		Repo   string
 	}
 	concrete.Source = r.Source
+	concrete.Repo = r.Repo
 	return json.Marshal(&concrete)
 }
 
 func (r *FoundryTools) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
 		Source *dagger.Directory
+		Repo   string
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
 		return err
 	}
 	r.Source = concrete.Source
+	r.Repo = concrete.Repo
 	return nil
 }
 
