@@ -219,6 +219,20 @@ func TestATipPublishesSignsAttestsAndIsPermitted(t *testing.T) {
 		[]string{"withNewFile", `"/in/sbom.cdx.json"`, "pkg:deb/runtime@1"},
 		[]string{"withExec", `"attest"`, `"cyclonedx"`, ref},
 	)
+	// Unless told not to, cosign 3's sign and attest fetch sigstore's signing
+	// config from its CDN and upload to Rekor. Nothing in the fleet reads Rekor,
+	// and the fetch put an outside CDN in the build path (build-ourea-ms24d),
+	// so both calls carry both flags. The guard is keyed on the pin: v2.5.3 had
+	// no --use-signing-config and failed on it (athena a446514).
+	if strings.Contains(checks.ImageCosign, "/cosign:v3.") {
+		for _, chain := range []string{engine.chain(`"sign","--key"`), engine.chain(`"attest"`)} {
+			for _, flag := range []string{`"--use-signing-config=false"`, `"--tlog-upload=false"`} {
+				if !strings.Contains(chain, flag) {
+					t.Errorf("%s reaches sigstore's CDN and Rekor unless told not to, and this call lacks %s:\n%s", checks.ImageCosign, flag, chain)
+				}
+			}
+		}
+	}
 	if engine.chain(`"verify","--key","/run/cosign/key.pub"`) == "" {
 		t.Error("the signature was never verified")
 	}
