@@ -12,9 +12,11 @@ import (
 	"errors"
 	"io"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -31,6 +33,19 @@ func runWith(env func(string) string, args ...string) (int, string, string) {
 	var out, errOut bytes.Buffer
 	code := Run(context.Background(), args, env, &out, &errOut)
 	return code, out.String(), errOut.String()
+}
+
+// agentSocket is a unix socket something listens on — what reach needs to
+// see before a call waits for an identity — as a HADESCALL_SOCKET address.
+func agentSocket(t *testing.T) string {
+	t.Helper()
+	path := t.TempDir() + "/agent.sock"
+	l, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { l.Close() })
+	return "unix://" + path
 }
 
 // THE FAST CHECKS COME FIRST. gremlins runs a mutant's package with
@@ -68,9 +83,53 @@ func TestAnIdentityThatCannotOpenIsCouldNotRun(t *testing.T) {
 	opened := Open
 	Open = func(context.Context, string) (Identity, error) { return nil, errors.New("connection refused") }
 	t.Cleanup(func() { Open = opened })
-	code, stdout, stderr := runWith(noEnv, "forge_mold", `{}`)
-	if code != 2 || stdout != "" || !strings.Contains(stderr, "no identity from unix:///run/spire/agent.sock within 2m0s: connection refused") {
+	sock := agentSocket(t)
+	env := func(k string) string { return map[string]string{"HADESCALL_SOCKET": sock}[k] }
+	code, stdout, stderr := runWith(env, "forge_mold", `{}`)
+	if code != 2 || stdout != "" || !strings.Contains(stderr, "no identity from "+sock+" within 2m0s: connection refused") {
 		t.Fatalf("code %d stdout %q stderr %q", code, stdout, stderr)
+	}
+}
+
+// A unix socket this process cannot connect to is a could-not-run at once,
+// naming the socket and the refusal, and no identity is waited for: nothing
+// listening, or a path that is not a socket. (The live case was a root-owned
+// socket read by a nonroot exec, EACCES; a test running as root cannot make
+// one, so the refusal here is the kernel's other two answers.)
+func TestASocketThisProcessCannotOpenIsCouldNotRunAtOnce(t *testing.T) {
+	notASocket := t.TempDir() + "/agent.sock"
+	if err := os.WriteFile(notASocket, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, sock := range []string{"unix://" + t.TempDir() + "/absent.sock", "unix://" + notASocket} {
+		opened := Open
+		Open = func(context.Context, string) (Identity, error) {
+			t.Errorf("%s: an identity was waited for on a socket that refused the connect", sock)
+			return nil, errors.New("waited")
+		}
+		env := func(k string) string { return map[string]string{"HADESCALL_SOCKET": sock}[k] }
+		code, stdout, stderr := runWith(env, "forge_mold", `{"name":"x"}`)
+		Open = opened
+		if code != 2 || stdout != "" || !strings.Contains(stderr, "cannot connect to "+sock+": ") {
+			t.Fatalf("code %d stdout %q stderr %q", code, stdout, stderr)
+		}
+	}
+}
+
+// Only a unix socket is dialed first; any other address goes straight to the
+// client, which owns its own retries.
+func TestAnAddressThatIsNotAUnixSocketIsLeftToTheClient(t *testing.T) {
+	opened := Open
+	got := ""
+	Open = func(_ context.Context, socket string) (Identity, error) {
+		got = socket
+		return nil, errors.New("refused")
+	}
+	t.Cleanup(func() { Open = opened })
+	env := func(k string) string { return map[string]string{"HADESCALL_SOCKET": "tcp://127.0.0.1:1"}[k] }
+	code, stdout, stderr := runWith(env, "forge_mold", `{}`)
+	if code != 2 || stdout != "" || got != "tcp://127.0.0.1:1" || !strings.Contains(stderr, "no identity from tcp://127.0.0.1:1") {
+		t.Fatalf("code %d stdout %q stderr %q opened %q", code, stdout, stderr, got)
 	}
 }
 
@@ -96,10 +155,10 @@ func TestACallRefusesWhatItCannotAsk(t *testing.T) {
 	}
 }
 
-// A socket with no agent behind it is a could-not-run inside the wait, and the
-// answer names the socket.
+// A socket something listens on but that issues no identity is a could-not-run
+// inside the wait, and the answer names the socket.
 func TestACallWithNoAgentIsCouldNotRun(t *testing.T) {
-	sock := "unix://" + t.TempDir() + "/absent.sock"
+	sock := agentSocket(t)
 	env := func(k string) string {
 		return map[string]string{"HADESCALL_SOCKET": sock, "HADESCALL_IDENTITY_WAIT": "300ms"}[k]
 	}
@@ -224,13 +283,17 @@ func newHades(t *testing.T, p *testPKI, serverID string, handler func(w http.Res
 	return h
 }
 
-// callAs runs a call with the identity handed over in place of the agent's.
+// callAs runs a call with the identity handed over in place of the agent's,
+// on a socket something listens on.
 func callAs(t *testing.T, id Identity, hades string, args ...string) (int, string, string) {
 	t.Helper()
 	opened := Open
 	Open = func(context.Context, string) (Identity, error) { return id, nil }
 	t.Cleanup(func() { Open = opened })
-	return runWith(func(k string) string { return map[string]string{"HADESCALL_HADES": hades}[k] }, args...)
+	sock := agentSocket(t)
+	return runWith(func(k string) string {
+		return map[string]string{"HADESCALL_HADES": hades, "HADESCALL_SOCKET": sock}[k]
+	}, args...)
 }
 
 // A call presents its own SVID, verifies hades by its SPIFFE id, posts the

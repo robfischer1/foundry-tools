@@ -336,7 +336,10 @@ func TestATipPublishesSignsAttestsAndIsPermitted(t *testing.T) {
 	}
 	wantCalls(t, engine.chain(`"forge_mold"`),
 		[]string{"from", checks.ImageStatic},
-		[]string{"withUnixSocket", `"/run/spire/agent.sock"`},
+		// Owned by the static base's nonroot user: forwarded root-owned, the
+		// socket refused hadescall's connect and the permit waited out two
+		// minutes for an identity (athena b66d46f).
+		[]string{"withUnixSocket", `"/run/spire/agent.sock"`, `owner:"65532:65532"`},
 		[]string{"withEnvVariable", `"HADESCALL_HADES"`, `"https://hades:8102"`},
 		[]string{"withExec", `"/usr/local/bin/hadescall"`, `"forge_mold"`, "ares"},
 	)

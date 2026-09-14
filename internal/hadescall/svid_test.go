@@ -22,7 +22,7 @@ func TestTheSVIDFieldNeedsAnObjectAndIsRefusedBeforeDialing(t *testing.T) {
 		if code != 2 || stdout != "" || !strings.Contains(stderr, "HADESCALL_SVID_FIELD=svid needs a JSON object") {
 			t.Errorf("%s: code %d stdout %q stderr %q", body, code, stdout, stderr)
 		}
-		if strings.Contains(stderr, "no identity") {
+		if strings.Contains(stderr, "no identity") || strings.Contains(stderr, "cannot connect") {
 			t.Errorf("%s: dialed the socket before refusing", body)
 		}
 	}
@@ -39,8 +39,9 @@ func TestTheSVIDIsWrittenIntoTheNamedField(t *testing.T) {
 	opened := Open
 	Open = func(context.Context, string) (Identity, error) { return id, nil }
 	t.Cleanup(func() { Open = opened })
+	sock := agentSocket(t)
 	env := func(k string) string {
-		return map[string]string{"HADESCALL_HADES": h.URL, "HADESCALL_SVID_FIELD": "svid"}[k]
+		return map[string]string{"HADESCALL_HADES": h.URL, "HADESCALL_SVID_FIELD": "svid", "HADESCALL_SOCKET": sock}[k]
 	}
 	code, stdout, stderr := runWith(env, "tartarus_attest_emit", `{"tree":"t","verdict":[1]}`)
 	if code != 0 || stdout != "HTTP 200\n{\"ok\":true}" {

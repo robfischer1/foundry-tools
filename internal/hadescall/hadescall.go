@@ -9,6 +9,11 @@
 // answered 403 naming that id. The key stays in this process's memory; a
 // fetched key file would have been a layer in the engine's cache.
 //
+// That probe ran spire-agent as root in its own image. A forwarded socket is
+// root-owned inside the exec, so a nonroot hadescall needs the socket owned by
+// its user (build.go's hadesCaller). Without that the connect is refused, and
+// reach names the refusal instead of letting the identity wait time out.
+//
 // THE LOGIC LIVES HERE, NOT IN THE BINARY'S main, so this package's tests are
 // the ones a mutant of it runs against. gremlins v0.6.0 names a mutant's
 // package by walking up its directory for a name ending in the package clause
@@ -23,6 +28,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -52,6 +58,24 @@ type Identity interface {
 // ctx ends. A variable so a test can hand over an identity without an agent.
 var Open = func(ctx context.Context, socket string) (Identity, error) {
 	return workloadapi.NewX509Source(ctx, workloadapi.WithClientOptions(workloadapi.WithAddr(socket)))
+}
+
+// reach answers whether this process can connect to a unix socket at all,
+// before the identity wait begins. go-spiffe retries a refused connect
+// silently until its deadline, so a socket this process may not open costs
+// the whole wait and names no cause: a root-owned forward read by a nonroot
+// exec, athena b66d46f on 2026-09-14, twice. A unix connect succeeds or fails
+// at once. Any other address is left to the client.
+func reach(socket string) error {
+	path, ok := strings.CutPrefix(socket, "unix://")
+	if !ok {
+		return nil
+	}
+	conn, err := net.Dial("unix", path)
+	if err != nil {
+		return err
+	}
+	return conn.Close()
 }
 
 // config is everything a call reads from its environment, with the fleet's
@@ -109,6 +133,10 @@ func Run(ctx context.Context, args []string, env func(string) string, stdout, st
 	cfg, err := configOf(env)
 	if err != nil {
 		fmt.Fprintf(stderr, "hadescall: %v\n", err)
+		return 2
+	}
+	if err := reach(cfg.socket); err != nil {
+		fmt.Fprintf(stderr, "hadescall %s: cannot connect to %s: %v — nothing was asked; a socket this process cannot open is not an agent with no identity for it\n", verb, cfg.socket, err)
 		return 2
 	}
 
