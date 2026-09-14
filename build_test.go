@@ -387,6 +387,26 @@ func TestATipThatCannotBeSignedIsFindingsAndAsksNoPermit(t *testing.T) {
 	}
 }
 
+// A sign that refuses the lane's own arguments never looked at the image, so
+// the lane cannot run; it is not a finding. Measured 2026-09-14 on athena
+// a446514: cosign v2.5.3 answered "unknown flag: --use-signing-config", the
+// verify fallback found nothing, and the lane settled "findings in sign".
+func TestASignThatRefusesTheLanesArgumentsIsCouldNotRun(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	scriptATip()
+	refusal := "Error: unknown flag: --use-signing-config\nerror during command execution: unknown flag: --use-signing-config\n"
+	engine.exitCode(`"sign","--key"`, 1)
+	engine.stdout(`"sign","--key"`, refusal)
+	engine.stderr(`"sign","--key"`, refusal)
+	engine.exitCode(`"verify","--key"`, 10)
+	engine.stderr(`"verify","--key"`, "Error: no signatures found\n")
+	tip(t, m)
+	settledOn(t, "2", "sign refused the lane's own arguments (Error: unknown flag: --use-signing-config)")
+	if engine.chain(`"attest"`) != "" || engine.chain(`"forge_mold"`) != "" {
+		t.Fatal("a sign that never ran went on to be attested or permitted")
+	}
+}
+
 // A signature that is already there verifies in place of a failed sign, and
 // the lane goes on.
 func TestAnImageAlreadySignedVerifiesInsteadOfFailing(t *testing.T) {
