@@ -201,9 +201,16 @@ const (
 	// but the DIGEST is what this block exists to hold still — re-pinning to
 	// scratch is a decision to make on purpose against a measured pull, not a
 	// side effect of deleting the shell.
-	ImageKubeconform = "ghcr.io/yannh/kubeconform:v0.7.0-alpine@sha256:8f0eeaaa96ba27ba1500b0e4b1c215acc358d159c62a7ecae58d7a03403287b0"
+	//
+	// Both pins come THROUGH THE FLEET MIRROR (docker.notusmi.com), at the
+	// digests they always had: they named ghcr.io and docker.io directly until
+	// 2026-09-14. The mirror answers both digests (manifest HEAD 200, pulled,
+	// and they report kubeconform v0.7.0 and kube-linter 0.8.3), so the
+	// images an atom runs are byte-identical; only the host they come from
+	// changed.
+	ImageKubeconform = "docker.notusmi.com/yannh/kubeconform:v0.7.0-alpine@sha256:8f0eeaaa96ba27ba1500b0e4b1c215acc358d159c62a7ecae58d7a03403287b0"
 	// ImageKubeLinter — likewise alpine, and likewise held still.
-	ImageKubeLinter = "docker.io/stackrox/kube-linter:v0.8.3-alpine@sha256:b8311611c27032d4922bc67719225e373e4a0ab0c767bbdcf5f20a9306b1a3bb"
+	ImageKubeLinter = "docker.notusmi.com/stackrox/kube-linter:v0.8.3-alpine@sha256:b8311611c27032d4922bc67719225e373e4a0ab0c767bbdcf5f20a9306b1a3bb"
 )
 
 // CRDSchema is the schema location the kubeconform atom adds to the default

@@ -67,6 +67,19 @@ func TestEveryImageIsPinnedByDigest(t *testing.T) {
 	}
 }
 
+// THROUGH THE FLEET MIRROR, NEVER UPSTREAM. Every image an atom or the build
+// function runs is pulled from docker.notusmi.com. An upstream registry is a
+// dependency the fleet does not operate, and it rate-limits and moves on its
+// own schedule. kubeconform and kube-linter named ghcr.io and docker.io
+// directly until 2026-09-14.
+func TestEveryImageComesThroughTheFleetMirror(t *testing.T) {
+	for _, img := range append(append([]string{}, LaneImages...), ImageCosign, ImageSyft, ImageStatic) {
+		if !strings.HasPrefix(img, "docker.notusmi.com/") {
+			t.Errorf("image %q is not pulled through the fleet mirror (docker.notusmi.com)", img)
+		}
+	}
+}
+
 // Every image an atom names has to be in the block a digest sweep lands on. An
 // image referenced from the atom table but absent from LaneImages is an image
 // no pin check would ever look at.
