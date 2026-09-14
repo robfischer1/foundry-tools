@@ -33,7 +33,8 @@ type FoundryTools struct {
 	Source *dagger.Directory
 }
 
-// New binds the module to the caller's repository.
+// New binds the module to the caller's repository — the tree it is standing
+// in, or, named by `repo` and `sha`, a commit the ENGINE fetches itself.
 func New(
 	// The repository under check. Defaults to the caller's context directory —
 	// the repo you are standing in when you run `dagger check`.
@@ -50,8 +51,56 @@ func New(
 	// +defaultPath="/"
 	// +ignore=["**/node_modules","**/.venv","**/target","**/__pycache__","**/.pytest_cache","**/.mypy_cache","**/.ruff_cache","**/dist",".melt"]
 	source *dagger.Directory,
-) *FoundryTools {
-	return &FoundryTools{Source: source}
+	// A git URL the ENGINE fetches the tree from, instead of `source` — the
+	// door's own clone URL for the runner (`http://ourea…:8215/<repo>.git`).
+	// Names `sha` with it. THE FETCH IS THE ENGINE'S AND SO IS THE CACHE:
+	// the runner Job used to clone the tree onto its own filesystem and
+	// upload it into the engine on every run (15s of a 59s infra gate,
+	// measured 2026-09-13); a git-sourced Directory is cached by commit and
+	// the second gate on a repo fetches only what moved. Full history, not
+	// the CLI's shallow `url#ref` (depth 1, measured): fleet:witness and the
+	// mutation lane diff against the pull's base, which a depth-1 tree
+	// cannot reach.
+	// +optional
+	repo string,
+	// The commit to fetch when `repo` is named. A commit, not a ref: the
+	// receipt is keyed on the tree the door named, and a branch name would
+	// grade whatever the branch pointed at by the time the engine looked.
+	// +optional
+	sha string,
+) (*FoundryTools, error) {
+	if repo == "" {
+		if sha != "" {
+			return nil, fmt.Errorf("--sha names a commit to fetch, and needs --repo to say from where")
+		}
+		return &FoundryTools{Source: source}, nil
+	}
+	if sha == "" {
+		return nil, fmt.Errorf("--repo=%s names where to fetch from, and needs --sha to say which commit", repo)
+	}
+	// Depth -1 is "all of it" to the SDK (the zero value is dropped from
+	// the query and the engine's default is 1). Measured 2026-09-13 against
+	// the cluster engine: default 1 commit, -1 the whole 135.
+	return &FoundryTools{Source: dag.Git(repo).Ref(sha).Tree(dagger.GitRefTreeOpts{Depth: -1})}, nil
+}
+
+// Tree answers the git tree hash of the bound repository — the key the
+// door's receipt join is written under (CA_GATE_TREE), so a runner that
+// let the engine fetch the commit can still PROVE it is grading the tree
+// the door named before it asks for a vector. A tree with no commit behind
+// it (a linked worktree's snapshot, which gitReady rebuilds without history)
+// is an error, not an empty string: nothing keyed on "" may be attested.
+func (m *FoundryTools) Tree(ctx context.Context) (string, error) {
+	r := newRun(m.Source, "")
+	out, code, err := output(ctx, r.gitReady(ctx, r.lane(checks.ImageFleet)).
+		WithExec([]string{"git", "rev-parse", "HEAD^{tree}"}, anyExit))
+	if err != nil {
+		return "", fmt.Errorf("could not read the tree: %w", err)
+	}
+	if code != 0 || out == "" {
+		return "", fmt.Errorf("the repository has no HEAD to read a tree off (exit %d): %s", code, out)
+	}
+	return out, nil
 }
 
 // Compose holds the host-stacks atoms. They report ABSENT on a repo that
