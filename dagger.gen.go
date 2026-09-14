@@ -769,6 +769,62 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*FoundryTools).Fleet(&parent), nil
+		case "Gate":
+			var parent FoundryTools
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var tree string
+			if inputArgs["tree"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["tree"]), &tree)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg tree", err))
+				}
+			}
+			var pin string
+			if inputArgs["pin"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["pin"]), &pin)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg pin", err))
+				}
+			}
+			var base string
+			if inputArgs["base"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["base"]), &base)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg base", err))
+				}
+			}
+			var stage string
+			if inputArgs["stage"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["stage"]), &stage)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg stage", err))
+				}
+			}
+			var spire *dagger.Socket
+			if inputArgs["spire"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["spire"]), &spire)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg spire", err))
+				}
+			}
+			var hades string
+			if inputArgs["hades"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["hades"]), &hades)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg hades", err))
+				}
+			}
+			var hadesId string
+			if inputArgs["hadesID"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["hadesID"]), &hadesId)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg hadesID", err))
+				}
+			}
+			return nil, (*FoundryTools).Gate(&parent, ctx, tree, pin, base, stage, spire, hades, hadesId)
 		case "Go":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
@@ -818,6 +874,55 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*FoundryTools).Lanes(&parent, ctx)
+		case "Publish":
+			var parent FoundryTools
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var token *dagger.Secret
+			if inputArgs["token"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["token"]), &token)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg token", err))
+				}
+			}
+			var publishUrl string
+			if inputArgs["publishURL"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["publishURL"]), &publishUrl)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg publishURL", err))
+				}
+			}
+			var checkUrl string
+			if inputArgs["checkURL"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["checkURL"]), &checkUrl)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg checkURL", err))
+				}
+			}
+			var user string
+			if inputArgs["user"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["user"]), &user)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg user", err))
+				}
+			}
+			var indexUrl string
+			if inputArgs["indexURL"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["indexURL"]), &indexUrl)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg indexURL", err))
+				}
+			}
+			var dryRun bool
+			if inputArgs["dryRun"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["dryRun"]), &dryRun)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg dryRun", err))
+				}
+			}
+			return nil, (*FoundryTools).Publish(&parent, ctx, token, publishUrl, checkUrl, user, indexUrl, dryRun)
 		case "Python":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)

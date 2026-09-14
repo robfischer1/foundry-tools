@@ -202,8 +202,10 @@ func componentKey(c any) string {
 }
 
 // fault is a failure the lane did not get to look past — the network or the
-// registry — so running again can change the answer (build.sh fault_re).
-var fault = regexp.MustCompile(`(?i)connection refused|connection reset|i/o timeout|no such host|server misbehaving|TLS handshake timeout|502 Bad Gateway|503 Service Unavailable|504 Gateway|unexpected EOF|too many requests|429 Too Many Requests|toomanyrequests|context deadline exceeded|failed to do request|failed to resolve source metadata|unexpected media type [^[:space:]]+ for sha256:[0-9a-f]{64}: not found`)
+// registry — so running again can change the answer (build.sh fault_re). The
+// timeout and name-resolution phrasings are uv's (publish.sh FAULT_RE): the
+// publish lane settles its build and its uploads through this too.
+var fault = regexp.MustCompile(`(?i)connection refused|connection reset|connection timed out|operation timed out|i/o timeout|no such host|temporary failure in name resolution|dns error|server misbehaving|TLS handshake timeout|502 Bad Gateway|503 Service Unavailable|504 Gateway|unexpected EOF|too many requests|429 Too Many Requests|toomanyrequests|context deadline exceeded|failed to do request|failed to resolve source metadata|unexpected media type [^[:space:]]+ for sha256:[0-9a-f]{64}: not found`)
 
 // Failed answers the verdict of a step that failed with output: could-not-run
 // on a network fault, findings on anything else.
