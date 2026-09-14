@@ -241,7 +241,10 @@ func pythonPytest(ctx context.Context, r *run) checks.Verdict {
 		}
 	}
 
-	out, code, err := output(ctx, r.lane(checks.ImagePython).
+	// gitReady for the same reason go:test-race carries it: a suite that
+	// shells out to git must find a repository, not a worktree's dangling
+	// `.git` file.
+	out, code, err := output(ctx, r.gitReady(ctx, r.lane(checks.ImagePython)).
 		WithExec([]string{"uv", "--version"}).
 		WithExec([]string{"uv", "run", "--all-extras", "pytest", "-q"}, anyExit))
 	if err != nil {
