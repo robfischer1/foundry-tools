@@ -38,6 +38,9 @@ func TestThePushRepoIsTheRegistryAndThePathWithoutTheTag(t *testing.T) {
 		{"registry.notusmi.com/rob/ares:stable", "registry.notusmi.com/rob/ares"},
 		{"forgejo.notusmi.com/rob/nested/ares:latest", "registry.notusmi.com/rob/nested/ares"},
 		{"registry.notusmi.com/rob/ares", "registry.notusmi.com/rob/ares"},
+		// No slash and no colon at all: nothing to cut.
+		{"ares", "registry.notusmi.com/ares"},
+		{"ares:tag", "registry.notusmi.com/ares"},
 	} {
 		if got := PushRepo("registry.notusmi.com", c.image); got != c.want {
 			t.Errorf("PushRepo(%q) = %q, want %q", c.image, got, c.want)
@@ -47,8 +50,12 @@ func TestThePushRepoIsTheRegistryAndThePathWithoutTheTag(t *testing.T) {
 	if err != nil || pin != "registry.notusmi.com/rob/ares:g0123456789ab" {
 		t.Fatalf("GPin = %q, %v", pin, err)
 	}
-	if _, err := GPin("r", "abc"); err == nil {
-		t.Fatal("a short commit made a g-pin")
+	// Twelve characters is the g-pin whole, and enough.
+	if pin, err := GPin("r", "0123456789ab"); err != nil || pin != "r:g0123456789ab" {
+		t.Fatalf("a twelve-character commit: %q, %v", pin, err)
+	}
+	if _, err := GPin("r", "0123456789a"); err == nil {
+		t.Fatal("an eleven-character commit made a g-pin")
 	}
 }
 
@@ -105,12 +112,12 @@ func TestTheBuilderStageAndDigestAreRead(t *testing.T) {
 
 func TestTheSBOMMergeKeepsOneComponentPerKeyTheImagesFirst(t *testing.T) {
 	image := `{"bomFormat":"CycloneDX","components":[{"name":"b","version":"1","purl":"pkg:x/b@1","from":"image"},{"name":"noversion"}]}`
-	builder := `{"components":[{"name":"b","version":"1","purl":"pkg:x/b@1","from":"builder"},{"name":"a","version":"2"}]}`
+	builder := `{"components":[{"name":"b","version":"1","purl":"pkg:x/b@1","from":"builder"},{"name":"a","version":"2"},{"version":"3"}]}`
 	merged, in, bn, mn, err := MergeSBOM([]byte(image), []byte(builder))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if in != 2 || bn != 2 || mn != 3 {
+	if in != 2 || bn != 3 || mn != 4 {
 		t.Fatalf("counts %d %d %d", in, bn, mn)
 	}
 	var doc struct {
@@ -127,11 +134,14 @@ func TestTheSBOMMergeKeepsOneComponentPerKeyTheImagesFirst(t *testing.T) {
 			t.Fatalf("the builder's copy won: %v", c)
 		}
 	}
-	if doc.BomFormat != "CycloneDX" || !reflect.DeepEqual(keys, []string{"a@2", "noversion@?", "pkg:x/b@1"}) {
+	if doc.BomFormat != "CycloneDX" || !reflect.DeepEqual(keys, []string{"?@3", "a@2", "noversion@?", "pkg:x/b@1"}) {
 		t.Fatalf("merged %s", merged)
 	}
 	if _, _, _, _, err := MergeSBOM([]byte("{"), []byte(builder)); err == nil {
 		t.Fatal("a broken image SBOM merged")
+	}
+	if _, _, _, _, err := MergeSBOM([]byte(image), []byte("{")); err == nil {
+		t.Fatal("a broken builder SBOM merged")
 	}
 }
 
@@ -180,12 +190,17 @@ func TestThePermitAnswerFoldsIntoTheVerdict(t *testing.T) {
 		{"not a tool answer", 200, "<html>", CouldNotRun, "not a tool answer"},
 		{"superseded", 200, tool(true, "no CI artifact at gfedcba9876543"), CouldNotRun, "SUPERSEDED"},
 		{"refused", 200, tool(true, "no CI artifact at g0123456789ab"), Findings, "PERMIT REFUSED"},
+		{"refused at length", 200, tool(true, strings.Repeat("x", 400)), Findings, "promoted. " + strings.Repeat("x", 300)},
 		{"no-op", 200, tool(false, `{"no_op":true}`), Clean, "no-op"},
 		{"stamped", 200, tool(false, `{"digest":"sha256:d","pushed_ref":"r:stable"}`), Clean, "digest=sha256:d, ref=r:stable"},
+		{"an answer with no content", 200, `{"isError":false,"content":[]}`, Clean, "digest=?, ref=?"},
 	} {
 		got, reason := Permit(c.status, c.raw, built)
 		if got != c.want || !strings.Contains(reason, c.reason) {
 			t.Errorf("%s: %d %q, want %d containing %q", c.name, got, reason, c.want, c.reason)
+		}
+		if c.name == "refused at length" && strings.Contains(reason, strings.Repeat("x", 301)) {
+			t.Errorf("the refusal was not cut at 300 characters: %d", len(reason))
 		}
 	}
 }

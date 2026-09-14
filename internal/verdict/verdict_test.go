@@ -1,4 +1,4 @@
-package main
+package verdict
 
 import (
 	"bytes"
@@ -24,9 +24,17 @@ func TestVerdictAnswersTheCodeAndPrintsTheReason(t *testing.T) {
 		{nil, 2, "no code"},
 	} {
 		var errOut bytes.Buffer
-		code := run(c.args, &errOut)
+		code := Run(c.args, &errOut)
 		if code != c.code || !strings.Contains(errOut.String(), c.stderr) {
 			t.Errorf("%v: code %d stderr %q, want %d containing %q", c.args, code, errOut.String(), c.code, c.stderr)
 		}
+	}
+}
+
+// A verdict with no reason prints nothing at all.
+func TestAVerdictWithNoReasonPrintsNothing(t *testing.T) {
+	var errOut bytes.Buffer
+	if code := Run([]string{"1"}, &errOut); code != 1 || errOut.Len() != 0 {
+		t.Fatalf("code %d stderr %q", code, errOut.String())
 	}
 }

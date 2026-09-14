@@ -212,10 +212,7 @@ func (l *buildLane) detect(ctx context.Context) (needed bool, why string, code i
 	if len(nonInert) == 0 {
 		return false, "inert-only push — nothing built, published or permitted; the last published image is unchanged", buildlane.Clean
 	}
-	shown := nonInert
-	if len(shown) > 8 {
-		shown = shown[:8]
-	}
+	shown := nonInert[:min(len(nonInert), 8)]
 	return true, fmt.Sprintf("%d source or deploy change(s), building: %s", len(nonInert), strings.Join(shown, ", ")), buildlane.Clean
 }
 
@@ -432,15 +429,16 @@ func goToolchain() *dagger.Container {
 
 // settle ends a lane on the verdict exec, so `dagger call` exits with the code
 // the door settles on and prints the reason beside it. verdict is standard
-// library only and built outside any module: it has to run when nothing else
-// could be fetched.
+// library only and is built with GOPROXY=off: it has to run when nothing else
+// could be fetched (internal/verdict has the measurement).
 func settle(ctx context.Context, code int, reason string) error {
 	bin := dag.Container().From(checks.ImageGo).
 		WithEnvVariable("CGO_ENABLED", "0").
 		WithEnvVariable("GOTOOLCHAIN", "local").
-		WithMountedFile("/verdict/main.go", dag.CurrentModule().Source().File("verdict/main.go")).
-		WithWorkdir("/verdict").
-		WithExec([]string{"go", "build", "-o", "/out/verdict", "main.go"}).
+		WithEnvVariable("GOPROXY", "off").
+		WithMountedDirectory("/src", dag.CurrentModule().Source()).
+		WithWorkdir("/src").
+		WithExec([]string{"go", "build", "-o", "/out/verdict", "./verdict"}).
 		File("/out/verdict")
 	_, err := dag.Container().From(checks.ImageStatic).
 		WithFile("/usr/local/bin/verdict", bin).

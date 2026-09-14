@@ -35,7 +35,12 @@ func pull(t *testing.T, m *FoundryTools) {
 // credential, the CI key and its password, and the pod's SPIRE socket.
 func tip(t *testing.T, m *FoundryTools) {
 	t.Helper()
-	auth := dag.SetSecret("registry-auth", `{"auths":{"registry.notusmi.com":{"username":"publisher","password":"hunter2"}}}`)
+	tipWith(t, m, `{"auths":{"registry.notusmi.com":{"username":"publisher","password":"hunter2"}}}`)
+}
+
+func tipWith(t *testing.T, m *FoundryTools, registryAuth string) {
+	t.Helper()
+	auth := dag.SetSecret("registry-auth", registryAuth)
 	key := dag.SetSecret("cosign-key", base64.StdEncoding.EncodeToString([]byte("-----BEGIN ENCRYPTED SIGSTORE PRIVATE KEY-----")))
 	password := dag.SetSecret("cosign-password", "pw")
 	// A module has no Host to open a socket on; the socket a caller forwards
@@ -52,12 +57,19 @@ func toolAnswer(isError bool, text string) string {
 	return string(b)
 }
 
+const (
+	imageSBOM         = `{"bomFormat":"CycloneDX","components":[{"name":"runtime","version":"1","purl":"pkg:deb/runtime@1"}]}`
+	builderSBOM       = `{"components":[{"name":"gomod","version":"1","purl":"pkg:golang/gomod@1"}]}`
+	builderDockerfile = "FROM docker.notusmi.com/library/golang:1.26 AS builder\nRUN go build ./...\nFROM scratch\n"
+)
+
 // scriptATip scripts every step of a tip that goes through: a source change,
 // the public key, the SBOM, and hades stamping the permit.
 func scriptATip() {
 	engine.stdout("--name-only", "cmd/ares/main.go\n")
 	engine.stdout(`"public-key"`, "-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----")
-	engine.stdout(`"registry:registry.notusmi.com/rob/ares@sha256:`, `{"bomFormat":"CycloneDX","components":[]}`)
+	engine.stdout(`"registry:registry.notusmi.com/rob/ares@sha256:`, imageSBOM)
+	engine.stdout(`"oci-archive:/in/builder.tar"`, builderSBOM)
 	engine.stdout(`"forge_mold"`, "HTTP 200\n"+toolAnswer(false, `{"digest":"sha256:eee","pushed_ref":"registry.notusmi.com/rob/ares:stable"}`))
 }
 
@@ -81,6 +93,17 @@ func TestTheBuildLaneRefusesATreeItDidNotFetch(t *testing.T) {
 	if engine.chain("dockerBuild") != "" {
 		t.Fatal("an unfetched tree was built")
 	}
+}
+
+// The verdict binary is built inside the module with no proxy: it needs
+// nothing fetched, so a lane that could not reach anything still settles.
+func TestTheVerdictIsBuiltWithNothingFetched(t *testing.T) {
+	engine.reset()
+	pull(t, &FoundryTools{Source: dag.Directory()})
+	wantCalls(t, engine.chain(`"./verdict"`),
+		[]string{"withEnvVariable", `"GOPROXY"`, `"off"`},
+		[]string{"withExec", `"go"`, `"build"`, `"./verdict"`},
+	)
 }
 
 // A tip publishes, signs and permits; without the credentials and the socket
@@ -124,6 +147,21 @@ func TestAPullBuildsTheImageAndPublishesNothing(t *testing.T) {
 	}
 }
 
+// A push touching many sources names the first eight and counts them all.
+func TestAWidePushNamesItsFirstEightChanges(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	var files []string
+	for _, f := range []string{"a", "b", "c", "d", "e", "f", "g", "h", "i"} {
+		files = append(files, "cmd/"+f+".go")
+	}
+	engine.stdout("--name-only", strings.Join(files, "\n"))
+	pull(t, m)
+	settledOn(t, "0", "clean: built ares")
+	if chain := engine.chain("--name-only"); chain == "" {
+		t.Fatal("the change set was never read")
+	}
+}
+
 // An image that does not build is a finding about the tree; one that failed on
 // the registry or the network is a could-not-run, because running again can
 // change it.
@@ -154,8 +192,8 @@ func TestACommitWithNoFirstParentBuildsToBeSafe(t *testing.T) {
 
 // A tip that goes through: published under the g-pin as the registry's
 // publisher with the runner's index crossing the seam, signed with the CI key,
-// its SBOM read by syft and attested, and the permit asked of hades as the
-// pod the socket came from.
+// its SBOM read by syft and attested, the signature verified, and the permit
+// asked of hades as the pod the socket came from.
 func TestATipPublishesSignsAttestsAndIsPermitted(t *testing.T) {
 	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
 	scriptATip()
@@ -178,16 +216,37 @@ func TestATipPublishesSignsAttestsAndIsPermitted(t *testing.T) {
 		[]string{"withExec", `"registry:` + ref + `"`, `"cyclonedx-json@1.6"`},
 	)
 	wantCalls(t, engine.chain(`"attest"`),
-		[]string{"withNewFile", `"/in/sbom.cdx.json"`},
+		[]string{"withNewFile", `"/in/sbom.cdx.json"`, "pkg:deb/runtime@1"},
 		[]string{"withExec", `"attest"`, `"cyclonedx"`, ref},
 	)
+	if engine.chain(`"verify","--key","/run/cosign/key.pub"`) == "" {
+		t.Error("the signature was never verified")
+	}
 	wantCalls(t, engine.chain(`"forge_mold"`),
 		[]string{"from", checks.ImageStatic},
 		[]string{"withUnixSocket", `"/run/spire/agent.sock"`},
 		[]string{"withEnvVariable", `"HADESCALL_HADES"`, `"https://hades:8102"`},
 		[]string{"withExec", `"/usr/local/bin/hadescall"`, `"forge_mold"`, "ares"},
 	)
+	// hadescall is built with the Go lane's caches, the build cache by its
+	// variable.
+	wantCalls(t, engine.chain(`"./hadescall"`),
+		[]string{"withEnvVariable", `"GOCACHE"`, `"/opt/go-build-cache"`},
+		[]string{"withMountedCache", `path:"/go/pkg/mod"`},
+	)
 	settledOn(t, "0", "clean: published and signed "+ref)
+}
+
+// A registry credential with no entry for the push registry publishes
+// nothing.
+func TestATipWhoseCredentialNamesAnotherRegistryIsCouldNotRun(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	scriptATip()
+	tipWith(t, m, `{"auths":{"other.host":{"username":"publisher","password":"hunter2"}}}`)
+	settledOn(t, "2", "names no entry for registry.notusmi.com")
+	if engine.chain("publish(") != "" {
+		t.Fatal("an image was published without a credential for its registry")
+	}
 }
 
 // A registry that is down at publish is a could-not-run, and nothing is signed.
@@ -202,18 +261,122 @@ func TestATipWhosePublishHitsARegistryOutageIsCouldNotRun(t *testing.T) {
 	}
 }
 
-// A signature that neither lands nor is already there is a finding, and no
-// permit is asked for.
+// A signature that neither lands nor is already there is a finding: nothing is
+// attested and no permit is asked for.
 func TestATipThatCannotBeSignedIsFindingsAndAsksNoPermit(t *testing.T) {
 	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
 	scriptATip()
 	engine.exitCode(`"sign","--key"`, 1)
 	engine.exitCode(`"verify","--key"`, 1)
 	tip(t, m)
-	settledOn(t, "1", "findings in sign")
-	if engine.chain(`"forge_mold"`) != "" {
-		t.Fatal("an unsigned image was sent for a permit")
+	settledOn(t, "1", "findings in sign —")
+	if engine.chain(`"attest"`) != "" || engine.chain(`"forge_mold"`) != "" {
+		t.Fatal("an unsigned image went on to be attested or permitted")
 	}
+}
+
+// A signature that is already there verifies in place of a failed sign, and
+// the lane goes on.
+func TestAnImageAlreadySignedVerifiesInsteadOfFailing(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	scriptATip()
+	engine.exitCode(`"sign","--key"`, 1)
+	tip(t, m)
+	settledOn(t, "0", "clean: published and signed")
+}
+
+// A check that could not run is not a pass.
+func TestASignWhoseCheckCannotRunIsNotAPass(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	scriptATip()
+	engine.exitCode(`"sign","--key"`, 1)
+	engine.failLeaf(`"verify","--key"`, "exitCode", "the engine went away")
+	tip(t, m)
+	settledOn(t, "1", "findings in sign —")
+	if engine.chain(`"attest"`) != "" {
+		t.Fatal("a sign nobody could check went on to be attested")
+	}
+}
+
+// An attestation that lands is not checked again: only a failed act falls back
+// to its check.
+func TestAnAttestationThatLandsIsNotReverified(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	scriptATip()
+	engine.exitCode(`"verify-attestation"`, 1)
+	tip(t, m)
+	settledOn(t, "0", "clean: published and signed")
+	if engine.chain(`"verify-attestation"`) != "" {
+		t.Fatal("a landed attestation was checked again")
+	}
+}
+
+// A signature that does not verify after signing and attesting is a finding,
+// and no permit is asked for.
+func TestATipWhoseSignatureDoesNotVerifyIsFindings(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	scriptATip()
+	engine.exitCode(`"verify","--key"`, 1)
+	tip(t, m)
+	settledOn(t, "1", "findings in sign (verify)")
+	if engine.chain(`"forge_mold"`) != "" {
+		t.Fatal("an unverified image was sent for a permit")
+	}
+}
+
+// A Dockerfile with a builder stage has that stage's dependencies folded into
+// the SBOM that is attested.
+func TestABuilderStagesDependenciesAreAttestedWithTheImage(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": builderDockerfile})
+	scriptATip()
+	tip(t, m)
+	if engine.chain(`target:"builder"`) == "" || engine.chain(`"oci-archive:/in/builder.tar"`) == "" {
+		t.Fatal("the builder stage was not built and read")
+	}
+	wantCalls(t, engine.chain(`"attest"`), []string{"withNewFile", `"/in/sbom.cdx.json"`, "pkg:golang/gomod@1", "pkg:deb/runtime@1"})
+	settledOn(t, "0", "clean: published and signed")
+}
+
+// attestsTheImageAlone asserts the attested SBOM is the runtime image's and
+// nothing of the builder's.
+func attestsTheImageAlone(t *testing.T) {
+	t.Helper()
+	attest := engine.chain(`"attest"`)
+	wantCalls(t, attest, []string{"withNewFile", `"/in/sbom.cdx.json"`, "pkg:deb/runtime@1"})
+	if strings.Contains(attest, "pkg:golang/gomod@1") {
+		t.Fatalf("the builder's components were attested:\n%s", attest)
+	}
+	settledOn(t, "0", "clean: published and signed")
+}
+
+// A builder stage that does not build leaves the runtime image's SBOM.
+func TestABuilderStageThatDoesNotBuildLeavesTheImagesSBOM(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": builderDockerfile})
+	scriptATip()
+	engine.failLeaf(`target:"builder"`, "size", "failed to solve: the builder stage")
+	tip(t, m)
+	if engine.chain(`"oci-archive:/in/builder.tar"`) != "" {
+		t.Fatal("an unbuilt builder stage was read")
+	}
+	attestsTheImageAlone(t)
+}
+
+// A builder SBOM syft cannot read leaves the runtime image's SBOM.
+func TestABuilderSBOMThatDoesNotReadLeavesTheImagesSBOM(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": builderDockerfile})
+	scriptATip()
+	engine.exitCode(`"oci-archive:/in/builder.tar"`, 1)
+	tip(t, m)
+	attestsTheImageAlone(t)
+}
+
+// Builder SBOMs that do not merge leave the runtime image's SBOM.
+func TestABuilderSBOMThatDoesNotMergeLeavesTheImagesSBOM(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": builderDockerfile})
+	scriptATip()
+	engine.stdout(`"oci-archive:/in/builder.tar"`, "not an sbom")
+	tip(t, m)
+	attestsTheImageAlone(t)
 }
 
 // hades's refusal of the permit is the lane's finding; its answer is read the
@@ -224,6 +387,15 @@ func TestATipWhosePermitIsRefusedIsFindings(t *testing.T) {
 	engine.stdout(`"forge_mold"`, "HTTP 200\n"+toolAnswer(true, "no CI artifact at g0123456789ab"))
 	tip(t, m)
 	settledOn(t, "1", "PERMIT REFUSED")
+}
+
+// An answer that is not hadescall's shape is a could-not-run.
+func TestAPermitAnswerWithNoStatusLineIsCouldNotRun(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	scriptATip()
+	engine.stdout(`"forge_mold"`, "garbage")
+	tip(t, m)
+	settledOn(t, "2", "no status line")
 }
 
 // hadescall that could not ask — no SVID, hades unreachable — is a

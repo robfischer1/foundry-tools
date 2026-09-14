@@ -11,8 +11,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"path"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -54,7 +55,7 @@ func DeclaredImage(compose, star string) string {
 	if img == "" {
 		img = "registry.notusmi.com/rob/" + star
 	}
-	if !strings.Contains(img[strings.LastIndex(img, "/")+1:], ":") {
+	if !strings.Contains(path.Base(img), ":") {
 		img += ":latest"
 	}
 	return img
@@ -63,14 +64,14 @@ func DeclaredImage(compose, star string) string {
 // PushRepo answers where a declared image is pushed: the path after the fleet
 // host, on the lane's registry, without its tag.
 func PushRepo(registry, image string) string {
-	path := image
+	p := image
 	if _, after, ok := strings.Cut(image, ".notusmi.com/"); ok {
-		path = after
+		p = after
 	}
-	if i := strings.LastIndex(path, ":"); i > strings.LastIndex(path, "/") {
-		path = path[:i]
+	if i := strings.LastIndex(p, ":"); i > strings.LastIndex(p, "/") {
+		p = p[:i]
 	}
-	return registry + "/" + path
+	return registry + "/" + p
 }
 
 // GPin is the tag a tip is published under: g and the commit's first twelve.
@@ -166,7 +167,7 @@ func MergeSBOM(image, builder []byte) (merged []byte, imageN, builderN, mergedN 
 		seen[k] = true
 		all = append(all, keyed{k, c})
 	}
-	sort.SliceStable(all, func(i, j int) bool { return all[i].key < all[j].key })
+	slices.SortStableFunc(all, func(a, b keyed) int { return strings.Compare(a.key, b.key) })
 	out := make([]any, len(all))
 	for i, k := range all {
 		out[i] = k.c
@@ -275,12 +276,7 @@ func Permit(status int, raw, built string) (int, string) {
 	return Clean, fmt.Sprintf("verified and stamped (digest=%s, ref=%s)", or(body.Digest, "?"), or(body.PushedRef, "?"))
 }
 
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n]
-}
+func truncate(s string, n int) string { return s[:min(len(s), n)] }
 
 func or(v, def string) string {
 	if v == "" {
