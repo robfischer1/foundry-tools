@@ -12,6 +12,12 @@ require (
 )
 
 require (
+	github.com/Microsoft/go-winio v0.6.2 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
+	github.com/spiffe/go-spiffe/v2 v2.8.1
+)
+
+require (
 	github.com/99designs/gqlgen v0.17.89 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect

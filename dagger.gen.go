@@ -63,9 +63,11 @@ func (r FoundryTools) MarshalJSON() ([]byte, error) {
 	var concrete struct {
 		Source *dagger.Directory
 		Repo   string
+		Sha    string
 	}
 	concrete.Source = r.Source
 	concrete.Repo = r.Repo
+	concrete.Sha = r.Sha
 	return json.Marshal(&concrete)
 }
 
@@ -73,6 +75,7 @@ func (r *FoundryTools) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
 		Source *dagger.Directory
 		Repo   string
+		Sha    string
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -80,6 +83,7 @@ func (r *FoundryTools) UnmarshalJSON(bs []byte) error {
 	}
 	r.Source = concrete.Source
 	r.Repo = concrete.Repo
+	r.Sha = concrete.Sha
 	return nil
 }
 
@@ -660,6 +664,83 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*FoundryTools).Bake(&parent, context, dockerfile, buildArgs, labels)
+		case "Build":
+			var parent FoundryTools
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var tip bool
+			if inputArgs["tip"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["tip"]), &tip)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg tip", err))
+				}
+			}
+			var spire *dagger.Socket
+			if inputArgs["spire"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["spire"]), &spire)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg spire", err))
+				}
+			}
+			var registryAuth *dagger.Secret
+			if inputArgs["registryAuth"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["registryAuth"]), &registryAuth)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registryAuth", err))
+				}
+			}
+			var cosignKey *dagger.Secret
+			if inputArgs["cosignKey"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["cosignKey"]), &cosignKey)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg cosignKey", err))
+				}
+			}
+			var cosignPassword *dagger.Secret
+			if inputArgs["cosignPassword"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["cosignPassword"]), &cosignPassword)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg cosignPassword", err))
+				}
+			}
+			var indexUrl string
+			if inputArgs["indexURL"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["indexURL"]), &indexUrl)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg indexURL", err))
+				}
+			}
+			var registry string
+			if inputArgs["registry"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["registry"]), &registry)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registry", err))
+				}
+			}
+			var sourceBase string
+			if inputArgs["sourceBase"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["sourceBase"]), &sourceBase)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg sourceBase", err))
+				}
+			}
+			var hades string
+			if inputArgs["hades"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["hades"]), &hades)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg hades", err))
+				}
+			}
+			var hadesId string
+			if inputArgs["hadesID"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["hadesID"]), &hadesId)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg hadesID", err))
+				}
+			}
+			return nil, (*FoundryTools).Build(&parent, ctx, tip, spire, registryAuth, cosignKey, cosignPassword, indexUrl, registry, sourceBase, hades, hadesId)
 		case "Catalogue":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)

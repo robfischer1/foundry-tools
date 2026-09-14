@@ -452,6 +452,15 @@ func (e *fakeEngine) answer(q string) (data any, errMsg string) {
 		val = c
 	case "size":
 		val = 1
+	case "plaintext":
+		// A secret's value is the plaintext its setSecret was given: the one
+		// way a test hands a lane a credential.
+		val = ""
+		if fields[0].name == "setSecret" {
+			if p, ok := fields[0].arg("plaintext"); ok {
+				val = p
+			}
+		}
 	case "id", "sync":
 		val = fakeID(q)
 	case "publish":

@@ -38,6 +38,10 @@ type FoundryTools struct {
 	// branch (the pull's base at dispatch), which is not in it.
 	// +private
 	Repo string
+	// Sha is the commit Source was fetched at, beside Repo, and "" with it.
+	// The build lane labels, tags and permits the image under it.
+	// +private
+	Sha string
 }
 
 // New binds the module to the caller's repository — the tree it is standing
@@ -88,7 +92,7 @@ func New(
 	// Depth -1 is "all of it" to the SDK (the zero value is dropped from
 	// the query and the engine's default is 1). Measured 2026-09-13 against
 	// the cluster engine: default 1 commit, -1 the whole 135.
-	return &FoundryTools{Source: dag.Git(repo).Ref(sha).Tree(dagger.GitRefTreeOpts{Depth: -1}), Repo: repo}, nil
+	return &FoundryTools{Source: dag.Git(repo).Ref(sha).Tree(dagger.GitRefTreeOpts{Depth: -1}), Repo: repo, Sha: sha}, nil
 }
 
 // Tree answers the git tree hash of the bound repository — the key the
