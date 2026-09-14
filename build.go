@@ -57,9 +57,9 @@ func (m *FoundryTools) Build(
 	// (CI_COSIGN_PRIVATE_KEY). Required with --tip.
 	// +optional
 	cosignKey *dagger.Secret,
-	// The CI signing key's password (CI_COSIGN_PASSWORD). Required with --tip.
+	// The CI signing key's passphrase (CI_COSIGN_PASSWORD). Required with --tip.
 	// +optional
-	cosignPassword *dagger.Secret,
+	cosignPassphrase *dagger.Secret,
 	// The python index a Dockerfile RUN reads as UV_INDEX_URL.
 	// +optional
 	indexURL string,
@@ -82,7 +82,7 @@ func (m *FoundryTools) Build(
 ) error {
 	l := &buildLane{
 		m: m, tip: tip, spire: spire,
-		registryAuth: registryAuth, cosignKey: cosignKey, cosignPassword: cosignPassword,
+		registryAuth: registryAuth, cosignKey: cosignKey, cosignPassphrase: cosignPassphrase,
 		indexURL: indexURL, registry: registry, sourceBase: sourceBase, hades: hades, hadesID: hadesID,
 		stamp: strconv.FormatInt(time.Now().UnixNano(), 10),
 	}
@@ -91,12 +91,12 @@ func (m *FoundryTools) Build(
 }
 
 type buildLane struct {
-	m                                       *FoundryTools
-	tip                                     bool
-	spire                                   *dagger.Socket
-	registryAuth, cosignKey, cosignPassword *dagger.Secret
-	indexURL, registry, sourceBase          string
-	hades, hadesID                          string
+	m                                         *FoundryTools
+	tip                                       bool
+	spire                                     *dagger.Socket
+	registryAuth, cosignKey, cosignPassphrase *dagger.Secret
+	indexURL, registry, sourceBase            string
+	hades, hadesID                            string
 	// stamp is this run's, on every step that must happen again on a rerun of
 	// the same commit: signing, attesting and the permit are acts, not results.
 	stamp string
@@ -127,8 +127,8 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 	if m.Repo == "" || m.Sha == "" {
 		return buildlane.CouldNotRun, "the build lane builds a commit the engine fetched — construct the module with --repo and --sha"
 	}
-	if l.tip && withheld(l.spire, l.registryAuth, l.cosignKey, l.cosignPassword) {
-		return buildlane.CouldNotRun, "a tip build publishes, signs and permits: --spire, --registry-auth, --cosign-key and --cosign-password are all required"
+	if l.tip && withheld(l.spire, l.registryAuth, l.cosignKey, l.cosignPassphrase) {
+		return buildlane.CouldNotRun, "a tip build publishes, signs and permits: --spire, --registry-auth, --cosign-key and --cosign-passphrase are all required"
 	}
 	star := starOf(m.Repo)
 	say("%s for %s at %.12s", map[bool]string{true: "tip build", false: "pull-time build (publishes nothing)"}[l.tip], star, m.Sha)
@@ -262,7 +262,7 @@ func (l *buildLane) sign(ctx context.Context, img *Image, ref, star string) (int
 		WithMountedTemp("/tmp").
 		WithEnvVariable("HOME", "/tmp").
 		WithMountedSecret("/run/cosign/key", dag.SetSecret("build-cosign-key-"+star, string(key)), dagger.ContainerWithMountedSecretOpts{Owner: "65532:65532"}).
-		WithSecretVariable("COSIGN_PASSWORD", l.cosignPassword).
+		WithSecretVariable("COSIGN_PASSWORD", l.cosignPassphrase).
 		WithMountedSecret("/run/docker/config.json", l.registryAuth, dagger.ContainerWithMountedSecretOpts{Owner: "65532:65532"}).
 		WithEnvVariable("DOCKER_CONFIG", "/run/docker").
 		WithEnvVariable("BUILD_RUN", l.stamp)

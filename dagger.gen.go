@@ -698,11 +698,11 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg cosignKey", err))
 				}
 			}
-			var cosignPassword *dagger.Secret
-			if inputArgs["cosignPassword"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["cosignPassword"]), &cosignPassword)
+			var cosignPassphrase *dagger.Secret
+			if inputArgs["cosignPassphrase"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["cosignPassphrase"]), &cosignPassphrase)
 				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg cosignPassword", err))
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg cosignPassphrase", err))
 				}
 			}
 			var indexUrl string
@@ -740,7 +740,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg hadesID", err))
 				}
 			}
-			return nil, (*FoundryTools).Build(&parent, ctx, tip, spire, registryAuth, cosignKey, cosignPassword, indexUrl, registry, sourceBase, hades, hadesId)
+			return nil, (*FoundryTools).Build(&parent, ctx, tip, spire, registryAuth, cosignKey, cosignPassphrase, indexUrl, registry, sourceBase, hades, hadesId)
 		case "Catalogue":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
