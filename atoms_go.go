@@ -67,7 +67,14 @@ func goVet(ctx context.Context, r *run) checks.Verdict {
 // test (chaos's own README says so of its lane).
 func goTestRace(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("go:test-race")
-	mods := r.withDies(r.goModules())
+	// THE SUITE RUNS IN A REPOSITORY git CAN READ. A test that shells out to
+	// git — hephaestus's TestRealResolveHistory runs `git ls-remote` against a
+	// fixture — fails on a linked worktree's dangling `.git` file with
+	// "fatal: not a git repository: <primary>/.git/worktrees/<name>" before
+	// it ever reaches the fixture, and the lane files FINDINGS for a test
+	// that never got to look (measured 2026-09-14 on hephaestus, pre-push).
+	// gitReady is the fix cargo-test and the mutation atoms already carry.
+	mods := r.gitReady(ctx, r.withDies(r.goModules()))
 
 	counts, code, err := output(ctx, mods.WithExec([]string{
 		"go", "list", "-f", "{{len .TestGoFiles}}{{len .XTestGoFiles}}", "./...",
