@@ -94,6 +94,18 @@ func Run(ctx context.Context, args []string, env func(string) string, stdout, st
 		fmt.Fprintf(stderr, "hadescall %s: the arguments are not JSON: %s\n", verb, body)
 		return 2
 	}
+	// HADESCALL_SVID_FIELD names a top-level field the call's own SVID is
+	// written into before sending: a gate receipt names the identity that
+	// delivered it, which only this process knows. Refused before dialing
+	// when there is no object to write it into.
+	svidField := env("HADESCALL_SVID_FIELD")
+	var fields map[string]any
+	if svidField != "" {
+		if err := json.Unmarshal([]byte(body), &fields); err != nil || fields == nil {
+			fmt.Fprintf(stderr, "hadescall %s: HADESCALL_SVID_FIELD=%s needs a JSON object to write the SVID into\n", verb, svidField)
+			return 2
+		}
+	}
 	cfg, err := configOf(env)
 	if err != nil {
 		fmt.Fprintf(stderr, "hadescall: %v\n", err)
@@ -117,6 +129,12 @@ func Run(ctx context.Context, args []string, env func(string) string, stdout, st
 		return 2
 	}
 	fmt.Fprintf(stderr, "hadescall: acting as %s, asking %s for %s\n", svid.ID, cfg.hadesID, verb)
+	if svidField != "" {
+		// A map decoded from valid JSON always re-encodes.
+		fields[svidField] = svid.ID.String()
+		stamped, _ := json.Marshal(fields)
+		body = string(stamped)
+	}
 	return ask(ctx, clientFor(id, cfg.hadesID), cfg.hades+"/v1/call/"+verb, verb, body, stdout, stderr)
 }
 
