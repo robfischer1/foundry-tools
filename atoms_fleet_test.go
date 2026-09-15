@@ -502,7 +502,7 @@ func TestFleetStopJustificationsWithoutTheCanonicalScriptIsCannotRun(t *testing.
 	engine.withTree(everyLaneTree)
 	engine.fail("ci/lib/stop_justifications.py", "no such file in tree")
 	wantState(t, runAtom(t, "fleet:stop-justifications", ""), 2,
-		"canonical source not reachable through the door")
+		"canonical source not reachable through the door", "no such file in tree")
 	fleetNoContainer(t, "the canonical source did not mount")
 }
 

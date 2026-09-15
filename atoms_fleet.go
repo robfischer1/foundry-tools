@@ -277,8 +277,12 @@ func fleetDetectSecrets(ctx context.Context, r *run) checks.Verdict {
 func fleetStopJustifications(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("fleet:stop-justifications")
 
+	// The engine's own error rides on the reason: foundry-tools#69's gate
+	// (2026-09-15) settled on this line with nothing after it, while the file
+	// was on foundry-stocks main and the door answered the same URL minutes
+	// later — a cause the verdict discarded is one nobody can chase.
 	if _, err := r.stocks.File("ci/lib/stop_justifications.py").Contents(ctx); err != nil {
-		return checks.VerdictOf(a, 2, "fleet:stop-justifications: CANNOT RUN - canonical source not reachable through the door")
+		return checks.VerdictOf(a, 2, fmt.Sprintf("fleet:stop-justifications: CANNOT RUN - canonical source not reachable through the door: %v", err))
 	}
 
 	return verdict(ctx, a, r.gitReady(ctx, r.withStocks(r.lane(checks.ImageFleet))).
