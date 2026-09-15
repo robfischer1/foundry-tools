@@ -1,6 +1,7 @@
 package main
 
 import (
+	"sort"
 	"strings"
 	"testing"
 
@@ -494,64 +495,119 @@ func TestFleetDetectSecretsEngineFailures(t *testing.T) {
 
 // ---- fleet:stop-justifications ----
 
-// The canonical script is read at its ONE home. A source that did not mount is
-// exit 2, never 0: pre-commit hides a passing hook's output, so a silent skip
-// is indistinguishable from a clean scan.
-func TestFleetStopJustificationsWithoutTheCanonicalScriptIsCannotRun(t *testing.T) {
+// The needles for the two questions the atom asks git.
+const (
+	sjLsNeedle     = `"git","ls-files","-z"`
+	sjOriginNeedle = `"git","remote","get-url","origin"`
+)
+
+// sjRepo declares a repository to the paper engine: its files, and the
+// tracked subset git lists (every file, unless tracked names them).
+func sjRepo(files map[string]string, tracked ...string) {
 	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.fail("ci/lib/stop_justifications.py", "no such file in tree")
-	wantState(t, runAtom(t, "fleet:stop-justifications", ""), 2,
-		"canonical source not reachable through the door", "no such file in tree")
-	fleetNoContainer(t, "the canonical source did not mount")
+	engine.withTree(files)
+	if tracked == nil {
+		for p := range files {
+			tracked = append(tracked, p)
+		}
+		sort.Strings(tracked)
+	}
+	engine.stdout(sjLsNeedle, strings.Join(tracked, "\x00")+"\x00")
+	engine.stdout(sjOriginNeedle, "http://ourea.default.svc.cluster.local:8215/x.git\n")
 }
 
-func TestFleetStopJustificationsRunsTheScriptAtItsOneHome(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-
+// THE SCAN IS GO: git lists the tree and names the repository, the engine
+// reads the files, and nothing runs in python or reads foundry-stocks.
+func TestFleetStopJustificationsScansTheTrackedTreeInGo(t *testing.T) {
+	sjRepo(map[string]string{"a.py": "def f():\n    return 1\n", "b.go": "package b\n"})
 	wantState(t, runAtom(t, "fleet:stop-justifications", ""), 0)
 
-	c := engine.chain(`"/stocks/ci/lib/stop_justifications.py"`, "exitCode")
+	c := engine.chain(sjLsNeedle, "exitCode")
+	if !strings.Contains(c, checks.ImageFleet) {
+		t.Errorf("the tree is listed in the fleet lane:\n%s", c)
+	}
 	wantCalls(t, c,
-		[]string{"withMountedDirectory", `path:"/stocks"`},
 		[]string{"withExec", `args:["git","config","--global","--add","safe.directory","*"]`},
-		[]string{"withExec", `args:["python3","--version"]`},
-		[]string{"withExec", `expect:ANY`, `args:["python3","/stocks/ci/lib/stop_justifications.py","."]`},
+		[]string{"withExec", `expect:ANY`, `args:["git","ls-files","-z"]`},
 	)
-	// git ABSENT is a cannot-run, not a finding: the probe is provisioning, so
-	// a python that is not there is the engine's error rather than exit 1.
-	if hasCall(c, "withExec", `"python3","--version"`, `expect:ANY`) {
-		t.Errorf("the version probe is provisioning and must run under the default Expect:\n%s", c)
+	for _, q := range engine.chains() {
+		if strings.Contains(q, "python3") || strings.Contains(q, `path:"/stocks"`) {
+			t.Errorf("the atom runs no script and mounts no stocks:\n%s", q)
+		}
+	}
+	for _, p := range []string{"a.py", "b.go"} {
+		if engine.chain(`file(path:"`+p+`")`, "contents") == "" {
+			t.Errorf("%s was never read", p)
+		}
 	}
 	if strings.Contains(c, "GATE_BASE") {
 		t.Errorf("rule 8: fleet:stop-justifications must not read GATE_BASE:\n%s", c)
 	}
 }
 
-// The script's OWN exit code is the verdict, 0/1/2 straight through: its own
-// "refusing to report success without scanning" survives rather than being
-// flattened to a finding.
-func TestFleetStopJustificationsPassesTheScriptsExitThrough(t *testing.T) {
-	const tool = `"/stocks/ci/lib/stop_justifications.py"`
-	engine.reset()
-	engine.withTree(everyLaneTree)
+func TestFleetStopJustificationsFilesTheScansFindings(t *testing.T) {
+	sjRepo(map[string]string{"a.py": "x = 1  # no" + "qa: E501\n", "README.md": "x\n"})
+	wantState(t, runAtom(t, "fleet:stop-justifications", ""), 1,
+		"stop-justifications: 1 suppression(s) with no stated conflict.", "ruff · noqa", "a.py:1")
 
-	engine.exitCode(tool, 0)
+	// A file on disk that git does not track is out of scope, as it always was.
+	sjRepo(map[string]string{"a.py": "x = 1\n", "scratch.py": "x = 1  # no" + "qa\n"}, "a.py")
+	wantState(t, runAtom(t, "fleet:stop-justifications", ""), 0)
+}
+
+// The repository is what origin names, and DirectoryExempt is keyed on it: a
+// cerberus probe driver is excused under cerberus's origin and nowhere else.
+func TestFleetStopJustificationsNamesTheRepositoryByItsOrigin(t *testing.T) {
+	drive := map[string]string{"probes/drive.py": "p = Popen([x])  # no" + "qa: S603\n"}
+	sjRepo(drive)
+	engine.stdout(sjOriginNeedle, "git@forgejo.notusmi.com:rob/cerberus.git\n")
 	wantState(t, runAtom(t, "fleet:stop-justifications", ""), 0)
 
-	engine.exitCode(tool, 1)
-	engine.stdout(tool, "src/x.py:12: noqa with no tool-conflict line")
-	wantState(t, runAtom(t, "fleet:stop-justifications", ""), 1, "no tool-conflict line")
+	sjRepo(drive)
+	wantState(t, runAtom(t, "fleet:stop-justifications", ""), 1, "S603")
 
-	engine.exitCode(tool, 2)
-	engine.stderr(tool, "CANNOT RUN - git is not on PATH")
-	wantState(t, runAtom(t, "fleet:stop-justifications", ""), 2, "git is not on PATH")
+	// No origin names no repository, which excuses nothing and refuses nothing.
+	sjRepo(drive)
+	engine.exitCode(sjOriginNeedle, 2)
+	engine.stdout(sjOriginNeedle, "git@forgejo.notusmi.com:rob/cerberus.git\n")
+	wantState(t, runAtom(t, "fleet:stop-justifications", ""), 1, "S603")
+}
 
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.fail(`"python3","--version"`, "exit code: 127: python3: not found")
-	wantState(t, runAtom(t, "fleet:stop-justifications", ""), 2, "the atom never ran", "python3: not found")
+// The fleet's exclude is honoured before a file is fetched: a vendored tree
+// costs the engine nothing, and a repository's own config is never read.
+func TestFleetStopJustificationsNeverReadsWhatTheFleetExcludes(t *testing.T) {
+	sjRepo(map[string]string{
+		"vendor/x.py": "x = 1  # no" + "qa\n",
+		"src/a.py":    "x = 1\n",
+	})
+	wantState(t, runAtom(t, "fleet:stop-justifications", ""), 0)
+	if q := engine.chain(`file(path:"vendor/x.py")`); q != "" {
+		t.Errorf("an excluded file was read:\n%s", q)
+	}
+
+}
+
+// Every way the repository will not answer is a CANNOT RUN, never a verdict.
+func TestFleetStopJustificationsCannotRunWhenTheRepositoryWillNotAnswer(t *testing.T) {
+	files := map[string]string{"a.py": "x = 1\n"}
+
+	sjRepo(files)
+	engine.exitCode(sjLsNeedle, 1)
+	engine.stderr(sjLsNeedle, "error: index is corrupt")
+	wantState(t, runAtom(t, "fleet:stop-justifications", ""), 2,
+		"git ls-files failed", "index is corrupt", "refusing to report success without scanning")
+
+	sjRepo(files)
+	engine.fail(sjLsNeedle, "exit code: 128")
+	wantState(t, runAtom(t, "fleet:stop-justifications", ""), 2, "the atom never ran", "exit code: 128")
+
+	sjRepo(files)
+	engine.fail(sjOriginNeedle, "the engine went away")
+	wantState(t, runAtom(t, "fleet:stop-justifications", ""), 2, "the atom never ran", "the engine went away")
+
+	sjRepo(files)
+	engine.fail(`file(path:"a.py")`, "blob missing")
+	wantState(t, runAtom(t, "fleet:stop-justifications", ""), 2, "CANNOT RUN — could not read a.py", "blob missing")
 }
 
 // ---- fleet:sast-ruleset-lanes ----
