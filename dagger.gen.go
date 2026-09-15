@@ -741,6 +741,48 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*FoundryTools).Build(&parent, ctx, tip, spire, registryAuth, cosignKey, cosignPassphrase, indexUrl, registry, sourceBase, hades, hadesId)
+		case "Bundle":
+			var parent FoundryTools
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var opaSigningKey *dagger.Secret
+			if inputArgs["opaSigningKey"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["opaSigningKey"]), &opaSigningKey)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg opaSigningKey", err))
+				}
+			}
+			var registryToken *dagger.Secret
+			if inputArgs["registryToken"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["registryToken"]), &registryToken)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registryToken", err))
+				}
+			}
+			var cosignKey *dagger.Secret
+			if inputArgs["cosignKey"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["cosignKey"]), &cosignKey)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg cosignKey", err))
+				}
+			}
+			var cosignPassphrase *dagger.Secret
+			if inputArgs["cosignPassphrase"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["cosignPassphrase"]), &cosignPassphrase)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg cosignPassphrase", err))
+				}
+			}
+			var dryRun bool
+			if inputArgs["dryRun"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["dryRun"]), &dryRun)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg dryRun", err))
+				}
+			}
+			return nil, (*FoundryTools).Bundle(&parent, ctx, opaSigningKey, registryToken, cosignKey, cosignPassphrase, dryRun)
 		case "Catalogue":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
