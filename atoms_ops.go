@@ -207,7 +207,7 @@ func opsShellPhase(ctx context.Context, ctr *dagger.Container, files []checks.Op
 		return opsResult{state: 2, out: "shell: could not read the scripts' first lines: " + grep}, nil
 	}
 	shebang, fragments := checks.OpsShellFiles(files, checks.OpsFirstLines(grep))
-	if len(shebang)+len(fragments) == 0 {
+	if len(shebang) == 0 && len(fragments) == 0 {
 		return opsResult{absent: "no shell script in this tree"}, nil
 	}
 	// A shebang tells shellcheck its dialect; a SOURCED FRAGMENT does not, so

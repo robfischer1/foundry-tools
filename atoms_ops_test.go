@@ -130,6 +130,19 @@ func TestOpsShell(t *testing.T) {
 	opsTree(files, nil)
 	engine.exitCode(`"git","grep","-I","-n","-z"`, 2)
 	wantState(t, runAtom(t, "ops:shell", ""), 2, "could not read the scripts' first lines")
+
+	// git grep answers 1 when no file starts with #!: the fragments still run.
+	opsTree(map[string]string{"flux/x.yaml": "", "lib/frag.sh": "x=1\n"}, nil)
+	engine.exitCode(`"git","grep","-I","-n","-z"`, 1)
+	wantState(t, runAtom(t, "ops:shell", ""), 0)
+	if engine.chain(`"-s","bash","-f","gcc","lib/frag.sh"]`) == "" {
+		t.Error("a grep that matched nothing must still check the fragments")
+	}
+	// One script with a shebang and one fragment is two scripts, not none.
+	opsTree(map[string]string{"flux/x.yaml": "", "a.sh": "#!/bin/sh\n", "lib/frag.sh": "x=1\n"}, nil)
+	engine.stdout(`"git","grep","-I","-n","-z"`, "a.sh\x001\x00#!/bin/sh\n")
+	engine.exitCode(`"-S","error","-f","gcc"`, 1)
+	wantState(t, runAtom(t, "ops:shell", ""), 1, "shell: 2 script(s)")
 }
 
 func TestOpsChezmoi(t *testing.T) {
@@ -331,6 +344,11 @@ func TestOpsFlux(t *testing.T) {
 	engine.exitCode(`"flux/apps"]`, 1)
 	engine.stderr(`"flux/apps"]`, "Error: accumulating resources: failed to fetch github.com/x: dial tcp: i/o timeout")
 	wantState(t, runAtom(t, "ops:flux", ""), 2, "fault of the substrate")
+
+	// A cluster manifest that does not parse is named, and the build goes on.
+	opsTree(map[string]string{"flux/clusters/home/apps.yaml": crs, "flux/clusters/home/bad.yaml": ": [bad\n"}, nil)
+	engine.exitCode(`"kubeconform","-strict"`, 1)
+	wantState(t, runAtom(t, "ops:flux", ""), 1, "flux/clusters/home/bad.yaml: ", "kustomize build flux/apps")
 
 	// No CR: every flux/<dir> with a kustomization.yaml.
 	opsTree(map[string]string{"flux/hemera/kustomization.yaml": "", "flux/hemera/x/kustomization.yaml": ""}, nil)

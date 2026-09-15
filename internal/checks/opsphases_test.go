@@ -171,4 +171,12 @@ func TestOpsBatches(t *testing.T) {
 	if got := OpsBatches([]string{strings.Repeat("y", argvBudget/2-1), strings.Repeat("z", argvBudget/2-1)}); len(got) != 1 {
 		t.Errorf("two halves that fit are one batch: %d", len(got))
 	}
+	// One byte over is two batches, and a file bigger than the budget alone is
+	// still one batch, never an empty one before it.
+	if got := OpsBatches([]string{strings.Repeat("y", argvBudget/2-1), strings.Repeat("z", argvBudget/2)}); len(got) != 2 {
+		t.Errorf("one byte over the budget is two batches: %d", len(got))
+	}
+	if got := OpsBatches([]string{strings.Repeat("y", argvBudget+10)}); len(got) != 1 || len(got[0]) != 1 {
+		t.Errorf("an oversized file is its own batch: %v", len(got))
+	}
 }
