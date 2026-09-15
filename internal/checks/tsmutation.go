@@ -216,10 +216,10 @@ func DiagnoseInstall(log string, status int, look RegistryLookup) (int, string) 
 		}
 		seen[url] = true
 		fetched = true
-		cut := strings.LastIndex(url, "/-/")
-		if cut < 0 {
+		if !strings.Contains(url, "/-/") {
 			continue
 		}
+		cut := strings.LastIndex(url, "/-/")
 		segs := strings.Split(url[:cut], "/")
 		basename := segs[len(segs)-1]
 		segs = segs[:len(segs)-1]

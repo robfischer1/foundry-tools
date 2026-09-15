@@ -138,6 +138,13 @@ func TestDiagnoseInstall(t *testing.T) {
 	if len(f.asked) != 2 {
 		t.Errorf("walked past the first version: %v", f.asked)
 	}
+	// The pinned version is the first the registry lists: listed, and nothing
+	// before it to try.
+	f = &fakeRegistry{versions: map[string][]string{reg + "/left-pad": {"1.0.0", "1.1.0"}}}
+	if state, reason = DiagnoseInstall("GET "+tgz("left-pad", "left-pad", "1.0.0")+" - 404", 1, f); state != 1 ||
+		!strings.Contains(reason, "left-pad@1.0.0 IS listed") || !strings.Contains(reason, "No nearby version served either") || len(f.asked) != 1 {
+		t.Errorf("first listed: %d %s %v", state, reason, f.asked)
+	}
 
 	// Not indexed at all.
 	f = &fakeRegistry{versions: map[string][]string{reg + "/left-pad": {"1.0.0"}}}
