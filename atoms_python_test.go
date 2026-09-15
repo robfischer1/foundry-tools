@@ -398,10 +398,16 @@ func TestPythonPytestTreatsAnEmptyLaneAsAFinding(t *testing.T) {
 	// EVERY OTHER NON-ZERO CODE IS ALSO A FINDING — the shell body's fold of
 	// 2/3/4 to one exit 1, carried rather than re-litigated. StateFor would
 	// have read these as could-not-run; PytestState is what stops it.
-	for _, code := range []int{2, 3, 4, 137} {
+	for _, code := range []int{2, 3, 4} {
 		engine.exitCode(`"pytest","-q"`, code)
 		wantState(t, runAtom(t, "python:pytest", ""), 1)
 	}
+
+	// AN OOM KILL IS NOT IN THAT FOLD. 137 is in the signal range no Expect
+	// covers, so the engine errors before PytestState sees a code: the suite
+	// never ran, and the lane says so rather than filing a finding.
+	engine.exitCode(`"pytest","-q"`, 137)
+	wantState(t, runAtom(t, "python:pytest", ""), 2, "the atom never ran", "exit code: 137")
 
 	// The engine's own failure stays distinct from the tool's.
 	engine.reset()

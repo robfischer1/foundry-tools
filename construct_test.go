@@ -100,8 +100,8 @@ func TestTreeAnswersTheTreeHashOrRefuses(t *testing.T) {
 	engine.stdout(`"rev-parse","HEAD^{tree}"`, "fatal: bad revision\n")
 	if got, err := m.Tree(context.Background()); err == nil || got != "" {
 		t.Errorf("a failed rev-parse must be an error, got %q, %v", got, err)
-	} else if !strings.Contains(err.Error(), "exit 128") {
-		t.Errorf("the error names the exit: %v", err)
+	} else if !strings.Contains(err.Error(), "could not read the tree: exit code: 128") {
+		t.Errorf("git's fatal 128 is the engine's error, never a code Tree reads: %v", err)
 	}
 
 	engine.reset()

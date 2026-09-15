@@ -312,13 +312,18 @@ func TestFleetMergeConflictReadsTheOutputBeforeTheCode(t *testing.T) {
 
 	// A scan that was killed or whose binary was not there has not found
 	// nothing — it has not looked.
-	for _, code := range []int{2, 124, 125, 126, 127, 137} {
+	for _, code := range []int{2, 124, 125, 126, 127} {
 		engine.exitCode(tool, code)
 		wantState(t, runAtom(t, "fleet:check-merge-conflict", ""), 2,
 			"the conflict-marker scan did not complete", "printed nothing")
 	}
 	engine.exitCode(tool, 126)
 	wantState(t, runAtom(t, "fleet:check-merge-conflict", ""), 2, "xargs exit 126")
+
+	// xargs itself killed (137) never reaches the mapping: no Expect covers the
+	// signal range, so the engine errors and the atom never ran.
+	engine.exitCode(tool, 137)
+	wantState(t, runAtom(t, "fleet:check-merge-conflict", ""), 2, "exit code: 137")
 }
 
 func TestFleetMergeConflictWithNoCommittableFileNeverBuildsAContainer(t *testing.T) {
@@ -1033,9 +1038,15 @@ func TestFleetHadolintMapsTheToolsExit(t *testing.T) {
 	engine.stdout(hadolintTool, "Dockerfile:2:4 missing whitespace")
 	wantState(t, runAtom(t, "fleet:hadolint", ""), 1, "missing whitespace")
 
+	// A kill (137) is not an exit the tool gives: no Expect covers the signal
+	// range, so the engine errors and the atom never ran.
 	engine.exitCode(hadolintTool, 137)
 	engine.stdout(hadolintTool, "")
-	wantState(t, runAtom(t, "fleet:hadolint", ""), 2, "CANNOT RUN (exit 137)")
+	wantState(t, runAtom(t, "fleet:hadolint", ""), 2, "the atom never ran", "exit code: 137")
+
+	// A code the tool does give past 1 stays could-not-run on its own sentence.
+	engine.exitCode(hadolintTool, 127)
+	wantState(t, runAtom(t, "fleet:hadolint", ""), 2, "CANNOT RUN (exit 127)")
 
 	// Info-level notes below the threshold exit 0 and are a pass.
 	engine.exitCode(hadolintTool, 0)

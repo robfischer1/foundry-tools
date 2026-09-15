@@ -386,6 +386,18 @@ func (e *fakeEngine) answer(q string) (data any, errMsg string) {
 		return v, found
 	}
 
+	// THE SIGNAL RANGE IS NOT AN EXIT. Every Expect the SDK has covers exit
+	// codes 0-127 and 192-255 at most (internal/dagger: ReturnTypeAny), so the
+	// cluster engine answers an exec that ends in 128-191 — git's fatal 128, an
+	// OOM kill's 137 — with an error on every read off it, never with the code.
+	// Answered literally, build.go's detect passed on a merge-base 128 the
+	// cluster never returned (foundry-tools #64).
+	if v, ok := scripted("exitCode"); ok && strings.Contains(q, "withExec") {
+		if code, _ := v.(int); code >= 128 && code <= 191 {
+			return nil, fmt.Sprintf("exit code: %d", code)
+		}
+	}
+
 	var val any
 	switch leaf.name {
 	case "exitCode":
@@ -546,6 +558,35 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	_ = srv.Close()
 	os.Exit(code)
+}
+
+// TestThePaperEngineErrorsInTheSignalRange pins the edges the cluster engine
+// keeps: 127 and 192 are codes an atom reads; 128 through 191 are errors.
+func TestThePaperEngineErrorsInTheSignalRange(t *testing.T) {
+	const q = `query Query {container{withExec(args:["git","rev-parse"], expect:ANY){exitCode}}}`
+	for _, tc := range []struct {
+		code    int
+		errored bool
+	}{{127, false}, {128, true}, {137, true}, {191, true}, {192, false}} {
+		engine.reset()
+		engine.exitCode(`"git","rev-parse"`, tc.code)
+		data, errMsg := engine.answer(q)
+		if tc.errored {
+			if want := fmt.Sprintf("exit code: %d", tc.code); errMsg != want || data != nil {
+				t.Errorf("exit %d must answer the engine's error %q, got %v / %q", tc.code, want, data, errMsg)
+			}
+			continue
+		}
+		if errMsg != "" {
+			t.Errorf("exit %d is a code the atom reads, got the error %q", tc.code, errMsg)
+			continue
+		}
+		got := data.(map[string]any)["container"].(map[string]any)["withExec"].(map[string]any)["exitCode"]
+		if got != tc.code {
+			t.Errorf("exit %d must answer as the code, got %v", tc.code, got)
+		}
+	}
+	engine.reset()
 }
 
 // ---- helpers every lane's tests use ----
