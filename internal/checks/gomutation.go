@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -48,34 +49,29 @@ type GoMutationScore struct {
 	Summary string
 }
 
+// profileRow is one block of a coverage profile:
+// file:startLine.startCol,endLine.endCol statements count. The "mode:" header
+// and anything malformed do not match, and a row that does not match is not a
+// verdict.
+var profileRow = regexp.MustCompile(`^(.+):(\d+)\.(\d+),\d+\.\d+ \d+ (\d+)$`)
+
 // coveredBlocks reads a `go test -coverprofile` into the start (line, column)
 // of every block that ran, by file relative to the module.
 func coveredBlocks(profile, module string) map[string][][2]int {
 	covered := map[string][][2]int{}
-	lines := strings.Split(profile, "\n")
-	for _, ln := range lines[min(1, len(lines)):] {
-		fields := strings.Fields(ln)
-		if len(fields) != 3 {
-			continue // a malformed row is not a verdict
-		}
-		count, err := strconv.Atoi(fields[2])
-		if err != nil || count == 0 {
-			continue // gremlins drops the unrun blocks too
-		}
-		i := strings.LastIndex(fields[0], ":")
-		if i < 0 {
+	for _, ln := range strings.Split(profile, "\n") {
+		m := profileRow.FindStringSubmatch(strings.TrimSpace(ln))
+		if m == nil {
 			continue
 		}
-		name, rng := fields[0][:i], fields[0][i+1:]
-		startLine, startCol, ok := strings.Cut(strings.SplitN(rng, ",", 2)[0], ".")
-		if !ok {
+		// The digits matched, so these parse; a count of zero is a block that
+		// never ran, which gremlins drops too.
+		sl, _ := strconv.Atoi(m[2])
+		sc, _ := strconv.Atoi(m[3])
+		if count, _ := strconv.Atoi(m[4]); count == 0 {
 			continue
 		}
-		sl, errL := strconv.Atoi(startLine)
-		sc, errC := strconv.Atoi(startCol)
-		if errL != nil || errC != nil {
-			continue
-		}
+		name := m[1]
 		if module != "" {
 			name = strings.TrimPrefix(name, module+"/")
 		}
@@ -269,15 +265,17 @@ func GoMutationVerdict(run GoMutationRun) (int, string) {
 		measured += fmt.Sprintf(", %.1fms of wall clock per mutant", s.MsPerMutant)
 	}
 	with := func(line string) string { return line + "\n" + measured + "\n\n" + s.Summary }
-	switch {
-	case run.Status != 0:
+	if run.Status != 0 {
 		return 2, with(fmt.Sprintf("gremlins exited %d — a broken run, not a survivor report", run.Status))
-	case s.TimedOutPct > GoMutationTimeoutBudget:
+	}
+	if s.TimedOutPct > GoMutationTimeoutBudget {
 		return 2, with(fmt.Sprintf("%s%% of mutants TIMED OUT, over the %.0f%% budget — the suite was not measured", strconv.FormatFloat(s.TimedOutPct, 'f', -1, 64), GoMutationTimeoutBudget))
-	case run.Canary == CanaryBroken:
+	}
+	if run.Canary == CanaryBroken {
 		// Fatal like a timeout-heavy run: neither measured anything.
 		return 2, with("the harness scores unrun tests as kills: the control mutant, which must SURVIVE, came back KILLED — every kill in this report is false. See #7649")
-	case missed == 0:
+	}
+	if missed == 0 {
 		return 0, with("every viable mutant was caught")
 	}
 	return 1, with(fmt.Sprintf("%d mutant(s) survived or were never covered — see the list below", missed))

@@ -119,6 +119,34 @@ func TestScoreGoMutationSaysWhenItMeasuredNothing(t *testing.T) {
 	}
 }
 
+// A report with no mutations measured nothing and says only that: no NaN
+// percentage, no "measured NONE of 0", and a run gremlins timed at zero is still
+// a cost worth printing.
+func TestScoreGoMutationOfAnEmptyReportAndAZeroClock(t *testing.T) {
+	s, err := ScoreGoMutation([]byte(`{"elapsed_time":1,"files":[]}`), "", "diff", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Generated != 0 || s.TimedOutPct != 0 {
+		t.Errorf("an empty report: generated %d, timed out %v%%, want 0 and 0", s.Generated, s.TimedOutPct)
+	}
+	if strings.Contains(s.Summary, "measured NONE") || strings.Contains(s.Summary, "NaN") {
+		t.Errorf("an empty report said too much:\n%s", s.Summary)
+	}
+
+	zero := `{"elapsed_time":0,"files":[{"file_name":"a.go","mutations":[{"type":"T","status":"KILLED","line":1,"column":1}]}]}`
+	s, err = ScoreGoMutation([]byte(zero), "", "diff", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.MsPerMutant != 0 || !strings.Contains(s.Summary, "_0ms of wall clock per mutant across 1 worker(s)._") {
+		t.Errorf("a zero clock is a cost of zero, printed: %v\n%s", s.MsPerMutant, s.Summary)
+	}
+	if _, reason := GoMutationVerdict(GoMutationRun{Report: []byte(zero), Canary: CanaryOK}); !strings.Contains(reason, "0% timed out, 0.0ms of wall clock per mutant") {
+		t.Errorf("the measured line dropped a zero cost: %q", reason)
+	}
+}
+
 // Rounding is half to even, as the scorer this replaces rounded.
 func TestPythonRoundIsHalfToEven(t *testing.T) {
 	for _, c := range []struct {
