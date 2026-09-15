@@ -783,6 +783,55 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*FoundryTools).Bundle(&parent, ctx, opaSigningKey, registryToken, cosignKey, cosignPassphrase, dryRun)
+		case "Cast":
+			var parent FoundryTools
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var spire *dagger.Socket
+			if inputArgs["spire"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["spire"]), &spire)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg spire", err))
+				}
+			}
+			var registryToken *dagger.Secret
+			if inputArgs["registryToken"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["registryToken"]), &registryToken)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registryToken", err))
+				}
+			}
+			var doorbellUrl string
+			if inputArgs["doorbellURL"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["doorbellURL"]), &doorbellUrl)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg doorbellURL", err))
+				}
+			}
+			var hades string
+			if inputArgs["hades"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["hades"]), &hades)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg hades", err))
+				}
+			}
+			var hadesId string
+			if inputArgs["hadesID"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["hadesID"]), &hadesId)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg hadesID", err))
+				}
+			}
+			var dryRun bool
+			if inputArgs["dryRun"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["dryRun"]), &dryRun)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg dryRun", err))
+				}
+			}
+			return nil, (*FoundryTools).Cast(&parent, ctx, spire, registryToken, doorbellUrl, hades, hadesId, dryRun)
 		case "Catalogue":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
