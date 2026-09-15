@@ -72,13 +72,22 @@ func (m *FoundryTools) Publish(
 	// Empty leaves the resolution to uv and the project.
 	// +optional
 	indexURL string,
+	// The npm registry password for a tree whose root is a package.json: the
+	// Nexus publisher's (ca-publish-lane's NPM_TOKEN). Required unless --dry-run.
+	// +optional
+	npmToken *dagger.Secret,
+	// The npm registry a package.json tree is probed on and published to. A
+	// package whose publishConfig.registry names anywhere else is refused.
+	// +optional
+	// +default="https://nexus.notusmi.com/repository/npm-hosted/"
+	npmRegistry string,
 	// Build and ask the index for real; upload nothing, and need no --token.
 	// +optional
 	dryRun bool,
 ) error {
 	l := &publishLane{
-		m: m, token: token,
-		publishURL: publishURL, checkURL: checkURL, user: user, indexURL: indexURL, dryRun: dryRun,
+		m: m, token: token, npmToken: npmToken,
+		publishURL: publishURL, checkURL: checkURL, user: user, indexURL: indexURL, npmRegistry: npmRegistry, dryRun: dryRun,
 		stamp: strconv.FormatInt(time.Now().UnixNano(), 10),
 	}
 	code, reason := l.run(ctx)
@@ -86,10 +95,10 @@ func (m *FoundryTools) Publish(
 }
 
 type publishLane struct {
-	m                                    *FoundryTools
-	token                                *dagger.Secret
-	publishURL, checkURL, user, indexURL string
-	dryRun                               bool
+	m                                                 *FoundryTools
+	token, npmToken                                   *dagger.Secret
+	publishURL, checkURL, user, indexURL, npmRegistry string
+	dryRun                                            bool
 	// stamp is this run's, on the probe and on every upload: what the index
 	// holds is a fact about now, not about the tree, and an engine that
 	// answered either from its cache would answer last run's.
@@ -108,6 +117,9 @@ func (l *publishLane) run(ctx context.Context) (int, string) {
 	m := l.m
 	if m.Repo == "" || m.Sha == "" {
 		return buildlane.CouldNotRun, "the publish lane publishes a commit the engine fetched — construct the module with --repo and --sha"
+	}
+	if code, reason, npm := l.npmTree(ctx); npm {
+		return code, reason
 	}
 	if !l.dryRun && l.token == nil {
 		return buildlane.CouldNotRun, "a publish uploads: --token is required (--dry-run uploads nothing and needs none)"
