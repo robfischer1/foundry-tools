@@ -1,32 +1,37 @@
 package publishlane
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 )
 
 // The npm half of the lane, ported from theia ci/publish.sh's contract (probe,
-// auth, publish). It publishes ONE package: the tree's root package.json. A
-// workspace root names no single package, and which of its packages release is
-// the repository's decision — theia publishes four of its six public ones — so
-// the lane refuses one by name rather than guessing.
+// auth, publish). A plain root publishes its own package.json. A workspace root
+// publishes the members that declare where they go — a non-private package.json
+// with publishConfig.registry — and never itself (Rob, 2026-09-15: theia's six
+// such packages all publish).
 
-// Npm is what the lane reads off a root package.json.
+// Npm is what the lane reads off one package.json.
 type Npm struct {
 	Name, Version string
 	Private       bool
-	// Workspaces is true for any manifest that declares workspaces at all: the
-	// lane refuses rather than decide which of them release.
-	Workspaces bool
-	// Builds is true when prepublishOnly runs something. `bun publish` runs it,
-	// and it needs the lockfile's dependencies installed first.
-	Builds bool
+	// Workspaces are the member globs a workspace root declares ("packages/*"),
+	// in either spelling npm accepts: a list, or {"packages": [...]}.
+	Workspaces []string
+	// PrepublishOnly is the script a publish runs first, verbatim.
+	PrepublishOnly string
 	// Registry is publishConfig.registry, "" when the manifest names none.
 	Registry string
 }
+
+// Builds answers whether publishing runs something first, which needs the
+// lockfile's dependencies installed.
+func (n Npm) Builds() bool { return strings.TrimSpace(n.PrepublishOnly) != "" }
 
 // NpmOf reads a package.json.
 func NpmOf(manifest string) (Npm, error) {
@@ -41,17 +46,51 @@ func NpmOf(manifest string) (Npm, error) {
 		} `json:"publishConfig"`
 	}
 	if err := json.Unmarshal([]byte(manifest), &doc); err != nil {
-		return Npm{}, fmt.Errorf("package.json does not parse: %v", err)
+		return Npm{}, fmt.Errorf("does not parse: %v", err)
 	}
-	workspaces := strings.TrimSpace(string(doc.Workspaces))
+	workspaces, err := workspaceGlobs(doc.Workspaces)
+	if err != nil {
+		return Npm{}, err
+	}
 	return Npm{
-		Name:       doc.Name,
-		Version:    doc.Version,
-		Private:    doc.Private,
-		Workspaces: workspaces != "" && workspaces != "null",
-		Builds:     strings.TrimSpace(doc.Scripts["prepublishOnly"]) != "",
-		Registry:   doc.PublishConfig.Registry,
+		Name:           doc.Name,
+		Version:        doc.Version,
+		Private:        doc.Private,
+		Workspaces:     workspaces,
+		PrepublishOnly: doc.Scripts["prepublishOnly"],
+		Registry:       doc.PublishConfig.Registry,
 	}, nil
+}
+
+// workspaceGlobs reads workspaces in either spelling. Absent or null is no
+// workspace at all.
+func workspaceGlobs(raw json.RawMessage) ([]string, error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+	var list []string
+	if err := json.Unmarshal(raw, &list); err == nil {
+		return list, nil
+	}
+	var object struct {
+		Packages []string `json:"packages"`
+	}
+	if err := json.Unmarshal(raw, &object); err != nil {
+		return nil, fmt.Errorf(`does not parse: workspaces is neither a list of globs nor {"packages": [...]}`)
+	}
+	return object.Packages, nil
+}
+
+var plainBuild = regexp.MustCompile(`^(bun|npm|pnpm|yarn) run build$`)
+
+// PlainBuild answers whether a prepublishOnly does nothing but run the package's
+// own build script — the one the lane may run itself, through turbo when the
+// workspace has it, so the package's workspace dependencies build first. The
+// package manager it names does not matter: theia's aglaia and plugin-contract
+// say `pnpm run build`, and the lane image carries no pnpm.
+func PlainBuild(prepublishOnly string) bool {
+	return plainBuild.MatchString(strings.TrimSpace(prepublishOnly))
 }
 
 // PackumentURL is where a registry answers a package's packument. The scope's

@@ -2,6 +2,7 @@ package publishlane
 
 import (
 	"encoding/base64"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -15,31 +16,61 @@ func TestNpmOfReadsWhatDecidesAPublish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Npm{Name: "@forge/stellar-core-ts", Version: "0.6.0", Builds: true, Registry: "https://nexus.example/repository/npm-hosted/"}
-	if got != want {
-		t.Fatalf("NpmOf = %+v, want %+v", got, want)
+	want := Npm{Name: "@forge/stellar-core-ts", Version: "0.6.0", PrepublishOnly: "bun run build", Registry: "https://nexus.example/repository/npm-hosted/"}
+	if !reflect.DeepEqual(got, want) || !got.Builds() {
+		t.Fatalf("NpmOf = %+v (builds %v), want %+v that builds", got, got.Builds(), want)
 	}
 
 	for name, tc := range map[string]struct {
 		manifest string
 		want     Npm
 	}{
-		"a private root":             {`{"name": "theia", "private": true}`, Npm{Name: "theia", Private: true}},
-		"a workspace list":           {`{"name": "theia", "workspaces": ["apps/*"]}`, Npm{Name: "theia", Workspaces: true}},
-		"an empty workspace list":    {`{"name": "x", "workspaces": []}`, Npm{Name: "x", Workspaces: true}},
-		"a null workspace":           {`{"name": "x", "workspaces": null}`, Npm{Name: "x"}},
-		"a blank prepublishOnly":     {`{"name": "x", "scripts": {"prepublishOnly": "  "}}`, Npm{Name: "x"}},
-		"no scripts, no registry":    {`{"name": "x", "version": "1.0.0"}`, Npm{Name: "x", Version: "1.0.0"}},
-		"another script is no build": {`{"name": "x", "scripts": {"build": "tsc"}}`, Npm{Name: "x"}},
+		"a private root":                  {`{"name": "theia", "private": true}`, Npm{Name: "theia", Private: true}},
+		"a workspace list":                {`{"name": "theia", "workspaces": ["apps/*", "packages/*"]}`, Npm{Name: "theia", Workspaces: []string{"apps/*", "packages/*"}}},
+		"a workspace object":              {`{"name": "y", "workspaces": {"packages": ["libs/*"]}}`, Npm{Name: "y", Workspaces: []string{"libs/*"}}},
+		"an empty workspace list":         {`{"name": "x", "workspaces": []}`, Npm{Name: "x", Workspaces: []string{}}},
+		"a null workspace":                {`{"name": "x", "workspaces": null}`, Npm{Name: "x"}},
+		"no scripts, no registry":         {`{"name": "x", "version": "1.0.0"}`, Npm{Name: "x", Version: "1.0.0"}},
+		"another script is no prepublish": {`{"name": "x", "scripts": {"build": "tsc"}}`, Npm{Name: "x"}},
 	} {
 		got, err := NpmOf(tc.manifest)
-		if err != nil || got != tc.want {
+		if err != nil || !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s: NpmOf = %+v, %v; want %+v", name, got, err, tc.want)
+		}
+		if got.Builds() {
+			t.Errorf("%s: a manifest with no prepublishOnly must not build", name)
 		}
 	}
 
-	if _, err := NpmOf(`{"name": `); err == nil || !strings.Contains(err.Error(), "does not parse") {
-		t.Errorf("a manifest that does not parse must say so: %v", err)
+	if blank, _ := NpmOf(`{"name": "x", "scripts": {"prepublishOnly": "  "}}`); blank.Builds() {
+		t.Error("a blank prepublishOnly runs nothing, so it must not build")
+	}
+	for manifest, want := range map[string]string{
+		`{"name": `:                      "does not parse",
+		`{"name": "x", "workspaces": 3}`: "neither a list of globs",
+	} {
+		if _, err := NpmOf(manifest); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("NpmOf(%s) must refuse with %q: %v", manifest, want, err)
+		}
+	}
+}
+
+func TestPlainBuildIsOnlyThePackagesOwnBuildScript(t *testing.T) {
+	for script, want := range map[string]bool{
+		"bun run build":             true,
+		"pnpm run build":            true,
+		"npm run build":             true,
+		"yarn run build":            true,
+		"  bun run build  ":         true,
+		"":                          false,
+		"bun run build && bun test": false,
+		"tsc":                       false,
+		"bun run build:types":       false,
+		"npx run build":             false,
+	} {
+		if got := PlainBuild(script); got != want {
+			t.Errorf("PlainBuild(%q) = %v, want %v", script, got, want)
+		}
 	}
 }
 
