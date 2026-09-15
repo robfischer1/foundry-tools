@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"strconv"
+	"strings"
 
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
@@ -170,127 +172,134 @@ func rustCargoAudit(ctx context.Context, r *run) checks.Verdict {
 // and slower: the dependency graph compiles once per run instead of once
 // per volume; the registry volume still serves the sources. The mount goes
 // too, so nothing in this container can reach the gate's artifacts by
-// accident. MUT_JOBS is two, not rust.sh's four: two copies is two
+// accident. The job count is two, not rust.sh's four: two copies is two
 // concurrent cargo builds, and the engine's exec tree is bounded at 6G with
 // two steps in flight (infra#8830) — four copies at a rustc each is the
 // shape that gets a compile killed and the atom filed as could-not-run.
-func rustMutation(ctx context.Context, r *run) checks.Verdict {
-	return rustTSMutation(ctx, r, mutationSpec{
-		id:    "rust:mutation",
-		image: checks.ImageRust,
-		prepare: func(r *run) *dagger.Container {
-			return r.cargoDeps().
-				WithoutEnvVariable("CARGO_TARGET_DIR").
-				WithoutMount("/cache/cargo-target").
-				WithEnvVariable("MUT_JOBS", "2")
-		},
-		script: "ci/lib/mutation/rust.sh",
-		probes: [][]string{{"bash", "--version"}, {"cargo", "mutants", "--version"}},
-		phases: []string{"resolve", "mutate", "score"},
-	})
-}
-
-// mutationSpec is the only thing that differs between two lanes' mutation
-// atoms: the image, the canonical script, what has to be on the PATH for it,
-// and the phases that script defines.
-type mutationSpec struct {
-	id    string
-	image string
-	// prepare, when set, replaces the bare lane container as the base — the
-	// rust lane hands its fetched-dependencies layer here.
-	prepare func(r *run) *dagger.Container
-	script  string // relative to the foundry-stocks tree
-	probes  [][]string
-	phases  []string
-}
-
-// rustTSMutation is ONE SHAPE, TWO LANGUAGES — rust:mutation and ts:mutation,
-// which differ only by mutationSpec. go: and python: carry the same shape in
-// their own files; the three read the score phase's two files through one
-// checks.MutationVerdict and print one checks.MutationScope line.
 //
-// Each runs the canonical script at its one home (/stocks/ci/lib/mutation/<lang>.sh)
-// PHASE BY PHASE, in DIFF mode against GATE_BASE — the pull's merge base as the
-// door names it — and answers with the verdict the score phase wrote: 0 clean,
-// 1 survivors, 2 could not measure. The phases themselves never exit non-zero
-// (reaching a verdict is the score phase's job), so a phase that does is a
-// broken script, said as CANNOT RUN and naming the phase. That is why each
-// phase is its own evaluated exec rather than one chain read at the end: a
-// chain would say only that something failed.
+// THE MEASUREMENT IS PLAIN EXECS, SETTLED IN GO. foundry-stocks'
+// ci/lib/mutation/rust.sh ran here as three bash phases that wrote a verdict
+// file; git, cargo metadata and cargo mutants now run as their own execs and
+// checks.RustMutationVerdict reads what they left.
 //
 // THE HISTORY IS THERE IN THE LANE THAT MATTERS. The mutation Job clones the
-// repository whole and checks the head out, so `git cat-file -e <base>`
-// answers and the diff is real. A local pre-push run hands the engine a linked
-// worktree, which gitReady turns into a throwaway repository with no history:
-// the resolve phase then stands down 0 with "no usable PR base sha", printed,
-// and the door's Job is the one that measures.
-//
-// A REPO HAS NO SAY. The first cut of these atoms sourced a repo-root
-// ci/mutation.env — MUT_* knobs standing in for the retired workflow's inputs —
-// and Rob asked why a repo should have a say in anything (2026-09-11). It
-// should not: the scripts honour MUT_GATE=false, so that file was a one-line
-// switch to turn a fleet gate off, the exact shape stop-justifications exists
-// to refuse. It is gone. The one repo fact the lane reads is critical_modules,
-// in the answers file the template question put it in — a declaration of WHAT
-// matters, not a dial on HOW hard to look. Everything else is the fleet's
-// default, here.
-//
-// GATE_BASE AND MUT_BASE ARE BOTH SET, and this is one of the two atoms
-// runtime.go's rule 8 allows to read the base at all: every other atom's cache
-// key stays a function of the tree rather than of the pull.
-func rustTSMutation(ctx context.Context, r *run, s mutationSpec) checks.Verdict {
-	a := checks.AtomByID(s.id)
-
-	// The script IS the tool, read at its one home. Absent means foundry-stocks
-	// did not mount, which is a could-not-run about the engine, not the repo.
-	if _, err := r.stocks.File(s.script).Contents(ctx); err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - /stocks/"+s.script+" is absent; foundry-stocks did not mount at its one home.\n"+err.Error())
-	}
-
+// repository whole, so the base resolves and the diff is real. A local
+// pre-push hands the engine a linked worktree, which gitReady turns into a
+// throwaway repository with no history: the base does not resolve, the atom
+// stands down 0 saying so, and the door's Job is the one that measures.
+func rustMutation(ctx context.Context, r *run) checks.Verdict {
+	a := checks.AtomByID("rust:mutation")
 	// critical_modules is read in Go off the tree, before any container runs.
-	// A missing answers file is an empty declaration, exactly as the old
-	// body's `2>/dev/null` made it.
+	// A missing answers file is an empty declaration.
 	answers, _ := r.src.File(".copier-answers.yml").Contents(ctx)
 	mods := checks.CriticalModules(answers)
 	scope := checks.MutationScope(a.ID, mods)
-
-	base := r.lane(s.image)
-	if s.prepare != nil {
-		base = s.prepare(r)
+	settle := func(state int, reason string) checks.Verdict {
+		v := checks.VerdictOf(a, state, a.ID+": "+reason)
+		v.Reason = scope + "\n" + v.Reason
+		return v
 	}
-	ctr := r.gitReady(ctx, r.withBase(r.withStocks(base)))
-	for _, probe := range s.probes {
-		// Provisioning, under the default Expect: a missing toolchain is a
-		// Dagger error and verdict() files it as state 2.
-		ctr = ctr.WithExec(probe)
-	}
-	ctr = ctr.
-		WithEnvVariable("MUT_DIR", mutDir).
-		WithEnvVariable("MUT_MODE", "diff").
-		WithEnvVariable("MUT_BASE", r.base).
-		WithEnvVariable("MUT_MODULES", mods)
+	neverRan := func(err error) checks.Verdict { return settle(2, "CANNOT RUN - the atom never ran: "+err.Error()) }
 
-	for _, phase := range s.phases {
-		next := ctr.WithExec([]string{"bash", "/stocks/" + s.script, phase}, anyExit)
-		out, code, err := output(ctx, next)
-		if err != nil {
-			return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
-		}
-		if code != 0 {
-			return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - phase "+phase+" exited non-zero; the phases never do on their own\n"+out)
-		}
-		ctr = next
+	const noBase = "no usable PR base sha — the diff-scoped mutation gate did not run"
+	if r.base == "" {
+		return settle(0, noBase)
 	}
+	ctr := r.gitReady(ctx, r.withBase(r.cargoDeps().
+		WithoutEnvVariable("CARGO_TARGET_DIR").
+		WithoutMount("/cache/cargo-target"))).
+		// Provisioning, under the default Expect: an image without cargo-mutants
+		// is a Dagger error, and the first exec read below files it as never ran.
+		WithExec([]string{"cargo", "mutants", "--version"})
 
-	raw, _ := ctr.File(mutDir + "/verdict").Contents(ctx)
-	reason, _ := ctr.File(mutDir + "/reason").Contents(ctx)
-	state, line, err := checks.MutationVerdict(raw, reason)
+	// rev-parse --verify --quiet, not cat-file -e: cat-file answers a missing
+	// object with 128, which the engine reports as its own error even under
+	// Expect ANY (foundry-tools#63).
+	_, code, err := output(ctx, ctr.WithExec([]string{"git", "rev-parse", "--verify", "--quiet", r.base + "^{commit}"}, anyExit))
 	if err != nil {
-		return checks.VerdictOf(a, 2, scope+"\n"+a.ID+": CANNOT RUN - "+err.Error())
+		return neverRan(err)
 	}
-	return checks.VerdictOf(a, state, scope+"\n"+a.ID+": "+line)
+	if code != 0 {
+		return settle(0, noBase)
+	}
+
+	// HEAD AS CHECKED OUT: cargo-mutants verifies the diff's `+` lines against
+	// the files on disk and hard-errors when they disagree (exit 5), so the only
+	// safe head side is the tree this run holds. --relative, because the paths
+	// are matched against the tree cargo runs in.
+	specs := append([]string{"--"}, checks.RustMutationSpecs(mods)...)
+	diff, code, err := output(ctx, ctr.WithExec(append([]string{"git", "diff", "--relative", r.base, "HEAD"}, specs...), anyExit))
+	if err != nil {
+		return neverRan(err)
+	}
+	if code != 0 {
+		return settle(2, "CANNOT RUN - git could not diff the pull against its base "+r.base+": "+diff)
+	}
+	declared := mods
+	if strings.TrimSpace(declared) == "" {
+		declared = "any rust source"
+	}
+	if diff == "" {
+		return settle(0, "this pull touched none of the critical modules ("+declared+") — nothing to mutate")
+	}
+	if !checks.RustDiffAddsLines(diff) {
+		return settle(0, "this pull only REMOVED lines from the critical modules ("+declared+") — nothing to mutate")
+	}
+
+	// EVERY WORKSPACE MEMBER THE PULL TOUCHED, each passed as -p
+	// (checks.RustTouchedMembers). A metadata read that fails is could-not-run,
+	// never a run over the root package alone.
+	files, code, err := output(ctx, ctr.WithExec(append([]string{"git", "diff", "--relative", "--name-only", "-z", "--diff-filter=d", r.base, "HEAD"}, specs...), anyExit))
+	if err != nil {
+		return neverRan(err)
+	}
+	if code != 0 {
+		return settle(2, "CANNOT RUN - git could not list the files the pull changed: "+files)
+	}
+	meta, code, err := output(ctx, ctr.WithExec([]string{"cargo", "metadata", "--no-deps", "--format-version", "1"}, anyExit))
+	if err != nil {
+		return neverRan(err)
+	}
+	if code != 0 {
+		return settle(2, "CANNOT RUN - cargo metadata failed, so which workspace members the pull touched is unknown: "+meta)
+	}
+	packages, err := checks.RustTouchedMembers([]byte(meta), "/src", strings.Split(files, "\x00"))
+	if err != nil {
+		return settle(2, "CANNOT RUN - could not map the diff onto the workspace members: "+err.Error())
+	}
+
+	// MUTATE. The copies go under TMPDIR, outside the tree being mutated.
+	args := []string{"cargo", "mutants", "--colors", "never", "-j", strconv.Itoa(rustMutationJobs),
+		"--build-timeout", "900", "--minimum-test-timeout", "60"}
+	for _, m := range strings.Fields(mods) {
+		args = append(args, "-f", m)
+	}
+	for _, p := range packages {
+		args = append(args, "-p", p)
+	}
+	mutated := ctr.
+		WithNewFile(rustMutationDiff, diff+"\n").
+		WithDirectory(mutationDir+"/tmp", dag.Directory()).
+		WithEnvVariable("TMPDIR", mutationDir+"/tmp").
+		WithExec(append(args, "-D", rustMutationDiff), anyExit)
+	log, status, err := outputBoth(ctx, mutated)
+	if err != nil {
+		return neverRan(err)
+	}
+	// cargo mutants writes no list for an outcome it never reached; a list that
+	// does not read is an empty one, and the exit decides the verdict.
+	list := func(name string) string {
+		s, _ := mutated.File("/src/mutants.out/" + name + ".txt").Contents(ctx)
+		return s
+	}
+	return settle(checks.RustMutationVerdict(checks.RustMutationRun{
+		Status: status, Log: log,
+		Missed: list("missed"), Caught: list("caught"), Unviable: list("unviable"), Timeout: list("timeout"),
+	}))
 }
 
-// mutDir is where the canonical scripts are told to keep their working state
-// and to write the verdict and the reason the atom answers with.
-const mutDir = "/tmp/mutation"
+const (
+	// rustMutationDiff is the pull's diff as cargo mutants -D reads it.
+	rustMutationDiff = mutationDir + "/pr.diff"
+	rustMutationJobs = 2
+)

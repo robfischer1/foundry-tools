@@ -221,7 +221,7 @@ func TestTSBunAuditNamesTheRegistryAndReadsBunsExit(t *testing.T) {
 	wantState(t, runAtom(t, "ts:bun-audit", ""), 2, "never ran", "connection refused")
 }
 
-// ts:mutation is rustTSMutation with the ts spec: the bare lane container as
+// ts:mutation is scriptedMutation with the ts spec: the bare lane container as
 // its base, two probes, FIVE phases — StrykerJS installs and builds where
 // cargo-mutants does neither.
 func TestTSMutationRunsItsFivePhases(t *testing.T) {

@@ -132,9 +132,9 @@ func tsBunAudit(ctx context.Context, r *run) checks.Verdict {
 }
 
 // Every mutant StrykerJS makes of this pull's changes to the declared critical
-// modules is killed by the tests. rustTSMutation carries the shape's reasoning.
+// modules is killed by the tests. scriptedMutation carries the shape's reasoning.
 func tsMutation(ctx context.Context, r *run) checks.Verdict {
-	return rustTSMutation(ctx, r, mutationSpec{
+	return scriptedMutation(ctx, r, mutationSpec{
 		id:     "ts:mutation",
 		image:  checks.ImageTS,
 		script: "ci/lib/mutation/ts.sh",
@@ -142,3 +142,102 @@ func tsMutation(ctx context.Context, r *run) checks.Verdict {
 		phases: []string{"resolve", "install", "build", "mutate", "score"},
 	})
 }
+
+// mutationSpec is what a mutation atom that still runs a foundry-stocks script
+// names: the image, the canonical script, what has to be on the PATH for it,
+// and the phases that script defines.
+type mutationSpec struct {
+	id     string
+	image  string
+	script string // relative to the foundry-stocks tree
+	probes [][]string
+	phases []string
+}
+
+// scriptedMutation is the shape ts:mutation still runs. go: and rust: left it
+// for plain execs settled in Go (checks.GoMutationVerdict,
+// checks.RustMutationVerdict); python: carries its own copy of it. Both
+// scripted atoms read the score phase's two files through one
+// checks.MutationVerdict and print one checks.MutationScope line.
+//
+// It runs the canonical script at its one home (/stocks/ci/lib/mutation/<lang>.sh)
+// PHASE BY PHASE, in DIFF mode against GATE_BASE — the pull's merge base as the
+// door names it — and answers with the verdict the score phase wrote: 0 clean,
+// 1 survivors, 2 could not measure. The phases themselves never exit non-zero
+// (reaching a verdict is the score phase's job), so a phase that does is a
+// broken script, said as CANNOT RUN and naming the phase. That is why each
+// phase is its own evaluated exec rather than one chain read at the end: a
+// chain would say only that something failed.
+//
+// THE HISTORY IS THERE IN THE LANE THAT MATTERS. The mutation Job clones the
+// repository whole and checks the head out, so `git cat-file -e <base>`
+// answers and the diff is real. A local pre-push run hands the engine a linked
+// worktree, which gitReady turns into a throwaway repository with no history:
+// the resolve phase then stands down 0 with "no usable PR base sha", printed,
+// and the door's Job is the one that measures.
+//
+// A REPO HAS NO SAY. The first cut of these atoms sourced a repo-root
+// ci/mutation.env — MUT_* knobs standing in for the retired workflow's inputs —
+// and Rob asked why a repo should have a say in anything (2026-09-11). It
+// should not: the scripts honour MUT_GATE=false, so that file was a one-line
+// switch to turn a fleet gate off, the exact shape stop-justifications exists
+// to refuse. It is gone. The one repo fact the lane reads is critical_modules,
+// in the answers file the template question put it in — a declaration of WHAT
+// matters, not a dial on HOW hard to look. Everything else is the fleet's
+// default, here.
+//
+// GATE_BASE AND MUT_BASE ARE BOTH SET, and this is one of the two atoms
+// runtime.go's rule 8 allows to read the base at all: every other atom's cache
+// key stays a function of the tree rather than of the pull.
+func scriptedMutation(ctx context.Context, r *run, s mutationSpec) checks.Verdict {
+	a := checks.AtomByID(s.id)
+
+	// The script IS the tool, read at its one home. Absent means foundry-stocks
+	// did not mount, which is a could-not-run about the engine, not the repo.
+	if _, err := r.stocks.File(s.script).Contents(ctx); err != nil {
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - /stocks/"+s.script+" is absent; foundry-stocks did not mount at its one home.\n"+err.Error())
+	}
+
+	// critical_modules is read in Go off the tree, before any container runs.
+	// A missing answers file is an empty declaration, exactly as the old
+	// body's `2>/dev/null` made it.
+	answers, _ := r.src.File(".copier-answers.yml").Contents(ctx)
+	mods := checks.CriticalModules(answers)
+	scope := checks.MutationScope(a.ID, mods)
+
+	ctr := r.gitReady(ctx, r.withBase(r.withStocks(r.lane(s.image))))
+	for _, probe := range s.probes {
+		// Provisioning, under the default Expect: a missing toolchain is a
+		// Dagger error and verdict() files it as state 2.
+		ctr = ctr.WithExec(probe)
+	}
+	ctr = ctr.
+		WithEnvVariable("MUT_DIR", mutDir).
+		WithEnvVariable("MUT_MODE", "diff").
+		WithEnvVariable("MUT_BASE", r.base).
+		WithEnvVariable("MUT_MODULES", mods)
+
+	for _, phase := range s.phases {
+		next := ctr.WithExec([]string{"bash", "/stocks/" + s.script, phase}, anyExit)
+		out, code, err := output(ctx, next)
+		if err != nil {
+			return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
+		}
+		if code != 0 {
+			return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - phase "+phase+" exited non-zero; the phases never do on their own\n"+out)
+		}
+		ctr = next
+	}
+
+	raw, _ := ctr.File(mutDir + "/verdict").Contents(ctx)
+	reason, _ := ctr.File(mutDir + "/reason").Contents(ctx)
+	state, line, err := checks.MutationVerdict(raw, reason)
+	if err != nil {
+		return checks.VerdictOf(a, 2, scope+"\n"+a.ID+": CANNOT RUN - "+err.Error())
+	}
+	return checks.VerdictOf(a, state, scope+"\n"+a.ID+": "+line)
+}
+
+// mutDir is where the canonical scripts are told to keep their working state
+// and to write the verdict and the reason the atom answers with.
+const mutDir = "/tmp/mutation"

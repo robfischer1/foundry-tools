@@ -29,13 +29,13 @@ package checks
 // layer moving.
 //
 // WHAT EACH LANE EXECS, measured at the exec sites (atoms_*.go and the
-// mutation scripts in foundry-stocks ci/lib/mutation/):
+// mutation scripts python and ts still run from foundry-stocks
+// ci/lib/mutation/):
 //
-//	go       go, staticcheck, govulncheck, gremlins (go.sh), python3
-//	         (go.sh scores with go_score.py), git, bash
+//	go       go, staticcheck, govulncheck, gremlins, git
 //	python   uv, uvx, python3, opengrep, git, tar, bash; opa (dies) the
 //	         atoms fetch themselves, pinned below
-//	rust     cargo (+ rustfmt, clippy, audit, mutants), git, bash
+//	rust     cargo (+ rustfmt, clippy, audit, mutants), git
 //	ts       bun, node (ts.sh runs stryker under node), git, bash
 //
 // BY DIGEST, NEVER BY TAG. Every image here is a moving tag upstream; a gate
