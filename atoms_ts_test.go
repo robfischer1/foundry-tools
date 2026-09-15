@@ -221,87 +221,256 @@ func TestTSBunAuditNamesTheRegistryAndReadsBunsExit(t *testing.T) {
 	wantState(t, runAtom(t, "ts:bun-audit", ""), 2, "never ran", "connection refused")
 }
 
-// ts:mutation is scriptedMutation with the ts spec: the bare lane container as
-// its base, two probes, FIVE phases — StrykerJS installs and builds where
-// cargo-mutants does neither.
-func TestTSMutationRunsItsFivePhases(t *testing.T) {
-	engine.reset()
-	engine.withTree(rustTSTree(map[string]string{
-		".copier-answers.yml":   "critical_modules: src/gate.ts\n",
-		"/tmp/mutation/verdict": "0\n",
-		"/tmp/mutation/reason":  "every mutant killed",
-	}))
+// ts:mutation's needles: each exec the atom runs, by the words only it has.
+const (
+	tsBaseNeedle    = `"git","rev-parse","--verify","--quiet","abc123^{commit}"`
+	tsDiffNeedle    = `"git","diff","--unified=0","abc123","HEAD"`
+	tsInstallNeedle = `args:["bun","install","--frozen-lockfile"]`
+	tsFindNeedle    = `"find",".","-type","f"`
+	tsStrykerNeedle = `"--reporters","clear-text,json"`
+	tsGlobNeedle    = `glob(pattern:"**/*stryker.con*")`
+	tsDiff          = "diff --git a/src/gate.ts b/src/gate.ts\n--- a/src/gate.ts\n+++ b/src/gate.ts\n@@ -1,0 +2,2 @@\n+a\n+b"
+)
 
+// tsReport is a Stryker mutation.json over one file, with the mutants given.
+func tsReport(mutants string) string {
+	return `{"config":{"testRunner":"vitest","mutate":["src/gate.ts:2-3"],"coverageAnalysis":"perTest"},` +
+		`"testFiles":{"a.test.ts":{"tests":[{"id":"1"}]}},` +
+		`"files":{"src/gate.ts":{"source":"a\nb\n","mutants":[` + mutants + `]}}}`
+}
+
+const tsKilled = `{"status":"Killed","mutatorName":"BooleanLiteral","testsCompleted":1,"location":{"start":{"line":2}}}`
+
+// scriptTSMutation answers a pull that added TypeScript lines at the root of a
+// repo whose root carries a Stryker config and its bin, an install that
+// succeeds, and a run that killed every mutant. No critical modules are
+// declared unless tree hands the repo an answers file.
+func scriptTSMutation(tree map[string]string) {
+	engine.reset()
+	base := rustTSTree(map[string]string{
+		"stryker.config.json":                 "{}",
+		"/src/node_modules/.bin/stryker":      "",
+		"/src/reports/mutation/mutation.json": tsReport(tsKilled),
+	})
+	delete(base, ".copier-answers.yml")
+	engine.withTree(base)
+	engine.withTree(tree)
+	engine.stdout(tsDiffNeedle, tsDiff)
+}
+
+// ts:mutation runs git, bun and the package's own stryker as plain execs in the
+// frontend lane, and no script: nothing mounts foundry-stocks and nothing runs
+// bash.
+func TestTSMutationMeasuresTheDiffWithThePackagesStryker(t *testing.T) {
+	scriptTSMutation(nil)
 	wantState(t, runAtom(t, "ts:mutation", "abc123"), 0)
 
-	c := engine.chain(`ts.sh","score"`, "exitCode")
+	c := engine.chain(tsStrykerNeedle, "exitCode")
 	if !strings.Contains(c, checks.ImageTS) {
 		t.Errorf("ts:mutation must run in the frontend lane image:\n%s", c)
 	}
 	wantCalls(t, c,
-		[]string{"withMountedDirectory", `path:"/stocks"`},
 		[]string{"withEnvVariable", `name:"GATE_BASE"`, `value:"abc123"`},
-		[]string{"withEnvVariable", `name:"MUT_BASE"`, `value:"abc123"`},
-		[]string{"withEnvVariable", `name:"MUT_MODE"`, `value:"diff"`},
-		[]string{"withEnvVariable", `name:"MUT_DIR"`, `value:"/tmp/mutation"`},
-		[]string{"withEnvVariable", `name:"MUT_MODULES"`, `value:"src/gate.ts"`},
-		[]string{"withExec", `args:["bash","--version"]`},
 		[]string{"withExec", `args:["bun","--version"]`},
+		[]string{"withExec", "expect:ANY", `args:["bun","install","--frozen-lockfile"]`},
+		[]string{"withWorkdir", `path:"/src"`},
+		[]string{"withExec", "expect:ANY", `args:["/src/node_modules/.bin/stryker","run","--mutate","src/gate.ts:2-3","--concurrency","4","--reporters","clear-text,json"]`},
 	)
-	for _, probe := range []string{`args:["bash","--version"]`, `args:["bun","--version"]`} {
-		if hasCall(c, "withExec", probe, "expect:ANY") {
-			t.Errorf("%s is provisioning and must run under the default Expect:\n%s", probe, c)
+	if hasCall(c, "withExec", `args:["bun","--version"]`, "expect:ANY") {
+		t.Errorf("the bun probe is provisioning and must run under the default Expect:\n%s", c)
+	}
+	for _, relic := range []string{`path:"/stocks"`, `"bash"`, "MUT_", `"cargo"`} {
+		if strings.Contains(c, relic) {
+			t.Errorf("the ported lane still carries %s:\n%s", relic, c)
 		}
 	}
-	for _, phase := range []string{"resolve", "install", "build", "mutate", "score"} {
-		if !hasCall(c, "withExec", "expect:ANY", `"/stocks/ci/lib/mutation/ts.sh","`+phase+`"`) {
-			t.Errorf("ts:mutation lacks phase %s under ANY:\n%s", phase, c)
-		}
-	}
-	// The rust spec's base, not this one's: nothing here fetches crates.
-	if strings.Contains(c, `"cargo"`) {
-		t.Errorf("ts:mutation must not carry the rust lane's provisioning:\n%s", c)
-	}
+	// No declaration: every TypeScript source outside the tests is the scope.
+	wantCalls(t, engine.chain(tsDiffNeedle, "stdout"),
+		[]string{"withExec", "expect:ANY", `args:["git","diff","--unified=0","abc123","HEAD","--","*.ts","*.tsx",":!*.test.ts",":!*.test.tsx",":!*.spec.ts",":!*.spec.tsx",":!*__tests__/*",":!node_modules/"]`})
 
-	engine.withTree(map[string]string{
-		"/tmp/mutation/verdict": "1\n",
-		"/tmp/mutation/reason":  "2 mutants survived StrykerJS",
+	// A declared module is a :(glob) pathspec, and survivors are findings with
+	// the honest table and the list.
+	scriptTSMutation(map[string]string{
+		".copier-answers.yml":                 "critical_modules: src/**/*.ts\n",
+		"/src/reports/mutation/mutation.json": tsReport(tsKilled + `,{"status":"Survived","mutatorName":"ConditionalExpression","testsCompleted":1,"location":{"start":{"line":3}}}`),
 	})
 	wantState(t, runAtom(t, "ts:mutation", "abc123"), 1,
-		"2 mutants survived StrykerJS", "scoped to the declared critical modules: src/gate.ts")
+		"scoped to the declared critical modules: src/**/*.ts",
+		"1 mutant(s) survived or were never covered",
+		"| 1 | 1 | 0 | 0 | 50% of 2 | 50% of 2 |",
+		"src/gate.ts:3  Survived   ConditionalExpression")
+	wantCalls(t, engine.chain(tsDiffNeedle, "stdout"),
+		[]string{"withExec", `args:["git","diff","--unified=0","abc123","HEAD","--",":(glob)src/**/*.ts"]`})
 }
 
-func TestTSMutationCannotRunPaths(t *testing.T) {
-	base := map[string]string{
-		"/tmp/mutation/verdict": "0\n",
-		"/tmp/mutation/reason":  "every mutant killed",
+// In a monorepo each range is mutated in the package whose Stryker config owns
+// it, on the nearest stryker bin, and the packages settle as one verdict.
+func TestTSMutationRunsEachPackageThatOwnsTheDiff(t *testing.T) {
+	scriptTSMutation(map[string]string{
+		"packages/engine/stryker.config.mjs":                  "",
+		"/src/packages/engine/reports/mutation/mutation.json": tsReport(`{"status":"NoCoverage","mutatorName":"BlockStatement","location":{"start":{"line":2}}}`),
+	})
+	engine.stdout(tsDiffNeedle, "+++ b/packages/engine/src/index.ts\n@@ -1,0 +2 @@\n+x\n"+tsDiff)
+	wantState(t, runAtom(t, "ts:mutation", "abc123"), 1,
+		"1 mutant(s) survived or were never covered", "### packages/engine", "### .")
+	// Each package runs in its own directory on the nearest bin, the root's
+	// here, with its ranges relative to it.
+	wantCalls(t, engine.chain(tsStrykerNeedle, "exitCode", `"src/index.ts:2-2"`),
+		[]string{"withWorkdir", `path:"/src/packages/engine"`},
+		[]string{"withExec", `args:["/src/node_modules/.bin/stryker","run","--mutate","src/index.ts:2-2"`})
+	wantCalls(t, engine.chain(tsStrykerNeedle, "exitCode", `"src/gate.ts:2-3"`),
+		[]string{"withWorkdir", `path:"/src"`},
+		[]string{"withExec", `args:["/src/node_modules/.bin/stryker","run","--mutate","src/gate.ts:2-3"`})
+
+	// The package's own bin is nearer than the root's.
+	scriptTSMutation(map[string]string{
+		"packages/engine/stryker.config.mjs":                  "",
+		"/src/packages/engine/node_modules/.bin/stryker":      "",
+		"/src/packages/engine/reports/mutation/mutation.json": tsReport(tsKilled),
+	})
+	engine.stdout(tsDiffNeedle, "+++ b/packages/engine/src/index.ts\n@@ -1,0 +2 @@\n+x")
+	wantState(t, runAtom(t, "ts:mutation", "abc123"), 0)
+	wantCalls(t, engine.chain(tsStrykerNeedle, "exitCode"),
+		[]string{"withExec", `args:["/src/packages/engine/node_modules/.bin/stryker","run","--mutate","src/index.ts:2-2"`})
+
+	// A change no config owns is a finding, and nothing installs.
+	scriptTSMutation(nil)
+	delete(engine.tree, "stryker.config.json")
+	engine.stdout(tsDiffNeedle, "+++ b/apps/web/src/x.ts\n@@ -1,0 +2 @@\n+x")
+	wantState(t, runAtom(t, "ts:mutation", "abc123"), 1, "no Stryker config owns apps/web/src/x.ts")
+	if engine.chain(tsInstallNeedle) != "" {
+		t.Errorf("an unowned change went on to install")
+	}
+}
+
+// A frozen install that fails is diagnosed against the registry the lockfile
+// names, with curl from the lane: a tarball the metadata lists and the proxy
+// will not serve is a finding naming the versions that do.
+func TestTSMutationDiagnosesAFailedInstall(t *testing.T) {
+	const tgz = "https://nexus.example/npm/left-pad/-/left-pad-1.3.0.tgz"
+	scriptTSMutation(nil)
+	engine.exitCode(tsInstallNeedle, 1)
+	engine.stdout(tsInstallNeedle, "GET "+tgz+" - 404\nerror: failed")
+	engine.stdout(`"curl","-fsSL","https://nexus.example/npm/left-pad"`, `{"name":"left-pad","versions":{"1.1.0":{},"1.2.0":{},"1.3.0":{}}}`)
+	engine.exitCode(`"curl","-fsSI","-o","/dev/null","https://nexus.example/npm/left-pad/-/left-pad-1.2.0.tgz"`, 22)
+	wantState(t, runAtom(t, "ts:mutation", "abc123"), 1,
+		"Registry index/tarball mismatch: left-pad@1.3.0 IS listed", "Versions that DO serve: 1.1.0", "running again changes nothing")
+	if engine.chain(tsStrykerNeedle) != "" {
+		t.Errorf("a failed install went on to stryker")
 	}
 
-	// THE PHASES NEVER EXIT NON-ZERO ON THEIR OWN — reaching a verdict is the
-	// score phase's job — so one that does is a broken script, named.
-	for _, phase := range []string{"resolve", "install", "build", "mutate", "score"} {
-		engine.reset()
-		engine.withTree(rustTSTree(base))
-		engine.exitCode(`ts.sh","`+phase+`"`, 2)
-		engine.stdout(`ts.sh","`+phase+`"`, "stryker: unknown reporter")
-		wantState(t, runAtom(t, "ts:mutation", "abc123"), 2,
-			"phase "+phase, "unknown reporter")
+	// Metadata that does not answer lists nothing: the version is not indexed.
+	scriptTSMutation(nil)
+	engine.exitCode(tsInstallNeedle, 1)
+	engine.stdout(tsInstallNeedle, "GET "+tgz+" - 404")
+	engine.exitCode(`"curl","-fsSL"`, 22)
+	wantState(t, runAtom(t, "ts:mutation", "abc123"), 1, "Version not in registry: left-pad@1.3.0")
+
+	scriptTSMutation(nil)
+	engine.exitCode(tsInstallNeedle, 1)
+	engine.stdout(tsInstallNeedle, "error: ECONNRESET reading the lockfile's registry")
+	wantState(t, runAtom(t, "ts:mutation", "abc123"), 2, "network fault (rc=1)", "ECONNRESET")
+}
+
+// stryker-js#6210: a runner 10.0.0 beside vitest 5 is patched in the layer
+// stryker runs in; the files are rewritten, never edited in place.
+func TestTSMutationPatchesTheBrokenVitestRunner(t *testing.T) {
+	const runner = "/src/node_modules/@stryker-mutator/vitest-runner/"
+	old := "x;\nreturn nameParts.join(' ').trim();\n"
+	scriptTSMutation(map[string]string{
+		runner + "package.json":                 `{"version":"10.0.0"}`,
+		runner + "dist/src/stryker-setup.js":    old,
+		runner + "dist/src/test-helpers.js":     old,
+		"/src/node_modules/vitest/package.json": `{"version":"5.0.0"}`,
+	})
+	engine.stdout(tsFindNeedle, "./node_modules/@stryker-mutator/vitest-runner/package.json\n")
+	wantState(t, runAtom(t, "ts:mutation", "abc123"), 0)
+	c := engine.chain(tsStrykerNeedle, "exitCode")
+	for _, f := range []string{"stryker-setup.js", "test-helpers.js"} {
+		wantCalls(t, c, []string{"withNewFile", `path:"` + runner + "dist/src/" + f + `"`, `return nameParts.filter(Boolean).join(' > ').trim();`})
+	}
+	if install := lastCall(c, "withExec", tsInstallNeedle); install < 0 || lastCall(c, "withNewFile", "stryker-setup.js") < install {
+		t.Errorf("the patch must land after the install that wrote the runner:\n%s", c)
 	}
 
-	engine.reset()
-	engine.withTree(rustTSTree(base))
-	engine.fail(`"bun","--version"`, "exec: \"bun\": not found")
-	wantState(t, runAtom(t, "ts:mutation", "abc123"), 2, "never ran", "not found")
+	// Under vitest 4 the runner is left as shipped.
+	scriptTSMutation(map[string]string{
+		runner + "package.json":                 `{"version":"10.0.0"}`,
+		runner + "dist/src/stryker-setup.js":    old,
+		runner + "dist/src/test-helpers.js":     old,
+		"/src/node_modules/vitest/package.json": `{"version":"4.1.11"}`,
+	})
+	engine.stdout(tsFindNeedle, "./node_modules/@stryker-mutator/vitest-runner/package.json\n")
+	wantState(t, runAtom(t, "ts:mutation", "abc123"), 0)
+	if hasCall(engine.chain(tsStrykerNeedle, "exitCode"), "withNewFile") {
+		t.Errorf("a runner under vitest 4 was patched")
+	}
+}
 
-	engine.reset()
-	engine.withTree(rustTSTree(base))
-	engine.fail("ci/lib/mutation/ts.sh", "no such file or directory")
-	wantState(t, runAtom(t, "ts:mutation", "abc123"), 2,
-		"/stocks/ci/lib/mutation/ts.sh is absent", "foundry-stocks did not mount")
-
-	engine.reset()
-	engine.withTree(everyLaneTree) // no verdict file
-	wantState(t, runAtom(t, "ts:mutation", "abc123"), 2, "no verdict")
+func TestTSMutationStandsDownOrCannotRun(t *testing.T) {
+	cases := map[string]struct {
+		base   string
+		script func()
+		state  int
+		// reason is checked only off a finding or could-not-run: a pass keeps no
+		// output (checks.VerdictOf), so a stand-down is told apart by what ran.
+		reason  []string
+		reached []string
+		never   []string
+	}{
+		"no base": {"", nil, 0, nil, nil, []string{tsBaseNeedle, `args:["bun","--version"]`}},
+		"a base the history lacks": {"abc123", func() { engine.exitCode(tsBaseNeedle, 1) }, 0, nil,
+			[]string{tsBaseNeedle}, []string{tsDiffNeedle}},
+		"no TypeScript changed": {"abc123", func() { engine.stdout(tsDiffNeedle, "") }, 0, nil,
+			[]string{tsDiffNeedle}, []string{tsGlobNeedle, tsInstallNeedle}},
+		"lines only removed": {"abc123", func() { engine.stdout(tsDiffNeedle, "+++ b/src/gate.ts\n@@ -2,2 +1,0 @@\n-a\n-b") }, 0, nil,
+			[]string{tsDiffNeedle}, []string{tsGlobNeedle, tsInstallNeedle}},
+		"git cannot diff": {"abc123", func() { engine.exitCode(tsDiffNeedle, 1) }, 2,
+			[]string{"git could not diff the pull against its base abc123"}, nil, []string{tsInstallNeedle}},
+		"the configs cannot be listed": {"abc123", func() { engine.fail(tsGlobNeedle, "walk failed") }, 2,
+			[]string{"could not enumerate the tree's Stryker configs", "walk failed"}, nil, []string{tsInstallNeedle}},
+		"zero mutants instrumented": {"abc123", func() {
+			engine.exitCode(tsStrykerNeedle, 1)
+			engine.stdout(tsStrykerNeedle, "Instrumented 1 source file(s) with 0 mutant(s)\nNo tests were executed")
+			delete(engine.tree, "/src/reports/mutation/mutation.json")
+		}, 0, nil, []string{tsStrykerNeedle}, nil},
+		"no report": {"abc123", func() {
+			engine.exitCode(tsStrykerNeedle, 1)
+			engine.stdout(tsStrykerNeedle, "ConfigError: No tests were executed")
+			delete(engine.tree, "/src/reports/mutation/mutation.json")
+		}, 2, []string{"stryker exited 1 and wrote no reports/mutation/mutation.json", "No tests were executed"}, nil, nil},
+		"a broken run with a report": {"abc123", func() { engine.exitCode(tsStrykerNeedle, 1) }, 2,
+			[]string{"stryker exited 1 — a broken run"}, nil, nil},
+		"a report that does not parse": {"abc123", func() {
+			engine.withTree(map[string]string{"/src/reports/mutation/mutation.json": "{"})
+		}, 2, []string{"the mutation report could not be read"}, nil, nil},
+		"no bun in the image": {"abc123", func() { engine.fail(`args:["bun","--version"]`, `exec: "bun": not found`) }, 2,
+			[]string{"never ran", `"bun": not found`}, nil, []string{tsDiffNeedle}},
+		"the base check never ran":    {"abc123", func() { engine.fail(tsBaseNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{tsDiffNeedle}},
+		"the diff never ran":          {"abc123", func() { engine.fail(tsDiffNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{tsInstallNeedle}},
+		"the install never ran":       {"abc123", func() { engine.failLeaf(tsInstallNeedle, "stderr", "engine gone") }, 2, []string{"never ran"}, nil, nil},
+		"the runner search never ran": {"abc123", func() { engine.fail(tsFindNeedle, "engine gone") }, 2, []string{"never ran"}, nil, nil},
+		"stryker never ran":           {"abc123", func() { engine.failLeaf(tsStrykerNeedle, "stderr", "engine gone") }, 2, []string{"never ran"}, nil, nil},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			scriptTSMutation(nil)
+			if c.script != nil {
+				c.script()
+			}
+			wantState(t, runAtom(t, "ts:mutation", c.base), c.state, c.reason...)
+			for _, n := range c.reached {
+				if engine.chain(n) == "" {
+					t.Errorf("never reached %s", n)
+				}
+			}
+			for _, n := range c.never {
+				if engine.chain(n) != "" {
+					t.Errorf("went on to %s", n)
+				}
+			}
+		})
+	}
 }
 
 // A LINKED WORKTREE'S `.git` IS A FILE, AND IT DANGLES IN THE CONTAINER. The
@@ -310,18 +479,14 @@ func TestTSMutationCannotRunPaths(t *testing.T) {
 // exemption keyed on the repository must not evaporate because the push came
 // from a worktree.
 func TestTSMutationRebuildsAWorktreesRepository(t *testing.T) {
-	engine.reset()
-	tree := rustTSTree(map[string]string{
-		"/tmp/mutation/verdict": "0\n",
-		"/tmp/mutation/reason":  "every mutant killed",
-		".git":                  "gitdir: /home/rob/Forge/Outputs/foundry-tools/.git/worktrees/Tesla19\n",
+	scriptTSMutation(map[string]string{
+		".git": "gitdir: /home/rob/Forge/Outputs/foundry-tools/.git/worktrees/Tesla19\n",
 	})
-	delete(tree, ".git/HEAD")
-	engine.withTree(tree)
+	delete(engine.tree, ".git/HEAD")
 
 	wantState(t, runAtom(t, "ts:mutation", "abc123"), 0)
 
-	c := engine.chain(`ts.sh","score"`, "exitCode")
+	c := engine.chain(tsStrykerNeedle, "exitCode")
 	wantCalls(t, c,
 		[]string{"withExec", `args:["git","config","--global","--add","safe.directory","*"]`},
 		[]string{"withExec", `args:["git","init","-q","."]`},
@@ -331,13 +496,9 @@ func TestTSMutationRebuildsAWorktreesRepository(t *testing.T) {
 
 	// A primary checkout's `.git` is a directory: nothing to rebuild, and no
 	// origin to reconstruct.
-	engine.reset()
-	engine.withTree(rustTSTree(map[string]string{
-		"/tmp/mutation/verdict": "0\n",
-		"/tmp/mutation/reason":  "every mutant killed",
-	}))
+	scriptTSMutation(nil)
 	wantState(t, runAtom(t, "ts:mutation", "abc123"), 0)
-	c = engine.chain(`ts.sh","score"`, "exitCode")
+	c = engine.chain(tsStrykerNeedle, "exitCode")
 	if strings.Contains(c, `"git","init"`) || strings.Contains(c, `"git","remote"`) {
 		t.Errorf("a primary checkout's history is already there; nothing may rebuild it:\n%s", c)
 	}

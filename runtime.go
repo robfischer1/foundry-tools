@@ -173,7 +173,7 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 			WithExec([]string{"cargo", "mutants", "--version"})
 	case checks.ImageTS:
 		// bun:slim runs as the bun user and carries neither git nor node;
-		// ts.sh runs stryker under node. Root for the installs, then back.
+		// ts:mutation runs stryker under node. Root for the installs, then back.
 		// procps, for ps: Stryker tears its test-runner processes down with
 		// tree-kill, which spawns `ps -o pid --no-headers --ppid <pid>`. With no
 		// ps on PATH the spawn's unhandled ENOENT kills Stryker right after the

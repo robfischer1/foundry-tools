@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"path"
+	"slices"
+	"strings"
 
 	"dagger/foundry-tools/internal/checks"
+	"dagger/foundry-tools/internal/dagger"
 )
 
 // THE TS LANE, AS TYPED CHAINS. Read runtime.go's eight rules and atoms_go.go's
@@ -132,112 +136,169 @@ func tsBunAudit(ctx context.Context, r *run) checks.Verdict {
 }
 
 // Every mutant StrykerJS makes of this pull's changes to the declared critical
-// modules is killed by the tests. scriptedMutation carries the shape's reasoning.
+// modules is killed by the tests.
+//
+// THE MEASUREMENT IS PLAIN EXECS, SETTLED IN GO. foundry-stocks'
+// ci/lib/mutation/ts.sh ran here as five bash phases with four node helpers
+// beside it; git, bun, curl and stryker now run as their own execs and
+// checks.TSMutationVerdict reads what they left.
+//
+// STRYKER RUNS UNDER NODE, NOT BUN. The package's own node_modules/.bin/stryker
+// is exec'd, and its shebang picks node: `bunx --bun stryker` forces bun as the
+// runtime, and Stryker's plugin loader does not survive it (the vitest runner
+// fails to register after instrumenting every mutant). bun installs; node runs.
+//
+// THE LOCKFILE IS THE PIN. `bun install --frozen-lockfile`, never retried
+// without the flag: an install that quietly resolved something else is the
+// failure this gate exists to prevent. A failed install is diagnosed against
+// the registry the lockfile names (checks.DiagnoseInstall).
 func tsMutation(ctx context.Context, r *run) checks.Verdict {
-	return scriptedMutation(ctx, r, mutationSpec{
-		id:     "ts:mutation",
-		image:  checks.ImageTS,
-		script: "ci/lib/mutation/ts.sh",
-		probes: [][]string{{"bash", "--version"}, {"bun", "--version"}},
-		phases: []string{"resolve", "install", "build", "mutate", "score"},
-	})
-}
-
-// mutationSpec is what a mutation atom that still runs a foundry-stocks script
-// names: the image, the canonical script, what has to be on the PATH for it,
-// and the phases that script defines.
-type mutationSpec struct {
-	id     string
-	image  string
-	script string // relative to the foundry-stocks tree
-	probes [][]string
-	phases []string
-}
-
-// scriptedMutation is the shape ts:mutation still runs. go: and rust: left it
-// for plain execs settled in Go (checks.GoMutationVerdict,
-// checks.RustMutationVerdict); python: carries its own copy of it. Both
-// scripted atoms read the score phase's two files through one
-// checks.MutationVerdict and print one checks.MutationScope line.
-//
-// It runs the canonical script at its one home (/stocks/ci/lib/mutation/<lang>.sh)
-// PHASE BY PHASE, in DIFF mode against GATE_BASE — the pull's merge base as the
-// door names it — and answers with the verdict the score phase wrote: 0 clean,
-// 1 survivors, 2 could not measure. The phases themselves never exit non-zero
-// (reaching a verdict is the score phase's job), so a phase that does is a
-// broken script, said as CANNOT RUN and naming the phase. That is why each
-// phase is its own evaluated exec rather than one chain read at the end: a
-// chain would say only that something failed.
-//
-// THE HISTORY IS THERE IN THE LANE THAT MATTERS. The mutation Job clones the
-// repository whole and checks the head out, so `git cat-file -e <base>`
-// answers and the diff is real. A local pre-push run hands the engine a linked
-// worktree, which gitReady turns into a throwaway repository with no history:
-// the resolve phase then stands down 0 with "no usable PR base sha", printed,
-// and the door's Job is the one that measures.
-//
-// A REPO HAS NO SAY. The first cut of these atoms sourced a repo-root
-// ci/mutation.env — MUT_* knobs standing in for the retired workflow's inputs —
-// and Rob asked why a repo should have a say in anything (2026-09-11). It
-// should not: the scripts honour MUT_GATE=false, so that file was a one-line
-// switch to turn a fleet gate off, the exact shape stop-justifications exists
-// to refuse. It is gone. The one repo fact the lane reads is critical_modules,
-// in the answers file the template question put it in — a declaration of WHAT
-// matters, not a dial on HOW hard to look. Everything else is the fleet's
-// default, here.
-//
-// GATE_BASE AND MUT_BASE ARE BOTH SET, and this is one of the two atoms
-// runtime.go's rule 8 allows to read the base at all: every other atom's cache
-// key stays a function of the tree rather than of the pull.
-func scriptedMutation(ctx context.Context, r *run, s mutationSpec) checks.Verdict {
-	a := checks.AtomByID(s.id)
-
-	// The script IS the tool, read at its one home. Absent means foundry-stocks
-	// did not mount, which is a could-not-run about the engine, not the repo.
-	if _, err := r.stocks.File(s.script).Contents(ctx); err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - /stocks/"+s.script+" is absent; foundry-stocks did not mount at its one home.\n"+err.Error())
-	}
-
+	a := checks.AtomByID("ts:mutation")
 	// critical_modules is read in Go off the tree, before any container runs.
-	// A missing answers file is an empty declaration, exactly as the old
-	// body's `2>/dev/null` made it.
 	answers, _ := r.src.File(".copier-answers.yml").Contents(ctx)
 	mods := checks.CriticalModules(answers)
 	scope := checks.MutationScope(a.ID, mods)
-
-	ctr := r.gitReady(ctx, r.withBase(r.withStocks(r.lane(s.image))))
-	for _, probe := range s.probes {
-		// Provisioning, under the default Expect: a missing toolchain is a
-		// Dagger error and verdict() files it as state 2.
-		ctr = ctr.WithExec(probe)
+	settle := func(state int, reason string) checks.Verdict {
+		v := checks.VerdictOf(a, state, a.ID+": "+reason)
+		v.Reason = scope + "\n" + v.Reason
+		return v
 	}
-	ctr = ctr.
-		WithEnvVariable("MUT_DIR", mutDir).
-		WithEnvVariable("MUT_MODE", "diff").
-		WithEnvVariable("MUT_BASE", r.base).
-		WithEnvVariable("MUT_MODULES", mods)
+	neverRan := func(err error) checks.Verdict { return settle(2, "CANNOT RUN - the atom never ran: "+err.Error()) }
 
-	for _, phase := range s.phases {
-		next := ctr.WithExec([]string{"bash", "/stocks/" + s.script, phase}, anyExit)
-		out, code, err := output(ctx, next)
-		if err != nil {
-			return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
-		}
-		if code != 0 {
-			return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - phase "+phase+" exited non-zero; the phases never do on their own\n"+out)
-		}
-		ctr = next
+	const noBase = "no usable PR base sha — the diff-scoped mutation gate did not run"
+	if r.base == "" {
+		return settle(0, noBase)
 	}
+	ctr := r.gitReady(ctx, r.withBase(r.lane(checks.ImageTS))).
+		// Provisioning, under the default Expect: an image without bun is a
+		// Dagger error, and the first exec read below files it as never ran.
+		WithExec([]string{"bun", "--version"})
 
-	raw, _ := ctr.File(mutDir + "/verdict").Contents(ctx)
-	reason, _ := ctr.File(mutDir + "/reason").Contents(ctx)
-	state, line, err := checks.MutationVerdict(raw, reason)
+	// rev-parse --verify --quiet, not cat-file -e: cat-file answers a missing
+	// object with 128, which the engine reports as its own error even under
+	// Expect ANY (foundry-tools#63).
+	_, code, err := output(ctx, ctr.WithExec([]string{"git", "rev-parse", "--verify", "--quiet", r.base + "^{commit}"}, anyExit))
 	if err != nil {
-		return checks.VerdictOf(a, 2, scope+"\n"+a.ID+": CANNOT RUN - "+err.Error())
+		return neverRan(err)
 	}
-	return checks.VerdictOf(a, state, scope+"\n"+a.ID+": "+line)
+	if code != 0 {
+		return settle(0, noBase)
+	}
+
+	// The diff is taken at the root and each range handed to the package that
+	// owns it (checks.PlanStryker).
+	diff, code, err := output(ctx, ctr.WithExec(append([]string{"git", "diff", "--unified=0", r.base, "HEAD", "--"}, checks.TSMutationSpecs(mods)...), anyExit))
+	if err != nil {
+		return neverRan(err)
+	}
+	if code != 0 {
+		return settle(2, "CANNOT RUN - git could not diff the pull against its base "+r.base+": "+diff)
+	}
+	if diff == "" {
+		return settle(0, "this pull touched none of the critical modules — nothing to mutate")
+	}
+	ranges := checks.StrykerRanges(diff)
+	if len(ranges) == 0 {
+		return settle(0, "this pull only REMOVED lines from the critical modules — nothing to mutate")
+	}
+	configs, err := r.src.Glob(ctx, "**/*stryker.con*")
+	if err != nil {
+		return settle(2, "CANNOT RUN - could not enumerate the tree's Stryker configs: "+err.Error())
+	}
+	plan, orphans := checks.PlanStryker(ranges, checks.StrykerConfigDirs(configs))
+	// A range no config owns is a FINDING, not a could-not-run: a package this
+	// pull changes that declares no mutation run is the committer's to set up,
+	// and nothing with tests goes un-mutation-tested (Rob, 2026-09-11).
+	if len(orphans) > 0 {
+		return settle(1, "no Stryker config owns "+strings.Join(orphans[:min(len(orphans), 5)], ",")+
+			" — every package this pull changes must carry its own stryker config and devDependencies; nothing with tests goes un-mutation-tested")
+	}
+
+	installed := ctr.WithExec([]string{"bun", "install", "--frozen-lockfile"}, anyExit)
+	log, status, err := outputBoth(ctx, installed)
+	if err != nil {
+		return neverRan(err)
+	}
+	if status != 0 {
+		return settle(checks.DiagnoseInstall(log, status, npmRegistry{ctx, ctr}))
+	}
+	installed, err = patchVitestRunners(ctx, installed)
+	if err != nil {
+		return neverRan(err)
+	}
+
+	runs := make([]checks.StrykerRun, 0, len(plan))
+	for _, pkg := range plan {
+		dir := path.Join("/src", pkg.Dir)
+		bin := "/src/node_modules/.bin/stryker"
+		for _, c := range checks.StrykerBinCandidates(pkg.Dir) {
+			if names, err := installed.Directory(path.Join("/src", path.Dir(c))).Entries(ctx); err == nil && slices.Contains(names, "stryker") {
+				bin = path.Join("/src", c)
+				break
+			}
+		}
+		mutated := installed.WithWorkdir(dir).
+			WithExec([]string{bin, "run", "--mutate", pkg.Mutate(), "--concurrency", "4", "--reporters", "clear-text,json"}, anyExit)
+		log, status, err := outputBoth(ctx, mutated)
+		if err != nil {
+			return neverRan(err)
+		}
+		// A file that does not read is absent: no report, no exemptions.
+		report, _ := mutated.File(dir + "/reports/mutation/mutation.json").Contents(ctx)
+		exemptions, _ := mutated.File(dir + "/stryker-honest.json").Contents(ctx)
+		runs = append(runs, checks.StrykerRun{Dir: pkg.Dir, Status: status, Log: log, Report: report, Exemptions: exemptions})
+	}
+	return settle(checks.TSMutationVerdict(runs))
 }
 
-// mutDir is where the canonical scripts are told to keep their working state
-// and to write the verdict and the reason the atom answers with.
-const mutDir = "/tmp/mutation"
+// npmRegistry answers checks.DiagnoseInstall's questions with curl, from the lane
+// the install failed in — the registry the lockfile names is the one that lane
+// reaches.
+type npmRegistry struct {
+	ctx context.Context
+	ctr *dagger.Container
+}
+
+func (g npmRegistry) Versions(reg, name string) []string {
+	out, code, err := output(g.ctx, g.ctr.WithExec([]string{"curl", "-fsSL", reg + "/" + name}, anyExit))
+	if err != nil || code != 0 {
+		return nil
+	}
+	versions, _ := checks.RegistryVersions([]byte(out))
+	return versions
+}
+
+func (g npmRegistry) Serves(url string) bool {
+	_, code, err := output(g.ctx, g.ctr.WithExec([]string{"curl", "-fsSI", "-o", "/dev/null", url}, anyExit))
+	return err == nil && code == 0
+}
+
+// patchVitestRunners applies checks.PatchVitestRunner to every installed copy
+// of @stryker-mutator/vitest-runner (stryker-js#6210). find does not follow
+// symlinks, so a copy bun links into a package is patched once, at its real
+// path, and the patch is a new file in the layer, never a write through bun's
+// cache hardlinks.
+func patchVitestRunners(ctx context.Context, ctr *dagger.Container) (*dagger.Container, error) {
+	found, code, err := output(ctx, ctr.WithExec([]string{"find", ".", "-type", "f", "-path", "*/node_modules/@stryker-mutator/vitest-runner/package.json"}, anyExit))
+	if err != nil || code != 0 {
+		// A search that fails patches nothing: a survivor no test ran against
+		// then reads could-not-run, which is the honest answer.
+		return ctr, err
+	}
+	read := func(p string) string {
+		s, _ := ctr.File(path.Join("/src", p)).Contents(ctx)
+		return s
+	}
+	for _, pkg := range strings.Fields(found) {
+		dir := path.Dir(pkg)
+		files := make([]string, len(checks.VitestRunnerFiles))
+		for i, f := range checks.VitestRunnerFiles {
+			files[i] = read(path.Join(dir, f))
+		}
+		vitest := checks.PackageVersion(read(path.Join(dir, "../../vitest/package.json")))
+		for i, src := range checks.PatchVitestRunner(checks.PackageVersion(read(pkg)), vitest, files) {
+			ctr = ctr.WithNewFile(path.Join("/src", dir, checks.VitestRunnerFiles[i]), src)
+		}
+	}
+	return ctr, nil
+}
