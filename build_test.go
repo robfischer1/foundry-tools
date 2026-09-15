@@ -64,14 +64,35 @@ const (
 )
 
 // scriptATip scripts every step of a tip that goes through: a source change,
-// the public key, the SBOM, and hades stamping the permit.
+// the public key, the SBOM, its referrer and stored layer, and hades stamping
+// the permit.
 func scriptATip() {
 	engine.stdout("--name-only", "cmd/ares/main.go\n")
 	engine.stdout(`"public-key"`, "-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----")
 	engine.stdout(`"registry:registry.notusmi.com/rob/ares@sha256:`, imageSBOM)
 	engine.stdout(`"oci-archive:/in/builder.tar"`, builderSBOM)
+	engine.stdout(sbomAttachNeedle, sbomArtifact+"\n")
+	engine.stdout(sbomManifestNeedle, `{"schemaVersion":2,"artifactType":"application/vnd.cyclonedx+json","layers":[{"mediaType":"application/vnd.cyclonedx+json","digest":"`+sbomBlob+`","size":4812}]}`)
 	engine.stdout(`"forge_mold"`, "HTTP 200\n"+toolAnswer(false, `{"digest":"sha256:eee","pushed_ref":"registry.notusmi.com/rob/ares:stable"}`))
 }
+
+var (
+	// sbomArtifact is the SBOM referrer's manifest digest oras answers.
+	sbomArtifact = "sha256:" + strings.Repeat("a", 64)
+	// sbomBlob is the one layer that referrer stores.
+	sbomBlob = "sha256:" + strings.Repeat("b", 64)
+)
+
+const (
+	// sbomAttachNeedle is in the SBOM attach's chain and in no other.
+	sbomAttachNeedle = `"oras","attach"`
+	// sbomManifestNeedle is in the referrer's read-back and in no other.
+	sbomManifestNeedle = `"oras","manifest","fetch"`
+	// sbomBlobNeedle is in the blob check and in no other.
+	sbomBlobNeedle = `"oras","blob","fetch"`
+	// pointerNeedle is in the pointer attestation's act and in no other.
+	pointerNeedle = `"attest","--key"`
+)
 
 // settledOn asserts the verdict exec the lane ended on: its code and a piece
 // of its reason.
@@ -339,10 +360,24 @@ func TestATipPublishesSignsAttestsAndIsPermitted(t *testing.T) {
 		[]string{"from", checks.ImageSyft},
 		[]string{"withExec", `"registry:` + ref + `"`, `"cyclonedx-json@1.6"`},
 	)
-	wantCalls(t, engine.chain(`"attest"`),
+	// The SBOM rides as a referrer, and what is signed is a pointer to it: the
+	// referrer's manifest and the blob the registry stored, read back.
+	wantCalls(t, engine.chain(sbomAttachNeedle),
+		[]string{"from", checks.ImageFleet},
+		[]string{"withMountedSecret", `"/run/docker/config.json"`},
 		[]string{"withNewFile", `"/in/sbom.cdx.json"`, "pkg:deb/runtime@1"},
-		[]string{"withExec", `"attest"`, `"cyclonedx"`, ref},
+		[]string{"withExec", `"--registry-config"`, `"--artifact-type"`, `"application/vnd.cyclonedx+json"`, `"org.opencontainers.image.created=`, `"{{.digest}}"`, ref, `"sbom.cdx.json:application/vnd.cyclonedx+json"`},
 	)
+	wantCalls(t, engine.chain(sbomManifestNeedle), []string{"withExec", `"--registry-config"`, `"registry.notusmi.com/rob/ares@` + sbomArtifact + `"`})
+	wantCalls(t, engine.chain(pointerNeedle),
+		[]string{"withNewFile", `"/in/sbom-ref.json"`, sbomArtifact, sbomBlob, "4812", "CycloneDX"},
+		[]string{"withExec", `"attest"`, `"https://notusmi.com/attestation/sbom-ref/v1"`, `"/in/sbom-ref.json"`, ref},
+	)
+	if strings.Contains(engine.chain(pointerNeedle), "pkg:deb/runtime@1") {
+		t.Error("the SBOM itself was attested; only the pointer to it may be")
+	}
+	wantCalls(t, engine.chain(`"verify-attestation"`), []string{"withExec", `"https://notusmi.com/attestation/sbom-ref/v1"`, `"--insecure-ignore-tlog=true"`, ref})
+	wantCalls(t, engine.chain(sbomBlobNeedle), []string{"withExec", `"--registry-config"`, `"--descriptor"`, `"registry.notusmi.com/rob/ares@` + sbomBlob + `"`})
 	// Unless told not to, cosign 3's sign and attest fetch sigstore's signing
 	// config from its CDN and upload to Rekor. Nothing in the fleet reads Rekor,
 	// and the fetch put an outside CDN in the build path (build-ourea-ms24d),
@@ -411,7 +446,7 @@ func TestATipThatCannotBeSignedIsFindingsAndAsksNoPermit(t *testing.T) {
 	engine.exitCode(`"verify","--key"`, 1)
 	tip(t, m)
 	settledOn(t, "1", "findings in sign —")
-	if engine.chain(`"attest"`) != "" || engine.chain(`"forge_mold"`) != "" {
+	if engine.chain(sbomAttachNeedle) != "" || engine.chain(pointerNeedle) != "" || engine.chain(`"forge_mold"`) != "" {
 		t.Fatal("an unsigned image went on to be attested or permitted")
 	}
 }
@@ -431,7 +466,7 @@ func TestASignThatRefusesTheLanesArgumentsIsCouldNotRun(t *testing.T) {
 	engine.stderr(`"verify","--key"`, "Error: no signatures found\n")
 	tip(t, m)
 	settledOn(t, "2", "sign refused the lane's own arguments (Error: unknown flag: --use-signing-config)")
-	if engine.chain(`"attest"`) != "" || engine.chain(`"forge_mold"`) != "" {
+	if engine.chain(sbomAttachNeedle) != "" || engine.chain(pointerNeedle) != "" || engine.chain(`"forge_mold"`) != "" {
 		t.Fatal("a sign that never ran went on to be attested or permitted")
 	}
 }
@@ -454,21 +489,89 @@ func TestASignWhoseCheckCannotRunIsNotAPass(t *testing.T) {
 	engine.failLeaf(`"verify","--key"`, "exitCode", "the engine went away")
 	tip(t, m)
 	settledOn(t, "1", "findings in sign —")
-	if engine.chain(`"attest"`) != "" {
+	if engine.chain(sbomAttachNeedle) != "" || engine.chain(pointerNeedle) != "" {
 		t.Fatal("a sign nobody could check went on to be attested")
 	}
 }
 
-// An attestation that lands is not checked again: only a failed act falls back
-// to its check.
-func TestAnAttestationThatLandsIsNotReverified(t *testing.T) {
+// A pointer already on the image verifies in place of a failed attestation, and
+// the lane goes on.
+func TestAnSBOMPointerAlreadyThereVerifiesInsteadOfFailing(t *testing.T) {
 	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
 	scriptATip()
-	engine.exitCode(`"verify-attestation"`, 1)
+	engine.exitCode(pointerNeedle, 1)
 	tip(t, m)
 	settledOn(t, "0", "clean: published and signed")
-	if engine.chain(`"verify-attestation"`) != "" {
-		t.Fatal("a landed attestation was checked again")
+}
+
+// Every half of the SBOM's publish that fails withholds the permit: the reader
+// that follows the pointer is owed a good one on every image this lane
+// publishes (Zuse7's writer contract). Only a tool that answered about the
+// image is a finding; every other failure is could-not-run.
+func TestAnSBOMThatDoesNotPublishWithholdsThePermit(t *testing.T) {
+	for _, c := range []struct {
+		name, code, reason string
+		script             func()
+		pointed            bool
+	}{
+		{"oras cannot be provisioned", "2", "oras could not be provisioned", func() {
+			// The fetch alone: the settle's reason names both URLs, and a bare
+			// URL needle would fail the verdict exec too.
+			engine.fail(`http(url:"`+checks.OrasMirror+`")`, "502 from the mirror")
+			engine.fail(`http(url:"`+checks.OrasURL+`")`, "502 from upstream")
+		}, false},
+		{"the attach is refused", "1", "findings in SBOM attach", func() {
+			engine.exitCode(sbomAttachNeedle, 1)
+			engine.stdout(sbomAttachNeedle, "Error: failed to push: denied\n")
+		}, false},
+		{"the attach cannot run", "2", "the SBOM attach did not run", func() {
+			engine.failLeaf(sbomAttachNeedle, "exitCode", "the engine went away")
+		}, false},
+		{"the attach answers no digest", "2", "oras attached the SBOM and answered no digest", func() {
+			engine.stdout(sbomAttachNeedle, "Attached to [registry] registry.notusmi.com/rob/ares\n")
+		}, false},
+		{"the referrer does not read back", "2", "could not be read back (exit 1)", func() {
+			engine.exitCode(sbomManifestNeedle, 1)
+		}, false},
+		{"the referrer read-back cannot run", "2", "could not be read back", func() {
+			engine.failLeaf(sbomManifestNeedle, "exitCode", "the engine went away")
+		}, false},
+		{"the referrer is not one SBOM layer", "2", "carries 0 layers, not one", func() {
+			engine.stdout(sbomManifestNeedle, `{"schemaVersion":2,"layers":[]}`)
+		}, false},
+		{"the pointer neither lands nor verifies", "1", "findings in sign (SBOM pointer)", func() {
+			engine.exitCode(pointerNeedle, 1)
+			engine.exitCode(`"verify-attestation"`, 1)
+		}, true},
+		{"the pointer lands and does not verify", "2", "the SBOM pointer was attested and does not verify against the CI key", func() {
+			engine.exitCode(`"verify-attestation"`, 1)
+		}, true},
+		{"the pointer attestation cannot run", "2", "the SBOM pointer attestation did not run", func() {
+			engine.failLeaf(pointerNeedle, "exitCode", "the engine went away")
+		}, true},
+		{"the pointer check cannot run", "2", "the SBOM pointer check did not run", func() {
+			engine.failLeaf(`"verify-attestation"`, "exitCode", "the engine went away")
+		}, true},
+		{"the blob the pointer names is not readable", "2", "is not readable from the registry (exit 1)", func() {
+			engine.exitCode(sbomBlobNeedle, 1)
+		}, true},
+		{"the blob check cannot run", "2", "is not readable from the registry", func() {
+			engine.failLeaf(sbomBlobNeedle, "exitCode", "the engine went away")
+		}, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+			scriptATip()
+			c.script()
+			tip(t, m)
+			settledOn(t, c.code, c.reason)
+			if engine.chain(`"forge_mold"`) != "" {
+				t.Fatal("an image whose SBOM did not publish was sent for a permit")
+			}
+			if pointed := engine.chain(pointerNeedle) != ""; pointed != c.pointed {
+				t.Fatalf("the pointer attestation ran: %v, want %v", pointed, c.pointed)
+			}
+		})
 	}
 }
 
@@ -486,26 +589,26 @@ func TestATipWhoseSignatureDoesNotVerifyIsFindings(t *testing.T) {
 }
 
 // A Dockerfile with a builder stage has that stage's dependencies folded into
-// the SBOM that is attested.
-func TestABuilderStagesDependenciesAreAttestedWithTheImage(t *testing.T) {
+// the SBOM that is attached.
+func TestABuilderStagesDependenciesAreAttachedWithTheImage(t *testing.T) {
 	m := buildOn(t, map[string]string{"Dockerfile": builderDockerfile})
 	scriptATip()
 	tip(t, m)
 	if engine.chain(`target:"builder"`) == "" || engine.chain(`"oci-archive:/in/builder.tar"`) == "" {
 		t.Fatal("the builder stage was not built and read")
 	}
-	wantCalls(t, engine.chain(`"attest"`), []string{"withNewFile", `"/in/sbom.cdx.json"`, "pkg:golang/gomod@1", "pkg:deb/runtime@1"})
+	wantCalls(t, engine.chain(sbomAttachNeedle), []string{"withNewFile", `"/in/sbom.cdx.json"`, "pkg:golang/gomod@1", "pkg:deb/runtime@1"})
 	settledOn(t, "0", "clean: published and signed")
 }
 
-// attestsTheImageAlone asserts the attested SBOM is the runtime image's and
+// attachesTheImageAlone asserts the attached SBOM is the runtime image's and
 // nothing of the builder's.
-func attestsTheImageAlone(t *testing.T) {
+func attachesTheImageAlone(t *testing.T) {
 	t.Helper()
-	attest := engine.chain(`"attest"`)
-	wantCalls(t, attest, []string{"withNewFile", `"/in/sbom.cdx.json"`, "pkg:deb/runtime@1"})
-	if strings.Contains(attest, "pkg:golang/gomod@1") {
-		t.Fatalf("the builder's components were attested:\n%s", attest)
+	attach := engine.chain(sbomAttachNeedle)
+	wantCalls(t, attach, []string{"withNewFile", `"/in/sbom.cdx.json"`, "pkg:deb/runtime@1"})
+	if strings.Contains(attach, "pkg:golang/gomod@1") {
+		t.Fatalf("the builder's components were attached:\n%s", attach)
 	}
 	settledOn(t, "0", "clean: published and signed")
 }
@@ -519,7 +622,7 @@ func TestABuilderStageThatDoesNotBuildLeavesTheImagesSBOM(t *testing.T) {
 	if engine.chain(`"oci-archive:/in/builder.tar"`) != "" {
 		t.Fatal("an unbuilt builder stage was read")
 	}
-	attestsTheImageAlone(t)
+	attachesTheImageAlone(t)
 }
 
 // A builder SBOM syft cannot read leaves the runtime image's SBOM.
@@ -528,7 +631,7 @@ func TestABuilderSBOMThatDoesNotReadLeavesTheImagesSBOM(t *testing.T) {
 	scriptATip()
 	engine.exitCode(`"oci-archive:/in/builder.tar"`, 1)
 	tip(t, m)
-	attestsTheImageAlone(t)
+	attachesTheImageAlone(t)
 }
 
 // Builder SBOMs that do not merge leave the runtime image's SBOM.
@@ -537,7 +640,7 @@ func TestABuilderSBOMThatDoesNotMergeLeavesTheImagesSBOM(t *testing.T) {
 	scriptATip()
 	engine.stdout(`"oci-archive:/in/builder.tar"`, "not an sbom")
 	tip(t, m)
-	attestsTheImageAlone(t)
+	attachesTheImageAlone(t)
 }
 
 // hades's refusal of the permit is the lane's finding; its answer is read the

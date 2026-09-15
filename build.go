@@ -280,9 +280,10 @@ func (l *buildLane) publish(ctx context.Context, img *Image, pushRepo, star stri
 }
 
 // sign signs the published image with the CI key, reads its SBOM (the builder
-// stage's dependencies folded in when the Dockerfile names one), attests the
-// SBOM, and verifies both against the key's public half. A signature or
-// attestation that is already there verifies instead of failing.
+// stage's dependencies folded in when the Dockerfile names one), attaches the
+// SBOM and attests a pointer to it (attestSBOM), and verifies the signature
+// against the key's public half. A signature or pointer that is already there
+// verifies instead of failing.
 func (l *buildLane) sign(ctx context.Context, img *Image, ref, star string) (int, string) {
 	encoded, err := l.cosignKey.Plaintext(ctx)
 	if err != nil {
@@ -319,11 +320,7 @@ func (l *buildLane) sign(ctx context.Context, img *Image, ref, star string) (int
 	if code != buildlane.Clean {
 		return code, why
 	}
-	attesting := cosign.WithNewFile("/in/sbom.cdx.json", sbom)
-	if code, why := orVerify(ctx, "sign (SBOM attestation)",
-		attesting.WithExec([]string{"attest", "--key", "/run/cosign/key", "--type", "cyclonedx", "--predicate", "/in/sbom.cdx.json", "--yes", "--tlog-upload=false", "--use-signing-config=false", ref}, entrypointAnyExit),
-		attesting.WithExec([]string{"verify-attestation", "--key", "/run/cosign/key.pub", "--type", "cyclonedx", "--insecure-ignore-tlog=true", ref}, entrypointAnyExit),
-	); code != buildlane.Clean {
+	if code, why := l.attestSBOM(ctx, cosign, ref, sbom); code != buildlane.Clean {
 		return code, why
 	}
 	out, code, err := output(ctx, cosign.WithExec([]string{"verify", "--key", "/run/cosign/key.pub", "--insecure-ignore-tlog=true", ref}, entrypointAnyExit))
