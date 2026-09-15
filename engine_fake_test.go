@@ -346,7 +346,13 @@ func (e *fakeEngine) glob(dir, pattern string, gitless bool) []string {
 		if gitless && (rel == ".git" || strings.HasPrefix(rel, ".git/")) {
 			continue
 		}
-		if re.MatchString(rel) {
+		// A DIRECTORY MATCHES ITS OWN NAME, measured against the cluster engine
+		// 2026-09-15: glob(".forgejo") over a tree holding .forgejo/workflows/ci.yml
+		// answers [".forgejo/"], and glob("**") lists every directory with its
+		// trailing separator alongside the files. A matrix pins a whole tree
+		// ABSENT by naming it, so reading the name as no match would pass a
+		// guard that the engine fails.
+		if re.MatchString(rel) || (strings.HasSuffix(rel, "/") && re.MatchString(strings.TrimSuffix(rel, "/"))) {
 			out = append(out, rel)
 		}
 	}
@@ -624,9 +630,11 @@ var everyLaneTree = map[string]string{
 	"Dockerfile":                       "FROM scratch\n",
 	".forgejo/workflows/ci.yml":        "uses: foundry/foundry-stocks/.forgejo/workflows/build.yml@main\nimage: x@sha256:" + strings.Repeat("a", 64) + "\n",
 	"flux/x.yaml":                      "kind: Deployment\n",
-	"ci-matrix.toml":                   "",
-	".git/HEAD":                        "ref: refs/heads/main\n",
-	".copier-answers.yml":              "critical_modules: src/x.py\n",
+	// The matrix the render-matrix atom reads: one case, so a test can seed
+	// its rendered tree at /out/<name>.
+	"ci-matrix.toml":      "parse = [\"**/*.json\"]\n\n[[case]]\nname = \"only\"\nanswers = { variant = \"star\" }\npresent = [\"go.mod\"]\nabsent = [\".forgejo\"]\n",
+	".git/HEAD":           "ref: refs/heads/main\n",
+	".copier-answers.yml": "critical_modules: src/x.py\n",
 }
 
 // runAtom runs one atom against the fake engine and answers its verdict.

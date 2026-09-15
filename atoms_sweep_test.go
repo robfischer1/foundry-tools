@@ -166,25 +166,43 @@ func TestSweepPortfolioSbomSkipsDirectoriesUnderTheWorkflowTree(t *testing.T) {
 
 // ---- sweep:template-render-matrix ----
 
-func TestSweepTemplateRenderMatrixRunsTheCanonicalGateOverARealRepository(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	wantState(t, runAtom(t, "sweep:template-render-matrix", ""), 0)
+// renderNeedle is the copier render for the tree's one declared case.
+const renderNeedle = `"copier","copy"`
 
-	c := engine.chain(`"python3","/stocks/ci/lib/template_render_matrix.py"`, "exitCode")
+// renderedTree seeds everyLaneTree plus a rendered output at /out/only.
+func renderedTree(rendered map[string]string) map[string]string {
+	add := map[string]string{}
+	for p, body := range rendered {
+		add["/out/only/"+p] = body
+	}
+	return sweepTree(nil, add)
+}
+
+// THE RENDER IS THE GATE: copier writes the tree, and everything after is read
+// off the rendered output rather than parsed out of a script's stdout.
+func TestSweepTemplateRenderMatrixRendersEachCaseAndGradesTheOutput(t *testing.T) {
+	engine.reset()
+	engine.withTree(renderedTree(map[string]string{"go.mod": "module x\n", "data.json": `{"a": 1}`}))
+	v := runAtom(t, "sweep:template-render-matrix", "")
+	wantState(t, v, 0)
+
+	c := engine.chain(renderNeedle, "exitCode")
 	if !strings.Contains(c, checks.ImageFleet) {
-		t.Errorf("the render matrix runs in the fleet image:\n%s", c)
+		t.Errorf("the render runs in the fleet image:\n%s", c)
 	}
 	wantCalls(t, c,
 		[]string{"withMountedDirectory", `path:"/src"`},
-		[]string{"withMountedDirectory", `path:"/stocks"`},
 		// gitReady's other half: git refuses a repository it does not own, and
 		// the process here is root over a mounted tree.
 		[]string{"withExec", `args:["git","config","--global","--add","safe.directory","*"]`},
-		// The provisioning probe: the canonical gate shells out to uvx, and a
-		// missing one is state 2 with the engine's error, never a green.
+		// The provisioning probe: copier is fetched through uvx, and a missing
+		// uvx is state 2 with the engine's error, never a green.
 		[]string{"withExec", `args:["uvx","--version"]`},
-		[]string{"withExec", `expect:ANY`, `args:["python3","/stocks/ci/lib/template_render_matrix.py","--template","."]`},
+		[]string{"withExec", `expect:ANY`, `"--trust"`},
+		[]string{"withExec", `expect:ANY`, `"--skip-tasks"`},
+		[]string{"withExec", `expect:ANY`, `"--vcs-ref=HEAD"`},
+		[]string{"withExec", `expect:ANY`, `"--data","variant=star"`},
+		[]string{"withExec", `expect:ANY`, `"/src","/out/only"`},
 	)
 	if hasCall(c, "withExec", `args:["uvx","--version"]`, `expect:ANY`) {
 		t.Errorf("the uvx probe is provisioning and must run under the default Expect:\n%s", c)
@@ -196,23 +214,60 @@ func TestSweepTemplateRenderMatrixRunsTheCanonicalGateOverARealRepository(t *tes
 	if strings.Contains(c, "GATE_BASE") {
 		t.Errorf("sweep:template-render-matrix must not read GATE_BASE:\n%s", c)
 	}
-
-	// Rule 2: the gate's own exit code reaches the verdict, and every code
-	// that is not 0 or 1 is a could-not-run.
-	for _, tc := range []struct{ exit, state int }{{0, 0}, {1, 1}, {2, 2}, {127, 2}} {
-		engine.exitCode(`"python3","/stocks/ci/lib/template_render_matrix.py"`, tc.exit)
-		engine.stdout(`"python3","/stocks/ci/lib/template_render_matrix.py"`, "case go-service: rendered")
-		v := runAtom(t, "sweep:template-render-matrix", "")
-		if v.State != tc.state {
-			t.Errorf("exit %d answered state %d, want %d:\n%s", tc.exit, v.State, tc.state, v.Reason)
+	// Nothing is read from foundry-stocks any more: the gate is this module.
+	for _, q := range engine.chains() {
+		if strings.Contains(q, `path:"/stocks"`) || strings.Contains(q, "python3") {
+			t.Errorf("the render matrix runs no script and mounts no stocks:\n%s", q)
 		}
 	}
+}
 
-	// An engine error on the probe is the atom never running.
+// Every way a case can be wrong, and the report that says which.
+func TestSweepTemplateRenderMatrixGradesTheRenderedTree(t *testing.T) {
+	for _, tc := range []struct {
+		label    string
+		rendered map[string]string
+		state    int
+		says     string
+	}{
+		{"a clean render", map[string]string{"go.mod": "module x\n"}, 0, ""},
+		{"an empty tree", map[string]string{}, 1, "rendered nothing — copier reported success but the tree is empty"},
+		{"a conditional path that did not resolve", map[string]string{"go.mod": "", "{% if x %}only{% endif %}/a.txt": ""}, 1, "unresolved jinja in rendered PATH"},
+		{"a suffix copier did not strip", map[string]string{"go.mod": "", "a.py.jinja": ""}, 1, "unstripped .jinja suffix: a.py.jinja"},
+		{"a present expectation that is missing", map[string]string{"README.md": ""}, 1, "expected PRESENT but missing: go.mod"},
+		{"an absent expectation that rendered", map[string]string{"go.mod": "", ".forgejo/": "", ".forgejo/workflows/ci.yml": ""}, 1, "expected ABSENT but rendered: .forgejo -> .forgejo"},
+		{"a born-red stamp", map[string]string{"go.mod": "", "data.json": "{oops}"}, 1, "data.json does not parse as json"},
+		{"a suppression in the pour surface", map[string]string{"go.mod": "", "src/a.py": "x = 1  # no" + "qa: E501\n"}, 1, "a suppression in the POUR SURFACE reaches every repo born from this template"},
+	} {
+		t.Run(tc.label, func(t *testing.T) {
+			engine.reset()
+			engine.withTree(renderedTree(tc.rendered))
+			v := runAtom(t, "sweep:template-render-matrix", "")
+			wantState(t, v, tc.state)
+			if tc.says != "" && !strings.Contains(v.Reason, tc.says) {
+				t.Errorf("want %q in:\n%s", tc.says, v.Reason)
+			}
+			if tc.state == 1 && !strings.Contains(v.Reason, "::error::render matrix FAILED for: only") {
+				t.Errorf("a failed case is named in the roll-up:\n%s", v.Reason)
+			}
+		})
+	}
+}
+
+// A copier that refused is the case's failure, with copier's own last words —
+// never a green, and never an engine error.
+func TestSweepTemplateRenderMatrixReportsARefusedRender(t *testing.T) {
 	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.fail(`"uvx","--version"`, "executable file not found")
-	wantState(t, runAtom(t, "sweep:template-render-matrix", ""), 2, "never ran", "executable file not found")
+	engine.withTree(renderedTree(map[string]string{"go.mod": ""}))
+	engine.exitCode(renderNeedle, 1)
+	engine.stderr(renderNeedle, "Error: conflict\nTemplate does not declare `variant`")
+	v := runAtom(t, "sweep:template-render-matrix", "")
+	wantState(t, v, 1, "copier render failed:", "Template does not declare `variant`")
+
+	engine.reset()
+	engine.withTree(renderedTree(map[string]string{"go.mod": ""}))
+	engine.fail(renderNeedle, "the engine went away")
+	wantState(t, runAtom(t, "sweep:template-render-matrix", ""), 2, "never ran", "the engine went away")
 }
 
 func TestSweepTemplateRenderMatrixRefusesATreeThatIsNotARepository(t *testing.T) {
@@ -232,11 +287,16 @@ func TestSweepTemplateRenderMatrixRefusesATreeThatIsNotARepository(t *testing.T)
 	engine.fail(rootEntries, "mount evaporated")
 	wantState(t, runAtom(t, "sweep:template-render-matrix", ""), 2, "the repository root could not be read", "mount evaporated")
 
-	// The canonical gate.
+	// The matrix itself: unreadable, and unusable.
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	engine.fail("ci/lib/template_render_matrix.py", "no such file")
-	wantState(t, runAtom(t, "sweep:template-render-matrix", ""), 2, "the canonical gate is not reachable through the door")
+	engine.fail(`file(path:"ci-matrix.toml")`, "blob missing")
+	wantState(t, runAtom(t, "sweep:template-render-matrix", ""), 2, "ci-matrix.toml could not be read", "blob missing")
+
+	engine.reset()
+	engine.withTree(sweepTree(nil, map[string]string{"ci-matrix.toml": "parse = []\n"}))
+	wantState(t, runAtom(t, "sweep:template-render-matrix", ""), 2, "::error::ci-matrix.toml declares no [[case]]")
+	wantNoContainer(t, "a matrix with no case renders nothing")
 
 	// No .git at all: the matrix renders the template AT ITS GIT HEAD, and
 	// without a repository copier resolves some other tree.
@@ -247,7 +307,7 @@ func TestSweepTemplateRenderMatrixRefusesATreeThatIsNotARepository(t *testing.T)
 	if strings.Contains(v.Reason, "is a FILE") {
 		t.Errorf("there is no .git at all; calling it a file misreports the cause:\n%s", v.Reason)
 	}
-	wantNoContainer(t, "a tree with no repository never runs the gate")
+	wantNoContainer(t, "a tree with no repository never renders")
 
 	// A LINKED WORKTREE's .git is a FILE naming a host path that does not
 	// exist inside the container. gitReady can rebuild an index; it cannot
@@ -259,7 +319,7 @@ func TestSweepTemplateRenderMatrixRefusesATreeThatIsNotARepository(t *testing.T)
 	}))
 	v = runAtom(t, "sweep:template-render-matrix", "")
 	wantState(t, v, 2, "no .git in the tree under check", "Here .git is a FILE, not a directory", "linked worktree")
-	wantNoContainer(t, "a linked worktree never runs the gate")
+	wantNoContainer(t, "a linked worktree never renders")
 }
 
 // ---- sweep:kubeconform ----
@@ -493,6 +553,8 @@ func TestSweepCheckEntrypointsAnswerNilOnlyForAPass(t *testing.T) {
 		t.Run(tc.id, func(t *testing.T) {
 			engine.reset()
 			engine.withTree(everyLaneTree)
+			// the render matrix needs its case to have rendered something.
+			engine.withTree(map[string]string{"/out/only/go.mod": "module x\n"})
 			// kubeconform needs a count to read before it will pass.
 			engine.stderr(`"/kubeconform"`, "Summary: 12 resources found in 4 files - Valid: 12, Invalid: 0, Errors: 0, Skipped: 0\n")
 			out, err := tc.fn(t.Context())
