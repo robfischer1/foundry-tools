@@ -85,22 +85,35 @@ func genericMask(lang string, lines []string) []string {
 	inRaw := byte(0)
 	for _, line := range lines {
 		n := len(line)
-		mask := make([]byte, 0, n+1)
+		// A FIXED BUFFER, WRITTEN BY INDEX, NEVER GROWN. Every branch below
+		// paints exactly one byte per byte consumed, so mask[k] describes
+		// line[k] and the mask is a function of the line's length.
+		//
+		// It was an append-driven slice until 2026-09-15, and that could not
+		// outrun its own cursor: gremlins flipping any i++ here left the loop
+		// running and the slice growing, and one such mutant reached 25 GB
+		// resident and took the host's whole user slice with it (global OOM,
+		// measured). A mutant must be able to hang; it must not be able to
+		// allocate without bound.
+		mask := make([]byte, n)
+		for k := range mask {
+			mask[k] = RegionCode
+		}
 		i := 0
 		for i < n {
 			ch := line[i]
 			if inBlock != "" {
-				mask = append(mask, RegionComment)
+				paintAt(mask, i, RegionComment)
 				if strings.HasPrefix(line[i:], inBlock) {
 					i++
-					mask = append(mask, RegionComment)
+					paintAt(mask, i, RegionComment)
 					inBlock = ""
 				}
 				i++
 				continue
 			}
 			if inRaw != 0 {
-				mask = append(mask, RegionString)
+				paintAt(mask, i, RegionString)
 				if ch == inRaw {
 					inRaw = 0
 				}
@@ -109,45 +122,54 @@ func genericMask(lang string, lines []string) []string {
 			}
 			if lex.block[0] != "" && strings.HasPrefix(line[i:], lex.block[0]) {
 				inBlock = lex.block[1]
-				mask = append(mask, RegionComment)
+				paintAt(mask, i, RegionComment)
 				i++
 				continue
 			}
 			if lineCommentAt(lex, line, i) {
 				for ; i < n; i++ {
-					mask = append(mask, RegionComment)
+					paintAt(mask, i, RegionComment)
 				}
 				continue
 			}
 			if strings.IndexByte(lex.raw, ch) >= 0 {
 				inRaw = ch
-				mask = append(mask, RegionString)
+				paintAt(mask, i, RegionString)
 				i++
 				continue
 			}
 			if strings.IndexByte(lex.quotes, ch) >= 0 {
-				mask, i = quoted(line, i, mask)
+				i = quoted(line, i, mask)
 				continue
 			}
-			mask = append(mask, RegionCode)
+			paintAt(mask, i, RegionCode)
 			i++
 		}
-		masks = append(masks, string(mask[:n]))
+		masks = append(masks, string(mask))
 	}
 	return masks
 }
 
-// quoted paints a line-local string opening at i and answers the mask and the
-// index after it. Only a double quote honours a backslash, as in the script.
-func quoted(line string, i int, mask []byte) ([]byte, int) {
+// paintAt writes one region byte, and a position past the line is a write that
+// does not happen: the escape below may step past the end, and the script
+// trimmed the same overrun off its own list.
+func paintAt(mask []byte, at int, kind byte) {
+	if at >= 0 && at < len(mask) {
+		mask[at] = kind
+	}
+}
+
+// quoted paints a line-local string opening at i and answers the index after
+// it. Only a double quote honours a backslash, as in the script.
+func quoted(line string, i int, mask []byte) int {
 	ch := line[i]
-	mask = append(mask, RegionString)
+	paintAt(mask, i, RegionString)
 	i++
 	for i < len(line) {
-		mask = append(mask, RegionString)
+		paintAt(mask, i, RegionString)
 		if line[i] == '\\' && ch == '"' {
 			i += 2
-			mask = append(mask, RegionString)
+			paintAt(mask, i-1, RegionString)
 			continue
 		}
 		i++
@@ -155,7 +177,7 @@ func quoted(line string, i int, mask []byte) ([]byte, int) {
 			break
 		}
 	}
-	return mask, i
+	return i
 }
 
 func lineCommentAt(lex sjLex, line string, i int) bool {
