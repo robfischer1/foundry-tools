@@ -26,10 +26,12 @@ import (
 // receipt that does not land turns any exit into could-not-run — a run the
 // door cannot read is a run that did not happen.
 //
-// WHAT DID NOT COME ACROSS: gate.py's own watchdogs (the silence timeout, the
-// engine-gone phrases, its overall ceiling). The Job's deadline is the ceiling
-// the door already settles as could-not-run, and an engine that rolled under a
-// run is the door's to see.
+// WHAT DID NOT COME INTO THIS FUNCTION: gate.py's own watchdogs (the silence
+// timeout, the engine-gone phrases, its overall ceiling). They are the door's,
+// which follows the Job from outside, where a hung CLI is still visible: its
+// watcher cancels a pod that has logged nothing for twenty minutes and re-asks
+// it (ourea 30101ae), an engine that rolled under a run is the door's to see,
+// and the Job's deadline stays the ceiling it settles as could-not-run.
 
 // gateVector answers the vector for a stage: Verdicts, in process. A variable
 // so the lane's own decisions are tested without running every atom.
