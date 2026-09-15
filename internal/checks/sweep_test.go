@@ -8,9 +8,8 @@ import (
 
 // wantSweep is the sweep's roster, written out rather than derived, so that
 // adding or losing an atom is a deliberate edit to this list and not a silent
-// change in a count. CA F9 named these five.
+// change in a count. CA F9 named five; digest-pins has since retired.
 var wantSweep = []string{
-	"sweep:digest-pins",
 	"sweep:kube-linter",
 	"sweep:kubeconform",
 	"sweep:portfolio-sbom",

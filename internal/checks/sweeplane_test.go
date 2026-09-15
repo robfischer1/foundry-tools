@@ -31,51 +31,6 @@ func TestHasEntryReadsEitherSpelling(t *testing.T) {
 	}
 }
 
-// THE 57 FALSE COULD-NOT-RUNS, ASSERTED. A star that calls the reusable
-// workflow carries no digest of its own — that is an empty population, not a
-// broken scan — and one that carries a pin anywhere in the tree has a surface
-// the canonical extractor is then obliged to find.
-func TestHasPinSurfaceSeparatesAnEmptyTreeFromAPinnedOne(t *testing.T) {
-	callsTheReusableWorkflow := `on: [push]
-jobs:
-  gate:
-    uses: foundry/foundry-stocks/.forgejo/workflows/gate.yml@main
-`
-	pinsAnImage := `jobs:
-  build:
-    container: registry.notusmi.com/rob/stellar_core:go-ci@sha256:5f684657c2ba294752edcb456efbdf3237290b8a666ebdcd4cb7025431bbdf7a
-`
-	if HasPinSurface([]string{callsTheReusableWorkflow}) {
-		t.Error("a repo that only calls the reusable workflow has an EMPTY pin population; calling it a broken scan is the defect this probe exists to end")
-	}
-	if !HasPinSurface([]string{pinsAnImage}) {
-		t.Error("a tree carrying a digest reference has a surface, and an extractor that finds none there is broken")
-	}
-	// The surface is the WHOLE workflow tree, not one file: the pin may sit in
-	// any of them.
-	if !HasPinSurface([]string{callsTheReusableWorkflow, pinsAnImage}) {
-		t.Error("one pinned file anywhere under .forgejo/workflows is a surface")
-	}
-	if HasPinSurface(nil) {
-		t.Error("no files is no surface")
-	}
-	if HasPinSurface([]string{""}) {
-		t.Error("an empty file is no surface")
-	}
-}
-
-// The surface probe must admit every reference the canonical extractor accepts
-// — a false negative files a live pin as an absence. digestpins_test.go holds
-// that against the canonical pin list; this holds it against the function the
-// atom actually calls.
-func TestHasPinSurfaceAdmitsEveryCanonicalRef(t *testing.T) {
-	for _, pin := range canonicalPins {
-		if !HasPinSurface([]string{"image: " + pin + "\n"}) {
-			t.Errorf("HasPinSurface missed %q — the atom would call a live pin an absence", pin)
-		}
-	}
-}
-
 func TestBuiltThroughAttestingWorkflowFindsTheThreeBuilds(t *testing.T) {
 	for _, tc := range []struct {
 		name string

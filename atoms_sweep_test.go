@@ -8,16 +8,12 @@ import (
 	"dagger/foundry-tools/internal/checks"
 )
 
-// THE SWEEP LANE, AGAINST THE PAPER ENGINE (engine_fake_test.go). These five
+// THE SWEEP LANE, AGAINST THE PAPER ENGINE (engine_fake_test.go). These four
 // atoms run UNATTENDED — ca-sweep's CronJob is the only caller — which is
 // where a silent pass does the most damage: nobody is watching, so a body that
 // exits 0 because its tool never arrived reads as a clean fleet until somebody
 // happens to look. So every branch below is exercised by its own case, and
-// each is asserted on the WORDING it files, not merely on the state: the two
-// absences digest-pins can report are the same state 0 and mean opposite
-// things about whether this repo has a pin population, and telling them apart
-// is the whole of the fix that ended 57 false could-not-runs on
-// ca-sweep-manual-1788973171.
+// each is asserted on the WORDING it files, not merely on the state.
 
 // sweepTree copies everyLaneTree, deletes every path in drop, and overlays
 // add — the tree under check, minus or plus whatever the branch needs.
@@ -52,186 +48,6 @@ func wantNoContainer(t *testing.T, why string) {
 	}
 }
 
-// ---- sweep:digest-pins ----
-
-func TestSweepDigestPinsBuildsTheOrasChainAndReadsTheScriptsThreeCodes(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-
-	wantState(t, runAtom(t, "sweep:digest-pins", ""), 0)
-
-	c := engine.chain(`"bash","/stocks/ci/lib/digest-pins.sh"`, "exitCode")
-	if !strings.Contains(c, checks.ImageFleet) {
-		t.Errorf("sweep:digest-pins must run in the fleet image:\n%s", c)
-	}
-	wantCalls(t, c,
-		[]string{"withMountedDirectory", `path:"/src"`},
-		[]string{"withWorkdir", `path:"/src"`},
-		[]string{"withMountedDirectory", `path:"/stocks"`},
-		[]string{"withFile", `path:"/tmp/oras.tgz"`},
-		// Rule 1: provisioning runs under the DEFAULT Expect, so an archive
-		// that will not unpack and a client that will not run are state 2 with
-		// the engine's own error rather than a guard and an `exit 2`.
-		[]string{"withExec", `args:["tar","-xzf","/tmp/oras.tgz","-C","/usr/local/bin","oras"]`},
-		[]string{"withExec", `args:["oras","version"]`},
-		[]string{"withEnvVariable", `name:"PINS_DIR"`, `value:".forgejo/workflows"`},
-		// Rule 2: the tool run is the last exec and its code reaches the verdict.
-		[]string{"withExec", `expect:ANY`, `args:["bash","/stocks/ci/lib/digest-pins.sh"]`},
-	)
-	for _, provisioning := range []string{
-		`args:["tar","-xzf","/tmp/oras.tgz","-C","/usr/local/bin","oras"]`,
-		`args:["oras","version"]`,
-	} {
-		if hasCall(c, "withExec", provisioning, `expect:ANY`) {
-			t.Errorf("%s is provisioning and must not carry expect:ANY:\n%s", provisioning, c)
-		}
-	}
-	// Rule 8: this atom does not judge the change, so its cache key must not
-	// be a function of the pull.
-	if strings.Contains(c, "GATE_BASE") {
-		t.Errorf("sweep:digest-pins must not read GATE_BASE:\n%s", c)
-	}
-
-	// 1 is the script's own "a pin is BROKEN".
-	engine.exitCode(`"bash","/stocks/ci/lib/digest-pins.sh"`, 1)
-	engine.stdout(`"bash","/stocks/ci/lib/digest-pins.sh"`, "BROKEN .forgejo/workflows/ci.yml x@sha256:dead")
-	wantState(t, runAtom(t, "sweep:digest-pins", ""), 1, "BROKEN", "x@sha256:dead")
-
-	// 2 is the script extracting no pin at all. The surface probe already
-	// proved there IS one, so the scan is broken rather than the tree
-	// unpinned — and saying WHICH is the point of asking separately.
-	engine.exitCode(`"bash","/stocks/ci/lib/digest-pins.sh"`, 2)
-	engine.stdout(`"bash","/stocks/ci/lib/digest-pins.sh"`, "no pins found under .forgejo/workflows")
-	v := runAtom(t, "sweep:digest-pins", "")
-	wantState(t, v, 2, "SCAN is broken", checks.PinSurfacePattern, "no pins found under .forgejo/workflows")
-	if !strings.Contains(v.Reason, "digest_pins()") {
-		t.Errorf("a broken scan must name where to look, got:\n%s", v.Reason)
-	}
-}
-
-// The two absences are the same state and opposite facts: no workflow tree at
-// all, and a workflow tree that pins nothing because the pin lives in the
-// reusable workflow's own tree. Neither may cost a container.
-func TestSweepDigestPinsSeparatesItsTwoAbsences(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		tree  map[string]string
-		says  string
-		other string
-	}{
-		{
-			"no .forgejo at all",
-			sweepTree([]string{".forgejo/workflows/ci.yml"}, nil),
-			"no .forgejo/workflows in this tree",
-			"carries no digest reference",
-		},
-		{
-			// .forgejo present with no workflows under it is the same nothing
-			// as no .forgejo at all — the shell's `test -d .forgejo/workflows`
-			// asked both at once.
-			".forgejo with no workflows under it",
-			sweepTree([]string{".forgejo/workflows/ci.yml"}, map[string]string{".forgejo/README.md": "no workflows here\n"}),
-			"no .forgejo/workflows in this tree",
-			"carries no digest reference",
-		},
-		{
-			"a workflow tree that pins nothing",
-			sweepTree(nil, map[string]string{
-				".forgejo/workflows/ci.yml": "jobs:\n  gate:\n    uses: foundry/foundry-stocks/.forgejo/workflows/gate.yml@main\n",
-			}),
-			"carries no digest reference at all",
-			"no .forgejo/workflows in this tree",
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			engine.reset()
-			engine.withTree(tc.tree)
-			v := runAtom(t, "sweep:digest-pins", "")
-			wantState(t, v, 0, tc.says)
-			if v.Result != "absent" {
-				t.Errorf("an announced absence must not render as a pass, got %q:\n%s", v.Result, v.Reason)
-			}
-			if strings.Contains(v.Reason, tc.other) {
-				t.Errorf("the wrong absence was reported:\n%s", v.Reason)
-			}
-			wantNoContainer(t, "an absence is decided in Go (rule 3)")
-			// The probe runs BEFORE the fetch: the repos with nothing to check
-			// pay no network round trip to learn it.
-			if q := engine.chain("http("); q != "" {
-				t.Errorf("an absent pin population must cost no fetch:\n%s", q)
-			}
-		})
-	}
-}
-
-func TestSweepDigestPinsCannotRunWhenTheTreeOrTheScriptOrOrasIsUnreachable(t *testing.T) {
-	// The workflow tree is there and unreadable: its pin population is
-	// UNKNOWN, which is not the same answer as empty.
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.fail(`glob(pattern:".forgejo/workflows/**")`, "index is gone")
-	wantState(t, runAtom(t, "sweep:digest-pins", ""), 2, "unknown rather than empty", "index is gone")
-
-	// A workflow file that will not read is the same unknown.
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.fail(`file(path:".forgejo/workflows/ci.yml")`, "blob missing")
-	wantState(t, runAtom(t, "sweep:digest-pins", ""), 2, "unknown rather than empty", "blob missing")
-
-	// The canonical script is read at its one home, and a door that does not
-	// open is a refusal rather than a green.
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.fail("ci/lib/digest-pins.sh", "no such file")
-	wantState(t, runAtom(t, "sweep:digest-pins", ""), 2, "the canonical script is not reachable through the door")
-
-	// Rule 5: the mirror first, upstream second — and one failing is not a
-	// refusal, it is the fallback doing its job.
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.fail(checks.OrasMirror, "502 from the mirror")
-	wantState(t, runAtom(t, "sweep:digest-pins", ""), 0)
-	if q := engine.chain("github.com/oras-project"); q == "" {
-		t.Error("a dead mirror must fall through to upstream")
-	}
-
-	// BOTH failing is the error. Resolving zero pins and calling them healthy
-	// is the outage this atom exists to catch, running backwards.
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.fail("oras-project/oras/releases/download", "no route to host")
-	v := runAtom(t, "sweep:digest-pins", "")
-	wantState(t, v, 2, "running backwards", "no route to host")
-	if q := engine.chain("container{"); q != "" {
-		t.Errorf("oras never arrived; nothing may run:\n%s", q)
-	}
-
-	// An engine error on a provisioning exec is state 2 with the engine's own
-	// text — the atom never ran.
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.fail(`"tar","-xzf","/tmp/oras.tgz"`, "gzip: invalid header")
-	wantState(t, runAtom(t, "sweep:digest-pins", ""), 2, "never ran", "gzip: invalid header")
-
-	// So is the root the whole question is asked from.
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.fail(rootEntries, "mount evaporated")
-	wantState(t, runAtom(t, "sweep:digest-pins", ""), 2, "unknown rather than empty", "mount evaporated")
-}
-
-// A directory under .forgejo/workflows has no contents to read, and the glob
-// names it with a trailing separator. Reading it as a file would turn a
-// perfectly ordinary layout into a CANNOT RUN.
-func TestSweepDigestPinsSkipsDirectoriesUnderTheWorkflowTree(t *testing.T) {
-	engine.reset()
-	engine.withTree(sweepTree(nil, map[string]string{".forgejo/workflows/shared/": ""}))
-	wantState(t, runAtom(t, "sweep:digest-pins", ""), 0)
-	if q := engine.chain(`file(path:".forgejo/workflows/shared/")`); q != "" {
-		t.Errorf("a directory was read as a file:\n%s", q)
-	}
-}
-
 // ---- sweep:portfolio-sbom ----
 
 // EVERY TERM OF THIS QUESTION IS A FACT ABOUT THE TREE, so no path through the
@@ -257,6 +73,13 @@ func TestSweepPortfolioSbomIsAllGoAndNeverStartsAContainer(t *testing.T) {
 			name: "a Dockerfile and no workflow tree cannot be answered",
 			tree: sweepTree([]string{".forgejo/workflows/ci.yml"}, nil), state: 2, result: "cannot-run",
 			says: "a Dockerfile and no workflow tree",
+		},
+		{
+			// The absence is two entries deep: .forgejo with no workflows under
+			// it is the same nothing as no .forgejo at all.
+			name:  "a .forgejo with no workflows under it is no workflow tree",
+			tree:  sweepTree([]string{".forgejo/workflows/ci.yml"}, map[string]string{".forgejo/README.md": "no workflows here\n"}),
+			state: 2, result: "cannot-run", says: "a Dockerfile and no workflow tree",
 		},
 		{
 			name: "built through the attesting workflow",
@@ -290,6 +113,11 @@ func TestSweepPortfolioSbomIsAllGoAndNeverStartsAContainer(t *testing.T) {
 			tree: everyLaneTree, fail: [2]string{`directory(path:".forgejo")`, "listing failed"},
 			state: 2, result: "cannot-run", says: "unknown rather than answered",
 		},
+		{
+			name: "a workflow file could not be read",
+			tree: everyLaneTree, fail: [2]string{`file(path:".forgejo/workflows/ci.yml")`, "blob missing"},
+			state: 2, result: "cannot-run", says: "unknown rather than answered",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			engine.reset()
@@ -319,6 +147,21 @@ func TestSweepPortfolioSbomReadsTheWholeWorkflowTree(t *testing.T) {
 	// atom's output at state 0 — so the assertion is the state, and the
 	// contrast with the gate-only tree above is what proves the tree was read.
 	wantState(t, runAtom(t, "sweep:portfolio-sbom", ""), 0)
+}
+
+// A directory under .forgejo/workflows has no contents to read, and the glob
+// names it with a trailing separator. Reading it as a file would turn a
+// perfectly ordinary layout into a CANNOT RUN.
+func TestSweepPortfolioSbomSkipsDirectoriesUnderTheWorkflowTree(t *testing.T) {
+	engine.reset()
+	engine.withTree(sweepTree(nil, map[string]string{
+		".forgejo/workflows/ci.yml":  "jobs:\n  image:\n    uses: foundry/foundry-stocks/.forgejo/workflows/build.yml@main\n",
+		".forgejo/workflows/shared/": "",
+	}))
+	wantState(t, runAtom(t, "sweep:portfolio-sbom", ""), 0)
+	if q := engine.chain(`file(path:".forgejo/workflows/shared/")`); q != "" {
+		t.Errorf("a directory was read as a file:\n%s", q)
+	}
 }
 
 // ---- sweep:template-render-matrix ----
@@ -642,7 +485,6 @@ func TestSweepCheckEntrypointsAnswerNilOnlyForAPass(t *testing.T) {
 		id string
 		fn func(context.Context) (string, error)
 	}{
-		{"sweep:digest-pins", s.DigestPins},
 		{"sweep:portfolio-sbom", s.PortfolioSbom},
 		{"sweep:template-render-matrix", s.TemplateRenderMatrix},
 		{"sweep:kubeconform", s.Kubeconform},
@@ -682,7 +524,6 @@ func TestSweepReadsOfTheContainerThatFailPartWayAreNeverAVerdict(t *testing.T) {
 	for _, tc := range []struct {
 		name, atom, match, leaf string
 	}{
-		{"digest-pins loses stdout", "sweep:digest-pins", `"bash","/stocks/ci/lib/digest-pins.sh"`, "stdout"},
 		{"kubeconform loses stdout", "sweep:kubeconform", `"/kubeconform"`, "stdout"},
 		{"kubeconform loses stderr", "sweep:kubeconform", `"/kubeconform"`, "stderr"},
 		{"kube-linter loses stderr", "sweep:kube-linter", `"/kube-linter"`, "stderr"},

@@ -115,3 +115,52 @@ func TestAbsentPassesAndSaysSo(t *testing.T) {
 		t.Fatalf("absent must say so in its message, got %q", msg)
 	}
 }
+
+// An atom that found no surface said so on stdout. Reading that as a pass is
+// the same conflation as reading a could-not-run as a pass, one shelf up.
+func TestVerdictOfCarriesAnAtomsOwnAbsence(t *testing.T) {
+	a := AtomByID("sweep:portfolio-sbom")
+	out := "sweep:portfolio-sbom: ABSENT - no Dockerfile at the repository root.\n"
+
+	v := VerdictOf(a, 0, out)
+	if v.Result != "absent" {
+		t.Fatalf("an atom that announced ABSENT rendered as %q", v.Result)
+	}
+	if v.State != int(StatePass) {
+		t.Fatalf("an absence is not a failure; state was %d", v.State)
+	}
+	if !strings.Contains(v.Reason, "no Dockerfile") {
+		t.Fatalf("the absence must carry the atom's own reason, got %q", v.Reason)
+	}
+	if _, err := v.Answer(); err != nil {
+		t.Fatalf("an absence must answer nil, got %v", err)
+	}
+}
+
+// The prefix is the atom's id for a reason: an atom reads a tree, and the word
+// ABSENT could appear in the tree it is reading.
+func TestVerdictOfDoesNotReadAnotherAtomsAbsence(t *testing.T) {
+	a := AtomByID("sweep:portfolio-sbom")
+	for _, out := range []string{
+		"fleet:opengrep-sast: ABSENT - no rules/sast in this tree\n",
+		"the word ABSENT appears in a scanned file\n",
+		"",
+	} {
+		if v := VerdictOf(a, 0, out); v.Result != "pass" {
+			t.Errorf("output %q rendered as %q, want pass", out, v.Result)
+		}
+	}
+}
+
+// A non-pass keeps the full three-state reason. The absence branch must not
+// swallow a findings or a could-not-run.
+func TestAbsenceNeverMasksANonPass(t *testing.T) {
+	a := AtomByID("sweep:portfolio-sbom")
+	out := "sweep:portfolio-sbom: ABSENT - no Dockerfile at the repository root.\n"
+	if v := VerdictOf(a, 2, out); v.Result != "cannot-run" {
+		t.Errorf("exit 2 rendered as %q — an absence claim must not outrank a refusal", v.Result)
+	}
+	if v := VerdictOf(a, 1, out); v.Result != "findings" {
+		t.Errorf("exit 1 rendered as %q", v.Result)
+	}
+}

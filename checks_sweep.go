@@ -21,21 +21,10 @@ import (
 //
 // The reason they run on a clock is measured, not aesthetic: these answers
 // cannot differ between two pulls against the same repo, and a repository
-// nobody opens a PR against is never evaluated at all. digest-pins is the
-// worked example — both outages it exists for were caused by an image being
-// REBUILT, with no merge anywhere near the repo that broke.
+// nobody opens a PR against is never evaluated at all.
 type Sweep struct {
 	// +private
 	Source *dagger.Directory
-}
-
-// Every image digest this repo's workflows pin still resolves in the registry.
-// A pin the registry has collected fails every star that uses it, ~200ms into
-// the job, with an error naming the registry rather than the pin.
-//
-// +check
-func (s *Sweep) DigestPins(ctx context.Context) (string, error) {
-	return check(ctx, s.Source, "sweep:digest-pins")
 }
 
 // A repository that builds an image builds it through the workflow that

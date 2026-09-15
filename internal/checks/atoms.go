@@ -373,19 +373,11 @@ func atomTable() []AtomDef {
 		// These describe a REPOSITORY rather than a change, so their answer cannot
 		// differ between two pulls against the same repo — and running them per
 		// pull leaves every repository nobody opened a PR against unevaluated
-		// indefinitely. That is the whole of CA F9: the digest rots while the tree
-		// sits still, so the probe has to be a clock, not a diff
-		// (foundry-stocks/ci/lib/digest-pins.sh says exactly that in its own
-		// header, and nothing had ever dispatched it).
+		// indefinitely. That is the whole of CA F9.
 		//
 		// The absence is the acceptance: no atom below may appear in a pull's
 		// path. PullPathAtoms is what makes that structural rather than a
 		// convention, and TestNoSweepAtomOnThePullPath asserts it.
-		{
-			ID: "sweep:digest-pins", Stage: StageSweep, Lane: LaneAny, Image: ImageFleet,
-			Desc:        "Every image digest this repo's workflows pin still resolves in the registry.",
-			NeedsStocks: true,
-		},
 		{
 			ID: "sweep:portfolio-sbom", Stage: StageSweep, Lane: LaneAny, Image: ImageFleet,
 			Desc: "A repository that builds an image builds it through the workflow that attests its SBOM.",
@@ -478,7 +470,7 @@ func AtomsForStage(stage string) []AtomDef {
 //
 // An id that names nothing, or names an atom the stage does not admit, is an
 // ERROR rather than an omission. A selector is written by hand into a CronJob's
-// env, where a typo is invisible: `sweep:digest_pins` for `sweep:digest-pins`
+// env, where a typo is invisible: `sweep:kube_linter` for `sweep:kube-linter`
 // would otherwise produce an empty vector, the sweep would report nothing, and
 // nothing reported reads exactly like nothing wrong. That is the same shape as
 // a ruleset matching zero files, and it gets the same answer — refuse.

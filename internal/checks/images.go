@@ -4,8 +4,7 @@ package checks
 //
 // ONE PLACE, deliberately. Every lane image and every tool pin is named here
 // so digest pinning is a single edit rather than a sweep: the fleet has been
-// broken twice by a floating base, and `digest-pins` is the sweep that will
-// land on this block.
+// broken twice by a floating base.
 //
 // THE LANES RUN ON UPSTREAM TOOLCHAINS, SINCE 2026-09-12. Rob: "We're going
 // to stop maintaining CI images. We'll leverage dagger's caching instead.
@@ -34,8 +33,8 @@ package checks
 //
 //	go       go, staticcheck, govulncheck, gremlins (go.sh), python3
 //	         (go.sh scores with go_score.py), git, bash
-//	python   uv, uvx, python3, opengrep, git, tar, bash; opa (dies) and
-//	         oras (sweep) the atoms fetch themselves, pinned below
+//	python   uv, uvx, python3, opengrep, git, tar, bash; opa (dies) the
+//	         atoms fetch themselves, pinned below
 //	rust     cargo (+ rustfmt, clippy, audit, mutants), git, bash
 //	ts       bun, node (ts.sh runs stryker under node), git, bash
 //
@@ -189,10 +188,9 @@ const (
 	DiesRef  = "main"
 )
 
-// The sweep's images. Same rule as the lane images above — one place, so the
-// digest-pins sweep lands on a single block — but these are pinned by DIGEST
-// today rather than by tag, because the two of them are the atoms that judge
-// pinning and a floating base under a pin checker is the joke telling itself.
+// The sweep's images. Same rule as the lane images above — one place — and
+// pinned by DIGEST rather than by tag, so a rebuild upstream cannot move the
+// check under the pin.
 const (
 	// ImageKubeconform is the ALPINE variant, and the pin is the alpine one:
 	// the atom's body was a shell script that had to read an exit code and a
@@ -233,11 +231,11 @@ const (
 	CRDSchemaProbe = "https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/helm.toolkit.fluxcd.io/helmrelease_v2.json"
 )
 
-// OrasURL / OrasMirror fetch the client `digest-pins.sh` resolves pins with.
+// OrasURL / OrasMirror fetch the oras client: the build lane attaches its SBOM
+// referrer with it, and bundle and cast push with it.
 //
 // Nexus first, github.com second, and a failure of BOTH is exit 2 rather than a
-// fallthrough — resolving zero pins and reporting them all fine is precisely
-// the outage the script exists to catch, in reverse.
+// fallthrough.
 const (
 	OrasVersion = "1.3.0"
 	OrasMirror  = "https://nexus.notusmi.com/repository/github-raw/oras-project/oras/releases/download/v" + OrasVersion + "/oras_" + OrasVersion + "_linux_amd64.tar.gz"
@@ -280,38 +278,4 @@ const (
 	OpaVersion = "1.18.0"
 	OpaMirror  = "https://nexus.notusmi.com/repository/github-raw/open-policy-agent/opa/releases/download/v" + OpaVersion + "/opa_linux_amd64_static"
 	OpaURL     = "https://openpolicyagent.org/downloads/v" + OpaVersion + "/opa_linux_amd64_static"
-)
-
-// PinSurfacePattern and PinRefPattern are the two questions the digest-pins
-// atom has to ask SEPARATELY. Conflating them is the defect this pair exists
-// to end.
-//
-// MEASURED, not theorised. ca-sweep-manual-1788973171 (2026-09-09) answered
-// `cannot-run` on 57 of the 86 repos in custody, every one of them with:
-//
-//	0 pin(s) checked, 0 broken, 0 drifted
-//	no pins found under .forgejo/workflows - the scan is broken, not the tree clean
-//
-// That sentence is TRUE in foundry-stocks, where the script lives and where
-// cast.yml carries several pins. It is false everywhere else: a star calls the
-// reusable workflow (`uses: foundry/foundry-stocks/.forgejo/workflows/gate.yml@main`)
-// and the image pin lives in the CALLEE's tree. Those 57 repos have an empty
-// pin population, which is an absence, not a broken scan - and 57 false
-// could-not-runs is how the one real finding in that run got buried.
-//
-//	PinSurfacePattern - does this tree carry ANY digest reference at all?
-//	  no  -> ABSENT. Nothing was checked and nothing needed to be.
-//	  yes -> the population is not empty, so the extractor must find it.
-//	PinRefPattern     - the canonical extractor's own form, mirrored from
-//	  digest_pins() in foundry-stocks/ci/lib/digest-pins.sh. When the surface
-//	  is there and this extracts nothing, THAT is the broken scan the script's
-//	  message names, and it stays a CANNOT RUN.
-//
-// The surface pattern must be the BROADER of the two - every reference the
-// canonical extractor accepts has to match it - or the atom would file a real
-// pin as an absence, which is the failure direction that matters.
-// TestPinSurfaceAdmitsEveryCanonicalRef holds that invariant.
-const (
-	PinSurfacePattern = `@sha256:[0-9a-f]{64}`
-	PinRefPattern     = `[a-zA-Z0-9._-]+\.[a-zA-Z]+/[a-zA-Z0-9._/-]+(:[a-zA-Z0-9._-]+)?@sha256:[0-9a-f]{64}`
 )

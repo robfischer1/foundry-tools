@@ -205,13 +205,12 @@ func (m *FoundryTools) Verdicts(
 	// +optional
 	stage string,
 	// Only these atom ids, comma-separated — e.g.
-	// "sweep:digest-pins,sweep:kubeconform". Empty means every atom the stage
+	// "sweep:kubeconform,sweep:kube-linter". Empty means every atom the stage
 	// admits.
 	//
 	// THIS SELECTS WHAT IS REPORTED BY SELECTING WHAT IS RUN, which is the
-	// only honest way to split a cadence: ca-sweep runs digest-pins nightly
-	// and the rest weekly, and a nightly that evaluated all five and printed
-	// one would be computing findings it then threw away. It names ATOMS, not
+	// only honest way to split a cadence: a run that evaluated every atom and
+	// printed one would be computing findings it then threw away. It names ATOMS, not
 	// directories — the charter is that nothing below New takes a tree, and
 	// this takes no tree.
 	//

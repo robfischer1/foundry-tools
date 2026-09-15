@@ -6,34 +6,12 @@ import (
 	"strings"
 )
 
-// THE SWEEP'S JUDGEMENTS, AS FUNCTIONS. Everything the five repo-cadence atoms
+// THE SWEEP'S JUDGEMENTS, AS FUNCTIONS. Everything the four repo-cadence atoms
 // used to decide in shell — a quiet recursive match over a workflow tree, a
 // `sed -n` at a summary line, a `case` on a linter's exit code — lives here
 // instead, over strings and ints, where a table test can hold it. Nothing in
 // package main is unit-testable (dag panics without an engine), so a judgement
 // that is not in this package is a judgement nobody checks.
-
-var pinSurfaceRE = regexp.MustCompile(PinSurfacePattern)
-
-// HasPinSurface reports whether any of these file bodies carries a digest
-// reference at all — the question PinSurfacePattern exists to ask, asked over
-// the contents of .forgejo/workflows.
-//
-// THE ANSWER DECIDES ABSENT vs CANNOT RUN, which is the whole of the fix
-// images.go records: on ca-sweep-manual-1788973171 (2026-09-09) 57 of 86 repos
-// answered cannot-run with "no pins found under .forgejo/workflows - the scan
-// is broken, not the tree clean". That sentence is true in foundry-stocks and
-// false in a star that calls the reusable workflow, where the image pin lives
-// in the callee's tree. No surface is an ABSENCE; a surface the canonical
-// extractor then cannot read is the broken scan.
-func HasPinSurface(bodies []string) bool {
-	for _, b := range bodies {
-		if pinSurfaceRE.MatchString(b) {
-			return true
-		}
-	}
-	return false
-}
 
 // AttestingWorkflowPattern is the call that puts a repository's image inside
 // the workflow that attests its SBOM — build.yml, frontend-build.yml or
