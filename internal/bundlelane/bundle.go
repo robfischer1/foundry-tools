@@ -39,11 +39,12 @@ var (
 	// die's payload on its own channel, and a schema-only change must not
 	// re-move :stable on policy/ouranos-bundle.
 	policyIgnore = regexp.MustCompile(`(^|/)[^/]*\.md$|^\.forgejo/|^schema/`)
-	// fleetMatch is fleet-bundle.yml's paths, with its own workflow file
-	// replaced by the recipe that ported it. Republishing the roster on an
-	// unrelated policy commit would make its revision say "changed" when
-	// nothing did.
-	fleetMatch = regexp.MustCompile(`^fleet/|^policy/\.manifest$|^policy/admission/stubs\.rego$|^ci/bundle\.sh$`)
+	// fleetMatch is fleet-bundle.yml's paths without its own workflow file:
+	// the recipe that replaced that file is this package, and a change here
+	// lands in foundry-tools, not in the diff this reads. Republishing the
+	// roster on an unrelated policy commit would make its revision say
+	// "changed" when nothing did.
+	fleetMatch = regexp.MustCompile(`^fleet/|^policy/\.manifest$|^policy/admission/stubs\.rego$`)
 )
 
 // Changed reads `git diff --name-only` output into paths, blank lines dropped.

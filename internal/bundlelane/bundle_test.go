@@ -34,7 +34,6 @@ func TestPublishesFollowsTheRetiredWorkflowsPathFilters(t *testing.T) {
 		{"a roster change", []string{"fleet/stars/athena/slag.json"}, true, true},
 		{"the manifest moves both", []string{"policy/.manifest"}, true, true},
 		{"the stubs move both", []string{"policy/admission/stubs.rego"}, true, true},
-		{"the recipe moves the roster", []string{"ci/bundle.sh"}, true, true},
 		{"a nested fleet/ is not the roster", []string{"docs/fleet/x.json"}, true, false},
 	}
 	for _, c := range cases {
