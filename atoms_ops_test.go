@@ -291,6 +291,34 @@ func TestOpsFlux(t *testing.T) {
 	if engine.chain(`http(url:"`+checks.KubectlURL+`")`, "sync") == "" {
 		t.Errorf("ops:flux must fetch kubectl from %s", checks.KubectlURL)
 	}
+	// The built stream — both trees, a separator after each — is validated by
+	// kubeconform copied out of its pinned image.
+	v := engine.chain(`"kubeconform","-strict"`, "exitCode")
+	wantCalls(t, v,
+		[]string{"withFile", `path:"/usr/local/bin/kubeconform"`, `permissions:493`},
+		[]string{"withExec", `args:["kubeconform","-v"]`},
+		[]string{"withNewFile", `path:"/tmp/ops/flux.built.yaml"`, `contents:"kind: A\n---\nkind: B\n---\nkind: A\n---\nkind: B\n---\n"`},
+		[]string{"withExec", "expect:ANY", `args:["kubeconform","-strict","-summary","-ignore-missing-schemas","-skip","CustomResourceDefinition","-schema-location","default","/tmp/ops/flux.built.yaml"]`},
+	)
+	if hasCall(v, "withExec", `args:["kubeconform","-v"]`, "expect:ANY") {
+		t.Errorf("the kubeconform probe is provisioning and must run under the default Expect:\n%s", v)
+	}
+	if engine.chain(`from(address:"`+checks.ImageKubeconform+`")`) == "" {
+		t.Errorf("kubeconform must come from its pinned image %s", checks.ImageKubeconform)
+	}
+
+	// A schema violation in what was built is findings; a schema that would
+	// not fetch is could-not-run.
+	opsTree(map[string]string{"flux/clusters/home/apps.yaml": crs}, nil)
+	engine.stdout(`"kubectl","kustomize"`, "kind: A\n---\nkind: B")
+	engine.exitCode(`"kubeconform","-strict"`, 1)
+	engine.stdout(`"kubeconform","-strict"`, "flux.built.yaml - Deployment web is invalid: spec.replicas: Invalid type\nSummary: 4 resources found - Valid: 3, Invalid: 1")
+	wantState(t, runAtom(t, "ops:flux", ""), 1, "4 object(s) built from 2 tree(s)", "spec.replicas: Invalid type", "flux failed (rc=1) — findings")
+
+	opsTree(map[string]string{"flux/clusters/home/apps.yaml": crs}, nil)
+	engine.exitCode(`"kubeconform","-strict"`, 1)
+	engine.stdout(`"kubeconform","-strict"`, "could not download schema: no such host")
+	wantState(t, runAtom(t, "ops:flux", ""), 2, "fault of the substrate")
 
 	// A duplicate resource id is findings, naming the build.
 	opsTree(map[string]string{"flux/clusters/home/apps.yaml": crs}, nil)

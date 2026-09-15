@@ -440,10 +440,14 @@ func opsAnsiblePhase(ctx context.Context, ctr *dagger.Container, files []checks.
 // infrastructure Kustomization for eight minutes). No CR: every flux/<dir>
 // with a kustomization.yaml.
 //
-// THE BUILT STREAM IS NOT SCHEMA-CHECKED HERE. ops.sh ran kubeconform over it
-// when kubeconform was on PATH, and in this lane it never was — infra's runs
-// said "kubeconform is not on PATH" every time (measured 2026-09-15, 831
-// objects from 4 trees). sweep:kubeconform validates flux/ on its own cadence.
+// THEN THE BUILT STREAM IS SCHEMA-CHECKED, what kustomize-controller will
+// apply rather than the sources. ops.sh ran kubeconform over it only when
+// kubeconform was on PATH, and in this lane it never was — infra's runs said
+// "kubeconform is not on PATH" every time (measured 2026-09-15, 831 objects
+// from 4 trees), so the check was written and never ran. It runs now: the one
+// static binary is copied out of the pinned kubeconform image sweep:kubeconform
+// already runs, the way uv and node reach their lanes, with ops.sh's flags
+// (strict, missing schemas ignored, CRDs skipped, the default location).
 //
 // kubectl is fetched pinned from the release host; there is no Nexus mirror of
 // dl.k8s.io today, so fetchTool's second try is the retry.
@@ -455,9 +459,14 @@ func opsFlux(ctx context.Context, r *run) checks.Verdict {
 		}
 		return ctr.
 			WithFile("/usr/local/bin/kubectl", f, dagger.ContainerWithFileOpts{Permissions: 0o755}).
-			WithExec([]string{"kubectl", "version", "--client=true"}), nil
+			WithFile("/usr/local/bin/kubeconform", dag.Container().From(checks.ImageKubeconform).File("/kubeconform"), dagger.ContainerWithFileOpts{Permissions: 0o755}).
+			WithExec([]string{"kubectl", "version", "--client=true"}).
+			WithExec([]string{"kubeconform", "-v"}), nil
 	})
 }
+
+// opsFluxBuilt is where the built stream is written for kubeconform to read.
+const opsFluxBuilt = "/tmp/ops/flux.built.yaml"
 
 func opsFluxPhase(ctx context.Context, ctr *dagger.Container, files []checks.OpsFile) (opsResult, error) {
 	if !slices.ContainsFunc(files, func(f checks.OpsFile) bool { return strings.HasPrefix(f.Path, "flux/") }) {
@@ -508,6 +517,14 @@ func opsFluxPhase(ctx context.Context, ctr *dagger.Container, files []checks.Ops
 	if rc != 0 {
 		return opsSettled("flux", rc, out.String()), nil
 	}
-	fmt.Fprintf(&out, "%d object(s) built from %d tree(s)", checks.OpsKinds(built.String()), len(paths))
-	return opsResult{out: out.String()}, nil
+	fmt.Fprintf(&out, "%d object(s) built from %d tree(s)\n", checks.OpsKinds(built.String()), len(paths))
+	_, validated, rc, err := opsRun(ctx, ctr.WithNewFile(opsFluxBuilt, built.String()), []string{
+		"kubeconform", "-strict", "-summary", "-ignore-missing-schemas", "-skip", "CustomResourceDefinition",
+		"-schema-location", "default", opsFluxBuilt,
+	})
+	if err != nil {
+		return opsResult{}, err
+	}
+	out.WriteString(validated)
+	return opsSettled("flux", rc, out.String()), nil
 }
