@@ -91,8 +91,10 @@ func TestTheMutationStageIsFourLanesAskedForByName(t *testing.T) {
 		if !ok || a.Lane != lane {
 			t.Errorf("%s: lane %q, want a mutation atom per lane", a.ID, a.Lane)
 		}
-		if !a.NeedsStocks {
-			t.Errorf("%s: must mount foundry-stocks — the script lives there and nowhere else", a.ID)
+		// Every mutation lane runs its tools as plain execs and settles in Go:
+		// none reads a script from foundry-stocks any more.
+		if a.NeedsStocks {
+			t.Errorf("%s: asks for the foundry-stocks mount it no longer reads", a.ID)
 		}
 	}
 	for _, a := range PullPathAtoms() {

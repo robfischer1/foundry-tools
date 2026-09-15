@@ -350,19 +350,19 @@ func atomTable() []AtomDef {
 		// that runs a repo's `go test` runs its armed goldens
 		// (TestTheGoTestAtomCarriesTheFleetRecordTree holds both).
 		{
-			ID: "go:mutation", Stage: StageMutation, Lane: LaneGo, Image: ImageGo, NeedsStocks: true, NeedsDies: true,
+			ID: "go:mutation", Stage: StageMutation, Lane: LaneGo, Image: ImageGo, NeedsDies: true,
 			Desc: "Every mutant gremlins makes of this pull's changed Go is killed by the tests.",
 		},
 		{
-			ID: "python:mutation", Stage: StageMutation, Lane: LanePython, Image: ImagePython, NeedsStocks: true,
+			ID: "python:mutation", Stage: StageMutation, Lane: LanePython, Image: ImagePython,
 			Desc: "Every mutant cosmic-ray makes of this pull's changes to the declared critical modules is killed by the tests.",
 		},
 		{
-			ID: "rust:mutation", Stage: StageMutation, Lane: LaneRust, Image: ImageRust, NeedsStocks: true,
+			ID: "rust:mutation", Stage: StageMutation, Lane: LaneRust, Image: ImageRust,
 			Desc: "Every viable mutant cargo-mutants makes of this pull's changes to the declared critical modules is killed by the tests.",
 		},
 		{
-			ID: "ts:mutation", Stage: StageMutation, Lane: LaneTS, Image: ImageTS, NeedsStocks: true,
+			ID: "ts:mutation", Stage: StageMutation, Lane: LaneTS, Image: ImageTS,
 			Desc: "Every mutant StrykerJS makes of this pull's changes to the declared critical modules is killed by the tests.",
 		},
 
