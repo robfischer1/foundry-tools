@@ -219,6 +219,22 @@ func (l *buildLane) detect(ctx context.Context, pushRepo string) (needed bool, w
 	}
 	r := newRun(l.m.Source, l.m.Repo, "")
 	git := r.gitReady(ctx, r.lane(checks.ImageFleet))
+	// ASK WHETHER THIS CHECKOUT CARRIES THE PERMIT BEFORE ASKING ABOUT ANCESTRY.
+	// A pull branched before :stable's commit does not carry it, and `git
+	// merge-base --is-ancestor` on a commit it cannot name exits 128 — and
+	// Expect ANY covers exit codes 0-127 and 192-255 only (the SDK's own
+	// ReturnTypeAny), so the engine reports 128 as an ERROR, the lane filed it
+	// could-not-run, and automerge re-asked forever. Measured 2026-09-15 on
+	// terpsichore bf13591, hephaestus e353d2b, nyx 27945a7, hades 3d74db7 and
+	// ourea 8e7e113. `rev-parse --verify --quiet` answers the same question
+	// with a quiet exit 1.
+	_, present, err := output(ctx, git.WithExec([]string{"git", "rev-parse", "--verify", "--quiet", permitted + "^{commit}"}, anyExit))
+	if err != nil {
+		return false, fmt.Sprintf("could not run: the history could not be read: %v", err), buildlane.CouldNotRun
+	}
+	if present != 0 {
+		return true, fmt.Sprintf("the last permitted build %.12s is not in this checkout (a branch older than the permit) — building", permitted), buildlane.Clean
+	}
 	_, ancestry, err := output(ctx, git.WithExec([]string{"git", "merge-base", "--is-ancestor", permitted, "HEAD"}, anyExit))
 	if err != nil {
 		return false, fmt.Sprintf("could not run: the history could not be read: %v", err), buildlane.CouldNotRun
