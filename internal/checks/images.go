@@ -28,12 +28,11 @@ package checks
 // cargo-audit, cargo-mutants). A cache hit survives everything but the last
 // layer moving.
 //
-// WHAT EACH LANE EXECS, measured at the exec sites (atoms_*.go and the
-// mutation script python still runs from foundry-stocks ci/lib/mutation/):
+// WHAT EACH LANE EXECS, measured at the exec sites (atoms_*.go):
 //
 //	go       go, staticcheck, govulncheck, gremlins, git
-//	python   uv, uvx, python3, opengrep, git, tar, bash; opa (dies) the
-//	         atoms fetch themselves, pinned below
+//	python   uv, uvx, python3, prlimit, opengrep, git, tar, bash; opa (dies)
+//	         the atoms fetch themselves, pinned below
 //	rust     cargo (+ rustfmt, clippy, audit, mutants), git
 //	ts       bun, node (stryker runs under it), git, curl, find
 //

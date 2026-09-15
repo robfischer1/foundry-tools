@@ -30,8 +30,8 @@ const (
 	// fleet mutated anything, while ca-sweep's header, the templates'
 	// `critical_modules` question and eight comments in ourea all described
 	// a gate that no longer ran (ourea#8319). The scripts survived in
-	// foundry-stocks ci/lib/mutation/; go, rust and ts have since been
-	// ported here, and python still runs its own.
+	// foundry-stocks ci/lib/mutation/, and all four have since been ported
+	// here as plain execs settled in Go.
 	StageMutation = "mutation"
 )
 
@@ -313,13 +313,10 @@ func atomTable() []AtomDef {
 		//
 		// ONE VERDICT, FOUR LANGUAGES. Each atom mutates in DIFF mode against
 		// GATE_BASE — the pull's merge base as the door names it — and answers 0
-		// clean, 1 survivors, 2 could not measure. go, rust and ts run their
-		// tools as plain execs and settle in Go (GoMutationVerdict,
-		// RustMutationVerdict, TSMutationVerdict); python still runs the
-		// canonical script at its one home
-		// (/stocks/ci/lib/mutation/python.sh) phase by phase and answers with the
-		// verdict the score phase wrote, and a phase that exits non-zero is a
-		// broken script, said as CANNOT RUN.
+		// clean, 1 survivors, 2 could not measure. Each runs its tools as plain
+		// execs and settles in Go (GoMutationVerdict, RustMutationVerdict,
+		// TSMutationVerdict, PythonReportVerdict); a tool the engine never ran
+		// is could-not-run, never a pass.
 		//
 		// THE HISTORY IS THERE IN THE LANE THAT MATTERS. The mutation Job clones
 		// the repository whole and checks the head out, so the base resolves and

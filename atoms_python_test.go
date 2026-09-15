@@ -500,164 +500,242 @@ func TestPythonPipAuditRunsTheFleetsAuditorNotTheReposDependency(t *testing.T) {
 
 // ---- mutation ----
 
-// mutationTree is everyLaneTree plus the two files the score phase writes,
-// read back off the scored container by absolute path.
-func mutationTree(verdict, reason string) map[string]string {
-	return pyTree(map[string]string{
-		"/tmp/mutation/verdict": verdict,
-		"/tmp/mutation/reason":  reason,
-	})
+// python:mutation's needles: each exec the atom runs, by the words only it has.
+const (
+	pyBaseNeedle      = `"git","rev-parse","--verify","--quiet","abc123^{commit}"`
+	pyNamesNeedle     = `"--name-only","--diff-filter=AM"`
+	pyDiffNeedle      = `"git","diff","--unified=0","abc123","HEAD"`
+	pySyncNeedle      = `args:["uv","sync","--all-extras","--locked"]`
+	pyInitNeedle      = `"cosmic-ray","init"`
+	pyScopeNeedle     = `"forge-testkit-mutation","scope"`
+	pyPluginNeedle    = `"forge-testkit-mutation","plugin"`
+	pyPlanNeedle      = `"forge-testkit-mutation","plan"`
+	pyMeasureNeedle   = `"coverage>=7.4"`
+	pyMapNeedle       = `"forge-testkit-mutation","map"`
+	pyPartitionNeedle = `"forge-testkit-mutation","partition"`
+	pyExecNeedle      = `"cosmic-ray","exec"`
+	pyMergeNeedle     = `"forge-testkit-mutation","merge"`
+	pySelectionNeedle = `"forge-testkit-mutation","selection"`
+	pyReportNeedle    = `"forge-testkit-mutation","report"`
+)
+
+// scriptPythonMutation answers a pull that added a line to src/x.py, a plan for
+// two workers, and a clean report. No critical modules are declared unless
+// tree hands the repo an answers file.
+func scriptPythonMutation(tree map[string]string) {
+	engine.reset()
+	base := rustTSTree(map[string]string{"src/x.py": "x = 1\n"})
+	delete(base, ".copier-answers.yml")
+	engine.withTree(base)
+	engine.withTree(tree)
+	engine.stdout(pyNamesNeedle, "src/x.py\n")
+	engine.stdout(pyDiffNeedle, "+++ b/src/x.py\n@@ -0,0 +1 @@\n+x = 1")
+	engine.stdout(pyPlanNeedle, "pending=5\nworkers=2\n")
 }
 
-func TestPythonMutationRunsEveryPhaseAndReadsTheVerdictFile(t *testing.T) {
-	engine.reset()
-	engine.withTree(mutationTree("0\n", "every mutant killed\n"))
-
-	// A PASS's reason is reasonFor's "<id>: PASS" and nothing else, so the
-	// scope line and the score phase's sentence are read back off a non-pass
-	// verdict below; here the chain is what carries the scope.
+// python:mutation runs git, uv, cosmic-ray and forge-testkit-mutation as plain
+// execs, measures and mutates on one branch per worker, and runs no script.
+func TestPythonMutationMeasuresAndMutatesInPlainExecs(t *testing.T) {
+	scriptPythonMutation(map[string]string{".copier-answers.yml": "critical_modules: src/x.py\n"})
 	wantState(t, runAtom(t, "python:mutation", "abc123"), 0)
 
-	c := engine.chain(`python.sh","score"`, "exitCode")
+	testkit := `"uv","run","--no-project","--isolated","--index","` + checks.PythonMutationIndex + `","--with","forge-testkit>=1.9.0","forge-testkit-mutation"`
+	c := engine.chain(pyReportNeedle, "exitCode")
 	if !strings.Contains(c, checks.ImagePython) {
 		t.Errorf("python:mutation must run in the python lane image:\n%s", c)
 	}
 	wantCalls(t, c,
-		// Rule 8's one exception: the mutation lane judges the change.
 		[]string{"withEnvVariable", `name:"GATE_BASE"`, `value:"abc123"`},
-		[]string{"withEnvVariable", `name:"MUT_BASE"`, `value:"abc123"`},
-		[]string{"withEnvVariable", `name:"MUT_DIR"`, `value:"/tmp/mutation"`},
-		[]string{"withEnvVariable", `name:"MUT_MODE"`, `value:"diff"`},
-		[]string{"withEnvVariable", `name:"MUT_MODULES"`, `value:"src/x.py"`},
-		[]string{"withMountedDirectory", `path:"/stocks"`},
-		[]string{"withExec", `args:["git","config","--global","--add","safe.directory","*"]`},
-		[]string{"withExec", `args:["bash","--version"]`},
 		[]string{"withExec", `args:["uv","--version"]`},
+		[]string{"withExec", `args:["prlimit","--version"]`},
+		[]string{"withExec", "expect:ANY", pySyncNeedle},
+		[]string{"withNewFile", `path:"cosmic-ray.toml"`, `module-path = \"src/x.py\"`, `timeout = 60.0`,
+			`test-command = \"prlimit --data=4294967296 python -m pytest -x -q -p no:cacheprovider\"`},
+		[]string{"withNewFile", `path:"/tmp/mutation/pr.diff"`, `+x = 1\n`},
+		[]string{"withExec", "expect:ANY", `args:["uv","run","--with","cosmic-ray","cosmic-ray","init","cosmic-ray.toml","session.sqlite"]`},
+		[]string{"withEnvVariable", `name:"GITHUB_OUTPUT"`, `value:"/tmp/mutation/scope.out"`},
+		[]string{"withExec", "expect:ANY", `args:[` + testkit + `,"scope","session.sqlite","--diff","/tmp/mutation/pr.diff","--base","abc123"]`},
+		[]string{"withExec", "expect:ANY", `args:[` + testkit + `,"plugin","--out","/tmp/mutation/plugin"]`},
+		[]string{"withEnvVariable", `name:"PYTEST_ADDOPTS"`, `value:"-p _forge_mutation_select"`},
+		[]string{"withDirectory", `path:"/tmp/mutation/measure"`},
+		[]string{"withExec", "expect:ANY", `args:[` + testkit + `,"map","--parts","/tmp/mutation/measure","--modules","src/x.py","--root","/src","--out","/tmp/mutation/map.json"]`},
+		[]string{"withEnvVariable", `name:"FORGE_MUT_SELECT"`, `value:"/tmp/mutation/map.json"`},
+		[]string{"withExec", "expect:ANY", `args:[` + testkit + `,"partition","session.sqlite","--map","/tmp/mutation/map.json","--out","/tmp/mutation/w1.sqlite","--out","/tmp/mutation/w2.sqlite"]`},
+		[]string{"withFile", `path:"/tmp/mutation/parts/w2.sqlite"`},
+		[]string{"withExec", "expect:ANY", `args:[` + testkit + `,"merge","session.sqlite","/tmp/mutation/parts/w1.sqlite","/tmp/mutation/parts/w2.sqlite"]`},
+		[]string{"withExec", "expect:ANY", `args:[` + testkit + `,"report","session.sqlite","--fail-under","0"]`},
 	)
-	// ONE EXEC PER PHASE, in the script's order, each under anyExit.
-	for _, phase := range mutationPhasesPython {
-		if !hasCall(c, "withExec", `expect:ANY`, `"/stocks/ci/lib/mutation/python.sh","`+phase+`"`) {
-			t.Errorf("python:mutation lacks phase %s under ANY:\n%s", phase, c)
+	for _, probe := range []string{`args:["uv","--version"]`, `args:["prlimit","--version"]`} {
+		if hasCall(c, "withExec", probe, "expect:ANY") {
+			t.Errorf("%s is provisioning and must run under the default Expect:\n%s", probe, c)
 		}
 	}
-	// Rule 7: the script IS the tool, run as one exec — never through a shell.
-	if strings.Contains(c, `args:["bash","-c"`) {
-		t.Errorf("python:mutation must not exec a shell:\n%s", c)
+	for _, relic := range []string{`path:"/stocks"`, `"bash"`, `name:"MUT_`, "ulimit"} {
+		if strings.Contains(c, relic) {
+			t.Errorf("the ported lane still carries %s:\n%s", relic, c)
+		}
 	}
 
-	// The verdict file is the answer, 1 is survivors, and the scope line rides
-	// in front of it.
-	engine.reset()
-	engine.withTree(mutationTree("1\n", "3 mutants survived in src/x.py\n"))
+	// worker answers the newest exit read of a chain with needle run as worker w.
+	worker := func(needle, w string) string {
+		for _, q := range reverse(engine.chains()) {
+			if strings.Contains(q, needle) && strings.Contains(q, "exitCode") && hasCall(q, "withEnvVariable", `name:"FORGE_MUT_WORKER"`, `value:"`+w+`"`) {
+				return q
+			}
+		}
+		t.Errorf("no %s ran as worker %s", needle, w)
+		return ""
+	}
+	// One measure and one exec per worker, told apart so the engine runs each.
+	for _, w := range []string{"1", "2"} {
+		m := worker(pyMeasureNeedle, w)
+		wantCalls(t, m,
+			[]string{"withEnvVariable", `name:"FORGE_MUT_WORKER"`, `value:"` + w + `"`},
+			[]string{"withEnvVariable", `name:"FORGE_MUT_MEASURE"`, `value:"/tmp/mutation/measure"`},
+			[]string{"withEnvVariable", `name:"FORGE_MUT_INCLUDE"`, `value:"src/x.py"`},
+			[]string{"withEnvVariable", `name:"PYTHONDONTWRITEBYTECODE"`, `value:"1"`},
+			[]string{"withExec", "expect:ANY", `args:["uv","run","--with","coverage>=7.4","prlimit","--data=4294967296","python","-m","pytest","-x","-q","-p","no:cacheprovider"]`},
+		)
+		e := worker(pyExecNeedle, w)
+		wantCalls(t, e,
+			[]string{"withFile", `path:"/src/session.sqlite"`},
+			[]string{"withExec", "expect:ANY", `args:["uv","run","--with","cosmic-ray","cosmic-ray","exec","cosmic-ray.toml","session.sqlite"]`},
+		)
+	}
+
+	// Survivors are the report's FAIL line, with the report.
+	scriptPythonMutation(map[string]string{".copier-answers.yml": "critical_modules: src/x.py\n"})
+	engine.exitCode(pyReportNeedle, 1)
+	engine.stdout(pyReportNeedle, "src/x.py:1 survived: ReplaceBinaryOperator\n")
+	engine.stderr(pyReportNeedle, "FAIL: honest score 50.0% is below the floor\n")
 	wantState(t, runAtom(t, "python:mutation", "abc123"), 1,
-		"python:mutation: scoped to the declared critical modules: src/x.py",
-		"3 mutants survived in src/x.py")
-
-	// A verdict the score phase never wrote is a could-not-measure, never a
-	// pass — foundry-stocks#4415's zero-file scan wearing another hat.
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	wantState(t, runAtom(t, "python:mutation", "abc123"), 2,
-		"python:mutation: CANNOT RUN", "the score phase wrote no verdict")
-
-	engine.reset()
-	engine.withTree(mutationTree("   \n", "ignored"))
-	wantState(t, runAtom(t, "python:mutation", "abc123"), 2, "the score phase wrote no verdict")
-
-	engine.reset()
-	engine.withTree(mutationTree("banana\n", "ignored"))
-	wantState(t, runAtom(t, "python:mutation", "abc123"), 2, `wrote "banana", which is not a verdict`)
-
-	// A verdict with no sentence attached says it arrived bare, rather than
-	// rendering "<atom>: " and nothing after it.
-	engine.reset()
-	engine.withTree(mutationTree("1\n", "  \n"))
-	wantState(t, runAtom(t, "python:mutation", "abc123"), 1, "wrote verdict 1 and no reason")
-
-	// A reason file the score phase never wrote at all is the same shape.
-	engine.reset()
-	engine.withTree(pyTree(map[string]string{"/tmp/mutation/verdict": "1\n"}))
-	wantState(t, runAtom(t, "python:mutation", "abc123"), 1, "wrote verdict 1 and no reason")
-
-	// The scope line is printed with the CANNOT RUN too.
-	engine.reset()
-	engine.withTree(pyTree(nil, ".copier-answers.yml"))
-	wantState(t, runAtom(t, "python:mutation", "abc123"), 2,
-		"no critical modules declared", "the score phase wrote no verdict")
+		"scoped to the declared critical modules: src/x.py",
+		"FAIL: honest score 50.0% is below the floor", "src/x.py:1 survived: ReplaceBinaryOperator")
 }
 
-// AN EMPTY DECLARATION IS THE WHOLE DIFF, NOT AN OPT-OUT — and the atom says
-// which of the two happened either way.
-func TestPythonMutationScopesItselfFromTheCopierAnswers(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		answers map[string]string
-		drop    []string
-		mods    string
-		says    string
+// AN EMPTY DECLARATION IS THE WHOLE DIFF, NOT AN OPT-OUT, less the generated
+// modules; and a scope that is all generated has nothing hand-written to mutate.
+func TestPythonMutationScopesAnUndeclaredPullToItsHandWrittenPython(t *testing.T) {
+	scriptPythonMutation(map[string]string{"src/gen.py": "# a header\n# GENERATED by protoc\nx = 1\n"})
+	engine.stdout(pyNamesNeedle, "src/x.py\nsrc/gen.py\nsrc/pkg\n")
+	wantState(t, runAtom(t, "python:mutation", "abc123"), 0)
+	wantCalls(t, engine.chain(pyNamesNeedle, "stdout"),
+		[]string{"withExec", "expect:ANY", `args:["git","diff","--name-only","--diff-filter=AM","abc123","HEAD","--","*.py",":(exclude,glob)**/tests/**",":(exclude,glob)**/test_*.py",":(exclude,glob)**/*_test.py",":(exclude,glob)**/conftest.py"]`})
+	// A directory, which does not read, is kept.
+	wantCalls(t, engine.chain(pyDiffNeedle, "stdout"),
+		[]string{"withExec", `args:["git","diff","--unified=0","abc123","HEAD","--","src/x.py","src/pkg"]`})
+
+	scriptPythonMutation(map[string]string{"src/gen.py": "# Code generated by x. DO NOT EDIT.\n"})
+	engine.stdout(pyNamesNeedle, "src/gen.py\n")
+	wantState(t, runAtom(t, "python:mutation", "abc123"), 0)
+	if engine.chain(pyDiffNeedle) != "" {
+		t.Errorf("an all-generated scope went on to diff")
+	}
+}
+
+func TestPythonMutationStandsDownOrCannotRun(t *testing.T) {
+	cases := map[string]struct {
+		base   string
+		script func()
+		state  int
+		// reason is checked only off a finding or could-not-run: a pass keeps no
+		// output (checks.VerdictOf), so a stand-down is told apart by what ran.
+		reason  []string
+		reached []string
+		never   []string
 	}{
-		{"declared", map[string]string{".copier-answers.yml": "critical_modules: \"src/a src/b\"\n"}, nil,
-			"src/a src/b", "scoped to the declared critical modules: src/a src/b"},
-		{"declared blank", map[string]string{".copier-answers.yml": "critical_modules:   \n"}, nil,
-			"", "an empty list is not an opt-out"},
-		{"key absent", map[string]string{".copier-answers.yml": "_src_path: x\n"}, nil,
-			"", "an empty list is not an opt-out"},
-		{"no answers file at all", nil, []string{".copier-answers.yml"},
-			"", "an empty list is not an opt-out"},
-	} {
-		engine.reset()
-		// Verdict 1, because a PASS's reason is "<id>: PASS" and the scope
-		// line would not be visible in it.
-		tree := mutationTree("1\n", "3 mutants survived\n")
-		for k, v := range tc.answers {
-			tree[k] = v
-		}
-		for _, d := range tc.drop {
-			delete(tree, d)
-		}
-		engine.withTree(tree)
-
-		v := runAtom(t, "python:mutation", "abc123")
-		wantState(t, v, 1, tc.says)
-		c := engine.chain(`python.sh","score"`, "exitCode")
-		if !hasCall(c, "withEnvVariable", `name:"MUT_MODULES"`, `value:"`+tc.mods+`"`) {
-			t.Errorf("%s: MUT_MODULES must carry %q:\n%s", tc.name, tc.mods, c)
-		}
+		"no base": {"", nil, 0, nil, nil, []string{pyBaseNeedle, `args:["uv","--version"]`}},
+		"a base the history lacks": {"abc123", func() { engine.exitCode(pyBaseNeedle, 1) }, 0, nil,
+			[]string{pyBaseNeedle}, []string{pyNamesNeedle}},
+		"no python changed": {"abc123", func() { engine.stdout(pyNamesNeedle, "") }, 0, nil,
+			[]string{pyNamesNeedle}, []string{pyDiffNeedle}},
+		"git cannot list the python": {"abc123", func() { engine.exitCode(pyNamesNeedle, 1) }, 2,
+			[]string{"git could not list the python the pull changed"}, nil, []string{pyDiffNeedle}},
+		"lines only removed": {"abc123", func() { engine.stdout(pyDiffNeedle, "+++ b/src/x.py\n@@ -1 +0,0 @@\n-x = 1") }, 0, nil,
+			[]string{pyDiffNeedle}, []string{pySyncNeedle}},
+		"git cannot diff": {"abc123", func() { engine.exitCode(pyDiffNeedle, 1) }, 2,
+			[]string{"git could not diff the pull against its base abc123"}, nil, []string{pySyncNeedle}},
+		"the sync fails": {"abc123", func() {
+			engine.exitCode(pySyncNeedle, 2)
+			engine.stdout(pySyncNeedle, "error: the lockfile needs to be updated")
+		}, 2, []string{"uv sync --all-extras --locked exited 2", "lockfile needs to be updated"}, nil, []string{pyInitNeedle}},
+		"init enumerates nothing": {"abc123", func() { engine.exitCode(pyInitNeedle, 1) }, 2,
+			[]string{"cosmic-ray init enumerated no mutation sites (exit 1)"}, nil, []string{pyScopeNeedle}},
+		"the diff matches no site": {"abc123", func() {
+			engine.exitCode(pyScopeNeedle, 2)
+			engine.stdout(pyScopeNeedle, "no job's module is in the diff")
+		}, 1, []string{"forge-testkit-mutation scope exited 2", "check critical-modules", "no job's module is in the diff"}, nil, []string{pyPluginNeedle}},
+		"nothing mutable": {"abc123", func() { engine.withTree(map[string]string{"/tmp/mutation/scope.out": "kept=0\nunmutable=true\n"}) }, 0, nil,
+			[]string{pyScopeNeedle}, []string{pyPluginNeedle}},
+		"the plugin cannot be written": {"abc123", func() { engine.exitCode(pyPluginNeedle, 1) }, 2,
+			[]string{"the test-selection plugin could not be written"}, nil, []string{pyPlanNeedle}},
+		"the plan names no workers": {"abc123", func() { engine.stdout(pyPlanNeedle, "pending=0\n") }, 2,
+			[]string{"the session could not be planned"}, nil, []string{pyMeasureNeedle}},
+		"the plan fails": {"abc123", func() { engine.exitCode(pyPlanNeedle, 1) }, 2,
+			[]string{"the session could not be planned (exit 1)"}, nil, []string{pyMeasureNeedle}},
+		"the unmutated suite fails": {"abc123", func() {
+			engine.exitCode(pyMeasureNeedle, 1)
+			engine.stdout(pyMeasureNeedle, "collected 3 items\nFAILED tests/test_x.py::test_a\n1 failed")
+		}, 2, []string{"the unmutated suite exited 1 in worker 1", "1 failed"}, nil, []string{pyMapNeedle}},
+		"the unmutated suite runs out of memory": {"abc123", func() {
+			engine.exitCode(pyMeasureNeedle, 1)
+			engine.stdout(pyMeasureNeedle, "E   MemoryError")
+		}, 2, []string{"ran out of memory under the 4G ceiling"}, nil, []string{pyMapNeedle}},
+		"the map cannot be built": {"abc123", func() { engine.exitCode(pyMapNeedle, 1) }, 2,
+			[]string{"the test map could not be built"}, nil, []string{pyPartitionNeedle}},
+		"the session cannot be partitioned": {"abc123", func() { engine.exitCode(pyPartitionNeedle, 1) }, 2,
+			[]string{"the session could not be partitioned across 2 workers"}, nil, []string{pyExecNeedle}},
+		"a worker's exec breaks": {"abc123", func() { engine.exitCode(pyExecNeedle, 3) }, 2,
+			[]string{"cosmic-ray exec exited 3"}, []string{pyMergeNeedle}, []string{pySelectionNeedle}},
+		"a worker leaves jobs unscored": {"abc123", func() { engine.exitCode(pyMergeNeedle, 1) }, 2,
+			[]string{"cosmic-ray exec exited 1"}, nil, []string{pySelectionNeedle}},
+		"a mutant run measured nothing": {"abc123", func() { engine.exitCode(pySelectionNeedle, 3) }, 2,
+			[]string{"matched none of its selected tests"}, nil, []string{pyReportNeedle}},
+		"an unreadable selection summary": {"abc123", func() { engine.exitCode(pySelectionNeedle, 1) }, 0, nil,
+			[]string{pyReportNeedle}, nil},
+		"no mutants ran": {"abc123", func() {
+			engine.exitCode(pyReportNeedle, 1)
+			engine.stderr(pyReportNeedle, "no mutants ran")
+		}, 2, []string{"no mutants ran — the scope kept sites"}, nil, nil},
+		"an unreadable session": {"abc123", func() { engine.exitCode(pyReportNeedle, 2) }, 2,
+			[]string{"forge-testkit-mutation report exited 2"}, nil, nil},
+		"no prlimit in the image": {"abc123", func() { engine.fail(`args:["prlimit","--version"]`, "exec: prlimit: not found") }, 2,
+			[]string{"never ran", "prlimit"}, nil, []string{pyNamesNeedle}},
+		"the base check never ran":       {"abc123", func() { engine.fail(pyBaseNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{pyNamesNeedle}},
+		"the names never ran":            {"abc123", func() { engine.fail(pyNamesNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{pyDiffNeedle}},
+		"the diff never ran":             {"abc123", func() { engine.fail(pyDiffNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{pySyncNeedle}},
+		"the sync never ran":             {"abc123", func() { engine.failLeaf(pySyncNeedle, "stderr", "engine gone") }, 2, []string{"never ran"}, nil, nil},
+		"init never ran":                 {"abc123", func() { engine.failLeaf(pyInitNeedle, "stderr", "engine gone") }, 2, []string{"never ran"}, nil, nil},
+		"scope never ran":                {"abc123", func() { engine.failLeaf(pyScopeNeedle, "stderr", "engine gone") }, 2, []string{"never ran"}, nil, nil},
+		"the plugin never ran":           {"abc123", func() { engine.failLeaf(pyPluginNeedle, "stderr", "engine gone") }, 2, []string{"never ran"}, nil, nil},
+		"the plan never ran":             {"abc123", func() { engine.failLeaf(pyPlanNeedle, "stderr", "engine gone") }, 2, []string{"never ran"}, nil, nil},
+		"a measure never ran":            {"abc123", func() { engine.failLeaf(pyMeasureNeedle, "stderr", "engine gone") }, 2, []string{"never ran"}, nil, nil},
+		"the map never ran":              {"abc123", func() { engine.failLeaf(pyMapNeedle, "stderr", "engine gone") }, 2, []string{"never ran"}, nil, nil},
+		"partition never ran":            {"abc123", func() { engine.failLeaf(pyPartitionNeedle, "stderr", "engine gone") }, 2, []string{"never ran"}, nil, nil},
+		"an exec never ran":              {"abc123", func() { engine.failLeaf(pyExecNeedle, "stderr", "engine gone") }, 2, []string{"never ran"}, nil, nil},
+		"the merge never ran":            {"abc123", func() { engine.failLeaf(pyMergeNeedle, "stderr", "engine gone") }, 2, []string{"never ran"}, nil, nil},
+		"selection never ran":            {"abc123", func() { engine.failLeaf(pySelectionNeedle, "stderr", "engine gone") }, 2, []string{"never ran"}, nil, nil},
+		"the report's exit never read":   {"abc123", func() { engine.failLeaf(pyReportNeedle, "exitCode", "engine gone") }, 2, []string{"never ran"}, nil, nil},
+		"the report's stdout never read": {"abc123", func() { engine.failLeaf(pyReportNeedle, "stdout", "engine gone") }, 2, []string{"never ran"}, nil, nil},
+		"the report's stderr never read": {"abc123", func() { engine.failLeaf(pyReportNeedle, "stderr", "engine gone") }, 2, []string{"never ran"}, nil, nil},
 	}
-}
-
-// THE PHASES NEVER EXIT NON-ZERO — reaching a verdict is the score phase's
-// job — so one that does is a broken script, and the message names WHICH.
-func TestPythonMutationNamesThePhaseThatBroke(t *testing.T) {
-	for _, phase := range mutationPhasesPython {
-		engine.reset()
-		engine.withTree(mutationTree("0\n", "every mutant killed\n"))
-		engine.exitCode(`python.sh","`+phase+`"`, 1)
-		engine.stdout(`python.sh","`+phase+`"`, "cosmic-ray: config not found")
-
-		wantState(t, runAtom(t, "python:mutation", "abc123"), 2,
-			"python:mutation: CANNOT RUN", "phase "+phase+" exited non-zero",
-			"the phases never do on their own", "cosmic-ray: config not found")
-	}
-
-	// The engine's own failure is not the script's.
-	engine.reset()
-	engine.withTree(mutationTree("0\n", "every mutant killed\n"))
-	engine.fail(`python.sh","init"`, "engine went away")
-	wantState(t, runAtom(t, "python:mutation", "abc123"), 2, "never ran", "engine went away")
-}
-
-// The canonical script has ONE HOME, and a run that could not read it there is
-// a gate that never looked.
-func TestPythonMutationCannotRunWithoutTheCanonicalScript(t *testing.T) {
-	engine.reset()
-	engine.withTree(mutationTree("0\n", "every mutant killed\n"))
-	engine.fail("ci/lib/mutation/python.sh", "no such file or directory")
-
-	wantState(t, runAtom(t, "python:mutation", "abc123"), 2,
-		"python:mutation: CANNOT RUN", "/stocks/ci/lib/mutation/python.sh is absent",
-		"foundry-stocks did not mount at its one home")
-	if n := len(engine.chains()); n != 1 {
-		t.Errorf("a missing script must cost one contents read, not a container: %d queries", n)
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			scriptPythonMutation(nil)
+			if c.script != nil {
+				c.script()
+			}
+			wantState(t, runAtom(t, "python:mutation", c.base), c.state, c.reason...)
+			for _, n := range c.reached {
+				if engine.chain(n) == "" {
+					t.Errorf("never reached %s", n)
+				}
+			}
+			for _, n := range c.never {
+				if engine.chain(n) != "" {
+					t.Errorf("went on to %s", n)
+				}
+			}
+		})
 	}
 }

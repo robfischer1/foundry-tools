@@ -16,7 +16,7 @@ func TestRustMutationSpecsAreTheDeclarationOrEveryRustSource(t *testing.T) {
 	}
 }
 
-func TestRustDiffAddsLines(t *testing.T) {
+func TestDiffAddsLines(t *testing.T) {
 	for diff, want := range map[string]bool{
 		"--- a/x.rs\n+++ b/x.rs\n@@ -1 +1 @@\n-a\n+b": true,
 		"+b": true,
@@ -27,8 +27,8 @@ func TestRustDiffAddsLines(t *testing.T) {
 		"+":          false,
 		"":           false,
 	} {
-		if got := RustDiffAddsLines(diff); got != want {
-			t.Errorf("RustDiffAddsLines(%q) = %v, want %v", diff, got, want)
+		if got := DiffAddsLines(diff); got != want {
+			t.Errorf("DiffAddsLines(%q) = %v, want %v", diff, got, want)
 		}
 	}
 }
