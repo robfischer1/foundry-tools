@@ -41,7 +41,7 @@ func publishOn(t *testing.T, built ...string) *FoundryTools {
 
 func publishWith(t *testing.T, m *FoundryTools, token *dagger.Secret, indexURL string, dryRun bool) {
 	t.Helper()
-	if err := m.Publish(context.Background(), token, publishURL, checkURL, "publisher", indexURL, dryRun); err != nil {
+	if err := m.Publish(context.Background(), token, publishURL, checkURL, "publisher", indexURL, nil, npmHosted, dryRun); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 }

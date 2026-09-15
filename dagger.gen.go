@@ -957,6 +957,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg indexURL", err))
 				}
 			}
+			var npmToken *dagger.Secret
+			if inputArgs["npmToken"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["npmToken"]), &npmToken)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg npmToken", err))
+				}
+			}
+			var npmRegistry string
+			if inputArgs["npmRegistry"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["npmRegistry"]), &npmRegistry)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg npmRegistry", err))
+				}
+			}
 			var dryRun bool
 			if inputArgs["dryRun"] != nil {
 				err = json.Unmarshal([]byte(inputArgs["dryRun"]), &dryRun)
@@ -964,7 +978,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg dryRun", err))
 				}
 			}
-			return nil, (*FoundryTools).Publish(&parent, ctx, token, publishUrl, checkUrl, user, indexUrl, dryRun)
+			return nil, (*FoundryTools).Publish(&parent, ctx, token, publishUrl, checkUrl, user, indexUrl, npmToken, npmRegistry, dryRun)
 		case "Python":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
