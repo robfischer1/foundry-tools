@@ -188,19 +188,36 @@ func TestWithNoPermittedBuildToCompareAgainstTheLaneBuilds(t *testing.T) {
 }
 
 // A permitted build outside this commit's history says nothing about its tree,
-// so the lane builds without diffing — git's "not an ancestor" (exit 1) and a
-// commit absent from the clone (exit 128) alike.
+// so the lane builds without diffing: a permit this checkout does not carry at
+// all (a branch older than it — rev-parse --verify exits 1) and one it carries
+// that is not an ancestor (merge-base exits 1) alike.
+//
+// THE ABSENT COMMIT IS ASKED WITH rev-parse, NOT merge-base. This test used to
+// script `--is-ancestor` exiting 128 and pass, because the paper engine answers
+// an exit code literally. The cluster engine does not: Expect ANY covers exit
+// codes 0-127 and 192-255 only, so merge-base on a commit it cannot name exits
+// 128 and surfaces as an engine error — five real pulls settled could-not-run
+// on 2026-09-15.
 func TestAPermitOutsideThisHistoryBuildsWithoutDiffing(t *testing.T) {
-	for _, exit := range []int{1, 128} {
-		m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
-		engine.label(":stable", permittedSha)
-		engine.exitCode("--is-ancestor", exit)
-		engine.stdout("--name-only", "README.md\n")
-		pull(t, m)
-		settledOn(t, "0", "clean: built ares")
-		if engine.chain("--name-only") != "" {
-			t.Fatalf("git exit %d: the lane diffed against a permit outside this history", exit)
-		}
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	engine.label(":stable", permittedSha)
+	engine.exitCode(`"`+permittedSha+`^{commit}"`, 1)
+	engine.stdout("--name-only", "README.md\n")
+	pull(t, m)
+	settledOn(t, "0", "clean: built ares")
+	wantCalls(t, engine.chain(`"`+permittedSha+`^{commit}"`), []string{"withExec", `"rev-parse"`, `"--verify"`, `"--quiet"`, `"` + permittedSha + `^{commit}"`})
+	if engine.chain("--is-ancestor") != "" || engine.chain("--name-only") != "" {
+		t.Fatal("the lane asked about ancestry or diffed against a permit this checkout does not carry")
+	}
+
+	m = buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	engine.label(":stable", permittedSha)
+	engine.exitCode("--is-ancestor", 1)
+	engine.stdout("--name-only", "README.md\n")
+	pull(t, m)
+	settledOn(t, "0", "clean: built ares")
+	if engine.chain("--name-only") != "" {
+		t.Fatal("the lane diffed against a permit that is not an ancestor")
 	}
 }
 
@@ -208,6 +225,15 @@ func TestAPermitOutsideThisHistoryBuildsWithoutDiffing(t *testing.T) {
 // nor one to stand down.
 func TestAHistoryOrChangeSetThatCannotBeReadIsCouldNotRun(t *testing.T) {
 	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	engine.label(":stable", permittedSha)
+	engine.fail(`"`+permittedSha+`^{commit}"`, "the engine went away")
+	pull(t, m)
+	settledOn(t, "2", "the history could not be read")
+	if engine.chain("--is-ancestor") != "" {
+		t.Fatal("the lane asked about ancestry after the history could not be read")
+	}
+
+	m = buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
 	engine.label(":stable", permittedSha)
 	engine.fail("--is-ancestor", "the engine went away")
 	pull(t, m)
