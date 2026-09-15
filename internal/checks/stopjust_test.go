@@ -286,6 +286,13 @@ func TestDirectoryExemptionHonoursTheExpiryAndNothingWider(t *testing.T) {
 		{"another repository", "frontend-ci-image", "bases/blade-go/Dockerfile", pragma, "2026-09-13", false},
 		{"a base outside the grant", "foundry-stocks", "bases/frontend-next/Dockerfile", pragma, "2026-09-13", false},
 		{"an undated row never expires", "cerberus", "probes/drive.py", "p = Popen([x])  # " + sjNoqa + ": S603", "9999-12-31", true},
+		// Rob's wrecksys DL3026 grant, 2026-09-15.
+		{"wrecksys: DL3026 under docker/", "wrecksys", "docker/jupyter/Dockerfile", "# " + sjHado + " ignore=DL3026", "2026-09-15", true},
+		{"wrecksys: under src/wrecksys_one/, and it does not expire", "wrecksys", "src/wrecksys_one/Dockerfile", "# " + sjHado + " ignore=DL3026", "9999-12-31", true},
+		{"wrecksys: outside the two directories", "wrecksys", "graveyard/Dockerfile", "# " + sjHado + " ignore=DL3026", "2026-09-15", false},
+		{"wrecksys: a second rule may not ride in", "wrecksys", "docker/jupyter/Dockerfile", "# " + sjHado + " ignore=DL3026,DL3007", "2026-09-15", false},
+		{"wrecksys: the other findings are not excused", "wrecksys", "docker/jupyter/Dockerfile", "# " + sjHado + " ignore=DL3013", "2026-09-15", false},
+		{"wrecksys: not a fleet-wide DL3026 grant", "theia", "docker/Dockerfile", "# " + sjHado + " ignore=DL3026", "2026-09-15", false},
 	} {
 		if got := DirectoryExemption(tc.repo, tc.rel, tc.line, tc.today) != nil; got != tc.excused {
 			t.Errorf("%s: excused=%v, want %v", tc.label, got, tc.excused)

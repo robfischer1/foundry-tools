@@ -117,6 +117,13 @@ type ExemptRow struct {
 //	the blade docker files a temporary exemption, comment in the code that my
 //	exemption expires 9/20/26" (session b4bbf354, 2026-09-13); chairman
 //	confirmed "chairmen exemption is fine." (session c128c3c8)
+//
+//	wrecksys docker/ and src/wrecksys_one/, DL3026 — "give wrecksys an approved
+//	exemption to that rule. If it needs a quote - Wrecksys is my own personal,
+//	human-authored project and a live web service hosted on AWS with no access
+//	to our internal services or proxy." (session 9b7fcbb4, 2026-09-15). A
+//	repository that cannot reach the fleet's proxy cannot FROM through it; the
+//	grant covers DL3026 only.
 var DirectoryExempt = []ExemptRow{
 	{
 		Repo: "cerberus", Prefix: "probe/", Rule: "S603", Approved: "2026-08-19",
@@ -139,6 +146,16 @@ var DirectoryExempt = []ExemptRow{
 		Expires:    "2026-09-20",
 		Provenance: "session b4bbf354 (Zuse5); confirmed in session c128c3c8",
 		Reason:     "the same runuser seam as the blade bases",
+	},
+	{
+		Repo: "wrecksys", Prefix: "docker/", Rule: "DL3026", Approved: "2026-09-15",
+		Provenance: "session 9b7fcbb4 (Shannon19), in-session",
+		Reason:     "Rob's own human-authored project, live on AWS with no access to the fleet's proxy",
+	},
+	{
+		Repo: "wrecksys", Prefix: "src/wrecksys_one/", Rule: "DL3026", Approved: "2026-09-15",
+		Provenance: "session 9b7fcbb4 (Shannon19), in-session",
+		Reason:     "Rob's own human-authored project, live on AWS with no access to the fleet's proxy",
 	},
 }
 
