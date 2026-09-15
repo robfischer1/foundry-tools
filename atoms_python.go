@@ -558,7 +558,7 @@ func pythonMutation(ctx context.Context, r *run) checks.Verdict {
 
 	// SCORE: the honest report, stdout and stderr apart.
 	reported := merged.ctr.WithExec([]string{"uv", "run", "--no-project", "--isolated", "--index", checks.PythonMutationIndex,
-		"--with", checks.PythonMutationTestkit, "forge-testkit-mutation", "report", "session.sqlite", "--fail-under", "0"}, anyExit)
+		"--with", checks.PythonMutationTestkit, "forge-testkit-mutation", "report", "session.sqlite", "--fail-under", strconv.Itoa(checks.PythonMutationFailUnder)}, anyExit)
 	rc, err := reported.ExitCode(ctx)
 	if err != nil {
 		return neverRan(err)

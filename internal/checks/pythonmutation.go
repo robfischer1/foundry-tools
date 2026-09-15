@@ -15,17 +15,25 @@ import (
 // not a lane script — and so do its plan, map, partition and merge.
 //
 // Only what the atom reached was ported: it never set python.sh's full mode,
-// test command, fail-under, timeout, worker count, heartbeat, test-selection
+// test command, timeout, worker count, heartbeat, test-selection
 // switch, testkit requirement, index or memory ceiling, and a repo has no say
 // in any of them (MutationScope). The heartbeat left with the silence watchdog
 // it fed.
 
-// The fleet's python mutation settings, as python.sh defaulted them.
+// The fleet's python mutation settings: python.sh's defaults, and the floor Rob set.
 const (
 	PythonMutationTimeout = 60
 	PythonMutationWorkers = 4
 	PythonMutationTestkit = "forge-testkit>=1.9.0"
 	PythonMutationIndex   = "https://nexus.notusmi.com/repository/pypi-hosted/simple/"
+	// PythonMutationFailUnder is the honest-score floor, and 100 is "a real
+	// survivor is a finding", as it is in the go, rust and ts lanes (Rob,
+	// 2026-09-15). python.sh defaulted it to 0, which reported and gated
+	// nothing: nereus 3e0301f carried 71 real survivors and PASSED. The honest
+	// score is real kills over real kills plus real survivors, so it is 100
+	// exactly when no real survivor is left; a diff whose every mutant is noise
+	// has no honest score, and the report stands that down.
+	PythonMutationFailUnder = 100
 	// PythonMutationMemory is the data ceiling on every test run, in bytes (4G).
 	//
 	// EVERY TEST RUN HAS A MEMORY CEILING (Rob, 2026-09-14). A mutant can turn
@@ -158,19 +166,19 @@ func PythonMeasureFailure(worker, status int, log string) string {
 
 var scoreLine = regexp.MustCompile(`(?i)honest|standing down|score`)
 
-// PythonReportVerdict settles `forge-testkit-mutation report --fail-under 0`:
+// PythonReportVerdict settles `forge-testkit-mutation report --fail-under 100`:
 // its exit, its report on stdout and its judgement on stderr. The report is
 // written before the threshold decides, because the run that fails is the one
 // whose survivor list you need (#4710), so every answer carries it.
 func PythonReportVerdict(status int, stdout, stderr string) (int, string) {
-	summary := "### Mutation gate — python (diff), fail-under 0%\n\n```\n" + withNewline(stdout)
+	summary := "### Mutation gate — python (diff), fail-under 100%\n\n```\n" + withNewline(stdout)
 	if stderr != "" {
 		summary += withNewline(stderr)
 	}
 	summary += "```\n"
 	switch status {
 	case 0:
-		line := "the honest score meets the 0% floor (or nothing was gated) — see the report"
+		line := "every real mutant was killed, or none was honest to judge — see the report"
 		if found := firstMatch(stderr+"\n"+stdout, scoreLine); found != "" {
 			line = found
 		}
@@ -179,7 +187,7 @@ func PythonReportVerdict(status int, stdout, stderr string) (int, string) {
 		if strings.Contains(stderr, "no mutants ran") {
 			return 2, "CANNOT RUN - no mutants ran — the scope kept sites and exec produced nothing; a broken gate, not a low score\n\n" + summary
 		}
-		line := "the honest score is below the 0% floor — see the survivor list below"
+		line := "a real mutant survived — see the survivor list below"
 		for _, ln := range strings.Split(stderr, "\n") {
 			if strings.HasPrefix(ln, "FAIL:") {
 				line = ln

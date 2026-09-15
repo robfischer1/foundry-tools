@@ -108,15 +108,15 @@ func TestPythonReportVerdict(t *testing.T) {
 		absent         []string
 	}{
 		{"clean, the score line", 0, "src/x.py: 4 killed\n", "  honest score: 100.0% (4 real kills)\n", 0,
-			[]string{"honest score: 100.0% (4 real kills)\n\n### Mutation gate — python (diff), fail-under 0%\n\n```\nsrc/x.py: 4 killed\n  honest score: 100.0% (4 real kills)\n```\n"}, nil},
+			[]string{"honest score: 100.0% (4 real kills)\n\n### Mutation gate — python (diff), fail-under 100%\n\n```\nsrc/x.py: 4 killed\n  honest score: 100.0% (4 real kills)\n```\n"}, nil},
 		{"the score line from the report when stderr has none", 0, "Standing down: nothing scoped", "", 0,
 			[]string{"Standing down: nothing scoped\n\n"}, []string{"floor (or nothing"}},
 		{"a long score line is cut at 200", 0, "score " + long, "", 0,
 			[]string{"score " + strings.Repeat("é", 194) + "\n\n"}, []string{strings.Repeat("é", 195) + "\n\n"}},
-		{"no score line", 0, "4 killed", "", 0, []string{"the honest score meets the 0% floor (or nothing was gated) — see the report"}, nil},
+		{"no score line", 0, "4 killed", "", 0, []string{"every real mutant was killed, or none was honest to judge — see the report"}, nil},
 		{"survivors", 1, "src/x.py:3 survived", "note\nFAIL: honest 50.0% below 80%\nFAIL: second\n", 1,
 			[]string{"FAIL: honest 50.0% below 80%\n\n", "src/x.py:3 survived"}, []string{"FAIL: second\n\n"}},
-		{"survivors with no FAIL line", 1, "x", "  FAIL: indented\n", 1, []string{"the honest score is below the 0% floor — see the survivor list below"}, nil},
+		{"survivors with no FAIL line", 1, "x", "  FAIL: indented\n", 1, []string{"a real mutant survived — see the survivor list below"}, nil},
 		{"no mutants ran", 1, "", "no mutants ran\n", 2, []string{"CANNOT RUN - no mutants ran — the scope kept sites"}, nil},
 		{"an unreadable session", 2, "", "sqlite3.DatabaseError", 2,
 			[]string{"CANNOT RUN - forge-testkit-mutation report exited 2 — the session could not be read", "sqlite3.DatabaseError\n```"}, nil},

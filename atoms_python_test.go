@@ -563,7 +563,7 @@ func TestPythonMutationMeasuresAndMutatesInPlainExecs(t *testing.T) {
 		[]string{"withExec", "expect:ANY", `args:[` + testkit + `,"partition","session.sqlite","--map","/tmp/mutation/map.json","--out","/tmp/mutation/w1.sqlite","--out","/tmp/mutation/w2.sqlite"]`},
 		[]string{"withFile", `path:"/tmp/mutation/parts/w2.sqlite"`},
 		[]string{"withExec", "expect:ANY", `args:[` + testkit + `,"merge","session.sqlite","/tmp/mutation/parts/w1.sqlite","/tmp/mutation/parts/w2.sqlite"]`},
-		[]string{"withExec", "expect:ANY", `args:[` + testkit + `,"report","session.sqlite","--fail-under","0"]`},
+		[]string{"withExec", "expect:ANY", `args:[` + testkit + `,"report","session.sqlite","--fail-under","100"]`},
 	)
 	for _, probe := range []string{`args:["uv","--version"]`, `args:["prlimit","--version"]`} {
 		if hasCall(c, "withExec", probe, "expect:ANY") {
