@@ -65,11 +65,11 @@ func TestGitReadyRebuildsALinkedWorktreeAndNamesItsOrigin(t *testing.T) {
 	}
 	delete(tree, ".git/HEAD")
 	tree[".git"] = "gitdir: /home/rob/Forge/Outputs/tartarus/.git/worktrees/rowan\n"
-	tree["/tmp/mutation/verdict"] = "0\n"
-	tree["/tmp/mutation/reason"] = "clean"
 	engine.withTree(tree)
+	// go:mutation's resolve is a git exec on the readied repository, so its
+	// chain carries everything gitReady did.
 	wantState(t, runAtom(t, "go:mutation", "abc"), 0)
-	c := engine.chain(`go.sh","score"`)
+	c := engine.chain(`"git","rev-parse","--verify"`)
 	wantCalls(t, c,
 		[]string{"withExec", `args:["git","config","--global","--add","safe.directory","*"]`},
 		[]string{"withExec", `args:["git","init","-q","."]`},
@@ -87,7 +87,7 @@ func TestGitReadyRebuildsALinkedWorktreeAndNamesItsOrigin(t *testing.T) {
 	tree[".git"] = "gitdir: /nowhere\n"
 	engine.withTree(tree)
 	wantState(t, runAtom(t, "go:mutation", "abc"), 0)
-	c = engine.chain(`go.sh","score"`)
+	c = engine.chain(`"git","rev-parse","--verify"`)
 	if hasCall(c, "withExec", `"remote","add","origin"`) || !hasCall(c, "withExec", `args:["git","init","-q","."]`) {
 		t.Errorf("no primary means init without an origin:\n%s", c)
 	}
@@ -95,10 +95,8 @@ func TestGitReadyRebuildsALinkedWorktreeAndNamesItsOrigin(t *testing.T) {
 	// A primary checkout (.git is a directory) is left alone.
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	tree2 := map[string]string{"/tmp/mutation/verdict": "0\n", "/tmp/mutation/reason": "clean"}
-	engine.withTree(tree2)
 	wantState(t, runAtom(t, "go:mutation", "abc"), 0)
-	c = engine.chain(`go.sh","score"`)
+	c = engine.chain(`"git","rev-parse","--verify"`)
 	if hasCall(c, "withExec", `args:["git","init","-q","."]`) || !hasCall(c, "withExec", `"safe.directory"`) {
 		t.Errorf("a primary checkout keeps its repository and still gets safe.directory:\n%s", c)
 	}
@@ -218,10 +216,15 @@ func TestLanesProvisionTheirToolsPinnedAndInVolatilityOrder(t *testing.T) {
 	engine.withTree(everyLaneTree)
 	runAtom(t, "go:vet", "")
 	c := engine.chain(`"go","vet"`, "exitCode")
-	order(t, c, `from(address:"`+checks.ImageGo+`")`, `"apt-get","install"`, `"python3"`, `path:"/usr/local/bin/opengrep"`,
+	order(t, c, `from(address:"`+checks.ImageGo+`")`, `path:"/usr/local/bin/opengrep"`,
 		`"go","install","`+checks.GremlinsModule+`"`, `"go","install","`+checks.StaticcheckModule+`"`, `"go","install","`+checks.GovulncheckModule+`"`, `withMountedCache`)
 	fetched(t, `http(url:"`+checks.OpengrepMirror+`")`)
 	noShell(t, c)
+	// The go lane scores mutation in Go: nothing it runs needs python3, and it
+	// installs no distro package.
+	if strings.Contains(c, `"apt-get"`) || strings.Contains(c, `"python3"`) {
+		t.Errorf("the go lane still installs from apt:\n%s", c)
+	}
 
 	engine.reset()
 	engine.withTree(everyLaneTree)
