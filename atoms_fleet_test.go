@@ -935,7 +935,7 @@ func TestFleetWitnessAsksAboutEachChangedSourceFile(t *testing.T) {
 		t.Fatalf("asked about %d file(s), want the one python source:\n%v", len(*asked), *asked)
 	}
 	for _, w := range []string{`"method":"tools/call"`, `"name":"witness"`, `"granularity":"code"`, `"language":"python"`,
-		`"path":"src/x.py"`, `"caller":"ci:gate:nereus@HEAD"`, `"query":"def f():\n    return 1\n"`} {
+		`"id":1,`, `"path":"src/x.py"`, `"caller":"ci:gate:nereus@HEAD"`, `"query":"def f():\n    return 1\n"`} {
 		if !strings.Contains((*asked)[0], w) {
 			t.Errorf("the request lacks %s:\n%s", w, (*asked)[0])
 		}

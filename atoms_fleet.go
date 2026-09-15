@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -629,28 +627,11 @@ func fleetWitness(ctx context.Context, r *run) checks.Verdict {
 	return settle(state, reason, rows)
 }
 
-// askWitness posts one JSON-RPC request to narcissus's MCP port and answers
-// the HTTP status, content type and body. A variable, so the tests can answer
-// for narcissus the way witness.py's WITNESS_ANSWER seam did.
+// askWitness posts one JSON-RPC request to narcissus's MCP port
+// (checks.PostWitness). A variable, so the tests can answer for narcissus the
+// way witness.py's WITNESS_ANSWER seam did.
 var askWitness = func(ctx context.Context, body string) (int, string, string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, checks.WitnessURL, strings.NewReader(body))
-	if err != nil {
-		return 0, "", "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json, text/event-stream")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return 0, "", "", err
-	}
-	defer resp.Body.Close()
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, "", "", err
-	}
-	return resp.StatusCode, resp.Header.Get("Content-Type"), string(b), nil
+	return checks.PostWitness(ctx, checks.WitnessURL, body)
 }
 
 // hadolintClient provisions the Dockerfile linter, PINNED, and proves it.

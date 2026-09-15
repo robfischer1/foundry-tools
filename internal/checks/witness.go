@@ -1,11 +1,15 @@
 package checks
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"path"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // THE CODE WITNESS'S DECISIONS, in Go. They were foundry-stocks'
@@ -211,49 +215,7 @@ func ClassifyWitness(p string, status int, raw string) WitnessRow {
 	novelty, _ := body["novelty"].(map[string]any)
 	canonical, _ := novelty["canonical"].(map[string]any)
 	if class := jsonText(canonical["class"]); class != "" {
-		importPath := jsonText(canonical["import"])
-		switch {
-		// A CANONICAL'S OWN SOURCE IS NOT A REPEAT OF IT. narcissus seeds its
-		// canonicals from the modules that define them, so a change to one
-		// matches its own fingerprint exactly — which narcissus also grades
-		// `standard`, so this is decided first (stellar_core#18, Rob,
-		// 2026-09-13; the import path is narcissus#39's).
-		case DefinesCanonical(p, importPath):
-			row.Class = "canonical-source"
-			row.Reason = fmt.Sprintf("defines canonical class '%s' (%s): its own source, not a repeat", class, importPath)
-		// REUSING THE CANONICAL IS THE POINT OF THE MATCH (narcissus#9078).
-		case canonical["reused"] == true:
-			row.Class = "canonical-reuse"
-			row.Reason = fmt.Sprintf("reuses canonical class '%s' (%s): adopting it is the point of the match", class, importPath)
-		// A TEST THAT RESEMBLES A CANONICAL IS EXERCISING A SHAPE (Rob,
-		// 2026-09-13, foundry-stocks#164) — advisory when narcissus says the
-		// test does not grade with the class's own suite. A test that
-		// duplicates a standard is still a finding.
-		case verdict != "standard" && testPath.MatchString(p):
-			_, tested := canonical["test"]
-			graded := canonical["graded"] == true
-			if tested && !graded {
-				row.Class = "advisory"
-				row.Reason = runeCut(fmt.Sprintf("advisory — a test resembling canonical class '%s': %s", class, recommendation), 300)
-				break
-			}
-			row.Class = "canonical-in-test"
-			how := "it exercises the shape, it does not re-implement it"
-			if graded {
-				how = "it grades with the class's own suite"
-			}
-			row.Reason = fmt.Sprintf("a test resembling canonical class '%s': %s", class, how)
-		default:
-			row.Class = "finding"
-			row.Canonical = &WitnessCanonical{Class: class, Descriptor: jsonText(canonical["descriptor"])}
-			if footguns, ok := canonical["footguns"].([]any); ok {
-				for _, f := range footguns {
-					row.Canonical.Footguns = append(row.Canonical.Footguns, jsonText(f))
-				}
-			}
-			row.Reason = fmt.Sprintf("matches canonical class '%s' — %d known failure mode(s) to check", class, len(row.Canonical.Footguns))
-		}
-		return row
+		return classifyCanonical(row, verdict, recommendation, class, canonical)
 	}
 	switch verdict {
 	case "standard":
@@ -272,6 +234,58 @@ func ClassifyWitness(p string, status int, raw string) WitnessRow {
 		}
 		row.Reason = "unrecognised witness verdict " + shown + " — could not consult."
 	}
+	return row
+}
+
+// classifyCanonical folds an answer that matched a canonical class. The
+// branches are plain ifs, in witness.py's order, so each is a block the cover
+// tool starts where it is decided.
+func classifyCanonical(row WitnessRow, verdict, recommendation, class string, canonical map[string]any) WitnessRow {
+	importPath := jsonText(canonical["import"])
+	// A CANONICAL'S OWN SOURCE IS NOT A REPEAT OF IT. narcissus seeds its
+	// canonicals from the modules that define them, so a change to one matches
+	// its own fingerprint exactly — which narcissus also grades `standard`, so
+	// this is decided first (stellar_core#18, Rob, 2026-09-13; the import path
+	// is narcissus#39's).
+	if DefinesCanonical(row.Path, importPath) {
+		row.Class = "canonical-source"
+		row.Reason = fmt.Sprintf("defines canonical class '%s' (%s): its own source, not a repeat", class, importPath)
+		return row
+	}
+	// REUSING THE CANONICAL IS THE POINT OF THE MATCH (narcissus#9078).
+	if canonical["reused"] == true {
+		row.Class = "canonical-reuse"
+		row.Reason = fmt.Sprintf("reuses canonical class '%s' (%s): adopting it is the point of the match", class, importPath)
+		return row
+	}
+	// A TEST THAT RESEMBLES A CANONICAL IS EXERCISING A SHAPE (Rob, 2026-09-13,
+	// foundry-stocks#164) — advisory when narcissus says the test does not grade
+	// with the class's own suite. A test that duplicates a standard is still a
+	// finding.
+	if verdict != "standard" && testPath.MatchString(row.Path) {
+		_, tested := canonical["test"]
+		graded := canonical["graded"] == true
+		if tested && !graded {
+			row.Class = "advisory"
+			row.Reason = runeCut(fmt.Sprintf("advisory — a test resembling canonical class '%s': %s", class, recommendation), 300)
+			return row
+		}
+		row.Class = "canonical-in-test"
+		how := "it exercises the shape, it does not re-implement it"
+		if graded {
+			how = "it grades with the class's own suite"
+		}
+		row.Reason = fmt.Sprintf("a test resembling canonical class '%s': %s", class, how)
+		return row
+	}
+	row.Class = "finding"
+	row.Canonical = &WitnessCanonical{Class: class, Descriptor: jsonText(canonical["descriptor"])}
+	if footguns, ok := canonical["footguns"].([]any); ok {
+		for _, f := range footguns {
+			row.Canonical.Footguns = append(row.Canonical.Footguns, jsonText(f))
+		}
+	}
+	row.Reason = fmt.Sprintf("matches canonical class '%s' — %d known failure mode(s) to check", class, len(row.Canonical.Footguns))
 	return row
 }
 
@@ -408,4 +422,31 @@ func WitnessRequest(id int, query, language, caller, p string) string {
 		}},
 	})
 	return string(b)
+}
+
+// witnessTimeout bounds one ask. An answer takes 30-40 s; a port that does not
+// answer in two minutes is could-not-consult for that file.
+const witnessTimeout = time.Duration(120e9) // 120 s, spelled with no operator a mutant could flip
+
+// PostWitness posts one JSON-RPC request to an MCP endpoint and answers the
+// HTTP status, content type and body, or the error that kept it from asking.
+func PostWitness(ctx context.Context, url, body string) (int, string, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, witnessTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(body))
+	if err != nil {
+		return 0, "", "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, "", "", err
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, "", "", err
+	}
+	return resp.StatusCode, resp.Header.Get("Content-Type"), string(b), nil
 }
