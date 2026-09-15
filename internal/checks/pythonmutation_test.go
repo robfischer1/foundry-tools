@@ -1,6 +1,7 @@
 package checks
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -8,6 +9,9 @@ import (
 func TestPythonTestCommandRunsPytestUnderTheCeiling(t *testing.T) {
 	if got := strings.Join(PythonTestCommand, " "); got != "prlimit --data=4294967296 python -m pytest -x -q -p no:cacheprovider" {
 		t.Errorf("test command %q", got)
+	}
+	if PythonTestCommand[1] != "--data="+strconv.Itoa(PythonMutationMemory) {
+		t.Errorf("the ceiling %s is not PythonMutationMemory (%d)", PythonTestCommand[1], PythonMutationMemory)
 	}
 }
 

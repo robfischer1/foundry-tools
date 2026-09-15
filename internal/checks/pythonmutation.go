@@ -42,8 +42,10 @@ const (
 
 // PythonTestCommand is the command cosmic-ray runs per mutant and the measure
 // runs once: pytest under the memory ceiling. prlimit sets the limit and execs
-// the command, where python.sh wrapped it in `bash -c 'ulimit -d …'`.
-var PythonTestCommand = []string{"prlimit", "--data=" + strconv.Itoa(PythonMutationMemory), "python", "-m", "pytest", "-x", "-q", "-p", "no:cacheprovider"}
+// the command, where python.sh wrapped it in `bash -c 'ulimit -d …'`. The byte
+// count is PythonMutationMemory spelled out, so no package-level expression
+// sits where coverage cannot see it; a test holds the two equal.
+var PythonTestCommand = []string{"prlimit", "--data=4294967296", "python", "-m", "pytest", "-x", "-q", "-p", "no:cacheprovider"}
 
 // PythonWholeDiffSpecs is the pathspec an undeclared pull's scope is taken
 // over: every python source outside the tests. A plain exclusion matches from

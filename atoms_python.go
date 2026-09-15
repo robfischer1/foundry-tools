@@ -494,9 +494,13 @@ func pythonMutation(ctx context.Context, r *run) checks.Verdict {
 		WithNewFile(pythonMutationConfig, checks.CosmicRayConfig(kept, checks.PythonTestCommand, checks.PythonMutantTimeout(elapsed))).
 		WithEnvVariable("FORGE_MUT_SELECT", mutationDir+"/map.json").
 		WithEnvVariable("FORGE_MUT_SELECT_LOG", mutationDir+"/select.log")
+	// Each worker's session is named once, where partition writes it and the
+	// worker reads it.
+	sessions := make([]string, workers)
 	partition := []string{"partition", "session.sqlite", "--map", mutationDir + "/map.json"}
 	for i := range workers {
-		partition = append(partition, "--out", fmt.Sprintf("%s/w%d.sqlite", mutationDir, i+1))
+		sessions[i] = fmt.Sprintf("%s/w%d.sqlite", mutationDir, i+1)
+		partition = append(partition, "--out", sessions[i])
 	}
 	partitioned, err := tk(selecting, partition...)
 	if err != nil {
@@ -508,7 +512,7 @@ func pythonMutation(ctx context.Context, r *run) checks.Verdict {
 	executed, err := concurrently(workers, func(i int) (ran, error) {
 		return do(partitioned.ctr.
 			WithEnvVariable("FORGE_MUT_WORKER", strconv.Itoa(i+1)).
-			WithFile("/src/session.sqlite", partitioned.ctr.File(fmt.Sprintf("%s/w%d.sqlite", mutationDir, i+1))),
+			WithFile("/src/session.sqlite", partitioned.ctr.File(sessions[i])),
 			"uv", "run", "--with", "cosmic-ray", "cosmic-ray", "exec", pythonMutationConfig, "session.sqlite")
 	})
 	if err != nil {
