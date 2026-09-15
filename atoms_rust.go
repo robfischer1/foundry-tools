@@ -235,15 +235,11 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 	if code != 0 {
 		return settle(2, "CANNOT RUN - git could not diff the pull against its base "+r.base+": "+diff)
 	}
-	declared := mods
-	if strings.TrimSpace(declared) == "" {
-		declared = "any rust source"
-	}
 	if diff == "" {
-		return settle(0, "this pull touched none of the critical modules ("+declared+") — nothing to mutate")
+		return settle(0, "this pull touched none of the critical modules — nothing to mutate")
 	}
 	if !checks.RustDiffAddsLines(diff) {
-		return settle(0, "this pull only REMOVED lines from the critical modules ("+declared+") — nothing to mutate")
+		return settle(0, "this pull only REMOVED lines from the critical modules — nothing to mutate")
 	}
 
 	// EVERY WORKSPACE MEMBER THE PULL TOUCHED, each passed as -p

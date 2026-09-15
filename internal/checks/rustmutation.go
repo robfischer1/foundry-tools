@@ -78,27 +78,29 @@ func RustTouchedMembers(metadata []byte, root string, files []string) ([]string,
 	for _, id := range meta.WorkspaceMembers {
 		members[id] = true
 	}
-	type member struct{ dir, name string }
-	var dirs []member
+	byDir := map[string]string{}
 	for _, p := range meta.Packages {
 		if members[p.ID] {
-			dirs = append(dirs, member{path.Dir(path.Clean(p.ManifestPath)), p.Name})
+			byDir[path.Dir(path.Clean(p.ManifestPath))] = p.Name
 		}
 	}
-	if len(dirs) < 2 {
+	if len(byDir) < 2 {
 		return nil, nil
 	}
-	sort.SliceStable(dirs, func(i, j int) bool { return len(dirs[i].dir) > len(dirs[j].dir) })
 
+	// Each file's owner is the first member directory met walking up from it:
+	// the nearest ancestor is the deepest.
 	touched := map[string]bool{}
 	for _, rel := range files {
 		if rel == "" {
 			continue
 		}
-		file := path.Join(root, rel)
-		for _, d := range dirs {
-			if strings.HasPrefix(file, d.dir+"/") {
-				touched[d.name] = true
+		for d := path.Dir(path.Join(root, rel)); ; d = path.Dir(d) {
+			if name, ok := byDir[d]; ok {
+				touched[name] = true
+				break
+			}
+			if d == "/" || d == "." {
 				break
 			}
 		}
@@ -180,10 +182,8 @@ func withNewline(s string) string {
 func firstErrorLine(log string) string {
 	for _, ln := range strings.Split(log, "\n") {
 		if strings.Contains(strings.ToLower(ln), "error") {
-			if r := []rune(ln); len(r) > 160 {
-				return string(r[:160])
-			}
-			return ln
+			r := []rune(ln)
+			return string(r[:min(len(r), 160)])
 		}
 	}
 	return ""
