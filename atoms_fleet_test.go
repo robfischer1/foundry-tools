@@ -1,8 +1,12 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"dagger/foundry-tools/internal/checks"
@@ -853,111 +857,237 @@ func TestFleetOpengrepMapsTheScansExit(t *testing.T) {
 
 // ---- fleet:witness ----
 
-func TestFleetWitnessWithoutTheScriptIsCannotRun(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.fail("ci/lib/gate/witness.py", "no such file in tree")
-	wantState(t, runAtom(t, "fleet:witness", "base-sha"), 2,
-		"/stocks/ci/lib/gate/witness.py is absent", "did not mount at its one home")
-	fleetNoContainer(t, "the witness script did not mount")
+// fleet:witness's needles: each git exec the atom runs, by the words only it has.
+const (
+	wSnapNeedle   = `"git","config","--get","ca.snapshot"`
+	wBaseNeedle   = `"rev-parse","--verify","--quiet","base-sha^{commit}"`
+	wDiffNeedle   = `"--diff-filter=AMR","base-sha..HEAD"`
+	wParentNeedle = `"rev-parse","--verify","--quiet","HEAD^"`
+	wTipNeedle    = `"--diff-filter=AMR","HEAD^..HEAD"`
+	wRootNeedle   = `"git","show","--pretty="`
+	wOriginNeedle = `"remote","get-url","origin"`
+)
+
+// witnessAnswer is narcissus's HTTP answer to one tools/call.
+type witnessAnswer struct {
+	status      int
+	contentType string
+	body        string
+	err         error
 }
 
-// Rule 8's one exception: the witness judges the CHANGE, so it is handed the
-// change set's base — and nothing else is.
-func TestFleetWitnessPointsTheScriptAtTheChangeSet(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
+// witnessResult wraps a witness body (the verb's JSON) in the MCP envelope
+// narcissus sends back.
+func witnessResult(body string) witnessAnswer {
+	text, _ := json.Marshal(body)
+	return witnessAnswer{200, "application/json", `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":` + string(text) + `}]}}`, nil}
+}
 
+// answerWitness stands in for narcissus for the rest of the test: each asked
+// path gets its answer, or "*"'s. It answers the request bodies it was sent.
+func answerWitness(t *testing.T, answers map[string]witnessAnswer) *[]string {
+	t.Helper()
+	var mu sync.Mutex
+	asked := &[]string{}
+	prev := askWitness
+	askWitness = func(_ context.Context, body string) (int, string, string, error) {
+		var req struct {
+			Params struct {
+				Arguments struct {
+					Path string `json:"path"`
+				} `json:"arguments"`
+			} `json:"params"`
+		}
+		_ = json.Unmarshal([]byte(body), &req)
+		mu.Lock()
+		*asked = append(*asked, body)
+		mu.Unlock()
+		a, ok := answers[req.Params.Arguments.Path]
+		if !ok {
+			a = answers["*"]
+		}
+		return a.status, a.contentType, a.body, a.err
+	}
+	t.Cleanup(func() { askWitness = prev })
+	return asked
+}
+
+// scriptWitness answers a pull whose change set holds one python source, a
+// TypeScript file, a vendored go file and a README, from a door clone of nereus.
+func scriptWitness(tree map[string]string) {
+	engine.reset()
+	engine.withTree(fleetTree(map[string]string{"src/x.py": "def f():\n    return 1\n"}))
+	engine.withTree(tree)
+	engine.stdout(wDiffNeedle, "src/x.py\nweb/a.ts\nvendor/v/y.go\nREADME.md\n")
+	engine.stdout(wOriginNeedle, "http://ourea:8215/nereus.git\n")
+}
+
+const witnessNovel = `{"verdict":"novel","novelty":{}}`
+
+// Each changed source file the star authored is asked about, whole, from Go —
+// no script, no python — and the rest of the change set is named, not asked.
+func TestFleetWitnessAsksAboutEachChangedSourceFile(t *testing.T) {
+	scriptWitness(nil)
+	asked := answerWitness(t, map[string]witnessAnswer{"*": witnessResult(witnessNovel)})
 	wantState(t, runAtom(t, "fleet:witness", "base-sha"), 0)
 
-	c := engine.chain(`"/stocks/ci/lib/gate/witness.py"`, "exitCode")
+	if len(*asked) != 1 {
+		t.Fatalf("asked about %d file(s), want the one python source:\n%v", len(*asked), *asked)
+	}
+	for _, w := range []string{`"method":"tools/call"`, `"name":"witness"`, `"granularity":"code"`, `"language":"python"`,
+		`"path":"src/x.py"`, `"caller":"ci:gate:nereus@HEAD"`, `"query":"def f():\n    return 1\n"`} {
+		if !strings.Contains((*asked)[0], w) {
+			t.Errorf("the request lacks %s:\n%s", w, (*asked)[0])
+		}
+	}
+	c := engine.chain(wDiffNeedle, "stdout")
 	wantCalls(t, c,
-		[]string{"withMountedDirectory", `path:"/stocks"`},
 		[]string{"withEnvVariable", `name:"GATE_BASE"`, `value:"base-sha"`},
-		[]string{"withEnvVariable", `name:"WITNESS_DIR"`, `value:"/tmp/witness"`},
-		[]string{"withExec", `args:["git","config","--global","--add","safe.directory","*"]`},
-		[]string{"withExec", `args:["python3","--version"]`},
-		[]string{"withExec", `expect:ANY`, `args:["python3","/stocks/ci/lib/gate/witness.py"]`},
+		[]string{"withExec", `args:["git","--version"]`},
+		[]string{"withExec", "expect:ANY", `args:["git","diff","--name-only","--diff-filter=AMR","base-sha..HEAD"]`},
 	)
-	if hasCall(c, "withExec", `"python3","--version"`, `expect:ANY`) {
-		t.Errorf("the version probe is provisioning and must run under the default Expect:\n%s", c)
+	if hasCall(c, "withExec", `args:["git","--version"]`, "expect:ANY") {
+		t.Errorf("the git probe is provisioning and must run under the default Expect:\n%s", c)
+	}
+	for _, relic := range []string{`path:"/stocks"`, `"python3"`, "WITNESS_DIR"} {
+		if strings.Contains(c, relic) {
+			t.Errorf("the ported atom still carries %s:\n%s", relic, c)
+		}
 	}
 
-	// An empty base is what a local run gets: the tip against its parent.
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	wantState(t, runAtom(t, "fleet:witness", ""), 0)
-	if !hasCall(engine.chain(`"/stocks/ci/lib/gate/witness.py"`, "exitCode"), "withEnvVariable", `name:"GATE_BASE"`, `value:""`) {
-		t.Error("an empty base still reaches the script — it means the tip against its parent")
+	// A canonical-class match is a finding, with its checklist in the table.
+	scriptWitness(nil)
+	answerWitness(t, map[string]witnessAnswer{"*": witnessResult(
+		`{"verdict":"convention","novelty":{"canonical":{"class":"Adapter","descriptor":"an adapter","footguns":["forgets to close"]}}}`)})
+	wantState(t, runAtom(t, "fleet:witness", "base-sha"), 1,
+		"narcissus — fleet:witness: findings in 1 of 1 file(s): src/x.py: matches canonical class 'Adapter' — 1 known failure mode(s) to check",
+		"| src/x.py | convention | finding |", "- src/x.py · Adapter: forgets to close")
+
+	// Every failure to hear from the witness is that file's could-not-consult.
+	for name, a := range map[string]witnessAnswer{
+		"HTTP 503":          {503, "text/plain", "busy", nil},
+		"no connection":     {0, "", "", errors.New("dial tcp: connection refused")},
+		"an erroring verb":  {200, "application/json", `{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"boom"}}`, nil},
+		"an unknown corpus": witnessResult(`{"verdict":"unknown"}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			scriptWitness(nil)
+			answerWitness(t, map[string]witnessAnswer{"*": a})
+			wantState(t, runAtom(t, "fleet:witness", "base-sha"), 2, "could not consult 1 of 1 file(s): src/x.py: ")
+		})
+	}
+
+	// An event stream carries the same envelope on its last data: line.
+	scriptWitness(nil)
+	novel := witnessResult(`{"verdict":"standard","recommendation":"use the one in stellar_core"}`)
+	answerWitness(t, map[string]witnessAnswer{"*": {200, "text/event-stream", "event: message\ndata: " + novel.body + "\n\n", nil}})
+	wantState(t, runAtom(t, "fleet:witness", "base-sha"), 1, "duplicates a standard: use the one in stellar_core")
+
+	// A file the tree cannot give up is never asked about, and says why.
+	scriptWitness(nil)
+	delete(engine.tree, "src/x.py")
+	asked = answerWitness(t, map[string]witnessAnswer{"*": witnessResult(witnessNovel)})
+	wantState(t, runAtom(t, "fleet:witness", "base-sha"), 2, "src/x.py: could not ask: ")
+	if len(*asked) != 0 {
+		t.Errorf("a file that did not read was asked about")
 	}
 }
 
-// The script writes WHY it decided what it decided to $WITNESS_DIR/reason, and
-// the human reads the why before the what.
-func TestFleetWitnessPrependsTheReasonFile(t *testing.T) {
-	const tool = `"/stocks/ci/lib/gate/witness.py"`
-	engine.reset()
-	engine.withTree(fleetTree(map[string]string{
-		"/tmp/witness/reason": "narcissus: canonical-class match, 0.94\n",
-	}))
-	engine.exitCode(tool, 1)
-	engine.stdout(tool, "src/x.py: Standard\n")
-
+// The rows keep git's order whatever order the answers arrive in, and the
+// origin that cannot be read names an unknown star rather than failing.
+func TestFleetWitnessKeepsGitsOrderAndNamesItsStar(t *testing.T) {
+	scriptWitness(map[string]string{"a.go": "package a\n", "b.py": "def g(): pass\n"})
+	engine.stdout(wDiffNeedle, "b.py\na.go\nsrc/x.py\n")
+	engine.exitCode(wOriginNeedle, 2)
+	asked := answerWitness(t, map[string]witnessAnswer{
+		"b.py": witnessResult(`{"verdict":"standard","recommendation":"b"}`),
+		"*":    witnessResult(witnessNovel),
+	})
 	v := runAtom(t, "fleet:witness", "base-sha")
-	wantState(t, v, 1, "narcissus: canonical-class match", "src/x.py: Standard")
-	if strings.Index(v.Reason, "narcissus:") > strings.Index(v.Reason, "src/x.py: Standard") {
-		t.Errorf("the reason must be prepended to the tool's output:\n%s", v.Reason)
+	wantState(t, v, 1, "findings in 1 of 3 file(s): b.py: duplicates a standard: b")
+	if b, x := strings.Index(v.Reason, "| b.py |"), strings.Index(v.Reason, "| src/x.py |"); b < 0 || x < b || strings.Index(v.Reason, "| a.go |") > x {
+		t.Errorf("the table is not in git's order:\n%s", v.Reason)
 	}
-
-	// An absent reason file is the ordinary case for a clean run: the error is
-	// the answer to "was there one", not a failure of the atom.
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.exitCode(tool, 1)
-	engine.stdout(tool, "src/x.py: Standard\n")
-	wantState(t, runAtom(t, "fleet:witness", "base-sha"), 1, "src/x.py: Standard")
-
-	// A reason file holding only whitespace is not a reason.
-	engine.reset()
-	engine.withTree(fleetTree(map[string]string{"/tmp/witness/reason": "  \n"}))
-	engine.exitCode(tool, 1)
-	engine.stdout(tool, "src/x.py: Standard\n")
-	v = runAtom(t, "fleet:witness", "base-sha")
-	wantState(t, v, 1, "src/x.py: Standard")
-	if strings.Contains(v.Reason, "  \n") {
-		t.Errorf("an empty reason file must not be prepended:\n%q", v.Reason)
+	for _, body := range *asked {
+		if !strings.Contains(body, `"caller":"ci:gate:unknown@HEAD"`) {
+			t.Errorf("an unreadable origin must name the star unknown: %s", body)
+		}
+		if strings.Contains(body, `"path":"a.go"`) && !strings.Contains(body, `"language":"go"`) {
+			t.Errorf("a go file is asked about as go: %s", body)
+		}
 	}
 }
 
-// A dev box that cannot reach narcissus lands on 2, could-not-consult, and says
-// so — never a pass.
-func TestFleetWitnessPassesTheScriptsExitThrough(t *testing.T) {
-	const tool = `"/stocks/ci/lib/gate/witness.py"`
-	engine.reset()
-	engine.withTree(everyLaneTree)
-
-	engine.exitCode(tool, 2)
-	engine.stderr(tool, "could not consult narcissus: connection refused")
-	wantState(t, runAtom(t, "fleet:witness", "base-sha"), 2, "connection refused")
-
-	engine.exitCode(tool, 0)
-	wantState(t, runAtom(t, "fleet:witness", "base-sha"), 0)
-
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.fail(`"python3","--version"`, "exit code: 125: the image would not pull")
-	wantState(t, runAtom(t, "fleet:witness", "base-sha"), 2, "the atom never ran", "would not pull")
+func TestFleetWitnessStandsDownOrCannotRun(t *testing.T) {
+	cases := map[string]struct {
+		base   string
+		script func()
+		state  int
+		// reason is checked only off a finding or could-not-run: a pass keeps no
+		// output (checks.VerdictOf), so a stand-down is told apart by what ran.
+		reason  []string
+		reached []string
+		never   []string
+		asks    int
+	}{
+		"a snapshot has no change set": {"base-sha", func() { engine.stdout(wSnapNeedle, "linked-worktree") }, 0, nil,
+			[]string{wSnapNeedle}, []string{wBaseNeedle, wDiffNeedle}, 0},
+		"a base the history lacks": {"base-sha", func() { engine.exitCode(wBaseNeedle, 1) }, 2,
+			[]string{"could not read the change set: the base base-sha is not in this history"}, nil, []string{wDiffNeedle}, 0},
+		"git cannot diff": {"base-sha", func() {
+			engine.exitCode(wDiffNeedle, 1)
+			engine.stderr(wDiffNeedle, "fatal: bad object")
+		}, 2, []string{"could not read the change set: ", "fatal: bad object"}, nil, []string{wOriginNeedle}, 0},
+		"nothing the star authored": {"base-sha", func() { engine.stdout(wDiffNeedle, "web/a.ts\nvendor/v/y.go\n") }, 0, nil,
+			[]string{wDiffNeedle}, []string{wOriginNeedle}, 0},
+		"the tip against its parent": {"", func() { engine.stdout(wTipNeedle, "src/x.py\n") }, 0, nil,
+			[]string{wParentNeedle, wTipNeedle}, []string{wRootNeedle, wBaseNeedle}, 1},
+		"a root commit carries everything": {"", func() {
+			engine.exitCode(wParentNeedle, 1)
+			engine.stdout(wRootNeedle, "src/x.py\n")
+		}, 0, nil, []string{wRootNeedle}, []string{wTipNeedle}, 1},
+		"the snapshot check never ran": {"base-sha", func() { engine.fail(wSnapNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{wDiffNeedle}, 0},
+		"the base check never ran":     {"base-sha", func() { engine.fail(wBaseNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{wDiffNeedle}, 0},
+		"the diff never ran":           {"base-sha", func() { engine.fail(wDiffNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{wOriginNeedle}, 0},
+		"the parent check never ran":   {"", func() { engine.fail(wParentNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{wTipNeedle}, 0},
+		"the origin never read":        {"base-sha", func() { engine.fail(wOriginNeedle, "engine gone") }, 2, []string{"never ran"}, nil, nil, 0},
+		"no git in the image":          {"base-sha", func() { engine.fail(`args:["git","--version"]`, "exec: git: not found") }, 2, []string{"never ran", "git: not found"}, nil, nil, 0},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			scriptWitness(nil)
+			asked := answerWitness(t, map[string]witnessAnswer{"*": witnessResult(witnessNovel)})
+			if c.script != nil {
+				c.script()
+			}
+			wantState(t, runAtom(t, "fleet:witness", c.base), c.state, c.reason...)
+			if len(*asked) != c.asks {
+				t.Errorf("asked about %d file(s), want %d", len(*asked), c.asks)
+			}
+			for _, n := range c.reached {
+				if engine.chain(n) == "" {
+					t.Errorf("never reached %s", n)
+				}
+			}
+			for _, n := range c.never {
+				if engine.chain(n) != "" {
+					t.Errorf("went on to %s", n)
+				}
+			}
+		})
+	}
 }
 
 // The witness reads history, so it gets the throwaway repository too when the
-// tree is a linked worktree.
+// tree is a linked worktree — and the snapshot mark is what it reads first.
 func TestFleetWitnessRebuildsALinkedWorktreesRepository(t *testing.T) {
 	engine.reset()
 	engine.withTree(fleetTree(map[string]string{".git": "gitdir: /home/rob/x/.git/worktrees/y\n"}, ".git/HEAD"))
+	answerWitness(t, map[string]witnessAnswer{"*": witnessResult(witnessNovel)})
 	wantState(t, runAtom(t, "fleet:witness", "base-sha"), 0)
-	c := engine.chain(`"/stocks/ci/lib/gate/witness.py"`, "exitCode")
-	wantCalls(t, c,
+	wantCalls(t, engine.chain(wSnapNeedle, "stdout"),
 		[]string{"withExec", `args:["git","init","-q","."]`},
+		[]string{"withExec", `args:["git","config","--local","ca.snapshot","linked-worktree"]`},
 		[]string{"withExec", `args:["git","add","-A"]`},
 		[]string{"withExec", `args:["git","remote","add","origin","/home/rob/x.git"]`},
 	)

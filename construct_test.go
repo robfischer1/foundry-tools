@@ -132,11 +132,11 @@ func TestWithBaseFetchesTheBaseOnlyForAFetchedTree(t *testing.T) {
 	if _, err := m.Verdicts(context.Background(), "", "fleet:witness", fakeSha); err != nil {
 		t.Fatal(err)
 	}
-	c := engine.chain(`witness.py`)
+	c := engine.chain(`"--get","ca.snapshot"`)
 	if !strings.Contains(c, `args:["git","-c","safe.directory=*","-C","/src","fetch","--quiet","--no-tags","http://door:8215/infra.git","`+fakeSha+`"]`) {
 		t.Errorf("the witness chain on a fetched tree must fetch the base from the door: %s", c)
 	}
-	if strings.Index(c, `"fetch"`) > strings.Index(c, `witness.py`) {
+	if strings.Index(c, `"fetch"`) > strings.Index(c, `"--get","ca.snapshot"`) {
 		t.Errorf("the fetch must precede the tool: %s", c)
 	}
 
@@ -146,7 +146,7 @@ func TestWithBaseFetchesTheBaseOnlyForAFetchedTree(t *testing.T) {
 	if _, err := m.Verdicts(context.Background(), "", "fleet:witness", fakeSha); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(engine.chain(`witness.py`), `"fetch"`) {
+	if strings.Contains(engine.chain(`"--get","ca.snapshot"`), `"fetch"`) {
 		t.Errorf("the caller's own tree already reaches the base; nothing must be fetched")
 	}
 
@@ -156,7 +156,7 @@ func TestWithBaseFetchesTheBaseOnlyForAFetchedTree(t *testing.T) {
 	if _, err := m.Verdicts(context.Background(), "", "fleet:witness", ""); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(engine.chain(`witness.py`), `"fetch"`) {
+	if strings.Contains(engine.chain(`"--get","ca.snapshot"`), `"fetch"`) {
 		t.Errorf("a tip has no base to fetch")
 	}
 }

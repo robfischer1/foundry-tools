@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -515,64 +517,140 @@ func fleetOpengrepSast(ctx context.Context, r *run) checks.Verdict {
 	return checks.VerdictOf(a, code, out)
 }
 
-// witnessDir is where the witness script leaves the reason it reached its
-// verdict. The script's own contract; the atom only names it and reads it back.
-const witnessDir = "/tmp/witness"
-
 // Every changed .py/.go file is shown to the code witness (narcissus).
 //
-// THE PRE-GATE SOCKET, BACK AS AN ATOM. Born as a Tekton Task beside the gate
-// (The Thesis Project F8) that reached narcissus through hades over mTLS with an
-// identity minted for that Task alone; Tekton left on 2026-09-09 and the socket
-// went with it. The identity was that pipeline's contrivance, not the witness's
-// requirement: narcissus's plaintext MCP port answers any in-cluster caller,
-// MEASURED 2026-09-10 from inside a container on the fleet's dagger engine. So
-// the atom speaks to narcissus directly and needs nothing the other atoms lack.
+// THE PRE-GATE SOCKET, BACK AS AN ATOM, AND NOW NO SCRIPT. Born as a Tekton
+// Task beside the gate (The Thesis Project F8) that reached narcissus through
+// hades over mTLS with an identity minted for that Task alone; Tekton left on
+// 2026-09-09 and the socket went with it. The identity was that pipeline's
+// contrivance, not the witness's requirement: narcissus's plaintext MCP port
+// answers any in-cluster caller. foundry-stocks' ci/lib/gate/witness.py then
+// ran here under python3; the change set is now read with git execs, each file
+// is asked about from Go, and checks.ClassifyWitness and checks.AggregateWitness
+// settle it.
 //
-// THE SCRIPT LIVES IN foundry-stocks (ci/lib/gate/witness.py, tested offline by
-// witness.test.sh) and is READ AT ITS ONE HOME through the /stocks mount — the
-// same rule stop_justifications follows. This atom only provisions and points:
-// python3, a git-readable tree, the script.
+// WHAT IT NEEDS THAT OTHER ATOMS DO NOT: the change set. GATE_BASE is the
+// pull's merge base; empty means the tip against its parent, which is also what
+// a local run gets. r.withBase is called HERE and by almost nothing else — rule
+// 8. And the in-cluster port: a dev box that cannot reach narcissus lands on 2,
+// could-not-consult, and says so — never a pass.
 //
-// WHAT IT NEEDS THAT OTHER ATOMS DO NOT: the change set. GATE_BASE is the pull's
-// merge base, handed in by Verdicts' `base` argument (the door passes
-// CA_GATE_BASE); empty means the tip against its parent, which is also what a
-// local run gets. r.withBase is called HERE and by almost nothing else — rule 8
-// — so every other atom's cache key stays a function of the tree rather than of
-// the pull. And the in-cluster port: a dev box that cannot reach narcissus lands
-// on 2, could-not-consult, and says so — never a pass.
-//
-// THE REASON FILE IS READ OUT OF THE CONTAINER, which is why this does not call
-// verdict(). The script writes WHY it decided what it decided to
-// $WITNESS_DIR/reason, and the shell `cat`-ed it into the same stdout stream.
-// Here it is a Directory read off the finished container, so an absent file is
-// an error to ignore rather than a `[ -f ]` test, and the reason is prepended to
-// the tool's own output — the human reads the why before the what.
+// A LINKED-WORKTREE SNAPSHOT HAS NO CHANGE SET. gitReady rebuilds a worktree as
+// a throwaway repository with no commits and marks it ca.snapshot; the witness
+// has nothing to read at that stage, and saying so is the verdict. The
+// landing's Job clones whole and witnesses the real commits
+// (foundry-tools#8736).
 func fleetWitness(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("fleet:witness")
-
-	if _, err := r.stocks.File("ci/lib/gate/witness.py").Sync(ctx); err != nil {
-		return checks.VerdictOf(a, 2, "fleet:witness: CANNOT RUN - /stocks/ci/lib/gate/witness.py is absent; foundry-stocks did not mount at its one home.")
+	settle := func(state int, reason string, rows []checks.WitnessRow) checks.Verdict {
+		return checks.VerdictOf(a, state, "narcissus — fleet:witness: "+reason+"\n\n"+checks.WitnessSummary(rows))
+	}
+	ctr := r.gitReady(ctx, r.withBase(r.lane(checks.ImageFleet))).
+		// Provisioning, under the default Expect.
+		WithExec([]string{"git", "--version"})
+	git := func(args ...string) (string, int, error) {
+		return output(ctx, ctr.WithExec(append([]string{"git"}, args...), anyExit))
 	}
 
-	ctr := r.gitReady(ctx, r.withBase(r.withStocks(r.lane(checks.ImageFleet)))).
-		WithEnvVariable("WITNESS_DIR", witnessDir).
-		WithExec([]string{"python3", "--version"}).
-		WithExec([]string{"python3", "/stocks/ci/lib/gate/witness.py"}, anyExit)
-
-	code, err := ctr.ExitCode(ctx)
+	snapshot, code, err := git("config", "--get", "ca.snapshot")
 	if err != nil {
 		return neverRan(a, err)
 	}
-	stdout, _ := ctr.Stdout(ctx)
-	stderr, _ := ctr.Stderr(ctx)
-	out := stdout + stderr
-	// An absent reason file is the ordinary case for a clean run; the error is
-	// the answer to "was there one", not a failure of the atom.
-	if reason, err := ctr.File(witnessDir + "/reason").Contents(ctx); err == nil && strings.TrimSpace(reason) != "" {
-		out = strings.TrimRight(reason, "\n") + "\n" + out
+	if code == 0 && snapshot != "" {
+		return settle(0, "no change set to witness at pre-push: the source is a "+snapshot+
+			" snapshot with no commits; the landing's Job witnesses the real change set.", nil)
 	}
-	return checks.VerdictOf(a, code, out)
+
+	// THE CHANGE SET: added, modified and renamed paths, in git's order. A base
+	// the history lacks is asked with rev-parse first, because `git diff`
+	// answers it with 128, which the engine reports as its own error (#63).
+	var files string
+	if r.base != "" {
+		if _, code, err := git("rev-parse", "--verify", "--quiet", r.base+"^{commit}"); err != nil {
+			return neverRan(a, err)
+		} else if code != 0 {
+			return settle(2, "CANNOT RUN - could not read the change set: the base "+r.base+" is not in this history", nil)
+		}
+		files, code, err = git("diff", "--name-only", "--diff-filter=AMR", r.base+"..HEAD")
+	} else if _, parent, perr := git("rev-parse", "--verify", "--quiet", "HEAD^"); perr != nil {
+		return neverRan(a, perr)
+	} else if parent == 0 {
+		files, code, err = git("diff", "--name-only", "--diff-filter=AMR", "HEAD^..HEAD")
+	} else {
+		// A root commit has no parent: every file it carries is the change.
+		files, code, err = git("show", "--pretty=", "--name-only", "--diff-filter=AMR", "HEAD")
+	}
+	if err != nil {
+		return neverRan(a, err)
+	}
+	if code != 0 {
+		return settle(2, "CANNOT RUN - could not read the change set: "+files, nil)
+	}
+	sources, skipped, vendored := checks.WitnessChangeSet(strings.Fields(files))
+	if len(sources) == 0 {
+		state, reason := checks.AggregateWitness(nil, skipped, vendored)
+		return settle(state, reason, nil)
+	}
+
+	origin, code, err := git("remote", "get-url", "origin")
+	if err != nil {
+		return neverRan(a, err)
+	}
+	star := "unknown"
+	if code == 0 {
+		star = checks.StarName(origin)
+	}
+
+	// A FEW AT ONCE. The rows keep git's order, whatever order the answers
+	// arrive in, and one file's failure is that file's row, not the run's.
+	rows := make([]checks.WitnessRow, len(sources))
+	g := new(errgroup.Group)
+	g.SetLimit(checks.WitnessWorkers)
+	for i, p := range sources {
+		g.Go(func() error {
+			query, err := r.src.File(p).Contents(ctx)
+			if err != nil {
+				rows[i] = checks.WitnessRow{Path: p, Class: "could-not-consult", Reason: "could not ask: " + err.Error()}
+				return nil
+			}
+			body := checks.WitnessRequest(i+1, query, checks.WitnessLanguage(p), "ci:gate:"+star+"@HEAD", p)
+			status, contentType, answer, err := askWitness(ctx, body)
+			if err != nil {
+				rows[i] = checks.WitnessRow{Path: p, Class: "could-not-consult", Reason: "could not ask the witness: " + err.Error()}
+				return nil
+			}
+			status, result := checks.WitnessEnvelope(status, contentType, answer)
+			rows[i] = checks.ClassifyWitness(p, status, result)
+			return nil
+		})
+	}
+	_ = g.Wait() // every ask files its own row; none returns an error
+	state, reason := checks.AggregateWitness(rows, skipped, vendored)
+	return settle(state, reason, rows)
+}
+
+// askWitness posts one JSON-RPC request to narcissus's MCP port and answers
+// the HTTP status, content type and body. A variable, so the tests can answer
+// for narcissus the way witness.py's WITNESS_ANSWER seam did.
+var askWitness = func(ctx context.Context, body string) (int, string, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, checks.WitnessURL, strings.NewReader(body))
+	if err != nil {
+		return 0, "", "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, "", "", err
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, "", "", err
+	}
+	return resp.StatusCode, resp.Header.Get("Content-Type"), string(b), nil
 }
 
 // hadolintClient provisions the Dockerfile linter, PINNED, and proves it.
