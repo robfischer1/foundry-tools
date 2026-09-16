@@ -369,6 +369,86 @@ func PatchVitestRunner(runnerVersion, vitestVersion string, files []string) []st
 	return patched
 }
 
+// VitestRunnerNewJoin is the join a patched copy carries, for the lane to read
+// back out of the container it will run stryker in.
+const VitestRunnerNewJoin = vitestRunnerNew
+
+// VitestRunnerCopy is one installed copy of the runner as the lane found it:
+// the two versions stryker-js#6210 turns on, how many of its files the patch
+// rewrote, and how many of those read back carrying the new join.
+type VitestRunnerCopy struct {
+	Dir      string
+	Runner   string
+	Vitest   string
+	Patched  int
+	Verified int
+}
+
+// VitestRunnerReport is what the search did, in the words the verdict carries.
+// Note is always said; Blocked is the reason the measurement cannot be trusted,
+// empty when it can.
+type VitestRunnerReport struct {
+	Note    string
+	Blocked string
+}
+
+// ReportVitestRunners is the patcher's account of itself.
+//
+// IT SAYS WHAT IT DID EVEN WHEN IT DID NOTHING. The patcher used to answer a
+// search that matched no copies, and a search that failed outright, by handing
+// the container back unchanged and saying neither — so a repo whose runner was
+// never patched arrived at the scorer as zero-test survivors with nothing
+// anywhere naming the cause (gijmo-ui#28, measured 2026-09-16: the mutation
+// lane read CANNOT RUN on "42 survivor(s) completed ZERO tests" and no line of
+// its log mentioned the runner at all). A patch nobody can see applied is
+// indistinguishable from a patch that never applied.
+//
+// THE ROOT IS NAMED because the search root is the whole question. The retired
+// bash lane searched $MUT_INSTALL_ROOT, defaulting to $MUT_WORKDIR — the
+// PACKAGE — while a hoisted runner is a property of the WORKSPACE: from
+// gijmo-ui's repo root find matches one copy, from packages/ui none.
+func ReportVitestRunners(root string, copies []VitestRunnerCopy) VitestRunnerReport {
+	if len(copies) == 0 {
+		return VitestRunnerReport{Note: "@stryker-mutator/vitest-runner: no installed copy under " + root +
+			" — nothing was patched for stryker-js#6210, so a vitest 5 run measured here attributes no test to any mutant"}
+	}
+	lines := []string{fmt.Sprintf("@stryker-mutator/vitest-runner: %d copy(s) under %s", len(copies), root)}
+	var blocked []string
+	for _, c := range copies {
+		// An if-chain, not a switch: Go's cover tool starts a case block AFTER
+		// the case expression, so gremlins reports a mutant sitting on one as
+		// NOT COVERED however well tested it is (the go gate's scorer has to
+		// correct exactly that misread, checks.ScoreGoMutation). Measured here
+		// 2026-09-16: as a switch these three conditions were 20 killed and 2
+		// COVERED-UNRUN; as an if-chain every one of them is measured.
+		where := fmt.Sprintf("  %s: runner %s, vitest %s — ", c.Dir, saidVersion(c.Runner), saidVersion(c.Vitest))
+		if c.Patched == 0 {
+			lines = append(lines, where+"left as shipped (not the release stryker-js#6210 is about, or already patched)")
+		} else if c.Verified == c.Patched {
+			lines = append(lines, where+fmt.Sprintf("patched for stryker-js#6210, %d file(s), each read back carrying the new join", c.Patched))
+		} else {
+			lines = append(lines, where+fmt.Sprintf("PATCH DID NOT LAND — %d of %d file(s) read back carrying the new join", c.Verified, c.Patched))
+			blocked = append(blocked, c.Dir)
+		}
+	}
+	report := VitestRunnerReport{Note: strings.Join(lines, "\n")}
+	if len(blocked) > 0 {
+		report.Blocked = "the vitest runner is still as shipped at " + strings.Join(blocked, ",") +
+			" — it joins test names with a space where vitest 5 matches them joined with \" > \", so every covered mutant would run zero tests (stryker-js#6210). A score measured through it would be a number about nothing, so it is not measured."
+	}
+	return report
+}
+
+// saidVersion names a version that did not read rather than leaving a hole in
+// the sentence: an empty string there reads as a missing word, and the read
+// failing is itself the finding.
+func saidVersion(v string) string {
+	if v == "" {
+		return "unreadable"
+	}
+	return v
+}
+
 // ---- the score -------------------------------------------------------------
 
 // StrykerRun is what one package's stryker run left behind. Report and

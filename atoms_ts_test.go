@@ -226,7 +226,7 @@ const (
 	tsBaseNeedle    = `"git","rev-parse","--verify","--quiet","abc123^{commit}"`
 	tsDiffNeedle    = `"git","diff","--unified=0","abc123","HEAD"`
 	tsInstallNeedle = `args:["bun","install","--frozen-lockfile"]`
-	tsFindNeedle    = `"find",".","-type","f"`
+	tsFindNeedle    = `"find","/src","-type","f"`
 	tsStrykerNeedle = `"--reporters","clear-text,json"`
 	tsGlobNeedle    = `glob(pattern:"**/*stryker.con*")`
 	tsDiff          = "diff --git a/src/gate.ts b/src/gate.ts\n--- a/src/gate.ts\n+++ b/src/gate.ts\n@@ -1,0 +2,2 @@\n+a\n+b"
@@ -374,37 +374,78 @@ func TestTSMutationDiagnosesAFailedInstall(t *testing.T) {
 
 // stryker-js#6210: a runner 10.0.0 beside vitest 5 is patched in the layer
 // stryker runs in; the files are rewritten, never edited in place.
-func TestTSMutationPatchesTheBrokenVitestRunner(t *testing.T) {
+//
+// AND THE ATOM SAYS SO ON EVERY VERDICT, pass included. The patch used to be
+// invisible: this test asserted only that withNewFile was CALLED, which is a
+// claim about the chain and not about the runner stryker loaded, and a repo
+// where the search matched nothing said nothing at all (gijmo-ui#28).
+func TestTSMutationPatchesTheBrokenVitestRunnerAndSaysIt(t *testing.T) {
 	const runner = "/src/node_modules/@stryker-mutator/vitest-runner/"
+	const found = "/src/node_modules/@stryker-mutator/vitest-runner/package.json\n"
 	old := "x;\nreturn nameParts.join(' ').trim();\n"
-	scriptTSMutation(map[string]string{
-		runner + "package.json":                 `{"version":"10.0.0"}`,
-		runner + "dist/src/stryker-setup.js":    old,
-		runner + "dist/src/test-helpers.js":     old,
-		"/src/node_modules/vitest/package.json": `{"version":"5.0.0"}`,
-	})
-	engine.stdout(tsFindNeedle, "./node_modules/@stryker-mutator/vitest-runner/package.json\n")
-	wantState(t, runAtom(t, "ts:mutation", "abc123"), 0)
+	broken := func(vitest string) map[string]string {
+		return map[string]string{
+			runner + "package.json":                 `{"version":"10.0.0"}`,
+			runner + "dist/src/stryker-setup.js":    old,
+			runner + "dist/src/test-helpers.js":     old,
+			"/src/node_modules/vitest/package.json": `{"version":"` + vitest + `"}`,
+		}
+	}
+
+	scriptTSMutation(broken("5.0.0"))
+	engine.stdout(tsFindNeedle, found)
+	wantState(t, runAtom(t, "ts:mutation", "abc123"), 0,
+		"@stryker-mutator/vitest-runner: 1 copy(s) under /src",
+		"runner 10.0.0, vitest 5.0.0 — patched for stryker-js#6210, 2 file(s), each read back")
 	c := engine.chain(tsStrykerNeedle, "exitCode")
 	for _, f := range []string{"stryker-setup.js", "test-helpers.js"} {
 		wantCalls(t, c, []string{"withNewFile", `path:"` + runner + "dist/src/" + f + `"`, `return nameParts.filter(Boolean).join(' > ').trim();`})
+		// The patch is read back out of the container, at the path node loads
+		// it from — a withNewFile in the chain is a call, not an arrival. The
+		// whole argv is the needle: a chain carries every earlier call too, so
+		// the file name alone matches the NEXT file's grep as well.
+		readBack := `args:["grep","-qF","` + checks.VitestRunnerNewJoin + `","` + runner + "dist/src/" + f + `"]`
+		wantCalls(t, engine.chain(readBack, "exitCode"), []string{"withExec", readBack})
 	}
 	if install := lastCall(c, "withExec", tsInstallNeedle); install < 0 || lastCall(c, "withNewFile", "stryker-setup.js") < install {
 		t.Errorf("the patch must land after the install that wrote the runner:\n%s", c)
 	}
+	// The root is in the argv, not inherited from the workdir: the retired bash
+	// body searched the package and a hoisted runner is the workspace's.
+	wantCalls(t, engine.chain(tsFindNeedle),
+		[]string{"withExec", `args:["find","/src","-type","f","-path","*/node_modules/@stryker-mutator/vitest-runner/package.json"]`})
 
-	// Under vitest 4 the runner is left as shipped.
-	scriptTSMutation(map[string]string{
-		runner + "package.json":                 `{"version":"10.0.0"}`,
-		runner + "dist/src/stryker-setup.js":    old,
-		runner + "dist/src/test-helpers.js":     old,
-		"/src/node_modules/vitest/package.json": `{"version":"4.1.11"}`,
-	})
-	engine.stdout(tsFindNeedle, "./node_modules/@stryker-mutator/vitest-runner/package.json\n")
-	wantState(t, runAtom(t, "ts:mutation", "abc123"), 0)
+	// Under vitest 4 the runner is left as shipped — and that is said too.
+	scriptTSMutation(broken("4.1.11"))
+	engine.stdout(tsFindNeedle, found)
+	wantState(t, runAtom(t, "ts:mutation", "abc123"), 0, "runner 10.0.0, vitest 4.1.11 — left as shipped")
 	if hasCall(engine.chain(tsStrykerNeedle, "exitCode"), "withNewFile") {
 		t.Errorf("a runner under vitest 4 was patched")
 	}
+
+	// A search that matches nothing is the silence this replaces: nothing to
+	// patch is not a red, but it is never again unsaid.
+	scriptTSMutation(nil)
+	wantState(t, runAtom(t, "ts:mutation", "abc123"), 0,
+		"@stryker-mutator/vitest-runner: no installed copy under /src")
+
+	// A patch that does not read back is a measurement that is not taken.
+	scriptTSMutation(broken("5.0.0"))
+	engine.stdout(tsFindNeedle, found)
+	engine.exitCode(`"grep","-qF"`, 1)
+	wantState(t, runAtom(t, "ts:mutation", "abc123"), 2,
+		"PATCH DID NOT LAND — 0 of 2 file(s)",
+		"it joins test names with a space", "it is not measured")
+	if engine.chain(tsStrykerNeedle) != "" {
+		t.Errorf("stryker ran through a runner the lane could not patch")
+	}
+
+	// A search that cannot run is the same silence wearing a different hat.
+	scriptTSMutation(broken("5.0.0"))
+	engine.exitCode(tsFindNeedle, 1)
+	engine.stdout(tsFindNeedle, "find: '/src': Permission denied")
+	wantState(t, runAtom(t, "ts:mutation", "abc123"), 2,
+		"find could not enumerate /src", "Permission denied")
 }
 
 func TestTSMutationStandsDownOrCannotRun(t *testing.T) {

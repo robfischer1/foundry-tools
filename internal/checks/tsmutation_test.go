@@ -231,6 +231,59 @@ func TestPatchVitestRunnerOnlyWhatItCanProveBroken(t *testing.T) {
 	}
 }
 
+// The patcher's account of itself says what it searched in every case — the
+// silence it replaces is what let gijmo-ui#28 arrive as 42 zero-test survivors
+// with nothing naming the runner.
+func TestReportVitestRunnersSaysWhatItSearchedAndWhatItDid(t *testing.T) {
+	if VitestRunnerNewJoin != vitestRunnerNew {
+		t.Errorf("the exported join must be the one the patch writes: %q", VitestRunnerNewJoin)
+	}
+
+	// No copy at all is the case that used to be silent, and the root it looked
+	// under is the whole answer.
+	none := ReportVitestRunners("/src", nil)
+	for _, want := range []string{"no installed copy under /src", "attributes no test to any mutant"} {
+		if !strings.Contains(none.Note, want) {
+			t.Errorf("an empty search must say %q:\n%s", want, none.Note)
+		}
+	}
+	if none.Blocked != "" {
+		t.Errorf("a repo with no vitest runner is not blocked: %q", none.Blocked)
+	}
+
+	patched := VitestRunnerCopy{Dir: "node_modules/.bun/r/node_modules/@stryker-mutator/vitest-runner", Runner: "10.0.0", Vitest: "5.0.0", Patched: 2, Verified: 2}
+	shipped := VitestRunnerCopy{Dir: "apps/web/node_modules/@stryker-mutator/vitest-runner", Runner: "10.0.1", Vitest: ""}
+	ok := ReportVitestRunners("/src", []VitestRunnerCopy{patched, shipped})
+	for _, want := range []string{
+		"2 copy(s) under /src",
+		patched.Dir + ": runner 10.0.0, vitest 5.0.0 — patched for stryker-js#6210, 2 file(s), each read back",
+		shipped.Dir + ": runner 10.0.1, vitest unreadable — left as shipped",
+	} {
+		if !strings.Contains(ok.Note, want) {
+			t.Errorf("want %q:\n%s", want, ok.Note)
+		}
+	}
+	if ok.Blocked != "" {
+		t.Errorf("every copy accounted for is not blocked: %q", ok.Blocked)
+	}
+
+	// A patch that did not read back is a measurement that is not taken: the
+	// count is named on both sides, so "1 of 2" cannot read as done.
+	for name, verified := range map[string]int{"none of it": 0, "half of it": 1} {
+		half := patched
+		half.Verified = verified
+		got := ReportVitestRunners("/src", []VitestRunnerCopy{half})
+		if want := fmt.Sprintf("PATCH DID NOT LAND — %d of 2 file(s)", verified); !strings.Contains(got.Note, want) {
+			t.Errorf("%s: want %q:\n%s", name, want, got.Note)
+		}
+		for _, want := range []string{"still as shipped at " + half.Dir, "would run zero tests", "it is not measured"} {
+			if !strings.Contains(got.Blocked, want) {
+				t.Errorf("%s: want %q:\n%s", name, want, got.Blocked)
+			}
+		}
+	}
+}
+
 // report builds a Stryker mutation.json.
 func report(cfg, testFiles, files string) string {
 	return `{"config":` + cfg + `,"testFiles":` + testFiles + `,"files":` + files + `}`
