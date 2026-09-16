@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"dagger/foundry-tools/internal/checks"
@@ -23,16 +24,13 @@ import (
 // Kustomization built, not one script shellchecked. MEASURED 2026-09-13: the
 // ops body still sat in foundry-stocks with one caller, its own test.
 //
-// EACH PHASE IS ONE ATOM, and the body is STILL ops.sh, run from /stocks at the
-// pin the door declared. The atom's own work is three things the script cannot
-// do from inside a container: decide the surface from the tracked tree so a
-// repo with no ops shape runs no container at all; put the tool the phase
-// needs on PATH, pinned and probed, the way the compose and dies atoms do;
-// and turn the phase's three-state file into the lane's verdict. Every rule
-// in the body — what is a shell script, which profile gates, what "absent"
-// means — stays in the one place it was written, which is what keeps the
-// pre-push hook and the gate grading with the same eyes (a second copy of
-// any of it here would be free to drift).
+// EACH PHASE IS ONE ATOM, AND NOW NO SCRIPT. ops.sh ran here from /stocks, one
+// bash phase per atom writing a three-state file. Each phase is Go now: its
+// tools (shellcheck, chezmoi, kubectl, ansible through uv, infra's own tools)
+// run as plain execs, and every rule the body carried — what is a shell
+// script, which severity gates, what "absent" means, what a fault of the
+// substrate looks like — is in internal/checks/opsphases.go, the one place,
+// which keeps the pre-push hook and the gate grading with the same eyes.
 //
 // THE SURFACE IS THE OPS SHAPE, NOT THE FACET. ops.sh gated the repos that are
 // not stars, and it gated their shell scripts and YAML *because* they were
@@ -41,7 +39,7 @@ import (
 // "error" — so the atoms first ask whether the tree is an ops tree at all
 // (flux/, ansible/, a chezmoi source, a compose spec, a rego policy, or one
 // of infra's own tools) and stand down ABSENT on a star. Inside an ops tree
-// the phase's own detect decides the facet, as before.
+// each phase decides its facet from the tracked files, as detect did.
 //
 // tofu IS NOT HERE. The retired pipeline carried a tofu phase; Rob, 2026-09-13:
 // "you can skip tofu, as we no longer use it". compose, policy and the two
@@ -79,97 +77,45 @@ func opsAbsent(a checks.AtomDef) checks.Verdict {
 	return checks.VerdictOf(a, 0, a.ID+": ABSENT - this repository has no ops shape (no flux/, ansible/, chezmoi source, compose spec, rego policy or infra tool), so the ops lane does not gate it. A star is gated by its language lane.")
 }
 
-// opsDir is where the body keeps its state — one file per phase: <phase>.rc
-// (0/1/2), <phase>.absent (the facet is not in this tree, with why) and, on a
-// stand-down before any phase, reason. The atom reads those files rather than
-// an exit code, because the body's phases return the status of their last
-// command and the rc file is the answer they were written to give.
-const opsDir = "/tmp/ops"
-
-// opsContainer is the phase's container: the fleet lane image with the
-// TRACKED tree and the stocks mounted, a fresh index over it for the body's
-// `git ls-files`, and the script's own environment. OPS_BASE is deliberately
-// NOT set (rule 8): the base only changes detect's printed file list, and
-// keying the atom on the pull would key its cache on the pull.
+// opsContainer is the phase's container: the fleet lane image with the TRACKED
+// tree mounted and a fresh index over it, so `git ls-files` answers the
+// tracked set on a clone and a linked worktree alike.
 //
 // THE TREE IS THE GITIGNORE-FILTERED ONE, not the directory as mounted.
 // MEASURED 2026-09-13 on the first live run over infra from a developer's
 // checkout: ops:dup reported every fleet fact "duplicated in code, 13
 // occurrences" — thirteen being the number of linked worktrees under
 // .claude/worktrees/, each carrying its own modules/fleet, all inside the
-// mounted directory and none of them tracked (dup-check on a clean export
-// of the same main: 0 findings). The gate's Job clones clean and would never
-// see them; the pre-push hook on a session's machine sees exactly this. The
-// body walks the filesystem it is given (dup-check, declaration-integrity,
-// ansible-lint), so the filter has to be on the mount.
-//
-// AND THE INDEX IS BUILT HERE, NOT BY gitReady. gitReady re-mounts /src from
-// the unfiltered source whenever .git is a file (a linked worktree — the
-// developer case again), which would undo the filter; and on a real clone it
-// leaves the checkout's own .git in place, which the filter has excluded.
-// So the ops tree is always the same shape: the tracked files, no .git, and
-// a fresh `git init` + `git add -A` over them, which is what gitReady does
-// for a worktree and what makes `git ls-files` answer the tracked set on
-// either kind of checkout.
+// mounted directory and none of them tracked. The repo's own tools walk the
+// filesystem they are given, so the filter has to be on the mount; and the
+// index is built here rather than by gitReady, which re-mounts /src from the
+// unfiltered source for a linked worktree.
 func (r *run) opsContainer(image string) *dagger.Container {
 	tracked := r.src.Filter(dagger.DirectoryFilterOpts{Gitignore: true, Exclude: []string{".git"}})
-	return r.withStocks(r.lane(image)).
+	return r.lane(image).
 		WithMountedDirectory("/src", tracked).
 		WithExec([]string{"git", "config", "--global", "--add", "safe.directory", "*"}).
 		WithExec([]string{"git", "init", "-q", "."}).
 		WithExec([]string{"git", "config", "--local", "ca.snapshot", "ops-tracked"}).
 		WithExec([]string{"git", "add", "-A"}).
-		WithEnvVariable("OPS_DIR", opsDir).
-		WithEnvVariable("OPS_LIB", "/stocks/ci/lib/ops").
-		WithEnvVariable("OPS_HEAD", "HEAD").
-		WithEnvVariable("OPS_UV_INDEX", checks.OpsUVIndex)
+		// The index uv resolves ansible-core, ansible-lint and pyyaml from.
+		WithEnvVariable("UV_INDEX_URL", checks.OpsUVIndex)
 }
 
-// opsRun runs detect and then one phase as two plain execs (rule 7: no shell
-// between the engine and the body), and reads the phase's answer from the
-// files the body wrote. prep puts the phase's tool on PATH; a prep that fails
-// is a provisioning failure (2), never a finding.
-func opsRun(ctx context.Context, r *run, a checks.AtomDef, phase string,
-	prep func(*dagger.Container) (*dagger.Container, error)) checks.Verdict {
-	ctr := r.opsContainer(a.Image)
-	if prep != nil {
-		var err error
-		if ctr, err = prep(ctr); err != nil {
-			return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - the phase's tool could not be provisioned: %v", a.ID, err))
-		}
-	}
-	ran := ctr.
-		WithExec([]string{"bash", "/stocks/ci/lib/ops/ops.sh", "detect"}, anyExit).
-		WithExec([]string{"bash", "/stocks/ci/lib/ops/ops.sh", phase}, anyExit)
-	out, code, err := output(ctx, ran)
-	if err != nil {
-		return neverRan(a, err)
-	}
-	if why, err := ran.File(opsDir + "/" + phase + ".absent").Contents(ctx); err == nil {
-		return checks.VerdictOf(a, 0, a.ID+": ABSENT - "+strings.TrimSpace(why))
-	}
-	rc, err := ran.File(opsDir + "/" + phase + ".rc").Contents(ctx)
-	if err != nil {
-		// No verdict file: the body stood down before the phase (detect found
-		// no facet at all, or the merge-tree stand-down) and left its reason.
-		if reason, rerr := ran.File(opsDir + "/reason").Contents(ctx); rerr == nil && strings.TrimSpace(reason) != "" {
-			return checks.VerdictOf(a, 0, a.ID+": ABSENT - "+strings.TrimSpace(reason))
-		}
-		return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - the %s phase wrote no verdict (exit %d): a kill, a missing interpreter, or a body that is not the one this pin names.\n%s", a.ID, phase, code, out))
-	}
-	switch strings.TrimSpace(rc) {
-	case "0":
-		return checks.VerdictOf(a, 0, out)
-	case "1":
-		return checks.VerdictOf(a, 1, out)
-	case "2":
-		return checks.VerdictOf(a, 2, out)
-	}
-	return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - the %s phase wrote %q where 0, 1 or 2 was expected.\n%s", a.ID, phase, strings.TrimSpace(rc), out))
+// opsResult is what one phase found: its state and its report, or the facet
+// it found absent.
+type opsResult struct {
+	state  int
+	out    string
+	absent string
 }
 
-// opsAtom is the shape all eight share: surface, stand-down, run.
-func opsAtom(ctx context.Context, r *run, id, phase string, prep func(*dagger.Container) (*dagger.Container, error)) checks.Verdict {
+// opsPhase runs one phase over the tracked files in its container.
+type opsPhase func(ctx context.Context, ctr *dagger.Container, files []checks.OpsFile) (opsResult, error)
+
+// opsAtom is the shape all eight share: the surface, the stand-down, the tool
+// on PATH, the tracked files, the phase.
+func opsAtom(ctx context.Context, r *run, id string, phase opsPhase, prep func(*dagger.Container) (*dagger.Container, error)) checks.Verdict {
 	a := checks.AtomByID(id)
 	_, ops, stop := opsSurface(ctx, r, a)
 	if stop != nil {
@@ -178,27 +124,138 @@ func opsAtom(ctx context.Context, r *run, id, phase string, prep func(*dagger.Co
 	if !ops {
 		return opsAbsent(a)
 	}
-	return opsRun(ctx, r, a, phase, prep)
+	ctr := r.opsContainer(a.Image)
+	if prep != nil {
+		var err error
+		if ctr, err = prep(ctr); err != nil {
+			return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - the phase's tool could not be provisioned: %v", a.ID, err))
+		}
+	}
+	ls, code, err := output(ctx, ctr.WithExec([]string{"git", "ls-files", "-s", "-z"}, anyExit))
+	if err != nil {
+		return neverRan(a, err)
+	}
+	if code != 0 {
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the tracked tree could not be listed: "+ls)
+	}
+	res, err := phase(ctx, ctr, checks.OpsTracked(ls))
+	if err != nil {
+		return neverRan(a, err)
+	}
+	if res.absent != "" {
+		return checks.VerdictOf(a, 0, a.ID+": ABSENT - "+res.absent)
+	}
+	return checks.VerdictOf(a, res.state, res.out)
 }
 
-// ops:shell — shellcheck over every tracked script, at the body's profiles.
-// shellcheck reaches PATH as a wrapper over the shellcheck-py wheel, the one
+// opsRun runs one exec in ctr and answers its combined output and exit, and
+// the container it left.
+func opsRun(ctx context.Context, ctr *dagger.Container, args []string, opts ...dagger.ContainerWithExecOpts) (*dagger.Container, string, int, error) {
+	o := dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny}
+	if len(opts) > 0 {
+		o = opts[0]
+		o.Expect = dagger.ReturnTypeAny
+	}
+	next := ctr.WithExec(args, o)
+	out, code, err := outputBoth(ctx, next)
+	return next, out, code, err
+}
+
+// opsSettled is a phase's result from its tools' exit and report.
+func opsSettled(phase string, rc int, out string) opsResult {
+	state, line := checks.OpsSettle(phase, rc, out)
+	if line != "" {
+		out += "\n" + line
+	}
+	return opsResult{state: state, out: out}
+}
+
+// uvPython runs one of the repo's own python tools the way the body did:
+// isolated, no project, pyyaml alongside.
+func uvPython(tool string, args ...string) []string {
+	return append([]string{"uv", "run", "--isolated", "--no-project", "--with", "pyyaml", "python", "tools/" + tool}, args...)
+}
+
+// ops:shell — shellcheck over every tracked script, at the gating severity,
+// with the report severity counted and never gating.
+//
+// THE GATE IS `error`, AND THAT IS A DELIBERATE FLOOR. Measured 2026-09-07
+// against personal/dotfiles' 20 shell files: `error` is 0 and `warning` is 10.
+// What `error` still catches was checked rather than assumed — SC1046 an
+// unclosed `if`, an unbraced array expansion, `local` outside a function —
+// scripts that are BROKEN. The report severity counts the rest.
+//
+// shellcheck comes from the shellcheck-py wheel through uvx, the one
 // distribution of the binary the fleet's index carries; the --version probe
-// under the default Expect is the provisioning step, so a wheel that did not
-// resolve is 2 before a script is judged.
+// under the default Expect is the provisioning step.
 func opsShell(ctx context.Context, r *run) checks.Verdict {
-	return opsAtom(ctx, r, "ops:shell", "shell", func(ctr *dagger.Container) (*dagger.Container, error) {
-		return ctr.
-			WithNewFile("/usr/local/bin/shellcheck", "#!/bin/sh\nexec uvx --from shellcheck-py shellcheck \"$@\"\n",
-				dagger.ContainerWithNewFileOpts{Permissions: 0o755}).
-			WithExec([]string{"shellcheck", "--version"}), nil
+	return opsAtom(ctx, r, "ops:shell", opsShellPhase, func(ctr *dagger.Container) (*dagger.Container, error) {
+		return ctr.WithExec(append(shellcheck, "--version")), nil
 	})
 }
 
-// ops:chezmoi — every tracked *.tmpl renders. The client is fetched pinned,
-// mirror first, the same way the compose client and opa are.
+var shellcheck = []string{"uvx", "--from", "shellcheck-py", "shellcheck"}
+
+func opsShellPhase(ctx context.Context, ctr *dagger.Container, files []checks.OpsFile) (opsResult, error) {
+	_, grep, code, err := opsRun(ctx, ctr, []string{"git", "grep", "-I", "-n", "-z", "-E", "^#!"})
+	if err != nil {
+		return opsResult{}, err
+	}
+	// git grep answers 1 when nothing matched; anything above is a grep that
+	// did not read the tree.
+	if code > 1 {
+		return opsResult{state: 2, out: "shell: could not read the scripts' first lines: " + grep}, nil
+	}
+	shebang, fragments := checks.OpsShellFiles(files, checks.OpsFirstLines(grep))
+	if len(shebang) == 0 && len(fragments) == 0 {
+		return opsResult{absent: "no shell script in this tree"}, nil
+	}
+	// A shebang tells shellcheck its dialect; a SOURCED FRAGMENT does not, so
+	// it is told bash — 3 false SC2148s became 0 on dotfiles, measured.
+	check := func(severity string) (string, int, error) {
+		var out strings.Builder
+		rc := 0
+		for _, group := range []struct {
+			files []string
+			flags []string
+		}{{shebang, nil}, {fragments, []string{"-s", "bash"}}} {
+			for _, batch := range checks.OpsBatches(group.files) {
+				args := append(append(append(append([]string{}, shellcheck...), "-S", severity), group.flags...), "-f", "gcc")
+				_, o, c, err := opsRun(ctx, ctr, append(args, batch...))
+				if err != nil {
+					return "", 0, err
+				}
+				out.WriteString(o)
+				rc = max(rc, c)
+			}
+		}
+		return out.String(), rc, nil
+	}
+	gate, rc, err := check("error")
+	if err != nil {
+		return opsResult{}, err
+	}
+	report, _, err := check("warning")
+	if err != nil {
+		return opsResult{}, err
+	}
+	res := opsSettled("shell", rc, fmt.Sprintf("shell: %d script(s), gating at severity error\n%s", len(shebang)+len(fragments), gate))
+	res.out += fmt.Sprintf("\nshellcheck -S warning: %d finding(s) — reported, not gating", checks.OpsDebt(report))
+	return res, nil
+}
+
+// ops:chezmoi — every tracked *.tmpl of a chezmoi source tree renders, the
+// check a dotfiles tree has no other way to make: a template that will not
+// execute breaks `chezmoi apply` on every host at once.
+//
+// `--source .` IS LOAD-BEARING. chezmoi resolves `include` against its SOURCE
+// directory, which defaults to ~/.local/share/chezmoi; without the flag four
+// of dotfiles' six templates failed on a tree where every one was fine
+// (ops--personal.dotfiles-mft58, 2026-09-08). Rendering has no host config: a
+// template that reads custom data from a .chezmoi.toml.tmpl will fail here
+// while working on the host that has it. None does today.
 func opsChezmoi(ctx context.Context, r *run) checks.Verdict {
-	return opsAtom(ctx, r, "ops:chezmoi", "chezmoi", func(ctr *dagger.Container) (*dagger.Container, error) {
+	return opsAtom(ctx, r, "ops:chezmoi", opsChezmoiPhase, func(ctr *dagger.Container) (*dagger.Container, error) {
 		f, err := fetchTool(ctx, checks.ChezmoiMirror, checks.ChezmoiURL)
 		if err != nil {
 			return nil, err
@@ -209,47 +266,265 @@ func opsChezmoi(ctx context.Context, r *run) checks.Verdict {
 	})
 }
 
-// ops:yaml — duplicate keys under flux/, ansible/ and compose/, the defect a
-// loader resolves last-wins and never reports. python3 and uv are the lane
-// image's own.
-func opsYAML(ctx context.Context, r *run) checks.Verdict {
-	return opsAtom(ctx, r, "ops:yaml", "yaml", nil)
+func opsChezmoiPhase(ctx context.Context, ctr *dagger.Container, files []checks.OpsFile) (opsResult, error) {
+	templates := checks.OpsChezmoiTemplates(files)
+	if len(templates) == 0 {
+		return opsResult{absent: "no chezmoi template in this tree"}, nil
+	}
+	var out strings.Builder
+	rc := 0
+	for _, t := range templates {
+		src, err := ctr.File("/src/" + t).Contents(ctx)
+		if err != nil {
+			return opsResult{}, err
+		}
+		_, o, c, err := opsRun(ctx, ctr, []string{"chezmoi", "--source", ".", "execute-template"}, dagger.ContainerWithExecOpts{Stdin: src})
+		if err != nil {
+			return opsResult{}, err
+		}
+		if c != 0 {
+			rc = 1
+			fmt.Fprintf(&out, "FAIL %s\n    %s\n", t, strings.ReplaceAll(strings.TrimRight(o, "\n"), "\n", "\n    "))
+		}
+	}
+	fmt.Fprintf(&out, "chezmoi: %d template(s) checked", len(templates))
+	return opsSettled("chezmoi", rc, out.String()), nil
 }
 
-// ops:dup, ops:declaration, ops:specs — infra's own tools, run by the body
-// when the tree carries them and ABSENT otherwise.
+// ops:yaml — no tracked YAML carries a duplicate key, the defect every loader
+// the fleet runs resolves last-wins and never reports. A repo that carries its
+// own tools/yaml-strict (infra) knows which trees matter, and is run instead.
+func opsYAML(ctx context.Context, r *run) checks.Verdict {
+	return opsAtom(ctx, r, "ops:yaml", opsYAMLPhase, nil)
+}
+
+func opsYAMLPhase(ctx context.Context, ctr *dagger.Container, files []checks.OpsFile) (opsResult, error) {
+	yamls := checks.OpsYAMLFiles(files)
+	if len(yamls) == 0 {
+		return opsResult{absent: "no yaml in this tree"}, nil
+	}
+	if checks.OpsHasTool(files, "yaml-strict", false) {
+		_, out, rc, err := opsRun(ctx, ctr, uvPython("yaml-strict", "flux"))
+		if err != nil {
+			return opsResult{}, err
+		}
+		return opsSettled("yaml", rc, out), nil
+	}
+	errs := map[string]error{}
+	for _, f := range yamls {
+		src, err := ctr.File("/src/" + f).Contents(ctx)
+		if err != nil {
+			return opsResult{}, err
+		}
+		errs[f] = checks.OpsStrictYAML(src)
+	}
+	report, bad := checks.OpsYAMLReport(yamls, errs)
+	rc := 0
+	if bad {
+		rc = 1
+	}
+	return opsSettled("yaml", rc, report), nil
+}
+
+// ops:dup, ops:declaration, ops:specs — infra's own checkers, run when the tree
+// carries them and ABSENT otherwise.
 func opsDup(ctx context.Context, r *run) checks.Verdict {
-	return opsAtom(ctx, r, "ops:dup", "dup", nil)
+	return opsAtom(ctx, r, "ops:dup", func(ctx context.Context, ctr *dagger.Container, files []checks.OpsFile) (opsResult, error) {
+		if !checks.OpsHasTool(files, "dup-check", true) {
+			return opsResult{absent: "no tools/dup-check in this tree"}, nil
+		}
+		_, out, rc, err := opsRun(ctx, ctr, []string{"python3", "tools/dup-check", "--blocking"})
+		return opsSettled("dup", rc, out), err
+	}, nil)
 }
 
 func opsDeclaration(ctx context.Context, r *run) checks.Verdict {
-	return opsAtom(ctx, r, "ops:declaration", "declaration", nil)
+	return opsAtom(ctx, r, "ops:declaration", func(ctx context.Context, ctr *dagger.Container, files []checks.OpsFile) (opsResult, error) {
+		if !checks.OpsHasTool(files, "declaration-integrity", false) {
+			return opsResult{absent: "no tools/declaration-integrity in this tree"}, nil
+		}
+		_, out, rc, err := opsRun(ctx, ctr, uvPython("declaration-integrity"))
+		return opsSettled("declaration", rc, out), err
+	}, nil)
 }
 
+// ops:specs — the console read-model specs follow nas01-stacks' emits. The
+// tool grades itself: 2 is "could not read the source", could-not-run
+// whatever its words were.
 func opsSpecs(ctx context.Context, r *run) checks.Verdict {
-	return opsAtom(ctx, r, "ops:specs", "specs", nil)
+	return opsAtom(ctx, r, "ops:specs", func(ctx context.Context, ctr *dagger.Container, files []checks.OpsFile) (opsResult, error) {
+		if !checks.OpsHasTool(files, "console-specs", false) {
+			return opsResult{absent: "no tools/console-specs in this tree"}, nil
+		}
+		_, out, rc, err := opsRun(ctx, ctr, uvPython("console-specs", "--check"))
+		if rc == 2 {
+			return opsResult{state: 2, out: out + "\nspecs: could not read the source — did not look"}, err
+		}
+		return opsSettled("specs", rc, out), err
+	}, nil)
 }
 
 // ops:ansible — every playbook syntax-checked, then ansible-lint at the gating
-// profile and a count at the report profile. The body brings ansible-core and
-// ansible-lint through `uv run --with`, so the only provisioning is uv, which
-// the lane image already carries.
+// profile (min) and a count at the report profile (basic).
+//
+// A TREE THAT DECLARES COLLECTIONS CANNOT BE SYNTAX-CHECKED WITHOUT THEM:
+// ansible-core resolves a module against the collections installed, and
+// rob/infra went red on main for exactly that the moment its first collection
+// landed (2026-09-09). A failed install is could-not-run — not looking is not
+// a clean bill, and not the tree's fault. Every step runs from ansible/, so
+// the tree's own ansible.cfg decides where the collections land.
 func opsAnsible(ctx context.Context, r *run) checks.Verdict {
-	return opsAtom(ctx, r, "ops:ansible", "ansible", nil)
+	return opsAtom(ctx, r, "ops:ansible", opsAnsiblePhase, nil)
 }
 
-// ops:flux — every Flux Kustomization under flux/ built with kubectl
-// kustomize. kubectl is fetched pinned from the release host; there is no
-// Nexus mirror of dl.k8s.io today, so the mirror and the upstream are the
-// same URL and fetchTool's second try is the retry.
+func opsAnsiblePhase(ctx context.Context, ctr *dagger.Container, files []checks.OpsFile) (opsResult, error) {
+	playbooks := checks.OpsPlaybooks(files)
+	if len(playbooks) == 0 {
+		return opsResult{absent: "no ansible/playbooks in this tree"}, nil
+	}
+	tracked := func(p string) bool {
+		for _, f := range files {
+			if f.Path == p {
+				return true
+			}
+		}
+		return false
+	}
+	ansible := []string{"uv", "run", "--isolated", "--no-project", "--with", "ansible-core"}
+	lint := []string{"uv", "run", "--isolated", "--no-project", "--with", "ansible-core", "--with", "ansible-lint", "ansible-lint", "--offline", "-q", "--profile"}
+	ctr = ctr.WithWorkdir("/src/ansible")
+	var out strings.Builder
+	if tracked("ansible/requirements.yml") {
+		next, o, rc, err := opsRun(ctx, ctr, append(ansible, "ansible-galaxy", "collection", "install", "-r", "requirements.yml"))
+		if err != nil {
+			return opsResult{}, err
+		}
+		out.WriteString("ansible-galaxy collection install -r requirements.yml\n" + o)
+		if rc != 0 {
+			return opsResult{state: 2, out: out.String() + "\nansible: declares collections that would not install — did not look"}, nil
+		}
+		ctr = next
+	}
+	var inventory []string
+	if tracked("ansible/inventory/hosts.yml") {
+		inventory = []string{"-i", "inventory/hosts.yml"}
+	}
+	for _, pb := range playbooks {
+		_, o, rc, err := opsRun(ctx, ctr, append(append(append(append([]string{}, ansible...), "ansible-playbook", "--syntax-check"), inventory...), pb))
+		if err != nil {
+			return opsResult{}, err
+		}
+		out.WriteString("syntax-check " + pb + "\n" + o)
+		if rc != 0 {
+			return opsSettled("ansible", rc, out.String()), nil
+		}
+	}
+	_, o, rc, err := opsRun(ctx, ctr, append(append([]string{}, lint...), "min", "."))
+	if err != nil {
+		return opsResult{}, err
+	}
+	out.WriteString("ansible-lint --profile min (gates)\n" + o)
+	debt, err := ctr.WithExec(append(append([]string{}, lint...), "basic", "."), dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny}).Stdout(ctx)
+	if err != nil {
+		return opsResult{}, err
+	}
+	res := opsSettled("ansible", rc, out.String())
+	res.out += fmt.Sprintf("\nansible-lint --profile basic: %d finding(s) — reported, not gating", checks.OpsAnsibleDebt(debt))
+	return res, nil
+}
+
+// ops:flux — every tree a Flux Kustomization CR under flux/clusters/ applies,
+// built with kubectl kustomize the way kustomize-controller will: a duplicate
+// resource id, a missing base, a bad patch stop here, before Flux stops
+// applying (measured 2026-09-06: a second IngressRoute named git parked the
+// infrastructure Kustomization for eight minutes). No CR: every flux/<dir>
+// with a kustomization.yaml.
+//
+// THEN THE BUILT STREAM IS SCHEMA-CHECKED, what kustomize-controller will
+// apply rather than the sources. ops.sh ran kubeconform over it only when
+// kubeconform was on PATH, and in this lane it never was — infra's runs said
+// "kubeconform is not on PATH" every time (measured 2026-09-15, 831 objects
+// from 4 trees), so the check was written and never ran. It runs now: the one
+// static binary is copied out of the pinned kubeconform image sweep:kubeconform
+// already runs, the way uv and node reach their lanes, with ops.sh's flags
+// (strict, missing schemas ignored, CRDs skipped, the default location).
+//
+// kubectl is fetched pinned from the release host; there is no Nexus mirror of
+// dl.k8s.io today, so fetchTool's second try is the retry.
 func opsFlux(ctx context.Context, r *run) checks.Verdict {
-	return opsAtom(ctx, r, "ops:flux", "flux", func(ctr *dagger.Container) (*dagger.Container, error) {
+	return opsAtom(ctx, r, "ops:flux", opsFluxPhase, func(ctr *dagger.Container) (*dagger.Container, error) {
 		f, err := fetchTool(ctx, checks.KubectlMirror, checks.KubectlURL)
 		if err != nil {
 			return nil, err
 		}
 		return ctr.
 			WithFile("/usr/local/bin/kubectl", f, dagger.ContainerWithFileOpts{Permissions: 0o755}).
-			WithExec([]string{"kubectl", "version", "--client=true"}), nil
+			WithFile("/usr/local/bin/kubeconform", dag.Container().From(checks.ImageKubeconform).File("/kubeconform"), dagger.ContainerWithFileOpts{Permissions: 0o755}).
+			WithExec([]string{"kubectl", "version", "--client=true"}).
+			WithExec([]string{"kubeconform", "-v"}), nil
 	})
+}
+
+// opsFluxBuilt is where the built stream is written for kubeconform to read.
+const opsFluxBuilt = "/tmp/ops/flux.built.yaml"
+
+func opsFluxPhase(ctx context.Context, ctr *dagger.Container, files []checks.OpsFile) (opsResult, error) {
+	if !slices.ContainsFunc(files, func(f checks.OpsFile) bool { return strings.HasPrefix(f.Path, "flux/") }) {
+		return opsResult{absent: "no flux/ in this tree"}, nil
+	}
+	manifests := map[string]string{}
+	for _, m := range checks.OpsFluxClusterManifests(files) {
+		src, err := ctr.File("/src/" + m).Contents(ctx)
+		if err != nil {
+			return opsResult{}, err
+		}
+		manifests[m] = src
+	}
+	paths, problems := checks.OpsFluxPaths(manifests)
+	if len(paths) == 0 {
+		paths = checks.OpsFluxFallback(files)
+	}
+	if len(paths) == 0 {
+		return opsResult{absent: "flux/ carries no Kustomization CR and no kustomization.yaml"}, nil
+	}
+	var out, built strings.Builder
+	for _, p := range problems {
+		out.WriteString(p + "\n")
+	}
+	rc := 0
+	for _, p := range paths {
+		out.WriteString("kustomize build " + p + "\n")
+		next := ctr.WithExec([]string{"kubectl", "kustomize", p}, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
+		code, err := next.ExitCode(ctx)
+		if err != nil {
+			return opsResult{}, err
+		}
+		if code != 0 {
+			stderr, _ := next.Stderr(ctx)
+			out.WriteString(stderr + "  build FAILED: " + p + "\n")
+			rc = 1
+			continue
+		}
+		stream, err := next.Stdout(ctx)
+		if err != nil {
+			return opsResult{}, err
+		}
+		// A separator between trees: kustomize ends its stream without one,
+		// and two trees back to back fuse at the boundary (ops-infra-gfrpk,
+		// 2026-09-06).
+		built.WriteString(stream + "\n---\n")
+	}
+	if rc != 0 {
+		return opsSettled("flux", rc, out.String()), nil
+	}
+	fmt.Fprintf(&out, "%d object(s) built from %d tree(s)\n", checks.OpsKinds(built.String()), len(paths))
+	_, validated, rc, err := opsRun(ctx, ctr.WithNewFile(opsFluxBuilt, built.String()), []string{
+		"kubeconform", "-strict", "-summary", "-ignore-missing-schemas", "-skip", "CustomResourceDefinition",
+		"-schema-location", "default", opsFluxBuilt,
+	})
+	if err != nil {
+		return opsResult{}, err
+	}
+	out.WriteString(validated)
+	return opsSettled("flux", rc, out.String()), nil
 }

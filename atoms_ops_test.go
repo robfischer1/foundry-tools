@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -22,166 +23,378 @@ func TestOpsAtomsStandDownOffTheOpsShape(t *testing.T) {
 	for _, id := range opsIDs {
 		wantState(t, runAtom(t, id, ""), 0, "ABSENT", "no ops shape")
 	}
-	if engine.chain("ops.sh") != "" {
-		t.Errorf("no ops shape means no container:\n%s", engine.chain("ops.sh"))
+	if engine.chain(opsLsNeedle) != "" {
+		t.Errorf("no ops shape means no container:\n%s", engine.chain(opsLsNeedle))
 	}
 }
 
-// opsWrote scripts the files the body leaves in OPS_DIR for a phase.
-func opsWrote(phase, rc, absent string) {
-	if rc != "" {
-		engine.script(script{match: `file(path:"` + opsDir + `/` + phase + `.rc")`, leaf: "contents", value: rc})
-	}
-	if absent != "" {
-		engine.script(script{match: `file(path:"` + opsDir + `/` + phase + `.absent")`, leaf: "contents", value: absent})
-	}
-}
+// opsLsNeedle is the tracked-file listing every ops atom reads first.
+const opsLsNeedle = `"git","ls-files","-s","-z"`
 
-// ops:shell in an ops tree: the fleet image with the stocks mounted, the body
-// on OPS_LIB, shellcheck on PATH through the shellcheck-py wheel and probed
-// under the default Expect, then detect and the phase as two plain execs, and
-// the verdict read from the rc file the body wrote.
-func TestOpsShellRunsTheBodyFromTheStocks(t *testing.T) {
+// opsTree is an ops tree: the files git lists, and their contents as the
+// container reads them under /src.
+func opsTree(files map[string]string, modes map[string]string) {
 	engine.reset()
-	engine.withTree(everyLaneTree)
-	opsWrote("shell", "0", "")
+	tree := map[string]string{"flux/clusters/home/apps.yaml": files["flux/clusters/home/apps.yaml"]}
+	var ls strings.Builder
+	for p, content := range files {
+		tree[p] = content
+		tree["/src/"+p] = content
+		mode := "100644"
+		if m, ok := modes[p]; ok {
+			mode = m
+		}
+		fmt.Fprintf(&ls, "%s %s 0\t%s\x00", mode, strings.Repeat("a", 40), p)
+	}
+	engine.withTree(tree)
+	engine.stdout(opsLsNeedle, ls.String())
+}
 
+// The ops tree is the gitignore-filtered tracked tree with a fresh index, no
+// foundry-stocks and no base; every atom lists what is tracked first.
+func TestOpsAtomsRunOnTheTrackedTree(t *testing.T) {
+	opsTree(map[string]string{"flux/x.yaml": "a: 1\n", "ci/run.sh": "#!/bin/sh\necho\n"}, nil)
+	engine.stdout(`"git","grep","-I","-n","-z"`, "ci/run.sh\x001\x00#!/bin/sh\n")
 	wantState(t, runAtom(t, "ops:shell", ""), 0)
 
-	c := engine.chain(`ops.sh","shell"`, "exitCode")
-	if c == "" {
-		t.Fatal("ops:shell ran no phase")
-	}
+	c := engine.chain(`"-S","error"`, "exitCode")
 	if !strings.Contains(c, checks.ImageFleet) {
 		t.Errorf("ops:shell must run in the fleet lane image:\n%s", c)
 	}
 	wantCalls(t, c,
-		// The tracked tree, not the directory as mounted: a developer's
-		// linked worktrees and scratch never reach dup-check or shellcheck.
 		[]string{"withMountedDirectory", `path:"/src"`},
-		[]string{"withMountedDirectory", `path:"/stocks"`},
-		// A fresh index over the tracked tree, so `git ls-files` answers the
-		// same set on a clone and on a linked worktree.
 		[]string{"withExec", `args:["git","init","-q","."]`},
+		[]string{"withExec", `args:["git","config","--local","ca.snapshot","ops-tracked"]`},
 		[]string{"withExec", `args:["git","add","-A"]`},
-		[]string{"withEnvVariable", `name:"OPS_DIR"`, `value:"/tmp/ops"`},
-		[]string{"withEnvVariable", `name:"OPS_LIB"`, `value:"/stocks/ci/lib/ops"`},
-		[]string{"withEnvVariable", `name:"OPS_UV_INDEX"`},
-		[]string{"withNewFile", `path:"/usr/local/bin/shellcheck"`, `shellcheck-py`},
-		[]string{"withExec", `args:["shellcheck","--version"]`},
-		[]string{"withExec", `expect:ANY`, `args:["bash","/stocks/ci/lib/ops/ops.sh","detect"]`},
-		[]string{"withExec", `expect:ANY`, `args:["bash","/stocks/ci/lib/ops/ops.sh","shell"]`},
+		[]string{"withEnvVariable", `name:"UV_INDEX_URL"`, `value:"` + checks.OpsUVIndex + `"`},
+		[]string{"withExec", `args:["uvx","--from","shellcheck-py","shellcheck","--version"]`},
+		[]string{"withExec", "expect:ANY", `args:["uvx","--from","shellcheck-py","shellcheck","-S","error","-f","gcc","ci/run.sh"]`},
 	)
-	// The tree under /src is the gitignore-filtered one — its own query, the
-	// mount carries it by id — so a developer's linked worktrees and scratch
-	// never reach dup-check or shellcheck.
 	if engine.chain(`filter(`, `gitignore:true`, `exclude:[".git"]`, "id") == "" {
 		t.Errorf("ops:shell must mount the gitignore-filtered tree:\n%s", strings.Join(engine.chains(), "\n"))
 	}
-	if hasCall(c, "withExec", `"shellcheck","--version"`, `expect:ANY`) {
+	if hasCall(c, "withExec", `"shellcheck","--version"`, "expect:ANY") {
 		t.Errorf("the --version probe is provisioning and must run under the default Expect:\n%s", c)
 	}
-	if strings.Contains(c, "OPS_BASE") || strings.Contains(c, "GATE_BASE") {
-		t.Errorf("rule 8: the ops atoms must not key on the pull's base:\n%s", c)
+	for _, relic := range []string{`path:"/stocks"`, "ops.sh", "OPS_", "GATE_BASE", `"bash"`} {
+		if strings.Contains(c, relic) {
+			t.Errorf("the ported lane still carries %s:\n%s", relic, c)
+		}
 	}
 }
 
-// The phase's answer is the rc file the body wrote, three states; a phase
-// that wrote <phase>.absent is ABSENT with the body's own reason; a phase that
-// wrote nothing is a stand-down when detect left a reason and CANNOT RUN
-// when it did not.
-func TestOpsPhaseReadsTheBodysVerdictFiles(t *testing.T) {
-	const phase = `ops.sh","ansible"`
-
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	opsWrote("ansible", "1", "")
-	engine.stdout(phase, "ansible/playbooks/site.yml:3: syntax error")
-	wantState(t, runAtom(t, "ops:ansible", ""), 1, "syntax error")
-
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	opsWrote("ansible", "2", "")
-	wantState(t, runAtom(t, "ops:ansible", ""), 2)
-
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	opsWrote("ansible", "0", "")
-	wantState(t, runAtom(t, "ops:ansible", ""), 0)
-
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	opsWrote("ansible", "", "no ansible/playbooks in this tree")
-	wantState(t, runAtom(t, "ops:ansible", ""), 0, "ABSENT", "no ansible/playbooks in this tree")
-
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.script(script{match: `file(path:"` + opsDir + `/reason")`, leaf: "contents", value: "no ops facet in this tree"})
-	wantState(t, runAtom(t, "ops:ansible", ""), 0, "ABSENT", "no ops facet")
-
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	wantState(t, runAtom(t, "ops:ansible", ""), 2, "CANNOT RUN", "wrote no verdict")
-
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	opsWrote("ansible", "7", "")
-	wantState(t, runAtom(t, "ops:ansible", ""), 2, "CANNOT RUN", `"7"`)
-}
-
-// ops:flux and ops:chezmoi bring their binary pinned: mirror first, upstream
-// second, installed executable and probed before the phase runs. A fetch
-// that fails both ways is 2 — provisioning, not a finding — and no phase
-// runs.
-func TestOpsFluxAndChezmoiFetchTheirToolPinned(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-
-	opsWrote("flux", "0", "")
-	opsWrote("chezmoi", "0", "")
-	wantState(t, runAtom(t, "ops:flux", ""), 0)
-	c := engine.chain(`ops.sh","flux"`, "exitCode")
-	wantCalls(t, c,
-		[]string{"withFile", `path:"/usr/local/bin/kubectl"`, `permissions:493`},
-		[]string{"withExec", `args:["kubectl","version","--client=true"]`},
-	)
-	if engine.chain(`http(url:"`+checks.KubectlURL+`")`, "sync") == "" {
-		t.Errorf("ops:flux must fetch kubectl from %s", checks.KubectlURL)
+// ops:shell — the gate at severity error over scripts with a shebang, the
+// sourced fragments read as bash, the warning count reported; a fault in the
+// output is could-not-run, anything else nonzero findings.
+func TestOpsShell(t *testing.T) {
+	files := map[string]string{"flux/x.yaml": "", "a.sh": "#!/bin/bash\n", "lib/frag.sh": "x=1\n", "bin/tool": "#!/usr/bin/env bash\n", "z.zsh": "#!/bin/zsh\n"}
+	shebangs := "a.sh\x001\x00#!/bin/bash\nbin/tool\x001\x00#!/usr/bin/env bash\nz.zsh\x001\x00#!/bin/zsh\n"
+	opsTree(files, nil)
+	engine.stdout(`"git","grep","-I","-n","-z"`, shebangs)
+	engine.stdout(`"-S","warning"`, "a.sh:1:1: warning: x\na.sh:2:1: note: y\n")
+	wantState(t, runAtom(t, "ops:shell", ""), 0)
+	var gated, fragments bool
+	for _, q := range engine.chains() {
+		if hasCall(q, "withExec", `"-S","error","-f","gcc"`) && strings.Contains(q, `"a.sh"`) && strings.Contains(q, `"bin/tool"`) {
+			gated = true
+		}
+		if hasCall(q, "withExec", `"-S","error","-s","bash","-f","gcc","lib/frag.sh"]`) {
+			fragments = true
+		}
+		if strings.Contains(q, `"z.zsh"]`) {
+			t.Errorf("a zsh file reached shellcheck:\n%s", q)
+		}
+	}
+	if !gated || !fragments {
+		t.Errorf("shebang scripts gated %v, fragments as bash %v", gated, fragments)
 	}
 
+	opsTree(files, nil)
+	engine.stdout(`"git","grep","-I","-n","-z"`, shebangs)
+	engine.exitCode(`"-S","error","-f","gcc"`, 1)
+	engine.stdout(`"-S","error","-f","gcc"`, "a.sh:3:1: error: Couldn't parse this if expression. [SC1046]\n")
+	engine.stdout(`"-S","warning","-f","gcc"`, "a.sh:1:1: warning: x\na.sh:2:1: note: y\n")
+	wantState(t, runAtom(t, "ops:shell", ""), 1, "shell: 3 script(s), gating at severity error", "SC1046", "shell failed (rc=1) — findings",
+		"shellcheck -S warning: 2 finding(s) — reported, not gating")
+
+	opsTree(files, nil)
+	engine.stdout(`"git","grep","-I","-n","-z"`, shebangs)
+	engine.exitCode(`"-S","error"`, 1)
+	engine.stderr(`"-S","error"`, "error: failed to fetch shellcheck-py: dial tcp 10.0.0.1:443: connection refused")
+	wantState(t, runAtom(t, "ops:shell", ""), 2, "fault of the substrate (rc=1)")
+
+	opsTree(map[string]string{"flux/x.yaml": "", "README.md": "#!/bin/sh is how it starts\n", "t.tmpl": "#!/bin/sh\n"}, nil)
+	engine.stdout(`"git","grep","-I","-n","-z"`, "t.tmpl\x001\x00#!/bin/sh\n")
+	wantState(t, runAtom(t, "ops:shell", ""), 0, "ABSENT - no shell script in this tree")
+
+	opsTree(files, nil)
+	engine.exitCode(`"git","grep","-I","-n","-z"`, 2)
+	wantState(t, runAtom(t, "ops:shell", ""), 2, "could not read the scripts' first lines")
+
+	// git grep answers 1 when no file starts with #!: the fragments still run.
+	opsTree(map[string]string{"flux/x.yaml": "", "lib/frag.sh": "x=1\n"}, nil)
+	engine.exitCode(`"git","grep","-I","-n","-z"`, 1)
+	wantState(t, runAtom(t, "ops:shell", ""), 0)
+	if engine.chain(`"-s","bash","-f","gcc","lib/frag.sh"]`) == "" {
+		t.Error("a grep that matched nothing must still check the fragments")
+	}
+	// One script with a shebang and one fragment is two scripts, not none.
+	opsTree(map[string]string{"flux/x.yaml": "", "a.sh": "#!/bin/sh\n", "lib/frag.sh": "x=1\n"}, nil)
+	engine.stdout(`"git","grep","-I","-n","-z"`, "a.sh\x001\x00#!/bin/sh\n")
+	engine.exitCode(`"-S","error","-f","gcc"`, 1)
+	wantState(t, runAtom(t, "ops:shell", ""), 1, "shell: 2 script(s)")
+}
+
+func TestOpsChezmoi(t *testing.T) {
+	files := map[string]string{".chezmoiroot": "home\n", "dot_bashrc.tmpl": "{{ .chezmoi.os }}\n", "dot_vimrc.tmpl": "{{ include \"x\" }}\n"}
+	opsTree(files, nil)
 	wantState(t, runAtom(t, "ops:chezmoi", ""), 0)
-	c = engine.chain(`ops.sh","chezmoi"`, "exitCode")
+	c := engine.chain(`"execute-template"`, `{{ .chezmoi.os }}`, "exitCode")
 	wantCalls(t, c,
 		[]string{"withFile", `path:"/usr/local/bin/chezmoi"`, `permissions:493`},
 		[]string{"withExec", `args:["chezmoi","--version"]`},
+		[]string{"withExec", "expect:ANY", `args:["chezmoi","--source",".","execute-template"]`, `stdin:"{{ .chezmoi.os }}\n"`},
 	)
 	if engine.chain(`http(url:"`+checks.ChezmoiMirror+`")`, "sync") == "" {
 		t.Errorf("ops:chezmoi must try the mirror first: %s", checks.ChezmoiMirror)
 	}
+
+	opsTree(files, nil)
+	engine.exitCode(`{{ include`, 1)
+	engine.stderr(`{{ include`, "chezmoi: template: stdin:1: error calling include: open x\nsecond line")
+	wantState(t, runAtom(t, "ops:chezmoi", ""), 1, "FAIL dot_vimrc.tmpl\n    chezmoi: template: stdin:1: error calling include: open x\n    second line", "chezmoi: 2 template(s) checked")
+
+	// A tree with templates but no chezmoi source marker renders nothing.
+	opsTree(map[string]string{"flux/x.yaml": "", "tmpl/a.tmpl": "x"}, nil)
+	wantState(t, runAtom(t, "ops:chezmoi", ""), 0, "ABSENT - no chezmoi template in this tree")
 
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	engine.fail(`http(url:"`+checks.ChezmoiMirror+`")`, "mirror down")
 	engine.fail(`http(url:"`+checks.ChezmoiURL+`")`, "upstream down")
 	wantState(t, runAtom(t, "ops:chezmoi", ""), 2, "CANNOT RUN", "could not be provisioned")
-	if engine.chain(`ops.sh","chezmoi"`) != "" {
+	if engine.chain(`"execute-template"`) != "" {
 		t.Error("a tool that did not arrive must not run the phase")
 	}
 }
 
-// The catalogue carries all eight on the fleet lane, prepush, needing the
-// stocks, so the runner mounts /stocks and the seed arm can register them.
+func TestOpsYAML(t *testing.T) {
+	opsTree(map[string]string{"flux/a.yaml": "a: 1\nb: 2\n", "compose.yml": "x: 1\nx: 2\n"}, nil)
+	wantState(t, runAtom(t, "ops:yaml", ""), 1, "compose.yml: ", "already defined", "2 yaml file(s), 1 with a duplicate key or a parse error")
+
+	opsTree(map[string]string{"flux/a.yaml": "a: 1\n---\nb: [1, 2]\n"}, nil)
+	wantState(t, runAtom(t, "ops:yaml", ""), 0)
+
+	// infra's own checker, when the tree carries it.
+	opsTree(map[string]string{"flux/a.yaml": "x: 1\nx: 2\n", "tools/yaml-strict": "#!/usr/bin/env python3\n"}, nil)
+	engine.exitCode(`"tools/yaml-strict"`, 1)
+	engine.stdout(`"tools/yaml-strict"`, "flux/a.yaml: duplicate key 'x'")
+	wantState(t, runAtom(t, "ops:yaml", ""), 1, "duplicate key 'x'")
+	wantCalls(t, engine.chain(`"tools/yaml-strict"`, "exitCode"),
+		[]string{"withExec", "expect:ANY", `args:["uv","run","--isolated","--no-project","--with","pyyaml","python","tools/yaml-strict","flux"]`})
+
+	opsTree(map[string]string{"policy/a.rego": "package a\n"}, nil)
+	wantState(t, runAtom(t, "ops:yaml", ""), 0, "ABSENT - no yaml in this tree")
+}
+
+// infra's own checkers run when the tree carries them and are ABSENT
+// otherwise; dup-check must be tracked executable; console-specs' own 2 is
+// could-not-run.
+func TestOpsRepoTools(t *testing.T) {
+	tools := map[string]string{"flux/a.yaml": "", "tools/dup-check": "", "tools/declaration-integrity": "", "tools/console-specs": ""}
+	exec := map[string]string{"tools/dup-check": "100755"}
+	for _, c := range []struct {
+		id, needle string
+		argv       string
+	}{
+		{"ops:dup", `"tools/dup-check"`, `args:["python3","tools/dup-check","--blocking"]`},
+		{"ops:declaration", `"tools/declaration-integrity"`, `args:["uv","run","--isolated","--no-project","--with","pyyaml","python","tools/declaration-integrity"]`},
+		{"ops:specs", `"tools/console-specs"`, `args:["uv","run","--isolated","--no-project","--with","pyyaml","python","tools/console-specs","--check"]`},
+	} {
+		opsTree(tools, exec)
+		wantState(t, runAtom(t, c.id, ""), 0)
+		wantCalls(t, engine.chain(c.needle, "exitCode"), []string{"withExec", "expect:ANY", c.argv})
+
+		opsTree(tools, exec)
+		engine.exitCode(c.needle, 1)
+		engine.stdout(c.needle, "drifted: x")
+		wantState(t, runAtom(t, c.id, ""), 1, "drifted: x", "failed (rc=1) — findings")
+
+		opsTree(map[string]string{"flux/a.yaml": ""}, nil)
+		wantState(t, runAtom(t, c.id, ""), 0, "ABSENT - no tools/")
+	}
+	opsTree(tools, nil) // dup-check not executable
+	wantState(t, runAtom(t, "ops:dup", ""), 0, "ABSENT - no tools/dup-check in this tree")
+
+	opsTree(tools, exec)
+	engine.exitCode(`"tools/console-specs"`, 2)
+	engine.stdout(`"tools/console-specs"`, "could not clone nas01-stacks")
+	wantState(t, runAtom(t, "ops:specs", ""), 2, "could not clone nas01-stacks", "specs: could not read the source — did not look")
+}
+
+func TestOpsAnsible(t *testing.T) {
+	files := map[string]string{"ansible/playbooks/site.yml": "", "ansible/playbooks/b.yml": "", "ansible/playbooks/roles/x.yml": "",
+		"ansible/inventory/hosts.yml": "", "ansible/requirements.yml": ""}
+	opsTree(files, nil)
+	engine.stdout(`"--profile","basic"`, "yaml[truthy]: Truthy value\nname[missing]: All tasks should be named\nnot a finding\n")
+	wantState(t, runAtom(t, "ops:ansible", ""), 0)
+	c := engine.chain(`"--profile","min"`, "exitCode")
+	wantCalls(t, c,
+		[]string{"withWorkdir", `path:"/src/ansible"`},
+		[]string{"withExec", "expect:ANY", `args:["uv","run","--isolated","--no-project","--with","ansible-core","ansible-galaxy","collection","install","-r","requirements.yml"]`},
+		[]string{"withExec", "expect:ANY", `args:["uv","run","--isolated","--no-project","--with","ansible-core","--with","ansible-lint","ansible-lint","--offline","-q","--profile","min","."]`},
+	)
+	for _, pb := range []string{"playbooks/b.yml", "playbooks/site.yml"} {
+		if engine.chain(`"ansible-playbook","--syntax-check","-i","inventory/hosts.yml","`+pb+`"]`) == "" {
+			t.Errorf("no syntax-check of %s against the inventory", pb)
+		}
+	}
+	if engine.chain(`"playbooks/roles/x.yml"`) != "" {
+		t.Error("only ansible/playbooks/*.yml are playbooks")
+	}
+
+	// The debt is counted from the report profile, and gates nothing.
+	opsTree(files, nil)
+	engine.exitCode(`"--profile","min"`, 2)
+	engine.stdout(`"--profile","min"`, "risky-file-permissions: File permissions unset")
+	engine.stdout(`"--profile","basic"`, "yaml[truthy]: a\nname[missing]: b\n")
+	wantState(t, runAtom(t, "ops:ansible", ""), 1, "ansible-lint --profile min (gates)", "risky-file-permissions", "ansible-lint --profile basic: 2 finding(s) — reported, not gating")
+
+	// A syntax error stops at that playbook.
+	opsTree(files, nil)
+	engine.exitCode(`"playbooks/b.yml"]`, 4)
+	engine.stdout(`"playbooks/b.yml"]`, "ERROR! couldn't resolve module/action 'vyos.vyos.vyos_facts'")
+	wantState(t, runAtom(t, "ops:ansible", ""), 1, "syntax-check playbooks/b.yml", "couldn't resolve module")
+	if engine.chain(`"playbooks/site.yml"]`) != "" || engine.chain(`"--profile","min"`) != "" {
+		t.Error("a failed syntax-check must stop the phase")
+	}
+
+	// Collections that would not install: could-not-run, and nothing checked.
+	opsTree(files, nil)
+	engine.exitCode(`"collection","install"`, 1)
+	wantState(t, runAtom(t, "ops:ansible", ""), 2, "declares collections that would not install — did not look")
+	if engine.chain(`"--syntax-check"`) != "" {
+		t.Error("an install that failed must stop the phase")
+	}
+
+	// A tree declaring no collections and no inventory.
+	opsTree(map[string]string{"ansible/playbooks/site.yml": ""}, nil)
+	wantState(t, runAtom(t, "ops:ansible", ""), 0)
+	if engine.chain(`"collection","install"`) != "" || engine.chain(`"-i","inventory/hosts.yml"`) != "" {
+		t.Error("no requirements, no install; no inventory, no -i")
+	}
+
+	opsTree(map[string]string{"flux/a.yaml": ""}, nil)
+	wantState(t, runAtom(t, "ops:ansible", ""), 0, "ABSENT - no ansible/playbooks in this tree")
+}
+
+func TestOpsFlux(t *testing.T) {
+	crs := "apiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nspec:\n  path: ./flux/apps\n---\napiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nspec:\n  path: flux/infrastructure/\n"
+	opsTree(map[string]string{"flux/clusters/home/apps.yaml": crs, "flux/apps/kustomization.yaml": ""}, nil)
+	engine.stdout(`"kubectl","kustomize"`, "kind: A\n---\nkind: B")
+	wantState(t, runAtom(t, "ops:flux", ""), 0)
+	c := engine.chain(`"kubectl","kustomize","flux/apps"]`, "exitCode")
+	wantCalls(t, c,
+		[]string{"withFile", `path:"/usr/local/bin/kubectl"`, `permissions:493`},
+		[]string{"withExec", `args:["kubectl","version","--client=true"]`},
+	)
+	if engine.chain(`"kubectl","kustomize","flux/infrastructure"]`, "exitCode") == "" {
+		t.Error("the second CR's tree was not built")
+	}
+	if engine.chain(`http(url:"`+checks.KubectlURL+`")`, "sync") == "" {
+		t.Errorf("ops:flux must fetch kubectl from %s", checks.KubectlURL)
+	}
+	// The built stream — both trees, a separator after each — is validated by
+	// kubeconform copied out of its pinned image.
+	v := engine.chain(`"kubeconform","-strict"`, "exitCode")
+	wantCalls(t, v,
+		[]string{"withFile", `path:"/usr/local/bin/kubeconform"`, `permissions:493`},
+		[]string{"withExec", `args:["kubeconform","-v"]`},
+		[]string{"withNewFile", `path:"/tmp/ops/flux.built.yaml"`, `contents:"kind: A\n---\nkind: B\n---\nkind: A\n---\nkind: B\n---\n"`},
+		[]string{"withExec", "expect:ANY", `args:["kubeconform","-strict","-summary","-ignore-missing-schemas","-skip","CustomResourceDefinition","-schema-location","default","/tmp/ops/flux.built.yaml"]`},
+	)
+	if hasCall(v, "withExec", `args:["kubeconform","-v"]`, "expect:ANY") {
+		t.Errorf("the kubeconform probe is provisioning and must run under the default Expect:\n%s", v)
+	}
+	if engine.chain(`from(address:"`+checks.ImageKubeconform+`")`) == "" {
+		t.Errorf("kubeconform must come from its pinned image %s", checks.ImageKubeconform)
+	}
+
+	// A schema violation in what was built is findings; a schema that would
+	// not fetch is could-not-run.
+	opsTree(map[string]string{"flux/clusters/home/apps.yaml": crs}, nil)
+	engine.stdout(`"kubectl","kustomize"`, "kind: A\n---\nkind: B")
+	engine.exitCode(`"kubeconform","-strict"`, 1)
+	engine.stdout(`"kubeconform","-strict"`, "flux.built.yaml - Deployment web is invalid: spec.replicas: Invalid type\nSummary: 4 resources found - Valid: 3, Invalid: 1")
+	wantState(t, runAtom(t, "ops:flux", ""), 1, "4 object(s) built from 2 tree(s)", "spec.replicas: Invalid type", "flux failed (rc=1) — findings")
+
+	opsTree(map[string]string{"flux/clusters/home/apps.yaml": crs}, nil)
+	engine.exitCode(`"kubeconform","-strict"`, 1)
+	engine.stdout(`"kubeconform","-strict"`, "could not download schema: no such host")
+	wantState(t, runAtom(t, "ops:flux", ""), 2, "fault of the substrate")
+
+	// A duplicate resource id is findings, naming the build.
+	opsTree(map[string]string{"flux/clusters/home/apps.yaml": crs}, nil)
+	engine.exitCode(`"flux/infrastructure"]`, 1)
+	engine.stderr(`"flux/infrastructure"]`, "Error: may not add resource with an already registered id: IngressRoute.v1alpha1.traefik.io/git")
+	wantState(t, runAtom(t, "ops:flux", ""), 1, "kustomize build flux/infrastructure", "already registered id", "build FAILED: flux/infrastructure")
+
+	// A base that would not fetch is could-not-run.
+	opsTree(map[string]string{"flux/clusters/home/apps.yaml": crs}, nil)
+	engine.exitCode(`"flux/apps"]`, 1)
+	engine.stderr(`"flux/apps"]`, "Error: accumulating resources: failed to fetch github.com/x: dial tcp: i/o timeout")
+	wantState(t, runAtom(t, "ops:flux", ""), 2, "fault of the substrate")
+
+	// A cluster manifest that does not parse is named, and the build goes on.
+	opsTree(map[string]string{"flux/clusters/home/apps.yaml": crs, "flux/clusters/home/bad.yaml": ": [bad\n"}, nil)
+	engine.exitCode(`"kubeconform","-strict"`, 1)
+	wantState(t, runAtom(t, "ops:flux", ""), 1, "flux/clusters/home/bad.yaml: ", "kustomize build flux/apps")
+
+	// No CR: every flux/<dir> with a kustomization.yaml.
+	opsTree(map[string]string{"flux/hemera/kustomization.yaml": "", "flux/hemera/x/kustomization.yaml": ""}, nil)
+	wantState(t, runAtom(t, "ops:flux", ""), 0)
+	if engine.chain(`"kubectl","kustomize","flux/hemera"]`) == "" || engine.chain(`"flux/hemera/x"]`) != "" {
+		t.Error("the fallback builds flux/<dir> only")
+	}
+
+	opsTree(map[string]string{"flux/README.md": ""}, nil)
+	wantState(t, runAtom(t, "ops:flux", ""), 0, "ABSENT - flux/ carries no Kustomization CR and no kustomization.yaml")
+	opsTree(map[string]string{"ansible/playbooks/a.yml": ""}, nil)
+	wantState(t, runAtom(t, "ops:flux", ""), 0, "ABSENT - no flux/ in this tree")
+}
+
+// Every ops atom files an engine that would not answer as could-not-run: the
+// listing, and a phase's own exec.
+func TestOpsAtomsCannotRunWhenTheEngineDoesNotAnswer(t *testing.T) {
+	for _, id := range opsIDs {
+		opsTree(map[string]string{"flux/a.yaml": ""}, nil)
+		engine.fail(opsLsNeedle, "engine gone")
+		wantState(t, runAtom(t, id, ""), 2, "never ran", "engine gone")
+
+		opsTree(map[string]string{"flux/a.yaml": ""}, nil)
+		engine.exitCode(opsLsNeedle, 128-1)
+		wantState(t, runAtom(t, id, ""), 2, "the tracked tree could not be listed")
+	}
+	for id, needle := range map[string]string{
+		"ops:shell": `"git","grep","-I"`, "ops:yaml": `file(path:"/src/flux/a.yaml")`,
+	} {
+		opsTree(map[string]string{"flux/a.yaml": "a: 1\n", "a.sh": "#!/bin/sh\n"}, nil)
+		engine.stdout(`"git","grep","-I","-n","-z"`, "a.sh\x001\x00#!/bin/sh\n")
+		engine.fail(needle, "engine gone")
+		wantState(t, runAtom(t, id, ""), 2, "never ran")
+	}
+}
+
+// The catalogue carries all eight on the fleet lane, prepush; none needs the
+// foundry-stocks mount any more.
 func TestOpsAtomsAreCatalogued(t *testing.T) {
 	for _, id := range opsIDs {
 		a := checks.AtomByID(id)
 		if a.ID != id {
 			t.Fatalf("%s is not in the catalogue", id)
 		}
-		if a.Stage != checks.StagePrepush || a.Lane != checks.LaneAny || a.Image != checks.ImageFleet || !a.NeedsStocks {
+		if a.Stage != checks.StagePrepush || a.Lane != checks.LaneAny || a.Image != checks.ImageFleet || a.NeedsStocks {
 			t.Errorf("%s: stage=%s lane=%v image=%s stocks=%v", id, a.Stage, a.Lane, a.Image, a.NeedsStocks)
-		}
-		if checks.OpsPhase(id) != strings.TrimPrefix(id, "ops:") {
-			t.Errorf("%s: phase %s", id, checks.OpsPhase(id))
 		}
 	}
 }

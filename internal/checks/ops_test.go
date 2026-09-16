@@ -50,15 +50,6 @@ func TestIsOpsTreeReadsEachMarkerAlone(t *testing.T) {
 	}
 }
 
-// OpsPhase is the id's last segment.
-func TestOpsPhaseIsTheIdsLastSegment(t *testing.T) {
-	for _, id := range []string{"ops:shell", "ops:chezmoi", "ops:yaml", "ops:dup", "ops:declaration", "ops:specs", "ops:ansible", "ops:flux"} {
-		if got, want := OpsPhase(id), strings.TrimPrefix(id, "ops:"); got != want {
-			t.Errorf("OpsPhase(%s) = %s, want %s", id, got, want)
-		}
-	}
-}
-
 // The tool pins are spelled in full; this holds them to one version each so
 // a bump that touches one line and not the other is caught.
 func TestOpsToolPinsAgree(t *testing.T) {

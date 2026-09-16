@@ -1,7 +1,6 @@
 package checks
 
 import (
-	"path"
 	"strings"
 )
 
@@ -64,6 +63,3 @@ const (
 	KubectlURL     = "https://dl.k8s.io/release/v1.34.1/bin/linux/amd64/kubectl"
 	KubectlMirror  = KubectlURL
 )
-
-// OpsPhase names the ops.sh phase an ops atom runs: the id's last segment.
-func OpsPhase(id string) string { return path.Base(strings.ReplaceAll(id, ":", "/")) }
