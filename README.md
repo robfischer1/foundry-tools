@@ -116,20 +116,19 @@ Three things the ports changed on purpose, each because the workflow's assumptio
 `dies:data-keys` and `dies:canary-visibility` interrogate the **artifact, never the source tree**, and that distinction is measured: rename every `policy/*/data.json` to `values.json` and `opa test` still passes 312 assertions while the built bundle ships `data.json == {}` — `star_only` undefined, the visibility comprehension collecting nothing, **every verb visible to every principal**. Fail-open, silent, and green the whole way down.
 
 **`sweep:`** — repo cadence, on a clock, **never in a pull's path**.
-`portfolio-sbom` · `template-render-matrix` · `kubeconform` · `kube-linter` (weekly)
+`template-render-matrix` · `kubeconform` · `kube-linter` (weekly)
 
 These describe a **repository** rather than a change, so their answer cannot differ between two pulls against the same repo — and running them per pull leaves every repository nobody opened a PR against unevaluated indefinitely.
 
 | atom | what it asks | ABSENT when |
 | :-- | :-- | :-- |
-| `sweep:portfolio-sbom` | a repo that builds an image builds it through the workflow that **attests** its SBOM | no `Dockerfile` |
 | `sweep:template-render-matrix` | every case in this template's `ci-matrix.toml` still renders | no `ci-matrix.toml` |
 | `sweep:kubeconform` | every manifest under `flux/` validates against its Kubernetes schema | no `flux/` |
 | `sweep:kube-linter` | every workload under `flux/` passes kube-linter's default checks | no `flux/` |
 
 **The absence is the acceptance.** CA F9's success criterion is that no `stage: sweep` atom ever appears in a pull's path, and that is structural here rather than conventional: `dagger call verdicts` with **no stage** answers the *pull-path* vector — precommit and prepush — so a door that asks for "the vector" cannot be handed a sweep atom by omission. You get the sweep by naming it (`--stage=sweep`, or `dagger check sweep:`) and no other way. `TestNoSweepAtomOnThePullPath` asserts it.
 
-`sweep:portfolio-sbom` **does not re-run the portfolio scan.** That scan is fleet-wide and already scheduled — CronJob `portfolio-weekly` (Mondays 07:00 UTC) drives `ci-portfolio-pipeline`, which re-scores the SBOM attestations the registry holds — and it stays exactly where it is. What the atom closes is the hole that scan structurally cannot see: the re-score reads *attestations*, so a repo whose image is never attested contributes nothing to read and scores clean by being invisible, forever.
+**`sweep:portfolio-sbom` retired 2026-09-16.** It asked whether a repo's image was built through a foundry-stocks workflow that attests its SBOM — a question about `.forgejo/workflows`, which the fleet largely no longer carries: measured at retirement, **37 of the 39 repos with a root `Dockerfile` had no workflow tree at all**, so the atom answered CANNOT RUN for all but two. More decisively, the question moved. Since the build lane attaches the SBOM as a plain OCI referrer and attests an `sbom-ref/v1` pointer itself, attestation is a property of building through the door, not of a workflow file existing. The weekly `portfolio-weekly` CronJob and `ci-portfolio-pipeline` are untouched and still re-score what the registry holds.
 
 The one caller that runs any of this is the `ca-sweep` CronJob (`infra/flux/apps/ca-sweep.yaml`).
 

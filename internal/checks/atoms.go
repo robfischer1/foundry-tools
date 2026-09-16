@@ -377,10 +377,6 @@ func atomTable() []AtomDef {
 		// path. PullPathAtoms is what makes that structural rather than a
 		// convention, and TestNoSweepAtomOnThePullPath asserts it.
 		{
-			ID: "sweep:portfolio-sbom", Stage: StageSweep, Lane: LaneAny, Image: ImageFleet,
-			Desc: "A repository that builds an image builds it through the workflow that attests its SBOM.",
-		},
-		{
 			ID: "sweep:template-render-matrix", Stage: StageSweep, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every case in this template's ci-matrix.toml still renders.",
 		},

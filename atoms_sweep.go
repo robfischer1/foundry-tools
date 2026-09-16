@@ -25,56 +25,9 @@ import (
 // Read runtime.go's eight rules and atoms_go.go first; this file follows both.
 
 func init() {
-	register("sweep:portfolio-sbom", sweepPortfolioSbom)
 	register("sweep:template-render-matrix", sweepTemplateRenderMatrix)
 	register("sweep:kubeconform", sweepKubeconform)
 	register("sweep:kube-linter", sweepKubeLinter)
-}
-
-// A repository that builds an image builds it through the workflow that
-// attests its SBOM.
-//
-// NO CONTAINER RUNS. Every term of this question is a fact about the tree — is
-// there a Dockerfile, is there a workflow tree, does any workflow call the
-// attesting build — so the whole atom is Go over the mounted Directory and the
-// engine is never asked to start anything.
-//
-// THIS DOES NOT RE-RUN THE PORTFOLIO SCAN, deliberately. The scan is
-// fleet-wide, already scheduled, and stays where it is: CronJob
-// portfolio-weekly (infra, ci-foundry, Mondays 07:00 UTC) drives
-// ci-portfolio-pipeline, which re-scores the SBOM attestations the registry
-// already holds. A per-repo copy would be a second surface free to disagree
-// with the first — the drift this module exists to delete.
-//
-// What it closes is the hole that scan structurally cannot see. The re-score
-// reads ATTESTATIONS; a repo whose image is never attested contributes nothing
-// to read, so it scores clean by being invisible, forever, and no pull will
-// ever say so. That is CA F9's own value statement — "repos nobody has opened
-// a PR against stop being invisible" — asked at the one place where the answer
-// is a fact about the tree rather than a fact about the database.
-func sweepPortfolioSbom(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("sweep:portfolio-sbom")
-
-	entries, err := r.src.Entries(ctx)
-	if err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the repository root could not be read: "+err.Error())
-	}
-	if !checks.HasEntry(entries, "Dockerfile") {
-		return checks.VerdictOf(a, 0, a.ID+": ABSENT - no Dockerfile at the repository root. The portfolio re-scores image SBOMs, and this repo builds no image.")
-	}
-
-	bodies, present, err := r.forgejoWorkflows(ctx, entries)
-	if err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the workflow tree could not be read, so whether the image is attested is unknown rather than answered: "+err.Error())
-	}
-	if !present {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - a Dockerfile and no workflow tree. Nothing here says whether the image is ever built, so nothing here can say whether it is attested.")
-	}
-	if checks.BuiltThroughAttestingWorkflow(bodies) {
-		return checks.VerdictOf(a, 0, a.ID+": the image is built through the attesting workflow, so the weekly re-score can see this repo.")
-	}
-	return checks.VerdictOf(a, 1, a.ID+": this repo has a Dockerfile but no workflow calling foundry-stocks build.yml (or frontend-build.yml / bake-blade.yml).\n"+
-		"The weekly portfolio re-score reads cosign SBOM attestations out of the registry. An image nobody attests contributes no SBOM, so it is not scored badly - it is not scored at all, and the digest reports clean because it never looked.")
 }
 
 // Every case in this template's ci-matrix.toml still renders.
@@ -368,47 +321,6 @@ func sweepKubeLinter(ctx context.Context, r *run) checks.Verdict {
 	}
 	state, reason := checks.KubeLinterState(code, out)
 	return checks.VerdictOf(a, state, reason)
-}
-
-// forgejoWorkflows answers whether this tree carries .forgejo/workflows and,
-// when it does, the body of every file under it. entries is the root listing
-// the caller has already read.
-//
-// THE ABSENCE IS TWO ENTRIES DEEP. `.forgejo` present with no `workflows`
-// under it is the same nothing as no `.forgejo` at all, and the shell's
-// `test -d .forgejo/workflows` asked both at once.
-//
-// NO GITIGNORE FILTER, deliberately: this is not a population the fleet grades
-// but a question about what the repository's CI declares, and the recursive
-// match it replaces read the tree as it stood.
-func (r *run) forgejoWorkflows(ctx context.Context, entries []string) (bodies []string, present bool, err error) {
-	if !checks.HasEntry(entries, ".forgejo") {
-		return nil, false, nil
-	}
-	sub, err := r.src.Directory(".forgejo").Entries(ctx)
-	if err != nil {
-		return nil, false, err
-	}
-	if !checks.HasEntry(sub, "workflows") {
-		return nil, false, nil
-	}
-	paths, err := r.src.Glob(ctx, ".forgejo/workflows/**")
-	if err != nil {
-		return nil, true, err
-	}
-	for _, p := range paths {
-		// Glob names a directory with a trailing separator, and a directory
-		// has no contents to read.
-		if strings.HasSuffix(p, "/") {
-			continue
-		}
-		body, err := r.src.File(p).Contents(ctx)
-		if err != nil {
-			return nil, true, err
-		}
-		bodies = append(bodies, body)
-	}
-	return bodies, true, nil
 }
 
 // tailLines is the script's own cut of a failed render: the last n lines of
