@@ -383,8 +383,7 @@ func atomTable() []AtomDef {
 		},
 		{
 			ID: "sweep:template-render-matrix", Stage: StageSweep, Lane: LaneAny, Image: ImageFleet,
-			Desc:        "Every case in this template's ci-matrix.toml still renders.",
-			NeedsStocks: true,
+			Desc: "Every case in this template's ci-matrix.toml still renders.",
 		},
 		{
 			ID: "sweep:kubeconform", Stage: StageSweep, Lane: LaneAny, Image: ImageKubeconform,

@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"sort"
 	"strings"
 
 	"dagger/foundry-tools/internal/checks"
+	"dagger/foundry-tools/internal/dagger"
 )
 
 // THE SWEEP, AS TYPED CHAINS. These four describe a REPOSITORY rather than a
@@ -107,10 +109,6 @@ func sweepTemplateRenderMatrix(ctx context.Context, r *run) checks.Verdict {
 	if !checks.HasEntry(entries, "ci-matrix.toml") {
 		return checks.VerdictOf(a, 0, a.ID+": ABSENT - no ci-matrix.toml at the repository root, so this repo declares no render matrix.")
 	}
-	if _, err := r.stocks.File("ci/lib/template_render_matrix.py").Sync(ctx); err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the canonical gate is not reachable through the door.")
-	}
-
 	const noRepository = ": CANNOT RUN - no .git in the tree under check. The matrix renders the template AT ITS GIT HEAD (--vcs-ref=HEAD is load-bearing, foundry#130); without a repository copier resolves some other tree, and a green from that would be a green about something else."
 	if !checks.HasEntry(entries, ".git") {
 		return checks.VerdictOf(a, 2, a.ID+noRepository)
@@ -119,13 +117,162 @@ func sweepTemplateRenderMatrix(ctx context.Context, r *run) checks.Verdict {
 		return checks.VerdictOf(a, 2, a.ID+noRepository+" Here .git is a FILE, not a directory: this tree came from a linked worktree, and the gitdir it names is a host path that does not exist inside the container. That is a refusal on purpose — an index can be rebuilt, a history cannot.")
 	}
 
-	ctr := r.gitReady(ctx, r.withStocks(r.lane(checks.ImageFleet))).
-		// The provisioning probe: python-ci carries uvx, and the canonical
-		// gate shells out to it. A missing one is state 2 with the engine's
-		// error, never a green.
-		WithExec([]string{"uvx", "--version"}).
-		WithExec([]string{"python3", "/stocks/ci/lib/template_render_matrix.py", "--template", "."}, anyExit)
-	return verdict(ctx, a, ctr)
+	text, err := r.src.File("ci-matrix.toml").Contents(ctx)
+	if err != nil {
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - ci-matrix.toml could not be read: "+err.Error())
+	}
+	matrix, err := checks.ParseMatrix(text)
+	if err != nil {
+		return checks.VerdictOf(a, 2, "::error::"+err.Error())
+	}
+
+	// The provisioning probe: the fleet image carries uvx and copier is
+	// fetched through it. A missing uvx is state 2 with the engine's error,
+	// never a green.
+	base := r.gitReady(ctx, r.lane(checks.ImageFleet)).WithExec([]string{"uvx", "--version"})
+
+	names := make([]string, 0, len(matrix.Cases))
+	problems := make(map[string][]string, len(matrix.Cases))
+	for _, c := range matrix.Cases {
+		names = append(names, c.Name)
+		found, err := renderCase(ctx, base, c, matrix.Parse)
+		if err != nil {
+			return neverRan(a, err)
+		}
+		problems[c.Name] = found
+	}
+	state, out := checks.MatrixReport(names, problems)
+	return checks.VerdictOf(a, state, out)
+}
+
+// renderCase renders one case and grades what came out. The error return is
+// the ENGINE's — a mount that would not evaluate, an image that would not
+// pull; everything the template did wrong is a problem in the slice.
+func renderCase(ctx context.Context, base *dagger.Container, c checks.MatrixCase, parse []string) ([]string, error) {
+	dest := "/out/" + c.Name
+	argv, err := checks.CopierArgv("/src", dest, c.Answers)
+	if err != nil {
+		return []string{err.Error()}, nil
+	}
+	ctr := base.WithExec(argv, anyExit)
+	out, code, err := outputBoth(ctx, ctr)
+	if err != nil {
+		return nil, err
+	}
+	if code != 0 {
+		return []string{"copier render failed:\n    " + strings.Join(tailLines(out, 12), "\n    ")}, nil
+	}
+
+	rendered := ctr.Directory(dest)
+	paths, err := rendered.Glob(ctx, "**")
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, p := range paths {
+		if !strings.HasSuffix(p, "/") {
+			files = append(files, p)
+		}
+	}
+	problems := checks.RenderedPathProblems(files)
+
+	// THE EXPECTATIONS MATCH DIRECTORIES TOO, and that is the point of the
+	// whole-directory guards a matrix carries: `absent = [".forgejo"]` is how a
+	// workflow tree nobody listed comes back noticed.
+	for _, pattern := range c.Present {
+		hits, err := rendered.Glob(ctx, pattern)
+		if err != nil {
+			return nil, err
+		}
+		if len(hits) == 0 {
+			problems = append(problems, checks.PresentProblem(pattern))
+		}
+	}
+	for _, pattern := range c.Absent {
+		hits, err := rendered.Glob(ctx, pattern)
+		if err != nil {
+			return nil, err
+		}
+		if len(hits) > 0 {
+			problems = append(problems, checks.AbsentProblem(pattern, trimDirs(hits)))
+		}
+	}
+
+	parsed, err := parseProblems(ctx, rendered, parse)
+	if err != nil {
+		return nil, err
+	}
+	problems = append(problems, parsed...)
+
+	scanned, err := suppressionProblems(ctx, rendered, files)
+	if err != nil {
+		return nil, err
+	}
+	return append(problems, scanned...), nil
+}
+
+// trimDirs renders a glob's hits the way the script printed them: the paths
+// themselves, a directory without its trailing separator.
+func trimDirs(hits []string) []string {
+	out := make([]string, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, strings.TrimSuffix(h, "/"))
+	}
+	return out
+}
+
+// parseProblems reads every file a `parse` glob matched and answers what would
+// not parse. An unknown suffix is an error rather than a silent skip.
+func parseProblems(ctx context.Context, rendered *dagger.Directory, parse []string) ([]string, error) {
+	var problems []string
+	for _, pattern := range parse {
+		hits, err := rendered.Glob(ctx, pattern)
+		if err != nil {
+			return nil, err
+		}
+		sort.Strings(hits)
+		for _, rel := range hits {
+			if strings.HasSuffix(rel, "/") {
+				continue
+			}
+			body, err := rendered.File(rel).Contents(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if problem := checks.ParseRendered(rel, body); problem != "" {
+				problems = append(problems, problem)
+			}
+		}
+	}
+	return problems, nil
+}
+
+// suppressionProblems scans the rendered tree with the fleet's own suppression
+// scan — one definition, not a second copy of the rule.
+func suppressionProblems(ctx context.Context, rendered *dagger.Directory, files []string) ([]string, error) {
+	var wanted []string
+	for _, rel := range files {
+		if checks.LanguageOf(rel) != "" {
+			wanted = append(wanted, rel)
+		}
+	}
+	bodies := readFiles(ctx, rendered, wanted)
+	tree := make(map[string]string, len(bodies))
+	for rel, read := range bodies {
+		if read.err != nil {
+			return nil, read.err
+		}
+		tree[rel] = read.body
+	}
+	found, err := checks.ScanTree(tree)
+	if err != nil {
+		return nil, err
+	}
+	problems := make([]string, 0, len(found))
+	for _, f := range found {
+		problems = append(problems, checks.SuppressionProblem(f))
+	}
+	return problems, nil
 }
 
 // Every manifest under flux/ validates against its Kubernetes schema.
@@ -262,4 +409,21 @@ func (r *run) forgejoWorkflows(ctx context.Context, entries []string) (bodies []
 		bodies = append(bodies, body)
 	}
 	return bodies, true, nil
+}
+
+// tailLines is the script's own cut of a failed render: the last n lines of
+// what copier said, which is where the reason is.
+//
+// A CLAMP, NOT A BRANCH, for the reason internal/checks/sweeplane.go already
+// records: `if len(lines) > n { lines = lines[len(lines)-n:] }` and the same
+// line with `>=` answer identically for every input — at n == len(lines) the
+// cut IS the whole slice — so the boundary mutant is EQUIVALENT and no test
+// can ever clear it. This file reintroduced the branch form that PR #31 had
+// already retired, and the mutation gate caught it again (atoms_sweep.go
+// 418:16 LIVED, 419:27 NOT COVERED ×2, measured on PR #77). The clamp has no
+// comparison to mutate, and a wrong sign on the arithmetic panics instead of
+// being absorbed.
+func tailLines(out string, n int) []string {
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	return lines[len(lines)-min(n, len(lines)):]
 }

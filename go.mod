@@ -11,6 +11,8 @@ require (
 	go.opentelemetry.io/otel/trace v1.46.0
 )
 
+require github.com/BurntSushi/toml v1.6.0 // indirect
+
 require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect

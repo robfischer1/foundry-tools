@@ -998,3 +998,52 @@ func SplitNul(listing string) []string {
 	}
 	return out
 }
+
+// SJTreeFinding is one suppression ScanTree found.
+type SJTreeFinding struct {
+	Rel        string
+	Line       int
+	Tool, Form string
+	Text       string
+}
+
+// ScanTree runs the suppression scan over a tree that is not a repository —
+// the render matrix's rendered output — and answers its findings in path
+// order.
+//
+// ONE DEFINITION, NOT A SECOND COPY OF THE RULE: this is the scan the gate
+// runs, over files instead of a checkout. It differs from the gate in the two
+// ways a rendered tree demands: nothing is excluded (a rendered .claude/ is
+// still poured into every repo born from the template), and no DirectoryExempt
+// row can apply, because the tree belongs to no repository yet. The skip-vs-
+// fail contract and the marker audit apply exactly as they do on a checkout.
+func ScanTree(files map[string]string) ([]SJTreeFinding, error) {
+	paths := make([]string, 0, len(files))
+	for p := range files {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	s := &sjScan{
+		in:          SJInput{Tracked: paths, Read: func(rel string) (string, error) { return files[rel], nil }},
+		contracts:   map[string][]sjContract{},
+		packageVars: map[string]map[string]bool{},
+	}
+	for _, rel := range paths {
+		lang := LanguageOf(rel)
+		if lang == "" {
+			continue
+		}
+		lines, err := s.read(rel)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.scanFile(rel, lang, lines); err != nil {
+			return nil, err
+		}
+	}
+	out := make([]SJTreeFinding, 0, len(s.findings))
+	for _, f := range s.findings {
+		out = append(out, SJTreeFinding{Rel: f.rel, Line: f.line, Tool: f.tool, Form: f.form, Text: f.text})
+	}
+	return out, nil
+}
