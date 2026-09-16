@@ -219,11 +219,41 @@ func componentKey(c any) string {
 // red any landing in the fleet as a fault of the tree.
 var fault = regexp.MustCompile(`(?i)connection refused|connection reset|connection timed out|operation timed out|i/o timeout|no such host|temporary failure in name resolution|dns error|server misbehaving|TLS handshake timeout|response status code 5\d\d|502 Bad Gateway|503 Service Unavailable|504 Gateway|unexpected EOF|too many requests|429 Too Many Requests|toomanyrequests|context deadline exceeded|failed to do request|failed to resolve source metadata|unexpected media type [^[:space:]]+ for sha256:[0-9a-f]{64}: not found`)
 
+// contended is a SHARED TOOLCHAIN CACHE being written by two lanes at once.
+// It is neither a network fault nor a tool refusing its arguments, so it gets
+// its own pattern rather than being folded into fault — "failed on a network
+// fault" would be a false sentence about a healthy network, and a verdict that
+// lies about the cause is the thing this file exists to stop.
+//
+// MEASURED 2026-09-16 on tongs (cast-tongs-560a9f9-wrkxj), while gavel's cast
+// was resolving crates in the same seconds:
+//
+//	error: failed to unpack package `sha2 v0.10.9`
+//	Caused by: failed to open `/usr/local/cargo/registry/src/
+//	           index.crates.io-1949cf8c6b5b557f/sha2-0.10.9/.cargo-ok`
+//	Caused by: File exists (os error 17)
+//
+// WHY IT HAPPENS AT ALL: checks.CachesFor(ImageRust) mounts
+// /usr/local/cargo/registry as a shared Dagger cache volume, but cargo's
+// cross-process lock is $CARGO_HOME/.package-cache — /usr/local/cargo, which
+// is NOT mounted. The directory is shared and the lock guarding it is not, so
+// two cargos each hold a lock the other cannot see and both unpack the same
+// crate. The cache fix is foundry-tools#9663; this is the classification half,
+// and it is worth having on its own because ANY contended cache outlives any
+// one fix to the mount.
+//
+// The next run reads a cache that is already correct, so this is retryable in
+// the strongest sense: the thing that failed has since completed.
+var contended = regexp.MustCompile(`(?i)failed to unpack package|failed to open [^\n]*\.cargo-ok`)
+
 // Failed answers the verdict of a step that failed with output: could-not-run
-// on a network fault, findings on anything else.
+// on a network fault or a contended toolchain cache, findings on anything else.
 func Failed(step, output string) (int, string) {
 	if hit := fault.FindString(output); hit != "" {
 		return CouldNotRun, fmt.Sprintf("could not run: %s failed on a network fault (%s) — the lane did not get to look; run it again", step, hit)
+	}
+	if hit := contended.FindString(output); hit != "" {
+		return CouldNotRun, fmt.Sprintf("could not run: %s lost a race for a shared toolchain cache (%s) — another lane was writing it; the next run reads it warm, so run it again", step, strings.TrimSpace(hit))
 	}
 	return Findings, fmt.Sprintf("findings in %s — read its log above; running again changes nothing", step)
 }

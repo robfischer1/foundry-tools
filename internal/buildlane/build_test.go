@@ -287,3 +287,53 @@ func TestAClientErrorIsStillAFinding(t *testing.T) {
 		}
 	}
 }
+
+// A CONTENDED CACHE IS NOT THE TREE. Measured 2026-09-16 on tongs
+// (cast-tongs-560a9f9-wrkxj): gavel's cast was resolving crates in the same
+// seconds, both cargos unpacked sha2 into the shared registry volume, and the
+// loser found .cargo-ok already written. The lane settled "findings in cargo
+// build — running again changes nothing" about a failure where the next run
+// reads a cache that is already correct.
+func TestAContendedCargoCacheIsNotTheTree(t *testing.T) {
+	for _, out := range []string{
+		"error: failed to unpack package `sha2 v0.10.9`\nCaused by:\n  failed to open `/usr/local/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha2-0.10.9/.cargo-ok`\nCaused by:\n  File exists (os error 17)",
+		"error: failed to unpack package `serde v1.0.229`",
+		"failed to open /usr/local/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/typenum-1.20.1/.cargo-ok",
+	} {
+		code, why := Failed("cargo build", out)
+		if code != CouldNotRun {
+			t.Errorf("a contended cargo cache must be could-not-run, got %d for %.60q", code, out)
+		}
+		if !strings.Contains(why, "run it again") {
+			t.Errorf("the reason must tell the operator to run it again, got %q", why)
+		}
+		// It must not claim the network was at fault, because it was not.
+		if strings.Contains(why, "network fault") {
+			t.Errorf("a cache race is not a network fault, got %q", why)
+		}
+	}
+}
+
+// The inverse, so the new pattern cannot swallow a real compile failure: these
+// are the tree being wrong, and no amount of re-running fixes them.
+func TestARealCargoFailureIsStillAFinding(t *testing.T) {
+	for _, out := range []string{
+		"error[E0308]: mismatched types\n  --> src/main.rs:4:5",
+		"error: could not compile `tongs` (bin \"tongs\") due to 1 previous error",
+		"error: failed to select a version for `sha2`.\n    ... required by package `tongs v0.3.1`",
+		"error: the lock file needs to be updated but --locked was passed",
+	} {
+		if code, _ := Failed("cargo build", out); code != Findings {
+			t.Errorf("a real cargo failure is a finding, got %d for %.60q", code, out)
+		}
+	}
+}
+
+// ToolFailed delegates to Failed, so the cast lane's own entry point (which
+// calls ToolFailed, not Failed) must reach the same verdict.
+func TestToolFailedAlsoSeesAContendedCache(t *testing.T) {
+	out := "error: failed to unpack package `sha2 v0.10.9`"
+	if code, _ := ToolFailed("cargo build", out); code != CouldNotRun {
+		t.Errorf("ToolFailed must inherit the contended-cache verdict, got %d", code)
+	}
+}
