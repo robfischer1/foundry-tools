@@ -326,156 +326,205 @@ func TestCargoDepsIsTheBaseOfEveryCompilingAtom(t *testing.T) {
 	}
 }
 
-// rust:mutation is rustTSMutation with the rust spec: the fetched layer as its
-// base, two probes, three phases.
-func TestRustMutationRunsItsThreePhasesFromTheFetchedLayer(t *testing.T) {
-	engine.reset()
-	engine.withTree(rustTSTree(map[string]string{
-		".copier-answers.yml":   "critical_modules: src/lib.rs\n",
-		"/tmp/mutation/verdict": "0\n",
-		"/tmp/mutation/reason":  "every viable mutant killed",
-	}))
+// rust:mutation's needles: each exec the atom runs, by the words only it has.
+const (
+	rustBaseNeedle    = `"git","rev-parse","--verify","--quiet","abc123^{commit}"`
+	rustDiffNeedle    = `"--relative","abc123","HEAD"`
+	rustFilesNeedle   = `"--name-only","-z"`
+	rustMetaNeedle    = `"cargo","metadata","--no-deps"`
+	rustMutantsNeedle = `"-D","/tmp/mutation/pr.diff"`
+	// rustOneCrate is cargo metadata for a single-package crate at /src.
+	rustOneCrate = `{"packages":[{"name":"x","id":"x","manifest_path":"/src/Cargo.toml"}],"workspace_members":["x"]}`
+	rustDiff     = "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-fn f() -> i32 { 1 }\n+fn f() -> i32 { 2 }"
+)
 
+// scriptRustMutation answers a pull that added rust lines to a one-crate
+// workspace, and a cargo mutants run that caught every viable mutant. The repo
+// declares no critical modules (no answers file) unless tree hands it one.
+func scriptRustMutation(tree map[string]string) {
+	engine.reset()
+	base := rustTSTree(map[string]string{
+		"/src/mutants.out/caught.txt": "src/lib.rs:1:1: replace f -> i32 with 0\n",
+	})
+	delete(base, ".copier-answers.yml")
+	engine.withTree(base)
+	engine.withTree(tree)
+	engine.stdout(rustDiffNeedle, rustDiff)
+	engine.stdout(rustFilesNeedle, "src/lib.rs\x00")
+	engine.stdout(rustMetaNeedle, rustOneCrate)
+}
+
+// rust:mutation runs git, cargo metadata and cargo mutants as plain execs from
+// the fetched layer, with the gate's shared target directory taken away, and
+// no script: nothing mounts foundry-stocks and nothing runs bash.
+func TestRustMutationMeasuresTheDiffFromTheFetchedLayer(t *testing.T) {
+	scriptRustMutation(map[string]string{".copier-answers.yml": "critical_modules: src/lib.rs\n"})
 	wantState(t, runAtom(t, "rust:mutation", "abc123"), 0)
 
-	c := engine.chain(`rust.sh","score"`, "exitCode")
+	c := engine.chain(rustMutantsNeedle, "exitCode")
 	if !strings.Contains(c, checks.ImageRust) {
 		t.Errorf("rust:mutation must run in the rust lane image:\n%s", c)
 	}
 	wantCalls(t, c,
 		[]string{"withExec", `args:["cargo","fetch"]`},
-		[]string{"withMountedDirectory", `path:"/stocks"`},
 		[]string{"withEnvVariable", `name:"GATE_BASE"`, `value:"abc123"`},
-		[]string{"withEnvVariable", `name:"MUT_BASE"`, `value:"abc123"`},
-		[]string{"withEnvVariable", `name:"MUT_MODE"`, `value:"diff"`},
-		[]string{"withEnvVariable", `name:"MUT_DIR"`, `value:"/tmp/mutation"`},
-		[]string{"withEnvVariable", `name:"MUT_MODULES"`, `value:"src/lib.rs"`},
-		[]string{"withExec", `args:["bash","--version"]`},
 		[]string{"withExec", `args:["cargo","mutants","--version"]`},
+		[]string{"withNewFile", `path:"/tmp/mutation/pr.diff"`},
+		[]string{"withDirectory", `path:"/tmp/mutation/tmp"`},
+		[]string{"withEnvVariable", `name:"TMPDIR"`, `value:"/tmp/mutation/tmp"`},
+		[]string{"withExec", "expect:ANY", `args:["cargo","mutants","--colors","never","-j","2","--build-timeout","900","--minimum-test-timeout","60","-f","src/lib.rs","-D","/tmp/mutation/pr.diff"]`},
 	)
-	for _, probe := range []string{`args:["bash","--version"]`, `args:["cargo","mutants","--version"]`} {
-		if hasCall(c, "withExec", probe, "expect:ANY") {
-			t.Errorf("%s is provisioning and must run under the default Expect:\n%s", probe, c)
-		}
+	if hasCall(c, "withExec", `args:["cargo","mutants","--version"]`, "expect:ANY") {
+		t.Errorf("the cargo-mutants probe is provisioning and must run under the default Expect:\n%s", c)
+	}
+	// The diff cargo mutants reads is the one git printed, whole.
+	if !strings.Contains(c, `+fn f() -> i32 { 2 }\n"`) {
+		t.Errorf("pr.diff is not the pull's diff with its final newline:\n%s", c)
 	}
 	// THE COPIES BUILD IN THEIR OWN TARGET DIRECTORIES. cargo's artifact
 	// hash is workspace-relative, so cargo-mutants' parallel copies sharing
 	// the gate's /cache/cargo-target ran each other's test binaries and the
 	// gate ran theirs (foundry-tools#8869). The lane's variable and its mount
-	// are both removed AFTER the fetch layer, and the job count is the
-	// engine's two, not rust.sh's four.
+	// are both removed AFTER the fetch layer.
 	wantCalls(t, c,
 		[]string{"withoutEnvVariable", `name:"CARGO_TARGET_DIR"`},
 		[]string{"withoutMount", `path:"/cache/cargo-target"`},
-		[]string{"withEnvVariable", `name:"MUT_JOBS"`, `value:"2"`},
 	)
 	fetch := lastCall(c, "withExec", `args:["cargo","fetch"]`)
 	drop := lastCall(c, "withoutEnvVariable", `name:"CARGO_TARGET_DIR"`)
 	if fetch < 0 || drop < 0 || drop < fetch {
 		t.Errorf("the target dir must be dropped after the fetch layer, not before it:\n%s", c)
 	}
-	for _, phase := range []string{"resolve", "mutate", "score"} {
-		if !hasCall(c, "withExec", "expect:ANY", `"/stocks/ci/lib/mutation/rust.sh","`+phase+`"`) {
-			t.Errorf("rust:mutation lacks phase %s under ANY:\n%s", phase, c)
+	for _, relic := range []string{`path:"/stocks"`, `"bash"`, "MUT_"} {
+		if strings.Contains(c, relic) {
+			t.Errorf("the ported lane still carries %s:\n%s", relic, c)
 		}
 	}
-	// cargo-mutants does its own build; the go and ts scripts' phases are not
-	// this script's, and a phase this atom names that rust.sh does not define
-	// would be a CANNOT RUN on every run.
-	for _, notAPhase := range []string{"setup", "cover", "install", "build", "teardown"} {
-		if strings.Contains(c, `rust.sh","`+notAPhase+`"`) {
-			t.Errorf("rust:mutation runs a phase rust.sh does not define: %s\n%s", notAPhase, c)
-		}
+	// A one-crate workspace names no package.
+	if strings.Contains(c, `"-p"`) {
+		t.Errorf("a single-package crate passes no -p:\n%s", c)
 	}
+	// The diff is taken over the declared modules, and the file list over the
+	// same pathspec, deletions left out.
+	wantCalls(t, engine.chain(rustDiffNeedle, "stdout"),
+		[]string{"withExec", "expect:ANY", `args:["git","diff","--relative","abc123","HEAD","--","src/lib.rs"]`})
+	wantCalls(t, engine.chain(rustFilesNeedle, "stdout"),
+		[]string{"withExec", "expect:ANY", `args:["git","diff","--relative","--name-only","-z","--diff-filter=d","abc123","HEAD","--","src/lib.rs"]`})
+}
 
-	// The score phase's verdict file IS the answer, and the reason file is the
-	// sentence printed with it.
-	engine.withTree(map[string]string{
-		"/tmp/mutation/verdict": "1\n",
-		"/tmp/mutation/reason":  "3 mutants survived",
+// Survivors are findings with the table and the list; the lists are read off
+// mutants.out in the tree cargo mutants ran in.
+func TestRustMutationSettlesWhatItMeasured(t *testing.T) {
+	scriptRustMutation(map[string]string{
+		".copier-answers.yml":         "critical_modules: src/lib.rs\n",
+		"/src/mutants.out/missed.txt": "src/lib.rs:1:1: replace f -> i32 with 1\n",
 	})
+	engine.exitCode(rustMutantsNeedle, 2)
 	wantState(t, runAtom(t, "rust:mutation", "abc123"), 1,
-		"3 mutants survived", "scoped to the declared critical modules: src/lib.rs")
-}
+		"scoped to the declared critical modules: src/lib.rs",
+		"1 viable mutant(s) survived the suite",
+		"| 1 | 1 | 0 | 0 | 50% of 2 viable |",
+		"src/lib.rs:1:1: replace f -> i32 with 1")
 
-func TestRustMutationCannotRunPaths(t *testing.T) {
-	base := map[string]string{
-		"/tmp/mutation/verdict": "0\n",
-		"/tmp/mutation/reason":  "every viable mutant killed",
-	}
-
-	// A phase that exits non-zero is a broken script, said as CANNOT RUN and
-	// NAMING THE PHASE — the reason each phase is its own evaluated exec.
-	for _, phase := range []string{"resolve", "mutate", "score"} {
-		engine.reset()
-		engine.withTree(rustTSTree(base))
-		engine.exitCode(`rust.sh","`+phase+`"`, 1)
-		engine.stdout(`rust.sh","`+phase+`"`, "cargo mutants: no such option --in-diff")
-		wantState(t, runAtom(t, "rust:mutation", "abc123"), 2,
-			"phase "+phase, "no such option")
-	}
-
-	// A missing toolchain is a Dagger error on the provisioning probe.
-	engine.reset()
-	engine.withTree(rustTSTree(base))
-	engine.fail(`"cargo","mutants","--version"`, "exec: \"cargo-mutants\": not found")
-	wantState(t, runAtom(t, "rust:mutation", "abc123"), 2, "never ran", "cargo-mutants")
-
-	// The script read at its one home. Absent means foundry-stocks did not
-	// mount — an engine fact, not a repo one — and nothing else runs.
-	engine.reset()
-	engine.withTree(rustTSTree(base))
-	engine.fail("ci/lib/mutation/rust.sh", "no such file or directory")
+	scriptRustMutation(nil)
+	engine.exitCode(rustMutantsNeedle, 4)
+	engine.stdout(rustMutantsNeedle, "Found 3 mutants\nERROR cargo test failed in an unmutated tree\n")
 	wantState(t, runAtom(t, "rust:mutation", "abc123"), 2,
-		"/stocks/ci/lib/mutation/rust.sh is absent", "foundry-stocks did not mount")
-	if engine.chain(`args:["cargo","fetch"]`) != "" {
-		t.Error("an unmountable stocks tree must not start a container")
-	}
-
-	// No verdict file: the score phase measured nothing, which is not a pass.
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	wantState(t, runAtom(t, "rust:mutation", "abc123"), 2, "no verdict")
-
-	// A verdict that is not an integer is the same refusal.
-	engine.reset()
-	engine.withTree(rustTSTree(map[string]string{"/tmp/mutation/verdict": "clean\n"}))
-	wantState(t, runAtom(t, "rust:mutation", "abc123"), 2, `wrote "clean"`, "which is not a verdict")
-
-	// A verdict with no sentence attached says so rather than rendering
-	// "<atom>: " and nothing after it.
-	engine.reset()
-	engine.withTree(rustTSTree(map[string]string{"/tmp/mutation/verdict": "1\n"}))
-	wantState(t, runAtom(t, "rust:mutation", "abc123"), 1, "wrote verdict 1 and no reason")
+		"no critical modules declared",
+		"cargo mutants exited 4", "ERROR cargo test failed in an unmutated tree")
 }
 
-// AN EMPTY DECLARATION IS NOT AN OPT-OUT, and the scope line says which of the
-// two happened either way.
-func TestRustMutationPrintsItsScopeWithOrWithoutADeclaration(t *testing.T) {
-	engine.reset()
-	tree := rustTSTree(map[string]string{
-		"/tmp/mutation/verdict": "1\n",
-		"/tmp/mutation/reason":  "1 mutant survived",
-	})
-	delete(tree, ".copier-answers.yml")
-	engine.withTree(tree)
+// AN EMPTY DECLARATION IS NOT AN OPT-OUT: the whole diff's rust sources are the
+// scope, no -f narrows the run, and every workspace member the pull touched
+// is passed as -p.
+func TestRustMutationScopesAnUndeclaredPullToTheWholeDiffAndItsMembers(t *testing.T) {
+	scriptRustMutation(nil)
+	engine.stdout(rustFilesNeedle, "src/lib.rs\x00tools/gen/src/lib.rs\x00")
+	engine.stdout(rustMetaNeedle, `{"packages":[`+
+		`{"name":"x","id":"x","manifest_path":"/src/Cargo.toml"},`+
+		`{"name":"gen","id":"gen","manifest_path":"/src/tools/gen/Cargo.toml"}],`+
+		`"workspace_members":["x","gen"]}`)
+	wantState(t, runAtom(t, "rust:mutation", "abc123"), 0)
 
-	v := runAtom(t, "rust:mutation", "abc123")
-	wantState(t, v, 1, "no critical modules declared", "the whole diff is the scope")
-	if !hasCall(engine.chain(`rust.sh","score"`, "exitCode"), "withEnvVariable", `name:"MUT_MODULES"`, `value:""`) {
-		t.Error("an absent answers file is an empty declaration, not an absent variable")
+	wantCalls(t, engine.chain(rustDiffNeedle, "stdout"),
+		[]string{"withExec", `args:["git","diff","--relative","abc123","HEAD","--","*.rs",":!tests/"]`})
+	c := engine.chain(rustMutantsNeedle, "exitCode")
+	wantCalls(t, c, []string{"withExec", `"--minimum-test-timeout","60","-p","gen","-p","x","-D"`})
+	if strings.Contains(c, `"-f"`) {
+		t.Errorf("an empty declaration narrows nothing with -f:\n%s", c)
 	}
 
 	// The value is the answers file's, one leading and one trailing quote
-	// stripped — the shell's sed, exactly.
-	engine.reset()
-	engine.withTree(rustTSTree(map[string]string{
-		".copier-answers.yml":   "other: 1\ncritical_modules: 'src/lib.rs src/gate.rs'\n",
-		"/tmp/mutation/verdict": "1\n",
-		"/tmp/mutation/reason":  "1 mutant survived",
-	}))
+	// stripped, and each module is its own pathspec and its own -f.
+	scriptRustMutation(map[string]string{".copier-answers.yml": "other: 1\ncritical_modules: 'src/lib.rs src/gate.rs'\n"})
+	engine.exitCode(rustMutantsNeedle, 2)
 	wantState(t, runAtom(t, "rust:mutation", "abc123"), 1,
 		"scoped to the declared critical modules: src/lib.rs src/gate.rs")
+	wantCalls(t, engine.chain(rustMutantsNeedle, "exitCode"),
+		[]string{"withExec", `"-f","src/lib.rs","-f","src/gate.rs","-D"`})
+}
+
+func TestRustMutationStandsDownOrCannotRun(t *testing.T) {
+	cases := map[string]struct {
+		base   string
+		script func()
+		state  int
+		// reason is checked only off a could-not-run: a pass keeps no output
+		// (checks.VerdictOf), so a stand-down is told apart by what it ran.
+		reason  []string
+		reached []string
+		never   []string
+	}{
+		"no base": {"", nil, 0, nil, nil, []string{rustBaseNeedle, `args:["cargo","fetch"]`}},
+		"a base the history lacks": {"abc123", func() { engine.exitCode(rustBaseNeedle, 1) }, 0, nil,
+			[]string{rustBaseNeedle}, []string{rustDiffNeedle}},
+		"no rust changed": {"abc123", func() { engine.stdout(rustDiffNeedle, "") }, 0, nil,
+			[]string{rustDiffNeedle}, []string{rustFilesNeedle}},
+		"lines only removed": {"abc123", func() {
+			engine.stdout(rustDiffNeedle, "--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1,2 +1 @@\n fn f() {}\n-fn g() {}")
+		}, 0, nil, []string{rustDiffNeedle}, []string{rustFilesNeedle}},
+		"git cannot diff": {"abc123", func() { engine.exitCode(rustDiffNeedle, 1) }, 2,
+			[]string{"git could not diff the pull against its base abc123"}, nil, []string{rustFilesNeedle}},
+		"git cannot list the files": {"abc123", func() { engine.exitCode(rustFilesNeedle, 1) }, 2,
+			[]string{"git could not list the files the pull changed"}, nil, []string{rustMetaNeedle}},
+		"cargo metadata fails": {"abc123", func() {
+			engine.exitCode(rustMetaNeedle, 101)
+			engine.stdout(rustMetaNeedle, "error: failed to parse manifest")
+		}, 2, []string{"cargo metadata failed", "failed to parse manifest"}, nil, nil},
+		"cargo metadata is not json": {"abc123", func() { engine.stdout(rustMetaNeedle, "warning: x") }, 2,
+			[]string{"could not map the diff onto the workspace members", "did not parse"}, nil, nil},
+		"no cargo-mutants in the image": {"abc123", func() {
+			engine.fail(`"cargo","mutants","--version"`, `exec: "cargo-mutants": not found`)
+		}, 2, []string{"never ran", "cargo-mutants"}, nil, nil},
+		"the base check never ran": {"abc123", func() { engine.fail(rustBaseNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{rustDiffNeedle}},
+		"the diff never ran":       {"abc123", func() { engine.fail(rustDiffNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{rustFilesNeedle}},
+		"the file list never ran":  {"abc123", func() { engine.fail(rustFilesNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{rustMetaNeedle}},
+		"cargo metadata never ran": {"abc123", func() { engine.fail(rustMetaNeedle, "engine gone") }, 2, []string{"never ran"}, nil, nil},
+		"cargo mutants never ran": {"abc123", func() { engine.failLeaf(rustMutantsNeedle, "stderr", "engine gone") }, 2,
+			[]string{"never ran"}, nil, nil},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			scriptRustMutation(nil)
+			if c.script != nil {
+				c.script()
+			}
+			wantState(t, runAtom(t, "rust:mutation", c.base), c.state, c.reason...)
+			if name != "cargo mutants never ran" && engine.chain(rustMutantsNeedle) != "" {
+				t.Errorf("settled before the mutate, and still went on to cargo mutants")
+			}
+			for _, n := range c.reached {
+				if engine.chain(n) == "" {
+					t.Errorf("never reached %s", n)
+				}
+			}
+			for _, n := range c.never {
+				if engine.chain(n) != "" {
+					t.Errorf("went on to %s", n)
+				}
+			}
+		})
+	}
 }
 
 // A repo with no Cargo.toml never reaches a runner: the lane is a fact about

@@ -30,7 +30,8 @@ const (
 	// fleet mutated anything, while ca-sweep's header, the templates'
 	// `critical_modules` question and eight comments in ourea all described
 	// a gate that no longer ran (ourea#8319). The scripts survived in
-	// foundry-stocks ci/lib/mutation/ and are what these atoms run.
+	// foundry-stocks ci/lib/mutation/; go and rust have since been ported
+	// here, and python and ts still run theirs.
 	StageMutation = "mutation"
 )
 
@@ -310,21 +311,21 @@ func atomTable() []AtomDef {
 
 		// ---- mutation: a pull's change set, mutated ----
 		//
-		// ONE SHAPE, FOUR LANGUAGES. Each atom runs the canonical script at its
-		// one home (/stocks/ci/lib/mutation/<lang>.sh) phase by phase, in DIFF
-		// mode against GATE_BASE — the pull's merge base as the door names it —
-		// and answers with the verdict the score phase wrote: 0 clean, 1
-		// survivors, 2 could not measure. The phases themselves never exit
-		// non-zero (reaching a verdict is the score phase's job), so a phase that
-		// does is a broken script, said as CANNOT RUN.
+		// ONE VERDICT, FOUR LANGUAGES. Each atom mutates in DIFF mode against
+		// GATE_BASE — the pull's merge base as the door names it — and answers 0
+		// clean, 1 survivors, 2 could not measure. go and rust run their tools as
+		// plain execs and settle in Go (GoMutationVerdict, RustMutationVerdict);
+		// python and ts still run the canonical script at its one home
+		// (/stocks/ci/lib/mutation/<lang>.sh) phase by phase and answer with the
+		// verdict the score phase wrote, and a phase that exits non-zero is a
+		// broken script, said as CANNOT RUN.
 		//
 		// THE HISTORY IS THERE IN THE LANE THAT MATTERS. The mutation Job clones
-		// the repository whole and checks the head out, so `git cat-file -e
-		// <base>` answers and the diff is real. A local pre-push run hands the
-		// engine a linked worktree, which r.gitReady turns into a throwaway
-		// repository with no history: the resolve phase then stands down 0 with
-		// "no usable PR base sha", printed, and the door's Job is the one that
-		// measures.
+		// the repository whole and checks the head out, so the base resolves and
+		// the diff is real. A local pre-push run hands the engine a linked
+		// worktree, which r.gitReady turns into a throwaway repository with no
+		// history: the atom then stands down 0 with "no usable PR base sha", and
+		// the door's Job is the one that measures.
 		//
 		// critical_modules IS THE REPO'S DECLARATION for python, rust and ts,
 		// read off .copier-answers.yml where the template question puts it — the
