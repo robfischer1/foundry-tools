@@ -598,3 +598,43 @@ func TestSweepReadsOfTheContainerThatFailPartWayAreNeverAVerdict(t *testing.T) {
 		})
 	}
 }
+
+// tailLines had no direct test — the truncation arm read NOT COVERED on PR
+// #77's mutation gate, which is the sharper verdict: no test executed it at
+// all. Its callers only ever fed it short output.
+func TestTailLinesCutsTheEndOfWhatCopierSaid(t *testing.T) {
+	five := "a\nb\nc\nd\ne"
+	for _, tc := range []struct {
+		name string
+		out  string
+		n    int
+		want []string
+	}{
+		{"n well under the length", five, 2, []string{"d", "e"}},
+		{"n one under the length", five, 4, []string{"b", "c", "d", "e"}},
+		{"n is the length", five, 5, []string{"a", "b", "c", "d", "e"}},
+		{"n one past the length", five, 6, []string{"a", "b", "c", "d", "e"}},
+		{"n well past the length", five, 120, []string{"a", "b", "c", "d", "e"}},
+		{"n is zero", five, 0, nil},
+		{"one line", "only", 12, []string{"only"}},
+		{"empty output", "", 12, []string{""}},
+		// TrimSpace cuts the WHOLE string's ends, not each line's — so the
+		// spaces after the last "b" go with the trailing newlines, while a
+		// space inside the block survives.
+		{"surrounding whitespace is trimmed first", "\n\n  a\nb  \n\n", 12, []string{"a", "b"}},
+		{"inner whitespace survives", "x  \ny", 12, []string{"x  ", "y"}},
+		{"the cut is the TAIL, not the head", "first\nlast", 1, []string{"last"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tailLines(tc.out, tc.n)
+			if len(got) != len(tc.want) {
+				t.Fatalf("tailLines(%q, %d) = %q, want %q", tc.out, tc.n, got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("tailLines(%q, %d) = %q, want %q", tc.out, tc.n, got, tc.want)
+				}
+			}
+		})
+	}
+}

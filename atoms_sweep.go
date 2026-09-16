@@ -413,10 +413,17 @@ func (r *run) forgejoWorkflows(ctx context.Context, entries []string) (bodies []
 
 // tailLines is the script's own cut of a failed render: the last n lines of
 // what copier said, which is where the reason is.
+//
+// A CLAMP, NOT A BRANCH, for the reason internal/checks/sweeplane.go already
+// records: `if len(lines) > n { lines = lines[len(lines)-n:] }` and the same
+// line with `>=` answer identically for every input — at n == len(lines) the
+// cut IS the whole slice — so the boundary mutant is EQUIVALENT and no test
+// can ever clear it. This file reintroduced the branch form that PR #31 had
+// already retired, and the mutation gate caught it again (atoms_sweep.go
+// 418:16 LIVED, 419:27 NOT COVERED ×2, measured on PR #77). The clamp has no
+// comparison to mutate, and a wrong sign on the arithmetic panics instead of
+// being absorbed.
 func tailLines(out string, n int) []string {
 	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if len(lines) > n {
-		lines = lines[len(lines)-n:]
-	}
-	return lines
+	return lines[len(lines)-min(n, len(lines)):]
 }
