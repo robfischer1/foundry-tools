@@ -94,8 +94,7 @@ func atomTable() []AtomDef {
 		},
 		{
 			ID: "fleet:stop-justifications", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc:        "No silent suppression of any gate — a suppression carries a tool-conflict line.",
-			NeedsStocks: true,
+			Desc: "No silent suppression of any gate — a suppression carries a tool-conflict line.",
 		},
 		{
 			ID: "fleet:sast-ruleset-lanes", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,

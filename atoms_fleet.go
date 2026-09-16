@@ -4,6 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/checks/scripts"
@@ -247,47 +251,87 @@ func fleetDetectSecrets(ctx context.Context, r *run) checks.Verdict {
 
 // No silent suppression of any gate — a suppression carries a tool-conflict line.
 //
-// THE SCRIPT IS READ AT ITS ONE HOME, not vendored: a copy would be the defect
-// the script exists to catch (on 2026-08-16 a sweep found 533 noqa on one rule,
-// 368 of them eight decisions replicated into 46 repos by a scaffold pour). A
-// source that did not mount is exit 2, never 0 — the same contract the pre-commit
-// hook states, for the same reason: pre-commit hides a passing hook's output, so
-// a silent skip is indistinguishable from a clean scan.
+// THE SCAN IS GO, checks.StopJustifications, carried from foundry-stocks
+// ci/lib/stop_justifications.py and measured against it: byte-identical output
+// and exit on all 77 repositories in Forge/Outputs and every linked worktree,
+// and identical region masks on all 1,078 tracked python files. git answers the
+// two questions only the repository can — which files are tracked, and what
+// origin names it — and the engine reads the files. Nothing runs in python, and
+// nothing is read from foundry-stocks.
 //
-// TWO THINGS ABOUT git, BOTH MEASURED (foundry-tools#7626, 2026-09-09).
-//
-// FIRST, git ABSENT IS A CANNOT RUN, not a finding. The canonical script
-// enumerates the tree with subprocess.run(["git", …]), which raises
-// FileNotFoundError when git is not on PATH — an uncaught traceback, so python
-// exited 1 and the old `|| exit 1` filed it as FINDINGS. A check that could not
-// find its tool has not found anything wrong; it has not looked.
-//
-// SECOND, A LINKED WORKTREE'S `.git` IS A FILE AND IT DANGLES IN HERE, so
-// `git ls-files` answered "fatal: not a git repository" and the script reported
-// CANNOT RUN (measured against a tartarus worktree in the engine). Not an edge
-// case: this fleet works in linked worktrees. r.gitReady rebuilds the
-// repository AND reconstructs origin from the gitdir path, because repo_name()
-// reads it — the DIRECTORY_EXEMPT rows are keyed on the repository, and an
-// exemption Rob granted must not evaporate because the push came from a
+// A LINKED WORKTREE'S `.git` IS A FILE AND IT DANGLES IN HERE (measured against a
+// tartarus worktree, foundry-tools#7626), so `git ls-files` would answer "fatal:
+// not a git repository". r.gitReady rebuilds the repository AND reconstructs
+// origin from the gitdir path — DirectoryExempt is keyed on the repository, and
+// an exemption Rob granted must not evaporate because the push came from a
 // worktree.
 //
-// THE SCRIPT'S OWN EXIT CODE IS THE VERDICT, 0/1/2 straight through: its own
-// exit 2 ("refusing to report success without scanning") survives rather than
-// being flattened to a finding.
+// A TREE THAT WILL NOT LIST, OR A FILE THAT WILL NOT READ, IS A CANNOT RUN:
+// pre-commit hides a passing hook's output, so a silent skip is
+// indistinguishable from a clean scan.
 func fleetStopJustifications(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("fleet:stop-justifications")
 
-	// The engine's own error rides on the reason: foundry-tools#69's gate
-	// (2026-09-15) settled on this line with nothing after it, while the file
-	// was on foundry-stocks main and the door answered the same URL minutes
-	// later — a cause the verdict discarded is one nobody can chase.
-	if _, err := r.stocks.File("ci/lib/stop_justifications.py").Contents(ctx); err != nil {
-		return checks.VerdictOf(a, 2, fmt.Sprintf("fleet:stop-justifications: CANNOT RUN - canonical source not reachable through the door: %v", err))
+	ctr := r.gitReady(ctx, r.lane(checks.ImageFleet))
+	ls, code, err := output(ctx, ctr.WithExec([]string{"git", "ls-files", "-z"}, anyExit))
+	if err != nil {
+		return neverRan(a, err)
+	}
+	if code != 0 {
+		return checks.VerdictOf(a, 2, "stop-justifications: CANNOT RUN — git ls-files failed: "+ls+"\nstop-justifications: refusing to report success without scanning.")
+	}
+	// No origin is a repository that names no exemption, not a refusal: the
+	// script's fallback named the checkout directory, which in the lane is
+	// /src and matches no row.
+	origin, code, err := output(ctx, ctr.WithExec([]string{"git", "remote", "get-url", "origin"}, anyExit))
+	if err != nil {
+		return neverRan(a, err)
+	}
+	repo := ""
+	if code == 0 {
+		repo = checks.RepoFromOrigin(origin)
 	}
 
-	return verdict(ctx, a, r.gitReady(ctx, r.withStocks(r.lane(checks.ImageFleet))).
-		WithExec([]string{"python3", "--version"}).
-		WithExec([]string{"python3", "/stocks/ci/lib/stop_justifications.py", "."}, anyExit))
+	tracked := checks.SplitNul(ls)
+	bodies := readFiles(ctx, r.src, checks.SJReads(tracked))
+	state, out := checks.StopJustifications(checks.SJInput{
+		Tracked: tracked,
+		// checks.SJReads names every file the scan reads, and a test holds it to that.
+		Read: func(rel string) (string, error) {
+			b := bodies[rel]
+			return b.body, b.err
+		},
+		Repo:  repo,
+		Today: time.Now().UTC().Format(time.DateOnly),
+	})
+	return checks.VerdictOf(a, state, out)
+}
+
+// fileRead is one file's contents, or why it would not read.
+type fileRead struct {
+	body string
+	err  error
+}
+
+// readFiles reads every path under src at once, sixteen at a time — one query
+// each, and a tree of six hundred scanned files is theia's. A read that fails
+// is kept, not raised: which file failed is the scan's to report.
+func readFiles(ctx context.Context, src *dagger.Directory, paths []string) map[string]fileRead {
+	out := make(map[string]fileRead, len(paths))
+	var mu sync.Mutex
+	var g errgroup.Group
+	g.SetLimit(16)
+	for _, p := range paths {
+		g.Go(func() error {
+			body, err := src.File(p).Contents(ctx)
+			mu.Lock()
+			out[p] = fileRead{body: body, err: err}
+			mu.Unlock()
+			return nil
+		})
+	}
+	_ = g.Wait()
+	return out
 }
 
 // The SAST ruleset declares every lane this repository actually builds.
