@@ -103,7 +103,7 @@ func genericMask(lang string, lines []string) []string {
 		for i < n {
 			ch := line[i]
 			if inBlock != "" {
-				paintAt(mask, i, RegionComment)
+				mask[i] = RegionComment
 				if strings.HasPrefix(line[i:], inBlock) {
 					i++
 					paintAt(mask, i, RegionComment)
@@ -113,7 +113,7 @@ func genericMask(lang string, lines []string) []string {
 				continue
 			}
 			if inRaw != 0 {
-				paintAt(mask, i, RegionString)
+				mask[i] = RegionString
 				if ch == inRaw {
 					inRaw = 0
 				}
@@ -122,19 +122,19 @@ func genericMask(lang string, lines []string) []string {
 			}
 			if lex.block[0] != "" && strings.HasPrefix(line[i:], lex.block[0]) {
 				inBlock = lex.block[1]
-				paintAt(mask, i, RegionComment)
+				mask[i] = RegionComment
 				i++
 				continue
 			}
 			if lineCommentAt(lex, line, i) {
 				for ; i < n; i++ {
-					paintAt(mask, i, RegionComment)
+					mask[i] = RegionComment
 				}
 				continue
 			}
 			if strings.IndexByte(lex.raw, ch) >= 0 {
 				inRaw = ch
-				paintAt(mask, i, RegionString)
+				mask[i] = RegionString
 				i++
 				continue
 			}
@@ -142,7 +142,7 @@ func genericMask(lang string, lines []string) []string {
 				i = quoted(line, i, mask)
 				continue
 			}
-			paintAt(mask, i, RegionCode)
+			mask[i] = RegionCode
 			i++
 		}
 		masks = append(masks, string(mask))
@@ -150,11 +150,18 @@ func genericMask(lang string, lines []string) []string {
 	return masks
 }
 
-// paintAt writes one region byte, and a position past the line is a write that
-// does not happen: the escape below may step past the end, and the script
-// trimmed the same overrun off its own list.
+// paintAt writes one region byte for THE TWO STEPS THAT CAN LAND PAST THE END —
+// the block-comment closer and the string escape, each of which advances before
+// it paints. The script trimmed the same overrun off its own list.
+//
+// Every other paint is already inside `i < n` and writes mask[i] directly. That
+// is deliberate: a guard on a bounded write makes the bound unfalsifiable, and
+// the mutation lane proved it — mutants on those loop bounds all lived, because
+// the out-of-range write they caused was silently swallowed here.
 func paintAt(mask []byte, at int, kind byte) {
-	if at >= 0 && at < len(mask) {
+	// No `at >= 0`: both callers paint one PAST a position they already hold,
+	// so at is never negative and the guard was another unfalsifiable one.
+	if at < len(mask) {
 		mask[at] = kind
 	}
 }
@@ -163,10 +170,10 @@ func paintAt(mask []byte, at int, kind byte) {
 // it. Only a double quote honours a backslash, as in the script.
 func quoted(line string, i int, mask []byte) int {
 	ch := line[i]
-	paintAt(mask, i, RegionString)
+	mask[i] = RegionString
 	i++
 	for i < len(line) {
-		paintAt(mask, i, RegionString)
+		mask[i] = RegionString
 		if line[i] == '\\' && ch == '"' {
 			i += 2
 			paintAt(mask, i-1, RegionString)
@@ -383,7 +390,9 @@ func (s *pyIndents) admit(line string) bool {
 		s.alts = append(s.alts, alt)
 		return alt > s.alts[top]
 	}
-	for top > 0 && col < s.cols[top] {
+	// Level 0 IS column 0 and a column is never negative, so the stack stops
+	// itself — a `top > 0` guard here could not be made to answer differently.
+	for col < s.cols[top] {
 		top--
 	}
 	s.cols = s.cols[:top+1]
@@ -416,7 +425,9 @@ func (p *pyLexer) token(depth int) int {
 	}
 	if wordByte(ch) {
 		start := p.col
-		for p.col < len(p.lines[p.ln]) && wordByte(p.at()) {
+		// No length bound: at() answers '\n' past the end of the line, and
+		// '\n' is not a word byte, so the run stops exactly at len(line).
+		for wordByte(p.at()) {
 			p.col++
 		}
 		word := p.lines[p.ln][start:p.col]

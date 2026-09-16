@@ -577,3 +577,212 @@ func TestLanguageOfNamesSuffixesAndDockerfiles(t *testing.T) {
 		}
 	}
 }
+
+// ---- the helpers the file-level assertions masked ----------------------------
+//
+// Every case below was added because a mutant of the named expression survived
+// the fleet's mutation lane (foundry-tools #76, 48 survivors): the whole-file
+// assertions above agree with the mutant, so the claim has to be made where it
+// is decided.
+
+func TestPathSuffixIsPythonsPathSuffix(t *testing.T) {
+	for name, want := range map[string]string{
+		"a.py":      ".py",
+		"a.tar.gz":  ".gz",
+		"x.":        "", // a trailing dot names no suffix
+		".yml":      "", // a dotfile is all name
+		"..":        "",
+		"noext":     "",
+		"":          "",
+		"a.b/c.py":  ".py",
+		"dir/.yaml": "",
+	} {
+		if got := pathSuffix(name); got != want {
+			t.Errorf("pathSuffix(%q) = %q, want %q", name, got, want)
+		}
+	}
+	if got := pathBase("a/b/c.py"); got != "c.py" {
+		t.Errorf("pathBase = %q", got)
+	}
+	if got := pathBase("c.py"); got != "c.py" {
+		t.Errorf("pathBase with no directory = %q", got)
+	}
+}
+
+// The scan reads EVERY required-mode variable on a line, not the first: a file
+// that arms two on one line arms both, and the contract names the smallest.
+func TestRequiredModeVarsReadsEveryNameOnTheLine(t *testing.T) {
+	got := RequiredModeVars("go", []string{`const a, b = "ZED_REQUIRED", "ALPHA_REQUIRED"`})
+	if len(got) != 2 || !got["ZED_REQUIRED"] || !got["ALPHA_REQUIRED"] {
+		t.Errorf("two variables on one line: %v", got)
+	}
+	if got := RequiredModeVars("go", []string{`// ZED_REQUIRED and ALPHA_REQUIRED are prose`}); len(got) != 0 {
+		t.Errorf("a comment names none: %v", got)
+	}
+	if got := RequiredModeVars("python", []string{`x = "A_REQUIRED"  # B_REQUIRED is prose`}); len(got) != 1 || !got["A_REQUIRED"] {
+		t.Errorf("code counts, the comment does not: %v", got)
+	}
+}
+
+// The advisory counts .yml, .yaml AND .sh — each suffix on its own, so dropping
+// any one of the three is visible.
+func TestYAMLPragmasCountEachAdvisorySuffix(t *testing.T) {
+	line := []string{"T = x  # " + sjAllowlistPragma}
+	for _, rel := range []string{"w.yml", "w.yaml", "s.sh"} {
+		known, other := YAMLPragmas(rel, line)
+		if known != 0 || other != 1 {
+			t.Errorf("%s: known=%d other=%d, want 0/1", rel, known, other)
+		}
+	}
+	for _, rel := range []string{"a.py", "Dockerfile", "w.yml.jinja", "noext"} {
+		if known, other := YAMLPragmas(rel, line); known != 0 || other != 0 {
+			t.Errorf("%s is not an advisory suffix: known=%d other=%d", rel, known, other)
+		}
+	}
+	known, other := YAMLPragmas("k.yml", []string{"    secrets: inherit  # " + sjAllowlistPragma})
+	if known != 1 || other != 0 {
+		t.Errorf("the ruled idiom: known=%d other=%d", known, other)
+	}
+}
+
+// THE REPORT'S ORDER IS PYTHON'S TUPLE ORDER, and each field decides only when
+// every field before it ties. Asserted in both directions: a comparison that is
+// not antisymmetric is not an order, whatever it answers on one side.
+func TestFindingCmpComparesEveryFieldInTupleOrder(t *testing.T) {
+	base := sjFinding{rel: "b.py", line: 2, tool: "mypy", form: "type: ignore", text: "m"}
+	for _, tc := range []struct {
+		label string
+		lo    sjFinding
+	}{
+		{"rel decides first", sjFinding{rel: "a.py", line: 9, tool: "zzz", form: "z", text: "z"}},
+		{"line decides on an equal rel", sjFinding{rel: "b.py", line: 1, tool: "zzz", form: "z", text: "z"}},
+		{"tool decides on an equal line", sjFinding{rel: "b.py", line: 2, tool: "coverage", form: "z", text: "z"}},
+		{"form decides on an equal tool", sjFinding{rel: "b.py", line: 2, tool: "mypy", form: "a", text: "z"}},
+		{"text decides last", sjFinding{rel: "b.py", line: 2, tool: "mypy", form: "type: ignore", text: "a"}},
+	} {
+		if got := findingCmp(tc.lo, base); got >= 0 {
+			t.Errorf("%s: findingCmp(lo, base) = %d, want < 0", tc.label, got)
+		}
+		if got := findingCmp(base, tc.lo); got <= 0 {
+			t.Errorf("%s: findingCmp(base, lo) = %d, want > 0", tc.label, got)
+		}
+	}
+	if got := findingCmp(base, base); got != 0 {
+		t.Errorf("every field equal is 0, got %d", got)
+	}
+	// Every earlier field ties and the last one decides, so no field is dead.
+	near := base
+	near.text = "z"
+	if findingCmp(base, near) >= 0 || findingCmp(near, base) <= 0 {
+		t.Error("text is the last tiebreak and must still decide")
+	}
+}
+
+func TestConfigCmpComparesEveryFieldInTupleOrder(t *testing.T) {
+	base := sjConfig{rel: "b.toml", SJConfigFinding: SJConfigFinding{Line: 2, Key: "mypy · ignore_errors", Detail: "m"}}
+	for _, tc := range []struct {
+		label string
+		lo    sjConfig
+	}{
+		{"rel decides first", sjConfig{rel: "a.toml", SJConfigFinding: SJConfigFinding{Line: 9, Key: "z", Detail: "z"}}},
+		{"line decides on an equal rel", sjConfig{rel: "b.toml", SJConfigFinding: SJConfigFinding{Line: 1, Key: "z", Detail: "z"}}},
+		{"key decides on an equal line", sjConfig{rel: "b.toml", SJConfigFinding: SJConfigFinding{Line: 2, Key: "a", Detail: "z"}}},
+		{"detail decides last", sjConfig{rel: "b.toml", SJConfigFinding: SJConfigFinding{Line: 2, Key: "mypy · ignore_errors", Detail: "a"}}},
+	} {
+		if got := configCmp(tc.lo, base); got >= 0 {
+			t.Errorf("%s: configCmp(lo, base) = %d, want < 0", tc.label, got)
+		}
+		if got := configCmp(base, tc.lo); got <= 0 {
+			t.Errorf("%s: configCmp(base, lo) = %d, want > 0", tc.label, got)
+		}
+	}
+	if got := configCmp(base, base); got != 0 {
+		t.Errorf("every field equal is 0, got %d", got)
+	}
+}
+
+func TestToolsNamedNeverMatchesInsideALongerWord(t *testing.T) {
+	for _, tc := range []struct {
+		prose string
+		want  []string
+	}{
+		{"mypy", []string{"mypy"}}, // the whole prose IS the name
+		{"ruff and mypy disagree", []string{"mypy", "ruff"}},
+		{"trailing name is still a name: ruff", []string{"ruff"}},
+		{"", nil},
+		{"mypyx", nil},  // a longer word is not the tool
+		{"xmypy", nil},  // nor is a longer word ending in it
+		{"a-mypy", nil}, // a hyphen joins, it does not separate
+		{"mypy-ish", nil},
+		{"mypy_2", nil},
+		{"MyPy and BLACK", []string{"black", "mypy"}}, // case-insensitive
+		{"(mypy) vs [black]", []string{"black", "mypy"}},
+		{"mypy.black", []string{"black", "mypy"}}, // a dot does separate
+
+		// Longest-first at a position: coverage.py wins over coverage where
+		// both could match, and coverage still matches where it cannot.
+		{"coverage.py", []string{"coverage"}},
+		{"coverage.pyx", []string{"coverage"}},
+		{"coverage", []string{"coverage"}},
+
+		// The canonical name is what lands, not the spelling.
+		{"semgrep", []string{"opengrep"}},
+		{"typescript", []string{"tsc"}},
+		{"go vet", []string{"go vet"}},
+		{"golangci-lint", []string{"golangci-lint"}},
+
+		// A non-ASCII letter is a word character, so it joins like any other.
+		{"mypyé", nil},
+		{"émypy", nil},
+		{"é mypy", []string{"mypy"}},
+	} {
+		got := sortedKeys(toolsNamed(tc.prose))
+		if len(got) != len(tc.want) {
+			t.Errorf("toolsNamed(%q) = %v, want %v", tc.prose, got, tc.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Errorf("toolsNamed(%q) = %v, want %v", tc.prose, got, tc.want)
+				break
+			}
+		}
+	}
+}
+
+// The marker's prose is what follows "tool-conflict:" — a tool named BEFORE it
+// is somebody writing about the conflict, not a party to it.
+func TestMarkerVerdictReadsOnlyTheProseAfterTheMarker(t *testing.T) {
+	verdict, detail := MarkerVerdict("a/b.py", "x = 1  # mypy tool-conflict: black vs ruff", "")
+	if verdict != "unratified" || !strings.Contains(detail, "names black, ruff;") {
+		t.Errorf("a name before the marker is not a party: %s / %s", verdict, detail)
+	}
+	if strings.Contains(detail, "mypy") {
+		t.Errorf("mypy sits before the marker and must not be counted: %s", detail)
+	}
+
+	// With the marker at the very start of the line, there is nothing before
+	// it and the whole line is prose.
+	verdict, detail = MarkerVerdict("a/b.py", "tool-conflict: black vs ruff", "")
+	if verdict != "unratified" || !strings.Contains(detail, "names black, ruff;") {
+		t.Errorf("a marker at column 0: %s / %s", verdict, detail)
+	}
+
+	// One tool is not a conflict, and no tool is not either.
+	if v, _ := MarkerVerdict("a/b.py", "# tool-conflict: black", ""); v != "malformed" {
+		t.Errorf("one tool named is malformed, got %s", v)
+	}
+	if v, d := MarkerVerdict("a/b.py", "# tool-conflict: because I said so", ""); v != "malformed" ||
+		!strings.Contains(d, "names 0 tool(s): none") {
+		t.Errorf("no tool named is malformed, got %s / %s", v, d)
+	}
+
+	// No marker on the line at all: the previous line carries it.
+	if v, _ := MarkerVerdict("a/b.py", "x = 1  # type: ignore", "# tool-conflict: black vs ruff"); v != "unratified" {
+		t.Errorf("the marker on the previous line still counts, got %s", v)
+	}
+	if v, d := MarkerVerdict("a/b.py", "x = 1  # type: ignore", ""); v != "malformed" ||
+		!strings.Contains(d, "names 0 tool(s)") {
+		t.Errorf("no marker anywhere is malformed, got %s / %s", v, d)
+	}
+}

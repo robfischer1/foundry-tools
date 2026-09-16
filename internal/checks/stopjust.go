@@ -1,8 +1,10 @@
 package checks
 
 import (
+	"cmp"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -346,23 +348,31 @@ func DirectoryExemption(repo, rel, line, today string) *ExemptRow {
 
 // toolsNamed answers the canonical tools prose names, the script's _TOOL_RE:
 // case-insensitive, never inside a longer word or hyphenated name.
+//
+// NEITHER EDGE NEEDS A GUARD, and the two that used to be here were worse than
+// redundant. DecodeLastRuneInString("") and DecodeRuneInString("") both answer
+// RuneError, which is not a word character — so the first position already has
+// nothing behind it and the last already has nothing ahead. An `i > 0` and an
+// `end == len(prose)` only restated that, which made them unfalsifiable: the
+// mutation lane flipped both and no test could move, because the decoders give
+// the same answer either way.
 func toolsNamed(prose string) map[string]bool {
 	named := map[string]bool{}
-	for i := 0; i < len(prose); {
-		if i > 0 && toolWordChar(lastRune(prose[:i])) {
-			i++
-			continue
-		}
+	for rest, done := prose, 0; rest != ""; {
 		width := 0
-		for _, w := range toolWordOrder {
-			end := i + len(w)
-			if end <= len(prose) && strings.EqualFold(prose[i:end], w) && (end == len(prose) || !toolWordChar(firstRune(prose[end:]))) {
-				named[ToolWords[w]] = true
-				width = len(w)
-				break
+		if !toolWordChar(lastRune(prose[:done])) {
+			for _, w := range toolWordOrder {
+				if len(rest) >= len(w) && strings.EqualFold(rest[:len(w)], w) &&
+					!toolWordChar(firstRune(rest[len(w):])) {
+					named[ToolWords[w]] = true
+					width = len(w)
+					break
+				}
 			}
 		}
-		i += max(width, 1)
+		step := max(width, 1)
+		done += step
+		rest = rest[step:]
 	}
 	return named
 }
@@ -390,8 +400,8 @@ func MarkerVerdict(rel, line, previous string) (verdict, detail string) {
 		text = line
 	}
 	prose := text
-	if i := strings.Index(text, "tool-conflict:"); i >= 0 {
-		prose = text[i+len("tool-conflict:"):]
+	if _, after, found := strings.Cut(text, "tool-conflict:"); found {
+		prose = after
 	}
 	for _, row := range Ratified {
 		if rel == row.Path && strings.Contains(text, row.Rule) {
@@ -850,7 +860,7 @@ func (s *sjScan) report() int {
 		fmt.Fprintf(w, "\nstop-justifications: %d tool-conflict marker(s) — %d ratified, %d NOT (counted as findings).\n", s.markers, s.ratified, s.markers-s.ratified)
 	}
 	if len(s.config) > 0 {
-		sort.Slice(s.config, func(i, j int) bool { return configLess(s.config[i], s.config[j]) })
+		slices.SortFunc(s.config, configCmp)
 		fmt.Fprintf(w, "\nstop-justifications: %d CONFIG-level suppression(s).\n\n", len(s.config))
 		for _, c := range s.config {
 			fmt.Fprintf(w, "    %s:%d\n        %s\n        %s\n", c.rel, c.Line, c.Key, c.Detail)
@@ -880,7 +890,7 @@ func (s *sjScan) report() int {
 
 func (s *sjScan) printFindings() {
 	w := &s.out
-	sort.Slice(s.findings, func(i, j int) bool { return findingLess(s.findings[i], s.findings[j]) })
+	slices.SortFunc(s.findings, findingCmp)
 	byLang := map[string][]sjFinding{}
 	for _, f := range s.findings {
 		byLang[f.lang] = append(byLang[f.lang], f)
@@ -916,35 +926,33 @@ func sortedContractVars(m map[string][]sjContract) []string {
 	return out
 }
 
-// findingLess is python's tuple order over (rel, line, tool, form, text).
-func findingLess(a, b sjFinding) bool {
-	if a.rel != b.rel {
-		return a.rel < b.rel
-	}
-	if a.line != b.line {
-		return a.line < b.line
-	}
-	if a.tool != b.tool {
-		return a.tool < b.tool
-	}
-	if a.form != b.form {
-		return a.form < b.form
-	}
-	return a.text < b.text
+// findingCmp is python's tuple order over (rel, line, tool, form, text).
+//
+// A TOTAL COMPARISON, not a chain of guarded <. The guarded form said
+// `if a.rel != b.rel { return a.rel < b.rel }` five times over, and every one
+// of those guards made the comparison beneath it unfalsifiable: a.rel == b.rel
+// is exactly the case the guard excludes, so < and <= can never answer
+// differently and no test can tell them apart. The mutation lane flipped all
+// seven and all seven lived. cmp.Or short-circuits on the first non-zero, which
+// is the same order with nothing left to flip.
+func findingCmp(a, b sjFinding) int {
+	return cmp.Or(
+		cmp.Compare(a.rel, b.rel),
+		cmp.Compare(a.line, b.line),
+		cmp.Compare(a.tool, b.tool),
+		cmp.Compare(a.form, b.form),
+		cmp.Compare(a.text, b.text),
+	)
 }
 
-// configLess is python's tuple order over (rel, line, key, detail).
-func configLess(a, b sjConfig) bool {
-	if a.rel != b.rel {
-		return a.rel < b.rel
-	}
-	if a.Line != b.Line {
-		return a.Line < b.Line
-	}
-	if a.Key != b.Key {
-		return a.Key < b.Key
-	}
-	return a.Detail < b.Detail
+// configCmp is python's tuple order over (rel, line, key, detail).
+func configCmp(a, b sjConfig) int {
+	return cmp.Or(
+		cmp.Compare(a.rel, b.rel),
+		cmp.Compare(a.Line, b.Line),
+		cmp.Compare(a.Key, b.Key),
+		cmp.Compare(a.Detail, b.Detail),
+	)
 }
 
 // SJReads answers the tracked files the scan will read — every scanned
