@@ -27,15 +27,6 @@ type Sweep struct {
 	Source *dagger.Directory
 }
 
-// A repository that builds an image builds it through the workflow that
-// attests its SBOM — the weekly portfolio re-score reads attestations, so an
-// unattested image is not scored badly, it is not scored at all.
-//
-// +check
-func (s *Sweep) PortfolioSbom(ctx context.Context) (string, error) {
-	return check(ctx, s.Source, "sweep:portfolio-sbom")
-}
-
 // Every case in this template's ci-matrix.toml still renders. A template bug
 // does not break the template; it breaks the next repo stamped from it.
 //

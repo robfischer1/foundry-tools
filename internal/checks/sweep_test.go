@@ -12,7 +12,6 @@ import (
 var wantSweep = []string{
 	"sweep:kube-linter",
 	"sweep:kubeconform",
-	"sweep:portfolio-sbom",
 	"sweep:template-render-matrix",
 }
 

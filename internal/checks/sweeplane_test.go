@@ -31,49 +31,6 @@ func TestHasEntryReadsEitherSpelling(t *testing.T) {
 	}
 }
 
-func TestBuiltThroughAttestingWorkflowFindsTheThreeBuilds(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		body string
-		want bool
-	}{
-		{"build.yml", "    uses: foundry/foundry-stocks/.forgejo/workflows/build.yml@main\n", true},
-		{"frontend-build.yml", "    uses: foundry/foundry-stocks/.forgejo/workflows/frontend-build.yml@main\n", true},
-		{"bake-blade.yml", "    uses: foundry/foundry-stocks/.forgejo/workflows/bake-blade.yml@v2\n", true},
-		{"no space after uses:", "uses:foundry/foundry-stocks/.forgejo/workflows/build.yml@main\n", true},
-		// The gate is not a build, and it attests nothing.
-		{"the gate", "    uses: foundry/foundry-stocks/.forgejo/workflows/gate.yml@main\n", false},
-		// A repo's own build workflow is not the attesting one — that is the
-		// whole finding.
-		{"a local build", "    uses: ./.forgejo/workflows/build.yml@main\n", false},
-		{"someone else's build.yml", "    uses: other/other-stocks/.forgejo/workflows/build.yml@main\n", false},
-		// No ref pinned at all: the pattern requires the @.
-		{"no ref", "    uses: foundry/foundry-stocks/.forgejo/workflows/build.yml\n", false},
-		{"nothing", "", false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := BuiltThroughAttestingWorkflow([]string{tc.body}); got != tc.want {
-				t.Fatalf("BuiltThroughAttestingWorkflow(%q) = %v, want %v", tc.body, got, tc.want)
-			}
-		})
-	}
-}
-
-// ONE workflow calling the attesting build is enough — the image is attested,
-// whichever file does it.
-func TestBuiltThroughAttestingWorkflowReadsTheWholeTree(t *testing.T) {
-	bodies := []string{
-		"jobs:\n  gate:\n    uses: foundry/foundry-stocks/.forgejo/workflows/gate.yml@main\n",
-		"jobs:\n  image:\n    uses: foundry/foundry-stocks/.forgejo/workflows/build.yml@main\n",
-	}
-	if !BuiltThroughAttestingWorkflow(bodies) {
-		t.Fatal("the second file builds through the attesting workflow, so the repo is visible to the re-score")
-	}
-	if BuiltThroughAttestingWorkflow(bodies[:1]) {
-		t.Fatal("the gate does not attest an SBOM")
-	}
-}
-
 func TestKubeconformSummaryReadsTheValidCount(t *testing.T) {
 	for _, tc := range []struct {
 		name      string

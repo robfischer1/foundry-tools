@@ -13,35 +13,6 @@ import (
 // package main is unit-testable (dag panics without an engine), so a judgement
 // that is not in this package is a judgement nobody checks.
 
-// AttestingWorkflowPattern is the call that puts a repository's image inside
-// the workflow that attests its SBOM — build.yml, frontend-build.yml or
-// bake-blade.yml, at their one home in foundry-stocks. Carried verbatim from
-// the extended regular expression the atom's shell body matched with, so the
-// two can be diffed by eye.
-const AttestingWorkflowPattern = `uses:[[:space:]]*foundry/foundry-stocks/\.forgejo/workflows/(build|frontend-build|bake-blade)\.yml@`
-
-var attestingWorkflowRE = regexp.MustCompile(AttestingWorkflowPattern)
-
-// BuiltThroughAttestingWorkflow reports whether any of these workflow bodies
-// calls one of the three attesting builds.
-//
-// WHAT A FALSE ANSWER MEANS. The weekly portfolio re-score (CronJob
-// portfolio-weekly, ci-portfolio-pipeline) reads cosign SBOM attestations out
-// of the registry. An image nobody attests contributes no attestation to
-// read — so it is not scored badly, it is not scored at all, and the digest
-// reports clean because nothing ever looked at it. That hole is structurally
-// invisible to the scan itself, which is why the question is asked here, at
-// the one place where the answer is a fact about the tree rather than a fact
-// about the database.
-func BuiltThroughAttestingWorkflow(bodies []string) bool {
-	for _, b := range bodies {
-		if attestingWorkflowRE.MatchString(b) {
-			return true
-		}
-	}
-	return false
-}
-
 var (
 	kubeconformSummaryRE = regexp.MustCompile(`(?m)^Summary:.*$`)
 	kubeconformValidRE   = regexp.MustCompile(`Valid: ([0-9]+)`)

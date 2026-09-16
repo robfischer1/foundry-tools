@@ -119,8 +119,8 @@ func TestAbsentPassesAndSaysSo(t *testing.T) {
 // An atom that found no surface said so on stdout. Reading that as a pass is
 // the same conflation as reading a could-not-run as a pass, one shelf up.
 func TestVerdictOfCarriesAnAtomsOwnAbsence(t *testing.T) {
-	a := AtomByID("sweep:portfolio-sbom")
-	out := "sweep:portfolio-sbom: ABSENT - no Dockerfile at the repository root.\n"
+	a := AtomByID("sweep:template-render-matrix")
+	out := "sweep:template-render-matrix: ABSENT - no ci-matrix.toml at the repository root.\n"
 
 	v := VerdictOf(a, 0, out)
 	if v.Result != "absent" {
@@ -129,7 +129,7 @@ func TestVerdictOfCarriesAnAtomsOwnAbsence(t *testing.T) {
 	if v.State != int(StatePass) {
 		t.Fatalf("an absence is not a failure; state was %d", v.State)
 	}
-	if !strings.Contains(v.Reason, "no Dockerfile") {
+	if !strings.Contains(v.Reason, "no ci-matrix.toml") {
 		t.Fatalf("the absence must carry the atom's own reason, got %q", v.Reason)
 	}
 	if _, err := v.Answer(); err != nil {
@@ -140,7 +140,7 @@ func TestVerdictOfCarriesAnAtomsOwnAbsence(t *testing.T) {
 // The prefix is the atom's id for a reason: an atom reads a tree, and the word
 // ABSENT could appear in the tree it is reading.
 func TestVerdictOfDoesNotReadAnotherAtomsAbsence(t *testing.T) {
-	a := AtomByID("sweep:portfolio-sbom")
+	a := AtomByID("sweep:template-render-matrix")
 	for _, out := range []string{
 		"fleet:opengrep-sast: ABSENT - no rules/sast in this tree\n",
 		"the word ABSENT appears in a scanned file\n",
@@ -155,8 +155,8 @@ func TestVerdictOfDoesNotReadAnotherAtomsAbsence(t *testing.T) {
 // A non-pass keeps the full three-state reason. The absence branch must not
 // swallow a findings or a could-not-run.
 func TestAbsenceNeverMasksANonPass(t *testing.T) {
-	a := AtomByID("sweep:portfolio-sbom")
-	out := "sweep:portfolio-sbom: ABSENT - no Dockerfile at the repository root.\n"
+	a := AtomByID("sweep:template-render-matrix")
+	out := "sweep:template-render-matrix: ABSENT - no ci-matrix.toml at the repository root.\n"
 	if v := VerdictOf(a, 2, out); v.Result != "cannot-run" {
 		t.Errorf("exit 2 rendered as %q — an absence claim must not outrank a refusal", v.Result)
 	}

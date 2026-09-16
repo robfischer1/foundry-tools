@@ -48,122 +48,6 @@ func wantNoContainer(t *testing.T, why string) {
 	}
 }
 
-// ---- sweep:portfolio-sbom ----
-
-// EVERY TERM OF THIS QUESTION IS A FACT ABOUT THE TREE, so no path through the
-// atom may start anything. A container here would be a cost paid, on every
-// repo in custody, for an answer already in hand.
-func TestSweepPortfolioSbomIsAllGoAndNeverStartsAContainer(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		tree   map[string]string
-		fail   [2]string
-		state  int
-		result string
-		says   string
-	}{
-		{
-			name: "no Dockerfile is an absence",
-			tree: sweepTree([]string{"Dockerfile"}, nil), state: 0, result: "absent",
-			says: "no Dockerfile at the repository root",
-		},
-		{
-			// A Dockerfile and no workflow tree: nothing here says whether the
-			// image is ever built, so nothing here can say whether it is attested.
-			name: "a Dockerfile and no workflow tree cannot be answered",
-			tree: sweepTree([]string{".forgejo/workflows/ci.yml"}, nil), state: 2, result: "cannot-run",
-			says: "a Dockerfile and no workflow tree",
-		},
-		{
-			// The absence is two entries deep: .forgejo with no workflows under
-			// it is the same nothing as no .forgejo at all.
-			name:  "a .forgejo with no workflows under it is no workflow tree",
-			tree:  sweepTree([]string{".forgejo/workflows/ci.yml"}, map[string]string{".forgejo/README.md": "no workflows here\n"}),
-			state: 2, result: "cannot-run", says: "a Dockerfile and no workflow tree",
-		},
-		{
-			name: "built through the attesting workflow",
-			tree: sweepTree(nil, map[string]string{
-				".forgejo/workflows/ci.yml": "jobs:\n  image:\n    uses: foundry/foundry-stocks/.forgejo/workflows/build.yml@main\n",
-			}), state: 0, result: "pass",
-			says: "",
-		},
-		{
-			// The hole the fleet-wide re-score structurally cannot see: an
-			// image nobody attests contributes no attestation to read, so it
-			// is not scored badly — it is not scored at all.
-			name: "a local build is not the attesting one",
-			tree: sweepTree(nil, map[string]string{
-				".forgejo/workflows/ci.yml": "jobs:\n  image:\n    uses: ./.forgejo/workflows/build.yml@main\n",
-			}), state: 1, result: "findings",
-			says: "no workflow calling foundry-stocks build.yml",
-		},
-		{
-			name: "the root could not be read",
-			tree: everyLaneTree, fail: [2]string{rootEntries, "mount evaporated"},
-			state: 2, result: "cannot-run", says: "the repository root could not be read",
-		},
-		{
-			name: "the workflow tree could not be read",
-			tree: everyLaneTree, fail: [2]string{`glob(pattern:".forgejo/workflows/**")`, "index is gone"},
-			state: 2, result: "cannot-run", says: "unknown rather than answered",
-		},
-		{
-			name: "the .forgejo listing could not be read",
-			tree: everyLaneTree, fail: [2]string{`directory(path:".forgejo")`, "listing failed"},
-			state: 2, result: "cannot-run", says: "unknown rather than answered",
-		},
-		{
-			name: "a workflow file could not be read",
-			tree: everyLaneTree, fail: [2]string{`file(path:".forgejo/workflows/ci.yml")`, "blob missing"},
-			state: 2, result: "cannot-run", says: "unknown rather than answered",
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			engine.reset()
-			engine.withTree(tc.tree)
-			if tc.fail[0] != "" {
-				engine.fail(tc.fail[0], tc.fail[1])
-			}
-			v := runAtom(t, "sweep:portfolio-sbom", "")
-			wantState(t, v, tc.state, tc.says)
-			if v.Result != tc.result {
-				t.Errorf("result %q, want %q:\n%s", v.Result, tc.result, v.Reason)
-			}
-			wantNoContainer(t, tc.name)
-		})
-	}
-}
-
-// The tree is read whole: one workflow calling the attesting build is enough,
-// whichever file does it.
-func TestSweepPortfolioSbomReadsTheWholeWorkflowTree(t *testing.T) {
-	engine.reset()
-	engine.withTree(sweepTree(nil, map[string]string{
-		".forgejo/workflows/ci.yml":    "jobs:\n  gate:\n    uses: foundry/foundry-stocks/.forgejo/workflows/gate.yml@main\n",
-		".forgejo/workflows/image.yml": "jobs:\n  image:\n    uses: foundry/foundry-stocks/.forgejo/workflows/bake-blade.yml@main\n",
-	}))
-	// A pass's reason is the verdict's own PASS line — reasonFor discards the
-	// atom's output at state 0 — so the assertion is the state, and the
-	// contrast with the gate-only tree above is what proves the tree was read.
-	wantState(t, runAtom(t, "sweep:portfolio-sbom", ""), 0)
-}
-
-// A directory under .forgejo/workflows has no contents to read, and the glob
-// names it with a trailing separator. Reading it as a file would turn a
-// perfectly ordinary layout into a CANNOT RUN.
-func TestSweepPortfolioSbomSkipsDirectoriesUnderTheWorkflowTree(t *testing.T) {
-	engine.reset()
-	engine.withTree(sweepTree(nil, map[string]string{
-		".forgejo/workflows/ci.yml":  "jobs:\n  image:\n    uses: foundry/foundry-stocks/.forgejo/workflows/build.yml@main\n",
-		".forgejo/workflows/shared/": "",
-	}))
-	wantState(t, runAtom(t, "sweep:portfolio-sbom", ""), 0)
-	if q := engine.chain(`file(path:".forgejo/workflows/shared/")`); q != "" {
-		t.Errorf("a directory was read as a file:\n%s", q)
-	}
-}
-
 // ---- sweep:template-render-matrix ----
 
 // renderNeedle is the copier render for the tree's one declared case.
@@ -545,7 +429,6 @@ func TestSweepCheckEntrypointsAnswerNilOnlyForAPass(t *testing.T) {
 		id string
 		fn func(context.Context) (string, error)
 	}{
-		{"sweep:portfolio-sbom", s.PortfolioSbom},
 		{"sweep:template-render-matrix", s.TemplateRenderMatrix},
 		{"sweep:kubeconform", s.Kubeconform},
 		{"sweep:kube-linter", s.KubeLinter},
