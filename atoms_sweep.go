@@ -7,11 +7,10 @@ import (
 	"dagger/foundry-tools/internal/checks"
 )
 
-// THE SWEEP, AS TYPED CHAINS. These five describe a REPOSITORY rather than a
+// THE SWEEP, AS TYPED CHAINS. These four describe a REPOSITORY rather than a
 // change, so their answer cannot differ between two pulls against the same
 // repo — and running them per pull leaves every repository nobody opened a PR
-// against unevaluated indefinitely. That is the whole of CA F9: the digest rots
-// while the tree sits still, so the probe has to be a clock, not a diff. None
+// against unevaluated indefinitely. That is the whole of CA F9. None
 // of them may appear in a pull's path (checks.PullPathAtoms is the
 // enforcement, TestNoSweepAtomOnThePullPath the assertion); ca-sweep's CronJob
 // is the one caller.
@@ -24,86 +23,10 @@ import (
 // Read runtime.go's eight rules and atoms_go.go first; this file follows both.
 
 func init() {
-	register("sweep:digest-pins", sweepDigestPins)
 	register("sweep:portfolio-sbom", sweepPortfolioSbom)
 	register("sweep:template-render-matrix", sweepTemplateRenderMatrix)
 	register("sweep:kubeconform", sweepKubeconform)
 	register("sweep:kube-linter", sweepKubeLinter)
-}
-
-// Every image digest this repo's workflows pin still resolves in the registry.
-//
-// THE CANONICAL SCRIPT, READ AT ITS ONE HOME. It already carries the three
-// states this module requires — 0 every pin resolves, 1 a pin is BROKEN, 2 no
-// pins found at all ("the scan is broken, not the tree clean") — which is why
-// this atom runs it instead of reimplementing it. Twice in five days a
-// collected digest took out the same five stars, and both times a human found
-// it by noticing a red landing.
-//
-// THE SURFACE PROBE IS THE ATOM'S OWN, and it is what the script cannot do for
-// itself. The script was written for foundry-stocks, where cast.yml carries
-// several pins, so calling zero pins a broken scan is right THERE. Dispatched
-// over all 86 repos in custody it is wrong on most of them: a star calls the
-// reusable workflow and the pin lives in the callee's tree. Measured on
-// ca-sweep-manual-1788973171 (2026-09-09), that turned 57 of 86 repos into
-// cannot-run and buried the run's one real finding. So the atom asks first
-// whether there is a pin surface at all (checks.HasPinSurface over
-// checks.PinSurfacePattern): no surface is ABSENT, and a surface the extractor
-// could not read stays a CANNOT RUN that now says which of the two it is,
-// because a check that could not run must also say why.
-//
-// THE PROBE STILL RUNS BEFORE THE FETCH. In the shell it was an ordering the
-// tests policed; here it is Go before any container exists, so the 57 repos
-// with nothing to check pay no network round trip to learn it.
-func sweepDigestPins(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("sweep:digest-pins")
-
-	bodies, present, err := r.forgejoWorkflows(ctx)
-	if err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the workflow tree could not be read, so its pin population is unknown rather than empty: "+err.Error())
-	}
-	if !present {
-		return checks.VerdictOf(a, 0, a.ID+": ABSENT - no .forgejo/workflows in this tree, so nothing here pins a digest.")
-	}
-	if !checks.HasPinSurface(bodies) {
-		return checks.VerdictOf(a, 0, a.ID+": ABSENT - .forgejo/workflows carries no digest reference at all, so this repo's pin population is EMPTY rather than unscanned. It calls the reusable workflows and the image pin lives in the callee's tree.")
-	}
-	if _, err := r.stocks.File("ci/lib/digest-pins.sh").Sync(ctx); err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the canonical script is not reachable through the door.")
-	}
-
-	// oras is not in ANY of the four CI images (images.go lists what each
-	// carries), so this is a provision rather than a fallback — and both
-	// sources failing is a 2, never a fallthrough. Resolving zero pins and
-	// calling them all healthy is the outage this check exists to catch,
-	// running backwards.
-	oras, err := fetchTool(ctx, checks.OrasMirror, checks.OrasURL)
-	if err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - could not fetch oras from the mirror or from upstream. Resolving zero pins and calling them all healthy is the outage this check exists to catch, running backwards.\n"+err.Error())
-	}
-
-	ctr := r.withStocks(r.lane(checks.ImageFleet)).
-		WithFile("/tmp/oras.tgz", oras).
-		// Provisioning, under the DEFAULT Expect: an archive that will not
-		// unpack and a client that will not run are both state 2 with the
-		// engine's own error text, not a guard and an `exit 2`.
-		WithExec([]string{"tar", "-xzf", "/tmp/oras.tgz", "-C", "/usr/local/bin", "oras"}).
-		WithExec([]string{"oras", "version"}).
-		WithEnvVariable("PINS_DIR", ".forgejo/workflows").
-		WithExec([]string{"bash", "/stocks/ci/lib/digest-pins.sh"}, anyExit)
-
-	out, code, err := output(ctx, ctr)
-	if err != nil {
-		return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
-	}
-	if code == 2 {
-		// The script's own 2 means it extracted no pin. The surface probe
-		// above already proved there is one, so this is the broken scan the
-		// script's message names — and naming WHICH is the point of asking
-		// the two questions separately.
-		return checks.VerdictOf(a, 2, out+"\n"+a.ID+": CANNOT RUN - this tree DOES carry a digest reference (it matches "+checks.PinSurfacePattern+") and the canonical extractor still returned none, so the SCAN is broken rather than the tree unpinned. Compare digest_pins() in foundry-stocks/ci/lib/digest-pins.sh against the pin forms under .forgejo/workflows.")
-	}
-	return checks.VerdictOf(a, code, out)
 }
 
 // A repository that builds an image builds it through the workflow that
@@ -138,7 +61,7 @@ func sweepPortfolioSbom(ctx context.Context, r *run) checks.Verdict {
 		return checks.VerdictOf(a, 0, a.ID+": ABSENT - no Dockerfile at the repository root. The portfolio re-scores image SBOMs, and this repo builds no image.")
 	}
 
-	bodies, present, err := r.forgejoWorkflows(ctx)
+	bodies, present, err := r.forgejoWorkflows(ctx, entries)
 	if err != nil {
 		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the workflow tree could not be read, so whether the image is attested is unknown rather than answered: "+err.Error())
 	}
@@ -301,12 +224,8 @@ func sweepKubeLinter(ctx context.Context, r *run) checks.Verdict {
 }
 
 // forgejoWorkflows answers whether this tree carries .forgejo/workflows and,
-// when it does, the body of every file under it.
-//
-// TWO ATOMS ASK THE SAME QUESTION AND MEAN DIFFERENT THINGS BY THE ANSWER —
-// digest-pins calls a missing workflow tree an ABSENCE, portfolio-sbom calls
-// it a CANNOT RUN, because it has already found a Dockerfile — so this returns
-// the fact and lets each atom file its own verdict.
+// when it does, the body of every file under it. entries is the root listing
+// the caller has already read.
 //
 // THE ABSENCE IS TWO ENTRIES DEEP. `.forgejo` present with no `workflows`
 // under it is the same nothing as no `.forgejo` at all, and the shell's
@@ -315,11 +234,7 @@ func sweepKubeLinter(ctx context.Context, r *run) checks.Verdict {
 // NO GITIGNORE FILTER, deliberately: this is not a population the fleet grades
 // but a question about what the repository's CI declares, and the recursive
 // match it replaces read the tree as it stood.
-func (r *run) forgejoWorkflows(ctx context.Context) (bodies []string, present bool, err error) {
-	entries, err := r.src.Entries(ctx)
-	if err != nil {
-		return nil, false, err
-	}
+func (r *run) forgejoWorkflows(ctx context.Context, entries []string) (bodies []string, present bool, err error) {
 	if !checks.HasEntry(entries, ".forgejo") {
 		return nil, false, nil
 	}

@@ -116,15 +116,12 @@ Three things the ports changed on purpose, each because the workflow's assumptio
 `dies:data-keys` and `dies:canary-visibility` interrogate the **artifact, never the source tree**, and that distinction is measured: rename every `policy/*/data.json` to `values.json` and `opa test` still passes 312 assertions while the built bundle ships `data.json == {}` — `star_only` undefined, the visibility comprehension collecting nothing, **every verb visible to every principal**. Fail-open, silent, and green the whole way down.
 
 **`sweep:`** — repo cadence, on a clock, **never in a pull's path**.
-`digest-pins` (nightly) · `portfolio-sbom` · `template-render-matrix` · `kubeconform` · `kube-linter` (weekly)
+`portfolio-sbom` · `template-render-matrix` · `kubeconform` · `kube-linter` (weekly)
 
-`digest-pins` probes for a **pin surface** before it scans: a repo whose `.forgejo/workflows` carries no `@sha256:` reference at all calls the reusable workflows, so its pin population is *empty* and the answer is `ABSENT`. Only a tree that **has** a digest reference the canonical extractor could not read is a `CANNOT RUN`, and it says which. Without that split the fleet-wide sweep read 57 of 86 repos as could-not-run (`ca-sweep-manual-1788973171`, 2026-09-09) and buried the run's one real finding — the canonical script's "the scan is broken, not the tree clean" is true where it lives, in `foundry-stocks`, and false in every star that calls `gate.yml@main`.
-
-These describe a **repository** rather than a change, so their answer cannot differ between two pulls against the same repo — and running them per pull leaves every repository nobody opened a PR against unevaluated indefinitely. `digest-pins` is the worked example: both outages it exists for were caused by an image being *rebuilt*, with no merge anywhere near the five stars that went red. The digest rots while the tree sits still, so the probe has to be a clock, not a diff.
+These describe a **repository** rather than a change, so their answer cannot differ between two pulls against the same repo — and running them per pull leaves every repository nobody opened a PR against unevaluated indefinitely.
 
 | atom | what it asks | ABSENT when |
 | :-- | :-- | :-- |
-| `sweep:digest-pins` | every image digest this repo's workflows pin still resolves in the registry | no `.forgejo/workflows`, **or no digest reference under it** |
 | `sweep:portfolio-sbom` | a repo that builds an image builds it through the workflow that **attests** its SBOM | no `Dockerfile` |
 | `sweep:template-render-matrix` | every case in this template's `ci-matrix.toml` still renders | no `ci-matrix.toml` |
 | `sweep:kubeconform` | every manifest under `flux/` validates against its Kubernetes schema | no `flux/` |
@@ -167,7 +164,7 @@ internal/checks/    the pure core, engine-free and unit-tested
   atoms.go          THE TABLE: id, stage, lane, image, description, body
   lane.go           lane detection from root manifests
   verdict.go        the three states and the exit-code mapping
-  images.go         the lane AND sweep images, in one place, for digest-pins to land on
+  images.go         the lane AND sweep images, in one place
 ```
 
 `internal/checks` imports nothing from the Dagger SDK, which is why `go test ./...` runs without an engine.

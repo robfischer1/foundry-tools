@@ -6,12 +6,12 @@ import (
 )
 
 func TestSelectNarrowsToTheNamedAtoms(t *testing.T) {
-	got, err := Select(SweepAtoms(), "sweep:digest-pins")
+	got, err := Select(SweepAtoms(), "sweep:kubeconform")
 	if err != nil {
 		t.Fatalf("Select: %v", err)
 	}
-	if len(got) != 1 || got[0].ID != "sweep:digest-pins" {
-		t.Fatalf("Select chose %v, want just sweep:digest-pins", ids(got))
+	if len(got) != 1 || got[0].ID != "sweep:kubeconform" {
+		t.Fatalf("Select chose %v, want just sweep:kubeconform", ids(got))
 	}
 }
 
@@ -30,7 +30,7 @@ func TestSelectTakesAListAndTolerantWhitespace(t *testing.T) {
 // nothing, and nothing reported reads exactly like nothing wrong — the same
 // shape as a ruleset matching zero files.
 func TestSelectRefusesAnUnknownAtom(t *testing.T) {
-	_, err := Select(SweepAtoms(), "sweep:digest_pins")
+	_, err := Select(SweepAtoms(), "sweep:kube_linter")
 	if err == nil {
 		t.Fatal("a typo'd atom id selected silently")
 	}

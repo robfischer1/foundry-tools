@@ -49,20 +49,13 @@ func TestEveryLaneImageIsAnUpstreamToolchainOnTheMirror(t *testing.T) {
 // verdict that is not a function of the pin the door declared, and that pin is
 // the whole of the F7 join.
 //
-// PinRefPattern is the canonical extractor's own form — the same one
-// sweep:digest-pins reads pins with — so this asserts the block is legible to
-// the sweep that exists to notice a collected digest, not merely that a hex
-// string is present.
+// The pin is asserted whole — registry host, repository, optional tag, then
+// the digest at the END — not merely that a hex string appears somewhere.
 func TestEveryImageIsPinnedByDigest(t *testing.T) {
-	ref := regexp.MustCompile(PinRefPattern)
-	surface := regexp.MustCompile(PinSurfacePattern)
+	pinned := regexp.MustCompile(`^[a-zA-Z0-9._-]+\.[a-zA-Z]+/[a-zA-Z0-9._/-]+(:[a-zA-Z0-9._-]+)?@sha256:[0-9a-f]{64}$`)
 	for _, img := range LaneImages {
-		if !surface.MatchString(img) {
-			t.Errorf("image %q carries no digest — a rebuild would move the gate under the declared pin", img)
-			continue
-		}
-		if !ref.MatchString(img) {
-			t.Errorf("image %q carries a digest the canonical extractor cannot read", img)
+		if !pinned.MatchString(img) {
+			t.Errorf("image %q is not pinned by digest — a rebuild would move the gate under the declared pin", img)
 		}
 	}
 }

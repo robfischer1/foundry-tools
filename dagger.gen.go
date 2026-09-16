@@ -1340,13 +1340,6 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		}
 	case "Sweep":
 		switch fnName {
-		case "DigestPins":
-			var parent Sweep
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			return (*Sweep).DigestPins(&parent, ctx)
 		case "KubeLinter":
 			var parent Sweep
 			err = json.Unmarshal(parentJSON, &parent)
