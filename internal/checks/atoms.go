@@ -300,7 +300,7 @@ func atomTable() []AtomDef {
 			Desc: "Every copy of every shared closed set agrees — and the checker is proved to detect first.",
 		},
 		{
-			ID: "fleet:witness", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet, NeedsStocks: true,
+			ID: "fleet:witness", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every changed .py/.go file is shown to the code witness (narcissus): a canonical-class or Standard match is a finding, a Convention is advisory, novel is clean.",
 		},
 		{
