@@ -246,3 +246,44 @@ func TestThePermitAnswerFoldsIntoTheVerdict(t *testing.T) {
 		}
 	}
 }
+
+// A REGISTRY 5xx IS A FAULT, AND ORAS SPELLS IT WITH A COLON.
+//
+// Every case below is a real phrasing. The first is anvil's own output from
+// cast-anvil-93f3819-b9kw5 (2026-09-16), where zot was restarting — rebuilding
+// its 221-repo metadata DB, port 5000 not yet listening — and `oras push` to
+// staging got a 502. Failed filed it as findings, so the lane told the
+// operator "running again changes nothing" about the one failure where running
+// again is the entire fix. The pattern already carried "502 Bad Gateway"; oras
+// writes "502: Bad Gateway", and one character was the whole of it.
+func TestARegistry5xxIsAFaultInEveryPhrasingATooUses(t *testing.T) {
+	for _, out := range []string{
+		`Error response from registry: HEAD "https://foundry.notusmi.com/v2/staging/app-anvil/manifests/sha256:d83549fa1f052d3c096894a1feb53230b811b90e1a07ffce13c426ead9d3144b": response status code 502: Bad Gateway`,
+		`response status code 503: Service Unavailable`,
+		`response status code 504: Gateway Timeout`,
+		`Error: 502 Bad Gateway`,
+		`Error: 503 Service Unavailable`,
+	} {
+		code, why := Failed("staging push", out)
+		if code != CouldNotRun {
+			t.Errorf("a registry 5xx must be could-not-run, got %d for %.80q", code, out)
+		}
+		if !strings.Contains(why, "run it again") {
+			t.Errorf("the reason must tell the operator to run it again, got %q", why)
+		}
+	}
+}
+
+// The inverse, so the widened pattern cannot swallow a real finding: a 4xx is
+// the registry answering, and the answer is about what the lane sent.
+func TestAClientErrorIsStillAFinding(t *testing.T) {
+	for _, out := range []string{
+		`response status code 401: Unauthorized`,
+		`response status code 404: Not Found`,
+		`Error: manifest invalid`,
+	} {
+		if code, _ := Failed("staging push", out); code != Findings {
+			t.Errorf("a client error is a finding, got %d for %q", code, out)
+		}
+	}
+}

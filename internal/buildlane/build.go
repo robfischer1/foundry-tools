@@ -205,7 +205,19 @@ func componentKey(c any) string {
 // registry — so running again can change the answer (build.sh fault_re). The
 // timeout and name-resolution phrasings are uv's (publish.sh FAULT_RE): the
 // publish lane settles its build and its uploads through this too.
-var fault = regexp.MustCompile(`(?i)connection refused|connection reset|connection timed out|operation timed out|i/o timeout|no such host|temporary failure in name resolution|dns error|server misbehaving|TLS handshake timeout|502 Bad Gateway|503 Service Unavailable|504 Gateway|unexpected EOF|too many requests|429 Too Many Requests|toomanyrequests|context deadline exceeded|failed to do request|failed to resolve source metadata|unexpected media type [^[:space:]]+ for sha256:[0-9a-f]{64}: not found`)
+//
+// `response status code 5\d\d` IS ORAS'S PHRASING AND IT IS LOAD-BEARING.
+// The literals beside it — "502 Bad Gateway" and friends — are the SPACED
+// form, and oras writes a COLON: "response status code 502: Bad Gateway".
+// One character, and the whole line missed. MEASURED 2026-09-16 on anvil
+// (cast-anvil-93f3819-b9kw5): zot was restarting and rebuilding its 221-repo
+// metadata DB, port 5000 was not listening yet, `oras push` to staging got a
+// 502, and Failed filed a transient registry outage as FINDINGS — telling the
+// operator "running again changes nothing" about the one failure where
+// running again is the entire fix. Every lane that pushes to a registry
+// (build, cast, publish, bundle) reads this, so a routine zot restart could
+// red any landing in the fleet as a fault of the tree.
+var fault = regexp.MustCompile(`(?i)connection refused|connection reset|connection timed out|operation timed out|i/o timeout|no such host|temporary failure in name resolution|dns error|server misbehaving|TLS handshake timeout|response status code 5\d\d|502 Bad Gateway|503 Service Unavailable|504 Gateway|unexpected EOF|too many requests|429 Too Many Requests|toomanyrequests|context deadline exceeded|failed to do request|failed to resolve source metadata|unexpected media type [^[:space:]]+ for sha256:[0-9a-f]{64}: not found`)
 
 // Failed answers the verdict of a step that failed with output: could-not-run
 // on a network fault, findings on anything else.
