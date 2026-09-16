@@ -29,14 +29,13 @@ package checks
 // layer moving.
 //
 // WHAT EACH LANE EXECS, measured at the exec sites (atoms_*.go and the
-// mutation scripts python and ts still run from foundry-stocks
-// ci/lib/mutation/):
+// mutation script python still runs from foundry-stocks ci/lib/mutation/):
 //
 //	go       go, staticcheck, govulncheck, gremlins, git
 //	python   uv, uvx, python3, opengrep, git, tar, bash; opa (dies) the
 //	         atoms fetch themselves, pinned below
 //	rust     cargo (+ rustfmt, clippy, audit, mutants), git
-//	ts       bun, node (ts.sh runs stryker under node), git, bash
+//	ts       bun, node (stryker runs under it), git, curl, find
 //
 // BY DIGEST, NEVER BY TAG. Every image here is a moving tag upstream; a gate
 // whose image floats is a gate whose verdict is not a function of the pin
@@ -58,8 +57,8 @@ const (
 	// ImageUV carries /uv and /uvx — the python lane's whole package
 	// manager, and the version the fleet's uv.lock files were written under.
 	ImageUV = "docker.notusmi.com/astral-sh/uv:0.12.13@sha256:b485bd65cc2cf1c9a93b3554012c9c3778cf7b1b5fd3d3096ce9e1226c97e1e6"
-	// ImageNode carries the node the ts mutation script runs stryker under
-	// (`./node_modules/.bin/stryker` under node, never `bunx --bun` — ts.sh
+	// ImageNode carries the node ts:mutation runs stryker under
+	// (`node_modules/.bin/stryker` under node, never `bunx --bun` — atoms_ts.go
 	// says why). The bun image ships no node.
 	ImageNode = "docker.notusmi.com/library/node:24-bookworm-slim@sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553"
 
