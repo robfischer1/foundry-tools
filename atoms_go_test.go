@@ -482,3 +482,182 @@ func TestGoGofmtHandsAHugePopulationInAsAFile(t *testing.T) {
 	engine.stdout(`"xargs","-0","-a"`, "pkg0001/x.go\n")
 	wantState(t, runAtom(t, "go:gofmt", ""), 1, "pkg0001/x.go")
 }
+
+// ── every module, not only the root's (2026-09-16, Rob: fleet wide) ─────────
+
+// nestedTree is foundry-stocks' shape: no root go.mod, a module one directory
+// down, and a vendored go.mod that must not count.
+var nestedTree = map[string]string{
+	"tools/forge/go.mod":          "module forge\n\ngo 1.26\n",
+	"tools/forge/main.go":         "package main\n",
+	"tools/forge/main_test.go":    "package main\n",
+	"tools/forge/vendor/x/go.mod": "module x\n",
+	"bases/x/testdata/go.mod":     "module fixture\n",
+	"README.md":                   "",
+}
+
+func TestGoLaneRunsInANestedModuleWithNoRootGoMod(t *testing.T) {
+	engine.reset()
+	engine.withTree(nestedTree)
+	v, err := verdictFor(t.Context(), newRun(dag.Directory(), "", ""), "go:vet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantState(t, v, 0, "go:vet: PASS in 1 Go module (tools/forge)")
+	c := engine.chain(`"go","vet"`, "exitCode")
+	wantCalls(t, c,
+		[]string{"withWorkdir", `path:"/src/tools/forge"`},
+		[]string{"withExec", `args:["go","mod","download"]`},
+		[]string{"withExec", `expect:ANY`, `args:["go","vet","./..."]`},
+	)
+	if strings.Contains(c, "vendor") || strings.Contains(c, "testdata") {
+		t.Errorf("a vendored or testdata go.mod is not a module:\n%s", c)
+	}
+	globs := 0
+	for _, q := range engine.chains() {
+		if strings.Contains(q, "glob(") {
+			globs++
+		}
+	}
+	if globs != 1 {
+		t.Errorf("the lane check and the atom must share one read of the module list, got %d globs", globs)
+	}
+}
+
+func TestGoLaneIsAbsentWhenEveryGoModIsOneGoWouldNotBuild(t *testing.T) {
+	engine.reset()
+	engine.withTree(map[string]string{"pyproject.toml": "", "vendor/x/go.mod": "", "a/testdata/go.mod": "", "_old/go.mod": "", ".tools/go.mod": ""})
+	v, err := verdictFor(t.Context(), newRun(dag.Directory(), "", ""), "go:build")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Result != "absent" || !strings.Contains(v.Reason, "no go.mod anywhere in the tree") {
+		t.Errorf("want absent, got %+v", v)
+	}
+	if engine.chain(`"go","build"`) != "" {
+		t.Error("an absent lane builds no container")
+	}
+}
+
+// A root module and a nested one each get their own run, and a finding in
+// either is the atom's.
+func TestGoAtomsRunInEveryModuleAndAFindingInOneIsTheAtoms(t *testing.T) {
+	tree := map[string]string{}
+	for k, v := range everyLaneTree {
+		tree[k] = v
+	}
+	tree["styx/go.mod"] = "module styx\n"
+	tree["styx/styx.go"] = "package styx\n"
+
+	for _, atom := range []struct{ id, exec string }{
+		{"go:vet", `"go","vet"`},
+		{"go:build", `"go","build"`},
+		{"go:staticcheck", `"staticcheck","-checks"`},
+		{"go:govulncheck", `"govulncheck","./..."`},
+	} {
+		engine.reset()
+		engine.withTree(tree)
+		wantState(t, runAtom(t, atom.id, ""), 0, atom.id+": PASS in 2 Go modules (., styx)")
+		roots := 0
+		for _, q := range engine.chains() {
+			if strings.Contains(q, atom.exec) && strings.Contains(q, "exitCode") && !strings.Contains(q, `/src/styx`) {
+				roots++
+			}
+		}
+		if roots != 1 {
+			t.Errorf("%s: want one run at the root, in /src alone; got %d", atom.id, roots)
+		}
+		wantCalls(t, engine.chain(atom.exec, `/src/styx`, "exitCode"), []string{"withWorkdir", `path:"/src/styx"`})
+
+		engine.exitCode(`/src/styx`, 1)
+		engine.stdout(`/src/styx`, "styx.go:1: a finding")
+		wantState(t, runAtom(t, atom.id, ""), 1, "FINDINGS in 1 of 2 Go modules (styx)", "── module styx ──")
+	}
+}
+
+func TestGoTestRaceCountsAndRunsEachModule(t *testing.T) {
+	engine.reset()
+	engine.withTree(nestedTree)
+	engine.stdout(`"go","list"`, "10\n")
+	wantState(t, runAtom(t, "go:test-race", ""), 0, "PASS in 1 Go module (tools/forge)")
+	c := engine.chain(`"go","test","-race"`, "exitCode")
+	wantCalls(t, c,
+		[]string{"withMountedDirectory", `path:"/dies"`},
+		[]string{"withWorkdir", `path:"/src/tools/forge"`},
+		[]string{"withExec", `args:["go","mod","download"]`},
+	)
+
+	engine.stdout(`"go","list"`, "00\n")
+	wantState(t, runAtom(t, "go:test-race", ""), 1, "no test file in any package", "── module tools/forge ──")
+}
+
+// gremlins in a nested module reads its diff relative to the module, and the
+// report and profile are read where the module wrote them.
+func TestGoMutationInANestedModuleDiffsRelativeToIt(t *testing.T) {
+	engine.reset()
+	engine.withTree(nestedTree)
+	engine.withTree(map[string]string{"/src/tools/forge/mutation-go.json": goCleanReport})
+	engine.stdout(goDiffNeedle, "internal/oci/oci.go\n")
+	engine.stdout(goCanaryNeedle, "Killed: 0, Lived: 1, Not covered: 0\n")
+	wantState(t, runAtom(t, "go:mutation", "abc123"), 0, "PASS in 1 Go module (tools/forge)")
+	c := engine.chain(goMutantsNeedle, "exitCode")
+	wantCalls(t, c,
+		[]string{"withWorkdir", `path:"/src/tools/forge"`},
+		[]string{"withEnvVariable", `name:"GIT_CONFIG_COUNT"`, `value:"1"`},
+		[]string{"withEnvVariable", `name:"GIT_CONFIG_KEY_0"`, `value:"diff.relative"`},
+		[]string{"withEnvVariable", `name:"GIT_CONFIG_VALUE_0"`, `value:"true"`},
+	)
+	if !strings.Contains(strings.Join(engine.chains(), "\n"), `/src/tools/forge/mutation-go.json`) {
+		t.Error("the report must be read from the module's directory")
+	}
+	if !strings.Contains(strings.Join(engine.chains(), "\n"), `/src/tools/forge/mutation-cover.out`) {
+		t.Error("the coverage profile must be read from the module's directory")
+	}
+
+	// The report is what decides: a survivor in the module's report reds it.
+	engine.withTree(map[string]string{"/src/tools/forge/mutation-go.json": `{"files":[{"file_name":"internal/oci/oci.go","mutations":[{"type":"T","status":"LIVED","line":2,"column":3}]}]}`})
+	wantState(t, runAtom(t, "go:mutation", "abc123"), 1, "── module tools/forge ──")
+}
+
+func TestTheGoLaneCannotRunWhenTheTreeCannotBeEnumerated(t *testing.T) {
+	engine.reset()
+	engine.withTree(nestedTree)
+	engine.fail("glob(", "engine went away")
+	v, err := verdictFor(t.Context(), newRun(dag.Directory(), "", ""), "go:vet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantState(t, v, 2, "could not enumerate the tree's Go modules", "engine went away")
+	wantState(t, runAtom(t, "go:build", ""), 2, "could not enumerate the tree's Go modules", "engine went away")
+}
+
+// Called without the lane check (a +check reaches the runner through
+// verdictFor, but the runner does not rely on it), an atom on a tree with no
+// module still stands down rather than building a container.
+func TestAGoAtomOnATreeWithNoModuleIsAbsent(t *testing.T) {
+	engine.reset()
+	engine.withTree(map[string]string{"pyproject.toml": ""})
+	v := runAtom(t, "go:vet", "")
+	if v.Result != "absent" || engine.chain(`"go","vet"`) != "" {
+		t.Errorf("want absent and no container, got %+v", v)
+	}
+}
+
+func TestLanesNamesTheNestedModulesTheGateRuns(t *testing.T) {
+	engine.reset()
+	engine.withTree(nestedTree)
+	engine.withTree(map[string]string{"package.json": "{}"})
+	out, err := (&FoundryTools{Source: dag.Directory()}).Lanes(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "go (go.mod in tools/forge)\nts (package.json)\n" {
+		t.Errorf("Lanes = %q", out)
+	}
+	engine.reset()
+	engine.withTree(map[string]string{"README.md": ""})
+	out, _ = (&FoundryTools{Source: dag.Directory()}).Lanes(t.Context())
+	if !strings.Contains(out, "declares no lane") {
+		t.Errorf("Lanes on a tree with no lane = %q", out)
+	}
+}

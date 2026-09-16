@@ -24,9 +24,17 @@ const (
 
 // laneManifest maps the root manifest that DECLARES a lane to that lane.
 //
-// Root-relative on purpose. A vendored go.mod three directories down does not
-// make a python star a Go repo, and a lane check that fired on one would report
-// CANNOT RUN forever on a repo with nothing to check.
+// Root-relative on purpose, for every lane but Go. A vendored go.mod three
+// directories down does not make a python star a Go repo, and a lane check that
+// fired on one would report CANNOT RUN forever on a repo with nothing to check.
+//
+// THE GO LANE IS NOT READ FROM HERE ANY MORE (2026-09-16, Rob: fleet wide). A
+// root-only rule also left every NESTED module ungated — foundry-stocks'
+// tools/forge had no go.mod above it, so the forge that publishes the fleet's
+// base images ran none of the lane. verdictFor declares Go from GoModuleDirs,
+// which takes a go.mod anywhere the go command would build one and keeps the
+// vendored case out. go.mod stays in this map so Lanes, the catalogue and the
+// other lanes' root reads still name it.
 var laneManifest = map[string]Lane{
 	"go.mod":         LaneGo,
 	"pyproject.toml": LanePython,
