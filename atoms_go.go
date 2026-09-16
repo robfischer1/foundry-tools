@@ -292,23 +292,31 @@ func goGovulncheck(ctx context.Context, r *run) checks.Verdict {
 
 // Every mutant gremlins makes of this pull's changed Go is killed by the tests.
 //
-// ONE SHAPE, FOUR LANGUAGES. This runs the canonical script at its one home
-// (/stocks/ci/lib/mutation/go.sh) phase by phase, in DIFF mode against
-// GATE_BASE — the pull's merge base as the door names it — and answers with the
-// verdict the score phase wrote: 0 clean, 1 survivors, 2 could not measure. The
-// phases themselves never exit non-zero (reaching a verdict is the score
-// phase's job), so a phase that does is a broken script, said as CANNOT RUN and
-// named by phase. That is why each phase is its own exec under anyExit and is
-// asked for its code before the next is built, rather than the six being
-// chained under the default Expect: a Dagger error would file state 2 with the
-// engine's text and lose which phase broke.
+// THE GATE IS GO, NOT A SCRIPT. It was foundry-stocks' ci/lib/mutation/go.sh,
+// run phase by phase, scored by go_score.py. The measurement is now plain execs
+// here — resolve, cover, the canary, gremlins — and the decision is
+// checks.GoMutationVerdict, in DIFF mode against GATE_BASE, the pull's merge
+// base as the door names it: 0 clean, 1 survivors, 2 did not measure. The
+// script's setup and teardown phases are gone with it: they ran MUT_SETUP and
+// MUT_TEARDOWN, which nothing had set since a repo stopped having a say.
 //
-// THE HISTORY IS THERE IN THE LANE THAT MATTERS. The mutation Job clones the
-// repository whole and checks the head out, so `git cat-file -e <base>` answers
+// THE HISTORY IS THERE IN THE LANE THAT MATTERS. The mutation Job fetches the
+// repository and the base the door names, so `git cat-file -e <base>` answers
 // and the diff is real. A local pre-push run hands the engine a linked
 // worktree, which gitReady turns into a throwaway repository with no history:
-// the resolve phase then stands down 0 with "no usable PR base sha", printed,
-// and the door's Job is the one that measures.
+// resolve then stands down 0 with "no usable PR base sha", and the door's Job
+// is the one that measures.
+//
+// THE GATE OWNS ITS KNOBS. gremlins auto-loads a .gremlins.yaml from the tree,
+// and that file can set thresholds that turn a healthy run into exit 10; every
+// gremlins run here reads an explicit neutral config instead.
+//
+// THE CANARY RUNS FIRST AND DECIDES WHETHER THE REPORT IS A MEASUREMENT. A
+// harness that cannot start the test child scores every mutant KILLED; the
+// control is a module whose one mutant must LIVE (checks.GoMutationCanary). The
+// bound it existed for — gremlins v0.6.0 mangled --test-cpu into one argv word,
+// #7649 — is kept through the environment the child inherits: GOMAXPROCS caps
+// the test binary, GOFLAGS=-p caps concurrent builds.
 //
 // GO NEEDS NO critical_modules. The python, rust and ts mutation atoms read
 // that declaration off .copier-answers.yml; gremlins scopes to the diff itself,
@@ -339,69 +347,118 @@ func goGovulncheck(ctx context.Context, r *run) checks.Verdict {
 // read.
 func goMutation(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("go:mutation")
-
-	// The script IS the tool (rule 6), read at its one home rather than
-	// vendored — and its absence is decided in Go off the mounted tree, before
-	// any container runs (rule 3).
-	if _, err := r.stocks.File(goMutationScript).Contents(ctx); err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - /stocks/"+goMutationScript+
-			" is absent; foundry-stocks did not mount at its one home.")
-	}
-
-	ctr := r.gitReady(ctx, r.withBase(r.withDies(r.withStocks(r.goModules())))).
-		WithExec([]string{"bash", "--version"}).
-		WithEnvVariable("MUT_DIR", mutationDir).
-		WithEnvVariable("MUT_MODE", "diff").
-		WithEnvVariable("MUT_BASE", r.base).
-		WithEnvVariable("MUT_EXCLUDE", goMutationExclude)
-	// THE RECORD'S DATABASE, as go:test-race brings it: the DB-gated suites
-	// are compiled for gremlins' coverage run (go.sh's MUT_BUILD_TAGS, which
-	// also serialises the run on one database) and the servers are bound.
-	// Without this every DB-touching line read NOT COVERED by construction
-	// (foundry-tools#8608).
+	ctr := r.gitReady(ctx, r.withBase(r.withDies(r.goModules())))
+	// THE RECORD'S DATABASE, as go:test-race brings it: the DB-gated suites are
+	// compiled for the coverage run and gremlins' (and serialised on the one
+	// database), and the servers are bound. Without this every DB-touching line
+	// read NOT COVERED by construction (foundry-tools#8608).
 	ctr, dbs, scope := r.withTestDatabases(ctx, ctr)
-	if len(dbs) > 0 {
-		ctr = ctr.WithEnvVariable("MUT_BUILD_TAGS", checks.BuildTags(dbs))
-	}
-
-	for _, phase := range []string{"resolve", "setup", "cover", "mutate", "teardown", "score"} {
-		ctr = ctr.WithExec([]string{"bash", "/stocks/" + goMutationScript, phase}, anyExit)
-		out, code, err := output(ctx, ctr)
-		if err != nil {
-			return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
-		}
-		if code != 0 {
-			return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - phase "+phase+
-				" exited non-zero; the phases never do on their own\n"+out)
-		}
-	}
-
-	// `cat 2>/dev/null` in the old body; here the two files are read off the
-	// scored container and a read that fails is the empty string, which
-	// MutationVerdict refuses as a verdict.
-	verdictText, _ := ctr.File(mutationDir + "/verdict").Contents(ctx)
-	reasonText, _ := ctr.File(mutationDir + "/reason").Contents(ctx)
-	state, reason, err := checks.MutationVerdict(verdictText, reasonText)
-	if err != nil {
-		v := checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+err.Error())
+	// The scope line is set on the verdict, not folded into the output: a pass
+	// keeps no output (checks.VerdictOf), and the line is printed either way.
+	settle := func(state int, reason string) checks.Verdict {
+		v := checks.VerdictOf(a, state, a.ID+": "+reason)
 		v.Reason = scope + "\n" + v.Reason
 		return v
 	}
-	// The scope line is set on the verdict, not folded into the output: a
-	// pass keeps no output (checks.VerdictOf), and the line is printed
-	// either way.
-	v := checks.VerdictOf(a, state, a.ID+": "+reason)
-	v.Reason = scope + "\n" + v.Reason
-	return v
+	neverRan := func(err error) checks.Verdict { return settle(2, "CANNOT RUN - the atom never ran: "+err.Error()) }
+
+	// RESOLVE: without a base the history reaches, there is no diff to scope
+	// to, and a full run is the nightly's, never a pull's.
+	const noBase = "no usable PR base sha — the diff-scoped gate did not run"
+	if r.base == "" {
+		return settle(0, noBase)
+	}
+	// rev-parse --verify --quiet, not cat-file -e: a missing object is exit 128
+	// for cat-file, and the engine answers 128-191 as its own error even under
+	// Expect ANY (foundry-tools#63) — a pull whose base the history lacks would
+	// read could-not-run instead of standing down. rev-parse answers 1.
+	_, code, err := output(ctx, ctr.WithExec([]string{"git", "rev-parse", "--verify", "--quiet", r.base + "^{commit}"}, anyExit))
+	if err != nil {
+		return neverRan(err)
+	}
+	if code != 0 {
+		return settle(0, noBase)
+	}
+	// AN EMPTY DIFF MEANS "MUTATE EVERYTHING" TO GREMLINS, written for "no
+	// --diff was given". A pull that changes no Go produces exactly that, so it
+	// stands down here instead of mutating the whole module.
+	changed, code, err := output(ctx, ctr.WithExec([]string{"git", "diff", "--relative", "--merge-base", r.base, "--name-only", "--", "*.go"}, anyExit))
+	if err != nil {
+		return neverRan(err)
+	}
+	if code != 0 {
+		return settle(2, "CANNOT RUN - git could not diff the pull against its base "+r.base+": "+changed)
+	}
+	if strings.TrimSpace(changed) == "" {
+		return settle(0, "this pull changes no Go file — nothing to mutate")
+	}
+
+	var tags []string
+	if len(dbs) > 0 {
+		tags = []string{"--tags", checks.BuildTags(dbs)}
+	}
+	neutral := ctr.WithNewFile(goMutationConfig, "# neutral — the mutation gate owns every knob it cares about.\n")
+
+	// COVER: the profile the scorer reads to tell a misjudged NOT COVERED from
+	// a real one. Never fatal — gremlins gathers its own; this one only corrects
+	// the switch-case misread.
+	coverArgs := []string{"go", "test", "-cover", "-coverprofile", goMutationProfile}
+	if len(dbs) > 0 {
+		coverArgs = append(coverArgs, "-tags", checks.BuildTags(dbs), "-p", "1")
+	}
+	covered := neutral.WithExec(append(coverArgs, "./..."), anyExit)
+	if _, err := covered.ExitCode(ctx); err != nil {
+		return neverRan(err)
+	}
+	profile, _ := covered.File("/src/" + goMutationProfile).Contents(ctx)
+
+	// THE CANARY, in a module of its own.
+	canary := checks.CanaryUnknown
+	control := neutral.
+		WithNewFile(mutationDir+"/canary/go.mod", checks.GoMutationCanaryMod).
+		WithNewFile(mutationDir+"/canary/canary.go", checks.GoMutationCanaryCode).
+		WithNewFile(mutationDir+"/canary/canary_test.go", checks.GoMutationCanaryTest).
+		WithWorkdir(mutationDir+"/canary").
+		WithExec([]string{"go", "test", "-cover", "-coverprofile", goMutationProfile, "./..."}, anyExit)
+	if code, err := control.ExitCode(ctx); err == nil && code == 0 {
+		out, _, err := outputBoth(ctx, control.WithExec([]string{"gremlins", "unleash", "--config", goMutationConfig,
+			"--timeout-coefficient", "10", "--workers", "1", "."}, anyExit))
+		if err == nil {
+			canary = checks.GoMutationCanary(out)
+		}
+	}
+
+	// MUTATE.
+	args := append([]string{"gremlins", "unleash", "--config", goMutationConfig, "--output", goMutationReport,
+		"--timeout-coefficient", "10", "--workers", strconv.Itoa(goMutationWorkers)}, tags...)
+	args = append(args, "--exclude-files", goMutationExclude, "--diff", r.base, ".")
+	mutated := covered.
+		WithEnvVariable("GOMAXPROCS", "1").
+		WithEnvVariable("GOFLAGS", "-p=1").
+		WithExec(args, anyExit)
+	status, err := mutated.ExitCode(ctx)
+	if err != nil {
+		return neverRan(err)
+	}
+	// gremlins writes no report when it has nothing to report; a read that
+	// fails is that absence, and the verdict decides what it means.
+	report, _ := mutated.File("/src/" + goMutationReport).Contents(ctx)
+
+	return settle(checks.GoMutationVerdict(checks.GoMutationRun{
+		Status: status, Report: []byte(report), Profile: profile, Canary: canary, Workers: goMutationWorkers,
+	}))
 }
 
 const (
-	// goMutationScript is the canonical script's path INSIDE foundry-stocks;
-	// withStocks mounts that tree at /stocks, so the same string spells both
-	// the Directory lookup and the exec's argument.
-	goMutationScript = "ci/lib/mutation/go.sh"
-	// mutationDir is where the phases write their state and their verdict.
+	// mutationDir is where the canary module is written.
 	mutationDir = "/tmp/mutation"
+	// goMutationConfig is the neutral gremlins config every run reads.
+	goMutationConfig = mutationDir + "/gremlins-neutral.yaml"
+	// goMutationReport and goMutationProfile are what the run leaves in /src.
+	goMutationReport  = "mutation-go.json"
+	goMutationProfile = "mutation-cover.out"
+	// goMutationWorkers is gremlins' --workers.
+	goMutationWorkers = 4
 	// goMutationExclude keeps generated Go out of the mutant population —
 	// vendored code, dagger's codegen, protobuf stubs and kubebuilder's
 	// zz_generated. See goMutation for the measurement.

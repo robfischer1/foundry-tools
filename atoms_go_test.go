@@ -210,36 +210,54 @@ func TestGoTestRaceBringsTheRecordsPostgres(t *testing.T) {
 	wantState(t, runAtom(t, "go:test-race", ""), 0, "no record at fleet/stars/nobody")
 }
 
-func TestGoMutationCompilesTheRecordsDBTags(t *testing.T) {
+// The go:mutation needles, each in one exec's chain.
+const (
+	goMutantsNeedle = `"--output","mutation-go.json"`
+	goCanaryNeedle  = `"--workers","1"`
+	goDiffNeedle    = `"git","diff","--relative"`
+	goReportRead    = `file(path:"/src/mutation-go.json"){contents}`
+	// goCleanReport is a report where every mutant was killed.
+	goCleanReport = `{"elapsed_time":1,"files":[{"file_name":"a.go","mutations":[{"type":"T","status":"KILLED","line":1,"column":1}]}]}`
+)
+
+// scriptGoMutation answers a pull that changed Go, with a canary that honestly
+// survives and a clean report.
+func scriptGoMutation(tree map[string]string) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	engine.withTree(map[string]string{
+	engine.withTree(map[string]string{"/src/mutation-go.json": goCleanReport})
+	engine.withTree(tree)
+	engine.stdout(goDiffNeedle, "a.go\n")
+	engine.stdout(goCanaryNeedle, "Killed: 0, Lived: 1, Not covered: 0\n")
+}
+
+func TestGoMutationCompilesTheRecordsDBTags(t *testing.T) {
+	scriptGoMutation(map[string]string{
 		".copier-answers.yml":           "service_name: x\n",
 		"/dies/fleet/stars/x/slag.json": `{"backends":{"postgres":{}}}`,
-		"/tmp/mutation/verdict":         "0\n",
-		"/tmp/mutation/reason":          "every mutant killed",
 	})
 	engine.stdout(`"grep","-rhoE"`, "//go:build live_db\n")
 	// A pass keeps no output (checks.VerdictOf); the scope line is set on
 	// the verdict and survives it.
 	wantState(t, runAtom(t, "go:mutation", "abc123"), 0, "live_db → TEST_DATABASE_URL")
-	c := engine.chain(`go.sh","score"`, "exitCode")
+	c := engine.chain(goMutantsNeedle, "exitCode")
 	wantCalls(t, c,
 		[]string{"withServiceBinding", `alias:"db"`},
 		[]string{"withEnvVariable", `name:"TEST_DATABASE_URL"`},
-		[]string{"withEnvVariable", `name:"MUT_BUILD_TAGS"`, `value:"live_db"`},
+		// the coverage run compiles the tag and serialises on the one database
+		[]string{"withExec", `"-coverprofile","mutation-cover.out","-tags","live_db","-p","1","./..."`},
+		[]string{"withExec", `"--tags","live_db"`},
 	)
 	if hasCall(c, "withServiceBinding", `alias:"db-novector"`) {
 		t.Errorf("only the tags the tree carries are bound:\n%s", c)
 	}
 
-	// NO BACKEND, NO MUT_BUILD_TAGS AT ALL — not an empty one. go.sh reads
-	// the variable's presence: an empty -tags word is still `-tags ""` and
-	// `-p 1` on a suite that shares no database.
+	// NO BACKEND, NO TAGS AT ALL — not an empty one: an empty -tags word is
+	// still `-tags ""`, and `-p 1` on a suite that shares no database.
 	engine.withTree(map[string]string{"/dies/fleet/stars/x/slag.json": `{"backends":{}}`})
 	wantState(t, runAtom(t, "go:mutation", "abc123"), 0, "test databases: none")
-	c = engine.chain(`go.sh","score"`, "exitCode")
-	if hasCall(c, "withEnvVariable", `name:"MUT_BUILD_TAGS"`) || hasCall(c, "withServiceBinding") {
+	c = engine.chain(goMutantsNeedle, "exitCode")
+	if strings.Contains(c, `"-tags"`) || strings.Contains(c, `"--tags"`) || hasCall(c, "withServiceBinding") {
 		t.Errorf("a record without postgres sets no tags and binds nothing:\n%s", c)
 	}
 }
@@ -274,43 +292,128 @@ func TestGoStaticcheckAndGovulncheckUseTheBakedBinaries(t *testing.T) {
 	wantState(t, runAtom(t, "go:govulncheck", ""), 2, "not found")
 }
 
-func TestGoMutationRunsThePhasesAndReadsTheVerdictFile(t *testing.T) {
-	engine.reset()
-	tree := map[string]string{}
-	for k, v := range everyLaneTree {
-		tree[k] = v
-	}
-	tree["/tmp/mutation/verdict"] = "0\n"
-	tree["/tmp/mutation/reason"] = "every mutant killed"
-	engine.withTree(tree)
-	// The verdict file is read off the scored container; the paper engine
-	// serves file contents from the tree by path.
-	v := runAtom(t, "go:mutation", "abc123")
-	wantState(t, v, 0)
-	c := engine.chain(`go.sh","score"`)
+// The gate measures the pull's diff in Go: the neutral config, the canary, the
+// bound through the environment, the fleet's exclusions and the base — no
+// script, no shell, no foundry-stocks mount.
+func TestGoMutationMeasuresTheDiffAndSettlesInGo(t *testing.T) {
+	scriptGoMutation(nil)
+	wantState(t, runAtom(t, "go:mutation", "abc123"), 0)
+	c := engine.chain(goMutantsNeedle, "exitCode")
 	wantCalls(t, c,
 		[]string{"withEnvVariable", `name:"GATE_BASE"`, `value:"abc123"`},
-		[]string{"withEnvVariable", `name:"MUT_BASE"`, `value:"abc123"`},
-		[]string{"withMountedDirectory", `path:"/stocks"`},
 		[]string{"withMountedDirectory", `path:"/dies"`},
+		[]string{"withNewFile", `path:"/tmp/mutation/gremlins-neutral.yaml"`},
+		[]string{"withExec", `"go","test","-cover","-coverprofile","mutation-cover.out","./..."`},
+		[]string{"withEnvVariable", `name:"GOMAXPROCS"`, `value:"1"`},
+		[]string{"withEnvVariable", `name:"GOFLAGS"`, `value:"-p=1"`},
+		[]string{"withExec", `expect:ANY`, `"gremlins","unleash","--config","/tmp/mutation/gremlins-neutral.yaml","--output","mutation-go.json","--timeout-coefficient","10","--workers","4","--exclude-files","` + strings.ReplaceAll(goMutationExclude, `\`, `\\`) + `","--diff","abc123","."`},
 	)
-	for _, phase := range []string{"resolve", "setup", "cover", "mutate", "teardown", "score"} {
-		if !hasCall(c, "withExec", `expect:ANY`, `"/stocks/ci/lib/mutation/go.sh","`+phase+`"`) {
-			t.Errorf("go:mutation lacks phase %s under ANY:\n%s", phase, c)
-		}
+	if strings.Contains(c, `path:"/stocks"`) || strings.Contains(c, `"bash"`) {
+		t.Errorf("the gate mounted foundry-stocks or ran bash:\n%s", c)
 	}
+	wantCalls(t, engine.chain(goCanaryNeedle, "stdout"),
+		[]string{"withNewFile", `path:"/tmp/mutation/canary/go.mod"`},
+		[]string{"withNewFile", `path:"/tmp/mutation/canary/canary_test.go"`},
+		[]string{"withWorkdir", `path:"/tmp/mutation/canary"`},
+		[]string{"withExec", `"gremlins","unleash","--config","/tmp/mutation/gremlins-neutral.yaml","--timeout-coefficient","10","--workers","1","."`},
+	)
+}
 
-	tree["/tmp/mutation/verdict"] = "1\n"
-	tree["/tmp/mutation/reason"] = "3 mutants survived"
-	engine.withTree(tree)
-	wantState(t, runAtom(t, "go:mutation", "abc123"), 1, "3 mutants survived")
+// What the run measured decides the verdict, through checks.GoMutationVerdict.
+func TestGoMutationSettlesWhatItMeasured(t *testing.T) {
+	survivors := `{"files":[{"file_name":"a.go","mutations":[{"type":"T","status":"KILLED","line":1,"column":1},{"type":"T","status":"LIVED","line":2,"column":3}]}]}`
+	cases := map[string]struct {
+		script func()
+		state  int
+		reason []string
+	}{
+		"every mutant caught": {nil, 0, nil},
+		"a survivor": {func() { engine.withTree(map[string]string{"/src/mutation-go.json": survivors}) }, 1,
+			[]string{"1 mutant(s) survived or were never covered", "a.go:2:3  LIVED"}},
+		"a canary killed": {func() { engine.stdout(goCanaryNeedle, "Killed: 1, Lived: 0, Not covered: 0\n") }, 2,
+			[]string{"the harness scores unrun tests as kills"}},
+		// a canary that could not build is a control that could not control,
+		// and a clean report still stands on its own
+		"a canary that does not build": {func() { engine.exitCode(`"/tmp/mutation/canary/canary_test.go"`, 1) }, 0, nil},
+		"gremlins broken, no report": {func() {
+			engine.exitCode(goMutantsNeedle, 3)
+			engine.fail(goReportRead, "no such file")
+		}, 2, []string{"gremlins exited 3 and wrote no mutation-go.json"}},
+		"nothing to report": {func() { engine.fail(goReportRead, "no such file") }, 0,
+			nil},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			scriptGoMutation(nil)
+			if c.script != nil {
+				c.script()
+			}
+			wantState(t, runAtom(t, "go:mutation", "abc123"), c.state, c.reason...)
+		})
+	}
+	// A canary that did not build never runs gremlins.
+	scriptGoMutation(nil)
+	engine.exitCode(`"/tmp/mutation/canary/canary_test.go"`, 1)
+	runAtom(t, "go:mutation", "abc123")
+	if engine.chain(goCanaryNeedle) != "" {
+		t.Error("gremlins ran a canary whose tests do not build")
+	}
+}
 
-	engine.exitCode(`go.sh","cover"`, 1)
-	wantState(t, runAtom(t, "go:mutation", "abc123"), 2, "phase cover")
-
-	engine.reset()
-	engine.withTree(everyLaneTree) // no verdict file
-	wantState(t, runAtom(t, "go:mutation", "abc123"), 2, "no verdict")
+// A pull with nothing to scope to stands down clean, and never mutates the
+// whole module; what the gate cannot evaluate is could-not-run.
+func TestGoMutationStandsDownOrCannotRun(t *testing.T) {
+	const baseNeedle = `"git","rev-parse","--verify","--quiet","abc123^{commit}"`
+	cases := map[string]struct {
+		base   string
+		script func()
+		state  int
+		// reason is checked only off a could-not-run: a pass keeps no output
+		// (checks.VerdictOf), so a stand-down is told apart by what it ran.
+		reason  string
+		reached []string
+		never   []string
+	}{
+		"no base": {"", nil, 0, "", nil, []string{baseNeedle, goDiffNeedle}},
+		"a base the history lacks": {"abc123", func() { engine.exitCode(baseNeedle, 1) }, 0, "",
+			[]string{baseNeedle}, []string{goDiffNeedle}},
+		"no Go changed": {"abc123", func() { engine.stdout(goDiffNeedle, "") }, 0, "",
+			[]string{goDiffNeedle}, []string{`"-coverprofile"`}},
+		"git cannot diff": {"abc123", func() { engine.exitCode(goDiffNeedle, 1) }, 2,
+			"git could not diff the pull against its base abc123", []string{goDiffNeedle}, []string{`"-coverprofile"`}},
+		"the base check never ran": {"abc123", func() { engine.fail(baseNeedle, "engine gone") }, 2, "never ran", nil, []string{goDiffNeedle}},
+		"the diff never ran":       {"abc123", func() { engine.fail(goDiffNeedle, "engine gone") }, 2, "never ran", nil, []string{`"-coverprofile"`}},
+		"coverage never ran": {"abc123", func() {
+			engine.failLeaf(`"-coverprofile","mutation-cover.out","./..."`, "exitCode", "engine gone")
+		}, 2, "never ran", nil, nil},
+		"gremlins never ran": {"abc123", func() { engine.failLeaf(goMutantsNeedle, "exitCode", "engine gone") }, 2, "never ran", nil, nil},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			scriptGoMutation(nil)
+			if c.script != nil {
+				c.script()
+			}
+			if c.reason == "" {
+				wantState(t, runAtom(t, "go:mutation", c.base), c.state)
+			} else {
+				wantState(t, runAtom(t, "go:mutation", c.base), c.state, c.reason)
+			}
+			if c.state == 0 && engine.chain(goMutantsNeedle) != "" {
+				t.Errorf("a stand-down ran gremlins")
+			}
+			for _, n := range c.reached {
+				if engine.chain(n) == "" {
+					t.Errorf("never reached %s", n)
+				}
+			}
+			for _, n := range c.never {
+				if engine.chain(n) != "" {
+					t.Errorf("went on to %s", n)
+				}
+			}
+		})
+	}
 }
 
 // Rule 8: GATE_BASE reaches only the atoms that judge the change. Every other
@@ -362,21 +465,6 @@ func TestNoAtomExecsAShell(t *testing.T) {
 			}
 		}
 	}
-}
-
-func TestGoMutationRefusesWithoutItsScriptAndOnAnEngineError(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.fail(`path:"ci/lib/mutation/go.sh"`, "no such file")
-	wantState(t, runAtom(t, "go:mutation", "abc"), 2, "did not mount at its one home")
-	if engine.chain(`go.sh","resolve"`) != "" {
-		t.Errorf("a missing script must stop the atom before any phase runs")
-	}
-
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.fail(`go.sh","resolve"`, "engine gone")
-	wantState(t, runAtom(t, "go:mutation", "abc"), 2, "never ran", "engine gone")
 }
 
 func TestGoGofmtHandsAHugePopulationInAsAFile(t *testing.T) {

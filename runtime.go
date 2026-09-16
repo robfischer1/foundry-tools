@@ -132,12 +132,10 @@ func (r *run) lane(image string) *dagger.Container {
 func provision(ctr *dagger.Container, image string) *dagger.Container {
 	switch image {
 	case checks.ImageGo:
-		// golang:bookworm carries git, curl and bash; go.sh scores with
-		// python3 (go_score.py), which it does not.
+		// golang:bookworm carries git and curl, which is all the go atoms exec
+		// besides the tools below; the mutation gate scores in Go now, so the
+		// python3 go_score.py needed is not installed.
 		return ctr.
-			WithExec([]string{"apt-get", "update"}).
-			WithExec([]string{"apt-get", "install", "-y", "--no-install-recommends", "python3"}).
-			WithExec([]string{"rm", "-rf", "/var/lib/apt/lists"}).
 			WithFile("/usr/local/bin/opengrep", dag.HTTP(checks.OpengrepMirror), dagger.ContainerWithFileOpts{Permissions: 0o755}).
 			WithExec([]string{"opengrep", "--version"}).
 			WithExec([]string{"go", "install", checks.GremlinsModule}).
