@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
@@ -58,6 +59,12 @@ type run struct {
 
 	stocks *dagger.Directory
 	dies   *dagger.Directory
+
+	// goMods is the tree's Go modules, read once per run: the lane check and
+	// every go atom ask, and they run concurrently.
+	goModsOnce sync.Once
+	goMods     []string
+	goModsErr  error
 }
 
 func newRun(src *dagger.Directory, repo, base string) *run {

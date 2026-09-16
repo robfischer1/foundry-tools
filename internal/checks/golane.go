@@ -1,6 +1,9 @@
 package checks
 
 import (
+	"fmt"
+	"path"
+	"sort"
 	"strings"
 )
 
@@ -58,4 +61,116 @@ func GovulncheckExit(code int) int {
 		return 1
 	}
 	return code
+}
+
+// GoModuleDirs answers the directory of every Go module a population carries,
+// the root first as "." and the rest sorted.
+//
+// EVERY go.mod, NOT ONLY THE ROOT'S. The lane used to be declared by a root
+// go.mod alone, which left a module one directory down ungated in every
+// repository: foundry-stocks' tools/forge — the forge that publishes the
+// fleet's base images — ran none of this lane's atoms, and neither did chaos'
+// styx and bigintschema beside a root module, because `go vet ./...` at a
+// root does not descend into a nested module. Rob, 2026-09-16: fleet wide.
+//
+// A go.mod the go command itself would never build is not a module here: one
+// under vendor/ or testdata/, or under a directory whose name starts with "_"
+// or ".", the same directories `./...` skips. That is the answer to this
+// file's older worry — a vendored go.mod three directories down reporting
+// CANNOT RUN forever on a repository with nothing to check.
+func GoModuleDirs(files []string) []string {
+	var dirs []string
+	root := false
+	for _, f := range files {
+		dir, name := path.Split(f)
+		dir = strings.TrimSuffix(dir, "/")
+		if name != "go.mod" {
+			continue
+		}
+		if dir == "" {
+			root = true
+			continue
+		}
+		if !goBuildsUnder(dir) {
+			continue
+		}
+		dirs = append(dirs, dir)
+	}
+	sort.Strings(dirs)
+	if root {
+		dirs = append([]string{"."}, dirs...)
+	}
+	return dirs
+}
+
+// goBuildsUnder reports whether the go command would build a package in dir.
+func goBuildsUnder(dir string) bool {
+	for _, seg := range strings.Split(dir, "/") {
+		if seg == "vendor" || seg == "testdata" || strings.HasPrefix(seg, "_") || strings.HasPrefix(seg, ".") {
+			return false
+		}
+	}
+	return true
+}
+
+// ModuleVerdict is one Go module's answer to one atom.
+type ModuleVerdict struct {
+	Dir     string
+	Verdict Verdict
+}
+
+// FoldModules is one atom's verdict over every module it ran in.
+//
+// FINDINGS OUTRANK CANNOT RUN. A finding in one module is a red the pull
+// carries whatever another module would have said, and filing the fold as
+// could-not-run would send the sweep to re-ask a question whose answer is
+// already no. With no finding, a module that could not run makes the atom
+// could-not-run, because a module that was not checked is not a module that
+// passed.
+//
+// Every module's own reason is kept under its directory, passes included: the
+// test-race and mutation atoms put their scope line on a pass, and a fold that
+// dropped it would hide which modules ran against which databases.
+func FoldModules(a AtomDef, mods []ModuleVerdict) Verdict {
+	state := StatePass
+	var dirs []string
+	for _, m := range mods {
+		s := State(m.Verdict.State)
+		if s == StateFindings || (s != StatePass && state == StatePass) {
+			state = s
+		}
+	}
+	for _, m := range mods {
+		if State(m.Verdict.State) == state {
+			dirs = append(dirs, m.Dir)
+		}
+	}
+	var b strings.Builder
+	switch state {
+	case StatePass:
+		fmt.Fprintf(&b, "%s: PASS in %s (%s)", a.ID, goModules(len(mods)), strings.Join(dirs, ", "))
+	case StateFindings:
+		fmt.Fprintf(&b, "%s: FINDINGS in %d of %s (%s)", a.ID, len(dirs), goModules(len(mods)), strings.Join(dirs, ", "))
+	default:
+		fmt.Fprintf(&b, "%s: CANNOT RUN in %d of %s (%s) — a module that was not checked is not a module that passed.", a.ID, len(dirs), goModules(len(mods)), strings.Join(dirs, ", "))
+	}
+	for _, m := range mods {
+		fmt.Fprintf(&b, "\n── module %s ──\n%s", m.Dir, m.Verdict.Reason)
+	}
+	return Verdict{
+		Atom:   a.ID,
+		Stage:  a.Stage,
+		Lane:   string(a.Lane),
+		State:  int(state),
+		Result: state.String(),
+		Reason: b.String(),
+	}
+}
+
+// goModules counts modules in words: "1 Go module", "3 Go modules".
+func goModules(n int) string {
+	if n == 1 {
+		return "1 Go module"
+	}
+	return fmt.Sprintf("%d Go modules", n)
 }

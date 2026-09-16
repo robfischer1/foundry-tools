@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"path"
 	"strconv"
 	"strings"
 
@@ -35,15 +36,73 @@ func init() {
 // the sweep will not re-ask (measured 2026-09-11 17:26Z, foundry-tools#29:
 // `proxy.golang.org …: 502 Bad Gateway` filed as a finding). Here a failed
 // download is a failed exec — state 2, could not run, re-asked.
-func (r *run) goModules() *dagger.Container {
-	return r.lane(checks.ImageGo).
-		WithExec([]string{"go", "mod", "download"})
+func (r *run) goModules(dir string) *dagger.Container {
+	return goDownload(r.lane(checks.ImageGo), dir)
+}
+
+// goDownload is goModules on a container an atom has already prepared at the
+// tree's root — the dies mounted, the repository made readable. The module's
+// directory is entered AFTER that preparation and before anything reads the
+// module, because gitReady runs `git init .` in the working directory and a
+// module's directory is not the repository's.
+func goDownload(ctr *dagger.Container, dir string) *dagger.Container {
+	return inModule(ctr, dir).WithExec([]string{"go", "mod", "download"})
+}
+
+// inModule enters one module's directory. The root module stays at /src with
+// no second withWorkdir, so a single-module repository's chains are the ones
+// it had before modules were enumerated.
+func inModule(ctr *dagger.Container, dir string) *dagger.Container {
+	if dir == "." {
+		return ctr
+	}
+	return ctr.WithWorkdir(path.Join("/src", dir))
+}
+
+// goModuleDirs is the tree's Go modules (checks.GoModuleDirs), read once per
+// run off the gate's own population.
+func (r *run) goModuleDirs(ctx context.Context) ([]string, error) {
+	r.goModsOnce.Do(func() {
+		files, err := r.population(ctx, "**/go.mod")
+		if err != nil {
+			r.goModsErr = err
+			return
+		}
+		r.goMods = checks.GoModuleDirs(files)
+	})
+	return r.goMods, r.goModsErr
+}
+
+// eachModule runs one go atom in every module the tree carries and folds the
+// answers (checks.FoldModules). A repository whose only module is its root
+// gets that one verdict back untouched, exactly as before modules were
+// enumerated. Modules run one after another: a pre-push gate on a laptop
+// shares the engine with the other atoms, and the modules of one repository
+// are not independent enough of each other's caches to race.
+func (r *run) eachModule(ctx context.Context, a checks.AtomDef, one func(dir string) checks.Verdict) checks.Verdict {
+	dirs, err := r.goModuleDirs(ctx)
+	if err != nil {
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - could not enumerate the tree's Go modules: "+err.Error())
+	}
+	if len(dirs) == 0 {
+		return checks.AbsentVerdict(a)
+	}
+	if len(dirs) == 1 && dirs[0] == "." {
+		return one(".")
+	}
+	mods := make([]checks.ModuleVerdict, 0, len(dirs))
+	for _, dir := range dirs {
+		mods = append(mods, checks.ModuleVerdict{Dir: dir, Verdict: one(dir)})
+	}
+	return checks.FoldModules(a, mods)
 }
 
 // go vet ./... reports nothing.
 func goVet(ctx context.Context, r *run) checks.Verdict {
-	return verdict(ctx, checks.AtomByID("go:vet"),
-		r.goModules().WithExec([]string{"go", "vet", "./..."}, anyExit))
+	a := checks.AtomByID("go:vet")
+	return r.eachModule(ctx, a, func(dir string) checks.Verdict {
+		return verdict(ctx, a, r.goModules(dir).WithExec([]string{"go", "vet", "./..."}, anyExit))
+	})
 }
 
 // go test -race ./... passes, and there is something for it to pass.
@@ -67,6 +126,11 @@ func goVet(ctx context.Context, r *run) checks.Verdict {
 // test (chaos's own README says so of its lane).
 func goTestRace(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("go:test-race")
+	return r.eachModule(ctx, a, func(dir string) checks.Verdict { return goTestRaceIn(ctx, r, a, dir) })
+}
+
+// goTestRaceIn is go:test-race in one module.
+func goTestRaceIn(ctx context.Context, r *run, a checks.AtomDef, dir string) checks.Verdict {
 	// THE SUITE RUNS IN A REPOSITORY git CAN READ. A test that shells out to
 	// git — hephaestus's TestRealResolveHistory runs `git ls-remote` against a
 	// fixture — fails on a linked worktree's dangling `.git` file with
@@ -74,7 +138,7 @@ func goTestRace(ctx context.Context, r *run) checks.Verdict {
 	// it ever reaches the fixture, and the lane files FINDINGS for a test
 	// that never got to look (measured 2026-09-14 on hephaestus, pre-push).
 	// gitReady is the fix cargo-test and the mutation atoms already carry.
-	mods := r.gitReady(ctx, r.withDies(r.goModules()))
+	mods := goDownload(r.gitReady(ctx, r.withDies(r.lane(checks.ImageGo))), dir)
 
 	counts, code, err := output(ctx, mods.WithExec([]string{
 		"go", "list", "-f", "{{len .TestGoFiles}}{{len .XTestGoFiles}}", "./...",
@@ -224,8 +288,10 @@ const gofmtArgFile = "/tmp/gofmt-files0"
 // FINDINGS turns a proxy's bad hour into a terminal red the sweep will not
 // re-ask (measured 2026-09-11 17:26Z, foundry-tools#29).
 func goBuild(ctx context.Context, r *run) checks.Verdict {
-	return verdict(ctx, checks.AtomByID("go:build"),
-		r.goModules().WithExec([]string{"go", "build", "./..."}, anyExit))
+	a := checks.AtomByID("go:build")
+	return r.eachModule(ctx, a, func(dir string) checks.Verdict {
+		return verdict(ctx, a, r.goModules(dir).WithExec([]string{"go", "build", "./..."}, anyExit))
+	})
 }
 
 // staticcheck ./... reports nothing.
@@ -254,10 +320,12 @@ func goBuild(ctx context.Context, r *run) checks.Verdict {
 // test file. What is spelled below is staticcheck's shipped default, verbatim;
 // a stricter fleet set is a decision to make on purpose, not by omission.
 func goStaticcheck(ctx context.Context, r *run) checks.Verdict {
-	return verdict(ctx, checks.AtomByID("go:staticcheck"),
-		r.goModules().
+	a := checks.AtomByID("go:staticcheck")
+	return r.eachModule(ctx, a, func(dir string) checks.Verdict {
+		return verdict(ctx, a, r.goModules(dir).
 			WithExec([]string{"staticcheck", "-version"}).
 			WithExec([]string{"staticcheck", "-checks", staticcheckChecks, "./..."}, anyExit))
+	})
 }
 
 // staticcheckChecks is staticcheck's shipped default set, spelled out so the
@@ -281,13 +349,15 @@ const staticcheckChecks = "all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-
 // verdict on the code, so the fetch is its own step and its failure is a 2.
 func goGovulncheck(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("go:govulncheck")
-	out, code, err := output(ctx, r.goModules().
-		WithExec([]string{"govulncheck", "-version"}).
-		WithExec([]string{"govulncheck", "./..."}, anyExit))
-	if err != nil {
-		return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
-	}
-	return checks.VerdictOf(a, checks.GovulncheckExit(code), out)
+	return r.eachModule(ctx, a, func(dir string) checks.Verdict {
+		out, code, err := output(ctx, r.goModules(dir).
+			WithExec([]string{"govulncheck", "-version"}).
+			WithExec([]string{"govulncheck", "./..."}, anyExit))
+		if err != nil {
+			return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
+		}
+		return checks.VerdictOf(a, checks.GovulncheckExit(code), out)
+	})
 }
 
 // Every mutant gremlins makes of this pull's changed Go is killed by the tests.
@@ -347,7 +417,22 @@ func goGovulncheck(ctx context.Context, r *run) checks.Verdict {
 // read.
 func goMutation(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("go:mutation")
-	ctr := r.gitReady(ctx, r.withBase(r.withDies(r.goModules())))
+	return r.eachModule(ctx, a, func(dir string) checks.Verdict { return goMutationIn(ctx, r, a, dir) })
+}
+
+// goMutationIn is go:mutation in one module.
+//
+// A NESTED MODULE NEEDS diff.relative OR IT MEASURES NOTHING. gremlins scopes
+// to `git diff --merge-base <base>`, whose paths are relative to the
+// repository, and matches them against paths relative to the module. In
+// tools/forge nothing matched, and the run scored zero mutants on a pull that
+// changed three of its files. MEASURED 2026-09-16 on foundry-stocks #199
+// against its base: 0 killed, 0 lived without it; 15 killed, 0 lived with
+// diff.relative=true, which makes that diff print paths relative to the
+// working directory. At a repository's root the two are the same paths, so
+// every module carries it.
+func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) checks.Verdict {
+	ctr := goDownload(r.gitReady(ctx, r.withBase(r.withDies(r.lane(checks.ImageGo)))), dir)
 	// THE RECORD'S DATABASE, as go:test-race brings it: the DB-gated suites are
 	// compiled for the coverage run and gremlins' (and serialised on the one
 	// database), and the servers are bound. Without this every DB-touching line
@@ -410,7 +495,7 @@ func goMutation(ctx context.Context, r *run) checks.Verdict {
 	if _, err := covered.ExitCode(ctx); err != nil {
 		return neverRan(err)
 	}
-	profile, _ := covered.File("/src/" + goMutationProfile).Contents(ctx)
+	profile, _ := covered.File(path.Join("/src", dir, goMutationProfile)).Contents(ctx)
 
 	// THE CANARY, in a module of its own.
 	canary := checks.CanaryUnknown
@@ -435,6 +520,9 @@ func goMutation(ctx context.Context, r *run) checks.Verdict {
 	mutated := covered.
 		WithEnvVariable("GOMAXPROCS", "1").
 		WithEnvVariable("GOFLAGS", "-p=1").
+		WithEnvVariable("GIT_CONFIG_COUNT", "1").
+		WithEnvVariable("GIT_CONFIG_KEY_0", "diff.relative").
+		WithEnvVariable("GIT_CONFIG_VALUE_0", "true").
 		WithExec(args, anyExit)
 	status, err := mutated.ExitCode(ctx)
 	if err != nil {
@@ -442,7 +530,7 @@ func goMutation(ctx context.Context, r *run) checks.Verdict {
 	}
 	// gremlins writes no report when it has nothing to report; a read that
 	// fails is that absence, and the verdict decides what it means.
-	report, _ := mutated.File("/src/" + goMutationReport).Contents(ctx)
+	report, _ := mutated.File(path.Join("/src", dir, goMutationReport)).Contents(ctx)
 
 	return settle(checks.GoMutationVerdict(checks.GoMutationRun{
 		Status: status, Report: []byte(report), Profile: profile, Canary: canary, Workers: goMutationWorkers,

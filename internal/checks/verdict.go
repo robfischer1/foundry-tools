@@ -136,6 +136,12 @@ func AbsentVerdict(a AtomDef) Verdict {
 }
 
 func absentReason(a AtomDef) string {
+	if a.Lane == LaneGo {
+		// The go lane is declared by a go.mod ANYWHERE the go command would
+		// build (GoModuleDirs), so its absence is not a root-only statement.
+		return fmt.Sprintf("%s: ABSENT — no go.mod anywhere in the tree (vendor/, testdata/ and _ or . directories do not count), so this repo does not build the go lane. Nothing was checked and nothing needed to be.",
+			a.ID)
+	}
 	return fmt.Sprintf("%s: ABSENT — no %s at the repository root, so this repo does not build the %s lane. Nothing was checked and nothing needed to be.",
 		a.ID, ManifestFor(a.Lane), a.Lane)
 }

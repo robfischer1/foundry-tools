@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"golang.org/x/sync/errgroup"
 
@@ -152,13 +153,25 @@ func (m *FoundryTools) Lanes(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("could not read the repository root: %w", err)
 	}
-	lanes := checks.LanesOf(entries)
-	if len(lanes) == 0 {
-		return "this repository declares no lane (no go.mod, pyproject.toml, Cargo.toml or package.json at its root)", nil
+	// Go is declared by a module anywhere in the tree, as verdictFor reads it,
+	// so this answers the lanes the gate would actually run.
+	dirs, err := newRun(m.Source, "", "").goModuleDirs(ctx)
+	if err != nil {
+		return "", fmt.Errorf("could not enumerate the tree's Go modules: %w", err)
 	}
 	out := ""
-	for _, l := range lanes {
-		out += fmt.Sprintf("%s (%s)\n", l, checks.ManifestFor(l))
+	for _, l := range checks.LanesOf(entries) {
+		if l != checks.LaneGo {
+			out += fmt.Sprintf("%s (%s)\n", l, checks.ManifestFor(l))
+		}
+	}
+	if len(dirs) == 1 && dirs[0] == "." {
+		out = fmt.Sprintf("%s (go.mod)\n", checks.LaneGo) + out
+	} else if len(dirs) > 0 {
+		out = fmt.Sprintf("%s (go.mod in %s)\n", checks.LaneGo, strings.Join(dirs, ", ")) + out
+	}
+	if out == "" {
+		return "this repository declares no lane (no go.mod anywhere, and no pyproject.toml, Cargo.toml or package.json at its root)", nil
 	}
 	return out, nil
 }
@@ -264,7 +277,17 @@ func (m *FoundryTools) Verdicts(
 func verdictFor(ctx context.Context, r *run, id string) (checks.Verdict, error) {
 	a := checks.AtomByID(id)
 
-	if a.Lane != checks.LaneAny {
+	if a.Lane == checks.LaneGo {
+		// The go lane is declared by a module anywhere in the tree, not by a
+		// root go.mod (checks.GoModuleDirs has why).
+		dirs, err := r.goModuleDirs(ctx)
+		if err != nil {
+			return checks.VerdictOf(a, 2, fmt.Sprintf("could not enumerate the tree's Go modules: %v", err)), nil
+		}
+		if len(dirs) == 0 {
+			return checks.AbsentVerdict(a), nil
+		}
+	} else if a.Lane != checks.LaneAny {
 		entries, err := r.src.Entries(ctx)
 		if err != nil {
 			// The tree could not be read. That is a CANNOT RUN about the
