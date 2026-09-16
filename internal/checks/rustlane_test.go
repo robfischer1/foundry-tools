@@ -88,9 +88,8 @@ func TestCargoListsTestsReadsLibtestsOwnListing(t *testing.T) {
 	}
 }
 
-// MutationScore, RustCriticalModules/criticalModules and ModulesDeclared were
-// this lane's copies of three helpers every mutation lane needed. They are one
-// each now: checks.MutationVerdict (golane.go, golane_test.go),
+// RustCriticalModules/criticalModules and ModulesDeclared were this lane's
+// copies of helpers every mutation lane needed. They are one each now:
 // checks.CriticalModules and checks.MutationScope (pythonlane.go,
 // pythonlane_test.go). This lane's distinct cases moved into those tables.
 

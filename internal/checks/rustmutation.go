@@ -33,11 +33,11 @@ func RustMutationSpecs(mods string) []string {
 	return []string{"*.rs", ":!tests/"}
 }
 
-// RustDiffAddsLines reports whether a unified diff adds any line. A diff that
+// DiffAddsLines reports whether a unified diff adds any line. A diff that
 // only removes lines stands down before cargo-mutants' baseline build: it would
 // find nothing to mutate ("No mutants to filter", exit 0) after spending
 // 20-40s to say so. A `+++` file header is not an added line.
-func RustDiffAddsLines(diff string) bool {
+func DiffAddsLines(diff string) bool {
 	for _, ln := range strings.Split(diff, "\n") {
 		if len(ln) >= 2 && ln[0] == '+' && ln[1] != '+' {
 			return true

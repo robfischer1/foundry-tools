@@ -238,7 +238,7 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 	if diff == "" {
 		return settle(0, "this pull touched none of the critical modules — nothing to mutate")
 	}
-	if !checks.RustDiffAddsLines(diff) {
+	if !checks.DiffAddsLines(diff) {
 		return settle(0, "this pull only REMOVED lines from the critical modules — nothing to mutate")
 	}
 
