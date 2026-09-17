@@ -177,6 +177,31 @@ const (
 	StocksRef  = "main"
 )
 
+// TestkitRepo / TestkitRef pin the ONE definition of the mutation gate's knobs.
+//
+// SAME REASONING AS StocksRepo, applied to a config rather than a script. The
+// mutation atom used to write its own comment-only "neutral" file and discard
+// whatever the repo carried, on the rule that A REPO HAS NO SAY. That
+// rule is right and is kept: this config still does not come from the tree
+// under test — it comes from forge-testkit-go, read at its one home through the
+// door. What changes is that "neutral" meant "state nothing and inherit
+// gremlins' defaults", so the fleet's gate was defined by whatever the tool
+// happened to default to, in two places that agreed by luck.
+//
+// forge-testkit-go/mutation generates that file and a unit test there fails if
+// the checked-in copy drifts from the generator, so the file read here is the
+// same bytes the package asserts.
+//
+// main, not a tag, matching StocksRef and Rule #2: one canonical gate for every
+// repo, ALWAYS THE LATEST. A pinned tag would let a repo's gate sit on knobs the
+// fleet had already moved off.
+const (
+	TestkitRepo = "https://git.notusmi.com/rob/forge-testkit-go.git"
+	TestkitRef  = "main"
+	// TestkitGremlinsConfig is the generated config's path in that tree.
+	TestkitGremlinsConfig = ".gremlins.yaml"
+)
+
 // DiesRepo / DiesRef pin the fleet's RECORD tree — foundry-dies — for the
 // atoms whose subject is the fleet rather than the repository under test.
 //

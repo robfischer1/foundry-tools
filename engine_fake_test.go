@@ -250,6 +250,8 @@ func gitMount(git field) string {
 		return "/dies"
 	case strings.Contains(url, "foundry-stocks"):
 		return "/stocks"
+	case strings.Contains(url, "forge-testkit-go"):
+		return "/testkit"
 	}
 	return ""
 }

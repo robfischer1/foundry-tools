@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"path"
 	"strconv"
 	"strings"
@@ -377,9 +378,29 @@ func goGovulncheck(ctx context.Context, r *run) checks.Verdict {
 // resolve then stands down 0 with "no usable PR base sha", and the door's Job
 // is the one that measures.
 //
-// THE GATE OWNS ITS KNOBS. gremlins auto-loads a .gremlins.yaml from the tree,
-// and that file can set thresholds that turn a healthy run into exit 10; every
-// gremlins run here reads an explicit neutral config instead.
+// THE GATE OWNS ITS KNOBS, AND THEY HAVE ONE HOME. gremlins auto-loads a
+// .gremlins.yaml from the tree, and that file can set thresholds that turn a
+// healthy run into exit 10, so every run here reads a config the tree cannot
+// touch. That config is now forge-testkit-go's generated one, read at its own
+// repo through the door (checks.TestkitRepo) — A REPO STILL HAS NO SAY, because
+// the file does not come from the tree under test.
+//
+// What it replaces is a comment-only file this atom wrote itself. "Neutral"
+// meant "state nothing and inherit gremlins' defaults", so the fleet's gate was
+// whatever the tool happened to default to, written down in two places that
+// agreed by luck — and the mutator set nobody had stated was invisible to
+// anyone reading either one.
+//
+// THE COEFFICIENT COMES FROM THAT FILE NOW, not from a flag here. It is the knob
+// that decides whether the run is CORRECT: parallel mutants slow each other
+// down, trip the timeout computed from the unmutated suite, and are recorded
+// TIMED OUT — which counts as neither killed nor survived and silently shrinks
+// the population. MEASURED on a 30-mutant module, 16 cores, five runs each on an
+// unchanged tree: --workers 4 alone gave 15/12, 15/13, 14/14, 15/13, 14/9 — five
+// different answers — while --workers 4 with coefficient 10 gave 16/14 three
+// times. --workers stays a flag here because 4 is this LANE's deliberate
+// override of a config default of 1, which is what a repo with a loopback-bound
+// suite needs and a CI runner does not.
 //
 // THE CANARY RUNS FIRST AND DECIDES WHETHER THE REPORT IS A MEASUREMENT. A
 // harness that cannot start the test child scores every mutant KILLED; the
@@ -482,7 +503,14 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	if len(dbs) > 0 {
 		tags = []string{"--tags", checks.BuildTags(dbs)}
 	}
-	neutral := ctr.WithNewFile(goMutationConfig, "# neutral — the mutation gate owns every knob it cares about.\n")
+	// THE CANONICAL CONFIG, at its one home. A read that fails is a lane that
+	// could not measure, never a gate that passes: without this file gremlins
+	// would fall back to its own defaults and score a different population.
+	cfg, err := r.testkit.File(checks.TestkitGremlinsConfig).Contents(ctx)
+	if err != nil {
+		return neverRan(fmt.Errorf("reading the canonical gremlins config from %s: %w", checks.TestkitRepo, err))
+	}
+	canonical := ctr.WithNewFile(goMutationConfig, cfg)
 
 	// COVER: the profile the scorer reads to tell a misjudged NOT COVERED from
 	// a real one. Never fatal — gremlins gathers its own; this one only corrects
@@ -491,7 +519,7 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	if len(dbs) > 0 {
 		coverArgs = append(coverArgs, "-tags", checks.BuildTags(dbs), "-p", "1")
 	}
-	covered := neutral.WithExec(append(coverArgs, "./..."), anyExit)
+	covered := canonical.WithExec(append(coverArgs, "./..."), anyExit)
 	if _, err := covered.ExitCode(ctx); err != nil {
 		return neverRan(err)
 	}
@@ -499,7 +527,7 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 
 	// THE CANARY, in a module of its own.
 	canary := checks.CanaryUnknown
-	control := neutral.
+	control := canonical.
 		WithNewFile(mutationDir+"/canary/go.mod", checks.GoMutationCanaryMod).
 		WithNewFile(mutationDir+"/canary/canary.go", checks.GoMutationCanaryCode).
 		WithNewFile(mutationDir+"/canary/canary_test.go", checks.GoMutationCanaryTest).
@@ -507,7 +535,7 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 		WithExec([]string{"go", "test", "-cover", "-coverprofile", goMutationProfile, "./..."}, anyExit)
 	if code, err := control.ExitCode(ctx); err == nil && code == 0 {
 		out, _, err := outputBoth(ctx, control.WithExec([]string{"gremlins", "unleash", "--config", goMutationConfig,
-			"--timeout-coefficient", "10", "--workers", "1", "."}, anyExit))
+			"--workers", "1", "."}, anyExit))
 		if err == nil {
 			canary = checks.GoMutationCanary(out)
 		}
@@ -515,7 +543,7 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 
 	// MUTATE.
 	args := append([]string{"gremlins", "unleash", "--config", goMutationConfig, "--output", goMutationReport,
-		"--timeout-coefficient", "10", "--workers", strconv.Itoa(goMutationWorkers)}, tags...)
+		"--workers", strconv.Itoa(goMutationWorkers)}, tags...)
 	args = append(args, "--exclude-files", goMutationExclude, "--diff", r.base, ".")
 	mutated := covered.
 		WithEnvVariable("GOMAXPROCS", "1").
@@ -540,8 +568,21 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 const (
 	// mutationDir is where the canary module is written.
 	mutationDir = "/tmp/mutation"
-	// goMutationConfig is the neutral gremlins config every run reads.
-	goMutationConfig = mutationDir + "/gremlins-neutral.yaml"
+	// goMutationConfig is where the canonical config is written in the lane.
+	//
+	// SPELLED WHOLE, not mutationDir + "/…", and the reason is this gate's own.
+	// A `+` in a top-level const has NO COVERAGE BLOCK — Go's cover tool
+	// instruments function bodies — so gremlins reports its mutant NOT COVERED
+	// forever and no test that could ever be written would change that. This
+	// pull's first run proved it on this very line: 1 killed, 1 not covered,
+	// the uncovered one being the concatenation that used to be here.
+	//
+	// The concatenation bought nothing, so it is gone rather than forgiven.
+	// That is the same answer this gate gives every star: remove the operator
+	// when removing it costs nothing. (mutationDir is still shared by the
+	// canary and the python lane, where every use is inside a function body and
+	// its mutants are killable.)
+	goMutationConfig = "/tmp/mutation/gremlins-canonical.yaml"
 	// goMutationReport and goMutationProfile are what the run leaves in /src.
 	goMutationReport  = "mutation-go.json"
 	goMutationProfile = "mutation-cover.out"
