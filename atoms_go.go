@@ -491,7 +491,10 @@ func goGovulncheck(ctx context.Context, r *run) checks.Verdict {
 		if err != nil {
 			return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
 		}
-		return checks.VerdictOf(a, checks.GovulncheckExit(code), out)
+		// govulncheck's 3 is "vulnerabilities found" and reads as 1; any
+		// other non-zero with a network fault in it is the database not
+		// answering, which AuditVerdict reads as could-not-run.
+		return checks.AuditVerdict(a, checks.GovulncheckExit(code), out)
 	})
 }
 

@@ -121,7 +121,7 @@ func tsGate(ctx context.Context, r *run, id string) checks.Verdict {
 // --audit-level=high is the fleet's threshold: bun exits 1 when something at or
 // above it is reported, and that 1 is the finding.
 func tsBunAudit(ctx context.Context, r *run) checks.Verdict {
-	return verdict(ctx, checks.AtomByID("ts:bun-audit"),
+	return audit(ctx, checks.AtomByID("ts:bun-audit"),
 		r.lane(checks.ImageTS).
 			WithEnvVariable("BUN_CONFIG_REGISTRY", "https://registry.npmjs.org/").
 			WithExec([]string{"bun", "audit", "--audit-level=high"}, anyExit))

@@ -311,6 +311,20 @@ func verdict(ctx context.Context, a checks.AtomDef, ctr *dagger.Container) check
 	return checks.VerdictOf(a, code, stdout+stderr)
 }
 
+// audit is verdict for the four dependency audits, which ask a live advisory
+// source and so can fail for the source's reasons rather than the tree's:
+// checks.AuditVerdict reads a network fault off a non-zero exit as could-not-run,
+// which is what makes verdictFor ask it again past the cache.
+func audit(ctx context.Context, a checks.AtomDef, ctr *dagger.Container) checks.Verdict {
+	code, err := ctr.ExitCode(ctx)
+	if err != nil {
+		return checks.VerdictOf(a, 2, fmt.Sprintf("the atom never ran: %v", err))
+	}
+	stdout, _ := ctr.Stdout(ctx)
+	stderr, _ := ctr.Stderr(ctx)
+	return checks.AuditVerdict(a, code, stdout+stderr)
+}
+
 // output evaluates a chain whose last exec is a QUESTION rather than the
 // verdict — a count, a listing — and answers what it printed and how it
 // exited. The last exec must carry anyExit. THE TWO FAILURES ARE DISTINCT:
