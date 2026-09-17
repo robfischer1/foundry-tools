@@ -352,3 +352,177 @@ func TestACastOfAnUnchangedPayloadSaysSo(t *testing.T) {
 	casts(t, m)
 	settledOn(t, "0", "already carried this pin")
 }
+
+// goNeedle is the go lane's release exec, in one chain and no other: the
+// settle builds /out/verdict with `go build` too, so the needle is a release
+// flag rather than the verb.
+const goNeedle = `"-trimpath"`
+
+// goCastOn is castOn over a Go binary repo: the rust workspace gone, a root
+// go.mod and the star's main package in its place.
+func goCastOn(t *testing.T, tree map[string]string) *FoundryTools {
+	t.Helper()
+	base := map[string]string{
+		"Cargo.toml":               "",
+		"crates/tongs/src/main.rs": "",
+		"go.mod":                   "module forgejo.notusmi.com/rob/tongs\n\ngo 1.26\n",
+		"cmd/tongs/main.go":        "package main\n\nfunc main() {}\n",
+	}
+	for k, v := range tree {
+		base[k] = v
+	}
+	return castOn(t, base)
+}
+
+// A Go binary repo casts through the go lane: each declared binary is built
+// from ./cmd/<name> with the fleet's release flags into /out, CGO off, and
+// read back out of /out — cargo is never asked.
+func TestAGoBinaryRepoCastsThroughTheGoLane(t *testing.T) {
+	m := goCastOn(t, nil)
+	scriptACast(castPin + "\ntongs\n")
+	casts(t, m)
+	settledOn(t, "0", "clean: cast app/tongs:stable at index 7")
+
+	wantCalls(t, engine.chain(goNeedle),
+		[]string{"withEnvVariable", `"CGO_ENABLED"`, `"0"`},
+		[]string{"withExec", `["go","build","-trimpath","-ldflags=-s -w","-o","/out/tongs","./cmd/tongs"]`},
+	)
+	if engine.chain(goNeedle, `file(path:"/out/tongs")`) == "" {
+		t.Error("the binary was not read out of the go lane's release directory")
+	}
+	if engine.chain(cargoNeedle) != "" {
+		t.Error("a Go repo asked cargo to build")
+	}
+	wantCalls(t, engine.chain(`directory{withFile`), []string{"withFile", `path:"tongs"`})
+	wantCalls(t, engine.chain(moldNeedle), []string{"withExec", `app/tongs:stable`, castRef + "@" + castStaged, buildSha})
+}
+
+// A module that vendors builds with -mod=vendor; one that declares several
+// binaries builds each from its own ./cmd/<name>, in the record's order.
+func TestTheGoLaneBuildsWhatTheRecordDeclaresTheWayTheModuleResolves(t *testing.T) {
+	cases := map[string]struct {
+		tree  map[string]string
+		execs []string
+	}{
+		"vendored": {
+			map[string]string{"vendor/modules.txt": "# x\n"},
+			[]string{`["go","build","-mod=vendor","-trimpath","-ldflags=-s -w","-o","/out/tongs","./cmd/tongs"]`},
+		},
+		"two binaries": {
+			map[string]string{
+				"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{"binaries":["tongs","tongs-agent"]}`),
+				"cmd/tongs-agent/main.go":           "package main\n\nfunc main() {}\n",
+			},
+			[]string{
+				`["go","build","-trimpath","-ldflags=-s -w","-o","/out/tongs","./cmd/tongs"]`,
+				`["go","build","-trimpath","-ldflags=-s -w","-o","/out/tongs-agent","./cmd/tongs-agent"]`,
+			},
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			m := goCastOn(t, c.tree)
+			scriptACast(castPin + "\ntongs\n")
+			casts(t, m)
+			settledOn(t, "0", "clean: cast app/tongs:stable")
+			chain := engine.chain(goNeedle)
+			for _, e := range c.execs {
+				if !strings.Contains(chain, e) {
+					t.Errorf("the go lane did not run %s\nchain: %s", e, chain)
+				}
+			}
+		})
+	}
+}
+
+// A binary that fails to compile is a finding that names its package and
+// carries the compiler's words — read after ITS exec, not after the last one,
+// so a later binary that compiles cannot report for it.
+func TestAGoBinaryThatDoesNotCompileIsAFindingByName(t *testing.T) {
+	m := goCastOn(t, map[string]string{
+		"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{"binaries":["tongs","tongs-agent"]}`),
+		"cmd/tongs-agent/main.go":           "package main\n\nfunc main() {}\n",
+	})
+	scriptACast(castPin + "\ntongs\n")
+	engine.exitCode(`"/out/tongs","./cmd/tongs"]`, 1)
+	engine.stdout(`"/out/tongs","./cmd/tongs"]`, "./cmd/tongs/main.go:3:2: undefined: x")
+	casts(t, m)
+	settledOn(t, "1", "findings in go build ./cmd/tongs")
+	if engine.chain(`"/out/tongs-agent"`) != "" {
+		t.Error("a second binary was built after the first failed to compile")
+	}
+	if engine.chain(castpinNeedle) != "" || engine.chain(stageNeedle) != "" {
+		t.Error("a failed build was pinned or staged")
+	}
+}
+
+// A go build whose exit cannot be read did not run: a could-not-run that
+// names the package, re-asked rather than settled.
+func TestAGoBuildTheEngineLostCouldNotRun(t *testing.T) {
+	m := goCastOn(t, nil)
+	scriptACast(castPin + "\ntongs\n")
+	engine.failLeaf(goNeedle, "exitCode", "the engine went away")
+	casts(t, m)
+	settledOn(t, "2", "the release build of ./cmd/tongs did not run")
+	if engine.chain(castpinNeedle) != "" || engine.chain(stageNeedle) != "" {
+		t.Error("a build the engine lost was pinned or staged")
+	}
+}
+
+// A record that says binary over a tree that declares no lane to build one —
+// or two — is refused by name and builds with nothing: the lane never falls
+// through to cargo on a Go repo (foundry-tools #9839) or guesses between two.
+func TestACastRefusesATreeThatDeclaresNoLaneOrTwo(t *testing.T) {
+	cases := map[string]struct {
+		tree   map[string]string
+		reason string
+	}{
+		"no lane at all": {
+			map[string]string{"Cargo.toml": "", "crates/tongs/src/main.rs": "", "README.md": "# tongs\n"},
+			"declares no lane that builds one — no Cargo.toml and no go.mod at the root",
+		},
+		"a nested go.mod is not the root's": {
+			map[string]string{"Cargo.toml": "", "crates/tongs/src/main.rs": "", "tools/x/go.mod": "module x\n", "tools/x/main.go": "package main\n"},
+			"declares no lane that builds one",
+		},
+		"both lanes": {
+			map[string]string{"go.mod": "module forgejo.notusmi.com/rob/tongs\n\ngo 1.26\n", "cmd/tongs/main.go": "package main\n\nfunc main() {}\n"},
+			"declares both a Cargo.toml and a root go.mod",
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			m := castOn(t, c.tree)
+			scriptACast(castPin + "\ntongs\n")
+			casts(t, m)
+			settledOn(t, "1", c.reason)
+			if engine.chain(cargoNeedle) != "" || engine.chain(goNeedle) != "" || engine.chain(stageNeedle) != "" {
+				t.Fatal("a cast that could not name its lane built or staged")
+			}
+		})
+	}
+}
+
+// The lane is read off the tree, and a tree that cannot be read is a
+// could-not-run about the repository — re-asked, never a finding.
+func TestACastWhoseTreeCannotBeReadCouldNotRun(t *testing.T) {
+	cases := map[string]struct {
+		script func()
+		reason string
+	}{
+		"the root":        {func() { engine.fail("entries", "the tree went away") }, "the repository root could not be read"},
+		"the module walk": {func() { engine.failLeaf("**/go.mod", "glob", "the module walk went away") }, "the tree's Go modules could not be enumerated"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			m := goCastOn(t, nil)
+			scriptACast(castPin + "\ntongs\n")
+			c.script()
+			casts(t, m)
+			settledOn(t, "2", c.reason)
+			if engine.chain(cargoNeedle) != "" || engine.chain(goNeedle) != "" {
+				t.Fatal("a cast that could not read its tree built")
+			}
+		})
+	}
+}
