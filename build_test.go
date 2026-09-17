@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"dagger/foundry-tools/internal/buildlane"
 	"dagger/foundry-tools/internal/checks"
 )
 
@@ -69,7 +70,7 @@ const (
 func scriptATip() {
 	engine.stdout("--name-only", "cmd/ares/main.go\n")
 	engine.stdout(`"public-key"`, "-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----")
-	engine.stdout(`"registry:registry.notusmi.com/rob/ares@sha256:`, imageSBOM)
+	engine.stdout(imageScanNeedle, imageSBOM)
 	engine.stdout(`"oci-archive:/in/builder.tar"`, builderSBOM)
 	engine.stdout(sbomAttachNeedle, sbomArtifact+"\n")
 	engine.stdout(sbomManifestNeedle, `{"schemaVersion":2,"artifactType":"application/vnd.cyclonedx+json","layers":[{"mediaType":"application/vnd.cyclonedx+json","digest":"`+sbomBlob+`","size":4812}]}`)
@@ -84,6 +85,9 @@ var (
 )
 
 const (
+	// imageScanNeedle is in the image's syft scan and in no other: the
+	// builder's reads /in/builder.tar.
+	imageScanNeedle = `"oci-archive:/in/image.tar"`
 	// sbomAttachNeedle is in the SBOM attach's chain and in no other.
 	sbomAttachNeedle = `"oras","attach"`
 	// sbomManifestNeedle is in the referrer's read-back and in no other.
@@ -356,9 +360,12 @@ func TestATipPublishesSignsAttestsAndIsPermitted(t *testing.T) {
 		[]string{"withSecretVariable", `"COSIGN_PASSWORD"`},
 		[]string{"withExec", `"sign"`, `"--tlog-upload=false"`, ref},
 	)
-	wantCalls(t, engine.chain(`"registry:registry.notusmi.com`),
+	// The image is scanned as the tarball the engine built — the same chain
+	// the publish pushed — with syft told to write no file entries.
+	wantCalls(t, engine.chain(imageScanNeedle),
 		[]string{"from", checks.ImageSyft},
-		[]string{"withExec", `"registry:` + ref + `"`, `"cyclonedx-json@1.6"`},
+		[]string{"withEnvVariable", `"SYFT_FILE_METADATA_SELECTION"`, `"none"`},
+		[]string{"withExec", imageScanNeedle, `"cyclonedx-json@1.6"`},
 	)
 	// The SBOM rides as a referrer, and what is signed is a pointer to it: the
 	// referrer's manifest and the blob the registry stored, read back.
@@ -686,4 +693,68 @@ func TestTheStarIsTheRepositorysName(t *testing.T) {
 			t.Errorf("starOf(%q) = %q, want %q", in, got, want)
 		}
 	}
+}
+
+// THE ATTACHED SBOM IS THE COMPOSED ONE (F14's contract, lines 1–4): the
+// star's own components, the base's document linked in place of its copied
+// inventory, and the image labelled with the base it was built on.
+func TestATipAttachesTheComposedSBOMAndLabelsTheBase(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": pinnedDockerfile})
+	scriptATip()
+	engine.stdout(`"oci-archive:/in/builder.tar"`, builderSBOM)
+	scriptTheBase()
+	tip(t, m)
+
+	attach := engine.chain(sbomAttachNeedle)
+	// The builder's gomod is the star's own and stays; the runtime package the
+	// base also carries goes, and the link and the declaration take its place.
+	wantCalls(t, attach,
+		[]string{"withNewFile", `"/in/sbom.cdx.json"`, "pkg:golang/gomod@1", `\"type\":\"bom\"`, "oci://" + pinnedBaseRepo + "@" + baseBlob, buildlane.SBOMAggregateFirstParty},
+	)
+	if strings.Contains(attach, "pkg:deb/runtime@1") {
+		t.Fatalf("the base's component was attached with the star's:\n%s", attach)
+	}
+	// The base's document was read from ITS repository, by the digest the
+	// referrer's manifest named, anonymously: a read needs no login.
+	if engine.chain(`"oras","blob","fetch","--output","-","`+pinnedBaseRepo+`@`+baseBlob) == "" {
+		t.Fatal("the base's SBOM was not read from the registry")
+	}
+	if strings.Contains(engine.chain(discoverNeedle), "--registry-config") {
+		t.Error("an anonymous read carried the registry login")
+	}
+	// The image carries its base as the two OCI labels.
+	wantCalls(t, engine.chain("publish("),
+		[]string{"withLabel", labelBaseName, `"registry.notusmi.com/rob/stellar_core:python-runtime"`},
+		[]string{"withLabel", labelBaseDigest, `"` + pinnedBaseDigest + `"`},
+	)
+	settledOn(t, "0", "clean: published and signed")
+}
+
+// A base whose registry read fails withholds the publish's SBOM as
+// could-not-run — a registry outage is not a fault of the tree.
+func TestATipWhoseBaseCannotBeReadIsCouldNotRun(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": pinnedDockerfile})
+	scriptATip()
+	engine.stdout(`"oci-archive:/in/builder.tar"`, builderSBOM)
+	engine.exitCode(discoverNeedle, 1)
+	engine.stdout(discoverNeedle, "Error: response status code 502: Bad Gateway")
+	tip(t, m)
+	settledOn(t, "2", "could not run: the base registry.notusmi.com/rob/stellar_core@"+pinnedBaseDigest+"'s referrers could not be listed")
+	if engine.chain(`"forge_mold"`) != "" {
+		t.Fatal("a tip whose SBOM could not be composed asked for a permit")
+	}
+}
+
+// An image built FROM scratch has no base to label and nothing to link.
+func TestAnUnpinnedBaseLeavesTheLabelsOff(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	scriptATip()
+	tip(t, m)
+	if p := engine.chain("publish("); strings.Contains(p, labelBaseDigest) || strings.Contains(p, labelBaseName) {
+		t.Fatalf("a base label was written for FROM scratch:\n%s", p)
+	}
+	if engine.chain(discoverNeedle) != "" {
+		t.Fatal("scratch was looked up in the registry")
+	}
+	settledOn(t, "0", "clean: published and signed")
 }

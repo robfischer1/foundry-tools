@@ -119,6 +119,50 @@ func (r *Bake) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+func (r StageResult) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Stage     string
+		State     int
+		Lanes     []string
+		Atoms     []AtomResult
+		Omitted   []AtomResult
+		Unreached []string
+		Log       string
+	}
+	concrete.Stage = r.Stage
+	concrete.State = r.State
+	concrete.Lanes = r.Lanes
+	concrete.Atoms = r.Atoms
+	concrete.Omitted = r.Omitted
+	concrete.Unreached = r.Unreached
+	concrete.Log = r.Log
+	return json.Marshal(&concrete)
+}
+
+func (r *StageResult) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Stage     string
+		State     int
+		Lanes     []string
+		Atoms     []AtomResult
+		Omitted   []AtomResult
+		Unreached []string
+		Log       string
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Stage = concrete.Stage
+	r.State = concrete.State
+	r.Lanes = concrete.Lanes
+	r.Atoms = concrete.Atoms
+	r.Omitted = concrete.Omitted
+	r.Unreached = concrete.Unreached
+	r.Log = concrete.Log
+	return nil
+}
+
 func (r Compose) MarshalJSON() ([]byte, error) {
 	var concrete struct {
 		Source *dagger.Directory
@@ -201,27 +245,39 @@ func (r *GoLane) UnmarshalJSON(bs []byte) error {
 
 func (r Image) MarshalJSON() ([]byte, error) {
 	var concrete struct {
-		Source    *dagger.Directory
-		Revision  string
-		SourceURL string
-		Title     string
-		BuildArgs []dagger.BuildArg
+		Source     *dagger.Directory
+		Revision   string
+		SourceURL  string
+		Title      string
+		BuildArgs  []dagger.BuildArg
+		Dockerfile string
+		Created    string
+		Base       string
+		BaseDigest string
 	}
 	concrete.Source = r.Source
 	concrete.Revision = r.Revision
 	concrete.SourceURL = r.SourceURL
 	concrete.Title = r.Title
 	concrete.BuildArgs = r.BuildArgs
+	concrete.Dockerfile = r.Dockerfile
+	concrete.Created = r.Created
+	concrete.Base = r.Base
+	concrete.BaseDigest = r.BaseDigest
 	return json.Marshal(&concrete)
 }
 
 func (r *Image) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
-		Source    *dagger.Directory
-		Revision  string
-		SourceURL string
-		Title     string
-		BuildArgs []dagger.BuildArg
+		Source     *dagger.Directory
+		Revision   string
+		SourceURL  string
+		Title      string
+		BuildArgs  []dagger.BuildArg
+		Dockerfile string
+		Created    string
+		Base       string
+		BaseDigest string
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -232,6 +288,10 @@ func (r *Image) UnmarshalJSON(bs []byte) error {
 	r.SourceURL = concrete.SourceURL
 	r.Title = concrete.Title
 	r.BuildArgs = concrete.BuildArgs
+	r.Dockerfile = concrete.Dockerfile
+	r.Created = concrete.Created
+	r.Base = concrete.Base
+	r.BaseDigest = concrete.BaseDigest
 	return nil
 }
 
@@ -312,6 +372,42 @@ func (r *TSLane) UnmarshalJSON(bs []byte) error {
 		return err
 	}
 	r.Source = concrete.Source
+	return nil
+}
+
+func (r AtomResult) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Atom   string
+		Group  string
+		State  int
+		Result string
+		Reason string
+	}
+	concrete.Atom = r.Atom
+	concrete.Group = r.Group
+	concrete.State = r.State
+	concrete.Result = r.Result
+	concrete.Reason = r.Reason
+	return json.Marshal(&concrete)
+}
+
+func (r *AtomResult) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Atom   string
+		Group  string
+		State  int
+		Result string
+		Reason string
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Atom = concrete.Atom
+	r.Group = concrete.Group
+	r.State = concrete.State
+	r.Result = concrete.Result
+	r.Reason = concrete.Reason
 	return nil
 }
 
@@ -846,27 +942,6 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*FoundryTools).Check(&parent, ctx)
-		case "Release":
-			var parent FoundryTools
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			return (*FoundryTools).Release(&parent, ctx)
-		case "Push":
-			var parent FoundryTools
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			var base string
-			if inputArgs["base"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["base"]), &base)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg base", err))
-				}
-			}
-			return (*FoundryTools).Push(&parent, ctx, base)
 		case "Compose":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
@@ -992,7 +1067,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg dockerfile", err))
 				}
 			}
-			return (*FoundryTools).Image(&parent, revision, sourceUrl, title, buildArgs, dockerfile)
+			return (*FoundryTools).Image(&parent, ctx, revision, sourceUrl, title, buildArgs, dockerfile)
 		case "Lanes":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
@@ -1063,6 +1138,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*FoundryTools).Publish(&parent, ctx, token, publishUrl, checkUrl, user, indexUrl, npmToken, npmRegistry, dryRun)
+		case "Push":
+			var parent FoundryTools
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var base string
+			if inputArgs["base"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["base"]), &base)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg base", err))
+				}
+			}
+			return (*FoundryTools).Push(&parent, ctx, base)
 		case "Python":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
@@ -1070,6 +1159,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*FoundryTools).Python(&parent), nil
+		case "Release":
+			var parent FoundryTools
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*FoundryTools).Release(&parent, ctx)
 		case "Rust":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
@@ -1126,6 +1222,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*FoundryTools).Verdicts(&parent, ctx, stage, only, base)
+		case "Verify":
+			var parent FoundryTools
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var indexUrl string
+			if inputArgs["indexURL"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["indexURL"]), &indexUrl)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg indexURL", err))
+				}
+			}
+			var sourceBase string
+			if inputArgs["sourceBase"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["sourceBase"]), &sourceBase)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg sourceBase", err))
+				}
+			}
+			return (*FoundryTools).Verify(&parent, ctx, indexUrl, sourceBase)
 		case "":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)

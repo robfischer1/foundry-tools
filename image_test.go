@@ -12,7 +12,7 @@ func newImage(t *testing.T, buildArgs ...string) *Image {
 	t.Helper()
 	engine.reset()
 	engine.withTree(map[string]string{"Dockerfile": "FROM scratch AS builder\nRUN true\nFROM scratch\n"})
-	img, err := (&FoundryTools{Source: dag.Directory()}).Image(imageRevision, "https://forgejo.notusmi.com/rob/x", "x", buildArgs, "")
+	img, err := (&FoundryTools{Source: dag.Directory()}).Image(context.Background(), imageRevision, "https://forgejo.notusmi.com/rob/x", "x", buildArgs, "")
 	if err != nil {
 		t.Fatalf("image: %v", err)
 	}
@@ -79,28 +79,34 @@ func TestTheImageLaneExportsTheBuilderStageAndTheTarball(t *testing.T) {
 func TestTheImageLaneRefusesWhatItCannotLabelOrPush(t *testing.T) {
 	engine.reset()
 	m := &FoundryTools{Source: dag.Directory()}
-	if _, err := m.Image("abc", "https://x", "x", nil, ""); err == nil || !strings.Contains(err.Error(), "too short") {
+	if _, err := m.Image(context.Background(), "abc", "https://x", "x", nil, ""); err == nil || !strings.Contains(err.Error(), "too short") {
 		t.Fatalf("a short revision: %v", err)
 	}
-	if _, err := m.Image(imageRevision, "https://x", "x", []string{"NOVALUE"}, ""); err == nil || !strings.Contains(err.Error(), "KEY=VALUE") {
+	if _, err := m.Image(context.Background(), imageRevision, "https://x", "x", []string{"NOVALUE"}, ""); err == nil || !strings.Contains(err.Error(), "KEY=VALUE") {
 		t.Fatalf("a build arg without a value: %v", err)
 	}
-	if _, err := m.Image(imageRevision, "https://x", "x", []string{"=v"}, ""); err == nil {
+	if _, err := m.Image(context.Background(), imageRevision, "https://x", "x", []string{"=v"}, ""); err == nil {
 		t.Fatal("a build arg without a name was accepted")
-	}
-	// Twelve characters is the version label whole, and enough.
-	if _, err := m.Image("0123456789ab", "https://x", "x", nil, ""); err != nil {
-		t.Fatalf("a twelve-character revision: %v", err)
-	}
-	img, err := m.Image(imageRevision, "https://x", "x", nil, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := img.Publish(context.Background(), "x:latest", "u", dag.SetSecret("p", "s")); err == nil || !strings.Contains(err.Error(), "registry host") {
-		t.Fatalf("a ref with no host: %v", err)
 	}
 	if n := len(engine.chains()); n != 0 {
 		t.Fatalf("%d queries reached the engine for refused inputs", n)
+	}
+	// Twelve characters is the version label whole, and enough.
+	if _, err := m.Image(context.Background(), "0123456789ab", "https://x", "x", nil, ""); err != nil {
+		t.Fatalf("a twelve-character revision: %v", err)
+	}
+	img, err := m.Image(context.Background(), imageRevision, "https://x", "x", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Binding an accepted image reads the Dockerfile for its base, and that is
+	// the only thing it asks the engine: a refused push asks nothing more.
+	before := len(engine.chains())
+	if _, err := img.Publish(context.Background(), "x:latest", "u", dag.SetSecret("p", "s")); err == nil || !strings.Contains(err.Error(), "registry host") {
+		t.Fatalf("a ref with no host: %v", err)
+	}
+	if n := len(engine.chains()) - before; n != 0 {
+		t.Fatalf("%d queries reached the engine for a refused push", n)
 	}
 }
 
@@ -111,7 +117,7 @@ func TestTheImageLaneRefusesWhatItCannotLabelOrPush(t *testing.T) {
 func TestAnImageBuildsTheDockerfileItWasBoundToWithOneCreationStamp(t *testing.T) {
 	engine.reset()
 	engine.withTree(map[string]string{"bases/go/Dockerfile": "FROM scratch AS builder\nFROM scratch\n"})
-	img, err := (&FoundryTools{Source: dag.Directory()}).Image(imageRevision, "https://x", "base-images/go", nil, "bases/go/Dockerfile")
+	img, err := (&FoundryTools{Source: dag.Directory()}).Image(context.Background(), imageRevision, "https://x", "base-images/go", nil, "bases/go/Dockerfile")
 	if err != nil {
 		t.Fatal(err)
 	}

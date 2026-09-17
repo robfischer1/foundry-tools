@@ -123,7 +123,7 @@ func TestEachBaseStandsOnItsOwnChangesSinceItsStable(t *testing.T) {
 // scriptABaseTip scripts every step a base's tip goes through after its scan.
 func scriptABaseTip() {
 	engine.stdout(`"public-key"`, "-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----")
-	engine.stdout(`"registry:registry.notusmi.com/foundry/base-images/`, imageSBOM)
+	engine.stdout(imageScanNeedle, imageSBOM)
 	engine.stdout(sbomAttachNeedle, sbomArtifact+"\n")
 	engine.stdout(sbomManifestNeedle, `{"schemaVersion":2,"artifactType":"application/vnd.cyclonedx+json","layers":[{"mediaType":"application/vnd.cyclonedx+json","digest":"`+sbomBlob+`","size":4812}]}`)
 }

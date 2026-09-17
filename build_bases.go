@@ -109,7 +109,7 @@ func (l *buildLane) base(ctx context.Context, star, base string, args []string) 
 	}
 	bound := *l.m
 	bound.Source = src
-	img, err := bound.Image(l.m.Sha, l.sourceBase+"/"+star, star+"/"+base, args, buildlane.BaseDockerfile(base))
+	img, err := bound.Image(ctx, l.m.Sha, l.sourceBase+"/"+star, star+"/"+base, args, buildlane.BaseDockerfile(base))
 	if err != nil {
 		return buildlane.CouldNotRun, err.Error()
 	}

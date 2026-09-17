@@ -3,6 +3,7 @@ module dagger/foundry-tools
 go 1.26.6
 
 require (
+	github.com/BurntSushi/toml v1.6.0
 	github.com/Khan/genqlient v0.8.1
 	github.com/dagger/otel-go v1.43.0
 	github.com/dagger/querybuilder v0.0.0-20260402040506-574a5e81cb59
@@ -11,8 +12,6 @@ require (
 	go.opentelemetry.io/otel/trace v1.46.0
 	go.yaml.in/yaml/v3 v3.0.5
 )
-
-require github.com/BurntSushi/toml v1.6.0 // indirect
 
 require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
