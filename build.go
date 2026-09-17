@@ -168,7 +168,7 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 	if err != nil {
 		return buildlane.CouldNotRun, err.Error()
 	}
-	img, err := m.Image(m.Sha, l.sourceBase+"/"+star, star, args, "")
+	img, err := m.Image(ctx, m.Sha, l.sourceBase+"/"+star, star, args, "")
 	if err != nil {
 		return buildlane.CouldNotRun, err.Error()
 	}
@@ -296,11 +296,11 @@ func (l *buildLane) push(ctx context.Context, img *Image, pushRepo, target, star
 	return ref, buildlane.Clean, ""
 }
 
-// sign signs the published image with the CI key, reads its SBOM (the builder
-// stage's dependencies folded in when the Dockerfile names one), attaches the
-// SBOM and attests a pointer to it (attestSBOM), and verifies the signature
-// against the key's public half. A signature or pointer that is already there
-// verifies instead of failing.
+// sign signs the published image with the CI key, reads its composed SBOM
+// (sbomOf: the builder stage's dependencies folded in, the base's document
+// linked rather than copied), attaches the SBOM and attests a pointer to it
+// (attestSBOM), and verifies the signature against the key's public half. A
+// signature or pointer that is already there verifies instead of failing.
 func (l *buildLane) sign(ctx context.Context, img *Image, ref, star string) (int, string) {
 	encoded, err := l.cosignKey.Plaintext(ctx)
 	if err != nil {
@@ -333,11 +333,16 @@ func (l *buildLane) sign(ctx context.Context, img *Image, ref, star string) (int
 	}
 	say("signed %s with the CI key — the fleet signature is mold's to write, at permit", ref)
 
-	sbom, code, why := l.sbom(ctx, img, ref)
+	oras, err := orasIn(ctx, l.registryAuth)
+	if err != nil {
+		return buildlane.CouldNotRun, "could not run: " + err.Error()
+	}
+	sbom, note, code, why := sbomOf(ctx, l.m.Source, img, oras, l.stamp)
 	if code != buildlane.Clean {
 		return code, why
 	}
-	if code, why := l.attestSBOM(ctx, cosign, ref, sbom); code != buildlane.Clean {
+	say("%s", note)
+	if code, why := l.attestSBOM(ctx, cosign, oras, ref, sbom); code != buildlane.Clean {
 		return code, why
 	}
 	out, code, err := output(ctx, cosign.WithExec([]string{"verify", "--key", "/run/cosign/key.pub", "--insecure-ignore-tlog=true", ref}, entrypointAnyExit))
@@ -370,50 +375,6 @@ func orVerify(ctx context.Context, step string, act, check *dagger.Container) (i
 		return buildlane.Clean, ""
 	}
 	return buildlane.ToolFailed(step, out+"\n"+checked)
-}
-
-// sbom reads the published image's CycloneDX SBOM, folding in the builder
-// stage's when the Dockerfile names one and it builds.
-func (l *buildLane) sbom(ctx context.Context, img *Image, ref string) (string, int, string) {
-	syft := dag.Container().From(checks.ImageSyft).
-		WithMountedSecret("/run/docker/config.json", l.registryAuth).
-		WithEnvVariable("DOCKER_CONFIG", "/run/docker")
-	exclude := []string{"--exclude", "/root/.bun/**", "-o", "cyclonedx-json@1.6"}
-	image, code, err := output(ctx, syft.WithExec(append([]string{"registry:" + ref}, exclude...), entrypointAnyExit))
-	if err != nil {
-		return "", buildlane.CouldNotRun, fmt.Sprintf("could not run: syft did not run: %v", err)
-	}
-	if code != 0 {
-		c, why := buildlane.ToolFailed("sign (SBOM)", image)
-		return "", c, why
-	}
-	path := img.Dockerfile
-	if path == "" {
-		path = "Dockerfile"
-	}
-	dockerfile, _, err := fileIn(ctx, l.m.Source, path)
-	if err != nil || !buildlane.HasBuilderStage(dockerfile) {
-		say("no builder stage in this Dockerfile — the SBOM covers the runtime image only")
-		return image, buildlane.Clean, ""
-	}
-	tar := img.Builder()
-	if _, err := tar.Size(ctx); err != nil {
-		say("WARNING the builder stage did not build — the SBOM covers the runtime image only: %v", err)
-		return image, buildlane.Clean, ""
-	}
-	builder, code, err := output(ctx, syft.WithMountedFile("/in/builder.tar", tar).
-		WithExec(append([]string{"oci-archive:/in/builder.tar"}, exclude...), entrypointAnyExit))
-	if err != nil || code != 0 {
-		say("WARNING the builder stage's SBOM did not read — the attestation covers the runtime image only")
-		return image, buildlane.Clean, ""
-	}
-	merged, in, bn, mn, err := buildlane.MergeSBOM([]byte(image), []byte(builder))
-	if err != nil {
-		say("WARNING the SBOMs did not merge (%v) — the attestation covers the runtime image only", err)
-		return image, buildlane.Clean, ""
-	}
-	say("SBOM components: image=%d builder=%d merged=%d", in, bn, mn)
-	return string(merged), buildlane.Clean, ""
 }
 
 // permit asks hades for forge_mold on this star, as the calling pod, and folds

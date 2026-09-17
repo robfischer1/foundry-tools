@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
+	"dagger/foundry-tools/internal/buildlane"
 	"dagger/foundry-tools/internal/dagger"
 )
 
@@ -52,21 +54,40 @@ type Image struct {
 	// registry held was not byte-for-byte the image that was scanned.
 	// +private
 	Created string
+	// Base is the image the runtime stage is built on — the Dockerfile's last
+	// FROM, as written — and BaseDigest the digest it pins, or empty. Read
+	// once, when the image is bound, for the two base labels and for the
+	// SBOM's link to the base's own document.
+	// +private
+	Base string
+	// +private
+	BaseDigest string
 }
 
 // The OCI labels the lane writes — the pair mold reads back (revision,
-// source) and the four the retired Tekton step wrote beside them.
+// source), the four the retired Tekton step wrote beside them, and the base
+// pair (CA master-plan F14, contract line 4).
+//
+// THE BASE LABELS WERE ABSENT FROM EVERY STAR IMAGE, measured 2026-09-17 on
+// athena and iris: six and seven labels, only revision, source and version.
+// hephaestus mold's ContractDrift reads them as UNKNOWN when empty and, in its
+// own words, "arms itself the moment build.yml starts emitting them"; the SBOM
+// link needs the digest to name its target. After F17 the base is the FROM the
+// Build stage just used; until then it is the FROM the Dockerfile pins.
 const (
-	labelRevision = "org.opencontainers.image.revision"
-	labelCreated  = "org.opencontainers.image.created"
-	labelSource   = "org.opencontainers.image.source"
-	labelVersion  = "org.opencontainers.image.version"
-	labelTitle    = "org.opencontainers.image.title"
-	labelURL      = "org.opencontainers.image.url"
+	labelRevision   = "org.opencontainers.image.revision"
+	labelCreated    = "org.opencontainers.image.created"
+	labelSource     = "org.opencontainers.image.source"
+	labelVersion    = "org.opencontainers.image.version"
+	labelTitle      = "org.opencontainers.image.title"
+	labelURL        = "org.opencontainers.image.url"
+	labelBaseName   = "org.opencontainers.image.base.name"
+	labelBaseDigest = "org.opencontainers.image.base.digest"
 )
 
 // Image binds the build lane to the tip it is building.
 func (m *FoundryTools) Image(
+	ctx context.Context,
 	// The source commit — org.opencontainers.image.revision, .version (its
 	// first twelve) and the STELLAR_REVISION the star reports at boot.
 	revision string,
@@ -90,24 +111,55 @@ func (m *FoundryTools) Image(
 	if err != nil {
 		return nil, fmt.Errorf("image: %w", err)
 	}
-	return &Image{Source: m.Source, Revision: revision, SourceURL: sourceURL, Title: title, BuildArgs: args,
-		Dockerfile: dockerfile, Created: time.Now().UTC().Format(time.RFC3339)}, nil
+	img := &Image{Source: m.Source, Revision: revision, SourceURL: sourceURL, Title: title, BuildArgs: args,
+		Dockerfile: dockerfile, Created: time.Now().UTC().Format(time.RFC3339)}
+	// A Dockerfile that cannot be read, or names no base the lane can name (a
+	// build argument, a stage that is not there), leaves the pair empty: the
+	// build itself says what is wrong with such a Dockerfile, and a label the
+	// lane guessed would be worse than none.
+	body, _, err := fileIn(ctx, m.Source, img.dockerfilePath())
+	if err != nil {
+		return nil, fmt.Errorf("image: the Dockerfile could not be read: %w", err)
+	}
+	if base, digest, ok := buildlane.RuntimeBase(body); ok {
+		img.Base, img.BaseDigest = base, digest
+	}
+	return img, nil
+}
+
+// dockerfilePath is the Dockerfile inside the tree: the bound path, or the
+// root's.
+func (i *Image) dockerfilePath() string {
+	if i.Dockerfile == "" {
+		return "Dockerfile"
+	}
+	return i.Dockerfile
 }
 
 // Container is the built image: the bound Dockerfile (the tree's root one by
-// default), the six labels and STELLAR_REVISION on its config. Publish,
-// Tarball and Builder all hang off this one chain, so the engine builds the
-// Dockerfile once, and every evaluation carries the same config.
+// default), the labels and STELLAR_REVISION on its config. Publish, Tarball
+// and Builder all hang off this one chain, so the engine builds the Dockerfile
+// once, and every evaluation carries the same config.
+//
+// The base pair is written only when known: base.name is the reference
+// without its digest (the OCI annotation's shape), base.digest the pin.
 func (i *Image) Container() *dagger.Container {
 	c := i.Source.DockerBuild(dagger.DirectoryDockerBuildOpts{BuildArgs: i.BuildArgs, Dockerfile: i.Dockerfile})
-	return c.
+	c = c.
 		WithLabel(labelRevision, i.Revision).
 		WithLabel(labelCreated, i.Created).
 		WithLabel(labelSource, i.SourceURL).
 		WithLabel(labelVersion, i.Revision[:12]).
 		WithLabel(labelTitle, i.Title).
-		WithLabel(labelURL, i.SourceURL).
-		WithEnvVariable("STELLAR_REVISION", i.Revision)
+		WithLabel(labelURL, i.SourceURL)
+	if i.Base != "" {
+		name, _, _ := strings.Cut(i.Base, "@")
+		c = c.WithLabel(labelBaseName, name)
+	}
+	if i.BaseDigest != "" {
+		c = c.WithLabel(labelBaseDigest, i.BaseDigest)
+	}
+	return c.WithEnvVariable("STELLAR_REVISION", i.Revision)
 }
 
 // Publish pushes the image under ref — the g-pin — as an OCI manifest and
