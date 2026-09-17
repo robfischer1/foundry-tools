@@ -426,7 +426,7 @@ func TestOpsAtomsAreCatalogued(t *testing.T) {
 		if a.ID != id {
 			t.Fatalf("%s is not in the catalogue", id)
 		}
-		if a.Stage != checks.StagePrepush || a.Lane != checks.LaneAny || a.Image != checks.ImageFleet || a.NeedsStocks {
+		if a.Stage != checks.StagePrecommit || a.Lane != checks.LaneAny || a.Image != checks.ImageFleet || a.NeedsStocks {
 			t.Errorf("%s: stage=%s lane=%v image=%s stocks=%v", id, a.Stage, a.Lane, a.Image, a.NeedsStocks)
 		}
 	}

@@ -33,6 +33,8 @@ dagger check go:staticcheck      # one atom
 # constructor's parameter; nothing below New takes a directory.
 dagger call -m git.notusmi.com/rob/foundry-tools@<sha> --source=. verdicts --stage=sweep
 
+dagger call check                    # the commit stage: basic + language fanouts, one settled answer
+dagger call check exit               # …exiting 0, 1 or 2 with the stage's log
 dagger call verdicts                 # every PULL stage — precommit and prepush
 dagger call verdicts --stage=prepush
 dagger call verdicts --stage=sweep   # the clock's vector, asked for by name
@@ -70,20 +72,22 @@ dagger call -m git.notusmi.com/rob/foundry-tools@<sha> --source=. verdicts --sta
 
 ## The atoms
 
+**Stages (CA F12, 2026-09-17).** `precommit` is the **commit** stage — `dagger call check` — and holds the basic checks every tree gets (the `fleet:` namespace) beside the language checks for what the tree contains: format, lint and tests. `prepush` is the **push** stage and holds the complex checks — the build, deep lint, vulnerability audits, the bundle probes, the witness and orbit drift — beside the mutation lane. `internal/checks/stage_test.go` pins both lists.
+
 **`fleet:`** — every repository, whatever it is written in.
-`check-yaml` · `check-added-large-files` · `check-merge-conflict` · `detect-secrets` · `stop-justifications` · `hadolint` (pre-commit) · `sast-ruleset-lanes` · `orbit-drift` · `opengrep-sast` · `witness` (pre-push)
+`check-yaml` · `check-added-large-files` · `check-merge-conflict` · `detect-secrets` · `stop-justifications` · `hadolint` · `sast-ruleset-lanes` · `opengrep-sast` (commit) · `orbit-drift` · `witness` (push)
 
-**`go:`** (`go.mod`) — `gofmt` · `vet` · `build` (pre-commit) · `test-race` · `staticcheck` · `govulncheck` (pre-push)
+**`go:`** (`go.mod`) — `gofmt` · `vet` · `test-race` (commit) · `build` · `staticcheck` · `govulncheck` (push)
 
-**`python:`** (`pyproject.toml`) — `ruff-check` · `ruff-format` · `forge-testkit-assertion-free` · `forge-testkit-fake-placement` · `forge-testkit-schema-budget` (pre-commit) · `mypy` · `pytest` · `pip-audit` (pre-push)
+**`python:`** (`pyproject.toml`) — `ruff-check` · `ruff-format` · `forge-testkit-assertion-free` · `forge-testkit-fake-placement` · `forge-testkit-schema-budget` · `mypy` · `pytest` (commit) · `pip-audit` (push)
 
-**`rust:`** (`Cargo.toml`) — `cargo-fmt` · `cargo-clippy` (pre-commit) · `cargo-test` · `cargo-audit` (pre-push)
+**`rust:`** (`Cargo.toml`) — `cargo-fmt` · `cargo-clippy` · `cargo-test` (commit) · `cargo-audit` (push)
 
-**`ts:`** (`package.json`) — `bun-gate` · `bun-audit` (pre-push)
+**`ts:`** (`package.json`) — `bun-gate` (commit) · `bun-audit` (push)
 
-**`compose:`** (a tracked `compose.ya?ml`) — `config` · `no-tracked-secrets` · `third-party-pins` (pre-commit)
+**`compose:`** (a tracked `compose.ya?ml`) — `config` · `no-tracked-secrets` · `third-party-pins` (commit)
 
-**`dies:`** (`policy/.manifest` **and** `fleet/stars/`) — `opa-test` · `admission-dogfood` · `data-keys` · `canary-visibility` · `contracts` · `schema` (pre-push)
+**`dies:`** (`policy/.manifest` **and** `fleet/stars/`) — `opa-test` · `contracts` · `schema` (commit) · `admission-dogfood` · `data-keys` · `canary-visibility` (push)
 
 ### The rulesets are the fleet's
 
