@@ -217,7 +217,7 @@ func TestLanesProvisionTheirToolsPinnedAndInVolatilityOrder(t *testing.T) {
 	runAtom(t, "go:vet", "")
 	c := engine.chain(`"go","vet"`, "exitCode")
 	order(t, c, `from(address:"`+checks.ImageGo+`")`, `path:"/usr/local/bin/opengrep"`,
-		`"go","install","`+checks.GremlinsModule+`"`, `"go","install","`+checks.StaticcheckModule+`"`, `"go","install","`+checks.GovulncheckModule+`"`, `withMountedCache`)
+		`"go","install","`+checks.GremlinsModule+`"`, `"go","install","`+checks.MutationGateModule+`"`, `"go","install","`+checks.StaticcheckModule+`"`, `"go","install","`+checks.GovulncheckModule+`"`, `withMountedCache`)
 	fetched(t, `http(url:"`+checks.OpengrepMirror+`")`)
 	noShell(t, c)
 	// The go lane scores mutation in Go: nothing it runs needs python3, and it

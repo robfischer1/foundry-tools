@@ -1,6 +1,7 @@
 package checks
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -40,6 +41,11 @@ type GoMutationScore struct {
 	Killed, Lived, NotCovered, TimedOut, CoveredUnrun, Inert, Generated int
 	// Missed are the LIVED and NOT COVERED mutants, as file:line:col status type.
 	Missed []string
+	// Forgiven are the survivors the testkit's classifier named unkillable by
+	// construction, each with its reason. They are not in Missed and not in
+	// the kill rate's denominator: a mutant no test could ever kill measures
+	// nothing about the tests.
+	Forgiven []string
 	// TimedOutPct is timed-out mutants over every mutant generated.
 	TimedOutPct float64
 	// MsPerMutant is wall clock per mutant that ran, times the workers; -1 when
@@ -87,9 +93,46 @@ func pythonRound(x float64, decimals int) float64 {
 	return math.RoundToEven(x*p) / p
 }
 
+// GoMutationNoise is the classification mutation-gate -json answered: each
+// survivor the testkit's AST walk named unkillable, keyed file:line:col, with
+// its reason. nil means the classifier did not answer, which is not the same
+// as "nothing was noise" — see GoMutationVerdict.
+type GoMutationNoise map[string]string
+
+// ParseGoMutationNoise reads mutation-gate -json's stdout.
+//
+// THE CLASSIFICATION HAS ONE HOME AND IT IS NOT HERE. forge-testkit-go's
+// mutation package decides what is unkillable by parsing the source — a
+// top-level const or var has no coverage block; a tagless switch's case
+// expression sits before its block begins — and this scorer runs on the host,
+// where the source is a dagger Directory and not a tree to parse. So the lane
+// runs the testkit's gate INSIDE the container and hands its answer here,
+// rather than this file carrying a copy of that AST walk to drift from it. The
+// field names are the testkit's wire contract (Report's json tags), pinned by
+// a test there.
+func ParseGoMutationNoise(data []byte) (GoMutationNoise, error) {
+	var r struct {
+		Noise []struct {
+			File   string `json:"file"`
+			Line   int    `json:"line"`
+			Column int    `json:"column"`
+			Reason string `json:"noise_reason"`
+		} `json:"noise"`
+	}
+	if err := json.Unmarshal(data, &r); err != nil {
+		return nil, fmt.Errorf("the classification is not mutation-gate JSON: %v", err)
+	}
+	noise := GoMutationNoise{}
+	for _, n := range r.Noise {
+		noise[fmt.Sprintf("%s:%d:%d", n.File, n.Line, n.Column)] = n.Reason
+	}
+	return noise, nil
+}
+
 // ScoreGoMutation scores gremlins' mutation-go.json against the coverage
-// profile the lane gathered.
-func ScoreGoMutation(report []byte, profile, mode string, workers int) (GoMutationScore, error) {
+// profile the lane gathered and the classification the testkit's gate
+// answered. A nil noise forgives nothing.
+func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoMutationNoise) (GoMutationScore, error) {
 	var d struct {
 		GoModule    string   `json:"go_module"`
 		ElapsedTime *float64 `json:"elapsed_time"`
@@ -127,6 +170,15 @@ func ScoreGoMutation(report []byte, profile, mode string, workers int) (GoMutati
 			}
 			s.Generated++
 			where := fmt.Sprintf("%s:%d:%d  %-13s %s", f.FileName, m.Line, m.Column, status, m.Type)
+			// Only a survivor is a candidate: the testkit classifies NOT
+			// COVERED alone, and a mutant that LIVED was executed by a test
+			// that failed to notice it — a test gap by definition, never
+			// forgiven. The key is asked before the status is counted so a
+			// forgiven mutant lands in exactly one column.
+			if reason, ok := noise[fmt.Sprintf("%s:%d:%d", f.FileName, m.Line, m.Column)]; ok && (status == "NOT COVERED" || status == "LIVED") {
+				s.Forgiven = append(s.Forgiven, fmt.Sprintf("%s  [%s]", where, reason))
+				continue
+			}
 			switch status {
 			case "KILLED":
 				s.Killed++
@@ -162,11 +214,22 @@ func ScoreGoMutation(report []byte, profile, mode string, workers int) (GoMutati
 
 	out := []string{
 		fmt.Sprintf("### Mutation gate — go (%s)", mode), "",
-		"| killed | lived | not-covered | timed out | covered-unrun | inert | kill rate |",
-		"|---|---|---|---|---|---|---|",
-		fmt.Sprintf("| %d | %d | %d | %d (%s%%) | %d | %d | %.0f%% of %d viable |",
-			s.Killed, s.Lived, s.NotCovered, s.TimedOut, strconv.FormatFloat(s.TimedOutPct, 'f', -1, 64), s.CoveredUnrun, s.Inert, pct, viable),
+		"| killed | lived | not-covered | forgiven | timed out | covered-unrun | inert | kill rate |",
+		"|---|---|---|---|---|---|---|---|",
+		fmt.Sprintf("| %d | %d | %d | %d | %d (%s%%) | %d | %d | %.0f%% of %d viable |",
+			s.Killed, s.Lived, s.NotCovered, len(s.Forgiven), s.TimedOut, strconv.FormatFloat(s.TimedOutPct, 'f', -1, 64), s.CoveredUnrun, s.Inert, pct, viable),
 		"",
+	}
+	if len(s.Forgiven) > 0 {
+		// A FORGIVENESS NOBODY CAN READ IS A SUPPRESSION. Every excused mutant
+		// is listed with the class that excused it, above the survivors, so a
+		// reader deciding whether the pass was earned sees what was set aside.
+		out = append(out,
+			fmt.Sprintf("**%d mutant(s) forgiven — unkillable by construction, not untested.**", len(s.Forgiven)),
+			"Classified by forge-testkit-go's mutation gate from the source: a",
+			"top-level const or var has no coverage block, and a tagless switch's",
+			"case expression sits before its block begins. No test could kill these.", "", "```")
+		out = append(append(out, s.Forgiven...), "```", "")
 	}
 	if s.MsPerMutant >= 0 {
 		out = append(out,
@@ -220,6 +283,10 @@ type GoMutationRun struct {
 	// Canary is the control's answer: CanaryOK, CanaryBroken or CanaryUnknown.
 	Canary  string
 	Workers int
+	// Classified is what mutation-gate -json wrote in the lane; empty when it
+	// did not answer. ClassifyErr is what it said on stderr when it did not.
+	Classified  []byte
+	ClassifyErr string
 }
 
 // The canary's answers.
@@ -255,7 +322,23 @@ func GoMutationVerdict(run GoMutationRun) (int, string) {
 		}
 		return 2, fmt.Sprintf("gremlins exited %d and wrote no mutation-go.json — nothing was measured", run.Status)
 	}
-	s, err := ScoreGoMutation(run.Report, run.Profile, "diff", run.Workers)
+	// THE CLASSIFIER NOT ANSWERING IS A FACT THE VERDICT MUST CARRY. Scored
+	// without it, every unkillable declaration reads as a survivor and a
+	// clean pull is red for a reason no test can fix; scored as if it had
+	// answered "nothing", the same. So a missing classification forgives
+	// nothing here, and below it turns a survivor verdict into "could not
+	// measure" — the survivors are real or noise and this run cannot say.
+	var noise GoMutationNoise
+	classifyErr := strings.TrimSpace(run.ClassifyErr)
+	if len(bytes.TrimSpace(run.Classified)) > 0 {
+		var err error
+		if noise, err = ParseGoMutationNoise(run.Classified); err != nil {
+			classifyErr = err.Error()
+		}
+	} else if classifyErr == "" {
+		classifyErr = "mutation-gate wrote nothing"
+	}
+	s, err := ScoreGoMutation(run.Report, run.Profile, "diff", run.Workers, noise)
 	if err != nil {
 		return 2, "the mutation report could not be read: " + err.Error()
 	}
@@ -277,6 +360,9 @@ func GoMutationVerdict(run GoMutationRun) (int, string) {
 	}
 	if missed == 0 {
 		return 0, with("every viable mutant was caught")
+	}
+	if noise == nil {
+		return 2, with(fmt.Sprintf("%d mutant(s) survived and the unkillability classifier did not answer (%s) — this run cannot tell a test gap from a declaration no test could reach", missed, classifyErr))
 	}
 	return 1, with(fmt.Sprintf("%d mutant(s) survived or were never covered — see the list below", missed))
 }

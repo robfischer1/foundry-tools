@@ -169,6 +169,7 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 			WithFile("/usr/local/bin/opengrep", dag.HTTP(checks.OpengrepMirror), dagger.ContainerWithFileOpts{Permissions: 0o755}).
 			WithExec([]string{"opengrep", "--version"}).
 			WithExec([]string{"go", "install", checks.GremlinsModule}).
+			WithExec([]string{"go", "install", checks.MutationGateModule}).
 			WithExec([]string{"go", "install", checks.StaticcheckModule}).
 			WithExec([]string{"go", "install", checks.GovulncheckModule}).
 			WithExec([]string{"staticcheck", "-version"}).

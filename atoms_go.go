@@ -694,9 +694,34 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	// fails is that absence, and the verdict decides what it means.
 	report, _ := mutated.File(path.Join("/src", dir, goMutationReport)).Contents(ctx)
 
+	// CLASSIFY, IN THE LANE, WHERE THE SOURCE IS. forge-testkit-go's gate
+	// parses the tree to say which survivors no test could ever kill — a
+	// mutant in a top-level const or var has no coverage block — and answers
+	// them under -json for the scorer on the host to fold in. Its own exit
+	// code is not the verdict here (this atom holds the canary and the timeout
+	// budget); its stdout is. Nothing to write is nothing to classify.
+	var classified, classifyErr string
+	if report != "" {
+		classified, classifyErr, _ = classify(ctx, mutated.WithExec([]string{"mutation-gate", "-report", goMutationReport, "-C", ".", "-json"}, anyExit))
+	}
+
 	return settle(checks.GoMutationVerdict(checks.GoMutationRun{
 		Status: status, Report: []byte(report), Profile: profile, Canary: canary, Workers: goMutationWorkers,
+		Classified: []byte(classified), ClassifyErr: classifyErr,
 	}))
+}
+
+// classify answers mutation-gate's stdout and stderr separately: the JSON is
+// the answer, and what it said when it had none is the reason the verdict
+// carries. An engine error is a reason too, never a silent empty answer.
+func classify(ctx context.Context, ctr *dagger.Container) (out, errOut string, code int) {
+	code, err := ctr.ExitCode(ctx)
+	if err != nil {
+		return "", "the engine could not run mutation-gate: " + err.Error(), 0
+	}
+	out, _ = ctr.Stdout(ctx)
+	errOut, _ = ctr.Stderr(ctx)
+	return out, errOut, code
 }
 
 const (
