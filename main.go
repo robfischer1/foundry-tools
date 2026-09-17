@@ -11,7 +11,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -207,6 +209,14 @@ const atomsInFlight = 4
 // one element per atom, each preserving its own 0/1/2. The door reads the join,
 // not a single exit code, so an atom that could not run stays visible as a 2
 // instead of being flattened into the run's overall failure.
+//
+// NEVER CACHED AS A WHOLE. A vector is a successful return even when an atom
+// in it could not run, and a function's result is cached for seven days by
+// default — so a re-push of the same tree would be answered a stale
+// could-not-run without looking. The atoms' own execs stay cached; only the
+// vector is recomputed.
+//
+// +cache="never"
 func (m *FoundryTools) Verdicts(
 	ctx context.Context,
 	// Only atoms at this stage: precommit, prepush, sweep or mutation. EMPTY
@@ -307,7 +317,23 @@ func verdictFor(ctx context.Context, r *run, id string) (checks.Verdict, error) 
 		// catches it in the tests rather than on a gate.
 		return checks.Verdict{}, fmt.Errorf("%s has no runner registered", id)
 	}
-	return fn(ctx, r), nil
+	v := fn(ctx, r)
+	if v.State != int(checks.StateCannotRun) {
+		return v, nil
+	}
+	// A COULD-NOT-RUN IS ASKED AGAIN, PAST THE CACHE, BEFORE IT IS REPORTED.
+	// An exec that expects any exit caches its failure, and since the engine
+	// began keeping its cache (infra #617, 2026-09-17) a transient failure — a
+	// proxy that answered 404 once, a dropped connection — would come back
+	// from cache on every re-ask of the same tree. The second run keys every
+	// lane exec afresh, so it looks again. MEASURED on the gate receipts
+	// 2026-09-09 -> 17: 759 could-not-run rows against 1,362 findings.
+	again := fn(ctx, newRun(r.src, r.repo, r.base).reasked(strconv.FormatInt(time.Now().UnixNano(), 10)))
+	if again.State != int(checks.StateCannotRun) {
+		return again, nil
+	}
+	again.Reason += "\n(asked twice, the second time past the engine's cache: it could not run both times)"
+	return again, nil
 }
 
 // check is what every `+check` function calls: one atom, one verdict, answered the

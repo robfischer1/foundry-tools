@@ -56,6 +56,10 @@ type run struct {
 	src  *dagger.Directory
 	repo string
 	base string
+	// reask, when set, is written into every lane container past its toolchain
+	// layers, so every exec after it is keyed afresh and nothing the engine
+	// cached answers it (verdictFor's re-ask of a could-not-run).
+	reask string
 
 	stocks *dagger.Directory
 	dies   *dagger.Directory
@@ -65,6 +69,12 @@ type run struct {
 	goModsOnce sync.Once
 	goMods     []string
 	goModsErr  error
+}
+
+// reasked is r keyed afresh: every lane exec carries the nonce.
+func (r *run) reasked(nonce string) *run {
+	r.reask = nonce
+	return r
 }
 
 func newRun(src *dagger.Directory, repo, base string) *run {
@@ -117,6 +127,9 @@ func (r *run) laneBase(image string) *dagger.Container {
 		if c.EnvVar != "" {
 			ctr = ctr.WithEnvVariable(c.EnvVar, c.Path)
 		}
+	}
+	if r.reask != "" {
+		ctr = ctr.WithEnvVariable("CA_REASK", r.reask)
 	}
 	return ctr
 }
