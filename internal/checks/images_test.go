@@ -123,8 +123,11 @@ func TestGoPrivateIsEmptySoTheImagesBakedOneCannotWin(t *testing.T) {
 	if GoPrivate != "" {
 		t.Errorf("GOPRIVATE is %q — a non-empty value re-enables the direct fetch that meets the SSO portal", GoPrivate)
 	}
-	if GoNoSumDB != "forgejo.notusmi.com" {
-		t.Errorf("GONOSUMDB is %q — the forge host is what GOPRIVATE was covering", GoNoSumDB)
+	// Both of the forge's names, and the order is a test's convenience only.
+	// A star's go.sum never asks the checksum database; `go install pkg@v`
+	// asks for everything, and MutationGateModule lives under the first.
+	if GoNoSumDB != "git.notusmi.com,forgejo.notusmi.com" {
+		t.Errorf("GONOSUMDB is %q — the forge answers to both names and a go install of a fleet module asks the sumdb about the first", GoNoSumDB)
 	}
 }
 
@@ -139,11 +142,14 @@ func TestTheProvisionedToolsArePinnedAndTheMirrorRouteCarriesTheVersion(t *testi
 	if !strings.Contains(OpengrepMirror, "/"+OpengrepVersion+"/") || !strings.HasSuffix(OpengrepMirror, "/opengrep_manylinux_x86") {
 		t.Errorf("the opengrep route does not name the pin and the artefact: %s", OpengrepMirror)
 	}
-	for _, mod := range []string{StaticcheckModule, GovulncheckModule, GremlinsModule} {
+	for _, mod := range []string{StaticcheckModule, GovulncheckModule, GremlinsModule, MutationGateModule} {
 		at := strings.LastIndex(mod, "@")
 		if at < 0 || at == len(mod)-1 || mod[at+1:] == "latest" {
 			t.Errorf("go tool %q is not pinned to a version", mod)
 		}
+	}
+	if host := MutationGateModule[:strings.Index(MutationGateModule, "/")]; !strings.Contains(","+GoNoSumDB+",", ","+host+",") {
+		t.Errorf("mutation-gate is installed from %s, which GONOSUMDB %q does not name — the install would ask sum.golang.org and get a 404", host, GoNoSumDB)
 	}
 	for _, v := range []string{CargoAuditVersion, CargoMutantsVersion} {
 		if !regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(v) {

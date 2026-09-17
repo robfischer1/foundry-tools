@@ -28,7 +28,7 @@ const goProfile = "mode: set\n" +
 	"example.com/x/ops/ops.go:bad 1 1\n"
 
 func TestScoreGoMutationCountsEveryStatusFromTheMutations(t *testing.T) {
-	s, err := ScoreGoMutation([]byte(goReport), goProfile, "diff", 2)
+	s, err := ScoreGoMutation([]byte(goReport), goProfile, "diff", 2, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestScoreGoMutationCountsEveryStatusFromTheMutations(t *testing.T) {
 	}
 	for _, want := range []string{
 		"### Mutation gate — go (diff)",
-		"| 2 | 1 | 1 | 1 (12.5%) | 1 | 2 | 50% of 4 viable |",
+		"| 2 | 1 | 1 | 0 | 1 (12.5%) | 1 | 2 | 50% of 4 viable |",
 		"_1250ms of wall clock per mutant across 2 worker(s)._",
 		"**1 mutant(s) sit on code the coverage profile says RUNS,**",
 		"ops/ops.go:30:7  COVERED-UNRUN CONDITIONALS_NEGATION",
@@ -76,7 +76,7 @@ func TestScoreGoMutationReadsTheProfileExactly(t *testing.T) {
 {"type":"T","status":"NOT COVERED","line":6,"column":4},
 {"type":"T","status":"NOT COVERED","line":7,"column":4}]}]}`
 	profile := "mode: set\na.go:5.9,6.2 1 1\na.go:6.4,7.2 1 1\na.go:7.1,8.2 1 1\n"
-	s, err := ScoreGoMutation([]byte(report), profile, "diff", 0)
+	s, err := ScoreGoMutation([]byte(report), profile, "diff", 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestScoreGoMutationReadsTheProfileExactly(t *testing.T) {
 		t.Errorf("no elapsed time, and the summary spoke of wall clock:\n%s", s.Summary)
 	}
 	// With no profile at all nothing is corrected.
-	s, _ = ScoreGoMutation([]byte(report), "", "diff", 1)
+	s, _ = ScoreGoMutation([]byte(report), "", "diff", 1, nil)
 	if s.CoveredUnrun != 0 || s.NotCovered != 3 {
 		t.Errorf("no profile corrected a mutant: %+v", s)
 	}
@@ -98,7 +98,7 @@ func TestScoreGoMutationReadsTheProfileExactly(t *testing.T) {
 
 func TestScoreGoMutationSaysWhenItMeasuredNothing(t *testing.T) {
 	report := `{"elapsed_time":1,"files":[{"file_name":"a.go","mutations":[{"type":"T","status":"NOT VIABLE","line":1,"column":1}]}]}`
-	s, err := ScoreGoMutation([]byte(report), "", "diff", 1)
+	s, err := ScoreGoMutation([]byte(report), "", "diff", 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestScoreGoMutationSaysWhenItMeasuredNothing(t *testing.T) {
 	if s.MsPerMutant != -1 {
 		t.Errorf("nothing ran, and a cost was reported: %v", s.MsPerMutant)
 	}
-	if _, err := ScoreGoMutation([]byte("{"), "", "diff", 1); err == nil || !strings.Contains(err.Error(), "not gremlins JSON") {
+	if _, err := ScoreGoMutation([]byte("{"), "", "diff", 1, nil); err == nil || !strings.Contains(err.Error(), "not gremlins JSON") {
 		t.Errorf("a report that does not parse: %v", err)
 	}
 }
@@ -123,7 +123,7 @@ func TestScoreGoMutationSaysWhenItMeasuredNothing(t *testing.T) {
 // percentage, no "measured NONE of 0", and a run gremlins timed at zero is still
 // a cost worth printing.
 func TestScoreGoMutationOfAnEmptyReportAndAZeroClock(t *testing.T) {
-	s, err := ScoreGoMutation([]byte(`{"elapsed_time":1,"files":[]}`), "", "diff", 1)
+	s, err := ScoreGoMutation([]byte(`{"elapsed_time":1,"files":[]}`), "", "diff", 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestScoreGoMutationOfAnEmptyReportAndAZeroClock(t *testing.T) {
 	}
 
 	zero := `{"elapsed_time":0,"files":[{"file_name":"a.go","mutations":[{"type":"T","status":"KILLED","line":1,"column":1}]}]}`
-	s, err = ScoreGoMutation([]byte(zero), "", "diff", 1)
+	s, err = ScoreGoMutation([]byte(zero), "", "diff", 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,11 +203,111 @@ func TestGoMutationVerdictSettlesEveryRun(t *testing.T) {
 		})
 	}
 	survivors := `{"files":[{"file_name":"a.go","mutations":[{"type":"T","status":"KILLED","line":1,"column":1},{"type":"T","status":"LIVED","line":2,"column":3}]}]}`
-	state, reason := GoMutationVerdict(GoMutationRun{Report: []byte(survivors), Canary: CanaryOK})
+	// A survivor is a 1 only once the classifier has answered — with nothing,
+	// here — and said it is not noise; see TestGoMutationVerdictReadsTheClassification.
+	state, reason := GoMutationVerdict(GoMutationRun{Report: []byte(survivors), Canary: CanaryOK, Classified: []byte(`{"noise":[]}`)})
 	if state != 1 || !strings.Contains(reason, "1 mutant(s) survived or were never covered") || !strings.Contains(reason, "a.go:2:3  LIVED") {
 		t.Errorf("survivors: %d %q", state, reason)
 	}
 	if strings.Contains(reason, "wall clock") {
 		t.Errorf("no elapsed time, and the measured line spoke of wall clock: %q", reason)
+	}
+}
+
+// The classification the testkit's gate answered is folded in by coordinate:
+// a named survivor leaves Missed, leaves the kill rate's denominator, and is
+// LISTED with its reason — a forgiveness nobody can read is a suppression.
+func TestScoreGoMutationForgivesWhatTheClassifierNamedAndSaysSo(t *testing.T) {
+	report := `{"elapsed_time":1,"files":[{"file_name":"a.go","mutations":[
+		{"type":"T","status":"KILLED","line":1,"column":1},
+		{"type":"ARITHMETIC_BASE","status":"NOT COVERED","line":3,"column":16},
+		{"type":"T","status":"LIVED","line":5,"column":2}]}]}`
+	noise, err := ParseGoMutationNoise([]byte(`{"killed":1,"noise":[{"file":"a.go","line":3,"column":16,"type":"ARITHMETIC_BASE","status":"NOT COVERED","noise_reason":"declaration"}],"real":[]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := ScoreGoMutation([]byte(report), "", "diff", 1, noise)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Forgiven) != 1 || s.NotCovered != 0 || s.Lived != 1 || len(s.Missed) != 1 {
+		t.Errorf("forgiven %d not-covered %d lived %d missed %d, want 1 0 1 1: %+v", len(s.Forgiven), s.NotCovered, s.Lived, len(s.Missed), s)
+	}
+	for _, want := range []string{
+		"| 1 | 1 | 0 | 1 | 0 (0%) | 0 | 0 | 50% of 2 viable |",
+		"1 mutant(s) forgiven — unkillable by construction, not untested.",
+		"a.go:3:16  NOT COVERED   ARITHMETIC_BASE  [declaration]",
+		"a.go:5:2  LIVED         T",
+	} {
+		if !strings.Contains(s.Summary, want) {
+			t.Errorf("the summary lacks %q:\n%s", want, s.Summary)
+		}
+	}
+	// And a run that forgave nothing says nothing about forgiveness: the
+	// block is evidence of what was set aside, not a heading for an empty
+	// list.
+	if plain, _ := ScoreGoMutation([]byte(report), "", "diff", 1, GoMutationNoise{}); strings.Contains(plain.Summary, "forgiven —") || !strings.Contains(plain.Summary, "| 1 | 1 | 1 | 0 | 0 (0%) | 0 | 0 | 33% of 3 viable |") {
+		t.Errorf("a run with nothing forgiven printed the forgiven block, or miscounted:\n%s", plain.Summary)
+	}
+	// A KILLED mutant at a named coordinate is a kill: the classifier only
+	// speaks about survivors, and a name it gave a mutant that was later
+	// killed by a re-run must not turn the kill into a forgiveness.
+	noise["a.go:1:1"] = "declaration"
+	s, _ = ScoreGoMutation([]byte(report), "", "diff", 1, noise)
+	if s.Killed != 1 || len(s.Forgiven) != 1 {
+		t.Errorf("a kill was reclassified: killed %d forgiven %d", s.Killed, len(s.Forgiven))
+	}
+}
+
+// ParseGoMutationNoise reads the testkit's wire shape and nothing else.
+func TestParseGoMutationNoiseReadsTheTestkitsShape(t *testing.T) {
+	noise, err := ParseGoMutationNoise([]byte(`{"noise":[{"file":"p/q.go","line":7,"column":9,"noise_reason":"switch-case"},{"file":"p/q.go","line":8,"column":1,"noise_reason":"declaration"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if noise["p/q.go:7:9"] != "switch-case" || noise["p/q.go:8:1"] != "declaration" || len(noise) != 2 {
+		t.Errorf("noise = %v", noise)
+	}
+	if _, err := ParseGoMutationNoise([]byte("| killed |")); err == nil || !strings.Contains(err.Error(), "not mutation-gate JSON") {
+		t.Errorf("a markdown table parsed as a classification: %v", err)
+	}
+	if noise, err := ParseGoMutationNoise([]byte(`{"noise":[]}`)); err != nil || noise == nil || len(noise) != 0 {
+		t.Errorf("an empty classification is an answer, not an absence: %v %v", noise, err)
+	}
+}
+
+// The verdict with and without a classification: same report, three answers.
+func TestGoMutationVerdictReadsTheClassification(t *testing.T) {
+	report := `{"files":[{"file_name":"a.go","mutations":[{"type":"ARITHMETIC_BASE","status":"NOT COVERED","line":3,"column":16}]}]}`
+	named := `{"noise":[{"file":"a.go","line":3,"column":16,"noise_reason":"declaration"}]}`
+	cases := map[string]struct {
+		classified, classifyErr string
+		state                   int
+		reason                  string
+	}{
+		"named":                      {named, "", 0, "every viable mutant was caught"},
+		"answered, not named":        {`{"noise":[]}`, "", 1, "1 mutant(s) survived or were never covered"},
+		"no answer, a reason":        {"", "mutation-gate: could not read", 2, "did not answer (mutation-gate: could not read)"},
+		"no answer, no reason":       {"", "", 2, "did not answer (mutation-gate wrote nothing)"},
+		"an answer that is not JSON": {"| killed |", "", 2, "not mutation-gate JSON"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			state, reason := GoMutationVerdict(GoMutationRun{
+				Report: []byte(report), Canary: CanaryOK, Workers: 1,
+				Classified: []byte(c.classified), ClassifyErr: c.classifyErr,
+			})
+			if state != c.state || !strings.Contains(reason, c.reason) {
+				t.Errorf("state %d, want %d; reason lacks %q:\n%s", state, c.state, c.reason, reason)
+			}
+		})
+	}
+	// A clean run needs no classification: nothing survived to classify.
+	state, _ := GoMutationVerdict(GoMutationRun{
+		Report: []byte(`{"files":[{"file_name":"a.go","mutations":[{"type":"T","status":"KILLED","line":1,"column":1}]}]}`),
+		Canary: CanaryOK, Workers: 1,
+	})
+	if state != 0 {
+		t.Errorf("a clean run with no classification settled %d", state)
 	}
 }

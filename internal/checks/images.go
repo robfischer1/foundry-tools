@@ -112,9 +112,18 @@ const (
 	OpengrepVersion = "v1.25.0"
 	OpengrepMirror  = "https://nexus.notusmi.com/repository/github-raw/opengrep/opengrep/releases/download/v1.25.0/opengrep_manylinux_x86"
 
-	StaticcheckModule   = "honnef.co/go/tools/cmd/staticcheck@2025.1.1"
-	GovulncheckModule   = "golang.org/x/vuln/cmd/govulncheck@v1.1.4"
-	GremlinsModule      = "github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0"
+	StaticcheckModule = "honnef.co/go/tools/cmd/staticcheck@2025.1.1"
+	GovulncheckModule = "golang.org/x/vuln/cmd/govulncheck@v1.1.4"
+	GremlinsModule    = "github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0"
+	// MutationGateModule is forge-testkit-go's gate, run in the lane after
+	// gremlins for its -json classification of what is unkillable — the AST
+	// walk that decides a top-level declaration or a case expression has no
+	// coverage block. It is installed the way gremlins is, through GoProxy,
+	// which the door serves for fleet modules (probed: HTTP 200 for
+	// forge-testkit-go/@v/list). It is NOT a Go import of this module: the
+	// scorer runs on the host where the source is a Directory, and the engine
+	// builds this module with its own proxy settings, not the lane's.
+	MutationGateModule  = "git.notusmi.com/rob/forge-testkit-go/cmd/mutation-gate@v0.7.0"
 	CargoAuditVersion   = "0.22.2"
 	CargoMutantsVersion = "27.1.0"
 )
@@ -154,8 +163,18 @@ const (
 	// govulncheck "loading packages" while the door rolled onto 9a5313fb.
 	// A door that is briefly gone is not a verdict on the code.
 	GoProxy = "http://ourea.default.svc.cluster.local:8215/goproxy|https://proxy.golang.org,direct"
-	// GoNoSumDB keeps the one thing GOPRIVATE was doing for the forge host.
-	GoNoSumDB = "forgejo.notusmi.com"
+	// GoNoSumDB keeps the one thing GOPRIVATE was doing for the forge host —
+	// BOTH of its names. The fleet's module paths say git.notusmi.com
+	// (stellar-core-go, forge-testkit-go) and forgejo.notusmi.com (the stars);
+	// a star's go.sum carries every hash so its build never asks the checksum
+	// database, which is why only the second name was ever needed here. A
+	// `go install pkg@version` has no go.sum and asks for every module, so
+	// installing MutationGateModule with git.notusmi.com absent MEASURED:
+	// "verifying module: reading https://sum.golang.org/lookup/
+	// git.notusmi.com/rob/forge-testkit-go@v0.6.1: 404 Not Found" — a clean
+	// cache, the lane's exact three variables, 2026-09-17. With both names
+	// the same install answered a binary.
+	GoNoSumDB = "git.notusmi.com,forgejo.notusmi.com"
 	// GoPrivate is DELIBERATELY EMPTY and set anyway. The retired go-ci BAKED
 	// GOPRIVATE=git.notusmi.com,forgejo.notusmi.com for the act lane's netrc,
 	// GOPRIVATE is the default for GONOPROXY, and a GONOPROXY naming the forge

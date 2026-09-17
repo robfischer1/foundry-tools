@@ -236,8 +236,11 @@ func TestGoTestRaceBringsTheRecordsPostgres(t *testing.T) {
 const (
 	goMutantsNeedle = `"--output","mutation-go.json"`
 	goCanaryNeedle  = `"--workers","1"`
-	goDiffNeedle    = `"git","diff","--relative"`
-	goReportRead    = `file(path:"/src/mutation-go.json"){contents}`
+	// goClassifyNeedle is the testkit's gate, run in the lane after gremlins
+	// for its classification of what no test could kill.
+	goClassifyNeedle = `"mutation-gate","-report","mutation-go.json","-C",".","-json"`
+	goDiffNeedle     = `"git","diff","--relative"`
+	goReportRead     = `file(path:"/src/mutation-go.json"){contents}`
 	// goCleanReport is a report where every mutant was killed.
 	goCleanReport = `{"elapsed_time":1,"files":[{"file_name":"a.go","mutations":[{"type":"T","status":"KILLED","line":1,"column":1}]}]}`
 )
@@ -251,6 +254,8 @@ func scriptGoMutation(tree map[string]string) {
 	engine.withTree(tree)
 	engine.stdout(goDiffNeedle, "a.go\n")
 	engine.stdout(goCanaryNeedle, "Killed: 0, Lived: 1, Not covered: 0\n")
+	// The classifier answered, and named nothing: every survivor is real.
+	engine.stdout(goClassifyNeedle, `{"noise":[]}`+"\n")
 }
 
 func TestGoMutationCompilesTheRecordsDBTags(t *testing.T) {
@@ -291,8 +296,8 @@ func TestGoStaticcheckAndGovulncheckUseTheBakedBinaries(t *testing.T) {
 	c := engine.chain(`"staticcheck","-checks"`, "exitCode")
 	// staticcheck is provisioned ONCE, pinned, by the lane — never by the
 	// atom, and never at @latest.
-	if n := strings.Count(c, `"go","install"`); n != 3 || !strings.Contains(c, checks.StaticcheckModule) || strings.Contains(c, "@latest") {
-		t.Errorf("the lane provisions gremlins, staticcheck and govulncheck at their pins, and nothing else installs:\n%s", c)
+	if n := strings.Count(c, `"go","install"`); n != 4 || !strings.Contains(c, checks.StaticcheckModule) || !strings.Contains(c, checks.MutationGateModule) || strings.Contains(c, "@latest") {
+		t.Errorf("the lane provisions gremlins, mutation-gate, staticcheck and govulncheck at their pins, and nothing else installs:\n%s", c)
 	}
 	wantCalls(t, c, []string{"withExec", `args:["staticcheck","-version"]`}, []string{"withExec", `expect:ANY`, `-ST1023`})
 	engine.exitCode(`"staticcheck","-checks"`, 1)
@@ -344,6 +349,8 @@ func TestGoMutationMeasuresTheDiffAndSettlesInGo(t *testing.T) {
 // What the run measured decides the verdict, through checks.GoMutationVerdict.
 func TestGoMutationSettlesWhatItMeasured(t *testing.T) {
 	survivors := `{"files":[{"file_name":"a.go","mutations":[{"type":"T","status":"KILLED","line":1,"column":1},{"type":"T","status":"LIVED","line":2,"column":3}]}]}`
+	declaration := `{"files":[{"file_name":"a.go","mutations":[{"type":"T","status":"KILLED","line":1,"column":1},{"type":"ARITHMETIC_BASE","status":"NOT COVERED","line":3,"column":16}]}]}`
+	declarationAndSurvivor := `{"files":[{"file_name":"a.go","mutations":[{"type":"T","status":"LIVED","line":2,"column":3},{"type":"ARITHMETIC_BASE","status":"NOT COVERED","line":3,"column":16}]}]}`
 	cases := map[string]struct {
 		script func()
 		state  int
@@ -363,6 +370,42 @@ func TestGoMutationSettlesWhatItMeasured(t *testing.T) {
 		}, 2, []string{"gremlins exited 3 and wrote no mutation-go.json"}},
 		"nothing to report": {func() { engine.fail(goReportRead, "no such file") }, 0,
 			nil},
+		// THE CLASS THIS RUN EXISTS FOR. A mutant in a top-level declaration
+		// has no coverage block, so gremlins says NOT COVERED forever; the
+		// testkit's gate reads the source in the lane and names it. Forgiven
+		// is a pass that SAYS what it set aside, and a survivor the classifier
+		// did not name is still a survivor.
+		"a declaration the classifier forgave": {func() {
+			engine.withTree(map[string]string{"/src/mutation-go.json": declaration})
+			engine.stdout(goClassifyNeedle, `{"noise":[{"file":"a.go","line":3,"column":16,"type":"ARITHMETIC_BASE","status":"NOT COVERED","noise_reason":"declaration"}]}`)
+		}, 0, nil},
+		"a declaration forgiven beside a real survivor": {func() {
+			engine.withTree(map[string]string{"/src/mutation-go.json": declarationAndSurvivor})
+			engine.stdout(goClassifyNeedle, `{"noise":[{"file":"a.go","line":3,"column":16,"noise_reason":"declaration"}]}`)
+		}, 1, []string{"1 mutant(s) survived or were never covered", "[declaration]", "a.go:2:3  LIVED"}},
+		// A CLASSIFIER THAT DID NOT ANSWER IS NOT A CLASSIFIER THAT SAID
+		// "NOTHING". Scored without it, a clean pull is red for a reason no
+		// test can fix; so a survivor with no classification is "could not
+		// measure", carrying what the gate said, and a clean run is still
+		// clean — there was nothing to classify.
+		"a survivor and the classifier said nothing": {func() {
+			engine.withTree(map[string]string{"/src/mutation-go.json": survivors})
+			engine.stdout(goClassifyNeedle, "")
+			engine.stderr(goClassifyNeedle, "mutation-gate: mutation-go.json: report names a.go, which is not under /src\n")
+		}, 2, []string{"the unkillability classifier did not answer", "report names a.go, which is not under /src"}},
+		"a survivor and the classifier wrote noise that is not JSON": {func() {
+			engine.withTree(map[string]string{"/src/mutation-go.json": survivors})
+			engine.stdout(goClassifyNeedle, "| killed | missed |\n")
+		}, 2, []string{"the unkillability classifier did not answer", "not mutation-gate JSON"}},
+		"every mutant caught and the classifier said nothing": {func() {
+			engine.stdout(goClassifyNeedle, "")
+		}, 0, nil},
+		// The engine failing the classifier's exec is a reason the verdict
+		// carries by name, never an empty answer that reads as "nothing".
+		"a survivor and the engine could not run the classifier": {func() {
+			engine.withTree(map[string]string{"/src/mutation-go.json": survivors})
+			engine.failLeaf(goClassifyNeedle, "exitCode", "engine gone")
+		}, 2, []string{"the unkillability classifier did not answer (the engine could not run mutation-gate: engine gone)"}},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -373,6 +416,20 @@ func TestGoMutationSettlesWhatItMeasured(t *testing.T) {
 			wantState(t, runAtom(t, "go:mutation", "abc123"), c.state, c.reason...)
 		})
 	}
+	// The classifier runs on gremlins' container — after the mutants, on the
+	// report they wrote — and a run with no report has nothing to classify.
+	scriptGoMutation(nil)
+	runAtom(t, "go:mutation", "abc123")
+	if c := engine.chain(goClassifyNeedle); c == "" || !strings.Contains(c, goMutantsNeedle) {
+		t.Errorf("mutation-gate did not run on gremlins' own container:\n%s", c)
+	}
+	scriptGoMutation(nil)
+	engine.fail(goReportRead, "no such file")
+	runAtom(t, "go:mutation", "abc123")
+	if engine.chain(goClassifyNeedle) != "" {
+		t.Error("mutation-gate ran with no report to read")
+	}
+
 	// A canary that did not build never runs gremlins.
 	scriptGoMutation(nil)
 	engine.exitCode(`"/tmp/mutation/canary/canary_test.go"`, 1)
@@ -621,6 +678,7 @@ func TestGoMutationInANestedModuleDiffsRelativeToIt(t *testing.T) {
 	engine.withTree(map[string]string{"/src/tools/forge/mutation-go.json": goCleanReport})
 	engine.stdout(goDiffNeedle, "internal/oci/oci.go\n")
 	engine.stdout(goCanaryNeedle, "Killed: 0, Lived: 1, Not covered: 0\n")
+	engine.stdout(goClassifyNeedle, `{"noise":[]}`)
 	wantState(t, runAtom(t, "go:mutation", "abc123"), 0, "PASS in 1 Go module (tools/forge)")
 	c := engine.chain(goMutantsNeedle, "exitCode")
 	wantCalls(t, c,
