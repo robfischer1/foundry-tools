@@ -82,9 +82,10 @@ func newRun(src *dagger.Directory, repo, base string) *run {
 	}
 }
 
-// lane is the container every atom starts from: the pinned lane image, the
-// environment the fleet's toolchains need, the toolchain caches for that
-// image, and the tree under check mounted at /src.
+// laneBase is the container every atom starts from: the pinned lane image, the
+// environment the fleet's toolchains need and the toolchain caches for that
+// image — everything but the tree, for a step that mounts only the files it
+// reads.
 //
 // THE CACHES ARE THE POINT. checks.CachesFor names, per image, the directories
 // its toolchain writes to — go's module and build caches, uv's cache, cargo's
@@ -92,7 +93,7 @@ func newRun(src *dagger.Directory, repo, base string) *run {
 // persists on the engine across runs, seeded on first creation from the
 // image's own warm layer. A gate's second run downloads nothing it downloaded
 // on its first.
-func (r *run) lane(image string) *dagger.Container {
+func (r *run) laneBase(image string) *dagger.Container {
 	ctr := dag.Container().From(image).
 		// worktree-guard and every other hook that stands down under CI reads
 		// this. The engine IS the CI boundary; saying so beats each atom
@@ -117,7 +118,12 @@ func (r *run) lane(image string) *dagger.Container {
 			ctr = ctr.WithEnvVariable(c.EnvVar, c.Path)
 		}
 	}
-	return ctr.
+	return ctr
+}
+
+// lane is laneBase with the tree under check mounted at /src.
+func (r *run) lane(image string) *dagger.Container {
+	return r.laneBase(image).
 		WithMountedDirectory("/src", r.src).
 		WithWorkdir("/src")
 }
