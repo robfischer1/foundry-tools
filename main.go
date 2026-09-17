@@ -272,6 +272,9 @@ func (m *FoundryTools) vector(ctx context.Context, stage, only, base string) ([]
 			return nil, err
 		}
 	}
+	// An atom another SELECTED atom covers stands down here rather than in the
+	// runner, so the caller still gets its line (checks.Subsumed says why).
+	selected, covered := checks.Subsumed(selected)
 	r := newRun(m.Source, m.Repo, base)
 	out := make([]checks.Verdict, len(selected))
 	g, gctx := errgroup.WithContext(ctx)
@@ -288,6 +291,9 @@ func (m *FoundryTools) vector(ctx context.Context, stage, only, base string) ([]
 	}
 	if err := g.Wait(); err != nil {
 		return nil, err
+	}
+	for _, a := range covered {
+		out = append(out, checks.CoveredVerdict(a))
 	}
 	return out, nil
 }

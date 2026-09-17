@@ -50,15 +50,26 @@ type Stage struct {
 	// Omitted are the atoms that found no surface here, each with the reason,
 	// so an atom the planner skipped is never silent.
 	Omitted []StageAtom
+	// Unreached are the atoms a failing sequence never got to, in the order
+	// they would have run. A stage that stops early must say what it did not
+	// look at: "everything else passed" and "everything else was skipped" are
+	// not the same answer, and only one of them is true here.
+	Unreached []string
 	// Log is every atom that ran, in Ran's order, then the omitted atoms, one
 	// line per distinct reason.
 	Log string
 }
 
+// Stops reports whether a sequence stops here: an atom that found something or
+// could not run. An absence stops nothing — a lane with no surface is not a
+// failure, and the atoms behind it still have surfaces of their own.
+func Stops(v Verdict) bool { return v.State != 0 && v.Result != "absent" }
+
 // SettleStage folds a stage's verdicts. Basic before language; within a group,
 // the order given. An absent verdict is omitted and never settles the stage.
-func SettleStage(name string, vs []Verdict) Stage {
-	st := Stage{Name: name}
+// The unreached ids are the atoms a fail-fast sequence never ran.
+func SettleStage(name string, vs []Verdict, unreached ...string) Stage {
+	st := Stage{Name: name, Unreached: unreached}
 	lanes := map[string]bool{}
 	for _, group := range []string{GroupBasic, GroupLanguage} {
 		for _, v := range vs {
@@ -100,6 +111,9 @@ func SettleStage(name string, vs []Verdict) Stage {
 		for _, r := range reasons {
 			fmt.Fprintf(&log, "%s — %s\n", strings.Join(atoms[r], ", "), r)
 		}
+	}
+	if len(st.Unreached) > 0 {
+		fmt.Fprintf(&log, "── not reached: the stage stopped before them ──\n%s\n", strings.Join(st.Unreached, ", "))
 	}
 	st.Log = log.String()
 	return st

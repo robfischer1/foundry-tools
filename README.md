@@ -35,6 +35,8 @@ dagger call -m git.notusmi.com/rob/foundry-tools@<sha> --source=. verdicts --sta
 
 dagger call check                    # the commit stage: basic + language fanouts, one settled answer
 dagger call check exit               # …exiting 0, 1 or 2 with the stage's log
+dagger call push --base=<sha>        # the push stage: the complex checks in sequence, beside mutation
+dagger call push --base=<sha> exit   # …exiting on the worst of the two
 dagger call verdicts                 # every PULL stage — precommit and prepush
 dagger call verdicts --stage=prepush
 dagger call verdicts --stage=sweep   # the clock's vector, asked for by name
@@ -72,12 +74,14 @@ dagger call -m git.notusmi.com/rob/foundry-tools@<sha> --source=. verdicts --sta
 
 ## The atoms
 
-**Stages (CA F12, 2026-09-17).** `precommit` is the **commit** stage — `dagger call check` — and holds the basic checks every tree gets (the `fleet:` namespace) beside the language checks for what the tree contains: format, lint and tests. `prepush` is the **push** stage and holds the complex checks — the build, deep lint, vulnerability audits, the bundle probes, the witness and orbit drift — beside the mutation lane. `internal/checks/stage_test.go` pins both lists.
+**Stages (CA F12, 2026-09-17).** `precommit` is the **commit** stage — `dagger call check` — and holds the basic checks every tree gets (the `fleet:` namespace) beside the language checks for what the tree contains: format, lint and tests. `prepush` is the **push** stage — `dagger call push` — and holds the complex checks — deep lint, vulnerability audits, the build, the race + live-database suite, the bundle probes, the witness and orbit drift — run **in sequence, cheapest first, stopping at the first one that finds something**, beside the mutation lane, which runs concurrently and is allowed to finish. A stopped sequence names the atoms it never reached. `internal/checks/stage_test.go` pins both lists.
+
+**The Go suite is split by cadence (CA F13).** `go:test` is the commit's unit run — the same packages with no race detector, no database and no build tags, so the DB-gated suites do not compile in — and `go:test-race` is the push's run, with `-race` and the live databases the record declares. A caller that asks for both stages at once (the door's gate lane, until F16 runs the stages separately) gets the race run and an omission line for the unit one: `AtomDef.SubsumedBy` stands it down rather than compiling the suite twice.
 
 **`fleet:`** — every repository, whatever it is written in.
 `check-yaml` · `check-added-large-files` · `check-merge-conflict` · `detect-secrets` · `stop-justifications` · `hadolint` · `sast-ruleset-lanes` · `opengrep-sast` (commit) · `orbit-drift` · `witness` (push)
 
-**`go:`** (`go.mod`) — `gofmt` · `vet` · `test-race` (commit) · `build` · `staticcheck` · `govulncheck` (push)
+**`go:`** (`go.mod`) — `gofmt` · `vet` · `test` (commit) · `staticcheck` · `govulncheck` · `build` · `test-race` (push)
 
 **`python:`** (`pyproject.toml`) — `ruff-check` · `ruff-format` · `forge-testkit-assertion-free` · `forge-testkit-fake-placement` · `forge-testkit-schema-budget` · `mypy` · `pytest` (commit) · `pip-audit` (push)
 
