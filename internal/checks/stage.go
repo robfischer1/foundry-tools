@@ -65,6 +65,18 @@ type Stage struct {
 // failure, and the atoms behind it still have surfaces of their own.
 func Stops(v Verdict) bool { return v.State != 0 && v.Result != "absent" }
 
+// TailAfter is the ids of the atoms after the one at i — what a sequence that
+// stopped at i never reached. A pure function because the arithmetic is the
+// whole of it: off by one here and a stage claims it ran the atom that stopped
+// it, or hides the one after.
+func TailAfter(selected []AtomDef, i int) []string {
+	var out []string
+	for _, rest := range selected[i+1:] {
+		out = append(out, rest.ID)
+	}
+	return out
+}
+
 // SettleStage folds a stage's verdicts. Basic before language; within a group,
 // the order given. An absent verdict is omitted and never settles the stage.
 // The unreached ids are the atoms a fail-fast sequence never ran.

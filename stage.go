@@ -126,6 +126,7 @@ func (m *FoundryTools) sequence(ctx context.Context, stage, base string) ([]chec
 	selected, covered := checks.Subsumed(selected)
 	r := newRun(m.Source, m.Repo, base)
 	var out []checks.Verdict
+	var unreached []string
 	for i, a := range selected {
 		v, err := verdictFor(ctx, r, a.ID)
 		if err != nil {
@@ -133,17 +134,16 @@ func (m *FoundryTools) sequence(ctx context.Context, stage, base string) ([]chec
 		}
 		out = append(out, v)
 		if checks.Stops(v) {
-			var unreached []string
-			for _, rest := range selected[i+1:] {
-				unreached = append(unreached, rest.ID)
-			}
-			return out, unreached, nil
+			unreached = checks.TailAfter(selected, i)
+			break
 		}
 	}
+	// The atoms another selected atom covered are answered either way — a
+	// sequence that stopped still says what stood down, for vector's reason.
 	for _, a := range covered {
 		out = append(out, checks.CoveredVerdict(a))
 	}
-	return out, nil, nil
+	return out, unreached, nil
 }
 
 // Exit ends on the stage's state, so `dagger call check exit` exits 0, 1 or 2

@@ -97,6 +97,18 @@ func TestStopsOnAFindingOrACannotRunButNeverOnAnAbsence(t *testing.T) {
 	}
 }
 
+func TestTailAfterIsEveryAtomPastTheOneThatStopped(t *testing.T) {
+	sel := []AtomDef{{ID: "a"}, {ID: "b"}, {ID: "c"}}
+	for i, want := range map[int]string{0: "b,c", 1: "c", 2: ""} {
+		if got := strings.Join(TailAfter(sel, i), ","); got != want {
+			t.Errorf("TailAfter(%d) = %q, want %q", i, got, want)
+		}
+	}
+	if got := TailAfter(sel, 2); got != nil {
+		t.Errorf("the last atom leaves nothing unreached: %v", got)
+	}
+}
+
 func TestAStageThatStoppedSaysWhatItNeverReached(t *testing.T) {
 	st := SettleStage("push", []Verdict{
 		{Atom: "go:staticcheck", State: 1, Result: "findings", Reason: "x.go:1: unused"},
