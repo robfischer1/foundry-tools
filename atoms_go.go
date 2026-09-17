@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"slices"
@@ -346,7 +347,20 @@ func goRelease(ctx context.Context, r *run) checks.Verdict {
 	if len(checks.DockerfilePopulation(files)) == 0 {
 		return checks.VerdictOf(a, 0, a.ID+": ABSENT - this repository tracks no Dockerfile or Containerfile, so it ships no image and has no release build")
 	}
-	plan, why := r.releasePlan(ctx)
+	star, err := r.starName(ctx)
+	if err != nil {
+		// NOT A STAR, NOT A STAR IMAGE, ABSENT. Measured on foundry-stocks the
+		// afternoon this atom landed (Wonka17's record, 2026-09-17, nine gate
+		// runs on #205): the forge ships images — the CI bases, blade-base,
+		// forge-tools — but it is not copier-templated, carries no
+		// .copier-answers.yml, and names no star. The first cut read "names
+		// no star" as a could-not-run and wedged every landing there. A repo
+		// with Dockerfiles and no star identity builds its images through
+		// other lanes; the STAR release build has nothing to say about it, and
+		// says so the way python:* says it of a missing pyproject.toml.
+		return checks.VerdictOf(a, 0, a.ID+": ABSENT - "+err.Error()+", so this is not a star image and there is no star release build")
+	}
+	plan, why := r.releasePlan(ctx, star)
 	if why != "" {
 		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+why)
 	}
@@ -363,15 +377,25 @@ func goRelease(ctx context.Context, r *run) checks.Verdict {
 // release build produces. Every refusal is about the repository, so the atom
 // settles it as a could-not-run: an image whose binaries cannot be named is
 // not an image anyone should build.
-func (r *run) releasePlan(ctx context.Context) (checks.ReleasePlan, string) {
+// starName is the star this repository is, as its answers file declares it —
+// the key the record and the release convention share. A repo without one is
+// not a star: an error here is "not a star", never "could not read".
+func (r *run) starName(ctx context.Context) (string, error) {
 	answers, err := r.src.File(".copier-answers.yml").Contents(ctx)
 	if err != nil {
-		return checks.ReleasePlan{}, "no .copier-answers.yml, so the repository names no star"
+		return "", errors.New("no .copier-answers.yml, so the repository names no star")
 	}
 	star := checks.ServiceName(answers)
 	if star == "" {
-		return checks.ReleasePlan{}, "no service_name in .copier-answers.yml, so the repository names no star"
+		return "", errors.New("no service_name in .copier-answers.yml, so the repository names no star")
 	}
+	return star, nil
+}
+
+// releasePlan derives what the star's release build produces: its record's
+// binaries or its own name, and whether the module vendors. Every refusal is
+// about the repository and settles as a could-not-run.
+func (r *run) releasePlan(ctx context.Context, star string) (checks.ReleasePlan, string) {
 	var declared []string
 	if slag, err := r.dies.File("fleet/stars/" + star + "/slag.json").Contents(ctx); err == nil {
 		declared = checks.ReleaseBinaries(slag)

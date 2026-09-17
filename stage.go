@@ -192,7 +192,11 @@ func stageResult(st checks.Stage) *StageResult {
 // error rather than handing back an empty one.
 func (m *FoundryTools) Release(ctx context.Context) (*dagger.Directory, error) {
 	r := newRun(m.Source, m.Repo, "")
-	plan, why := r.releasePlan(ctx)
+	star, err := r.starName(ctx)
+	if err != nil {
+		return nil, err
+	}
+	plan, why := r.releasePlan(ctx, star)
 	if why != "" {
 		return nil, errors.New(why)
 	}

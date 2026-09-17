@@ -793,15 +793,27 @@ func TestGoReleaseBuildsWhatTheImageWillCarry(t *testing.T) {
 	}
 }
 
-// A repository that names no star cannot name its binary either, and a
-// could-not-run says so rather than an image built from a guess.
-func TestGoReleaseRefusesWhatItCannotName(t *testing.T) {
+// A REPOSITORY WITH DOCKERFILES AND NO STAR IS NOT A STAR IMAGE — ABSENT, never
+// a could-not-run. foundry-stocks measured it (Wonka17, 2026-09-17, nine gate
+// runs on #205): it ships the CI bases and forge-tools, is not copier-templated,
+// and the first cut wedged every landing there over "names no star".
+func TestGoReleaseIsAbsentForARepoThatNamesNoStar(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	engine.withTree(map[string]string{"Dockerfile": "FROM x\n"})
-	wantState(t, runAtom(t, "go:release", ""), 2, "names no star")
+	v := runAtom(t, "go:release", "")
+	if v.State != 0 || v.Result != "absent" || !strings.Contains(v.Reason, "names no star") || !strings.Contains(v.Reason, "not a star image") {
+		t.Errorf("want an absent 0 saying it is not a star image, got %+v", v)
+	}
 	if engine.chain(`"go","build","-trimpath"`) != "" {
-		t.Errorf("nothing compiles when the binary has no name:\n%v", engine.chains())
+		t.Errorf("nothing compiles for a repo that is not a star:\n%v", engine.chains())
+	}
+	// A .copier-answers.yml that names nothing is the same absence.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{"Dockerfile": "FROM x\n", ".copier-answers.yml": "project: x\n"})
+	if v := runAtom(t, "go:release", ""); v.Result != "absent" || !strings.Contains(v.Reason, "no service_name") {
+		t.Errorf("%+v", v)
 	}
 }
 
