@@ -192,6 +192,10 @@ func atomTable() []AtomDef {
 			Desc: "go build ./... succeeds.",
 		},
 		{
+			ID: "go:release", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo,
+			Desc: "The release binaries the image will carry compile, with the image's own flags.",
+		},
+		{
 			ID: "go:test-race", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo,
 			Desc:      "go test -race ./... passes against the live databases the record declares.",
 			NeedsDies: true,

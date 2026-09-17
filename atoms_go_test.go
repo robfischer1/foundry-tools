@@ -752,3 +752,109 @@ func TestGoMutationCannotRunWithoutTheCanonicalConfig(t *testing.T) {
 		t.Errorf("the reason does not name what was missing: %s", v.Reason)
 	}
 }
+
+// THE RELEASE BUILD IS THE IMAGE'S COMPILE, derived: the star's own binary from
+// ./cmd/<star> with the fleet's flags, or the binaries the record declares.
+func TestGoReleaseBuildsWhatTheImageWillCarry(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{"Dockerfile": "FROM x\n", ".copier-answers.yml": "service_name: hades\n"})
+	wantState(t, runAtom(t, "go:release", ""), 0, "release build: hades", "the star's own name")
+	wantCalls(t, engine.chain(`"go","build","-trimpath"`, "exitCode"),
+		[]string{"withEnvVariable", `name:"CGO_ENABLED"`, `value:"0"`},
+		[]string{"withExec", `expect:ANY`, `args:["go","build","-trimpath","-ldflags=-s -w","-o","/out/hades","./cmd/hades"]`},
+	)
+
+	// VENDOR IS READ OFF THE TREE, not declared: a tracked vendor/ is the flag.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{
+		"Dockerfile":          "FROM x\n",
+		".copier-answers.yml": "service_name: ourea\n",
+		"vendor/modules.txt":  "# x\n",
+	})
+	wantState(t, runAtom(t, "go:release", ""), 0, "-mod=vendor")
+	wantCalls(t, engine.chain(`"-o","/out/ourea"`, "exitCode"),
+		[]string{"withExec", `args:["go","build","-mod=vendor","-trimpath","-ldflags=-s -w","-o","/out/ourea","./cmd/ourea"]`})
+
+	// The record names more than one, and each gets its own exec.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{
+		"Dockerfile":          "FROM x\n",
+		".copier-answers.yml": "service_name: blade-runner\n",
+		"/dies/fleet/stars/blade-runner/slag.json": `{"tools":{"build":{"binaries":["blade-runner","blade-controller"]}}}`,
+	})
+	wantState(t, runAtom(t, "go:release", ""), 0, "blade-controller, blade-runner", "tools.build.binaries")
+	for _, b := range []string{"blade-controller", "blade-runner"} {
+		if engine.chain(`"-o","/out/`+b+`"`) == "" {
+			t.Errorf("no exec builds %s:\n%v", b, engine.chains())
+		}
+	}
+}
+
+// A repository that names no star cannot name its binary either, and a
+// could-not-run says so rather than an image built from a guess.
+func TestGoReleaseRefusesWhatItCannotName(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{"Dockerfile": "FROM x\n"})
+	wantState(t, runAtom(t, "go:release", ""), 2, "names no star")
+	if engine.chain(`"go","build","-trimpath"`) != "" {
+		t.Errorf("nothing compiles when the binary has no name:\n%v", engine.chains())
+	}
+}
+
+// A REPO THAT SHIPS NO IMAGE IS ABSENT, NEVER A COULD-NOT-RUN. foundry-tools
+// is the case that measured it: no Dockerfile, no image, no release build —
+// and the first cut reded its own gate over a build nobody asked for.
+func TestGoReleaseIsAbsentWhereThereIsNoImage(t *testing.T) {
+	engine.reset()
+	// A Go module and no Dockerfile: foundry-tools' own shape.
+	engine.withTree(map[string]string{"go.mod": "module x\n", "main.go": "package main\n"})
+	v := runAtom(t, "go:release", "")
+	if v.State != 0 || v.Result != "absent" || !strings.Contains(v.Reason, "tracks no Dockerfile") {
+		t.Errorf("want an absent 0 naming the missing Dockerfile, got %+v", v)
+	}
+	if engine.chain(`"go","build","-trimpath"`) != "" {
+		t.Errorf("nothing compiles for a repo that ships no image:\n%v", engine.chains())
+	}
+}
+
+// EVERY WAY THE RELEASE BUILD CANNOT ANSWER IS A COULD-NOT-RUN THAT SAYS WHY,
+// and none of them is a pass: a tree it cannot read, a module walk it cannot
+// do, a repo with no root module, and a record whose binaries are unusable.
+func TestGoReleaseSaysWhyItCouldNotRun(t *testing.T) {
+	image := map[string]string{"Dockerfile": "FROM x\n", ".copier-answers.yml": "service_name: hades\n"}
+
+	// The tree itself could not be read: the population is the first thing it asks for.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(image)
+	engine.fail("glob", "the tree went away")
+	wantState(t, runAtom(t, "go:release", ""), 2, "the tree could not be read", "the tree went away")
+
+	// The module walk failed, so nothing knows whether there is a root module.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(image)
+	engine.failLeaf("**/go.mod", "glob", "the module walk went away")
+	wantState(t, runAtom(t, "go:release", ""), 2, "Go modules")
+
+	// A module somewhere, but not at the root: no star binary to build.
+	engine.reset()
+	engine.withTree(map[string]string{
+		"Dockerfile": "FROM x\n", ".copier-answers.yml": "service_name: hades\n",
+		"tools/go.mod": "module x\n",
+	})
+	wantState(t, runAtom(t, "go:release", ""), 2, "no go.mod at the repository root")
+
+	// The record names a binary that is not a binary name.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{
+		"Dockerfile": "FROM x\n", ".copier-answers.yml": "service_name: hades\n",
+		"/dies/fleet/stars/hades/slag.json": `{"tools":{"build":{"binaries":["../escape"]}}}`,
+	})
+	wantState(t, runAtom(t, "go:release", ""), 2, "is not a binary name")
+}

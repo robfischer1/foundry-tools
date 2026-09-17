@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -19,6 +20,7 @@ func init() {
 	register("go:gofmt", goGofmt)
 	register("go:vet", goVet)
 	register("go:build", goBuild)
+	register("go:release", goRelease)
 	register("go:test", goTest)
 	register("go:test-race", goTestRace)
 	register("go:staticcheck", goStaticcheck)
@@ -314,6 +316,93 @@ func goBuild(ctx context.Context, r *run) checks.Verdict {
 	return r.eachModule(ctx, a, func(dir string) checks.Verdict {
 		return verdict(ctx, a, r.goModules(dir).WithExec([]string{"go", "build", "./..."}, anyExit))
 	})
+}
+
+// THE RELEASE BUILD, AND IT IS THE ONE THE IMAGE CARRIES. Rob's four stages:
+// "Build - Copy the binary from the previous complex run (if green, which is a
+// prerequisite for getting here)". The Gate compiles it with the flags the
+// image needs, the engine caches that exec by its inputs, and F14's Build asks
+// for the same directory and gets the compile it already paid for.
+//
+// WHAT IT BUILDS IS DERIVED, NOT DECLARED — checks/release.go carries the
+// measurement (the fleet's 29 Go Dockerfiles: one flag set, always ./cmd/<X>,
+// -mod=vendor exactly where vendor/ is). A record speaks only for the two repos
+// that ship more than their own name.
+//
+// ROOT MODULE ONLY. The convention is the STAR's binary and a star is one
+// module; a repo whose root carries no go.mod has no image to build from it.
+func goRelease(ctx context.Context, r *run) checks.Verdict {
+	a := checks.AtomByID("go:release")
+	// A REPOSITORY THAT SHIPS NO IMAGE HAS NO RELEASE BUILD, and that is an
+	// ABSENCE, not a could-not-run. Measured the honest way, on this module's
+	// own gate (foundry-tools #99, 5d3e330): foundry-tools has no
+	// .copier-answers.yml because it publishes no image, and the first cut
+	// filed CANNOT RUN — a red about a build nobody asked for. The surface is
+	// a tracked Dockerfile, the same fact fleet:hadolint reads.
+	files, err := r.population(ctx)
+	if err != nil {
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the tree could not be read: "+err.Error())
+	}
+	if len(checks.DockerfilePopulation(files)) == 0 {
+		return checks.VerdictOf(a, 0, a.ID+": ABSENT - this repository tracks no Dockerfile or Containerfile, so it ships no image and has no release build")
+	}
+	plan, why := r.releasePlan(ctx)
+	if why != "" {
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+why)
+	}
+	ctr, err := r.releaseBuild(ctx, plan)
+	if err != nil {
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+err.Error())
+	}
+	v := verdict(ctx, a, ctr)
+	v.Reason = checks.ReleaseScope(plan) + "\n" + v.Reason
+	return v
+}
+
+// releasePlan reads the star's name and its record, and derives what the
+// release build produces. Every refusal is about the repository, so the atom
+// settles it as a could-not-run: an image whose binaries cannot be named is
+// not an image anyone should build.
+func (r *run) releasePlan(ctx context.Context) (checks.ReleasePlan, string) {
+	answers, err := r.src.File(".copier-answers.yml").Contents(ctx)
+	if err != nil {
+		return checks.ReleasePlan{}, "no .copier-answers.yml, so the repository names no star"
+	}
+	star := checks.ServiceName(answers)
+	if star == "" {
+		return checks.ReleasePlan{}, "no service_name in .copier-answers.yml, so the repository names no star"
+	}
+	var declared []string
+	if slag, err := r.dies.File("fleet/stars/" + star + "/slag.json").Contents(ctx); err == nil {
+		declared = checks.ReleaseBinaries(slag)
+	}
+	vendored := false
+	if entries, err := r.src.Entries(ctx); err == nil {
+		vendored = slices.Contains(entries, "vendor/")
+	}
+	plan, err := checks.GoReleasePlan(star, declared, vendored)
+	if err != nil {
+		return checks.ReleasePlan{}, err.Error()
+	}
+	return plan, ""
+}
+
+// releaseBuild is the compile itself: one exec per binary, in the go lane, off
+// the root module. The container it answers carries /out, which is what F14
+// copies onto the base image.
+func (r *run) releaseBuild(ctx context.Context, plan checks.ReleasePlan) (*dagger.Container, error) {
+	dirs, err := r.goModuleDirs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("could not enumerate the tree's Go modules: %w", err)
+	}
+	if !slices.Contains(dirs, ".") {
+		return nil, fmt.Errorf("no go.mod at the repository root, so there is no star binary to build")
+	}
+	ctr := r.goModules(".").WithEnvVariable("CGO_ENABLED", "0")
+	for _, b := range plan.Binaries {
+		ctr = ctr.WithExec(checks.GoReleaseArgs(b, plan.Vendored), anyExit)
+	}
+	return ctr, nil
 }
 
 // staticcheck ./... reports nothing.

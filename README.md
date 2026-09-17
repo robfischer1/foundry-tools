@@ -36,6 +36,7 @@ dagger call -m git.notusmi.com/rob/foundry-tools@<sha> --source=. verdicts --sta
 dagger call check                    # the commit stage: basic + language fanouts, one settled answer
 dagger call check exit               # …exiting 0, 1 or 2 with the stage's log
 dagger call push --base=<sha>        # the push stage: the complex checks in sequence, beside mutation
+dagger call release                  # the binaries the image will carry, compiled once by the push
 dagger call push --base=<sha> exit   # …exiting on the worst of the two
 dagger call verdicts                 # every PULL stage — precommit and prepush
 dagger call verdicts --stage=prepush
@@ -81,7 +82,9 @@ dagger call -m git.notusmi.com/rob/foundry-tools@<sha> --source=. verdicts --sta
 **`fleet:`** — every repository, whatever it is written in.
 `check-yaml` · `check-added-large-files` · `check-merge-conflict` · `detect-secrets` · `stop-justifications` · `hadolint` · `sast-ruleset-lanes` · `opengrep-sast` (commit) · `orbit-drift` · `witness` (push)
 
-**`go:`** (`go.mod`) — `gofmt` · `vet` · `test` (commit) · `staticcheck` · `govulncheck` · `build` · `test-race` (push)
+**`go:`** (`go.mod`) — `gofmt` · `vet` · `test` (commit) · `staticcheck` · `govulncheck` · `build` · `release` · `test-race` (push)
+
+**The release build is derived, not declared (CA F13).** `go:release` compiles what the image will carry, with the image's own flags, and `dagger call release` hands F14's Build that same directory — the engine answers it from the exec the push already ran, so nothing is compiled twice. Measured across the fleet's 29 Go Dockerfiles: the flags are one constant (`CGO_ENABLED=0 -trimpath -ldflags="-s -w"`), the target is always `./cmd/<X>` → `/out/<X>`, and `-mod=vendor` appears in exactly the five repos carrying `vendor/`. So the convention is the star's own name, `vendor/` decides the flag, and a record says something only when the repo ships more than its own name — `tools.build.binaries`, which today is two repos (`blade-runner`, `clio`). Walking `cmd/` is deliberately NOT the rule: helios and thalia carry four `cmd/` directories between them that their images do not ship.
 
 **`python:`** (`pyproject.toml`) — `ruff-check` · `ruff-format` · `forge-testkit-assertion-free` · `forge-testkit-fake-placement` · `forge-testkit-schema-budget` · `mypy` · `pytest` (commit) · `pip-audit` (push)
 
