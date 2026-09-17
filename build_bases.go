@@ -8,6 +8,7 @@ import (
 
 	"dagger/foundry-tools/internal/buildlane"
 	"dagger/foundry-tools/internal/checks"
+	"dagger/foundry-tools/internal/dagger"
 )
 
 // BASE IMAGES THROUGH THE IMAGE LANE. A repository whose tree has no root
@@ -102,7 +103,13 @@ func (l *buildLane) base(ctx context.Context, star, base string, args []string) 
 	if !needed {
 		return buildlane.Clean, "stood down: " + why
 	}
-	img, err := l.m.Image(l.m.Sha, l.sourceBase+"/"+star, star+"/"+base, args, buildlane.BaseDockerfile(base))
+	src, code, why := l.relock(ctx, base)
+	if code != buildlane.Clean {
+		return code, why
+	}
+	bound := *l.m
+	bound.Source = src
+	img, err := bound.Image(l.m.Sha, l.sourceBase+"/"+star, star+"/"+base, args, buildlane.BaseDockerfile(base))
 	if err != nil {
 		return buildlane.CouldNotRun, err.Error()
 	}
@@ -187,4 +194,45 @@ func (l *buildLane) stable(ctx context.Context, img *Image, pushRepo, ref, name 
 	}
 	say("moved %s:stable to %s", pushRepo, ref)
 	return buildlane.Clean, ""
+}
+
+// relock answers the tree a base builds from: the tree as fetched, or — for a
+// python base that ships a pyproject.toml and no uv.lock — the tree with a lock
+// written into that base's directory.
+//
+// A PYTHON BASE WITH NO COMMITTED LOCK IS DECLARING "relock me", and that is a
+// measured choice: foundry-stocks a0efc76 deleted the one committed base lock
+// after finding it 27 days and ten minor versions stale. ca-bases carried the
+// phase; the lane that replaces it must, or the Dockerfile's
+// `uv sync --locked` fails at its bind mount ("uv.lock: not found", measured
+// on the prototype before it carried this).
+//
+// THE LOCK AND THE SYNC MUST SEE ONE INDEX. The lock resolves against the
+// lane's --index-url, the same index the build passes the Dockerfile as
+// UV_INDEX_URL; resolved apart, the build rejects a lock written seconds
+// earlier (foundry-stocks#7278).
+func (l *buildLane) relock(ctx context.Context, base string) (*dagger.Directory, int, string) {
+	dir := buildlane.BasesDir + "/" + base
+	if _, ok, err := fileIn(ctx, l.m.Source, dir+"/pyproject.toml"); err != nil || !ok {
+		return l.m.Source, buildlane.Clean, ""
+	}
+	if _, locked, err := fileIn(ctx, l.m.Source, dir+"/uv.lock"); err != nil || locked {
+		return l.m.Source, buildlane.Clean, ""
+	}
+	lock := dag.Container().From(checks.ImagePython).
+		WithFile("/usr/local/bin/uv", dag.Container().From(checks.ImageUV).File("/uv")).
+		WithEnvVariable("UV_INDEX_URL", l.indexURL).
+		WithMountedDirectory("/base", l.m.Source.Directory(dir)).
+		WithWorkdir("/base").
+		WithExec([]string{"uv", "lock"}, anyExit)
+	out, code, err := output(ctx, lock)
+	if err != nil {
+		return nil, buildlane.CouldNotRun, fmt.Sprintf("could not run: the relock did not run: %v", err)
+	}
+	if code != 0 {
+		c, why := buildlane.Failed("the relock", out)
+		return nil, c, why
+	}
+	say("%s: no committed uv.lock — relocked against %s", base, l.indexURL)
+	return l.m.Source.WithDirectory(dir, lock.Directory("/base")), buildlane.Clean, ""
 }

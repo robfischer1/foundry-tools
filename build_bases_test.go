@@ -186,3 +186,65 @@ func TestARootDockerfileIsAStarNotABaseTree(t *testing.T) {
 		t.Fatal("a star's bases/ directory was built as base images")
 	}
 }
+
+// A python base that ships a pyproject.toml and no uv.lock is relocked before
+// it builds, against the lane's own index, and builds from the locked tree; a
+// base that commits its lock, or ships no pyproject, is left alone.
+func TestAPythonBaseWithNoLockIsRelockedAgainstTheLanesIndex(t *testing.T) {
+	m := basesOn(t, map[string]string{
+		"bases/python/Dockerfile":     "FROM scratch\n",
+		"bases/python/pyproject.toml": "[project]\nname = \"base\"\n",
+		"bases/go/Dockerfile":         "FROM scratch\n",
+	})
+	engine.stdout("--name-only", "stellar-boot/main.go\n")
+	engine.script(script{match: trivyReport, leaf: "contents", value: cleanReport})
+	scriptABaseTip()
+	tip(t, m)
+	wantCalls(t, engine.chain(`"uv","lock"`),
+		[]string{"from", checks.ImagePython},
+		[]string{"withEnvVariable", `"UV_INDEX_URL"`, `"https://nexus.example/simple"`},
+		[]string{"withExec", `"uv"`, `"lock"`},
+	)
+	// The locked directory arrives by id, so the build's chain names where it
+	// was written, not what wrote it.
+	if !strings.Contains(engine.chain(`dockerfile:"bases/python/Dockerfile"`, "sync"), `path:"bases/python"`) {
+		t.Errorf("the python base did not build from the relocked tree:\n%s", engine.chain(`dockerfile:"bases/python/Dockerfile"`, "sync"))
+	}
+	if strings.Contains(engine.chain(`dockerfile:"bases/go/Dockerfile"`, "sync"), `path:"bases/`) {
+		t.Error("a base with no pyproject was relocked")
+	}
+	settledOn(t, "0", "python: clean: published, scanned and signed")
+
+	m = basesOn(t, map[string]string{
+		"bases/python/Dockerfile":     "FROM scratch\n",
+		"bases/python/pyproject.toml": "[project]\nname = \"base\"\n",
+		"bases/python/uv.lock":        "version = 1\n",
+	})
+	engine.stdout("--name-only", "bases/python/uv.lock\n")
+	engine.script(script{match: trivyReport, leaf: "contents", value: cleanReport})
+	pull(t, m)
+	if engine.chain(`"uv","lock"`) != "" {
+		t.Error("a base that commits its lock was relocked")
+	}
+}
+
+// A relock that fails is the tree's finding, and a relock that cannot run is
+// could-not-run; neither builds.
+func TestARelockThatFailsStopsTheBase(t *testing.T) {
+	tree := map[string]string{"bases/python/Dockerfile": "FROM scratch\n", "bases/python/pyproject.toml": "[project]\n"}
+	m := basesOn(t, tree)
+	engine.stdout("--name-only", "bases/python/pyproject.toml\n")
+	engine.exitCode(`"uv","lock"`, 1)
+	engine.stdout(`"uv","lock"`, "No solution found when resolving dependencies")
+	pull(t, m)
+	settledOn(t, "1", "findings in the relock")
+	if engine.chain(`dockerfile:"bases/python/Dockerfile"`, "sync") != "" {
+		t.Error("a base whose relock failed was built")
+	}
+
+	m = basesOn(t, tree)
+	engine.stdout("--name-only", "bases/python/pyproject.toml\n")
+	engine.fail(`"uv","lock"`, "engine went away")
+	pull(t, m)
+	settledOn(t, "2", "could not run: the relock did not run")
+}
