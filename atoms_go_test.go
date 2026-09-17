@@ -400,6 +400,12 @@ func TestGoMutationSettlesWhatItMeasured(t *testing.T) {
 		"every mutant caught and the classifier said nothing": {func() {
 			engine.stdout(goClassifyNeedle, "")
 		}, 0, nil},
+		// The engine failing the classifier's exec is a reason the verdict
+		// carries by name, never an empty answer that reads as "nothing".
+		"a survivor and the engine could not run the classifier": {func() {
+			engine.withTree(map[string]string{"/src/mutation-go.json": survivors})
+			engine.failLeaf(goClassifyNeedle, "exitCode", "engine gone")
+		}, 2, []string{"the unkillability classifier did not answer (the engine could not run mutation-gate: engine gone)"}},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -717,7 +717,7 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 func classify(ctx context.Context, ctr *dagger.Container) (out, errOut string, code int) {
 	code, err := ctr.ExitCode(ctx)
 	if err != nil {
-		return "", "the engine could not run mutation-gate: " + err.Error(), 0
+		return "", fmt.Sprintf("the engine could not run mutation-gate: %v", err), 0
 	}
 	out, _ = ctr.Stdout(ctx)
 	errOut, _ = ctr.Stderr(ctx)

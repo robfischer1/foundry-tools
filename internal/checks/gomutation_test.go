@@ -243,6 +243,12 @@ func TestScoreGoMutationForgivesWhatTheClassifierNamedAndSaysSo(t *testing.T) {
 			t.Errorf("the summary lacks %q:\n%s", want, s.Summary)
 		}
 	}
+	// And a run that forgave nothing says nothing about forgiveness: the
+	// block is evidence of what was set aside, not a heading for an empty
+	// list.
+	if plain, _ := ScoreGoMutation([]byte(report), "", "diff", 1, GoMutationNoise{}); strings.Contains(plain.Summary, "forgiven —") || !strings.Contains(plain.Summary, "| 1 | 1 | 1 | 0 | 0 (0%) | 0 | 0 | 33% of 3 viable |") {
+		t.Errorf("a run with nothing forgiven printed the forgiven block, or miscounted:\n%s", plain.Summary)
+	}
 	// A KILLED mutant at a named coordinate is a kill: the classifier only
 	// speaks about survivors, and a name it gave a mutant that was later
 	// killed by a re-run must not turn the kill into a forgiveness.
