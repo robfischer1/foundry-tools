@@ -449,6 +449,52 @@ func saidVersion(v string) string {
 	return v
 }
 
+// ZeroTestDiagnosis names WHY survivors completed no test, from the mutants
+// that did it and which of them Stryker called static.
+//
+// THERE ARE TWO CAUSES AND THIS USED TO NAME ONE. The old sentence read "this
+// is a runner that measured nothing, not a test gap — seen with
+// @stryker-mutator/vitest-runner 10.0.0 under vitest 5.0.0", which is a
+// confident diagnosis of the upstream bug and, on gijmo-ui#28, wrong. It cost
+// a window of hunting that bug, two disproved hypotheses about Dagger mounts
+// and bun's symlink store, and a ratified exemption for six mutants that were
+// never unkillable.
+//
+// STRYKER'S OWN `static` FLAG TELLS THEM APART, and that is why it is read:
+//
+//   - STATIC. A static mutant sits in code that runs at LOAD time, and Stryker
+//     runs the whole suite against it with NO testNamePattern — so
+//     stryker-js#6210, which is a testNamePattern mismatch, cannot reach it.
+//     What reaches it is a mutant that breaks module-scope code in a test file:
+//     the file fails to COLLECT, no test fails, and the mutant survives having
+//     completed none. MEASURED gijmo-ui#28, 2026-09-16: emptying one `fg`
+//     left "Test Files 1 failed | 14 passed, Tests 237 passed" — that file's 25
+//     tests never ran. Calling the module-scope work in a try and asserting in
+//     a test body that it did not throw took the file from 28 killed / 42
+//     survived to 70 / 0.
+//
+//   - NOT STATIC. The mutant had covering tests and the runner did not
+//     attribute them: the stryker-js#6210 shape. MEASURED on the same repo's
+//     scripts/dtcg.ts: 16 non-static survivors at zero tests as shipped, 0 with
+//     the runner patched.
+//
+// A repo can carry both at once — that one did — so the count is given per
+// cause rather than a single verdict.
+func ZeroTestDiagnosis(unmeasured, static []string) string {
+	lead := fmt.Sprintf("CANNOT RUN - Nothing was measured per mutant: %d survivor(s) completed ZERO tests (first: %s).",
+		len(unmeasured), unmeasured[0])
+	const collect = "A mutant that breaks code running at MODULE SCOPE in a test file makes the FILE fail to collect: no test fails, so the mutant survives having completed none. Call that work in a try and assert in a test body that it did not throw."
+	const runner = "Each had covering tests the runner did not attribute — the stryker-js#6210 shape, seen with @stryker-mutator/vitest-runner 10.0.0 under vitest 5.0.0. Check the lane's own line for whether it patched the runner."
+	if len(static) == 0 {
+		return lead + " None is a STATIC mutant. " + runner
+	}
+	if len(static) == len(unmeasured) {
+		return lead + " Every one is a STATIC mutant, which Stryker runs the whole suite against with no testNamePattern — so stryker-js#6210 cannot be the cause. " + collect
+	}
+	return fmt.Sprintf("%s %d of them are STATIC, which Stryker runs the whole suite against with no testNamePattern, so stryker-js#6210 cannot be their cause: %s The other %d are not static. %s",
+		lead, len(static), collect, len(unmeasured)-len(static), runner)
+}
+
 // ---- the score -------------------------------------------------------------
 
 // StrykerRun is what one package's stryker run left behind. Report and
@@ -557,7 +603,11 @@ type strykerReport struct {
 			Status         string `json:"status"`
 			MutatorName    string `json:"mutatorName"`
 			TestsCompleted *int   `json:"testsCompleted"`
-			Location       struct {
+			// Static is Stryker's own word for a mutant in code that runs at
+			// load time. It is the one field that tells the two causes of a
+			// zero-test survivor apart — see ZeroTestDiagnosis.
+			Static   *bool `json:"static"`
+			Location struct {
 				Start struct {
 					Line int `json:"line"`
 				} `json:"start"`
@@ -632,7 +682,7 @@ func ScoreStryker(report, exemptions string) (StrykerScore, error) {
 	}
 
 	counts := map[string]int{}
-	var real, noise, unmeasured []string
+	var real, noise, unmeasured, static []string
 	paths := make([]string, 0, len(r.Files))
 	for p := range r.Files {
 		paths = append(paths, p)
@@ -645,7 +695,11 @@ func ScoreStryker(report, exemptions string) (StrykerScore, error) {
 			counts[m.Status]++
 			line := m.Location.Start.Line
 			if m.Status == "Survived" && m.TestsCompleted != nil && *m.TestsCompleted == 0 {
-				unmeasured = append(unmeasured, fmt.Sprintf("%s:%d %s", p, line, m.MutatorName))
+				where := fmt.Sprintf("%s:%d %s", p, line, m.MutatorName)
+				unmeasured = append(unmeasured, where)
+				if m.Static != nil && *m.Static {
+					static = append(static, where)
+				}
 			}
 			if m.Status != "Survived" && m.Status != "NoCoverage" {
 				continue
@@ -696,8 +750,7 @@ func ScoreStryker(report, exemptions string) (StrykerScore, error) {
 	}
 	if len(unmeasured) > 0 {
 		return StrykerScore{State: 2, Summary: strings.Join(out, "\n"),
-			Error: fmt.Sprintf("CANNOT RUN - Nothing was measured per mutant: %d survivor(s) completed ZERO tests (first: %s). No test ran with the mutant in place, so this is a runner that measured nothing, not a test gap — seen with @stryker-mutator/vitest-runner 10.0.0 under vitest 5.0.0.",
-				len(unmeasured), unmeasured[0])}, nil
+			Error: ZeroTestDiagnosis(unmeasured, static)}, nil
 	}
 	if runner == "command" {
 		out = append(out,

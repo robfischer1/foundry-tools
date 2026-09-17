@@ -231,6 +231,30 @@ func TestPatchVitestRunnerOnlyWhatItCanProveBroken(t *testing.T) {
 	}
 }
 
+// A repo can carry both causes at once — gijmo-ui did — so each is counted
+// rather than one verdict standing for the other.
+func TestZeroTestDiagnosisNamesBothCauses(t *testing.T) {
+	both := ZeroTestDiagnosis([]string{"a.ts:1 X", "b.ts:2 Y", "c.ts:3 Z"}, []string{"a.ts:1 X"})
+	for _, want := range []string{
+		"3 survivor(s) completed ZERO tests (first: a.ts:1 X)",
+		"1 of them are STATIC",
+		"fail to collect",
+		"The other 2 are not static",
+		"stryker-js#6210",
+	} {
+		if !strings.Contains(both, want) {
+			t.Errorf("want %q:\n%s", want, both)
+		}
+	}
+	// Neither single-cause sentence may claim the other's count.
+	if one := ZeroTestDiagnosis([]string{"a.ts:1 X"}, nil); strings.Contains(one, "STATIC mutant, which Stryker") {
+		t.Errorf("a non-static survivor read as a collection error:\n%s", one)
+	}
+	if all := ZeroTestDiagnosis([]string{"a.ts:1 X"}, []string{"a.ts:1 X"}); strings.Contains(all, "of them are STATIC") {
+		t.Errorf("an all-static set read as mixed:\n%s", all)
+	}
+}
+
 // The patcher's account of itself says what it searched in every case — the
 // silence it replaces is what let gijmo-ui#28 arrive as 42 zero-test survivors
 // with nothing naming the runner.
@@ -365,11 +389,23 @@ func TestScoreStryker(t *testing.T) {
 		t.Errorf("zero tests: %+v", s)
 	}
 
-	// A survivor that completed zero tests: the runner measured nothing.
+	// A survivor that completed zero tests, and the cause read off `static`.
 	s, _ = ScoreStryker(report(vitestCfg, oneTest, `{"src/a.ts":{"mutants":[`+
 		mutant("Survived", "X", 3, `"testsCompleted":0,`)+","+mutant("Survived", "Y", 4, `"testsCompleted":0,`)+`]}}`), "")
 	if s.State != 2 || !strings.Contains(s.Error, "2 survivor(s) completed ZERO tests (first: src/a.ts:3 X)") || !strings.Contains(s.Summary, "| 0 | 2 |") {
 		t.Errorf("unmeasured: %+v", s)
+	}
+	// No `static` field at all is not static: the runner is the diagnosis.
+	if !strings.Contains(s.Error, "None is a STATIC mutant") || !strings.Contains(s.Error, "stryker-js#6210") {
+		t.Errorf("a mutant with no static field must read as not static: %s", s.Error)
+	}
+	// The same report with the flag set reads the other cause, and names
+	// neither the runner nor its version.
+	s, _ = ScoreStryker(report(vitestCfg, oneTest, `{"src/a.ts":{"mutants":[`+
+		mutant("Survived", "X", 3, `"testsCompleted":0,"static":true,`)+`]}}`), "")
+	if s.State != 2 || !strings.Contains(s.Error, "Every one is a STATIC mutant") ||
+		!strings.Contains(s.Error, "fail to collect") || strings.Contains(s.Error, "vitest-runner") {
+		t.Errorf("a static survivor must read as a collection error: %s", s.Error)
 	}
 
 	// An unratified exemption refuses the discount before the report is read.
