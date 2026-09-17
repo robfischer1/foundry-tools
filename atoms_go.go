@@ -569,7 +569,20 @@ const (
 	// mutationDir is where the canary module is written.
 	mutationDir = "/tmp/mutation"
 	// goMutationConfig is where the canonical config is written in the lane.
-	goMutationConfig = mutationDir + "/gremlins-canonical.yaml"
+	//
+	// SPELLED WHOLE, not mutationDir + "/…", and the reason is this gate's own.
+	// A `+` in a top-level const has NO COVERAGE BLOCK — Go's cover tool
+	// instruments function bodies — so gremlins reports its mutant NOT COVERED
+	// forever and no test that could ever be written would change that. This
+	// pull's first run proved it on this very line: 1 killed, 1 not covered,
+	// the uncovered one being the concatenation that used to be here.
+	//
+	// The concatenation bought nothing, so it is gone rather than forgiven.
+	// That is the same answer this gate gives every star: remove the operator
+	// when removing it costs nothing. (mutationDir is still shared by the
+	// canary and the python lane, where every use is inside a function body and
+	// its mutants are killable.)
+	goMutationConfig = "/tmp/mutation/gremlins-canonical.yaml"
 	// goMutationReport and goMutationProfile are what the run leaves in /src.
 	goMutationReport  = "mutation-go.json"
 	goMutationProfile = "mutation-cover.out"
