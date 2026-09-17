@@ -20,13 +20,6 @@ type TSLane struct {
 	Source *dagger.Directory
 }
 
-// bun run gate (format, lint, typecheck, test, build) passes.
-//
-// +check
-func (t *TSLane) BunGateCommit(ctx context.Context) (string, error) {
-	return check(ctx, t.Source, "ts:bun-gate-commit")
-}
-
 // bun run gate passes against a frozen lockfile. A lockfile that will not
 // install frozen is a CANNOT RUN, not a finding.
 //

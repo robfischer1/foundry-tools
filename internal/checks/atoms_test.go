@@ -24,7 +24,7 @@ import (
 func TestTheRulesetAtomsAskForTheStocksMount(t *testing.T) {
 	for _, id := range []string{
 		"python:ruff-check", "python:ruff-format", "python:mypy",
-		"ts:bun-gate", "ts:bun-gate-commit",
+		"ts:bun-gate",
 	} {
 		if !AtomByID(id).NeedsStocks {
 			t.Errorf("%s: reads a fleet ruleset but does not ask for the /stocks mount", id)

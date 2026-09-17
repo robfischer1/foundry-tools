@@ -79,7 +79,7 @@ dagger call -m git.notusmi.com/rob/foundry-tools@<sha> --source=. verdicts --sta
 
 **`rust:`** (`Cargo.toml`) — `cargo-fmt` · `cargo-clippy` (pre-commit) · `cargo-test` · `cargo-audit` (pre-push)
 
-**`ts:`** (`package.json`) — `bun-gate-commit` (pre-commit) · `bun-gate` · `bun-audit` (pre-push)
+**`ts:`** (`package.json`) — `bun-gate` · `bun-audit` (pre-push)
 
 **`compose:`** (a tracked `compose.ya?ml`) — `config` · `no-tracked-secrets` · `third-party-pins` (pre-commit)
 

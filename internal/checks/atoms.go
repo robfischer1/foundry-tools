@@ -232,10 +232,6 @@ func atomTable() []AtomDef {
 
 		// ---- ts ----
 		{
-			ID: "ts:bun-gate-commit", Stage: StagePrecommit, Lane: LaneTS, Image: ImageTS, NeedsStocks: true,
-			Desc: "bun run gate (format, lint, typecheck, test, build) passes under the fleet's eslint config.",
-		},
-		{
 			ID: "ts:bun-gate", Stage: StagePrepush, Lane: LaneTS, Image: ImageTS, NeedsStocks: true,
 			Desc: "bun run gate passes against a frozen lockfile under the fleet's eslint config, and the tree carries tests for it to run.",
 		},
