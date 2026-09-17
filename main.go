@@ -62,8 +62,27 @@ func New(
 	// fleet:witness, the mutation lane and sweep:template-render-matrix read
 	// history.
 	//
+	// AND THE AGENT DIRECTORIES GO, for a reason a gitignore filter cannot
+	// reach. `.claude/worktrees/` holds a full checkout of the repo per live
+	// session, and it is ignored by Rob's GLOBAL gitignore
+	// (~/.gitignore_global), which a Dagger `Gitignore` filter does not read —
+	// it reads the .gitignore files in the tree. So on any repo whose own
+	// .gitignore does not name `.claude/`, every sibling session's worktree was
+	// uploaded and graded: measured 2026-09-17 on infra from the developer's
+	// checkout, ops:dup reported 36 duplicate fleet facts across 18 facts, every
+	// one of them a second copy inside .claude/worktrees/Edison3-zfsprov and
+	// .claude/worktrees/Fox5-prom-sd. The gate is green in CI, where the clone
+	// carries none of it — which is exactly the shape of a local hook that
+	// refuses a commit for somebody else's tree.
+	//
+	// checks.GateExclude already says nothing under .claude/, .specify/ or
+	// .furnace/ is graded, so no atom loses a file it was reading; this moves
+	// that rule to the boundary, where the atoms that walk the filesystem
+	// rather than the population obey it too — and stops another session's
+	// checkout from changing this one's cache key.
+	//
 	// +defaultPath="/"
-	// +ignore=["**/node_modules","**/.venv","**/target","**/__pycache__","**/.pytest_cache","**/.mypy_cache","**/.ruff_cache","**/dist",".melt"]
+	// +ignore=["**/node_modules","**/.venv","**/target","**/__pycache__","**/.pytest_cache","**/.mypy_cache","**/.ruff_cache","**/dist",".melt",".claude",".specify",".furnace"]
 	source *dagger.Directory,
 	// A git URL the ENGINE fetches the tree from, instead of `source` — the
 	// door's own clone URL for the runner (`http://ourea…:8215/<repo>.git`).
