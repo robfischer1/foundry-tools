@@ -1,15 +1,6 @@
 package checks
 
-import (
-	"fmt"
-	"regexp"
-)
-
-// advisoryFault is a network fault in an auditor's output: the advisory source
-// did not answer, which is the substrate failing and not the tree. It is
-// networkFault plus the shapes Python's stack prints for the same thing.
-var advisoryFault = regexp.MustCompile(networkFault.String() +
-	`|read timed out|ReadTimeout|TimeoutError|temporary failure in name resolution|network is unreachable|Could not connect|dial tcp`)
+import "fmt"
 
 // AuditVerdict settles a dependency audit — pip-audit, bun audit, cargo audit,
 // govulncheck — from how it exited and what it printed.
@@ -29,7 +20,7 @@ var advisoryFault = regexp.MustCompile(networkFault.String() +
 // happened to mention a timeout is still clean, and a real finding's table
 // does not carry a traceback.
 func AuditVerdict(a AtomDef, code int, out string) Verdict {
-	if code != 0 && advisoryFault.MatchString(out) {
+	if code != 0 && networkFault.MatchString(out) {
 		return VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - the audit could not reach its advisory source (rc=%d) — the substrate, not the tree; run it again\n%s",
 			a.ID, code, tail(out, 12)))
 	}
