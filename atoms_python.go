@@ -267,7 +267,7 @@ func pythonPytest(ctx context.Context, r *run) checks.Verdict {
 // pip-audit reports no known vulnerability.
 func pythonPipAudit(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("python:pip-audit")
-	return verdict(ctx, a, r.lane(checks.ImagePython).
+	return audit(ctx, a, r.lane(checks.ImagePython).
 		WithExec([]string{"uv", "--version"}).
 		// --with rather than a dependency of the repo: the auditor is the
 		// fleet's tool, and a repo that did not declare it is still audited.

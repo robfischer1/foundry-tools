@@ -142,7 +142,7 @@ func rustCargoTest(ctx context.Context, r *run) checks.Verdict {
 // an advisory" and a 101 is cargo failing to run it at all — which is a
 // could-not-run and should read as one.
 func rustCargoAudit(ctx context.Context, r *run) checks.Verdict {
-	return verdict(ctx, checks.AtomByID("rust:cargo-audit"),
+	return audit(ctx, checks.AtomByID("rust:cargo-audit"),
 		r.cargoDeps().
 			WithExec([]string{"cargo", "audit", "--version"}).
 			WithExec([]string{"cargo", "audit"}, anyExit))

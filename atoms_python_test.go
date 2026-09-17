@@ -739,3 +739,46 @@ func TestPythonMutationStandsDownOrCannotRun(t *testing.T) {
 		})
 	}
 }
+
+// AN AUDIT THAT COULD NOT REACH ITS ADVISORIES IS ASKED AGAIN, NOT FILED. The
+// first ask times out against pypi.org and exits 1; read as a finding that
+// would have been cached and replayed on every push of the tree (measured on
+// iris, 2026-09-17). Read as could-not-run, verdictFor asks again past the
+// cache, and the second answer — clean — is the verdict.
+func TestPythonPipAuditNetworkFaultIsAskedAgainPastTheCache(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.exitCode(`"pip-audit","pip-audit"`, 1)
+	engine.stdout(`"pip-audit","pip-audit"`,
+		"Installed 64 packages in 2.05s\nrequests.exceptions.ReadTimeout: HTTPSConnectionPool(host='pypi.org', port=443): Read timed out. (read timeout=15)\n")
+	engine.exitCode(`name:"CA_REASK"`, 0)
+	engine.stdout(`name:"CA_REASK"`, "No known vulnerabilities found\n")
+
+	v, err := verdictFor(t.Context(), newRun(dag.Directory(), "", ""), "python:pip-audit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.State != 0 {
+		t.Errorf("a timeout on the first ask and a clean second ask is a pass: %+v", v)
+	}
+	if engine.chain(`"pip-audit","pip-audit"`, `name:"CA_REASK"`) == "" {
+		t.Errorf("the audit was not asked again past the cache")
+	}
+
+	// The same exit 1 with a real table is a finding, and is never re-asked.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.exitCode(`"pip-audit","pip-audit"`, 1)
+	engine.stdout(`"pip-audit","pip-audit"`,
+		"Found 1 known vulnerability in 1 package\nName    Version ID             Fix Versions\nurllib3 2.2.0   GHSA-34jh-p97f 2.2.2\n")
+	v, err = verdictFor(t.Context(), newRun(dag.Directory(), "", ""), "python:pip-audit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.State != 1 || !strings.Contains(v.Reason, "GHSA-34jh-p97f") {
+		t.Errorf("a real finding is a finding, carrying the table: %+v", v)
+	}
+	if engine.chain(`name:"CA_REASK"`) != "" {
+		t.Errorf("a finding was asked again")
+	}
+}

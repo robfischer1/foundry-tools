@@ -193,8 +193,13 @@ type RegistryLookup interface {
 }
 
 var (
-	tarballGet   = regexp.MustCompile(`GET (https?://\S+?\.tgz) - (\d{3})`)
-	networkFault = regexp.MustCompile(`(?i)connection refused|connection reset|i/o timeout|ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|502 Bad Gateway|503 Service Unavailable|504 Gateway|too many requests|429 Too Many Requests|toomanyrequests`)
+	tarballGet = regexp.MustCompile(`GET (https?://\S+?\.tgz) - (\d{3})`)
+	// networkFault is the substrate not answering, in every tool's own words: the
+	// Go and node shapes bun, curl and govulncheck print, and the Python shapes
+	// pip-audit's stack prints for the same thing (Read timed out, ReadTimeout,
+	// TimeoutError), plus the resolver's. One vocabulary, used by DiagnoseInstall
+	// and AuditVerdict alike, so a phrase learned in one place is known in both.
+	networkFault = regexp.MustCompile(`(?i)connection refused|connection reset|i/o timeout|ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|502 Bad Gateway|503 Service Unavailable|504 Gateway|too many requests|429 Too Many Requests|toomanyrequests|read timed out|ReadTimeout|TimeoutError|temporary failure in name resolution|network is unreachable|could not connect|dial tcp`)
 )
 
 // DiagnoseInstall settles a `bun install --frozen-lockfile` that exited status
