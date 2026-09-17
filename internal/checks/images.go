@@ -85,6 +85,15 @@ const (
 	ImageCosign = "docker.notusmi.com/sigstore/cosign/cosign:v3.1.1@sha256:6bbe0d281d955c79f85b325f0f7e651c1bcab5a4fa4ad4903d74955178a3b2eb"
 	ImageSyft   = "docker.notusmi.com/anchore/syft:v1.33.0@sha256:f94e5d9fce1f2278491a8e3a63bd5f6ddb81fdfdbb8bf7a1637565c1d5344357"
 	ImageStatic = "docker.notusmi.com/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab"
+
+	// THE BASE-IMAGE GATE'S SCANNER: trivy, and the two vulnerability
+	// databases it pulls as OCI artifacts, all through the mirror. The pin is
+	// the one ca-rescan and vuln-3p already run (infra flux/apps/ca-rescan.yaml,
+	// flux/infrastructure/vuln-3p.yaml); the databases move by tag on purpose,
+	// because a scan against last month's advisories is not a scan.
+	ImageTrivy      = "docker.notusmi.com/aquasec/trivy:0.72.0@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f"
+	TrivyDBRepo     = "docker.notusmi.com/aquasecurity/trivy-db:2"
+	TrivyJavaDBRepo = "docker.notusmi.com/aquasecurity/trivy-java-db:1"
 )
 
 // The tools the lanes install, pinned. Binaries come through Nexus's

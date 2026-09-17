@@ -957,7 +957,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg buildArgs", err))
 				}
 			}
-			return (*FoundryTools).Image(&parent, revision, sourceUrl, title, buildArgs)
+			var dockerfile string
+			if inputArgs["dockerfile"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["dockerfile"]), &dockerfile)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg dockerfile", err))
+				}
+			}
+			return (*FoundryTools).Image(&parent, revision, sourceUrl, title, buildArgs, dockerfile)
 		case "Lanes":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
