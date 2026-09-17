@@ -98,7 +98,7 @@ func atomTable() []AtomDef {
 			Desc: "No silent suppression of any gate — a suppression carries a tool-conflict line.",
 		},
 		{
-			ID: "fleet:sast-ruleset-lanes", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
+			ID: "fleet:sast-ruleset-lanes", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "The SAST ruleset declares every lane this repository actually builds.",
 		},
 		{
@@ -106,7 +106,7 @@ func atomTable() []AtomDef {
 			Desc: "This repo's declared seams agree with the canonical contracts in foundry-dies/orbits.",
 		},
 		{
-			ID: "fleet:opengrep-sast", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
+			ID: "fleet:opengrep-sast", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "SAST scan that refuses a zero-file scan.",
 		},
 		{
@@ -119,35 +119,35 @@ func atomTable() []AtomDef {
 		// foundry-stocks ci/lib/ops/ops.sh, now one phase per atom in Go.
 		// Every one is ABSENT on a repo with no ops shape (checks.IsOpsTree).
 		{
-			ID: "ops:shell", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
+			ID: "ops:shell", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every tracked shell script passes shellcheck at severity error; the warning count is reported, not gated.",
 		},
 		{
-			ID: "ops:chezmoi", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
+			ID: "ops:chezmoi", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every tracked chezmoi *.tmpl renders with `chezmoi execute-template` — the one check a dotfiles source tree has.",
 		},
 		{
-			ID: "ops:yaml", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
+			ID: "ops:yaml", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "No tracked YAML carries a duplicate key — the defect a YAML loader resolves last-wins and never reports; a repo with its own tools/yaml-strict (infra) runs that.",
 		},
 		{
-			ID: "ops:dup", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
+			ID: "ops:dup", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "The repo's own tools/dup-check (infra) finds no blocking duplicate; ABSENT where the tree has no such tool.",
 		},
 		{
-			ID: "ops:declaration", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
+			ID: "ops:declaration", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "The repo's own tools/declaration-integrity (infra) holds: every declared host file has its payload and every payload is declared.",
 		},
 		{
-			ID: "ops:specs", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
+			ID: "ops:specs", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "The repo's own tools/console-specs (infra): the console ConfigMap's read-model specs follow the stacks' emits, or it names which drifted.",
 		},
 		{
-			ID: "ops:ansible", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
+			ID: "ops:ansible", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every playbook under ansible/playbooks passes ansible-playbook --syntax-check and ansible-lint at profile min; the basic-profile count is reported, not gated.",
 		},
 		{
-			ID: "ops:flux", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
+			ID: "ops:flux", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every Flux Kustomization under flux/ builds with kubectl kustomize — a duplicate resource id, a missing base or a bad patch is a finding before flux meets it.",
 		},
 
@@ -161,11 +161,11 @@ func atomTable() []AtomDef {
 			Desc: "go vet ./... reports nothing.",
 		},
 		{
-			ID: "go:build", Stage: StagePrecommit, Lane: LaneGo, Image: ImageGo,
+			ID: "go:build", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo,
 			Desc: "go build ./... succeeds.",
 		},
 		{
-			ID: "go:test-race", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo,
+			ID: "go:test-race", Stage: StagePrecommit, Lane: LaneGo, Image: ImageGo,
 			Desc:      "go test -race ./... passes.",
 			NeedsDies: true,
 		},
@@ -200,11 +200,11 @@ func atomTable() []AtomDef {
 			Desc: "MCP verb descriptions stay inside the schema budget (forge-testkit).",
 		},
 		{
-			ID: "python:mypy", Stage: StagePrepush, Lane: LanePython, Image: ImagePython, NeedsStocks: true,
+			ID: "python:mypy", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython, NeedsStocks: true,
 			Desc: "mypy is clean over src and tests, under the fleet's strict configuration.",
 		},
 		{
-			ID: "python:pytest", Stage: StagePrepush, Lane: LanePython, Image: ImagePython,
+			ID: "python:pytest", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython,
 			Desc: "pytest passes, and there is something for it to pass.",
 		},
 		{
@@ -222,7 +222,7 @@ func atomTable() []AtomDef {
 			Desc: "cargo clippy is clean under the fleet's lint set, warnings denied.",
 		},
 		{
-			ID: "rust:cargo-test", Stage: StagePrepush, Lane: LaneRust, Image: ImageRust,
+			ID: "rust:cargo-test", Stage: StagePrecommit, Lane: LaneRust, Image: ImageRust,
 			Desc: "cargo test --workspace passes, and there is something for it to pass.",
 		},
 		{
@@ -232,7 +232,7 @@ func atomTable() []AtomDef {
 
 		// ---- ts ----
 		{
-			ID: "ts:bun-gate", Stage: StagePrepush, Lane: LaneTS, Image: ImageTS, NeedsStocks: true,
+			ID: "ts:bun-gate", Stage: StagePrecommit, Lane: LaneTS, Image: ImageTS, NeedsStocks: true,
 			Desc: "bun run gate passes against a frozen lockfile under the fleet's eslint config, and the tree carries tests for it to run.",
 		},
 		{
@@ -277,7 +277,7 @@ func atomTable() []AtomDef {
 		// build.yml and fleet-bundle.yml are deliberately NOT here. They publish
 		// rather than validate, and the bundle recipe lane owns them.
 		{
-			ID: "dies:opa-test", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
+			ID: "dies:opa-test", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "The rego unit and invariant suite passes.",
 		},
 		{
@@ -293,7 +293,7 @@ func atomTable() []AtomDef {
 			Desc: "The BUILT bundle still hides a curated verb from a session principal.",
 		},
 		{
-			ID: "dies:contracts", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
+			ID: "dies:contracts", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every copy of every shared closed set agrees — and the checker is proved to detect first.",
 		},
 		{
@@ -301,7 +301,7 @@ func atomTable() []AtomDef {
 			Desc: "Every changed .py/.go file is shown to the code witness (narcissus): a canonical-class or Standard match is a finding, a Convention is advisory, novel is clean.",
 		},
 		{
-			ID: "dies:schema", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
+			ID: "dies:schema", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "The slag schema is a valid Draft 2020-12 document and every v2 record satisfies it.",
 		},
 

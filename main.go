@@ -250,12 +250,26 @@ func (m *FoundryTools) Verdicts(
 	// +optional
 	base string,
 ) (string, error) {
+	out, err := m.vector(ctx, stage, only, base)
+	if err != nil {
+		return "", err
+	}
+	b, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+// vector runs the atoms a stage (and an `only` list) selects, concurrently and
+// bounded, and answers their verdicts in selection order.
+func (m *FoundryTools) vector(ctx context.Context, stage, only, base string) ([]checks.Verdict, error) {
 	selected := checks.AtomsForStage(stage)
 	if only != "" {
 		var err error
 		selected, err = checks.Select(selected, only)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 	}
 	r := newRun(m.Source, m.Repo, base)
@@ -273,13 +287,9 @@ func (m *FoundryTools) Verdicts(
 		})
 	}
 	if err := g.Wait(); err != nil {
-		return "", err
+		return nil, err
 	}
-	b, err := json.MarshalIndent(out, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	return string(b), nil
+	return out, nil
 }
 
 // verdictFor is the one place an atom is dispatched: the lane's surface is
