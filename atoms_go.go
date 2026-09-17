@@ -333,6 +333,19 @@ func goBuild(ctx context.Context, r *run) checks.Verdict {
 // module; a repo whose root carries no go.mod has no image to build from it.
 func goRelease(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("go:release")
+	// A REPOSITORY THAT SHIPS NO IMAGE HAS NO RELEASE BUILD, and that is an
+	// ABSENCE, not a could-not-run. Measured the honest way, on this module's
+	// own gate (foundry-tools #99, 5d3e330): foundry-tools has no
+	// .copier-answers.yml because it publishes no image, and the first cut
+	// filed CANNOT RUN — a red about a build nobody asked for. The surface is
+	// a tracked Dockerfile, the same fact fleet:hadolint reads.
+	files, err := r.population(ctx)
+	if err != nil {
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the tree could not be read: "+err.Error())
+	}
+	if len(checks.DockerfilePopulation(files)) == 0 {
+		return checks.VerdictOf(a, 0, a.ID+": ABSENT - this repository tracks no Dockerfile or Containerfile, so it ships no image and has no release build")
+	}
 	plan, why := r.releasePlan(ctx)
 	if why != "" {
 		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+why)

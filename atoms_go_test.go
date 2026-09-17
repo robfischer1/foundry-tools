@@ -758,7 +758,7 @@ func TestGoMutationCannotRunWithoutTheCanonicalConfig(t *testing.T) {
 func TestGoReleaseBuildsWhatTheImageWillCarry(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	engine.withTree(map[string]string{".copier-answers.yml": "service_name: hades\n"})
+	engine.withTree(map[string]string{"Dockerfile": "FROM x\n", ".copier-answers.yml": "service_name: hades\n"})
 	wantState(t, runAtom(t, "go:release", ""), 0, "release build: hades", "the star's own name")
 	wantCalls(t, engine.chain(`"go","build","-trimpath"`, "exitCode"),
 		[]string{"withEnvVariable", `name:"CGO_ENABLED"`, `value:"0"`},
@@ -769,7 +769,8 @@ func TestGoReleaseBuildsWhatTheImageWillCarry(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	engine.withTree(map[string]string{
-		".copier-answers.yml":                      "service_name: blade-runner\n",
+		"Dockerfile":          "FROM x\n",
+		".copier-answers.yml": "service_name: blade-runner\n",
 		"/dies/fleet/stars/blade-runner/slag.json": `{"tools":{"build":{"binaries":["blade-runner","blade-controller"]}}}`,
 	})
 	wantState(t, runAtom(t, "go:release", ""), 0, "blade-controller, blade-runner", "tools.build.binaries")
@@ -785,8 +786,25 @@ func TestGoReleaseBuildsWhatTheImageWillCarry(t *testing.T) {
 func TestGoReleaseRefusesWhatItCannotName(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{"Dockerfile": "FROM x\n"})
 	wantState(t, runAtom(t, "go:release", ""), 2, "names no star")
 	if engine.chain(`"go","build","-trimpath"`) != "" {
 		t.Errorf("nothing compiles when the binary has no name:\n%v", engine.chains())
+	}
+}
+
+// A REPO THAT SHIPS NO IMAGE IS ABSENT, NEVER A COULD-NOT-RUN. foundry-tools
+// is the case that measured it: no Dockerfile, no image, no release build —
+// and the first cut reded its own gate over a build nobody asked for.
+func TestGoReleaseIsAbsentWhereThereIsNoImage(t *testing.T) {
+	engine.reset()
+	// A Go module and no Dockerfile: foundry-tools' own shape.
+	engine.withTree(map[string]string{"go.mod": "module x\n", "main.go": "package main\n"})
+	v := runAtom(t, "go:release", "")
+	if v.State != 0 || v.Result != "absent" || !strings.Contains(v.Reason, "tracks no Dockerfile") {
+		t.Errorf("want an absent 0 naming the missing Dockerfile, got %+v", v)
+	}
+	if engine.chain(`"go","build","-trimpath"`) != "" {
+		t.Errorf("nothing compiles for a repo that ships no image:\n%v", engine.chains())
 	}
 }
