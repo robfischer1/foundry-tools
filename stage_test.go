@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"dagger/foundry-tools/internal/checks"
@@ -276,5 +277,64 @@ func TestReleaseAnswersTheBuiltBinariesOrSaysWhyNot(t *testing.T) {
 	engine.fail(`"go","build","-trimpath"`, "the engine went away")
 	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err == nil || !strings.Contains(err.Error(), "the engine went away") {
 		t.Errorf("err %v", err)
+	}
+}
+
+// THE SEQUENCE OBEYS THE PLANNER, and this test watches the DISPATCH, not the
+// verdict. Measured live on foundry-tools' own pre-push hook: with the lane
+// gate moved into run.plan and only the fanout wired to it, the push stage ran
+// rust:cargo-audit (could-not-run, cargo exit 101) and python:pip-audit (PASS)
+// in a repo carrying neither manifest. A pass for a lane the tree does not
+// have is worse than a failure — it is a check nobody ran, reported as a check
+// that looked.
+//
+// Asserting on the verdicts alone does NOT pin this: most lane atoms also
+// check their own manifest and answer absent, so the stage reads the same
+// either way while the container still ran. The spy below fails if the runner
+// is entered at all.
+func TestThePushSequenceNeverDispatchesALaneTheTreeDoesNotHave(t *testing.T) {
+	engine.reset()
+	// A Go repo, and nothing else: no Cargo.toml, no pyproject.toml, no package.json.
+	engine.withTree(map[string]string{"go.mod": "module x\n", "main.go": "package main\n", "main_test.go": "package main\n"})
+	// The go atoms must PASS, or the sequence stops at the first red and never
+	// reaches the audits — which is exactly how the first version of this test
+	// passed against the very bug it was written for.
+	engine.stdout(`"go","list"`, "11\n")
+
+	var mu sync.Mutex
+	dispatched := map[string]bool{}
+	for _, id := range []string{"rust:cargo-audit", "python:pip-audit", "ts:bun-audit", "go:staticcheck"} {
+		real := registry[id]
+		registry[id] = func(ctx context.Context, r *run) checks.Verdict {
+			mu.Lock()
+			dispatched[id] = true
+			mu.Unlock()
+			return real(ctx, r)
+		}
+		defer func() { registry[id] = real }()
+	}
+
+	res, err := (&FoundryTools{Source: dag.Directory()}).Push(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"rust:cargo-audit", "python:pip-audit", "ts:bun-audit"} {
+		if dispatched[id] {
+			t.Errorf("%s was dispatched in a tree carrying no such manifest", id)
+		}
+	}
+	// The go lane IS here, so the sequence still runs it — a planner that
+	// skipped everything would pass the assertions above and check nothing.
+	if !dispatched["go:staticcheck"] {
+		t.Errorf("go:staticcheck must run: the tree carries a go.mod")
+	}
+	omitted := map[string]bool{}
+	for _, a := range res.Omitted {
+		omitted[a.Atom] = true
+	}
+	for _, id := range []string{"rust:cargo-audit", "python:pip-audit", "ts:bun-audit"} {
+		if !omitted[id] {
+			t.Errorf("%s is absent here and must say so", id)
+		}
 	}
 }
