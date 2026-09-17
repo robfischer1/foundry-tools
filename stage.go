@@ -128,7 +128,20 @@ func (m *FoundryTools) sequence(ctx context.Context, stage, base string) ([]chec
 	selected := checks.AtomsForStage(stage)
 	selected, covered := checks.Subsumed(selected)
 	r := newRun(m.Source, m.Repo, base)
-	var out []checks.Verdict
+	// THE SEQUENCE IS PLANNED TOO, and forgetting that was a real red: when
+	// the lane gate moved out of verdictFor and into run.plan, only the fanout
+	// was wired to it, so every push-stage atom ran whatever the tree
+	// contained. Measured on foundry-tools' own pre-push hook, 2026-09-17:
+	// rust:cargo-audit could-not-run (cargo, exit 101) and python:pip-audit
+	// reported PASS — in a repo with neither a Cargo.toml nor a pyproject.toml.
+	// A pass for a lane that does not exist is the exact conflation this
+	// module's three states exist to prevent.
+	plan, absent, err := r.plan(ctx, selected)
+	if err != nil {
+		return nil, nil, err
+	}
+	selected = plan.Run
+	out := absent
 	var unreached []string
 	for i, a := range selected {
 		v, err := verdictFor(ctx, r, a.ID)

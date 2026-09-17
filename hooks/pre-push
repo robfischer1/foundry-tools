@@ -1,0 +1,26 @@
+#!/bin/sh
+# THE PUSH STAGE, AS THE PUSH HOOK (CA master-plan F15).
+#
+# The slow checks, in sequence, cheapest first — deep lint, the
+# known-vulnerability scan, the release build the image will carry, then the
+# race + live-database suite — stopping at the first that finds something, with
+# the mutation gate running beside them. The stage names what it never reached.
+#
+# THE BASE IS THE MERGE BASE, and only the atoms that grade a CHANGE read it
+# (mutation, the code witness); every other atom's cache key is the tree alone,
+# so a rebase that changes no file re-runs nothing.
+set -eu
+
+module="${CA_MODULE:-git.notusmi.com/rob/foundry-tools@main}"
+if [ -f dagger.json ] && grep -q '"name": *"foundry-tools"' dagger.json; then
+	module=.
+fi
+
+# A repo with no origin/main yet (a fresh birth) has no merge base, and the
+# stage is asked without one rather than not asked at all.
+base=$(git merge-base origin/main HEAD 2>/dev/null || true)
+
+if [ -n "$base" ]; then
+	exec dagger call -m "$module" push --base="$base" exit
+fi
+exec dagger call -m "$module" push exit
