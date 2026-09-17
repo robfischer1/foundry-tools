@@ -292,7 +292,7 @@ func TestGoStaticcheckAndGovulncheckUseTheBakedBinaries(t *testing.T) {
 	wantState(t, runAtom(t, "go:govulncheck", ""), 2, "not found")
 }
 
-// The gate measures the pull's diff in Go: the neutral config, the canary, the
+// The gate measures the pull's diff in Go: the canonical config, the canary, the
 // bound through the environment, the fleet's exclusions and the base — no
 // script, no shell, no foundry-stocks mount.
 func TestGoMutationMeasuresTheDiffAndSettlesInGo(t *testing.T) {
@@ -302,11 +302,11 @@ func TestGoMutationMeasuresTheDiffAndSettlesInGo(t *testing.T) {
 	wantCalls(t, c,
 		[]string{"withEnvVariable", `name:"GATE_BASE"`, `value:"abc123"`},
 		[]string{"withMountedDirectory", `path:"/dies"`},
-		[]string{"withNewFile", `path:"/tmp/mutation/gremlins-neutral.yaml"`},
+		[]string{"withNewFile", `path:"/tmp/mutation/gremlins-canonical.yaml"`},
 		[]string{"withExec", `"go","test","-cover","-coverprofile","mutation-cover.out","./..."`},
 		[]string{"withEnvVariable", `name:"GOMAXPROCS"`, `value:"1"`},
 		[]string{"withEnvVariable", `name:"GOFLAGS"`, `value:"-p=1"`},
-		[]string{"withExec", `expect:ANY`, `"gremlins","unleash","--config","/tmp/mutation/gremlins-neutral.yaml","--output","mutation-go.json","--timeout-coefficient","10","--workers","4","--exclude-files","` + strings.ReplaceAll(goMutationExclude, `\`, `\\`) + `","--diff","abc123","."`},
+		[]string{"withExec", `expect:ANY`, `"gremlins","unleash","--config","/tmp/mutation/gremlins-canonical.yaml","--output","mutation-go.json","--workers","4","--exclude-files","` + strings.ReplaceAll(goMutationExclude, `\`, `\\`) + `","--diff","abc123","."`},
 	)
 	if strings.Contains(c, `path:"/stocks"`) || strings.Contains(c, `"bash"`) {
 		t.Errorf("the gate mounted foundry-stocks or ran bash:\n%s", c)
@@ -315,7 +315,7 @@ func TestGoMutationMeasuresTheDiffAndSettlesInGo(t *testing.T) {
 		[]string{"withNewFile", `path:"/tmp/mutation/canary/go.mod"`},
 		[]string{"withNewFile", `path:"/tmp/mutation/canary/canary_test.go"`},
 		[]string{"withWorkdir", `path:"/tmp/mutation/canary"`},
-		[]string{"withExec", `"gremlins","unleash","--config","/tmp/mutation/gremlins-neutral.yaml","--timeout-coefficient","10","--workers","1","."`},
+		[]string{"withExec", `"gremlins","unleash","--config","/tmp/mutation/gremlins-canonical.yaml","--workers","1","."`},
 	)
 }
 
@@ -659,5 +659,74 @@ func TestLanesNamesTheNestedModulesTheGateRuns(t *testing.T) {
 	out, _ = (&FoundryTools{Source: dag.Directory()}).Lanes(t.Context())
 	if !strings.Contains(out, "declares no lane") {
 		t.Errorf("Lanes on a tree with no lane = %q", out)
+	}
+}
+
+// TestGoMutationReadsTheCanonicalConfigAtItsOneHome.
+//
+// THE CONFIG IS NOT AUTHORED HERE. It used to be a comment-only file this atom
+// wrote — "neutral", meaning it stated nothing and inherited whatever gremlins
+// defaulted to, so the fleet's gate was defined by the tool's defaults in two
+// places that agreed by luck. It now comes from forge-testkit-go, read at its
+// one home, exactly as the stocks scripts are.
+//
+// A REPO STILL HAS NO SAY: the file comes from that pinned repo through the
+// door, never from the tree under check, so a star cannot dial its own gate
+// down by editing itself.
+func TestGoMutationReadsTheCanonicalConfigAtItsOneHome(t *testing.T) {
+	scriptGoMutation(nil)
+	wantState(t, runAtom(t, "go:mutation", "abc123"), 0)
+	c := engine.chain(goMutantsNeedle, "exitCode")
+	// The paper engine answers every git-home file with its own marker, so
+	// seeing it here is seeing that the contents came from the REMOTE tree.
+	wantCalls(t, c,
+		[]string{"withNewFile", `path:"/tmp/mutation/gremlins-canonical.yaml"`, "the paper engine's copy"},
+	)
+	if hasCall(c, "withNewFile", `path:"/tmp/mutation/gremlins-canonical.yaml"`, "neutral") {
+		t.Errorf("the atom is still authoring its own config:\n%s", c)
+	}
+}
+
+// TestGoMutationTakesTheTimeoutCoefficientFromTheConfigNotAFlag.
+//
+// THE COEFFICIENT DECIDES WHETHER THE RUN IS CORRECT, so it belongs with the
+// other knobs rather than duplicated in this argv. gremlins records a mutant
+// TIMED OUT when parallel workers slow each other past the timeout computed
+// from the unmutated suite, and TIMED OUT counts as neither killed nor
+// survived — it silently shrinks the population. MEASURED on an unchanged
+// 30-mutant tree: --workers 4 alone gave 15/12, 15/13, 14/14, 15/13 and 14/9
+// on five runs; with the coefficient, 16/14 three times.
+//
+// --workers stays a flag: 4 is this LANE's deliberate override of a config
+// default of 1, which is what a repo whose suite binds a loopback server needs
+// and a CI runner does not.
+func TestGoMutationTakesTheTimeoutCoefficientFromTheConfigNotAFlag(t *testing.T) {
+	scriptGoMutation(nil)
+	wantState(t, runAtom(t, "go:mutation", "abc123"), 0)
+	c := engine.chain(goMutantsNeedle, "exitCode")
+	if strings.Contains(c, "--timeout-coefficient") {
+		t.Errorf("the coefficient is still a flag here, so it is defined twice:\n%s", c)
+	}
+	if !strings.Contains(c, `"--workers","4"`) {
+		t.Errorf("the lane's deliberate worker override is gone:\n%s", c)
+	}
+}
+
+// TestGoMutationCannotRunWithoutTheCanonicalConfig.
+//
+// WITHOUT THE FILE, GREMLINS FALLS BACK TO ITS OWN DEFAULTS and scores a
+// different population — so a config that could not be read is a lane that
+// could not measure (state 2), never a gate that quietly passes on defaults.
+func TestGoMutationCannotRunWithoutTheCanonicalConfig(t *testing.T) {
+	scriptGoMutation(nil)
+	// A checkout of the testkit that does NOT carry the config: the paper
+	// engine then answers "no such file" instead of its marker.
+	engine.withTree(map[string]string{"/testkit/README.md": "# no config here\n"})
+	v := runAtom(t, "go:mutation", "abc123")
+	if v.State != 2 {
+		t.Fatalf("a missing canonical config answered state %d, want 2 (could not run): %s", v.State, v.Reason)
+	}
+	if !strings.Contains(v.Reason, "canonical gremlins config") {
+		t.Errorf("the reason does not name what was missing: %s", v.Reason)
 	}
 }

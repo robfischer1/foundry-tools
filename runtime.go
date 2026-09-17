@@ -57,8 +57,9 @@ type run struct {
 	repo string
 	base string
 
-	stocks *dagger.Directory
-	dies   *dagger.Directory
+	stocks  *dagger.Directory
+	dies    *dagger.Directory
+	testkit *dagger.Directory
 
 	// goMods is the tree's Go modules, read once per run: the lane check and
 	// every go atom ask, and they run concurrently.
@@ -79,6 +80,9 @@ func newRun(src *dagger.Directory, repo, base string) *run {
 		// The fleet's record tree, for the atoms that grade the fleet rather
 		// than the repo under test.
 		dies: dag.Git(checks.DiesRepo).Ref(checks.DiesRef).Tree(),
+		// The mutation gate's knobs, at their one home (checks.TestkitRepo says
+		// why). Lazy too: only go:mutation reads it.
+		testkit: dag.Git(checks.TestkitRepo).Ref(checks.TestkitRef).Tree(),
 	}
 }
 
