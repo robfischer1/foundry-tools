@@ -184,3 +184,39 @@ func TestPushAnswersTheErrorWhenAnAtomCannotBeDispatched(t *testing.T) {
 		t.Errorf("check: err %v, result %+v", err, res)
 	}
 }
+
+// A TREE THAT CANNOT BE READ IS A COULD-NOT-RUN ABOUT THE REPOSITORY, one per
+// atom whose lane the planner could not decide — never a silent absence, which
+// would read as "this repo has no go.mod" when the truth is "nobody could
+// look". The atoms that run everywhere are unaffected: they need no lane.
+func TestATreeThePlannerCannotReadIsACouldNotRunPerLaneAtom(t *testing.T) {
+	// EITHER READ CAN BE THE ONE THAT FAILS, and the atom is told which: the
+	// root listing, or the module walk that decides the go lane. A reason
+	// that named neither would be a could-not-run nobody can act on.
+	for _, c := range []struct{ match, why string }{
+		{"entries", "the tree went away"},
+		{"glob", "the module walk went away"},
+	} {
+		engine.reset()
+		engine.withTree(everyLaneTree)
+		engine.fail(c.match, c.why)
+		vs, err := (&FoundryTools{Source: dag.Directory()}).vector(context.Background(), checks.StagePrecommit, "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var lanes, anywhere int
+		for _, v := range vs {
+			if checks.AtomByID(v.Atom).Lane == checks.LaneAny {
+				anywhere++
+				continue
+			}
+			lanes++
+			if v.State != 2 || !strings.Contains(v.Reason, "could not read the repository root") || !strings.Contains(v.Reason, c.why) {
+				t.Errorf("%s (%s failed): want a could-not-run naming it, got %+v", v.Atom, c.match, v)
+			}
+		}
+		if lanes == 0 || anywhere == 0 {
+			t.Errorf("%s: %d lane atoms and %d run-anywhere atoms answered: the stage is neither", c.match, lanes, anywhere)
+		}
+	}
+}
