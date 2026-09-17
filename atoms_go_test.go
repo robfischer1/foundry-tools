@@ -752,3 +752,41 @@ func TestGoMutationCannotRunWithoutTheCanonicalConfig(t *testing.T) {
 		t.Errorf("the reason does not name what was missing: %s", v.Reason)
 	}
 }
+
+// THE RELEASE BUILD IS THE IMAGE'S COMPILE, derived: the star's own binary from
+// ./cmd/<star> with the fleet's flags, or the binaries the record declares.
+func TestGoReleaseBuildsWhatTheImageWillCarry(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{".copier-answers.yml": "service_name: hades\n"})
+	wantState(t, runAtom(t, "go:release", ""), 0, "release build: hades", "the star's own name")
+	wantCalls(t, engine.chain(`"go","build","-trimpath"`, "exitCode"),
+		[]string{"withEnvVariable", `name:"CGO_ENABLED"`, `value:"0"`},
+		[]string{"withExec", `expect:ANY`, `args:["go","build","-trimpath","-ldflags=-s -w","-o","/out/hades","./cmd/hades"]`},
+	)
+
+	// The record names more than one, and each gets its own exec.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{
+		".copier-answers.yml":                      "service_name: blade-runner\n",
+		"/dies/fleet/stars/blade-runner/slag.json": `{"tools":{"build":{"binaries":["blade-runner","blade-controller"]}}}`,
+	})
+	wantState(t, runAtom(t, "go:release", ""), 0, "blade-controller, blade-runner", "tools.build.binaries")
+	for _, b := range []string{"blade-controller", "blade-runner"} {
+		if engine.chain(`"-o","/out/`+b+`"`) == "" {
+			t.Errorf("no exec builds %s:\n%v", b, engine.chains())
+		}
+	}
+}
+
+// A repository that names no star cannot name its binary either, and a
+// could-not-run says so rather than an image built from a guess.
+func TestGoReleaseRefusesWhatItCannotName(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	wantState(t, runAtom(t, "go:release", ""), 2, "names no star")
+	if engine.chain(`"go","build","-trimpath"`) != "" {
+		t.Errorf("nothing compiles when the binary has no name:\n%v", engine.chains())
+	}
+}

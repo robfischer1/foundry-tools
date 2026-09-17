@@ -159,7 +159,7 @@ func TestTheCommitAndPushStagesHoldTheirAtoms(t *testing.T) {
 		"ts:bun-gate," +
 		"compose:config,compose:no-tracked-secrets,compose:third-party-pins," +
 		"dies:opa-test,dies:contracts,dies:schema"
-	push := "fleet:orbit-drift,go:staticcheck,go:govulncheck,go:build,go:test-race,python:pip-audit,rust:cargo-audit,ts:bun-audit," +
+	push := "fleet:orbit-drift,go:staticcheck,go:govulncheck,go:build,go:release,go:test-race,python:pip-audit,rust:cargo-audit,ts:bun-audit," +
 		"dies:admission-dogfood,dies:data-keys,dies:canary-visibility,fleet:witness"
 	if got := ids(StagePrecommit); got != commit {
 		t.Errorf("commit stage\n got %s\nwant %s", got, commit)

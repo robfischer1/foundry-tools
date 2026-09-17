@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"golang.org/x/sync/errgroup"
 
 	"dagger/foundry-tools/internal/checks"
+	"dagger/foundry-tools/internal/dagger"
 )
 
 // THE STAGES (CA master-plan F11–F16). A stage is a set of atoms settled as one
@@ -164,4 +167,33 @@ func stageResult(st checks.Stage) *StageResult {
 		Stage: st.Name, State: st.State, Lanes: st.Lanes,
 		Atoms: rows(st.Ran), Omitted: rows(st.Omitted), Unreached: st.Unreached, Log: st.Log,
 	}
+}
+
+// Release is the artifact the Gate compiled, as a directory of binaries — what
+// F14's Build copies onto the language base instead of compiling again.
+//
+// IT IS THE SAME EXEC THE go:release ATOM RAN. Same container, same argv, same
+// inputs, so the engine answers this from the cache the push already paid for
+// (F11: a cached result exists only because that exec ran on that input). A
+// tree whose release build failed has no directory to give, and says so as an
+// error rather than handing back an empty one.
+func (m *FoundryTools) Release(ctx context.Context) (*dagger.Directory, error) {
+	r := newRun(m.Source, m.Repo, "")
+	plan, why := r.releasePlan(ctx)
+	if why != "" {
+		return nil, errors.New(why)
+	}
+	ctr, err := r.releaseBuild(ctx, plan)
+	if err != nil {
+		return nil, err
+	}
+	code, err := ctr.ExitCode(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("the release build did not run: %w", err)
+	}
+	if code != 0 {
+		out, _ := ctr.Stderr(ctx)
+		return nil, fmt.Errorf("the release build failed (exit %d): %s", code, lastLine(out))
+	}
+	return ctr.Directory(checks.ReleaseOut), nil
 }
