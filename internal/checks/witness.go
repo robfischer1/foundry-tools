@@ -424,6 +424,69 @@ func WitnessRequest(id int, query, language, caller, p string) string {
 	return string(b)
 }
 
+// A DROPPED CONNECTION IS NOT THE WITNESS'S ANSWER. MEASURED over every gate
+// receipt 2026-09-09 -> 17: fleet:witness could not run on 28 trees and found
+// something on 6, and the three it could not run on 2026-09-14 were each one
+// file whose ask died "[Errno 32] Broken pipe" while narcissus stayed up. One
+// transport failure turned a whole change set into could-not-run.
+//
+// So an ask that never got an answer — a transport error, or a gateway saying
+// the witness behind it was unreachable (502, 503, 504) — is asked again, a
+// bounded number of times. Any other answer, 4xx and 500 included, is the
+// witness's own and is returned as it came.
+const (
+	WitnessAttempts   = 3
+	WitnessRetryPause = time.Duration(2e9) // 2 s, spelled with no operator a mutant could flip
+)
+
+// WitnessAsk is one POST to the witness: status, content type, body, or the
+// error that kept it from asking.
+type WitnessAsk func(ctx context.Context, body string) (int, string, string, error)
+
+// AskWitnessRetried asks, and asks again after pause while the ask got no
+// answer, at most attempts times in all. It answers the last attempt's result.
+// A context that ends between attempts ends the asking with its error.
+func AskWitnessRetried(ctx context.Context, ask WitnessAsk, body string, attempts int, pause time.Duration, sleep func(context.Context, time.Duration) error) (int, string, string, error) {
+	var (
+		status        int
+		ctype, answer string
+		err           error
+	)
+	for attempt := 1; ; attempt++ {
+		status, ctype, answer, err = ask(ctx, body)
+		if !witnessUnanswered(status, err) || attempt >= attempts {
+			return status, ctype, answer, err
+		}
+		if serr := sleep(ctx, pause); serr != nil {
+			return status, ctype, answer, serr
+		}
+	}
+}
+
+// witnessUnanswered is an ask that reached no witness.
+func witnessUnanswered(status int, err error) bool {
+	if err != nil {
+		return true
+	}
+	switch status {
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	}
+	return false
+}
+
+// SleepContext waits d, or answers the context's error if it ends first.
+func SleepContext(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
 // witnessTimeout bounds one ask. An answer takes 30-40 s; a port that does not
 // answer in two minutes is could-not-consult for that file.
 const witnessTimeout = time.Duration(120e9) // 120 s, spelled with no operator a mutant could flip
