@@ -722,11 +722,12 @@ func TestATipAttachesTheComposedSBOMAndLabelsTheBase(t *testing.T) {
 	if strings.Contains(engine.chain(discoverNeedle), "--registry-config") {
 		t.Error("an anonymous read carried the registry login")
 	}
-	// The base pair is WITHHELD until the melts are swept (image.go:
-	// withBaseLabels says why); the published image carries neither label.
-	if p := engine.chain("publish("); strings.Contains(p, labelBaseName) || strings.Contains(p, labelBaseDigest) {
-		t.Fatalf("a base label was written before the melts moved:\n%s", p)
-	}
+	// The image carries its base as the two OCI labels — provenance, which
+	// nothing compares against a record any more (image.go: withBaseLabels).
+	wantCalls(t, engine.chain("publish("),
+		[]string{"withLabel", labelBaseName, `"registry.notusmi.com/rob/stellar_core:python-runtime"`},
+		[]string{"withLabel", labelBaseDigest, `"` + pinnedBaseDigest + `"`},
+	)
 	settledOn(t, "0", "clean: published and signed")
 }
 
