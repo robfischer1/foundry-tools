@@ -32,3 +32,22 @@ gate:
 # List the atoms this module carries.
 atoms:
     dagger check -l
+
+# Point this clone's git hooks at the two stage calls (CA F15).
+#
+# `core.hooksPath` is repository configuration, not a file in the tree, so it is
+# set once per clone and every linked worktree of that clone inherits it. The
+# hooks themselves are TRACKED (hooks/), which is what makes them reviewable:
+# a change to what a commit must pass arrives as a diff like any other.
+#
+# It also un-installs pre-commit's generated hooks by pointing away from
+# .git/hooks — they are left on disk until the fleet has flipped, so a clone can
+# be put back with `git config --unset core.hooksPath`.
+hooks:
+    git config core.hooksPath hooks
+    @echo "hooks -> $(git config core.hooksPath) (pre-commit: dagger check, pre-push: dagger push)"
+
+# Put this clone back on pre-commit's generated hooks.
+unhooks:
+    git config --unset core.hooksPath
+    @echo "hooks -> .git/hooks (pre-commit framework)"

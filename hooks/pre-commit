@@ -1,0 +1,27 @@
+#!/bin/sh
+# THE COMMIT STAGE, AS THE COMMIT HOOK (CA master-plan F15).
+#
+# One call. The basic checks every tree gets, beside the language checks for
+# what this tree contains — format, lint, unit tests — planned before anything
+# runs and settled on the worst of them. What used to be a .pre-commit-config
+# listing hooks per repo is now a stage the whole fleet shares, because a repo
+# has no say in what gates it (Rob, 2026-09-11).
+#
+# THE ENGINE IS A DEPENDENCY, DELIBERATELY. The stage runs on the cluster's
+# Dagger engine, so a commit needs the cluster — which is where the git origin
+# already lives (Rob, 2026-09-17: "Shit, our git origin is already in the
+# cluster"). An engine that cannot be reached refuses the commit rather than
+# waving it through: a check that could not run is not a check that passed.
+#
+# NO SKIP LIST AND NO --no-verify. The gate is the same gate the door runs; a
+# commit that cannot pass it here cannot pass it there either.
+set -eu
+
+module="${CA_MODULE:-git.notusmi.com/rob/foundry-tools@main}"
+# foundry-tools gates itself with the tree being committed, never with main:
+# the whole point of the module is that its own changes run through it first.
+if [ -f dagger.json ] && grep -q '"name": *"foundry-tools"' dagger.json; then
+	module=.
+fi
+
+exec dagger call -m "$module" check exit
