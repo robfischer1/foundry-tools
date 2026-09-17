@@ -535,20 +535,30 @@ func TestTSMutationRebuildsAWorktreesRepository(t *testing.T) {
 	}
 }
 
-// A repo with no package.json never reaches a runner.
+// A repo with no package.json never reaches a runner: the lane is a fact about
+// the tree, the PLANNER reads that fact once before anything starts
+// (run.plan), and the atom answers absent without a container.
 func TestTheTSLaneIsAbsentWithoutAPackageJson(t *testing.T) {
-	for _, id := range []string{"ts:bun-gate", "ts:bun-audit", "ts:mutation"} {
+	for _, id := range []string{
+		"ts:bun-gate", "ts:bun-audit", "ts:mutation",
+	} {
 		engine.reset()
-		engine.withTree(map[string]string{"Cargo.toml": "[package]\nname = \"x\"\n"})
-		v, err := verdictFor(t.Context(), newRun(dag.Directory(), "", ""), id)
+		engine.withTree(map[string]string{"Cargo.toml": "{}"})
+		vs, err := (&FoundryTools{Source: dag.Directory()}).vector(t.Context(), checks.AtomByID(id).Stage, id, "")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if v.State != 0 || v.Result != "absent" || !strings.Contains(v.Reason, "no package.json") {
+		if len(vs) != 1 {
+			t.Fatalf("%s: one atom asked, %d answered", id, len(vs))
+		}
+		v := vs[0]
+		if v.Atom != id || v.State != 0 || v.Result != "absent" || !strings.Contains(v.Reason, "no package.json") {
 			t.Errorf("%s: want an absent 0 naming package.json, got %+v", id, v)
 		}
-		if len(engine.chains()) != 1 {
-			t.Errorf("%s: an absent lane must cost one entries read, not a container: %d queries",
+		// One entries read and one module walk for the whole plan — never a
+		// container, and never a read per atom.
+		if len(engine.chains()) > 2 {
+			t.Errorf("%s: an absent lane costs the plan's reads, not a container: %d queries",
 				id, len(engine.chains()))
 		}
 	}
