@@ -3,6 +3,7 @@ package checks
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -282,5 +283,90 @@ func TestPostWitness(t *testing.T) {
 	}
 	if witnessTimeout != 2*time.Minute {
 		t.Errorf("the ask is bounded at two minutes, not %v", witnessTimeout)
+	}
+}
+
+func TestAskWitnessRetriedAsksAgainOnlyWhenNothingAnswered(t *testing.T) {
+	type answer struct {
+		status int
+		err    error
+	}
+	broken := errors.New("write: broken pipe")
+	for _, tc := range []struct {
+		name      string
+		answers   []answer
+		wantAsks  int
+		wantState int
+		wantErr   error
+	}{
+		{"an answer the first time is kept", []answer{{200, nil}}, 1, 200, nil},
+		{"a dropped connection is asked again", []answer{{0, broken}, {200, nil}}, 2, 200, nil},
+		{"502 is a gateway with no witness behind it", []answer{{502, nil}, {200, nil}}, 2, 200, nil},
+		{"503 likewise", []answer{{503, nil}, {200, nil}}, 2, 200, nil},
+		{"504 likewise", []answer{{504, nil}, {200, nil}}, 2, 200, nil},
+		{"500 is the witness's own answer", []answer{{500, nil}, {200, nil}}, 1, 500, nil},
+		{"501 is the witness's own answer", []answer{{501, nil}, {200, nil}}, 1, 501, nil},
+		{"505 is the witness's own answer", []answer{{505, nil}, {200, nil}}, 1, 505, nil},
+		{"a 4xx is the witness's own answer", []answer{{429, nil}, {200, nil}}, 1, 429, nil},
+		{"three failures end with the last", []answer{{0, broken}, {503, nil}, {0, broken}, {200, nil}}, 3, 0, broken},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			asks, slept := 0, []time.Duration{}
+			ask := func(_ context.Context, body string) (int, string, string, error) {
+				if body != "B" {
+					t.Errorf("body %q", body)
+				}
+				a := tc.answers[asks]
+				asks++
+				return a.status, "application/json", "body", a.err
+			}
+			sleep := func(_ context.Context, d time.Duration) error { slept = append(slept, d); return nil }
+			status, ctype, body, err := AskWitnessRetried(context.Background(), ask, "B", WitnessAttempts, WitnessRetryPause, sleep)
+			if asks != tc.wantAsks || status != tc.wantState || !errors.Is(err, tc.wantErr) {
+				t.Errorf("asks %d status %d err %v; want %d %d %v", asks, status, err, tc.wantAsks, tc.wantState, tc.wantErr)
+			}
+			if ctype != "application/json" || body != "body" {
+				t.Errorf("the last answer is returned whole: %q %q", ctype, body)
+			}
+			if len(slept) != tc.wantAsks-1 {
+				t.Errorf("slept %d times between %d asks", len(slept), tc.wantAsks)
+			}
+			for _, d := range slept {
+				if d != WitnessRetryPause {
+					t.Errorf("paused %v, want %v", d, WitnessRetryPause)
+				}
+			}
+		})
+	}
+	if WitnessAttempts != 3 || WitnessRetryPause != 2*time.Second {
+		t.Errorf("three asks two seconds apart, not %d / %v", WitnessAttempts, WitnessRetryPause)
+	}
+}
+
+func TestAskWitnessRetriedStopsWhenTheContextEnds(t *testing.T) {
+	asks := 0
+	ask := func(context.Context, string) (int, string, string, error) {
+		asks++
+		return 0, "", "", errors.New("reset")
+	}
+	ended := errors.New("context ended")
+	sleep := func(context.Context, time.Duration) error { return ended }
+	if _, _, _, err := AskWitnessRetried(context.Background(), ask, "B", 5, time.Second, sleep); !errors.Is(err, ended) || asks != 1 {
+		t.Errorf("asks %d err %v: a context that ends between attempts ends the asking", asks, err)
+	}
+}
+
+func TestSleepContext(t *testing.T) {
+	if err := SleepContext(context.Background(), time.Millisecond); err != nil {
+		t.Errorf("a short wait ends clean: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+	if err := SleepContext(ctx, time.Hour); !errors.Is(err, context.Canceled) {
+		t.Errorf("an ended context answers its error, got %v", err)
+	}
+	if time.Since(start) > time.Second {
+		t.Error("an ended context must not wait out the pause")
 	}
 }

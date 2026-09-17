@@ -631,7 +631,10 @@ func fleetWitness(ctx context.Context, r *run) checks.Verdict {
 // (checks.PostWitness). A variable, so the tests can answer for narcissus the
 // way witness.py's WITNESS_ANSWER seam did.
 var askWitness = func(ctx context.Context, body string) (int, string, string, error) {
-	return checks.PostWitness(ctx, checks.WitnessURL, body)
+	post := func(ctx context.Context, body string) (int, string, string, error) {
+		return checks.PostWitness(ctx, checks.WitnessURL, body)
+	}
+	return checks.AskWitnessRetried(ctx, post, body, checks.WitnessAttempts, checks.WitnessRetryPause, checks.SleepContext)
 }
 
 // hadolintClient provisions the Dockerfile linter, PINNED, and proves it.

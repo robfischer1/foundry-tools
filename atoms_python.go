@@ -52,7 +52,7 @@ const ruffVersion = "ruff@0.16.3"
 // here the file is read off the tree the mount is made from, so the same
 // question is asked one step earlier and the message is unchanged.
 //
-// HOISTABLE: ts:bun-gate and ts:bun-gate-commit ask this of
+// HOISTABLE: ts:bun-gate asks this of
 // eslint.config.mjs. Left unexported here rather than put in runtime.go so the
 // lane ports do not collide; Tesla19 hoists it.
 func pythonRuleset(ctx context.Context, r *run, a checks.AtomDef, file string) (checks.Verdict, bool) {

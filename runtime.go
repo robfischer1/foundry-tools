@@ -56,6 +56,10 @@ type run struct {
 	src  *dagger.Directory
 	repo string
 	base string
+	// reask, when set, is written into every lane container past its toolchain
+	// layers, so every exec after it is keyed afresh and nothing the engine
+	// cached answers it (verdictFor's re-ask of a could-not-run).
+	reask string
 
 	stocks *dagger.Directory
 	dies   *dagger.Directory
@@ -65,6 +69,12 @@ type run struct {
 	goModsOnce sync.Once
 	goMods     []string
 	goModsErr  error
+}
+
+// reasked is r keyed afresh: every lane exec carries the nonce.
+func (r *run) reasked(nonce string) *run {
+	r.reask = nonce
+	return r
 }
 
 func newRun(src *dagger.Directory, repo, base string) *run {
@@ -82,9 +92,10 @@ func newRun(src *dagger.Directory, repo, base string) *run {
 	}
 }
 
-// lane is the container every atom starts from: the pinned lane image, the
-// environment the fleet's toolchains need, the toolchain caches for that
-// image, and the tree under check mounted at /src.
+// laneBase is the container every atom starts from: the pinned lane image, the
+// environment the fleet's toolchains need and the toolchain caches for that
+// image — everything but the tree, for a step that mounts only the files it
+// reads.
 //
 // THE CACHES ARE THE POINT. checks.CachesFor names, per image, the directories
 // its toolchain writes to — go's module and build caches, uv's cache, cargo's
@@ -92,7 +103,7 @@ func newRun(src *dagger.Directory, repo, base string) *run {
 // persists on the engine across runs, seeded on first creation from the
 // image's own warm layer. A gate's second run downloads nothing it downloaded
 // on its first.
-func (r *run) lane(image string) *dagger.Container {
+func (r *run) laneBase(image string) *dagger.Container {
 	ctr := dag.Container().From(image).
 		// worktree-guard and every other hook that stands down under CI reads
 		// this. The engine IS the CI boundary; saying so beats each atom
@@ -117,7 +128,15 @@ func (r *run) lane(image string) *dagger.Container {
 			ctr = ctr.WithEnvVariable(c.EnvVar, c.Path)
 		}
 	}
-	return ctr.
+	if r.reask != "" {
+		ctr = ctr.WithEnvVariable("CA_REASK", r.reask)
+	}
+	return ctr
+}
+
+// lane is laneBase with the tree under check mounted at /src.
+func (r *run) lane(image string) *dagger.Container {
+	return r.laneBase(image).
 		WithMountedDirectory("/src", r.src).
 		WithWorkdir("/src")
 }

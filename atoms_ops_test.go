@@ -241,9 +241,32 @@ func TestOpsAnsible(t *testing.T) {
 	c := engine.chain(`"--profile","min"`, "exitCode")
 	wantCalls(t, c,
 		[]string{"withWorkdir", `path:"/src/ansible"`},
-		[]string{"withExec", "expect:ANY", `args:["uv","run","--isolated","--no-project","--with","ansible-core","ansible-galaxy","collection","install","-r","requirements.yml"]`},
+		[]string{"withMountedDirectory", `path:"/opt/ansible-collections"`},
+		[]string{"withEnvVariable", `name:"ANSIBLE_COLLECTIONS_PATH"`, `value:"/opt/ansible-collections"`},
 		[]string{"withExec", "expect:ANY", `args:["uv","run","--isolated","--no-project","--with","ansible-core","--with","ansible-lint","ansible-lint","--offline","-q","--profile","min","."]`},
 	)
+	// The collections install in their own step, keyed on the declaration
+	// alone: the only tree it mounts is requirements.yml and ansible.cfg, and
+	// it expects success, so a proxy that failed is never remembered failing.
+	inst := engine.chain(`"collection","install"`, "stdout")
+	wantCalls(t, inst,
+		[]string{"withMountedDirectory", `path:"/src"`},
+		[]string{"withWorkdir", `path:"/src/ansible"`},
+		[]string{"withEnvVariable", `name:"UV_INDEX_URL"`},
+		[]string{"withExec", `args:["uv","run","--isolated","--no-project","--with","ansible-core","ansible-galaxy","collection","install","-r","requirements.yml","-p","/opt/ansible-collections"]`},
+	)
+	if strings.Contains(inst, "expect:ANY") {
+		t.Errorf("the install must expect success, or a failed resolution is cached:\n%s", inst)
+	}
+	if n := strings.Count(inst, "withMountedDirectory("); n != 1 {
+		t.Errorf("the install mounts the declaration and nothing else, got %d mounts:\n%s", n, inst)
+	}
+	if engine.chain(`filter(include:["ansible/requirements.yml","ansible/ansible.cfg"])`) == "" {
+		t.Error("the install's /src is not the requirements.yml + ansible.cfg filter of the tree")
+	}
+	if engine.chain("--clear-response-cache") != "" {
+		t.Error("an install that succeeded is not retried")
+	}
 	for _, pb := range []string{"playbooks/b.yml", "playbooks/site.yml"} {
 		if engine.chain(`"ansible-playbook","--syntax-check","-i","inventory/hosts.yml","`+pb+`"]`) == "" {
 			t.Errorf("no syntax-check of %s against the inventory", pb)
@@ -269,12 +292,22 @@ func TestOpsAnsible(t *testing.T) {
 		t.Error("a failed syntax-check must stop the phase")
 	}
 
-	// Collections that would not install: could-not-run, and nothing checked.
+	// Collections that would not install, twice: could-not-run, and nothing
+	// checked. The retry clears galaxy's response cache.
 	opsTree(files, nil)
-	engine.exitCode(`"collection","install"`, 1)
-	wantState(t, runAtom(t, "ops:ansible", ""), 2, "declares collections that would not install — did not look")
+	engine.fail(`"collection","install"`, "exit code: 1")
+	wantState(t, runAtom(t, "ops:ansible", ""), 2, "declares collections that would not install — did not look",
+		"install -r requirements.yml -p /opt/ansible-collections", "install --clear-response-cache -r requirements.yml")
 	if engine.chain(`"--syntax-check"`) != "" {
 		t.Error("an install that failed must stop the phase")
+	}
+
+	// One failed resolution, then an answer: the retry's collections are used.
+	opsTree(files, nil)
+	engine.fail(`"install","-r","requirements.yml"`, "exit code: 1")
+	wantState(t, runAtom(t, "ops:ansible", ""), 0)
+	if engine.chain(`"install","--clear-response-cache","-r","requirements.yml","-p","/opt/ansible-collections"`) == "" {
+		t.Error("a failed install is retried once with --clear-response-cache")
 	}
 
 	// A tree declaring no collections and no inventory.

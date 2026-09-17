@@ -374,10 +374,58 @@ func opsSpecs(ctx context.Context, r *run) checks.Verdict {
 // a clean bill, and not the tree's fault. Every step runs from ansible/, so
 // the tree's own ansible.cfg decides where the collections land.
 func opsAnsible(ctx context.Context, r *run) checks.Verdict {
-	return opsAtom(ctx, r, "ops:ansible", opsAnsiblePhase, nil)
+	return opsAtom(ctx, r, "ops:ansible", func(ctx context.Context, ctr *dagger.Container, files []checks.OpsFile) (opsResult, error) {
+		return opsAnsiblePhase(ctx, r, ctr, files)
+	}, nil)
 }
 
-func opsAnsiblePhase(ctx context.Context, ctr *dagger.Container, files []checks.OpsFile) (opsResult, error) {
+// ansibleCollectionsPath is where the gate installs a tree's collections, and
+// where every ansible step finds them: outside the tree, so the tree's own
+// collections_path cannot place them where lint then reads them as source.
+const ansibleCollectionsPath = "/opt/ansible-collections"
+
+// ansibleCollections installs the tree's declared collections from a step that
+// sees only ansible/requirements.yml and ansible/ansible.cfg (whose [galaxy]
+// block names the proxy).
+//
+// THE INSTALL IS CACHED ON WHAT IT READS, AND A FAILED ONE IS NEVER CACHED.
+// MEASURED over every gate receipt 2026-09-09 -> 17: ops:ansible found
+// something on 2 trees and could not run on 32 — 31 of them 2026-09-14, the
+// nexus galaxy proxy answering 404 on a cold miss (infra f81bcd08), and one
+// 2026-09-16 07:10Z when the proxy answered vyos.vyos without `results`.
+// Every one was the collections resolving live on a run that changed nothing
+// about them. A filtered mount keys the step on the declaration alone, so the
+// engine answers it from cache until requirements.yml or ansible.cfg changes.
+// The exec expects success rather than any exit: an exec that errors is not
+// cached, so a proxy that failed once is asked again next run instead of
+// being remembered failing. A failed install is retried once live with
+// --clear-response-cache, the flag galaxy's own error names for a bad cached
+// answer.
+func (r *run) ansibleCollections(ctx context.Context) (*dagger.Directory, string, error) {
+	declaration := r.src.Filter(dagger.DirectoryFilterOpts{Include: []string{"ansible/requirements.yml", "ansible/ansible.cfg"}})
+	base := r.laneBase(checks.ImageFleet).
+		WithMountedDirectory("/src", declaration).
+		WithWorkdir("/src/ansible").
+		WithEnvVariable("UV_INDEX_URL", checks.OpsUVIndex)
+	var log strings.Builder
+	for _, flags := range [][]string{nil, {"--clear-response-cache"}} {
+		args := append([]string{"uv", "run", "--isolated", "--no-project", "--with", "ansible-core", "ansible-galaxy", "collection", "install"}, flags...)
+		args = append(args, "-r", "requirements.yml", "-p", ansibleCollectionsPath)
+		installed := base.WithExec(args)
+		out, err := installed.Stdout(ctx)
+		log.WriteString(strings.Join(args[6:], " ") + "\n" + out)
+		if err == nil {
+			return installed.Directory(ansibleCollectionsPath), log.String(), nil
+		}
+		log.WriteString(err.Error() + "\n")
+		if len(flags) > 0 {
+			return nil, log.String(), err
+		}
+	}
+	return nil, log.String(), nil
+}
+
+func opsAnsiblePhase(ctx context.Context, r *run, ctr *dagger.Container, files []checks.OpsFile) (opsResult, error) {
 	playbooks := checks.OpsPlaybooks(files)
 	if len(playbooks) == 0 {
 		return opsResult{absent: "no ansible/playbooks in this tree"}, nil
@@ -395,15 +443,14 @@ func opsAnsiblePhase(ctx context.Context, ctr *dagger.Container, files []checks.
 	ctr = ctr.WithWorkdir("/src/ansible")
 	var out strings.Builder
 	if tracked("ansible/requirements.yml") {
-		next, o, rc, err := opsRun(ctx, ctr, append(ansible, "ansible-galaxy", "collection", "install", "-r", "requirements.yml"))
+		collections, o, err := r.ansibleCollections(ctx)
+		out.WriteString(o)
 		if err != nil {
-			return opsResult{}, err
-		}
-		out.WriteString("ansible-galaxy collection install -r requirements.yml\n" + o)
-		if rc != 0 {
 			return opsResult{state: 2, out: out.String() + "\nansible: declares collections that would not install — did not look"}, nil
 		}
-		ctr = next
+		ctr = ctr.
+			WithMountedDirectory(ansibleCollectionsPath, collections).
+			WithEnvVariable("ANSIBLE_COLLECTIONS_PATH", ansibleCollectionsPath)
 	}
 	var inventory []string
 	if tracked("ansible/inventory/hosts.yml") {

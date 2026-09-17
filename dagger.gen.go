@@ -1387,13 +1387,6 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*TSLane).BunGate(&parent, ctx)
-		case "BunGateCommit":
-			var parent TSLane
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			return (*TSLane).BunGateCommit(&parent, ctx)
 		case "Mutation":
 			var parent TSLane
 			err = json.Unmarshal(parentJSON, &parent)

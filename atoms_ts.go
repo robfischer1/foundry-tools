@@ -17,7 +17,6 @@ import (
 // defined over the git INDEX and the engine receives a directory.
 
 func init() {
-	register("ts:bun-gate-commit", tsBunGateCommit)
 	register("ts:bun-gate", tsBunGate)
 	register("ts:bun-audit", tsBunAudit)
 	register("ts:mutation", tsMutation)
@@ -26,21 +25,16 @@ func init() {
 // eslintConfig is the fleet's eslint config inside the foundry-stocks tree.
 const eslintConfig = "ci/lib/rulesets/eslint.config.mjs" // under checks.StocksRulesets; spelled out so no package-level `+` sits uncovered
 
-// bun run gate (format, lint, typecheck, test, build) passes under the fleet's
-// eslint config.
-func tsBunGateCommit(ctx context.Context, r *run) checks.Verdict {
-	return tsGate(ctx, r, "ts:bun-gate-commit", false)
-}
-
 // bun run gate passes against a frozen lockfile under the fleet's eslint
 // config, and the tree carries tests for it to run.
 func tsBunGate(ctx context.Context, r *run) checks.Verdict {
-	return tsGate(ctx, r, "ts:bun-gate", true)
+	return tsGate(ctx, r, "ts:bun-gate")
 }
 
-// tsGate is both bun-gate atoms: they differ only in whether the tree is
-// required to carry a test file, so they are one function and a flag rather
-// than two bodies free to drift.
+// tsGate is the bun gate. It was two atoms — a commit-stage twin that skipped
+// the test-file check — and they ran the same `bun run gate` on the same trees:
+// over 5,295 gated trees (2026-09-09 → 17) one reported findings on 72 and the
+// other on 70. Rob, 2026-09-17: merge them.
 //
 // THE GATE'S CHECKOUT HAS NO node_modules. The pre-commit hook this ports runs
 // in a working tree that already installed; the engine mounts a bare tree.
@@ -63,7 +57,7 @@ func tsBunGate(ctx context.Context, r *run) checks.Verdict {
 // It is written into the DIRECTORY and the tree re-mounted, rather than laid
 // over the existing mount with Container.WithFile: /src is a mount, and
 // gitReady already establishes that re-mounting is how this runtime edits it.
-func tsGate(ctx context.Context, r *run, id string, requireTests bool) checks.Verdict {
+func tsGate(ctx context.Context, r *run, id string) checks.Verdict {
 	a := checks.AtomByID(id)
 
 	// A ruleset the atom cannot read is a gate that never looked, and that is
@@ -96,14 +90,12 @@ func tsGate(ctx context.Context, r *run, id string, requireTests bool) checks.Ve
 	// cannot install frozen answers CANNOT RUN rather than being graded on its
 	// test files. A population that cannot be enumerated is now a could-not-run
 	// too, where `find ... 2>/dev/null` read a broken scan as an empty tree.
-	if requireTests {
-		tests, err := r.population(ctx, checks.TSTestPatterns...)
-		if err != nil {
-			return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the tree could not be enumerated, so its test surface is unknown rather than empty: "+err.Error())
-		}
-		if len(tests) == 0 {
-			return checks.VerdictOf(a, 1, a.ID+": FINDINGS - no test file in the tree (bun's pattern: {.test,.spec,_test_,_spec_}.{js,ts,jsx,tsx}); nothing is built without tests")
-		}
+	tests, err := r.population(ctx, checks.TSTestPatterns...)
+	if err != nil {
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the tree could not be enumerated, so its test surface is unknown rather than empty: "+err.Error())
+	}
+	if len(tests) == 0 {
+		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - no test file in the tree (bun's pattern: {.test,.spec,_test_,_spec_}.{js,ts,jsx,tsx}); nothing is built without tests")
 	}
 
 	return verdict(ctx, a, installed.WithExec([]string{"bun", "run", "gate"}, anyExit))

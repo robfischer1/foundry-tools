@@ -33,15 +33,15 @@ var tsNoTestTree = map[string]string{
 // eslint resolves its plugins relative to the config file, so a config outside
 // the tree cannot load them. The chain proves it: the /src mount the gate runs
 // against is the stocks file laid into the source directory, not r.src.
-func TestTSBunGateCommitRemountsTheTreeCarryingTheFleetsEslintConfig(t *testing.T) {
+func TestTSBunGateRemountsTheTreeCarryingTheFleetsEslintConfig(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
 
-	wantState(t, runAtom(t, "ts:bun-gate-commit", ""), 0)
+	wantState(t, runAtom(t, "ts:bun-gate", ""), 0)
 
 	c := engine.chain(`"bun","run","gate"`, "exitCode")
 	if !strings.Contains(c, checks.ImageTS) {
-		t.Errorf("ts:bun-gate-commit must run in the frontend lane image:\n%s", c)
+		t.Errorf("ts:bun-gate must run in the frontend lane image:\n%s", c)
 	}
 
 	// The file came off the stocks tree at its one home, went into the source
@@ -62,34 +62,30 @@ func TestTSBunGateCommitRemountsTheTreeCarryingTheFleetsEslintConfig(t *testing.
 		[]string{"withExec", `expect:ANY`, `args:["bun","run","gate"]`},
 	)
 	if strings.Contains(c, "GATE_BASE") {
-		t.Errorf("ts:bun-gate-commit must not read GATE_BASE:\n%s", c)
-	}
-	// The commit-stage atom does not require tests, so it never enumerates.
-	if engine.chain("glob(pattern:") != "" {
-		t.Error("ts:bun-gate-commit must not count test files; that is ts:bun-gate's flag")
+		t.Errorf("ts:bun-gate must not read GATE_BASE:\n%s", c)
 	}
 
 	// The gate script's own exit code is the verdict.
 	engine.exitCode(`"bun","run","gate"`, 1)
 	engine.stdout(`"bun","run","gate"`, "src/index.ts:1:7 - error TS2322")
-	wantState(t, runAtom(t, "ts:bun-gate-commit", ""), 1, "TS2322")
+	wantState(t, runAtom(t, "ts:bun-gate", ""), 1, "TS2322")
 
 	// A 127 that survives the install is a could-not-run on its own, where the
 	// shell body's `|| exit 1` flattened it into FINDINGS.
 	engine.exitCode(`"bun","run","gate"`, 127)
 	engine.stderr(`"bun","run","gate"`, "prettier: command not found")
-	wantState(t, runAtom(t, "ts:bun-gate-commit", ""), 2, "prettier: command not found")
+	wantState(t, runAtom(t, "ts:bun-gate", ""), 2, "prettier: command not found")
 
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	engine.fail(`"bun","run","gate"`, "engine went away")
-	wantState(t, runAtom(t, "ts:bun-gate-commit", ""), 2, "never ran", "engine went away")
+	wantState(t, runAtom(t, "ts:bun-gate", ""), 2, "never ran", "engine went away")
 }
 
 // A RULESET THE ATOM CANNOT READ IS A GATE THAT NEVER LOOKED, and that is
 // never a pass. Decided in Go, off the stocks tree, before anything runs.
 func TestTSGateCannotRunWithoutTheFleetsEslintConfig(t *testing.T) {
-	for _, id := range []string{"ts:bun-gate-commit", "ts:bun-gate"} {
+	for _, id := range []string{"ts:bun-gate"} {
 		engine.reset()
 		engine.withTree(everyLaneTree)
 		engine.fail(checks.StocksRulesets+"/eslint.config.mjs", "no such file or directory")
@@ -109,7 +105,7 @@ func TestTSGateCannotRunWithoutTheFleetsEslintConfig(t *testing.T) {
 // files. A lockfile that will not install frozen is a fact about the pull's
 // reproducibility; reading it as a finding would put it in the wrong queue.
 func TestTSGateFrozenLockfileInstallIsACannotRun(t *testing.T) {
-	for _, id := range []string{"ts:bun-gate-commit", "ts:bun-gate"} {
+	for _, id := range []string{"ts:bun-gate"} {
 		engine.reset()
 		engine.withTree(everyLaneTree)
 		engine.exitCode(`"bun","install","--frozen-lockfile"`, 1)
@@ -142,12 +138,6 @@ func TestTSBunGateRefusesATreeWithNoTestFile(t *testing.T) {
 	if engine.chain(`"bun","run","gate"`) != "" {
 		t.Error("a tree with no test file must not run the gate")
 	}
-
-	// The SAME tree passes the commit-stage atom: the flag is the only
-	// difference between the two bodies.
-	engine.reset()
-	engine.withTree(tsNoTestTree)
-	wantState(t, runAtom(t, "ts:bun-gate-commit", ""), 0)
 
 	// One test file anywhere is enough, and it is found at the root as surely
 	// as three directories down.
@@ -547,7 +537,7 @@ func TestTSMutationRebuildsAWorktreesRepository(t *testing.T) {
 
 // A repo with no package.json never reaches a runner.
 func TestTheTSLaneIsAbsentWithoutAPackageJson(t *testing.T) {
-	for _, id := range []string{"ts:bun-gate-commit", "ts:bun-gate", "ts:bun-audit", "ts:mutation"} {
+	for _, id := range []string{"ts:bun-gate", "ts:bun-audit", "ts:mutation"} {
 		engine.reset()
 		engine.withTree(map[string]string{"Cargo.toml": "[package]\nname = \"x\"\n"})
 		v, err := verdictFor(t.Context(), newRun(dag.Directory(), "", ""), id)
