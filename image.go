@@ -39,6 +39,19 @@ type Image struct {
 	Title string
 	// +private
 	BuildArgs []dagger.BuildArg
+	// Dockerfile is the path of the Dockerfile inside Source; empty is the
+	// tree's root Dockerfile. A base image in a repo of several builds from
+	// bases/<lang>/Dockerfile against the whole tree, so a builder stage can
+	// reach source beside it (the shared stellar-boot).
+	// +private
+	Dockerfile string
+	// Created is the image's creation time, stamped ONCE, when the image is
+	// bound. Container() used to stamp the clock on every call, so two
+	// evaluations of one image — the tarball a scan read and the manifest a
+	// publish pushed — were two configs with two digests, and the image the
+	// registry held was not byte-for-byte the image that was scanned.
+	// +private
+	Created string
 }
 
 // The OCI labels the lane writes — the pair mold reads back (revision,
@@ -66,6 +79,9 @@ func (m *FoundryTools) Image(
 	// which a RUN sees only when it crosses the seam by name.
 	// +optional
 	buildArgs []string,
+	// The Dockerfile's path inside the tree; empty builds the root Dockerfile.
+	// +optional
+	dockerfile string,
 ) (*Image, error) {
 	if len(revision) < 12 {
 		return nil, fmt.Errorf("image: the revision %q is too short for a version label", revision)
@@ -74,17 +90,19 @@ func (m *FoundryTools) Image(
 	if err != nil {
 		return nil, fmt.Errorf("image: %w", err)
 	}
-	return &Image{Source: m.Source, Revision: revision, SourceURL: sourceURL, Title: title, BuildArgs: args}, nil
+	return &Image{Source: m.Source, Revision: revision, SourceURL: sourceURL, Title: title, BuildArgs: args,
+		Dockerfile: dockerfile, Created: time.Now().UTC().Format(time.RFC3339)}, nil
 }
 
-// Container is the built image: the Dockerfile at the tree's root, the six
-// labels and STELLAR_REVISION on its config. Publish, Tarball and Builder
-// all hang off this one chain, so the engine builds the Dockerfile once.
+// Container is the built image: the bound Dockerfile (the tree's root one by
+// default), the six labels and STELLAR_REVISION on its config. Publish,
+// Tarball and Builder all hang off this one chain, so the engine builds the
+// Dockerfile once, and every evaluation carries the same config.
 func (i *Image) Container() *dagger.Container {
-	c := i.Source.DockerBuild(dagger.DirectoryDockerBuildOpts{BuildArgs: i.BuildArgs})
+	c := i.Source.DockerBuild(dagger.DirectoryDockerBuildOpts{BuildArgs: i.BuildArgs, Dockerfile: i.Dockerfile})
 	return c.
 		WithLabel(labelRevision, i.Revision).
-		WithLabel(labelCreated, time.Now().UTC().Format(time.RFC3339)).
+		WithLabel(labelCreated, i.Created).
 		WithLabel(labelSource, i.SourceURL).
 		WithLabel(labelVersion, i.Revision[:12]).
 		WithLabel(labelTitle, i.Title).
@@ -122,6 +140,6 @@ func (i *Image) Tarball() *dagger.File {
 // The caller asks only when the Dockerfile names the stage.
 func (i *Image) Builder() *dagger.File {
 	return i.Source.
-		DockerBuild(dagger.DirectoryDockerBuildOpts{BuildArgs: i.BuildArgs, Target: "builder"}).
+		DockerBuild(dagger.DirectoryDockerBuildOpts{BuildArgs: i.BuildArgs, Dockerfile: i.Dockerfile, Target: "builder"}).
 		AsTarball(dagger.ContainerAsTarballOpts{MediaTypes: dagger.ImageMediaTypesOcimediaTypes})
 }

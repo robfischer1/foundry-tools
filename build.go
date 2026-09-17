@@ -134,6 +134,14 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 	star := starOf(m.Repo)
 	say("%s for %s at %.12s", map[bool]string{true: "tip build", false: "pull-time build (publishes nothing)"}[l.tip], star, m.Sha)
 
+	bases, err := l.bases(ctx)
+	if err != nil {
+		return buildlane.CouldNotRun, fmt.Sprintf("could not run: the tree's bases could not be read: %v", err)
+	}
+	if len(bases) > 0 {
+		return l.runBases(ctx, star, bases)
+	}
+
 	compose := ""
 	for _, f := range buildlane.ComposeFiles {
 		body, ok, err := fileIn(ctx, m.Source, f)
@@ -156,17 +164,11 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 		return buildlane.Clean, "stood down: " + why
 	}
 
-	var args []string
-	if env, ok, err := fileIn(ctx, m.Source, ".forgejo/build-args.env"); err != nil {
-		return buildlane.CouldNotRun, fmt.Sprintf("could not read .forgejo/build-args.env: %v", err)
-	} else if ok {
-		args = buildlane.BuildArgs(env)
-		say("build args: %d from .forgejo/build-args.env", len(args))
+	args, err := l.buildArgs(ctx)
+	if err != nil {
+		return buildlane.CouldNotRun, err.Error()
 	}
-	if l.indexURL != "" {
-		args = append(args, "UV_INDEX_URL="+l.indexURL)
-	}
-	img, err := m.Image(m.Sha, l.sourceBase+"/"+star, star, args)
+	img, err := m.Image(m.Sha, l.sourceBase+"/"+star, star, args, "")
 	if err != nil {
 		return buildlane.CouldNotRun, err.Error()
 	}
@@ -209,6 +211,12 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 // :stable whose image names no commit, a permitted commit outside this
 // history.
 func (l *buildLane) detect(ctx context.Context, pushRepo string) (needed bool, why string, code int) {
+	return l.detectWhere(ctx, pushRepo, nil)
+}
+
+// detectWhere is detect with the change set narrowed first: a base in a repo
+// of several counts only the changes that reach it (buildlane.BaseChanges).
+func (l *buildLane) detectWhere(ctx context.Context, pushRepo string, relevant func(changed string) string) (needed bool, why string, code int) {
 	label, err := dag.Container().From(pushRepo+":stable").Label(ctx, "org.opencontainers.image.revision")
 	if err != nil {
 		return true, fmt.Sprintf("no permitted build to compare against: %s:stable did not read (%.200s) — building to be safe", pushRepo, err.Error()), buildlane.Clean
@@ -246,6 +254,9 @@ func (l *buildLane) detect(ctx context.Context, pushRepo string) (needed bool, w
 	if err != nil || rc != 0 {
 		return false, fmt.Sprintf("could not run: the change set could not be read (exit %d): %v %s", rc, err, changed), buildlane.CouldNotRun
 	}
+	if relevant != nil {
+		changed = relevant(changed)
+	}
 	needed, why = buildlane.Standing(permitted, changed)
 	return needed, why, buildlane.Clean
 }
@@ -256,6 +267,12 @@ func (l *buildLane) publish(ctx context.Context, img *Image, pushRepo, star stri
 	if err != nil {
 		return "", buildlane.CouldNotRun, err.Error()
 	}
+	return l.push(ctx, img, pushRepo, gpin, star)
+}
+
+// push pushes the image under target, a tag of pushRepo, and answers
+// `<repo>@<digest>`.
+func (l *buildLane) push(ctx context.Context, img *Image, pushRepo, target, star string) (string, int, string) {
 	host, _, _ := strings.Cut(pushRepo, "/")
 	auth, err := l.registryAuth.Plaintext(ctx)
 	if err != nil {
@@ -265,17 +282,17 @@ func (l *buildLane) publish(ctx context.Context, img *Image, pushRepo, star stri
 	if err != nil {
 		return "", buildlane.CouldNotRun, "could not run: " + err.Error()
 	}
-	out, err := img.Publish(ctx, gpin, user, dag.SetSecret("build-registry-password-"+star, password))
+	out, err := img.Publish(ctx, target, user, dag.SetSecret("build-registry-password-"+star, password))
 	if err != nil {
 		code, why := buildlane.Failed("publish", err.Error())
 		return "", code, why
 	}
 	digest := buildlane.DigestOf(out)
 	if digest == "" {
-		return "", buildlane.CouldNotRun, fmt.Sprintf("could not run: the registry minted no digest for %s: %.200s", gpin, out)
+		return "", buildlane.CouldNotRun, fmt.Sprintf("could not run: the registry minted no digest for %s: %.200s", target, out)
 	}
 	ref := pushRepo + "@" + digest
-	say("published %s = %s", gpin, ref)
+	say("published %s = %s", target, ref)
 	return ref, buildlane.Clean, ""
 }
 
@@ -370,7 +387,11 @@ func (l *buildLane) sbom(ctx context.Context, img *Image, ref string) (string, i
 		c, why := buildlane.ToolFailed("sign (SBOM)", image)
 		return "", c, why
 	}
-	dockerfile, _, err := fileIn(ctx, l.m.Source, "Dockerfile")
+	path := img.Dockerfile
+	if path == "" {
+		path = "Dockerfile"
+	}
+	dockerfile, _, err := fileIn(ctx, l.m.Source, path)
 	if err != nil || !buildlane.HasBuilderStage(dockerfile) {
 		say("no builder stage in this Dockerfile — the SBOM covers the runtime image only")
 		return image, buildlane.Clean, ""
