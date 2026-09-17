@@ -145,6 +145,28 @@ func TestGoTestRaceCountsTestFilesBeforeRunning(t *testing.T) {
 	wantState(t, runAtom(t, "go:test-race", ""), 2, "engine went away")
 }
 
+// THE COMMIT'S SUITE IS THE UNIT SUITE: the same packages, no race detector,
+// no database binding and no build tags — so a DB-gated suite does not even
+// compile in. The push's go:test-race is the one that brings both.
+func TestGoTestIsTheUnitSuiteWithoutRaceOrADatabase(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{
+		".copier-answers.yml":           "service_name: x\n",
+		"/dies/fleet/stars/x/slag.json": `{"backends":{"postgres":{"cnpg_cluster":"x-db","database":"x","owner":"x"}}}`,
+	})
+	engine.stdout(`"go","list"`, "11\n")
+	wantState(t, runAtom(t, "go:test", ""), 0, "unit suite")
+	c := engine.chain(`"go","test","./..."`, "exitCode")
+	wantCalls(t, c, []string{"withExec", `expect:ANY`, `args:["go","test","./..."]`})
+	if hasCall(c, "withServiceBinding") {
+		t.Errorf("the commit's suite binds no database:\n%s", c)
+	}
+	// It counts tests exactly as the push's run does.
+	engine.stdout(`"go","list"`, "00\n00\n")
+	wantState(t, runAtom(t, "go:test", ""), 1, "no test file in any package")
+}
+
 // THE RECORD SAYS POSTGRES, THE TREE SAYS WHICH TAGS, THE LANE BRINGS THE
 // DATABASE (checks/testdb.go). Before this the DB-gated suites never compiled
 // and every DB-touching line read NOT COVERED (foundry-tools#8608).

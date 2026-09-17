@@ -19,6 +19,7 @@ func init() {
 	register("go:gofmt", goGofmt)
 	register("go:vet", goVet)
 	register("go:build", goBuild)
+	register("go:test", goTest)
 	register("go:test-race", goTestRace)
 	register("go:staticcheck", goStaticcheck)
 	register("go:govulncheck", goGovulncheck)
@@ -127,11 +128,26 @@ func goVet(ctx context.Context, r *run) checks.Verdict {
 // test (chaos's own README says so of its lane).
 func goTestRace(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("go:test-race")
-	return r.eachModule(ctx, a, func(dir string) checks.Verdict { return goTestRaceIn(ctx, r, a, dir) })
+	return r.eachModule(ctx, a, func(dir string) checks.Verdict { return goTestIn(ctx, r, a, dir, true) })
 }
 
-// goTestRaceIn is go:test-race in one module.
-func goTestRaceIn(ctx context.Context, r *run, a checks.AtomDef, dir string) checks.Verdict {
+// go test ./... passes: the SAME packages, at the commit's cadence — no race
+// detector, no database, no build tags, so the DB-gated suites do not even
+// compile in. Rob's four stages put the unit tests at the commit and the race
+// + live-DB run at the push; a commit that waits minutes for a suite it will
+// wait for again at the push is the loop this plan exists to shorten.
+//
+// It is SUBSUMED BY go:test-race (checks.AtomDef.SubsumedBy): a caller that
+// asks for both stages at once gets the race run and an omission line saying
+// so, never the suite twice.
+func goTest(ctx context.Context, r *run) checks.Verdict {
+	a := checks.AtomByID("go:test")
+	return r.eachModule(ctx, a, func(dir string) checks.Verdict { return goTestIn(ctx, r, a, dir, false) })
+}
+
+// goTestIn runs one module's suite: race + the record's live databases when
+// race is set (the push), the plain unit run when it is not (the commit).
+func goTestIn(ctx context.Context, r *run, a checks.AtomDef, dir string, race bool) checks.Verdict {
 	// THE SUITE RUNS IN A REPOSITORY git CAN READ. A test that shells out to
 	// git — hephaestus's TestRealResolveHistory runs `git ls-remote` against a
 	// fixture — fails on a linked worktree's dangling `.git` file with
@@ -151,15 +167,20 @@ func goTestRaceIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 		// A module that will not even list is a red about the module, and
 		// the old atom filed it as FINDINGS on purpose: the tests cannot be
 		// counted, so they cannot be shown to exist.
-		return checks.VerdictOf(a, 1, "go:test-race: FINDINGS - go list ./... failed, so the tests cannot be counted: "+lastLine(counts))
+		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - go list ./... failed, so the tests cannot be counted: "+lastLine(counts))
 	}
 	if !checks.GoHasTestFiles(counts) {
-		return checks.VerdictOf(a, 1, "go:test-race: FINDINGS - no test file in any package; nothing is built without tests")
+		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - no test file in any package; nothing is built without tests")
 	}
-	mods, dbs, scope := r.withTestDatabases(ctx, mods)
-	args := []string{"go", "test", "-race"}
-	if len(dbs) > 0 {
-		args = append(args, "-tags", checks.BuildTags(dbs), "-p", "1")
+	args := []string{"go", "test"}
+	scope := "unit suite: no race detector and no database — go:test-race runs those at the push"
+	if race {
+		var dbs []checks.TestDB
+		mods, dbs, scope = r.withTestDatabases(ctx, mods)
+		args = append(args, "-race")
+		if len(dbs) > 0 {
+			args = append(args, "-tags", checks.BuildTags(dbs), "-p", "1")
+		}
 	}
 	args = append(args, "./...")
 	v := verdict(ctx, a, mods.WithExec(args, anyExit))

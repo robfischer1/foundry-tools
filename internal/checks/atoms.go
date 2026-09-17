@@ -57,6 +57,14 @@ type AtomDef struct {
 	// atom can read the canonical script at its ONE home rather than carry a
 	// vendored second copy.
 	NeedsStocks bool
+	// SubsumedBy names the atom that covers this one when both run in the
+	// same vector. THE SPLIT IS BY CADENCE, NOT BY DUPLICATION: go:test is
+	// the commit's unit suite and go:test-race is the push's race + live-DB
+	// suite over the same packages, so a caller that asks for both stages at
+	// once (the door's gate lane, until F16 runs the stages separately) must
+	// not compile and run the suite twice. The subsumed atom stands down and
+	// says which atom covered it — never silently.
+	SubsumedBy string
 	// NeedsDies asks the caller to mount foundry-dies at /dies and name it in
 	// the environment, for the atoms whose subject is the fleet's record tree
 	// rather than the repo under test. A gate lane checks out ONE repository,
@@ -161,14 +169,16 @@ func atomTable() []AtomDef {
 			Desc: "go vet ./... reports nothing.",
 		},
 		{
-			ID: "go:build", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo,
-			Desc: "go build ./... succeeds.",
+			ID: "go:test", Stage: StagePrecommit, Lane: LaneGo, Image: ImageGo,
+			Desc:       "go test ./... passes — the unit suite, no race detector and no database.",
+			NeedsDies:  true,
+			SubsumedBy: "go:test-race",
 		},
-		{
-			ID: "go:test-race", Stage: StagePrecommit, Lane: LaneGo, Image: ImageGo,
-			Desc:      "go test -race ./... passes.",
-			NeedsDies: true,
-		},
+		// THE PUSH STAGE'S ROWS ARE IN THE ORDER IT RUNS THEM, cheapest first:
+		// the sequence fails fast (Rob, 2026-09-17: "Each stage fails fast, and
+		// returns the cumulative logs up until the failing step"), so a lint
+		// that answers in seconds must not wait behind a suite that answers in
+		// minutes.
 		{
 			ID: "go:staticcheck", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo,
 			Desc: "staticcheck ./... reports nothing.",
@@ -176,6 +186,15 @@ func atomTable() []AtomDef {
 		{
 			ID: "go:govulncheck", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo,
 			Desc: "govulncheck ./... reports no known vulnerability.",
+		},
+		{
+			ID: "go:build", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo,
+			Desc: "go build ./... succeeds.",
+		},
+		{
+			ID: "go:test-race", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo,
+			Desc:      "go test -race ./... passes against the live databases the record declares.",
+			NeedsDies: true,
 		},
 
 		// ---- python ----
@@ -453,6 +472,38 @@ func AtomsForStage(stage string) []AtomDef {
 		out = append(out, a)
 	}
 	return out
+}
+
+// Subsumed splits a selection into the atoms that run and the atoms another
+// SELECTED atom covers (AtomDef.SubsumedBy). A subsumer that is not in the
+// selection subsumes nothing: the commit stage alone still runs go:test.
+func Subsumed(selected []AtomDef) (run, covered []AtomDef) {
+	present := map[string]bool{}
+	for _, a := range selected {
+		present[a.ID] = true
+	}
+	for _, a := range selected {
+		if a.SubsumedBy != "" && present[a.SubsumedBy] {
+			covered = append(covered, a)
+			continue
+		}
+		run = append(run, a)
+	}
+	return run, covered
+}
+
+// CoveredVerdict is a subsumed atom's answer: absent, because the atom that
+// covers it ran here instead. It reads as an omission with a reason, which is
+// what it is.
+func CoveredVerdict(a AtomDef) Verdict {
+	return Verdict{
+		Atom:   a.ID,
+		Stage:  a.Stage,
+		Lane:   string(a.Lane),
+		State:  int(StatePass),
+		Result: "absent",
+		Reason: a.ID + ": ABSENT - " + a.SubsumedBy + " runs in this same vector over the same packages and covers it.",
+	}
 }
 
 // Select narrows a stage's atoms to a comma-separated list of ids.

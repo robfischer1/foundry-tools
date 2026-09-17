@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 
+	"golang.org/x/sync/errgroup"
+
 	"dagger/foundry-tools/internal/checks"
 )
 
@@ -14,7 +16,7 @@ import (
 
 // StageResult is one stage's answer.
 type StageResult struct {
-	// Stage is the stage's name: check.
+	// Stage is the stage's name: check (the commit) or push (the gate).
 	Stage string
 	// State is the worst state of the atoms that ran: 0 clean, 1 findings,
 	// 2 could not run.
@@ -26,7 +28,11 @@ type StageResult struct {
 	Atoms []AtomResult
 	// Omitted are the atoms that found no surface in this tree, each with why.
 	Omitted []AtomResult
-	// Log is every atom that ran, in order, then the omitted list.
+	// Unreached are the sequence's atoms after the one that stopped it, in
+	// the order they would have run. Empty for a stage that ran everything.
+	Unreached []string
+	// Log is every atom that ran, in order, then the omitted list, then what
+	// the stage never reached.
 	Log string
 }
 
@@ -63,6 +69,83 @@ func (m *FoundryTools) Check(ctx context.Context) (*StageResult, error) {
 	return stageResult(checks.SettleStage("check", vs)), nil
 }
 
+// Push is the push stage: the slow checks IN SEQUENCE — deep lint, the
+// known-vulnerability scan, the release build, then the race + live-database
+// suite — beside the mutation gate, which runs concurrently over the change
+// set. Rob, 2026-09-17: "Complex Checks (Sequential, parallel with Mutation)
+// … Each stage fails fast, and returns the cumulative logs up until the
+// failing step."
+//
+// FAIL FAST MEANS THE SEQUENCE STOPS, NOT THAT THE STAGE ABANDONS MUTATION.
+// The sequence stops at the first atom that found something or could not run,
+// and names the atoms it never reached. Mutation is its own lane and is
+// allowed to finish: it is already running, its answer is about the same
+// push, and cancelling it would throw away work the engine would otherwise
+// cache for the next call on this tree.
+//
+// NEVER CACHED AS A WHOLE, for Verdicts' reason.
+//
+// +cache="never"
+func (m *FoundryTools) Push(
+	ctx context.Context,
+	// The change set's base — the pull's merge base — for the atoms that
+	// grade a change rather than a tree (mutation, fleet:witness).
+	// +optional
+	base string,
+) (*StageResult, error) {
+	var (
+		complex, mutation []checks.Verdict
+		unreached         []string
+	)
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		var err error
+		complex, unreached, err = m.sequence(gctx, checks.StagePrepush, base)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		mutation, err = m.vector(gctx, checks.StageMutation, "", base)
+		return err
+	})
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+	return stageResult(checks.SettleStage("push", append(complex, mutation...), unreached...)), nil
+}
+
+// sequence runs a stage's atoms ONE AT A TIME, in the catalogue's order, and
+// stops at the first that found something or could not run. It answers the
+// verdicts it collected and the ids it never reached.
+//
+// The catalogue's order is the running order and it is cheapest-first on
+// purpose (internal/checks/atoms.go says so at the go rows): a push that is
+// going to fail staticcheck should not first spend minutes in the suite.
+func (m *FoundryTools) sequence(ctx context.Context, stage, base string) ([]checks.Verdict, []string, error) {
+	selected := checks.AtomsForStage(stage)
+	selected, covered := checks.Subsumed(selected)
+	r := newRun(m.Source, m.Repo, base)
+	var out []checks.Verdict
+	var unreached []string
+	for i, a := range selected {
+		v, err := verdictFor(ctx, r, a.ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		out = append(out, v)
+		if checks.Stops(v) {
+			unreached = checks.TailAfter(selected, i)
+			break
+		}
+	}
+	// The atoms another selected atom covered are answered either way — a
+	// sequence that stopped still says what stood down, for vector's reason.
+	for _, a := range covered {
+		out = append(out, checks.CoveredVerdict(a))
+	}
+	return out, unreached, nil
+}
+
 // Exit ends on the stage's state, so `dagger call check exit` exits 0, 1 or 2
 // and prints the stage's log.
 func (s *StageResult) Exit(ctx context.Context) error {
@@ -77,5 +160,8 @@ func stageResult(st checks.Stage) *StageResult {
 		}
 		return out
 	}
-	return &StageResult{Stage: st.Name, State: st.State, Lanes: st.Lanes, Atoms: rows(st.Ran), Omitted: rows(st.Omitted), Log: st.Log}
+	return &StageResult{
+		Stage: st.Name, State: st.State, Lanes: st.Lanes,
+		Atoms: rows(st.Ran), Omitted: rows(st.Omitted), Unreached: st.Unreached, Log: st.Log,
+	}
 }

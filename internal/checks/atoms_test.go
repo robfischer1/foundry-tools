@@ -45,7 +45,7 @@ func TestTheRulesetAtomsAskForTheStocksMount(t *testing.T) {
 // drops it as dead weight. Dropping it does not break a build, does not red a
 // gate, and silently returns those goldens to reporting success without
 // running — so the guard has to be a test rather than a comment.
-func TestTheGoTestAtomCarriesTheFleetRecordTree(t *testing.T) {
+func TestTheGoTestAtomsCarryTheFleetRecordTree(t *testing.T) {
 	if !AtomByID("go:test-race").NeedsDies {
 		t.Error("go:test-race no longer asks for foundry-dies. hephaestus's " +
 			"internal/slag goldens are its reader: without the mount they " +
@@ -55,12 +55,14 @@ func TestTheGoTestAtomCarriesTheFleetRecordTree(t *testing.T) {
 	// The mount is a fetch on every run of every atom that asks for it, so the
 	// ask stays deliberate. Widening it is a decision, not a default.
 	//
-	// WHY TWO. go:mutation runs the repo's `go test` too (gremlins gathers
+	// WHY THREE. go:mutation runs the repo's `go test` too (gremlins gathers
 	// coverage with it), and hephaestus's armed goldens refuse in any
 	// container that runs `go test` under CI=true without /dies — measured
 	// 2026-09-11 on hephaestus #53, the mutation lane could-not-run on every
 	// hephaestus pull. The rule is: an atom that runs `go test` needs the
-	// tree the armed goldens read. Those are the two.
+	// tree the armed goldens read. go:test joined them when F13 split the
+	// suite by cadence — the commit's unit run is the same `go test` over the
+	// same packages, so the same goldens refuse without the mount.
 	var asked []string
 	for _, a := range Atoms {
 		if a.NeedsDies {
@@ -68,9 +70,9 @@ func TestTheGoTestAtomCarriesTheFleetRecordTree(t *testing.T) {
 		}
 	}
 	sort.Strings(asked)
-	if strings.Join(asked, ",") != "go:mutation,go:test-race" {
-		t.Errorf("NeedsDies is declared by %v; go:test-race and go:mutation are expected — "+
-			"the two atoms that run a repo's `go test`. Adding one is fine — say why "+
+	if strings.Join(asked, ",") != "go:mutation,go:test,go:test-race" {
+		t.Errorf("NeedsDies is declared by %v; go:test, go:test-race and go:mutation are expected — "+
+			"the three atoms that run a repo's `go test`. Adding one is fine — say why "+
 			"here, because each one is another clone of foundry-dies on every gate "+
 			"run in the fleet.", asked)
 	}
@@ -139,5 +141,37 @@ func TestNoTestsIsAFindingInEveryLane(t *testing.T) {
 	}
 	if len(TSTestPatterns) == 0 {
 		t.Error("ts: no test pattern at all, so the presence check has nothing to enumerate with")
+	}
+}
+
+// A caller that asks for both pull-path stages at once — the door's gate lane,
+// until F16 runs the stages separately — must not run the Go suite twice.
+func TestTheUnitSuiteStandsDownWhenTheRaceSuiteRunsBeside(t *testing.T) {
+	run, covered := Subsumed(AtomsForStage(""))
+	ids := func(as []AtomDef) string {
+		var out []string
+		for _, a := range as {
+			out = append(out, a.ID)
+		}
+		return strings.Join(out, ",")
+	}
+	if ids(covered) != "go:test" {
+		t.Errorf("covered %q: go:test-race covers go:test in the union", ids(covered))
+	}
+	if strings.Contains(","+ids(run)+",", ",go:test,") || !strings.Contains(ids(run), "go:test-race") {
+		t.Errorf("the union runs the race suite and not the unit one: %s", ids(run))
+	}
+	v := CoveredVerdict(covered[0])
+	if v.Result != "absent" || v.State != 0 || !strings.Contains(v.Reason, "go:test-race") {
+		t.Errorf("a covered atom is an omission that names its subsumer: %+v", v)
+	}
+	if _, ok := AnnouncedAbsence(v.Atom, v.Reason); !ok {
+		t.Errorf("a covered atom's reason reads as an absence: %q", v.Reason)
+	}
+	// The commit stage alone still runs it: a subsumer that is not selected
+	// subsumes nothing.
+	commit, none := Subsumed(AtomsForStage(StagePrecommit))
+	if len(none) != 0 || !strings.Contains(","+ids(commit)+",", ",go:test,") {
+		t.Errorf("the commit stage runs its own unit suite: covered %v", ids(none))
 	}
 }

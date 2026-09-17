@@ -846,6 +846,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*FoundryTools).Check(&parent, ctx)
+		case "Push":
+			var parent FoundryTools
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var base string
+			if inputArgs["base"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["base"]), &base)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg base", err))
+				}
+			}
+			return (*FoundryTools).Push(&parent, ctx, base)
 		case "Compose":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)

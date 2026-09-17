@@ -80,6 +80,55 @@ func TestUnprefixedDropsOnlyTheAtomsOwnName(t *testing.T) {
 	}
 }
 
+func TestStopsOnAFindingOrACannotRunButNeverOnAnAbsence(t *testing.T) {
+	for _, c := range []struct {
+		v    Verdict
+		want bool
+	}{
+		{Verdict{State: 0, Result: "pass"}, false},
+		{Verdict{State: 1, Result: "findings"}, true},
+		{Verdict{State: 2, Result: "cannot-run"}, true},
+		{Verdict{State: 0, Result: "absent"}, false},
+		{Verdict{State: 2, Result: "absent"}, false},
+	} {
+		if got := Stops(c.v); got != c.want {
+			t.Errorf("%+v: stops %v, want %v", c.v, got, c.want)
+		}
+	}
+}
+
+func TestTailAfterIsEveryAtomPastTheOneThatStopped(t *testing.T) {
+	sel := []AtomDef{{ID: "a"}, {ID: "b"}, {ID: "c"}}
+	for i, want := range map[int]string{0: "b,c", 1: "c", 2: ""} {
+		if got := strings.Join(TailAfter(sel, i), ","); got != want {
+			t.Errorf("TailAfter(%d) = %q, want %q", i, got, want)
+		}
+	}
+	if got := TailAfter(sel, 2); got != nil {
+		t.Errorf("the last atom leaves nothing unreached: %v", got)
+	}
+}
+
+func TestAStageThatStoppedSaysWhatItNeverReached(t *testing.T) {
+	st := SettleStage("push", []Verdict{
+		{Atom: "go:staticcheck", State: 1, Result: "findings", Reason: "x.go:1: unused"},
+	}, "go:build", "go:test-race")
+	if strings.Join(st.Unreached, ",") != "go:build,go:test-race" {
+		t.Errorf("unreached %v", st.Unreached)
+	}
+	want := "── go:staticcheck · findings ──\nx.go:1: unused\n" +
+		"── not reached: the stage stopped before them ──\ngo:build, go:test-race\n"
+	if st.Log != want {
+		t.Errorf("log\n%s\nwant\n%s", st.Log, want)
+	}
+	if st.State != 1 {
+		t.Errorf("state %d: the stage settles on the atom that stopped it", st.State)
+	}
+	if st := SettleStage("push", []Verdict{{Atom: "go:build", State: 0, Result: "pass"}}); len(st.Unreached) != 0 || strings.Contains(st.Log, "not reached") {
+		t.Errorf("a stage that ran everything names nothing unreached: %+v", st)
+	}
+}
+
 func TestLogTailKeepsTheEndAndSaysWhatItDropped(t *testing.T) {
 	if got := LogTail("abcdef", 6); got != "abcdef" {
 		t.Errorf("a log at the limit is whole: %q", got)
@@ -104,13 +153,13 @@ func TestTheCommitAndPushStagesHoldTheirAtoms(t *testing.T) {
 	commit := "fleet:check-yaml,fleet:check-added-large-files,fleet:check-merge-conflict,fleet:detect-secrets,fleet:stop-justifications," +
 		"fleet:sast-ruleset-lanes,fleet:opengrep-sast,fleet:hadolint," +
 		"ops:shell,ops:chezmoi,ops:yaml,ops:dup,ops:declaration,ops:specs,ops:ansible,ops:flux," +
-		"go:gofmt,go:vet,go:test-race," +
+		"go:gofmt,go:vet,go:test," +
 		"python:ruff-check,python:ruff-format,python:forge-testkit-assertion-free,python:forge-testkit-fake-placement,python:forge-testkit-schema-budget,python:mypy,python:pytest," +
 		"rust:cargo-fmt,rust:cargo-clippy,rust:cargo-test," +
 		"ts:bun-gate," +
 		"compose:config,compose:no-tracked-secrets,compose:third-party-pins," +
 		"dies:opa-test,dies:contracts,dies:schema"
-	push := "fleet:orbit-drift,go:build,go:staticcheck,go:govulncheck,python:pip-audit,rust:cargo-audit,ts:bun-audit," +
+	push := "fleet:orbit-drift,go:staticcheck,go:govulncheck,go:build,go:test-race,python:pip-audit,rust:cargo-audit,ts:bun-audit," +
 		"dies:admission-dogfood,dies:data-keys,dies:canary-visibility,fleet:witness"
 	if got := ids(StagePrecommit); got != commit {
 		t.Errorf("commit stage\n got %s\nwant %s", got, commit)
