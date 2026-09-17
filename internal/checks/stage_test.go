@@ -20,8 +20,10 @@ func TestGroupOfSplitsTheFleetFromWhatTheTreeContains(t *testing.T) {
 func TestSettleStageOrdersBasicThenLanguageAndOmitsTheAbsent(t *testing.T) {
 	st := SettleStage("check", []Verdict{
 		{Atom: "go:vet", State: 0, Result: "pass", Reason: "ok vet"},
-		{Atom: "fleet:check-yaml", State: 1, Result: "findings", Reason: "bad.yaml: line 3\n"},
-		{Atom: "python:ruff-check", State: 0, Result: "absent", Reason: "no pyproject.toml\nsecond line"},
+		{Atom: "fleet:check-yaml", State: 1, Result: "findings", Reason: "fleet:check-yaml: FINDINGS (exit 1)\nbad.yaml: line 3\n"},
+		{Atom: "python:ruff-check", State: 0, Result: "absent", Reason: "python:ruff-check: ABSENT — no pyproject.toml\nsecond line"},
+		{Atom: "rust:cargo-fmt", State: 0, Result: "absent", Reason: "ABSENT — no Cargo.toml"},
+		{Atom: "python:mypy", State: 0, Result: "absent", Reason: "python:mypy: ABSENT — no pyproject.toml"},
 		{Atom: "ops:ansible", State: 2, Result: "cannot-run", Reason: "galaxy 404"},
 		{Atom: "fleet:detect-secrets", State: 0, Result: "pass", Reason: ""},
 	})
@@ -35,7 +37,7 @@ func TestSettleStageOrdersBasicThenLanguageAndOmitsTheAbsent(t *testing.T) {
 	if strings.Join(ran, ",") != "fleet:check-yaml/basic,fleet:detect-secrets/basic,go:vet/language,ops:ansible/language" {
 		t.Errorf("ran %v", ran)
 	}
-	if strings.Join(omitted, ",") != "python:ruff-check/language" {
+	if strings.Join(omitted, ",") != "python:ruff-check/language,rust:cargo-fmt/language,python:mypy/language" {
 		t.Errorf("omitted %v", omitted)
 	}
 	if st.State != 2 || st.Name != "check" {
@@ -44,15 +46,17 @@ func TestSettleStageOrdersBasicThenLanguageAndOmitsTheAbsent(t *testing.T) {
 	if strings.Join(st.Lanes, ",") != "go,ops" {
 		t.Errorf("lanes %v: the language namespaces that ran, sorted, never fleet or an omitted one", st.Lanes)
 	}
-	want := "── fleet:check-yaml · findings ──\nbad.yaml: line 3\n" +
+	want := "── fleet:check-yaml · findings ──\nFINDINGS (exit 1)\nbad.yaml: line 3\n" +
 		"── fleet:detect-secrets · pass ──\n\n" +
 		"── go:vet · pass ──\nok vet\n" +
 		"── ops:ansible · cannot-run ──\ngalaxy 404\n" +
-		"── omitted: no surface here ──\npython:ruff-check — no pyproject.toml\n"
+		"── omitted: no surface here ──\n" +
+		"python:ruff-check, python:mypy — ABSENT — no pyproject.toml\n" +
+		"rust:cargo-fmt — ABSENT — no Cargo.toml\n"
 	if st.Log != want {
 		t.Errorf("log\n%s\nwant\n%s", st.Log, want)
 	}
-	if a := st.Ran[0]; a.State != 1 || a.Result != "findings" || a.Reason != "bad.yaml: line 3\n" {
+	if a := st.Ran[0]; a.State != 1 || a.Result != "findings" || a.Reason != "fleet:check-yaml: FINDINGS (exit 1)\nbad.yaml: line 3\n" {
 		t.Errorf("a ran atom carries its own state, result and reason: %+v", a)
 	}
 }
@@ -66,6 +70,13 @@ func TestSettleStageAbsentNeverSettlesAndFindingsAreOne(t *testing.T) {
 	}
 	if st := SettleStage("check", nil); st.State != 0 || st.Log != "" || st.Ran != nil || st.Omitted != nil {
 		t.Errorf("no verdicts is an empty clean stage: %+v", st)
+	}
+}
+
+func TestUnprefixedDropsOnlyTheAtomsOwnName(t *testing.T) {
+	got := unprefixed("go:vet", "go:vet: FINDINGS (exit 1)\nmain.go:6: go:vet: quoted\ngo:vetx: other")
+	if got != "FINDINGS (exit 1)\nmain.go:6: go:vet: quoted\ngo:vetx: other" {
+		t.Errorf("unprefixed %q", got)
 	}
 }
 

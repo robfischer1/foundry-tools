@@ -50,7 +50,8 @@ type Stage struct {
 	// Omitted are the atoms that found no surface here, each with the reason,
 	// so an atom the planner skipped is never silent.
 	Omitted []StageAtom
-	// Log is every atom that ran, in Ran's order, then the omitted list.
+	// Log is every atom that ran, in Ran's order, then the omitted atoms, one
+	// line per distinct reason.
 	Log string
 }
 
@@ -83,17 +84,37 @@ func SettleStage(name string, vs []Verdict) Stage {
 	sort.Strings(st.Lanes)
 	var log strings.Builder
 	for _, a := range st.Ran {
-		fmt.Fprintf(&log, "── %s · %s ──\n%s\n", a.Atom, a.Result, strings.TrimRight(a.Reason, "\n"))
+		fmt.Fprintf(&log, "── %s · %s ──\n%s\n", a.Atom, a.Result, strings.TrimRight(unprefixed(a.Atom, a.Reason), "\n"))
 	}
 	if len(st.Omitted) > 0 {
 		log.WriteString("── omitted: no surface here ──\n")
+		var reasons []string
+		atoms := map[string][]string{}
 		for _, a := range st.Omitted {
-			first, _, _ := strings.Cut(a.Reason, "\n")
-			fmt.Fprintf(&log, "%s — %s\n", a.Atom, first)
+			first, _, _ := strings.Cut(unprefixed(a.Atom, a.Reason), "\n")
+			if atoms[first] == nil {
+				reasons = append(reasons, first)
+			}
+			atoms[first] = append(atoms[first], a.Atom)
+		}
+		for _, r := range reasons {
+			fmt.Fprintf(&log, "%s — %s\n", strings.Join(atoms[r], ", "), r)
 		}
 	}
 	st.Log = log.String()
 	return st
+}
+
+// unprefixed drops the "atom: " an atom's reason opens its lines with. The
+// log's header already names the atom. Measured live on 2026-09-17, a Go
+// tree's commit stage answered a 51-line log whose last 28 lines were the
+// omitted atoms, each naming itself twice, over 8 distinct reasons.
+func unprefixed(atom, reason string) string {
+	lines := strings.Split(reason, "\n")
+	for i, l := range lines {
+		lines[i] = strings.TrimPrefix(l, atom+": ")
+	}
+	return strings.Join(lines, "\n")
 }
 
 // LogTail keeps the last max bytes of a log, saying how much was dropped, so a
