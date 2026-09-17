@@ -220,3 +220,61 @@ func TestATreeThePlannerCannotReadIsACouldNotRunPerLaneAtom(t *testing.T) {
 		}
 	}
 }
+
+// Release hands F14 the binaries the push compiled — and answers an ERROR,
+// never an empty directory, when there is nothing to hand over.
+func TestReleaseAnswersTheBuiltBinariesOrSaysWhyNot(t *testing.T) {
+	tree := map[string]string{
+		"Dockerfile":          "FROM x\n",
+		".copier-answers.yml": "service_name: hades\n",
+		"go.mod":              "module x\n",
+	}
+	engine.reset()
+	engine.withTree(tree)
+	dir, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background())
+	if err != nil || dir == nil {
+		t.Fatalf("dir %v err %v", dir, err)
+	}
+	if engine.chain(`"-o","/out/hades"`) == "" {
+		t.Errorf("the release build ran:\n%v", engine.chains())
+	}
+
+	// A build that failed has no directory to give.
+	engine.reset()
+	engine.withTree(tree)
+	engine.exitCode(`"go","build","-trimpath"`, 1)
+	engine.stderr(`"go","build","-trimpath"`, "main.go:1: undefined: x")
+	if dir, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err == nil || dir != nil {
+		t.Errorf("a failed release build is an error, got dir %v err %v", dir, err)
+	} else if !strings.Contains(err.Error(), "undefined: x") {
+		t.Errorf("the error carries the compiler's own words: %v", err)
+	}
+
+	// A repo that names no star cannot name a binary either.
+	engine.reset()
+	engine.withTree(map[string]string{"go.mod": "module x\n"})
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err == nil || !strings.Contains(err.Error(), "names no star") {
+		t.Errorf("err %v", err)
+	}
+
+	// A repo that names a star but carries no root module has no star binary:
+	// Release is called directly by F14's Build, so it cannot lean on the
+	// planner's lane check the way the atom does.
+	engine.reset()
+	engine.withTree(map[string]string{
+		"Dockerfile":          "FROM x\n",
+		".copier-answers.yml": "service_name: hades\n",
+		"tools/go.mod":        "module x\n",
+	})
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err == nil || !strings.Contains(err.Error(), "no go.mod at the repository root") {
+		t.Errorf("err %v", err)
+	}
+
+	// An engine that goes away mid-build is an error about the run.
+	engine.reset()
+	engine.withTree(tree)
+	engine.fail(`"go","build","-trimpath"`, "the engine went away")
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err == nil || !strings.Contains(err.Error(), "the engine went away") {
+		t.Errorf("err %v", err)
+	}
+}

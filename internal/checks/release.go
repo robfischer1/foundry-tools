@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -88,7 +88,12 @@ func GoReleasePlan(star string, declared []string, vendored bool) (ReleasePlan, 
 		seen[n] = true
 		p.Binaries = append(p.Binaries, ReleaseBinary{Name: n, Package: "./cmd/" + n})
 	}
-	sort.Slice(p.Binaries, func(i, j int) bool { return p.Binaries[i].Name < p.Binaries[j].Name })
+	// Ordered by a COMPARISON, not an inequality. `a.Name < b.Name` and
+	// `a.Name <= b.Name` sort a duplicate-free list identically — duplicates
+	// are refused above — so the boundary mutant on `<` is unkillable by
+	// construction and a test written to kill it would be testing nothing.
+	// strings.Compare says the same thing with no operator to mutate.
+	slices.SortFunc(p.Binaries, func(a, b ReleaseBinary) int { return strings.Compare(a.Name, b.Name) })
 	return p, nil
 }
 

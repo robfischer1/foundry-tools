@@ -765,6 +765,18 @@ func TestGoReleaseBuildsWhatTheImageWillCarry(t *testing.T) {
 		[]string{"withExec", `expect:ANY`, `args:["go","build","-trimpath","-ldflags=-s -w","-o","/out/hades","./cmd/hades"]`},
 	)
 
+	// VENDOR IS READ OFF THE TREE, not declared: a tracked vendor/ is the flag.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{
+		"Dockerfile":          "FROM x\n",
+		".copier-answers.yml": "service_name: ourea\n",
+		"vendor/modules.txt":  "# x\n",
+	})
+	wantState(t, runAtom(t, "go:release", ""), 0, "-mod=vendor")
+	wantCalls(t, engine.chain(`"-o","/out/ourea"`, "exitCode"),
+		[]string{"withExec", `args:["go","build","-mod=vendor","-trimpath","-ldflags=-s -w","-o","/out/ourea","./cmd/ourea"]`})
+
 	// The record names more than one, and each gets its own exec.
 	engine.reset()
 	engine.withTree(everyLaneTree)
