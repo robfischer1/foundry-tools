@@ -152,14 +152,35 @@ func (i *Image) Container() *dagger.Container {
 		WithLabel(labelVersion, i.Revision[:12]).
 		WithLabel(labelTitle, i.Title).
 		WithLabel(labelURL, i.SourceURL)
-	if i.Base != "" {
-		name, _, _ := strings.Cut(i.Base, "@")
+	return c.WithEnvVariable("STELLAR_REVISION", i.Revision)
+}
+
+// withBaseLabels writes the base pair on a container: base.name is the
+// reference without its digest (the OCI annotation's shape), base.digest the
+// pin. NOT CALLED BY Container() YET (Curie18, 2026-09-17 22:40Z): the first
+// tip published with the pair (nereus da34be5, 22:16Z) was refused its permit
+// — hephaestus mold's contractDriftBase had been dormant for want of exactly
+// these labels, and it compares the image's base family with the one the
+// star's record names. MEASURED across 26 melts: every one differs from its
+// Dockerfile, 18 Go stars because the F17 repin moved the Dockerfile to
+// rob/go-base-image:stable while the melt still says stellar_core:go-runtime,
+// the rest because the melts still name forgejo.notusmi.com where the
+// Dockerfiles moved to zot on 2026-09-10. The records are stale, the images
+// are right, and the check is right to refuse — but arming it before the
+// records move refuses every landing in the fleet. Either label alone arms it
+// (mold answers a bare digest as the base ref), so both wait. The landing
+// that follows the melt sweep adds `c = withBaseLabels(c, i.Base,
+// i.BaseDigest)` to Container(); the fields, the SBOM link and this helper's
+// test are already in place.
+func withBaseLabels(c *dagger.Container, base, digest string) *dagger.Container {
+	if base != "" {
+		name, _, _ := strings.Cut(base, "@")
 		c = c.WithLabel(labelBaseName, name)
 	}
-	if i.BaseDigest != "" {
-		c = c.WithLabel(labelBaseDigest, i.BaseDigest)
+	if digest != "" {
+		c = c.WithLabel(labelBaseDigest, digest)
 	}
-	return c.WithEnvVariable("STELLAR_REVISION", i.Revision)
+	return c
 }
 
 // Publish pushes the image under ref — the g-pin — as an OCI manifest and

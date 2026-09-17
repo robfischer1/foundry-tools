@@ -142,3 +142,42 @@ func TestAnImageBuildsTheDockerfileItWasBoundToWithOneCreationStamp(t *testing.T
 	// are compared on the stamp, not as text.
 	wantCalls(t, engine.chain("export(", "/tmp/c.tar"), []string{"withLabel", labelCreated, img.Created})
 }
+
+// withBaseLabels writes the pair the Dockerfile's FROM named: name without
+// its digest, digest as pinned, and nothing for what is not known. It is the
+// helper Container() will call once the melts are swept (its comment says
+// why it does not yet), so it is proven here on its own.
+func TestWithBaseLabels(t *testing.T) {
+	engine.reset()
+	const digest = "sha256:9a21aefeb6af6265024a4aa614b66607a3eb65810d8739e0c8a410af51b74459"
+	cases := []struct {
+		name, base, digest   string
+		wantName, wantDigest bool
+	}{
+		{"pinned", "registry.notusmi.com/rob/stellar_core:python-runtime@" + digest, digest, true, true},
+		{"unpinned", "registry.notusmi.com/rob/go-base-image:stable", "", true, false},
+		{"digest alone", "", digest, false, true},
+		{"nothing known", "", "", false, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			engine.reset()
+			if _, err := withBaseLabels(dag.Container(), c.base, c.digest).Sync(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			chain := engine.chain("sync")
+			if got := strings.Contains(chain, labelBaseName); got != c.wantName {
+				t.Errorf("base.name written = %v, want %v:\n%s", got, c.wantName, chain)
+			}
+			if c.wantName && !strings.Contains(chain, `"registry.notusmi.com/rob/`) {
+				t.Errorf("base.name is not the reference:\n%s", chain)
+			}
+			if c.wantName && strings.Contains(chain, `"`+c.base+`"`) && strings.Contains(c.base, "@") {
+				t.Errorf("base.name carries the digest:\n%s", chain)
+			}
+			if got := strings.Contains(chain, labelBaseDigest); got != c.wantDigest {
+				t.Errorf("base.digest written = %v, want %v:\n%s", got, c.wantDigest, chain)
+			}
+		})
+	}
+}
