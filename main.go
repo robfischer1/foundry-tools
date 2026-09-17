@@ -295,10 +295,14 @@ func (m *FoundryTools) vector(ctx context.Context, stage, only, base string) ([]
 	// runner, so the caller still gets its line (checks.Subsumed says why).
 	selected, covered := checks.Subsumed(selected)
 	r := newRun(m.Source, m.Repo, base)
-	out := make([]checks.Verdict, len(selected))
+	plan, absent, err := r.plan(ctx, selected)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]checks.Verdict, len(plan.Run))
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(atomsInFlight)
-	for i, a := range selected {
+	for i, a := range plan.Run {
 		g.Go(func() error {
 			v, err := verdictFor(gctx, r, a.ID)
 			if err != nil {
@@ -311,39 +315,57 @@ func (m *FoundryTools) vector(ctx context.Context, stage, only, base string) ([]
 	if err := g.Wait(); err != nil {
 		return nil, err
 	}
+	out = append(out, absent...)
 	for _, a := range covered {
 		out = append(out, checks.CoveredVerdict(a))
 	}
 	return out, nil
 }
 
-// verdictFor is the one place an atom is dispatched: the lane's surface is
-// checked, then the registered runner builds the atom's chain and answers.
-func verdictFor(ctx context.Context, r *run, id string) (checks.Verdict, error) {
-	a := checks.AtomByID(id)
-
-	if a.Lane == checks.LaneGo {
-		// The go lane is declared by a module anywhere in the tree, not by a
-		// root go.mod (checks.GoModuleDirs has why).
-		dirs, err := r.goModuleDirs(ctx)
-		if err != nil {
-			return checks.VerdictOf(a, 2, fmt.Sprintf("could not enumerate the tree's Go modules: %v", err)), nil
+// plan asks the tree what it contains, ONCE, before any atom runs — Rob's
+// "What's in the commit? (Go? Python? Ansible?)" as its own step. It answers
+// the plan and the verdicts of the atoms that never start, so an atom whose
+// lane is absent costs one map lookup instead of a dispatch that reads the
+// repository root again.
+//
+// A ROOT THAT CANNOT BE READ IS A COULD-NOT-RUN ABOUT THE REPOSITORY, and it
+// is one per atom that needed the answer, exactly as it was when each atom
+// asked for itself: the atoms that run everywhere are unaffected by it.
+func (r *run) plan(ctx context.Context, selected []checks.AtomDef) (checks.Plan, []checks.Verdict, error) {
+	entries, entriesErr := r.src.Entries(ctx)
+	mods, modsErr := r.goModuleDirs(ctx)
+	plan := checks.PlanAtoms(selected, entries, len(mods))
+	if entriesErr != nil || modsErr != nil {
+		why := entriesErr
+		if why == nil {
+			why = modsErr
 		}
-		if len(dirs) == 0 {
-			return checks.AbsentVerdict(a), nil
+		plan = checks.Plan{}
+		var unread []checks.Verdict
+		for _, a := range selected {
+			if a.Lane == checks.LaneAny {
+				plan.Run = append(plan.Run, a)
+				continue
+			}
+			unread = append(unread, checks.VerdictOf(a, 2, fmt.Sprintf("could not read the repository root: %v", why)))
 		}
-	} else if a.Lane != checks.LaneAny {
-		entries, err := r.src.Entries(ctx)
-		if err != nil {
-			// The tree could not be read. That is a CANNOT RUN about the
-			// repository, not a finding about it.
-			return checks.VerdictOf(a, 2, fmt.Sprintf("could not read the repository root: %v", err)), nil
-		}
-		if !checks.DeclaresLane(entries, a.Lane) {
-			return checks.AbsentVerdict(a), nil
-		}
+		return plan, unread, nil
 	}
+	absent := make([]checks.Verdict, 0, len(plan.Absent))
+	for _, a := range plan.Absent {
+		absent = append(absent, checks.AbsentVerdict(a))
+	}
+	return plan, absent, nil
+}
 
+// verdictFor is the one place an atom is dispatched: the registered runner
+// builds the atom's chain and answers.
+//
+// WHETHER THE LANE HAS A SURFACE IS THE PLANNER'S QUESTION, not this one's.
+// `run.plan` asks the tree once, before anything starts, and an atom whose
+// lane the tree does not declare never reaches here — where it used to read
+// the repository root again, once per atom, to arrive at the same answer.
+func verdictFor(ctx context.Context, r *run, id string) (checks.Verdict, error) {
 	fn, ok := registry[id]
 	if !ok {
 		// A catalogue row with no runner is an AUTHORING ERROR, not a verdict.
