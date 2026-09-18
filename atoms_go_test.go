@@ -844,6 +844,21 @@ func TestGoReleaseBuildsWhatTheImageWillCarry(t *testing.T) {
 	wantState(t, runAtom(t, "go:release", ""), 0, "-mod=vendor")
 	wantCalls(t, engine.chain(`"-o","/out/ourea"`, "exitCode"),
 		[]string{"withExec", `args:["go","build","-mod=vendor","-trimpath","-ldflags=-s -w","-o","/out/ourea","./cmd/ourea"]`})
+	// AND NOTHING IS DOWNLOADED: a vendored release build reaches no proxy and
+	// no door — ourea's image must build with the door down, and the door is
+	// where GONOPROXY sends its first-party module (ourea
+	// TestImageBuildsWithoutReachingTheDoor, which now guards the release path).
+	if strings.Contains(engine.chain(`"-o","/out/ourea"`, "exitCode"), `"go","mod","download"`) {
+		t.Errorf("a vendored release build ran go mod download:\n%s", engine.chain(`"-o","/out/ourea"`, "exitCode"))
+	}
+	// An unvendored module is still provisioned by the download.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{"Dockerfile": "FROM x\n", ".copier-answers.yml": "service_name: hades\n"})
+	wantState(t, runAtom(t, "go:release", ""), 0, "release build: hades")
+	if !strings.Contains(engine.chain(`"-o","/out/hades"`, "exitCode"), `"go","mod","download"`) {
+		t.Errorf("an unvendored release build skipped go mod download:\n%s", engine.chain(`"-o","/out/hades"`, "exitCode"))
+	}
 
 	// The record names more than one, and each gets its own exec.
 	engine.reset()
