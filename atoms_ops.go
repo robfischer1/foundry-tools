@@ -513,8 +513,13 @@ func opsFlux(ctx context.Context, r *run) checks.Verdict {
 	})
 }
 
-// opsFluxBuilt is where the built stream is written for kubeconform to read.
-const opsFluxBuilt = "/tmp/ops/flux.built.yaml"
+// opsFluxBuilt was where the joined stream was written for kubeconform to
+// read — as a WithNewFile ARGUMENT, which dagger renders into the progress
+// log whole: measured 2026-09-18 on infra, 3.4 MB of a 4.1 MB gate log was
+// that one escaped string, chunked into 16 KB partial lines. kubeconform
+// takes several files at once, so it now reads the per-tree files kubectl
+// wrote in place and nothing built is ever sent back through an argument.
+// The constant stays as the name of the thing that no longer exists.
 
 func opsFluxPhase(ctx context.Context, ctr *dagger.Container, files []checks.OpsFile) (opsResult, error) {
 	if !slices.ContainsFunc(files, func(f checks.OpsFile) bool { return strings.HasPrefix(f.Path, "flux/") }) {
@@ -536,6 +541,7 @@ func opsFluxPhase(ctx context.Context, ctr *dagger.Container, files []checks.Ops
 		return opsResult{absent: "flux/ carries no Kustomization CR and no kustomization.yaml"}, nil
 	}
 	var out, built strings.Builder
+	var renderedFiles []string
 	for _, p := range problems {
 		out.WriteString(p + "\n")
 	}
@@ -571,19 +577,24 @@ func opsFluxPhase(ctx context.Context, ctr *dagger.Container, files []checks.Ops
 		if err != nil {
 			return opsResult{}, err
 		}
-		// A separator between trees: kustomize ends its stream without one,
-		// and two trees back to back fuse at the boundary (ops-infra-gfrpk,
-		// 2026-09-06).
+		// The stream is read back only to COUNT what was built. A separator
+		// between trees: kustomize ends its stream without one, and two
+		// trees back to back fuse at the boundary (ops-infra-gfrpk,
+		// 2026-09-06). The files stay where kubectl wrote them; kubeconform
+		// reads them there, one argument per tree, and the joined stream is
+		// never sent back into the container.
 		built.WriteString(stream + "\n---\n")
+		ctr = next
+		renderedFiles = append(renderedFiles, rendered)
 	}
 	if rc != 0 {
 		return opsSettled("flux", rc, out.String()), nil
 	}
 	fmt.Fprintf(&out, "%d object(s) built from %d tree(s)\n", checks.OpsKinds(built.String()), len(paths))
-	_, validated, rc, err := opsRun(ctx, ctr.WithNewFile(opsFluxBuilt, built.String()), []string{
+	_, validated, rc, err := opsRun(ctx, ctr, append([]string{
 		"kubeconform", "-strict", "-summary", "-ignore-missing-schemas", "-skip", "CustomResourceDefinition",
-		"-schema-location", "default", opsFluxBuilt,
-	})
+		"-schema-location", "default",
+	}, renderedFiles...))
 	if err != nil {
 		return opsResult{}, err
 	}
