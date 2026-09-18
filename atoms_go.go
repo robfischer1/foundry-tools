@@ -709,9 +709,21 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	// on code the pull did not write. diff.context=0 makes every fragment
 	// exactly its additions (the same dry run: that mutant SKIPPED, the real
 	// one still RUNNABLE).
+	// THE BASELINE IS NEVER CACHED. gremlins times each mutant against the
+	// unmutated suite's runtime, which it measures in its own coverage gather
+	// — a `go test -cover ./...` in this container, on the tree the COVER
+	// step above just tested with the same flags. Go's test cache answered
+	// it: MEASURED 2026-09-18 on ourea aeb9cd9 (mutation-ourea-aeb9cd9-7kj9n),
+	// "Gathering coverage... done in 1.09s" for a module whose gatejob
+	// package alone tests in ~100s, so the per-mutant timeout was ten times
+	// a cached read — about eight seconds — and the run scored killed 72,
+	// TIMED OUT 79, honest 1: half the population unanswered and the gate
+	// green over it. -count=1 makes every run under gremlins a real one, the
+	// baseline included; the profile above may stay cached — it is the same
+	// tree either way.
 	mutated := covered.
 		WithEnvVariable("GOMAXPROCS", "1").
-		WithEnvVariable("GOFLAGS", "-p=1").
+		WithEnvVariable("GOFLAGS", "-p=1 -count=1").
 		WithEnvVariable("GIT_CONFIG_COUNT", "2").
 		WithEnvVariable("GIT_CONFIG_KEY_0", "diff.relative").
 		WithEnvVariable("GIT_CONFIG_VALUE_0", "true").

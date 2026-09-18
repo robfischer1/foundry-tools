@@ -333,7 +333,10 @@ func TestGoMutationMeasuresTheDiffAndSettlesInGo(t *testing.T) {
 		[]string{"withNewFile", `path:"/tmp/mutation/gremlins-canonical.yaml"`},
 		[]string{"withExec", `"go","test","-cover","-coverprofile","mutation-cover.out","./..."`},
 		[]string{"withEnvVariable", `name:"GOMAXPROCS"`, `value:"1"`},
-		[]string{"withEnvVariable", `name:"GOFLAGS"`, `value:"-p=1"`},
+		// -count=1: gremlins' own coverage gather is the baseline every
+		// mutant's timeout is ten times, and a cached one is ~1s for a module
+		// that tests in minutes (ourea aeb9cd9: killed 72, TIMED OUT 79).
+		[]string{"withEnvVariable", `name:"GOFLAGS"`, `value:"-p=1 -count=1"`},
 		[]string{"withExec", `expect:ANY`, `"gremlins","unleash","--config","/tmp/mutation/gremlins-canonical.yaml","--output","mutation-go.json","--workers","4","--exclude-files","` + strings.ReplaceAll(goMutationExclude, `\`, `\\`) + `","--diff","since0","."`},
 	)
 	if strings.Contains(c, `path:"/stocks"`) || strings.Contains(c, `"bash"`) {
