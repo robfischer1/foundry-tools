@@ -217,7 +217,24 @@ func componentKey(c any) string {
 // running again is the entire fix. Every lane that pushes to a registry
 // (build, cast, publish, bundle) reads this, so a routine zot restart could
 // red any landing in the fleet as a fault of the tree.
-var fault = regexp.MustCompile(`(?i)connection refused|connection reset|connection timed out|operation timed out|i/o timeout|no such host|temporary failure in name resolution|dns error|server misbehaving|TLS handshake timeout|response status code 5\d\d|502 Bad Gateway|503 Service Unavailable|504 Gateway|unexpected EOF|too many requests|429 Too Many Requests|toomanyrequests|context deadline exceeded|failed to do request|failed to resolve source metadata|unexpected media type [^[:space:]]+ for sha256:[0-9a-f]{64}: not found`)
+//
+// THE REGISTRY'S OWN 500 IS THE REGISTRY'S, AND SO IS THE ENGINE'S FAILURE
+// TO LOAD WHAT IT PULLED. MEASURED 2026-09-18 10:49Z, seaweedfs (zot's S3
+// backend) down for ~2 minutes after dev01 rebooted: glaucus's tip build
+// settled FINDINGS on `unexpected status from POST request to
+// https://registry…/blobs/uploads/…: 500 Internal Server Error` (zot: "dial
+// tcp …:8333: connection refused" to seaweedfs), and harmonia's pull build
+// settled FINDINGS on `failed to load container from converted ID: … failed
+// to content hash dockerfile copy: exit code: 1` — the engine could not read
+// the base layers it had pulled through the same registry. Both said
+// "running again changes nothing" about the one failure where running again
+// is the entire fix, and the door never re-asked. The phrases below name
+// them — phrases, not bare status numbers: `500 Internal Server Error` is
+// the spaced form buildkit's pusher writes, and `unexpected status from
+// <VERB> request to` is its prefix whatever the code; `failed to load
+// container from converted ID` is the engine's own wording and never a
+// verdict on a tree.
+var fault = regexp.MustCompile(`(?i)connection refused|connection reset|connection timed out|operation timed out|i/o timeout|no such host|temporary failure in name resolution|dns error|server misbehaving|TLS handshake timeout|response status code 5\d\d|500 Internal Server Error|502 Bad Gateway|503 Service Unavailable|504 Gateway|unexpected status from [A-Z]+ request to|failed to load container from converted ID|unexpected EOF|too many requests|429 Too Many Requests|toomanyrequests|context deadline exceeded|failed to do request|failed to resolve source metadata|unexpected media type [^[:space:]]+ for sha256:[0-9a-f]{64}: not found`)
 
 // contended is a SHARED TOOLCHAIN CACHE being written by two lanes at once.
 // It is neither a network fault nor a tool refusing its arguments, so it gets
