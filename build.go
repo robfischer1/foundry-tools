@@ -172,6 +172,9 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 	if err != nil {
 		return buildlane.CouldNotRun, err.Error()
 	}
+	if code, why := l.stageRelease(ctx, img); code != buildlane.Clean {
+		return code, why
+	}
 	// The build is forced here, on both paths, so a Dockerfile that does not
 	// build is classified as a build (findings, or could-not-run on a network
 	// fault) — not as a scan that could not run, which is what the tarball
@@ -211,6 +214,36 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 		return code, why
 	}
 	return buildlane.Clean, fmt.Sprintf("clean: published and signed %s; %s", ref, why)
+}
+
+// stageRelease hands the image the artifact the Gate compiled, when its
+// Dockerfile asks for it (CA master-plan F14/F17: "Build - Copy the binary
+// from the previous complex run"; FROM base + COPY). A Dockerfile that copies
+// from release/ gets the Release directory — the go:release atom's own exec,
+// so the engine answers it from the cache the push paid for — staged at
+// that path in the build context, and compiles nothing itself. A Dockerfile
+// that still carries its own build stage copies nothing from release/ and is
+// built exactly as before, which is what lets the fleet flip one star at a
+// time (buildlane.CopiesRelease is the contract).
+//
+// A release that cannot be built is a build that failed: findings when the
+// compiler said no, could-not-run on a fault — the same classification the
+// Dockerfile's own build stage got, because it is the same compile.
+func (l *buildLane) stageRelease(ctx context.Context, img *Image) (int, string) {
+	body, _, err := fileIn(ctx, l.m.Source, img.dockerfilePath())
+	if err != nil {
+		return buildlane.CouldNotRun, fmt.Sprintf("could not run: the Dockerfile could not be read: %v", err)
+	}
+	if !buildlane.CopiesRelease(body) {
+		return buildlane.Clean, ""
+	}
+	release, err := l.m.Release(ctx)
+	if err != nil {
+		return buildlane.Failed("the release build", err.Error())
+	}
+	img.Source = l.m.Source.WithDirectory(buildlane.ReleaseDir, release)
+	say("release: the Dockerfile copies from %s/ — the Gate's artifact is staged there; the image compiles nothing", buildlane.ReleaseDir)
+	return buildlane.Clean, ""
 }
 
 // verify is the verify stage's scan, as a step of the build lane: the image's

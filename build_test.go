@@ -846,3 +846,91 @@ func TestAnUnpinnedBaseLeavesTheLabelsOff(t *testing.T) {
 	}
 	settledOn(t, "0", "clean: published and signed")
 }
+
+// THE IMAGE IS THE BASE PLUS THE ARTIFACT (F14/F17). A Dockerfile that copies
+// from release/ gets the Gate's release build staged there — the go:release
+// atom's own exec, so the engine answers it from cache — and the image
+// compiles nothing itself.
+const releaseDockerfile = "FROM registry.notusmi.com/foundry/base-images/go:stable@sha256:" + pinnedBaseDigest + "\nCOPY release/ares /ares\nCMD [\"/ares\"]\n"
+
+func releaseTree() map[string]string {
+	return map[string]string{
+		"Dockerfile":          releaseDockerfile,
+		".copier-answers.yml": "service_name: ares\n",
+		"go.mod":              "module ares\n",
+		"cmd/ares/main.go":    "package main\nfunc main() {}\n",
+	}
+}
+
+func TestADockerfileThatCopiesFromReleaseGetsTheGatesArtifact(t *testing.T) {
+	m := buildOn(t, releaseTree())
+	engine.stdout("--name-only", "cmd/ares/main.go\n")
+	pull(t, m)
+	// The release build ran — the same argv the go:release atom runs — and
+	// its /out is the build context's release/.
+	release := engine.chain(`"-o","/out/ares"`)
+	if release == "" {
+		t.Fatalf("the release build never ran:\n%v", engine.chains())
+	}
+	wantCalls(t, release, []string{"withExec", `"go","build"`, `"-trimpath"`, `"-o","/out/ares"`, `"./cmd/ares"`})
+	wantCalls(t, engine.chain("dockerBuild", "sync"),
+		[]string{"withDirectory", `"release"`},
+		[]string{"withLabel", labelBaseName, `"registry.notusmi.com/foundry/base-images/go:stable"`},
+	)
+	settledOn(t, "0", "clean: built ares at 0123456789ab")
+}
+
+// A Dockerfile that still carries its own build stage asks for nothing: no
+// release build runs, and the context is the tree as fetched — which is what
+// lets the fleet flip one star at a time.
+func TestADockerfileThatCompilesItselfGetsNoRelease(t *testing.T) {
+	tree := releaseTree()
+	tree["Dockerfile"] = "FROM docker.notusmi.com/library/golang:1.27 AS build\nRUN go build -o /out/ares ./cmd/ares\nFROM scratch\nCOPY --from=build /out/ares /ares\n"
+	m := buildOn(t, tree)
+	engine.stdout("--name-only", "cmd/ares/main.go\n")
+	pull(t, m)
+	if engine.chain(`"-o","/out/ares"`) != "" {
+		t.Fatal("a Dockerfile with its own build stage got a release build")
+	}
+	if strings.Contains(engine.chain("dockerBuild", "sync"), `"release"`) {
+		t.Fatal("release/ was staged into a context nothing copies it from")
+	}
+	settledOn(t, "0", "clean: built ares at 0123456789ab")
+}
+
+// A release that does not compile is a build that failed: findings, in the
+// compiler's words, and nothing is built, scanned or published on top of it.
+func TestATipWhoseReleaseDoesNotBuildIsFindingsAndPublishesNothing(t *testing.T) {
+	m := buildOn(t, releaseTree())
+	scriptATip()
+	engine.exitCode(`"go","build","-trimpath"`, 1)
+	engine.stderr(`"go","build","-trimpath"`, "cmd/ares/main.go:2: undefined: x")
+	tip(t, m)
+	settledOn(t, "1", "findings in the release build")
+	if engine.chain("dockerBuild", "sync") != "" || engine.chain(imageReportNeedle) != "" || engine.chain("publish(") != "" {
+		t.Fatal("an image whose release did not build was built, scanned or published")
+	}
+}
+
+// A release the engine could not run is a fault, not a finding.
+func TestATipWhoseReleaseHitsAFaultIsCouldNotRun(t *testing.T) {
+	m := buildOn(t, releaseTree())
+	scriptATip()
+	engine.fail(`"go","build","-trimpath"`, "dial tcp: i/o timeout")
+	tip(t, m)
+	settledOn(t, "2", "could not run: the release build failed on a network fault")
+	if engine.chain("publish(") != "" {
+		t.Fatal("a fault published")
+	}
+}
+
+// A Dockerfile that copies from release/ in a repository that names no star
+// is asking for a binary nothing can name: findings on the repository.
+func TestADockerfileThatCopiesFromReleaseInARepoThatNamesNoStarIsFindings(t *testing.T) {
+	tree := releaseTree()
+	delete(tree, ".copier-answers.yml")
+	m := buildOn(t, tree)
+	engine.stdout("--name-only", "cmd/ares/main.go\n")
+	pull(t, m)
+	settledOn(t, "1", "findings in the release build")
+}
