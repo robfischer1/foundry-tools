@@ -422,7 +422,24 @@ func (r *run) releaseBuild(ctx context.Context, plan checks.ReleasePlan) (*dagge
 	if !slices.Contains(dirs, ".") {
 		return nil, fmt.Errorf("no go.mod at the repository root, so there is no star binary to build")
 	}
-	ctr := r.goModules(".").WithEnvVariable("CGO_ENABLED", "0")
+	// A VENDORED MODULE IS PROVISIONED BY ITS vendor/, AND NOTHING IS
+	// DOWNLOADED. `go mod download` fills the module cache from the proxy
+	// whether or not vendor/ exists, and -mod=vendor then ignores the cache —
+	// so for a vendored module the download is pure network reach, and for
+	// ourea it is the reach the vendoring exists to remove: ourea IS the door,
+	// GONOPROXY routes its first-party module past Nexus to the door, and a
+	// release build that downloads needs a running ourea to build ourea
+	// (ourea internal/discipline TestImageBuildsWithoutReachingTheDoor, the
+	// guard that used to read this off the Dockerfile's build stage and now
+	// reads it off the release path). The compile is the image's; the gate's
+	// other atoms keep their download, which is F16's to move.
+	base := r.laneCode(checks.ImageGo)
+	if plan.Vendored {
+		base = inModule(base, ".")
+	} else {
+		base = goDownload(base, ".")
+	}
+	ctr := base.WithEnvVariable("CGO_ENABLED", "0")
 	for _, b := range plan.Binaries {
 		ctr = ctr.WithExec(checks.GoReleaseArgs(b, plan.Vendored), anyExit)
 	}
