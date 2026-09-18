@@ -326,21 +326,25 @@ func TestOpsFlux(t *testing.T) {
 	opsTree(map[string]string{"flux/clusters/home/apps.yaml": crs, "flux/apps/kustomization.yaml": ""}, nil)
 	engine.script(script{match: `"kubectl","kustomize"`, leaf: "contents", value: "kind: A\n---\nkind: B"})
 	wantState(t, runAtom(t, "ops:flux", ""), 0)
-	c := engine.chain(`"kubectl","kustomize","flux/apps"]`, "exitCode")
+	c := engine.chain(`"kustomize","flux/apps","-o"`, "exitCode")
 	wantCalls(t, c,
 		[]string{"withFile", `path:"/usr/local/bin/kubectl"`, `permissions:493`},
 		[]string{"withExec", `args:["kubectl","version","--client=true"]`},
-		// The build's stdout is redirected to a file: the rendered tree must
-		// not reach the progress log (it did, ~780 lines a run).
-		[]string{"withExec", "expect:ANY", `redirectStdout:"/tmp/kustomize.0.yaml"`, `args:["kubectl","kustomize","flux/apps"]`},
+		// kubectl writes the file itself (-o): dagger tees an exec's stdout —
+		// even a RedirectStdout one, measured — into the progress log, and
+		// the rendered tree must never reach it. No shell either (rule 7).
+		[]string{"withExec", "expect:ANY", `args:["kubectl","kustomize","flux/apps","-o","/tmp/kustomize.0.yaml"]`},
 	)
 	if engine.chain(`file(path:"/tmp/kustomize.0.yaml")`, "contents") == "" {
-		t.Error("the built stream must be read back from the redirected file, not from stdout")
+		t.Error("the built stream must be read back from the file, not from stdout")
 	}
-	if engine.chain(`"kubectl","kustomize","flux/apps"]`, "stdout") != "" {
+	if engine.chain(`"kustomize","flux/apps"`, "stdout") != "" {
 		t.Error("the build's stdout must not be read — that is what echoes the tree into the log")
 	}
-	if engine.chain(`"kubectl","kustomize","flux/infrastructure"]`, "exitCode") == "" {
+	if engine.chain(`"kustomize","flux/apps"`, "redirectStdout") != "" {
+		t.Error("RedirectStdout is not the mechanism: dagger still tees it into the log")
+	}
+	if engine.chain(`"kustomize","flux/infrastructure","-o"`, "exitCode") == "" {
 		t.Error("the second CR's tree was not built")
 	}
 	if engine.chain(`http(url:"`+checks.KubectlURL+`")`, "sync") == "" {
@@ -379,15 +383,15 @@ func TestOpsFlux(t *testing.T) {
 	// A duplicate resource id is findings, naming the build.
 	opsTree(map[string]string{"flux/clusters/home/apps.yaml": crs}, nil)
 	engine.script(script{match: `"kubectl","kustomize"`, leaf: "contents", value: "kind: A\n---\nkind: B"})
-	engine.exitCode(`"flux/infrastructure"]`, 1)
-	engine.stderr(`"flux/infrastructure"]`, "Error: may not add resource with an already registered id: IngressRoute.v1alpha1.traefik.io/git")
+	engine.exitCode(`"flux/infrastructure","-o"`, 1)
+	engine.stderr(`"flux/infrastructure","-o"`, "Error: may not add resource with an already registered id: IngressRoute.v1alpha1.traefik.io/git")
 	wantState(t, runAtom(t, "ops:flux", ""), 1, "kustomize build flux/infrastructure", "already registered id", "build FAILED: flux/infrastructure")
 
 	// A base that would not fetch is could-not-run.
 	opsTree(map[string]string{"flux/clusters/home/apps.yaml": crs}, nil)
 	engine.script(script{match: `"kubectl","kustomize"`, leaf: "contents", value: "kind: A\n---\nkind: B"})
-	engine.exitCode(`"flux/apps"]`, 1)
-	engine.stderr(`"flux/apps"]`, "Error: accumulating resources: failed to fetch github.com/x: dial tcp: i/o timeout")
+	engine.exitCode(`"flux/apps","-o"`, 1)
+	engine.stderr(`"flux/apps","-o"`, "Error: accumulating resources: failed to fetch github.com/x: dial tcp: i/o timeout")
 	wantState(t, runAtom(t, "ops:flux", ""), 2, "fault of the substrate")
 
 	// A cluster manifest that does not parse is named, and the build goes on.
@@ -400,7 +404,7 @@ func TestOpsFlux(t *testing.T) {
 	opsTree(map[string]string{"flux/hemera/kustomization.yaml": "", "flux/hemera/x/kustomization.yaml": ""}, nil)
 	engine.script(script{match: `"kubectl","kustomize"`, leaf: "contents", value: "kind: A\n---\nkind: B"})
 	wantState(t, runAtom(t, "ops:flux", ""), 0)
-	if engine.chain(`"kubectl","kustomize","flux/hemera"]`) == "" || engine.chain(`"flux/hemera/x"]`) != "" {
+	if engine.chain(`"kustomize","flux/hemera","-o"`) == "" || engine.chain(`"flux/hemera/x","-o"`) != "" {
 		t.Error("the fallback builds flux/<dir> only")
 	}
 
