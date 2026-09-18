@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"dagger/foundry-tools/internal/checks"
@@ -539,9 +540,18 @@ func opsFluxPhase(ctx context.Context, ctr *dagger.Container, files []checks.Ops
 		out.WriteString(p + "\n")
 	}
 	rc := 0
-	for _, p := range paths {
+	for i, p := range paths {
 		out.WriteString("kustomize build " + p + "\n")
-		next := ctr.WithExec([]string{"kubectl", "kustomize", p}, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
+		// THE BUILT STREAM GOES TO A FILE, NOT TO THE EXEC'S STDOUT. Dagger
+		// echoes an exec's stdout into the lane's progress log line by line,
+		// and a kustomize build is the whole rendered tree — measured
+		// 2026-09-18 on infra: ~780 of a gate pod's 787 log lines were
+		// flux/hemera's manifests, shipped to Loki on every run, where the
+		// comment lines that mention level=error were counted as errors by
+		// Loki's level detection. Redirected, the log carries the command
+		// and its exit; the stream is read back from the file.
+		rendered := "/tmp/kustomize." + strconv.Itoa(i) + ".yaml"
+		next := ctr.WithExec([]string{"kubectl", "kustomize", p}, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny, RedirectStdout: rendered})
 		code, err := next.ExitCode(ctx)
 		if err != nil {
 			return opsResult{}, err
@@ -552,7 +562,7 @@ func opsFluxPhase(ctx context.Context, ctr *dagger.Container, files []checks.Ops
 			rc = 1
 			continue
 		}
-		stream, err := next.Stdout(ctx)
+		stream, err := next.File(rendered).Contents(ctx)
 		if err != nil {
 			return opsResult{}, err
 		}

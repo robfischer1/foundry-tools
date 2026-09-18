@@ -324,13 +324,22 @@ func TestOpsAnsible(t *testing.T) {
 func TestOpsFlux(t *testing.T) {
 	crs := "apiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nspec:\n  path: ./flux/apps\n---\napiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nspec:\n  path: flux/infrastructure/\n"
 	opsTree(map[string]string{"flux/clusters/home/apps.yaml": crs, "flux/apps/kustomization.yaml": ""}, nil)
-	engine.stdout(`"kubectl","kustomize"`, "kind: A\n---\nkind: B")
+	engine.script(script{match: `"kubectl","kustomize"`, leaf: "contents", value: "kind: A\n---\nkind: B"})
 	wantState(t, runAtom(t, "ops:flux", ""), 0)
 	c := engine.chain(`"kubectl","kustomize","flux/apps"]`, "exitCode")
 	wantCalls(t, c,
 		[]string{"withFile", `path:"/usr/local/bin/kubectl"`, `permissions:493`},
 		[]string{"withExec", `args:["kubectl","version","--client=true"]`},
+		// The build's stdout is redirected to a file: the rendered tree must
+		// not reach the progress log (it did, ~780 lines a run).
+		[]string{"withExec", "expect:ANY", `redirectStdout:"/tmp/kustomize.0.yaml"`, `args:["kubectl","kustomize","flux/apps"]`},
 	)
+	if engine.chain(`file(path:"/tmp/kustomize.0.yaml")`, "contents") == "" {
+		t.Error("the built stream must be read back from the redirected file, not from stdout")
+	}
+	if engine.chain(`"kubectl","kustomize","flux/apps"]`, "stdout") != "" {
+		t.Error("the build's stdout must not be read — that is what echoes the tree into the log")
+	}
 	if engine.chain(`"kubectl","kustomize","flux/infrastructure"]`, "exitCode") == "" {
 		t.Error("the second CR's tree was not built")
 	}
@@ -356,43 +365,50 @@ func TestOpsFlux(t *testing.T) {
 	// A schema violation in what was built is findings; a schema that would
 	// not fetch is could-not-run.
 	opsTree(map[string]string{"flux/clusters/home/apps.yaml": crs}, nil)
-	engine.stdout(`"kubectl","kustomize"`, "kind: A\n---\nkind: B")
+	engine.script(script{match: `"kubectl","kustomize"`, leaf: "contents", value: "kind: A\n---\nkind: B"})
 	engine.exitCode(`"kubeconform","-strict"`, 1)
 	engine.stdout(`"kubeconform","-strict"`, "flux.built.yaml - Deployment web is invalid: spec.replicas: Invalid type\nSummary: 4 resources found - Valid: 3, Invalid: 1")
 	wantState(t, runAtom(t, "ops:flux", ""), 1, "4 object(s) built from 2 tree(s)", "spec.replicas: Invalid type", "flux failed (rc=1) — findings")
 
 	opsTree(map[string]string{"flux/clusters/home/apps.yaml": crs}, nil)
+	engine.script(script{match: `"kubectl","kustomize"`, leaf: "contents", value: "kind: A\n---\nkind: B"})
 	engine.exitCode(`"kubeconform","-strict"`, 1)
 	engine.stdout(`"kubeconform","-strict"`, "could not download schema: no such host")
 	wantState(t, runAtom(t, "ops:flux", ""), 2, "fault of the substrate")
 
 	// A duplicate resource id is findings, naming the build.
 	opsTree(map[string]string{"flux/clusters/home/apps.yaml": crs}, nil)
+	engine.script(script{match: `"kubectl","kustomize"`, leaf: "contents", value: "kind: A\n---\nkind: B"})
 	engine.exitCode(`"flux/infrastructure"]`, 1)
 	engine.stderr(`"flux/infrastructure"]`, "Error: may not add resource with an already registered id: IngressRoute.v1alpha1.traefik.io/git")
 	wantState(t, runAtom(t, "ops:flux", ""), 1, "kustomize build flux/infrastructure", "already registered id", "build FAILED: flux/infrastructure")
 
 	// A base that would not fetch is could-not-run.
 	opsTree(map[string]string{"flux/clusters/home/apps.yaml": crs}, nil)
+	engine.script(script{match: `"kubectl","kustomize"`, leaf: "contents", value: "kind: A\n---\nkind: B"})
 	engine.exitCode(`"flux/apps"]`, 1)
 	engine.stderr(`"flux/apps"]`, "Error: accumulating resources: failed to fetch github.com/x: dial tcp: i/o timeout")
 	wantState(t, runAtom(t, "ops:flux", ""), 2, "fault of the substrate")
 
 	// A cluster manifest that does not parse is named, and the build goes on.
 	opsTree(map[string]string{"flux/clusters/home/apps.yaml": crs, "flux/clusters/home/bad.yaml": ": [bad\n"}, nil)
+	engine.script(script{match: `"kubectl","kustomize"`, leaf: "contents", value: "kind: A\n---\nkind: B"})
 	engine.exitCode(`"kubeconform","-strict"`, 1)
 	wantState(t, runAtom(t, "ops:flux", ""), 1, "flux/clusters/home/bad.yaml: ", "kustomize build flux/apps")
 
 	// No CR: every flux/<dir> with a kustomization.yaml.
 	opsTree(map[string]string{"flux/hemera/kustomization.yaml": "", "flux/hemera/x/kustomization.yaml": ""}, nil)
+	engine.script(script{match: `"kubectl","kustomize"`, leaf: "contents", value: "kind: A\n---\nkind: B"})
 	wantState(t, runAtom(t, "ops:flux", ""), 0)
 	if engine.chain(`"kubectl","kustomize","flux/hemera"]`) == "" || engine.chain(`"flux/hemera/x"]`) != "" {
 		t.Error("the fallback builds flux/<dir> only")
 	}
 
 	opsTree(map[string]string{"flux/README.md": ""}, nil)
+	engine.script(script{match: `"kubectl","kustomize"`, leaf: "contents", value: "kind: A\n---\nkind: B"})
 	wantState(t, runAtom(t, "ops:flux", ""), 0, "ABSENT - flux/ carries no Kustomization CR and no kustomization.yaml")
 	opsTree(map[string]string{"ansible/playbooks/a.yml": ""}, nil)
+	engine.script(script{match: `"kubectl","kustomize"`, leaf: "contents", value: "kind: A\n---\nkind: B"})
 	wantState(t, runAtom(t, "ops:flux", ""), 0, "ABSENT - no flux/ in this tree")
 }
 
