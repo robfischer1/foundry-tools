@@ -172,25 +172,24 @@ func tsMutation(ctx context.Context, r *run) checks.Verdict {
 		// Dagger error, and the first exec read below files it as never ran.
 		WithExec([]string{"bun", "--version"})
 
-	// rev-parse --verify --quiet, not cat-file -e: cat-file answers a missing
-	// object with 128, which the engine reports as its own error even under
-	// Expect ANY (foundry-tools#63).
-	_, code, err := output(ctx, ctr.WithExec([]string{"git", "rev-parse", "--verify", "--quiet", r.base + "^{commit}"}, anyExit))
+	// The change set starts at the merge base, not at the base the door named
+	// (run.changeBase): main's tip moves under an open pull.
+	since, err := r.changeBase(ctx, ctr)
 	if err != nil {
-		return neverRan(err)
+		return settle(2, "CANNOT RUN - "+err.Error())
 	}
-	if code != 0 {
+	if since == "" {
 		return settle(0, noBase)
 	}
 
 	// The diff is taken at the root and each range handed to the package that
 	// owns it (checks.PlanStryker).
-	diff, code, err := output(ctx, ctr.WithExec(append([]string{"git", "diff", "--unified=0", r.base, "HEAD", "--"}, checks.TSMutationSpecs(mods)...), anyExit))
+	diff, code, err := output(ctx, ctr.WithExec(append([]string{"git", "diff", "--unified=0", since, "HEAD", "--"}, checks.TSMutationSpecs(mods)...), anyExit))
 	if err != nil {
 		return neverRan(err)
 	}
 	if code != 0 {
-		return settle(2, "CANNOT RUN - git could not diff the pull against its base "+r.base+": "+diff)
+		return settle(2, "CANNOT RUN - git could not diff the pull against its base "+since+": "+diff)
 	}
 	if diff == "" {
 		return settle(0, "this pull touched none of the critical modules — nothing to mutate")

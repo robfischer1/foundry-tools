@@ -329,7 +329,7 @@ func TestCargoDepsIsTheBaseOfEveryCompilingAtom(t *testing.T) {
 // rust:mutation's needles: each exec the atom runs, by the words only it has.
 const (
 	rustBaseNeedle    = `"git","rev-parse","--verify","--quiet","abc123^{commit}"`
-	rustDiffNeedle    = `"--relative","abc123","HEAD"`
+	rustDiffNeedle    = `"--relative","since0","HEAD"`
 	rustFilesNeedle   = `"--name-only","-z"`
 	rustMetaNeedle    = `"cargo","metadata","--no-deps"`
 	rustMutantsNeedle = `"-D","/tmp/mutation/pr.diff"`
@@ -349,6 +349,7 @@ func scriptRustMutation(tree map[string]string) {
 	delete(base, ".copier-answers.yml")
 	engine.withTree(base)
 	engine.withTree(tree)
+	engine.stdout(mergeBaseNeedle, sinceSha+"\n")
 	engine.stdout(rustDiffNeedle, rustDiff)
 	engine.stdout(rustFilesNeedle, "src/lib.rs\x00")
 	engine.stdout(rustMetaNeedle, rustOneCrate)
@@ -407,9 +408,9 @@ func TestRustMutationMeasuresTheDiffFromTheFetchedLayer(t *testing.T) {
 	// The diff is taken over the declared modules, and the file list over the
 	// same pathspec, deletions left out.
 	wantCalls(t, engine.chain(rustDiffNeedle, "stdout"),
-		[]string{"withExec", "expect:ANY", `args:["git","diff","--relative","abc123","HEAD","--","src/lib.rs"]`})
+		[]string{"withExec", "expect:ANY", `args:["git","diff","--relative","since0","HEAD","--","src/lib.rs"]`})
 	wantCalls(t, engine.chain(rustFilesNeedle, "stdout"),
-		[]string{"withExec", "expect:ANY", `args:["git","diff","--relative","--name-only","-z","--diff-filter=d","abc123","HEAD","--","src/lib.rs"]`})
+		[]string{"withExec", "expect:ANY", `args:["git","diff","--relative","--name-only","-z","--diff-filter=d","since0","HEAD","--","src/lib.rs"]`})
 }
 
 // Survivors are findings with the table and the list; the lists are read off
@@ -447,7 +448,7 @@ func TestRustMutationScopesAnUndeclaredPullToTheWholeDiffAndItsMembers(t *testin
 	wantState(t, runAtom(t, "rust:mutation", "abc123"), 0)
 
 	wantCalls(t, engine.chain(rustDiffNeedle, "stdout"),
-		[]string{"withExec", `args:["git","diff","--relative","abc123","HEAD","--","*.rs",":!tests/"]`})
+		[]string{"withExec", `args:["git","diff","--relative","since0","HEAD","--","*.rs",":!tests/"]`})
 	c := engine.chain(rustMutantsNeedle, "exitCode")
 	wantCalls(t, c, []string{"withExec", `"--minimum-test-timeout","60","-p","gen","-p","x","-D"`})
 	if strings.Contains(c, `"-f"`) {
@@ -477,14 +478,16 @@ func TestRustMutationStandsDownOrCannotRun(t *testing.T) {
 	}{
 		"no base": {"", nil, 0, nil, nil, []string{rustBaseNeedle, `args:["cargo","fetch"]`}},
 		"a base the history lacks": {"abc123", func() { engine.exitCode(rustBaseNeedle, 1) }, 0, nil,
-			[]string{rustBaseNeedle}, []string{rustDiffNeedle}},
+			[]string{rustBaseNeedle}, []string{mergeBaseNeedle, rustDiffNeedle}},
+		"no merge base": {"abc123", func() { engine.exitCode(mergeBaseNeedle, 1) }, 2,
+			[]string{"no merge base between the base abc123 and HEAD (exit 1)"}, []string{mergeBaseNeedle}, []string{rustDiffNeedle}},
 		"no rust changed": {"abc123", func() { engine.stdout(rustDiffNeedle, "") }, 0, nil,
 			[]string{rustDiffNeedle}, []string{rustFilesNeedle}},
 		"lines only removed": {"abc123", func() {
 			engine.stdout(rustDiffNeedle, "--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1,2 +1 @@\n fn f() {}\n-fn g() {}")
 		}, 0, nil, []string{rustDiffNeedle}, []string{rustFilesNeedle}},
 		"git cannot diff": {"abc123", func() { engine.exitCode(rustDiffNeedle, 1) }, 2,
-			[]string{"git could not diff the pull against its base abc123"}, nil, []string{rustFilesNeedle}},
+			[]string{"git could not diff the pull against its base since0"}, nil, []string{rustFilesNeedle}},
 		"git cannot list the files": {"abc123", func() { engine.exitCode(rustFilesNeedle, 1) }, 2,
 			[]string{"git could not list the files the pull changed"}, nil, []string{rustMetaNeedle}},
 		"cargo metadata fails": {"abc123", func() {
@@ -496,7 +499,8 @@ func TestRustMutationStandsDownOrCannotRun(t *testing.T) {
 		"no cargo-mutants in the image": {"abc123", func() {
 			engine.fail(`"cargo","mutants","--version"`, `exec: "cargo-mutants": not found`)
 		}, 2, []string{"never ran", "cargo-mutants"}, nil, nil},
-		"the base check never ran": {"abc123", func() { engine.fail(rustBaseNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{rustDiffNeedle}},
+		"the base check never ran": {"abc123", func() { engine.fail(rustBaseNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{mergeBaseNeedle}},
+		"the merge base never ran": {"abc123", func() { engine.fail(mergeBaseNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{rustDiffNeedle}},
 		"the diff never ran":       {"abc123", func() { engine.fail(rustDiffNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{rustFilesNeedle}},
 		"the file list never ran":  {"abc123", func() { engine.fail(rustFilesNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{rustMetaNeedle}},
 		"cargo metadata never ran": {"abc123", func() { engine.fail(rustMetaNeedle, "engine gone") }, 2, []string{"never ran"}, nil, nil},

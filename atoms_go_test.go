@@ -252,6 +252,7 @@ func scriptGoMutation(tree map[string]string) {
 	engine.withTree(everyLaneTree)
 	engine.withTree(map[string]string{"/src/mutation-go.json": goCleanReport})
 	engine.withTree(tree)
+	engine.stdout(mergeBaseNeedle, sinceSha+"\n")
 	engine.stdout(goDiffNeedle, "a.go\n")
 	engine.stdout(goCanaryNeedle, "Killed: 0, Lived: 1, Not covered: 0\n")
 	// The classifier answered, and named nothing: every survivor is real.
@@ -333,7 +334,7 @@ func TestGoMutationMeasuresTheDiffAndSettlesInGo(t *testing.T) {
 		[]string{"withExec", `"go","test","-cover","-coverprofile","mutation-cover.out","./..."`},
 		[]string{"withEnvVariable", `name:"GOMAXPROCS"`, `value:"1"`},
 		[]string{"withEnvVariable", `name:"GOFLAGS"`, `value:"-p=1"`},
-		[]string{"withExec", `expect:ANY`, `"gremlins","unleash","--config","/tmp/mutation/gremlins-canonical.yaml","--output","mutation-go.json","--workers","4","--exclude-files","` + strings.ReplaceAll(goMutationExclude, `\`, `\\`) + `","--diff","abc123","."`},
+		[]string{"withExec", `expect:ANY`, `"gremlins","unleash","--config","/tmp/mutation/gremlins-canonical.yaml","--output","mutation-go.json","--workers","4","--exclude-files","` + strings.ReplaceAll(goMutationExclude, `\`, `\\`) + `","--diff","since0","."`},
 	)
 	if strings.Contains(c, `path:"/stocks"`) || strings.Contains(c, `"bash"`) {
 		t.Errorf("the gate mounted foundry-stocks or ran bash:\n%s", c)
@@ -455,12 +456,15 @@ func TestGoMutationStandsDownOrCannotRun(t *testing.T) {
 	}{
 		"no base": {"", nil, 0, "", nil, []string{baseNeedle, goDiffNeedle}},
 		"a base the history lacks": {"abc123", func() { engine.exitCode(baseNeedle, 1) }, 0, "",
-			[]string{baseNeedle}, []string{goDiffNeedle}},
+			[]string{baseNeedle}, []string{mergeBaseNeedle, goDiffNeedle}},
+		"no merge base": {"abc123", func() { engine.exitCode(mergeBaseNeedle, 1) }, 2,
+			"no merge base between the base abc123 and HEAD (exit 1)", []string{mergeBaseNeedle}, []string{goDiffNeedle}},
 		"no Go changed": {"abc123", func() { engine.stdout(goDiffNeedle, "") }, 0, "",
 			[]string{goDiffNeedle}, []string{`"-coverprofile"`}},
 		"git cannot diff": {"abc123", func() { engine.exitCode(goDiffNeedle, 1) }, 2,
-			"git could not diff the pull against its base abc123", []string{goDiffNeedle}, []string{`"-coverprofile"`}},
-		"the base check never ran": {"abc123", func() { engine.fail(baseNeedle, "engine gone") }, 2, "never ran", nil, []string{goDiffNeedle}},
+			"git could not diff the pull against its base since0", []string{goDiffNeedle}, []string{`"-coverprofile"`}},
+		"the base check never ran": {"abc123", func() { engine.fail(baseNeedle, "engine gone") }, 2, "never ran", nil, []string{mergeBaseNeedle}},
+		"the merge base never ran": {"abc123", func() { engine.fail(mergeBaseNeedle, "engine gone") }, 2, "never ran", nil, []string{goDiffNeedle}},
 		"the diff never ran":       {"abc123", func() { engine.fail(goDiffNeedle, "engine gone") }, 2, "never ran", nil, []string{`"-coverprofile"`}},
 		"coverage never ran": {"abc123", func() {
 			engine.failLeaf(`"-coverprofile","mutation-cover.out","./..."`, "exitCode", "engine gone")
@@ -676,6 +680,7 @@ func TestGoMutationInANestedModuleDiffsRelativeToIt(t *testing.T) {
 	engine.reset()
 	engine.withTree(nestedTree)
 	engine.withTree(map[string]string{"/src/tools/forge/mutation-go.json": goCleanReport})
+	engine.stdout(mergeBaseNeedle, sinceSha+"\n")
 	engine.stdout(goDiffNeedle, "internal/oci/oci.go\n")
 	engine.stdout(goCanaryNeedle, "Killed: 0, Lived: 1, Not covered: 0\n")
 	engine.stdout(goClassifyNeedle, `{"noise":[]}`)

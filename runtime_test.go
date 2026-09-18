@@ -66,6 +66,7 @@ func TestGitReadyRebuildsALinkedWorktreeAndNamesItsOrigin(t *testing.T) {
 	delete(tree, ".git/HEAD")
 	tree[".git"] = "gitdir: /home/rob/Forge/Outputs/tartarus/.git/worktrees/rowan\n"
 	engine.withTree(tree)
+	engine.stdout(`"git","merge-base","abc","HEAD"`, sinceSha+"\n")
 	// go:mutation's resolve is a git exec on the readied repository, so its
 	// chain carries everything gitReady did.
 	wantState(t, runAtom(t, "go:mutation", "abc"), 0)
@@ -86,6 +87,7 @@ func TestGitReadyRebuildsALinkedWorktreeAndNamesItsOrigin(t *testing.T) {
 	engine.reset()
 	tree[".git"] = "gitdir: /nowhere\n"
 	engine.withTree(tree)
+	engine.stdout(`"git","merge-base","abc","HEAD"`, sinceSha+"\n")
 	wantState(t, runAtom(t, "go:mutation", "abc"), 0)
 	c = engine.chain(`"git","rev-parse","--verify"`)
 	if hasCall(c, "withExec", `"remote","add","origin"`) || !hasCall(c, "withExec", `args:["git","init","-q","."]`) {
@@ -95,6 +97,7 @@ func TestGitReadyRebuildsALinkedWorktreeAndNamesItsOrigin(t *testing.T) {
 	// A primary checkout (.git is a directory) is left alone.
 	engine.reset()
 	engine.withTree(everyLaneTree)
+	engine.stdout(`"git","merge-base","abc","HEAD"`, sinceSha+"\n")
 	wantState(t, runAtom(t, "go:mutation", "abc"), 0)
 	c = engine.chain(`"git","rev-parse","--verify"`)
 	if hasCall(c, "withExec", `args:["git","init","-q","."]`) || !hasCall(c, "withExec", `"safe.directory"`) {

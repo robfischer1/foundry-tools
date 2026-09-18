@@ -212,14 +212,13 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 		// is a Dagger error, and the first exec read below files it as never ran.
 		WithExec([]string{"cargo", "mutants", "--version"})
 
-	// rev-parse --verify --quiet, not cat-file -e: cat-file answers a missing
-	// object with 128, which the engine reports as its own error even under
-	// Expect ANY (foundry-tools#63).
-	_, code, err := output(ctx, ctr.WithExec([]string{"git", "rev-parse", "--verify", "--quiet", r.base + "^{commit}"}, anyExit))
+	// The change set starts at the merge base, not at the base the door named
+	// (run.changeBase): main's tip moves under an open pull.
+	since, err := r.changeBase(ctx, ctr)
 	if err != nil {
-		return neverRan(err)
+		return settle(2, "CANNOT RUN - "+err.Error())
 	}
-	if code != 0 {
+	if since == "" {
 		return settle(0, noBase)
 	}
 
@@ -228,12 +227,12 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 	// safe head side is the tree this run holds. --relative, because the paths
 	// are matched against the tree cargo runs in.
 	specs := append([]string{"--"}, checks.RustMutationSpecs(mods)...)
-	diff, code, err := output(ctx, ctr.WithExec(append([]string{"git", "diff", "--relative", r.base, "HEAD"}, specs...), anyExit))
+	diff, code, err := output(ctx, ctr.WithExec(append([]string{"git", "diff", "--relative", since, "HEAD"}, specs...), anyExit))
 	if err != nil {
 		return neverRan(err)
 	}
 	if code != 0 {
-		return settle(2, "CANNOT RUN - git could not diff the pull against its base "+r.base+": "+diff)
+		return settle(2, "CANNOT RUN - git could not diff the pull against its base "+since+": "+diff)
 	}
 	if diff == "" {
 		return settle(0, "this pull touched none of the critical modules — nothing to mutate")
@@ -245,7 +244,7 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 	// EVERY WORKSPACE MEMBER THE PULL TOUCHED, each passed as -p
 	// (checks.RustTouchedMembers). A metadata read that fails is could-not-run,
 	// never a run over the root package alone.
-	files, code, err := output(ctx, ctr.WithExec(append([]string{"git", "diff", "--relative", "--name-only", "-z", "--diff-filter=d", r.base, "HEAD"}, specs...), anyExit))
+	files, code, err := output(ctx, ctr.WithExec(append([]string{"git", "diff", "--relative", "--name-only", "-z", "--diff-filter=d", since, "HEAD"}, specs...), anyExit))
 	if err != nil {
 		return neverRan(err)
 	}

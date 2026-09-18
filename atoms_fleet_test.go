@@ -861,7 +861,8 @@ func TestFleetOpengrepMapsTheScansExit(t *testing.T) {
 const (
 	wSnapNeedle   = `"git","config","--get","ca.snapshot"`
 	wBaseNeedle   = `"rev-parse","--verify","--quiet","base-sha^{commit}"`
-	wDiffNeedle   = `"--diff-filter=AMR","base-sha..HEAD"`
+	wMergeNeedle  = `"git","merge-base","base-sha","HEAD"`
+	wDiffNeedle   = `"--diff-filter=AMR","since0..HEAD"`
 	wParentNeedle = `"rev-parse","--verify","--quiet","HEAD^"`
 	wTipNeedle    = `"--diff-filter=AMR","HEAD^..HEAD"`
 	wRootNeedle   = `"git","show","--pretty="`
@@ -918,6 +919,7 @@ func scriptWitness(tree map[string]string) {
 	engine.reset()
 	engine.withTree(fleetTree(map[string]string{"src/x.py": "def f():\n    return 1\n"}))
 	engine.withTree(tree)
+	engine.stdout(wMergeNeedle, sinceSha+"\n")
 	engine.stdout(wDiffNeedle, "src/x.py\nweb/a.ts\nvendor/v/y.go\nREADME.md\n")
 	engine.stdout(wOriginNeedle, "http://ourea:8215/nereus.git\n")
 }
@@ -944,7 +946,7 @@ func TestFleetWitnessAsksAboutEachChangedSourceFile(t *testing.T) {
 	wantCalls(t, c,
 		[]string{"withEnvVariable", `name:"GATE_BASE"`, `value:"base-sha"`},
 		[]string{"withExec", `args:["git","--version"]`},
-		[]string{"withExec", "expect:ANY", `args:["git","diff","--name-only","--diff-filter=AMR","base-sha..HEAD"]`},
+		[]string{"withExec", "expect:ANY", `args:["git","diff","--name-only","--diff-filter=AMR","since0..HEAD"]`},
 	)
 	if hasCall(c, "withExec", `args:["git","--version"]`, "expect:ANY") {
 		t.Errorf("the git probe is provisioning and must run under the default Expect:\n%s", c)
@@ -1033,7 +1035,9 @@ func TestFleetWitnessStandsDownOrCannotRun(t *testing.T) {
 		"a snapshot has no change set": {"base-sha", func() { engine.stdout(wSnapNeedle, "linked-worktree") }, 0, nil,
 			[]string{wSnapNeedle}, []string{wBaseNeedle, wDiffNeedle}, 0},
 		"a base the history lacks": {"base-sha", func() { engine.exitCode(wBaseNeedle, 1) }, 2,
-			[]string{"could not read the change set: the base base-sha is not in this history"}, nil, []string{wDiffNeedle}, 0},
+			[]string{"could not read the change set: the base base-sha is not in this history"}, nil, []string{wMergeNeedle, wDiffNeedle}, 0},
+		"no merge base": {"base-sha", func() { engine.exitCode(wMergeNeedle, 1) }, 2,
+			[]string{"could not read the change set: git found no merge base between the base base-sha and HEAD (exit 1)"}, []string{wMergeNeedle}, []string{wDiffNeedle}, 0},
 		"git cannot diff": {"base-sha", func() {
 			engine.exitCode(wDiffNeedle, 1)
 			engine.stderr(wDiffNeedle, "fatal: bad object")
@@ -1047,7 +1051,8 @@ func TestFleetWitnessStandsDownOrCannotRun(t *testing.T) {
 			engine.stdout(wRootNeedle, "src/x.py\n")
 		}, 0, nil, []string{wRootNeedle}, []string{wTipNeedle}, 1},
 		"the snapshot check never ran": {"base-sha", func() { engine.fail(wSnapNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{wDiffNeedle}, 0},
-		"the base check never ran":     {"base-sha", func() { engine.fail(wBaseNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{wDiffNeedle}, 0},
+		"the base check never ran":     {"base-sha", func() { engine.fail(wBaseNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{wMergeNeedle}, 0},
+		"the merge base never ran":     {"base-sha", func() { engine.fail(wMergeNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{wDiffNeedle}, 0},
 		"the diff never ran":           {"base-sha", func() { engine.fail(wDiffNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{wOriginNeedle}, 0},
 		"the parent check never ran":   {"", func() { engine.fail(wParentNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{wTipNeedle}, 0},
 		"the origin never read":        {"base-sha", func() { engine.fail(wOriginNeedle, "engine gone") }, 2, []string{"never ran"}, nil, nil, 0},
@@ -1083,6 +1088,7 @@ func TestFleetWitnessStandsDownOrCannotRun(t *testing.T) {
 func TestFleetWitnessRebuildsALinkedWorktreesRepository(t *testing.T) {
 	engine.reset()
 	engine.withTree(fleetTree(map[string]string{".git": "gitdir: /home/rob/x/.git/worktrees/y\n"}, ".git/HEAD"))
+	engine.stdout(wMergeNeedle, sinceSha+"\n")
 	answerWitness(t, map[string]witnessAnswer{"*": witnessResult(witnessNovel)})
 	wantState(t, runAtom(t, "fleet:witness", "base-sha"), 0)
 	wantCalls(t, engine.chain(wSnapNeedle, "stdout"),
