@@ -681,12 +681,25 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	args := append([]string{"gremlins", "unleash", "--config", goMutationConfig, "--output", goMutationReport,
 		"--workers", strconv.Itoa(goMutationWorkers)}, tags...)
 	args = append(args, "--exclude-files", goMutationExclude, "--diff", since, ".")
+	// THE SCOPE IS THE ADDED LINES, NOT THE HUNK. gremlins reads its own
+	// `git diff --merge-base` and takes each fragment as one contiguous range
+	// of LinesAdded lines from its first addition — so with git's default
+	// three lines of context, two insertions six lines apart merge into one
+	// fragment and the UNCHANGED lines between them come into scope. Measured
+	// on kairos e138f50 (2026-09-18): a three-line insertion into main()
+	// dragged main's own `err != nil`, a line the pull never touched and no
+	// test can reach through a process boundary, in as NOT COVERED — a red
+	// on code the pull did not write. diff.context=0 makes every fragment
+	// exactly its additions (the same dry run: that mutant SKIPPED, the real
+	// one still RUNNABLE).
 	mutated := covered.
 		WithEnvVariable("GOMAXPROCS", "1").
 		WithEnvVariable("GOFLAGS", "-p=1").
-		WithEnvVariable("GIT_CONFIG_COUNT", "1").
+		WithEnvVariable("GIT_CONFIG_COUNT", "2").
 		WithEnvVariable("GIT_CONFIG_KEY_0", "diff.relative").
 		WithEnvVariable("GIT_CONFIG_VALUE_0", "true").
+		WithEnvVariable("GIT_CONFIG_KEY_1", "diff.context").
+		WithEnvVariable("GIT_CONFIG_VALUE_1", "0").
 		WithExec(args, anyExit)
 	status, err := mutated.ExitCode(ctx)
 	if err != nil {

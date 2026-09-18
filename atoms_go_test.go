@@ -688,9 +688,14 @@ func TestGoMutationInANestedModuleDiffsRelativeToIt(t *testing.T) {
 	c := engine.chain(goMutantsNeedle, "exitCode")
 	wantCalls(t, c,
 		[]string{"withWorkdir", `path:"/src/tools/forge"`},
-		[]string{"withEnvVariable", `name:"GIT_CONFIG_COUNT"`, `value:"1"`},
+		[]string{"withEnvVariable", `name:"GIT_CONFIG_COUNT"`, `value:"2"`},
 		[]string{"withEnvVariable", `name:"GIT_CONFIG_KEY_0"`, `value:"diff.relative"`},
 		[]string{"withEnvVariable", `name:"GIT_CONFIG_VALUE_0"`, `value:"true"`},
+		// diff.context=0: gremlins scopes a fragment as one range from its
+		// first added line, so context lines between two nearby insertions
+		// would otherwise come into scope as code the pull never wrote.
+		[]string{"withEnvVariable", `name:"GIT_CONFIG_KEY_1"`, `value:"diff.context"`},
+		[]string{"withEnvVariable", `name:"GIT_CONFIG_VALUE_1"`, `value:"0"`},
 	)
 	if !strings.Contains(strings.Join(engine.chains(), "\n"), `/src/tools/forge/mutation-go.json`) {
 		t.Error("the report must be read from the module's directory")
