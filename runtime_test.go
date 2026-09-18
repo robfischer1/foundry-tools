@@ -257,3 +257,61 @@ func TestLanesProvisionTheirToolsPinnedAndInVolatilityOrder(t *testing.T) {
 	fetched(t, `from(address:"`+checks.ImageNode+`")`)
 	noShell(t, c)
 }
+
+// THE NARROWING (CA F12). A compile, a vet, a lint or a test suite mounts the
+// tree less checks.InertPaths — the README, the changelog, the hooks, the
+// justfiles, pre-commit's and copier's files — so its exec is keyed on the
+// code and an edit to any of those re-runs nothing. The git-reading atoms
+// (mutation, the witness) keep the whole tree: an excluded file reads as
+// deleted to a working-tree diff.
+func TestToolchainAtomsMountTheNarrowedTreeAndGitAtomsDoNot(t *testing.T) {
+	narrowed := `filter(exclude:["` + strings.Join(checks.InertPaths, `","`) + `"])`
+
+	for _, id := range []string{"go:vet", "go:build", "go:gofmt", "go:test", "go:staticcheck", "go:govulncheck"} {
+		engine.reset()
+		engine.withTree(everyLaneTree)
+		engine.stdout(`"go","list","-f"`, "11\n")
+		runAtom(t, id, "")
+		c := engine.chain(`withMountedDirectory(path:"/src"`)
+		src := engine.chain(narrowed)
+		if src == "" {
+			t.Errorf("%s: no directory in its chain is filtered by InertPaths — its exec is keyed on the whole tree:\n%s", id, c)
+			continue
+		}
+		if !strings.Contains(c, fakeID(src)) {
+			t.Errorf("%s: the narrowed directory was built but /src does not mount it:\n%s", id, c)
+		}
+	}
+
+	for _, id := range []string{"go:mutation", "fleet:witness"} {
+		engine.reset()
+		engine.withTree(everyLaneTree)
+		engine.stdout(`"git","merge-base","abc123","HEAD"`, "since0\n")
+		engine.stdout(`"git","diff","--relative"`, "a.go\n")
+		runAtom(t, id, "abc123")
+		if src := engine.chain(narrowed); src != "" {
+			t.Errorf("%s runs git against the mount and must see the whole tree, but built a narrowed one:\n%s", id, src)
+		}
+	}
+}
+
+// The narrowed tree is the same tree gitReady swaps in for a linked
+// worktree: a suite that shells out to git still gets a rebuilt repository,
+// and still does not get the README.
+func TestGitReadyOnKeepsTheNarrowedTreeThroughTheWorktreeSwap(t *testing.T) {
+	engine.reset()
+	tree := map[string]string{}
+	for k, v := range everyLaneTree {
+		tree[k] = v
+	}
+	delete(tree, ".git/HEAD")
+	tree[".git"] = "gitdir: /home/rob/Forge/Outputs/tartarus/.git/worktrees/rowan\n"
+	engine.withTree(tree)
+	engine.stdout(`"go","list","-f"`, "11\n")
+	runAtom(t, "go:test", "")
+	narrowed := `filter(exclude:["` + strings.Join(checks.InertPaths, `","`) + `"])`
+	swap := engine.chain(`withoutFile(path:".git")`)
+	if swap == "" || !strings.Contains(swap, narrowed) {
+		t.Errorf("the worktree swap must drop .git from the NARROWED tree, not from the whole one:\n%s", swap)
+	}
+}
