@@ -145,6 +145,25 @@ func (r *run) lane(image string) *dagger.Container {
 		WithWorkdir("/src")
 }
 
+// code is the tree under check less what no toolchain reads
+// (checks.InertPaths): the README, the changelog, the governance, the hooks,
+// the justfiles, pre-commit's and copier's files. An exec keyed on this
+// mount is keyed on the code, so an edit to any of those re-runs nothing.
+func (r *run) code() *dagger.Directory {
+	return r.src.Filter(dagger.DirectoryFilterOpts{Exclude: checks.InertPaths})
+}
+
+// laneCode is lane on the narrowed tree — for the atoms that compile, vet,
+// lint or test and never run git against the mount. The git-reading atoms
+// (the mutation lane, the witness) stay on lane: an excluded file reads as
+// deleted to a working-tree diff, and their cache key already carries the
+// pull.
+func (r *run) laneCode(image string) *dagger.Container {
+	return r.laneBase(image).
+		WithMountedDirectory("/src", r.code()).
+		WithWorkdir("/src")
+}
+
 // provision installs what a lane's atoms exec that the upstream toolchain
 // image does not carry — the work the fleet's own CI images used to bake
 // (Rob, 2026-09-12: "We're going to stop maintaining CI images. We'll
@@ -461,6 +480,13 @@ func xargsExec(tool ...string) []string {
 // exemption keyed on the repository must not evaporate because the push came
 // from a worktree.
 func (r *run) gitReady(ctx context.Context, ctr *dagger.Container) *dagger.Container {
+	return r.gitReadyOn(ctx, ctr, r.src)
+}
+
+// gitReadyOn is gitReady for a container whose /src is tree — r.src, or the
+// narrowed r.code() — so the mount swap below re-mounts the same tree the
+// caller chose, less the dangling .git file.
+func (r *run) gitReadyOn(ctx context.Context, ctr *dagger.Container, tree *dagger.Directory) *dagger.Container {
 	gitdir, err := r.src.File(".git").Contents(ctx)
 	if err == nil {
 		// THE MOUNT SWAP COMES FIRST, before ANY git command — including the
@@ -473,7 +499,7 @@ func (r *run) gitReady(ctx context.Context, ctr *dagger.Container) *dagger.Conta
 		// measured 2026-09-12 on eros and ares worktrees against the cluster
 		// engine and a local one; the f0566e9b shell prelude removed the file
 		// first and passed). The rebuild below never got to run.
-		ctr = ctr.WithMountedDirectory("/src", r.src.WithoutFile(".git"))
+		ctr = ctr.WithMountedDirectory("/src", tree.WithoutFile(".git"))
 	}
 	// The clone is owned by whoever made it; git refuses a repository it does
 	// not own (exit 128, "dubious ownership") and the process here is root.

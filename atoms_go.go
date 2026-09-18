@@ -42,7 +42,7 @@ func init() {
 // `proxy.golang.org …: 502 Bad Gateway` filed as a finding). Here a failed
 // download is a failed exec — state 2, could not run, re-asked.
 func (r *run) goModules(dir string) *dagger.Container {
-	return goDownload(r.lane(checks.ImageGo), dir)
+	return goDownload(r.laneCode(checks.ImageGo), dir)
 }
 
 // goDownload is goModules on a container an atom has already prepared at the
@@ -158,7 +158,7 @@ func goTestIn(ctx context.Context, r *run, a checks.AtomDef, dir string, race bo
 	// it ever reaches the fixture, and the lane files FINDINGS for a test
 	// that never got to look (measured 2026-09-14 on hephaestus, pre-push).
 	// gitReady is the fix cargo-test and the mutation atoms already carry.
-	mods := goDownload(r.gitReady(ctx, r.withDies(r.lane(checks.ImageGo))), dir)
+	mods := goDownload(r.gitReadyOn(ctx, r.withDies(r.laneCode(checks.ImageGo)), r.code()), dir)
 
 	counts, code, err := output(ctx, mods.WithExec([]string{
 		"go", "list", "-f", "{{len .TestGoFiles}}{{len .XTestGoFiles}}", "./...",
@@ -278,7 +278,7 @@ func goGofmt(ctx context.Context, r *run) checks.Verdict {
 		return checks.VerdictOf(a, 0, "go:gofmt: no Go files")
 	}
 
-	ctr := r.lane(checks.ImageGo)
+	ctr := r.laneCode(checks.ImageGo)
 	args := append([]string{"gofmt", "-l"}, files...)
 	if checks.NeedsArgFile(files) {
 		// A list longer than one argv may carry goes in as a NUL-joined file
