@@ -559,17 +559,23 @@ func fleetWitness(ctx context.Context, r *run) checks.Verdict {
 			" snapshot with no commits; the landing's Job witnesses the real change set.", nil)
 	}
 
-	// THE CHANGE SET: added, modified and renamed paths, in git's order. A base
-	// the history lacks is asked with rev-parse first, because `git diff`
-	// answers it with 128, which the engine reports as its own error (#63).
+	// THE CHANGE SET: added, modified and renamed paths, in git's order, from
+	// the merge base of the door's base (run.changeBase): main's tip moves
+	// under an open pull, and a two-tree diff would carry every landing since
+	// as this pull's own change.
 	var files string
 	if r.base != "" {
-		if _, code, err := git("rev-parse", "--verify", "--quiet", r.base+"^{commit}"); err != nil {
-			return neverRan(a, err)
-		} else if code != 0 {
+		// Assigned, not declared: `files, code, err =` below must reach the
+		// err the read after this block checks, not a shadow of it.
+		var since string
+		since, err = r.changeBase(ctx, ctr)
+		if err != nil {
+			return settle(2, "CANNOT RUN - could not read the change set: "+err.Error(), nil)
+		}
+		if since == "" {
 			return settle(2, "CANNOT RUN - could not read the change set: the base "+r.base+" is not in this history", nil)
 		}
-		files, code, err = git("diff", "--name-only", "--diff-filter=AMR", r.base+"..HEAD")
+		files, code, err = git("diff", "--name-only", "--diff-filter=AMR", since+"..HEAD")
 	} else if _, parent, perr := git("rev-parse", "--verify", "--quiet", "HEAD^"); perr != nil {
 		return neverRan(a, perr)
 	} else if parent == 0 {

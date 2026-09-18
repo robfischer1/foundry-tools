@@ -340,14 +340,13 @@ func pythonMutation(ctx context.Context, r *run) checks.Verdict {
 		WithExec([]string{"uv", "--version"}).
 		WithExec([]string{"prlimit", "--version"})
 
-	// rev-parse --verify --quiet, not cat-file -e: cat-file answers a missing
-	// object with 128, which the engine reports as its own error even under
-	// Expect ANY (foundry-tools#63).
-	_, code, err := output(ctx, ctr.WithExec([]string{"git", "rev-parse", "--verify", "--quiet", r.base + "^{commit}"}, anyExit))
+	// The change set starts at the merge base, not at the base the door named
+	// (run.changeBase): main's tip moves under an open pull.
+	since, err := r.changeBase(ctx, ctr)
 	if err != nil {
-		return neverRan(err)
+		return settle(2, "CANNOT RUN - "+err.Error())
 	}
-	if code != 0 {
+	if since == "" {
 		return settle(0, noBase)
 	}
 
@@ -355,7 +354,7 @@ func pythonMutation(ctx context.Context, r *run) checks.Verdict {
 	// changed outside the tests; less the generated ones.
 	modules := strings.Fields(mods)
 	if len(modules) == 0 {
-		out, code, err := output(ctx, ctr.WithExec(append([]string{"git", "diff", "--name-only", "--diff-filter=AM", r.base, "HEAD", "--"}, checks.PythonWholeDiffSpecs...), anyExit))
+		out, code, err := output(ctx, ctr.WithExec(append([]string{"git", "diff", "--name-only", "--diff-filter=AM", since, "HEAD", "--"}, checks.PythonWholeDiffSpecs...), anyExit))
 		if err != nil {
 			return neverRan(err)
 		}
@@ -374,12 +373,12 @@ func pythonMutation(ctx context.Context, r *run) checks.Verdict {
 	if len(kept) == 0 {
 		return settle(0, "no hand-written python in scope — nothing to mutate")
 	}
-	diff, code, err := output(ctx, ctr.WithExec(append([]string{"git", "diff", "--unified=0", r.base, "HEAD", "--"}, kept...), anyExit))
+	diff, code, err := output(ctx, ctr.WithExec(append([]string{"git", "diff", "--unified=0", since, "HEAD", "--"}, kept...), anyExit))
 	if err != nil {
 		return neverRan(err)
 	}
 	if code != 0 {
-		return settle(2, "CANNOT RUN - git could not diff the pull against its base "+r.base+": "+diff)
+		return settle(2, "CANNOT RUN - git could not diff the pull against its base "+since+": "+diff)
 	}
 	// A PURE-DELETION PULL touches the module and adds no mutable line, and
 	// scope leaves the session intact for it: exec would run every site init
@@ -423,7 +422,7 @@ func pythonMutation(ctx context.Context, r *run) checks.Verdict {
 	scoped, err := tk(inited.ctr.
 		WithNewFile(pythonMutationStepOutput, "").
 		WithEnvVariable("GITHUB_OUTPUT", pythonMutationStepOutput),
-		"scope", "session.sqlite", "--diff", pythonMutationDiff, "--base", r.base)
+		"scope", "session.sqlite", "--diff", pythonMutationDiff, "--base", since)
 	if err != nil {
 		return neverRan(err)
 	}

@@ -611,26 +611,25 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	if r.base == "" {
 		return settle(0, noBase)
 	}
-	// rev-parse --verify --quiet, not cat-file -e: a missing object is exit 128
-	// for cat-file, and the engine answers 128-191 as its own error even under
-	// Expect ANY (foundry-tools#63) — a pull whose base the history lacks would
-	// read could-not-run instead of standing down. rev-parse answers 1.
-	_, code, err := output(ctx, ctr.WithExec([]string{"git", "rev-parse", "--verify", "--quiet", r.base + "^{commit}"}, anyExit))
+	// The change set starts at the merge base, not at the base the door named
+	// (run.changeBase): main's tip moves under an open pull. This lane asked
+	// git for --merge-base already; gremlins' own --diff below did not.
+	since, err := r.changeBase(ctx, ctr)
 	if err != nil {
-		return neverRan(err)
+		return settle(2, "CANNOT RUN - "+err.Error())
 	}
-	if code != 0 {
+	if since == "" {
 		return settle(0, noBase)
 	}
 	// AN EMPTY DIFF MEANS "MUTATE EVERYTHING" TO GREMLINS, written for "no
 	// --diff was given". A pull that changes no Go produces exactly that, so it
 	// stands down here instead of mutating the whole module.
-	changed, code, err := output(ctx, ctr.WithExec([]string{"git", "diff", "--relative", "--merge-base", r.base, "--name-only", "--", "*.go"}, anyExit))
+	changed, code, err := output(ctx, ctr.WithExec([]string{"git", "diff", "--relative", since, "--name-only", "--", "*.go"}, anyExit))
 	if err != nil {
 		return neverRan(err)
 	}
 	if code != 0 {
-		return settle(2, "CANNOT RUN - git could not diff the pull against its base "+r.base+": "+changed)
+		return settle(2, "CANNOT RUN - git could not diff the pull against its base "+since+": "+changed)
 	}
 	if strings.TrimSpace(changed) == "" {
 		return settle(0, "this pull changes no Go file — nothing to mutate")
@@ -681,7 +680,7 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	// MUTATE.
 	args := append([]string{"gremlins", "unleash", "--config", goMutationConfig, "--output", goMutationReport,
 		"--workers", strconv.Itoa(goMutationWorkers)}, tags...)
-	args = append(args, "--exclude-files", goMutationExclude, "--diff", r.base, ".")
+	args = append(args, "--exclude-files", goMutationExclude, "--diff", since, ".")
 	mutated := covered.
 		WithEnvVariable("GOMAXPROCS", "1").
 		WithEnvVariable("GOFLAGS", "-p=1").

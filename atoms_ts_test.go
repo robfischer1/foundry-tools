@@ -214,7 +214,7 @@ func TestTSBunAuditNamesTheRegistryAndReadsBunsExit(t *testing.T) {
 // ts:mutation's needles: each exec the atom runs, by the words only it has.
 const (
 	tsBaseNeedle    = `"git","rev-parse","--verify","--quiet","abc123^{commit}"`
-	tsDiffNeedle    = `"git","diff","--unified=0","abc123","HEAD"`
+	tsDiffNeedle    = `"git","diff","--unified=0","since0","HEAD"`
 	tsInstallNeedle = `args:["bun","install","--frozen-lockfile"]`
 	tsFindNeedle    = `"find","/src","-type","f"`
 	tsStrykerNeedle = `"--reporters","clear-text,json"`
@@ -245,6 +245,7 @@ func scriptTSMutation(tree map[string]string) {
 	delete(base, ".copier-answers.yml")
 	engine.withTree(base)
 	engine.withTree(tree)
+	engine.stdout(mergeBaseNeedle, sinceSha+"\n")
 	engine.stdout(tsDiffNeedle, tsDiff)
 }
 
@@ -276,7 +277,7 @@ func TestTSMutationMeasuresTheDiffWithThePackagesStryker(t *testing.T) {
 	}
 	// No declaration: every TypeScript source outside the tests is the scope.
 	wantCalls(t, engine.chain(tsDiffNeedle, "stdout"),
-		[]string{"withExec", "expect:ANY", `args:["git","diff","--unified=0","abc123","HEAD","--","*.ts","*.tsx",":!*.test.ts",":!*.test.tsx",":!*.spec.ts",":!*.spec.tsx",":!*__tests__/*",":!node_modules/"]`})
+		[]string{"withExec", "expect:ANY", `args:["git","diff","--unified=0","since0","HEAD","--","*.ts","*.tsx",":!*.test.ts",":!*.test.tsx",":!*.spec.ts",":!*.spec.tsx",":!*__tests__/*",":!node_modules/"]`})
 
 	// A declared module is a :(glob) pathspec, and survivors are findings with
 	// the honest table and the list.
@@ -290,7 +291,7 @@ func TestTSMutationMeasuresTheDiffWithThePackagesStryker(t *testing.T) {
 		"| 1 | 1 | 0 | 0 | 50% of 2 | 50% of 2 |",
 		"src/gate.ts:3  Survived   ConditionalExpression")
 	wantCalls(t, engine.chain(tsDiffNeedle, "stdout"),
-		[]string{"withExec", `args:["git","diff","--unified=0","abc123","HEAD","--",":(glob)src/**/*.ts"]`})
+		[]string{"withExec", `args:["git","diff","--unified=0","since0","HEAD","--",":(glob)src/**/*.ts"]`})
 }
 
 // In a monorepo each range is mutated in the package whose Stryker config owns
@@ -451,13 +452,15 @@ func TestTSMutationStandsDownOrCannotRun(t *testing.T) {
 	}{
 		"no base": {"", nil, 0, nil, nil, []string{tsBaseNeedle, `args:["bun","--version"]`}},
 		"a base the history lacks": {"abc123", func() { engine.exitCode(tsBaseNeedle, 1) }, 0, nil,
-			[]string{tsBaseNeedle}, []string{tsDiffNeedle}},
+			[]string{tsBaseNeedle}, []string{mergeBaseNeedle, tsDiffNeedle}},
+		"no merge base": {"abc123", func() { engine.exitCode(mergeBaseNeedle, 1) }, 2,
+			[]string{"no merge base between the base abc123 and HEAD (exit 1)"}, []string{mergeBaseNeedle}, []string{tsDiffNeedle}},
 		"no TypeScript changed": {"abc123", func() { engine.stdout(tsDiffNeedle, "") }, 0, nil,
 			[]string{tsDiffNeedle}, []string{tsGlobNeedle, tsInstallNeedle}},
 		"lines only removed": {"abc123", func() { engine.stdout(tsDiffNeedle, "+++ b/src/gate.ts\n@@ -2,2 +1,0 @@\n-a\n-b") }, 0, nil,
 			[]string{tsDiffNeedle}, []string{tsGlobNeedle, tsInstallNeedle}},
 		"git cannot diff": {"abc123", func() { engine.exitCode(tsDiffNeedle, 1) }, 2,
-			[]string{"git could not diff the pull against its base abc123"}, nil, []string{tsInstallNeedle}},
+			[]string{"git could not diff the pull against its base since0"}, nil, []string{tsInstallNeedle}},
 		"the configs cannot be listed": {"abc123", func() { engine.fail(tsGlobNeedle, "walk failed") }, 2,
 			[]string{"could not enumerate the tree's Stryker configs", "walk failed"}, nil, []string{tsInstallNeedle}},
 		"zero mutants instrumented": {"abc123", func() {
@@ -477,7 +480,8 @@ func TestTSMutationStandsDownOrCannotRun(t *testing.T) {
 		}, 2, []string{"the mutation report could not be read"}, nil, nil},
 		"no bun in the image": {"abc123", func() { engine.fail(`args:["bun","--version"]`, `exec: "bun": not found`) }, 2,
 			[]string{"never ran", `"bun": not found`}, nil, []string{tsDiffNeedle}},
-		"the base check never ran":    {"abc123", func() { engine.fail(tsBaseNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{tsDiffNeedle}},
+		"the base check never ran":    {"abc123", func() { engine.fail(tsBaseNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{mergeBaseNeedle}},
+		"the merge base never ran":    {"abc123", func() { engine.fail(mergeBaseNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{tsDiffNeedle}},
 		"the diff never ran":          {"abc123", func() { engine.fail(tsDiffNeedle, "engine gone") }, 2, []string{"never ran"}, nil, []string{tsInstallNeedle}},
 		"the install never ran":       {"abc123", func() { engine.failLeaf(tsInstallNeedle, "stderr", "engine gone") }, 2, []string{"never ran"}, nil, nil},
 		"the runner search never ran": {"abc123", func() { engine.fail(tsFindNeedle, "engine gone") }, 2, []string{"never ran"}, nil, nil},

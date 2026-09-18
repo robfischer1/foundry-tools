@@ -263,6 +263,48 @@ func (r *run) withBase(ctr *dagger.Container) *dagger.Container {
 	return ctr
 }
 
+// changeBase answers the commit a pull's change set is measured FROM: the
+// merge base of the door's base sha and HEAD. "" with a nil error is a base
+// the history does not reach, and the atom stands down as it does with no
+// base at all.
+//
+// THE BASE IS MAIN'S TIP AT DISPATCH, NOT THE BRANCH POINT. `git diff base
+// HEAD` compares two trees, so once main has moved past where the pull
+// branched, every landing since reads as the pull's own change, reversed.
+// MEASURED urania #63 (2026-09-18 00:52Z): the pull added hooks/ and an
+// answers file; main had retired src/urania/*.py in the meantime; the ten
+// deleted modules diffed as ADDED, python:mutation mutated the vestigial
+// package against its stale suite and settled FINDINGS at 68.9% on a pull
+// that changed no Python. go:mutation already diffed --merge-base; this is
+// the one resolve every diff-scoped atom reads, and the sha it answers is
+// what the tools that diff for themselves (gremlins --diff, forge-testkit
+// scope --base) are handed too, because they take a two-tree diff as well.
+//
+// rev-parse --verify --quiet first, not merge-base alone: a missing object is
+// exit 128 from merge-base, which the engine reports as its own error even
+// under Expect ANY (foundry-tools#63); rev-parse answers 1. A merge-base that
+// exits non-zero (unrelated histories) or answers nothing is an error the
+// atom settles as could-not-run — a change set with no origin is not a
+// change set nothing touched.
+func (r *run) changeBase(ctx context.Context, ctr *dagger.Container) (string, error) {
+	_, code, err := output(ctx, ctr.WithExec([]string{"git", "rev-parse", "--verify", "--quiet", r.base + "^{commit}"}, anyExit))
+	if err != nil {
+		return "", fmt.Errorf("the atom never ran: %w", err)
+	}
+	if code != 0 {
+		return "", nil
+	}
+	out, code, err := output(ctx, ctr.WithExec([]string{"git", "merge-base", r.base, "HEAD"}, anyExit))
+	if err != nil {
+		return "", fmt.Errorf("the atom never ran: %w", err)
+	}
+	since := strings.TrimSpace(out)
+	if code != 0 || since == "" {
+		return "", fmt.Errorf("git found no merge base between the base %s and HEAD (exit %d): %s", r.base, code, out)
+	}
+	return since, nil
+}
+
 // population is THE GATE'S OWN POPULATION: the files the repository would
 // commit, minus what the fleet excludes, matching the patterns given (every
 // file when none is given). Patterns are Dagger globs — "**/*.yml".
