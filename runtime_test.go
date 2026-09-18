@@ -36,6 +36,35 @@ func TestLaneMountsEachCacheAndExportsOnlyTheOneEnvVar(t *testing.T) {
 	}
 }
 
+// Every lane carries the OTel SDK's kill switch: the engine hands each exec an
+// OTLP endpoint it cannot accept metrics on, and a star its tests boot would
+// otherwise push there. Pinned on one atom per lane image, because laneBase is
+// the only place the variable may come from.
+func TestEveryLaneDisablesTheOTelSDK(t *testing.T) {
+	for atom, probe := range map[string]string{
+		"go:vet":            `"go","vet"`,
+		"rust:cargo-clippy": `"cargo","clippy"`,
+		"python:pytest":     `"pytest","-q"`,
+		"ts:bun-gate":       `"bun","run","gate"`,
+		"fleet:witness":     `"git","--version"`,
+	} {
+		engine.reset()
+		engine.withTree(everyLaneTree)
+		runAtom(t, atom, "")
+		c := engine.chain(probe, "exitCode")
+		if c == "" {
+			c = engine.chain(probe)
+		}
+		if c == "" {
+			t.Errorf("%s: no exec matched %s — the probe is stale, not the lane", atom, probe)
+			continue
+		}
+		if !hasCall(c, "withEnvVariable", `name:"OTEL_SDK_DISABLED"`, `value:"true"`) {
+			t.Errorf("%s runs without OTEL_SDK_DISABLED=true — a star its tests boot will push metrics at the engine:\n%s", atom, c)
+		}
+	}
+}
+
 func TestPopulationThatCannotBeEnumeratedIsACannotRun(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)

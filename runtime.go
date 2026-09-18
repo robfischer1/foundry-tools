@@ -113,6 +113,22 @@ func (r *run) laneBase(image string) *dagger.Container {
 		// this. The engine IS the CI boundary; saying so beats each atom
 		// guessing.
 		WithEnvVariable("CI", "true").
+		// A LANE IS NOT A TELEMETRY PRODUCER. The engine injects
+		// OTEL_EXPORTER_OTLP_ENDPOINT — an http://127.0.0.1:<port> proxy into
+		// this lane's trace — into every exec, and it overrides a value set
+		// here at exec time (measured 2026-09-18: WithEnvVariable to "" and
+		// `env` still printed the engine's port). A star booted by its own
+		// test suite reads that endpoint as a collector and pushes its
+		// bridged Prometheus registry at it; the engine accepts only Gauges,
+		// and every push was an engine error line — 219 in 6h across 50 lane
+		// sessions, "unknown aggregation from pb: *v1.Metric_Summary"
+		// (infra#10314; nyx and arachne confirmed against a local sink). The
+		// engine does not inject THIS key, so it survives, and it is the
+		// spec's own switch: stellar-core-go's telemetry.Init (#66), the
+		// Python SDK's opentelemetry-instrument and the JS SDK all return a
+		// no-op on it. What a lane's tools say about themselves goes in the
+		// verdict, not in a metric stream nothing reads.
+		WithEnvVariable("OTEL_SDK_DISABLED", "true").
 		// The go command's coordinates, on every lane rather than only the go
 		// lane's: three variables that mean nothing to a non-Go toolchain cost
 		// nothing, and a conditional here would be a second place for this
