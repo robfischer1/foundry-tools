@@ -156,6 +156,23 @@ func TestAFailedStepIsCouldNotRunOnlyOnANetworkFault(t *testing.T) {
 	if v, _ := Failed("publish", "unexpected media type application/x for "+digest+": not found"); v != CouldNotRun {
 		t.Fatal("a reaped blob read as findings")
 	}
+	// The registry's own 500 (seaweedfs down behind zot, 2026-09-18 10:49Z —
+	// glaucus 50e9489) and the engine failing to load what it pulled through
+	// it (harmonia a17f953, same minute): the outage's, not the tree's.
+	for _, out := range []string{
+		"pushing registry.notusmi.com/rob/glaucus:g50e9489e672d ERROR [6.2s]\n! unexpected status from POST request to https://registry.notusmi.com/v2/rob/glaucus/blobs/uploads/?mount=sha256:39dc: 500 Internal Server Error",
+		"unexpected status from HEAD request to https://registry.notusmi.com/v2/rob/x/manifests/stable: 500 Internal Server Error",
+		"failed to load container from converted ID: load Container@Co5O…: inputs: failed to content hash dockerfile copy: exit code: 1",
+	} {
+		if v, r := Failed("publish", out); v != CouldNotRun || !strings.Contains(r, "network fault") {
+			t.Errorf("a registry or engine outage read as findings: %d %q for %q", v, r, out)
+		}
+	}
+	// A bare number is not a phrase: a Dockerfile that echoes "500" is the
+	// tree's own business.
+	if v, _ := Failed("publish", "step 3/5: RUN echo 500 && exit 1"); v != Findings {
+		t.Error("a bare 500 in a build log read as a fault")
+	}
 	// uv's wording, through reqwest, for an index it could not reach.
 	for _, out := range []string{
 		"error: Failed to publish `/dist/x-1.0.tar.gz`\n  Caused by: tcp connect error: Connection timed out (os error 110)",
