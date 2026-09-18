@@ -1004,28 +1004,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg stage", err))
 				}
 			}
-			var spire *dagger.Socket
-			if inputArgs["spire"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["spire"]), &spire)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg spire", err))
-				}
-			}
-			var hades string
-			if inputArgs["hades"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["hades"]), &hades)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg hades", err))
-				}
-			}
-			var hadesId string
-			if inputArgs["hadesID"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["hadesID"]), &hadesId)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg hadesID", err))
-				}
-			}
-			return nil, (*FoundryTools).Gate(&parent, ctx, tree, pin, base, stage, spire, hades, hadesId)
+			return nil, (*FoundryTools).Gate(&parent, ctx, tree, pin, base, stage)
 		case "Go":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
