@@ -20,7 +20,16 @@ func buildOn(t *testing.T, tree map[string]string) *FoundryTools {
 	t.Helper()
 	engine.reset()
 	engine.withTree(tree)
+	scanClean()
 	return &FoundryTools{Source: dag.Directory(), Repo: "http://door:8215/rob/ares.git", Sha: buildSha}
+}
+
+// scanClean scripts the verify scan every build now runs before it publishes
+// (F14) as clean, for the image and for a pinned base alike. A test about the
+// scan scripts its own report after this; the last script wins.
+func scanClean() {
+	engine.script(script{match: imageReportNeedle, leaf: "contents", value: report()})
+	engine.script(script{match: baseReportNeedle, leaf: "contents", value: report()})
 }
 
 // pull runs the lane the way a pull does: no credentials and no socket.
@@ -303,6 +312,84 @@ func TestAPullBuildsTheImageAndPublishesNothing(t *testing.T) {
 	settledOn(t, "0", "clean: built ares at 0123456789ab")
 	if engine.chain("publish(") != "" {
 		t.Fatal("a pull published")
+	}
+}
+
+// NOTHING IS PUBLISHED THAT THE SCAN DID NOT PASS (F14). A fixable HIGH in
+// the star's own layer settles the tip as findings before the push: no
+// publish, no signature, no permit — the registry never holds the image.
+func TestATipWithAFixableFindingInItsOwnLayerPublishesNothing(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	scriptATip()
+	engine.script(script{match: imageReportNeedle, leaf: "contents", value: report(grpcFinding)})
+	tip(t, m)
+	settledOn(t, "1", "verify: findings in the scan: 1 fixable HIGH or CRITICAL vulnerabilities in this image's own layer")
+	settledOn(t, "1", "google.golang.org/grpc")
+	settledOn(t, "1", "nothing published")
+	for _, step := range []string{"publish(", `"sign","--key"`, `"forge_mold"`} {
+		if engine.chain(step) != "" {
+			t.Errorf("an image with a fixable finding reached %s", step)
+		}
+	}
+	// The scan ran on the tarball of the image the engine built, with the
+	// verify stage's flags.
+	wantCalls(t, engine.chain(imageReportNeedle),
+		[]string{"from", checks.ImageTrivy},
+		[]string{"withExec", `"image"`, `"--severity"`, `"HIGH,CRITICAL"`, `"--ignore-unfixed"`, `"--exit-code"`, `"0"`},
+	)
+}
+
+// The same finding on a pull is the pull's to see: findings, and the log
+// names the package.
+func TestAPullWithAFixableFindingIsFindings(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	engine.stdout("--name-only", "cmd/ares/main.go\n")
+	engine.script(script{match: imageReportNeedle, leaf: "contents", value: report(grpcFinding)})
+	pull(t, m)
+	settledOn(t, "1", "verify: findings in the scan")
+	settledOn(t, "1", "google.golang.org/grpc")
+}
+
+// A finding the base carries is the base lane's: named in the log, not
+// counted, and the tip publishes.
+func TestATipWhoseOnlyFindingsAreItsBasesPublishes(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": pinnedDockerfile})
+	scriptATip()
+	engine.stdout(`"oci-archive:/in/builder.tar"`, builderSBOM)
+	scriptTheBase()
+	engine.script(script{match: imageReportNeedle, leaf: "contents", value: report(perlFinding)})
+	engine.script(script{match: baseReportNeedle, leaf: "contents", value: report(perlFinding)})
+	tip(t, m)
+	if engine.chain("publish(") == "" {
+		t.Fatal("a tip whose only findings are its base's did not publish")
+	}
+	settledOn(t, "0", "clean: published and signed")
+}
+
+// A scan that did not run is not a pass: could-not-run, and nothing is
+// published — the door asks again.
+func TestATipWhoseScanCannotRunPublishesNothing(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	scriptATip()
+	engine.failLeaf(imageReportNeedle, "contents", "no such file or directory: /scan/image.json")
+	tip(t, m)
+	settledOn(t, "2", "verify: could not run: trivy wrote no report for the image")
+	if engine.chain("publish(") != "" {
+		t.Fatal("an image whose scan did not run was published")
+	}
+}
+
+// A Dockerfile that does not build is still classified as a build — findings,
+// or could-not-run on a network fault — on the tip path too, never as a scan
+// that could not run.
+func TestATipWhoseImageDoesNotBuildIsClassifiedAsABuild(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	scriptATip()
+	engine.fail("dockerBuild", "failed to solve: dockerfile parse error on line 1")
+	tip(t, m)
+	settledOn(t, "1", "findings in the image build")
+	if engine.chain(imageReportNeedle) != "" || engine.chain("publish(") != "" {
+		t.Fatal("an image that did not build was scanned or published")
 	}
 }
 

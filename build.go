@@ -172,12 +172,31 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 	if err != nil {
 		return buildlane.CouldNotRun, err.Error()
 	}
+	// The build is forced here, on both paths, so a Dockerfile that does not
+	// build is classified as a build (findings, or could-not-run on a network
+	// fault) — not as a scan that could not run, which is what the tarball
+	// read below would have made of it.
+	if _, err := img.Container().Sync(ctx); err != nil {
+		return buildlane.Failed("the image build", err.Error())
+	}
+
+	// NOTHING IS PUBLISHED THAT THE SCAN DID NOT PASS (CA master-plan F14).
+	// Verify's trivy atom runs here on the image the engine just built — the
+	// same chain the publish pushes — and a fixable HIGH or CRITICAL in the
+	// star's OWN layer settles the lane as findings before any push: the
+	// registry never holds it, so nothing downstream has to be told not to
+	// deploy it. The base's findings are named and not counted (they are the
+	// bases lane's), and a scan that could not run is could-not-run, never a
+	// pass. A pull reports the same scan, so the finding is on the pull, not
+	// on the landing. What Verify records — the SBOM — Build attaches at
+	// attest time, below; the standalone Verify stage stays for the door's
+	// own run of the chain (F16).
+	if code, why := l.verify(ctx, img); code != buildlane.Clean {
+		return code, why
+	}
 
 	if !l.tip {
-		if _, err := img.Container().Sync(ctx); err != nil {
-			return buildlane.Failed("the image build", err.Error())
-		}
-		return buildlane.Clean, fmt.Sprintf("clean: built %s at %.12s — nothing published, signed or permitted; the landing does that", star, m.Sha)
+		return buildlane.Clean, fmt.Sprintf("clean: built %s at %.12s and its scan passed — nothing published, signed or permitted; the landing does that", star, m.Sha)
 	}
 
 	ref, code, why := l.publish(ctx, img, pushRepo, star)
@@ -192,6 +211,19 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 		return code, why
 	}
 	return buildlane.Clean, fmt.Sprintf("clean: published and signed %s; %s", ref, why)
+}
+
+// verify is the verify stage's scan, as a step of the build lane: the image's
+// fixable HIGH and CRITICAL findings less its base's. Its reason carries the
+// stage's own prefix so the door's log reads the same whichever lane ran it.
+func (l *buildLane) verify(ctx context.Context, img *Image) (int, string) {
+	v := &verifyLane{m: l.m, indexURL: l.indexURL, sourceBase: l.sourceBase, stamp: l.stamp}
+	code, why := v.scan(ctx, img)
+	say("%s", why)
+	if code == buildlane.Findings {
+		why += "\nnothing published: fix the star's own layer; the base's findings are its lane's"
+	}
+	return code, "verify: " + why
 }
 
 // detect answers whether this commit needs building. The question is whether
