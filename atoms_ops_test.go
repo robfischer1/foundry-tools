@@ -338,7 +338,7 @@ func TestOpsFlux(t *testing.T) {
 	if engine.chain(`file(path:"/tmp/kustomize.0.yaml")`, "contents") == "" {
 		t.Error("the built stream must be read back from the file, not from stdout")
 	}
-	if engine.chain(`"kustomize","flux/apps"`, "stdout") != "" {
+	if engine.chain(`"/tmp/kustomize.0.yaml"]){stdout}`) != "" {
 		t.Error("the build's stdout must not be read — that is what echoes the tree into the log")
 	}
 	if engine.chain(`"kustomize","flux/apps"`, "redirectStdout") != "" {
@@ -356,9 +356,15 @@ func TestOpsFlux(t *testing.T) {
 	wantCalls(t, v,
 		[]string{"withFile", `path:"/usr/local/bin/kubeconform"`, `permissions:493`},
 		[]string{"withExec", `args:["kubeconform","-v"]`},
-		[]string{"withNewFile", `path:"/tmp/ops/flux.built.yaml"`, `contents:"kind: A\n---\nkind: B\n---\nkind: A\n---\nkind: B\n---\n"`},
-		[]string{"withExec", "expect:ANY", `args:["kubeconform","-strict","-summary","-ignore-missing-schemas","-skip","CustomResourceDefinition","-schema-location","default","/tmp/ops/flux.built.yaml"]`},
+		// kubeconform reads the files kubectl wrote, one per tree, in place:
+		// the joined stream must never travel back in as a withNewFile
+		// argument (dagger renders that argument whole into the log — 3.4 MB
+		// of a 4.1 MB gate log, measured).
+		[]string{"withExec", "expect:ANY", `args:["kubeconform","-strict","-summary","-ignore-missing-schemas","-skip","CustomResourceDefinition","-schema-location","default","/tmp/kustomize.0.yaml","/tmp/kustomize.1.yaml"]`},
 	)
+	if engine.chain(`withNewFile(path:"/tmp/ops/flux.built.yaml"`) != "" {
+		t.Error("the built stream was sent back through withNewFile — that argument is rendered whole into the lane's log")
+	}
 	if hasCall(v, "withExec", `args:["kubeconform","-v"]`, "expect:ANY") {
 		t.Errorf("the kubeconform probe is provisioning and must run under the default Expect:\n%s", v)
 	}
