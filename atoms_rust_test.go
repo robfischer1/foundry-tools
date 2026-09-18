@@ -373,7 +373,12 @@ func TestRustMutationMeasuresTheDiffFromTheFetchedLayer(t *testing.T) {
 		[]string{"withNewFile", `path:"/tmp/mutation/pr.diff"`},
 		[]string{"withDirectory", `path:"/tmp/mutation/tmp"`},
 		[]string{"withEnvVariable", `name:"TMPDIR"`, `value:"/tmp/mutation/tmp"`},
-		[]string{"withExec", "expect:ANY", `args:["cargo","mutants","--colors","never","-j","2","--build-timeout","900","--minimum-test-timeout","60","-f","src/lib.rs","-D","/tmp/mutation/pr.diff"]`},
+		// mold links the mutants, nextest runs them, and the dev/test profiles
+		// carry no debuginfo — the per-mutant cost, not the gate (bellows
+		// #31a47b3: 14s build + 30s test per mutant before this).
+		[]string{"withEnvVariable", `name:"CARGO_PROFILE_DEV_DEBUG"`, `value:"0"`},
+		[]string{"withEnvVariable", `name:"CARGO_PROFILE_TEST_DEBUG"`, `value:"0"`},
+		[]string{"withExec", "expect:ANY", `args:["mold","-run","cargo","mutants","--colors","never","-j","2","--build-timeout","900","--minimum-test-timeout","60","--test-tool","nextest","-f","src/lib.rs","-D","/tmp/mutation/pr.diff"]`},
 	)
 	if hasCall(c, "withExec", `args:["cargo","mutants","--version"]`, "expect:ANY") {
 		t.Errorf("the cargo-mutants probe is provisioning and must run under the default Expect:\n%s", c)
@@ -450,7 +455,7 @@ func TestRustMutationScopesAnUndeclaredPullToTheWholeDiffAndItsMembers(t *testin
 	wantCalls(t, engine.chain(rustDiffNeedle, "stdout"),
 		[]string{"withExec", `args:["git","diff","--relative","since0","HEAD","--","*.rs",":!tests/"]`})
 	c := engine.chain(rustMutantsNeedle, "exitCode")
-	wantCalls(t, c, []string{"withExec", `"--minimum-test-timeout","60","-p","gen","-p","x","-D"`})
+	wantCalls(t, c, []string{"withExec", `"--test-tool","nextest","-p","gen","-p","x","-D"`})
 	if strings.Contains(c, `"-f"`) {
 		t.Errorf("an empty declaration narrows nothing with -f:\n%s", c)
 	}

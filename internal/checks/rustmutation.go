@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -120,6 +122,65 @@ type RustMutationRun struct {
 	Status                            int
 	Log                               string
 	Missed, Caught, Unviable, Timeout string
+	// Baseline is mutants.out/log/baseline.log — the unmutated build and
+	// test run. Under nextest every test line carries its wall time.
+	Baseline string
+}
+
+// SlowestTestsShown is how many of the baseline's slowest tests the verdict
+// names. Ten is a screen, not a suite.
+const SlowestTestsShown = 10
+
+var (
+	// A nextest status line: `        PASS [   0.412s] crate::bin test::name`,
+	// FAIL the same. The bracket is the test's own wall time; a SLOW line's
+	// `[> 5.000s]` is a threshold, not a time, and is not matched.
+	nextestStatus = regexp.MustCompile(`^\s*(PASS|FAIL|TIMEOUT|LEAK)\s+\[\s*([0-9]+\.[0-9]+)s\]\s+(\S.*?)\s*$`)
+	// nextest's closing line: `     Summary [  27.9s] 154 tests run: 154 passed, 0 skipped`.
+	nextestSummary = regexp.MustCompile(`^\s*Summary\s+\[\s*[0-9.]+s\].*$`)
+)
+
+// SlowestTests reads the baseline test run and names the n slowest tests,
+// longest first, with nextest's own summary line above them. Empty when the
+// log carries no nextest lines — a libtest run, or a baseline that never
+// reached its tests — so a verdict never grows a section it cannot fill.
+func SlowestTests(baseline string, n int) string {
+	type timed struct {
+		secs float64
+		name string
+	}
+	var tests []timed
+	summary := ""
+	for _, line := range strings.Split(baseline, "\n") {
+		if m := nextestStatus.FindStringSubmatch(line); m != nil {
+			secs, err := strconv.ParseFloat(m[2], 64)
+			if err != nil {
+				continue
+			}
+			tests = append(tests, timed{secs, m[3]})
+			continue
+		}
+		if m := nextestSummary.FindString(line); m != "" {
+			summary = strings.TrimSpace(m)
+		}
+	}
+	if len(tests) == 0 {
+		return ""
+	}
+	sort.SliceStable(tests, func(i, j int) bool { return tests[i].secs > tests[j].secs })
+	if len(tests) > n {
+		tests = tests[:n]
+	}
+	var b strings.Builder
+	b.WriteString("\n**Where the test half of each mutant goes** — the baseline run's slowest tests; every mutant pays for these again.\n\n```\n")
+	if summary != "" {
+		b.WriteString(summary + "\n")
+	}
+	for _, t := range tests {
+		fmt.Fprintf(&b, "%7.2fs  %s\n", t.secs, t.name)
+	}
+	b.WriteString("```\n")
+	return b.String()
 }
 
 // RustMutationVerdict settles a cargo mutants run: 0 when every viable mutant
@@ -147,6 +208,7 @@ func RustMutationVerdict(run RustMutationRun) (int, string) {
 		b.WriteString(withNewline(run.Timeout))
 		b.WriteString("```\n")
 	}
+	b.WriteString(SlowestTests(run.Baseline, SlowestTestsShown))
 	summary := b.String()
 
 	if run.Status == 0 {

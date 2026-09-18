@@ -113,3 +113,64 @@ func TestRustMutationVerdict(t *testing.T) {
 		}
 	}
 }
+
+// A nextest baseline log, as cargo mutants keeps it under mutants.out/log/:
+// cargo's build lines, then a status line per test with its wall time, then
+// the summary. The SLOW line carries a threshold, not a time.
+const nextestBaseline = `   Compiling bellows v0.4.0 (/tmp/mutation/tmp/cargo-mutants-src-x)
+    Finished ` + "`test`" + ` profile [unoptimized] target(s) in 37.02s
+    Starting 154 tests across 3 binaries
+        PASS [   0.004s] bellows::corpus tests::an_empty_corpus_has_no_members
+        SLOW [> 60.000s] bellows::mcp tests::witness_waits_for_the_broker
+        PASS [  12.311s] bellows::mcp tests::witness_waits_for_the_broker
+        FAIL [   3.250s] bellows::mcp tests::hot_set_orders_by_heat
+        PASS [   0.900s] bellows::member tests::as_str_names_every_match
+     Summary [  28.1s] 154 tests run: 153 passed, 1 failed, 0 skipped
+`
+
+func TestSlowestTestsNamesTheBaselinesLongestFirst(t *testing.T) {
+	got := SlowestTests(nextestBaseline, 3)
+	for _, w := range []string{
+		"**Where the test half of each mutant goes**",
+		"Summary [  28.1s] 154 tests run: 153 passed, 1 failed, 0 skipped\n",
+		"  12.31s  bellows::mcp tests::witness_waits_for_the_broker\n" +
+			"   3.25s  bellows::mcp tests::hot_set_orders_by_heat\n" +
+			"   0.90s  bellows::member tests::as_str_names_every_match\n```",
+	} {
+		if !strings.Contains(got, w) {
+			t.Errorf("lacks %q:\n%s", w, got)
+		}
+	}
+	if strings.Contains(got, "0.004s") || strings.Contains(got, "an_empty_corpus") {
+		t.Errorf("the cut kept a fourth test:\n%s", got)
+	}
+	if strings.Contains(got, "> 60") {
+		t.Errorf("a SLOW threshold was read as a time:\n%s", got)
+	}
+	// Ten of four is four; no nextest lines is nothing — a libtest baseline
+	// grows no section, and neither does a baseline that never built.
+	if n := strings.Count(SlowestTests(nextestBaseline, 10), "s  bellows::"); n != 4 {
+		t.Errorf("want all 4 tests under a wide cut, got %d", n)
+	}
+	if got := SlowestTests("running 5 tests\ntest a ... ok\ntest result: ok.", 10); got != "" {
+		t.Errorf("a libtest log grew a section:\n%s", got)
+	}
+	if got := SlowestTests("error[E0425]: cannot find value", 10); got != "" {
+		t.Errorf("a broken baseline grew a section:\n%s", got)
+	}
+}
+
+func TestRustMutationVerdictCarriesTheSlowestTests(t *testing.T) {
+	_, reason := RustMutationVerdict(RustMutationRun{Status: 0, Caught: "a\n", Baseline: nextestBaseline})
+	if !strings.Contains(reason, "  12.31s  bellows::mcp tests::witness_waits_for_the_broker") {
+		t.Errorf("the verdict lacks the slowest test:\n%s", reason)
+	}
+	_, reason = RustMutationVerdict(RustMutationRun{Status: 2, Missed: "m\n", Baseline: nextestBaseline})
+	if !strings.Contains(reason, "**Survivors**") || !strings.Contains(reason, "**Where the test half") {
+		t.Errorf("a survivor verdict should carry both sections:\n%s", reason)
+	}
+	_, reason = RustMutationVerdict(RustMutationRun{Status: 0, Caught: "a\n"})
+	if strings.Contains(reason, "**Where the test half") {
+		t.Errorf("no baseline, no section:\n%s", reason)
+	}
+}

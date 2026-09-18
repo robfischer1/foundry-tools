@@ -126,6 +126,10 @@ const (
 	MutationGateModule  = "git.notusmi.com/rob/forge-testkit-go/cmd/mutation-gate@v0.7.0"
 	CargoAuditVersion   = "0.22.2"
 	CargoMutantsVersion = "27.1.0"
+	// The mutation atom's test runner (`cargo mutants --test-tool nextest`).
+	// One process per test with a duration on every PASS/FAIL line, which is
+	// what lets the lane say which tests the per-mutant cost is made of.
+	CargoNextestVersion = "0.9.145"
 )
 
 // LaneImages is every image an atom may run in, so a test can assert the ONE
