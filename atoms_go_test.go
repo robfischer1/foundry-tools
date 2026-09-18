@@ -273,7 +273,8 @@ func TestGoMutationCompilesTheRecordsDBTags(t *testing.T) {
 		[]string{"withServiceBinding", `alias:"db"`},
 		[]string{"withEnvVariable", `name:"TEST_DATABASE_URL"`},
 		// the coverage run compiles the tag and serialises on the one database
-		[]string{"withExec", `"-coverprofile","mutation-cover.out","-tags","live_db","-p","1","./..."`},
+		// the coverage run covers the diff's package (a.go: the root) and no other
+		[]string{"withExec", `"-coverprofile","mutation-cover.out","-tags","live_db","-p","1","."`},
 		[]string{"withExec", `"--tags","live_db"`},
 	)
 	if hasCall(c, "withServiceBinding", `alias:"db-novector"`) {
@@ -331,9 +332,12 @@ func TestGoMutationMeasuresTheDiffAndSettlesInGo(t *testing.T) {
 		[]string{"withEnvVariable", `name:"GATE_BASE"`, `value:"abc123"`},
 		[]string{"withMountedDirectory", `path:"/dies"`},
 		[]string{"withNewFile", `path:"/tmp/mutation/gremlins-canonical.yaml"`},
-		[]string{"withExec", `"go","test","-cover","-coverprofile","mutation-cover.out","./..."`},
+		[]string{"withExec", `"go","test","-cover","-coverprofile","mutation-cover.out","."`},
 		[]string{"withEnvVariable", `name:"GOMAXPROCS"`, `value:"1"`},
-		[]string{"withEnvVariable", `name:"GOFLAGS"`, `value:"-p=1"`},
+		// -count=1: gremlins' own coverage gather is the baseline every
+		// mutant's timeout is ten times, and a cached one is ~1s for a module
+		// that tests in minutes (ourea aeb9cd9: killed 72, TIMED OUT 79).
+		[]string{"withEnvVariable", `name:"GOFLAGS"`, `value:"-p=1 -count=1"`},
 		[]string{"withExec", `expect:ANY`, `"gremlins","unleash","--config","/tmp/mutation/gremlins-canonical.yaml","--output","mutation-go.json","--workers","4","--exclude-files","` + strings.ReplaceAll(goMutationExclude, `\`, `\\`) + `","--diff","since0","."`},
 	)
 	if strings.Contains(c, `path:"/stocks"`) || strings.Contains(c, `"bash"`) {
@@ -467,7 +471,7 @@ func TestGoMutationStandsDownOrCannotRun(t *testing.T) {
 		"the merge base never ran": {"abc123", func() { engine.fail(mergeBaseNeedle, "engine gone") }, 2, "never ran", nil, []string{goDiffNeedle}},
 		"the diff never ran":       {"abc123", func() { engine.fail(goDiffNeedle, "engine gone") }, 2, "never ran", nil, []string{`"-coverprofile"`}},
 		"coverage never ran": {"abc123", func() {
-			engine.failLeaf(`"-coverprofile","mutation-cover.out","./..."`, "exitCode", "engine gone")
+			engine.failLeaf(`"-coverprofile","mutation-cover.out","."`, "exitCode", "engine gone")
 		}, 2, "never ran", nil, nil},
 		"gremlins never ran": {"abc123", func() { engine.failLeaf(goMutantsNeedle, "exitCode", "engine gone") }, 2, "never ran", nil, nil},
 	}
@@ -952,4 +956,18 @@ func TestGoReleaseSaysWhyItCouldNotRun(t *testing.T) {
 		"/dies/fleet/stars/hades/slag.json": `{"tools":{"build":{"binaries":["../escape"]}}}`,
 	})
 	wantState(t, runAtom(t, "go:release", ""), 2, "is not a binary name")
+}
+
+// THE COVER STEP RUNS ONLY THE PACKAGES THE DIFF TOUCHES: one package per
+// directory holding a changed Go file, the root as ".", sorted, no repeats;
+// an empty list is the whole module.
+func TestGoMutationCoverPackagesAreTheDiffs(t *testing.T) {
+	got := goMutationCoverPackages("internal/gatejob/engines.go\ninternal/gatejob/gatejob.go\ncmd/ourea/main.go\nmain.go\ndocs/x.md\n\n")
+	want := []string{".", "./cmd/ourea", "./internal/gatejob"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("packages %v, want %v", got, want)
+	}
+	if got := goMutationCoverPackages("docs/only.md\n"); len(got) != 1 || got[0] != "./..." {
+		t.Fatalf("no Go file: the whole module, got %v", got)
+	}
 }

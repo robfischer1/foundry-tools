@@ -668,11 +668,18 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	// COVER: the profile the scorer reads to tell a misjudged NOT COVERED from
 	// a real one. Never fatal — gremlins gathers its own; this one only corrects
 	// the switch-case misread.
+	//
+	// SCOPED TO THE PACKAGES THE DIFF TOUCHES. The profile only ever answers
+	// for a mutated line, and every mutant is in a changed file, so covering
+	// the whole module was a full suite run bought for nothing: MEASURED
+	// 2026-09-18 on ourea aeb9cd9, `go test -cover ./...` with -p 1 took
+	// 4m44s of an 11m44s lane for a pull that touched one package whose
+	// suite runs in ~100s. goMutationCoverPackages names the packages.
 	coverArgs := []string{"go", "test", "-cover", "-coverprofile", goMutationProfile}
 	if len(dbs) > 0 {
 		coverArgs = append(coverArgs, "-tags", checks.BuildTags(dbs), "-p", "1")
 	}
-	covered := canonical.WithExec(append(coverArgs, "./..."), anyExit)
+	covered := canonical.WithExec(append(coverArgs, goMutationCoverPackages(changed)...), anyExit)
 	if _, err := covered.ExitCode(ctx); err != nil {
 		return neverRan(err)
 	}
@@ -709,9 +716,21 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	// on code the pull did not write. diff.context=0 makes every fragment
 	// exactly its additions (the same dry run: that mutant SKIPPED, the real
 	// one still RUNNABLE).
+	// THE BASELINE IS NEVER CACHED. gremlins times each mutant against the
+	// unmutated suite's runtime, which it measures in its own coverage gather
+	// — a `go test -cover ./...` in this container, on the tree the COVER
+	// step above just tested with the same flags. Go's test cache answered
+	// it: MEASURED 2026-09-18 on ourea aeb9cd9 (mutation-ourea-aeb9cd9-7kj9n),
+	// "Gathering coverage... done in 1.09s" for a module whose gatejob
+	// package alone tests in ~100s, so the per-mutant timeout was ten times
+	// a cached read — about eight seconds — and the run scored killed 72,
+	// TIMED OUT 79, honest 1: half the population unanswered and the gate
+	// green over it. -count=1 makes every run under gremlins a real one, the
+	// baseline included; the profile above may stay cached — it is the same
+	// tree either way.
 	mutated := covered.
 		WithEnvVariable("GOMAXPROCS", "1").
-		WithEnvVariable("GOFLAGS", "-p=1").
+		WithEnvVariable("GOFLAGS", "-p=1 -count=1").
 		WithEnvVariable("GIT_CONFIG_COUNT", "2").
 		WithEnvVariable("GIT_CONFIG_KEY_0", "diff.relative").
 		WithEnvVariable("GIT_CONFIG_VALUE_0", "true").
@@ -741,6 +760,36 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 		Status: status, Report: []byte(report), Profile: profile, Canary: canary, Workers: goMutationWorkers,
 		Classified: []byte(classified), ClassifyErr: classifyErr,
 	}))
+}
+
+// goMutationCoverPackages names the packages the COVER step runs, from the
+// diff's changed Go files: one `./<dir>` per directory that holds one, the
+// module root as ".", in path order and without repeats. An empty diff is
+// the whole module — the caller has already stood down on that case, so this
+// is only the shape the fallback takes.
+func goMutationCoverPackages(changed string) []string {
+	seen := map[string]bool{}
+	var pkgs []string
+	for _, f := range strings.Split(changed, "\n") {
+		f = strings.TrimSpace(f)
+		if f == "" || !strings.HasSuffix(f, ".go") {
+			continue
+		}
+		dir := path.Dir(f)
+		pkg := "."
+		if dir != "." && dir != "" {
+			pkg = "./" + dir
+		}
+		if !seen[pkg] {
+			seen[pkg] = true
+			pkgs = append(pkgs, pkg)
+		}
+	}
+	if len(pkgs) == 0 {
+		return []string{"./..."}
+	}
+	slices.Sort(pkgs)
+	return pkgs
 }
 
 // classify answers mutation-gate's stdout and stderr separately: the JSON is
