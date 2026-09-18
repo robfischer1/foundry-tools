@@ -542,16 +542,21 @@ func opsFluxPhase(ctx context.Context, ctr *dagger.Container, files []checks.Ops
 	rc := 0
 	for i, p := range paths {
 		out.WriteString("kustomize build " + p + "\n")
-		// THE BUILT STREAM GOES TO A FILE, NOT TO THE EXEC'S STDOUT. Dagger
-		// echoes an exec's stdout into the lane's progress log line by line,
-		// and a kustomize build is the whole rendered tree — measured
-		// 2026-09-18 on infra: ~780 of a gate pod's 787 log lines were
-		// flux/hemera's manifests, shipped to Loki on every run, where the
+		// THE BUILT STREAM GOES TO A FILE KUBECTL WRITES, NOT TO ANYTHING
+		// DAGGER CAN SEE. Dagger echoes an exec's stdout into the lane's
+		// progress log line by line, and a kustomize build is the whole
+		// rendered tree — measured 2026-09-18 on infra: a gate pod's log was
+		// 65,883 lines and 13 MB, 986 of them `apiVersion:`, rotated past
+		// what `kubectl logs` shows, shipped to Loki on every run, where the
 		// comment lines that mention level=error were counted as errors by
-		// Loki's level detection. Redirected, the log carries the command
-		// and its exit; the stream is read back from the file.
+		// Loki's level detection. RedirectStdout was tried first (b1c078fe)
+		// and measured useless: dagger tees a redirected stream into the log
+		// all the same (65,888 lines on the next run). `kubectl kustomize -o`
+		// writes the file itself — nothing on stdout for dagger to tee, no
+		// shell (rule 7), stderr and the exit status as before — and the
+		// stream is read back from the file.
 		rendered := "/tmp/kustomize." + strconv.Itoa(i) + ".yaml"
-		next := ctr.WithExec([]string{"kubectl", "kustomize", p}, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny, RedirectStdout: rendered})
+		next := ctr.WithExec([]string{"kubectl", "kustomize", p, "-o", rendered}, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
 		code, err := next.ExitCode(ctx)
 		if err != nil {
 			return opsResult{}, err
