@@ -53,10 +53,13 @@ type ReleaseBinary struct {
 type ReleasePlan struct {
 	// Star is the name the record and the convention are keyed on.
 	Star string
+	// Lane is the toolchain that compiles it: LaneGo or LaneRust.
+	Lane Lane
 	// Binaries are what the image will carry, sorted by name.
 	Binaries []ReleaseBinary
 	// Vendored is whether the module vendors its dependencies, which is the
-	// only build modifier the fleet varies.
+	// only build modifier the fleet varies. Go only; cargo resolves from its
+	// lock.
 	Vendored bool
 	// Declared is whether the record named the binaries, rather than the
 	// convention deriving the one.
@@ -69,6 +72,31 @@ type ReleasePlan struct {
 // An empty star is an error rather than a guess — a binary with no name would
 // land in the image as whatever the convention invented.
 func GoReleasePlan(star string, declared []string, vendored bool) (ReleasePlan, error) {
+	p, err := releasePlan(star, declared, LaneGo, func(n string) string { return "./cmd/" + n })
+	if err != nil {
+		return ReleasePlan{}, err
+	}
+	p.Vendored = vendored
+	return p, nil
+}
+
+// RustReleasePlan derives a Rust repo's release build: the star's own binary,
+// or the ones its record declares, each the workspace package of that name
+// (`cargo build -p <name>`).
+//
+// MEASURED BEFORE DECIDING, 2026-09-19, the fleet's Rust star Dockerfiles and
+// the template that pours them: `cargo build --release -p <star>` from a
+// workspace whose binary crate is named for the star, the binary read back
+// from target/release/<star>. One shape, so the package IS the name: a record
+// speaks only when the repo ships more than its own name, exactly as for Go.
+func RustReleasePlan(star string, declared []string) (ReleasePlan, error) {
+	return releasePlan(star, declared, LaneRust, func(n string) string { return n })
+}
+
+// releasePlan is the two plans' shared half: the star's own name or the
+// record's binaries, each name checked, each mapped to the package its lane
+// builds it from, sorted by name.
+func releasePlan(star string, declared []string, lane Lane, pkg func(string) string) (ReleasePlan, error) {
 	if star == "" {
 		return ReleasePlan{}, fmt.Errorf("the repository names no star, so its release build has no binary to name")
 	}
@@ -76,7 +104,7 @@ func GoReleasePlan(star string, declared []string, vendored bool) (ReleasePlan, 
 	if len(names) == 0 {
 		names = []string{star}
 	}
-	p := ReleasePlan{Star: star, Vendored: vendored, Declared: len(declared) > 0}
+	p := ReleasePlan{Star: star, Lane: lane, Declared: len(declared) > 0}
 	seen := map[string]bool{}
 	for _, n := range names {
 		if n == "" || strings.ContainsAny(n, `/\`) || strings.HasPrefix(n, ".") || strings.HasPrefix(n, "-") {
@@ -86,7 +114,7 @@ func GoReleasePlan(star string, declared []string, vendored bool) (ReleasePlan, 
 			return ReleasePlan{}, fmt.Errorf("tools.build.binaries names %q twice", n)
 		}
 		seen[n] = true
-		p.Binaries = append(p.Binaries, ReleaseBinary{Name: n, Package: "./cmd/" + n})
+		p.Binaries = append(p.Binaries, ReleaseBinary{Name: n, Package: pkg(n)})
 	}
 	// Ordered by a COMPARISON, not an inequality. `a.Name < b.Name` and
 	// `a.Name <= b.Name` sort a duplicate-free list identically — duplicates
@@ -125,6 +153,26 @@ func GoReleaseArgs(b ReleaseBinary, vendored bool) []string {
 	return append(args, "-o", path.Join(ReleaseOut, b.Name), b.Package)
 }
 
+// RustReleaseTarget is where a Rust release build writes, inside the lane:
+// the container's own filesystem, not the lane's cargo-target cache volume,
+// because a binary in a cache mount is not in the container and could never
+// be read back out (the cast lane measured it first). Cargo puts the binary
+// at <target>/release/<name>; RustReleaseBinary names it.
+const RustReleaseTarget = "/work/target"
+
+// RustReleaseArgs is one binary's compile, as an argv: the release profile,
+// the package of that name, and --locked so a Cargo.lock behind its manifest
+// is a finding rather than a silent re-resolve — the image's compile answers
+// for the tree as committed.
+func RustReleaseArgs(b ReleaseBinary) []string {
+	return []string{"cargo", "build", "--release", "--locked", "-p", b.Package}
+}
+
+// RustReleaseBinary is where cargo left one built binary.
+func RustReleaseBinary(b ReleaseBinary) string {
+	return path.Join(RustReleaseTarget, "release", b.Name)
+}
+
 // ReleaseScope is the line the atom prints: what it built and where the names
 // came from, so a reader never has to guess whether a record spoke.
 func ReleaseScope(p ReleasePlan) string {
@@ -136,9 +184,12 @@ func ReleaseScope(p ReleasePlan) string {
 	if p.Declared {
 		source = "tools.build.binaries in the record"
 	}
-	vendor := "the module resolves its dependencies"
-	if p.Vendored {
-		vendor = "the module vendors (vendor/ is tracked, so -mod=vendor)"
+	how := "the module resolves its dependencies"
+	switch {
+	case p.Lane == LaneRust:
+		how = "cargo builds the release profile against Cargo.lock (--locked)"
+	case p.Vendored:
+		how = "the module vendors (vendor/ is tracked, so -mod=vendor)"
 	}
-	return fmt.Sprintf("release build: %s, from %s; %s", strings.Join(names, ", "), source, vendor)
+	return fmt.Sprintf("release build: %s, from %s; %s", strings.Join(names, ", "), source, how)
 }

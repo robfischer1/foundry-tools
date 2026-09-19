@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"golang.org/x/sync/errgroup"
 
@@ -190,11 +191,34 @@ func stageResult(st checks.Stage) *StageResult {
 // (F11: a cached result exists only because that exec ran on that input). A
 // tree whose release build failed has no directory to give, and says so as an
 // error rather than handing back an empty one.
+//
+// THE LANE IS THE TREE'S, READ THE WAY THE CAST LANE READS IT (cast.go
+// release): a root go.mod is the Go lane's build, a Cargo.toml the Rust
+// lane's, and a tree declaring both is refused — two toolchains that each
+// build a <star> would hand over whichever ran last.
 func (m *FoundryTools) Release(ctx context.Context) (*dagger.Directory, error) {
 	r := newRun(m.Source, m.Repo, "")
 	star, err := r.starName(ctx)
 	if err != nil {
 		return nil, err
+	}
+	lane, err := r.releaseLane(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if lane == checks.LaneRust {
+		plan, why := r.rustReleasePlan(ctx, star)
+		if why != "" {
+			return nil, errors.New(why)
+		}
+		ctr, v := r.rustReleaseBuild(ctx, checks.AtomByID("rust:release"), plan)
+		switch v.State {
+		case 2:
+			return nil, fmt.Errorf("the release build did not run: %s", lastLine(v.Reason))
+		case 1:
+			return nil, fmt.Errorf("the release build failed: %s", lastLine(v.Reason))
+		}
+		return rustReleaseDir(ctr, plan), nil
 	}
 	plan, why := r.releasePlan(ctx, star)
 	if why != "" {
@@ -213,4 +237,25 @@ func (m *FoundryTools) Release(ctx context.Context) (*dagger.Directory, error) {
 		return nil, fmt.Errorf("the release build failed (exit %d): %s", code, lastLine(out))
 	}
 	return ctr.Directory(checks.ReleaseOut), nil
+}
+
+// releaseLane is the toolchain that builds the star's release: LaneRust for
+// a root Cargo.toml, LaneGo for a root go.mod. Both is refused, and neither
+// is an error naming what is missing rather than a guess.
+func (r *run) releaseLane(ctx context.Context) (checks.Lane, error) {
+	entries, err := r.src.Entries(ctx)
+	if err != nil {
+		return "", fmt.Errorf("the repository root could not be read: %w", err)
+	}
+	rust := checks.DeclaresLane(entries, checks.LaneRust)
+	goRoot := slices.Contains(entries, "go.mod")
+	switch {
+	case rust && goRoot:
+		return "", errors.New("the tree declares both a Cargo.toml and a root go.mod, so the release build cannot tell which toolchain builds the star")
+	case rust:
+		return checks.LaneRust, nil
+	case goRoot:
+		return checks.LaneGo, nil
+	}
+	return "", errors.New("no go.mod at the repository root, and no Cargo.toml either, so there is no star binary to build")
 }

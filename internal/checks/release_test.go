@@ -90,3 +90,68 @@ func TestReleaseBinariesReadsOnlyWhatTheRecordDeclares(t *testing.T) {
 		}
 	}
 }
+
+// THE RUST CONVENTION IS THE SAME NAME, AS A WORKSPACE PACKAGE: the fleet's
+// Rust star Dockerfiles and the template that pours them run
+// `cargo build --release -p <star>`, and the binary is target/release/<star>.
+func TestRustReleasePlanDerivesTheStarsOwnCrate(t *testing.T) {
+	p, err := RustReleasePlan("tron", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plannedNames(p) != "tron=tron" || p.Declared || p.Vendored || p.Lane != LaneRust {
+		t.Errorf("%+v", p)
+	}
+	if got := strings.Join(RustReleaseArgs(p.Binaries[0]), " "); got != "cargo build --release --locked -p tron" {
+		t.Errorf("argv %q", got)
+	}
+	if got := RustReleaseBinary(p.Binaries[0]); got != "/work/target/release/tron" {
+		t.Errorf("binary at %q", got)
+	}
+	scope := ReleaseScope(p)
+	if !strings.Contains(scope, "release build: tron") || !strings.Contains(scope, "the star's own name") || !strings.Contains(scope, "--locked") {
+		t.Errorf("scope %q", scope)
+	}
+	if strings.Contains(scope, "vendor") {
+		t.Errorf("a Rust scope does not talk about Go's vendoring: %q", scope)
+	}
+	// The Go plan's lane is Go, and its scope stays Go's.
+	g, err := GoReleasePlan("hades", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Lane != LaneGo || !strings.Contains(ReleaseScope(g), "resolves its dependencies") {
+		t.Errorf("%+v %q", g, ReleaseScope(g))
+	}
+}
+
+// A RUST RECORD SPEAKS THE SAME WAY: each declared binary is the workspace
+// package of that name, sorted, and the same names are refused.
+func TestRustReleasePlanTakesTheRecordsBinariesAndRefusesTheSameNames(t *testing.T) {
+	p, err := RustReleasePlan("cerberus", []string{"cerberus", "cerberus-admin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plannedNames(p) != "cerberus=cerberus,cerberus-admin=cerberus-admin" || !p.Declared {
+		t.Errorf("%+v", p)
+	}
+	if !strings.Contains(ReleaseScope(p), "tools.build.binaries in the record") {
+		t.Errorf("scope %q", ReleaseScope(p))
+	}
+	for _, c := range []struct {
+		star     string
+		declared []string
+		why      string
+	}{
+		{"", nil, "no star"},
+		{"x", []string{"../escape"}, "a path is not a binary name"},
+		{"x", []string{"-flag"}, "a flag is not a binary name"},
+		{"x", []string{".hidden"}, "a dotfile is not a binary name"},
+		{"x", []string{""}, "an empty name is not a binary name"},
+		{"x", []string{"a", "a"}, "the same name twice"},
+	} {
+		if _, err := RustReleasePlan(c.star, c.declared); err == nil {
+			t.Errorf("%s: want a refusal", c.why)
+		}
+	}
+}

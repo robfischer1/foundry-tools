@@ -897,6 +897,43 @@ func TestADockerfileThatCompilesItselfGetsNoRelease(t *testing.T) {
 	settledOn(t, "0", "clean: built ares at 0123456789ab")
 }
 
+// THE RUST STAR TAKES THE SAME PATH (F17): a Dockerfile on the Rust base that
+// copies from release/ gets the rust:release atom's own compile staged there,
+// and a crate that does not compile is findings in the release build.
+func TestARustDockerfileThatCopiesFromReleaseGetsTheGatesArtifact(t *testing.T) {
+	rust := map[string]string{
+		"Dockerfile":              "FROM registry.notusmi.com/foundry/base-images/rust:stable@sha256:" + pinnedBaseDigest + "\nCOPY release/ares /ares\nCMD [\"/ares\"]\n",
+		".copier-answers.yml":     "service_name: ares\n",
+		"Cargo.toml":              "[workspace]\nmembers = [\"crates/ares\"]\n",
+		"Cargo.lock":              "",
+		"crates/ares/src/main.rs": "fn main() {}\n",
+	}
+	m := buildOn(t, rust)
+	engine.stdout("--name-only", "crates/ares/src/main.rs\n")
+	pull(t, m)
+	if engine.chain(`"cargo","build","--release","--locked","-p","ares"`) == "" {
+		t.Fatalf("the rust release build never ran:\n%v", engine.chains())
+	}
+	if engine.chain(`"go","build","-trimpath"`) != "" {
+		t.Errorf("a Rust star got a Go release compile:\n%v", engine.chains())
+	}
+	wantCalls(t, engine.chain("dockerBuild", "sync"),
+		[]string{"withDirectory", `"release"`},
+		[]string{"withLabel", labelBaseName, `"registry.notusmi.com/foundry/base-images/rust:stable"`},
+	)
+	settledOn(t, "0", "clean: built ares at 0123456789ab")
+
+	m = buildOn(t, rust)
+	scriptATip()
+	engine.exitCode(`"-p","ares"`, 101)
+	engine.stderr(`"-p","ares"`, "error[E0425]: cannot find value `x` in this scope")
+	tip(t, m)
+	settledOn(t, "1", "findings in the release build")
+	if engine.chain("dockerBuild", "sync") != "" || engine.chain("publish(") != "" {
+		t.Fatal("an image whose release did not build was built or published")
+	}
+}
+
 // A release that does not compile is a build that failed: findings, in the
 // compiler's words, and nothing is built, scanned or published on top of it.
 func TestATipWhoseReleaseDoesNotBuildIsFindingsAndPublishesNothing(t *testing.T) {
