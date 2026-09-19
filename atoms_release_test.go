@@ -168,6 +168,23 @@ func TestTheBaseBuiltReleasesSayWhyTheyCouldNotAsk(t *testing.T) {
 	if engine.chain(`"uv","sync"`) != "" {
 		t.Errorf("a Dockerfile that could not be read still synced:\n%v", engine.chains())
 	}
+
+	// A star named by its record, whose records cannot be listed: the name is
+	// unknown, not absent, so the atom could not ask — never "not a star".
+	engine.reset()
+	tree := pythonStar("")
+	delete(tree, ".copier-answers.yml")
+	tree["/dies/fleet/stars/iris/slag.json"] = `{"meta":{"repo":"rob/iris"}}`
+	engine.withTree(tree)
+	engine.fail(`glob(pattern:"fleet/stars/*/slag.json")`, "the dies went away")
+	r := newRun(dag.Directory(), "http://ourea.default.svc.cluster.local:8215/iris.git", "")
+	wantState(t, registry["python:release"](context.Background(), r), 2, "python:release: CANNOT RUN", "the dies went away")
+
+	// An engine that goes away under a step is could-not-run that says so.
+	engine.reset()
+	engine.withTree(bunStar(calliopeSteps))
+	engine.fail(`"bun","run","build"`, "the engine went away")
+	wantState(t, runAtom(t, "ts:release", ""), 2, "the atom never ran", "the engine went away")
 }
 
 // THE PYTHON RELEASE IS THE STAR'S VENV, BUILT AT /app ON THE IMAGE'S OWN
