@@ -309,7 +309,7 @@ func TestToolchainAtomsMountTheNarrowedTreeAndGitAtomsDoNot(t *testing.T) {
 		engine.withTree(everyLaneTree)
 		engine.stdout(`"go","list","-f"`, "11\n")
 		runAtom(t, id, "")
-		c := engine.chain(`withMountedDirectory(path:"/src"`)
+		c := engine.chain("withMountedDirectory(", `path:"/src"`)
 		src := engine.chain(narrowed)
 		if src == "" {
 			t.Errorf("%s: no directory in its chain is filtered by InertPaths — its exec is keyed on the whole tree:\n%s", id, c)
