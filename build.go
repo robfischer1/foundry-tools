@@ -239,7 +239,12 @@ func (l *buildLane) stageRelease(ctx context.Context, img *Image) (int, string) 
 	}
 	release, err := l.m.Release(ctx)
 	if err != nil {
-		return buildlane.Failed("the release build", err.Error())
+		// The error IS the release build's log: say it, and carry its last
+		// line in the verdict, or the door's reason reads "read its log
+		// above" over a log that says nothing (calliope #46, 2026-09-19).
+		say("release: %v", err)
+		code, why := buildlane.Failed("the release build", err.Error())
+		return code, why + ": " + lastLine(err.Error())
 	}
 	img.Source = l.m.Source.WithDirectory(buildlane.ReleaseDir, release)
 	say("release: the Dockerfile copies from %s/ — the Gate's artifact is staged there; the image compiles nothing", buildlane.ReleaseDir)
