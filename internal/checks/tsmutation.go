@@ -199,7 +199,14 @@ var (
 	// pip-audit's stack prints for the same thing (Read timed out, ReadTimeout,
 	// TimeoutError), plus the resolver's. One vocabulary, used by DiagnoseInstall
 	// and AuditVerdict alike, so a phrase learned in one place is known in both.
-	networkFault = regexp.MustCompile(`(?i)connection refused|connection reset|i/o timeout|ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|502 Bad Gateway|503 Service Unavailable|504 Gateway|too many requests|429 Too Many Requests|toomanyrequests|read timed out|ReadTimeout|TimeoutError|temporary failure in name resolution|network is unreachable|could not connect|dial tcp`)
+	//
+	// cargo-audit names its own: "couldn't fetch advisory database" heads every
+	// way its git fetch of RustSec can fail, and the cause under it is gitoxide's
+	// wording, not any of the above. MEASURED 2026-09-19 on furnace #65: GitHub
+	// answered the fetch 408, gitoxide printed "Could not decode server reply …
+	// Received HTTP status 408", and the atom filed FINDINGS against a tree that
+	// had changed two YAML files.
+	networkFault = regexp.MustCompile(`(?i)connection refused|connection reset|i/o timeout|ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|408 Request Timeout|HTTP status 408|502 Bad Gateway|503 Service Unavailable|504 Gateway|too many requests|429 Too Many Requests|toomanyrequests|read timed out|ReadTimeout|TimeoutError|temporary failure in name resolution|network is unreachable|could not connect|dial tcp|couldn't fetch advisory database`)
 )
 
 // DiagnoseInstall settles a `bun install --frozen-lockfile` that exited status
