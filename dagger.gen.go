@@ -617,6 +617,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Dies).CanaryVisibility(&parent, ctx)
+		case "Canonical":
+			var parent Dies
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Dies).Canonical(&parent, ctx)
 		case "Contracts":
 			var parent Dies
 			err = json.Unmarshal(parentJSON, &parent)

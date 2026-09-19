@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"dagger/foundry-tools/internal/checks"
@@ -28,6 +29,7 @@ func init() {
 	register("dies:canary-visibility", diesCanaryVisibility)
 	register("dies:contracts", diesContracts)
 	register("dies:schema", diesSchema)
+	register("dies:canonical", diesCanonical)
 }
 
 // diesShape is the condition every dies: atom shares, decided IN GO from the
@@ -578,4 +580,53 @@ func diesSchema(ctx context.Context, r *run) checks.Verdict {
 		WithExec(schemapy("-c", "import jsonschema")).
 		WithNewFile("/tmp/dies-schema.py", string(body)).
 		WithExec(schemapy("/tmp/dies-schema.py"), anyExit))
+}
+
+// diesCanonical grades the FORM of every committed record, in Go, with no
+// container: each fleet/stars/<star>/slag.json is re-emitted through
+// checks.CanonicalJSON — sorted keys, two-space indent, ensure_ascii, trailing
+// LF, python's json.dumps(sort_keys=True, indent=2) + "\n" — and must come
+// back byte for byte.
+//
+// WHY THE RECORD'S OWN REPO GRADES IT. The form was only ever enforced one
+// repo away: hephaestus' internal/slag golden re-reads every committed record
+// off /dies and reds when one diverges. Measured 2026-09-18, foundry-dies #270
+// landed two records with a hand-placed `tools.build` block AFTER `tools.tofu`
+// ("build" sorts before "calypso"); dies:schema passed, the pull landed, and
+// hephaestus #120's mutation lane settled could-not-run on the golden two
+// hours later — a red on the wrong repo for a defect this gate can see at the
+// push. A record that does not parse is findings too: the schema atom names
+// the shape, this one names the bytes.
+func diesCanonical(ctx context.Context, r *run) checks.Verdict {
+	a := checks.AtomByID("dies:canonical")
+	if stop := diesShape(ctx, r, a); stop != nil {
+		return *stop
+	}
+	records, err := r.src.Glob(ctx, "fleet/stars/*/slag.json")
+	if err != nil {
+		return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - fleet/stars/ could not be scanned for records (%v).", a.ID, err))
+	}
+	if len(records) == 0 {
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - fleet/stars/ carries no slag.json, so there is no record whose form could be graded.")
+	}
+	sort.Strings(records)
+	var findings []string
+	for _, p := range records {
+		committed, err := r.src.File(p).Contents(ctx)
+		if err != nil {
+			return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - %s could not be read (%v).", a.ID, p, err))
+		}
+		canon, err := checks.CanonicalJSON([]byte(committed))
+		if err != nil {
+			findings = append(findings, fmt.Sprintf("%s: not one JSON document (%v)", p, err))
+			continue
+		}
+		if string(canon) != committed {
+			findings = append(findings, p+": diverges from its canonical form — re-emit it with json.dumps(doc, sort_keys=True, indent=2) + \"\\n\" (keys sorted at every depth, two-space indent, non-ASCII escaped, one trailing LF)")
+		}
+	}
+	if len(findings) > 0 {
+		return checks.VerdictOf(a, 1, fmt.Sprintf("%s: FINDINGS - %d of %d record(s) are not their own canonical form:\n%s", a.ID, len(findings), len(records), strings.Join(findings, "\n")))
+	}
+	return checks.VerdictOf(a, 0, fmt.Sprintf("%s: %d record(s) are each their own canonical form.", a.ID, len(records)))
 }
