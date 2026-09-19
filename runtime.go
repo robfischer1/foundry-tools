@@ -226,17 +226,26 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 			WithExec([]string{"opengrep", "--version"})
 	case checks.ImageRust:
 		// rust:bookworm carries cargo, git, curl and bash. rustfmt and
-		// clippy are rustup components; cargo-audit and cargo-mutants are
-		// built from source at their pins — minutes on the first run, a
-		// cached layer on every later one.
+		// clippy are rustup components; cargo-audit, cargo-mutants and
+		// cargo-nextest are built from source at their pins — minutes on the
+		// first run, a cached layer on every later one. mold is bookworm's
+		// package: the mutation atom links every mutant's test binaries
+		// through it (`mold -run`), and linking was the larger half of a
+		// mutant's build.
 		return ctr.
+			WithExec([]string{"apt-get", "update"}).
+			WithExec([]string{"apt-get", "install", "-y", "--no-install-recommends", "mold"}).
+			WithExec([]string{"rm", "-rf", "/var/lib/apt/lists"}).
 			WithExec([]string{"rustup", "component", "add", "rustfmt", "clippy"}).
 			WithFile("/usr/local/bin/opengrep", dag.HTTP(checks.OpengrepMirror), dagger.ContainerWithFileOpts{Permissions: 0o755}).
 			WithExec([]string{"cargo", "install", "cargo-audit", "--locked", "--version", checks.CargoAuditVersion}).
 			WithExec([]string{"cargo", "install", "cargo-mutants", "--locked", "--version", checks.CargoMutantsVersion}).
+			WithExec([]string{"cargo", "install", "cargo-nextest", "--locked", "--version", checks.CargoNextestVersion}).
 			WithExec([]string{"cargo", "fmt", "--version"}).
 			WithExec([]string{"cargo", "clippy", "--version"}).
-			WithExec([]string{"cargo", "mutants", "--version"})
+			WithExec([]string{"cargo", "mutants", "--version"}).
+			WithExec([]string{"cargo", "nextest", "--version"}).
+			WithExec([]string{"mold", "--version"})
 	case checks.ImageTS:
 		// bun:slim runs as the bun user and carries neither git nor node;
 		// ts:mutation runs stryker under node. Root for the installs, then back.

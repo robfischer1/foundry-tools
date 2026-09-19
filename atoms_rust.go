@@ -264,8 +264,28 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 	}
 
 	// MUTATE. The copies go under TMPDIR, outside the tree being mutated.
-	args := []string{"cargo", "mutants", "--colors", "never", "-j", strconv.Itoa(rustMutationJobs),
-		"--build-timeout", "900", "--minimum-test-timeout", "60"}
+	//
+	// THE PER-MUTANT COST, measured on bellows #31a47b3 (2026-09-18, 169
+	// mutants): 14s build + 30s test each, two at a time — an hour's lane.
+	// Three things below are that cost, not the gate:
+	//   mold -run          every mutant relinks the test binaries; mold takes
+	//                      the link through LD_PRELOAD for the whole process
+	//                      tree, so no RUSTFLAGS are overridden and a star's
+	//                      own .cargo/config.toml still applies.
+	//   debug = 0          the dev profile's line tables are most of what the
+	//                      linker moves; a mutant's outcome does not need them
+	//                      (a panic's file:line is a compile-time Location).
+	//                      Set through the environment, not the star's
+	//                      Cargo.toml — the lane's profile is the lane's.
+	//   --test-tool nextest one process per test, and a duration on every
+	//                      PASS/FAIL line in the baseline log, which is what
+	//                      RustMutationVerdict reads to name the ten tests the
+	//                      test half is made of. Seven Rust stars, none with a
+	//                      nextest config or serial_test, checked before this.
+	// The job count stays two: the engine is 8 CPU / 24Gi shared by every lane
+	// in flight, and two copies at a rustc each is what fits beside them.
+	args := []string{"mold", "-run", "cargo", "mutants", "--colors", "never", "-j", strconv.Itoa(rustMutationJobs),
+		"--build-timeout", "900", "--minimum-test-timeout", "60", "--test-tool", "nextest"}
 	for _, m := range strings.Fields(mods) {
 		args = append(args, "-f", m)
 	}
@@ -276,6 +296,8 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 		WithNewFile(rustMutationDiff, diff+"\n").
 		WithDirectory(mutationDir+"/tmp", dag.Directory()).
 		WithEnvVariable("TMPDIR", mutationDir+"/tmp").
+		WithEnvVariable("CARGO_PROFILE_DEV_DEBUG", "0").
+		WithEnvVariable("CARGO_PROFILE_TEST_DEBUG", "0").
 		WithExec(append(args, "-D", rustMutationDiff), anyExit)
 	log, status, err := outputBoth(ctx, mutated)
 	if err != nil {
@@ -287,9 +309,13 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 		s, _ := mutated.File("/src/mutants.out/" + name + ".txt").Contents(ctx)
 		return s
 	}
+	// The baseline's own log: the unmutated build and test run, where nextest
+	// stamped every test with its wall time.
+	baseline, _ := mutated.File("/src/mutants.out/log/baseline.log").Contents(ctx)
 	return settle(checks.RustMutationVerdict(checks.RustMutationRun{
 		Status: status, Log: log,
 		Missed: list("missed"), Caught: list("caught"), Unviable: list("unviable"), Timeout: list("timeout"),
+		Baseline: baseline,
 	}))
 }
 
