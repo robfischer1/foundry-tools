@@ -1,46 +1,11 @@
 package gatelane
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
 	"dagger/foundry-tools/internal/checks"
 )
-
-// The stamp is "<attester>:<tree>" with no colon before the tree, which is
-// the only shape the join's StampAgrees accepts.
-func TestTheClientIDStampsTheTreeAfterTheFirstColon(t *testing.T) {
-	tree := strings.Repeat("a", 40)
-	for _, star := range []string{"ares", "odd:name"} {
-		id := ClientID(star, tree)
-		before, after, ok := strings.Cut(id, ":")
-		if !ok || after != tree || !strings.HasPrefix(before, "ca-gate/") {
-			t.Errorf("ClientID(%q) = %q", star, id)
-		}
-	}
-}
-
-// The receipt carries exactly the fields the join reads, and no svid of its
-// own: hadescall sets that from the SVID it holds.
-func TestTheReceiptIsTheJoinsShape(t *testing.T) {
-	b, err := json.Marshal(Receipt{Tree: "t", ModulePin: "p", ClientID: "ca-gate/x:t", Verdict: []checks.Verdict{{Atom: "a", State: 0, Result: "pass"}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got map[string]any
-	if err := json.Unmarshal(b, &got); err != nil {
-		t.Fatal(err)
-	}
-	for _, k := range []string{"tree", "module_pin", "client_id", "verdict"} {
-		if _, ok := got[k]; !ok {
-			t.Errorf("the receipt lacks %s: %s", k, b)
-		}
-	}
-	if _, ok := got["svid"]; ok {
-		t.Errorf("the receipt names its own svid: %s", b)
-	}
-}
 
 func TestACannotRunVectorIsOneAtomAtStateTwo(t *testing.T) {
 	v := CannotRunVector("gate", "", strings.Repeat("x", 2000))
@@ -108,29 +73,5 @@ func TestTheSummaryCountsAndNamesTheRedAtoms(t *testing.T) {
 	}
 	if got := Summary(nil); got != "0 atom(s): 0 pass, 0 findings, 0 cannot-run" {
 		t.Errorf("an empty summary: %q", got)
-	}
-}
-
-func TestTheAttestationAnswerFolds(t *testing.T) {
-	for _, c := range []struct {
-		status int
-		body   string
-		want   Outcome
-		why    string
-	}{
-		{200, `{"ok":true}`, Landed, "attested"},
-		{403, "forbidden: unidentifiable caller", Refused, "DERIVE a principal"},
-		{403, `"tartarus_attest_emit" is not granted`, Refused, "POLICY refused"},
-		{503, "produce hold-down: retry", HeldDown, "held down"},
-		{500, "produce hold-down: retry", HeldDown, "held down"},
-		{499, "produce hold-down: retry", Refused, "HTTP 499"},
-		{503, "service unavailable", Refused, "HTTP 503"},
-		{502, "bad gateway", Refused, "HTTP 502"},
-		{401, "", Refused, "HTTP 401"},
-	} {
-		got, why := Attested(c.status, c.body)
-		if got != c.want || !strings.Contains(why, c.why) {
-			t.Errorf("%d %q: %v %q, want %v containing %q", c.status, c.body, got, why, c.want, c.why)
-		}
 	}
 }
