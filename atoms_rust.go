@@ -358,6 +358,9 @@ func rustRelease(ctx context.Context, r *run) checks.Verdict {
 		return checks.VerdictOf(a, 0, a.ID+": ABSENT - this repository tracks no Dockerfile or Containerfile, so it ships no image and has no release build")
 	}
 	star, err := r.starName(ctx)
+	if err != nil && !isNotAStar(err) {
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+err.Error())
+	}
 	if err != nil {
 		return checks.VerdictOf(a, 0, a.ID+": ABSENT - "+err.Error()+", so this is not a star image and there is no star release build")
 	}

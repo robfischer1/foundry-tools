@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -1023,4 +1024,106 @@ func TestGoMutationCoverPackagesAreTheDiffs(t *testing.T) {
 	if got := goMutationCoverPackages("docs/only.md\n"); len(got) != 1 || got[0] != "./..." {
 		t.Fatalf("no Go file: the whole module, got %v", got)
 	}
+}
+
+// A REPOSITORY WITH NO ANSWERS FILE IS NAMED BY ITS RECORD (CA F17, Rob
+// 2026-09-19). hephaestus is not copier-templated and carries no
+// .copier-answers.yml, but foundry-dies holds fleet/stars/hephaestus/slag.json
+// saying repo rob/hephaestus — the record the door routes its lanes by. The
+// release build reads the same name off the same record, keyed by the clone
+// URL the door (--repo) or the hook (--origin) named; a run given neither, or
+// a repo no record names, is still "not a star".
+func TestGoReleaseNamesAStarWithNoAnswersFileByItsRecord(t *testing.T) {
+	// everyLaneTree carries an answers file (critical_modules, no
+	// service_name); this repository carries none at all.
+	noAnswers := map[string]string{}
+	for k, v := range everyLaneTree {
+		if k != ".copier-answers.yml" {
+			noAnswers[k] = v
+		}
+	}
+	dies := map[string]string{
+		"/dies/fleet/stars/hephaestus/slag.json":  `{"meta":{"name":"hephaestus","repo":"rob/hephaestus"},"tools":{}}`,
+		"/dies/fleet/stars/tron/slag.json":        `{"meta":{"name":"tron","repo":"rob/tron"}}`,
+		"/dies/fleet/stars/base-images/slag.json": `{"meta":{"name":"base-images","repo":"foundry/base-images"}}`,
+	}
+	// The door's Job: the tree was fetched from --repo.
+	engine.reset()
+	engine.withTree(noAnswers)
+	engine.withTree(map[string]string{"Dockerfile": "FROM x\nCOPY release/hephaestus /hephaestus\n"})
+	engine.withTree(dies)
+	v := registry["go:release"](context.Background(), newRun(dag.Directory(), "http://ourea.default.svc.cluster.local:8215/hephaestus.git", ""))
+	wantState(t, v, 0, "release build: hephaestus", "the star's own name")
+	if engine.chain(`"-o","/out/hephaestus"`) == "" {
+		t.Errorf("the record's name did not reach the compile:\n%v", engine.chains())
+	}
+
+	// The hook: the tree is a snapshot, and --origin names the clone.
+	engine.reset()
+	engine.withTree(noAnswers)
+	engine.withTree(map[string]string{"Dockerfile": "FROM x\nCOPY release/hephaestus /hephaestus\n"})
+	engine.withTree(dies)
+	r := newRun(dag.Directory(), "", "").fromOrigin("http://100.93.64.106:8215/hephaestus.git")
+	wantState(t, registry["go:release"](context.Background(), r), 0, "release build: hephaestus")
+
+	// An owner-qualified clone matches an owner-qualified record.
+	engine.reset()
+	engine.withTree(noAnswers)
+	engine.withTree(map[string]string{"Dockerfile": "FROM x\nCOPY release/base-images /base-images\n"})
+	engine.withTree(dies)
+	r = newRun(dag.Directory(), "https://git.notusmi.com/foundry/base-images.git", "")
+	wantState(t, registry["go:release"](context.Background(), r), 0, "release build: base-images")
+
+	// No record names this repo: not a star, an absence that says which key it looked for.
+	engine.reset()
+	engine.withTree(noAnswers)
+	engine.withTree(map[string]string{"Dockerfile": "FROM x\n"})
+	engine.withTree(dies)
+	r = newRun(dag.Directory(), "http://ourea.default.svc.cluster.local:8215/nobody.git", "")
+	v = registry["go:release"](context.Background(), r)
+	if v.State != 0 || v.Result != "absent" || !strings.Contains(v.Reason, "no record in foundry-dies names repo rob/nobody") {
+		t.Errorf("%+v", v)
+	}
+
+	// No clone URL at all: nothing to look a record up by.
+	engine.reset()
+	engine.withTree(noAnswers)
+	engine.withTree(map[string]string{"Dockerfile": "FROM x\n"})
+	engine.withTree(dies)
+	v = runAtom(t, "go:release", "")
+	if v.Result != "absent" || !strings.Contains(v.Reason, "no clone URL to find a record by") {
+		t.Errorf("%+v", v)
+	}
+
+	// The records could not be listed or read: could-not-run, never "no star".
+	engine.reset()
+	engine.withTree(noAnswers)
+	engine.withTree(map[string]string{"Dockerfile": "FROM x\nCOPY release/hephaestus /hephaestus\n"})
+	engine.withTree(dies)
+	engine.fail(`glob(pattern:"fleet/stars/*/slag.json")`, "the dies went away")
+	r = newRun(dag.Directory(), "http://ourea.default.svc.cluster.local:8215/hephaestus.git", "")
+	wantState(t, registry["go:release"](context.Background(), r), 2, "could not be listed", "the dies went away")
+	engine.reset()
+	engine.withTree(noAnswers)
+	engine.withTree(map[string]string{"Dockerfile": "FROM x\nCOPY release/hephaestus /hephaestus\n"})
+	engine.withTree(dies)
+	engine.failLeaf(`file(path:"fleet/stars/base-images/slag.json")`, "contents", "the record went away")
+	r = newRun(dag.Directory(), "http://ourea.default.svc.cluster.local:8215/hephaestus.git", "")
+	wantState(t, registry["go:release"](context.Background(), r), 2, "could not be read", "the record went away")
+
+	// The Rust atom reads the same name the same way, and files the same
+	// could-not-run when the records cannot be listed.
+	engine.reset()
+	engine.withTree(noAnswers)
+	engine.withTree(map[string]string{"Dockerfile": "FROM x\nCOPY release/hephaestus /hephaestus\n"})
+	engine.withTree(dies)
+	engine.fail(`glob(pattern:"fleet/stars/*/slag.json")`, "the dies went away")
+	r = newRun(dag.Directory(), "http://ourea.default.svc.cluster.local:8215/hephaestus.git", "")
+	wantState(t, registry["rust:release"](context.Background(), r), 2, "rust:release: CANNOT RUN - the fleet's records could not be listed", "the dies went away")
+	engine.reset()
+	engine.withTree(noAnswers)
+	engine.withTree(map[string]string{"Dockerfile": "FROM x\nCOPY release/tron /tron\n"})
+	engine.withTree(dies)
+	r = newRun(dag.Directory(), "http://ourea.default.svc.cluster.local:8215/tron.git", "")
+	wantState(t, registry["rust:release"](context.Background(), r), 0, "release build: tron")
 }

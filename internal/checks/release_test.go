@@ -155,3 +155,48 @@ func TestRustReleasePlanTakesTheRecordsBinariesAndRefusesTheSameNames(t *testing
 		}
 	}
 }
+
+// A CLONE URL NAMES A CUSTODY KEY the way a record's meta.repo spells it:
+// the door's bare names are rob/'s, an owner path is itself, and every face
+// of the door (the in-cluster service, the Tailscale IP, git.notusmi.com)
+// reads the same. This is how a repository with no answers file — hephaestus,
+// not copier-templated — is matched to its record.
+func TestRepoKeyReadsTheCustodyKeyOffACloneURL(t *testing.T) {
+	for url, want := range map[string]string{
+		"http://ourea.default.svc.cluster.local:8215/hephaestus.git": "rob/hephaestus",
+		"http://100.93.64.106:8215/tron.git":                         "rob/tron",
+		"https://git.notusmi.com/foundry/foundry-dies.git":           "foundry/foundry-dies",
+		"https://git.notusmi.com/foundry-tools":                      "rob/foundry-tools",
+		"git@git.notusmi.com:foundry/base-images.git":                "foundry/base-images",
+		"https://git.notusmi.com/":                                   "",
+		"http:///x.git":                                              "rob/x",
+		"":                                                           "",
+	} {
+		if got := RepoKey(url); got != want {
+			t.Errorf("RepoKey(%q) = %q, want %q", url, got, want)
+		}
+	}
+}
+
+func TestRecordRepoAndStarOfRecordPath(t *testing.T) {
+	if got := RecordRepo(`{"meta":{"name":"hephaestus","repo":"rob/hephaestus"}}`); got != "rob/hephaestus" {
+		t.Errorf("meta.repo %q", got)
+	}
+	for _, slag := range []string{`{}`, `{"meta":{}}`, `not json`} {
+		if got := RecordRepo(slag); got != "" {
+			t.Errorf("%s: %q", slag, got)
+		}
+	}
+	for p, want := range map[string]string{
+		"fleet/stars/hephaestus/slag.json": "hephaestus",
+		"fleet/stars/hephaestus/data.json": "",
+		"fleet/stars/a/b/slag.json":        "",
+		"fleet/data.json":                  "",
+		"fleet/stars//slag.json":           "",
+		"policy/authz_grants/data.json":    "",
+	} {
+		if got := StarOfRecordPath(p); got != want {
+			t.Errorf("StarOfRecordPath(%q) = %q, want %q", p, got, want)
+		}
+	}
+}

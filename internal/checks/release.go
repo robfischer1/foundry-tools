@@ -193,3 +193,61 @@ func ReleaseScope(p ReleasePlan) string {
 	}
 	return fmt.Sprintf("release build: %s, from %s; %s", strings.Join(names, ", "), source, how)
 }
+
+// RepoKey is the custody key a clone URL names — `rob/hephaestus` for
+// http://ourea…:8215/hephaestus.git and https://git.notusmi.com/hephaestus.git
+// alike, `foundry/foundry-dies` for …/foundry/foundry-dies.git — the form a
+// record's meta.repo carries. A bare name is the default owner's, as the door
+// qualifies it. "" when the URL names no path.
+//
+// Cut, not Index: a position compared to zero is a boundary a mutant can
+// move, and the three it moved on the first push were all here.
+func RepoKey(cloneURL string) string {
+	u := strings.TrimSpace(cloneURL)
+	if _, after, ok := strings.Cut(u, "://"); ok {
+		// scheme://host/path — the path is the key.
+		_, p, _ := strings.Cut(after, "/")
+		u = p
+	} else if host, p, ok := strings.Cut(u, ":"); ok && !strings.Contains(host, "/") {
+		// scp-like: host:path
+		u = p
+	}
+	u = strings.Trim(u, "/")
+	u = strings.TrimSuffix(u, ".git")
+	if u == "" {
+		return ""
+	}
+	if !strings.Contains(u, "/") {
+		return "rob/" + u
+	}
+	return u
+}
+
+// RecordRepo reads meta.repo off a v3 record — the custody key of the
+// repository the record is about. "" when the record does not parse or
+// names none.
+func RecordRepo(slag string) string {
+	var rec struct {
+		Meta struct {
+			Repo string `json:"repo"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal([]byte(slag), &rec); err != nil {
+		return ""
+	}
+	return rec.Meta.Repo
+}
+
+// StarOfRecordPath is the star a record path names: fleet/stars/<star>/slag.json
+// → <star>. "" for any other shape.
+func StarOfRecordPath(p string) string {
+	rest, ok := strings.CutPrefix(p, "fleet/stars/")
+	if !ok {
+		return ""
+	}
+	star, ok := strings.CutSuffix(rest, "/slag.json")
+	if !ok || star == "" || strings.Contains(star, "/") {
+		return ""
+	}
+	return star
+}
