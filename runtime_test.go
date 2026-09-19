@@ -36,11 +36,12 @@ func TestLaneMountsEachCacheAndExportsOnlyTheOneEnvVar(t *testing.T) {
 	}
 }
 
-// Every lane carries the OTel SDK's kill switch: the engine hands each exec an
-// OTLP endpoint it cannot accept metrics on, and a star its tests boot would
-// otherwise push there. Pinned on one atom per lane image, because laneBase is
-// the only place the variable may come from.
-func TestEveryLaneDisablesTheOTelSDK(t *testing.T) {
+// Every lane carries the OTel SDK's kill switch — the engine hands each exec
+// an OTLP endpoint it cannot accept metrics on, and a star its tests boot
+// would otherwise push there — and the trust variables for uv, node and bun.
+// Pinned on one atom per lane image, because laneBase is the only place the
+// variables may come from.
+func TestEveryLaneDisablesTheOTelSDKAndTrustsTheEnginesCA(t *testing.T) {
 	for atom, probe := range map[string]string{
 		"go:vet":            `"go","vet"`,
 		"rust:cargo-clippy": `"cargo","clippy"`,
@@ -61,6 +62,16 @@ func TestEveryLaneDisablesTheOTelSDK(t *testing.T) {
 		}
 		if !hasCall(c, "withEnvVariable", `name:"OTEL_SDK_DISABLED"`, `value:"true"`) {
 			t.Errorf("%s runs without OTEL_SDK_DISABLED=true — a star its tests boot will push metrics at the engine:\n%s", atom, c)
+		}
+		// The clients that do not read the system pool trust the engine's CA
+		// — the transparent cache's signer — by name, on every lane, before
+		// the engine names the intercept face (the F4 incident's fix, not
+		// its repeat).
+		if !hasCall(c, "withEnvVariable", `name:"UV_NATIVE_TLS"`, `value:"1"`) {
+			t.Errorf("%s runs without UV_NATIVE_TLS=1 — uv would refuse the cache's certificate:\n%s", atom, c)
+		}
+		if !hasCall(c, "withEnvVariable", `name:"NODE_EXTRA_CA_CERTS"`, `value:"/etc/ssl/certs/ca-certificates.crt"`) {
+			t.Errorf("%s runs without NODE_EXTRA_CA_CERTS — node and bun would refuse the cache's certificate:\n%s", atom, c)
 		}
 	}
 }
@@ -134,31 +145,21 @@ func TestGitReadyRebuildsALinkedWorktreeAndNamesItsOrigin(t *testing.T) {
 	}
 }
 
-func TestFetchToolTriesTheMirrorThenUpstreamAndFailsHonestly(t *testing.T) {
+func TestFetchToolFetchesTheURLAndFailsHonestly(t *testing.T) {
 	ctx := context.Background()
 	engine.reset()
-	if _, err := fetchTool(ctx, "https://nexus.example/x", "https://upstream.example/x"); err != nil {
-		t.Fatalf("mirror up: %v", err)
-	}
-	if engine.chain(`http(url:"https://upstream.example/x")`) != "" {
-		t.Errorf("upstream must not be asked while the mirror answers")
-	}
-
-	engine.reset()
-	engine.fail(`https://nexus.example/x`, "404")
-	if _, err := fetchTool(ctx, "https://nexus.example/x", "https://upstream.example/x"); err != nil {
+	if _, err := fetchTool(ctx, "https://upstream.example/x"); err != nil {
 		t.Fatalf("upstream up: %v", err)
 	}
 	if engine.chain(`http(url:"https://upstream.example/x")`, "sync") == "" {
-		t.Errorf("a failed mirror must fall through to upstream")
+		t.Errorf("the URL must be fetched and synced")
 	}
 
 	engine.reset()
-	engine.fail(`https://nexus.example/x`, "404")
 	engine.fail(`https://upstream.example/x`, "timeout")
-	_, err := fetchTool(ctx, "https://nexus.example/x", "https://upstream.example/x")
-	if err == nil || !strings.Contains(err.Error(), "404") || !strings.Contains(err.Error(), "timeout") {
-		t.Errorf("both failing must be the error, naming both: %v", err)
+	_, err := fetchTool(ctx, "https://upstream.example/x")
+	if err == nil || !strings.Contains(err.Error(), "timeout") || !strings.Contains(err.Error(), "https://upstream.example/x") {
+		t.Errorf("a failed fetch must be the error, naming the URL and the cause: %v", err)
 	}
 }
 
@@ -250,7 +251,7 @@ func TestLanesProvisionTheirToolsPinnedAndInVolatilityOrder(t *testing.T) {
 	c := engine.chain(`"go","vet"`, "exitCode")
 	order(t, c, `from(address:"`+checks.ImageGo+`")`, `path:"/usr/local/bin/opengrep"`,
 		`"go","install","`+checks.GremlinsModule+`"`, `"go","install","`+checks.MutationGateModule+`"`, `"go","install","`+checks.StaticcheckModule+`"`, `"go","install","`+checks.GovulncheckModule+`"`, `withMountedCache`)
-	fetched(t, `http(url:"`+checks.OpengrepMirror+`")`)
+	fetched(t, `http(url:"`+checks.OpengrepURL+`")`)
 	noShell(t, c)
 	// The go lane scores mutation in Go: nothing it runs needs python3, and it
 	// installs no distro package.

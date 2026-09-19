@@ -795,7 +795,7 @@ func TestFleetOpengrepProbesTheBakedBinaryAndSetsTheLocale(t *testing.T) {
 	}
 	// opengrep is provisioned ONCE by the lane, from the mirror at its pin,
 	// as a file — never fetched by the atom, never through curl.
-	if !hasCall(c, "withFile", `path:"/usr/local/bin/opengrep"`) || engine.chain(`http(url:"`+checks.OpengrepMirror+`")`) == "" {
+	if !hasCall(c, "withFile", `path:"/usr/local/bin/opengrep"`) || engine.chain(`http(url:"`+checks.OpengrepURL+`")`) == "" {
 		t.Errorf("the lane provisions opengrep from the mirror at its pin:\n%s", c)
 	}
 	if strings.Contains(c, `"curl","-`) || strings.Count(c, `path:"/usr/local/bin/opengrep"`) != 1 {
@@ -1165,8 +1165,8 @@ func TestFleetHadolintProvisionsThePinAndPointsItAtTheFleetRuleset(t *testing.T)
 	if hasCall(c, "withExec", `"hadolint","--version"`, `expect:ANY`) {
 		t.Errorf("the version probe is provisioning and must run under the default Expect:\n%s", c)
 	}
-	if engine.chain(`http(url:"`+checks.HadolintMirror+`")`, "id") == "" {
-		t.Errorf("the happy path must place the MIRROR's file:\n%v", engine.chains())
+	if engine.chain(`http(url:"`+checks.HadolintURL+`")`, "id") == "" {
+		t.Errorf("the happy path must place the release URL's file:\n%v", engine.chains())
 	}
 	if strings.Contains(c, "GATE_BASE") {
 		t.Errorf("rule 8: fleet:hadolint must not read GATE_BASE — it would key the cache on the pull:\n%s", c)
@@ -1264,25 +1264,19 @@ func TestFleetHadolintRefusesABinaryThatIsNotThePin(t *testing.T) {
 	wantState(t, runAtom(t, "fleet:hadolint", ""), 2, "does not answer")
 }
 
-// THE BINARY IS FETCHED MIRROR-FIRST; upstream is the fallback, and both
-// failing is a could-not-run rather than a fallthrough.
-func TestFleetHadolintFallsBackFromTheMirrorToUpstream(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	hadolintPinned()
-	engine.fail(checks.HadolintMirror, "502 from the mirror")
-	wantState(t, runAtom(t, "fleet:hadolint", ""), 0)
-	if engine.chain(`http(url:"`+checks.HadolintURL+`")`, "id") == "" {
-		t.Errorf("a dead mirror must place the UPSTREAM's file:\n%v", engine.chains())
-	}
-
+// THE BINARY IS FETCHED FROM ITS RELEASE URL, and a failed fetch is a
+// could-not-run rather than a fallthrough: no second address is tried.
+func TestFleetHadolintRefusesWhenTheReleaseURLFails(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	hadolintPinned()
 	engine.fail("hadolint/hadolint/releases", "404")
 	wantState(t, runAtom(t, "fleet:hadolint", ""), 2,
-		"could not be fetched from the mirror or from upstream", checks.HadolintVersion, "never linted")
-	fleetNoContainer(t, "neither source served the binary")
+		"could not be fetched", checks.HadolintVersion, "never linted")
+	fleetNoContainer(t, "the release URL did not serve the binary")
+	if strings.Contains(strings.Join(engine.chains(), "\n"), "nexus.notusmi.com") {
+		t.Errorf("no fleet address is tried:\n%v", engine.chains())
+	}
 }
 
 func TestFleetHadolintEngineFailures(t *testing.T) {

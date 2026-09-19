@@ -308,7 +308,6 @@ func TestVerifyOrasThatCannotBeProvisionedIsCouldNotRunForTheSBOM(t *testing.T) 
 	m := buildOn(t, map[string]string{"Dockerfile": "FROM " + pinnedBase + "\nCOPY x /x\n"})
 	engine.script(script{match: imageReportNeedle, leaf: "contents", value: report(grpcFinding)})
 	engine.script(script{match: baseReportNeedle, leaf: "contents", value: report()})
-	engine.fail(`http(url:"`+checks.OrasMirror+`")`, "502 from the mirror")
 	engine.fail(`http(url:"`+checks.OrasURL+`")`, "502 from upstream")
 
 	res := verify(t, m)
@@ -319,8 +318,8 @@ func TestVerifyOrasThatCannotBeProvisionedIsCouldNotRunForTheSBOM(t *testing.T) 
 		t.Errorf("scan = %+v, want its own finding kept", scan)
 	}
 	sbom := atomOf(t, res.Atoms, atomSBOM)
-	if sbom.State != 2 || !strings.Contains(sbom.Reason, "could not run: oras could not be provisioned: could not fetch from the mirror or from upstream") {
-		t.Errorf("sbom = %+v, want could-not-run naming both fetches", sbom)
+	if sbom.State != 2 || !strings.Contains(sbom.Reason, "could not run: oras could not be provisioned: could not fetch "+checks.OrasURL) {
+		t.Errorf("sbom = %+v, want could-not-run naming the fetch", sbom)
 	}
 	if engine.chain(imageScanNeedle) != "" {
 		t.Error("syft ran with no oras to read the base's document with")

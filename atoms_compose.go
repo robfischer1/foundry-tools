@@ -74,8 +74,8 @@ func composeSurface(ctx context.Context, r *run, a checks.AtomDef) (tracked *dag
 // `docker compose` or `docker-compose` when one happened to be there; that
 // branch is DELETED, because on these four images it never fires and a branch
 // that never fires is a second parser nobody has ever graded with. The pinned
-// client is fetched the way oras is: the Nexus mirror first, upstream second,
-// and a failure of both is the caller's state 2 rather than a fallthrough.
+// client is fetched the way oras is: from its own release URL, by the engine,
+// and a failed fetch is the caller's state 2 rather than a fallthrough.
 //
 // NO DAEMON IS INVOLVED. `config` is a pure client-side parse — it reads the
 // file, resolves extends/include and validates the schema — so nothing here
@@ -86,7 +86,7 @@ func composeSurface(ctx context.Context, r *run, a checks.AtomDef) (tracked *dag
 // downloaded but does not run is a provisioning failure, and verdict()/output()
 // file it as 2.
 func (r *run) composeClient(ctx context.Context) (*dagger.Container, error) {
-	f, err := fetchTool(ctx, checks.ComposeMirror, checks.ComposeURL)
+	f, err := fetchTool(ctx, checks.ComposeURL)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +147,7 @@ func composeConfig(ctx context.Context, r *run) checks.Verdict {
 
 	ctr, err := r.composeClient(ctx)
 	if err != nil {
-		return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - the pinned docker/compose client (v%s) could not be fetched from the mirror or from upstream. Refusing to report a parsed tree that was never parsed.\n%v", a.ID, checks.ComposeVersion, err))
+		return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - the pinned docker/compose client (v%s) could not be fetched. Refusing to report a parsed tree that was never parsed.\n%v", a.ID, checks.ComposeVersion, err))
 	}
 	if len(stubs) > 0 {
 		// The lane already mounted r.src at /src; the stubbed tree replaces

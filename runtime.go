@@ -35,7 +35,7 @@ import (
 //     statement in shell.
 //  3. ABSENCE IS DECIDED IN GO FROM THE DIRECTORY, before any container runs.
 //  4. FILE LISTS ARE COMPUTED IN GO (population) AND PASSED AS ARGUMENTS.
-//  5. FETCHED TOOLS COME THROUGH dag.HTTP, mirror first, upstream second.
+//  5. FETCHED TOOLS COME THROUGH dag.HTTP, from their own public URL.
 //  6. A SCRIPT THAT IS THE TOOL (foundry-stocks' python and bash) stays the
 //     tool: one exec per script, or one per phase.
 //  7. NO `sh -c` ANYWHERE. A pipe is a sign the rest belongs in Go. Asserted
@@ -136,7 +136,23 @@ func (r *run) laneBase(image string) *dagger.Container {
 		// measurement).
 		WithEnvVariable("GOPROXY", checks.GoProxy).
 		WithEnvVariable("GONOSUMDB", checks.GoNoSumDB).
-		WithEnvVariable("GOPRIVATE", checks.GoPrivate)
+		WithEnvVariable("GOPRIVATE", checks.GoPrivate).
+		// THE CLIENTS THAT DO NOT READ THE SYSTEM POOL. The engine installs
+		// its custom CA — cache-ca, the fleet's transparent cache's signer
+		// (infra cache-ca.yaml) — into every container's system store, which
+		// is where go, cargo, curl, apt and pip (>= 24.2, truststore) look.
+		// uv verifies against webpki's roots unless told to use the platform
+		// store, and node and bun carry their own bundle unless handed extra
+		// certificates. Both on every lane: a variable a toolchain does not
+		// read costs nothing, and a conditional here would be a second place
+		// for this file and the atom table to disagree. WITHOUT THESE, the
+		// day the engine names the intercept face (infra dagger-engine.yaml,
+		// dnsPolicy None -> 10.43.0.53) every `uv sync` and `bun install` on
+		// the fleet refuses the cache's certificate — the F4 incident of
+		// 2026-09-18, which was Go codegen doing exactly that before the CA
+		// reached the engine.
+		WithEnvVariable("UV_NATIVE_TLS", "1").
+		WithEnvVariable("NODE_EXTRA_CA_CERTS", "/etc/ssl/certs/ca-certificates.crt")
 	ctr = provision(ctr, image)
 	for _, c := range checks.CachesFor(image) {
 		opts := dagger.ContainerWithMountedCacheOpts{}
@@ -201,7 +217,7 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 		// besides the tools below; the mutation gate scores in Go now, so the
 		// python3 go_score.py needed is not installed.
 		return ctr.
-			WithFile("/usr/local/bin/opengrep", dag.HTTP(checks.OpengrepMirror), dagger.ContainerWithFileOpts{Permissions: 0o755}).
+			WithFile("/usr/local/bin/opengrep", dag.HTTP(checks.OpengrepURL), dagger.ContainerWithFileOpts{Permissions: 0o755}).
 			WithExec([]string{"opengrep", "--version"}).
 			WithExec([]string{"go", "install", checks.GremlinsModule}).
 			WithExec([]string{"go", "install", checks.MutationGateModule}).
@@ -212,8 +228,8 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 	case checks.ImagePython:
 		// python:slim carries python3 and tar and nothing else the atoms
 		// exec: git and curl come from apt, uv/uvx out of their own image,
-		// opengrep from the mirror. opa and oras the dies and sweep atoms
-		// fetch themselves.
+		// opengrep from its release URL. opa and oras the dies and sweep
+		// atoms fetch themselves.
 		uv := dag.Container().From(checks.ImageUV)
 		return ctr.
 			WithExec([]string{"apt-get", "update"}).
@@ -221,7 +237,7 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 			WithExec([]string{"rm", "-rf", "/var/lib/apt/lists"}).
 			WithFile("/usr/local/bin/uv", uv.File("/uv")).
 			WithFile("/usr/local/bin/uvx", uv.File("/uvx")).
-			WithFile("/usr/local/bin/opengrep", dag.HTTP(checks.OpengrepMirror), dagger.ContainerWithFileOpts{Permissions: 0o755}).
+			WithFile("/usr/local/bin/opengrep", dag.HTTP(checks.OpengrepURL), dagger.ContainerWithFileOpts{Permissions: 0o755}).
 			WithExec([]string{"uv", "--version"}).
 			WithExec([]string{"opengrep", "--version"})
 	case checks.ImageRust:
@@ -231,7 +247,7 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 		// cached layer on every later one.
 		return ctr.
 			WithExec([]string{"rustup", "component", "add", "rustfmt", "clippy"}).
-			WithFile("/usr/local/bin/opengrep", dag.HTTP(checks.OpengrepMirror), dagger.ContainerWithFileOpts{Permissions: 0o755}).
+			WithFile("/usr/local/bin/opengrep", dag.HTTP(checks.OpengrepURL), dagger.ContainerWithFileOpts{Permissions: 0o755}).
 			WithExec([]string{"cargo", "install", "cargo-audit", "--locked", "--version", checks.CargoAuditVersion}).
 			WithExec([]string{"cargo", "install", "cargo-mutants", "--locked", "--version", checks.CargoMutantsVersion}).
 			WithExec([]string{"cargo", "fmt", "--version"}).
@@ -252,7 +268,7 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 			WithExec([]string{"apt-get", "install", "-y", "--no-install-recommends", "git", "curl", "ca-certificates", "procps"}).
 			WithExec([]string{"rm", "-rf", "/var/lib/apt/lists"}).
 			WithFile("/usr/local/bin/node", node.File("/usr/local/bin/node")).
-			WithFile("/usr/local/bin/opengrep", dag.HTTP(checks.OpengrepMirror), dagger.ContainerWithFileOpts{Permissions: 0o755}).
+			WithFile("/usr/local/bin/opengrep", dag.HTTP(checks.OpengrepURL), dagger.ContainerWithFileOpts{Permissions: 0o755}).
 			WithExec([]string{"node", "--version"}).
 			WithExec([]string{"opengrep", "--version"})
 	}
@@ -539,19 +555,23 @@ func (r *run) gitReadyOn(ctx context.Context, ctr *dagger.Container, tree *dagge
 	return ctr
 }
 
-// fetchTool resolves a pinned binary the lane images do not carry: the Nexus
-// mirror first, upstream second. BOTH FAILING IS THE ERROR — the caller files
-// state 2 — never a fallthrough: a spec that was never parsed and a policy
-// suite that never ran are not a clean tree.
-func fetchTool(ctx context.Context, mirror, upstream string) (*dagger.File, error) {
-	var failures []string
-	for _, url := range []string{mirror, upstream} {
-		f := dag.HTTP(url)
-		if _, err := f.Sync(ctx); err == nil {
-			return f, nil
-		} else {
-			failures = append(failures, fmt.Sprintf("%s: %v", url, err))
-		}
+// fetchTool resolves a pinned binary the lane images do not carry, from the
+// tool's own public URL. THE ENGINE FETCHES IT, and the engine is where the
+// fleet's caching lives: inside the cluster the asset hosts resolve to the
+// transparent cache once the engine names the intercept face
+// (infra coredns-custom.yaml), the engine trusts cache-ca, and the same URL
+// outside the cluster is simply the upstream. There is no mirror address
+// to try first — Nexus's github-raw route retired with Nexus (master-plan
+// "Transparent Cache — Nexus Retired", F8), and a second address here would
+// be the fleet-specific name the plan exists to remove.
+//
+// A FAILED FETCH IS THE ERROR — the caller files state 2 — never a
+// fallthrough: a spec that was never parsed and a policy suite that never ran
+// are not a clean tree.
+func fetchTool(ctx context.Context, url string) (*dagger.File, error) {
+	f := dag.HTTP(url)
+	if _, err := f.Sync(ctx); err != nil {
+		return nil, fmt.Errorf("could not fetch %s: %w", url, err)
 	}
-	return nil, fmt.Errorf("could not fetch from the mirror or from upstream: %s", strings.Join(failures, "; "))
+	return f, nil
 }

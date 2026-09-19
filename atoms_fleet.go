@@ -660,9 +660,9 @@ var askWitness = func(ctx context.Context, body string) (int, string, string, er
 // replacement is what makes the ruleset the fleet's: the repository's file
 // serves its local hook and the gate never opens it.
 func (r *run) hadolintClient(ctx context.Context) (*dagger.Container, error) {
-	f, err := fetchTool(ctx, checks.HadolintMirror, checks.HadolintURL)
+	f, err := fetchTool(ctx, checks.HadolintURL)
 	if err != nil {
-		return nil, fmt.Errorf("hadolint %s could not be fetched from the mirror or from upstream: %w", checks.HadolintVersion, err)
+		return nil, fmt.Errorf("hadolint %s could not be fetched: %w", checks.HadolintVersion, err)
 	}
 	ctr := r.lane(checks.ImageFleet).
 		WithFile("/usr/local/bin/hadolint", f, dagger.ContainerWithFileOpts{Permissions: 0o755}).

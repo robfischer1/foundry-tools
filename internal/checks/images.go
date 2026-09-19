@@ -96,21 +96,22 @@ const (
 	TrivyJavaDBRepo = "docker.notusmi.com/aquasecurity/trivy-java-db:1"
 )
 
-// The tools the lanes install, pinned. Binaries come through Nexus's
-// github-raw proxy (the same route the retired CI images fetched them by);
-// the go tools are built by `go install pkg@version` through GoProxy; the
-// cargo tools by `cargo install --locked --version`.
+// The tools the lanes install, pinned. Binaries come from their own release
+// URLs, fetched by the engine (fetchTool in runtime.go has the caching
+// argument); the go tools are built by `go install pkg@version` through
+// GoProxy; the cargo tools by `cargo install --locked --version`.
 //
 // opa is NOT here: the dies atoms fetch it themselves at checks.OpaVersion
-// (below), mirror then upstream, and verify the version they got.
+// (below) and verify the version they got.
 //
-// OpengrepMirror is a LITERAL, not a join: a `+` in a const block is a
+// OpengrepURL is a LITERAL, not a join: a `+` in a const block is a
 // declaration no coverage profile can mark, so the mutation lane reads it
 // as NOT COVERED forever (foundry-tools#35, twice). The test holds the two
-// in step instead.
+// in step instead. GitHub's own release asset, no mirror address: the engine
+// fetches it, and inside the cluster the asset host is the fleet's cache.
 const (
 	OpengrepVersion = "v1.25.0"
-	OpengrepMirror  = "https://nexus.notusmi.com/repository/github-raw/opengrep/opengrep/releases/download/v1.25.0/opengrep_manylinux_x86"
+	OpengrepURL     = "https://github.com/opengrep/opengrep/releases/download/v1.25.0/opengrep_manylinux_x86"
 
 	StaticcheckModule = "honnef.co/go/tools/cmd/staticcheck@2025.1.1"
 	GovulncheckModule = "golang.org/x/vuln/cmd/govulncheck@v1.1.4"
@@ -282,14 +283,11 @@ const (
 	CRDSchemaProbe = "https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/helm.toolkit.fluxcd.io/helmrelease_v2.json"
 )
 
-// OrasURL / OrasMirror fetch the oras client: the build lane attaches its SBOM
-// referrer with it, and bundle and cast push with it.
-//
-// Nexus first, github.com second, and a failure of BOTH is exit 2 rather than a
-// fallthrough.
+// OrasURL fetches the oras client: the build lane attaches its SBOM referrer
+// with it, and bundle and cast push with it. A failed fetch is exit 2 rather
+// than a fallthrough.
 const (
 	OrasVersion = "1.3.0"
-	OrasMirror  = "https://nexus.notusmi.com/repository/github-raw/oras-project/oras/releases/download/v" + OrasVersion + "/oras_" + OrasVersion + "_linux_amd64.tar.gz"
 	OrasURL     = "https://github.com/oras-project/oras/releases/download/v" + OrasVersion + "/oras_" + OrasVersion + "_linux_amd64.tar.gz"
 )
 
@@ -309,12 +307,11 @@ const (
 // the box parse with the same schema.
 const (
 	ComposeVersion = "2.39.2"
-	ComposeMirror  = "https://nexus.notusmi.com/repository/github-raw/docker/compose/releases/download/v" + ComposeVersion + "/docker-compose-linux-x86_64"
 	ComposeURL     = "https://github.com/docker/compose/releases/download/v" + ComposeVersion + "/docker-compose-linux-x86_64"
 )
 
-// OpaVersion / OpaMirror / OpaURL fetch the policy engine the dies: atoms grade
-// with, and THE VERSION IS PART OF THE QUESTION.
+// OpaVersion / OpaURL fetch the policy engine the dies: atoms grade with, and
+// THE VERSION IS PART OF THE QUESTION.
 //
 // Rego's language semantics are a property of the binary. A suite written for
 // v1 and graded by another major answers a different question, and "the policy
@@ -327,6 +324,5 @@ const (
 // for kubeconform and kube-linter above.
 const (
 	OpaVersion = "1.18.0"
-	OpaMirror  = "https://nexus.notusmi.com/repository/github-raw/open-policy-agent/opa/releases/download/v" + OpaVersion + "/opa_linux_amd64_static"
 	OpaURL     = "https://openpolicyagent.org/downloads/v" + OpaVersion + "/opa_linux_amd64_static"
 )

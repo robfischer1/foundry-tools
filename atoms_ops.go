@@ -257,7 +257,7 @@ func opsShellPhase(ctx context.Context, ctr *dagger.Container, files []checks.Op
 // while working on the host that has it. None does today.
 func opsChezmoi(ctx context.Context, r *run) checks.Verdict {
 	return opsAtom(ctx, r, "ops:chezmoi", opsChezmoiPhase, func(ctr *dagger.Container) (*dagger.Container, error) {
-		f, err := fetchTool(ctx, checks.ChezmoiMirror, checks.ChezmoiURL)
+		f, err := fetchTool(ctx, checks.ChezmoiURL)
 		if err != nil {
 			return nil, err
 		}
@@ -501,7 +501,7 @@ func opsAnsiblePhase(ctx context.Context, r *run, ctr *dagger.Container, files [
 // dl.k8s.io today, so fetchTool's second try is the retry.
 func opsFlux(ctx context.Context, r *run) checks.Verdict {
 	return opsAtom(ctx, r, "ops:flux", opsFluxPhase, func(ctr *dagger.Container) (*dagger.Container, error) {
-		f, err := fetchTool(ctx, checks.KubectlMirror, checks.KubectlURL)
+		f, err := fetchTool(ctx, checks.KubectlURL)
 		if err != nil {
 			return nil, err
 		}

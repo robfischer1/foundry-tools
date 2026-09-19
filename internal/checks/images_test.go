@@ -135,12 +135,12 @@ func TestGoPrivateIsEmptySoTheImagesBakedOneCannotWin(t *testing.T) {
 // opengrep download names its version on the mirror's github-raw route, the
 // go tools carry a version after @ that is never @latest, and the cargo
 // tools are plain versions.
-func TestTheProvisionedToolsArePinnedAndTheMirrorRouteCarriesTheVersion(t *testing.T) {
-	if !strings.HasPrefix(OpengrepMirror, "https://nexus.notusmi.com/repository/github-raw/opengrep/opengrep/releases/download/") {
-		t.Errorf("opengrep is fetched from somewhere other than the mirror's github-raw route: %s", OpengrepMirror)
+func TestTheProvisionedToolsArePinnedAndTheReleaseURLCarriesTheVersion(t *testing.T) {
+	if !strings.HasPrefix(OpengrepURL, "https://github.com/opengrep/opengrep/releases/download/") {
+		t.Errorf("opengrep is fetched from somewhere other than its own release URL: %s", OpengrepURL)
 	}
-	if !strings.Contains(OpengrepMirror, "/"+OpengrepVersion+"/") || !strings.HasSuffix(OpengrepMirror, "/opengrep_manylinux_x86") {
-		t.Errorf("the opengrep route does not name the pin and the artefact: %s", OpengrepMirror)
+	if !strings.Contains(OpengrepURL, "/"+OpengrepVersion+"/") || !strings.HasSuffix(OpengrepURL, "/opengrep_manylinux_x86") {
+		t.Errorf("the opengrep URL does not name the pin and the artefact: %s", OpengrepURL)
 	}
 	for _, mod := range []string{StaticcheckModule, GovulncheckModule, GremlinsModule, MutationGateModule} {
 		at := strings.LastIndex(mod, "@")

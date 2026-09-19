@@ -325,7 +325,7 @@ func (l *castLane) pin(ctx context.Context, payload *dagger.Directory) (string, 
 // lays it back under the same path: the tree mold pins is the tree the lane
 // pinned.
 func (l *castLane) stage(ctx context.Context, payload *dagger.Directory, ref string, files []string) (string, int, string) {
-	tarball, err := fetchTool(ctx, checks.OrasMirror, checks.OrasURL)
+	tarball, err := fetchTool(ctx, checks.OrasURL)
 	if err != nil {
 		return "", buildlane.CouldNotRun, fmt.Sprintf("could not run: oras could not be provisioned: %v", err)
 	}
