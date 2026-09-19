@@ -167,10 +167,10 @@ func SlowestTests(baseline string, n int) string {
 	if len(tests) == 0 {
 		return ""
 	}
+	// Stable, strictly greater: two tests with one wall time keep the order
+	// nextest printed them in.
 	sort.SliceStable(tests, func(i, j int) bool { return tests[i].secs > tests[j].secs })
-	if len(tests) > n {
-		tests = tests[:n]
-	}
+	tests = tests[:min(n, len(tests))]
 	var b strings.Builder
 	b.WriteString("\n**Where the test half of each mutant goes** — the baseline run's slowest tests; every mutant pays for these again.\n\n```\n")
 	if summary != "" {

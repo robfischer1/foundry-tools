@@ -158,6 +158,20 @@ func TestSlowestTestsNamesTheBaselinesLongestFirst(t *testing.T) {
 	if got := SlowestTests("error[E0425]: cannot find value", 10); got != "" {
 		t.Errorf("a broken baseline grew a section:\n%s", got)
 	}
+	// A tie keeps nextest's order (stable, strictly greater) — the mutation
+	// lane's >= survivor: with it, equal times would swap.
+	tie := "        PASS [   2.000s] x::a first\n        PASS [   2.000s] x::b second\n        PASS [   1.000s] x::c third\n"
+	got = SlowestTests(tie, 2)
+	first, second := strings.Index(got, "x::a first"), strings.Index(got, "x::b second")
+	if first < 0 || second < 0 || first > second {
+		t.Errorf("a tie must keep the printed order:\n%s", got)
+	}
+	if strings.Contains(got, "x::c third") {
+		t.Errorf("the cut of 2 kept a third:\n%s", got)
+	}
+	if n := strings.Count(SlowestTests(tie, 3), "s  x::"); n != 3 {
+		t.Errorf("a cut equal to the count keeps them all, got %d", n)
+	}
 }
 
 func TestRustMutationVerdictCarriesTheSlowestTests(t *testing.T) {
