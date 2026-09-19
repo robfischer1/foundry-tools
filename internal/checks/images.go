@@ -38,13 +38,25 @@ package checks
 //
 // BY DIGEST, NEVER BY TAG. Every image here is a moving tag upstream; a gate
 // whose image floats is a gate whose verdict is not a function of the pin
-// the door declared, and the pin is the whole of F7's join. The host is the
-// fleet's docker mirror (docker.notusmi.com), never docker.io directly.
+// the door declared, and the pin is the whole of F7's join.
+//
+// BY THE REGISTRY'S OWN NAME, MIRRORED BY THE ENGINE. Until 2026-09-19 every
+// image here named docker.notusmi.com — Nexus's docker group, a flat
+// namespace that merged Hub, ghcr and gcr without saying which — because the
+// image string was the only way through a mirror. It is not any more: the
+// engine's registries.mirrors (infra flux/apps/dagger-engine.yaml, master-plan
+// "Transparent Cache — Nexus Retired" F5) sends docker.io, ghcr.io and gcr.io
+// through zot's hub/, ghcr/ and gcr/ prefixes with the upstream as buildkit's
+// fallback, so `docker.io/library/python@sha256:…` IS the mirrored pull, and
+// says where the image lives. MirroredRegistries below is that set, and the
+// tests hold every image to it; an image from anywhere else (quay.io, a
+// vendor registry) is a pull the fleet does not mirror, and the test says so.
+// The digests are content-addressed and did not move with the names.
 const (
-	ImageGo     = "docker.notusmi.com/library/golang:1.26.6-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36"
-	ImagePython = "docker.notusmi.com/library/python:3.14-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f"
-	ImageRust   = "docker.notusmi.com/library/rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e75fea57e2a2a5c3073"
-	ImageTS     = "docker.notusmi.com/oven/bun:1.4-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61"
+	ImageGo     = "docker.io/library/golang:1.26.6-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36"
+	ImagePython = "docker.io/library/python:3.14-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f"
+	ImageRust   = "docker.io/library/rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e75fea57e2a2a5c3073"
+	ImageTS     = "docker.io/oven/bun:1.4-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61"
 	// The fleet atoms run in the python lane: they are python and shell, and
 	// three of them provision with uvx.
 	ImageFleet = ImagePython
@@ -55,25 +67,25 @@ const (
 const (
 	// ImageUV carries /uv and /uvx — the python lane's whole package
 	// manager, and the version the fleet's uv.lock files were written under.
-	ImageUV = "docker.notusmi.com/astral-sh/uv:0.12.13@sha256:b485bd65cc2cf1c9a93b3554012c9c3778cf7b1b5fd3d3096ce9e1226c97e1e6"
+	ImageUV = "ghcr.io/astral-sh/uv:0.12.13@sha256:b485bd65cc2cf1c9a93b3554012c9c3778cf7b1b5fd3d3096ce9e1226c97e1e6"
 	// ImageNode carries the node ts:mutation runs stryker under
 	// (`node_modules/.bin/stryker` under node, never `bunx --bun` — atoms_ts.go
 	// says why). The bun image ships no node.
-	ImageNode = "docker.notusmi.com/library/node:24-bookworm-slim@sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553"
+	ImageNode = "docker.io/library/node:24-bookworm-slim@sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553"
 
 	// THE TEST DATABASES a Go star's DB-gated suites run against (testdb.go):
 	// pgvector's own image for `live_db`, and library/postgres at the same
 	// major — no extension installed — for `live_db_novector`. Bound as
 	// Dagger services beside the lane container, never pulled by a script.
-	// Digests resolved 2026-09-13 through docker.notusmi.com.
-	ImagePgvector = "docker.notusmi.com/pgvector/pgvector:pg18@sha256:1d50c689b0a6511b9ea0a15615281c81a59fd04a08eb35057ec8646fb3a2118a"
-	ImagePostgres = "docker.notusmi.com/library/postgres:18-bookworm@sha256:a10c981235b4f635e65df0cfb66a5598064628128505dbc6a3ed4ca303717521"
+	// Digests resolved 2026-09-13 (through the Nexus alias, byte-identical).
+	ImagePgvector = "docker.io/pgvector/pgvector:pg18@sha256:1d50c689b0a6511b9ea0a15615281c81a59fd04a08eb35057ec8646fb3a2118a"
+	ImagePostgres = "docker.io/library/postgres:18-bookworm@sha256:a10c981235b4f635e65df0cfb66a5598064628128505dbc6a3ed4ca303717521"
 
 	// THE BUILD LANE'S TOOLS, run by their own entrypoints: cosign signs the
 	// published image and attests its SBOM, syft reads that SBOM, and the
 	// empty static base runs the lane's own two binaries (verdict, hadescall).
-	// cosign is ghcr's, through the mirror's ghcr path. Digests resolved
-	// 2026-09-14 through docker.notusmi.com.
+	// cosign is ghcr's; the static base is gcr's. Digests resolved 2026-09-14
+	// (through the Nexus alias, byte-identical).
 	//
 	// COSIGN IS V3, THE FLEET'S (foundry-stocks versions.env COSIGN_VERSION).
 	// Constellation signatures are v3 bundles, which the registry serves only
@@ -82,18 +94,25 @@ const (
 	// v2.5.3 was pinned here first. It has no such flag, so every tip build
 	// failed at sign (athena a446514), and it would have written legacy
 	// .sig tags that nothing in the fleet reads. The digest is the index's.
-	ImageCosign = "docker.notusmi.com/sigstore/cosign/cosign:v3.1.1@sha256:6bbe0d281d955c79f85b325f0f7e651c1bcab5a4fa4ad4903d74955178a3b2eb"
-	ImageSyft   = "docker.notusmi.com/anchore/syft:v1.33.0@sha256:f94e5d9fce1f2278491a8e3a63bd5f6ddb81fdfdbb8bf7a1637565c1d5344357"
-	ImageStatic = "docker.notusmi.com/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab"
+	ImageCosign = "ghcr.io/sigstore/cosign/cosign:v3.1.1@sha256:6bbe0d281d955c79f85b325f0f7e651c1bcab5a4fa4ad4903d74955178a3b2eb"
+	ImageSyft   = "docker.io/anchore/syft:v1.33.0@sha256:f94e5d9fce1f2278491a8e3a63bd5f6ddb81fdfdbb8bf7a1637565c1d5344357"
+	ImageStatic = "gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab"
 
 	// THE BASE-IMAGE GATE'S SCANNER: trivy, and the two vulnerability
-	// databases it pulls as OCI artifacts, all through the mirror. The pin is
-	// the one ca-rescan and vuln-3p already run (infra flux/apps/ca-rescan.yaml,
+	// databases it pulls as OCI artifacts. The pin is the one ca-rescan and
+	// vuln-3p already run (infra flux/apps/ca-rescan.yaml,
 	// flux/infrastructure/vuln-3p.yaml); the databases move by tag on purpose,
 	// because a scan against last month's advisories is not a scan.
-	ImageTrivy      = "docker.notusmi.com/aquasec/trivy:0.72.0@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f"
-	TrivyDBRepo     = "docker.notusmi.com/aquasecurity/trivy-db:2"
-	TrivyJavaDBRepo = "docker.notusmi.com/aquasecurity/trivy-java-db:1"
+	//
+	// THE DATABASES NAME ZOT'S ghcr/ PREFIX, NOT ghcr.io. trivy pulls them
+	// itself, from INSIDE the lane container, where the engine's mirror
+	// config does not reach — a bare ghcr.io there is an unmirrored,
+	// rate-limited pull on every scan. registry.notusmi.com is the fleet's
+	// own registry, and its ghcr/ prefix is the same on-demand mirror the
+	// engine uses (F3).
+	ImageTrivy      = "docker.io/aquasec/trivy:0.72.0@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f"
+	TrivyDBRepo     = "registry.notusmi.com/ghcr/aquasecurity/trivy-db:2"
+	TrivyJavaDBRepo = "registry.notusmi.com/ghcr/aquasecurity/trivy-java-db:1"
 )
 
 // The tools the lanes install, pinned. Binaries come from their own release
@@ -256,16 +275,23 @@ const (
 	// scratch is a decision to make on purpose against a measured pull, not a
 	// side effect of deleting the shell.
 	//
-	// Both pins come THROUGH THE FLEET MIRROR (docker.notusmi.com), at the
-	// digests they always had: they named ghcr.io and docker.io directly until
-	// 2026-09-14. The mirror answers both digests (manifest HEAD 200, pulled,
-	// and they report kubeconform v0.7.0 and kube-linter 0.8.3), so the
-	// images an atom runs are byte-identical; only the host they come from
-	// changed.
-	ImageKubeconform = "docker.notusmi.com/yannh/kubeconform:v0.7.0-alpine@sha256:8f0eeaaa96ba27ba1500b0e4b1c215acc358d159c62a7ecae58d7a03403287b0"
+	// Both are Hub images at the digests they always had (they named
+	// ghcr.io and docker.io directly until 2026-09-14, the Nexus alias until
+	// 2026-09-19; zot's hub/ prefix answers both digests, so the images an
+	// atom runs are byte-identical whichever name they were pulled by).
+	ImageKubeconform = "docker.io/yannh/kubeconform:v0.7.0-alpine@sha256:8f0eeaaa96ba27ba1500b0e4b1c215acc358d159c62a7ecae58d7a03403287b0"
 	// ImageKubeLinter — likewise alpine, and likewise held still.
-	ImageKubeLinter = "docker.notusmi.com/stackrox/kube-linter:v0.8.3-alpine@sha256:b8311611c27032d4922bc67719225e373e4a0ab0c767bbdcf5f20a9306b1a3bb"
+	ImageKubeLinter = "docker.io/stackrox/kube-linter:v0.8.3-alpine@sha256:b8311611c27032d4922bc67719225e373e4a0ab0c767bbdcf5f20a9306b1a3bb"
 )
+
+// MirroredRegistries are the upstream registries the engine pulls through
+// zot (infra dagger-engine.yaml registries.mirrors → hub./ghcr./gcr.notusmi.com,
+// F5), and so the only hosts a lane image may name: an image from any other
+// registry is a pull the fleet does not mirror. registry.notusmi.com is the
+// fleet's own registry and is allowed beside them for what is pulled from
+// INSIDE a lane container (trivy's databases), which the engine's mirror
+// config cannot see.
+var MirroredRegistries = []string{"docker.io/", "ghcr.io/", "gcr.io/"}
 
 // CRDSchema is the schema location the kubeconform atom adds to the default
 // store, and the probe URL that proves it is reachable.

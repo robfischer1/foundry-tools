@@ -22,25 +22,39 @@ import (
 // not there is a Dagger error and verdict() files it as state 2 by
 // construction rather than by a guard a test had to find in a string.
 
-// The images the atoms run in must be the fleet's own CI images. A public base
-// is a base nobody in this fleet controls the contents of, and the contents are
-// exactly what broke.
+// The images the atoms run in are the upstream toolchains, named by the
+// registry they live on. The fleet's own CI images retired 2026-09-12 (Rob:
+// "Maintaining our own was a mistake"), and a lane image that is one of ours
+// is the regression. The names read forgejo.notusmi.com until 2026-09-10 and
+// the Nexus alias docker.notusmi.com until 2026-09-19; the digests did not
+// change in either move and must not: the assertion is about WHERE the
+// images are addressed, not which images they are.
 //
-// THE HOST IS zot, AND MOVING IT BACK TO THE FORGE IS THE REGRESSION. This read
-// forgejo.notusmi.com until 2026-09-10. The digests did not change in that move
-// and must not: the assertion is about WHERE the fleet's images are addressed,
-// not which images they are. Two of the four now exist only on zot, so a revert
-// of this one string is an unpullable gate.
+// MIRRORED BY THE ENGINE, NOT BY THE STRING. The registries here are the
+// ones the engine's registries.mirrors sends through zot (MirroredRegistries),
+// so naming docker.io IS the mirrored pull; a registry outside that set is
+// a pull nothing mirrors.
 func TestEveryLaneImageIsAnUpstreamToolchainOnTheMirror(t *testing.T) {
-	const want = "docker.notusmi.com/"
 	for _, img := range []string{ImageGo, ImagePython, ImageRust, ImageTS, ImageFleet, ImageUV, ImageNode} {
-		if !strings.HasPrefix(img, want) {
-			t.Errorf("lane image %q is not an upstream toolchain on the fleet's mirror (%s…) — the CI images retired 2026-09-12 and docker.io is never dialled directly", img, want)
+		if !mirrored(img) {
+			t.Errorf("lane image %q is not on a registry the engine mirrors (%v)", img, MirroredRegistries)
 		}
-		if strings.Contains(img, "stellar_core:") {
+		if strings.Contains(img, "stellar_core:") || strings.HasPrefix(img, "registry.notusmi.com/rob/") {
 			t.Errorf("lane image %q is one of the fleet's own images — those are what Rob stopped maintaining", img)
 		}
+		if strings.HasPrefix(img, "docker.notusmi.com/") || strings.HasPrefix(img, "forgejo.notusmi.com/") {
+			t.Errorf("lane image %q names a retired alias; name the registry it lives on", img)
+		}
 	}
+}
+
+func mirrored(img string) bool {
+	for _, m := range MirroredRegistries {
+		if strings.HasPrefix(img, m) {
+			return true
+		}
+	}
+	return false
 }
 
 // BY DIGEST, NEVER BY TAG. All four CI images are MOVING tags: CronJob
@@ -60,15 +74,22 @@ func TestEveryImageIsPinnedByDigest(t *testing.T) {
 	}
 }
 
-// THROUGH THE FLEET MIRROR, NEVER UPSTREAM. Every image an atom or the build
-// function runs is pulled from docker.notusmi.com. An upstream registry is a
-// dependency the fleet does not operate, and it rate-limits and moves on its
-// own schedule. kubeconform and kube-linter named ghcr.io and docker.io
-// directly until 2026-09-14.
+// THROUGH THE FLEET MIRROR, NEVER UPSTREAM DIRECTLY. Every image an atom or
+// the build function runs lives on a registry the engine mirrors through zot
+// (MirroredRegistries): an upstream the fleet does not mirror rate-limits and
+// moves on its own schedule, and this is where a quay.io or vendor image
+// would be caught. The trivy databases are the exception by design — pulled
+// by trivy from inside the lane container, where the engine's mirror config
+// does not reach — and name zot's prefix on the fleet's own registry.
 func TestEveryImageComesThroughTheFleetMirror(t *testing.T) {
 	for _, img := range append(append([]string{}, LaneImages...), ImageCosign, ImageSyft, ImageStatic) {
-		if !strings.HasPrefix(img, "docker.notusmi.com/") {
-			t.Errorf("image %q is not pulled through the fleet mirror (docker.notusmi.com)", img)
+		if !mirrored(img) {
+			t.Errorf("image %q is not on a registry the engine mirrors (%v)", img, MirroredRegistries)
+		}
+	}
+	for _, repo := range []string{TrivyDBRepo, TrivyJavaDBRepo} {
+		if !strings.HasPrefix(repo, "registry.notusmi.com/ghcr/") {
+			t.Errorf("trivy database %q is pulled from inside the lane container and must name zot's ghcr/ prefix, not an upstream", repo)
 		}
 	}
 }

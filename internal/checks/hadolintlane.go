@@ -76,14 +76,19 @@ const HadolintConfigPath = "/etc/hadolint/fleet.yaml"
 //     (infra#490, 2026-09-13). It is hadolint's default again: an Alpine
 //     image that enters the fleet meets the rule.
 //
-//   - trustedRegistries: the fleet's two hosts. images.go states the
-//     invariant — "the host is the fleet's docker mirror (docker.notusmi.com),
-//     never docker.io directly" — and DL3026 is hadolint saying it about a
-//     FROM line. Measured: five real violations today (three stars still
-//     FROM the sunset forgejo.notusmi.com host; two direct docker.io pulls)
-//     and ONE false positive, `FROM ${PYTHON_BASE}` in python-base-image,
-//     which hadolint cannot resolve through the ARG even when its default is
-//     a trusted host — that line carries a reasoned pragma.
+//   - trustedRegistries: the registries the fleet MIRRORS, plus its own.
+//     images.go states the invariant — a lane image names the registry it
+//     lives on, and the engine's registries.mirrors (infra dagger-engine.yaml,
+//     F5) sends docker.io, ghcr.io and gcr.io through zot — and DL3026 is
+//     hadolint saying it about a FROM line: a FROM from quay.io or a vendor
+//     registry is a pull nothing mirrors, and it says so. Until 2026-09-19
+//     the list was the Nexus alias and registry.notusmi.com, when the alias
+//     was the only way through a mirror; docker.notusmi.com stays trusted
+//     while stars' Dockerfiles still name it (it is a shim over zot now,
+//     infra cache.yaml) and leaves the list with the alias (F8/F9). The
+//     one historical false positive, `FROM ${PYTHON_BASE}` in
+//     python-base-image, which hadolint cannot resolve through an ARG,
+//     carried a reasoned pragma.
 //
 // RETURNED TO THE DEFAULT. The failure threshold was warning while DL3066
 // ("non-numeric user-id": 12 stars, the template poured `USER app`) and
@@ -126,13 +131,16 @@ failure-threshold: info
 ignored:
   - DL3008
 trustedRegistries:
-  - docker.notusmi.com
+  - docker.io
+  - ghcr.io
+  - gcr.io
   - registry.notusmi.com
+  - docker.notusmi.com
 `
 
 // HadolintTrustedRegistries is the FROM allowlist the config above carries,
 // as data, so a test can hold the YAML and the list in step.
-var HadolintTrustedRegistries = []string{"docker.notusmi.com", "registry.notusmi.com"}
+var HadolintTrustedRegistries = []string{"docker.io", "ghcr.io", "gcr.io", "registry.notusmi.com", "docker.notusmi.com"}
 
 // DockerfilePopulation answers the Dockerfiles among the gate population —
 // the files hadolint is asked to read.
