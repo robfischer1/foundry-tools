@@ -501,7 +501,7 @@ func (l *bundleLane) registryConfig(ctx context.Context) (*dagger.Secret, gateRe
 // mounted, working in workDir so each pushed layer is titled by its filename,
 // as bundle.sh's were.
 func (l *bundleLane) oras(ctx context.Context, built *dagger.Container) (*dagger.Container, gateResult) {
-	tarball, err := fetchTool(ctx, checks.OrasMirror, checks.OrasURL)
+	tarball, err := fetchTool(ctx, checks.OrasURL)
 	if err != nil {
 		return nil, couldNotRun("oras could not be provisioned: %v", err)
 	}

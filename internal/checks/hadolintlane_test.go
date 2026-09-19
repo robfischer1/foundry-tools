@@ -211,26 +211,20 @@ func TestHadolintVersionOKMatchesTheWholeLine(t *testing.T) {
 	}
 }
 
-// The three pins are literals (OpengrepMirror's coverage reason) and this is
-// what keeps them one decision: the version in both URLs is HadolintVersion,
-// the asset is the lowercase name the release actually publishes, and the
-// mirror is Nexus's github-raw proxy in front of the same path upstream serves.
+// The two pins are literals (OpengrepURL's coverage reason) and this is what
+// keeps them one decision: the version in the URL is HadolintVersion, the
+// asset is the lowercase name the release actually publishes, and the URL is
+// GitHub's own — no fleet address.
 func TestHadolintPinsAgree(t *testing.T) {
 	const asset = "hadolint-linux-x86_64"
 	tail := "/hadolint/hadolint/releases/download/v" + HadolintVersion + "/" + asset
-	if !strings.HasSuffix(HadolintMirror, tail) {
-		t.Errorf("HadolintMirror %q does not end in %q", HadolintMirror, tail)
-	}
 	if !strings.HasSuffix(HadolintURL, tail) {
 		t.Errorf("HadolintURL %q does not end in %q", HadolintURL, tail)
-	}
-	if !strings.HasPrefix(HadolintMirror, "https://nexus.notusmi.com/repository/github-raw/") {
-		t.Errorf("HadolintMirror %q is not the Nexus github-raw proxy", HadolintMirror)
 	}
 	if !strings.HasPrefix(HadolintURL, "https://github.com/") {
 		t.Errorf("HadolintURL %q is not upstream", HadolintURL)
 	}
-	if strings.Contains(HadolintMirror, "Linux") || strings.Contains(HadolintURL, "Linux") {
+	if strings.Contains(HadolintURL, "Linux") {
 		t.Errorf("the asset is published lowercase; the capitalised spelling works by redirect and on somebody else's schedule")
 	}
 }

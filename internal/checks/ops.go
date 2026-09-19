@@ -32,34 +32,30 @@ func IsOpsTree(files []string) bool {
 }
 
 // OpsUVIndex is the index ops.sh's `uv run --with` resolves ansible-core,
-// ansible-lint and pyyaml from — the fleet's, so the gate and the pre-push
-// hook draw the same wheels.
-const OpsUVIndex = "https://nexus.notusmi.com/repository/pypi/simple"
+// ansible-lint and pyyaml from: pypi.org by its own name, which inside the
+// cluster is the fleet's transparent cache once the engine names the
+// intercept face, so the gate and the pre-push hook draw the same wheels
+// with no fleet address in either.
+const OpsUVIndex = "https://pypi.org/simple"
 
-// ChezmoiVersion / ChezmoiMirror / ChezmoiURL fetch the chezmoi client
-// ops:chezmoi renders templates with, PINNED for the reason every tool on
-// this page is. The bare linux-amd64 binary is a release asset, so it
-// arrives the way the compose client does: the Nexus GitHub mirror first,
-// upstream second.
+// ChezmoiVersion / ChezmoiURL fetch the chezmoi client ops:chezmoi renders
+// templates with, PINNED for the reason every tool on this page is. The bare
+// linux-amd64 binary is a release asset, so it arrives the way the compose
+// client does: GitHub's own URL, fetched by the engine.
 //
 // Spelled out in full rather than composed from the version: a `+` in a const
 // block is an arithmetic mutation site the mutation lane reads as NOT COVERED
-// (2026-09-13, foundry-tools#47), and TestOpsToolPinsAgree holds the three
+// (2026-09-13, foundry-tools#47), and TestOpsToolPinsAgree holds the two
 // lines to one version instead.
 const (
 	ChezmoiVersion = "2.72.2"
-	ChezmoiMirror  = "https://nexus.notusmi.com/repository/github-raw/twpayne/chezmoi/releases/download/v2.72.2/chezmoi-linux-amd64"
 	ChezmoiURL     = "https://github.com/twpayne/chezmoi/releases/download/v2.72.2/chezmoi-linux-amd64"
 )
 
-// KubectlVersion / KubectlMirror / KubectlURL fetch the kubectl ops:flux builds
-// Kustomizations with — the cluster's own minor (k3s v1.36 serves it; the
-// retired pipeline pinned alpine/k8s:1.34.1 and ca-sweep stages the same
-// series). dl.k8s.io has no Nexus mirror today, so KubectlMirror IS the
-// upstream and fetchTool's second attempt is a retry rather than a fallback;
-// give it a mirror the day one exists.
+// KubectlVersion / KubectlURL fetch the kubectl ops:flux builds Kustomizations
+// with — the cluster's own minor (k3s v1.36 serves it; the retired pipeline
+// pinned alpine/k8s:1.34.1 and ca-sweep stages the same series).
 const (
 	KubectlVersion = "1.34.1"
 	KubectlURL     = "https://dl.k8s.io/release/v1.34.1/bin/linux/amd64/kubectl"
-	KubectlMirror  = KubectlURL
 )

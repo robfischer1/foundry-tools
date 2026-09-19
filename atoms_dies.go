@@ -113,9 +113,9 @@ func requirePaths(ctx context.Context, r *run, a checks.AtomDef, required [][2]s
 // when the right binary was already on disk; with the file placed by the engine
 // there is nothing to skip, and the same probe now asserts what was fetched.
 func (r *run) opaClient(ctx context.Context) (*dagger.Container, error) {
-	f, err := fetchTool(ctx, checks.OpaMirror, checks.OpaURL)
+	f, err := fetchTool(ctx, checks.OpaURL)
 	if err != nil {
-		return nil, fmt.Errorf("opa %s could not be fetched from the mirror or from upstream: %w", checks.OpaVersion, err)
+		return nil, fmt.Errorf("opa %s could not be fetched: %w", checks.OpaVersion, err)
 	}
 	ctr := r.lane(checks.ImageFleet).
 		WithFile("/usr/local/bin/opa", f, dagger.ContainerWithFileOpts{Permissions: 0o755})

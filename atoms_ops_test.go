@@ -155,8 +155,8 @@ func TestOpsChezmoi(t *testing.T) {
 		[]string{"withExec", `args:["chezmoi","--version"]`},
 		[]string{"withExec", "expect:ANY", `args:["chezmoi","--source",".","execute-template"]`, `stdin:"{{ .chezmoi.os }}\n"`},
 	)
-	if engine.chain(`http(url:"`+checks.ChezmoiMirror+`")`, "sync") == "" {
-		t.Errorf("ops:chezmoi must try the mirror first: %s", checks.ChezmoiMirror)
+	if engine.chain(`http(url:"`+checks.ChezmoiURL+`")`, "sync") == "" {
+		t.Errorf("ops:chezmoi must fetch chezmoi from its release URL: %s", checks.ChezmoiURL)
 	}
 
 	opsTree(files, nil)
@@ -170,7 +170,6 @@ func TestOpsChezmoi(t *testing.T) {
 
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	engine.fail(`http(url:"`+checks.ChezmoiMirror+`")`, "mirror down")
 	engine.fail(`http(url:"`+checks.ChezmoiURL+`")`, "upstream down")
 	wantState(t, runAtom(t, "ops:chezmoi", ""), 2, "CANNOT RUN", "could not be provisioned")
 	if engine.chain(`"execute-template"`) != "" {

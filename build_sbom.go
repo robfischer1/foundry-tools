@@ -19,7 +19,7 @@ import (
 // orasIn is the fleet image with the oras client on its path; the registry
 // login, when given, is mounted where oras reads a docker config.
 func orasIn(ctx context.Context, registryAuth *dagger.Secret) (*dagger.Container, error) {
-	tarball, err := fetchTool(ctx, checks.OrasMirror, checks.OrasURL)
+	tarball, err := fetchTool(ctx, checks.OrasURL)
 	if err != nil {
 		return nil, fmt.Errorf("oras could not be provisioned: %w", err)
 	}

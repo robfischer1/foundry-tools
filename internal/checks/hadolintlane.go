@@ -10,22 +10,26 @@ import (
 // on disk is the pinned one. The atom itself (atoms_fleet.go) only fetches,
 // mounts and points.
 
-// HadolintVersion / HadolintMirror / HadolintURL fetch the Dockerfile linter
-// the fleet:hadolint atom runs. Same Nexus-then-upstream shape as opa and
-// compose, and the same refusal: a Dockerfile that was never linted is not a
-// Dockerfile that passed.
+// HadolintVersion / HadolintURL fetch the Dockerfile linter the
+// fleet:hadolint atom runs, from GitHub's release asset by its public name —
+// the same shape as opa and compose, and the same refusal: a Dockerfile that
+// was never linted is not a Dockerfile that passed. The engine fetches it;
+// inside the cluster the redirect target, release-assets.githubusercontent.com,
+// is the fleet's transparent cache once the engine names the intercept face
+// (infra coredns-custom.yaml), and the engine trusts cache-ca. No mirror
+// address: Nexus's github-raw route retired with Nexus (master-plan
+// "Transparent Cache — Nexus Retired", F8).
 //
-// THE MIRROR IS A LITERAL, NOT A JOIN, for the reason OpengrepMirror is: a
-// `+` in a const block is a declaration no coverage profile can mark, and the
+// THE URL IS A LITERAL, NOT A JOIN, for the reason OpengrepURL is: a `+` in
+// a const block is a declaration no coverage profile can mark, and the
 // mutation lane reads it as NOT COVERED forever (foundry-tools#35, twice).
-// TestHadolintPinsAgree holds the version and both URLs in step instead.
+// TestHadolintPinsAgree holds the version and the URL in step instead.
 //
 // THE ASSET NAME IS LOWERCASE. v2.15.1 publishes `hadolint-linux-x86_64`
 // (measured against the release's own asset list and checksums.sha256,
 // 2026-09-13: sha256 c7187db9…, 55 661 096 bytes); GitHub also answers the
 // older `hadolint-Linux-x86_64` spelling by redirect, and a URL that works by
-// accident is a URL that stops working on somebody else's schedule. The
-// mirror serves the same bytes — measured, same digest.
+// accident is a URL that stops working on somebody else's schedule.
 //
 // THE PIN IS THE ONE THE FLEET'S HOOKS RUN. Seven repositories laid the
 // hadolint-docker pre-commit hook at ghcr.io/hadolint/hadolint:v2.15.1 on
@@ -34,7 +38,6 @@ import (
 // finding there.
 const (
 	HadolintVersion = "2.15.1"
-	HadolintMirror  = "https://nexus.notusmi.com/repository/github-raw/hadolint/hadolint/releases/download/v2.15.1/hadolint-linux-x86_64"
 	HadolintURL     = "https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-linux-x86_64"
 )
 
