@@ -110,8 +110,11 @@ func TestHadolintConfigCarriesTheFleetsTwoDecisions(t *testing.T) {
 	for _, want := range []string{
 		"failure-threshold: info", // hadolint's own default, written out
 		"- DL3008",                // apt pins: the digest pins the output
-		"- docker.notusmi.com",    // the mirror
-		"- registry.notusmi.com",  // the forge's own images
+		"- docker.io",             // the registries the engine mirrors through zot…
+		"- ghcr.io",
+		"- gcr.io",
+		"- registry.notusmi.com", // …and the forge's own images
+		"- docker.notusmi.com",   // the alias, a shim over zot until the stars stop naming it
 	} {
 		if !lines[want] {
 			t.Errorf("the fleet ruleset lacks %q:\n%s", want, HadolintConfig)
@@ -171,11 +174,28 @@ func TestHadolintTrustedRegistriesAgreeWithTheConfig(t *testing.T) {
 	if len(HadolintTrustedRegistries) == 0 {
 		t.Fatal("an empty trust list makes DL3026 never fire, which is the invariant images.go states going unenforced")
 	}
-	for _, h := range HadolintTrustedRegistries {
-		if !strings.HasSuffix(h, ".notusmi.com") {
-			t.Errorf("%q is not a fleet host — the allowlist is the mirror and the forge, nothing upstream", h)
+	// The allowlist is exactly what the fleet mirrors (MirroredRegistries,
+	// which the engine sends through zot) plus its own hosts; a registry
+	// that is neither is a FROM nothing mirrors, and it must NOT be here.
+	for _, m := range MirroredRegistries {
+		if !contains(HadolintTrustedRegistries, strings.TrimSuffix(m, "/")) {
+			t.Errorf("%q is mirrored by the engine but not trusted by hadolint — a FROM from it would be refused for no reason", m)
 		}
 	}
+	for _, h := range HadolintTrustedRegistries {
+		if !strings.HasSuffix(h, ".notusmi.com") && !contains(MirroredRegistries, h+"/") {
+			t.Errorf("%q is neither a fleet host nor a mirrored registry — a FROM from it is a pull nothing mirrors", h)
+		}
+	}
+}
+
+func contains(xs []string, x string) bool {
+	for _, v := range xs {
+		if v == x {
+			return true
+		}
+	}
+	return false
 }
 
 // The config lives outside /src, or the mount would be asked to carry the
