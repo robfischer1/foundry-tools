@@ -33,7 +33,11 @@ type CacheMount struct {
 	// out at two paths shares one artifact name and one dep-info in the
 	// target dir; the rust mutation atom, which builds cargo-mutants' copies,
 	// therefore drops this mount and its variable (atoms_rust.go,
-	// foundry-tools#8869). The gate's own atoms build one tree at one path.
+	// foundry-tools#8869). The gate's own atoms build one tree at one path —
+	// but not the SAME tree each time: every commit of a repo mounts at /src
+	// and shares that crate's one artifact, so the atoms that build here stamp
+	// the tree with Unstale first (rustlane.go), or cargo links whatever tree
+	// built it last.
 	Key string
 	// Seed copies the image's directory at Path into the volume on first
 	// creation. False where the image has nothing there (a target dir, a

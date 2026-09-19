@@ -1,8 +1,12 @@
 package checks
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // 101 IS THE CODE THE LANE TURNS ON. Everything else keeps the meaning
@@ -139,5 +143,48 @@ func TestFirstCargoErrorAtTheLimitIsNotRebuiltThroughRunes(t *testing.T) {
 	}
 	if got := FirstCargoError(at200); got != at200 {
 		t.Errorf("the line at the limit came back rebuilt:\n got %q\nwant %q", got, at200)
+	}
+}
+
+// Unstale runs for real: every file of the tree comes out dated past any
+// artifact a build could have left, and .git is left alone.
+func TestUnstaleDatesTheTreePastAnyBuild(t *testing.T) {
+	dir := t.TempDir()
+	past := time.Now().Add(-time.Hour)
+	for _, p := range []string{"src/lib.rs", "tests/budget.rs", "Cargo.toml", ".git/HEAD"} {
+		full := filepath.Join(dir, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(full, past, past); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	argv := Unstale()
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%v: %v\n%s", argv, err, out)
+	}
+
+	future := time.Unix(UnstaleEpoch, 0)
+	if !future.After(time.Now().AddDate(50, 0, 0)) {
+		t.Fatalf("the stamp must sit past any artifact this volume will hold: %v", future)
+	}
+	for _, p := range []string{"src/lib.rs", "tests/budget.rs", "Cargo.toml"} {
+		fi, err := os.Stat(filepath.Join(dir, p))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !fi.ModTime().Equal(future) {
+			t.Errorf("%s is %v, want %v — cargo would call it Fresh against a newer artifact", p, fi.ModTime(), future)
+		}
+	}
+	if fi, _ := os.Stat(filepath.Join(dir, ".git/HEAD")); !fi.ModTime().Equal(past) {
+		t.Errorf(".git is not the tree cargo builds and is left alone: %v", fi.ModTime())
 	}
 }

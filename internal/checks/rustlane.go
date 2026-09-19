@@ -1,6 +1,7 @@
 package checks
 
 import (
+	"strconv"
 	"strings"
 )
 
@@ -74,3 +75,34 @@ func CargoListsTests(list string) bool {
 	}
 	return false
 }
+
+// Unstale is the exec that dates every file of the tree in the working
+// directory into the far future, so cargo builds THIS tree rather than the
+// last one the shared target directory saw.
+//
+// CARGO JUDGES A WORKSPACE CRATE BY MTIME, AND THE TARGET DIR OUTLIVES THE
+// TREE. foundry-cargo-target is one volume per engine, and every tree of a
+// repo mounts at /src, so a crate has one artifact and one dep-info there
+// whichever commit built it last. The mount's files are not newer than that
+// artifact, so cargo calls the crate Fresh and links what an older tree
+// built. MEASURED 2026-09-19 on bellows #51: the landing candidate a0eb4b1 —
+// main 300d755, green on its own, plus one YAML file — failed clippy and
+// test with `Query has no field named lens`: tests/budget.rs, new since the
+// head's base, compiled against the head's older library, which has no
+// `lens`. The same staleness passes a tree that does not build whenever the
+// older artifact did.
+//
+// A FIXED FUTURE, NOT NOW. "now" would be right on the run that stamps it
+// and wrong on any later one: the exec is cached per tree, and a build re-run
+// under a cached stamp meets an artifact some other tree wrote after it. A
+// source dated UnstaleEpoch is newer than every artifact that will ever sit
+// in the volume, so the workspace's own crates always rebuild — incrementally,
+// under rustc's content hashes — and registry crates, which the stamp never
+// touches, stay warm. No shell: find execs touch itself. .git is left alone.
+func Unstale() []string {
+	return []string{"find", ".", "-path", "./.git", "-prune", "-o", "-type", "f",
+		"-exec", "touch", "-c", "-d", "@" + strconv.FormatInt(UnstaleEpoch, 10), "--", "{}", "+"}
+}
+
+// UnstaleEpoch is 2100-01-01T00:00:00Z.
+const UnstaleEpoch int64 = 4102444800
