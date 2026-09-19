@@ -62,6 +62,15 @@ func (r *run) cargoDeps() *dagger.Container {
 	return r.lane(checks.ImageRust).WithExec([]string{"cargo", "fetch"})
 }
 
+// cargoFresh is cargoDeps for the atoms that build into the shared
+// foundry-cargo-target — clippy and test — with the tree dated past every
+// artifact in it (checks.Unstale), so cargo rebuilds the workspace's own
+// crates from THIS tree. The mutation lane and the release build compile
+// into target dirs of their own and branch from cargoDeps.
+func (r *run) cargoFresh() *dagger.Container {
+	return r.cargoDeps().WithExec(checks.Unstale())
+}
+
 func rustCargoFmt(ctx context.Context, r *run) checks.Verdict {
 	return cargoVerdict(ctx, checks.AtomByID("rust:cargo-fmt"),
 		r.lane(checks.ImageRust).WithExec([]string{"cargo", "fmt", "--all", "--check"}, anyExit))
@@ -80,7 +89,7 @@ func rustCargoFmt(ctx context.Context, r *run) checks.Verdict {
 // reporting a clean one.
 func rustCargoClippy(ctx context.Context, r *run) checks.Verdict {
 	return cargoVerdict(ctx, checks.AtomByID("rust:cargo-clippy"),
-		r.cargoDeps().WithExec([]string{
+		r.cargoFresh().WithExec([]string{
 			"cargo", "clippy", "--workspace", "--all-targets", "--",
 			"-W", "clippy::all", "-D", "warnings",
 		}, anyExit))
@@ -94,11 +103,13 @@ func rustCargoClippy(ctx context.Context, r *run) checks.Verdict {
 // `<path>: test`; a workspace that lists none is red before the suite runs
 // (checks.CargoListsTests).
 //
-// THE LIST BUILD IS THE SUITE'S BUILD, SO NOTHING COMPILES TWICE. `cargo test
-// -- --list` builds every test binary and then asks each to enumerate itself;
-// the `cargo test` that follows finds that build in CARGO_TARGET_DIR — a cache
-// volume — and runs it. The listing is therefore free, which is why the count
-// is asked for with the real toolchain rather than by grepping for `#[test]`.
+// THE LIST BUILD IS THE SUITE'S BUILD. `cargo test -- --list` builds every
+// test binary and then asks each to enumerate itself; the `cargo test` that
+// follows finds that build in CARGO_TARGET_DIR — a cache volume — and runs it.
+// Under cargoFresh's stamp the suite re-checks the workspace's own crates
+// once more (incrementally, from rustc's content hashes); registry crates stay
+// built. The count is still asked for with the real toolchain rather than by
+// grepping for `#[test]`.
 //
 // A LISTING THAT WOULD NOT BUILD IS A FINDING, NOT A COULD-NOT-RUN. Code that
 // does not compile is the committer's to fix, and the old body said so; what
@@ -113,7 +124,7 @@ func rustCargoClippy(ctx context.Context, r *run) checks.Verdict {
 // passes. gitReady is the fix the mutation atom already carries.
 func rustCargoTest(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("rust:cargo-test")
-	lane := r.gitReady(ctx, r.cargoDeps())
+	lane := r.gitReady(ctx, r.cargoFresh())
 
 	listed, code, err := output(ctx, lane.WithExec(
 		[]string{"cargo", "test", "--workspace", "--", "--list"}, anyExit))

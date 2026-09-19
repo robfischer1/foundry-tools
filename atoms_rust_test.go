@@ -721,3 +721,34 @@ func TestRustReleaseSaysWhyItCouldNotRun(t *testing.T) {
 	})
 	wantState(t, runAtom(t, "rust:release", ""), 2, "is not a binary name")
 }
+
+// The atoms that build into the shared foundry-cargo-target run under the
+// Unstale stamp, after the fetch and before cargo; the mutation lane, which
+// builds into target dirs of its own, does not pay for it.
+func TestRustSharedTargetBuildsRunUnderTheStamp(t *testing.T) {
+	stamp := []string{"withExec", `args:["find",".","-path","./.git","-prune"`, `"touch","-c","-d","@4102444800"`}
+	for _, tc := range []struct{ atom, needle string }{
+		{"rust:cargo-clippy", `"cargo","clippy"`},
+		{"rust:cargo-test", `"cargo","test","--workspace","--","--list"`},
+		{"rust:cargo-test", `"cargo","test","--workspace"]`},
+	} {
+		engine.reset()
+		engine.withTree(everyLaneTree)
+		engine.stdout(`"--list"`, "tests::one: test\n")
+		runAtom(t, tc.atom, "")
+		c := engine.chain(tc.needle, "exitCode")
+		if c == "" {
+			t.Fatalf("%s: no chain ran %s", tc.atom, tc.needle)
+		}
+		wantCalls(t, c, []string{"withExec", `args:["cargo","fetch"]`}, stamp)
+		if strings.Index(c, `"cargo","fetch"`) > strings.Index(c, `"find"`) {
+			t.Errorf("%s: the stamp follows the fetch:\n%s", tc.atom, c)
+		}
+	}
+
+	scriptRustMutation(map[string]string{".copier-answers.yml": "critical_modules: src/lib.rs\n"})
+	runAtom(t, "rust:mutation", "abc123")
+	if c := engine.chain(rustMutantsNeedle, "exitCode"); hasCall(c, stamp[0], stamp[1:]...) {
+		t.Errorf("rust:mutation builds in its own target dirs and must not rebuild the workspace per mutant:\n%s", c)
+	}
+}
