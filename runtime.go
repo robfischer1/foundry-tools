@@ -56,6 +56,12 @@ type run struct {
 	src  *dagger.Directory
 	repo string
 	base string
+	// origin is where a LOCAL run's base can be fetched from — the star's own
+	// origin remote, which the pre-push hook hands over — for a tree that
+	// arrived as a linked-worktree snapshot and carries no history of its own.
+	// "" for the door's Jobs (their tree is fetched whole, with repo above)
+	// and for a hook that named none.
+	origin string
 	// reask, when set, is written into every lane container past its toolchain
 	// layers, so every exec after it is keyed afresh and nothing the engine
 	// cached answers it (verdictFor's re-ask of a could-not-run).
@@ -70,6 +76,12 @@ type run struct {
 	goModsOnce sync.Once
 	goMods     []string
 	goModsErr  error
+}
+
+// fromOrigin names where a snapshot's history is fetched from (gitReadyOn).
+func (r *run) fromOrigin(url string) *run {
+	r.origin = url
+	return r
 }
 
 // reasked is r keyed afresh: every lane exec carries the nonce.
@@ -541,8 +553,32 @@ func (r *run) gitReady(ctx context.Context, ctr *dagger.Container) *dagger.Conta
 // gitReadyOn is gitReady for a container whose /src is tree — r.src, or the
 // narrowed r.code() — so the mount swap below re-mounts the same tree the
 // caller chose, less the dangling .git file.
+//
+// THE HISTORY IS THE DOOR'S WHEN THE HOOK SAYS WHERE IT LIVES (CA F16, Rob
+// 2026-09-19: "let dagger grab the tree"). A snapshot with no history made
+// every diff-scoped atom stand down: go:mutation answered 0 with "no usable PR
+// base sha" on the hook while the door's Job found 244 missed mutants on the
+// same sha (terpsichore 1c28f38, foundry-tools#10253) — blind exactly where
+// it runs. With --origin and --base named, the ENGINE fetches the base commit
+// from the door (a git-sourced tree, cached by commit, its .git a real
+// repository at that commit), the snapshot's files replace the checkout, and
+// one commit on top makes HEAD the tree as pushed with the base as its parent.
+// `git diff <base>` is then the same change set the door's clone gives —
+// deletions included, because the snapshot REPLACES the checkout rather than
+// being laid over it. The snapshot marker stays: one synthetic commit is not
+// a change set fleet:witness can grade, and the door's Job still grades the
+// real commits.
 func (r *run) gitReadyOn(ctx context.Context, ctr *dagger.Container, tree *dagger.Directory) *dagger.Container {
 	gitdir, err := r.src.File(".git").Contents(ctx)
+	if err == nil && r.origin != "" && r.base != "" {
+		history := dag.Git(r.origin).Ref(r.base).Tree().Directory(".git")
+		return ctr.
+			WithMountedDirectory("/src", tree.WithoutFile(".git").WithDirectory(".git", history)).
+			WithExec([]string{"git", "config", "--global", "--add", "safe.directory", "*"}).
+			WithExec([]string{"git", "config", "--local", "ca.snapshot", "linked-worktree"}).
+			WithExec([]string{"git", "add", "-A"}).
+			WithExec([]string{"git", "-c", "user.name=ca", "-c", "user.email=ca@notusmi.com", "commit", "-q", "--allow-empty", "-m", "snapshot: the working tree as pushed, on " + r.base})
+	}
 	if err == nil {
 		// THE MOUNT SWAP COMES FIRST, before ANY git command — including the
 		// --global config below, which needs no repository. git discovers the

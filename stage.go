@@ -96,11 +96,22 @@ func (m *FoundryTools) Push(
 	// grade a change rather than a tree (mutation, fleet:witness).
 	// +optional
 	base string,
+	// Where the base can be fetched from when the tree is a linked-worktree
+	// snapshot with no history of its own — the star's origin remote, the
+	// door's clone URL (`git remote get-url origin`). The engine fetches the
+	// base commit and the diff-scoped atoms grade the real change set instead
+	// of standing down (run.gitReadyOn). Unused for a tree the engine fetched
+	// itself (--repo/--sha), which carries its history.
+	// +optional
+	origin string,
 ) (*StageResult, error) {
 	var (
 		complex, mutation []checks.Verdict
 		unreached         []string
 	)
+	// The origin is the push's, so it rides on the module the two halves read
+	// — m is a value here, and Dagger constructs a fresh one per call.
+	m.Origin = origin
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
 		var err error
@@ -128,7 +139,7 @@ func (m *FoundryTools) Push(
 func (m *FoundryTools) sequence(ctx context.Context, stage, base string) ([]checks.Verdict, []string, error) {
 	selected := checks.AtomsForStage(stage)
 	selected, covered := checks.Subsumed(selected)
-	r := newRun(m.Source, m.Repo, base)
+	r := newRun(m.Source, m.Repo, base).fromOrigin(m.Origin)
 	// THE SEQUENCE IS PLANNED TOO, and forgetting that was a real red: when
 	// the lane gate moved out of verdictFor and into run.plan, only the fanout
 	// was wired to it, so every push-stage atom ran whatever the tree

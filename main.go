@@ -45,6 +45,11 @@ type FoundryTools struct {
 	// The build lane labels, tags and permits the image under it.
 	// +private
 	Sha string
+	// Origin is where a snapshot's base is fetched from — the star's origin
+	// remote, as Push's --origin names it — for the atoms that grade a change
+	// (run.gitReadyOn). "" for a fetched tree and for a hook that named none.
+	// +private
+	Origin string
 }
 
 // New binds the module to the caller's repository — the tree it is standing
@@ -294,7 +299,7 @@ func (m *FoundryTools) vector(ctx context.Context, stage, only, base string) ([]
 	// An atom another SELECTED atom covers stands down here rather than in the
 	// runner, so the caller still gets its line (checks.Subsumed says why).
 	selected, covered := checks.Subsumed(selected)
-	r := newRun(m.Source, m.Repo, base)
+	r := newRun(m.Source, m.Repo, base).fromOrigin(m.Origin)
 	plan, absent, err := r.plan(ctx, selected)
 	if err != nil {
 		return nil, err
@@ -385,7 +390,7 @@ func verdictFor(ctx context.Context, r *run, id string) (checks.Verdict, error) 
 	// from cache on every re-ask of the same tree. The second run keys every
 	// lane exec afresh, so it looks again. MEASURED on the gate receipts
 	// 2026-09-09 -> 17: 759 could-not-run rows against 1,362 findings.
-	again := fn(ctx, newRun(r.src, r.repo, r.base).reasked(strconv.FormatInt(time.Now().UnixNano(), 10)))
+	again := fn(ctx, newRun(r.src, r.repo, r.base).fromOrigin(r.origin).reasked(strconv.FormatInt(time.Now().UnixNano(), 10)))
 	if again.State != int(checks.StateCannotRun) {
 		return again, nil
 	}

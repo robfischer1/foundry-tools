@@ -64,10 +64,12 @@ func (r FoundryTools) MarshalJSON() ([]byte, error) {
 		Source *dagger.Directory
 		Repo   string
 		Sha    string
+		Origin string
 	}
 	concrete.Source = r.Source
 	concrete.Repo = r.Repo
 	concrete.Sha = r.Sha
+	concrete.Origin = r.Origin
 	return json.Marshal(&concrete)
 }
 
@@ -76,6 +78,7 @@ func (r *FoundryTools) UnmarshalJSON(bs []byte) error {
 		Source *dagger.Directory
 		Repo   string
 		Sha    string
+		Origin string
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -84,6 +87,7 @@ func (r *FoundryTools) UnmarshalJSON(bs []byte) error {
 	r.Source = concrete.Source
 	r.Repo = concrete.Repo
 	r.Sha = concrete.Sha
+	r.Origin = concrete.Origin
 	return nil
 }
 
@@ -1137,7 +1141,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg base", err))
 				}
 			}
-			return (*FoundryTools).Push(&parent, ctx, base)
+			var origin string
+			if inputArgs["origin"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["origin"]), &origin)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg origin", err))
+				}
+			}
+			return (*FoundryTools).Push(&parent, ctx, base, origin)
 		case "Python":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)

@@ -49,7 +49,9 @@ gate:
     set -eu
     base=$(git merge-base origin/main HEAD 2>/dev/null || true)
     if [ -n "$base" ]; then
-        exec dagger call -m . push --base="$base" exit
+        # The origin rides along so a worktree's push has the base's history
+        # (the engine fetches it from the door) and mutation grades the real diff.
+        exec dagger call -m . push --base="$base" --origin="$(git remote get-url origin)" exit
     fi
     exec dagger call -m . push exit
 
