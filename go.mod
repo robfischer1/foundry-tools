@@ -13,7 +13,10 @@ require (
 	go.yaml.in/yaml/v3 v3.0.5
 )
 
-require github.com/cenkalti/backoff/v5 v5.0.3 // indirect
+require (
+	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
+	github.com/cenkalti/backoff/v7 v7.0.0 // indirect
+)
 
 require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
@@ -23,7 +26,6 @@ require (
 
 require (
 	github.com/99designs/gqlgen v0.17.95 // indirect
-	github.com/cenkalti/backoff/v7 v7.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
