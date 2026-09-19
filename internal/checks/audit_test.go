@@ -14,6 +14,16 @@ Traceback (most recent call last):
 requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='pypi.org', port=443): Read timed out. (read timeout=15)
 `
 
+// The exact tail cargo-audit printed on furnace #65 (2026-09-19): GitHub
+// answered the RustSec fetch 408, exit 1, and the verdict truncated the cause
+// before the status line — so the head alone has to be enough.
+const cargoAuditFetch408 = `    Fetching advisory database from ` + "`https://github.com/RustSec/advisory-db.git`" + `
+error: couldn't fetch advisory database: git operation failed: Could not decode server reply
+Caused by:
+  -> Could not decode server reply
+  -> Failed to read from line reader
+  -> An`
+
 func TestAuditVerdictReadsANetworkFaultAsCouldNotRun(t *testing.T) {
 	a := AtomByID("python:pip-audit")
 
@@ -29,10 +39,12 @@ func TestAuditVerdictReadsANetworkFaultAsCouldNotRun(t *testing.T) {
 
 	// Each auditor's own phrasing for the same thing.
 	for name, out := range map[string]string{
-		"go dial":     "govulncheck: fetching vulnerability database: Get \"https://vuln.go.dev/index/db.json\": dial tcp: lookup vuln.go.dev: Temporary failure in name resolution",
-		"bun reset":   "error: ECONNRESET reading https://registry.npmjs.org/-/npm/v1/security/advisories/bulk",
-		"cargo 503":   "error: couldn't fetch advisory database: 503 Service Unavailable",
-		"unreachable": "Network is unreachable",
+		"go dial":      "govulncheck: fetching vulnerability database: Get \"https://vuln.go.dev/index/db.json\": dial tcp: lookup vuln.go.dev: Temporary failure in name resolution",
+		"bun reset":    "error: ECONNRESET reading https://registry.npmjs.org/-/npm/v1/security/advisories/bulk",
+		"cargo 503":    "error: couldn't fetch advisory database: 503 Service Unavailable",
+		"cargo 408":    cargoAuditFetch408,
+		"gitoxide 408": "-> An IO error occurred when talking to the server\n-> Received HTTP status 408",
+		"unreachable":  "Network is unreachable",
 	} {
 		if v := AuditVerdict(a, 1, out); v.State != int(StateCannotRun) {
 			t.Errorf("%s: state %d, want could-not-run", name, v.State)
