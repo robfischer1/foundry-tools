@@ -1,40 +1,32 @@
-// Package gatelane holds the gate lane's decisions as pure functions: a
-// cannot-run vector, the vector's worst state and summary. gate.go at the
-// module root is left with the chain. (The receipt the door's join read and
-// the fold of hades's attest answer lived here until CA F16; the gate settles
-// from its exit now.)
-//
-// Ported from infra's ca-gate gate.py, rule for rule; each function names
-// what it replaces.
-package gatelane
+package checks
 
 import (
 	"encoding/json"
 	"fmt"
 	"strings"
-
-	"dagger/foundry-tools/internal/checks"
 )
 
-// The door's three verdicts for a lane.
-const (
-	Clean       = 0
-	Findings    = 1
-	CouldNotRun = 2
-)
+// THE LANE'S VECTOR — the gate lane's decisions as pure functions over a
+// []Verdict: the one-atom cannot-run vector, the parse, the worst state (the
+// lane's exit) and the summary the settle prints. These were
+// internal/gatelane, a package that mirrored infra's ca-gate gate.py rule for
+// rule; with the receipt gone (CA F16) four functions and no state were all
+// that was left of it, and a package that exists to name the script it
+// replaced is the port this plan's F1 called the anti-goal. They live beside
+// Verdict and State now, which is what they are about.
 
 // CannotRunVector is the one-atom vector a gate settles on when it could not
 // grade: the lane's own name, state 2, and why (gate.py cannot_run_vector).
-func CannotRunVector(lane, stage, reason string) []checks.Verdict {
+func CannotRunVector(lane, stage, reason string) []Verdict {
 	if stage == "" {
 		stage = "prepush"
 	}
-	return []checks.Verdict{{Atom: lane, Stage: stage, Lane: "any", State: CouldNotRun, Result: "cannot-run", Reason: truncate(reason, 1200)}}
+	return []Verdict{{Atom: lane, Stage: stage, Lane: "any", State: int(StateCannotRun), Result: "cannot-run", Reason: truncate(reason, 1200)}}
 }
 
 // ParseVector reads the module's vector.
-func ParseVector(raw string) ([]checks.Verdict, error) {
-	var v []checks.Verdict
+func ParseVector(raw string) ([]Verdict, error) {
+	var v []Verdict
 	if err := json.Unmarshal([]byte(raw), &v); err != nil {
 		return nil, fmt.Errorf("the module's output is not a verdict vector: %s", truncate(raw, 300))
 	}
@@ -44,12 +36,12 @@ func ParseVector(raw string) ([]checks.Verdict, error) {
 // Worst is the vector's exit: its highest state, where any state other than
 // the pass and the finding counts as a could-not-run (gate.py's max and clamp,
 // failing closed on a negative state too).
-func Worst(v []checks.Verdict) int {
-	worst := Clean
+func Worst(v []Verdict) int {
+	worst := int(StatePass)
 	for _, a := range v {
 		s := a.State
-		if s != Clean && s != Findings {
-			s = CouldNotRun
+		if s != int(StatePass) && s != int(StateFindings) {
+			s = int(StateCannotRun)
 		}
 		worst = max(worst, s)
 	}
@@ -57,15 +49,15 @@ func Worst(v []checks.Verdict) int {
 }
 
 // Summary counts the vector and names every red atom with its reason.
-func Summary(v []checks.Verdict) string {
+func Summary(v []Verdict) string {
 	var pass, findings, cannot int
 	var red []string
 	for _, a := range v {
 		switch a.State {
-		case Clean:
+		case int(StatePass):
 			pass++
 			continue
-		case Findings:
+		case int(StateFindings):
 			findings++
 		default:
 			cannot++

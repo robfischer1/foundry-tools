@@ -1,21 +1,19 @@
-package gatelane
+package checks
 
 import (
 	"strings"
 	"testing"
-
-	"dagger/foundry-tools/internal/checks"
 )
 
 func TestACannotRunVectorIsOneAtomAtStateTwo(t *testing.T) {
 	v := CannotRunVector("gate", "", strings.Repeat("x", 2000))
-	if len(v) != 1 || v[0].Atom != "gate" || v[0].Stage != "prepush" || v[0].State != CouldNotRun || v[0].Result != "cannot-run" || len(v[0].Reason) != 1200 {
+	if len(v) != 1 || v[0].Atom != "gate" || v[0].Stage != "prepush" || v[0].State != int(StateCannotRun) || v[0].Result != "cannot-run" || len(v[0].Reason) != 1200 {
 		t.Fatalf("%+v", v)
 	}
 	if v := CannotRunVector("mutation", "mutation", "why"); v[0].Stage != "mutation" || v[0].Reason != "why" {
 		t.Fatalf("%+v", v)
 	}
-	if Worst(v) != CouldNotRun {
+	if Worst(v) != int(StateCannotRun) {
 		t.Fatal("a cannot-run vector is not its own worst state")
 	}
 }
@@ -36,18 +34,18 @@ func TestTheWorstStateIsTheExit(t *testing.T) {
 		states []int
 		want   int
 	}{
-		{[]int{0, 0}, Clean},
-		{[]int{0, 1, 0}, Findings},
-		{[]int{1, 0}, Findings},
-		{[]int{1, 2}, CouldNotRun},
-		{[]int{2, 1}, CouldNotRun},
-		{[]int{0, 3}, CouldNotRun},
-		{[]int{0, -1}, CouldNotRun},
-		{nil, Clean},
+		{[]int{0, 0}, int(StatePass)},
+		{[]int{0, 1, 0}, int(StateFindings)},
+		{[]int{1, 0}, int(StateFindings)},
+		{[]int{1, 2}, int(StateCannotRun)},
+		{[]int{2, 1}, int(StateCannotRun)},
+		{[]int{0, 3}, int(StateCannotRun)},
+		{[]int{0, -1}, int(StateCannotRun)},
+		{nil, int(StatePass)},
 	} {
-		var v []checks.Verdict
+		var v []Verdict
 		for _, s := range c.states {
-			v = append(v, checks.Verdict{State: s})
+			v = append(v, Verdict{State: s})
 		}
 		if got := Worst(v); got != c.want {
 			t.Errorf("Worst(%v) = %d, want %d", c.states, got, c.want)
@@ -56,7 +54,7 @@ func TestTheWorstStateIsTheExit(t *testing.T) {
 }
 
 func TestTheSummaryCountsAndNamesTheRedAtoms(t *testing.T) {
-	s := Summary([]checks.Verdict{
+	s := Summary([]Verdict{
 		{Atom: "go:vet", State: 0},
 		{Atom: "go:build", State: 0},
 		{Atom: "go:test-race", State: 1, Reason: "FAIL TestX"},
