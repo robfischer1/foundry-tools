@@ -193,7 +193,7 @@ func atomTable() []AtomDef {
 		},
 		{
 			ID: "go:release", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo,
-			Desc: "The release binaries the image will carry compile, with the image's own flags.",
+			Desc: "The release binaries the image will carry compile, with the image's own flags — for a Dockerfile that copies from release/; one that compiles itself is built by the build lane, and this is absent.",
 		},
 		{
 			ID: "go:test-race", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo,

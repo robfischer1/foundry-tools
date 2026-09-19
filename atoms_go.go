@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"dagger/foundry-tools/internal/buildlane"
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
 )
@@ -360,6 +361,26 @@ func goRelease(ctx context.Context, r *run) checks.Verdict {
 		// says so the way python:* says it of a missing pyproject.toml.
 		return checks.VerdictOf(a, 0, a.ID+": ABSENT - "+err.Error()+", so this is not a star image and there is no star release build")
 	}
+	// THE COMPILE IS ASKED FOR BY THE DOCKERFILE, and a Dockerfile that does
+	// not ask is an ABSENCE. The build lane reads one contract off the
+	// Dockerfile (buildlane.CopiesRelease; build.go stageRelease): a COPY from
+	// release/ asks for the Gate's artifact, and a Dockerfile that carries its
+	// own build stage copies nothing from release/ and is built exactly as
+	// before. This atom reads the same contract, because a release build the
+	// image never copies is a compile nobody asked for — and it is the compile
+	// that reds a cgo star. Measured on narcissus (foundry-tools #10307,
+	// narrowed 2026-09-18): its analyzers are tree-sitter through cgo, built
+	// statically in its own build stage, and CGO_ENABLED=0 here fails on a
+	// binary its image never carries. Keyed on the fact the build lane keys
+	// on, so the two lanes cannot disagree about whose compile it is; and
+	// read AFTER the star's name, so a repo that is not a star still says so.
+	asked, err := r.asksForRelease(ctx, checks.DockerfilePopulation(files))
+	if err != nil {
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+err.Error())
+	}
+	if !asked {
+		return checks.VerdictOf(a, 0, a.ID+": ABSENT - no tracked Dockerfile copies from "+buildlane.ReleaseDir+"/, so this image compiles itself: its build is the build lane's, and there is no release build to make here")
+	}
 	plan, why := r.releasePlan(ctx, star)
 	if why != "" {
 		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+why)
@@ -371,6 +392,24 @@ func goRelease(ctx context.Context, r *run) checks.Verdict {
 	v := verdict(ctx, a, ctr)
 	v.Reason = checks.ReleaseScope(plan) + "\n" + v.Reason
 	return v
+}
+
+// asksForRelease answers whether any tracked Dockerfile asks for the Gate's
+// artifact — a COPY from release/, the build lane's own reading
+// (buildlane.CopiesRelease). A Dockerfile that cannot be read is an error,
+// never "does not ask": an absence has to be read off the file, not off a
+// fault.
+func (r *run) asksForRelease(ctx context.Context, dockerfiles []string) (bool, error) {
+	for _, p := range dockerfiles {
+		body, err := r.src.File(p).Contents(ctx)
+		if err != nil {
+			return false, fmt.Errorf("%s could not be read: %w", p, err)
+		}
+		if buildlane.CopiesRelease(body) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // releasePlan reads the star's name and its record, and derives what the
