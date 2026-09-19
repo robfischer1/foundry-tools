@@ -203,15 +203,23 @@ func stageResult(st checks.Stage) *StageResult {
 // tree whose release build failed has no directory to give, and says so as an
 // error rather than handing back an empty one.
 //
-// THE LANE IS THE TREE'S, READ THE WAY THE CAST LANE READS IT (cast.go
-// release): a root go.mod is the Go lane's build, a Cargo.toml the Rust
-// lane's, and a tree declaring both is refused — two toolchains that each
-// build a <star> would hand over whichever ran last.
+// THE LANE IS THE IMAGE'S BASE FIRST, THEN THE TREE'S. A Dockerfile on the
+// bun or python base gets that base's release (ts:release, python:release —
+// the bundle or the venv, built on the base itself). Otherwise the tree is
+// read the way the cast lane reads it (cast.go release): a root go.mod is the
+// Go lane's build, a Cargo.toml the Rust lane's, and a tree declaring both is
+// refused — two toolchains that each build a <star> would hand over whichever
+// ran last.
 func (m *FoundryTools) Release(ctx context.Context) (*dagger.Directory, error) {
 	r := newRun(m.Source, m.Repo, "")
 	star, err := r.starName(ctx)
 	if err != nil {
 		return nil, err
+	}
+	// An image on the bun or python base is built on that base
+	// (atoms_release.go); the compiled lanes below read the tree.
+	if dir, onBase, err := r.releaseOnBase(ctx); onBase || err != nil {
+		return dir, err
 	}
 	lane, err := r.releaseLane(ctx)
 	if err != nil {

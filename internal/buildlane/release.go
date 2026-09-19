@@ -57,3 +57,30 @@ func CopiesRelease(dockerfile string) bool {
 	}
 	return false
 }
+
+// FleetBases is where the fleet's runtime bases live: one repository per
+// toolchain under foundry/base-images (base-images README), each the base a
+// star's Dockerfile FROMs as its runtime stage.
+const FleetBases = "registry.notusmi.com/foundry/base-images/"
+
+// BaseToolchain names the fleet base a runtime reference is on — "go",
+// "rust", "bun" or "python" — or "" for any image that is not one of them.
+// The tag and the digest do not matter: a star pins
+// foundry/base-images/python:stable@sha256:…, and it is the repository that
+// says which toolchain the image's release is built with.
+//
+// THE IMAGE'S BASE PICKS THE RELEASE BUILD, NOT THE TREE'S MANIFESTS. A tree
+// can declare two toolchains — mnemosyne carries a go.mod and the pyproject
+// its Go port left behind — and only one of them made the image. The base
+// the Dockerfile's runtime stage is FROM is the one fact that says which.
+func BaseToolchain(ref string) string {
+	name, ok := strings.CutPrefix(RepoOf(ref), FleetBases)
+	if !ok {
+		return ""
+	}
+	switch name {
+	case "go", "rust", "bun", "python":
+		return name
+	}
+	return ""
+}
