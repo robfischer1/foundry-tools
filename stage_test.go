@@ -79,7 +79,7 @@ func TestPushStopsTheSequenceAtTheFirstRedAndStillRunsMutation(t *testing.T) {
 	engine.withTree(everyLaneTree)
 	engine.exitCode(`"staticcheck"`, 1)
 	m := &FoundryTools{Source: dag.Directory()}
-	res, err := m.Push(context.Background(), "")
+	res, err := m.Push(context.Background(), "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestPushAccountsForEveryAtomItDidNotRun(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	m := &FoundryTools{Source: dag.Directory()}
-	res, err := m.Push(context.Background(), "")
+	res, err := m.Push(context.Background(), "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestPushAnswersTheErrorWhenAnAtomCannotBeDispatched(t *testing.T) {
 	delete(registry, "go:staticcheck")
 	defer func() { registry["go:staticcheck"] = fn }()
 
-	res, err := (&FoundryTools{Source: dag.Directory()}).Push(context.Background(), "")
+	res, err := (&FoundryTools{Source: dag.Directory()}).Push(context.Background(), "", "")
 	if err == nil || !strings.Contains(err.Error(), "go:staticcheck") {
 		t.Errorf("err %v, result %+v: an undispatchable atom is the stage's error", err, res)
 	}
@@ -405,7 +405,7 @@ func TestThePushSequenceNeverDispatchesALaneTheTreeDoesNotHave(t *testing.T) {
 		defer func() { registry[id] = real }()
 	}
 
-	res, err := (&FoundryTools{Source: dag.Directory()}).Push(context.Background(), "")
+	res, err := (&FoundryTools{Source: dag.Directory()}).Push(context.Background(), "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -427,5 +427,102 @@ func TestThePushSequenceNeverDispatchesALaneTheTreeDoesNotHave(t *testing.T) {
 		if !omitted[id] {
 			t.Errorf("%s is absent here and must say so", id)
 		}
+	}
+}
+
+// THE HISTORY IS THE DOOR'S WHEN THE HOOK NAMES WHERE IT LIVES (CA F16, Rob
+// 2026-09-19: "let dagger grab the tree"). A push from a linked worktree used
+// to hand the diff-scoped atoms a snapshot with no history, so go:mutation
+// stood down 0 with "no usable PR base sha" on the hook while the door's Job
+// found 244 missed mutants on the same sha (terpsichore 1c28f38,
+// foundry-tools#10253). With --origin the engine fetches the base commit from
+// the door, the snapshot's files replace that checkout, and one commit on top
+// gives the atoms a HEAD whose parent is the base — the same change set the
+// door's clone gives.
+func TestAWorktreePushWithAnOriginGradesTheRealChangeSet(t *testing.T) {
+	const origin = "http://100.93.64.106:8215/hades.git"
+	worktree := map[string]string{
+		".git":                "gitdir: /home/rob/Forge/Outputs/hades/.git/worktrees/Lamarr11-x\n",
+		".copier-answers.yml": "service_name: hades\n",
+	}
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(worktree)
+	engine.stdout(`"git","list","-f"`, "11\n")
+	engine.stdout(`"git","merge-base","abc123","HEAD"`, "abc123\n")
+	engine.stdout(`"git","diff","--relative"`, "a.go\n")
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Push(context.Background(), "abc123", origin); err != nil {
+		t.Fatal(err)
+	}
+	// The base's repository comes from the door, by the sha the hook named…
+	history := engine.chain(`git(url:"`+origin+`")`, `ref(name:"abc123")`, "tree", `directory(path:".git")`)
+	if history == "" {
+		t.Fatalf("the base's .git was not fetched from the origin at the base sha:\n%v", engine.chains())
+	}
+	// …and it is the .git of the tree the mutation atom runs in: the snapshot
+	// less its dangling .git file, the fetched .git in its place, then the
+	// snapshot committed on top of the base. No throwaway repository.
+	c := engine.chain(`"git","merge-base","abc123","HEAD"`)
+	if c == "" {
+		t.Fatalf("the mutation atom never asked for the merge base:\n%v", engine.chains())
+	}
+	// The querybuilder spells withDirectory's two arguments in either order,
+	// and each spelling is its own id here, so the mount is matched against
+	// every spelling the run produced rather than the newest one.
+	mounted := false
+	for _, q := range engine.chains() {
+		if strings.Contains(q, `withoutFile(path:".git")`) && strings.Contains(q, "withDirectory(") && strings.Contains(q, fakeID(history)) &&
+			hasCall(c, "withMountedDirectory", `path:"/src"`, fakeID(q)) {
+			mounted = true
+		}
+	}
+	if !mounted {
+		t.Errorf("/src does not mount the snapshot less its .git file with the fetched .git in its place:\n%s\n%v", c, engine.chains())
+	}
+	wantCalls(t, c,
+		[]string{"withExec", `args:["git","config","--global","--add","safe.directory","*"]`},
+		[]string{"withExec", `args:["git","config","--local","ca.snapshot","linked-worktree"]`},
+		[]string{"withExec", `args:["git","add","-A"]`},
+		[]string{"withExec", `"commit"`, `"snapshot: the working tree as pushed, on abc123"`},
+	)
+	if strings.Contains(c, `"git","init"`) {
+		t.Errorf("a snapshot with an origin still built a throwaway repository:\n%s", c)
+	}
+	// withBase's fetch is the FETCHED tree's (--repo/--sha); a hook's snapshot
+	// has the base in the history it was given.
+	if strings.Contains(c, `"fetch","--quiet","--no-tags"`) {
+		t.Errorf("the base was fetched a second time inside the container:\n%s", c)
+	}
+
+	// Without an origin the hook's run is what it was: a throwaway repository,
+	// and the diff-scoped atom stands down.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(worktree)
+	engine.stdout(`"git","list","-f"`, "11\n")
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Push(context.Background(), "abc123", ""); err != nil {
+		t.Fatal(err)
+	}
+	if engine.chain(`git(url:`, `directory(path:".git")`) != "" {
+		t.Errorf("no origin was named, yet a repository was fetched for the snapshot:\n%v", engine.chains())
+	}
+	if engine.chain(`"git","init","-q","."`) == "" {
+		t.Errorf("without an origin the snapshot gets its throwaway repository:\n%v", engine.chains())
+	}
+
+	// An origin with no base names nothing to fetch: there is no change set
+	// to grade, so the throwaway is what the tree gets.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(worktree)
+	engine.stdout(`"git","list","-f"`, "11\n")
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Push(context.Background(), "", origin); err != nil {
+		t.Fatal(err)
+	}
+	if engine.chain(`git(url:"`+origin+`")`) != "" {
+		t.Errorf("no base was named, yet the origin was fetched:\n%v", engine.chains())
+	}
+	if engine.chain(`"git","init","-q","."`) == "" {
+		t.Errorf("without a base the snapshot gets its throwaway repository:\n%v", engine.chains())
 	}
 }
