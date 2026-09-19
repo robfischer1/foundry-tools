@@ -200,3 +200,71 @@ func TestRecordRepoAndStarOfRecordPath(t *testing.T) {
 		}
 	}
 }
+
+// THE RECORD'S BUILD BLOCK, READ THREE WAYS: each reader answers its own key
+// and nothing else, and a record that does not parse, or carries no block, is
+// silence to every one of them.
+func TestTheBuildBlockReadersAnswerTheirOwnKey(t *testing.T) {
+	bun := `{"tools":{"build":{"release":[["bun","run","build"],["bun","x.ts","release"]]}}}`
+	py := `{"tools":{"build":{"extras":["pg","kafka"]}}}`
+	if got := TSReleaseSteps(bun); len(got) != 2 || strings.Join(got[1], " ") != "bun x.ts release" {
+		t.Errorf("TSReleaseSteps = %v", got)
+	}
+	if got := PythonExtras(py); strings.Join(got, ",") != "pg,kafka" {
+		t.Errorf("PythonExtras = %v", got)
+	}
+	for _, slag := range []string{bun, py, `{"tools":{}}`, `not json`, ``} {
+		if got := ReleaseBinaries(slag); got != nil {
+			t.Errorf("ReleaseBinaries(%q) = %v, want nothing", slag, got)
+		}
+	}
+	for _, slag := range []string{py, `{}`, `not json`} {
+		if got := TSReleaseSteps(slag); got != nil {
+			t.Errorf("TSReleaseSteps(%q) = %v, want nothing", slag, got)
+		}
+	}
+	for _, slag := range []string{bun, `{}`, `not json`} {
+		if got := PythonExtras(slag); got != nil {
+			t.Errorf("PythonExtras(%q) = %v, want nothing", slag, got)
+		}
+	}
+}
+
+// The python release installs the lock as a wheel, without dev, with each
+// extra its own flag — and with none, the bare sync.
+func TestPythonReleaseArgsAreTheLockAsAWheelWithTheExtras(t *testing.T) {
+	bare := "uv sync --locked --no-dev --no-editable"
+	if got := strings.Join(PythonReleaseArgs(nil), " "); got != bare {
+		t.Errorf("no extras: %q", got)
+	}
+	if got := strings.Join(PythonReleaseArgs([]string{"pg", "kafka"}), " "); got != bare+" --extra pg --extra kafka" {
+		t.Errorf("extras: %q", got)
+	}
+}
+
+// A release step's exit is read for WHOSE fault it was: the tree's (any exit
+// a command chose), the substrate's (a network fault in its words, whatever
+// the code), or the run's (a command that could not run or be found, a
+// signal).
+func TestReleaseStepStateReadsWhoseFaultAFailureWas(t *testing.T) {
+	for _, c := range []struct {
+		code int
+		out  string
+		want int
+	}{
+		{0, "", 0},
+		{0, "retrying after a connection reset", 0}, // a clean step that recovered is clean
+		{1, "error TS2322", 1},
+		{2, "error: The lockfile needs to be updated", 1}, // uv's every error is 2
+		{125, "", 1},
+		{126, "permission denied", 2},
+		{127, "bunx: not found", 2},
+		{137, "", 2},
+		{1, "error: ECONNRESET", 2},
+		{2, "dial tcp 10.43.42.181:443: i/o timeout", 2},
+	} {
+		if got := ReleaseStepState(c.code, c.out); got != c.want {
+			t.Errorf("ReleaseStepState(%d, %q) = %d, want %d", c.code, c.out, got, c.want)
+		}
+	}
+}

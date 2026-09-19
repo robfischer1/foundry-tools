@@ -125,21 +125,100 @@ func releasePlan(star string, declared []string, lane Lane, pkg func(string) str
 	return p, nil
 }
 
+// buildBlock is a v3 record's tools.build — one key per toolchain, and a
+// record carries at most one (hephaestus slag.BuildV3 refuses two).
+type buildBlock struct {
+	Binaries []string   `json:"binaries"`
+	Release  [][]string `json:"release"`
+	Extras   []string   `json:"extras"`
+}
+
+// buildOf reads tools.build off a v3 record: the zero block for a record
+// that does not parse or carries none, so every reader's absence is the
+// convention's.
+func buildOf(slag string) buildBlock {
+	var rec struct {
+		Tools struct {
+			Build buildBlock `json:"build"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal([]byte(slag), &rec); err != nil {
+		return buildBlock{}
+	}
+	return rec.Tools.Build
+}
+
 // ReleaseBinaries reads tools.build.binaries from a v3 record. A record that
 // does not parse, or names none, leaves the convention to answer — the field
 // exists for the two repos that ship more than their own name.
-func ReleaseBinaries(slag string) []string {
-	var rec struct {
-		Tools struct {
-			Build *struct {
-				Binaries []string `json:"binaries"`
-			} `json:"build"`
-		} `json:"tools"`
+func ReleaseBinaries(slag string) []string { return buildOf(slag).Binaries }
+
+// THE BUN AND PYTHON RELEASES (CA F17). A compiled star's artifact is a
+// binary; a bun star's is its bundle and a python star's is its venv, and
+// both are BUILT ON THE IMAGE'S OWN BASE — the base the Dockerfile's runtime
+// stage FROMs — so the interpreter, the runtime and the paths baked into the
+// artifact are the ones the image runs. A venv built on another python is a
+// venv whose every shebang and symlink points at an interpreter the image
+// does not have.
+//
+// WHAT THE RECORD SAYS, AND ONLY THAT. A bun star's bundle is its own
+// (calliope bundles one server.js, demeter builds a SPA beside it), so there
+// is no convention and the record names the steps — tools.build.release, one
+// argv each (Rob, 2026-09-19: "argv fine"). A python star's release derives
+// entirely but for the extras its venv installs — tools.build.extras.
+
+// ReleaseTree is where a bun release's tree sits in its container, and so
+// where the steps run; the steps leave the image's files under
+// ReleaseTree/release.
+const ReleaseTree = "/src"
+
+// PythonReleaseApp is where a python release's venv is built — /app, the
+// directory the image carries it at, because a venv is not relocatable: its
+// console scripts name <PythonReleaseApp>/.venv/bin/python in their shebang.
+const PythonReleaseApp = "/app"
+
+// TSReleaseSteps reads tools.build.release from a v3 record: the bun
+// release's steps, one argv each. None is not a convention — the bun atom
+// says so rather than guessing a bundle.
+func TSReleaseSteps(slag string) [][]string { return buildOf(slag).Release }
+
+// PythonExtras reads tools.build.extras from a v3 record. None is the
+// convention: the venv installs the project and its required dependencies.
+func PythonExtras(slag string) []string { return buildOf(slag).Extras }
+
+// PythonReleaseArgs is the python release, as an argv: the star's own lock
+// (--locked, so a uv.lock behind its pyproject is a finding and not a silent
+// re-resolve), no dev group, and the project installed as a WHEEL rather than
+// editable — the image carries the venv alone, never the source tree an
+// editable install would point back into.
+func PythonReleaseArgs(extras []string) []string {
+	args := []string{"uv", "sync", "--locked", "--no-dev", "--no-editable"}
+	for _, e := range extras {
+		args = append(args, "--extra", e)
 	}
-	if err := json.Unmarshal([]byte(slag), &rec); err != nil || rec.Tools.Build == nil {
-		return nil
+	return args
+}
+
+// ReleaseStepState classifies one bun or python release step's exit.
+//
+// uv and bun do not speak the atoms' 0/1/2: uv exits 2 on every error,
+// among them a lock behind its pyproject, which is the tree's fault, and bun
+// passes through whatever the step's own command exits. So the code alone
+// cannot say whose fault a failure is, and this reads it the way the audits
+// do: an output that names a network fault is the substrate's (2, run it
+// again); any other exit a command chose — 1 through 125 — is the tree's
+// (1); 126 and 127 (the step's command could not be run or found) and a
+// signal are the run's (2).
+func ReleaseStepState(code int, out string) int {
+	switch {
+	case code == 0:
+		return 0
+	case networkFault.MatchString(out):
+		return 2
+	case code < 126:
+		return 1
 	}
-	return rec.Tools.Build.Binaries
+	return 2
 }
 
 // GoReleaseArgs is one binary's compile, as an argv: the fleet's flags, vendor

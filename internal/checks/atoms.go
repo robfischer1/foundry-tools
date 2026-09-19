@@ -234,6 +234,10 @@ func atomTable() []AtomDef {
 			ID: "python:pip-audit", Stage: StagePrepush, Lane: LanePython, Image: ImagePython,
 			Desc: "pip-audit reports no known vulnerability.",
 		},
+		{
+			ID: "python:release", Stage: StagePrepush, Lane: LanePython, Image: ImagePython,
+			Desc: "The venv the image will carry builds from the star's lock on the image's own python base — for a Dockerfile on foundry/base-images/python that copies from release/; any other image is absent.",
+		},
 
 		// ---- rust ----
 		{
@@ -265,6 +269,10 @@ func atomTable() []AtomDef {
 		{
 			ID: "ts:bun-audit", Stage: StagePrepush, Lane: LaneTS, Image: ImageTS,
 			Desc: "bun audit reports nothing at high or above.",
+		},
+		{
+			ID: "ts:release", Stage: StagePrepush, Lane: LaneTS, Image: ImageTS,
+			Desc: "The record's release steps leave the image's files under release/, run on the image's own bun base — for a Dockerfile on foundry/base-images/bun that copies from release/; any other image is absent.",
 		},
 
 		// ---- compose: the host stacks. Ported off the act-runner's validate.yml ----

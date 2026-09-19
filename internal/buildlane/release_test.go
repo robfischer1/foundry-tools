@@ -32,3 +32,23 @@ func TestCopiesReleaseReadsTheDockerfilesAsk(t *testing.T) {
 		}
 	}
 }
+
+func TestBaseToolchainIsTheFleetBaseRepositoryAlone(t *testing.T) {
+	for ref, want := range map[string]string{
+		"registry.notusmi.com/foundry/base-images/python:stable@sha256:d7ea337fb2dd": "python",
+		"registry.notusmi.com/foundry/base-images/bun:stable":                        "bun",
+		"registry.notusmi.com/foundry/base-images/go@sha256:ec818e859cb2":            "go",
+		"registry.notusmi.com/foundry/base-images/rust":                              "rust",
+		// Not a fleet base: another registry, another namespace, a base
+		// image the fleet does not publish, a nested path, nothing at all.
+		"docker.io/library/python:3.14-slim":                   "",
+		"registry.notusmi.com/rob/stellar_core:python-runtime": "",
+		"registry.notusmi.com/foundry/base-images/node:stable": "",
+		"registry.notusmi.com/foundry/base-images/go/extra":    "",
+		"": "",
+	} {
+		if got := BaseToolchain(ref); got != want {
+			t.Errorf("BaseToolchain(%q) = %q, want %q", ref, got, want)
+		}
+	}
+}
