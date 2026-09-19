@@ -275,11 +275,15 @@ const (
 	// scratch is a decision to make on purpose against a measured pull, not a
 	// side effect of deleting the shell.
 	//
-	// Both are Hub images at the digests they always had (they named
-	// ghcr.io and docker.io directly until 2026-09-14, the Nexus alias until
-	// 2026-09-19; zot's hub/ prefix answers both digests, so the images an
-	// atom runs are byte-identical whichever name they were pulled by).
-	ImageKubeconform = "docker.io/yannh/kubeconform:v0.7.0-alpine@sha256:8f0eeaaa96ba27ba1500b0e4b1c215acc358d159c62a7ecae58d7a03403287b0"
+	// kubeconform is ghcr's, kube-linter is Hub's — the registries they named
+	// directly until 2026-09-14 and name again since 2026-09-19, at the
+	// digests they always had. #132 put kubeconform on docker.io on the word
+	// of a zot hub/ probe that answered 200 off a STALE copy; the next zot
+	// roll emptied the mirror store, Docker Hub answered "unauthorized" for a
+	// repository it does not carry, and every infra gate's ops:flux atom was
+	// could-not-run (gate-infra-cce87f4). Docker Hub itself, not a mirror's
+	// cache, is what a home is measured against: hub=401, ghcr=200.
+	ImageKubeconform = "ghcr.io/yannh/kubeconform:v0.7.0-alpine@sha256:8f0eeaaa96ba27ba1500b0e4b1c215acc358d159c62a7ecae58d7a03403287b0"
 	// ImageKubeLinter — likewise alpine, and likewise held still.
 	ImageKubeLinter = "docker.io/stackrox/kube-linter:v0.8.3-alpine@sha256:b8311611c27032d4922bc67719225e373e4a0ab0c767bbdcf5f20a9306b1a3bb"
 )
