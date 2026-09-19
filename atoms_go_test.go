@@ -825,12 +825,16 @@ func TestGoMutationCannotRunWithoutTheCanonicalConfig(t *testing.T) {
 	}
 }
 
+// copiesHades is the three-line shape: a Dockerfile that asks for the Gate's
+// artifact by copying it from release/ (buildlane.CopiesRelease).
+const copiesHades = "FROM x\nCOPY release/hades /hades\n"
+
 // THE RELEASE BUILD IS THE IMAGE'S COMPILE, derived: the star's own binary from
 // ./cmd/<star> with the fleet's flags, or the binaries the record declares.
 func TestGoReleaseBuildsWhatTheImageWillCarry(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	engine.withTree(map[string]string{"Dockerfile": "FROM x\n", ".copier-answers.yml": "service_name: hades\n"})
+	engine.withTree(map[string]string{"Dockerfile": copiesHades, ".copier-answers.yml": "service_name: hades\n"})
 	wantState(t, runAtom(t, "go:release", ""), 0, "release build: hades", "the star's own name")
 	wantCalls(t, engine.chain(`"go","build","-trimpath"`, "exitCode"),
 		[]string{"withEnvVariable", `name:"CGO_ENABLED"`, `value:"0"`},
@@ -841,7 +845,7 @@ func TestGoReleaseBuildsWhatTheImageWillCarry(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	engine.withTree(map[string]string{
-		"Dockerfile":          "FROM x\n",
+		"Dockerfile":          "FROM x\nCOPY release/ourea /ourea\n",
 		".copier-answers.yml": "service_name: ourea\n",
 		"vendor/modules.txt":  "# x\n",
 	})
@@ -858,7 +862,7 @@ func TestGoReleaseBuildsWhatTheImageWillCarry(t *testing.T) {
 	// An unvendored module is still provisioned by the download.
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	engine.withTree(map[string]string{"Dockerfile": "FROM x\n", ".copier-answers.yml": "service_name: hades\n"})
+	engine.withTree(map[string]string{"Dockerfile": copiesHades, ".copier-answers.yml": "service_name: hades\n"})
 	wantState(t, runAtom(t, "go:release", ""), 0, "release build: hades")
 	if !strings.Contains(engine.chain(`"-o","/out/hades"`, "exitCode"), `"go","mod","download"`) {
 		t.Errorf("an unvendored release build skipped go mod download:\n%s", engine.chain(`"-o","/out/hades"`, "exitCode"))
@@ -868,7 +872,7 @@ func TestGoReleaseBuildsWhatTheImageWillCarry(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	engine.withTree(map[string]string{
-		"Dockerfile":          "FROM x\n",
+		"Dockerfile":          "FROM x\nCOPY release/blade-runner /blade-runner\nCOPY release/blade-controller /blade-controller\n",
 		".copier-answers.yml": "service_name: blade-runner\n",
 		"/dies/fleet/stars/blade-runner/slag.json": `{"tools":{"build":{"binaries":["blade-runner","blade-controller"]}}}`,
 	})
@@ -895,12 +899,61 @@ func TestGoReleaseIsAbsentForARepoThatNamesNoStar(t *testing.T) {
 	if engine.chain(`"go","build","-trimpath"`) != "" {
 		t.Errorf("nothing compiles for a repo that is not a star:\n%v", engine.chains())
 	}
+	// Its Dockerfile did not copy from release/ either — and the reason is
+	// still "names no star": the star is read first, so a non-star says so.
+	if strings.Contains(v.Reason, "compiles itself") {
+		t.Errorf("a non-star was told it compiles itself: %s", v.Reason)
+	}
 	// A .copier-answers.yml that names nothing is the same absence.
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	engine.withTree(map[string]string{"Dockerfile": "FROM x\n", ".copier-answers.yml": "project: x\n"})
 	if v := runAtom(t, "go:release", ""); v.Result != "absent" || !strings.Contains(v.Reason, "no service_name") {
 		t.Errorf("%+v", v)
+	}
+}
+
+// A DOCKERFILE THAT COMPILES ITSELF ASKS FOR NO RELEASE BUILD — ABSENT, the
+// build lane's own reading (buildlane.CopiesRelease, build.go stageRelease:
+// "built exactly as before"). narcissus is the case (foundry-tools #10307,
+// narrowed 2026-09-18): tree-sitter through cgo, compiled statically in its
+// own build stage, so the CGO_ENABLED=0 compile here would red a binary its
+// image never carries.
+func TestGoReleaseIsAbsentForADockerfileThatCompilesItself(t *testing.T) {
+	self := "FROM docker.notusmi.com/library/golang:1.27 AS build\nRUN CGO_ENABLED=1 go build -o /out/hades ./cmd/hades\nFROM x\nCOPY --from=build /out/hades /hades\n"
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{"Dockerfile": self, ".copier-answers.yml": "service_name: hades\n"})
+	v := runAtom(t, "go:release", "")
+	if v.State != 0 || v.Result != "absent" || !strings.Contains(v.Reason, "compiles itself") || !strings.Contains(v.Reason, "release/") {
+		t.Errorf("want an absent 0 saying the image compiles itself, got %+v", v)
+	}
+	if engine.chain(`"go","build","-trimpath"`) != "" {
+		t.Errorf("nothing compiles for a Dockerfile that compiles itself:\n%v", engine.chains())
+	}
+
+	// A second Dockerfile that does copy from release/ asks on the repo's
+	// behalf: the compile runs.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{
+		"Dockerfile": self, "docker/Dockerfile.hades": copiesHades,
+		".copier-answers.yml": "service_name: hades\n",
+	})
+	wantState(t, runAtom(t, "go:release", ""), 0, "release build: hades")
+	if engine.chain(`"go","build","-trimpath"`) == "" {
+		t.Errorf("a Dockerfile that copies from release/ asked and nothing compiled:\n%v", engine.chains())
+	}
+
+	// A Dockerfile that cannot be read is a could-not-run that names it, never
+	// an absence read off a fault — and the compile does not run on top of it.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{"Dockerfile": self, ".copier-answers.yml": "service_name: hades\n"})
+	engine.failLeaf(`file(path:"Dockerfile")`, "contents", "the file went away")
+	wantState(t, runAtom(t, "go:release", ""), 2, "Dockerfile could not be read", "the file went away")
+	if engine.chain(`"go","build","-trimpath"`) != "" {
+		t.Errorf("a Dockerfile that could not be read still compiled:\n%v", engine.chains())
 	}
 }
 
@@ -924,7 +977,7 @@ func TestGoReleaseIsAbsentWhereThereIsNoImage(t *testing.T) {
 // and none of them is a pass: a tree it cannot read, a module walk it cannot
 // do, a repo with no root module, and a record whose binaries are unusable.
 func TestGoReleaseSaysWhyItCouldNotRun(t *testing.T) {
-	image := map[string]string{"Dockerfile": "FROM x\n", ".copier-answers.yml": "service_name: hades\n"}
+	image := map[string]string{"Dockerfile": copiesHades, ".copier-answers.yml": "service_name: hades\n"}
 
 	// The tree itself could not be read: the population is the first thing it asks for.
 	engine.reset()
@@ -943,7 +996,7 @@ func TestGoReleaseSaysWhyItCouldNotRun(t *testing.T) {
 	// A module somewhere, but not at the root: no star binary to build.
 	engine.reset()
 	engine.withTree(map[string]string{
-		"Dockerfile": "FROM x\n", ".copier-answers.yml": "service_name: hades\n",
+		"Dockerfile": copiesHades, ".copier-answers.yml": "service_name: hades\n",
 		"tools/go.mod": "module x\n",
 	})
 	wantState(t, runAtom(t, "go:release", ""), 2, "no go.mod at the repository root")
@@ -952,7 +1005,7 @@ func TestGoReleaseSaysWhyItCouldNotRun(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	engine.withTree(map[string]string{
-		"Dockerfile": "FROM x\n", ".copier-answers.yml": "service_name: hades\n",
+		"Dockerfile": copiesHades, ".copier-answers.yml": "service_name: hades\n",
 		"/dies/fleet/stars/hades/slag.json": `{"tools":{"build":{"binaries":["../escape"]}}}`,
 	})
 	wantState(t, runAtom(t, "go:release", ""), 2, "is not a binary name")
