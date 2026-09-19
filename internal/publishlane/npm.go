@@ -141,8 +141,10 @@ func AuthKey(registry string) (string, error) {
 }
 
 // AuthLine is the .npmrc line that logs user in under key with HTTP Basic.
-// `_auth`, not `_authToken`: Nexus's npm bearer realm is not active, so a bearer
-// line is a 401 that names nothing (theia ci/publish.sh has the measurement).
+// `_auth`, not `_authToken`: Verdaccio takes the htpasswd login as Basic on
+// every request (the fleet's 74 npm tarballs were re-homed onto it exactly
+// this way, 2026-09-18), and it was the only form Nexus's npm realm accepted
+// before it (theia ci/publish.sh had the measurement).
 func AuthLine(key, user, password string) string {
 	return key + ":_auth=" + base64.StdEncoding.EncodeToString([]byte(user+":"+password))
 }

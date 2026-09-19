@@ -609,9 +609,8 @@ func TestAnSBOMThatDoesNotPublishWithholdsThePermit(t *testing.T) {
 		pointed            bool
 	}{
 		{"oras cannot be provisioned", "2", "oras could not be provisioned", func() {
-			// The fetch alone: the settle's reason names both URLs, and a bare
+			// The fetch alone: the settle's reason names the URL, and a bare
 			// URL needle would fail the verdict exec too.
-			engine.fail(`http(url:"`+checks.OrasMirror+`")`, "502 from the mirror")
 			engine.fail(`http(url:"`+checks.OrasURL+`")`, "502 from upstream")
 		}, false},
 		{"the attach is refused", "1", "findings in SBOM attach", func() {

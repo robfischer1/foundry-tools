@@ -53,18 +53,16 @@ func TestIsOpsTreeReadsEachMarkerAlone(t *testing.T) {
 // The tool pins are spelled in full; this holds them to one version each so
 // a bump that touches one line and not the other is caught.
 func TestOpsToolPinsAgree(t *testing.T) {
-	for _, u := range []string{ChezmoiMirror, ChezmoiURL} {
-		if !strings.Contains(u, "/v"+ChezmoiVersion+"/") || !strings.HasSuffix(u, "/chezmoi-linux-amd64") {
-			t.Errorf("chezmoi pin %q does not carry v%s", u, ChezmoiVersion)
-		}
+	if !strings.Contains(ChezmoiURL, "/v"+ChezmoiVersion+"/") || !strings.HasSuffix(ChezmoiURL, "/chezmoi-linux-amd64") {
+		t.Errorf("chezmoi pin %q does not carry v%s", ChezmoiURL, ChezmoiVersion)
+	}
+	if !strings.HasPrefix(ChezmoiURL, "https://github.com/twpayne/chezmoi/releases/download/") {
+		t.Errorf("chezmoi must come from its own release URL, not a fleet address: %s", ChezmoiURL)
 	}
 	if !strings.Contains(KubectlURL, "/v"+KubectlVersion+"/") || !strings.HasSuffix(KubectlURL, "/bin/linux/amd64/kubectl") {
 		t.Errorf("kubectl pin %q does not carry v%s", KubectlURL, KubectlVersion)
 	}
-	if KubectlMirror != KubectlURL {
-		t.Errorf("kubectl has no mirror today; the mirror must be the upstream until one exists")
-	}
-	if !strings.HasPrefix(ChezmoiMirror, "https://nexus.notusmi.com/repository/github-raw/") {
-		t.Errorf("chezmoi mirror must be the Nexus GitHub mirror: %s", ChezmoiMirror)
+	if !strings.HasPrefix(KubectlURL, "https://dl.k8s.io/") {
+		t.Errorf("kubectl must come from dl.k8s.io: %s", KubectlURL)
 	}
 }

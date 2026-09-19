@@ -222,6 +222,10 @@ func (l *buildLane) relock(ctx context.Context, base string) (*dagger.Directory,
 	lock := dag.Container().From(checks.ImagePython).
 		WithFile("/usr/local/bin/uv", dag.Container().From(checks.ImageUV).File("/uv")).
 		WithEnvVariable("UV_INDEX_URL", l.indexURL).
+		// Not a lane container (laneBase), so the trust variable is named here:
+		// the engine's CA reaches this container's system store like any other,
+		// and uv reads it only with native TLS.
+		WithEnvVariable("UV_NATIVE_TLS", "1").
 		WithMountedDirectory("/base", l.m.Source.Directory(dir)).
 		WithWorkdir("/base").
 		WithExec([]string{"uv", "lock"}, anyExit)

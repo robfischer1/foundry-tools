@@ -25,7 +25,10 @@ const (
 	PythonMutationTimeout = 60
 	PythonMutationWorkers = 4
 	PythonMutationTestkit = "forge-testkit>=1.9.0"
-	PythonMutationIndex   = "https://nexus.notusmi.com/repository/pypi-hosted/simple/"
+	// The fleet's own index (devpi, packages.notusmi.com/pypi, index fleet/prod)
+	// as uv's EXTRA index: forge-testkit lives there and nowhere else, and its
+	// dependencies resolve from pypi.org as usual.
+	PythonMutationIndex = "https://packages.notusmi.com/pypi/fleet/prod/+simple/"
 	// PythonMutationFailUnder is the honest-score floor, and 100 is "a real
 	// survivor is a finding", as it is in the go, rust and ts lanes (Rob,
 	// 2026-09-15). python.sh defaulted it to 0, which reported and gated

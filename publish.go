@@ -49,20 +49,24 @@ import (
 // on and uploads every artifact the index does not already carry.
 func (m *FoundryTools) Publish(
 	ctx context.Context,
-	// The index password: the Nexus publisher's (ca-publish-lane's PYPI_TOKEN).
-	// Required unless --dry-run.
+	// The index password: the fleet's publisher login on devpi
+	// (ca-publish-lane's PYPI_TOKEN). Required unless --dry-run.
 	// +optional
 	token *dagger.Secret,
-	// The upload endpoint.
+	// The upload endpoint: devpi's fleet/prod index at packages.notusmi.com
+	// (infra flux/infrastructure/packages.yaml), where Nexus's pypi-hosted
+	// moved (master-plan "Transparent Cache — Nexus Retired", F7).
 	// +optional
-	// +default="https://nexus.notusmi.com/repository/pypi-hosted/"
+	// +default="https://packages.notusmi.com/pypi/fleet/prod/"
 	publishURL string,
-	// The hosted index's simple root, which the probe asks and uv's --check-url
-	// reads. HOSTED, NOT THE GROUP: a group merges pypi.org, where 8 of the 13
-	// names the fleet publishes also exist, and would read a public release as
-	// ours (infra ca-recipe-env has the measurement).
+	// The fleet index's simple root, which the probe asks and uv's --check-url
+	// reads. THE FLEET'S INDEX ALONE, NEVER A MERGE WITH pypi.org: 8 of the 13
+	// names the fleet publishes also exist there, and a merged view would read
+	// a public release as ours (infra ca-recipe-env has the measurement).
+	// fleet/prod has no bases, so its simple pages hold only what the fleet
+	// published.
 	// +optional
-	// +default="https://nexus.notusmi.com/repository/pypi-hosted/simple/"
+	// +default="https://packages.notusmi.com/pypi/fleet/prod/+simple/"
 	checkURL string,
 	// The index login whose password --token is.
 	// +optional
@@ -73,13 +77,16 @@ func (m *FoundryTools) Publish(
 	// +optional
 	indexURL string,
 	// The npm registry password for a tree whose root is a package.json: the
-	// Nexus publisher's (ca-publish-lane's NPM_TOKEN). Required unless --dry-run.
+	// publisher's (ca-publish-lane's NPM_TOKEN) on Verdaccio. Required unless
+	// --dry-run.
 	// +optional
 	npmToken *dagger.Secret,
-	// The npm registry a package.json tree is probed on and published to. A
-	// package whose publishConfig.registry names anywhere else is refused.
+	// The npm registry a package.json tree is probed on and published to:
+	// Verdaccio at packages.notusmi.com/npm (infra packages.yaml), where
+	// Nexus's npm-hosted moved. A package whose publishConfig.registry names
+	// anywhere else is refused.
 	// +optional
-	// +default="https://nexus.notusmi.com/repository/npm-hosted/"
+	// +default="https://packages.notusmi.com/npm/"
 	npmRegistry string,
 	// Build and ask the index for real; upload nothing, and need no --token.
 	// +optional

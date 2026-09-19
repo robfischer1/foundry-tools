@@ -138,8 +138,8 @@ func TestDiesOpaClientIsPinnedFetchedAndProbed(t *testing.T) {
 	if strings.Contains(c, "GATE_BASE") {
 		t.Errorf("dies:opa-test must not read GATE_BASE:\n%s", c)
 	}
-	if engine.chain(`http(url:"`+checks.OpaMirror+`")`, "id") == "" {
-		t.Errorf("the mirror is tried first and its file is the one placed:\n%v", engine.chains())
+	if engine.chain(`http(url:"`+checks.OpaURL+`")`, "id") == "" {
+		t.Errorf("opa's release URL is fetched and its file is the one placed:\n%v", engine.chains())
 	}
 	// The version probe is its own exec and carries the tool's exit code back.
 	if !hasCall(engine.chain(`"opa","version"`, "exitCode"), "withExec", `args:["opa","version"]`, "expect:ANY") {
@@ -148,24 +148,13 @@ func TestDiesOpaClientIsPinnedFetchedAndProbed(t *testing.T) {
 }
 
 func TestDiesOpaClientRefusesEveryProvisioningFailure(t *testing.T) {
-	// Mirror down, upstream up: the fallback is a fallback, not a fallthrough.
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	withOpa()
-	engine.stdout(`"opa","test"`, "PASS: 3/3\n")
-	engine.fail(checks.OpaMirror, "502")
-	wantState(t, runAtom(t, "dies:opa-test", ""), 0)
-	if engine.chain(`http(url:"`+checks.OpaURL+`")`, "id") == "" {
-		t.Errorf("a dead mirror must place the upstream's file:\n%v", engine.chains())
-	}
-
 	for _, tc := range []struct {
 		name    string
 		script  func()
 		needles []string
 	}{
-		{"neither source has it", func() { engine.fail("opa_linux_amd64_static", "404") },
-			[]string{"could not be fetched from the mirror or from upstream", checks.OpaVersion}},
+		{"the release URL has no such asset", func() { engine.fail("opa_linux_amd64_static", "404") },
+			[]string{"could not be fetched", checks.OpaVersion}},
 		{"the probe never ran", func() { engine.fail(`"opa","version"`, "engine went away") },
 			[]string{"the opa version probe never ran", "engine went away"}},
 		{"on disk but will not run", func() { engine.exitCode(`"opa","version"`, 126) },

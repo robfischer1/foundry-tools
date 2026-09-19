@@ -203,6 +203,7 @@ func TestAPythonBaseWithNoLockIsRelockedAgainstTheLanesIndex(t *testing.T) {
 	wantCalls(t, engine.chain(`"uv","lock"`),
 		[]string{"from", checks.ImagePython},
 		[]string{"withEnvVariable", `"UV_INDEX_URL"`, `"https://nexus.example/simple"`},
+		[]string{"withEnvVariable", `"UV_NATIVE_TLS"`, `"1"`},
 		[]string{"withExec", `"uv"`, `"lock"`},
 	)
 	// The locked directory arrives by id, so the build's chain names where it

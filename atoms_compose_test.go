@@ -146,22 +146,15 @@ func TestComposeConfigParsesEverySpecAndBuildsThePinnedClient(t *testing.T) {
 	}
 }
 
-// THE CLIENT IS FETCHED MIRROR-FIRST, and the upstream is the fallback rather
-// than a fallthrough: a spec that was never parsed is not a clean tree.
-func TestComposeConfigFallsBackFromTheMirrorToUpstream(t *testing.T) {
+// THE CLIENT IS FETCHED FROM ITS RELEASE URL, and a failed fetch is a
+// could-not-run rather than a fallthrough: a spec that was never parsed is
+// not a clean tree.
+func TestComposeConfigRefusesWhenTheReleaseURLFails(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	wantState(t, runAtom(t, "compose:config", ""), 0)
-	if engine.chain(`http(url:"`+checks.ComposeMirror+`")`, "id") == "" {
-		t.Errorf("the happy path must place the MIRROR's file:\n%v", engine.chains())
-	}
-
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.fail(checks.ComposeMirror, "502 from the mirror")
 	wantState(t, runAtom(t, "compose:config", ""), 0)
 	if engine.chain(`http(url:"`+checks.ComposeURL+`")`, "id") == "" {
-		t.Errorf("a dead mirror must place the UPSTREAM's file:\n%v", engine.chains())
+		t.Errorf("the happy path must place the release URL's file:\n%v", engine.chains())
 	}
 
 	engine.reset()
