@@ -152,7 +152,21 @@ func (r *run) laneBase(image string) *dagger.Container {
 		// 2026-09-18, which was Go codegen doing exactly that before the CA
 		// reached the engine.
 		WithEnvVariable("UV_NATIVE_TLS", "1").
-		WithEnvVariable("NODE_EXTRA_CA_CERTS", "/etc/ssl/certs/ca-certificates.crt")
+		WithEnvVariable("NODE_EXTRA_CA_CERTS", "/etc/ssl/certs/ca-certificates.crt").
+		// AND THE certifi READERS. pip (as a client, not the truststore
+		// feature), requests and urllib3 verify against certifi's bundled
+		// roots, not the system store — measured 2026-09-19 ~01:05Z, the
+		// first hour of the engine on the intercept face: iris's python
+		// lane, `python:pip-audit` (pip-audit -> requests -> pypi.org)
+		// answered CERTIFICATE_VERIFY_FAILED "unable to get local issuer"
+		// while uv on the same lane resolved fine under UV_NATIVE_TLS
+		// (Turing21's record on the bus). Every python star's gate was red
+		// on that one atom until these landed. The three names the
+		// ecosystem reads, all pointing at the same system bundle the
+		// engine writes the CA into.
+		WithEnvVariable("SSL_CERT_FILE", "/etc/ssl/certs/ca-certificates.crt").
+		WithEnvVariable("REQUESTS_CA_BUNDLE", "/etc/ssl/certs/ca-certificates.crt").
+		WithEnvVariable("PIP_CERT", "/etc/ssl/certs/ca-certificates.crt")
 	ctr = provision(ctr, image)
 	for _, c := range checks.CachesFor(image) {
 		opts := dagger.ContainerWithMountedCacheOpts{}

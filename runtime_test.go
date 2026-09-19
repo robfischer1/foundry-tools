@@ -73,6 +73,13 @@ func TestEveryLaneDisablesTheOTelSDKAndTrustsTheEnginesCA(t *testing.T) {
 		if !hasCall(c, "withEnvVariable", `name:"NODE_EXTRA_CA_CERTS"`, `value:"/etc/ssl/certs/ca-certificates.crt"`) {
 			t.Errorf("%s runs without NODE_EXTRA_CA_CERTS — node and bun would refuse the cache's certificate:\n%s", atom, c)
 		}
+		// The certifi readers (pip-audit measured, 2026-09-19): requests,
+		// urllib3 and pip itself read these, not the system store.
+		for _, name := range []string{"SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "PIP_CERT"} {
+			if !hasCall(c, "withEnvVariable", `name:"`+name+`"`, `value:"/etc/ssl/certs/ca-certificates.crt"`) {
+				t.Errorf("%s runs without %s — a certifi-reading python client would refuse the cache's certificate:\n%s", atom, name, c)
+			}
+		}
 	}
 }
 
