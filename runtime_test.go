@@ -73,6 +73,15 @@ func TestEveryLaneDisablesTheOTelSDKAndTrustsTheEnginesCA(t *testing.T) {
 		if !hasCall(c, "withEnvVariable", `name:"NODE_EXTRA_CA_CERTS"`, `value:"/etc/ssl/certs/ca-certificates.crt"`) {
 			t.Errorf("%s runs without NODE_EXTRA_CA_CERTS — node and bun would refuse the cache's certificate:\n%s", atom, c)
 		}
+		// The third family: requests (pip-audit) and the stdlib's ssl. The
+		// hour the intercept landed, python:pip-audit was red fleet-wide on
+		// CERTIFICATE_VERIFY_FAILED against pypi.org (2026-09-19).
+		if !hasCall(c, "withEnvVariable", `name:"REQUESTS_CA_BUNDLE"`, `value:"/etc/ssl/certs/ca-certificates.crt"`) {
+			t.Errorf("%s runs without REQUESTS_CA_BUNDLE — pip-audit would refuse the cache's certificate:\n%s", atom, c)
+		}
+		if !hasCall(c, "withEnvVariable", `name:"SSL_CERT_FILE"`, `value:"/etc/ssl/certs/ca-certificates.crt"`) {
+			t.Errorf("%s runs without SSL_CERT_FILE — python's ssl would refuse the cache's certificate:\n%s", atom, c)
+		}
 	}
 }
 

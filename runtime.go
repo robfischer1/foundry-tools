@@ -143,16 +143,27 @@ func (r *run) laneBase(image string) *dagger.Container {
 		// is where go, cargo, curl, apt and pip (>= 24.2, truststore) look.
 		// uv verifies against webpki's roots unless told to use the platform
 		// store, and node and bun carry their own bundle unless handed extra
-		// certificates. Both on every lane: a variable a toolchain does not
-		// read costs nothing, and a conditional here would be a second place
-		// for this file and the atom table to disagree. WITHOUT THESE, the
-		// day the engine names the intercept face (infra dagger-engine.yaml,
-		// dnsPolicy None -> 10.43.0.53) every `uv sync` and `bun install` on
-		// the fleet refuses the cache's certificate — the F4 incident of
-		// 2026-09-18, which was Go codegen doing exactly that before the CA
-		// reached the engine.
+		// certificates. All of these on every lane: a variable a toolchain
+		// does not read costs nothing, and a conditional here would be a
+		// second place for this file and the atom table to disagree. WITHOUT
+		// THESE, the day the engine names the intercept face (infra
+		// dagger-engine.yaml, dnsPolicy None -> 10.43.0.53) every `uv sync`
+		// and `bun install` on the fleet refuses the cache's certificate —
+		// the F4 incident of 2026-09-18, which was Go codegen doing exactly
+		// that before the CA reached the engine.
+		//
+		// PYTHON'S OWN CLIENTS ARE THE THIRD FAMILY, and the one the first
+		// two missed: `requests` carries certifi's bundle and reads
+		// REQUESTS_CA_BUNDLE; the stdlib's ssl (and httpx, aiohttp, anything
+		// on it) reads SSL_CERT_FILE. pip-audit is requests. Measured the
+		// hour the intercept landed (2026-09-19 ~01:00Z): every python
+		// star's push gate red on `python:pip-audit` with
+		// CERTIFICATE_VERIFY_FAILED against pypi.org while uv, one exec
+		// earlier in the same container, resolved fine.
 		WithEnvVariable("UV_NATIVE_TLS", "1").
-		WithEnvVariable("NODE_EXTRA_CA_CERTS", "/etc/ssl/certs/ca-certificates.crt")
+		WithEnvVariable("NODE_EXTRA_CA_CERTS", "/etc/ssl/certs/ca-certificates.crt").
+		WithEnvVariable("SSL_CERT_FILE", "/etc/ssl/certs/ca-certificates.crt").
+		WithEnvVariable("REQUESTS_CA_BUNDLE", "/etc/ssl/certs/ca-certificates.crt")
 	ctr = provision(ctr, image)
 	for _, c := range checks.CachesFor(image) {
 		opts := dagger.ContainerWithMountedCacheOpts{}
