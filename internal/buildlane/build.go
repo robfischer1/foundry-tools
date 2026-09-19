@@ -28,7 +28,15 @@ const (
 // inert is the set of paths whose change alone builds nothing — records, agent
 // and editor furniture, docs — so a README edit does not publish, permit and
 // roll the star (build.sh BUILD_INERT).
-var inert = regexp.MustCompile(`^(star\.toml|\.copier-answers\.yml|\.copier-answers\.speckit\.yml|justfile|\.pre-commit-config\.yaml|ruff\.toml|\.secrets\.baseline|LICENSE|\.gitignore|\.gitattributes|\.editorconfig|\.python-version|\.furnaceignore)$|^(\.furnace|\.claude|\.specify|\.forgejo|\.github|\.agents|\.cerberus|docs|rules)/|\.md$|\.tfvars$|\.melt$`)
+//
+// THE HOOK FILES ARE FURNITURE TOO. stages.just (the file the hooks' `just
+// check` / `just gate` import), hooks/pre-commit and hooks/pre-push (what
+// core.hooksPath names) and cliff.toml (git-cliff's config) reach no image:
+// no Dockerfile COPYs them and no go:embed reads them, fleet-wide. justfile was
+// inert and stages.just, split out of it in F15, was not — so a fleet re-lay of
+// that one file would have rebuilt and rolled every star it touched. Exact
+// paths, not hooks/: foundry-stocks keeps real source under hooks/.
+var inert = regexp.MustCompile(`^(star\.toml|\.copier-answers\.yml|\.copier-answers\.speckit\.yml|justfile|stages\.just|hooks/pre-commit|hooks/pre-push|cliff\.toml|\.pre-commit-config\.yaml|ruff\.toml|\.secrets\.baseline|LICENSE|\.gitignore|\.gitattributes|\.editorconfig|\.python-version|\.furnaceignore)$|^(\.furnace|\.claude|\.specify|\.forgejo|\.github|\.agents|\.cerberus|docs|rules)/|\.md$|\.tfvars$|\.melt$`)
 
 // NonInert answers the paths in `git diff --name-only` output that are not
 // inert, in the order git listed them.

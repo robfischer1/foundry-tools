@@ -9,14 +9,18 @@ import (
 )
 
 func TestOnlyNonInertChangesBuild(t *testing.T) {
-	changed := "README.md\ndocs/a.md\n.forgejo/build-args.env\nstar.toml\nsrc/main.go\n\nDockerfile\nnested/justfile\ninfra/prod.tfvars\n.claude/settings.json\n"
+	changed := "README.md\ndocs/a.md\n.forgejo/build-args.env\nstar.toml\nsrc/main.go\n\nDockerfile\nnested/justfile\ninfra/prod.tfvars\n.claude/settings.json\nnested/stages.just\nhooks/git_guard/git_guard.py\nhooks/pre-push.d/x\n"
 	got := NonInert(changed)
-	want := []string{"src/main.go", "Dockerfile", "nested/justfile"}
+	want := []string{"src/main.go", "Dockerfile", "nested/justfile", "nested/stages.just", "hooks/git_guard/git_guard.py", "hooks/pre-push.d/x"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("NonInert = %v, want %v", got, want)
 	}
 	if got := NonInert("LICENSE\n.gitignore\nrules/sast/x.yml\n"); got != nil {
 		t.Fatalf("an inert-only push builds: %v", got)
+	}
+	// The hook files: a fleet re-lay of stages.just must not roll every star.
+	if got := NonInert("stages.just\nhooks/pre-commit\nhooks/pre-push\ncliff.toml\n"); got != nil {
+		t.Fatalf("a hook-files-only push builds: %v", got)
 	}
 }
 
