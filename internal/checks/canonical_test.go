@@ -25,6 +25,10 @@ func TestCanonicalJSONIsPythonsSortedIndentedEnsureASCIIForm(t *testing.T) {
 			`{"charter": "the door — every ref's home", "emoji": "🚀", "tab": "a\tb"}`,
 			"{\n  \"charter\": \"the door \\u2014 every ref's home\",\n  \"emoji\": \"\\ud83d\\ude80\",\n  \"tab\": \"a\\tb\"\n}\n",
 		},
+		"an object inside an array nests one level deeper than the array": {
+			`{"orbits":[{"name":"z","every":"5m"},["x",{"y":[]}]]}`,
+			"{\n  \"orbits\": [\n    {\n      \"every\": \"5m\",\n      \"name\": \"z\"\n    },\n    [\n      \"x\",\n      {\n        \"y\": []\n      }\n    ]\n  ]\n}\n",
+		},
 		"empty containers and null": {
 			`{"a": [], "b": {}, "c": null, "d": false}`,
 			"{\n  \"a\": [],\n  \"b\": {},\n  \"c\": null,\n  \"d\": false\n}\n",
