@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"dagger/foundry-tools/internal/buildlane"
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
 )
@@ -32,6 +33,7 @@ func init() {
 	register("rust:cargo-test", rustCargoTest)
 	register("rust:cargo-audit", rustCargoAudit)
 	register("rust:mutation", rustMutation)
+	register("rust:release", rustRelease)
 }
 
 // cargoVerdict is verdict() with CARGO'S EXIT VOCABULARY TRANSLATED FIRST
@@ -324,3 +326,101 @@ const (
 	rustMutationDiff = mutationDir + "/pr.diff"
 	rustMutationJobs = 2
 )
+
+// THE RELEASE BUILD, AND IT IS THE ONE THE IMAGE CARRIES — go:release's
+// contract for the Rust lane (atoms_go.go carries the reasoning; this file
+// follows it). The Gate compiles the star's binary with the release profile,
+// the engine caches that exec by its inputs, and F14's Build asks Release()
+// for the same directory and gets the compile it already paid for.
+//
+// WHAT IT BUILDS IS DERIVED, NOT DECLARED: `cargo build --release -p <star>`
+// from a workspace whose binary crate is named for the star, which is the one
+// shape the fleet's Rust Dockerfiles and rust-repo-template pour
+// (checks.RustReleasePlan carries the measurement). A record speaks only for
+// a repo that ships more than its own name.
+//
+// THE THREE ABSENCES ARE go:release's, IN ITS ORDER: no tracked Dockerfile
+// (no image, no release build); no star (a repo with Dockerfiles and no
+// .copier-answers.yml builds through other lanes); a Dockerfile that compiles
+// itself (buildlane.CopiesRelease is false, so the build lane builds it as
+// before and the fleet flips one star at a time).
+//
+// THE EXIT IS READ AFTER EACH BINARY, in cargo's vocabulary (cargoVerdict:
+// 101 is findings, not could-not-run), so a binary that did not compile is
+// reported with the compiler's own words rather than by the one after it.
+func rustRelease(ctx context.Context, r *run) checks.Verdict {
+	a := checks.AtomByID("rust:release")
+	files, err := r.population(ctx)
+	if err != nil {
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the tree could not be read: "+err.Error())
+	}
+	if len(checks.DockerfilePopulation(files)) == 0 {
+		return checks.VerdictOf(a, 0, a.ID+": ABSENT - this repository tracks no Dockerfile or Containerfile, so it ships no image and has no release build")
+	}
+	star, err := r.starName(ctx)
+	if err != nil {
+		return checks.VerdictOf(a, 0, a.ID+": ABSENT - "+err.Error()+", so this is not a star image and there is no star release build")
+	}
+	asked, err := r.asksForRelease(ctx, checks.DockerfilePopulation(files))
+	if err != nil {
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+err.Error())
+	}
+	if !asked {
+		return checks.VerdictOf(a, 0, a.ID+": ABSENT - no tracked Dockerfile copies from "+buildlane.ReleaseDir+"/, so this image compiles itself: its build is the build lane's, and there is no release build to make here")
+	}
+	plan, why := r.rustReleasePlan(ctx, star)
+	if why != "" {
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+why)
+	}
+	_, v := r.rustReleaseBuild(ctx, a, plan)
+	v.Reason = checks.ReleaseScope(plan) + "\n" + v.Reason
+	return v
+}
+
+// rustReleasePlan derives what the star's release build produces: its
+// record's binaries or its own name, each the workspace package of that name.
+// Every refusal is about the repository and settles as a could-not-run.
+func (r *run) rustReleasePlan(ctx context.Context, star string) (checks.ReleasePlan, string) {
+	var declared []string
+	if slag, err := r.dies.File("fleet/stars/" + star + "/slag.json").Contents(ctx); err == nil {
+		declared = checks.ReleaseBinaries(slag)
+	}
+	plan, err := checks.RustReleasePlan(star, declared)
+	if err != nil {
+		return checks.ReleasePlan{}, err.Error()
+	}
+	return plan, ""
+}
+
+// rustReleaseBuild is the compile itself: the provisioned lane (cargoDeps),
+// the target directory in the container rather than the lane's cache volume
+// (checks.RustReleaseTarget says why), one exec per binary. It answers the
+// container the binaries are in and the verdict of the last exec that ran —
+// the first failure stops the chain, so the verdict names the binary that
+// did not build.
+func (r *run) rustReleaseBuild(ctx context.Context, a checks.AtomDef, plan checks.ReleasePlan) (*dagger.Container, checks.Verdict) {
+	ctr := r.cargoDeps().WithEnvVariable("CARGO_TARGET_DIR", checks.RustReleaseTarget)
+	v := checks.VerdictOf(a, 0, "")
+	for _, b := range plan.Binaries {
+		ctr = ctr.WithExec(checks.RustReleaseArgs(b), anyExit)
+		if v = cargoVerdict(ctx, a, ctr); v.State != 0 {
+			return ctr, v
+		}
+	}
+	return ctr, v
+}
+
+// rustReleaseDir is the release build's binaries as a directory — what F14
+// copies onto the base image: each binary read from where cargo left it
+// (checks.RustReleaseBinary), under its own name at the root. Lazy, as the
+// Go path's ctr.Directory(ReleaseOut) is: a binary the build did not leave
+// (a record naming a package that builds no [[bin]]) surfaces where the
+// directory is first used — the image build's context — as the engine's own
+// "no such file" for that path, which the build lane files as findings.
+func rustReleaseDir(ctr *dagger.Container, plan checks.ReleasePlan) *dagger.Directory {
+	out := dag.Directory()
+	for _, b := range plan.Binaries {
+		out = out.WithFile(b.Name, ctr.File(checks.RustReleaseBinary(b)))
+	}
+	return out
+}

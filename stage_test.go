@@ -280,6 +280,97 @@ func TestReleaseAnswersTheBuiltBinariesOrSaysWhyNot(t *testing.T) {
 	}
 }
 
+// THE LANE IS THE TREE'S (F17, the Rust half). A root Cargo.toml is the Rust
+// lane's release: the rust:release atom's own exec, and the directory is the
+// binaries read back from where cargo left them, each under its own name —
+// never the whole target/ tree. Both toolchains at the root is refused, the
+// way the cast lane refuses it.
+func TestReleaseBuildsARustStarWithCargoAndHandsOverItsBinaries(t *testing.T) {
+	tree := map[string]string{
+		"Dockerfile":          "FROM x\nCOPY release/tron /tron\n",
+		".copier-answers.yml": "service_name: tron\n",
+		"Cargo.toml":          "[workspace]\nmembers = [\"crates/tron\"]\n",
+		"Cargo.lock":          "",
+	}
+	engine.reset()
+	engine.withTree(tree)
+	dir, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background())
+	if err != nil || dir == nil {
+		t.Fatalf("dir %v err %v", dir, err)
+	}
+	build := engine.chain(`"cargo","build","--release","--locked","-p","tron"`)
+	if build == "" {
+		t.Fatalf("the rust release build never ran:\n%v", engine.chains())
+	}
+	if engine.chain(`"go","build"`) != "" {
+		t.Errorf("a Rust star got a Go compile:\n%v", engine.chains())
+	}
+	// The directory is built from the binary, by name: the file is read off
+	// the build container where cargo left it, and a fresh directory takes
+	// it under its own name — lazily, so the chain is recorded when the
+	// directory is first used, as the build lane uses it.
+	if _, err := dag.Directory().WithDirectory("release", dir).Entries(context.Background()); err != nil {
+		t.Fatalf("the release directory could not be used: %v", err)
+	}
+	bin := engine.chain(`file(path:"/work/target/release/tron")`, "{id}")
+	if bin == "" {
+		t.Fatalf("the binary is not read back out of cargo's target directory:\n%v", engine.chains())
+	}
+	if c := engine.chain(`directory{withFile(`, `path:"tron"`); c == "" || !strings.Contains(c, fakeID(bin)) {
+		t.Errorf("the release directory does not carry the built binary under its name:\n%s\n%v", c, engine.chains())
+	}
+	if strings.Contains(engine.chain(`directory{withFile(`), "/work/target") {
+		t.Errorf("the whole target tree was handed over, not the binary")
+	}
+
+	// A crate that does not compile is an error carrying the compiler's words.
+	engine.reset()
+	engine.withTree(tree)
+	engine.exitCode(`"-p","tron"`, 101)
+	engine.stderr(`"-p","tron"`, "error[E0425]: cannot find value `x`")
+	if dir, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err == nil || dir != nil {
+		t.Errorf("a failed release build is an error, got dir %v err %v", dir, err)
+	} else if !strings.Contains(err.Error(), "E0425") {
+		t.Errorf("the error carries the compiler's own words: %v", err)
+	}
+
+	// A record's binary that is not a name is refused before anything runs.
+	engine.reset()
+	engine.withTree(tree)
+	engine.withTree(map[string]string{"/dies/fleet/stars/tron/slag.json": `{"tools":{"build":{"binaries":["../x"]}}}`})
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err == nil || !strings.Contains(err.Error(), "is not a binary name") {
+		t.Errorf("err %v", err)
+	}
+	if engine.chain(`"cargo","build"`) != "" {
+		t.Errorf("a refused plan still compiled:\n%v", engine.chains())
+	}
+
+	// Both toolchains at the root: refused, naming the ambiguity.
+	engine.reset()
+	engine.withTree(tree)
+	engine.withTree(map[string]string{"go.mod": "module x\n"})
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err == nil || !strings.Contains(err.Error(), "both a Cargo.toml and a root go.mod") {
+		t.Errorf("err %v", err)
+	}
+
+	// An engine that goes away mid-build is an error about the run, worded
+	// apart from a compile that failed: the build lane classifies on it.
+	engine.reset()
+	engine.withTree(tree)
+	engine.fail(`"-p","tron"`, "dial tcp: i/o timeout")
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err == nil || !strings.Contains(err.Error(), "did not run") || !strings.Contains(err.Error(), "i/o timeout") {
+		t.Errorf("err %v", err)
+	}
+
+	// A root that cannot be read is an error about the read, not a guess.
+	engine.reset()
+	engine.withTree(tree)
+	engine.fail("entries", "the root went away")
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err == nil || !strings.Contains(err.Error(), "the root went away") {
+		t.Errorf("err %v", err)
+	}
+}
+
 // THE SEQUENCE OBEYS THE PLANNER, and this test watches the DISPATCH, not the
 // verdict. Measured live on foundry-tools' own pre-push hook: with the lane
 // gate moved into run.plan and only the fanout wired to it, the push stage ran

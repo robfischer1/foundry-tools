@@ -249,6 +249,10 @@ func atomTable() []AtomDef {
 			Desc: "cargo test --workspace passes, and there is something for it to pass.",
 		},
 		{
+			ID: "rust:release", Stage: StagePrepush, Lane: LaneRust, Image: ImageRust,
+			Desc: "The release binaries the image will carry compile under cargo's release profile — for a Dockerfile that copies from release/; one that compiles itself is built by the build lane, and this is absent.",
+		},
+		{
 			ID: "rust:cargo-audit", Stage: StagePrepush, Lane: LaneRust, Image: ImageRust,
 			Desc: "cargo audit reports no known vulnerability.",
 		},

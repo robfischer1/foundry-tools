@@ -565,3 +565,159 @@ func TestTheRustLaneIsAbsentWithoutACargoToml(t *testing.T) {
 		}
 	}
 }
+
+// copiesTron is the three-line shape for a Rust star: a Dockerfile that asks
+// for the Gate's artifact by copying it from release/ (buildlane.CopiesRelease).
+const copiesTron = "FROM x\nCOPY release/tron /tron\n"
+
+// THE RELEASE BUILD IS THE IMAGE'S COMPILE, derived: the star's own crate under
+// the release profile, --locked, into the container's own target directory —
+// or the binaries the record declares, one exec each.
+func TestRustReleaseBuildsWhatTheImageWillCarry(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{"Dockerfile": copiesTron, ".copier-answers.yml": "service_name: tron\n"})
+	wantState(t, runAtom(t, "rust:release", ""), 0, "release build: tron", "the star's own name", "--locked")
+	c := engine.chain(`"cargo","build","--release"`, "exitCode")
+	wantCalls(t, c,
+		[]string{"withExec", `args:["cargo","fetch"]`},
+		[]string{"withEnvVariable", `name:"CARGO_TARGET_DIR"`, `value:"/work/target"`},
+		[]string{"withExec", `expect:ANY`, `args:["cargo","build","--release","--locked","-p","tron"]`},
+	)
+	// The dependencies are provisioned before the compile (the lane's own
+	// rule: one fetch, then the build reads), and the target directory is
+	// the container's — set AFTER the lane's cache mounts named the cache
+	// volume's, so the override is the one cargo sees.
+	fetch, target, build := strings.Index(c, `"cargo","fetch"`), strings.LastIndex(c, `name:"CARGO_TARGET_DIR"`), strings.Index(c, `"cargo","build","--release"`)
+	if !(fetch < target && target < build) {
+		t.Errorf("fetch, then the target override, then the build — got %d %d %d:\n%s", fetch, target, build, c)
+	}
+	if strings.Contains(c[target:build], `value:"/cache/cargo-target"`) {
+		t.Errorf("the cache volume's target directory is set after the override:\n%s", c)
+	}
+
+	// The record names more than one, and each gets its own exec.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{
+		"Dockerfile":                           "FROM x\nCOPY release/cerberus /cerberus\nCOPY release/cerberus-admin /cerberus-admin\n",
+		".copier-answers.yml":                  "service_name: cerberus\n",
+		"/dies/fleet/stars/cerberus/slag.json": `{"tools":{"build":{"binaries":["cerberus","cerberus-admin"]}}}`,
+	})
+	wantState(t, runAtom(t, "rust:release", ""), 0, "cerberus, cerberus-admin", "tools.build.binaries")
+	for _, b := range []string{"cerberus", "cerberus-admin"} {
+		if engine.chain(`"-p","`+b+`"`) == "" {
+			t.Errorf("no exec builds %s:\n%v", b, engine.chains())
+		}
+	}
+}
+
+// A CRATE THAT DOES NOT COMPILE IS A FINDING IN CARGO'S VOCABULARY (101, not
+// 1), reported with the compiler's own words, and the chain stops at it: a
+// second binary is not built on top of a first that failed.
+func TestRustReleaseReportsTheBinaryThatDidNotBuild(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{
+		"Dockerfile":                    "FROM x\nCOPY release/a /a\nCOPY release/b /b\n",
+		".copier-answers.yml":           "service_name: a\n",
+		"/dies/fleet/stars/a/slag.json": `{"tools":{"build":{"binaries":["a","b"]}}}`,
+	})
+	engine.exitCode(`"-p","a"`, 101)
+	engine.stderr(`"-p","a"`, "error[E0425]: cannot find value `x` in this scope")
+	wantState(t, runAtom(t, "rust:release", ""), 1, "release build: a, b", "error[E0425]")
+	if engine.chain(`"-p","b"`) != "" {
+		t.Errorf("b was built on top of a's failed compile:\n%v", engine.chains())
+	}
+
+	// A signal is could-not-run, as it is for every cargo atom.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{"Dockerfile": copiesTron, ".copier-answers.yml": "service_name: tron\n"})
+	engine.exitCode(`"-p","tron"`, 137)
+	wantState(t, runAtom(t, "rust:release", ""), 2)
+
+	// An engine that goes away is could-not-run that says so.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{"Dockerfile": copiesTron, ".copier-answers.yml": "service_name: tron\n"})
+	engine.fail(`"-p","tron"`, "the engine went away")
+	wantState(t, runAtom(t, "rust:release", ""), 2, "the engine went away")
+}
+
+// THE THREE ABSENCES ARE go:release's, IN ITS ORDER: no image, no star, a
+// Dockerfile that compiles itself — each a 0 that says why, none a compile.
+func TestRustReleaseIsAbsentWhereGoReleaseIs(t *testing.T) {
+	noBuild := func(t *testing.T) {
+		t.Helper()
+		if engine.chain(`"cargo","build","--release"`) != "" {
+			t.Errorf("nothing compiles for an absence:\n%v", engine.chains())
+		}
+	}
+	// A Cargo workspace and no Dockerfile ships no image.
+	engine.reset()
+	engine.withTree(map[string]string{"Cargo.toml": "[package]\nname = \"x\"\n", "src/main.rs": ""})
+	v := runAtom(t, "rust:release", "")
+	if v.State != 0 || v.Result != "absent" || !strings.Contains(v.Reason, "tracks no Dockerfile") {
+		t.Errorf("want an absent 0 naming the missing Dockerfile, got %+v", v)
+	}
+	noBuild(t)
+
+	// Dockerfiles and no star: not a star image. The star is read before the
+	// Dockerfile's ask, so a non-star is never told it compiles itself.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{"Dockerfile": "FROM x\n"})
+	v = runAtom(t, "rust:release", "")
+	if v.State != 0 || v.Result != "absent" || !strings.Contains(v.Reason, "names no star") || !strings.Contains(v.Reason, "not a star image") || strings.Contains(v.Reason, "compiles itself") {
+		t.Errorf("want an absent 0 saying it is not a star image, got %+v", v)
+	}
+	noBuild(t)
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{"Dockerfile": "FROM x\n", ".copier-answers.yml": "project: x\n"})
+	if v := runAtom(t, "rust:release", ""); v.Result != "absent" || !strings.Contains(v.Reason, "no service_name") {
+		t.Errorf("%+v", v)
+	}
+
+	// A Dockerfile with its own build stage asks for nothing.
+	self := "FROM docker.notusmi.com/library/rust:1.98 AS build\nRUN cargo build --release -p tron\nFROM x\nCOPY --from=build /src/target/release/tron /tron\n"
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{"Dockerfile": self, ".copier-answers.yml": "service_name: tron\n"})
+	v = runAtom(t, "rust:release", "")
+	if v.State != 0 || v.Result != "absent" || !strings.Contains(v.Reason, "compiles itself") || !strings.Contains(v.Reason, "release/") {
+		t.Errorf("want an absent 0 saying the image compiles itself, got %+v", v)
+	}
+	noBuild(t)
+}
+
+// EVERY WAY THE RELEASE BUILD CANNOT ANSWER IS A COULD-NOT-RUN THAT SAYS WHY:
+// a tree it cannot read, a Dockerfile it cannot read, a record whose binaries
+// are unusable.
+func TestRustReleaseSaysWhyItCouldNotRun(t *testing.T) {
+	image := map[string]string{"Dockerfile": copiesTron, ".copier-answers.yml": "service_name: tron\n"}
+
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(image)
+	engine.fail("glob", "the tree went away")
+	wantState(t, runAtom(t, "rust:release", ""), 2, "the tree could not be read", "the tree went away")
+
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(image)
+	engine.failLeaf(`file(path:"Dockerfile")`, "contents", "the file went away")
+	wantState(t, runAtom(t, "rust:release", ""), 2, "Dockerfile could not be read", "the file went away")
+	if engine.chain(`"cargo","build","--release"`) != "" {
+		t.Errorf("a Dockerfile that could not be read still compiled:\n%v", engine.chains())
+	}
+
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{
+		"Dockerfile": copiesTron, ".copier-answers.yml": "service_name: tron\n",
+		"/dies/fleet/stars/tron/slag.json": `{"tools":{"build":{"binaries":["../escape"]}}}`,
+	})
+	wantState(t, runAtom(t, "rust:release", ""), 2, "is not a binary name")
+}
