@@ -349,6 +349,9 @@ func goRelease(ctx context.Context, r *run) checks.Verdict {
 		return checks.VerdictOf(a, 0, a.ID+": ABSENT - this repository tracks no Dockerfile or Containerfile, so it ships no image and has no release build")
 	}
 	star, err := r.starName(ctx)
+	if err != nil && !isNotAStar(err) {
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+err.Error())
+	}
 	if err != nil {
 		// NOT A STAR, NOT A STAR IMAGE, ABSENT. Measured on foundry-stocks the
 		// afternoon this atom landed (Wonka17's record, 2026-09-17, nine gate
@@ -416,19 +419,73 @@ func (r *run) asksForRelease(ctx context.Context, dockerfiles []string) (bool, e
 // release build produces. Every refusal is about the repository, so the atom
 // settles it as a could-not-run: an image whose binaries cannot be named is
 // not an image anyone should build.
-// starName is the star this repository is, as its answers file declares it —
-// the key the record and the release convention share. A repo without one is
-// not a star: an error here is "not a star", never "could not read".
+// starName is the star this repository is — the key the record and the
+// release convention share. The answers file says it first; a repository
+// with none is named by ITS RECORD, the one in foundry-dies whose meta.repo
+// is this clone's custody key. hephaestus is the case (CA F17, Rob
+// 2026-09-19): not copier-templated, no .copier-answers.yml, and a record at
+// fleet/stars/hephaestus/slag.json saying repo rob/hephaestus — the door
+// already routes its lanes by that record, so the release build reads the
+// same name. The clone URL is the door's (--repo) or the hook's (--origin);
+// a run given neither, and no answers file, is not a star: an error here is
+// "not a star", never "could not read".
 func (r *run) starName(ctx context.Context) (string, error) {
 	answers, err := r.src.File(".copier-answers.yml").Contents(ctx)
-	if err != nil {
-		return "", errors.New("no .copier-answers.yml, so the repository names no star")
+	if err == nil {
+		if star := checks.ServiceName(answers); star != "" {
+			return star, nil
+		}
+		return "", notAStar("no service_name in .copier-answers.yml, so the repository names no star")
 	}
-	star := checks.ServiceName(answers)
+	key := checks.RepoKey(r.repo)
+	if key == "" {
+		key = checks.RepoKey(r.origin)
+	}
+	if key == "" {
+		return "", notAStar("no .copier-answers.yml and no clone URL to find a record by, so the repository names no star")
+	}
+	star, err := r.starOfRepo(ctx, key)
+	if err != nil {
+		return "", err
+	}
 	if star == "" {
-		return "", errors.New("no service_name in .copier-answers.yml, so the repository names no star")
+		return "", notAStar(fmt.Sprintf("no .copier-answers.yml, and no record in foundry-dies names repo %s, so the repository names no star", key))
 	}
 	return star, nil
+}
+
+// notAStarError is starName's answer when the repository is not a star — an
+// ABSENCE to the release atoms, where a read fault (the dies unreadable) is a
+// could-not-run. errors.As tells them apart.
+type notAStarError struct{ why string }
+
+func notAStar(why string) error        { return &notAStarError{why: why} }
+func (e *notAStarError) Error() string { return e.why }
+
+// isNotAStar reports whether err is starName's "not a star".
+func isNotAStar(err error) bool {
+	var ns *notAStarError
+	return errors.As(err, &ns)
+}
+
+// starOfRepo is the star whose record says meta.repo == key, or "" when no
+// record does. The records are read at their one home (r.dies); a tree that
+// cannot be listed is an error, not "no star".
+func (r *run) starOfRepo(ctx context.Context, key string) (string, error) {
+	paths, err := r.dies.Glob(ctx, "fleet/stars/*/slag.json")
+	if err != nil {
+		return "", fmt.Errorf("the fleet's records could not be listed: %w", err)
+	}
+	for _, p := range paths {
+		slag, err := r.dies.File(p).Contents(ctx)
+		if err != nil {
+			return "", fmt.Errorf("record %s could not be read: %w", p, err)
+		}
+		if checks.RecordRepo(slag) == key {
+			return checks.StarOfRecordPath(p), nil
+		}
+	}
+	return "", nil
 }
 
 // releasePlan derives what the star's release build produces: its record's

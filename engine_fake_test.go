@@ -436,7 +436,20 @@ func (e *fakeEngine) answer(q string) (data any, errMsg string) {
 	case "glob":
 		p, _ := leaf.arg("pattern")
 		gitless := strings.Contains(q, "filter(")
-		val = e.glob(dirOf(fields), p, gitless)
+		dir := dirOf(fields)
+		// A glob over a repository the atoms read at its one home (the dies,
+		// the stocks) lists the checkout the test placed under its mount path,
+		// the way `contents` reads one — so a test can hand an atom the fleet's
+		// records and let it find the one it needs.
+		if fields[0].name == "git" {
+			if mount := gitMount(fields[0]); mount != "" && e.hasDir(mount) {
+				dir = path.Join(mount, dir)
+			} else {
+				val = []string{}
+				break
+			}
+		}
+		val = e.glob(dir, p, gitless)
 	case "contents":
 		// A scripted answer first: a test may hand an atom the file a body
 		// wrote inside the container (an rc file, a reason) without placing it
