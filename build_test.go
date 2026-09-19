@@ -943,6 +943,7 @@ func TestATipWhoseReleaseDoesNotBuildIsFindingsAndPublishesNothing(t *testing.T)
 	engine.stderr(`"go","build","-trimpath"`, "cmd/ares/main.go:2: undefined: x")
 	tip(t, m)
 	settledOn(t, "1", "findings in the release build")
+	settledOn(t, "1", "undefined: x") // the compiler's words reach the verdict, not only the log
 	if engine.chain("dockerBuild", "sync") != "" || engine.chain(imageReportNeedle) != "" || engine.chain("publish(") != "" {
 		t.Fatal("an image whose release did not build was built, scanned or published")
 	}

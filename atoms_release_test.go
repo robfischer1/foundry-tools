@@ -70,6 +70,36 @@ func TestTSReleaseRunsTheRecordsStepsOnTheImagesBase(t *testing.T) {
 	}
 }
 
+// A FRONTEND STAR IS NAMED BY ITS RECORD. The frontend template asks for
+// repo_name, not service_name, and repo_name is not the star (demeter's is
+// demeter-mcp): the record whose meta.repo is the clone URL's key names it,
+// the way it names a repository with no answers file at all (calliope #46).
+func TestAFrontendStarWithNoServiceNameIsNamedByItsRecord(t *testing.T) {
+	engine.reset()
+	tree := bunStar(calliopeSteps)
+	tree[".copier-answers.yml"] = "repo_name: calliope-mcp\nframework: mcp\n"
+	tree["/dies/fleet/stars/calliope/slag.json"] = `{"meta":{"repo":"rob/calliope"},"tools":{"build":{"release":` + calliopeSteps + `}}}`
+	engine.withTree(tree)
+	r := newRun(dag.Directory(), "http://ourea.default.svc.cluster.local:8215/calliope.git", "")
+	wantState(t, registry["ts:release"](context.Background(), r), 0, "2 step(s) from tools.build.release")
+
+	// With no clone URL to find the record by, it says what it lacked.
+	engine.reset()
+	engine.withTree(tree)
+	v := runAtom(t, "ts:release", "")
+	if v.State != 0 || v.Result != "absent" || !strings.Contains(v.Reason, "no service_name in .copier-answers.yml and no clone URL") {
+		t.Errorf("want an absent naming both lacks, got %+v", v)
+	}
+	// And a clone URL no record names says that.
+	engine.reset()
+	engine.withTree(tree)
+	r = newRun(dag.Directory(), "http://ourea.default.svc.cluster.local:8215/elsewhere.git", "")
+	v = registry["ts:release"](context.Background(), r)
+	if v.State != 0 || !strings.Contains(v.Reason, "no service_name in .copier-answers.yml, and no record in foundry-dies names repo rob/elsewhere") {
+		t.Errorf("want an absent naming the unrecorded repo, got %+v", v)
+	}
+}
+
 // A STEP THAT FAILS IS THE TREE'S FINDING, NAMED, AND THE CHAIN STOPS AT IT;
 // a step that could not run at all, or a network the substrate lost, is a
 // could-not-run.

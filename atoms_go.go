@@ -429,27 +429,35 @@ func (r *run) asksForRelease(ctx context.Context, dockerfiles []string) (bool, e
 // same name. The clone URL is the door's (--repo) or the hook's (--origin);
 // a run given neither, and no answers file, is not a star: an error here is
 // "not a star", never "could not read".
+//
+// AN ANSWERS FILE WITH NO service_name FALLS BACK TO THE RECORD TOO. Only
+// the go, rust and python templates ask for one; the frontend template asks
+// for repo_name, which is not the star (demeter's is demeter-mcp, its record
+// fleet/stars/demeter). Measured on calliope #46, 2026-09-19: the push's
+// ts:release stood down ABSENT as "not a star image" and the build lane's
+// Release() failed on the same sentence — a star with a record, read as none.
 func (r *run) starName(ctx context.Context) (string, error) {
+	lacks := "no .copier-answers.yml"
 	answers, err := r.src.File(".copier-answers.yml").Contents(ctx)
 	if err == nil {
 		if star := checks.ServiceName(answers); star != "" {
 			return star, nil
 		}
-		return "", notAStar("no service_name in .copier-answers.yml, so the repository names no star")
+		lacks = "no service_name in .copier-answers.yml"
 	}
 	key := checks.RepoKey(r.repo)
 	if key == "" {
 		key = checks.RepoKey(r.origin)
 	}
 	if key == "" {
-		return "", notAStar("no .copier-answers.yml and no clone URL to find a record by, so the repository names no star")
+		return "", notAStar(lacks + " and no clone URL to find a record by, so the repository names no star")
 	}
 	star, err := r.starOfRepo(ctx, key)
 	if err != nil {
 		return "", err
 	}
 	if star == "" {
-		return "", notAStar(fmt.Sprintf("no .copier-answers.yml, and no record in foundry-dies names repo %s, so the repository names no star", key))
+		return "", notAStar(fmt.Sprintf("%s, and no record in foundry-dies names repo %s, so the repository names no star", lacks, key))
 	}
 	return star, nil
 }
