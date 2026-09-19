@@ -18,7 +18,7 @@ import (
 
 var diesAtoms = []string{
 	"dies:opa-test", "dies:admission-dogfood", "dies:data-keys",
-	"dies:canary-visibility", "dies:contracts", "dies:schema",
+	"dies:canary-visibility", "dies:contracts", "dies:schema", "dies:canonical",
 }
 
 // diesBuiltAContainer reports whether anything pulled an image. Named for this
@@ -715,4 +715,73 @@ func TestDiesSchemaReadsTheValidatorsExit(t *testing.T) {
 		tc.script()
 		wantState(t, runAtom(t, "dies:schema", ""), tc.state, tc.needles...)
 	}
+}
+
+// ---- dies:canonical ----
+
+// THE BYTES, NOT THE SHAPE. A record that is its own canonical form passes; one
+// with a key out of sorted order, a different indent, unescaped non-ASCII or
+// no trailing LF is findings naming the record and the re-emit that fixes it;
+// one that is not JSON is findings too. No container is ever built: the read
+// is the Directory's own.
+func TestDiesCanonicalGradesEveryRecordsForm(t *testing.T) {
+	canonical := "{\n  \"apiVersion\": 3,\n  \"tools\": {\n    \"build\": {\n      \"binaries\": [\n        \"clio\"\n      ]\n    },\n    \"calypso\": {\n      \"secret_path\": \"/fleet/clio\"\n    }\n  }\n}\n"
+	engine.reset()
+	engine.withTree(diesTree(map[string]string{
+		"fleet/stars/clio/slag.json":  canonical,
+		"fleet/stars/hades/slag.json": "{\n  \"apiVersion\": 3,\n  \"charter\": \"the door \\u2014 every ref's home\"\n}\n",
+	}))
+	wantState(t, runAtom(t, "dies:canonical", ""), 0)
+	if diesBuiltAContainer() {
+		t.Error("the form is graded in Go; no container should be built")
+	}
+
+	for name, tc := range map[string]struct{ body, needle string }{
+		"a block out of sorted order": {
+			"{\n  \"apiVersion\": 3,\n  \"tools\": {\n    \"calypso\": {\n      \"secret_path\": \"/fleet/clio\"\n    },\n    \"build\": {\n      \"binaries\": [\n        \"clio\"\n      ]\n    }\n  }\n}\n",
+			"fleet/stars/clio/slag.json: diverges from its canonical form",
+		},
+		"four-space indent":        {"{\n    \"apiVersion\": 3\n}\n", "diverges from its canonical form"},
+		"no trailing newline":      {"{\n  \"apiVersion\": 3\n}", "diverges from its canonical form"},
+		"non-ascii left unescaped": {"{\n  \"charter\": \"the door \u2014 home\"\n}\n", "diverges from its canonical form"},
+		"not json":                 {"{\"apiVersion\": 3,\n", "fleet/stars/clio/slag.json: not one JSON document"},
+	} {
+		engine.reset()
+		engine.withTree(diesTree(map[string]string{
+			"fleet/stars/clio/slag.json":  tc.body,
+			"fleet/stars/hades/slag.json": canonical,
+		}))
+		wantState(t, runAtom(t, "dies:canonical", ""), 1, "1 of 2 record(s)", tc.needle)
+		if diesBuiltAContainer() {
+			t.Errorf("%s: a finding must not build a container", name)
+		}
+	}
+
+	// Every finding is named, not just the first.
+	engine.reset()
+	engine.withTree(diesTree(map[string]string{
+		"fleet/stars/a/slag.json": "{\"z\": 1, \"a\": 2}\n",
+		"fleet/stars/b/slag.json": "{\n  \"a\": 2\n}",
+		"fleet/stars/c/slag.json": canonical,
+	}))
+	wantState(t, runAtom(t, "dies:canonical", ""), 1, "2 of 3 record(s)", "fleet/stars/a/slag.json", "fleet/stars/b/slag.json")
+}
+
+// A die with the shape but no record is could-not-run, and a record the engine
+// could not hand over is could-not-run naming it — neither is a verdict on
+// the form.
+func TestDiesCanonicalCannotRunWithoutARecordItCanRead(t *testing.T) {
+	engine.reset()
+	engine.withTree(diesTree(map[string]string{"fleet/stars/.keep": ""}, "fleet/stars/x"))
+	wantState(t, runAtom(t, "dies:canonical", ""), 2, "fleet/stars/ carries no slag.json")
+
+	engine.reset()
+	engine.withTree(diesTree(map[string]string{"fleet/stars/clio/slag.json": "{}\n"}))
+	engine.fail(`file(path:"fleet/stars/clio/slag.json"){contents}`, "the blob would not evaluate")
+	wantState(t, runAtom(t, "dies:canonical", ""), 2, "fleet/stars/clio/slag.json could not be read", "would not evaluate")
+
+	engine.reset()
+	engine.withTree(diesTree(nil))
+	engine.fail(`glob(pattern:"fleet/stars/*/slag.json")`, "the glob would not evaluate")
+	wantState(t, runAtom(t, "dies:canonical", ""), 2, "fleet/stars/ could not be scanned", "would not evaluate")
 }

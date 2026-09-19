@@ -82,3 +82,11 @@ func (d *Dies) Contracts(ctx context.Context) (string, error) {
 func (d *Dies) Schema(ctx context.Context) (string, error) {
 	return check(ctx, d.Source, "dies:schema")
 }
+
+// Every committed record is byte-for-byte its own canonical form — the form
+// hephaestus' golden grades one repo away, refused here at the push instead.
+//
+// +check
+func (d *Dies) Canonical(ctx context.Context) (string, error) {
+	return check(ctx, d.Source, "dies:canonical")
+}
