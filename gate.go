@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"dagger/foundry-tools/internal/checks"
-	"dagger/foundry-tools/internal/gatelane"
 )
 
 // THE GATE LANE, AS ONE FUNCTION. The door's gate Job runs `dagger call …
@@ -59,14 +58,14 @@ func (m *FoundryTools) Gate(
 		lane = "mutation"
 	}
 	vector, code := m.gradeTree(ctx, lane, tree, stage, base)
-	return settle(ctx, code, fmt.Sprintf("%s: %s\nsettled from its exit under %s", lane, gatelane.Summary(vector), pin))
+	return settle(ctx, code, fmt.Sprintf("%s: %s\nsettled from its exit under %s", lane, checks.Summary(vector), pin))
 }
 
 // gradeTree proves the tree and answers the vector and its worst state. Every
 // reason the grading could not happen is a one-atom cannot-run vector.
 func (m *FoundryTools) gradeTree(ctx context.Context, lane, tree, stage, base string) ([]checks.Verdict, int) {
 	cannot := func(reason string) ([]checks.Verdict, int) {
-		return gatelane.CannotRunVector(lane, stage, reason), gatelane.CouldNotRun
+		return checks.CannotRunVector(lane, stage, reason), int(checks.StateCannotRun)
 	}
 	if m.Repo == "" || m.Sha == "" {
 		return cannot("the gate grades a commit the engine fetched — construct the module with --repo and --sha")
@@ -82,12 +81,12 @@ func (m *FoundryTools) gradeTree(ctx context.Context, lane, tree, stage, base st
 	if err != nil {
 		return cannot("the module could not produce a vector: " + err.Error())
 	}
-	vector, err := gatelane.ParseVector(raw)
+	vector, err := checks.ParseVector(raw)
 	if err != nil {
 		return cannot(err.Error())
 	}
 	if len(vector) == 0 {
 		return cannot("the module answered an EMPTY vector — existence is not a pass, and neither is nothing")
 	}
-	return vector, gatelane.Worst(vector)
+	return vector, checks.Worst(vector)
 }
