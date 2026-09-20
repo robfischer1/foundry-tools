@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 	"sync"
@@ -524,5 +525,79 @@ func TestAWorktreePushWithAnOriginGradesTheRealChangeSet(t *testing.T) {
 	}
 	if engine.chain(`"git","init","-q","."`) == "" {
 		t.Errorf("without a base the snapshot gets its throwaway repository:\n%v", engine.chains())
+	}
+}
+
+// THE RECORD IS ONE LINE, WHATEVER IS INSIDE IT. The rendered log and every
+// atom's lines are full of newlines; JSON escapes them, so they travel intact
+// without breaking the line the door scans for. If this ever stops being true
+// the door reads a fragment and settles on it.
+func TestTheRecordIsOneLineEvenWithNewlinesInside(t *testing.T) {
+	s := &StageResult{
+		Stage: "gate", State: 1, Lanes: []string{"go"},
+		Atoms: []AtomResult{{
+			Atom: "go:test", Group: "language", State: 1, Result: "findings",
+			Reason: "go:test: FINDINGS (exit 1)\nFAIL\tpkg\t0.1s",
+			Logs:   []string{"--- FAIL: TestX", "    x_test.go:9: boom", ""},
+		}},
+		Log: "── go:test · findings ──\nFAIL\tpkg\n\nmore\n",
+	}
+	rec, err := s.Record()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(rec, "\n") {
+		t.Fatalf("the record spans more than one line: %q", rec)
+	}
+	if !strings.HasPrefix(rec, "ourea-run-record/1 ") {
+		t.Fatalf("the record must carry the sentinel: %q", rec[:40])
+	}
+}
+
+// THE SENTINEL IS PINNED BYTE FOR BYTE. Its reader is `FindRunRecord` in
+// ourea — a different Go module with no package to share — so nothing but this
+// literal and that one holds the contract together. The written record is
+// ourea's specs/072-door-reads-run-record/contracts/lane-run-record.md.
+func TestTheSentinelIsExactlyWhatTheDoorReads(t *testing.T) {
+	if runRecordSentinel != "ourea-run-record/1" {
+		t.Fatalf("the sentinel moved to %q — ourea's reader will stop finding the record, and every lane will settle could-not-run", runRecordSentinel)
+	}
+	rec, err := (&StageResult{Stage: "gate"}).Record()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(rec, "ourea-run-record/1 {") {
+		t.Fatalf("the wire form is `<sentinel> <json>`; got %q", rec[:32])
+	}
+}
+
+// THE RECORD ROUND-TRIPS, carrying the atoms' own evidence with it — which is
+// the whole reason the previous feature put it there.
+func TestTheRecordRoundTripsWithItsEvidence(t *testing.T) {
+	s := &StageResult{
+		Stage: "gate", State: 1, Lanes: []string{"go"}, Unreached: []string{"go:mutation"},
+		Atoms:   []AtomResult{{Atom: "go:test", State: 1, Result: "findings", Logs: []string{"boom"}, Truncated: true, OriginalBytes: 4096}},
+		Omitted: []AtomResult{{Atom: "rust:fmt", State: 0, Result: "absent", Logs: []string{}}},
+	}
+	rec, err := s.Record()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back StageResult
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(rec, "ourea-run-record/1 ")), &back); err != nil {
+		t.Fatal(err)
+	}
+	if back.State != 1 || back.Stage != "gate" || len(back.Atoms) != 1 || len(back.Omitted) != 1 {
+		t.Fatalf("the record lost its shape: %+v", back)
+	}
+	a := back.Atoms[0]
+	if !a.Truncated || a.OriginalBytes != 4096 || len(a.Logs) != 1 || a.Logs[0] != "boom" {
+		t.Fatalf("the atom's evidence did not survive: %+v", a)
+	}
+	if len(back.Unreached) != 1 || back.Unreached[0] != "go:mutation" {
+		t.Fatalf("what was never reached did not survive: %v", back.Unreached)
+	}
+	if back.Omitted[0].Logs == nil {
+		t.Fatal("an omitted atom's empty logs came back nil, not []")
 	}
 }

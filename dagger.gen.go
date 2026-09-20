@@ -381,27 +381,36 @@ func (r *TSLane) UnmarshalJSON(bs []byte) error {
 
 func (r AtomResult) MarshalJSON() ([]byte, error) {
 	var concrete struct {
-		Atom   string
-		Group  string
-		State  int
-		Result string
-		Reason string
+		Atom          string
+		Group         string
+		State         int
+		Result        string
+		Reason        string
+		Logs          []string
+		Truncated     bool
+		OriginalBytes int
 	}
 	concrete.Atom = r.Atom
 	concrete.Group = r.Group
 	concrete.State = r.State
 	concrete.Result = r.Result
 	concrete.Reason = r.Reason
+	concrete.Logs = r.Logs
+	concrete.Truncated = r.Truncated
+	concrete.OriginalBytes = r.OriginalBytes
 	return json.Marshal(&concrete)
 }
 
 func (r *AtomResult) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
-		Atom   string
-		Group  string
-		State  int
-		Result string
-		Reason string
+		Atom          string
+		Group         string
+		State         int
+		Result        string
+		Reason        string
+		Logs          []string
+		Truncated     bool
+		OriginalBytes int
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -412,6 +421,9 @@ func (r *AtomResult) UnmarshalJSON(bs []byte) error {
 	r.State = concrete.State
 	r.Result = concrete.Result
 	r.Reason = concrete.Reason
+	r.Logs = concrete.Logs
+	r.Truncated = concrete.Truncated
+	r.OriginalBytes = concrete.OriginalBytes
 	return nil
 }
 
@@ -1015,7 +1027,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg stage", err))
 				}
 			}
-			return nil, (*FoundryTools).Gate(&parent, ctx, tree, pin, base, stage)
+			return (*FoundryTools).Gate(&parent, ctx, tree, pin, base, stage)
 		case "Go":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
@@ -1503,6 +1515,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*StageResult).Exit(&parent, ctx)
+		case "Record":
+			var parent StageResult
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*StageResult).Record(&parent)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}

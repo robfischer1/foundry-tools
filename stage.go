@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -183,6 +184,34 @@ func (m *FoundryTools) sequence(ctx context.Context, stage, base string) ([]chec
 
 // Exit ends on the stage's state, so `dagger call check exit` exits 0, 1 or 2
 // and prints the stage's log.
+// runRecordSentinel MARKS THE RECORD so the door can find it. It must equal
+// ourea's `recordSentinel` BYTE FOR BYTE — the reader lives in another Go
+// module, there is no shared package to put this in, and nothing but the test
+// below holds the two equal. The written contract is ourea's
+// specs/072-door-reads-run-record/contracts/lane-run-record.md.
+//
+// WHY A MARK AND NOT "THE LAST JSON OBJECT". The door reads the lane through
+// `GET /pods/{pod}/log`, which has NO STREAM SELECTOR: this function's return
+// value and every line of progress narration arrive merged. A positional rule
+// would key on whatever the GRADED REPOSITORY's own tools printed last, which
+// is the one input neither the lane nor the door controls. Rob's ruling,
+// 2026-09-20.
+const runRecordSentinel = "ourea-run-record/1"
+
+// Record is the stage's whole answer as the one line the door reads: the
+// sentinel, a space, and the marshalled result.
+//
+// ONE LINE, ALWAYS, however much prose is inside it. The rendered log and
+// every atom's lines are full of newlines; JSON escapes them, so they travel
+// intact without breaking the line the reader scans for.
+func (s *StageResult) Record() (string, error) {
+	raw, err := json.Marshal(s)
+	if err != nil {
+		return "", fmt.Errorf("the stage's record could not be marshalled: %w", err)
+	}
+	return runRecordSentinel + " " + string(raw), nil
+}
+
 func (s *StageResult) Exit(ctx context.Context) error {
 	return settle(ctx, s.State, checks.LogTail(s.Log, stageLogLimit))
 }
