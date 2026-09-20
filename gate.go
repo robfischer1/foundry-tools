@@ -13,9 +13,16 @@ import (
 // watched `dagger call verdicts`). The mutation lane is the same function at
 // --stage=mutation.
 //
-// THE EXIT IS THE VERDICT, for both lanes: 0 pass, 1 findings, 2 cannot-run,
-// with the summary and every red atom's reason on stderr for the door's
-// settle to carry. Until CA F16 (2026-09-18) the gate lane also ATTESTED its
+// THE RECORD IS THE VERDICT, for both lanes, and the exit is no longer part of
+// it. This function RETURNS its run record — one line, sentinel-marked — and a
+// dagger function that returns a value exits 0 whatever it found (value XOR
+// error). So from here the exit code says only that the CLI ran. The door
+// settles from the record, and refuses to settle a record-owing lane that gave
+// it none: without that guard on the door's side, a record lost in transit
+// would read as a clean tree. That guard landed first, deliberately.
+//
+// The three states are unchanged and live inside the record: 0 pass,
+// 1 findings, 2 cannot-run. Until CA F16 (2026-09-18) the gate lane also ATTESTED its
 // atom vector to tartarus through the pod's SPIRE socket (attest.py's job),
 // and the door joined on that receipt to settle the lane; sessions stopped
 // attesting at F15, the door runs its own gate Job on every head and every
@@ -52,13 +59,18 @@ func (m *FoundryTools) Gate(
 	// mutation lane.
 	// +optional
 	stage string,
-) error {
+) (string, error) {
 	lane := "gate"
 	if stage == "mutation" {
 		lane = "mutation"
 	}
-	vector, code := m.gradeTree(ctx, lane, tree, stage, base)
-	return settle(ctx, code, fmt.Sprintf("%s: %s\nsettled from its exit under %s", lane, checks.Summary(vector), pin))
+	vector, _ := m.gradeTree(ctx, lane, tree, stage, base)
+	// THE SAME SHAPE THE COMMIT STAGE BUILDS, on purpose: SettleStage and
+	// stageResult are what Check and Push already use to turn a vector into a
+	// StageResult, and reusing them is what makes "the verdict did not move"
+	// cheap to prove. The state inside the record is checks.Worst over the
+	// same vector the exit code was computed from.
+	return stageResult(checks.SettleStage(lane, vector)).Record()
 }
 
 // gradeTree proves the tree and answers the vector and its worst state. Every
