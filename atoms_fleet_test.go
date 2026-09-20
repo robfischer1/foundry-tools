@@ -562,6 +562,15 @@ func TestFleetStopJustificationsFilesTheScansFindings(t *testing.T) {
 	wantState(t, runAtom(t, "fleet:stop-justifications", ""), 0)
 }
 
+// A LISTING THE PARSER CANNOT READ IS A COULD-NOT-RUN, not a clean scan. A path
+// that will not decode is a file the scan would then silently not look at, and
+// "scanned nothing successfully" must never read as "found nothing".
+func TestFleetStopJustificationsCannotRunOnAListingItCannotRead(t *testing.T) {
+	sjRepo(map[string]string{"a.py": "x = 1\n"})
+	engine.stdout(sjLsNeedle, "\"bad\\q.py\"\n")
+	wantState(t, runAtom(t, "fleet:stop-justifications", ""), 2, "CANNOT RUN", "refusing to report success")
+}
+
 // The repository is what origin names, and DirectoryExempt is keyed on it: a
 // cerberus probe driver is excused under cerberus's origin and nowhere else.
 func TestFleetStopJustificationsNamesTheRepositoryByItsOrigin(t *testing.T) {

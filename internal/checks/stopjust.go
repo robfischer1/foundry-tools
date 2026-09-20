@@ -1074,7 +1074,15 @@ func unquoteGitPath(line string) (string, error) {
 			out = append(out, c)
 		default:
 			// Three octal digits, one byte — git's form for everything else.
-			if c < '0' || c > '7' || i+2 >= len(body) {
+			//
+			// THE LEADING DIGIT STOPS AT '3' BECAUSE A BYTE DOES. git escapes
+			// bytes, so the range it emits is \000 to \377 and nothing above:
+			// \400 is 256. Accepting '4'–'7' here and range-checking the total
+			// afterwards would be a second gate on a value the first one has
+			// already made impossible — and the mutation gate said so, by
+			// surviving a `> '7'` → `>= '7'` mutant that no input could tell
+			// apart (every \7xx is at least 448, rejected either way).
+			if c < '0' || c > '3' || i+2 >= len(body) {
 				return "", fmt.Errorf("git path %s carries an escape this parser does not know: \\%c", line, c)
 			}
 			var b int
@@ -1083,9 +1091,6 @@ func unquoteGitPath(line string) (string, error) {
 					return "", fmt.Errorf("git path %s carries a malformed octal escape", line)
 				}
 				b = b*8 + int(d-'0')
-			}
-			if b > 0xFF {
-				return "", fmt.Errorf("git path %s carries an octal escape above one byte", line)
 			}
 			out = append(out, byte(b))
 			i += 2

@@ -512,6 +512,68 @@ func TestSplitGitPathsReadsTheQuotedFormGitActuallyEmits(t *testing.T) {
 	}
 }
 
+// THE EDGES OF THE QUOTED FORM, each one a mutant the gate raised against the
+// parser's boundaries (9 survivors, 2026-09-20). A quoting bug does not fail
+// loudly — it renames a file the scan then does not read — so every boundary
+// gets its own case rather than a happy path and a shrug.
+func TestSplitGitPathsHoldsItsEdges(t *testing.T) {
+	// NOT a quoted path, and each for a different reason: too short to carry
+	// two quotes, no opening quote, no closing quote. All three are returned
+	// verbatim, because an unquoted listing line IS the path.
+	for _, line := range []string{`"`, `a`, `plain.py`, `"unterminated.py`, `ends-with".py`} {
+		got, err := SplitGitPaths(line + "\n")
+		if err != nil {
+			t.Fatalf("%q: %v", line, err)
+		}
+		if len(got) != 1 || got[0] != line {
+			t.Errorf("%q came back as %q, want it verbatim", line, got)
+		}
+	}
+
+	// The empty quoted path: two quotes and nothing between them.
+	if got, err := SplitGitPaths("\"\"\n"); err != nil || len(got) != 1 || got[0] != "" {
+		t.Errorf(`"" = %q, %v`, got, err)
+	}
+
+	// EVERY NAMED ESCAPE git EMITS, decoded to the byte it names.
+	got, err := SplitGitPaths("\"\\a\\b\\t\\n\\v\\f\\r\\\"\\\\.py\"\n")
+	if err != nil {
+		t.Fatalf("named escapes: %v", err)
+	}
+	if want := "\a\b\t\n\v\f\r\"\\.py"; len(got) != 1 || got[0] != want {
+		t.Errorf("named escapes = %q, want %q", got, want)
+	}
+
+	// THE OCTAL BOUNDARIES, WHICH ARE THE BYTE'S. \000 and \377 are the ends of
+	// the range git emits and must both decode — \377 in particular, because
+	// '3' is the largest leading digit a byte can have and the parser's range
+	// stops exactly there.
+	if got, err := SplitGitPaths("\"\\000\\377.py\"\n"); err != nil ||
+		len(got) != 1 || got[0] != "\x00\xff.py" {
+		t.Errorf(`\000\377 = %q, %v`, got, err)
+	}
+
+	// A LEADING DIGIT ABOVE '3' IS NOT A BYTE: \400 is 256 and \777 is 511.
+	for _, over := range []string{"\"\\400.py\"\n", "\"\\777.py\"\n"} {
+		if _, err := SplitGitPaths(over); err == nil {
+			t.Errorf("%q is above a byte and must not parse", over)
+		}
+	}
+
+	// A DIGIT OUTSIDE THE RANGE, on either side: '/' is one below '0', and '8'
+	// is not octal at all. Both are escapes this parser does not know.
+	for _, bad := range []string{"\"\\/00.py\"\n", "\"\\8.py\"\n", "\"\\38x.py\"\n", "\"\\39.py\"\n"} {
+		if _, err := SplitGitPaths(bad); err == nil {
+			t.Errorf("%q must not parse", bad)
+		}
+	}
+
+	// AN OCTAL ESCAPE CUT SHORT by the end of the path — two digits, not three.
+	if _, err := SplitGitPaths("\"\\30\"\n"); err == nil {
+		t.Error("a two-digit octal escape must not parse")
+	}
+}
+
 func TestStopJustificationsSkipsItsOwnDefinitionAndSaysSo(t *testing.T) {
 	out := wantSJ(t, "the script names every directive", 0, "foundry-stocks", map[string]string{
 		"ci/lib/stop_justifications.py":      "x = 1  # " + sjNoqa + "\n",
