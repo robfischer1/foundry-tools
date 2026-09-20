@@ -1002,6 +1002,103 @@ func SplitNul(listing string) []string {
 	return out
 }
 
+// SplitGitPaths answers the paths of a `git ls-files` listing — one per line,
+// C-quoted where git decided the path needed it.
+//
+// WHY NOT `-z`, WHICH WOULD NEED NO PARSER AT ALL. NUL-separated output is one
+// line, so a repository's whole file list reached Loki as a single entry and
+// was cut mid-path at 64KB without a word (infra #10719): 65,496 B on ourea,
+// 65,534 B on mnemosyne. dagger echoes an exec's stdout into progress whatever
+// is done with it — RedirectStdout was measured and still echoes — so the only
+// fix that keeps the list off one line is to stop asking for one line.
+//
+// A NEWLINE IN A PATH IS STILL SAFE, which is the reason `-z` existed. git
+// quotes any path holding a control character, a quote, a backslash or a
+// non-ASCII byte (core.quotePath, default true), and the escape for a newline
+// is `\n` INSIDE the quotes — so a quoted path never spans two lines and the
+// line remains the record separator.
+//
+// THE ESCAPES DECODE TO BYTES, NOT RUNES, and that is the whole reason this is
+// hand-written rather than strconv.Unquote. git emits a non-ASCII path as one
+// octal escape PER BYTE of its UTF-8, so `café.py` arrives as
+// "caf\303\251.py"; strconv.Unquote reads \303 as the rune U+00C3 and answers
+// "cafÃ©.py". Decoding to bytes and converting once at the end round-trips the
+// path git actually named.
+func SplitGitPaths(listing string) ([]string, error) {
+	var out []string
+	for _, line := range strings.Split(listing, "\n") {
+		if line == "" {
+			continue
+		}
+		p, err := unquoteGitPath(line)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+// unquoteGitPath decodes one listing line. An unquoted line is its own path.
+func unquoteGitPath(line string) (string, error) {
+	if len(line) < 2 || line[0] != '"' || line[len(line)-1] != '"' {
+		return line, nil
+	}
+	body := line[1 : len(line)-1]
+	out := make([]byte, 0, len(body))
+	for i := 0; i < len(body); i++ {
+		if body[i] != '\\' {
+			out = append(out, body[i])
+			continue
+		}
+		i++
+		if i >= len(body) {
+			return "", fmt.Errorf("git path %s ends in a backslash", line)
+		}
+		switch c := body[i]; c {
+		case 'a':
+			out = append(out, 0x07)
+		case 'b':
+			out = append(out, 0x08)
+		case 't':
+			out = append(out, '\t')
+		case 'n':
+			out = append(out, '\n')
+		case 'v':
+			out = append(out, 0x0b)
+		case 'f':
+			out = append(out, 0x0c)
+		case 'r':
+			out = append(out, '\r')
+		case '"', '\\':
+			out = append(out, c)
+		default:
+			// Three octal digits, one byte — git's form for everything else.
+			//
+			// THE LEADING DIGIT STOPS AT '3' BECAUSE A BYTE DOES. git escapes
+			// bytes, so the range it emits is \000 to \377 and nothing above:
+			// \400 is 256. Accepting '4'–'7' here and range-checking the total
+			// afterwards would be a second gate on a value the first one has
+			// already made impossible — and the mutation gate said so, by
+			// surviving a `> '7'` → `>= '7'` mutant that no input could tell
+			// apart (every \7xx is at least 448, rejected either way).
+			if c < '0' || c > '3' || i+2 >= len(body) {
+				return "", fmt.Errorf("git path %s carries an escape this parser does not know: \\%c", line, c)
+			}
+			var b int
+			for _, d := range body[i : i+3] {
+				if d < '0' || d > '7' {
+					return "", fmt.Errorf("git path %s carries a malformed octal escape", line)
+				}
+				b = b*8 + int(d-'0')
+			}
+			out = append(out, byte(b))
+			i += 2
+		}
+	}
+	return string(out), nil
+}
+
 // SJTreeFinding is one suppression ScanTree found.
 type SJTreeFinding struct {
 	Rel        string
