@@ -80,9 +80,18 @@ func (m *FoundryTools) Build(
 	// +optional
 	// +default="spiffe://notusmi.com/star/hades"
 	hadesID string,
+	// Build even when :stable already carries this commit's source — the
+	// PERIODIC RESCAN path. The stand-down asks whether the SOURCE changed,
+	// which is the right question for a landing and the wrong one for a
+	// rebuild: the python and bun bases run `apt-get update && apt-get
+	// upgrade`, so the same tree built a week later picks up every Debian
+	// security update published since. Nothing else is skipped — the scan,
+	// the signature and the tag move exactly as on any other build.
+	// +optional
+	force bool,
 ) error {
 	l := &buildLane{
-		m: m, tip: tip, spire: spire,
+		m: m, tip: tip, force: force, spire: spire,
 		registryAuth: registryAuth, cosignKey: cosignKey, cosignPassphrase: cosignPassphrase,
 		indexURL: indexURL, registry: registry, sourceBase: sourceBase, hades: hades, hadesID: hadesID,
 		stamp: strconv.FormatInt(time.Now().UnixNano(), 10),
@@ -92,8 +101,11 @@ func (m *FoundryTools) Build(
 }
 
 type buildLane struct {
-	m                                         *FoundryTools
-	tip                                       bool
+	m   *FoundryTools
+	tip bool
+	// force skips the stand-down: the tree is built whether or not :stable
+	// already carries its source. See Build's own doc.
+	force                                     bool
 	spire                                     *dagger.Socket
 	registryAuth, cosignKey, cosignPassphrase *dagger.Secret
 	indexURL, registry, sourceBase            string
@@ -328,6 +340,9 @@ func (l *buildLane) detectWhere(ctx context.Context, pushRepo string, relevant f
 		changed = relevant(changed)
 	}
 	needed, why = buildlane.Standing(permitted, changed)
+	if !needed && l.force {
+		return true, "forced: " + why + " — building anyway, because a rebuild of the same tree is not the same image (the apt layers move under it)", buildlane.Clean
+	}
 	return needed, why, buildlane.Clean
 }
 

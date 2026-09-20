@@ -36,7 +36,16 @@ func scanClean() {
 func pull(t *testing.T, m *FoundryTools) {
 	t.Helper()
 	if err := m.Build(context.Background(), false, nil, nil, nil, nil, "",
-		"registry.notusmi.com", "https://forgejo.notusmi.com/rob", "https://hades:8102", "spiffe://notusmi.com/star/hades"); err != nil {
+		"registry.notusmi.com", "https://forgejo.notusmi.com/rob", "https://hades:8102", "spiffe://notusmi.com/star/hades", false); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+}
+
+// pullForced is pull with --force: the periodic rescan's shape.
+func pullForced(t *testing.T, m *FoundryTools) {
+	t.Helper()
+	if err := m.Build(context.Background(), false, nil, nil, nil, nil, "",
+		"registry.notusmi.com", "https://forgejo.notusmi.com/rob", "https://hades:8102", "spiffe://notusmi.com/star/hades", true); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 }
@@ -56,7 +65,7 @@ func tipWith(t *testing.T, m *FoundryTools, registryAuth string) {
 	// A module has no Host to open a socket on; the socket a caller forwards
 	// arrives as an id, which is what the lane receives.
 	if err := m.Build(context.Background(), true, dag.LoadSocketFromID("spire-agent-socket"), auth, key, password, "https://nexus.example/simple",
-		"registry.notusmi.com", "https://forgejo.notusmi.com/rob", "https://hades:8102", "spiffe://notusmi.com/star/hades"); err != nil {
+		"registry.notusmi.com", "https://forgejo.notusmi.com/rob", "https://hades:8102", "spiffe://notusmi.com/star/hades", false); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 }
@@ -145,7 +154,7 @@ func TestTheVerdictIsBuiltWithNothingFetched(t *testing.T) {
 func TestATipBuildWithoutItsCredentialsIsCouldNotRun(t *testing.T) {
 	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
 	if err := m.Build(context.Background(), true, nil, nil, nil, nil, "",
-		"registry.notusmi.com", "https://forgejo.notusmi.com/rob", "https://hades:8102", "spiffe://notusmi.com/star/hades"); err != nil {
+		"registry.notusmi.com", "https://forgejo.notusmi.com/rob", "https://hades:8102", "spiffe://notusmi.com/star/hades", false); err != nil {
 		t.Fatal(err)
 	}
 	settledOn(t, "2", "are all required")
@@ -175,6 +184,26 @@ func TestACommitInertSinceTheLastPermitStandsDownWithoutBuilding(t *testing.T) {
 	}
 	if engine.chain("HEAD^1") != "" {
 		t.Fatal("the lane took its change set from the parent")
+	}
+}
+
+// FORCED, THE SAME INERT COMMIT BUILDS. The stand-down asks whether the
+// SOURCE changed, which is the right question for a landing and the wrong one
+// for a periodic rebuild: bases/python and bases/bun run `apt-get update &&
+// apt-get upgrade`, so the same tree built a week later carries every Debian
+// security update published since, and a lane that stands down never picks
+// them up. The lane's log says forced and keeps the stand-down's own words,
+// so the run still shows what it would have decided; the verdict is an
+// ordinary build. Same tree and same change set as the stand-down test above
+// — only the flag differs.
+func TestForcedTheLaneBuildsATreeStableAlreadyCarries(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	engine.label(":stable", permittedSha)
+	engine.stdout("--name-only", "README.md\ndocs/guide.md\n")
+	pullForced(t, m)
+	settledOn(t, "0", "clean: built ares")
+	if engine.chain("dockerBuild") == "" {
+		t.Fatal("--force did not build")
 	}
 }
 
