@@ -1,6 +1,27 @@
 #!/bin/sh
 # THE PUSH STAGE, AS THE PUSH HOOK (CA master-plan F15): `just gate`.
 #
-# The hook is one line and never changes. What a push must pass is the `gate`
-# recipe in the justfile beside it — the same recipe a session runs by hand.
+# What a push must pass is the `gate` recipe in stages.just beside the justfile
+# — the same recipe a session runs by hand. The hook adds one thing the recipe
+# cannot know: whether this push carries a tree at all.
+#
+# A PUSH THAT ONLY DELETES REFS HAS NOTHING TO GRADE. git hands the hook one
+# line per ref on stdin — `<local ref> <local sha> <remote ref> <remote sha>` —
+# and a deletion's local sha is all zeros. Measured 2026-09-19 (ourea): a
+# `git push <door> :refs/heads/deploy/…` sweep from another repo's checkout ran
+# the full gate on THAT checkout's tree, per repo, for a push that sent no
+# object and advanced no ref — minutes on the engine to grade bytes the push
+# was not carrying. So the refs are read first, and a push with nothing but
+# deletions (or nothing at all) is admitted without the engine. Anything that
+# advances a ref still pays the gate in full; there is still no skip list and
+# no --no-verify.
+pushes=0
+while read -r _local_ref local_sha _remote_ref _remote_sha; do
+    case "$local_sha" in
+        0000000000000000000000000000000000000000) ;;
+        "") ;;
+        *) pushes=1 ;;
+    esac
+done
+[ "$pushes" -eq 1 ] || exit 0
 exec just gate
