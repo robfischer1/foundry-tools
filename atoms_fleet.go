@@ -273,7 +273,19 @@ func fleetStopJustifications(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("fleet:stop-justifications")
 
 	ctr := r.gitReady(ctx, r.lane(checks.ImageFleet))
-	ls, code, err := output(ctx, ctr.WithExec([]string{"git", "ls-files", "-z"}, anyExit))
+	// NO `-z`, AND THE REASON IS THE LOG. NUL-separated output is ONE line, so
+	// this atom put a whole repository's file list into a single log entry —
+	// 65,496 B on ourea, 65,534 B on mnemosyne — which Loki cut mid-path at its
+	// 64KB max_line_size without saying so (infra #10719). dagger echoes an
+	// exec's stdout into progress whatever else is done with it (RedirectStdout
+	// was measured against the live engine and still echoes), so the list stops
+	// filling the log only by ceasing to be one line.
+	//
+	// THE TRACKED SET IS UNCHANGED, which is the point: this is still
+	// `git ls-files`, still the repository's own answer to which files are
+	// tracked. A file on disk that git does not track stays out of scope, as
+	// checks.SplitGitPaths' own tests and this atom's hold it to.
+	ls, code, err := output(ctx, ctr.WithExec([]string{"git", "ls-files"}, anyExit))
 	if err != nil {
 		return neverRan(a, err)
 	}
@@ -292,7 +304,13 @@ func fleetStopJustifications(ctx context.Context, r *run) checks.Verdict {
 		repo = checks.RepoFromOrigin(origin)
 	}
 
-	tracked := checks.SplitNul(ls)
+	// A LISTING THAT WILL NOT PARSE IS A CANNOT RUN, not an empty scan: a path
+	// this parser cannot read is a file it would then silently not look at.
+	tracked, err := checks.SplitGitPaths(ls)
+	if err != nil {
+		return checks.VerdictOf(a, 2, "stop-justifications: CANNOT RUN — "+err.Error()+"\nstop-justifications: refusing to report success without scanning.")
+	}
+
 	bodies := readFiles(ctx, r.src, checks.SJReads(tracked))
 	state, out := checks.StopJustifications(checks.SJInput{
 		Tracked: tracked,

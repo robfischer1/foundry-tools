@@ -501,7 +501,7 @@ func TestFleetDetectSecretsEngineFailures(t *testing.T) {
 
 // The needles for the two questions the atom asks git.
 const (
-	sjLsNeedle     = `"git","ls-files","-z"`
+	sjLsNeedle     = `"git","ls-files"`
 	sjOriginNeedle = `"git","remote","get-url","origin"`
 )
 
@@ -516,7 +516,8 @@ func sjRepo(files map[string]string, tracked ...string) {
 		}
 		sort.Strings(tracked)
 	}
-	engine.stdout(sjLsNeedle, strings.Join(tracked, "\x00")+"\x00")
+	// `git ls-files` without -z: one path per line, as the atom now asks for it.
+	engine.stdout(sjLsNeedle, strings.Join(tracked, "\n")+"\n")
 	engine.stdout(sjOriginNeedle, "http://ourea.default.svc.cluster.local:8215/x.git\n")
 }
 
@@ -532,7 +533,9 @@ func TestFleetStopJustificationsScansTheTrackedTreeInGo(t *testing.T) {
 	}
 	wantCalls(t, c,
 		[]string{"withExec", `args:["git","config","--global","--add","safe.directory","*"]`},
-		[]string{"withExec", `expect:ANY`, `args:["git","ls-files","-z"]`},
+		// NOT -z: one path per line, so a repository's file list never reaches
+		// the log as a single entry Loki cuts in half (infra #10719).
+		[]string{"withExec", `expect:ANY`, `args:["git","ls-files"]`},
 	)
 	for _, q := range engine.chains() {
 		if strings.Contains(q, "python3") || strings.Contains(q, `path:"/stocks"`) {

@@ -458,6 +458,60 @@ func TestRepoFromOriginAndSplitNul(t *testing.T) {
 	}
 }
 
+// The listing `git ls-files` answers when it is NOT asked for -z: one path per
+// line, quoted only where the path needs it.
+func TestSplitGitPathsReadsTheQuotedFormGitActuallyEmits(t *testing.T) {
+	got, err := SplitGitPaths("a.py\nsrc/b c.go\n\n")
+	if err != nil {
+		t.Fatalf("plain listing: %v", err)
+	}
+	if strings.Join(got, "|") != "a.py|src/b c.go" {
+		t.Errorf("plain listing = %q", got)
+	}
+	if got, err := SplitGitPaths(""); err != nil || got != nil {
+		t.Errorf("empty listing = %q, %v", got, err)
+	}
+
+	// THE BYTE CASE, which is why this is not strconv.Unquote: git escapes a
+	// non-ASCII path one octal per UTF-8 BYTE, so decoding per rune answers
+	// mojibake. "caf\303\251.py" is café.py and nothing else.
+	got, err = SplitGitPaths("\"caf\\303\\251.py\"\n")
+	if err != nil {
+		t.Fatalf("octal path: %v", err)
+	}
+	if len(got) != 1 || got[0] != "café.py" {
+		t.Errorf("octal path = %q, want café.py", got)
+	}
+
+	// A NEWLINE IN A PATH IS THE REASON -z EXISTED, and the quoted form carries
+	// it without spanning two lines — so the record separator still holds.
+	got, err = SplitGitPaths("\"odd\\nname.py\"\nplain.py\n")
+	if err != nil {
+		t.Fatalf("newline path: %v", err)
+	}
+	if len(got) != 2 || got[0] != "odd\nname.py" || got[1] != "plain.py" {
+		t.Errorf("newline path = %q", got)
+	}
+
+	// Quotes, backslashes and tabs round-trip.
+	got, err = SplitGitPaths("\"say \\\"hi\\\"\\t\\\\x.py\"\n")
+	if err != nil {
+		t.Fatalf("escaped path: %v", err)
+	}
+	if len(got) != 1 || got[0] != "say \"hi\"\t\\x.py" {
+		t.Errorf("escaped path = %q", got)
+	}
+
+	// A LISTING THIS PARSER CANNOT READ IS AN ERROR, never a silently short
+	// file list: the atom turns it into a could-not-run rather than a clean scan.
+	if _, err := SplitGitPaths("\"bad\\q.py\"\n"); err == nil {
+		t.Error("an unknown escape must not parse")
+	}
+	if _, err := SplitGitPaths("\"trailing\\\"\n"); err == nil {
+		t.Error("a path ending in a backslash must not parse")
+	}
+}
+
 func TestStopJustificationsSkipsItsOwnDefinitionAndSaysSo(t *testing.T) {
 	out := wantSJ(t, "the script names every directive", 0, "foundry-stocks", map[string]string{
 		"ci/lib/stop_justifications.py":      "x = 1  # " + sjNoqa + "\n",
