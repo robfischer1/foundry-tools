@@ -65,6 +65,19 @@ type Verdict struct {
 	State  int    `json:"state"`
 	Result string `json:"result"`
 	Reason string `json:"reason,omitempty"`
+	// Logs are the lines this atom itself produced. NEVER omitempty and never
+	// nil: an atom that printed nothing carries [], and "printed nothing" is
+	// a different fact from "nobody set this field". Rob's rule is that every
+	// atom carries its lines, passing ones included — we don't trust absence
+	// as evidence.
+	Logs []string `json:"logs"`
+	// Truncated says the per-atom cap bit. A cut this module makes SAYS SO,
+	// which is the whole difference between this and the silent truncation
+	// that started the work (infra #10719).
+	Truncated bool `json:"truncated,omitempty"`
+	// OriginalBytes is the size of the output BEFORE any cut — the true
+	// number, always, so a reader can tell how much they are not seeing.
+	OriginalBytes int `json:"original_bytes,omitempty"`
 }
 
 // VerdictOf builds one element of the vector from a raw exit code.
@@ -81,25 +94,39 @@ type Verdict struct {
 // is what it borrows.
 func VerdictOf(a AtomDef, exit int, output string) Verdict {
 	s := StateFor(exit)
+	// THE ONE CAPTURE POINT, and it is here because this is the only place
+	// every atom's raw output is still in hand. reasonFor returns just
+	// "<id>: PASS" for a passing atom — the output is DISCARDED there — so a
+	// downstream reader trying to recover the lines from Reason would find
+	// nothing for exactly the atoms Rob's "all atoms carry logs" decision is
+	// about. Capturing here also means none of the ~40 atoms_*.go call sites
+	// change.
+	logs, truncated, originalBytes := CaptureLogs(output)
 	if s == StatePass {
 		if line, ok := AnnouncedAbsence(a.ID, output); ok {
 			return Verdict{
-				Atom:   a.ID,
-				Stage:  a.Stage,
-				Lane:   string(a.Lane),
-				State:  int(StatePass),
-				Result: "absent",
-				Reason: line,
+				Atom:          a.ID,
+				Stage:         a.Stage,
+				Lane:          string(a.Lane),
+				State:         int(StatePass),
+				Result:        "absent",
+				Reason:        line,
+				Logs:          logs,
+				Truncated:     truncated,
+				OriginalBytes: originalBytes,
 			}
 		}
 	}
 	return Verdict{
-		Atom:   a.ID,
-		Stage:  a.Stage,
-		Lane:   string(a.Lane),
-		State:  int(s),
-		Result: s.String(),
-		Reason: reasonFor(a.ID, s, exit, output),
+		Atom:          a.ID,
+		Stage:         a.Stage,
+		Lane:          string(a.Lane),
+		State:         int(s),
+		Result:        s.String(),
+		Reason:        reasonFor(a.ID, s, exit, output),
+		Logs:          logs,
+		Truncated:     truncated,
+		OriginalBytes: originalBytes,
 	}
 }
 
@@ -132,6 +159,9 @@ func AbsentVerdict(a AtomDef) Verdict {
 		State:  int(StatePass),
 		Result: "absent",
 		Reason: absentReason(a),
+		// An atom that never ran printed nothing. EMPTY, not nil — the
+		// distinction is the one this whole feature is built on.
+		Logs: []string{},
 	}
 }
 

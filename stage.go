@@ -52,6 +52,13 @@ type AtomResult struct {
 	Result string
 	// Reason is the atom's own output or reason.
 	Reason string
+	// Logs are the lines this atom produced — every atom, passing ones
+	// included. Never nil: an atom that printed nothing carries [].
+	Logs []string
+	// Truncated says the 1 MB per-atom cap bit, and OriginalBytes is the true
+	// size before the cut. A cut is stated, never silent.
+	Truncated     bool
+	OriginalBytes int
 }
 
 // stageLogLimit bounds the log the exit exec carries as its argument.
@@ -184,7 +191,8 @@ func stageResult(st checks.Stage) *StageResult {
 	rows := func(as []checks.StageAtom) []AtomResult {
 		out := make([]AtomResult, len(as))
 		for i, a := range as {
-			out[i] = AtomResult{Atom: a.Atom, Group: a.Group, State: a.State, Result: a.Result, Reason: a.Reason}
+			out[i] = AtomResult{Atom: a.Atom, Group: a.Group, State: a.State, Result: a.Result, Reason: a.Reason,
+				Logs: a.Logs, Truncated: a.Truncated, OriginalBytes: a.OriginalBytes}
 		}
 		return out
 	}
