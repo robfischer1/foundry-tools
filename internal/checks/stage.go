@@ -34,6 +34,12 @@ type StageAtom struct {
 	State  int
 	Result string
 	Reason string
+	// The atom's own lines, and what it cost to keep them. Carried through
+	// unchanged from the Verdict — a field that stops at this copy is a field
+	// the run record never sees.
+	Logs          []string
+	Truncated     bool
+	OriginalBytes int
 }
 
 // Stage is a stage's settled answer.
@@ -88,7 +94,8 @@ func SettleStage(name string, vs []Verdict, unreached ...string) Stage {
 			if GroupOf(v.Atom) != group {
 				continue
 			}
-			a := StageAtom{Atom: v.Atom, Group: group, State: v.State, Result: v.Result, Reason: v.Reason}
+			a := StageAtom{Atom: v.Atom, Group: group, State: v.State, Result: v.Result, Reason: v.Reason,
+				Logs: v.Logs, Truncated: v.Truncated, OriginalBytes: v.OriginalBytes}
 			if v.Result == "absent" {
 				st.Omitted = append(st.Omitted, a)
 				continue

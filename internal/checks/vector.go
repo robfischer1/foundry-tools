@@ -21,7 +21,12 @@ func CannotRunVector(lane, stage, reason string) []Verdict {
 	if stage == "" {
 		stage = "prepush"
 	}
-	return []Verdict{{Atom: lane, Stage: stage, Lane: "any", State: int(StateCannotRun), Result: "cannot-run", Reason: truncate(reason, 1200)}}
+	// The reason IS this verdict's evidence: there was no run to produce
+	// output, so the explanation is all there is, and it belongs in logs as
+	// well as in the rendered reason.
+	logs, truncated, originalBytes := CaptureLogs(reason)
+	return []Verdict{{Atom: lane, Stage: stage, Lane: "any", State: int(StateCannotRun), Result: "cannot-run",
+		Reason: truncate(reason, 1200), Logs: logs, Truncated: truncated, OriginalBytes: originalBytes}}
 }
 
 // ParseVector reads the module's vector.
