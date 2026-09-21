@@ -45,7 +45,7 @@ dagger call catalogue            # the atom table as catalogue rows
 dagger call lanes                # which lanes this repository actually builds
 ```
 
-A gate resolves this module **at a pinned git ref through the door** — `git.notusmi.com` serves `go-import` without SSO; `forgejo.notusmi.com` sits behind the portal and a machine cannot log in.
+A gate resolves this module **at a pinned git ref through the door** — `git.notusmi.com` serves `go-import` without SSO; `git.notusmi.com` sits behind the portal and a machine cannot log in.
 
 **A repository declares this module as its toolchain** (2026-09-14). The four repo templates render a `dagger.json` — name, `engineVersion`, one unpinned entry under `toolchains` naming `git.notusmi.com/rob/foundry-tools` — and infra carries the same file by hand. Standing in such a repo, `dagger check` and `dagger call foundry-tools …` bind **that repo's** tree, which is the documented Dagger workflow and the end of the `--source=.` trap below. Unpinned on purpose: the door resolves this module at `main` for every dispatch (ourea #109), and an unpinned toolchain resolves the same way (measured 2026-09-13 against the cluster engine). A consumer's `dagger.json` declares no `sdk`; that key is how hephaestus's tree probe tells a consumer from a module.
 
