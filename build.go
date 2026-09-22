@@ -114,6 +114,9 @@ type buildLane struct {
 	// stamp is this run's, on every step that must happen again on a rerun of
 	// the same commit: signing, attesting and the permit are acts, not results.
 	stamp string
+	// published accumulates what this run pushed, declared ONCE at the end of
+	// the lane rather than at each push. See declarePublished.
+	published []pins.Pin
 }
 
 func say(format string, args ...any) { fmt.Fprintf(os.Stderr, "build: "+format+"\n", args...) }
@@ -137,6 +140,10 @@ func withheld(spire *dagger.Socket, secrets ...*dagger.Secret) bool {
 }
 
 func (l *buildLane) run(ctx context.Context) (int, string) {
+	// LAST, WHATEVER HAPPENS. Deferred here rather than called at the end so
+	// every return — a stand-down, a could-not-run, a findings verdict after
+	// something was already pushed — still declares what this run published.
+	defer l.declarePublished()
 	m := l.m
 	if m.Repo == "" || m.Sha == "" {
 		return buildlane.CouldNotRun, "the build lane builds a commit the engine fetched — construct the module with --repo and --sha"
@@ -379,21 +386,47 @@ func (l *buildLane) push(ctx context.Context, img *Image, pushRepo, target, star
 	}
 	ref := pushRepo + "@" + digest
 	say("published %s = %s", target, ref)
-	declare(pins.Image(target, digest))
+	l.published = append(l.published, pins.Image(target, digest))
 	return ref, buildlane.Clean, ""
 }
 
-// declare prints the one line ourea's settle reads back out of this pod's log
-// and turns into a row in erebus.build_pins — "what did the fleet publish,
-// and when". It is called from push, which is the ONLY place an image ref
-// becomes a digest: the star image, the base image, and the :stable move all
-// come through here, each with its own target, so each earns its own row with
-// the right tag and none of them needs its own call.
+// declarePublished prints the one line ourea's settle reads back out of this
+// pod's log and turns into a row in erebus.build_pins — "what did the fleet
+// publish, and when".
 //
-// IT CANNOT FAIL A BUILD. The artifact is already in the registry by the time
-// this runs; the declaration is a fact about it, not a step of publishing it.
-// A pin this refuses is named on stderr and nothing else happens — the next
-// build of the same artifact restates it.
+// IT MUST BE THE LAST THING THE LANE SAYS, and that is not a preference. The
+// door reads pins out of the LOG TAIL the settle already fetched: the last
+// tap.LogTailBytes (64 KiB) of the last 400 lines. MEASURED 2026-09-22 on
+// ourea's tip 0585814, when this was declared at push time instead:
+//
+//	total build log          277,219 bytes / 804 lines
+//	after the declaration    252,946 bytes / 343 lines
+//	the tail window           65,536 bytes / 400 lines
+//	marker inside the tail?   NO — outside by ~3.9x
+//
+// The line count was fine and irrelevant; the BYTES were not. A build
+// publishes and then SIGNS, composes and attests an SBOM, VERIFIES and
+// PERMITS — a quarter of a megabyte of engine output after the push. The
+// lane declared correctly, the door was live and listening, and
+// erebus.build_pins stayed empty with nothing logged anywhere, because
+// recordPins returns silently when the marker is not in the tail.
+//
+// Widening the window was the other option and is worse: it moves an
+// invisible cliff, and the failure mode is a row that quietly never appears.
+// Declaring last makes the bound genuinely free, which is what the door's
+// own test already claimed.
+//
+// ONE LINE FOR THE WHOLE RUN. push is the only place a ref becomes a digest —
+// the star image, a base image, and the :stable move all pass through it — so
+// every pin is in hand by the time this fires, each with its own target and
+// therefore its own tag.
+//
+// IT CANNOT FAIL A BUILD. The artifacts are in the registry before this runs;
+// the declaration is a fact about them, not a step of publishing them. A pin
+// this refuses is named on stderr and nothing else happens — the next build
+// of the same artifact restates it.
+func (l *buildLane) declarePublished() { declare(l.published...) }
+
 func declare(in ...pins.Pin) {
 	line, skipped := pins.Line(in...)
 	for _, why := range skipped {
