@@ -80,3 +80,50 @@ func TestDeclaringNothingPrintsNothing(t *testing.T) {
 		t.Errorf("declare() printed %q", out)
 	}
 }
+
+// TestALaneDeclaresEveryPinInOneLineAtTheEnd — the shape that makes the
+// door's log-tail bound survivable.
+//
+// Declared at push time, ourea's tip 0585814 put the marker 252,946 bytes
+// before the end of a 277,219-byte log against a 65,536-byte window, and the
+// row was never written. Accumulating and emitting once means the marker is
+// the lane's last word, so the distance from the end is bounded by the line
+// itself rather than by everything a build does after pushing.
+func TestALaneDeclaresEveryPinInOneLineAtTheEnd(t *testing.T) {
+	l := &buildLane{}
+	// Three pushes, as a base build does: the g-pin, then the :stable move,
+	// then a second artifact.
+	for _, c := range []struct{ target, digest string }{
+		{"registry.notusmi.com/foundry/base-images/go:g0123456789ab", "sha256:" + strings.Repeat("a", 64)},
+		{"registry.notusmi.com/foundry/base-images/go:stable", "sha256:" + strings.Repeat("a", 64)},
+		{"registry.notusmi.com/rob/ourea:stable", "sha256:" + strings.Repeat("b", 64)},
+	} {
+		l.published = append(l.published, pins.Image(c.target, c.digest))
+	}
+
+	out := sayings(t, l.declarePublished)
+	var marked []string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, pins.MarkerPrefix) {
+			marked = append(marked, line)
+		}
+	}
+	if len(marked) != 1 {
+		t.Fatalf("%d marker lines, want exactly 1 — a per-push declaration is what put the\nmarker outside the door's tail window:\n%s", len(marked), out)
+	}
+	// Every pin is in that one line, each keeping its own tag.
+	for _, want := range []string{`"tag":"g0123456789ab"`, `"tag":"stable"`, `"artifact":"registry.notusmi.com/rob/ourea"`} {
+		if !strings.Contains(marked[0], want) {
+			t.Errorf("the declaration is missing %s:\n%s", want, marked[0])
+		}
+	}
+}
+
+// TestALaneThatPublishedNothingSaysNothing — a pull-time build publishes
+// nothing, and the deferred call still runs on every path.
+func TestALaneThatPublishedNothingSaysNothing(t *testing.T) {
+	l := &buildLane{}
+	if out := sayings(t, l.declarePublished); out != "" {
+		t.Errorf("a lane that published nothing said %q", out)
+	}
+}
