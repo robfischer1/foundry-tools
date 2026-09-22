@@ -14,6 +14,7 @@ import (
 	"dagger/foundry-tools/internal/buildlane"
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
+	"dagger/foundry-tools/internal/pins"
 )
 
 // THE BUILD LANE, AS ONE FUNCTION. The door's build Job runs `dagger call …
@@ -378,7 +379,29 @@ func (l *buildLane) push(ctx context.Context, img *Image, pushRepo, target, star
 	}
 	ref := pushRepo + "@" + digest
 	say("published %s = %s", target, ref)
+	declare(pins.Image(target, digest))
 	return ref, buildlane.Clean, ""
+}
+
+// declare prints the one line ourea's settle reads back out of this pod's log
+// and turns into a row in erebus.build_pins — "what did the fleet publish,
+// and when". It is called from push, which is the ONLY place an image ref
+// becomes a digest: the star image, the base image, and the :stable move all
+// come through here, each with its own target, so each earns its own row with
+// the right tag and none of them needs its own call.
+//
+// IT CANNOT FAIL A BUILD. The artifact is already in the registry by the time
+// this runs; the declaration is a fact about it, not a step of publishing it.
+// A pin this refuses is named on stderr and nothing else happens — the next
+// build of the same artifact restates it.
+func declare(in ...pins.Pin) {
+	line, skipped := pins.Line(in...)
+	for _, why := range skipped {
+		say("NOT declaring a pin — %s", why)
+	}
+	if line != "" {
+		say("%s", line)
+	}
 }
 
 // sign signs the published image with the CI key, reads its composed SBOM
