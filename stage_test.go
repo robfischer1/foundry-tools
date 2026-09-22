@@ -441,7 +441,7 @@ func TestThePushSequenceNeverDispatchesALaneTheTreeDoesNotHave(t *testing.T) {
 // gives the atoms a HEAD whose parent is the base — the same change set the
 // door's clone gives.
 func TestAWorktreePushWithAnOriginGradesTheRealChangeSet(t *testing.T) {
-	const origin = "http://100.93.64.106:8215/hades.git"
+	const origin = "http://ourea.notusmi.com:8215/hades.git"
 	worktree := map[string]string{
 		".git":                "gitdir: /home/rob/Forge/Outputs/hades/.git/worktrees/Lamarr11-x\n",
 		".copier-answers.yml": "service_name: hades\n",

@@ -1063,7 +1063,7 @@ func TestGoReleaseNamesAStarWithNoAnswersFileByItsRecord(t *testing.T) {
 	engine.withTree(noAnswers)
 	engine.withTree(map[string]string{"Dockerfile": "FROM x\nCOPY release/hephaestus /hephaestus\n"})
 	engine.withTree(dies)
-	r := newRun(dag.Directory(), "", "").fromOrigin("http://100.93.64.106:8215/hephaestus.git")
+	r := newRun(dag.Directory(), "", "").fromOrigin("http://ourea.notusmi.com:8215/hephaestus.git")
 	wantState(t, registry["go:release"](context.Background(), r), 0, "release build: hephaestus")
 
 	// An owner-qualified clone matches an owner-qualified record.

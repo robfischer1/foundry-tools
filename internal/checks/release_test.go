@@ -164,7 +164,7 @@ func TestRustReleasePlanTakesTheRecordsBinariesAndRefusesTheSameNames(t *testing
 func TestRepoKeyReadsTheCustodyKeyOffACloneURL(t *testing.T) {
 	for url, want := range map[string]string{
 		"http://ourea.default.svc.cluster.local:8215/hephaestus.git": "rob/hephaestus",
-		"http://100.93.64.106:8215/tron.git":                         "rob/tron",
+		"http://ourea.notusmi.com:8215/tron.git":                         "rob/tron",
 		"https://git.notusmi.com/foundry/foundry-dies.git":           "foundry/foundry-dies",
 		"https://git.notusmi.com/foundry-tools":                      "rob/foundry-tools",
 		"git@git.notusmi.com:foundry/base-images.git":                "foundry/base-images",
