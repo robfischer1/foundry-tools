@@ -11,12 +11,14 @@ import (
 const (
 	StagePrecommit = "precommit"
 	StagePrepush   = "prepush"
-	// StageSweep is repo cadence, and it is NOT a pull stage. An atom
-	// carrying it answers a question about the repository rather than about
-	// the change, so it runs on a clock (CA F9's ca-sweep CronJob) and never
-	// in a pull's path. PullPathStages is the enforcement; the vocabulary
-	// matches nereus.antibody_store.stage, which admits exactly these four.
-	StageSweep = "sweep"
+	// StageSweep WENT 2026-09-23 (CA F18). It was repo cadence — an atom that
+	// asked about the REPOSITORY rather than the change, running on ca-sweep's
+	// clock and never in a pull. The clock is deleted: its three atoms needed a
+	// surface that five of eighty repos have, so the walk cloned eighty to ask
+	// six questions. sweep:kubeconform was already subsumed by ops:flux, which
+	// runs kubeconform with the same flags over the BUILT kustomize output; the
+	// other two are ops:kube-linter and template:render-matrix, in the pull path
+	// of the repos that can answer them.
 	// StageMutation is the mutation gate: a pull's change set, mutated, with
 	// the pull's own tests asked to notice. It IS about the change and it
 	// DOES block a pull's green — but it is not in PullPathStages, because
@@ -157,6 +159,29 @@ func atomTable() []AtomDef {
 		{
 			ID: "ops:flux", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every Flux Kustomization under flux/ builds with kubectl kustomize — a duplicate resource id, a missing base or a bad patch is a finding before flux meets it.",
+		},
+		// CAME HOME FROM THE SWEEP 2026-09-23 (CA F18). It was sweep:kube-linter,
+		// on a clock, because F9 read it as a question about a REPOSITORY. The
+		// surface it needs is flux/, which one repo in eighty has, so the clock
+		// walked 80 repos to ask infra one question. `ops` already claims that
+		// exact tree, so the question now runs in infra's own pull path, where
+		// whoever broke a workload is the one who is told.
+		{
+			ID: "ops:kube-linter", Stage: StagePrecommit, Lane: LaneAny, Image: ImageKubeLinter,
+			Desc: "Every workload under flux/ passes kube-linter's default checks.",
+		},
+
+		// ---- template: the copier templates ----
+		//
+		// CAME HOME FROM THE SWEEP 2026-09-23 (CA F18), and this one was the
+		// inversion worth naming. F9's acceptance criterion was that no sweep
+		// atom appears in a pull's path — which is also why a template could
+		// break its own ci-matrix.toml and nothing noticed until Sunday. It is
+		// prepush rather than precommit because rendering the whole matrix with
+		// copier is the slow half of a template's gate.
+		{
+			ID: "template:render-matrix", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
+			Desc: "Every case in this template's ci-matrix.toml still renders.",
 		},
 
 		// ---- go ----
@@ -400,29 +425,6 @@ func atomTable() []AtomDef {
 			ID: "ts:mutation", Stage: StageMutation, Lane: LaneTS, Image: ImageTS,
 			Desc: "Every mutant StrykerJS makes of this pull's changes to the declared critical modules is killed by the tests.",
 		},
-
-		// ---- sweep: repo cadence. NEVER IN A PULL'S PATH ----
-		//
-		// These describe a REPOSITORY rather than a change, so their answer cannot
-		// differ between two pulls against the same repo — and running them per
-		// pull leaves every repository nobody opened a PR against unevaluated
-		// indefinitely. That is the whole of CA F9.
-		//
-		// The absence is the acceptance: no atom below may appear in a pull's
-		// path. PullPathAtoms is what makes that structural rather than a
-		// convention, and TestNoSweepAtomOnThePullPath asserts it.
-		{
-			ID: "sweep:template-render-matrix", Stage: StageSweep, Lane: LaneAny, Image: ImageFleet,
-			Desc: "Every case in this template's ci-matrix.toml still renders.",
-		},
-		{
-			ID: "sweep:kubeconform", Stage: StageSweep, Lane: LaneAny, Image: ImageKubeconform,
-			Desc: "Every manifest under flux/ validates against its Kubernetes schema.",
-		},
-		{
-			ID: "sweep:kube-linter", Stage: StageSweep, Lane: LaneAny, Image: ImageKubeLinter,
-			Desc: "Every workload under flux/ passes kube-linter's default checks.",
-		},
 	}
 }
 
@@ -470,11 +472,6 @@ func IsPullPath(stage string) bool {
 // PullPathAtoms answers every atom a pull may run — the set the door reads.
 func PullPathAtoms() []AtomDef {
 	return AtomsForStage("")
-}
-
-// SweepAtoms answers every repo-cadence atom — the set ca-sweep runs.
-func SweepAtoms() []AtomDef {
-	return AtomsForStage(StageSweep)
 }
 
 // AtomsForStage selects the atoms for one stage; the empty stage selects every

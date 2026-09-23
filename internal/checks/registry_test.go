@@ -378,20 +378,23 @@ func TestTheNamedCheckSetsAreTheFleets(t *testing.T) {
 // runs against every repo in custody and most repos carry no surface for most
 // of these, so an atom that exits 0 in silence is indistinguishable from a scan
 // that found nothing.
-func TestEverySweepAtomCanRefuseAndAnnounceAbsence(t *testing.T) {
+func TestEveryRehomedCadenceAtomCanRefuseAndAnnounceAbsence(t *testing.T) {
 	src := parseLaneFiles(t)
 	runners := src.runnerNames()
 	bodies := src.funcBodies()
 
-	for _, a := range SweepAtoms() {
+	// These two came home from the deleted sweep (CA F18). Each still finds a
+	// surface most repos do not have — flux/ and ci-matrix.toml — so each must
+	// still be able to say ABSENT rather than pass by accident.
+	for _, a := range []AtomDef{AtomByID("ops:kube-linter"), AtomByID("template:render-matrix")} {
 		fnName, ok := runners[a.ID]
 		if !ok {
-			t.Errorf("sweep atom %q has no registered runner to read", a.ID)
+			t.Errorf("atom %q has no registered runner to read", a.ID)
 			continue
 		}
 		fn, ok := bodies[fnName]
 		if !ok {
-			t.Errorf("sweep atom %q registers %s, which is not a function in any atoms_*.go", a.ID, fnName)
+			t.Errorf("atom %q registers %s, which is not a function in any atoms_*.go", a.ID, fnName)
 			continue
 		}
 		lits := strings.Join(stringLiterals(fn), "\x00")

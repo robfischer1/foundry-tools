@@ -6,17 +6,17 @@ import (
 )
 
 func TestSelectNarrowsToTheNamedAtoms(t *testing.T) {
-	got, err := Select(SweepAtoms(), "sweep:kubeconform")
+	got, err := Select(AtomsForStage(StagePrecommit), "ops:kube-linter")
 	if err != nil {
 		t.Fatalf("Select: %v", err)
 	}
-	if len(got) != 1 || got[0].ID != "sweep:kubeconform" {
-		t.Fatalf("Select chose %v, want just sweep:kubeconform", ids(got))
+	if len(got) != 1 || got[0].ID != "ops:kube-linter" {
+		t.Fatalf("Select chose %v, want just ops:kube-linter", ids(got))
 	}
 }
 
 func TestSelectTakesAListAndTolerantWhitespace(t *testing.T) {
-	got, err := Select(SweepAtoms(), " sweep:kubeconform , sweep:kube-linter ")
+	got, err := Select(AtomsForStage(StagePrecommit), " ops:kube-linter , ops:flux ")
 	if err != nil {
 		t.Fatalf("Select: %v", err)
 	}
@@ -30,7 +30,7 @@ func TestSelectTakesAListAndTolerantWhitespace(t *testing.T) {
 // nothing, and nothing reported reads exactly like nothing wrong — the same
 // shape as a ruleset matching zero files.
 func TestSelectRefusesAnUnknownAtom(t *testing.T) {
-	_, err := Select(SweepAtoms(), "sweep:kube_linter")
+	_, err := Select(AtomsForStage(StagePrecommit), "ops:kube_linter")
 	if err == nil {
 		t.Fatal("a typo'd atom id selected silently")
 	}
@@ -40,12 +40,12 @@ func TestSelectRefusesAnUnknownAtom(t *testing.T) {
 }
 
 // The other half of the same trap: a REAL atom that this stage does not admit.
-// Naming a prepush atom in the sweep's selector must say so rather than answer
-// an empty vector — and it must not quietly pull a pull-path atom into a sweep.
+// template:render-matrix is prepush; naming it in a precommit selector must say
+// so rather than answer an empty vector.
 func TestSelectRefusesAnAtomTheStageDoesNotAdmit(t *testing.T) {
-	_, err := Select(SweepAtoms(), "go:staticcheck")
+	_, err := Select(AtomsForStage(StagePrecommit), "template:render-matrix")
 	if err == nil {
-		t.Fatal("a prepush atom was admitted into the sweep's vector")
+		t.Fatal("a prepush atom was admitted into a precommit vector")
 	}
 	if !strings.Contains(err.Error(), "does not admit") {
 		t.Fatalf("the error must distinguish 'wrong stage' from 'no such atom': %v", err)
@@ -53,7 +53,7 @@ func TestSelectRefusesAnAtomTheStageDoesNotAdmit(t *testing.T) {
 }
 
 func TestSelectRefusesAnEmptyChoice(t *testing.T) {
-	if _, err := Select(SweepAtoms(), " , , "); err == nil {
+	if _, err := Select(AtomsForStage(StagePrecommit), " , , "); err == nil {
 		t.Fatal("a selector naming nothing answered a vector anyway")
 	}
 }

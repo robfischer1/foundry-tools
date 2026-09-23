@@ -86,7 +86,7 @@ func TestManifestForNamesTheDeclaringFile(t *testing.T) {
 func TestEveryAtomIsWellFormed(t *testing.T) {
 	seen := map[string]bool{}
 	lanes := map[Lane]bool{LaneAny: true, LaneGo: true, LanePython: true, LaneRust: true, LaneTS: true}
-	stages := map[string]bool{StagePrecommit: true, StagePrepush: true, StageSweep: true, StageMutation: true}
+	stages := map[string]bool{StagePrecommit: true, StagePrepush: true, StageMutation: true}
 
 	for _, a := range Atoms {
 		if seen[a.ID] {
@@ -100,9 +100,10 @@ func TestEveryAtomIsWellFormed(t *testing.T) {
 		if a.Lane != LaneAny && !strings.HasPrefix(a.ID, string(a.Lane)+":") {
 			t.Errorf("atom %q sits in lane %q; its id must carry that namespace", a.ID, a.Lane)
 		}
-		// A cross-lane atom is namespaced by WHEN it runs — fleet: on a
-		// pull's path, sweep: on the clock — or by the SURFACE it finds for
-		// itself, from the closed set in checks.SurfaceNamespaces.
+		// A cross-lane atom is namespaced by fleet: — it has something to say
+		// about every repository — or by the SURFACE it finds for itself, from
+		// the closed set in checks.SurfaceNamespaces. (The third arm, sweep: on
+		// the clock, went with StageSweep on 2026-09-23.)
 		//
 		// The third case was added 2026-09-10 with the compose: and dies:
 		// ports, and it is a widening of exactly one clause. The rule used to
@@ -113,31 +114,15 @@ func TestEveryAtomIsWellFormed(t *testing.T) {
 		// every repository. See SurfaceNamespaces for why filing those under
 		// fleet: would have been the defect rather than the discipline.
 		//
-		// WHAT IS NOT WIDENED: sweep: still admits only sweep atoms, no
-		// surface namespace may carry StageSweep, and the set of surface
-		// namespaces is closed — an id in an undeclared namespace still
-		// fails here. The sweep's acceptance is that its atoms are absent
-		// from a pull, and nothing below relaxes it.
+		// WHAT IS NOT WIDENED: the set of surface namespaces is closed — an id
+		// in an undeclared namespace still fails here.
 		if a.Lane == LaneAny {
 			switch {
-			case a.Stage == StageSweep:
-				if !strings.HasPrefix(a.ID, "sweep:") {
-					t.Errorf("cross-lane sweep atom %q must be namespaced sweep:", a.ID)
-				}
 			case strings.HasPrefix(a.ID, "fleet:"):
 			case IsSurfaceNamespace(a.ID):
 			default:
 				t.Errorf("cross-lane %s atom %q must be namespaced fleet: or carry a declared surface namespace (%v)", a.Stage, a.ID, SurfaceNamespaces)
 			}
-		}
-		if IsSurfaceNamespace(a.ID) && a.Stage == StageSweep {
-			t.Errorf("atom %q is in a surface namespace but declares stage sweep — a surface namespace is a pull-path namespace, and the sweep is asked for by name", a.ID)
-		}
-		if a.Stage == StageSweep && !strings.HasPrefix(a.ID, "sweep:") {
-			t.Errorf("atom %q is stage sweep but is not in the sweep: namespace", a.ID)
-		}
-		if strings.HasPrefix(a.ID, "sweep:") && a.Stage != StageSweep {
-			t.Errorf("atom %q is in the sweep: namespace but declares stage %q — the namespace and the stage are one fact", a.ID, a.Stage)
 		}
 		if !lanes[a.Lane] {
 			t.Errorf("atom %q declares unknown lane %q", a.ID, a.Lane)

@@ -456,3 +456,72 @@ func TestOpsAtomsAreCatalogued(t *testing.T) {
 		}
 	}
 }
+
+// ---- ops:kube-linter ----
+
+func TestOpsKubeLinterBuildsItsChainAndMapsItsExitCodes(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	wantState(t, runAtom(t, "ops:kube-linter", ""), 0)
+
+	c := engine.chain(`"/kube-linter"`, "exitCode")
+	if !strings.Contains(c, checks.ImageKubeLinter) {
+		t.Errorf("ops:kube-linter must run in the kube-linter image:\n%s", c)
+	}
+	wantCalls(t, c,
+		[]string{"withMountedDirectory", `path:"/src"`},
+		[]string{"withWorkdir", `path:"/src"`},
+		[]string{"withExec", `expect:ANY`, `args:["/kube-linter","lint","--fail-if-no-objects-found","flux/"]`},
+	)
+	if strings.Contains(c, "GATE_BASE") {
+		t.Errorf("ops:kube-linter must not read GATE_BASE:\n%s", c)
+	}
+	// The refusal arrives on stderr and the findings on stdout, and the code
+	// is the same 1 for both — so both streams are read before anything is
+	// decided.
+	if engine.chain(`"/kube-linter"`, "stdout") == "" || engine.chain(`"/kube-linter"`, "stderr") == "" {
+		t.Error("both streams must be read before the state is decided")
+	}
+
+	// Findings: the linter's own count leads (it is the line a human reads
+	// first, and kube-linter prints it last), then the findings themselves.
+	engine.exitCode(`"/kube-linter"`, 1)
+	engine.stdout(`"/kube-linter"`, "flux/a.yaml: (object: app apps/v1, Deployment) container \"app\" does not have a read-only root file system\n")
+	engine.stderr(`"/kube-linter"`, "Error: found 1 lint errors\n")
+	v := runAtom(t, "ops:kube-linter", "")
+	wantState(t, v, 1, "Error: found 1 lint errors", "read-only root file system")
+	if !strings.Contains(v.Reason, "Error: found 1 lint errors\nflux/a.yaml:") {
+		t.Errorf("the tail must lead the head:\n%s", v.Reason)
+	}
+
+	// --fail-if-no-objects-found IS kube-linter's own zero-population refusal,
+	// and it exits 1 for it — the same code it uses for a finding. Reading
+	// that as findings would be wrong in the direction that still looks like
+	// the check worked.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.exitCode(`"/kube-linter"`, 1)
+	engine.stderr(`"/kube-linter"`, "Error: no valid objects found\n")
+	wantState(t, runAtom(t, "ops:kube-linter", ""), 2, "CANNOT RUN", "parsed no object under flux/")
+}
+
+func TestOpsKubeLinterIsAbsentWithoutFluxAndRefusesAnUnreadableRoot(t *testing.T) {
+	engine.reset()
+	engine.withTree(templateTree([]string{"flux/x.yaml"}, nil))
+	v := runAtom(t, "ops:kube-linter", "")
+	wantState(t, v, 0, "no flux/ tree at the repository root")
+	if v.Result != "absent" {
+		t.Errorf("result %q, want absent:\n%s", v.Result, v.Reason)
+	}
+	wantNoContainer(t, "no flux/ tree is decided in Go")
+
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.fail(rootEntries, "mount evaporated")
+	wantState(t, runAtom(t, "ops:kube-linter", ""), 2, "the repository root could not be read", "mount evaporated")
+
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.fail(`"/kube-linter"`, "failed to resolve image")
+	wantState(t, runAtom(t, "ops:kube-linter", ""), 2, "never ran", "failed to resolve image")
+}

@@ -339,26 +339,6 @@ func (r *RustLane) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-func (r Sweep) MarshalJSON() ([]byte, error) {
-	var concrete struct {
-		Source *dagger.Directory
-	}
-	concrete.Source = r.Source
-	return json.Marshal(&concrete)
-}
-
-func (r *Sweep) UnmarshalJSON(bs []byte) error {
-	var concrete struct {
-		Source *dagger.Directory
-	}
-	err := json.Unmarshal(bs, &concrete)
-	if err != nil {
-		return err
-	}
-	r.Source = concrete.Source
-	return nil
-}
-
 func (r TSLane) MarshalJSON() ([]byte, error) {
 	var concrete struct {
 		Source *dagger.Directory
@@ -1189,13 +1169,6 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*FoundryTools).Rust(&parent), nil
-		case "Sweep":
-			var parent FoundryTools
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			return (*FoundryTools).Sweep(&parent), nil
 		case "Tree":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
@@ -1501,32 +1474,6 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*StageResult).Record(&parent)
-		default:
-			return nil, fmt.Errorf("unknown function %s", fnName)
-		}
-	case "Sweep":
-		switch fnName {
-		case "KubeLinter":
-			var parent Sweep
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			return (*Sweep).KubeLinter(&parent, ctx)
-		case "Kubeconform":
-			var parent Sweep
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			return (*Sweep).Kubeconform(&parent, ctx)
-		case "TemplateRenderMatrix":
-			var parent Sweep
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			return (*Sweep).TemplateRenderMatrix(&parent, ctx)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
