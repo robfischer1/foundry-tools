@@ -159,3 +159,120 @@ func TestWhatALaneEchoedIsTrimmed(t *testing.T) {
 		t.Errorf("not trimmed: %+v", got[0])
 	}
 }
+
+// TestAnOmittedRoleIsBuiltAndNeverDep — the compatibility hinge. Every lane in
+// the fleet declared pins before `role` existed, and each of those lines meant
+// "I published this". Lines like that are still in logs the door has not read.
+// A default of dep would reclassify them into the dependency half, where
+// BuiltHere stops answering for them — the admission question would start
+// saying no about images the fleet demonstrably built.
+func TestAnOmittedRoleIsBuiltAndNeverDep(t *testing.T) {
+	line, skipped := Line(Pin{Artifact: "registry.notusmi.com/rob/ourea", Digest: full('a')})
+	if len(skipped) != 0 {
+		t.Fatalf("skipped = %v; a pin with no role is well formed", skipped)
+	}
+	// IT COMES BACK EMPTY ON THE WIRE, and that is the point: both ends read
+	// empty as built, so the line does not carry ~16 bytes per pin to restate
+	// it. The door defaults it on arrival.
+	got := decode(t, line)
+	if len(got) != 1 || got[0].Role != "" {
+		t.Errorf("role = %+v, want it left off the wire", got)
+	}
+	if strings.Contains(line, `"role"`) {
+		t.Errorf("the default role was written out; the tail window is the one place bytes cost:\n%s", line)
+	}
+}
+
+// TestARoleThatIsNeitherIsREFUSEDBYNAME — the same contract the kind check
+// holds. A row the door cannot classify is worse than no row: it would land in
+// a table whose whole point is that the two halves stay tellable apart.
+func TestARoleThatIsNeitherIsREFUSEDBYNAME(t *testing.T) {
+	line, skipped := Line(
+		Pin{Artifact: "registry.notusmi.com/rob/good", Digest: full('b'), Role: RoleDep},
+		Pin{Artifact: "registry.notusmi.com/rob/bad", Digest: full('c'), Role: "consumed"},
+	)
+	if len(skipped) != 1 || !strings.Contains(skipped[0], "role consumed is not built or dep") {
+		t.Fatalf("skipped = %v; the refusal must name the role it refused", skipped)
+	}
+	got := decode(t, line)
+	if len(got) != 1 || got[0].Role != RoleDep {
+		t.Errorf("the good neighbour did not survive: %+v", got)
+	}
+}
+
+// TestConsumedReadsWhatADockerfileDEPENDSOn — the dependency half at its
+// source. A FROM by digest is the thing the reaper can delete out from under
+// the next rebuild, and it is the shape of incident #25.
+func TestConsumedReadsWhatADockerfileDEPENDSOn(t *testing.T) {
+	dockerfile := `
+FROM docker.io/library/golang:1.27.1-bookworm@` + full('1') + ` AS boot
+FROM foundry.notusmi.com/foundry/base-images/go:stable@` + full('2') + `
+COPY --from=registry.notusmi.com/rob/tools:v1@` + full('3') + ` /bin/x /bin/x
+FROM foundry.notusmi.com/foundry/base-images/go:stable@` + full('2') + `
+FROM registry.notusmi.com/rob/untagged@` + full('4') + `
+FROM registry.notusmi.com/rob/bytag:stable
+`
+	// THREE, not six. The docker.io FROM is not ours and cannot be reaped by
+	// our retention; the second mention of the base collapses into the first;
+	// and the tag-only reference names nothing a dep row could hold down.
+	got := Consumed(dockerfile)
+	if len(got) != 3 {
+		t.Fatalf("got %d pins, want 3:\n%+v", len(got), got)
+	}
+	for _, p := range got {
+		if p.Role != RoleDep {
+			t.Errorf("%s came back role %q, want %q", p.Artifact, p.Role, RoleDep)
+		}
+		if strings.HasPrefix(p.Artifact, "docker.io/") {
+			t.Errorf("an UPSTREAM image was recorded as a dependency: %s — "+
+				"only our own registry's digests can be reaped by our own retention", p.Artifact)
+		}
+	}
+	// The base named twice in two stages is ONE dependency.
+	base := 0
+	for _, p := range got {
+		if p.Digest == full('2') {
+			base++
+			if p.Tag != "stable" || p.Artifact != "foundry.notusmi.com/foundry/base-images/go" {
+				t.Errorf("the tag was not split off the target: %+v", p)
+			}
+		}
+	}
+	if base != 1 {
+		t.Errorf("the same base in two stages made %d pins, want 1", base)
+	}
+	// A reference by TAG ALONE is not a pin — retention keeps a movable tag
+	// unconditionally, so there is nothing for a dep row to hold down.
+	for _, p := range got {
+		if strings.Contains(p.Artifact, "bytag") {
+			t.Errorf("a tag-only reference became a pin: %+v", p)
+		}
+	}
+	// A digest with no tag still counts; it is the harder one to keep alive.
+	found := false
+	for _, p := range got {
+		if p.Digest == full('4') && p.Tag == "" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("an untagged digest reference was dropped; it is the one most at risk of reaping")
+	}
+}
+
+// TestAFileWithNoInternalDigestDependsOnNothing — a star that builds FROM
+// scratch or from upstream alone declares no dependency, and that silence is
+// correct rather than a gap.
+func TestAFileWithNoInternalDigestDependsOnNothing(t *testing.T) {
+	for _, text := range []string{
+		"",
+		"FROM scratch\nCOPY x /x\n",
+		"FROM docker.io/library/alpine@" + full('9') + "\n",
+		"FROM registry.notusmi.com/rob/x:stable\n",
+		"# registry.notusmi.com/rob/x@sha256:short\n",
+	} {
+		if got := Consumed(text); len(got) != 0 {
+			t.Errorf("Consumed(%q) = %+v; want nothing", text, got)
+		}
+	}
+}

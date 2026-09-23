@@ -115,8 +115,13 @@ type buildLane struct {
 	// the same commit: signing, attesting and the permit are acts, not results.
 	stamp string
 	// published accumulates what this run pushed, declared ONCE at the end of
-	// the lane rather than at each push. See declarePublished.
+	// the lane rather than at each push. See declarePins.
 	published []pins.Pin
+	// consumed is what this tree DEPENDS ON — the internal-registry digests its
+	// Dockerfiles name. Read once at the top of the run, so a stand-down or a
+	// could-not-run still declares them: a dependency is a fact about the TREE
+	// and does not need the build to have succeeded.
+	consumed []pins.Pin
 }
 
 func say(format string, args ...any) { fmt.Fprintf(os.Stderr, "build: "+format+"\n", args...) }
@@ -143,7 +148,7 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 	// LAST, WHATEVER HAPPENS. Deferred here rather than called at the end so
 	// every return — a stand-down, a could-not-run, a findings verdict after
 	// something was already pushed — still declares what this run published.
-	defer l.declarePublished()
+	defer l.declarePins()
 	m := l.m
 	if m.Repo == "" || m.Sha == "" {
 		return buildlane.CouldNotRun, "the build lane builds a commit the engine fetched — construct the module with --repo and --sha"
@@ -153,6 +158,23 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 	}
 	star := starOf(m.Repo)
 	say("%s for %s at %.12s", map[bool]string{true: "tip build", false: "pull-time build (publishes nothing)"}[l.tip], star, m.Sha)
+
+	// WHAT THIS TREE DEPENDS ON, read before anything can return. The reaper
+	// keeps `inuse-<digest12>` and nothing else durably — every build tag is
+	// pushedWithin 24h plus mostRecentlyPushedCount 2, and deleteUntagged is
+	// true on a 24h delay — so a base survives only while a movable tag still
+	// points at it. Recording only what we BUILT keeps the star's own image and
+	// lets the base under it be reaped, which is incident #25: 24 Go stars red
+	// at once on stellar_core:go-runtime@9649a761, gone from the registry.
+	//
+	// IT CANNOT FAIL THE BUILD. A tree whose Dockerfiles could not be read is
+	// said on stderr and the lane carries on with an empty dependency set — a
+	// build that works is not held up by bookkeeping about it.
+	if deps, err := l.dependencies(ctx); err != nil {
+		say("the tree's dependencies could not be read, so this build declares none: %v", err)
+	} else {
+		l.consumed = deps
+	}
 
 	bases, err := l.bases(ctx)
 	if err != nil {
@@ -390,9 +412,10 @@ func (l *buildLane) push(ctx context.Context, img *Image, pushRepo, target, star
 	return ref, buildlane.Clean, ""
 }
 
-// declarePublished prints the one line ourea's settle reads back out of this
-// pod's log and turns into a row in erebus.build_pins — "what did the fleet
-// publish, and when".
+// declarePins prints the one line ourea's settle reads back out of this pod's
+// log and turns into rows in erebus.build_artifacts — what this build MADE
+// (role=built) and what it USED (role=dep), in one declaration because one
+// build knows both at one commit.
 //
 // IT MUST BE THE LAST THING THE LANE SAYS, and that is not a preference. The
 // door reads pins out of the LOG TAIL the settle already fetched: the last
@@ -425,7 +448,7 @@ func (l *buildLane) push(ctx context.Context, img *Image, pushRepo, target, star
 // the declaration is a fact about them, not a step of publishing them. A pin
 // this refuses is named on stderr and nothing else happens — the next build
 // of the same artifact restates it.
-func (l *buildLane) declarePublished() { declare(l.published...) }
+func (l *buildLane) declarePins() { declare(append(l.published, l.consumed...)...) }
 
 func declare(in ...pins.Pin) {
 	line, skipped := pins.Line(in...)
@@ -626,4 +649,40 @@ func fileIn(ctx context.Context, dir *dagger.Directory, file string) (string, bo
 		return "", false, err
 	}
 	return body, true, nil
+}
+
+// dependencies answers the internal-registry digests this tree's Dockerfiles
+// name, as dep pins.
+//
+// DOCKERFILES ONLY, DELIBERATELY. Every digest in a Dockerfile is something the
+// image is made of; a digest anywhere else in a tree may be a fixture, a
+// comment or a test table. forge-inuse greps the whole tree and then excludes
+// *_test.go and testdata for exactly that reason, and its own notes record
+// nearly holding an image forever "on the authority of a Go table test". Here
+// the hazard does not arise rather than being filtered back out.
+func (l *buildLane) dependencies(ctx context.Context) ([]pins.Pin, error) {
+	files, err := l.m.Source.Glob(ctx, "**/Dockerfile*")
+	if err != nil {
+		return nil, err
+	}
+	var out []pins.Pin
+	seen := map[string]bool{}
+	for _, f := range files {
+		body, err := l.m.Source.File(f).Contents(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", f, err)
+		}
+		for _, p := range pins.Consumed(body) {
+			key := p.Artifact + "\x00" + p.Tag + "\x00" + p.Digest
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, p)
+		}
+	}
+	if len(out) > 0 {
+		say("this tree depends on %d internal image(s) by digest", len(out))
+	}
+	return out, nil
 }

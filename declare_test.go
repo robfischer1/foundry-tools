@@ -101,7 +101,7 @@ func TestALaneDeclaresEveryPinInOneLineAtTheEnd(t *testing.T) {
 		l.published = append(l.published, pins.Image(c.target, c.digest))
 	}
 
-	out := sayings(t, l.declarePublished)
+	out := sayings(t, l.declarePins)
 	var marked []string
 	for _, line := range strings.Split(out, "\n") {
 		if strings.Contains(line, pins.MarkerPrefix) {
@@ -120,10 +120,47 @@ func TestALaneDeclaresEveryPinInOneLineAtTheEnd(t *testing.T) {
 }
 
 // TestALaneThatPublishedNothingSaysNothing — a pull-time build publishes
-// nothing, and the deferred call still runs on every path.
+// nothing, and the deferred call still runs on every path. With neither half
+// to declare there is nothing to say, and silence is the correct answer: a
+// repo with no Dockerfile depends on no internal image either.
 func TestALaneThatPublishedNothingSaysNothing(t *testing.T) {
 	l := &buildLane{}
-	if out := sayings(t, l.declarePublished); out != "" {
+	if out := sayings(t, l.declarePins); out != "" {
 		t.Errorf("a lane that published nothing said %q", out)
+	}
+}
+
+// TestOneLineCarriesBOTHHALVES — published and consumed ride in the SAME
+// declaration, because the door reads one marker out of the log tail and a
+// second line is a second chance to fall outside the window (#177). The roles
+// are what keep them tellable apart once they are in the same table.
+func TestOneLineCarriesBOTHHALVES(t *testing.T) {
+	l := &buildLane{
+		published: []pins.Pin{pins.Image("registry.notusmi.com/rob/ourea:stable", "sha256:"+strings.Repeat("a", 64))},
+		consumed:  pins.Consumed("FROM foundry.notusmi.com/foundry/base-images/go:stable@sha256:" + strings.Repeat("b", 64)),
+	}
+	out := sayings(t, l.declarePins)
+	var marked []string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, pins.MarkerPrefix) {
+			marked = append(marked, line)
+		}
+	}
+	if len(marked) != 1 {
+		t.Fatalf("%d marker lines, want exactly 1 — both halves are one declaration:\n%s", len(marked), out)
+	}
+	for _, want := range []string{
+		`"artifact":"registry.notusmi.com/rob/ourea"`, `"role":"dep"`,
+		`"artifact":"foundry.notusmi.com/foundry/base-images/go"`,
+	} {
+		if !strings.Contains(marked[0], want) {
+			t.Errorf("the declaration is missing %s:\n%s", want, marked[0])
+		}
+	}
+	// The published half must NOT carry an explicit role on the wire — omitted
+	// is built, and spending bytes to say so would be spending them in the one
+	// place the tail window is the constraint.
+	if strings.Contains(marked[0], `"role":"built"`) {
+		t.Errorf("built was written out explicitly; omitted already means built:\n%s", marked[0])
 	}
 }

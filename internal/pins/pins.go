@@ -40,6 +40,20 @@ const (
 	KindBundle  = "bundle"
 )
 
+// A pin has a SIDE: the lane either made the artifact or used it. Both ride the
+// same marker because one build knows both at one commit, and the door's
+// retention keep-set wants their union — but only the built half is a claim of
+// authorship, so the two must stay tellable apart on the wire.
+//
+// EMPTY IS BUILT, and that is not a convenience. Every lane that declared
+// before this field existed was declaring what it PUBLISHED, and those lines
+// are still in flight in logs the door has not read yet; a default of "dep"
+// would silently reclassify them.
+const (
+	RoleBuilt = "built"
+	RoleDep   = "dep"
+)
+
 // Pin is one published artifact. The field names ARE the wire format and the
 // door's tap.Pin reads them; they are not free to rename on one side.
 type Pin struct {
@@ -52,6 +66,9 @@ type Pin struct {
 	// Kind defaults to image at both ends, because a required field nobody
 	// remembers is a field that gets set wrong.
 	Kind string `json:"kind,omitempty"`
+	// Role is built (this lane published it) or dep (this lane used it).
+	// Omitted means built — see the constants.
+	Role string `json:"role,omitempty"`
 }
 
 var digestRe = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
@@ -67,6 +84,7 @@ func Line(in ...Pin) (string, []string) {
 		p.Digest = strings.TrimSpace(p.Digest)
 		p.Tag = strings.TrimSpace(p.Tag)
 		p.Kind = strings.TrimSpace(p.Kind)
+		p.Role = strings.TrimSpace(p.Role)
 		switch {
 		case p.Artifact == "":
 			skipped = append(skipped, "a pin with no artifact, digest "+p.Digest)
@@ -80,6 +98,17 @@ func Line(in ...Pin) (string, []string) {
 		}
 		if p.Kind != KindImage && p.Kind != KindPackage && p.Kind != KindBundle {
 			skipped = append(skipped, p.Artifact+": kind "+p.Kind+" is not image, package or bundle")
+			continue
+		}
+		// AN OMITTED ROLE IS LEFT OMITTED, deliberately, where Kind above is
+		// defaulted and written. Both ends already agree that empty means
+		// built, so writing it out would add ~16 bytes per pin to the one line
+		// whose size is a real constraint — the door reads pins out of the last
+		// 64 KiB of the log, and #177 is the incident where this declaration
+		// fell outside that window and erebus stayed empty. The bytes buy
+		// nothing: the reader defaults it on arrival.
+		if p.Role != "" && p.Role != RoleBuilt && p.Role != RoleDep {
+			skipped = append(skipped, p.Artifact+": role "+p.Role+" is not built or dep")
 			continue
 		}
 		keep = append(keep, p)
@@ -117,4 +146,49 @@ func Image(target, digest string) Pin {
 		artifact, tag = target[:i], target[i+1:]
 	}
 	return Pin{Artifact: artifact, Digest: digest, Tag: tag, Kind: KindImage}
+}
+
+// consumedRe finds a reference to the fleet's OWN registry that names a digest.
+// Both hostnames route to the one zot (foundry.notusmi.com's repositories land
+// at that registry's root), so both are ours and a reference through either is
+// a dependency the reaper must keep.
+//
+// A REFERENCE BY TAG ALONE IS NOT A PIN. The tag's own target is whatever it
+// points at today, and retention keeps a movable tag unconditionally — so there
+// is nothing for a dep row to hold down. Only a digest names a thing that can
+// be reaped out from under this build.
+var consumedRe = regexp.MustCompile(
+	`(?:registry\.notusmi\.com|foundry\.notusmi\.com)/[A-Za-z0-9._/-]+?(?::[A-Za-z0-9._-]+)?@sha256:[0-9a-f]{64}`)
+
+// Consumed reads one file's text and answers the internal-registry digests it
+// depends on, as dep pins.
+//
+// THE CALLER PASSES DOCKERFILES AND NOTHING ELSE, and that is the whole reason
+// this is safe where the census's whole-tree grep was not. forge-inuse greps
+// every file and then has to EXCLUDE *_test.go and testdata, because a real
+// digest inside a Go table test is not a consumer — its own comment records
+// nearly marking one inuse "on the authority of a Go table test". A Dockerfile
+// is a build instruction: every digest in one is something this image is
+// actually made of, so the hazard does not arise rather than being filtered.
+//
+// Duplicates collapse: the same base named in two stages of one Dockerfile, or
+// in two Dockerfiles, is one dependency.
+func Consumed(text string) []Pin {
+	var out []Pin
+	seen := map[string]bool{}
+	for _, ref := range consumedRe.FindAllString(text, -1) {
+		at := strings.LastIndex(ref, "@")
+		if at < 0 {
+			continue
+		}
+		p := Image(ref[:at], ref[at+1:])
+		p.Role = RoleDep
+		key := p.Artifact + "\x00" + p.Tag + "\x00" + p.Digest
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, p)
+	}
+	return out
 }
