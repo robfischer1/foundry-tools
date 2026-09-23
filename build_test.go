@@ -765,14 +765,37 @@ func TestABuilderSBOMThatDoesNotMergeLeavesTheImagesSBOM(t *testing.T) {
 	attachesTheImageAlone(t)
 }
 
+// moldRefusal is hephaestus internal/mold/mold.go's sentence when no g-pin in
+// the tip's history resolves to an artifact. The tip it names is a RAW sha,
+// which is the whole of task #181: the lane used to match `at g<12 hex>`, a
+// message mold never sends, so a superseded permit was read as a refusal.
+func moldRefusal(tip string) string {
+	return "mold ares: no CI artifact at the tip " + tip +
+		" or the 3 commit(s) behind it — mold stamps, it does not build; run the build for the tip first"
+}
+
 // hades's refusal of the permit is the lane's finding; its answer is read the
-// way permit.py read it.
+// way permit.py read it. Mold names THIS build's tip, so nothing moved and the
+// refusal is about this build.
 func TestATipWhosePermitIsRefusedIsFindings(t *testing.T) {
 	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
 	scriptATip()
-	engine.stdout(`"forge_mold"`, "HTTP 200\n"+toolAnswer(true, "no CI artifact at g0123456789ab"))
+	engine.stdout(`"forge_mold"`, "HTTP 200\n"+toolAnswer(true, moldRefusal(buildSha)))
 	tip(t, m)
 	settledOn(t, "1", "PERMIT REFUSED")
+}
+
+// THE RACE THIS LANE MUST NOT BLAME ITSELF FOR. Mold stamps the current head
+// only. When the tip moves between this build's publish and its permit, mold
+// looks at the NEW head, finds nothing stamped there, and refuses — a refusal
+// about a commit this build never claimed. That is a could-not-run the sweep
+// re-asks, not a finding that reds the star.
+func TestATipSupersededBeforeItsPermitIsCouldNotRun(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	scriptATip()
+	engine.stdout(`"forge_mold"`, "HTTP 200\n"+toolAnswer(true, moldRefusal(strings.Repeat("fe", 20))))
+	tip(t, m)
+	settledOn(t, "2", "SUPERSEDED")
 }
 
 // An answer that is not hadescall's shape is a could-not-run.

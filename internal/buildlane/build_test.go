@@ -238,7 +238,19 @@ func TestThePermitAnswerFoldsIntoTheVerdict(t *testing.T) {
 		b, _ := json.Marshal(map[string]any{"isError": isError, "content": []map[string]string{{"type": "text", "text": text}}})
 		return string(b)
 	}
+	// molded is mold's refusal verbatim — hephaestus internal/mold/mold.go,
+	// the error it returns when no g-pin in the tip's history resolves. If
+	// that sentence is ever reworded, these cases stop reading SUPERSEDED and
+	// this test is the thing that notices.
+	molded := func(tip string) string {
+		return "mold iris: no CI artifact at the tip " + tip +
+			" or the 3 commit(s) behind it — mold stamps, it does not build; run the build for the tip first"
+	}
 	built := "0123456789abcdef"
+	// movedTip is a commit this build never claimed. It is deliberately dull
+	// hex: a realistic sha literal reads to detect-secrets as a high-entropy
+	// string and reds the commit stage, and the entropy is doing no work here.
+	movedTip := strings.Repeat("fe", 8)
 	for _, c := range []struct {
 		name   string
 		status int
@@ -251,8 +263,17 @@ func TestThePermitAnswerFoldsIntoTheVerdict(t *testing.T) {
 		{"no cert", 401, "", CouldNotRun, "401"},
 		{"hades down", 502, "", CouldNotRun, "HTTP 502"},
 		{"not a tool answer", 200, "<html>", CouldNotRun, "not a tool answer"},
-		{"superseded", 200, tool(true, "no CI artifact at gfedcba9876543"), CouldNotRun, "SUPERSEDED"},
-		{"refused", 200, tool(true, "no CI artifact at g0123456789ab"), Findings, "PERMIT REFUSED"},
+		// EVERY REFUSAL BELOW IS MOLD'S OWN SENTENCE, copied from hephaestus
+		// internal/mold/mold.go. The fixtures this replaced read "no CI
+		// artifact at g<12 hex>" — a message mold has never produced — so the
+		// matcher and its test agreed with each other and with nothing else.
+		{"superseded", 200, tool(true, molded(movedTip)), CouldNotRun, "SUPERSEDED"},
+		{"refused", 200, tool(true, molded(built)), Findings, "PERMIT REFUSED"},
+		// The tip and the build's sha name one commit at different lengths,
+		// either way round. Both must read as the SAME commit: an abbreviation
+		// is not a race.
+		{"same commit, tip abbreviated", 200, tool(true, molded(built[:12])), Findings, "PERMIT REFUSED"},
+		{"same commit, tip in full", 200, tool(true, molded(built+strings.Repeat("a", 24))), Findings, "PERMIT REFUSED"},
 		{"refused at length", 200, tool(true, strings.Repeat("x", 400)), Findings, "promoted. " + strings.Repeat("x", 300)},
 		{"no-op", 200, tool(false, `{"no_op":true}`), Clean, "no-op"},
 		{"stamped", 200, tool(false, `{"digest":"sha256:d","pushed_ref":"r:stable"}`), Clean, "digest=sha256:d, ref=r:stable"},
