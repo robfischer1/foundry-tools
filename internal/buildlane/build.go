@@ -318,7 +318,21 @@ func ParseCall(out string) (status int, body string, err error) {
 	return status, body, nil
 }
 
-var noArtifactAt = regexp.MustCompile(`no CI artifact at g([0-9a-f]{12})`)
+// noArtifactAt matches mold's refusal when nothing is stamped for the head it
+// looked at. The text is hephaestus internal/mold/mold.go: "mold <name>: no CI
+// artifact at the tip <sha> or the <n> commit(s) behind it". The sha is RAW —
+// mold resolves tags by a g-pin but reports the commit — so the matcher this
+// replaced (`at g([0-9a-f]{12})`) could never fire, and every superseded
+// permit settled Findings, blaming the build for a race it did not lose.
+var noArtifactAt = regexp.MustCompile(`no CI artifact at the tip ([0-9a-f]{7,40})`)
+
+// sameCommit answers whether two shas name the same commit: one is a prefix of
+// the other, so a full sha and an abbreviation of it still match. Both sides
+// are full shas today — the door's --sha and mold's tip — but a bare equality
+// would call a commit superseded by itself the day either side shortens.
+func sameCommit(a, b string) bool {
+	return strings.HasPrefix(a, b) || strings.HasPrefix(b, a)
+}
 
 // Permit folds hades's answer to forge_mold into a verdict and a reason
 // (permit.py classify). built is the commit this build published: when mold's
@@ -349,8 +363,8 @@ func Permit(status int, raw, built string) (int, string) {
 		text = answer.Content[0].Text
 	}
 	if answer.IsError {
-		if m := noArtifactAt.FindStringSubmatch(text); m != nil && built != "" && !strings.HasPrefix(built, m[1]) {
-			return CouldNotRun, fmt.Sprintf("SUPERSEDED — the tip moved to %s before this build's permit ran; mold stamps the current head only, so nothing was stamped for %.12s and the newer tip's own build permits it", m[1], built)
+		if m := noArtifactAt.FindStringSubmatch(text); m != nil && !sameCommit(built, m[1]) {
+			return CouldNotRun, fmt.Sprintf("SUPERSEDED — the tip moved to %.12s before this build's permit ran; mold stamps the current head only, so nothing was stamped for %.12s and the newer tip's own build permits it", m[1], built)
 		}
 		return Findings, strings.TrimSpace("PERMIT REFUSED by hephaestus — the CI build did not verify; the image is NOT stamped and must not be promoted. " + truncate(text, 300))
 	}
