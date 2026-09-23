@@ -1238,27 +1238,6 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*FoundryTools).Verdicts(&parent, ctx, stage, only, base)
-		case "Verify":
-			var parent FoundryTools
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			var indexUrl string
-			if inputArgs["indexURL"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["indexURL"]), &indexUrl)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg indexURL", err))
-				}
-			}
-			var sourceBase string
-			if inputArgs["sourceBase"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["sourceBase"]), &sourceBase)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg sourceBase", err))
-				}
-			}
-			return (*FoundryTools).Verify(&parent, ctx, indexUrl, sourceBase)
 		case "":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)

@@ -3,57 +3,34 @@ package main
 import (
 	"context"
 	"fmt"
-	"strconv"
-	"strings"
-	"time"
 
 	"dagger/foundry-tools/internal/buildlane"
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
 )
 
-// THE VERIFY STAGE (CA master-plan F14). The image, scanned for what the star
-// itself can fix, and inventoried: two atoms over the built image, settled as
-// one stage answer like Check and Push. It runs with no secrets, on the image
-// the engine builds from the tree — the same chain Build publishes from, so a
-// Verify that passed here passes on the bytes the registry will hold.
+// THE BUILD LANE'S IMAGE SCAN. This was the Verify stage (CA master-plan F14)
+// until 2026-09-23, when the standalone stage was deleted under F18: NOTHING
+// CALLED IT. Build never did — build.go's `(*buildLane).verify` constructs a
+// verifyLane and calls `scan` directly, reaching past the stage — and the door
+// dispatches no verify lane (zero `verify` entries in ourea-config's lane
+// tables). The exported `Verify` function's only consumer was dagger.gen.go's
+// own dispatch table. Its doc said it stayed "for the door's own run of the
+// chain (F16)"; F16 landed without ever wiring it.
 //
-// WHAT IT GATES ON IS THE STAR'S OWN LAYER (internal/buildlane/verify.go has
-// the measurement): the base's findings are the base lane's, listed but never
-// counted. What it records is the composed SBOM (build_sbom.go): the star's
-// own components, the base's document linked.
-
-// The two atoms' ids. `image:` is a surface namespace like compose or dies:
-// a tree with no star image has neither atom, and says so.
-const (
-	atomScan    = "image:trivy"
-	atomSBOM    = "image:sbom"
-	stageVerify = "verify"
-)
-
-// Verify is the verify stage: the tree's star image, scanned and inventoried.
+// WHAT SURVIVED IS THE MEASUREMENT, which was always the point and is
+// unchanged: the image's fixable HIGH and CRITICAL findings less the ones its
+// base already carries, gating the publish. `buildLane.run` refuses to push
+// anything the scan did not pass, so the registry never holds it.
 //
-// NEVER CACHED AS A WHOLE, for Verdicts' reason: an atom that could not run is
-// still a successful return. The scans are cached by the image they scanned.
-//
-// +cache="never"
-func (m *FoundryTools) Verify(
-	ctx context.Context,
-	// The python index a Dockerfile RUN reads as UV_INDEX_URL, as Build takes it.
-	// +optional
-	indexURL string,
-	// Where org.opencontainers.image.source points: <sourceBase>/<star>.
-	// +optional
-	// +default="https://forgejo.notusmi.com/rob"
-	sourceBase string,
-) (*StageResult, error) {
-	v := &verifyLane{m: m, indexURL: indexURL, sourceBase: sourceBase, stamp: strconv.FormatInt(time.Now().UnixNano(), 10)}
-	vs, err := v.run(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return stageResult(checks.SettleStage(stageVerify, vs)), nil
-}
+// `absent` AND `stageVerify` WENT WITH THE STAGE. A first pass at this landing
+// kept them on the belief that ~50 files called `absent`. They do not: that
+// was a word-match grep hitting the string "ABSENT" in other atoms' log lines,
+// and `absent` had exactly ZERO call sites outside its own definition. The
+// atoms announce an absent surface with checks.AbsentVerdict /
+// checks.AbsentProblem, in the package that owns the vocabulary. staticcheck
+// caught it at the push gate (U1000, both symbols) — the gate was right and
+// the measurement behind the first pass was not.
 
 type verifyLane struct {
 	m                    *FoundryTools
@@ -64,62 +41,6 @@ type verifyLane struct {
 	stamp string
 }
 
-// run answers both atoms' verdicts.
-func (v *verifyLane) run(ctx context.Context) ([]checks.Verdict, error) {
-	m := v.m
-	if m.Repo == "" || m.Sha == "" {
-		why := "the verify stage scans the image of a commit the engine fetched — construct the module with --repo and --sha"
-		return []checks.Verdict{atomVerdict(atomScan, buildlane.CouldNotRun, why), atomVerdict(atomSBOM, buildlane.CouldNotRun, why)}, nil
-	}
-	root, err := m.Source.Glob(ctx, "Dockerfile")
-	if err != nil {
-		return nil, err
-	}
-	if len(root) == 0 {
-		bases, err := m.Source.Glob(ctx, buildlane.BasesDir+"/*/Dockerfile")
-		if err != nil {
-			return nil, err
-		}
-		why := "this tree ships no image: no Dockerfile at its root"
-		if len(bases) > 0 {
-			why = fmt.Sprintf("this tree forges %d base image(s), and the bases lane scans each of those itself", len(bases))
-		}
-		return []checks.Verdict{absent(atomScan, why), absent(atomSBOM, why)}, nil
-	}
-
-	star := starOf(m.Repo)
-	args, err := (&buildLane{m: m, indexURL: v.indexURL}).buildArgs(ctx)
-	if err != nil {
-		return []checks.Verdict{atomVerdict(atomScan, buildlane.CouldNotRun, err.Error()), atomVerdict(atomSBOM, buildlane.CouldNotRun, err.Error())}, nil
-	}
-	img, err := m.Image(ctx, m.Sha, v.sourceBase+"/"+star, star, args, "")
-	if err != nil {
-		return []checks.Verdict{atomVerdict(atomScan, buildlane.CouldNotRun, err.Error()), atomVerdict(atomSBOM, buildlane.CouldNotRun, err.Error())}, nil
-	}
-	if _, err := img.Container().Sync(ctx); err != nil {
-		code, why := buildlane.Failed("the image build", err.Error())
-		return []checks.Verdict{atomVerdict(atomScan, code, why), atomVerdict(atomSBOM, code, why)}, nil
-	}
-
-	scanCode, scanWhy := v.scan(ctx, img)
-	oras, err := orasIn(ctx, nil)
-	if err != nil {
-		return []checks.Verdict{atomVerdict(atomScan, scanCode, scanWhy), atomVerdict(atomSBOM, buildlane.CouldNotRun, "could not run: "+err.Error())}, nil
-	}
-	_, note, sbomCode, sbomWhy := sbomOf(ctx, m.Source, img, oras, v.stamp)
-	if sbomCode == buildlane.Clean {
-		sbomWhy = note
-	}
-	return []checks.Verdict{atomVerdict(atomScan, scanCode, scanWhy), atomVerdict(atomSBOM, sbomCode, sbomWhy)}, nil
-}
-
-// scan is the trivy atom: the image's fixable HIGH and CRITICAL findings, less
-// the ones its base already carries.
-//
-// THE BASE IS SCANNED TOO, by its digest, so the subtraction is exact: the
-// engine caches that scan by the base it read, so every star on the same base
-// pays for it once. A Dockerfile that pins no base has nothing to subtract and
-// every finding is the star's — which is the right answer for an image built
 // FROM scratch, and a loud one for a star that forgot to pin.
 func (v *verifyLane) scan(ctx context.Context, img *Image) (int, string) {
 	image, code, why := v.trivy(ctx, img.Tarball(), "image")
@@ -177,14 +98,4 @@ func (v *verifyLane) trivy(ctx context.Context, tarball *dagger.File, what strin
 	return findings, buildlane.Clean, ""
 }
 
-// atomVerdict is one atom's answer in the verify stage, from the lane's code.
-func atomVerdict(atom string, code int, reason string) checks.Verdict {
-	s := checks.StateFor(code)
-	return checks.Verdict{Atom: atom, Stage: stageVerify, Lane: "image", State: int(s), Result: s.String(), Reason: atom + ": " + strings.TrimSpace(reason)}
-}
-
-// absent is an atom with no surface in this tree, in the shape every atom
 // announces one: `<atom>: ABSENT - <why>`.
-func absent(atom, why string) checks.Verdict {
-	return checks.Verdict{Atom: atom, Stage: stageVerify, Lane: "image", State: 0, Result: "absent", Reason: atom + ": ABSENT - " + why}
-}
