@@ -623,6 +623,12 @@ func TestThePaperEngineErrorsInTheSignalRange(t *testing.T) {
 
 // goTree is a tree that declares every lane, so an atom's happy path has a
 // surface to stand on.
+// NO ci-matrix.toml HERE, since 2026-09-23 (CA F18). template:render-matrix
+// was sweep:template-render-matrix, on a clock and never in a pull; it is
+// prepush now, so a ci-matrix.toml in the shared tree would make it run — and
+// FAIL, for want of a scripted copier render — inside every push-stage test
+// that is about something else. The template lane supplies its own surface;
+// see templateTree.
 var everyLaneTree = map[string]string{
 	"go.mod":       "module x\n\ngo 1.26\n",
 	"main.go":      "package main\n",
@@ -656,7 +662,6 @@ var everyLaneTree = map[string]string{
 	"flux/x.yaml":                      "kind: Deployment\n",
 	// The matrix the render-matrix atom reads: one case, so a test can seed
 	// its rendered tree at /out/<name>.
-	"ci-matrix.toml":      "parse = [\"**/*.json\"]\n\n[[case]]\nname = \"only\"\nanswers = { variant = \"star\" }\npresent = [\"go.mod\"]\nabsent = [\".forgejo\"]\n",
 	".git/HEAD":           "ref: refs/heads/main\n",
 	".copier-answers.yml": "critical_modules: src/x.py\n",
 }

@@ -25,9 +25,7 @@ import (
 // Read runtime.go's eight rules and atoms_go.go first; this file follows both.
 
 func init() {
-	register("sweep:template-render-matrix", sweepTemplateRenderMatrix)
-	register("sweep:kubeconform", sweepKubeconform)
-	register("sweep:kube-linter", sweepKubeLinter)
+	register("template:render-matrix", templateRenderMatrix)
 }
 
 // Every case in this template's ci-matrix.toml still renders.
@@ -52,8 +50,8 @@ func init() {
 // gitReady is still called, for its other half: git refuses a repository it
 // does not own ("dubious ownership", exit 128) and the process here is root
 // over a mounted tree.
-func sweepTemplateRenderMatrix(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("sweep:template-render-matrix")
+func templateRenderMatrix(ctx context.Context, r *run) checks.Verdict {
+	a := checks.AtomByID("template:render-matrix")
 
 	entries, err := r.src.Entries(ctx)
 	if err != nil {
@@ -226,101 +224,6 @@ func suppressionProblems(ctx context.Context, rendered *dagger.Directory, files 
 		problems = append(problems, checks.SuppressionProblem(f))
 	}
 	return problems, nil
-}
-
-// Every manifest under flux/ validates against its Kubernetes schema.
-//
-// THE ZERO-SCAN REFUSAL IN THIS ATOM'S DIALECT. kubeconform reports `skipped`
-// both for a CRD genuinely absent from the catalogue and for a catalogue it
-// could not reach, and the second of those is a CANNOT RUN — so the catalogue
-// is PROBED before the scan, and a scan that validated nothing at all is a 2
-// rather than a green.
-//
-// THE PROBE NEEDS NO CONTAINER. It was `wget` inside the image because the
-// image was where the atom lived; the question is only whether one URL
-// answers, and dag.HTTP asks it from the engine — which also means the answer
-// is cached and the image is never pulled for a catalogue outage.
-//
-// THE CATALOGUE IS NOT AN ENHANCEMENT HERE. Measured against infra's own flux/
-// tree on 2026-09-08: the default store alone validates 517 resources and
-// SKIPS 395 — every HelmRelease, Kustomization, GitRepository and
-// CiliumNetworkPolicy in the tree, which is most of what that tree IS. With
-// the catalogue: 809 validated, 101 skipped.
-func sweepKubeconform(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("sweep:kubeconform")
-
-	entries, err := r.src.Entries(ctx)
-	if err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the repository root could not be read: "+err.Error())
-	}
-	if !checks.HasEntry(entries, "flux") {
-		return checks.VerdictOf(a, 0, a.ID+": ABSENT - no flux/ tree at the repository root.")
-	}
-	if _, err := dag.HTTP(checks.CRDSchemaProbe).Sync(ctx); err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the CRD schema catalogue is unreachable. Every custom resource would then report as skipped, which is indistinguishable from a clean validation and is not one.\n"+err.Error())
-	}
-
-	ctr := r.lane(checks.ImageKubeconform).WithExec([]string{
-		"/kubeconform",
-		"-ignore-missing-schemas",
-		"-ignore-filename-pattern", `\.json$`,
-		"-schema-location", "default",
-		"-schema-location", checks.CRDSchemaLocation,
-		"-summary",
-		"-n", "8",
-		"flux/",
-	}, anyExit)
-
-	// BOTH STREAMS, ALWAYS. Which one the summary lands on is not a promise
-	// kubeconform makes, and the summary is the whole of the measurement —
-	// output() folds stderr in only on a non-zero code, and a clean run is
-	// exactly where the count still has to be read.
-	out, code, err := outputBoth(ctx, ctr)
-	if err != nil {
-		return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
-	}
-	valid, summary, ok := checks.KubeconformSummary(out)
-	if !ok {
-		return checks.VerdictOf(a, 2, out+"\n"+a.ID+": CANNOT RUN - kubeconform printed no summary, so there is no count to read and nothing was measured.")
-	}
-	if valid == 0 {
-		return checks.VerdictOf(a, 2, summary+"\n"+a.ID+": REFUSING a zero-resource validation. Nothing under flux/ was checked against a schema, so 0 invalid means NOTHING WAS EXAMINED - not that the tree is correct.")
-	}
-	if code != 0 {
-		return checks.VerdictOf(a, 1, summary+"\n"+checks.KubeconformFindings(out, 80))
-	}
-	return checks.VerdictOf(a, 0, summary+"\n"+a.ID+": clean")
-}
-
-// Every workload under flux/ passes kube-linter's default checks.
-//
-// --fail-if-no-objects-found is kube-linter's own zero-population refusal, and
-// it exits 1 for it — the same code it uses for findings. Reading that as
-// findings would be wrong in the direction that still looks like the check
-// worked, so the message is matched and remapped to 2 — in
-// checks.KubeLinterState, where a table test holds it, rather than in a case
-// statement nobody can run.
-func sweepKubeLinter(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("sweep:kube-linter")
-
-	entries, err := r.src.Entries(ctx)
-	if err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the repository root could not be read: "+err.Error())
-	}
-	if !checks.HasEntry(entries, "flux") {
-		return checks.VerdictOf(a, 0, a.ID+": ABSENT - no flux/ tree at the repository root.")
-	}
-
-	// The refusal arrives on stderr and the findings on stdout, and the code
-	// is the same 1 for both — so both streams are read before anything is
-	// decided.
-	out, code, err := outputBoth(ctx, r.lane(checks.ImageKubeLinter).
-		WithExec([]string{"/kube-linter", "lint", "--fail-if-no-objects-found", "flux/"}, anyExit))
-	if err != nil {
-		return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
-	}
-	state, reason := checks.KubeLinterState(code, out)
-	return checks.VerdictOf(a, state, reason)
 }
 
 // tailLines is the script's own cut of a failed render: the last n lines of

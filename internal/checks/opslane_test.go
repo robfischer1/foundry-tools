@@ -31,91 +31,6 @@ func TestHasEntryReadsEitherSpelling(t *testing.T) {
 	}
 }
 
-func TestKubeconformSummaryReadsTheValidCount(t *testing.T) {
-	for _, tc := range []struct {
-		name      string
-		out       string
-		wantValid int
-		wantOK    bool
-	}{
-		{
-			"the measured shape",
-			"Summary: 910 resources found in 245 files - Valid: 809, Invalid: 0, Errors: 0, Skipped: 101\n",
-			809, true,
-		},
-		{
-			"a summary after findings",
-			"flux/app.yaml - Deployment app is invalid: problem\nSummary: 12 resources found in 3 files - Valid: 11, Invalid: 1, Errors: 0, Skipped: 0\n",
-			11, true,
-		},
-		{
-			// Every resource skipped: nothing was examined, and 0 invalid is
-			// not a statement about the tree.
-			"a zero-resource validation",
-			"Summary: 395 resources found in 120 files - Valid: 0, Invalid: 0, Errors: 0, Skipped: 395\n",
-			0, true,
-		},
-		{
-			// The summary lands on stderr as readily as on stdout, which is
-			// why the caller concatenates the two.
-			"a summary arriving after stderr noise",
-			"failed to open file\nSummary: 2 resources found in 1 files - Valid: 2, Invalid: 0, Errors: 0, Skipped: 0",
-			2, true,
-		},
-		{"no summary at all", "panic: runtime error\n", 0, false},
-		{"a summary with no Valid field", "Summary: something else entirely\n", 0, false},
-		{"the word Summary mid-line is not the summary", "  Summary: Valid: 4\n", 0, false},
-		{"nothing printed", "", 0, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			valid, summary, ok := KubeconformSummary(tc.out)
-			if ok != tc.wantOK {
-				t.Fatalf("KubeconformSummary(%q) ok = %v, want %v", tc.out, ok, tc.wantOK)
-			}
-			if valid != tc.wantValid {
-				t.Fatalf("KubeconformSummary(%q) valid = %d, want %d", tc.out, valid, tc.wantValid)
-			}
-			if ok && !strings.HasPrefix(summary, "Summary:") {
-				t.Fatalf("the summary line came back as %q", summary)
-			}
-		})
-	}
-}
-
-// The summary is printed on a pass, so it must come back whole rather than as
-// a count: the skipped figure is the half that says how much the catalogue
-// covered.
-func TestKubeconformSummaryReturnsTheWholeLine(t *testing.T) {
-	line := "Summary: 910 resources found in 245 files - Valid: 809, Invalid: 0, Errors: 0, Skipped: 101"
-	_, summary, ok := KubeconformSummary(line + "\n")
-	if !ok || summary != line {
-		t.Fatalf("KubeconformSummary returned %q, want %q", summary, line)
-	}
-}
-
-func TestKubeconformFindingsDropsTheSummaryAndCaps(t *testing.T) {
-	out := "a.yaml - invalid\nSummary: 2 resources found in 1 files - Valid: 1, Invalid: 1, Errors: 0, Skipped: 0\nb.yaml - invalid\n"
-	got := KubeconformFindings(out, 80)
-	if strings.Contains(got, "Summary:") {
-		t.Errorf("the summary is printed on its own; repeating it in the findings is noise: %q", got)
-	}
-	if got != "a.yaml - invalid\nb.yaml - invalid" {
-		t.Errorf("KubeconformFindings = %q", got)
-	}
-
-	var many []string
-	for i := 0; i < 500; i++ {
-		many = append(many, "line")
-	}
-	capped := KubeconformFindings(strings.Join(many, "\n"), 80)
-	if n := len(strings.Split(capped, "\n")); n != 80 {
-		t.Errorf("a wholesale failure printed %d lines past the cap; want 80", n)
-	}
-	if KubeconformFindings("", 80) != "" {
-		t.Error("nothing printed is nothing to report")
-	}
-}
-
 // THE REMAP THAT MATTERS. kube-linter's zero-population refusal and its
 // findings share exit 1, and only the message tells them apart.
 func TestKubeLinterStateRemapsTheZeroPopulationRefusal(t *testing.T) {
@@ -123,7 +38,7 @@ func TestKubeLinterStateRemapsTheZeroPopulationRefusal(t *testing.T) {
 	if state != 2 {
 		t.Fatalf("state = %d, want 2 — a tree nothing parsed is not a tree with findings", state)
 	}
-	if !strings.Contains(reason, "sweep:kube-linter: CANNOT RUN") {
+	if !strings.Contains(reason, "ops:kube-linter: CANNOT RUN") {
 		t.Fatalf("the refusal must announce itself, got %q", reason)
 	}
 	// Even at exit 0 the message means nothing was parsed, and a pass would be

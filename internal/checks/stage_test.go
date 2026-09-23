@@ -152,14 +152,14 @@ func TestTheCommitAndPushStagesHoldTheirAtoms(t *testing.T) {
 	}
 	commit := "fleet:check-yaml,fleet:check-added-large-files,fleet:check-merge-conflict,fleet:detect-secrets,fleet:stop-justifications," +
 		"fleet:sast-ruleset-lanes,fleet:opengrep-sast,fleet:hadolint," +
-		"ops:shell,ops:chezmoi,ops:yaml,ops:dup,ops:declaration,ops:specs,ops:ansible,ops:flux," +
+		"ops:shell,ops:chezmoi,ops:yaml,ops:dup,ops:declaration,ops:specs,ops:ansible,ops:flux,ops:kube-linter," +
 		"go:gofmt,go:vet,go:test," +
 		"python:ruff-check,python:ruff-format,python:forge-testkit-assertion-free,python:forge-testkit-fake-placement,python:forge-testkit-schema-budget,python:mypy,python:pytest," +
 		"rust:cargo-fmt,rust:cargo-clippy,rust:cargo-test," +
 		"ts:bun-gate," +
 		"compose:config,compose:no-tracked-secrets,compose:third-party-pins," +
 		"dies:opa-test,dies:contracts,dies:schema,dies:canonical"
-	push := "fleet:orbit-drift,go:staticcheck,go:govulncheck,go:build,go:release,go:test-race,python:pip-audit,python:release,rust:release,rust:cargo-audit,ts:bun-audit,ts:release," +
+	push := "fleet:orbit-drift,template:render-matrix,go:staticcheck,go:govulncheck,go:build,go:release,go:test-race,python:pip-audit,python:release,rust:release,rust:cargo-audit,ts:bun-audit,ts:release," +
 		"dies:admission-dogfood,dies:data-keys,dies:canary-visibility,fleet:witness"
 	if got := ids(StagePrecommit); got != commit {
 		t.Errorf("commit stage\n got %s\nwant %s", got, commit)

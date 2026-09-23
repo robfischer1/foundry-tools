@@ -163,11 +163,6 @@ func (m *FoundryTools) Python() *PythonLane { return &PythonLane{Source: m.Sourc
 // Cargo.toml.
 func (m *FoundryTools) Rust() *RustLane { return &RustLane{Source: m.Source} }
 
-// Sweep holds the repo-cadence atoms — the checks that describe a REPOSITORY
-// rather than a change. They run on a clock (CA F9's ca-sweep CronJob) and
-// never in a pull's path; `Verdicts` with no stage cannot reach them.
-func (m *FoundryTools) Sweep() *Sweep { return &Sweep{Source: m.Source} }
-
 // Ts holds the TypeScript lane's atoms. They report ABSENT on a repo with no
 // package.json.
 func (m *FoundryTools) Ts() *TSLane { return &TSLane{Source: m.Source} }

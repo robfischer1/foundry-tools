@@ -95,8 +95,8 @@ func LanesOf(entries []string) []Lane {
 // a namespace per atom. A new one is an edit here, next to the sentence saying
 // what surface it claims, and TestEveryAtomIsWellFormed refuses any cross-lane
 // id that is neither `fleet:` nor a member. The sweep's own invariant is
-// untouched and unweakened: no surface namespace may carry StageSweep, so the
-// pull path and the clock still cannot blur.
+// The sweep's own invariant is moot since 2026-09-23: StageSweep is deleted
+// and there is no clock left for a namespace to blur with.
 var SurfaceNamespaces = map[string]string{
 	"compose": "a tracked compose.yaml/compose.yml — the host-stacks repos",
 	"dies":    "policy/.manifest and fleet/stars/ together — the policy die's source",
@@ -105,6 +105,11 @@ var SurfaceNamespaces = map[string]string{
 	// source, a compose spec, a rego policy, or one of infra's own tools —
 	// IsOpsTree, the shape ops.sh gated and never a star.
 	"ops": "an ops tree — flux/, ansible/playbooks, a chezmoi source, a compose spec, a rego policy or an infra tool (IsOpsTree)",
+	// template: a ci-matrix.toml at the root — the four copier templates, and
+	// nothing else. Added 2026-09-23 (CA F18) when sweep:template-render-matrix
+	// came home: four repos of eighty carry the surface, which is exactly the
+	// argument above for why it is NOT `fleet:`.
+	"template": "a ci-matrix.toml at the root — the copier templates",
 }
 
 // IsSurfaceNamespace reports whether an atom id sits in a declared surface

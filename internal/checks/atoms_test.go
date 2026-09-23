@@ -104,11 +104,6 @@ func TestTheMutationStageIsFourLanesAskedForByName(t *testing.T) {
 			t.Errorf("%s: a mutation atom in the default vector — the gate would run it", a.ID)
 		}
 	}
-	for _, a := range SweepAtoms() {
-		if a.Stage == StageMutation {
-			t.Errorf("%s: a mutation atom in the sweep", a.ID)
-		}
-	}
 }
 
 // NO TESTS IS A FINDING, NOT AN ABSENCE. Rob, 2026-09-11: "absent tests red

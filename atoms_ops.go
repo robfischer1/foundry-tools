@@ -56,6 +56,7 @@ func init() {
 	register("ops:specs", opsSpecs)
 	register("ops:ansible", opsAnsible)
 	register("ops:flux", opsFlux)
+	register("ops:kube-linter", opsKubeLinter)
 }
 
 // opsSurface answers the tracked files and whether the tree is an ops tree —
@@ -600,4 +601,35 @@ func opsFluxPhase(ctx context.Context, ctr *dagger.Container, files []checks.Ops
 	}
 	out.WriteString(validated)
 	return opsSettled("flux", rc, out.String()), nil
+}
+
+// Every workload under flux/ passes kube-linter's default checks.
+//
+// --fail-if-no-objects-found is kube-linter's own zero-population refusal, and
+// it exits 1 for it — the same code it uses for findings. Reading that as
+// findings would be wrong in the direction that still looks like the check
+// worked, so the message is matched and remapped to 2 — in
+// checks.KubeLinterState, where a table test holds it, rather than in a case
+// statement nobody can run.
+func opsKubeLinter(ctx context.Context, r *run) checks.Verdict {
+	a := checks.AtomByID("ops:kube-linter")
+
+	entries, err := r.src.Entries(ctx)
+	if err != nil {
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the repository root could not be read: "+err.Error())
+	}
+	if !checks.HasEntry(entries, "flux") {
+		return checks.VerdictOf(a, 0, a.ID+": ABSENT - no flux/ tree at the repository root.")
+	}
+
+	// The refusal arrives on stderr and the findings on stdout, and the code
+	// is the same 1 for both — so both streams are read before anything is
+	// decided.
+	out, code, err := outputBoth(ctx, r.lane(checks.ImageKubeLinter).
+		WithExec([]string{"/kube-linter", "lint", "--fail-if-no-objects-found", "flux/"}, anyExit))
+	if err != nil {
+		return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
+	}
+	state, reason := checks.KubeLinterState(code, out)
+	return checks.VerdictOf(a, state, reason)
 }
