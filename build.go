@@ -681,8 +681,10 @@ func (l *buildLane) dependencies(ctx context.Context) ([]pins.Pin, error) {
 			out = append(out, p)
 		}
 	}
-	if len(out) > 0 {
-		say("this tree depends on %d internal image(s) by digest", len(out))
-	}
+	// NOTHING IS SAID HERE. The declaration at the end of the lane already
+	// names every dependency by artifact and digest, so a count line is the
+	// same fact twice — and its `len(out) > 0` guard is a branch whose only
+	// effect is whether a redundant sentence prints, which no test should be
+	// written to pin down.
 	return out, nil
 }

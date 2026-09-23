@@ -177,10 +177,14 @@ func Consumed(text string) []Pin {
 	var out []Pin
 	seen := map[string]bool{}
 	for _, ref := range consumedRe.FindAllString(text, -1) {
+		// THE @ IS GUARANTEED BY THE PATTERN, so there is no miss to guard.
+		// consumedRe only matches text containing `@sha256:` and 64 hex, so
+		// LastIndex can never answer -1 here. A guard for it was written, the
+		// mutation gate put an unkillable CONDITIONALS_BOUNDARY in it, and the
+		// answer is the same one Line() above already records: delete the
+		// branch nothing can enter rather than soften the test that cannot
+		// reach it.
 		at := strings.LastIndex(ref, "@")
-		if at < 0 {
-			continue
-		}
 		p := Image(ref[:at], ref[at+1:])
 		p.Role = RoleDep
 		key := p.Artifact + "\x00" + p.Tag + "\x00" + p.Digest
