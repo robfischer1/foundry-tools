@@ -67,7 +67,6 @@ type run struct {
 	// cached answers it (verdictFor's re-ask of a could-not-run).
 	reask string
 
-	stocks  *dagger.Directory
 	dies    *dagger.Directory
 	testkit *dagger.Directory
 
@@ -95,10 +94,6 @@ func newRun(src *dagger.Directory, repo, base string) *run {
 		src:  src,
 		repo: repo,
 		base: base,
-		// The canonical scripts and rulesets, READ AT THEIR ONE HOME rather than
-		// vendored (checks.StocksRepo says why). Lazy: nothing is fetched until
-		// an atom mounts it.
-		stocks: dag.Git(checks.StocksRepo).Ref(checks.StocksRef).Tree(),
 		// The fleet's record tree, for the atoms that grade the fleet rather
 		// than the repo under test.
 		dies: dag.Git(checks.DiesRepo).Ref(checks.DiesRef).Tree(),
@@ -308,13 +303,6 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 			WithExec([]string{"opengrep", "--version"})
 	}
 	return ctr
-}
-
-// withStocks mounts foundry-stocks at /stocks — the rulesets and the scripts
-// that ARE some atoms' tool. checks.RulesetsDir and the script paths are
-// spelled against this mount.
-func (r *run) withStocks(ctr *dagger.Container) *dagger.Container {
-	return ctr.WithMountedDirectory("/stocks", r.stocks)
 }
 
 // withDies mounts foundry-dies at /dies and names it in the environment: the

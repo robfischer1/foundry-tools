@@ -1,0 +1,88 @@
+# THE FLEET'S RUFF RULESET — the one the gate enforces on every python file
+# in every repository, read by foundry-tools' python:ruff-check and
+# python:ruff-format atoms at /rulesets/ruff.toml via --config,
+# which makes ruff ignore whatever pyproject.toml or ruff.toml the repository
+# carries.
+#
+# WHY HERE. Rob, 2026-09-11: a repo has no say in anything that runs. The
+# ruleset is a firewall against sessions justifying their own exceptions
+# (Rob, 2026-08-16, turn 158: "the draconic ruff rules I have elected to
+# enforce are part of my firewall against that"), and a firewall the repo
+# authors is not one. Until this file existed the gate ran `ruff check .` and
+# read the repository's own config — measured 2026-09-11: 43 of 50 repos
+# carried the template's ruleset byte for byte, seven had drifted (a looser
+# ignore list, a wider per-file-ignores, an exclude of generated files), and
+# three carried no [tool.ruff] at all and were linted at ruff's defaults.
+#
+# WHAT IT IS. The ruleset the four repo templates have poured since they
+# existed (python-repo-template pyproject.toml.jinja [tool.ruff], and the
+# ruff.toml the go/rust/frontend templates pour for their embedded python),
+# which are one ruleset in two files. The two differed in exactly one value:
+# line-length, 80 for a python star and 100 for python embedded in another
+# lane. That is not a rule, it is a formatter width, and the atom passes it
+# as --line-length by lane; everything else is identical here.
+#
+# THE TEMPLATES STILL POUR THEIR COPIES so a local editor reads the same
+# rules; the copies are mirrors and this is the original. A repo's copy that
+# differs from this changes nothing in the gate.
+#
+# CHANGING A RULE HERE changes it for the whole fleet on the next foundry-tools
+# publish — the file is //go:embed'd into the binary the door calls, and the
+# atom renders it into the container at /rulesets/ruff.toml. That is the point.
+
+# THE FLEET'S PYTHON IS 3.14 (mypy.ini beside this file says the same). The
+# first cut carried py311 from the go template's embedded-python copy, and
+# under py311 ruff refuses PEP 758's unparenthesized `except A, B:` and reads
+# TYPE_CHECKING imports with eager-annotation eyes — nine phantom findings on
+# nereus, measured 2026-09-11 by the first dispatch to meet this file.
+target-version = "py314"
+line-length = 80
+extend-exclude = [".claude", ".specify", ".furnace", "vendor", "node_modules"]
+
+[lint]
+select = ["ALL"]
+ignore = [
+    "COM", "ISC", "Q", "E501",
+    "D203", "D213",
+    "ANN001", "ANN002", "ANN003", "ANN202", "ANN204", "ANN401",
+    "EM", "TRY003",
+    "C901", "PLR09", "PLR2004",
+    "T201", "PLC0415", "FBT", "SLF001",
+    "PLW0603", "TRY300", "TRY301", "ARG002",
+    "PERF401", "PERF403", "A002", "EXE",
+]
+
+[lint.flake8-copyright]
+notice-rgx = '(?i)SPDX-FileCopyrightText:.*\d{4}'
+
+[lint.flake8-type-checking]
+runtime-evaluated-base-classes = [
+    "pydantic.BaseModel",
+    "pydantic_settings.BaseSettings",
+]
+
+# PER-FILE-IGNORES ARE CLASSES OF FILE, NOT FILES. Two classes, both the
+# templates' own: a test file is not held to the production rules (assert,
+# annotations, docstrings, import order after fixtures, subprocess check);
+# a script or tool directory is not a package and needs no __init__.py
+# (INP001). The directory list is the union of what the templates poured
+# and what six repos had added on their own for the same reason —
+# specs/, docs/ and benchmarks/ are the same class as scripts/ and tools/.
+# (`*_test.py` is NOT a test class here: no fleet python repo names a test
+# that way, measured 2026-09-11, and stop-justifications counts an entry that
+# silences nothing as a suppression — correctly.)
+[lint.per-file-ignores]
+"tests/**" = ["S101", "ANN", "D", "E402", "PLW1510", "INP001"]
+"**/test_*.py" = ["S101", "ANN", "D", "E402", "PLW1510", "INP001"]
+"**/conftest.py" = ["S101", "ANN", "D", "E402", "PLW1510", "INP001"]
+".cerberus/**/*.py" = ["INP001"]
+"benchmarks/**/*.py" = ["INP001"]
+"conformance/**/*.py" = ["INP001"]
+"crates/**/*.py" = ["INP001"]
+"docs/**/*.py" = ["INP001"]
+"probe/**/*.py" = ["INP001"]
+"probes/**/*.py" = ["INP001"]
+"scripts/**/*.py" = ["INP001"]
+"specs/**/*.py" = ["INP001"]
+"studies/**/*.py" = ["INP001"]
+"tools/**/*.py" = ["INP001"]

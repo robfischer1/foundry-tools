@@ -55,10 +55,6 @@ type AtomDef struct {
 	Image string
 	// Desc is the one-line description the catalogue and `-l` both carry.
 	Desc string
-	// NeedsStocks asks the caller to mount foundry-stocks at /stocks, so the
-	// atom can read the canonical script at its ONE home rather than carry a
-	// vendored second copy.
-	NeedsStocks bool
 	// SubsumedBy names the atom that covers this one when both run in the
 	// same vector. THE SPLIT IS BY CADENCE, NOT BY DUPLICATION: go:test is
 	// the commit's unit suite and go:test-race is the push's race + live-DB
@@ -228,11 +224,11 @@ func atomTable() []AtomDef {
 
 		// ---- python ----
 		{
-			ID: "python:ruff-check", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython, NeedsStocks: true,
+			ID: "python:ruff-check", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython,
 			Desc: "ruff lint is clean over every .py in the tree, under the fleet's ruleset.",
 		},
 		{
-			ID: "python:ruff-format", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython, NeedsStocks: true,
+			ID: "python:ruff-format", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython,
 			Desc: "ruff format --check is clean over the product python, under the fleet's ruleset.",
 		},
 		{
@@ -248,7 +244,7 @@ func atomTable() []AtomDef {
 			Desc: "MCP verb descriptions stay inside the schema budget (forge-testkit).",
 		},
 		{
-			ID: "python:mypy", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython, NeedsStocks: true,
+			ID: "python:mypy", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython,
 			Desc: "mypy is clean over src and tests, under the fleet's strict configuration.",
 		},
 		{
@@ -288,7 +284,7 @@ func atomTable() []AtomDef {
 
 		// ---- ts ----
 		{
-			ID: "ts:bun-gate", Stage: StagePrecommit, Lane: LaneTS, Image: ImageTS, NeedsStocks: true,
+			ID: "ts:bun-gate", Stage: StagePrecommit, Lane: LaneTS, Image: ImageTS,
 			Desc: "bun run gate passes against a frozen lockfile under the fleet's eslint config, and the tree carries tests for it to run.",
 		},
 		{

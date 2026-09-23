@@ -41,12 +41,17 @@ func TestEveryTSTestPatternIsRootAnchored(t *testing.T) {
 	}
 }
 
-// The rulesets directory is spelled once. RulesetsDir is what a container sees
-// and StocksRulesets is the same path inside the foundry-stocks tree; a change
-// to either that does not carry the other is the two-spellings defect.
-func TestRulesetsDirIsTheStocksPathUnderTheMount(t *testing.T) {
-	if RulesetsDir != "/stocks/"+StocksRulesets {
-		t.Fatalf("RulesetsDir = %q, want /stocks/%s", RulesetsDir, StocksRulesets)
+// RulesetsDir is where the ruleset atoms WriteNewFile their embedded config and
+// where the tool is then told to read it. It has to be absolute (a container
+// path, not a path relative to whatever workdir the lane happens to set) and it
+// has to sit outside /src, because /src is a mounted directory and a
+// WithNewFile under a mount is shadowed by it.
+func TestRulesetsDirIsAbsoluteAndOutsideTheSourceMount(t *testing.T) {
+	if !strings.HasPrefix(RulesetsDir, "/") {
+		t.Fatalf("RulesetsDir = %q, want an absolute container path", RulesetsDir)
+	}
+	if RulesetsDir == "/src" || strings.HasPrefix(RulesetsDir, "/src/") {
+		t.Fatalf("RulesetsDir = %q is under the /src mount, which shadows WithNewFile", RulesetsDir)
 	}
 }
 
@@ -62,19 +67,4 @@ func matchesAny(patterns []string, name string) bool {
 		}
 	}
 	return false
-}
-
-// AND IT IS THE PATH THE ATOMS PRINT. The assertion above is
-// self-referential — an edit to StocksRulesets moves both of its sides at once
-// — so the two spellings are also held against their literals: /stocks is the
-// mount runtime.go's withStocks makes, and ci/lib/rulesets is where
-// foundry-stocks keeps them. A change to either is a change to a message a
-// human reads off a red gate, and to where the file is looked for.
-func TestRulesetsDirIsTheLiteralPathTheAtomsPrint(t *testing.T) {
-	if StocksRulesets != "ci/lib/rulesets" {
-		t.Errorf("StocksRulesets = %q, want ci/lib/rulesets", StocksRulesets)
-	}
-	if RulesetsDir != "/stocks/ci/lib/rulesets" {
-		t.Errorf("RulesetsDir = %q, want /stocks/ci/lib/rulesets", RulesetsDir)
-	}
 }

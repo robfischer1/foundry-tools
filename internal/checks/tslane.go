@@ -2,23 +2,22 @@ package checks
 
 // The ts lane's facts, in the one package a test can reach.
 
-// StocksRulesets is the fleet's ruleset directory RELATIVE TO the foundry-stocks
-// tree, for reading a file straight off the Directory in Go; RulesetsDir is the
-// same directory as a container sees it, under the /stocks mount, for the
-// message an atom prints when the file is not there. They are spelled once and
-// derived from each other so the two halves cannot drift.
+// RulesetsDir is where the atoms WRITE the fleet's rulesets into their
+// container. It was /stocks/ci/lib/rulesets, a git mount of foundry-stocks,
+// until 2026-09-23 (CA F18): the files are embedded in this module now
+// (internal/checks/rulesets), so they arrive with the atom that reads them
+// rather than being fetched from a repo that can drift from it.
 //
-// A tool pointed at a file here ignores whatever config the repository carries,
-// which is the point (Rob, 2026-09-11: the fleet decides the atoms AND their
-// rulesets). A ruleset the atom cannot read is a gate that never looked, and
-// that is never a pass.
-const (
-	StocksRulesets = "ci/lib/rulesets"
-	// Spelled out rather than composed: a package-level `+` is a line no
-	// test can cover, so the mutation lane reads it as NOT COVERED forever.
-	// TestRulesetsDirIsTheLiteralPathTheAtomsPrint holds the two together.
-	RulesetsDir = "/stocks/ci/lib/rulesets"
-)
+// A tool pointed at a file here ignores whatever config the repository under
+// test carries, which is the point: the fleet decides the atoms AND their
+// rulesets. What changed is only WHERE the fleet keeps them.
+//
+// THE "CANNOT READ THE RULESET" BRANCH IS GONE WITH THE MOUNT, and that is the
+// real gain rather than the deleted lines. It used to be a live could-not-run:
+// a mount that did not arrive meant a gate that never looked. An embedded file
+// cannot be absent — it is a compile error — so the failure mode is now
+// unreachable instead of merely handled.
+const RulesetsDir = "/rulesets"
 
 // TSTestPatterns is BUN'S OWN TEST-FILE PATTERN as globs over the gate's
 // population — {.test,.spec,_test_,_spec_} × {js,ts,jsx,tsx}.

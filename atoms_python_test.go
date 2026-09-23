@@ -42,8 +42,8 @@ func pyTree(overrides map[string]string, drop ...string) map[string]string {
 }
 
 const (
-	ruffToml = "/stocks/ci/lib/rulesets/ruff.toml"
-	mypyIni  = "/stocks/ci/lib/rulesets/mypy.ini"
+	ruffToml = "/rulesets/ruff.toml"
+	mypyIni  = "/rulesets/mypy.ini"
 )
 
 // ---- ruff ----
@@ -62,7 +62,7 @@ func TestPythonRuffCheckRunsTheFleetsRulesetAndReadsTheExit(t *testing.T) {
 		[]string{"withEnvVariable", `name:"CI"`, `value:"true"`},
 		[]string{"withMountedCache", `path:"/opt/uv-cache"`},
 		[]string{"withMountedDirectory", `path:"/src"`},
-		[]string{"withMountedDirectory", `path:"/stocks"`},
+		[]string{"withNewFile", `path:"/rulesets/ruff.toml"`},
 		[]string{"withWorkdir", `path:"/src"`},
 		[]string{"withExec", `args:["uvx","ruff@0.16.3","--version"]`},
 		[]string{"withExec", `expect:ANY`, `args:["uvx","ruff@0.16.3","check","--config","` + ruffToml + `","."]`},
@@ -94,23 +94,6 @@ func TestPythonRuffCheckRunsTheFleetsRulesetAndReadsTheExit(t *testing.T) {
 	wantState(t, runAtom(t, "python:ruff-check", ""), 2, "never ran", "failed to resolve")
 }
 
-// A RULESET THE ATOM CANNOT READ IS A GATE THAT NEVER LOOKED. Both ruff atoms
-// ask foundry-stocks for it in Go, before the mount is paid for — so the
-// absence costs one query and never a container.
-func TestPythonRuffCannotRunWithoutTheFleetsRuleset(t *testing.T) {
-	for _, id := range []string{"python:ruff-check", "python:ruff-format"} {
-		engine.reset()
-		engine.withTree(everyLaneTree)
-		engine.fail("ci/lib/rulesets/ruff.toml", "no such file or directory")
-
-		wantState(t, runAtom(t, id, ""), 2,
-			id+": CANNOT RUN", ruffToml+" is absent", "foundry-stocks did not mount at its one home")
-		if n := len(engine.chains()); n != 1 {
-			t.Errorf("%s: a missing ruleset must cost one contents read, not a container: %d queries", id, n)
-		}
-	}
-}
-
 func TestPythonRuffFormatScopesAGoStarToItsProductPython(t *testing.T) {
 	// A go star with product python: src and tests, in the shell loop's order.
 	engine.reset()
@@ -119,7 +102,7 @@ func TestPythonRuffFormatScopesAGoStarToItsProductPython(t *testing.T) {
 
 	c := engine.chain(`"uvx","ruff@0.16.3","format"`, "exitCode")
 	wantCalls(t, c,
-		[]string{"withMountedDirectory", `path:"/stocks"`},
+		[]string{"withNewFile", `path:"/rulesets/ruff.toml"`},
 		[]string{"withExec", `args:["uvx","ruff@0.16.3","--version"]`},
 		[]string{"withExec", `expect:ANY`, `args:["uvx","ruff@0.16.3","format","--config","` + ruffToml + `","--check","src","tests"]`},
 	)
@@ -292,7 +275,7 @@ func TestPythonMypyTypeChecksTheProductDirsUnderTheFleetsConfig(t *testing.T) {
 		t.Errorf("python:mypy must run in the python lane image:\n%s", c)
 	}
 	wantCalls(t, c,
-		[]string{"withMountedDirectory", `path:"/stocks"`},
+		[]string{"withNewFile", `path:"/rulesets/mypy.ini"`},
 		[]string{"withMountedDirectory", `path:"/src"`},
 		[]string{"withExec", `args:["uv","--version"]`},
 		[]string{"withExec", `expect:ANY`, `args:["uv","run","--all-extras","mypy","--config-file","` + mypyIni + `","src","tests"]`},
@@ -326,15 +309,6 @@ func TestPythonMypyTypeChecksTheProductDirsUnderTheFleetsConfig(t *testing.T) {
 	}
 	if c := engine.chain("withExec"); c != "" {
 		t.Errorf("no target must cost no container:\n%s", c)
-	}
-
-	// The fleet's mypy.ini has its own home, and not reading it is a CANNOT RUN.
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.fail("ci/lib/rulesets/mypy.ini", "no such file or directory")
-	wantState(t, runAtom(t, "python:mypy", ""), 2, "python:mypy: CANNOT RUN", mypyIni+" is absent")
-	if n := len(engine.chains()); n != 1 {
-		t.Errorf("a missing ruleset must cost one contents read, not a container: %d queries", n)
 	}
 
 	// Rule 2, both directions.
