@@ -44,15 +44,14 @@ func TestTSBunGateRemountsTheTreeCarryingTheFleetsEslintConfig(t *testing.T) {
 		t.Errorf("ts:bun-gate must run in the frontend lane image:\n%s", c)
 	}
 
-	// The file came off the stocks tree at its one home, went into the source
-	// directory as eslint.config.mjs, and THAT directory is what /src is.
-	cfg := engine.idOf(`path:"`+checks.StocksRulesets+`/eslint.config.mjs"`, "{id}")
-	remount := engine.chain("withFile", `path:"eslint.config.mjs"`)
+	// The embedded config is written into the source directory as
+	// eslint.config.mjs, and THAT directory is what /src is.
+	remount := engine.chain("withNewFile", `path:"eslint.config.mjs"`)
 	if remount == "" {
 		t.Fatal("nothing laid eslint.config.mjs into the source directory")
 	}
-	if !hasCall(remount, "withFile", `path:"eslint.config.mjs"`, `source:"`+cfg+`"`) {
-		t.Errorf("the config laid into the tree is not the stocks file:\n%s", remount)
+	if !hasCall(remount, "withNewFile", `path:"eslint.config.mjs"`, "@eslint/js") {
+		t.Errorf("the config laid into the tree is not the embedded ruleset:\n%s", remount)
 	}
 	wantCalls(t, c,
 		[]string{"withMountedCache", `path:"/root/.bun/install/cache"`},
@@ -80,24 +79,6 @@ func TestTSBunGateRemountsTheTreeCarryingTheFleetsEslintConfig(t *testing.T) {
 	engine.withTree(everyLaneTree)
 	engine.fail(`"bun","run","gate"`, "engine went away")
 	wantState(t, runAtom(t, "ts:bun-gate", ""), 2, "never ran", "engine went away")
-}
-
-// A RULESET THE ATOM CANNOT READ IS A GATE THAT NEVER LOOKED, and that is
-// never a pass. Decided in Go, off the stocks tree, before anything runs.
-func TestTSGateCannotRunWithoutTheFleetsEslintConfig(t *testing.T) {
-	for _, id := range []string{"ts:bun-gate"} {
-		engine.reset()
-		engine.withTree(everyLaneTree)
-		engine.fail(checks.StocksRulesets+"/eslint.config.mjs", "no such file or directory")
-
-		wantState(t, runAtom(t, id, ""), 2,
-			checks.RulesetsDir+"/eslint.config.mjs is absent",
-			"foundry-stocks did not mount",
-			"no such file or directory")
-		if engine.chain(`"bun","install"`) != "" {
-			t.Errorf("%s: an unreadable ruleset must not start a container", id)
-		}
-	}
 }
 
 // THE ORDER IS THE OLD BODY'S: the install runs first, so a tree that cannot

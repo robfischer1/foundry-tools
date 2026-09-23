@@ -13,24 +13,19 @@ import (
 // guard the `sh -n` pass stood in for is registry_test.go, which reads the
 // register() calls out of atoms_*.go.
 
-// THE LINTING ATOMS ASK FOR THE MOUNT THE FLEET'S RULESETS ARRIVE ON. Rob,
-// 2026-09-11: the fleet decides the atoms AND their rulesets. A ruleset lives
-// at its one home in foundry-stocks and reaches the container through
-// NeedsStocks; an atom that points at RulesetsDir without asking for the mount
-// is an atom that will answer CANNOT RUN in every repository in the fleet.
+// THE MOUNT IS GONE AND SO IS THE INVARIANT THAT GUARDED IT. This was
+// TestTheRulesetAtomsAskForTheStocksMount: the linting atoms read the fleet's
+// rulesets off a foundry-stocks mount, and one that pointed at RulesetsDir
+// without declaring NeedsStocks answered CANNOT RUN in every repository.
 //
-// The flags themselves (`--config`, `--config-file`, the eslint copy) are in
-// atoms_*.go and are asserted over the source in registry_test.go.
-func TestTheRulesetAtomsAskForTheStocksMount(t *testing.T) {
-	for _, id := range []string{
-		"python:ruff-check", "python:ruff-format", "python:mypy",
-		"ts:bun-gate",
-	} {
-		if !AtomByID(id).NeedsStocks {
-			t.Errorf("%s: reads a fleet ruleset but does not ask for the /stocks mount", id)
-		}
-	}
-}
+// The rulesets are embedded in this module now (CA F18,
+// internal/checks/rulesets), so there is no mount to forget and no declaration
+// to omit. The failure this protected against cannot be written.
+//
+// What CAN still be written is the pairing — an atom that writes ruff.toml and
+// then points mypy at it. That is asserted over the real chains in the root
+// package (TestEachRulesetAtomReadsTheFileItWrote), not here, because it is a
+// fact about the containers the atoms build rather than about the catalogue.
 
 // THE GO TEST ATOM MOUNTS THE FLEET'S RECORD TREE, and the reason is not
 // visible from the go lane — which is exactly why this test exists.
@@ -92,11 +87,6 @@ func TestTheMutationStageIsFourLanesAskedForByName(t *testing.T) {
 		lane, ok := want[a.ID]
 		if !ok || a.Lane != lane {
 			t.Errorf("%s: lane %q, want a mutation atom per lane", a.ID, a.Lane)
-		}
-		// Every mutation lane runs its tools as plain execs and settles in Go:
-		// none reads a script from foundry-stocks any more.
-		if a.NeedsStocks {
-			t.Errorf("%s: asks for the foundry-stocks mount it no longer reads", a.ID)
 		}
 	}
 	for _, a := range PullPathAtoms() {

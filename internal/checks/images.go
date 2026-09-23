@@ -208,21 +208,17 @@ const (
 	GoPrivate = ""
 )
 
-// StocksRepo / StocksRef pin the ONE definition of the checks that are scripts
-// rather than tool invocations.
-//
-// A copy would be the defect the script itself exists to catch: on 2026-08-16 a
-// sweep found 533 noqa on one rule, 368 of them eight decisions replicated into
-// 46 repos by a scaffold pour. `stop_justifications.py` has exactly one home,
-// and this reads it there through the door rather than vendoring a second.
-const (
-	StocksRepo = "https://git.notusmi.com/foundry/foundry-stocks.git"
-	StocksRef  = "main"
-)
+// THE foundry-stocks MOUNT WENT 2026-09-23 (CA F18). StocksRepo/StocksRef
+// pinned a git tree the atoms mounted at /stocks for two things: the scripts
+// that ARE an atom's tool, and the fleet's rulesets. The scripts became
+// //go:embed in internal/checks/scripts long ago; the rulesets followed on
+// 2026-09-23 (internal/checks/rulesets). Nothing fetches foundry-stocks now,
+// which is what lets its ci/ tree be deleted rather than merely unused.
 
 // TestkitRepo / TestkitRef pin the ONE definition of the mutation gate's knobs.
 //
-// SAME REASONING AS StocksRepo, applied to a config rather than a script. The
+// SAME REASONING AS the retired StocksRepo, applied to a config rather than a
+// script. The
 // mutation atom used to write its own comment-only "neutral" file and discard
 // whatever the repo carried, on the rule that A REPO HAS NO SAY. That
 // rule is right and is kept: this config still does not come from the tree
@@ -235,7 +231,7 @@ const (
 // the checked-in copy drifts from the generator, so the file read here is the
 // same bytes the package asserts.
 //
-// main, not a tag, matching StocksRef and Rule #2: one canonical gate for every
+// main, not a tag, matching Rule #2: one canonical gate for every
 // repo, ALWAYS THE LATEST. A pinned tag would let a repo's gate sit on knobs the
 // fleet had already moved off.
 const (
@@ -257,7 +253,7 @@ const (
 // goldens walk, and these goldens exist to assert that a projection still
 // agrees with EVERY record the fleet CURRENTLY carries — a record added after
 // the pin would be graded by nothing, which is the silent-skip again wearing
-// a version number. Same ref, and the same reasoning, as StocksRef above.
+// a version number. Same ref, and the same reasoning, as the retired StocksRef.
 const (
 	DiesRepo = "https://git.notusmi.com/foundry/foundry-dies.git"
 	DiesRef  = "main"

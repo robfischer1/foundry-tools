@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"dagger/foundry-tools/internal/checks"
+	"dagger/foundry-tools/internal/checks/rulesets"
 	"dagger/foundry-tools/internal/dagger"
 )
 
@@ -21,9 +22,6 @@ func init() {
 	register("ts:bun-audit", tsBunAudit)
 	register("ts:mutation", tsMutation)
 }
-
-// eslintConfig is the fleet's eslint config inside the foundry-stocks tree.
-const eslintConfig = "ci/lib/rulesets/eslint.config.mjs" // under checks.StocksRulesets; spelled out so no package-level `+` sits uncovered
 
 // bun run gate passes against a frozen lockfile under the fleet's eslint
 // config, and the tree carries tests for it to run.
@@ -60,15 +58,12 @@ func tsBunGate(ctx context.Context, r *run) checks.Verdict {
 func tsGate(ctx context.Context, r *run, id string) checks.Verdict {
 	a := checks.AtomByID(id)
 
-	// A ruleset the atom cannot read is a gate that never looked, and that is
-	// never a pass. Decided in Go, off the stocks tree, before anything runs.
-	cfg := r.stocks.File(eslintConfig)
-	if _, err := cfg.Contents(ctx); err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+checks.RulesetsDir+"/eslint.config.mjs is absent; foundry-stocks did not mount at its one home, so the fleet's ruleset cannot be read.\n"+err.Error())
-	}
-
+	// The fleet's ruleset, laid over whatever the repository carries. It is
+	// embedded in this module now (CA F18), so the "cannot read the ruleset"
+	// could-not-run that used to guard the mount is unreachable rather than
+	// handled: an absent embed does not compile.
 	ctr := r.lane(checks.ImageTS).
-		WithMountedDirectory("/src", r.src.WithFile("eslint.config.mjs", cfg))
+		WithMountedDirectory("/src", r.src.WithNewFile("eslint.config.mjs", rulesets.ESLint))
 
 	installed := ctr.WithExec([]string{"bun", "install", "--frozen-lockfile"}, anyExit)
 	out, code, err := output(ctx, installed)

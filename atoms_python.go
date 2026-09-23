@@ -11,6 +11,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"dagger/foundry-tools/internal/checks"
+	"dagger/foundry-tools/internal/checks/rulesets"
 	"dagger/foundry-tools/internal/dagger"
 )
 
@@ -46,22 +47,6 @@ const ruffVersion = "ruff@0.16.3"
 // pythonRuleset answers the CANNOT RUN a missing fleet ruleset is, reading
 // foundry-stocks IN GO before any container starts.
 //
-// A RULESET THE ATOM CANNOT READ IS A GATE THAT NEVER LOOKED, and that is
-// never a pass. The shell form was a `[ -f /stocks/... ]` test inside the
-// container, which could only run after the mount had already been paid for;
-// here the file is read off the tree the mount is made from, so the same
-// question is asked one step earlier and the message is unchanged.
-//
-// HOISTABLE: ts:bun-gate asks this of
-// eslint.config.mjs. Left unexported here rather than put in runtime.go so the
-// lane ports do not collide; Tesla19 hoists it.
-func pythonRuleset(ctx context.Context, r *run, a checks.AtomDef, file string) (checks.Verdict, bool) {
-	if _, err := r.stocks.File("ci/lib/rulesets/" + file).Contents(ctx); err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+checks.RulesetsDir+"/"+file+
-			" is absent; foundry-stocks did not mount at its one home, so the fleet's ruleset cannot be read."), false
-	}
-	return checks.Verdict{}, true
-}
 
 // pythonRootEntries is the repository root, or the CANNOT RUN that not being
 // able to read it is. A tree the engine cannot list is a fact about the
@@ -79,15 +64,14 @@ func pythonRootEntries(ctx context.Context, r *run, a checks.AtomDef) ([]string,
 // THE RULESET IS THE FLEET'S. `--config <file>` makes ruff ignore every
 // pyproject.toml and ruff.toml in the tree, so the repository's copy — the
 // template pours one, and seven repos had drifted from it by 2026-09-11 —
-// decides nothing here. foundry-stocks ci/lib/rulesets/ruff.toml is the
-// template's ruleset with one home (Rob, 2026-09-11: the fleet decides the
-// atoms AND their rulesets).
+// decides nothing here. internal/checks/rulesets/ruff.toml is the template's
+// ruleset with one home — //go:embed'd into this binary and rendered into the
+// container, so the tool that enforces it and the rules it enforces ship as
+// one artifact and cannot be at different revisions.
 func pythonRuffCheck(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("python:ruff-check")
-	if v, ok := pythonRuleset(ctx, r, a, "ruff.toml"); !ok {
-		return v
-	}
-	return verdict(ctx, a, r.withStocks(r.lane(checks.ImagePython)).
+	return verdict(ctx, a, r.lane(checks.ImagePython).
+		WithNewFile(checks.RulesetsDir+"/ruff.toml", rulesets.Ruff).
 		// The provisioning probe: uvx resolves and caches the pinned ruff, and
 		// a resolver that could not is a could-not-run rather than a finding.
 		WithExec([]string{"uvx", ruffVersion, "--version"}).
@@ -110,9 +94,6 @@ func pythonRuffCheck(ctx context.Context, r *run) checks.Verdict {
 // reports so even where it would have had nothing to format.
 func pythonRuffFormat(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("python:ruff-format")
-	if v, ok := pythonRuleset(ctx, r, a, "ruff.toml"); !ok {
-		return v
-	}
 	entries, v, ok := pythonRootEntries(ctx, r, a)
 	if !ok {
 		return v
@@ -122,7 +103,8 @@ func pythonRuffFormat(ctx context.Context, r *run) checks.Verdict {
 		return checks.VerdictOf(a, 0, a.ID+": ABSENT - a go star with no product python under src/ or tests/")
 	}
 	args := append([]string{"uvx", ruffVersion, "format", "--config", checks.RulesetsDir + "/ruff.toml", "--check"}, targets...)
-	return verdict(ctx, a, r.withStocks(r.lane(checks.ImagePython)).
+	return verdict(ctx, a, r.lane(checks.ImagePython).
+		WithNewFile(checks.RulesetsDir+"/ruff.toml", rulesets.Ruff).
 		WithExec([]string{"uvx", ruffVersion, "--version"}).
 		WithExec(args, anyExit))
 }
@@ -200,9 +182,6 @@ func pythonForgeTestkit(ctx context.Context, r *run, mode, pattern string) check
 // dependencies the code declares is a type check of a different program.
 func pythonMypy(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("python:mypy")
-	if v, ok := pythonRuleset(ctx, r, a, "mypy.ini"); !ok {
-		return v
-	}
 	entries, v, ok := pythonRootEntries(ctx, r, a)
 	if !ok {
 		return v
@@ -212,7 +191,8 @@ func pythonMypy(ctx context.Context, r *run) checks.Verdict {
 		return checks.VerdictOf(a, 0, a.ID+": ABSENT - no src/ or tests/ to type-check")
 	}
 	args := append([]string{"uv", "run", "--all-extras", "mypy", "--config-file", checks.RulesetsDir + "/mypy.ini"}, targets...)
-	return verdict(ctx, a, r.withStocks(r.lane(checks.ImagePython)).
+	return verdict(ctx, a, r.lane(checks.ImagePython).
+		WithNewFile(checks.RulesetsDir+"/mypy.ini", rulesets.Mypy).
 		WithExec([]string{"uv", "--version"}).
 		WithExec(args, anyExit))
 }

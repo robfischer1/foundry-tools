@@ -250,7 +250,7 @@ func (f field) arg(name string) (string, bool) {
 // dirOf answers the directory a chain is standing in: the last directory(path)
 // step, or the root.
 // gitMount is where an atom mounts the repository a git field names —
-// runtime.go's withDies and withStocks — so a test can place that checkout in
+// runtime.go's withDies — so a test can place that checkout in
 // the tree under the same path the atoms read it at.
 func gitMount(git field) string {
 	url, _ := git.arg("url")
@@ -462,7 +462,7 @@ func (e *fakeEngine) answer(q string) (data any, errMsg string) {
 			// foundry-stocks / foundry-dies: every script and ruleset the atoms
 			// read at its one home is present, and says so — UNLESS the test
 			// placed a checkout of that repository in the tree under its mount
-			// path (/dies/…, /stocks/…), in which case the checkout is what is
+			// path (/dies/…), in which case the checkout is what is
 			// read, and a path it lacks is absent. That is how a test hands an
 			// atom a star's RECORD (fleet/stars/<star>/slag.json) and how it
 			// models a star the dies do not know.
@@ -548,10 +548,6 @@ func fakeID(q string) string {
 	sum := sha256.Sum256([]byte(q))
 	return "id-" + hex.EncodeToString(sum[:4])
 }
-
-// idOf answers the id the engine gave the newest recorded query matching every
-// needle, or the id of "" when there is none.
-func (e *fakeEngine) idOf(needles ...string) string { return fakeID(e.chain(needles...)) }
 
 func (e *fakeEngine) serve(w http.ResponseWriter, r *http.Request) {
 	b, _ := io.ReadAll(r.Body)
