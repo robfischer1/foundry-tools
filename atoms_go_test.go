@@ -236,7 +236,15 @@ func TestGoTestRaceBringsTheRecordsPostgres(t *testing.T) {
 // The go:mutation needles, each in one exec's chain.
 const (
 	goMutantsNeedle = `"--output","mutation-go.json"`
-	goCanaryNeedle  = `"--workers","1"`
+	// THE TWO CONTROLS BOTH RUN `--workers","1"`, which is why neither needle is
+	// that argv: it would match both chains and chain() answers the newest. The
+	// workdir is unique per control, and the closing quote keeps each needle off
+	// the withNewFile paths under it.
+	goCanaryNeedle     = `path:"/tmp/mutation/canary"`
+	goMainCanaryNeedle = `path:"/tmp/mutation/maincanary"`
+	// goMainListNeedle is the `go list` that names which files are in a
+	// `package main` — the set the package-main control governs.
+	goMainListNeedle = `"go","list","-e","-f"`
 	// goClassifyNeedle is the testkit's gate, run in the lane after gremlins
 	// for its classification of what no test could kill.
 	goClassifyNeedle = `"mutation-gate","-report","mutation-go.json","-C",".","-json"`
@@ -256,6 +264,11 @@ func scriptGoMutation(tree map[string]string) {
 	engine.stdout(mergeBaseNeedle, sinceSha+"\n")
 	engine.stdout(goDiffNeedle, "a.go\n")
 	engine.stdout(goCanaryNeedle, "Killed: 0, Lived: 1, Not covered: 0\n")
+	// THE PACKAGE-MAIN CONTROL ANSWERS BROKEN BY DEFAULT, because that is what
+	// gremlins 0.6.0 answers: the lane's ordinary state is one working harness
+	// and one bug it is working around. A test that wants the other world says
+	// so (TestGoMutationDoesNotCountAMainPackageItCannotGrade).
+	engine.stdout(goMainCanaryNeedle, "Killed: 1, Lived: 0, Not covered: 0\n")
 	// The classifier answered, and named nothing: every survivor is real.
 	engine.stdout(goClassifyNeedle, `{"noise":[]}`+"\n")
 }
@@ -350,6 +363,29 @@ func TestGoMutationMeasuresTheDiffAndSettlesInGo(t *testing.T) {
 		[]string{"withWorkdir", `path:"/tmp/mutation/canary"`},
 		[]string{"withExec", `"gremlins","unleash","--config","/tmp/mutation/gremlins-canonical.yaml","--workers","1","."`},
 	)
+	// THE SECOND CONTROL'S SHAPE IS THE TEST. A main package AT the module root
+	// is graded correctly by the gremlins this works around, so a control
+	// written that way proves nothing; the main package must sit in a
+	// subdirectory with NOTHING at the root. cmd/tool/main.go, and no root .go
+	// file, is that shape — assert it here, because a later tidy-up that moves
+	// the file to the root would leave a control that always answers OK.
+	main := engine.chain(goMainCanaryNeedle, "stdout")
+	wantCalls(t, main,
+		[]string{"withNewFile", `path:"/tmp/mutation/maincanary/go.mod"`},
+		[]string{"withNewFile", `path:"/tmp/mutation/maincanary/cmd/tool/main.go"`},
+		[]string{"withNewFile", `path:"/tmp/mutation/maincanary/cmd/tool/main_test.go"`},
+		[]string{"withWorkdir", `path:"/tmp/mutation/maincanary"`},
+		[]string{"withExec", `"gremlins","unleash","--config","/tmp/mutation/gremlins-canonical.yaml","--workers","1","."`},
+	)
+	if strings.Contains(main, `path:"/tmp/mutation/maincanary/main.go"`) {
+		t.Errorf("the package-main control grew a root package, which this gremlins grades correctly:\n%s", main)
+	}
+	// And the set that control governs is read from the toolchain, in the module
+	// — `go list`, not a grep over package clauses.
+	wantCalls(t, engine.chain(goMainListNeedle, "stdout"),
+		[]string{"withWorkdir", `path:"/src"`},
+		[]string{"withExec", `"go","list","-e","-f"`, `"./..."`},
+	)
 }
 
 // What the run measured decides the verdict, through checks.GoMutationVerdict.
@@ -436,12 +472,17 @@ func TestGoMutationSettlesWhatItMeasured(t *testing.T) {
 		t.Error("mutation-gate ran with no report to read")
 	}
 
-	// A canary that did not build never runs gremlins.
-	scriptGoMutation(nil)
-	engine.exitCode(`"/tmp/mutation/canary/canary_test.go"`, 1)
-	runAtom(t, "go:mutation", "abc123")
-	if engine.chain(goCanaryNeedle) != "" {
-		t.Error("gremlins ran a canary whose tests do not build")
+	// A canary that did not build never runs gremlins, either control.
+	for _, c := range []struct{ name, file, needle string }{
+		{"the harness control", `"/tmp/mutation/canary/canary_test.go"`, goCanaryNeedle},
+		{"the package-main control", `"/tmp/mutation/maincanary/cmd/tool/main_test.go"`, goMainCanaryNeedle},
+	} {
+		scriptGoMutation(nil)
+		engine.exitCode(c.file, 1)
+		runAtom(t, "go:mutation", "abc123")
+		if chain := engine.chain(c.needle, `"gremlins"`); chain != "" {
+			t.Errorf("gremlins ran %s, whose tests do not build:\n%s", c.name, chain)
+		}
 	}
 }
 

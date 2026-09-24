@@ -660,12 +660,24 @@ func goGovulncheck(ctx context.Context, r *run) checks.Verdict {
 // override of a config default of 1, which is what a repo with a loopback-bound
 // suite needs and a CI runner does not.
 //
-// THE CANARY RUNS FIRST AND DECIDES WHETHER THE REPORT IS A MEASUREMENT. A
+// THE CANARIES RUN FIRST AND DECIDE WHETHER THE REPORT IS A MEASUREMENT. A
 // harness that cannot start the test child scores every mutant KILLED; the
 // control is a module whose one mutant must LIVE (checks.GoMutationCanary). The
 // bound it existed for — gremlins v0.6.0 mangled --test-cpu into one argv word,
 // #7649 — is kept through the environment the child inherits: GOMAXPROCS caps
 // the test binary, GOFLAGS=-p caps concurrent builds.
+//
+// AND A SECOND CONTROL, FOR A SECOND WAY TO BE WRONG. gremlins resolves a
+// file's package from the PACKAGE CLAUSE, so a mutant in a `package main` is
+// graded against the module root (gremlins#268, open since Jan 2026; fix open at
+// #306). With no root package — 36 of the fleet's 38 Go repos — the run it
+// grades against fails and the mutant reads KILLED: a FALSE GREEN this gate
+// would publish. The package-main control is the same under-tested mutant in a
+// main package with nothing at the module root, and a `go list` names the files
+// it governs. It is EXPECTED to come back broken today, and while it does those
+// mutants are not counted (checks.GoMutationVerdict). Nobody has to remember to
+// undo that: the day a fixed gremlins lands the control answers OK and they
+// count again.
 //
 // GO NEEDS NO critical_modules. The python, rust and ts mutation atoms read
 // that declaration off .copier-answers.yml; gremlins scopes to the diff itself,
@@ -805,6 +817,49 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 		}
 	}
 
+	// THE PACKAGE-MAIN CONTROL, in a module of its own, SHAPED LIKE THE BUG:
+	// one `package main` in a subdirectory and nothing at the module root. That
+	// shape was measured, not assumed (2026-09-24, gremlins 0.6.0, this config,
+	// the same code both ways): a main package AT the module root is graded
+	// correctly and answers LIVED, so a control shaped like the harness canary
+	// above is blind to #268. Only this shape sees it.
+	mainCanary := checks.CanaryUnknown
+	mainControl := canonical.
+		WithNewFile(mutationDir+"/maincanary/go.mod", checks.GoMutationMainCanaryMod).
+		WithNewFile(mutationDir+"/maincanary/cmd/tool/main.go", checks.GoMutationMainCanaryCode).
+		WithNewFile(mutationDir+"/maincanary/cmd/tool/main_test.go", checks.GoMutationMainCanaryTest).
+		WithWorkdir(mutationDir+"/maincanary").
+		WithExec([]string{"go", "test", "-cover", "-coverprofile", goMutationProfile, "./..."}, anyExit)
+	if code, err := mainControl.ExitCode(ctx); err == nil && code == 0 {
+		out, _, err := outputBoth(ctx, mainControl.WithExec([]string{"gremlins", "unleash", "--config", goMutationConfig,
+			"--workers", "1", "."}, anyExit))
+		if err == nil {
+			mainCanary = checks.GoMutationCanary(out)
+		}
+	}
+
+	// WHICH FILES THAT CONTROL GOVERNS — THE TOOLCHAIN ANSWERS, NOT A GREP.
+	// `go list` reports the package it actually resolved, so a testdata fixture
+	// whose first line reads `package main` is not named and a build-tagged file
+	// is placed by the same tags the cover step used. A grep would name the
+	// fixture and widen the exclusion — the direction that hides mutants.
+	// Failing to list them is carried, not swallowed: without the set there is
+	// nothing to exclude with, and the verdict makes that a could-not-measure.
+	mainFiles := checks.GoMainFiles{}
+	var mainFilesErr string
+	listArgs := []string{"go", "list", "-e", "-f", checks.GoMainFilesFormat}
+	if len(dbs) > 0 {
+		listArgs = append(listArgs, "-tags", checks.BuildTags(dbs))
+	}
+	switch out, code, err := output(ctx, canonical.WithExec(append(listArgs, "./..."), anyExit)); {
+	case err != nil:
+		mainFilesErr = err.Error()
+	case code != 0:
+		mainFilesErr = fmt.Sprintf("go list exited %d", code)
+	default:
+		mainFiles = checks.ParseGoMainFiles(out, path.Join("/src", dir))
+	}
+
 	// MUTATE.
 	args := append([]string{"gremlins", "unleash", "--config", goMutationConfig, "--output", goMutationReport,
 		"--workers", strconv.Itoa(goMutationWorkers)}, tags...)
@@ -863,6 +918,7 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	return settle(checks.GoMutationVerdict(checks.GoMutationRun{
 		Status: status, Report: []byte(report), Profile: profile, Canary: canary, Workers: goMutationWorkers,
 		Classified: []byte(classified), ClassifyErr: classifyErr,
+		MainCanary: mainCanary, MainFiles: mainFiles, MainFilesErr: mainFilesErr,
 	}))
 }
 
