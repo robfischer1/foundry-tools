@@ -1115,3 +1115,45 @@ func TestStaleJustificationRowsAreReportedInAStableOrder(t *testing.T) {
 		t.Errorf("rows sharing a workload must order by check:\n%s", out)
 	}
 }
+
+// SJReads and the scan must never disagree: the lane loads what SJReads names
+// and the scan opens what file() accepts, and when those were two copies of
+// one condition they drifted — .kube-justifications.json reached the scan as
+// an empty string and the whole atom answered CANNOT RUN.
+func TestSJReadsNamesEveryFileTheScanOpens(t *testing.T) {
+	tracked := []string{
+		".kube-justifications.json", ".kube-linter.yaml", "flux/a.yaml",
+		"pyproject.toml", "ruff.toml", "main.go", "README.md", "notes.txt",
+	}
+	got := map[string]bool{}
+	for _, r := range SJReads(tracked) {
+		got[r] = true
+	}
+	for _, rel := range tracked {
+		if SJScans(rel) != got[rel] {
+			t.Errorf("%s: SJScans=%v but SJReads includes=%v", rel, SJScans(rel), got[rel])
+		}
+	}
+	if !SJScans(".kube-justifications.json") {
+		t.Error("the canonical record must be scanned")
+	}
+	if SJScans("README.md") {
+		t.Error("prose is not scanned")
+	}
+}
+
+// The record reaching the scan as an empty string is what the lane actually
+// did, so the refusal it produces is worth pinning by name.
+func TestAnEmptyRecordIsACannotRunNotAnEmptyScan(t *testing.T) {
+	code, out := StopJustifications(SJInput{
+		Tracked: []string{".kube-justifications.json"},
+		Read:    func(string) (string, error) { return "", nil },
+		Repo:    "infra", Today: "2026-09-24",
+	})
+	if code != 2 {
+		t.Errorf("an unreadable record is CANNOT RUN (2), got %d:\n%s", code, out)
+	}
+	if !strings.Contains(out, "does not parse") {
+		t.Errorf("the refusal must say why:\n%s", out)
+	}
+}
