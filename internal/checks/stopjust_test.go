@@ -903,140 +903,215 @@ func TestMarkerVerdictReadsOnlyTheProseAfterTheMarker(t *testing.T) {
 	}
 }
 
-func TestKubeLinterIgnoresReadsOnlyYAMLAndNotTheConfigItself(t *testing.T) {
-	line := []string{`    ignore-check.kube-linter.io/privileged-container: "why"`}
-	for _, rel := range []string{"flux/apps/a.yaml", "flux/x.yml"} {
-		if got := KubeLinterIgnores(rel, line); len(got) != 1 || got[0] != "privileged-container" {
-			t.Errorf("%s: got %v, want [privileged-container]", rel, got)
+func TestKubeLinterIgnoresPairsEachAnnotationWithItsWorkload(t *testing.T) {
+	doc := []string{
+		"kind: SandboxTemplate",
+		"metadata:",
+		"  name: chairman",
+		"  namespace: chairmen",
+		"  annotations:",
+		`    ignore-check.kube-linter.io/no-extensions-v1beta: "why"`,
+		"---",
+		"kind: DaemonSet",
+		"metadata:",
+		"  name: dagger-engine",
+		"  annotations:",
+		`    ignore-check.kube-linter.io/privileged-container: "why"`,
+	}
+	got := KubeLinterIgnores("flux/a.yaml", doc)
+	want := []KLIgnore{
+		{Workload: "SandboxTemplate/chairman", Check: "no-extensions-v1beta"},
+		{Workload: "DaemonSet/dagger-engine", Check: "privileged-container"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("[%d] got %+v, want %+v", i, got[i], want[i])
 		}
 	}
-	for _, rel := range []string{"a.py", "Dockerfile", "noext"} {
-		if got := KubeLinterIgnores(rel, line); got != nil {
-			t.Errorf("%s is not YAML: got %v", rel, got)
-		}
-	}
-	// The config documents the annotation form in its header. Counting its
-	// own example would make the inventory disagree with the tree forever.
-	if got := KubeLinterIgnores(".kube-linter.yaml", line); got != nil {
+	// The config documents the annotation form; counting its own example would
+	// make the record disagree with the tree forever.
+	if got := KubeLinterIgnores(".kube-linter.yaml", doc); got != nil {
 		t.Errorf("the config must not count its own example: %v", got)
+	}
+	if got := KubeLinterIgnores("a.py", doc); got != nil {
+		t.Errorf("not YAML: %v", got)
 	}
 }
 
-func TestKubeLinterDeclaredSeparatesInventoryFromExclude(t *testing.T) {
-	cfg := []string{
-		"# ---- THE INVENTORY ----",
-		"#   flux/infrastructure/chairman-template.yaml",
-		"#     SandboxTemplate/chairman             no-extensions-v1beta",
-		"#     SandboxWarmPool/chairman             no-extensions-v1beta",
-		"#   prose that is not a row at all",
-		"checks:",
-		"  exclude: []",
-	}
-	inv, exc := KubeLinterDeclared(".kube-linter.yaml", cfg)
-	if len(inv) != 2 {
-		t.Errorf("inventory = %v, want 2 rows", inv)
-	}
-	if len(exc) != 0 {
+func TestKubeLinterExcludesReadsBothSpellings(t *testing.T) {
+	if exc := KubeLinterExcludes(".kube-linter.yaml", []string{"checks:", "  exclude: []"}); len(exc) != 0 {
 		t.Errorf("an empty exclude silences nothing, got %v", exc)
 	}
-	// A non-empty exclude is a repo-wide silencer, in either spelling.
-	_, exc = KubeLinterDeclared(".kube-linter.yaml", []string{"checks:", "  exclude:", `    - "no-extensions-v1beta"`})
+	exc := KubeLinterExcludes(".kube-linter.yaml", []string{"checks:", "  exclude:", `    - "no-extensions-v1beta"`})
 	if len(exc) != 1 || exc[0] != "no-extensions-v1beta" {
 		t.Errorf("block form: got %v", exc)
 	}
-	_, exc = KubeLinterDeclared(".kube-linter.yaml", []string{"checks:", `  exclude: ["a", b]`})
-	if len(exc) != 2 {
+	if exc := KubeLinterExcludes(".kube-linter.yaml", []string{"checks:", `  exclude: ["a", b]`}); len(exc) != 2 {
 		t.Errorf("inline form: got %v", exc)
 	}
-	if inv, exc := KubeLinterDeclared("flux/apps/a.yaml", cfg); inv != nil || exc != nil {
-		t.Errorf("only .kube-linter.yaml declares: %v %v", inv, exc)
+	if exc := KubeLinterExcludes("flux/a.yaml", []string{"checks:", "  exclude:", "    - x"}); exc != nil {
+		t.Errorf("only the config declares excludes: %v", exc)
 	}
 }
 
-func TestKubeLinterParityIsTheRule(t *testing.T) {
-	ann := `    ignore-check.kube-linter.io/privileged-container: "why"`
-	row := "#     DaemonSet/dagger-engine  privileged-container"
-	files := func(cfg, wl []string) SJInput {
-		m := map[string]string{".kube-linter.yaml": strings.Join(cfg, "\n"), "flux/a.yaml": strings.Join(wl, "\n")}
-		return SJInput{
-			Tracked: []string{".kube-linter.yaml", "flux/a.yaml"},
+func TestKLJustificationMissingNamesEveryRequiredField(t *testing.T) {
+	full := KLJustification{
+		Timestamp: "t", SessionUUID: "s", RobQuote: "q",
+		TurnNumber: 1, Workload: "DaemonSet/x", ExemptFrom: "privileged-container",
+	}
+	if miss := full.Missing(); len(miss) != 0 {
+		t.Errorf("a complete row is missing nothing, got %v", miss)
+	}
+	if miss := (KLJustification{}).Missing(); len(miss) != 6 {
+		t.Errorf("an empty row is missing all six, got %v", miss)
+	}
+	// turn-number is required, and zero is absent rather than a turn.
+	partial := full
+	partial.TurnNumber = 0
+	if miss := partial.Missing(); len(miss) != 1 || miss[0] != "turn-number" {
+		t.Errorf("turn 0 is no turn: %v", miss)
+	}
+}
+
+func TestKubeJustificationsRefusesAFileItCannotParse(t *testing.T) {
+	if _, err := KubeJustifications(".kube-justifications.json", "{not json"); err == nil {
+		t.Error("an unparseable record must error, not read as empty")
+	}
+	rows, err := KubeJustifications(".kube-justifications.json", `{"justifications":[{"workload":"DaemonSet/x","exempt-from":"y"}]}`)
+	if err != nil || len(rows) != 1 || rows[0].Workload != "DaemonSet/x" {
+		t.Errorf("rows=%v err=%v", rows, err)
+	}
+	if rows, _ := KubeJustifications("flux/a.yaml", "{}"); rows != nil {
+		t.Errorf("only the record parses as the record: %v", rows)
+	}
+}
+
+func TestKubeJustificationsIsTheOnlyRecordThatExcuses(t *testing.T) {
+	ann := strings.Join([]string{
+		"kind: DaemonSet", "metadata:", "  name: dagger-engine", "  annotations:",
+		`    ignore-check.kube-linter.io/privileged-container: "why"`,
+	}, "\n")
+	row := `{"justifications":[{"timestamp":"t","session-uuid":"s","rob-quote":"q","turn-number":26322,` +
+		`"workload":"DaemonSet/dagger-engine","exempt-from":"privileged-container"}]}`
+	run := func(record string) (int, string) {
+		m := map[string]string{"flux/a.yaml": ann, ".kube-linter.yaml": "checks:\n  exclude: []"}
+		tracked := []string{".kube-linter.yaml", "flux/a.yaml"}
+		if record != "" {
+			m[".kube-justifications.json"] = record
+			tracked = append(tracked, ".kube-justifications.json")
+		}
+		return StopJustifications(SJInput{
+			Tracked: tracked,
 			Read:    func(rel string) (string, error) { return m[rel], nil },
 			Repo:    "infra", Today: "2026-09-24",
+		})
+	}
+	code, out := run(row)
+	if code != 0 {
+		t.Errorf("a named annotation must pass, got %d:\n%s", code, out)
+	}
+	// The clean case must print NONE of the refusal headers. Asserting the
+	// absence is what makes each `len(...) != 0` falsifiable.
+	for _, absent := range []string{"no justification row names", "naming no annotation", "REPO-WIDE", "is missing"} {
+		if strings.Contains(out, absent) {
+			t.Errorf("clean run printed %q:\n%s", absent, out)
 		}
 	}
-	// Declared: the header names it, so the scan is clean.
-	code, out := StopJustifications(files([]string{row, "checks:", "  exclude: []"}, []string{ann}))
-	if code != 0 {
-		t.Errorf("a declared annotation must pass, got %d:\n%s", code, out)
+	code, out = run("")
+	if code == 0 || !strings.Contains(out, "NO .kube-justifications.json") {
+		t.Errorf("no record at all must fail, got %d:\n%s", code, out)
 	}
-	if strings.Contains(out, "REPO-WIDE") {
-		t.Errorf("an EMPTY exclude must not print the repo-wide block:\n%s", out)
+	// A row that cannot quote anyone is a session excusing itself.
+	code, out = run(`{"justifications":[{"workload":"DaemonSet/dagger-engine","exempt-from":"privileged-container"}]}`)
+	if code == 0 || !strings.Contains(out, "missing") {
+		t.Errorf("an unsigned row must fail, got %d:\n%s", code, out)
 	}
-	// Undeclared: the annotation exists, the header does not name it.
-	code, out = StopJustifications(files([]string{"checks:", "  exclude: []"}, []string{ann}))
-	if code == 0 {
-		t.Errorf("an undeclared annotation must fail:\n%s", out)
-	}
-	if !strings.Contains(out, "MISMATCH") {
-		t.Errorf("the refusal must say what is wrong:\n%s", out)
-	}
-	// A repo-wide exclude is a finding whatever the inventory says.
-	code, out = StopJustifications(files([]string{"checks:", "  exclude:", "    - no-extensions-v1beta"}, []string{}))
-	if code == 0 || !strings.Contains(out, "REPO-WIDE") {
-		t.Errorf("checks.exclude must be a finding, got %d:\n%s", code, out)
+	// A row for a workload nothing annotates is an excuse outliving its cause.
+	stale := `{"justifications":[{"timestamp":"t","session-uuid":"s","rob-quote":"q","turn-number":1,` +
+		`"workload":"DaemonSet/gone","exempt-from":"privileged-container"}]}`
+	code, out = run(stale)
+	if code == 0 || !strings.Contains(out, "naming no annotation") {
+		t.Errorf("a stale row must fail, got %d:\n%s", code, out)
 	}
 }
 
-// A row naming an annotation nobody wrote is an excuse outliving the thing it
-// excused. The scan must refuse that direction too, not only the missing one.
-func TestKubeLinterInventoryLongerThanTheTreeAlsoFails(t *testing.T) {
-	cfg := strings.Join([]string{
-		"#     DaemonSet/dagger-engine  privileged-container",
-		"#     DaemonSet/spire-agent    host-pid",
-		"checks:", "  exclude: []",
-	}, "\n")
-	wl := `    ignore-check.kube-linter.io/privileged-container: "why"`
-	m := map[string]string{".kube-linter.yaml": cfg, "flux/a.yaml": wl}
+// Rob can authorise a repo-wide exclude, but only by name: the row carries
+// workload "*" because no single object can carry the reason for one.
+func TestARepoWideExcludeNeedsASignedRow(t *testing.T) {
+	cfg := "checks:\n  exclude:\n    - dangling-service"
+	run := func(record string) (int, string) {
+		m := map[string]string{".kube-linter.yaml": cfg, ".kube-justifications.json": record}
+		return StopJustifications(SJInput{
+			Tracked: []string{".kube-linter.yaml", ".kube-justifications.json"},
+			Read:    func(rel string) (string, error) { return m[rel], nil },
+			Repo:    "infra", Today: "2026-09-24",
+		})
+	}
+	code, out := run(`{"justifications":[]}`)
+	if code == 0 || !strings.Contains(out, "no signed row") {
+		t.Errorf("an unsigned exclude must fail, got %d:\n%s", code, out)
+	}
+	signed := `{"justifications":[{"timestamp":"t","session-uuid":"s","rob-quote":"I'm authorizing it",` +
+		`"turn-number":1,"workload":"*","exempt-from":"dangling-service"}]}`
+	code, out = run(signed)
+	if code != 0 {
+		t.Errorf("a signed exclude must pass, got %d:\n%s", code, out)
+	}
+	if !strings.Contains(out, "each on a signed row: dangling-service") {
+		t.Errorf("a signed exclude must be NAMED in the report:\n%s", out)
+	}
+	// Nothing is annotated here, so the per-annotation summary must not print.
+	if strings.Contains(out, "each named by a row") {
+		t.Errorf("no annotations means no annotation summary:\n%s", out)
+	}
+	if strings.Contains(out, "no signed row") {
+		t.Errorf("a signed exclude must not also read as unsigned:\n%s", out)
+	}
+	// And the repo-wide row must not then read as stale for naming no object.
+	if _, out := run(signed); strings.Contains(out, "naming no annotation") {
+		t.Errorf("a repo-wide row excuses an exclude, not an annotation:\n%s", out)
+	}
+}
+
+// Two stale rows, so the sort that orders them actually runs. Without a second
+// row the comparator is never executed and the output's determinism is a claim
+// rather than a fact — the mutation gate reported it NOT COVERED.
+func TestStaleJustificationRowsAreReportedInAStableOrder(t *testing.T) {
+	// Two rows SHARING a workload, differing only by check: ordering by
+	// workload alone is not a total order and sort.Slice is not stable, so
+	// this pair is exactly what came out in either order.
+	record := `{"justifications":[` +
+		`{"timestamp":"t","session-uuid":"s","rob-quote":"q","turn-number":1,"workload":"DaemonSet/zulu","exempt-from":"host-pid"},` +
+		`{"timestamp":"t","session-uuid":"s","rob-quote":"q","turn-number":1,"workload":"DaemonSet/alpha","exempt-from":"privileged-container"},` +
+		`{"timestamp":"t","session-uuid":"s","rob-quote":"q","turn-number":1,"workload":"DaemonSet/alpha","exempt-from":"host-network"}]}`
+	m := map[string]string{".kube-justifications.json": record}
 	code, out := StopJustifications(SJInput{
-		Tracked: []string{".kube-linter.yaml", "flux/a.yaml"},
+		Tracked: []string{".kube-justifications.json"},
 		Read:    func(rel string) (string, error) { return m[rel], nil },
 		Repo:    "infra", Today: "2026-09-24",
 	})
 	if code == 0 {
-		t.Errorf("a stale inventory row must fail:\n%s", out)
+		t.Fatalf("two stale rows must fail:\n%s", out)
 	}
-	if !strings.Contains(out, "MISMATCH") {
-		t.Errorf("the refusal must say what is wrong:\n%s", out)
+	a := strings.Index(out, "DaemonSet/alpha")
+	z := strings.Index(out, "DaemonSet/zulu")
+	if a < 0 || z < 0 {
+		t.Fatalf("both stale rows must be named:\n%s", out)
 	}
-}
-
-// Both spellings kube-linter itself accepts are the config; nothing else is.
-func TestIsKubeLinterConfigTakesBothSpellings(t *testing.T) {
-	for _, rel := range []string{".kube-linter.yaml", ".kube-linter.yml", "sub/.kube-linter.yml"} {
-		if !IsKubeLinterConfig(rel) {
-			t.Errorf("%s is the config", rel)
-		}
+	if a > z {
+		t.Errorf("stale rows must sort by workload, got zulu before alpha:\n%s", out)
 	}
-	for _, rel := range []string{"flux/a.yaml", "kube-linter.yaml", ".kube-linter.json", ""} {
-		if IsKubeLinterConfig(rel) {
-			t.Errorf("%s is not the config", rel)
-		}
+	// Same workload, different checks: host-network must precede
+	// privileged-container, which only holds if the whole line sorts.
+	hn := strings.Index(out, "DaemonSet/alpha · host-network")
+	pc := strings.Index(out, "DaemonSet/alpha · privileged-container")
+	if hn < 0 || pc < 0 {
+		t.Fatalf("both same-workload rows must be named:\n%s", out)
 	}
-}
-
-// An annotation with no .kube-linter.yaml anywhere is the worst case: a
-// suppression of a fleet gate with nothing that records it.
-func TestKubeLinterAnnotationWithNoConfigAtAllFails(t *testing.T) {
-	wl := `    ignore-check.kube-linter.io/run-as-non-root: "why"`
-	code, out := StopJustifications(SJInput{
-		Tracked: []string{"flux/a.yaml"},
-		Read:    func(string) (string, error) { return wl, nil },
-		Repo:    "infra", Today: "2026-09-24",
-	})
-	if code == 0 {
-		t.Errorf("an annotation with no config must fail:\n%s", out)
-	}
-	if !strings.Contains(out, "NO .kube-linter.yaml") {
-		t.Errorf("the refusal must name what is missing:\n%s", out)
+	if hn > pc {
+		t.Errorf("rows sharing a workload must order by check:\n%s", out)
 	}
 }
