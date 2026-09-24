@@ -902,3 +902,141 @@ func TestMarkerVerdictReadsOnlyTheProseAfterTheMarker(t *testing.T) {
 		t.Errorf("no marker anywhere is malformed, got %s / %s", v, d)
 	}
 }
+
+func TestKubeLinterIgnoresReadsOnlyYAMLAndNotTheConfigItself(t *testing.T) {
+	line := []string{`    ignore-check.kube-linter.io/privileged-container: "why"`}
+	for _, rel := range []string{"flux/apps/a.yaml", "flux/x.yml"} {
+		if got := KubeLinterIgnores(rel, line); len(got) != 1 || got[0] != "privileged-container" {
+			t.Errorf("%s: got %v, want [privileged-container]", rel, got)
+		}
+	}
+	for _, rel := range []string{"a.py", "Dockerfile", "noext"} {
+		if got := KubeLinterIgnores(rel, line); got != nil {
+			t.Errorf("%s is not YAML: got %v", rel, got)
+		}
+	}
+	// The config documents the annotation form in its header. Counting its
+	// own example would make the inventory disagree with the tree forever.
+	if got := KubeLinterIgnores(".kube-linter.yaml", line); got != nil {
+		t.Errorf("the config must not count its own example: %v", got)
+	}
+}
+
+func TestKubeLinterDeclaredSeparatesInventoryFromExclude(t *testing.T) {
+	cfg := []string{
+		"# ---- THE INVENTORY ----",
+		"#   flux/infrastructure/chairman-template.yaml",
+		"#     SandboxTemplate/chairman             no-extensions-v1beta",
+		"#     SandboxWarmPool/chairman             no-extensions-v1beta",
+		"#   prose that is not a row at all",
+		"checks:",
+		"  exclude: []",
+	}
+	inv, exc := KubeLinterDeclared(".kube-linter.yaml", cfg)
+	if len(inv) != 2 {
+		t.Errorf("inventory = %v, want 2 rows", inv)
+	}
+	if len(exc) != 0 {
+		t.Errorf("an empty exclude silences nothing, got %v", exc)
+	}
+	// A non-empty exclude is a repo-wide silencer, in either spelling.
+	_, exc = KubeLinterDeclared(".kube-linter.yaml", []string{"checks:", "  exclude:", `    - "no-extensions-v1beta"`})
+	if len(exc) != 1 || exc[0] != "no-extensions-v1beta" {
+		t.Errorf("block form: got %v", exc)
+	}
+	_, exc = KubeLinterDeclared(".kube-linter.yaml", []string{"checks:", `  exclude: ["a", b]`})
+	if len(exc) != 2 {
+		t.Errorf("inline form: got %v", exc)
+	}
+	if inv, exc := KubeLinterDeclared("flux/apps/a.yaml", cfg); inv != nil || exc != nil {
+		t.Errorf("only .kube-linter.yaml declares: %v %v", inv, exc)
+	}
+}
+
+func TestKubeLinterParityIsTheRule(t *testing.T) {
+	ann := `    ignore-check.kube-linter.io/privileged-container: "why"`
+	row := "#     DaemonSet/dagger-engine  privileged-container"
+	files := func(cfg, wl []string) SJInput {
+		m := map[string]string{".kube-linter.yaml": strings.Join(cfg, "\n"), "flux/a.yaml": strings.Join(wl, "\n")}
+		return SJInput{
+			Tracked: []string{".kube-linter.yaml", "flux/a.yaml"},
+			Read:    func(rel string) (string, error) { return m[rel], nil },
+			Repo:    "infra", Today: "2026-09-24",
+		}
+	}
+	// Declared: the header names it, so the scan is clean.
+	code, out := StopJustifications(files([]string{row, "checks:", "  exclude: []"}, []string{ann}))
+	if code != 0 {
+		t.Errorf("a declared annotation must pass, got %d:\n%s", code, out)
+	}
+	if strings.Contains(out, "REPO-WIDE") {
+		t.Errorf("an EMPTY exclude must not print the repo-wide block:\n%s", out)
+	}
+	// Undeclared: the annotation exists, the header does not name it.
+	code, out = StopJustifications(files([]string{"checks:", "  exclude: []"}, []string{ann}))
+	if code == 0 {
+		t.Errorf("an undeclared annotation must fail:\n%s", out)
+	}
+	if !strings.Contains(out, "MISMATCH") {
+		t.Errorf("the refusal must say what is wrong:\n%s", out)
+	}
+	// A repo-wide exclude is a finding whatever the inventory says.
+	code, out = StopJustifications(files([]string{"checks:", "  exclude:", "    - no-extensions-v1beta"}, []string{}))
+	if code == 0 || !strings.Contains(out, "REPO-WIDE") {
+		t.Errorf("checks.exclude must be a finding, got %d:\n%s", code, out)
+	}
+}
+
+// A row naming an annotation nobody wrote is an excuse outliving the thing it
+// excused. The scan must refuse that direction too, not only the missing one.
+func TestKubeLinterInventoryLongerThanTheTreeAlsoFails(t *testing.T) {
+	cfg := strings.Join([]string{
+		"#     DaemonSet/dagger-engine  privileged-container",
+		"#     DaemonSet/spire-agent    host-pid",
+		"checks:", "  exclude: []",
+	}, "\n")
+	wl := `    ignore-check.kube-linter.io/privileged-container: "why"`
+	m := map[string]string{".kube-linter.yaml": cfg, "flux/a.yaml": wl}
+	code, out := StopJustifications(SJInput{
+		Tracked: []string{".kube-linter.yaml", "flux/a.yaml"},
+		Read:    func(rel string) (string, error) { return m[rel], nil },
+		Repo:    "infra", Today: "2026-09-24",
+	})
+	if code == 0 {
+		t.Errorf("a stale inventory row must fail:\n%s", out)
+	}
+	if !strings.Contains(out, "MISMATCH") {
+		t.Errorf("the refusal must say what is wrong:\n%s", out)
+	}
+}
+
+// Both spellings kube-linter itself accepts are the config; nothing else is.
+func TestIsKubeLinterConfigTakesBothSpellings(t *testing.T) {
+	for _, rel := range []string{".kube-linter.yaml", ".kube-linter.yml", "sub/.kube-linter.yml"} {
+		if !IsKubeLinterConfig(rel) {
+			t.Errorf("%s is the config", rel)
+		}
+	}
+	for _, rel := range []string{"flux/a.yaml", "kube-linter.yaml", ".kube-linter.json", ""} {
+		if IsKubeLinterConfig(rel) {
+			t.Errorf("%s is not the config", rel)
+		}
+	}
+}
+
+// An annotation with no .kube-linter.yaml anywhere is the worst case: a
+// suppression of a fleet gate with nothing that records it.
+func TestKubeLinterAnnotationWithNoConfigAtAllFails(t *testing.T) {
+	wl := `    ignore-check.kube-linter.io/run-as-non-root: "why"`
+	code, out := StopJustifications(SJInput{
+		Tracked: []string{"flux/a.yaml"},
+		Read:    func(string) (string, error) { return wl, nil },
+		Repo:    "infra", Today: "2026-09-24",
+	})
+	if code == 0 {
+		t.Errorf("an annotation with no config must fail:\n%s", out)
+	}
+	if !strings.Contains(out, "NO .kube-linter.yaml") {
+		t.Errorf("the refusal must name what is missing:\n%s", out)
+	}
+}
