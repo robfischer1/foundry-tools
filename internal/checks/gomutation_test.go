@@ -28,7 +28,7 @@ const goProfile = "mode: set\n" +
 	"example.com/x/ops/ops.go:bad 1 1\n"
 
 func TestScoreGoMutationCountsEveryStatusFromTheMutations(t *testing.T) {
-	s, err := ScoreGoMutation([]byte(goReport), goProfile, "diff", 2, nil)
+	s, err := ScoreGoMutation([]byte(goReport), goProfile, "diff", 2, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestScoreGoMutationCountsEveryStatusFromTheMutations(t *testing.T) {
 	}
 	for _, want := range []string{
 		"### Mutation gate — go (diff)",
-		"| 2 | 1 | 1 | 0 | 1 (12.5%) | 1 | 2 | 50% of 4 viable |",
+		"| 2 | 1 | 1 | 0 | 1 (12.5%) | 1 | 0 | 2 | 50% of 4 viable |",
 		"_1250ms of wall clock per mutant across 2 worker(s)._",
 		"**1 mutant(s) sit on code the coverage profile says RUNS,**",
 		"ops/ops.go:30:7  COVERED-UNRUN CONDITIONALS_NEGATION",
@@ -76,7 +76,7 @@ func TestScoreGoMutationReadsTheProfileExactly(t *testing.T) {
 {"type":"T","status":"NOT COVERED","line":6,"column":4},
 {"type":"T","status":"NOT COVERED","line":7,"column":4}]}]}`
 	profile := "mode: set\na.go:5.9,6.2 1 1\na.go:6.4,7.2 1 1\na.go:7.1,8.2 1 1\n"
-	s, err := ScoreGoMutation([]byte(report), profile, "diff", 0, nil)
+	s, err := ScoreGoMutation([]byte(report), profile, "diff", 0, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestScoreGoMutationReadsTheProfileExactly(t *testing.T) {
 		t.Errorf("no elapsed time, and the summary spoke of wall clock:\n%s", s.Summary)
 	}
 	// With no profile at all nothing is corrected.
-	s, _ = ScoreGoMutation([]byte(report), "", "diff", 1, nil)
+	s, _ = ScoreGoMutation([]byte(report), "", "diff", 1, nil, nil)
 	if s.CoveredUnrun != 0 || s.NotCovered != 3 {
 		t.Errorf("no profile corrected a mutant: %+v", s)
 	}
@@ -98,14 +98,21 @@ func TestScoreGoMutationReadsTheProfileExactly(t *testing.T) {
 
 func TestScoreGoMutationSaysWhenItMeasuredNothing(t *testing.T) {
 	report := `{"elapsed_time":1,"files":[{"file_name":"a.go","mutations":[{"type":"T","status":"NOT VIABLE","line":1,"column":1}]}]}`
-	s, err := ScoreGoMutation([]byte(report), "", "diff", 1, nil)
+	s, err := ScoreGoMutation([]byte(report), "", "diff", 1, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(s.Summary, "**This run generated 1 mutant(s) and measured NONE of them.**") {
 		t.Errorf("an unmeasured run did not say so:\n%s", s.Summary)
 	}
-	if !strings.Contains(s.Summary, "| 0 | 0 | 0 | 0 (0%) | 0 | 1 | 0% of 0 viable |") {
+	// AND IT BLAMES THE DIFF, because nothing here was ungraded. The other
+	// sentence is for a run the runner could not grade; picking between them is a
+	// boundary, and a boundary needs both sides pinned
+	// (TestScoreGoMutationPrefersUngradedToForgiven holds the other one).
+	if !strings.Contains(s.Summary, "no CHANGED LINE carried a") || strings.Contains(s.Summary, "below the root") {
+		t.Errorf("an empty diff was not named as the reason nothing was measured:\n%s", s.Summary)
+	}
+	if !strings.Contains(s.Summary, "| 0 | 0 | 0 | 0 | 0 (0%) | 0 | 0 | 1 | 0% of 0 viable |") {
 		t.Errorf("the empty table is wrong:\n%s", s.Summary)
 	}
 	if strings.Contains(s.Summary, "Survivors") || strings.Contains(s.Summary, "TIMED OUT") || strings.Contains(s.Summary, "sit on code") {
@@ -114,7 +121,7 @@ func TestScoreGoMutationSaysWhenItMeasuredNothing(t *testing.T) {
 	if s.MsPerMutant != -1 {
 		t.Errorf("nothing ran, and a cost was reported: %v", s.MsPerMutant)
 	}
-	if _, err := ScoreGoMutation([]byte("{"), "", "diff", 1, nil); err == nil || !strings.Contains(err.Error(), "not gremlins JSON") {
+	if _, err := ScoreGoMutation([]byte("{"), "", "diff", 1, nil, nil); err == nil || !strings.Contains(err.Error(), "not gremlins JSON") {
 		t.Errorf("a report that does not parse: %v", err)
 	}
 }
@@ -123,7 +130,7 @@ func TestScoreGoMutationSaysWhenItMeasuredNothing(t *testing.T) {
 // percentage, no "measured NONE of 0", and a run gremlins timed at zero is still
 // a cost worth printing.
 func TestScoreGoMutationOfAnEmptyReportAndAZeroClock(t *testing.T) {
-	s, err := ScoreGoMutation([]byte(`{"elapsed_time":1,"files":[]}`), "", "diff", 1, nil)
+	s, err := ScoreGoMutation([]byte(`{"elapsed_time":1,"files":[]}`), "", "diff", 1, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +142,7 @@ func TestScoreGoMutationOfAnEmptyReportAndAZeroClock(t *testing.T) {
 	}
 
 	zero := `{"elapsed_time":0,"files":[{"file_name":"a.go","mutations":[{"type":"T","status":"KILLED","line":1,"column":1}]}]}`
-	s, err = ScoreGoMutation([]byte(zero), "", "diff", 1, nil)
+	s, err = ScoreGoMutation([]byte(zero), "", "diff", 1, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,19 +163,6 @@ func TestPythonRoundIsHalfToEven(t *testing.T) {
 	}{{2.5, 0, 2}, {3.5, 0, 4}, {66.66666, 0, 67}, {12.25, 1, 12.2}, {12.35, 1, 12.4}, {0, 1, 0}} {
 		if got := pythonRound(c.x, c.decimals); got != c.want {
 			t.Errorf("pythonRound(%v, %d) = %v, want %v", c.x, c.decimals, got, c.want)
-		}
-	}
-}
-
-func TestGoMutationCanaryReadsTheControl(t *testing.T) {
-	for out, want := range map[string]string{
-		"Mutation testing completed\nKilled: 0, Lived: 1, Not covered: 0\n": CanaryOK,
-		"Killed: 1, Lived: 0, Not covered: 0":                               CanaryBroken,
-		"go: cannot find main module":                                       CanaryUnknown,
-		"":                                                                  CanaryUnknown,
-	} {
-		if got := GoMutationCanary(out); got != want {
-			t.Errorf("%q: %s, want %s", out, got, want)
 		}
 	}
 }
@@ -226,7 +220,7 @@ func TestScoreGoMutationForgivesWhatTheClassifierNamedAndSaysSo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := ScoreGoMutation([]byte(report), "", "diff", 1, noise)
+	s, err := ScoreGoMutation([]byte(report), "", "diff", 1, noise, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +228,7 @@ func TestScoreGoMutationForgivesWhatTheClassifierNamedAndSaysSo(t *testing.T) {
 		t.Errorf("forgiven %d not-covered %d lived %d missed %d, want 1 0 1 1: %+v", len(s.Forgiven), s.NotCovered, s.Lived, len(s.Missed), s)
 	}
 	for _, want := range []string{
-		"| 1 | 1 | 0 | 1 | 0 (0%) | 0 | 0 | 50% of 2 viable |",
+		"| 1 | 1 | 0 | 1 | 0 (0%) | 0 | 0 | 0 | 50% of 2 viable |",
 		"1 mutant(s) forgiven — unkillable by construction, not untested.",
 		"a.go:3:16  NOT COVERED   ARITHMETIC_BASE  [declaration]",
 		"a.go:5:2  LIVED         T",
@@ -246,14 +240,14 @@ func TestScoreGoMutationForgivesWhatTheClassifierNamedAndSaysSo(t *testing.T) {
 	// And a run that forgave nothing says nothing about forgiveness: the
 	// block is evidence of what was set aside, not a heading for an empty
 	// list.
-	if plain, _ := ScoreGoMutation([]byte(report), "", "diff", 1, GoMutationNoise{}); strings.Contains(plain.Summary, "forgiven —") || !strings.Contains(plain.Summary, "| 1 | 1 | 1 | 0 | 0 (0%) | 0 | 0 | 33% of 3 viable |") {
+	if plain, _ := ScoreGoMutation([]byte(report), "", "diff", 1, GoMutationNoise{}, nil); strings.Contains(plain.Summary, "forgiven —") || !strings.Contains(plain.Summary, "| 1 | 1 | 1 | 0 | 0 (0%) | 0 | 0 | 0 | 33% of 3 viable |") {
 		t.Errorf("a run with nothing forgiven printed the forgiven block, or miscounted:\n%s", plain.Summary)
 	}
 	// A KILLED mutant at a named coordinate is a kill: the classifier only
 	// speaks about survivors, and a name it gave a mutant that was later
 	// killed by a re-run must not turn the kill into a forgiveness.
 	noise["a.go:1:1"] = "declaration"
-	s, _ = ScoreGoMutation([]byte(report), "", "diff", 1, noise)
+	s, _ = ScoreGoMutation([]byte(report), "", "diff", 1, noise, nil)
 	if s.Killed != 1 || len(s.Forgiven) != 1 {
 		t.Errorf("a kill was reclassified: killed %d forgiven %d", s.Killed, len(s.Forgiven))
 	}
@@ -309,5 +303,211 @@ func TestGoMutationVerdictReadsTheClassification(t *testing.T) {
 	})
 	if state != 0 {
 		t.Errorf("a clean run with no classification settled %d", state)
+	}
+}
+
+// A MUTANT IN A `package main` IS NOT GRADED, and the bucket exists for the
+// direction that reads GREEN. This gremlins resolves the file's package from its
+// package clause, runs the module root's tests for it, and reports a verdict
+// about other code — KILLED where the root has no package, LIVED where it has
+// one. The classifier cannot reach the KILLED case at all (it only speaks about
+// survivors), so without this bucket a lane over cmd/ publishes kills it never
+// earned.
+func TestScoreGoMutationDoesNotCountAMutantItGradedAgainstTheWrongPackage(t *testing.T) {
+	report := `{"elapsed_time":1,"files":[
+{"file_name":"cmd/tool/main.go","mutations":[
+{"type":"ARITHMETIC_BASE","status":"KILLED","line":4,"column":35},
+{"type":"CONDITIONALS_NEGATION","status":"LIVED","line":6,"column":5},
+{"type":"INVERT_NEGATIVES","status":"NOT VIABLE","line":8,"column":3}]},
+{"file_name":"lib/lib.go","mutations":[
+{"type":"T","status":"KILLED","line":1,"column":1}]}]}`
+	s, err := ScoreGoMutation([]byte(report), "", "diff", 1, nil, GoMisgradedFiles{"cmd/tool/main.go": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Killed != 1 || s.Lived != 0 || len(s.Ungraded) != 2 || s.Viable() != 1 || len(s.Missed) != 0 {
+		t.Errorf("killed %d lived %d ungraded %d viable %d missed %d, want 1 0 2 1 0 — only the library's kill was graded",
+			s.Killed, s.Lived, len(s.Ungraded), s.Viable(), len(s.Missed))
+	}
+	// NOT VIABLE stays inert. gremlins decided it without running anything, so a
+	// runner that grades the wrong package does not make it wrong — and calling
+	// it ungraded would inflate the hole with mutants that were never a question.
+	if s.Inert != 1 || s.Generated != 4 {
+		t.Errorf("inert %d of %d generated, want 1 of 4", s.Inert, s.Generated)
+	}
+	for _, want := range []string{
+		"| 1 | 0 | 0 | 0 | 0 (0%) | 0 | 2 | 1 | 100% of 1 viable |",
+		"**2 mutant(s) were NOT GRADED — a `package main` below the module root.**",
+		"gremlins#268, fix open at #306",
+		"cmd/tool/main.go:4:35  KILLED        ARITHMETIC_BASE",
+		"cmd/tool/main.go:6:5  LIVED         CONDITIONALS_NEGATION",
+	} {
+		if !strings.Contains(s.Summary, want) {
+			t.Errorf("the summary lacks %q:\n%s", want, s.Summary)
+		}
+	}
+	// A FORGIVENESS NOBODY CAN READ IS A SUPPRESSION, and so is an exclusion:
+	// the inert mutant is not in the list, because it was not excluded.
+	if strings.Contains(s.Summary, "INVERT_NEGATIVES") {
+		t.Errorf("an inert mutant was listed as ungraded:\n%s", s.Summary)
+	}
+
+	// THE MODULE ROOT'S OWN MAIN PACKAGE IS NOT IN THE SET, and this repo is why.
+	// #268 resolves a main package to the module root, so a main package that IS
+	// the root resolves to itself and is graded CORRECTLY. The first cut of this
+	// exclusion was every main file, and foundry-tools' root is `package main`:
+	// the gate excluded 11 mutants of atoms_go.go — three LIVED, two NOT COVERED
+	// — on the very pull that added the exclusion. An over-wide set hides real
+	// mutants, which is the one thing this change exists to prevent.
+	rooted := `{"files":[{"file_name":"atoms_go.go","mutations":[
+{"type":"T","status":"KILLED","line":1,"column":1},
+{"type":"T","status":"LIVED","line":2,"column":1}]}]}`
+	root, err := ScoreGoMutation([]byte(rooted), "", "diff", 1, GoMutationNoise{},
+		ParseGoMisgradedFiles("/src/atoms_go.go\n/src/verdict/main.go\n", "/src"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(root.Ungraded) != 0 || root.Killed != 1 || len(root.Missed) != 1 {
+		t.Errorf("the module root's main package: ungraded %d killed %d missed %d, want 0 1 1 — "+
+			"a main package AT the root resolves to itself and was graded", len(root.Ungraded), root.Killed, len(root.Missed))
+	}
+
+	// AND THE CONTROL IS WHAT SWITCHES THIS ON: distrusting nothing, the same
+	// report scores the false kill as a kill and the false survivor as a gap.
+	// This is the behaviour a fixed gremlins restores, and the reason the
+	// exclusion is keyed on a measurement rather than a constant.
+	trusted, err := ScoreGoMutation([]byte(report), "", "diff", 1, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if trusted.Killed != 2 || trusted.Lived != 1 || len(trusted.Ungraded) != 0 || len(trusted.Missed) != 1 {
+		t.Errorf("distrusting nothing: killed %d lived %d ungraded %d missed %d, want 2 1 0 1",
+			trusted.Killed, trusted.Lived, len(trusted.Ungraded), len(trusted.Missed))
+	}
+	if strings.Contains(trusted.Summary, "NOT GRADED") {
+		t.Errorf("a run that distrusted nothing spoke of ungraded mutants:\n%s", trusted.Summary)
+	}
+}
+
+// UNGRADED OUTRANKS FORGIVEN, because they are opposite claims about the same
+// mutant and it can only be in one column. The testkit's classifier forgives a
+// survivor in a `package main` too (its own package-main class), but forgiveness
+// says "no test could ever kill this" — and here the truth is that nobody
+// looked. The scorer asks the harder question first.
+func TestScoreGoMutationPrefersUngradedToForgiven(t *testing.T) {
+	report := `{"files":[{"file_name":"cmd/tool/main.go","mutations":[{"type":"T","status":"LIVED","line":6,"column":5}]}]}`
+	noise := GoMutationNoise{"cmd/tool/main.go:6:5": "package-main"}
+	s, err := ScoreGoMutation([]byte(report), "", "diff", 1, noise, GoMisgradedFiles{"cmd/tool/main.go": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Ungraded) != 1 || len(s.Forgiven) != 0 {
+		t.Errorf("ungraded %d forgiven %d, want 1 and 0 — a mutant nobody graded is not a mutant nobody could kill",
+			len(s.Ungraded), len(s.Forgiven))
+	}
+	if strings.Contains(s.Summary, "unkillable by construction") {
+		t.Errorf("the summary called an ungraded mutant unkillable:\n%s", s.Summary)
+	}
+	// A run that graded NOTHING says so, and does not blame the diff for it.
+	if !strings.Contains(s.Summary, "measured NONE of them") || !strings.Contains(s.Summary, "Every mutant it could have graded sits") {
+		t.Errorf("a wholly ungraded run did not say why:\n%s", s.Summary)
+	}
+	if strings.Contains(s.Summary, "no CHANGED LINE carried a") {
+		t.Errorf("the diff was blamed for the runner's bug:\n%s", s.Summary)
+	}
+}
+
+// The package-main control decides whether a main package's mutants count, so
+// ONE report settles differently depending on it — and a broken control is not
+// fatal the way a broken harness control is: it is the expected answer today.
+func TestGoMutationVerdictTrustsAMainPackageOnlyWhenItsControlSaysSo(t *testing.T) {
+	// One mutant in a main package, KILLED: the false green, and the shape 36 of
+	// the fleet's 38 Go repos produce.
+	kill := `{"files":[{"file_name":"cmd/tool/main.go","mutations":[{"type":"ARITHMETIC_BASE","status":"KILLED","line":4,"column":35}]}]}`
+	// The same, LIVED: the false red, which a module with a root package gets.
+	live := `{"files":[{"file_name":"cmd/tool/main.go","mutations":[{"type":"T","status":"LIVED","line":6,"column":5}]}]}`
+	// A real gap beside an ungraded mutant: the gap still decides.
+	both := `{"files":[{"file_name":"cmd/tool/main.go","mutations":[{"type":"T","status":"KILLED","line":4,"column":35}]},
+{"file_name":"lib/lib.go","mutations":[{"type":"T","status":"LIVED","line":9,"column":2}]}]}`
+	files := GoMisgradedFiles{"cmd/tool/main.go": true}
+	cases := map[string]struct {
+		report  string
+		canary  string
+		files   GoMisgradedFiles
+		listErr string
+		state   int
+		reason  string
+	}{
+		"broken, so a kill in a main package is not a kill": {kill, CanaryBroken, files, "", 0, "NOTHING WAS GRADED"},
+		"unread, which is not a clearance":                  {kill, CanaryUnknown, files, "", 0, "NOTHING WAS GRADED"},
+		"unread, and a survivor is not graded either":       {live, CanaryUnknown, files, "", 0, "NOTHING WAS GRADED"},
+		"fixed, and the kill is a kill":                     {kill, CanaryOK, files, "", 0, "every viable mutant was caught"},
+		"fixed, and the survivor is a survivor":             {live, CanaryOK, files, "", 1, "1 mutant(s) survived or were never covered"},
+		"a real gap outranks the hole":                      {both, CanaryBroken, files, "", 1, "1 mutant(s) survived or were never covered"},
+		// NOTHING TO EXCLUDE WITH is a could-not-measure: the runner grades a
+		// main package wrong and the lane cannot say which files are in one, so
+		// every count may be about other code and the gate cannot point at which.
+		"broken, and the files could not be listed": {kill, CanaryBroken, nil, "go list exited 1", 2, "could not list which files are in one"},
+		// …and moot once the runner is fixed: there is nothing to exclude.
+		"fixed, so a failed listing is moot": {kill, CanaryOK, nil, "go list exited 1", 0, "every viable mutant was caught"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			state, reason := GoMutationVerdict(GoMutationRun{
+				Report: []byte(c.report), Canary: CanaryOK, Workers: 1,
+				Classified: []byte(`{"noise":[]}`),
+				MainCanary: c.canary, MisgradedFiles: c.files, MisgradedFilesErr: c.listErr,
+			})
+			if state != c.state || !strings.Contains(reason, c.reason) {
+				t.Errorf("settled %d, want %d; reason lacks %q:\n%s", state, c.state, c.reason, reason)
+			}
+		})
+	}
+	// THE HEADLINE IS FOR A RUN THAT GRADED *NOTHING*, and both halves of that
+	// guard need a case or the guard is not pinned.
+	//
+	// ONE REAL KILL BESIDE THE HOLE IS STILL A MEASUREMENT. The viable mutant was
+	// graded and caught; claiming the run verified nothing would be as wrong as
+	// claiming the hole is not there, and the hole is in the summary either way.
+	graded := `{"files":[{"file_name":"lib/lib.go","mutations":[{"type":"T","status":"KILLED","line":1,"column":1}]},
+{"file_name":"cmd/tool/main.go","mutations":[{"type":"T","status":"KILLED","line":4,"column":35}]}]}`
+	state, reason := GoMutationVerdict(GoMutationRun{
+		Report: []byte(graded), Canary: CanaryOK, Workers: 1,
+		Classified: []byte(`{"noise":[]}`), MainCanary: CanaryBroken, MisgradedFiles: files,
+	})
+	if state != 0 || !strings.Contains(reason, "every viable mutant was caught") || strings.Contains(reason, GoMutationNothingGraded) {
+		t.Errorf("a graded kill beside an ungraded mutant: %d %q — the run measured something", state, reason)
+	}
+	if !strings.Contains(reason, "NOT GRADED") {
+		t.Errorf("the hole vanished from a run that also measured something:\n%s", reason)
+	}
+
+	// AND A RUN WITH NOTHING BUT INERT MUTANTS GRADED NOTHING EITHER, but not
+	// because of #268 — it has no ungraded mutants, so the headline is not its
+	// sentence. The scorer's own "measured NONE of them" block is.
+	inert := `{"files":[{"file_name":"lib/lib.go","mutations":[{"type":"T","status":"NOT VIABLE","line":1,"column":1}]}]}`
+	state, reason = GoMutationVerdict(GoMutationRun{
+		Report: []byte(inert), Canary: CanaryOK, Workers: 1,
+		Classified: []byte(`{"noise":[]}`), MainCanary: CanaryBroken, MisgradedFiles: files,
+	})
+	if state != 0 || strings.Contains(reason, GoMutationNothingGraded) {
+		t.Errorf("an inert-only report borrowed the package-main headline: %d %q", state, reason)
+	}
+	if !strings.Contains(reason, "measured NONE of them") {
+		t.Errorf("an inert-only report did not say it measured nothing:\n%s", reason)
+	}
+
+	// A GREEN THAT SAYS IT VERIFIED NOTHING. Exit 0, because there is no test
+	// gap to point at and no committer who can fix #268 — but the reason says so
+	// in as many words, rather than claiming every viable mutant was caught.
+	_, reason = GoMutationVerdict(GoMutationRun{
+		Report: []byte(kill), Canary: CanaryOK, Workers: 1,
+		Classified: []byte(`{"noise":[]}`), MainCanary: CanaryBroken, MisgradedFiles: files,
+	})
+	if strings.Contains(reason, "every viable mutant was caught") {
+		t.Errorf("a run that graded nothing claimed every mutant was caught:\n%s", reason)
+	}
+	if !strings.Contains(reason, "This run did not verify the tests") || !strings.Contains(reason, "cmd/tool/main.go:4:35") {
+		t.Errorf("the reason must say what it did not do, and name what it skipped:\n%s", reason)
 	}
 }

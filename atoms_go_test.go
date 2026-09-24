@@ -236,7 +236,15 @@ func TestGoTestRaceBringsTheRecordsPostgres(t *testing.T) {
 // The go:mutation needles, each in one exec's chain.
 const (
 	goMutantsNeedle = `"--output","mutation-go.json"`
-	goCanaryNeedle  = `"--workers","1"`
+	// THE TWO CONTROLS BOTH RUN `--workers","1"`, which is why neither needle is
+	// that argv: it would match both chains and chain() answers the newest. The
+	// workdir is unique per control, and the closing quote keeps each needle off
+	// the withNewFile paths under it.
+	goCanaryNeedle     = `path:"/tmp/mutation/canary"`
+	goMainCanaryNeedle = `path:"/tmp/mutation/maincanary"`
+	// goMainListNeedle is the `go list` that names which files are in a
+	// `package main` — the set the package-main control governs.
+	goMainListNeedle = `"go","list","-e","-f"`
 	// goClassifyNeedle is the testkit's gate, run in the lane after gremlins
 	// for its classification of what no test could kill.
 	goClassifyNeedle = `"mutation-gate","-report","mutation-go.json","-C",".","-json"`
@@ -256,6 +264,11 @@ func scriptGoMutation(tree map[string]string) {
 	engine.stdout(mergeBaseNeedle, sinceSha+"\n")
 	engine.stdout(goDiffNeedle, "a.go\n")
 	engine.stdout(goCanaryNeedle, "Killed: 0, Lived: 1, Not covered: 0\n")
+	// THE PACKAGE-MAIN CONTROL ANSWERS BROKEN BY DEFAULT, because that is what
+	// gremlins 0.6.0 answers: the lane's ordinary state is one working harness
+	// and one bug it is working around. A test that wants the other world says
+	// so (TestGoMutationDoesNotCountAMainPackageItCannotGrade).
+	engine.stdout(goMainCanaryNeedle, "Killed: 1, Lived: 0, Not covered: 0\n")
 	// The classifier answered, and named nothing: every survivor is real.
 	engine.stdout(goClassifyNeedle, `{"noise":[]}`+"\n")
 }
@@ -269,6 +282,14 @@ func TestGoMutationCompilesTheRecordsDBTags(t *testing.T) {
 	// A pass keeps no output (checks.VerdictOf); the scope line is set on
 	// the verdict and survives it.
 	wantState(t, runAtom(t, "go:mutation", "abc123"), 0, "live_db → TEST_DATABASE_URL")
+	// THE MISGRADED-FILE LISTING IS TAGGED LIKE THE COVER STEP. A build-tagged
+	// main file is placed by the tags in force, so an untagged `go list` would
+	// leave it out of the set and its mutants would be trusted. Asserted on THIS
+	// run's chain, not in a defer: this test runs the atom twice and the second
+	// run carries no record, so the newest listing is the untagged one.
+	if list := engine.chain(goMainListNeedle, "stdout"); !strings.Contains(list, `"-tags","live_db"`) {
+		t.Errorf("the misgraded-file listing dropped the record's build tags:\n%s", list)
+	}
 	c := engine.chain(goMutantsNeedle, "exitCode")
 	wantCalls(t, c,
 		[]string{"withServiceBinding", `alias:"db"`},
@@ -289,6 +310,10 @@ func TestGoMutationCompilesTheRecordsDBTags(t *testing.T) {
 	c = engine.chain(goMutantsNeedle, "exitCode")
 	if strings.Contains(c, `"-tags"`) || strings.Contains(c, `"--tags"`) || hasCall(c, "withServiceBinding") {
 		t.Errorf("a record without postgres sets no tags and binds nothing:\n%s", c)
+	}
+	// ...and the listing likewise: an empty `-tags ""` is not "no tags".
+	if list := engine.chain(goMainListNeedle, "stdout"); strings.Contains(list, `"-tags"`) {
+		t.Errorf("a record without postgres tagged the misgraded-file listing:\n%s", list)
 	}
 }
 
@@ -350,6 +375,36 @@ func TestGoMutationMeasuresTheDiffAndSettlesInGo(t *testing.T) {
 		[]string{"withWorkdir", `path:"/tmp/mutation/canary"`},
 		[]string{"withExec", `"gremlins","unleash","--config","/tmp/mutation/gremlins-canonical.yaml","--workers","1","."`},
 	)
+	// THE SECOND CONTROL'S SHAPE IS THE TEST. A main package AT the module root
+	// is graded correctly by the gremlins this works around, so a control
+	// written that way proves nothing; the main package must sit in a
+	// subdirectory with NOTHING at the root. cmd/tool/main.go, and no root .go
+	// file, is that shape — assert it here, because a later tidy-up that moves
+	// the file to the root would leave a control that always answers OK.
+	main := engine.chain(goMainCanaryNeedle, "stdout")
+	wantCalls(t, main,
+		[]string{"withNewFile", `path:"/tmp/mutation/maincanary/go.mod"`},
+		[]string{"withNewFile", `path:"/tmp/mutation/maincanary/cmd/tool/main.go"`},
+		[]string{"withNewFile", `path:"/tmp/mutation/maincanary/cmd/tool/main_test.go"`},
+		[]string{"withWorkdir", `path:"/tmp/mutation/maincanary"`},
+		[]string{"withExec", `"gremlins","unleash","--config","/tmp/mutation/gremlins-canonical.yaml","--workers","1","."`},
+	)
+	if strings.Contains(main, `path:"/tmp/mutation/maincanary/main.go"`) {
+		t.Errorf("the package-main control grew a root package, which this gremlins grades correctly:\n%s", main)
+	}
+	// And the set that control governs is read from the toolchain, in the module
+	// — `go list`, not a grep over package clauses.
+	list := engine.chain(goMainListNeedle, "stdout")
+	wantCalls(t, list,
+		[]string{"withWorkdir", `path:"/src"`},
+		[]string{"withExec", `"go","list","-e","-f"`, `"./..."`},
+	)
+	// NO RECORD, NO TAGS. This repo declares no databases, so the listing is
+	// untagged; TestGoMutationCompilesTheRecordsDBTags holds the other side, and
+	// an empty `-tags ""` would place a build-tagged main file wrongly.
+	if strings.Contains(list, `"-tags"`) {
+		t.Errorf("a repo with no test databases tagged its go list:\n%s", list)
+	}
 }
 
 // What the run measured decides the verdict, through checks.GoMutationVerdict.
@@ -436,12 +491,17 @@ func TestGoMutationSettlesWhatItMeasured(t *testing.T) {
 		t.Error("mutation-gate ran with no report to read")
 	}
 
-	// A canary that did not build never runs gremlins.
-	scriptGoMutation(nil)
-	engine.exitCode(`"/tmp/mutation/canary/canary_test.go"`, 1)
-	runAtom(t, "go:mutation", "abc123")
-	if engine.chain(goCanaryNeedle) != "" {
-		t.Error("gremlins ran a canary whose tests do not build")
+	// A canary that did not build never runs gremlins, either control.
+	for _, c := range []struct{ name, file, needle string }{
+		{"the harness control", `"/tmp/mutation/canary/canary_test.go"`, goCanaryNeedle},
+		{"the package-main control", `"/tmp/mutation/maincanary/cmd/tool/main_test.go"`, goMainCanaryNeedle},
+	} {
+		scriptGoMutation(nil)
+		engine.exitCode(c.file, 1)
+		runAtom(t, "go:mutation", "abc123")
+		if chain := engine.chain(c.needle, `"gremlins"`); chain != "" {
+			t.Errorf("gremlins ran %s, whose tests do not build:\n%s", c.name, chain)
+		}
 	}
 }
 
@@ -1126,4 +1186,89 @@ func TestGoReleaseNamesAStarWithNoAnswersFileByItsRecord(t *testing.T) {
 	engine.withTree(dies)
 	r = newRun(dag.Directory(), "http://ourea.default.svc.cluster.local:8215/tron.git", "")
 	wantState(t, registry["rust:release"](context.Background(), r), 0, "release build: tron")
+}
+
+// A FIXED GREMLINS COUNTS A MISGRADED FILE AGAIN, all the way through the atom,
+// and the control is the ONLY thing that tells a false red from a real survivor.
+// gremlins reports LIVED for a main package below the module root either way:
+// while #268 stands it ran the root's tests, and once it is fixed it ran the
+// right ones. Same report, same file, two verdicts.
+func TestGoMutationCountsAMisgradedFileOnceItsControlPasses(t *testing.T) {
+	report := `{"files":[{"file_name":"verdict/main.go","mutations":[{"type":"T","status":"LIVED","line":2,"column":3}]}]}`
+	for _, c := range []struct {
+		name, canary string
+		state        int
+		reason       string
+	}{
+		{"the control passes, so the survivor is real", "Killed: 0, Lived: 1, Not covered: 0\n", 1, "1 mutant(s) survived or were never covered"},
+		// A PASS DISCARDS THE ATOM'S OUTPUT, so this green has to carry its own
+		// headline or it prints as an unqualified pass - the misreading the whole
+		// bucket exists to prevent.
+		{"the control is broken, so nothing was graded", "Killed: 1, Lived: 0, Not covered: 0\n", 0, checks.GoMutationNothingGraded},
+		// A control nobody could read has not cleared the runner.
+		{"the control could not be read", "gremlins: no such module\n", 0, checks.GoMutationNothingGraded},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			scriptGoMutation(map[string]string{"/src/mutation-go.json": report})
+			engine.stdout(goDiffNeedle, "verdict/main.go\n")
+			// atoms_go.go is the module root's own main package: graded correctly,
+			// and never in the set.
+			engine.stdout(goMainListNeedle, "/src/verdict/main.go\n/src/atoms_go.go\n")
+			engine.stdout(goMainCanaryNeedle, c.canary)
+			wantState(t, runAtom(t, "go:mutation", "abc123"), c.state, c.reason)
+		})
+	}
+}
+
+// A LISTING THAT DID NOT ANSWER IS NOT AN EMPTY LISTING. While the runner
+// misgrades a main package and the lane cannot say which files are in one, there
+// is nothing to exclude WITH — every count may be about other code and the gate
+// cannot point at which. That is a could-not-measure, not a pass.
+func TestGoMutationCannotMeasureWithoutTheMisgradedSet(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		script func()
+		reason string
+	}{
+		{"go list could not be read", func() { engine.fail(goMainListNeedle, "engine gone") }, "engine gone"},
+		{"go list exited non-zero", func() { engine.exitCode(goMainListNeedle, 1) }, "go list exited 1"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			scriptGoMutation(nil)
+			c.script()
+			wantState(t, runAtom(t, "go:mutation", "abc123"), 2,
+				"could not list which files are in one", c.reason)
+		})
+	}
+	// ...and once the runner is fixed there is nothing to exclude, so the same
+	// failed listing is MOOT: a clean report passes and says nothing about it.
+	scriptGoMutation(nil)
+	engine.exitCode(goMainListNeedle, 1)
+	engine.stdout(goMainCanaryNeedle, "Killed: 0, Lived: 1, Not covered: 0\n")
+	v := runAtom(t, "go:mutation", "abc123")
+	wantState(t, v, 0)
+	if strings.Contains(v.Reason, "could not list") || strings.Contains(v.Reason, checks.GoMutationNothingGraded) {
+		t.Errorf("a fixed runner still complained about the listing:\n%s", v.Reason)
+	}
+	// AND AN ORDINARY PASS STAYS QUIET. The lift exists for ONE case; riding on
+	// every green would be noise that stops being read, and it would smuggle back
+	// the output checks.VerdictOf discards on a pass. So the assertion is about
+	// the discard itself, not about the one headline: a clean run's own verdict
+	// line ("every viable mutant was caught") must not reach Reason either.
+	// MEASURED: asserting only on GoMutationNothingGraded left `if state == 0`
+	// alone — a clean pass's first line does not contain that string, so the
+	// weaker test could not see the mutant.
+	scriptGoMutation(nil)
+	engine.stdout(goMainCanaryNeedle, "Killed: 0, Lived: 1, Not covered: 0\n")
+	v = runAtom(t, "go:mutation", "abc123")
+	for _, leaked := range []string{checks.GoMutationNothingGraded, "every viable mutant was caught", "Mutation gate"} {
+		if strings.Contains(v.Reason, leaked) {
+			t.Errorf("an ordinary pass lifted %q out of the output a pass discards:\n%s", leaked, v.Reason)
+		}
+	}
+	// The summary is not LOST by that discard — it is in the logs, which is where
+	// a forgiveness or an exclusion stays readable on a green.
+	if !strings.Contains(strings.Join(v.Logs, "\n"), "Mutation gate") {
+		t.Errorf("a passing atom kept no logs, so its summary is unreadable:\n%s", v.Logs)
+	}
 }
