@@ -902,9 +902,8 @@ func (s *sjScan) file(rel string) error {
 		s.excluded++
 		return nil
 	}
-	name := pathBase(rel)
 	lang := LanguageOf(rel)
-	if lang == "" && name != "pyproject.toml" && name != "ruff.toml" && !IsKubeJustifications(rel) {
+	if !SJScans(rel) {
 		return nil
 	}
 	if IsKubeJustifications(rel) {
@@ -1216,8 +1215,7 @@ func configCmp(a, b sjConfig) int {
 func SJReads(tracked []string) []string {
 	var out []string
 	for _, rel := range tracked {
-		name := pathBase(rel)
-		if LanguageOf(rel) == "" && name != "pyproject.toml" && name != "ruff.toml" {
+		if !SJScans(rel) {
 			continue
 		}
 		if rel == SJSelf[0] || rel == SJSelf[1] || gateExcludeRE.MatchString(rel) {
@@ -1226,6 +1224,25 @@ func SJReads(tracked []string) []string {
 		out = append(out, rel)
 	}
 	return out
+}
+
+// SJScans answers whether the scan opens this file at all, and it is the ONE
+// place that decides. SJReads names the files the lane loads and file() names
+// the files the scan reads; when those were two copies of the same condition
+// they drifted the first time one changed — .kube-justifications.json was
+// added to the scan and not to the reader list, so the lane handed it an empty
+// string and the record "did not parse: unexpected end of JSON input". A
+// CANNOT RUN rather than a wrong answer, which is the design working, but the
+// drift is what a shared predicate makes impossible.
+func SJScans(rel string) bool {
+	if IsKubeJustifications(rel) {
+		return true
+	}
+	if LanguageOf(rel) != "" {
+		return true
+	}
+	name := pathBase(rel)
+	return name == "pyproject.toml" || name == "ruff.toml"
 }
 
 // RepoFromOrigin answers the repository an origin URL names — the basename,
