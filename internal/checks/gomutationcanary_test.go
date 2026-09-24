@@ -96,15 +96,23 @@ func TestGoMainFilesFormatNamesEveryFileOfAMainPackageAndNoOther(t *testing.T) {
 	}
 }
 
-// ParseGoMainFiles turns what go list printed into the paths gremlins uses in
-// its report: relative to the module, which is not the repository when the
-// module is nested.
-func TestParseGoMainFilesReadsPathsRelativeToTheModule(t *testing.T) {
-	out := "/src/cmd/tool/main.go\n/src/cmd/tool/flags.go\n\n  /src/main.go  \n"
-	got := ParseGoMainFiles(out, "/src")
-	want := GoMainFiles{"cmd/tool/main.go": true, "cmd/tool/flags.go": true, "main.go": true}
+// ParseGoMisgradedFiles turns what go list printed into the paths gremlins uses
+// in its report — relative to the module, which is not the repository when the
+// module is nested — and keeps only the files #268 actually misgrades.
+func TestParseGoMisgradedFilesKeepsOnlyWhatIsMisgraded(t *testing.T) {
+	// THE MODULE ROOT'S OWN MAIN PACKAGE IS GRADED CORRECTLY and must not be in
+	// the set. #268 resolves a main package to the module root, so a main package
+	// that IS the root resolves to itself (MEASURED 2026-09-24: `package main` at
+	// the root answered LIVED, the honest verdict). foundry-tools is the
+	// counter-example that forced this: its root is `package main`, and the first
+	// cut of this function excluded 11 mutants of atoms_go.go — three LIVED, two
+	// NOT COVERED — on the pull that introduced the exclusion. An over-wide set
+	// HIDES REAL MUTANTS, the one direction this whole change exists to prevent.
+	out := "/src/verdict/main.go\n/src/castpin/main.go\n\n  /src/atoms_go.go  \n/src/main.go\n"
+	got := ParseGoMisgradedFiles(out, "/src")
+	want := GoMisgradedFiles{"verdict/main.go": true, "castpin/main.go": true}
 	if len(got) != len(want) {
-		t.Fatalf("read %v, want %v", got, want)
+		t.Fatalf("read %v, want %v — the module root's own files are graded correctly", got, want)
 	}
 	for k := range want {
 		if !got[k] {
@@ -113,26 +121,27 @@ func TestParseGoMainFilesReadsPathsRelativeToTheModule(t *testing.T) {
 	}
 	// A NESTED MODULE'S PATHS ARE RELATIVE TO THE MODULE. gremlins names
 	// cmd/forge/main.go, never tools/forge/cmd/forge/main.go, so a set keyed the
-	// other way matches nothing and the exclusion silently does not apply.
-	nested := ParseGoMainFiles("/src/tools/forge/cmd/forge/main.go\n", "/src/tools/forge")
+	// other way matches nothing and the exclusion silently does not apply — and
+	// tools/forge/main.go is that module's root, graded correctly.
+	nested := ParseGoMisgradedFiles("/src/tools/forge/cmd/forge/main.go\n/src/tools/forge/main.go\n", "/src/tools/forge")
 	if len(nested) != 1 || !nested["cmd/forge/main.go"] {
-		t.Errorf("a nested module read %v, want cmd/forge/main.go", nested)
+		t.Errorf("a nested module read %v, want cmd/forge/main.go alone", nested)
 	}
 	// A trailing slash on the root is the same root.
-	if slashed := ParseGoMainFiles("/src/cmd/tool/main.go\n", "/src/"); !slashed["cmd/tool/main.go"] {
+	if slashed := ParseGoMisgradedFiles("/src/cmd/tool/main.go\n", "/src/"); !slashed["cmd/tool/main.go"] {
 		t.Errorf("a root with a trailing slash read %v", slashed)
 	}
 	// A line outside the module is not this module's file. go list -e prints
 	// package-load errors, and a path from elsewhere must not become an
 	// exclusion — an over-wide set hides real mutants.
-	outside := ParseGoMainFiles("/other/cmd/tool/main.go\n/src\n/srcfake/main.go\n", "/src")
+	outside := ParseGoMisgradedFiles("/other/cmd/tool/main.go\n/src\n/srcfake/cmd/x/main.go\n", "/src")
 	if len(outside) != 0 {
 		t.Errorf("read %v from lines outside the module, want none", outside)
 	}
-	// AN EMPTY ANSWER IS AN ANSWER, and it is not nil: a module with no main
-	// package excludes nothing, which is different from a lane that could not
-	// look (GoMutationRun.MainFilesErr carries that).
-	if empty := ParseGoMainFiles("", "/src"); empty == nil || len(empty) != 0 {
+	// AN EMPTY ANSWER IS AN ANSWER, and it is not nil: a module with nothing
+	// misgraded excludes nothing, which is different from a lane that could not
+	// look (GoMutationRun.MisgradedFilesErr carries that).
+	if empty := ParseGoMisgradedFiles("", "/src"); empty == nil || len(empty) != 0 {
 		t.Errorf("an empty listing read %v, want an empty non-nil set", empty)
 	}
 }

@@ -81,10 +81,22 @@ const (
 	GoMutationMainCanaryTest = "package main\n\nimport \"testing\"\n\n// TestAddRuns covers Add without checking it, on purpose.\nfunc TestAddRuns(t *testing.T) {\n\tgot := Add(2, 3)\n\tt.Logf(\"Add(2, 3) = %d\", got)\n}\n"
 )
 
-// GoMainFiles is the set of module-relative Go files that belong to a
-// `package main` — the files whose mutants a gremlins with #268 grades against
-// the wrong package. Keyed the way gremlins names a file in its report.
-type GoMainFiles map[string]bool
+// GoMisgradedFiles is the set of module-relative Go files whose mutants a
+// gremlins with #268 grades against the WRONG PACKAGE. Keyed the way gremlins
+// names a file in its report.
+//
+// IT IS NOT EVERY `package main` FILE, and the difference is measured. #268
+// resolves a main package's path to the MODULE ROOT — so a main package that IS
+// the module root resolves to itself and is graded CORRECTLY (2026-09-24:
+// `package main` at the root answered LIVED, the honest verdict; the same code
+// at cmd/tool answered KILLED). Only a main package BELOW the root is misgraded.
+//
+// The first cut of this set was every main file, and foundry-tools is its own
+// counter-example: its module root is `package main`, so the gate excluded 11
+// mutants in atoms_go.go — three LIVED and two NOT COVERED among them — on the
+// same pull that introduced the exclusion. An over-wide set hides real mutants,
+// which is the one direction this whole change exists to prevent.
+type GoMisgradedFiles map[string]bool
 
 // GoMainFilesFormat is the `go list -f` template that names them: every
 // non-test Go file of every package called main, one absolute path per line.
@@ -97,19 +109,27 @@ type GoMainFiles map[string]bool
 // out because gremlins does not mutate them.
 const GoMainFilesFormat = `{{if eq .Name "main"}}{{$d := .Dir}}{{range .GoFiles}}{{$d}}/{{.}}{{"\n"}}{{end}}{{end}}`
 
-// ParseGoMainFiles reads that template's stdout into paths relative to the
-// module at root. A line that is not under root does not belong to this module
-// and is dropped; an empty result is an answer ("this module has no main
-// package"), which is why the map is always non-nil.
-func ParseGoMainFiles(out, root string) GoMainFiles {
-	files := GoMainFiles{}
+// ParseGoMisgradedFiles reads that template's stdout into paths relative to the
+// module at root, keeping only the main-package files BELOW it. A line that is
+// not under root does not belong to this module and is dropped; an empty result
+// is an answer ("nothing here is misgraded"), which is why the map is always
+// non-nil.
+func ParseGoMisgradedFiles(out, root string) GoMisgradedFiles {
+	files := GoMisgradedFiles{}
 	prefix := path.Clean(root) + "/"
 	for _, ln := range strings.Split(out, "\n") {
 		ln = strings.TrimSpace(ln)
 		if ln == "" || !strings.HasPrefix(ln, prefix) {
 			continue
 		}
-		files[strings.TrimPrefix(ln, prefix)] = true
+		rel := strings.TrimPrefix(ln, prefix)
+		// A file at the module root is the module root's own package, which #268
+		// resolves to correctly. Keeping it would exclude mutants that WERE
+		// graded — see GoMisgradedFiles.
+		if !strings.Contains(rel, "/") {
+			continue
+		}
+		files[rel] = true
 	}
 	return files
 }

@@ -47,7 +47,8 @@ type GoMutationScore struct {
 	// nothing about the tests.
 	Forgiven []string
 	// Ungraded are the mutants this runner graded against the wrong package —
-	// every mutant in a `package main` while gremlins#268 stands. They carry a
+	// every mutant in a `package main` below the module root while gremlins#268
+	// stands (GoMisgradedFiles says why not every main file). They carry a
 	// KILLED or LIVED verdict that is about a DIFFERENT package, so they are in
 	// neither the kills nor the misses and not in the rate's denominator: a
 	// verdict the gate cannot trust is not a measurement it can count.
@@ -154,8 +155,8 @@ func gradedStatus(status string) bool {
 
 // ScoreGoMutation scores gremlins' mutation-go.json against the coverage
 // profile the lane gathered and the classification the testkit's gate
-// answered. A nil noise forgives nothing; a nil mainFiles distrusts nothing.
-func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoMutationNoise, mainFiles GoMainFiles) (GoMutationScore, error) {
+// answered. A nil noise forgives nothing; a nil misgraded distrusts nothing.
+func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoMutationNoise, misgraded GoMisgradedFiles) (GoMutationScore, error) {
 	var d struct {
 		GoModule    string   `json:"go_module"`
 		ElapsedTime *float64 `json:"elapsed_time"`
@@ -198,7 +199,7 @@ func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoM
 			// answer disqualifies both: the classifier can only speak about
 			// survivors, so a FALSE KILL in a main package is a hole no
 			// forgiveness can reach — and it is the direction that reads green.
-			if mainFiles[f.FileName] && gradedStatus(status) {
+			if misgraded[f.FileName] && gradedStatus(status) {
 				s.Ungraded = append(s.Ungraded, where)
 				continue
 			}
@@ -269,16 +270,17 @@ func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoM
 		// "this runner did not look at it". One is about the code, the other
 		// about the tool.
 		out = append(out,
-			fmt.Sprintf("**%d mutant(s) were NOT GRADED — they sit in a `package main`.**", len(s.Ungraded)),
-			"This gremlins resolves a file's package from its PACKAGE CLAUSE, so every",
-			"file in a `package main` resolves to the module root, and the tests it runs",
-			"for such a mutant are not the tests that cover it. With no package at the",
-			"root the run fails and the mutant reads KILLED (a FALSE GREEN); with one,",
-			"its tests pass and the mutant reads LIVED (a false red). Upstream",
-			"gremlins#268, fix open at #306. Excluded from the rate and listed here,",
-			"because a hole in the measurement is not a pass. The package-main control",
-			"decides this — when a gremlins that grades a main package lands it answers",
-			"OK and these mutants count again, with nobody editing this file.", "", "```")
+			fmt.Sprintf("**%d mutant(s) were NOT GRADED — a `package main` below the module root.**", len(s.Ungraded)),
+			"This gremlins resolves a file's package from its PACKAGE CLAUSE, so such a",
+			"file resolves to the MODULE ROOT, and the tests it runs for the mutant are",
+			"not the tests that cover it. With no package at the root the run fails and",
+			"the mutant reads KILLED (a FALSE GREEN); with one, that package's tests",
+			"pass and the mutant reads LIVED (a false red). A main package that IS the",
+			"root resolves to itself and is graded correctly, so it is not in here.",
+			"Upstream gremlins#268, fix open at #306. Excluded from the rate and listed",
+			"here, because a hole in the measurement is not a pass. The package-main",
+			"control decides this — when a gremlins that grades a main package lands it",
+			"answers OK and these mutants count again, with nobody editing this file.", "", "```")
 		out = append(append(out, s.Ungraded...), "```", "")
 	}
 	if s.MsPerMutant >= 0 {
@@ -292,7 +294,7 @@ func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoM
 			"mutable operator (gremlins' --diff is line-ranged)."}
 		if len(s.Ungraded) > 0 {
 			why = []string{"It did not verify anything. Every mutant it could have graded sits",
-				"in a `package main`, graded above against the wrong package."}
+				"in a `package main` below the root, graded against the wrong package."}
 		}
 		out = append(out, fmt.Sprintf("**This run generated %d mutant(s) and measured NONE of them.**", s.Generated))
 		out = append(append(out, why...), "")
@@ -326,6 +328,15 @@ func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoM
 // did not measure the suite.
 const GoMutationTimeoutBudget = 10.0
 
+// GoMutationNothingGraded opens the reason of a run that produced verdicts and
+// could trust NONE of them. It settles 0 — there is no test gap to point at and
+// no committer who can fix gremlins#268 — so this is the one green whose reason
+// must reach a reader anyway: VerdictOf discards a PASSING atom's output from
+// Reason (it survives in Logs), and a lane line reading `go:mutation - pass` is
+// exactly the misreading this whole change exists to remove. The atom lifts the
+// reason's first line past that discard; see goMutationIn's settle.
+const GoMutationNothingGraded = "NOTHING WAS GRADED"
+
 // GoMutationRun is what the lane measured, for the verdict.
 type GoMutationRun struct {
 	// Status is gremlins' exit code.
@@ -338,16 +349,16 @@ type GoMutationRun struct {
 	// CanaryUnknown. Broken is fatal — see GoMutationVerdict.
 	Canary string
 	// MainCanary is the package-main control's answer. CanaryOK means this
-	// gremlins grades a main package correctly and MainFiles is ignored;
-	// anything else means it does not, and MainFiles is excluded. Unknown
+	// gremlins grades a main package correctly and MisgradedFiles is ignored;
+	// anything else means it does not, and those files are excluded. Unknown
 	// distrusts: a control that could not be read has not cleared the runner.
 	MainCanary string
-	// MainFiles are the module-relative files in a `package main`, as
-	// ParseGoMainFiles read them. MainFilesErr is why the lane could not list
-	// them, when it could not.
-	MainFiles    GoMainFiles
-	MainFilesErr string
-	Workers      int
+	// MisgradedFiles are the module-relative files this runner grades against
+	// the wrong package, as ParseGoMisgradedFiles read them. MisgradedFilesErr
+	// is why the lane could not list them, when it could not.
+	MisgradedFiles    GoMisgradedFiles
+	MisgradedFilesErr string
+	Workers           int
 	// Classified is what mutation-gate -json wrote in the lane; empty when it
 	// did not answer. ClassifyErr is what it said on stderr when it did not.
 	Classified  []byte
@@ -389,11 +400,11 @@ func GoMutationVerdict(run GoMutationRun) (int, string) {
 	// every pull in the 36 of 38 fleet repos that have no root package, over an
 	// upstream bug no committer here can fix. So it switches the exclusion on
 	// instead — and switches it off by itself the day a fixed gremlins lands.
-	mainFiles := run.MainFiles
+	misgraded := run.MisgradedFiles
 	if run.MainCanary == CanaryOK {
-		mainFiles = nil
+		misgraded = nil
 	}
-	s, err := ScoreGoMutation(run.Report, run.Profile, "diff", run.Workers, noise, mainFiles)
+	s, err := ScoreGoMutation(run.Report, run.Profile, "diff", run.Workers, noise, misgraded)
 	if err != nil {
 		return 2, "the mutation report could not be read: " + err.Error()
 	}
@@ -413,19 +424,19 @@ func GoMutationVerdict(run GoMutationRun) (int, string) {
 		// Fatal like a timeout-heavy run: neither measured anything.
 		return 2, with("the harness scores unrun tests as kills: the control mutant, which must SURVIVE, came back KILLED — every kill in this report is false. See #7649")
 	}
-	if run.MainCanary != CanaryOK && run.MainFilesErr != "" {
+	if run.MainCanary != CanaryOK && run.MisgradedFilesErr != "" {
 		// NOTHING TO EXCLUDE WITH. This gremlins grades a main package against
 		// the module root and the lane could not say which files are in one, so
 		// the counts below may include verdicts about other code entirely — and
 		// the gate cannot point at which. That is a could-not-measure, not a pass.
-		return 2, with("this gremlins grades a `package main` against the module root (gremlins#268) and the lane could not list which files are in one: " + run.MainFilesErr)
+		return 2, with("this gremlins grades a `package main` against the module root (gremlins#268) and the lane could not list which files are in one: " + run.MisgradedFilesErr)
 	}
 	if missed == 0 {
 		if len(s.Ungraded) > 0 && s.Viable() == 0 {
 			// Clean, and clean ABOUT it: exit 0, because there is no test gap to
 			// point at and no committer who can fix #268 — and a reason that says
 			// in as many words that this run verified nothing.
-			return 0, with(fmt.Sprintf("NOTHING WAS GRADED — all %d mutant(s) with a verdict sit in a `package main`, which this gremlins grades against the module root (gremlins#268). This run did not verify the tests", len(s.Ungraded)))
+			return 0, with(fmt.Sprintf("%s — all %d mutant(s) with a verdict sit in a `package main` below the module root, which this gremlins grades against the root instead (gremlins#268). This run did not verify the tests", GoMutationNothingGraded, len(s.Ungraded)))
 		}
 		return 0, with("every viable mutant was caught")
 	}

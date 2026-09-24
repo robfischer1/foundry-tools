@@ -674,7 +674,9 @@ func goGovulncheck(ctx context.Context, r *run) checks.Verdict {
 // grades against fails and the mutant reads KILLED: a FALSE GREEN this gate
 // would publish. The package-main control is the same under-tested mutant in a
 // main package with nothing at the module root, and a `go list` names the files
-// it governs. It is EXPECTED to come back broken today, and while it does those
+// it governs — the main packages BELOW the root, because a main package that IS
+// the root resolves to itself and is graded correctly. It is EXPECTED to come
+// back broken today, and while it does those
 // mutants are not counted (checks.GoMutationVerdict). Nobody has to remember to
 // undo that: the day a fixed gremlins lands the control answers OK and they
 // count again.
@@ -731,9 +733,21 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	ctr, dbs, scope := r.withTestDatabases(ctx, ctr)
 	// The scope line is set on the verdict, not folded into the output: a pass
 	// keeps no output (checks.VerdictOf), and the line is printed either way.
+	//
+	// A RUN THAT GRADED NOTHING RIDES BESIDE IT, for the same reason and only for
+	// that case. It settles 0, so its reason would be discarded exactly where it
+	// matters: a green that verified nothing, printed as an unqualified pass. The
+	// reason's first line is the headline (GoMutationVerdict builds it that way)
+	// and checks.GoMutationNothingGraded is the one string both ends agree on. A
+	// PARTIALLY ungraded run is not lifted - its viable mutants were measured, and
+	// the exclusion is in the summary the logs keep.
 	settle := func(state int, reason string) checks.Verdict {
 		v := checks.VerdictOf(a, state, a.ID+": "+reason)
-		v.Reason = scope + "\n" + v.Reason
+		note := scope
+		if state == 0 && strings.HasPrefix(reason, checks.GoMutationNothingGraded) {
+			note += "\n" + a.ID + ": " + strings.SplitN(reason, "\n", 2)[0]
+		}
+		v.Reason = note + "\n" + v.Reason
 		return v
 	}
 	neverRan := func(err error) checks.Verdict { return settle(2, "CANNOT RUN - the atom never ran: "+err.Error()) }
@@ -843,21 +857,25 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	// whose first line reads `package main` is not named and a build-tagged file
 	// is placed by the same tags the cover step used. A grep would name the
 	// fixture and widen the exclusion — the direction that hides mutants.
+	// ParseGoMisgradedFiles then drops the module root's own main package, which
+	// #268 resolves to correctly; THIS repo is the reason that filter exists —
+	// its root is `package main`, and the first cut excluded 11 mutants of
+	// atoms_go.go, three of them LIVED, on the pull that added the exclusion.
 	// Failing to list them is carried, not swallowed: without the set there is
 	// nothing to exclude with, and the verdict makes that a could-not-measure.
-	mainFiles := checks.GoMainFiles{}
-	var mainFilesErr string
+	misgraded := checks.GoMisgradedFiles{}
+	var misgradedErr string
 	listArgs := []string{"go", "list", "-e", "-f", checks.GoMainFilesFormat}
 	if len(dbs) > 0 {
 		listArgs = append(listArgs, "-tags", checks.BuildTags(dbs))
 	}
 	switch out, code, err := output(ctx, canonical.WithExec(append(listArgs, "./..."), anyExit)); {
 	case err != nil:
-		mainFilesErr = err.Error()
+		misgradedErr = err.Error()
 	case code != 0:
-		mainFilesErr = fmt.Sprintf("go list exited %d", code)
+		misgradedErr = fmt.Sprintf("go list exited %d", code)
 	default:
-		mainFiles = checks.ParseGoMainFiles(out, path.Join("/src", dir))
+		misgraded = checks.ParseGoMisgradedFiles(out, path.Join("/src", dir))
 	}
 
 	// MUTATE.
@@ -918,7 +936,7 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	return settle(checks.GoMutationVerdict(checks.GoMutationRun{
 		Status: status, Report: []byte(report), Profile: profile, Canary: canary, Workers: goMutationWorkers,
 		Classified: []byte(classified), ClassifyErr: classifyErr,
-		MainCanary: mainCanary, MainFiles: mainFiles, MainFilesErr: mainFilesErr,
+		MainCanary: mainCanary, MisgradedFiles: misgraded, MisgradedFilesErr: misgradedErr,
 	}))
 }
 
