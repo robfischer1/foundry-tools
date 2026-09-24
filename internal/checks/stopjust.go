@@ -2,6 +2,7 @@ package checks
 
 import (
 	"cmp"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"slices"
@@ -519,7 +520,6 @@ func YAMLPragmas(rel string, lines []string) (known, other int) {
 // else can trip over this.
 var (
 	sjKLAnnotation = sjPy(`ignore-check\.kube-linter\.io/([a-z0-9-]+)\s*:`)
-	sjKLInventory  = sjPy(`^#\s+[A-Za-z]+/[A-Za-z0-9.-]+\s+([a-z0-9-]+)\s*$`)
 	sjKLExclude    = sjPy(`^\s*-\s*"?([a-z0-9-]+)"?\s*$`)
 )
 
@@ -530,37 +530,148 @@ func IsKubeLinterConfig(rel string) bool {
 	return b == ".kube-linter.yaml" || b == ".kube-linter.yml"
 }
 
-// KubeLinterIgnores answers the checks excused by ignore-check annotations in
-// one .yml/.yaml file, in the order they appear.
-func KubeLinterIgnores(rel string, lines []string) []string {
+// KLIgnore is one ignore-check annotation and the workload it sits on.
+type KLIgnore struct{ Workload, Check string }
+
+var (
+	sjKLKind = sjPy(`^\s*kind:\s*([A-Za-z][A-Za-z0-9]*)\s*$`)
+	sjKLName = sjPy(`^ {0,2}name:\s*"?([a-z0-9][a-z0-9.-]*)"?\s*$`)
+)
+
+// KubeLinterIgnores answers the ignore-check annotations in one .yml/.yaml
+// file, each paired with the workload it excuses.
+//
+// DOCUMENT-SCOPED, NOT ORDER-DEPENDENT. This package carries no YAML parser on
+// purpose, so the file is split on its document separator and each document is
+// searched for its own kind and metadata.name wherever they sit. The first cut
+// took the nearest PRECEDING name and attributed nothing at all in rob/infra,
+// because the annotations there were written above the name — a manifest author
+// should not have to order keys to satisfy a scanner.
+//
+// metadata.name is taken as the first top-level-ish `name:` in the document, at
+// an indent of two or less: a container, port or volume name is nested deeper,
+// and taking the shallowest is what keeps them out.
+func KubeLinterIgnores(rel string, lines []string) []KLIgnore {
 	if suf := pathSuffix(rel); suf != ".yml" && suf != ".yaml" {
 		return nil
 	}
 	if IsKubeLinterConfig(rel) {
 		return nil
 	}
-	var out []string
-	for _, line := range lines {
-		if m := sjKLAnnotation.FindStringSubmatch(line); m != nil {
-			out = append(out, m[1])
+	var out []KLIgnore
+	for _, doc := range splitYAMLDocs(lines) {
+		kind, name := "", ""
+		var checks []string
+		for _, line := range doc {
+			if m := sjKLKind.FindStringSubmatch(line); m != nil && kind == "" {
+				kind = m[1]
+				continue
+			}
+			if m := sjKLName.FindStringSubmatch(line); m != nil && name == "" {
+				name = m[1]
+				continue
+			}
+			if m := sjKLAnnotation.FindStringSubmatch(line); m != nil {
+				checks = append(checks, m[1])
+			}
+		}
+		for _, c := range checks {
+			out = append(out, KLIgnore{Workload: kind + "/" + name, Check: c})
 		}
 	}
 	return out
 }
 
-// KubeLinterDeclared answers what a .kube-linter.yaml declares: the checks its
-// comment inventory names per workload, and the checks its checks.exclude
-// silences repo-wide. Anything else is not this function's business.
-func KubeLinterDeclared(rel string, lines []string) (inventory, excluded []string) {
-	if !IsKubeLinterConfig(rel) {
+// splitYAMLDocs cuts a file on its document separator.
+func splitYAMLDocs(lines []string) [][]string {
+	var docs [][]string
+	cur := []string{}
+	for _, line := range lines {
+		if strings.TrimRight(line, " \t") == "---" {
+			docs = append(docs, cur)
+			cur = []string{}
+			continue
+		}
+		cur = append(cur, line)
+	}
+	return append(docs, cur)
+}
+
+// KLJustification is one row of .kube-justifications.json — the canonical
+// record. Rob, 2026-09-24 turn 26322: "Required fields -> timestamp,
+// session-uuid, rob-quote, turn-number, workload, exempt-from ...
+// .kube-justifications.json, as one file, in rob/infra, as the canonical
+// record."
+type KLJustification struct {
+	Timestamp   string `json:"timestamp"`
+	SessionUUID string `json:"session-uuid"`
+	RobQuote    string `json:"rob-quote"`
+	TurnNumber  int    `json:"turn-number"`
+	Workload    string `json:"workload"`
+	ExemptFrom  string `json:"exempt-from"`
+}
+
+// Missing answers the required fields this row does not carry. A row that
+// cannot quote Rob authorising it is not a justification; it is a session
+// excusing itself, which is the whole thing this file exists to catch.
+func (j KLJustification) Missing() []string {
+	var out []string
+	for _, f := range []struct {
+		name string
+		ok   bool
+	}{
+		{"timestamp", j.Timestamp != ""},
+		{"session-uuid", j.SessionUUID != ""},
+		{"rob-quote", j.RobQuote != ""},
+		{"turn-number", j.TurnNumber != 0},
+		{"workload", j.Workload != ""},
+		{"exempt-from", j.ExemptFrom != ""},
+	} {
+		if !f.ok {
+			out = append(out, f.name)
+		}
+	}
+	return out
+}
+
+// KLRepoWide is the workload a row names when it excuses a checks.exclude
+// rather than one object: the exclude applies to everything, so no single
+// workload can carry the reason.
+const KLRepoWide = "*"
+
+// IsKubeJustifications answers whether a path is the canonical record.
+func IsKubeJustifications(rel string) bool {
+	return pathBase(rel) == ".kube-justifications.json"
+}
+
+// KubeJustifications reads the canonical record. A file that will not parse is
+// an error rather than an empty record: silently reading nothing from it would
+// excuse nothing and refuse everything, which looks like a policy decision.
+func KubeJustifications(rel string, body string) ([]KLJustification, error) {
+	if !IsKubeJustifications(rel) {
 		return nil, nil
+	}
+	var doc struct {
+		Justifications []KLJustification `json:"justifications"`
+	}
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		return nil, fmt.Errorf("%s does not parse: %w", rel, err)
+	}
+	return doc.Justifications, nil
+}
+
+// KubeLinterExcludes answers the checks a .kube-linter.yaml silences
+// REPO-WIDE. It no longer reads an inventory from the header: the canonical
+// record moved to .kube-justifications.json, and two records that can
+// disagree is a drift rather than a safeguard (Rob, 2026-09-24 turn 26339:
+// "The .json is the single source of truth that supersedes the previous
+// comment record").
+func KubeLinterExcludes(rel string, lines []string) (excluded []string) {
+	if !IsKubeLinterConfig(rel) {
+		return nil
 	}
 	inExclude := false
 	for _, line := range lines {
-		if m := sjKLInventory.FindStringSubmatch(line); m != nil {
-			inventory = append(inventory, m[1])
-			continue
-		}
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "#") {
 			continue
@@ -588,7 +699,7 @@ func KubeLinterDeclared(rel string, lines []string) (inventory, excluded []strin
 		}
 		inExclude = false
 	}
-	return inventory, excluded
+	return excluded
 }
 
 // ---- config-level silencing -------------------------------------------------
@@ -722,7 +833,8 @@ type sjConfig struct {
 
 // sjKLIgnore is one ignore-check.kube-linter.io annotation, and where it is.
 type sjKLIgnore struct {
-	rel, check string
+	rel string
+	KLIgnore
 }
 
 // sjScan is the state scan's accumulated record.
@@ -736,11 +848,12 @@ type sjScan struct {
 	yamlOther int
 	// kube-linter's per-object escape hatch, and what .kube-linter.yaml says
 	// about it. Compared in report(): the tree and the header must agree.
-	klIgnores   []sjKLIgnore
-	klInventory []string
-	klExcluded  []string
-	klConfig    string
-	contracts   map[string][]sjContract
+	klIgnores  []sjKLIgnore
+	klRows     []KLJustification
+	klExcluded []string
+	klConfig   string
+	klRecord   string
+	contracts  map[string][]sjContract
 	// packageVars is each go directory's required-mode variables.
 	packageVars map[string]map[string]bool
 	exempted    []sjExempted
@@ -791,7 +904,22 @@ func (s *sjScan) file(rel string) error {
 	}
 	name := pathBase(rel)
 	lang := LanguageOf(rel)
-	if lang == "" && name != "pyproject.toml" && name != "ruff.toml" {
+	if lang == "" && name != "pyproject.toml" && name != "ruff.toml" && !IsKubeJustifications(rel) {
+		return nil
+	}
+	if IsKubeJustifications(rel) {
+		body, err := s.in.Read(rel)
+		if err != nil {
+			return fmt.Errorf("could not read %s: %w", rel, err)
+		}
+		rows, err := KubeJustifications(rel, body)
+		if err != nil {
+			return err
+		}
+		s.klRecord = rel
+		s.klRows = append(s.klRows, rows...)
+		// The record is JSON and JSON has no language lane here, so there is
+		// nothing further to scan it for.
 		return nil
 	}
 	lines, err := s.read(rel)
@@ -810,14 +938,12 @@ func (s *sjScan) file(rel string) error {
 	known, other := YAMLPragmas(rel, lines)
 	s.yamlKnown += known
 	s.yamlOther += other
-	for _, c := range KubeLinterIgnores(rel, lines) {
-		s.klIgnores = append(s.klIgnores, sjKLIgnore{rel: rel, check: c})
+	for _, ig := range KubeLinterIgnores(rel, lines) {
+		s.klIgnores = append(s.klIgnores, sjKLIgnore{rel: rel, KLIgnore: ig})
 	}
 	if IsKubeLinterConfig(rel) {
-		inv, exc := KubeLinterDeclared(rel, lines)
 		s.klConfig = rel
-		s.klInventory = append(s.klInventory, inv...)
-		s.klExcluded = append(s.klExcluded, exc...)
+		s.klExcluded = append(s.klExcluded, KubeLinterExcludes(rel, lines)...)
 	}
 	return s.scanFile(rel, lang, lines)
 }
@@ -1274,64 +1400,132 @@ func ScanTree(files map[string]string) ([]SJTreeFinding, error) {
 	return out, nil
 }
 
-// reportKubeLinter prints what the tree and .kube-linter.yaml say about
-// kube-linter's per-object escape hatch, and answers how many of them are
-// findings.
+// reportKubeLinter prints what the tree and the canonical record say about
+// kube-linter's per-object escape hatch, and answers whether any of it is a
+// finding.
 //
-// THE RULE IS PARITY. Every ignore-check.kube-linter.io annotation is declared
-// in .kube-linter.yaml's comment inventory, per workload. An annotation the
-// header does not account for is a suppression filed silently, which is the
-// one thing this check exists to make impossible — so it counts.
+// THE RECORD IS .kube-justifications.json, and it is the only one. Rob,
+// 2026-09-24 turn 26322: "Required fields -> timestamp, session-uuid,
+// rob-quote, turn-number, workload, exempt-from ... as one file, in rob/infra,
+// as the canonical record." An annotation no row names is a suppression filed
+// silently; a row no annotation matches is an excuse outliving the thing it
+// excused; a row missing a required field cannot quote anyone authorising it,
+// which is a session excusing itself. All three count.
 //
-// AND checks.exclude IS ALWAYS A FINDING. It silences a check for the whole
-// repository, so it cannot be argued per object; it needs Rob's signoff and a
-// ratified row, exactly like any other repo-scale silencer. rob/infra ships it
-// empty on purpose.
+// checks.exclude IS ALWAYS A FINDING. It silences a check for everything, so
+// it cannot be justified per workload and no row can excuse it.
 func (s *sjScan) reportKubeLinter(w *strings.Builder) bool {
-	if len(s.klIgnores) == 0 && len(s.klExcluded) == 0 {
+	if len(s.klIgnores)+len(s.klExcluded)+len(s.klRows) == 0 {
 		return false
 	}
 	bad := false
+	// A REPO-WIDE EXCLUDE IS JUSTIFIABLE, BUT ONLY BY NAME. It silences a
+	// check for every object, so no per-workload reason reaches it — the row
+	// that excuses it carries workload "*", and Rob has to have said so.
+	// Measured in rob/infra and worth keeping in view when signing one:
+	// excluding no-extensions-v1beta also hid a REAL extensions/v1beta1
+	// Ingress planted to test it. An exclude does not silence findings, it
+	// silences the check.
 	if len(s.klExcluded) > 0 {
-		fmt.Fprintf(w, "\nstop-justifications: %d kube-linter check(s) silenced REPO-WIDE by %s.\n", len(s.klExcluded), s.klConfig)
+		excused := map[string]bool{}
+		for _, r := range s.klRows {
+			if r.Workload == KLRepoWide {
+				excused[r.ExemptFrom] = true
+			}
+		}
+		var unsigned []string
 		for _, c := range s.klExcluded {
-			fmt.Fprintf(w, "  checks.exclude: %s\n", c)
+			if !excused[c] {
+				unsigned = append(unsigned, c)
+			}
 		}
-		w.WriteString("  A repo-wide exclude is not a reason about one object, it is the\n" +
-			"  check turned off. Measured in rob/infra: excluding\n" +
-			"  no-extensions-v1beta also hid a REAL extensions/v1beta1 Ingress\n" +
-			"  planted to test it. Needs a signoff and a ratified row.\n\n")
-		bad = true
+		var signed []string
+		for _, c := range s.klExcluded {
+			if excused[c] {
+				signed = append(signed, c)
+			}
+		}
+		if len(unsigned) != 0 {
+			fmt.Fprintf(w, "\nstop-justifications: %d kube-linter check(s) silenced REPO-WIDE by %s with no signed row.\n", len(unsigned), s.klConfig)
+			for _, c := range unsigned {
+				fmt.Fprintf(w, "  checks.exclude: %s\n", c)
+			}
+			fmt.Fprintf(w, "  Add a row to %s with workload %q and the words that authorised it.\n\n", s.klRecord, KLRepoWide)
+			bad = true
+		}
+		if len(signed) != 0 {
+			fmt.Fprintf(w, "\nstop-justifications: %d kube-linter check(s) silenced repo-wide, each on a signed row: %s.\n\n", len(signed), strings.Join(signed, ", "))
+		}
 	}
-	if len(s.klIgnores) == 0 {
-		return bad
+	for _, r := range s.klRows {
+		if miss := r.Missing(); len(miss) > 0 {
+			fmt.Fprintf(w, "\nstop-justifications: a justification row is missing %s.\n", strings.Join(miss, ", "))
+			fmt.Fprintf(w, "  workload %q, exempt-from %q\n", r.Workload, r.ExemptFrom)
+			w.WriteString("  Every row carries timestamp, session-uuid, rob-quote, turn-number,\n" +
+				"  workload and exempt-from. A row that cannot quote Rob authorising it\n" +
+				"  is a session excusing itself.\n\n")
+			bad = true
+		}
 	}
-	if s.klConfig == "" {
-		fmt.Fprintf(w, "\nstop-justifications: %d kube-linter ignore annotation(s) and NO .kube-linter.yaml to declare them.\n", len(s.klIgnores))
+	if s.klRecord == "" && len(s.klIgnores) != 0 {
+		fmt.Fprintf(w, "\nstop-justifications: %d kube-linter ignore annotation(s) and NO .kube-justifications.json.\n", len(s.klIgnores))
 		for _, ig := range s.klIgnores {
-			fmt.Fprintf(w, "  %s · %s\n", ig.rel, ig.check)
+			fmt.Fprintf(w, "  %s · %s · %s\n", ig.rel, ig.Workload, ig.Check)
 		}
-		w.WriteString("  Each is a suppression of a fleet gate with nowhere that records it.\n\n")
+		w.WriteString("  Each is a suppression of a fleet gate with nothing that records who\n" +
+			"  authorised it.\n\n")
 		return true
 	}
-	declared := len(s.klInventory)
-	fmt.Fprintf(w, "\nstop-justifications: %d kube-linter ignore annotation(s), %d declared in %s.\n", len(s.klIgnores), declared, s.klConfig)
-	if declared == len(s.klIgnores) {
-		w.WriteString("  The tree and the header agree — every annotation is accounted for.\n\n")
-		return bad
+	named := map[KLIgnore]bool{}
+	for _, r := range s.klRows {
+		// A repo-wide row excuses an exclude, not an annotation, so it is not
+		// stale for naming none.
+		if r.Workload == KLRepoWide {
+			continue
+		}
+		named[KLIgnore{Workload: r.Workload, Check: r.ExemptFrom}] = true
 	}
-	fmt.Fprintf(w, "  MISMATCH. The header must name every one, per workload.\n")
+	// SLICES, NOT COUNTERS. The mutation gate killed two earlier cuts of this
+	// function for the same reason: a count nothing reads as a number gives
+	// mutants nothing to fail against. Collect, then ask len() once.
+	seen := map[KLIgnore]bool{}
+	var undeclared []sjKLIgnore
 	for _, ig := range s.klIgnores {
-		fmt.Fprintf(w, "  %s · %s\n", ig.rel, ig.check)
+		seen[ig.KLIgnore] = true
+		if !named[ig.KLIgnore] {
+			undeclared = append(undeclared, ig)
+		}
 	}
-	w.WriteString("  An annotation the inventory does not account for is the silent\n" +
-		"  filing this check exists to prevent. A row with no annotation left to\n" +
-		"  name is just as wrong: it is an excuse outliving the thing excused.\n\n")
-	// A BOOL, NOT A COUNT, and the mutation gate is why. The first cut
-	// returned abs(annotations - declared); three mutants lived on arithmetic
-	// nothing reads, because the only question asked of this value is whether
-	// it is zero. A delta was the wrong number anyway — two added and one row
-	// deleted nets to one, while the condition is "the header is not the
-	// record", which has no magnitude.
-	return true
+	if len(undeclared) != 0 {
+		w.WriteString("\nstop-justifications: kube-linter annotation(s) no justification row names.\n")
+		for _, ig := range undeclared {
+			fmt.Fprintf(w, "  %s · %s · %s\n", ig.rel, ig.Workload, ig.Check)
+		}
+		fmt.Fprintf(w, "  Add a row to %s, with the words that authorised it.\n\n", s.klRecord)
+		bad = true
+	}
+	// SORTED AS WHOLE LINES, and the mutation gate is why. Ordering by
+	// Workload alone is not a total order — two rows can share a workload and
+	// differ only by check — and sort.Slice is not stable, so those two came
+	// out in either order run to run. A `<` that survives mutation to `<=` is
+	// the gate saying the comparator never sees equal keys; here it can.
+	var stale []string
+	for k := range named {
+		if !seen[k] {
+			stale = append(stale, k.Workload+" · "+k.Check)
+		}
+	}
+	if len(stale) != 0 {
+		sort.Strings(stale)
+		fmt.Fprintf(w, "\nstop-justifications: justification row(s) in %s naming no annotation.\n", s.klRecord)
+		for _, line := range stale {
+			fmt.Fprintf(w, "  %s\n", line)
+		}
+		w.WriteString("  An excuse outliving the thing it excused. Delete the row.\n\n")
+		bad = true
+	}
+	if !bad && len(s.klIgnores) != 0 {
+		fmt.Fprintf(w, "\nstop-justifications: %d kube-linter annotation(s), each named by a row in %s.\n\n", len(s.klIgnores), s.klRecord)
+	}
+	return bad
 }
