@@ -58,6 +58,14 @@ var ToolWords = map[string]string{
 	"ruff": "ruff", "mypy": "mypy", "pyright": "pyright", "pytest": "pytest",
 	"coverage": "coverage", "coverage.py": "coverage",
 	"detect-secrets": "detect-secrets", "semgrep": "opengrep",
+	// ops:kube-linter gates rob/infra's flux/ tree, and the conflicts it
+	// enters are with the API server rather than another linter — a check
+	// demanding a migration to an apiVersion the CRD does not serve. So
+	// kubectl and kubeconform are here too: without a second recognised
+	// name, a marker about kube-linter is MALFORMED by construction and the
+	// escape hatch it needs cannot be spelled.
+	"kube-linter": "kube-linter", "kubelinter": "kube-linter",
+	"kubectl": "kubectl", "kubeconform": "kubeconform",
 	"opengrep": "opengrep", "bandit": "bandit", "isort": "isort",
 	"pylint": "pylint", "black": "black", "clippy": "clippy", "rustc": "rustc",
 	"cargo": "cargo", "golangci-lint": "golangci-lint",
@@ -486,6 +494,103 @@ func YAMLPragmas(rel string, lines []string) (known, other int) {
 	return known, other
 }
 
+// ---- kube-linter ignore annotations ----------------------------------------
+
+// kube-linter's per-object escape hatch is an annotation, not a config key:
+//
+//	metadata:
+//	  annotations:
+//	    ignore-check.kube-linter.io/privileged-container: "why, in prose"
+//
+// That is the RIGHT shape — the reason sits on the object it excuses, and the
+// check stays live for every other object. A repo-wide checks.exclude was
+// measured to be the wrong one: excluding no-extensions-v1beta in rob/infra
+// also hid a real extensions/v1beta1 Ingress planted to test it.
+//
+// BUT AN ANNOTATION IS STILL A SUPPRESSION OF A FLEET GATE, and this check
+// exists so none is filed silently. rob/infra declares every one in the
+// comment header of its .kube-linter.yaml, per workload (Rob, this session:
+// "Every single annotation that we're adding to a pod is identified in the
+// comment header of .kube-linter.yaml, per-workload"). This reader is what
+// makes that a rule rather than a habit: the tree and the header must agree.
+//
+// ONE REPOSITORY CAN FAIL THIS, measured 2026-09-24: infra is the only repo in
+// the fleet with a flux/ tree, so ops:kube-linter gates it alone and nothing
+// else can trip over this.
+var (
+	sjKLAnnotation = sjPy(`ignore-check\.kube-linter\.io/([a-z0-9-]+)\s*:`)
+	sjKLInventory  = sjPy(`^#\s+[A-Za-z]+/[A-Za-z0-9.-]+\s+([a-z0-9-]+)\s*$`)
+	sjKLExclude    = sjPy(`^\s*-\s*"?([a-z0-9-]+)"?\s*$`)
+)
+
+// IsKubeLinterConfig answers whether a path is the kube-linter config, in
+// either spelling kube-linter itself accepts (pkg/config/config.go:42).
+func IsKubeLinterConfig(rel string) bool {
+	b := pathBase(rel)
+	return b == ".kube-linter.yaml" || b == ".kube-linter.yml"
+}
+
+// KubeLinterIgnores answers the checks excused by ignore-check annotations in
+// one .yml/.yaml file, in the order they appear.
+func KubeLinterIgnores(rel string, lines []string) []string {
+	if suf := pathSuffix(rel); suf != ".yml" && suf != ".yaml" {
+		return nil
+	}
+	if IsKubeLinterConfig(rel) {
+		return nil
+	}
+	var out []string
+	for _, line := range lines {
+		if m := sjKLAnnotation.FindStringSubmatch(line); m != nil {
+			out = append(out, m[1])
+		}
+	}
+	return out
+}
+
+// KubeLinterDeclared answers what a .kube-linter.yaml declares: the checks its
+// comment inventory names per workload, and the checks its checks.exclude
+// silences repo-wide. Anything else is not this function's business.
+func KubeLinterDeclared(rel string, lines []string) (inventory, excluded []string) {
+	if !IsKubeLinterConfig(rel) {
+		return nil, nil
+	}
+	inExclude := false
+	for _, line := range lines {
+		if m := sjKLInventory.FindStringSubmatch(line); m != nil {
+			inventory = append(inventory, m[1])
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "exclude:") {
+			inExclude = true
+			// `exclude: []` and `exclude: [a, b]` both end the block here.
+			if rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "exclude:")); rest != "" {
+				inExclude = false
+				rest = strings.Trim(rest, "[]")
+				for _, r := range strings.Split(rest, ",") {
+					if r = strings.Trim(strings.TrimSpace(r), `"'`); r != "" {
+						excluded = append(excluded, r)
+					}
+				}
+			}
+			continue
+		}
+		if !inExclude {
+			continue
+		}
+		if m := sjKLExclude.FindStringSubmatch(line); m != nil {
+			excluded = append(excluded, m[1])
+			continue
+		}
+		inExclude = false
+	}
+	return inventory, excluded
+}
+
 // ---- config-level silencing -------------------------------------------------
 
 // A config key silences at repo scale what a directive silences on a line. On
@@ -615,6 +720,11 @@ type sjConfig struct {
 	SJConfigFinding
 }
 
+// sjKLIgnore is one ignore-check.kube-linter.io annotation, and where it is.
+type sjKLIgnore struct {
+	rel, check string
+}
+
 // sjScan is the state scan's accumulated record.
 type sjScan struct {
 	in        SJInput
@@ -624,7 +734,13 @@ type sjScan struct {
 	ratified  int
 	yamlKnown int
 	yamlOther int
-	contracts map[string][]sjContract
+	// kube-linter's per-object escape hatch, and what .kube-linter.yaml says
+	// about it. Compared in report(): the tree and the header must agree.
+	klIgnores   []sjKLIgnore
+	klInventory []string
+	klExcluded  []string
+	klConfig    string
+	contracts   map[string][]sjContract
 	// packageVars is each go directory's required-mode variables.
 	packageVars map[string]map[string]bool
 	exempted    []sjExempted
@@ -694,6 +810,15 @@ func (s *sjScan) file(rel string) error {
 	known, other := YAMLPragmas(rel, lines)
 	s.yamlKnown += known
 	s.yamlOther += other
+	for _, c := range KubeLinterIgnores(rel, lines) {
+		s.klIgnores = append(s.klIgnores, sjKLIgnore{rel: rel, check: c})
+	}
+	if IsKubeLinterConfig(rel) {
+		inv, exc := KubeLinterDeclared(rel, lines)
+		s.klConfig = rel
+		s.klInventory = append(s.klInventory, inv...)
+		s.klExcluded = append(s.klExcluded, exc...)
+	}
 	return s.scanFile(rel, lang, lines)
 }
 
@@ -822,6 +947,7 @@ func (s *sjScan) report() int {
 			"  because enforcing the whole class at once lit 142 lines across\n" +
 			"  53 repos — a scaffold pour, not 53 decisions.\n\n")
 	}
+	klBad := s.reportKubeLinter(w)
 	if len(s.exempted) > 0 {
 		fmt.Fprintf(w, "\nstop-justifications: %d suppression(s) excused by a DIRECTORY exemption in %s.\n", len(s.exempted), s.in.Repo)
 		for _, e := range s.exempted {
@@ -880,7 +1006,7 @@ func (s *sjScan) report() int {
 			"  this: a config entry is not a line, so it cannot carry a\n" +
 			"  tool-conflict on one.\n\n")
 	}
-	if len(s.findings) == 0 && len(s.config) == 0 {
+	if len(s.findings) == 0 && len(s.config) == 0 && !klBad {
 		fmt.Fprintf(w, "stop-justifications: %d file(s) scanned, no undocumented suppressions.\n", s.scanned)
 		return 0
 	}
@@ -1146,4 +1272,66 @@ func ScanTree(files map[string]string) ([]SJTreeFinding, error) {
 		out = append(out, SJTreeFinding{Rel: f.rel, Line: f.line, Tool: f.tool, Form: f.form, Text: f.text})
 	}
 	return out, nil
+}
+
+// reportKubeLinter prints what the tree and .kube-linter.yaml say about
+// kube-linter's per-object escape hatch, and answers how many of them are
+// findings.
+//
+// THE RULE IS PARITY. Every ignore-check.kube-linter.io annotation is declared
+// in .kube-linter.yaml's comment inventory, per workload. An annotation the
+// header does not account for is a suppression filed silently, which is the
+// one thing this check exists to make impossible — so it counts.
+//
+// AND checks.exclude IS ALWAYS A FINDING. It silences a check for the whole
+// repository, so it cannot be argued per object; it needs Rob's signoff and a
+// ratified row, exactly like any other repo-scale silencer. rob/infra ships it
+// empty on purpose.
+func (s *sjScan) reportKubeLinter(w *strings.Builder) bool {
+	if len(s.klIgnores) == 0 && len(s.klExcluded) == 0 {
+		return false
+	}
+	bad := false
+	if len(s.klExcluded) > 0 {
+		fmt.Fprintf(w, "\nstop-justifications: %d kube-linter check(s) silenced REPO-WIDE by %s.\n", len(s.klExcluded), s.klConfig)
+		for _, c := range s.klExcluded {
+			fmt.Fprintf(w, "  checks.exclude: %s\n", c)
+		}
+		w.WriteString("  A repo-wide exclude is not a reason about one object, it is the\n" +
+			"  check turned off. Measured in rob/infra: excluding\n" +
+			"  no-extensions-v1beta also hid a REAL extensions/v1beta1 Ingress\n" +
+			"  planted to test it. Needs a signoff and a ratified row.\n\n")
+		bad = true
+	}
+	if len(s.klIgnores) == 0 {
+		return bad
+	}
+	if s.klConfig == "" {
+		fmt.Fprintf(w, "\nstop-justifications: %d kube-linter ignore annotation(s) and NO .kube-linter.yaml to declare them.\n", len(s.klIgnores))
+		for _, ig := range s.klIgnores {
+			fmt.Fprintf(w, "  %s · %s\n", ig.rel, ig.check)
+		}
+		w.WriteString("  Each is a suppression of a fleet gate with nowhere that records it.\n\n")
+		return true
+	}
+	declared := len(s.klInventory)
+	fmt.Fprintf(w, "\nstop-justifications: %d kube-linter ignore annotation(s), %d declared in %s.\n", len(s.klIgnores), declared, s.klConfig)
+	if declared == len(s.klIgnores) {
+		w.WriteString("  The tree and the header agree — every annotation is accounted for.\n\n")
+		return bad
+	}
+	fmt.Fprintf(w, "  MISMATCH. The header must name every one, per workload.\n")
+	for _, ig := range s.klIgnores {
+		fmt.Fprintf(w, "  %s · %s\n", ig.rel, ig.check)
+	}
+	w.WriteString("  An annotation the inventory does not account for is the silent\n" +
+		"  filing this check exists to prevent. A row with no annotation left to\n" +
+		"  name is just as wrong: it is an excuse outliving the thing excused.\n\n")
+	// A BOOL, NOT A COUNT, and the mutation gate is why. The first cut
+	// returned abs(annotations - declared); three mutants lived on arithmetic
+	// nothing reads, because the only question asked of this value is whether
+	// it is zero. A delta was the wrong number anyway — two added and one row
+	// deleted nets to one, while the condition is "the header is not the
+	// record", which has no magnitude.
+	return true
 }
