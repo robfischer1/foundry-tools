@@ -186,7 +186,25 @@ const (
 	// findings red — MEASURED 2026-09-10T02:58Z, gate-hades-c099a35,
 	// govulncheck "loading packages" while the door rolled onto 9a5313fb.
 	// A door that is briefly gone is not a verdict on the code.
-	GoProxy = "http://ourea.default.svc.cluster.local:8215/goproxy|https://proxy.golang.org,direct"
+	//
+	// THE NAME IS BARE, AND THAT IS THE POINT. It read
+	// ourea.default.svc.cluster.local until 2026-09-25, and naming a namespace
+	// is what broke every lane in the fleet when the constellation moved to
+	// `prime`: the FQDN pointed at an empty namespace and `go` could not reach a
+	// proxy. A bare name resolves through whatever search path the client has,
+	// so it is correct in every namespace and survives the next move. It is also
+	// what the other ~2,100 service references in the fleet already use.
+	//
+	// NOT ENV-DRIVEN, AND NOT FOR WANT OF TRYING. A dagger MODULE has no ambient
+	// environment: its runtime container is built by the engine, and the caller's
+	// env does not reach it — `os.Getenv` here sees only what dagger injects
+	// (DAGGER_SESSION_PORT/TOKEN). The two ways to make this configurable are a
+	// constructor parameter threaded down to goToolchain() and runtime.go (they
+	// are a package-level func and a lane builder, so that is a real refactor),
+	// or a declaration in foundry-dies read through the /dies mount this module
+	// already carries. The second is the right home — an address is fleet data,
+	// not lane code — and it is a separate landing.
+	GoProxy = "http://ourea:8215/goproxy|https://proxy.golang.org,direct"
 	// GoNoSumDB keeps the one thing GOPRIVATE was doing for the forge host —
 	// BOTH of its names. The fleet's module paths say git.notusmi.com
 	// (stellar-core-go, forge-testkit-go) and forgejo.notusmi.com (the stars);

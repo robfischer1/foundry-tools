@@ -59,7 +59,7 @@ dagger call foundry-tools lanes       # a function, same binding
 
 ```sh
 dagger call -m git.notusmi.com/rob/foundry-tools@<sha> \
-  --repo=http://ourea.default.svc.cluster.local:8215/<repo>.git --sha=<commit> \
+  --repo=http://ourea:8215/<repo>.git --sha=<commit> \
   verdicts --base=<merge-base>
 ```
 
