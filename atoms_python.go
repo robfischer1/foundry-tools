@@ -116,7 +116,14 @@ func pythonRuffFormat(ctx context.Context, r *run) checks.Verdict {
 	if !ok {
 		return checks.VerdictOf(a, 0, a.ID+": ABSENT - a go star with no product python under src/ or tests/")
 	}
-	args := append([]string{"uvx", ruffVersion, "format", "--config", checks.RulesetsDir + "/ruff.toml", "--check"}, targets...)
+	// --line-length, because the ruleset file carries ONE width and the fleet
+	// has two. checks.RuffLineLength says which this tree is graded at and why.
+	args := append([]string{
+		"uvx", ruffVersion, "format",
+		"--config", checks.RulesetsDir + "/ruff.toml",
+		"--line-length", checks.RuffLineLength(entries),
+		"--check",
+	}, targets...)
 	return verdict(ctx, a, r.lane(checks.ImagePython).
 		WithNewFile(checks.RulesetsDir+"/ruff.toml", rulesets.Ruff).
 		WithExec([]string{"uvx", ruffVersion, "--version"}).
