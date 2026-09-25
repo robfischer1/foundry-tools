@@ -557,9 +557,12 @@ func TestTheRustLaneIsAbsentWithoutACargoToml(t *testing.T) {
 		if v.Atom != id || v.State != 0 || v.Result != "absent" || !strings.Contains(v.Reason, "no Cargo.toml") {
 			t.Errorf("%s: want an absent 0 naming Cargo.toml, got %+v", id, v)
 		}
-		// One entries read and one module walk for the whole plan — never a
+		// THREE READS FOR THE WHOLE PLAN — one entries read, one go.mod walk
+		// and one .py walk (2026-09-25: the python lane is declared by its
+		// files too, so the planner asks about them the way it asks about Go
+		// modules). The number this pins is CONSTANT PER RUN: never a
 		// container, and never a read per atom.
-		if len(engine.chains()) > 2 {
+		if len(engine.chains()) > 3 {
 			t.Errorf("%s: an absent lane costs the plan's reads, not a container: %d queries",
 				id, len(engine.chains()))
 		}

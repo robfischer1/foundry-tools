@@ -1,7 +1,9 @@
 package checks
 
 import (
+	"path"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -175,4 +177,117 @@ func MutationScope(id, mods string) string {
 		return id + ": scoped to the declared critical modules: " + mods
 	}
 	return id + ": no critical modules declared - the whole diff is the scope; an empty list is not an opt-out"
+}
+
+// PythonFiles answers every .py file in a population that declares the python
+// lane, sorted.
+//
+// A .py ANYWHERE, NOT A ROOT MANIFEST. The lane used to be declared by
+// pyproject.toml at the repository root alone, and that left every repository
+// whose python is not a packaged project ungated: foundry-stocks carries 234
+// hook tests that furnace renders into every session's live .claude/hooks/ —
+// in-path for the whole fleet by the next stoke — and the gate ran none of
+// them, because the repo has no pyproject.toml to declare a lane with.
+//
+// Rob, 2026-09-25: "The presence of a .py file anywhere in the repo should
+// trigger the python CI atoms. Not the pyproject.toml." This is the same move
+// GoModuleDirs made for go.mod on 2026-09-16 and for the same reason, so it
+// keeps the same exclusion discipline (vendoredOrHidden, shared with the go
+// lane rather than copied): a .py under vendor/ or testdata/, or
+// under a directory whose name starts with "_" or ".", is not the repository's
+// python. The population this reads is already the engine's gitignore filter
+// plus GateExclude, so .venv/, __pycache__/ and node_modules/ never arrive.
+//
+// THE BUILD LANE IS NOT THIS. pyproject.toml still declares what BUILDS —
+// AtomDef.NeedsManifest is how an atom says it needs the manifest rather than
+// the files, and python:release, python:pip-audit and python:mutation each say
+// so. Lint and test read the tree; the build reads the manifest.
+func PythonFiles(files []string) []string {
+	var out []string
+	for _, f := range files {
+		dir, name := path.Split(f)
+		if !strings.HasSuffix(name, ".py") {
+			continue
+		}
+		if dir != "" && vendoredOrHidden(strings.TrimSuffix(dir, "/")) {
+			continue
+		}
+		out = append(out, f)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// DirsCarryingPython narrows candidate directories to the ones that actually
+// hold a .py, in the candidates' own order.
+//
+// WHY A DIRECTORY'S NAME IS NOT ENOUGH. PythonSourceDirs answers "does this
+// repository have src/ and tests/", which was a good enough proxy while only a
+// pyproject.toml put a repo in this lane. A .py-declared lane breaks the
+// proxy: urania, helios and nyx are GO stars with src/ and tests/ full of .go
+// and one or two incidental .py somewhere else entirely, and pointing mypy at
+// those directories asks it to type-check a Go tree. mypy's answer to that is
+// "there are no .py[i] files in directory", exit 2 — a CANNOT RUN, which is
+// this module's word for "the check did not happen", filed against four repos
+// that had nothing wrong with them.
+//
+// So the targets are intersected with the population: a directory reaches mypy
+// because python was found under it, not because it is called src.
+func DirsCarryingPython(dirs []string, pyFiles []string) []string {
+	var out []string
+	for _, d := range dirs {
+		prefix := strings.TrimSuffix(d, "/") + "/"
+		for _, f := range pyFiles {
+			if strings.HasPrefix(strings.TrimPrefix(f, "./"), prefix) {
+				out = append(out, d)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// PythonTestFiles answers the .py files in a population that pytest would
+// collect by either of its two default naming conventions.
+//
+// IN GO, OFF THE TREE, BEFORE PYTEST IS ASKED — the discipline pythonPytest
+// already had, now reading the files instead of asking whether a directory
+// named tests/ exists. Same reason as DirsCarryingPython: a Go star's tests/
+// is not python, and "this repo has a tests/ directory" stopped being evidence
+// about python the moment a .py anywhere could declare the lane.
+//
+// The rule it feeds is unchanged and is Rob's, 2026-09-11 and again
+// 2026-09-25: nothing is built without tests. A python lane with nothing to
+// collect is RED. This only makes the emptiness a fact about python files
+// rather than about a directory name, so the finding says something true.
+func PythonTestFiles(pyFiles []string) []string {
+	var out []string
+	for _, f := range pyFiles {
+		_, name := path.Split(f)
+		if strings.HasPrefix(name, "test_") || strings.HasSuffix(name, "_test.py") {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// UvRun builds a `uv run` command line for a tree that may or may not be a
+// python PROJECT.
+//
+// `uv run` without a pyproject.toml fails: there is no project to resolve, and
+// --all-extras is a project flag. That is exactly the tree this lane now
+// reaches — foundry-stocks' 234 hook tests live in hooks/, declared by no
+// manifest — so the no-project form is the one that makes a .py-declared lane
+// more than a lane that is declared and then cannot run.
+//
+// WITH A PROJECT: `uv run --all-extras <tool> <args>`, because a check that
+// cannot import the optional dependencies the code declares is a check of a
+// different program. WITHOUT: `uv run --no-project --with <tool> <tool>
+// <args>`, because nothing is installed and the tool has to be fetched — the
+// same `--with` argument pip-audit already makes for the fleet's own tooling.
+func UvRun(entries []string, tool string, args ...string) []string {
+	if DeclaresManifest(entries, ManifestFor(LanePython)) {
+		return append([]string{"uv", "run", "--all-extras", tool}, args...)
+	}
+	return append([]string{"uv", "run", "--no-project", "--with", tool, tool}, args...)
 }

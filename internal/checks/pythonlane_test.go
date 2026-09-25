@@ -220,3 +220,101 @@ func TestMutationScopeSaysSoEitherWayInEveryLane(t *testing.T) {
 		}
 	}
 }
+
+// ---- a .py anywhere declares the lane (2026-09-25) ----
+
+func TestPythonFilesTakesThePythonARepositoryOwns(t *testing.T) {
+	got := PythonFiles([]string{
+		"setup.py",
+		"hooks/plane_session_end/plane_session_end.py",
+		"README.md",
+		"tools/forge/main.go",
+	})
+	want := []string{"hooks/plane_session_end/plane_session_end.py", "setup.py"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("got %v, want %v — every .py the repo owns, sorted", got, want)
+	}
+}
+
+// THE EXCLUSIONS ARE THE GO LANE'S, SHARED RATHER THAN COPIED. A .py under a
+// vendored or hidden directory is not the repository's python, for the same
+// reason a go.mod under one is not its module — and the alternative was a
+// second copy of the list, free to drift from the first.
+func TestPythonFilesSkipsWhatNoLaneCountsAsSource(t *testing.T) {
+	for _, f := range []string{
+		"vendor/pkg/thing.py",
+		"testdata/fixture.py",
+		"_build/gen.py",
+		".tox/site-packages/x.py",
+		"src/vendor/deep/thing.py",
+	} {
+		if got := PythonFiles([]string{f}); len(got) != 0 {
+			t.Errorf("%q is not the repository's own python, got %v", f, got)
+		}
+	}
+	// The root is never excluded by the dir rule — it has no directory.
+	if got := PythonFiles([]string{"conftest.py"}); len(got) != 1 {
+		t.Errorf("a .py at the root is the repository's own python, got %v", got)
+	}
+	// A name that merely CONTAINS .py is not a .py.
+	if got := PythonFiles([]string{"docs/notes.python", "x.pyi"}); len(got) != 0 {
+		t.Errorf("only .py counts here, got %v", got)
+	}
+}
+
+// A GO STAR'S src/ IS NOT A MYPY TARGET. urania, helios and nyx carry src/ and
+// tests/ full of .go and one or two incidental .py elsewhere; mypy pointed at
+// those answers exit 2, which this module files as CANNOT RUN — a check that
+// did not happen, against a repository with nothing wrong with it.
+func TestDirsCarryingPythonIntersectsWithTheTree(t *testing.T) {
+	dirs := []string{"src", "tests"}
+	pys := []string{"tests/test_thing.py", "scripts/oneoff.py"}
+	got := DirsCarryingPython(dirs, pys)
+	if strings.Join(got, ",") != "tests" {
+		t.Errorf("got %v, want [tests] — src/ holds no python here", got)
+	}
+	if got := DirsCarryingPython(dirs, nil); len(got) != 0 {
+		t.Errorf("a tree with no python targets nothing, got %v", got)
+	}
+	// The candidates' own order is kept: it is the order the shell loop walked
+	// and the order the targets reach the tool.
+	both := DirsCarryingPython(dirs, []string{"tests/t.py", "src/a.py"})
+	if strings.Join(both, ",") != "src,tests" {
+		t.Errorf("got %v, want the candidates' order", both)
+	}
+	// A prefix match is on the SEGMENT, not the string: srcx/ is not src/.
+	if got := DirsCarryingPython([]string{"src"}, []string{"srcx/a.py"}); len(got) != 0 {
+		t.Errorf("srcx/ is not src/, got %v", got)
+	}
+}
+
+func TestPythonTestFilesIsPytestsTwoConventions(t *testing.T) {
+	got := PythonTestFiles([]string{
+		"hooks/x/test_hook.py",
+		"pkg/a_test.py",
+		"src/app.py",
+		"tests/conftest.py",
+	})
+	want := "hooks/x/test_hook.py,pkg/a_test.py"
+	if strings.Join(got, ",") != want {
+		t.Errorf("got %v, want %s", got, want)
+	}
+	if got := PythonTestFiles([]string{"src/app.py"}); len(got) != 0 {
+		t.Errorf("a tree with no test file collects nothing, got %v", got)
+	}
+}
+
+// WITHOUT A PROJECT, `uv run` HAS NOTHING TO RUN. It resolves a pyproject.toml
+// or it fails, and --all-extras is a project flag — so a lane declared by its
+// files alone would be a lane that is declared and then cannot run. This is
+// the line that makes the widening real rather than nominal.
+func TestUvRunAsksForAProjectOnlyWhenThereIsOne(t *testing.T) {
+	withProject := UvRun([]string{"pyproject.toml"}, "pytest", "-q")
+	if strings.Join(withProject, " ") != "uv run --all-extras pytest -q" {
+		t.Errorf("got %v — a project's own extras are what its checks run against", withProject)
+	}
+	without := UvRun([]string{"README.md"}, "pytest", "-q")
+	if strings.Join(without, " ") != "uv run --no-project --with pytest pytest -q" {
+		t.Errorf("got %v — no project to resolve, and the tool has to be fetched", without)
+	}
+}

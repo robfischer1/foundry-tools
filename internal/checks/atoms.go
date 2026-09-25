@@ -68,6 +68,23 @@ type AtomDef struct {
 	// rather than the repo under test. A gate lane checks out ONE repository,
 	// so an atom that grades the fleet has no other way to see it.
 	NeedsDies bool
+	// NeedsManifest says this atom needs its lane's ROOT MANIFEST, not just a
+	// file of the lane's language somewhere in the tree.
+	//
+	// The distinction only exists because a lane can now be declared by its
+	// files: a .py anywhere declares python (PythonFiles), the way a go.mod
+	// anywhere declares go. That is right for lint and test, which read the
+	// tree — and wrong for everything whose subject is the PROJECT, which is
+	// what the manifest declares. Rob, 2026-09-25: "Just Lint/Test/etc, not a
+	// build lane, which should look for the .toml".
+	//
+	// An atom that says so runs only where ManifestFor(its lane) is a root
+	// entry, and answers a differently-worded ABSENT otherwise — one that
+	// names the manifest rather than the files, because they are two different
+	// facts about the repository and a reader deserves to know which one it
+	// is. Nothing marks it in the go lane today; go has no atom whose subject
+	// is a root go.mod rather than the modules themselves.
+	NeedsManifest bool
 }
 
 var Atoms = atomTable()
@@ -254,10 +271,18 @@ func atomTable() []AtomDef {
 		{
 			ID: "python:pip-audit", Stage: StagePrepush, Lane: LanePython, Image: ImagePython,
 			Desc: "pip-audit reports no known vulnerability.",
+			// It audits DECLARED dependencies. A tree of loose .py declares
+			// none, so without the manifest it would examine nothing and
+			// report a pass — the exact failure StateCannotRun exists to make
+			// unrepresentable.
+			NeedsManifest: true,
 		},
 		{
 			ID: "python:release", Stage: StagePrepush, Lane: LanePython, Image: ImagePython,
 			Desc: "The venv the image will carry builds from the star's lock on the image's own python base — for a Dockerfile on foundry/base-images/python that copies from release/; any other image is absent.",
+			// The build lane, and the one Rob named: a release builds from the
+			// star's lock, which is the manifest's own artifact.
+			NeedsManifest: true,
 		},
 
 		// ---- rust ----
@@ -412,6 +437,11 @@ func atomTable() []AtomDef {
 		{
 			ID: "python:mutation", Stage: StageMutation, Lane: LanePython, Image: ImagePython,
 			Desc: "Every mutant cosmic-ray makes of this pull's changes to the declared critical modules is killed by the tests.",
+			// Its scope is critical_modules off .copier-answers.yml and it
+			// runs cosmic-ray against the project — neither of which a tree
+			// with no manifest has. Rob, 2026-09-25: "Leave mutation off for
+			// now." Off is this line; the lane's lint and test still run.
+			NeedsManifest: true,
 		},
 		{
 			ID: "rust:mutation", Stage: StageMutation, Lane: LaneRust, Image: ImageRust,

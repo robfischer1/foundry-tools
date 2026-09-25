@@ -164,3 +164,41 @@ func TestAbsenceNeverMasksANonPass(t *testing.T) {
 		t.Errorf("exit 1 rendered as %q", v.Result)
 	}
 }
+
+// THREE ABSENCES, AND A READER HAS TO BE ABLE TO TELL THEM APART. "This repo
+// carries no python" and "this repo carries python but does not package it"
+// are different facts, and a gate that says the wrong one about a repository
+// is a gate nobody can check.
+func TestAbsentReasonSaysWhichAbsenceItIs(t *testing.T) {
+	lint := AbsentVerdict(AtomDef{ID: "python:ruff-check", Lane: LanePython})
+	if !strings.Contains(lint.Reason, "no .py file anywhere in the tree") {
+		t.Errorf("a file-declared lane names its files: %s", lint.Reason)
+	}
+	if strings.Contains(lint.Reason, "pyproject.toml") {
+		t.Errorf("lint never asked for a manifest: %s", lint.Reason)
+	}
+
+	build := AbsentVerdict(AtomDef{ID: "python:release", Lane: LanePython, NeedsManifest: true})
+	if !strings.Contains(build.Reason, "no pyproject.toml at the repository root") {
+		t.Errorf("a build atom names the manifest it asked for: %s", build.Reason)
+	}
+
+	// Unchanged: go says go.mod anywhere, and a lane declared by its root
+	// manifest alone still says so.
+	gover := AbsentVerdict(AtomDef{ID: "go:vet", Lane: LaneGo})
+	if !strings.Contains(gover.Reason, "no go.mod anywhere in the tree") {
+		t.Errorf("go is unchanged: %s", gover.Reason)
+	}
+	rust := AbsentVerdict(AtomDef{ID: "rust:cargo-fmt", Lane: LaneRust})
+	if !strings.Contains(rust.Reason, "no Cargo.toml at the repository root") {
+		t.Errorf("rust is unchanged: %s", rust.Reason)
+	}
+
+	// Every one of them is a PASS-CODED absent, never a cannot-run: the atom
+	// had nothing to do, which is not the same as having failed to do it.
+	for _, v := range []Verdict{lint, build, gover, rust} {
+		if v.State != int(StatePass) || v.Result != "absent" {
+			t.Errorf("%s: an absence is a 0/absent, got %d/%q", v.Atom, v.State, v.Result)
+		}
+	}
+}

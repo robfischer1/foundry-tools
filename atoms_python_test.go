@@ -303,7 +303,7 @@ func TestPythonMypyTypeChecksTheProductDirsUnderTheFleetsConfig(t *testing.T) {
 	engine.reset()
 	engine.withTree(pyTree(nil, "src", "tests"))
 	v := runAtom(t, "python:mypy", "")
-	wantState(t, v, 0, "python:mypy: ABSENT - no src/ or tests/ to type-check")
+	wantState(t, v, 0, "python:mypy: ABSENT - no src/ or tests/ carrying python to type-check")
 	if v.Result != "absent" {
 		t.Errorf("want absent, got %q: %s", v.Result, v.Reason)
 	}
@@ -413,7 +413,7 @@ func TestPythonPytestFindsTestsWithoutATestsDirectory(t *testing.T) {
 	engine.reset()
 	engine.withTree(pyTree(nil, "tests"))
 	v := runAtom(t, "python:pytest", "")
-	wantState(t, v, 1, "python:pytest: FINDINGS - no tests/ and no test files; nothing is built without tests")
+	wantState(t, v, 1, "python:pytest: FINDINGS - no test_*.py or *_test.py anywhere; nothing is built without tests")
 	if v.Result == "absent" {
 		t.Errorf("an empty python lane is red, never absent: %+v", v)
 	}
@@ -424,7 +424,7 @@ func TestPythonPytestFindsTestsWithoutATestsDirectory(t *testing.T) {
 	// The enumeration is a CANNOT RUN when the engine will not answer it.
 	engine.reset()
 	engine.withTree(pyTree(nil, "tests"))
-	engine.fail(`glob(pattern:"**/test_`, "filter: engine went away")
+	engine.fail(`glob(pattern:"**/*.py`, "filter: engine went away")
 	wantState(t, runAtom(t, "python:pytest", ""), 2, "python:pytest: CANNOT RUN", "could not enumerate the repository", "engine went away")
 }
 
@@ -761,4 +761,95 @@ func TestPythonPipAuditNetworkFaultIsAskedAgainPastTheCache(t *testing.T) {
 	if engine.chain(`name:"CA_REASK"`) != "" {
 		t.Errorf("a finding was asked again")
 	}
+}
+
+// ---- a lane declared by its files has to be able to RUN (2026-09-25) ----
+
+// `uv run` RESOLVES A PROJECT OR IT FAILS. Widening the lane to any tree
+// carrying a .py is nominal unless the tools can run in a tree that is not a
+// python project — foundry-stocks' 234 hook tests live in hooks/, declared by
+// no manifest, and furnace renders those hooks into every session's live
+// .claude/hooks/. This is the pair of assertions that makes the widening real.
+func TestPythonToolsRunInATreeThatIsNotAProject(t *testing.T) {
+	// pytest, with no pyproject.toml anywhere.
+	engine.reset()
+	engine.withTree(pyTree(map[string]string{"hooks/test_hook.py": ""}, "pyproject.toml", "src", "tests"))
+	wantState(t, runAtom(t, "python:pytest", ""), 0)
+	c := engine.chain(`"pytest","-q"`, "exitCode")
+	if !hasCall(c, "withExec", `"--no-project","--with","pytest","pytest","-q"]`) {
+		t.Errorf("no project means --no-project and the tool fetched with --with:\n%s", c)
+	}
+	if strings.Contains(c, "--all-extras") {
+		t.Errorf("--all-extras is a project flag and there is no project:\n%s", c)
+	}
+
+	// mypy, same tree shape but with product python to point at.
+	engine.reset()
+	engine.withTree(pyTree(map[string]string{"src/app.py": ""}, "pyproject.toml", "tests"))
+	wantState(t, runAtom(t, "python:mypy", ""), 0)
+	c = engine.chain(`"mypy","--config-file"`, "exitCode")
+	if !hasCall(c, "withExec", `"--no-project","--with","mypy","mypy"`) {
+		t.Errorf("mypy in a project-less tree is fetched too:\n%s", c)
+	}
+
+	// AND THE PROJECT FORM IS UNTOUCHED. A repo that IS a python project still
+	// runs its checks against its own declared extras, which is the whole
+	// reason --all-extras was there.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	wantState(t, runAtom(t, "python:pytest", ""), 0)
+	if c := engine.chain(`"pytest","-q"`, "exitCode"); !hasCall(c, "withExec", `"uv","run","--all-extras","pytest","-q"]`) {
+		t.Errorf("a project's checks run against its own extras:\n%s", c)
+	}
+}
+
+// A GO STAR'S src/ IS NOT PYTHON, and mypy pointed at one answers exit 2 —
+// this module's word for "the check did not happen". urania, helios and nyx
+// each carry src/ and tests/ full of .go beside an incidental .py, and before
+// the lane was declared by its files they were simply not in it.
+func TestPythonMypySkipsProductDirsThatHoldNoPython(t *testing.T) {
+	engine.reset()
+	engine.withTree(map[string]string{
+		"go.mod":          "module x",
+		"src/main.go":     "",
+		"tests/x_test.go": "",
+		"scripts/one.py":  "",
+	})
+	v := runAtom(t, "python:mypy", "")
+	wantState(t, v, 0, "python:mypy: ABSENT - no src/ or tests/ carrying python to type-check")
+	if v.Result != "absent" {
+		t.Errorf("want absent, got %q: %s", v.Result, v.Reason)
+	}
+	if c := engine.chain("withExec"); c != "" {
+		t.Errorf("mypy must never be provisioned to type-check a Go tree:\n%s", c)
+	}
+}
+
+// THE `Lanes` VERB HAS TO SAY WHICH HALF IS DECLARED, because the files and
+// the manifest now answer different questions and a session asking what runs
+// here wants both. A repo with .py and no pyproject lints and tests and does
+// not build, and that is a sentence, not an omission.
+func TestManifestStateNamesWhatIsMissing(t *testing.T) {
+	withIt := manifestState([]string{"pyproject.toml"}, checks.LanePython)
+	if withIt != "pyproject.toml" {
+		t.Errorf("a declared manifest names itself, got %q", withIt)
+	}
+	without := manifestState([]string{"README.md"}, checks.LanePython)
+	if !strings.Contains(without, "no pyproject.toml") {
+		t.Errorf("an absent manifest is named, got %q", without)
+	}
+	if !strings.Contains(without, "lint and test, no build") {
+		t.Errorf("and the consequence is said out loud, got %q", without)
+	}
+}
+
+// The enumeration is a CANNOT RUN for mypy the same way it is for pytest: a
+// tree the engine will not list is a fact about the repository, and mypy
+// cannot choose its targets without it.
+func TestPythonMypyCannotRunWhenTheTreeWillNotList(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.fail(`glob(pattern:"**/*.py`, "filter: engine went away")
+	wantState(t, runAtom(t, "python:mypy", ""), 2,
+		"python:mypy: CANNOT RUN", "could not enumerate the repository", "engine went away")
 }

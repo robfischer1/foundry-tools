@@ -165,15 +165,36 @@ func AbsentVerdict(a AtomDef) Verdict {
 	}
 }
 
+// absentReason says which absence this is, and there are three of them.
+//
+// THE READER HAS TO BE ABLE TO TELL THEM APART. An atom that stood down
+// because the repository carries none of its language is a different fact from
+// one that stood down because the repository carries the language but does not
+// package it — and a reader who cannot tell which cannot tell whether the gate
+// is right. So the manifest sentence is reserved for the atoms that actually
+// asked for a manifest, and the lanes declared by their files say so.
 func absentReason(a AtomDef) string {
-	if a.Lane == LaneGo {
-		// The go lane is declared by a go.mod ANYWHERE the go command would
-		// build (GoModuleDirs), so its absence is not a root-only statement.
-		return fmt.Sprintf("%s: ABSENT — no go.mod anywhere in the tree (vendor/, testdata/ and _ or . directories do not count), so this repo does not build the go lane. Nothing was checked and nothing needed to be.",
-			a.ID)
+	if a.NeedsManifest {
+		// The lane may well be running; this atom's subject is the project,
+		// and the project is what the root manifest declares.
+		return fmt.Sprintf("%s: ABSENT — no %s at the repository root, so this repo does not build the %s lane. Nothing was checked and nothing needed to be.",
+			a.ID, ManifestFor(a.Lane), a.Lane)
+	}
+	if source, ok := laneDeclaredByFiles[a.Lane]; ok {
+		// Declared by its FILES, so its absence is not a root-only statement.
+		return fmt.Sprintf("%s: ABSENT — no %s anywhere in the tree (vendor/, testdata/ and _ or . directories do not count), so this repo carries no %s to check. Nothing was checked and nothing needed to be.",
+			a.ID, source, a.Lane)
 	}
 	return fmt.Sprintf("%s: ABSENT — no %s at the repository root, so this repo does not build the %s lane. Nothing was checked and nothing needed to be.",
 		a.ID, ManifestFor(a.Lane), a.Lane)
+}
+
+// laneDeclaredByFiles names what a lane declared BY ITS FILES looks for, for the atoms
+// that did not ask for a manifest. A lane absent from this map is declared by
+// its root manifest alone and gets the manifest sentence.
+var laneDeclaredByFiles = map[Lane]string{
+	LaneGo:     "go.mod",
+	LanePython: ".py file",
 }
 
 func reasonFor(id string, s State, exit int, output string) string {

@@ -104,13 +104,24 @@ func GoModuleDirs(files []string) []string {
 }
 
 // goBuildsUnder reports whether the go command would build a package in dir.
-func goBuildsUnder(dir string) bool {
+func goBuildsUnder(dir string) bool { return !vendoredOrHidden(dir) }
+
+// vendoredOrHidden reports whether dir is one NO lane counts as the
+// repository's own source: vendor/, testdata/, and any segment starting with
+// "_" or ".".
+//
+// It is the set `go ./...` skips, which is why it was written here first — and
+// it is the same set a .py file under it is not the repository's python, which
+// is why PythonFiles reads it too rather than keeping a second copy that could
+// drift. Naming it apart from the go lane is the whole point: the predicate is
+// about the TREE, and only goBuildsUnder's sentence is about go.
+func vendoredOrHidden(dir string) bool {
 	for _, seg := range strings.Split(dir, "/") {
 		if seg == "vendor" || seg == "testdata" || strings.HasPrefix(seg, "_") || strings.HasPrefix(seg, ".") {
-			return false
+			return true
 		}
 	}
-	return true
+	return false
 }
 
 // ModuleVerdict is one Go module's answer to one atom.

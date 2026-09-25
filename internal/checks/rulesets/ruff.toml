@@ -71,18 +71,38 @@ runtime-evaluated-base-classes = [
 # (`*_test.py` is NOT a test class here: no fleet python repo names a test
 # that way, measured 2026-09-11, and stop-justifications counts an entry that
 # silences nothing as a suppression — correctly.)
+#
+# THE SCRIPT CLASS IS ANCHORED AT THE ROOT AND SHOULD NOT BE, and 2026-09-25
+# is when that started to matter. `"scripts/**/*.py"` matches a scripts/ at the
+# repository root only; foundry-tools' own probe scripts live at
+# internal/checks/scripts/ and were graded as a package, three INP001s against
+# files the class above already rules exempt. The test class had the same shape
+# and already carries the fix — "tests/**" is paired with "**/test_*.py" — so
+# these are paired the same way rather than left to be rediscovered one nested
+# directory at a time. It widens no decision: the exemption is the same one,
+# reaching the same class of file, wherever the repository keeps it.
 [lint.per-file-ignores]
 "tests/**" = ["S101", "ANN", "D", "E402", "PLW1510", "INP001"]
 "**/test_*.py" = ["S101", "ANN", "D", "E402", "PLW1510", "INP001"]
 "**/conftest.py" = ["S101", "ANN", "D", "E402", "PLW1510", "INP001"]
 ".cerberus/**/*.py" = ["INP001"]
 "benchmarks/**/*.py" = ["INP001"]
+"**/benchmarks/**/*.py" = ["INP001"]
 "conformance/**/*.py" = ["INP001"]
+"**/conformance/**/*.py" = ["INP001"]
 "crates/**/*.py" = ["INP001"]
+"**/crates/**/*.py" = ["INP001"]
 "docs/**/*.py" = ["INP001"]
+"**/docs/**/*.py" = ["INP001"]
 "probe/**/*.py" = ["INP001"]
+"**/probe/**/*.py" = ["INP001"]
 "probes/**/*.py" = ["INP001"]
+"**/probes/**/*.py" = ["INP001"]
 "scripts/**/*.py" = ["INP001"]
+"**/scripts/**/*.py" = ["INP001"]
 "specs/**/*.py" = ["INP001"]
+"**/specs/**/*.py" = ["INP001"]
 "studies/**/*.py" = ["INP001"]
+"**/studies/**/*.py" = ["INP001"]
 "tools/**/*.py" = ["INP001"]
+"**/tools/**/*.py" = ["INP001"]
