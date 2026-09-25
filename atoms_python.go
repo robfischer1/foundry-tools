@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -47,6 +46,21 @@ const ruffVersion = "ruff@0.16.3"
 // pythonRuleset answers the CANNOT RUN a missing fleet ruleset is, reading
 // foundry-stocks IN GO before any container starts.
 //
+
+// pythonFiles is the tree's own python (checks.PythonFiles), read once per run
+// off the gate's own population — the same shape as goModuleDirs, because the
+// two lanes now answer the same question about themselves.
+func (r *run) pythonFiles(ctx context.Context) ([]string, error) {
+	r.pyFilesOnce.Do(func() {
+		files, err := r.population(ctx, "**/*.py")
+		if err != nil {
+			r.pyFilesErr = err
+			return
+		}
+		r.pyFiles = checks.PythonFiles(files)
+	})
+	return r.pyFiles, r.pyFilesErr
+}
 
 // pythonRootEntries is the repository root, or the CANNOT RUN that not being
 // able to read it is. A tree the engine cannot list is a fact about the
@@ -186,11 +200,19 @@ func pythonMypy(ctx context.Context, r *run) checks.Verdict {
 	if !ok {
 		return v
 	}
-	targets := checks.PythonSourceDirs(entries)
-	if len(targets) == 0 {
-		return checks.VerdictOf(a, 0, a.ID+": ABSENT - no src/ or tests/ to type-check")
+	pys, err := r.pythonFiles(ctx)
+	if err != nil {
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - could not enumerate the repository: "+err.Error())
 	}
-	args := append([]string{"uv", "run", "--all-extras", "mypy", "--config-file", checks.RulesetsDir + "/mypy.ini"}, targets...)
+	// The directories that CARRY python, not the ones that are named src and
+	// tests: a .py-declared lane reaches Go stars whose src/ and tests/ are
+	// full of .go, and mypy pointed at one answers exit 2 — a could-not-run
+	// filed against a repository with nothing wrong with it.
+	targets := checks.DirsCarryingPython(checks.PythonSourceDirs(entries), pys)
+	if len(targets) == 0 {
+		return checks.VerdictOf(a, 0, a.ID+": ABSENT - no src/ or tests/ carrying python to type-check")
+	}
+	args := append(checks.UvRun(entries, "mypy", "--config-file", checks.RulesetsDir+"/mypy.ini"), targets...)
 	return verdict(ctx, a, r.lane(checks.ImagePython).
 		WithNewFile(checks.RulesetsDir+"/mypy.ini", rulesets.Mypy).
 		WithExec([]string{"uv", "--version"}).
@@ -218,14 +240,19 @@ func pythonPytest(ctx context.Context, r *run) checks.Verdict {
 	if !ok {
 		return v
 	}
-	if !slices.Contains(checks.PythonSourceDirs(entries), "tests") {
-		files, err := r.population(ctx, "**/test_*.py", "**/*_test.py")
-		if err != nil {
-			return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - could not enumerate the repository: "+err.Error())
-		}
-		if len(files) == 0 {
-			return checks.VerdictOf(a, 1, a.ID+": FINDINGS - no tests/ and no test files; nothing is built without tests")
-		}
+	pys, err := r.pythonFiles(ctx)
+	if err != nil {
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - could not enumerate the repository: "+err.Error())
+	}
+	// A ROOT tests/ NO LONGER STANDS IN FOR HAVING TESTS. It did while only a
+	// pyproject.toml put a repo in this lane; a .py-declared lane reaches Go
+	// stars whose tests/ holds no python at all, and letting the directory
+	// name answer would have sent pytest to collect nothing and report its
+	// exit 5 instead of the true sentence. The rule itself is unchanged and is
+	// Rob's, 2026-09-11 and again 2026-09-25 when the lane widened: nothing is
+	// built without tests, and a lane with nothing to collect is RED.
+	if len(checks.PythonTestFiles(pys)) == 0 {
+		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - no test_*.py or *_test.py anywhere; nothing is built without tests")
 	}
 
 	// gitReady for the same reason go:test-race carries it: a suite that
@@ -233,7 +260,7 @@ func pythonPytest(ctx context.Context, r *run) checks.Verdict {
 	// `.git` file.
 	out, code, err := output(ctx, r.gitReady(ctx, r.lane(checks.ImagePython)).
 		WithExec([]string{"uv", "--version"}).
-		WithExec([]string{"uv", "run", "--all-extras", "pytest", "-q"}, anyExit))
+		WithExec(checks.UvRun(entries, "pytest", "-q"), anyExit))
 	if err != nil {
 		return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
 	}

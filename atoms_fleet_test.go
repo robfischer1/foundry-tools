@@ -718,9 +718,16 @@ func TestFleetOrbitDriftMountsTheEmbeddedCheckerAndRunsItUnderUv(t *testing.T) {
 	wantState(t, runAtom(t, "fleet:orbit-drift", ""), 0)
 
 	c := engine.chain(`"/tmp/orbit-drift.py"`, "exitCode")
+	// THE DOOR IS SPELLED IN TWO PIECES SINCE 2026-09-25, and both are asserted
+	// rather than the one contiguous string this used to look for. ruff's S310
+	// wants the scheme as a literal AT the urlopen — a constant holding the
+	// whole URL is opaque to it — so the host lives at the call and the rest
+	// of the path in ORBITS. The thing this test cares about is unchanged:
+	// the embedded checker points at foundry-dies/orbits on the door.
 	wantCalls(t, c,
 		[]string{"withNewFile", `path:"/tmp/orbit-drift.py"`, "import hashlib"},
-		[]string{"withNewFile", `path:"/tmp/orbit-drift.py"`, "api/v1/repos/foundry/foundry-dies/raw/orbits"},
+		[]string{"withNewFile", `path:"/tmp/orbit-drift.py"`, "forgejo.notusmi.com/api/v1/repos/{ORBITS}"},
+		[]string{"withNewFile", `path:"/tmp/orbit-drift.py"`, "foundry/foundry-dies/raw/orbits"},
 		[]string{"withExec", `args:["uv","--version"]`},
 		[]string{"withExec", `expect:ANY`, `args:["uv","run","--no-project","--quiet","--with","tomli>=2.0","python3","/tmp/orbit-drift.py"]`},
 	)

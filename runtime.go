@@ -75,6 +75,13 @@ type run struct {
 	goModsOnce sync.Once
 	goMods     []string
 	goModsErr  error
+
+	// pyFiles is the tree's own .py files, read once per run for the same
+	// reason and by the same discipline — the planner asks, and asking the
+	// engine for a glob over the whole tree is not free.
+	pyFilesOnce sync.Once
+	pyFiles     []string
+	pyFilesErr  error
 }
 
 // fromOrigin names where a snapshot's history is fetched from (gitReadyOn).

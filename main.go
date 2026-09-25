@@ -8,6 +8,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -174,27 +175,48 @@ func (m *FoundryTools) Lanes(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("could not read the repository root: %w", err)
 	}
-	// Go is declared by a module anywhere in the tree, as verdictFor reads it,
-	// so this answers the lanes the gate would actually run.
-	dirs, err := newRun(m.Source, "", "").goModuleDirs(ctx)
+	// THE PLANNER'S OWN ANSWER, not a second reading of the tree. Go and
+	// python are both declared by their FILES — a go.mod or a .py anywhere the
+	// repository owns — so a verb that re-derived the lanes off the root
+	// entries would tell a session something the gate does not believe.
+	r := newRun(m.Source, "", "")
+	dirs, err := r.goModuleDirs(ctx)
 	if err != nil {
 		return "", fmt.Errorf("could not enumerate the tree's Go modules: %w", err)
 	}
+	pys, err := r.pythonFiles(ctx)
+	if err != nil {
+		return "", fmt.Errorf("could not enumerate the tree's python: %w", err)
+	}
 	out := ""
-	for _, l := range checks.LanesOf(entries) {
-		if l != checks.LaneGo {
+	for _, l := range checks.LanesOfTree(checks.Tree{Entries: entries, GoModules: len(dirs), PythonFiles: len(pys)}) {
+		switch {
+		case l == checks.LaneGo && len(dirs) == 1 && dirs[0] == ".":
+			out += fmt.Sprintf("%s (go.mod)\n", l)
+		case l == checks.LaneGo:
+			out += fmt.Sprintf("%s (go.mod in %s)\n", l, strings.Join(dirs, ", "))
+		case l == checks.LanePython && len(pys) > 0:
+			// The count, not the list: infra carries 617 of them.
+			out += fmt.Sprintf("%s (%d .py file(s), and %s)\n", l, len(pys), manifestState(entries, l))
+		default:
 			out += fmt.Sprintf("%s (%s)\n", l, checks.ManifestFor(l))
 		}
 	}
-	if len(dirs) == 1 && dirs[0] == "." {
-		out = fmt.Sprintf("%s (go.mod)\n", checks.LaneGo) + out
-	} else if len(dirs) > 0 {
-		out = fmt.Sprintf("%s (go.mod in %s)\n", checks.LaneGo, strings.Join(dirs, ", ")) + out
-	}
 	if out == "" {
-		return "this repository declares no lane (no go.mod anywhere, and no pyproject.toml, Cargo.toml or package.json at its root)", nil
+		return "this repository declares no lane (no go.mod and no .py anywhere, and no pyproject.toml, Cargo.toml or package.json at its root)", nil
 	}
 	return out, nil
+}
+
+// manifestState says whether the lane's build is declared too, because the
+// files and the manifest now answer different halves of the question and a
+// session asking `Lanes` wants both.
+func manifestState(entries []string, l checks.Lane) string {
+	manifest := checks.ManifestFor(l)
+	if checks.DeclaresManifest(entries, manifest) {
+		return manifest
+	}
+	return "no " + manifest + " — lint and test, no build"
 }
 
 // Catalogue lists every atom this module carries — id, stage, lane and
@@ -334,12 +356,14 @@ func (m *FoundryTools) vector(ctx context.Context, stage, only, base string) ([]
 func (r *run) plan(ctx context.Context, selected []checks.AtomDef) (checks.Plan, []checks.Verdict, error) {
 	entries, entriesErr := r.src.Entries(ctx)
 	mods, modsErr := r.goModuleDirs(ctx)
-	plan := checks.PlanAtoms(selected, entries, len(mods))
-	if entriesErr != nil || modsErr != nil {
-		why := entriesErr
-		if why == nil {
-			why = modsErr
-		}
+	pys, pysErr := r.pythonFiles(ctx)
+	plan := checks.PlanAtoms(selected, checks.Tree{
+		Entries:     entries,
+		GoModules:   len(mods),
+		PythonFiles: len(pys),
+	})
+	if entriesErr != nil || modsErr != nil || pysErr != nil {
+		why := cmp.Or(entriesErr, modsErr, pysErr)
 		plan = checks.Plan{}
 		var unread []checks.Verdict
 		for _, a := range selected {
