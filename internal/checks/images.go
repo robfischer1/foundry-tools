@@ -143,7 +143,19 @@ const (
 	// forge-testkit-go/@v/list). It is NOT a Go import of this module: the
 	// scorer runs on the host where the source is a Directory, and the engine
 	// builds this module with its own proxy settings, not the lane's.
-	MutationGateModule  = "git.notusmi.com/rob/forge-testkit-go/cmd/mutation-gate@v0.7.0"
+	//
+	// A `package main` IS NOT ONE OF ITS CLASSES, and v0.9.0 is skipped on
+	// purpose for that reason. v0.9.0 added a package-main class that forgave
+	// any mutant whose file said `package main` — over-wide by one case, because
+	// gremlins#268 resolves a main package to the MODULE ROOT, so a main package
+	// that IS the root resolves to itself and is graded correctly. Pinning
+	// v0.9.0 would forgive real survivors in the one repo of 38 with a root main
+	// package: this one. v0.10.0 removed the class, and the exclusion lives HERE
+	// instead — ScoreGoMutation's `ungraded` bucket, keyed on a control that
+	// lifts it by measurement when a fixed gremlins lands. A classifier cannot
+	// do that: it is handed one file at a time and cannot tell a misgraded
+	// verdict from an honest one, nor notice the runner was fixed.
+	MutationGateModule  = "git.notusmi.com/rob/forge-testkit-go/cmd/mutation-gate@v0.10.0"
 	CargoAuditVersion   = "0.22.2"
 	CargoMutantsVersion = "27.1.0"
 	// The mutation atom's test runner (`cargo mutants --test-tool nextest`).
