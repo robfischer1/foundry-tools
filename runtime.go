@@ -269,6 +269,15 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 			WithExec([]string{"uv", "--version"}).
 			WithExec([]string{"opengrep", "--version"})
 	case checks.ImageRust:
+		// AND A PYTHON THE FLEET CAN ACTUALLY RUN. rust:bookworm ships 3.11.2
+		// and the fleet standardised on 3.14; a repo whose cargo tests spawn
+		// its own python hooks (cerberus' memory_plugin.rs) ran them through
+		// that 3.11 and met a SyntaxError on syntax the fleet's own formatter
+		// had emitted. Installed with uv rather than apt because no Debian
+		// suite packages 3.14 yet, and symlinked over `python3` because the
+		// spawning code names the interpreter and not a path — see
+		// checks.FleetPython for the measurement.
+		//
 		// rust:bookworm carries cargo, git, curl and bash. rustfmt and
 		// clippy are rustup components; cargo-audit, cargo-mutants and
 		// cargo-nextest are built from source at their pins — minutes on the
@@ -276,10 +285,19 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 		// package: the mutation atom links every mutant's test binaries
 		// through it (`mold -run`), and linking was the larger half of a
 		// mutant's build.
+		rustUV := dag.Container().From(checks.ImageUV)
 		return ctr.
 			WithExec([]string{"apt-get", "update"}).
 			WithExec([]string{"apt-get", "install", "-y", "--no-install-recommends", "mold"}).
 			WithExec([]string{"rm", "-rf", "/var/lib/apt/lists"}).
+			WithFile("/usr/local/bin/uv", rustUV.File("/uv")).
+			// --default WRITES THE SHIMS, so no `ln -s` and so no shell: uv
+			// lays python/python3/python3.14 into UV_PYTHON_BIN_DIR itself.
+			// TestNoAtomExecsAShell is right to refuse the alternative, and
+			// this repo spent a lot of effort getting off `sh -c`.
+			WithEnvVariable("UV_PYTHON_BIN_DIR", "/usr/local/bin").
+			WithExec([]string{"uv", "python", "install", "--default", checks.FleetPython}).
+			WithExec([]string{"python3", "--version"}).
 			WithExec([]string{"rustup", "component", "add", "rustfmt", "clippy"}).
 			WithFile("/usr/local/bin/opengrep", dag.HTTP(checks.OpengrepURL), dagger.ContainerWithFileOpts{Permissions: 0o755}).
 			WithExec([]string{"cargo", "install", "cargo-audit", "--locked", "--version", checks.CargoAuditVersion}).

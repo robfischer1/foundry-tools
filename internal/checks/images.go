@@ -68,6 +68,20 @@ const (
 	// ImageUV carries /uv and /uvx — the python lane's whole package
 	// manager, and the version the fleet's uv.lock files were written under.
 	ImageUV = "ghcr.io/astral-sh/uv:0.12.13@sha256:b485bd65cc2cf1c9a93b3554012c9c3778cf7b1b5fd3d3096ce9e1226c97e1e6"
+
+	// FleetPython is the interpreter version the fleet standardised on (Rob,
+	// 2026-09-25). It is not decoration: `target-version = "py314"` in the ruleset
+	// makes `ruff format` emit PEP 758 — `except A, B:` with no parentheses — which
+	// is valid 3.14 and a SyntaxError on anything older. Any lane that EXECUTES the
+	// fleet's python has to carry this, and the rust lane does: cerberus'
+	// memory_plugin.rs spawns .cerberus/hooks/*.py from `cargo test`, so
+	// rust:bookworm's own python3 (3.11.2, measured 2026-09-25) parsed five of
+	// those tests into a SyntaxError the moment the formatter had been near them.
+	//
+	// NO STOCK RUST IMAGE CARRIES IT — bookworm is 3.11, trixie 3.13, slim-trixie
+	// has none at all (all three measured). So the lane provisions it with uv, the
+	// same tool the python lane already uses, rather than waiting on a base image.
+	FleetPython = "3.14"
 	// ImageNode carries the node ts:mutation runs stryker under
 	// (`node_modules/.bin/stryker` under node, never `bunx --bun` — atoms_ts.go
 	// says why). The bun image ships no node.
