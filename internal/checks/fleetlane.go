@@ -110,8 +110,8 @@ func GrepThroughXargsState(code int, stdout string) int {
 }
 
 // ToolThroughXargsState maps one `xargs -0 -a <list> <tool> …` run to an atom
-// state for a TWO-VALUED tool — check-yaml and detect-secrets-hook, which exit
-// 0 clean and 1 with something to say.
+// state for a TWO-VALUED tool — check-yaml, which exits 0 clean and 1 with
+// something to say.
 //
 // WITHOUT THIS, EVERY FINDING READS AS A CANNOT-RUN. StateFor maps anything
 // that is not 0 or 1 to could-not-run, and xargs never passes 1 through: a
@@ -133,31 +133,6 @@ func ToolThroughXargsState(code int) int {
 	default:
 		return int(StateCannotRun)
 	}
-}
-
-// secretsExclude is the population detect-secrets does NOT scan: test fixtures.
-// A fixture's whole job is to look like the thing it is a fixture for, and a
-// baseline that had to excuse every one of them would excuse the real ones too.
-var secretsExclude = regexp.MustCompile(`(^|/)testdata/|^tests/fixtures/`)
-
-// SecretsPopulation drops the fixture directories from the gate population.
-//
-// THE PATHS ARE PASSED AS THE BASELINE KEYS THEM. .secrets.baseline is written
-// by pre-commit, which hands the scanner git-relative paths, so "bases/x.yaml"
-// is the key. The walk this replaces handed detect-secrets "./bases/x.yaml",
-// which matches nothing in the baseline, so EVERY already-excused finding came
-// back as a new secret — 200+ of them on foundry-stocks, all of them already in
-// its baseline (measured 2026-09-09). population() yields the bare relative
-// path, and nothing here prefixes it.
-func SecretsPopulation(files []string) []string {
-	out := make([]string, 0, len(files))
-	for _, f := range files {
-		if secretsExclude.MatchString(f) {
-			continue
-		}
-		out = append(out, f)
-	}
-	return out
 }
 
 // languagesDecl is the `languages: [ … ]` array as it appears in an opengrep

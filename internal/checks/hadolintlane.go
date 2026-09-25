@@ -109,8 +109,15 @@ const HadolintConfigPath = "/etc/hadolint/fleet.yaml"
 // tartarus it also closed a latent trap, since a GONOSUMDB set beside
 // GOPRIVATE replaces the default GOPRIVATE would give it). No Dockerfile on
 // main trips the rule now (75 measured), so a name that reads as a secret is
-// a warning again; fleet:detect-secrets still reads every tracked file for
-// the values themselves.
+// a warning again.
+//
+// THAT SENTENCE USED TO END "fleet:detect-secrets still reads every tracked
+// file for the values themselves", and it no longer can: the atom was retired
+// 2026-09-25 after 237 baseline entries across 72 repositories turned out to
+// hold zero real credentials. The warning keeps its own justification — no
+// Dockerfile on main trips it — but it no longer has a second tool behind it
+// reading for values. If that backstop is wanted, it is a decision to make on
+// its own terms rather than one inherited from a check that is gone.
 //
 // WHAT IS DELIBERATELY NOT HERE. DL3025 (JSON notation for CMD, ENTRYPOINT
 // and HEALTHCHECK) stays a warning: eleven stars carry a template-poured

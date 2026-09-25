@@ -113,10 +113,6 @@ func atomTable() []AtomDef {
 			Desc: "No conflict markers were committed.",
 		},
 		{
-			ID: "fleet:detect-secrets", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "No new secret against the repository's .secrets.baseline.",
-		},
-		{
 			ID: "fleet:stop-justifications", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "No silent suppression of any gate — a suppression carries a tool-conflict line.",
 		},
