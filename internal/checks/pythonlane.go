@@ -32,6 +32,53 @@ func PythonSourceDirs(entries []string) []string {
 	return out
 }
 
+// RuffLineLength is the formatter width this tree is graded at, as a string
+// ready for the command line.
+//
+// THE FLEET HAS ONE RULESET AND TWO WIDTHS. rulesets/ruff.toml says so in as
+// many words — "The two differed in exactly one value: line-length, 80 for a
+// python star and 100 for python embedded in another lane. That is not a rule,
+// it is a formatter width, and the atom passes it as --line-length by lane" —
+// and until now the atom did not pass it. The embedded file carries 80, so
+// every go, rust and ts star was format-checked at 80 against a repo whose own
+// ruff.toml declares 100, and whose python was therefore correctly formatted
+// to a width the gate refused.
+//
+// Measured on cerberus 2026-09-25, the tree that surfaced it: 38 files would be
+// reformatted at 80, 33 at 100 — five files red for no reason but this.
+//
+// A PYTHON STAR IS ONE WHOSE PYTHON IS THE STAR — it declares the python
+// lane and no OTHER star's lane. A pyproject.toml alone is not the test, and
+// that was this function's first cut: themis and urania are both Go and
+// Python, and a go star carrying a root pyproject.toml for its product python
+// is still a go star. It is poured go-repo-template's ruff.toml, at 100.
+//
+// RUFF'S OWN PRECEDENCE AGREES, which is the check that matters, because the
+// point of the width is that the gate and the repo's editor grade the same
+// file the same way: ruff reads ruff.toml over pyproject.toml, so a go star
+// carrying both is formatted at 100 locally. Answering 80 here would have
+// recreated the exact defect this function exists to close, one lane over.
+//
+// The widths are read, not assumed: python-repo-template's
+// pyproject.toml.jinja carries 80; the go, rust and frontend templates'
+// ruff.toml each carry 100 (all four, 2026-09-25).
+//
+// ONLY THE FORMATTER NEEDS IT. Measured at both widths against cerberus and
+// iris: `ruff check` reports identically, because E501 is in the ruleset's
+// ignore list and nothing else selected reads line-length. If E501 is ever
+// un-ignored, the lint atom needs this too and does not have it.
+func RuffLineLength(entries []string) string {
+	if !DeclaresManifest(entries, ManifestFor(LanePython)) {
+		return "100"
+	}
+	for _, l := range []Lane{LaneGo, LaneRust, LaneTS} {
+		if DeclaresManifest(entries, ManifestFor(l)) {
+			return "100"
+		}
+	}
+	return "80"
+}
+
 // RuffFormatTargets answers what `ruff format --check` is pointed at, and
 // whether there is anything to point it at.
 //

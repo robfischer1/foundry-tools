@@ -318,3 +318,37 @@ func TestUvRunAsksForAProjectOnlyWhenThereIsOne(t *testing.T) {
 		t.Errorf("got %v — no project to resolve, and the tool has to be fetched", without)
 	}
 }
+
+func TestRuffLineLengthFollowsTheStarNotThePyprojectToml(t *testing.T) {
+	// THE FLEET HAS ONE RULESET AND TWO WIDTHS, and the atom had been passing
+	// neither — rulesets/ruff.toml carries 80, so every go, rust and ts star
+	// was graded at 80 against a repo whose own ruff.toml declares 100.
+	// Measured on cerberus 2026-09-25: 38 files red at 80, 33 at 100.
+	//
+	// The second row is the one that matters. A go star carrying a root
+	// pyproject.toml for its product python is still a GO star, poured
+	// go-repo-template's ruff.toml at 100 — and ruff reads ruff.toml over
+	// pyproject.toml, so 100 is also what its editor shows. A first cut that
+	// tested for pyproject.toml alone answered 80 there and would have
+	// recreated this defect one lane over.
+	for _, tc := range []struct {
+		name    string
+		entries []string
+		want    string
+	}{
+		{"a python star", []string{"pyproject.toml", "src", "tests"}, "80"},
+		{"a go star that also declares python", []string{"go.mod", "pyproject.toml", "src"}, "100"},
+		{"a rust star that also declares python", []string{"Cargo.toml", "pyproject.toml"}, "100"},
+		{"a ts star that also declares python", []string{"package.json", "pyproject.toml"}, "100"},
+		{"a rust star with only incidental python", []string{"Cargo.toml", "probes"}, "100"},
+		{"a go star with only incidental python", []string{"go.mod", "scripts"}, "100"},
+		{"a tree declaring nothing", []string{"README.md"}, "100"},
+		{"dagger's leading ./ is not a different repository", []string{"./pyproject.toml"}, "80"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := RuffLineLength(tc.entries); got != tc.want {
+				t.Errorf("RuffLineLength(%v) = %q, want %q", tc.entries, got, tc.want)
+			}
+		})
+	}
+}

@@ -104,7 +104,7 @@ func TestPythonRuffFormatScopesAGoStarToItsProductPython(t *testing.T) {
 	wantCalls(t, c,
 		[]string{"withNewFile", `path:"/rulesets/ruff.toml"`},
 		[]string{"withExec", `args:["uvx","ruff@0.16.3","--version"]`},
-		[]string{"withExec", `expect:ANY`, `args:["uvx","ruff@0.16.3","format","--config","` + ruffToml + `","--check","src","tests"]`},
+		[]string{"withExec", `expect:ANY`, `args:["uvx","ruff@0.16.3","format","--config","` + ruffToml + `","--line-length","100","--check","src","tests"]`},
 	)
 	// --check, NEVER the rewrite: a formatter that rewrites a tree mid-commit
 	// has aborted a commit in this fleet before.
