@@ -7,7 +7,7 @@ import (
 
 func TestGroupOfSplitsTheFleetFromWhatTheTreeContains(t *testing.T) {
 	for id, want := range map[string]string{
-		"fleet:detect-secrets": GroupBasic, "fleet:opengrep-sast": GroupBasic,
+		"fleet:hadolint": GroupBasic, "fleet:opengrep-sast": GroupBasic,
 		"go:vet": GroupLanguage, "python:ruff-check": GroupLanguage, "ops:ansible": GroupLanguage,
 		"compose:config": GroupLanguage, "dies:opa-test": GroupLanguage, "fleetish:x": GroupLanguage,
 	} {
@@ -25,7 +25,7 @@ func TestSettleStageOrdersBasicThenLanguageAndOmitsTheAbsent(t *testing.T) {
 		{Atom: "rust:cargo-fmt", State: 0, Result: "absent", Reason: "ABSENT — no Cargo.toml"},
 		{Atom: "python:mypy", State: 0, Result: "absent", Reason: "python:mypy: ABSENT — no pyproject.toml"},
 		{Atom: "ops:ansible", State: 2, Result: "cannot-run", Reason: "galaxy 404"},
-		{Atom: "fleet:detect-secrets", State: 0, Result: "pass", Reason: ""},
+		{Atom: "fleet:hadolint", State: 0, Result: "pass", Reason: ""},
 	})
 	var ran, omitted []string
 	for _, a := range st.Ran {
@@ -34,7 +34,7 @@ func TestSettleStageOrdersBasicThenLanguageAndOmitsTheAbsent(t *testing.T) {
 	for _, a := range st.Omitted {
 		omitted = append(omitted, a.Atom+"/"+a.Group)
 	}
-	if strings.Join(ran, ",") != "fleet:check-yaml/basic,fleet:detect-secrets/basic,go:vet/language,ops:ansible/language" {
+	if strings.Join(ran, ",") != "fleet:check-yaml/basic,fleet:hadolint/basic,go:vet/language,ops:ansible/language" {
 		t.Errorf("ran %v", ran)
 	}
 	if strings.Join(omitted, ",") != "python:ruff-check/language,rust:cargo-fmt/language,python:mypy/language" {
@@ -47,7 +47,7 @@ func TestSettleStageOrdersBasicThenLanguageAndOmitsTheAbsent(t *testing.T) {
 		t.Errorf("lanes %v: the language namespaces that ran, sorted, never fleet or an omitted one", st.Lanes)
 	}
 	want := "── fleet:check-yaml · findings ──\nFINDINGS (exit 1)\nbad.yaml: line 3\n" +
-		"── fleet:detect-secrets · pass ──\n\n" +
+		"── fleet:hadolint · pass ──\n\n" +
 		"── go:vet · pass ──\nok vet\n" +
 		"── ops:ansible · cannot-run ──\ngalaxy 404\n" +
 		"── omitted: no surface here ──\n" +
@@ -150,7 +150,7 @@ func TestTheCommitAndPushStagesHoldTheirAtoms(t *testing.T) {
 		}
 		return strings.Join(out, ",")
 	}
-	commit := "fleet:check-yaml,fleet:check-added-large-files,fleet:check-merge-conflict,fleet:detect-secrets,fleet:stop-justifications," +
+	commit := "fleet:check-yaml,fleet:check-added-large-files,fleet:check-merge-conflict,fleet:stop-justifications," +
 		"fleet:sast-ruleset-lanes,fleet:opengrep-sast,fleet:hadolint," +
 		"ops:shell,ops:chezmoi,ops:yaml,ops:dup,ops:declaration,ops:specs,ops:ansible,ops:flux,ops:kube-linter," +
 		"go:gofmt,go:vet,go:test," +

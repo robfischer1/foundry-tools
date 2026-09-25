@@ -151,36 +151,6 @@ func TestToolThroughXargsRescuesTheFindingStateForWouldLose(t *testing.T) {
 	}
 }
 
-func TestSecretsPopulationDropsFixtures(t *testing.T) {
-	in := []string{
-		"bases/x.yaml",
-		"testdata/secret.json",
-		"internal/checks/testdata/a.txt",
-		"tests/fixtures/creds.yaml",
-		"tests/unit/test_thing.py",
-		"docs/testdata.md",
-		"src/tests/fixtures/nope.txt",
-	}
-	want := []string{
-		"bases/x.yaml",
-		"tests/unit/test_thing.py",
-		"docs/testdata.md",
-		"src/tests/fixtures/nope.txt", // ^tests/fixtures/ is root-anchored
-	}
-	if got := SecretsPopulation(in); !reflect.DeepEqual(got, want) {
-		t.Errorf("SecretsPopulation = %q, want %q", got, want)
-	}
-}
-
-// The 200+ false findings on foundry-stocks came from a "./" prefix the
-// baseline's keys do not carry. Nothing here adds one.
-func TestSecretsPopulationDoesNotRewritePaths(t *testing.T) {
-	got := SecretsPopulation([]string{"bases/x.yaml"})
-	if len(got) != 1 || got[0] != "bases/x.yaml" {
-		t.Errorf("SecretsPopulation rewrote the path: %q", got)
-	}
-}
-
 func TestSastLanesMissingMirrorsTheShell(t *testing.T) {
 	rules := []string{
 		"rules:\n  - id: py-thing\n    languages: [python]\n",

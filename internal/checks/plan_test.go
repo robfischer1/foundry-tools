@@ -49,9 +49,9 @@ func TestPlanAtomsReadsTheGoLaneFromItsModuleCount(t *testing.T) {
 }
 
 func TestPlanAtomsOnAnEmptyTreeRunsOnlyWhatRunsEverywhere(t *testing.T) {
-	sel := []AtomDef{{ID: "fleet:detect-secrets", Lane: LaneAny}, {ID: "ts:bun-gate", Lane: LaneTS}}
+	sel := []AtomDef{{ID: "fleet:hadolint", Lane: LaneAny}, {ID: "ts:bun-gate", Lane: LaneTS}}
 	p := PlanAtoms(sel, Tree{})
-	if planIDs(p.Run) != "fleet:detect-secrets" || planIDs(p.Absent) != "ts:bun-gate" || len(p.Lanes) != 0 {
+	if planIDs(p.Run) != "fleet:hadolint" || planIDs(p.Absent) != "ts:bun-gate" || len(p.Lanes) != 0 {
 		t.Errorf("%+v", p)
 	}
 }

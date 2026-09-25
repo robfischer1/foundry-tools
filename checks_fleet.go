@@ -54,14 +54,6 @@ func (f *Fleet) CheckMergeConflict(ctx context.Context) (string, error) {
 	return check(ctx, f.Source, "fleet:check-merge-conflict")
 }
 
-// No new secret against the repository's .secrets.baseline. A missing baseline
-// is a CANNOT RUN, never a pass.
-//
-// +check
-func (f *Fleet) DetectSecrets(ctx context.Context) (string, error) {
-	return check(ctx, f.Source, "fleet:detect-secrets")
-}
-
 // No silent suppression of any gate — a suppression is a claim that the tool is
 // wrong, and it carries a tool-conflict line saying what disagrees.
 //

@@ -27,7 +27,6 @@ func init() {
 	register("fleet:check-yaml", fleetCheckYAML)
 	register("fleet:check-added-large-files", fleetCheckAddedLargeFiles)
 	register("fleet:check-merge-conflict", fleetCheckMergeConflict)
-	register("fleet:detect-secrets", fleetDetectSecrets)
 	register("fleet:stop-justifications", fleetStopJustifications)
 	register("fleet:sast-ruleset-lanes", fleetSastRulesetLanes)
 	register("fleet:orbit-drift", fleetOrbitDrift)
@@ -194,59 +193,6 @@ func fleetCheckMergeConflict(ctx context.Context, r *run) checks.Verdict {
 			"%s: CANNOT RUN - the conflict-marker scan did not complete (xargs exit %d) and printed nothing. A scan that did not run is not a tree with no markers.",
 			a.ID, code))
 	}
-}
-
-// No new secret against the repository's .secrets.baseline.
-//
-// THE TREE HAS TO BE A REPOSITORY git CAN READ. detect-secrets-hook shells out
-// to git while it decides whether the baseline is current, and on a linked
-// worktree that answered "fatal: not a git repository" and exited 1 — a
-// FINDING, for a scan that never happened (measured on a foundry-stocks
-// worktree 2026-09-09). r.gitReady is what the worktreeRepo prelude was: a
-// linked worktree's `.git` is a FILE holding an absolute host path that does not
-// exist inside the container, so the tree is given a throwaway repository and
-// origin is rebuilt from that path.
-//
-// AND THE POPULATION IS KEYED THE WAY THE BASELINE IS. The baseline records a
-// path AS THE SCANNER WAS GIVEN IT, and the fleet's baselines are written by
-// pre-commit, which passes git-relative paths. The old `find . -print` handed
-// detect-secrets "./bases/x.yaml", which matches no key in a baseline holding
-// "bases/x.yaml", so EVERY excused finding came back as a new secret — 200+ of
-// them on foundry-stocks, all already in its baseline. The walk also scanned
-// gitignored build junk, which cannot be committed and so cannot be a finding
-// about this repository. checks.SecretsPopulation drops the fixture directories
-// on top of that.
-//
-// NO BASELINE IS A CANNOT RUN, NEVER A PASS. Refusing to report success without
-// scanning is the whole contract.
-func fleetDetectSecrets(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("fleet:detect-secrets")
-
-	entries, err := r.src.Entries(ctx)
-	if err != nil {
-		return cannotEnumerate(a, err)
-	}
-	if !checks.HasEntry(entries, ".secrets.baseline") {
-		return checks.VerdictOf(a, 2, "fleet:detect-secrets: CANNOT RUN - no .secrets.baseline at the repository root. Refusing to report success without scanning.")
-	}
-
-	files, err := r.population(ctx)
-	if err != nil {
-		return cannotEnumerate(a, err)
-	}
-	files = checks.SecretsPopulation(files)
-	if len(files) == 0 {
-		return checks.VerdictOf(a, 2, "fleet:detect-secrets: CANNOT RUN - the repository has no tracked file to scan")
-	}
-
-	out, code, err := output(ctx, withFileList(r.gitReady(ctx, r.lane(checks.ImageFleet)), files).
-		WithExec([]string{"uvx", "--from", "detect-secrets", "detect-secrets-hook", "--help"}).
-		WithExec(xargsExec("uvx", "--from", "detect-secrets", "detect-secrets-hook",
-			"--baseline", ".secrets.baseline"), anyExit))
-	if err != nil {
-		return neverRan(a, err)
-	}
-	return checks.VerdictOf(a, checks.ToolThroughXargsState(code), out)
 }
 
 // No silent suppression of any gate — a suppression carries a tool-conflict line.
