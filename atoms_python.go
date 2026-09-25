@@ -112,6 +112,10 @@ func pythonRuffFormat(ctx context.Context, r *run) checks.Verdict {
 	if !ok {
 		return v
 	}
+	// The width reads the manifest's CONTENTS, not just its name: a
+	// pyproject that declares an environment rather than a distribution is
+	// not a python star. checks.RuffLineLength carries the measurement.
+	pyproject, _ := r.src.File("pyproject.toml").Contents(ctx)
 	targets, ok := checks.RuffFormatTargets(entries)
 	if !ok {
 		return checks.VerdictOf(a, 0, a.ID+": ABSENT - a go star with no product python under src/ or tests/")
@@ -121,7 +125,7 @@ func pythonRuffFormat(ctx context.Context, r *run) checks.Verdict {
 	args := append([]string{
 		"uvx", ruffVersion, "format",
 		"--config", checks.RulesetsDir + "/ruff.toml",
-		"--line-length", checks.RuffLineLength(entries),
+		"--line-length", checks.RuffLineLength(entries, pyproject),
 		"--check",
 	}, targets...)
 	return verdict(ctx, a, r.lane(checks.ImagePython).
