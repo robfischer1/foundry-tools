@@ -37,7 +37,22 @@
 # nereus, measured 2026-09-11 by the first dispatch to meet this file.
 target-version = "py314"
 line-length = 80
-extend-exclude = [".claude", ".specify", ".furnace", "vendor", "node_modules"]
+# testdata IS NOT SOURCE, and formatting it is a defect rather than tidiness.
+# A golden fixture's exact line layout is the thing under test: narcissus's
+# analyzer goldens encode unit spans, so `ruff format` over
+# tests/golden/analyzers/testdata/python/ moved every span and deleted one unit
+# outright — extract_units@141-185 became @141-189 and _render_signature.one
+# vanished. Measured 2026-09-25: the reformat reds
+# internal/analyzers, and the same tree passes untouched.
+#
+# The convention is not invented here. The go tool has always ignored
+# testdata/, and `vendor` is excluded a line below for the same reason: neither
+# is ours to restyle. A bare name matches a directory at any depth, which is
+# what these trees need — narcissus keeps its under tests/golden/analyzers/.
+#
+# Measured across every repo the gate grades: narcissus 5 -> 0, nereus 3 -> 0,
+# and no other repo's count moves at all.
+extend-exclude = ["testdata", ".claude", ".specify", ".furnace", "vendor", "node_modules"]
 
 [lint]
 select = ["ALL"]
