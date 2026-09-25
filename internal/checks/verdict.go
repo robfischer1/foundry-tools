@@ -175,9 +175,12 @@ func AbsentVerdict(a AtomDef) Verdict {
 // asked for a manifest, and the lanes declared by their files say so.
 func absentReason(a AtomDef) string {
 	if a.NeedsManifest {
-		// The lane may well be running; this atom's subject is the project,
-		// and the project is what the root manifest declares.
-		return fmt.Sprintf("%s: ABSENT — no %s at the repository root, so this repo does not build the %s lane. Nothing was checked and nothing needed to be.",
+		// The lane may well be running; this atom's subject is the PROJECT,
+		// and the project is what the root manifest declares. It does not say
+		// "does not build the lane" — that sentence is true of python:release
+		// and false of python:mypy, which is not a build and still cannot work
+		// without the dependency set the manifest declares.
+		return fmt.Sprintf("%s: ABSENT — no %s at the repository root, so this repo declares no %s project for it to read. The lane's lint and tests still run. Nothing was checked here and nothing needed to be.",
 			a.ID, ManifestFor(a.Lane), a.Lane)
 	}
 	if source, ok := laneDeclaredByFiles[a.Lane]; ok {

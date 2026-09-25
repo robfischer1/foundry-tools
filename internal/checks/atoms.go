@@ -263,6 +263,30 @@ func atomTable() []AtomDef {
 		{
 			ID: "python:mypy", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython,
 			Desc: "mypy is clean over src and tests, under the fleet's strict configuration.",
+			// A TYPE CHECK IS AGAINST A DEPENDENCY SET, and only the manifest
+			// declares one. This atom's own note says why --all-extras is
+			// there: "a type check that cannot import the optional
+			// dependencies the code declares is a type check of a different
+			// program." A tree with no manifest is that argument's limit case
+			// — nothing is installed, so EVERY third-party import is
+			// unresolvable and mypy reports on a program that does not exist.
+			//
+			// MEASURED on foundry-dies, 2026-09-25, the day the lane started
+			// reaching file-declared trees (Scotty19 hit it within the hour):
+			//
+			//   uv run --no-project --with mypy mypy tests
+			//     -> Cannot find implementation or library stub for module
+			//        named "pytest"  [import-not-found]        (+ the strict
+			//        untyped-decorator cascade off every @pytest.mark)
+			//   ...--with mypy --with pytest mypy tests
+			//     -> Success: no issues found in 1 source file
+			//
+			// The repository was clean. `--with pytest` would have fixed that
+			// one import and nothing about the unbounded class it belongs to,
+			// so the atom waits for the manifest instead. Lint reads files and
+			// needs no imports; pytest RUNS the code and brings what it needs;
+			// type-checking needs the declared set and has no way to guess it.
+			NeedsManifest: true,
 		},
 		{
 			ID: "python:pytest", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython,

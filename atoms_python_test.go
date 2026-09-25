@@ -783,15 +783,6 @@ func TestPythonToolsRunInATreeThatIsNotAProject(t *testing.T) {
 		t.Errorf("--all-extras is a project flag and there is no project:\n%s", c)
 	}
 
-	// mypy, same tree shape but with product python to point at.
-	engine.reset()
-	engine.withTree(pyTree(map[string]string{"src/app.py": ""}, "pyproject.toml", "tests"))
-	wantState(t, runAtom(t, "python:mypy", ""), 0)
-	c = engine.chain(`"mypy","--config-file"`, "exitCode")
-	if !hasCall(c, "withExec", `"--no-project","--with","mypy","mypy"`) {
-		t.Errorf("mypy in a project-less tree is fetched too:\n%s", c)
-	}
-
 	// AND THE PROJECT FORM IS UNTOUCHED. A repo that IS a python project still
 	// runs its checks against its own declared extras, which is the whole
 	// reason --all-extras was there.
@@ -852,4 +843,58 @@ func TestPythonMypyCannotRunWhenTheTreeWillNotList(t *testing.T) {
 	engine.fail(`glob(pattern:"**/*.py`, "filter: engine went away")
 	wantState(t, runAtom(t, "python:mypy", ""), 2,
 		"python:mypy: CANNOT RUN", "could not enumerate the repository", "engine went away")
+}
+
+// MYPY DOES NOT RUN IN A TREE THAT IS NOT A PROJECT, and this is asserted
+// through the PLANNER because that is the only place it is decided — runAtom
+// calls a runner directly, so an assertion made there would have passed
+// whatever the plan said, which is exactly how the first cut of this shipped.
+//
+// MEASURED on foundry-dies the day the lane widened: a repo whose only python
+// is a pytest test file reported `Cannot find implementation or library stub
+// for module named "pytest"`, and the same command with the framework present
+// reported no issues. The repository was clean; the checker could not see it.
+func TestPythonMypyStandsDownWithoutAManifestWhileLintStillRuns(t *testing.T) {
+	tree := map[string]string{
+		"README.md":               "",
+		"tests/test_contracts.py": "",
+	}
+	for _, want := range []struct {
+		id     string
+		absent bool
+	}{
+		{"python:mypy", true},
+		{"python:ruff-check", false},
+		{"python:pytest", false},
+	} {
+		engine.reset()
+		engine.withTree(tree)
+		vs, err := (&FoundryTools{Source: dag.Directory()}).vector(t.Context(), checks.AtomByID(want.id).Stage, want.id, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(vs) != 1 {
+			t.Fatalf("%s: one atom asked, %d answered", want.id, len(vs))
+		}
+		v := vs[0]
+		if want.absent {
+			if v.Result != "absent" || v.State != 0 {
+				t.Errorf("%s: want an absent 0, got %+v", want.id, v)
+			}
+			if !strings.Contains(v.Reason, "no pyproject.toml at the repository root") {
+				t.Errorf("%s: the absence names the manifest it wanted: %s", want.id, v.Reason)
+			}
+			// AND IT SAYS THE LANE IS STILL RUNNING. "does not build the lane"
+			// would be a lie here: ruff and pytest are running on this very
+			// tree, and a reader who believed the lane was off would go
+			// looking for the wrong thing.
+			if !strings.Contains(v.Reason, "lint and tests still run") {
+				t.Errorf("%s: the absence must not read as the lane being off: %s", want.id, v.Reason)
+			}
+			continue
+		}
+		if v.Result == "absent" {
+			t.Errorf("%s: a .py-declared lane still lints and tests, got %+v", want.id, v)
+		}
+	}
 }
