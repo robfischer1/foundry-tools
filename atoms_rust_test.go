@@ -755,3 +755,40 @@ func TestRustSharedTargetBuildsRunUnderTheStamp(t *testing.T) {
 		t.Errorf("rust:mutation builds in its own target dirs and must not rebuild the workspace per mutant:\n%s", c)
 	}
 }
+
+// THE RUST LANE EXECUTES THE FLEET'S PYTHON, so it has to carry the fleet's
+// interpreter. cerberus' memory_plugin.rs spawns .cerberus/hooks/*.py from
+// `cargo test`, and rust:bookworm's own python3 is 3.11.2 — measured
+// 2026-09-25, the day `ruff format` under target-version py314 emitted PEP 758
+// into those hooks and turned five of those tests into a SyntaxError.
+//
+// Asserted on the CHAIN rather than by running a container: what this pins is
+// that the lane provisions an interpreter at all and names the version once,
+// which is the thing a later edit would silently drop.
+func TestTheRustLaneCarriesTheFleetsPython(t *testing.T) {
+	engine.reset()
+	engine.withTree(map[string]string{"Cargo.toml": "[package]\nname='x'\n"})
+	if _, err := (&FoundryTools{Source: dag.Directory()}).vector(t.Context(), checks.AtomByID("rust:cargo-fmt").Stage, "rust:cargo-fmt", ""); err != nil {
+		t.Fatal(err)
+	}
+	c := engine.chains()
+	joined := strings.Join(c, "\n")
+	for _, want := range []string{
+		`"uv","python","install","--default","` + checks.FleetPython + `"`,
+		`UV_PYTHON_BIN_DIR`,
+		`"python3","--version"`,
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the rust lane must provision the fleet's python; missing %s", want)
+		}
+	}
+}
+
+// ONE VERSION, NAMED ONCE. The python image and the rust lane's uv install are
+// two places the same interpreter is chosen, and a drift between them is
+// exactly the split this constant exists to close.
+func TestTheFleetsPythonMatchesThePythonImage(t *testing.T) {
+	if !strings.Contains(checks.ImagePython, "python:"+checks.FleetPython) {
+		t.Errorf("ImagePython (%s) does not carry FleetPython (%s)", checks.ImagePython, checks.FleetPython)
+	}
+}
