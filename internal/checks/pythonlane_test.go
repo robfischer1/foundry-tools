@@ -319,35 +319,33 @@ func TestUvRunAsksForAProjectOnlyWhenThereIsOne(t *testing.T) {
 	}
 }
 
-func TestRuffLineLengthFollowsTheStarNotThePyprojectToml(t *testing.T) {
-	// THE FLEET HAS ONE RULESET AND TWO WIDTHS, and the atom had been passing
-	// neither — rulesets/ruff.toml carries 80, so every go, rust and ts star
-	// was graded at 80 against a repo whose own ruff.toml declares 100.
-	// Measured on cerberus 2026-09-25: 38 files red at 80, 33 at 100.
-	//
-	// The second row is the one that matters. A go star carrying a root
-	// pyproject.toml for its product python is still a GO star, poured
-	// go-repo-template's ruff.toml at 100 — and ruff reads ruff.toml over
-	// pyproject.toml, so 100 is also what its editor shows. A first cut that
-	// tested for pyproject.toml alone answered 80 there and would have
-	// recreated this defect one lane over.
+func TestRuffLineLengthAsksWhetherTheTreeBUILDSADistribution(t *testing.T) {
+	// TWO EARLIER RULES WERE WRONG, and both are rows here so neither comes
+	// back. "any pyproject -> 80" reddens cerberus (38 files); "python plus
+	// any other manifest -> 100" reddens chaos (22 files). [build-system] is
+	// what tells them apart, because it is what says the python is the
+	// SUBJECT of the repository rather than its tooling.
+	const hatch = "[build-system]\nrequires = [\"hatchling\"]\n"
+	const env = "[project]\nname = \"cerberus-plane\"\ndependencies = []\n"
 	for _, tc := range []struct {
-		name    string
-		entries []string
-		want    string
+		name      string
+		entries   []string
+		pyproject string
+		want      string
 	}{
-		{"a python star", []string{"pyproject.toml", "src", "tests"}, "80"},
-		{"a go star that also declares python", []string{"go.mod", "pyproject.toml", "src"}, "100"},
-		{"a rust star that also declares python", []string{"Cargo.toml", "pyproject.toml"}, "100"},
-		{"a ts star that also declares python", []string{"package.json", "pyproject.toml"}, "100"},
-		{"a rust star with only incidental python", []string{"Cargo.toml", "probes"}, "100"},
-		{"a go star with only incidental python", []string{"go.mod", "scripts"}, "100"},
-		{"a tree declaring nothing", []string{"README.md"}, "100"},
-		{"dagger's leading ./ is not a different repository", []string{"./pyproject.toml"}, "80"},
+		{"a python star", []string{"pyproject.toml", "src"}, hatch, "80"},
+		{"chaos: a wheel beside a go sibling", []string{"pyproject.toml", "go.mod", "src"}, hatch, "80"},
+		{"cerberus: a pyproject that declares an ENVIRONMENT", []string{"pyproject.toml", "Cargo.toml"}, env, "100"},
+		{"a pyproject with no build-system and nothing else", []string{"pyproject.toml"}, env, "100"},
+		{"no pyproject at all", []string{"go.mod", "scripts"}, "", "100"},
+		{"a tree declaring nothing", []string{"README.md"}, "", "100"},
+		{"dagger's leading ./ still resolves", []string{"./pyproject.toml"}, hatch, "80"},
+		{"a commented-out build-system does not count", []string{"pyproject.toml"}, "# [build-system]\n", "100"},
+		{"an indented [build-system] is still the table", []string{"pyproject.toml"}, "  [build-system]\n", "80"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := RuffLineLength(tc.entries); got != tc.want {
-				t.Errorf("RuffLineLength(%v) = %q, want %q", tc.entries, got, tc.want)
+			if got := RuffLineLength(tc.entries, tc.pyproject); got != tc.want {
+				t.Errorf("RuffLineLength(%v, %q) = %q, want %q", tc.entries, tc.pyproject, got, tc.want)
 			}
 		})
 	}

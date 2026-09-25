@@ -94,8 +94,33 @@ func TestPythonRuffCheckRunsTheFleetsRulesetAndReadsTheExit(t *testing.T) {
 	wantState(t, runAtom(t, "python:ruff-check", ""), 2, "never ran", "failed to resolve")
 }
 
+func TestPythonRuffFormatGradesAWheelBuilderAtEighty(t *testing.T) {
+	// The same tree, plus a [build-system]: now the python is the SUBJECT of
+	// the repository — a distribution it publishes — and 80 is the width.
+	// chaos is this shape (pyproject + go.mod + hatchling, src/chaos), and a
+	// rule that read only the manifest NAMES graded it at 100 and reddened 22
+	// files that were already correct at the width its own ruff.toml declares.
+	engine.reset()
+	engine.withTree(pyTree(map[string]string{
+		"pyproject.toml": "[project]\nname = \"x\"\n\n[build-system]\nrequires = [\"hatchling\"]\n",
+	}))
+	wantState(t, runAtom(t, "python:ruff-format", "base-sha"), 0)
+
+	wantCalls(t, engine.chain(`"uvx","ruff@0.16.3","format"`, "exitCode"),
+		[]string{"withExec", `expect:ANY`, `args:["uvx","ruff@0.16.3","format","--config","` + ruffToml + `","--line-length","80","--check","src","tests"]`},
+	)
+}
+
 func TestPythonRuffFormatScopesAGoStarToItsProductPython(t *testing.T) {
 	// A go star with product python: src and tests, in the shell loop's order.
+	//
+	// IT IS GRADED AT 100 BECAUSE everyLaneTree's pyproject.toml CARRIES NO
+	// [build-system], and that is worth saying out loud rather than leaving
+	// to be inferred from the argv. Reading this test as "a go star with
+	// product python is 100" is how RuffLineLength got its second wrong rule:
+	// this fixture's shape is chaos's, and chaos publishes a wheel and is
+	// graded at 80. The width follows the build-system, not the sibling
+	// manifest. The companion below pins the other direction.
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	wantState(t, runAtom(t, "python:ruff-format", "base-sha"), 0)
