@@ -416,7 +416,7 @@ func pythonMutation(ctx context.Context, r *run) checks.Verdict {
 	}
 
 	tk := func(ctr *dagger.Container, args ...string) (ran, error) {
-		return do(ctr, append([]string{"uv", "run", "--no-project", "--isolated", "--index", checks.PythonMutationIndex,
+		return do(ctr, append([]string{"uv", "run", "--no-project", "--isolated",
 			"--with", checks.PythonMutationTestkit, "forge-testkit-mutation"}, args...)...)
 	}
 	cannot := func(what string, step ran) checks.Verdict {
@@ -574,7 +574,7 @@ func pythonMutation(ctx context.Context, r *run) checks.Verdict {
 	}
 
 	// SCORE: the honest report, stdout and stderr apart.
-	reported := merged.ctr.WithExec([]string{"uv", "run", "--no-project", "--isolated", "--index", checks.PythonMutationIndex,
+	reported := merged.ctr.WithExec([]string{"uv", "run", "--no-project", "--isolated",
 		"--with", checks.PythonMutationTestkit, "forge-testkit-mutation", "report", "session.sqlite", "--fail-under", strconv.Itoa(checks.PythonMutationFailUnder)}, anyExit)
 	rc, err := reported.ExitCode(ctx)
 	if err != nil {

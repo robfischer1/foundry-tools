@@ -25,10 +25,18 @@ const (
 	PythonMutationTimeout = 60
 	PythonMutationWorkers = 4
 	PythonMutationTestkit = "forge-testkit>=1.9.0"
-	// The fleet's own index (devpi, packages.notusmi.com/pypi, index fleet/prod)
-	// as uv's EXTRA index: forge-testkit lives there and nowhere else, and its
-	// dependencies resolve from pypi.org as usual.
-	PythonMutationIndex = "https://packages.notusmi.com/pypi/fleet/prod/+simple/"
+	// NO INDEX FLAG ANY MORE, and that is the whole of infra#848. This named
+	// the fleet index as uv's EXTRA index so forge-testkit could be found —
+	// but uv searches an --index BEFORE the default, so fleet/prod was asked
+	// for EVERY package in the resolution and answered "The project X does
+	// not exist" for each public one. Measured 2026-09-25: 9 devpi 404s per
+	// resolve, ~225 ERROR lines every 15 minutes.
+	//
+	// The cache now answers for the fleet's own distributions on the
+	// intercepted pypi.org (coredns-intercept resolves it to the cache
+	// service, which the engine uses by dnsPolicy None), so uv's default
+	// index reaches forge-testkit and the public packages alike, and devpi is
+	// never asked about a package it does not have.
 	// PythonMutationFailUnder is the honest-score floor, and 100 is "a real
 	// survivor is a finding", as it is in the go, rust and ts lanes (Rob,
 	// 2026-09-15). python.sh defaulted it to 0, which reported and gated
