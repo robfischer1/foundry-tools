@@ -83,6 +83,16 @@ func (d *Dies) Schema(ctx context.Context) (string, error) {
 	return check(ctx, d.Source, "dies:schema")
 }
 
+// The findings schema is a valid Draft 2020-12 document and still refuses what
+// it exists to refuse: every fixture under tests/findings classifies as its
+// name claims, and the invalid-* cases are the assertions — positives alone
+// would pass against a schema with every constraint removed.
+//
+// +check
+func (d *Dies) Findings(ctx context.Context) (string, error) {
+	return check(ctx, d.Source, "dies:findings")
+}
+
 // Every committed record is byte-for-byte its own canonical form — the form
 // hephaestus' golden grades one repo away, refused here at the push instead.
 //

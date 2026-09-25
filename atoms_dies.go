@@ -29,6 +29,7 @@ func init() {
 	register("dies:canary-visibility", diesCanaryVisibility)
 	register("dies:contracts", diesContracts)
 	register("dies:schema", diesSchema)
+	register("dies:findings", diesFindings)
 	register("dies:canonical", diesCanonical)
 }
 
@@ -580,6 +581,49 @@ func diesSchema(ctx context.Context, r *run) checks.Verdict {
 		WithExec(schemapy("-c", "import jsonschema")).
 		WithNewFile("/tmp/dies-schema.py", string(body)).
 		WithExec(schemapy("/tmp/dies-schema.py"), anyExit))
+}
+
+// The findings schema still says what it is for.
+//
+// THE CHECKER IS THE TREE'S, NOT EMBEDDED, and that is the dies:contracts shape
+// rather than dies:schema's. tools/check_findings.py lives in foundry-dies
+// beside check_contracts.py because the repo that OWNS a contract is the repo
+// that should go red when the contract breaks — the alarm asymmetry
+// check_contracts.py's own header argues. An embedded copy here would make this
+// module the author of a rule about foundry-dies' data, which is the coupling
+// that argument rejects.
+//
+// THE SCRIPT'S EXIT LADDER IS ALREADY THIS ATOM'S VERDICT, so nothing translates
+// it: verdict() hands the exec's code to checks.VerdictOf, and check_findings.py
+// answers 0 for every fixture classified as its name claims, 1 when one is not,
+// and 2 when the run could not be made at all — a missing schema, an unparseable
+// fixture, no jsonschema. That is the same three-state vocabulary the schema it
+// validates makes normative, which is why the mapping is an identity and not a
+// switch. A checker that reported "could not run" as "found nothing" would be
+// the exact defect the findings shape exists to kill, in the gate for it.
+//
+// THE FIXTURES ARE NOT REQUIRED HERE, deliberately. An absent tests/findings is
+// a could-not-run the SCRIPT already reports, and a fixture set with no
+// invalid-* case is a finding it already reports — positives alone would pass
+// against a schema with every constraint deleted. Naming a fixture file in this
+// atom would pin foundry-dies' test layout into foundry-tools for no gain.
+func diesFindings(ctx context.Context, r *run) checks.Verdict {
+	a := checks.AtomByID("dies:findings")
+	if stop := diesShape(ctx, r, a); stop != nil {
+		return *stop
+	}
+	if stop := requirePaths(ctx, r, a, [][2]string{
+		{"schema/findings.schema.json", "schema/findings.schema.json is absent, so there is no schema to validate."},
+		{"tools/check_findings.py", "tools/check_findings.py is absent, so there is no checker to run."},
+	}); stop != nil {
+		return *stop
+	}
+
+	// `uv --version` is the provisioning probe on its own exec under the default
+	// Expect: an image without uv is a could-not-run, not a finding.
+	return verdict(ctx, a, r.lane(checks.ImageFleet).
+		WithExec([]string{"uv", "--version"}).
+		WithExec(schemapy("tools/check_findings.py"), anyExit))
 }
 
 // diesCanonical grades the FORM of every committed record, in Go, with no

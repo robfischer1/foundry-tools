@@ -386,6 +386,10 @@ func atomTable() []AtomDef {
 			Desc: "The slag schema is a valid Draft 2020-12 document and every v2 record satisfies it.",
 		},
 		{
+			ID: "dies:findings", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "The findings schema is a valid Draft 2020-12 document and still refuses what it exists to refuse — every fixture classifies as its name claims.",
+		},
+		{
 			ID: "dies:canonical", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every committed fleet/stars/<star>/slag.json is byte-for-byte its own canonical form (sorted keys, two-space indent, ensure_ascii, trailing LF).",
 		},

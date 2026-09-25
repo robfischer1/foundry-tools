@@ -18,7 +18,8 @@ import (
 
 var diesAtoms = []string{
 	"dies:opa-test", "dies:admission-dogfood", "dies:data-keys",
-	"dies:canary-visibility", "dies:contracts", "dies:schema", "dies:canonical",
+	"dies:canary-visibility", "dies:contracts", "dies:schema", "dies:findings",
+	"dies:canonical",
 }
 
 // diesBuiltAContainer reports whether anything pulled an image. Named for this
@@ -628,6 +629,84 @@ func TestDiesContractsRefusesWithoutTheCheckerTheFixturesOrTheManifest(t *testin
 	engine.fail(`"uv","--version"`, "executable file not found")
 	wantState(t, runAtom(t, "dies:contracts", ""), 2,
 		"the lagging fixture never ran", "executable file not found")
+}
+
+// ---- dies:findings ----
+
+// findingsPaths are what dies:findings requires. They are NOT added to
+// everyLaneTree on purpose: a .py in the shared fixture widens the python lane's
+// asserted population and reds TestPythonForgeTestkitLintsEachModeOverItsOwnPopulation.
+// A shared fixture is a shared assertion; this atom's needs are its own.
+var findingsPaths = map[string]string{
+	"schema/findings.schema.json": "{}",
+	"tools/check_findings.py":     "",
+}
+
+// The checker is THE TREE'S, not embedded, and it runs through uv with
+// jsonschema — the dies:contracts shape rather than dies:schema's, because
+// foundry-dies owns the contract and so should own the checker.
+func TestDiesFindingsRunsTheTreesCheckerThroughUv(t *testing.T) {
+	engine.reset()
+	engine.withTree(diesTree(findingsPaths))
+	wantState(t, runAtom(t, "dies:findings", ""), 0)
+
+	c := engine.chain("tools/check_findings.py", "exitCode")
+	wantCalls(t, c,
+		[]string{"withExec", `args:["uv","--version"]`},
+		[]string{"withExec", "expect:ANY", `"--with","jsonschema>=4.20","python3","tools/check_findings.py"`},
+	)
+	// NOTHING IS EMBEDDED. An embedded copy would make this module the author of
+	// a rule about another repo's data, which is the coupling check_contracts.py's
+	// own header rejects.
+	if strings.Contains(c, "withNewFile") {
+		t.Errorf("dies:findings wrote a script into the container; the tree's own checker is the tool:\n%s", c)
+	}
+}
+
+// THE SCRIPT'S EXIT CODE IS THE VERDICT, unmapped. 0/1/2 out of
+// check_findings.py are pass/findings/could-not-run here, which is the same
+// three-state vocabulary the schema it validates makes normative. A switch
+// between them would be a place for the two to disagree.
+func TestDiesFindingsPassesTheExitCodeStraightThrough(t *testing.T) {
+	for code, want := range map[int]int{0: 0, 1: 1, 2: 2} {
+		engine.reset()
+		engine.withTree(diesTree(findingsPaths))
+		engine.exitCode(`"python3","tools/check_findings.py"`, code)
+		wantState(t, runAtom(t, "dies:findings", ""), want)
+	}
+}
+
+// A tree missing either half is a COULD-NOT-RUN naming which half, never a pass:
+// there is nothing to validate, or nothing to validate it with.
+func TestDiesFindingsCannotRunWithoutASchemaOrAChecker(t *testing.T) {
+	for _, c := range []struct{ drop, names string }{
+		{"schema/findings.schema.json", "schema/findings.schema.json is absent"},
+		{"tools/check_findings.py", "tools/check_findings.py is absent"},
+	} {
+		// diesTree applies drop BEFORE add, so the add map must not carry the
+		// path under test or it puts it straight back.
+		add := map[string]string{}
+		for k, v := range findingsPaths {
+			if k != c.drop {
+				add[k] = v
+			}
+		}
+		engine.reset()
+		engine.withTree(diesTree(add, c.drop))
+		wantState(t, runAtom(t, "dies:findings", ""), 2, c.names)
+	}
+}
+
+// A tree that is not the policy die's source is ABSENT, not a finding — the same
+// gate every dies atom carries.
+func TestDiesFindingsIsAbsentOutsideTheDie(t *testing.T) {
+	engine.reset()
+	engine.withTree(diesTree(findingsPaths, "policy"))
+	v := runAtom(t, "dies:findings", "")
+	wantState(t, v, 0, "ABSENT")
+	if diesBuiltAContainer() {
+		t.Error("dies:findings pulled an image for a tree it does not grade")
+	}
 }
 
 // ---- dies:schema ----
