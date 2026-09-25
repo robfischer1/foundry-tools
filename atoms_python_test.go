@@ -539,7 +539,10 @@ func TestPythonMutationMeasuresAndMutatesInPlainExecs(t *testing.T) {
 	scriptPythonMutation(map[string]string{".copier-answers.yml": "critical_modules: src/x.py\n"})
 	wantState(t, runAtom(t, "python:mutation", "abc123"), 0)
 
-	testkit := `"uv","run","--no-project","--isolated","--index","` + checks.PythonMutationIndex + `","--with","forge-testkit>=1.9.0","forge-testkit-mutation"`
+	// NO --index: the cache answers for the fleet's own distributions on the
+	// intercepted pypi.org, so uv's default index reaches forge-testkit and
+	// devpi is never asked about a package it does not have (infra#848).
+	testkit := `"uv","run","--no-project","--isolated","--with","forge-testkit>=1.9.0","forge-testkit-mutation"`
 	c := engine.chain(pyReportNeedle, "exitCode")
 	if !strings.Contains(c, checks.ImagePython) {
 		t.Errorf("python:mutation must run in the python lane image:\n%s", c)
