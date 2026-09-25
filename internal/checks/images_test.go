@@ -122,7 +122,7 @@ func TestGoProxyPutsTheDoorFirstAndDirectLast(t *testing.T) {
 	if len(parts) < 2 {
 		t.Fatalf("GOPROXY %q has no fallback at all", GoProxy)
 	}
-	if !strings.HasPrefix(parts[0], "http://ourea.default.svc.cluster.local:") {
+	if !strings.HasPrefix(parts[0], "http://ourea:") {
 		t.Errorf("GOPROXY does not start at the in-cluster door: %q", GoProxy)
 	}
 	if parts[len(parts)-1] != "direct" {
@@ -175,6 +175,33 @@ func TestTheProvisionedToolsArePinnedAndTheReleaseURLCarriesTheVersion(t *testin
 	for _, v := range []string{CargoAuditVersion, CargoMutantsVersion} {
 		if !regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(v) {
 			t.Errorf("cargo tool version %q is not a plain semver pin", v)
+		}
+	}
+}
+
+// A SERVICE ADDRESS IN THIS MODULE NAMES NO NAMESPACE, and this test is the
+// whole lesson of 2026-09-25 written down.
+//
+// GoProxy read ourea.default.svc.cluster.local and WitnessURL read
+// narcissus.default.svc.cluster.local. When the constellation moved to the
+// `prime` namespace those FQDNs pointed at an empty namespace, and the
+// measured result was that EVERY repo's gate lane failed could-not-run —
+// `go` could reach no proxy and the witness could reach no narcissus. A bare
+// name resolves through whatever search path the client has and is therefore
+// correct in every namespace, including the next one.
+//
+// The fleet's own convention already agreed: ~2,100 bare service references
+// against 200 namespace-qualified ones, and it was the qualified ones that
+// broke. Anything matching `.svc.cluster.local` here is that defect coming
+// back, whatever namespace it names — pinning `prime` instead of `default`
+// would be the same bug with a fresher spelling.
+func TestNoServiceAddressNamesANamespace(t *testing.T) {
+	for name, addr := range map[string]string{
+		"GoProxy":    GoProxy,
+		"WitnessURL": WitnessURL,
+	} {
+		if strings.Contains(addr, ".svc.cluster.local") {
+			t.Errorf("%s pins a namespace: %q — a bare service name resolves in any namespace", name, addr)
 		}
 	}
 }

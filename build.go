@@ -73,9 +73,11 @@ func (m *FoundryTools) Build(
 	// +optional
 	// +default="https://forgejo.notusmi.com/rob"
 	sourceBase string,
-	// hades' mTLS address.
+	// hades' mTLS address. BARE NAME: it pinned the `default` namespace until
+	// 2026-09-25 and the fleet now runs in `prime`. A caller that needs another
+	// address passes one — this parameter is the configuration path.
 	// +optional
-	// +default="https://hades.default.svc.cluster.local:8102"
+	// +default="https://hades:8102"
 	hades string,
 	// The SPIFFE id hades must present.
 	// +optional

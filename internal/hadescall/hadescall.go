@@ -43,7 +43,7 @@ import (
 const usage = `usage: hadescall <verb> <json-args>
 
 Reads HADESCALL_SOCKET (unix:///run/spire/agent.sock), HADESCALL_HADES
-(https://hades.default.svc.cluster.local:8102), HADESCALL_HADES_ID
+(https://hades:8102), HADESCALL_HADES_ID
 (spiffe://notusmi.com/star/hades) and HADESCALL_IDENTITY_WAIT (120s).`
 
 // Identity is what a call needs from the agent: the SVID it presents, and the
@@ -89,8 +89,12 @@ type config struct {
 func configOf(env func(string) string) (config, error) {
 	c := config{
 		socket: or(env("HADESCALL_SOCKET"), "unix:///run/spire/agent.sock"),
-		hades:  strings.TrimRight(or(env("HADESCALL_HADES"), "https://hades.default.svc.cluster.local:8102"), "/"),
-		wait:   120 * time.Second,
+		// The fallback is a BARE name: it said hades.default.svc.cluster.local
+		// until 2026-09-25, which pinned a namespace the fleet has since left.
+		// HADESCALL_HADES overrides it, and this binary runs in a container, so
+		// unlike the module-side constants the env var genuinely reaches it.
+		hades: strings.TrimRight(or(env("HADESCALL_HADES"), "https://hades:8102"), "/"),
+		wait:  120 * time.Second,
 	}
 	id, err := spiffeid.FromString(or(env("HADESCALL_HADES_ID"), "spiffe://notusmi.com/star/hades"))
 	if err != nil {

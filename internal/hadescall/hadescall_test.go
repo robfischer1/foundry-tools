@@ -58,7 +58,7 @@ func TestTheDefaultsAreTheFleets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.socket != "unix:///run/spire/agent.sock" || c.hades != "https://hades.default.svc.cluster.local:8102" ||
+	if c.socket != "unix:///run/spire/agent.sock" || c.hades != "https://hades:8102" ||
 		c.hadesID.String() != "spiffe://notusmi.com/star/hades" || c.wait != 120*time.Second {
 		t.Fatalf("defaults: %+v", c)
 	}
