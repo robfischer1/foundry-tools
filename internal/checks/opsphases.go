@@ -237,6 +237,50 @@ func OpsFluxPaths(manifests map[string]string) ([]string, []string) {
 		names = append(names, n)
 	}
 	sort.Strings(names)
+
+	// A GitRepository DECLARED IN THIS TREE names some OTHER repository.
+	// This tree's own source is the bootstrap one, seeded outside git — on
+	// this fleet, k3s writes it from server-manifests/flux-sync.yaml, so it
+	// is never a document here. Anything committed under flux/clusters/ is
+	// therefore an additional source, and a Kustomization pointing at it
+	// carries a path into THAT repository's tree, not this one.
+	//
+	// MEASURED 2026-09-25 on infra: adding a second source for
+	// foundry/casper-stacks with `path: ./flux` made this atom run
+	// `kustomize build flux` against infra, which has no kustomization.yaml
+	// at flux/, and the atom reported a findings red for a tree that builds
+	// perfectly well in the repository that actually owns it.
+	//
+	// TWO PASSES, because a GitRepository may be declared after the
+	// Kustomization that names it — they are ordinary documents in an
+	// unordered set of files, and one pass would miss a source declared in
+	// a later file or a later document.
+	foreign := map[string]bool{}
+	for _, name := range names {
+		dec := yaml.NewDecoder(bytes.NewReader([]byte(manifests[name])))
+		for {
+			var doc struct {
+				APIVersion string `yaml:"apiVersion"`
+				Kind       string `yaml:"kind"`
+				Metadata   struct {
+					Name string `yaml:"name"`
+				} `yaml:"metadata"`
+			}
+			err := dec.Decode(&doc)
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				// The second pass reports the parse error; staying silent
+				// here keeps one bad file from being named twice.
+				break
+			}
+			if doc.Kind == "GitRepository" && strings.HasPrefix(doc.APIVersion, "source.toolkit.fluxcd.io") && doc.Metadata.Name != "" {
+				foreign[doc.Metadata.Name] = true
+			}
+		}
+	}
+
 	for _, name := range names {
 		dec := yaml.NewDecoder(bytes.NewReader([]byte(manifests[name])))
 		for {
@@ -244,7 +288,10 @@ func OpsFluxPaths(manifests map[string]string) ([]string, []string) {
 				APIVersion string `yaml:"apiVersion"`
 				Kind       string `yaml:"kind"`
 				Spec       struct {
-					Path string `yaml:"path"`
+					Path      string `yaml:"path"`
+					SourceRef struct {
+						Name string `yaml:"name"`
+					} `yaml:"sourceRef"`
 				} `yaml:"spec"`
 			}
 			err := dec.Decode(&doc)
@@ -256,6 +303,9 @@ func OpsFluxPaths(manifests map[string]string) ([]string, []string) {
 				break
 			}
 			if doc.Kind != "Kustomization" || !strings.HasPrefix(doc.APIVersion, "kustomize.toolkit.fluxcd.io") {
+				continue
+			}
+			if foreign[doc.Spec.SourceRef.Name] {
 				continue
 			}
 			p := doc.Spec.Path

@@ -154,6 +154,49 @@ func TestOpsFluxPaths(t *testing.T) {
 	}
 }
 
+// A Kustomization pointing at a GitRepository DECLARED IN THIS TREE carries a
+// path into that OTHER repository, and building it here is meaningless.
+// Measured on infra 2026-09-25: a second source for foundry/casper-stacks with
+// `path: ./flux` made the atom run `kustomize build flux` against infra, which
+// has no kustomization.yaml there, and report findings for a tree that builds
+// fine in the repository that owns it.
+func TestOpsFluxPathsSkipsAForeignSourceRef(t *testing.T) {
+	local := "apiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nmetadata:\n  name: apps\nspec:\n  path: ./flux/apps\n  sourceRef:\n    kind: GitRepository\n    name: flux-system\n"
+	foreignSrc := "apiVersion: source.toolkit.fluxcd.io/v1\nkind: GitRepository\nmetadata:\n  name: casper-stacks\nspec:\n  url: http://ourea.prime.svc.cluster.local:8215/casper-stacks.git\n"
+	foreignKus := "apiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nmetadata:\n  name: casper-stacks\nspec:\n  path: ./flux\n  sourceRef:\n    kind: GitRepository\n    name: casper-stacks\n"
+
+	paths, problems := OpsFluxPaths(map[string]string{
+		"flux/clusters/home/a.yaml": local,
+		"flux/clusters/home/b.yaml": foreignSrc + "---\n" + foreignKus,
+	})
+	if got := strings.Join(paths, ","); got != "flux/apps" {
+		t.Errorf("a foreign sourceRef must not contribute a path: %q", got)
+	}
+	if len(problems) != 0 {
+		t.Errorf("problems %v", problems)
+	}
+
+	// THE SOURCE MAY BE DECLARED AFTER the Kustomization that names it —
+	// these are ordinary documents in an unordered set of files, so one pass
+	// would miss it. Same inputs, opposite file order and split across
+	// documents.
+	paths, _ = OpsFluxPaths(map[string]string{
+		"flux/clusters/home/a.yaml": foreignKus + "---\n" + local,
+		"flux/clusters/home/z.yaml": foreignSrc,
+	})
+	if got := strings.Join(paths, ","); got != "flux/apps" {
+		t.Errorf("a source declared later must still be recognised: %q", got)
+	}
+
+	// AND THE BOOTSTRAP SOURCE IS NOT DECLARED IN THE TREE, so a Kustomization
+	// naming it is local and its path is still built. With no GitRepository
+	// documents at all, nothing is foreign.
+	paths, _ = OpsFluxPaths(map[string]string{"flux/clusters/home/a.yaml": local})
+	if got := strings.Join(paths, ","); got != "flux/apps" {
+		t.Errorf("a local sourceRef must still build: %q", got)
+	}
+}
+
 func TestOpsBatches(t *testing.T) {
 	if OpsBatches(nil) != nil {
 		t.Error("no files, no batch")
