@@ -180,7 +180,9 @@ func goTestIn(ctx context.Context, r *run, a checks.AtomDef, dir string, race bo
 	scope := "unit suite: no race detector and no database — go:test-race runs those at the push"
 	if race {
 		var dbs []checks.TestDB
-		mods, dbs, scope = r.withTestDatabases(ctx, mods)
+		// The shared binding: the complex checks run in sequence, so they do
+		// not contend with each other. Only the mutation gate runs beside them.
+		mods, dbs, scope = r.withTestDatabases(ctx, mods, "")
 		args = append(args, "-race")
 		if len(dbs) > 0 {
 			args = append(args, "-tags", checks.BuildTags(dbs), "-p", "1")
@@ -209,7 +211,7 @@ func goTestIn(ctx context.Context, r *run, a checks.AtomDef, dir string, race bo
 // just in time, health-checks its exposed port before the client runs, and
 // stops it when nothing needs it — the fixture the retired star.toml
 // provisioned through the Docker Engine API, without the socket.
-func (r *run) withTestDatabases(ctx context.Context, ctr *dagger.Container) (*dagger.Container, []checks.TestDB, string) {
+func (r *run) withTestDatabases(ctx context.Context, ctr *dagger.Container, scope string) (*dagger.Container, []checks.TestDB, string) {
 	answers, _ := r.src.File(".copier-answers.yml").Contents(ctx)
 	star := checks.ServiceName(answers)
 	if star == "" {
@@ -235,13 +237,23 @@ func (r *run) withTestDatabases(ctx context.Context, ctr *dagger.Container) (*da
 		return ctr, nil, checks.TestDBScope(nil, nil, "the record declares postgres but no test file sits behind a tag the fleet names")
 	}
 	for _, d := range dbs {
-		svc := dag.Container().From(d.Image).
+		base := dag.Container().From(d.Image).
 			WithEnvVariable("POSTGRES_USER", checks.TestDBRole).
 			WithEnvVariable("POSTGRES_PASSWORD", checks.TestDBRole).
-			WithEnvVariable("POSTGRES_DB", checks.TestDBName).
-			WithExposedPort(5432).
+			WithEnvVariable("POSTGRES_DB", checks.TestDBName)
+		if scope != "" {
+			// THE DEFINITION HAS TO DIFFER, not just the alias. dagger
+			// content-addresses services: the mutation lane and the complex
+			// checks ran concurrently and built byte-identical definitions, so
+			// they were handed the SAME Postgres and tore each other's schema
+			// apart (checks.TestDB.AliasFor carries the measurements). Binding
+			// a second alias to one service would not have separated them —
+			// this env var is what makes it a second server.
+			base = base.WithEnvVariable("FOUNDRY_TEST_DB_LANE", scope)
+		}
+		svc := base.WithExposedPort(5432).
 			AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true})
-		ctr = ctr.WithServiceBinding(d.Alias, svc).WithEnvVariable(d.Env, d.DSN())
+		ctr = ctr.WithServiceBinding(d.AliasFor(scope), svc).WithEnvVariable(d.Env, d.DSNFor(scope))
 	}
 	return ctr, dbs, checks.TestDBScope(dbs, checks.UncompiledTags(tags, dbs), "")
 }
@@ -724,13 +736,20 @@ func goMutation(ctx context.Context, r *run) checks.Verdict {
 // diff.relative=true, which makes that diff print paths relative to the
 // working directory. At a repository's root the two are the same paths, so
 // every module carries it.
+// mutationDBLane names the mutation gate's own test-server binding. Any
+// non-empty word works; this one reads in a service alias (db-mutation) and in
+// the DSN the suite is handed.
+const mutationDBLane = "mutation"
+
 func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) checks.Verdict {
 	ctr := goDownload(r.gitReady(ctx, r.withBase(r.withDies(r.lane(checks.ImageGo)))), dir)
 	// THE RECORD'S DATABASE, as go:test-race brings it: the DB-gated suites are
 	// compiled for the coverage run and gremlins' (and serialised on the one
 	// database), and the servers are bound. Without this every DB-touching line
 	// read NOT COVERED by construction (foundry-tools#8608).
-	ctr, dbs, scope := r.withTestDatabases(ctx, ctr)
+	// ITS OWN SERVER, because this lane runs BESIDE the complex checks rather
+	// than after them, and go:test-race resets the same schema per test.
+	ctr, dbs, scope := r.withTestDatabases(ctx, ctr, mutationDBLane)
 	// The scope line is set on the verdict, not folded into the output: a pass
 	// keeps no output (checks.VerdictOf), and the line is printed either way.
 	//

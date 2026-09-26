@@ -53,9 +53,41 @@ const (
 	TestDBName = "test"
 )
 
-// DSN is the URL the suite is handed for this server.
-func (d TestDB) DSN() string {
-	return "postgres://" + TestDBRole + ":" + TestDBRole + "@" + d.Alias + ":5432/" + TestDBName + "?sslmode=disable"
+// DSN is the URL the suite is handed for this server, on the shared binding.
+func (d TestDB) DSN() string { return d.DSNFor("") }
+
+// AliasFor is the service's hostname for one LANE. The empty scope is the
+// shared binding every lane used to get; a named scope gets a host of its own.
+//
+// WHY A LANE NEEDS ITS OWN HOST AT ALL. The push stage runs the complex checks
+// in sequence WITH THE MUTATION GATE BESIDE THEM — concurrently, in separate
+// containers. Both bound a server built from an identical definition, and dagger
+// content-addresses services, so the two resolved to ONE running Postgres. Two
+// lanes, one database, and the DB-gated suites reset its schema per test:
+//
+//	reset schema: ERROR: deadlock detected (SQLSTATE 40P01)
+//	migrate: ERROR: duplicate key value violates unique constraint
+//	         "pg_namespace_nspname_index" (SQLSTATE 23505)
+//	tx clock: ERROR: could not open relation with OID 120007 (SQLSTATE XX000)
+//
+// MEASURED on chaos, three runs of one unchanged suite: 150, 50 and 72 distinct
+// failures, a different set each time. `-p 1` cannot reach it — the atom already
+// carries it, and it bounds packages within ONE `go test`, not two processes in
+// two containers.
+//
+// A SEPARATE ALIAS IS NOT ENOUGH ON ITS OWN. Two aliases pointing at one
+// content-addressed service are still one database; the service DEFINITION has
+// to differ too, which is why the caller perturbs it (atoms_go.go).
+func (d TestDB) AliasFor(scope string) string {
+	if scope == "" {
+		return d.Alias
+	}
+	return d.Alias + "-" + scope
+}
+
+// DSNFor is the URL for this server on one lane's binding.
+func (d TestDB) DSNFor(scope string) string {
+	return "postgres://" + TestDBRole + ":" + TestDBRole + "@" + d.AliasFor(scope) + ":5432/" + TestDBName + "?sslmode=disable"
 }
 
 var serviceNameLine = regexp.MustCompile(`^service_name:\s*`)
