@@ -146,6 +146,66 @@ func TestImageSplitsTheTagOffTheTarget(t *testing.T) {
 	}
 }
 
+// TestBundleIsAnImageSplitDeclaredAsABundle — the two constructors share of()
+// so the strictly-greater comparison is reasoned about once, and this holds
+// that sharing honest: Bundle must split a target exactly as Image does and
+// differ ONLY in kind. A bundle whose kind said image would be recorded, would
+// look right in the keep-set, and would be indistinguishable from a container
+// image by any query that filters on kind.
+func TestBundleIsAnImageSplitDeclaredAsABundle(t *testing.T) {
+	for _, target := range []string{
+		"registry.notusmi.com/app/paneless:g8d78685013d8",
+		"registry.notusmi.com/app/paneless",
+		"registry.notusmi.com:5000/app/paneless:stable",
+		"paneless",
+		"paneless:stable",
+	} {
+		b, i := Bundle(target, full('b')), Image(target, full('b'))
+		if b.Artifact != i.Artifact || b.Tag != i.Tag {
+			t.Errorf("Bundle(%q) split {%q, %q}, Image split {%q, %q} — they must agree",
+				target, b.Artifact, b.Tag, i.Artifact, i.Tag)
+		}
+		if b.Kind != KindBundle {
+			t.Errorf("Bundle(%q).Kind = %q, want %q", target, b.Kind, KindBundle)
+		}
+		if b.Digest != full('b') {
+			t.Errorf("Bundle(%q).Digest = %q", target, b.Digest)
+		}
+	}
+}
+
+// TestADeclaredBundleSurvivesTheWire — the door refuses a kind outside its
+// closed set (tap.PinsIn), so a bundle that cannot be read back off the line
+// is a row erebus never gets and a digest the reaper never keeps.
+func TestADeclaredBundleSurvivesTheWire(t *testing.T) {
+	line, skipped := Line(Bundle("registry.notusmi.com/app/paneless:g8d78685013d8", full('c')))
+	if len(skipped) != 0 {
+		t.Fatalf("a good bundle pin was skipped: %v", skipped)
+	}
+	var got struct {
+		Pins []Pin `json:"pins"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(line, MarkerPrefix)), &got); err != nil {
+		t.Fatalf("the line does not parse back: %v (%q)", err, line)
+	}
+	if len(got.Pins) != 1 {
+		t.Fatalf("got %d pins, want 1", len(got.Pins))
+	}
+	p := got.Pins[0]
+	if p.Kind != KindBundle {
+		t.Errorf("kind crossed the wire as %q, want %q", p.Kind, KindBundle)
+	}
+	// EMPTY IS BUILT at the door, and a cast IS an authorship claim — so an
+	// omitted role here is correct and must stay omitted rather than becoming
+	// "dep", which would drop every bundle out of the built half of the keep set.
+	if p.Role != "" && p.Role != RoleBuilt {
+		t.Errorf("role crossed as %q, want empty or %q", p.Role, RoleBuilt)
+	}
+	if p.Artifact != "registry.notusmi.com/app/paneless" || p.Tag != "g8d78685013d8" {
+		t.Errorf("artifact/tag crossed as %q / %q", p.Artifact, p.Tag)
+	}
+}
+
 // TestWhatALaneEchoedIsTrimmed — the digest reaches this from a regexp over an
 // engine's output and the target from a string join; a stray space must not
 // refuse a real pin.

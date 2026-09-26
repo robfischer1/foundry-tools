@@ -450,15 +450,20 @@ func (l *buildLane) push(ctx context.Context, img *Image, pushRepo, target, star
 // the declaration is a fact about them, not a step of publishing them. A pin
 // this refuses is named on stderr and nothing else happens — the next build
 // of the same artifact restates it.
-func (l *buildLane) declarePins() { declare(append(l.published, l.consumed...)...) }
+func (l *buildLane) declarePins() { declare(say, append(l.published, l.consumed...)...) }
 
-func declare(in ...pins.Pin) {
+// declare TAKES ITS EMITTER because two lanes declare now and each prefixes its
+// own log lines — `build:` here, `cast:` in the cast lane. The door finds the
+// marker by index within the line (tap.MarkerPayload), so any prefix reads; what
+// would not survive forking is the refusal-reporting and the empty-line guard,
+// which is the half worth keeping in one place.
+func declare(emit func(string, ...any), in ...pins.Pin) {
 	line, skipped := pins.Line(in...)
 	for _, why := range skipped {
-		say("NOT declaring a pin — %s", why)
+		emit("NOT declaring a pin — %s", why)
 	}
 	if line != "" {
-		say("%s", line)
+		emit("%s", line)
 	}
 }
 

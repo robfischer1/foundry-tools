@@ -16,6 +16,7 @@ import (
 	"dagger/foundry-tools/internal/castlane"
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
+	"dagger/foundry-tools/internal/pins"
 )
 
 // THE CAST LANE, AS ONE FUNCTION. The door's cast Job runs `dagger call …
@@ -159,6 +160,24 @@ func (l *castLane) run(ctx context.Context) (int, string) {
 	if code, why := l.verify(ctx, c, r); code != buildlane.Clean {
 		return code, why
 	}
+	// DECLARED AFTER VERIFY AND BEFORE THE BELL. After, because a pin is a claim
+	// that this digest is the artifact — unverified is exactly the thing not to
+	// put in a reaper's keep-set. Before, because ring is best-effort and a
+	// doorbell that does not answer must not cost the declaration.
+	//
+	// WHY THE CAST DECLARES AT ALL. erebus.build_artifacts held only what the
+	// BUILD lane declared, so /custody/keepset — the door's answer to "what must
+	// retention keep" — could name images and not one bundle. Measured
+	// 2026-09-26 against the live endpoint: 183 rows, 44 artifacts, 40 repos,
+	// every row lane=build kind=image, and nothing under app/. Meanwhile the
+	// census that marks inuse-* reads git pins and the cluster, and a bundle is
+	// consumed by tongs on a workstation where no pod runs it. So app/* was
+	// invisible to BOTH halves at once, and zot's retention keeps it today only
+	// because a `.*` catch-all keeps every tag unconditionally.
+	//
+	// The tag is the PIN, not `stable`. stable moves; the keep-set is latest
+	// plus one rollback, and a rollback names a version.
+	declare(castSay, pins.Bundle(bundlelane.RegistryHost+"/app/"+c.Name+":"+r.Pin, r.Digest))
 	bell := l.ring(ctx, c, r)
 	noop := ""
 	if r.NoOp {
