@@ -60,6 +60,52 @@ type AtomResult struct {
 	// size before the cut. A cut is stated, never silent.
 	Truncated     bool
 	OriginalBytes int
+	// Findings are what the atom FOUND — the last hop before the wire. The run
+	// record marshals this struct with no json tags, so these field names ARE
+	// the wire format and ourea's RecordFinding mirrors them.
+	Findings []Finding
+}
+
+// Finding is one of an atom's findings on the module's PUBLIC surface.
+//
+// IT MIRRORS checks.Finding RATHER THAN REUSING IT, for the reason AtomResult
+// mirrors checks.StageAtom: dagger's Go SDK code-generates the module's exported
+// types and refuses one that lives in another package —
+//
+//	Error: generate code: cannot code-generate for foreign type Finding
+//
+// — which is what the engine answered when this field was declared as
+// []checks.Finding. The module's root package is the GraphQL surface, so a type
+// on it has to be defined here. Measured, not assumed: `dagger call -m . check`
+// failed on exactly that line.
+//
+// The shape is foundry-dies' schema/findings.schema.json $defs/finding, and the
+// field names ARE the wire format — no json tags anywhere on this struct's
+// neighbours, and ourea's RecordFinding mirrors these names.
+type Finding struct {
+	Verdict string
+	Subject string
+	Cause   string
+	Detail  string
+	Probe   string
+}
+
+// publicFindings converts the internal shape to the public one. A copy, because
+// the two types cannot be the same type — see Finding. Named for the boundary it
+// crosses rather than for its argument, since `findings` is already a gate read
+// in bundle.go and one package cannot hold both.
+func publicFindings(fs []checks.Finding) []Finding {
+	if len(fs) == 0 {
+		return nil
+	}
+	out := make([]Finding, 0, len(fs))
+	for _, f := range fs {
+		out = append(out, Finding{
+			Verdict: f.Verdict, Subject: f.Subject,
+			Cause: f.Cause, Detail: f.Detail, Probe: f.Probe,
+		})
+	}
+	return out
 }
 
 // stageLogLimit bounds the log the exit exec carries as its argument.
@@ -221,7 +267,8 @@ func stageResult(st checks.Stage) *StageResult {
 		out := make([]AtomResult, len(as))
 		for i, a := range as {
 			out[i] = AtomResult{Atom: a.Atom, Group: a.Group, State: a.State, Result: a.Result, Reason: a.Reason,
-				Logs: a.Logs, Truncated: a.Truncated, OriginalBytes: a.OriginalBytes}
+				Logs: a.Logs, Truncated: a.Truncated, OriginalBytes: a.OriginalBytes,
+				Findings: publicFindings(a.Findings)}
 		}
 		return out
 	}

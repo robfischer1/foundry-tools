@@ -40,6 +40,10 @@ type StageAtom struct {
 	Logs          []string
 	Truncated     bool
 	OriginalBytes int
+	// What the atom FOUND, carried through for the reason above: this copy is
+	// one of two hops between the Verdict and the run record, and a field that
+	// stops at either is a field the door never stores.
+	Findings []Finding
 }
 
 // Stage is a stage's settled answer.
@@ -95,7 +99,8 @@ func SettleStage(name string, vs []Verdict, unreached ...string) Stage {
 				continue
 			}
 			a := StageAtom{Atom: v.Atom, Group: group, State: v.State, Result: v.Result, Reason: v.Reason,
-				Logs: v.Logs, Truncated: v.Truncated, OriginalBytes: v.OriginalBytes}
+				Logs: v.Logs, Truncated: v.Truncated, OriginalBytes: v.OriginalBytes,
+				Findings: v.Findings}
 			if v.Result == "absent" {
 				st.Omitted = append(st.Omitted, a)
 				continue

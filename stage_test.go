@@ -601,3 +601,66 @@ func TestTheRecordRoundTripsWithItsEvidence(t *testing.T) {
 		t.Fatal("an omitted atom's empty logs came back nil, not []")
 	}
 }
+
+// THE FINDINGS SURVIVE THE LAST HOP, AND THE WIRE NAMES ARE THE CONTRACT.
+//
+// `stageResult` copies `checks.StageAtom` into `AtomResult` field by field, and
+// the public type cannot reuse the internal `Finding` — dagger's Go SDK refuses
+// to code-generate a foreign type on an exported module type. So there are two
+// shapes and a copy between them, which is exactly the place a field goes
+// missing: `StageAtom`'s own header warns that a field stopping at a copy is a
+// field the run record never sees.
+//
+// The field NAMES are asserted on the marshalled bytes rather than on the
+// struct, because ourea's `RecordFinding` mirrors Go's exported names verbatim —
+// this type carries no json tags on purpose. Adding one would rename the field
+// on the wire, the door would read zeroes forever, and nothing else in either
+// repo would notice. That is the `original_bytes` scar, one type over.
+func TestTheRecordCarriesWhatTheAtomsFound(t *testing.T) {
+	st := checks.Stage{
+		Name: "gate", State: 1, Lanes: []string{"go"},
+		Ran: []checks.StageAtom{{
+			Atom: "go:staticcheck", State: 1, Result: "findings",
+			Findings: []checks.Finding{
+				{Verdict: "violated", Subject: "internal/verbs/cilogs_runs.go:132",
+					Cause: "U1000", Detail: "func Deps.runSetSummary is unused (U1000)", Probe: "go:staticcheck"},
+				{Verdict: "violated", Subject: "internal/tap/ci.go:412",
+					Cause: "U1000", Detail: "func shortSha is unused (U1000)", Probe: "go:staticcheck"},
+			},
+		}},
+		Omitted: []checks.StageAtom{{Atom: "rust:fmt", State: 0, Result: "absent", Logs: []string{}}},
+	}
+	rec, err := stageResult(st).Record()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{`"Findings"`, `"Verdict"`, `"Subject"`, `"Cause"`, `"Detail"`, `"Probe"`} {
+		if !strings.Contains(rec, name) {
+			t.Fatalf("the wire lost %s — ourea's RecordFinding mirrors Go's exported names, so a rename here is a silent zero at the door: %s", name, rec)
+		}
+	}
+
+	var back StageResult
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(rec, "ourea-run-record/1 ")), &back); err != nil {
+		t.Fatal(err)
+	}
+	fs := back.Atoms[0].Findings
+	if len(fs) != 2 {
+		t.Fatalf("both findings crossed the copy: %+v", fs)
+	}
+	// IN THE ORDER THE ATOM EMITTED THEM. depth 4 groups by first-seen cause,
+	// so a reordered array reorders what a reader reads.
+	if fs[0].Subject != "internal/verbs/cilogs_runs.go:132" || fs[1].Subject != "internal/tap/ci.go:412" {
+		t.Fatalf("the emission order did not survive: %q, %q", fs[0].Subject, fs[1].Subject)
+	}
+	if fs[0].Verdict != "violated" || fs[0].Cause != "U1000" || fs[0].Probe != "go:staticcheck" ||
+		fs[0].Detail != "func Deps.runSetSummary is unused (U1000)" {
+		t.Fatalf("a field stopped at the copy: %+v", fs[0])
+	}
+	// AN ATOM THAT FOUND NOTHING CARRIES NOTHING — not an empty list that reads
+	// as "this lane emits findings and had none", which is the one distinction
+	// depth 4's `no_findings_recorded` is built on.
+	if len(back.Omitted[0].Findings) != 0 {
+		t.Fatalf("an omitted atom invented findings: %+v", back.Omitted[0].Findings)
+	}
+}
