@@ -36,6 +36,10 @@ func theTypesThatTravel() []any { return []any{StageResult{}, AtomResult{}} }
 // string. Each must be a case in the generated switch under its own type.
 var theFunctionsTheDoorCalls = map[string][]string{
 	"StageResult": {"Record", "RecordFile", "Exit"},
+	// gate is what every lane Job runs (gate_job_call, mutation_job_call);
+	// gate-file is the same grading handed over on the volume. A missing case
+	// for either is every gate run in the fleet settling could-not-run.
+	"FoundryTools": {"Gate", "GateFile"},
 }
 
 func TestTheGeneratedMarshallerNamesEveryFieldThatTravels(t *testing.T) {

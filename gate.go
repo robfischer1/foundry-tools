@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"dagger/foundry-tools/internal/checks"
+	"dagger/foundry-tools/internal/dagger"
 )
 
 // THE GATE LANE, AS ONE FUNCTION. The door's gate Job runs `dagger call …
@@ -44,6 +45,16 @@ var gateVector = func(ctx context.Context, m *FoundryTools, stage, base string) 
 
 // Gate proves the fetched commit is the tree the door named, grades it, and
 // settles on the vector's worst state.
+//
+// IT RETURNS THE RECORD AS A STRING, which the CLI prints, which is why
+// switching this lane to the volume was NOT the pure config change I claimed on
+// foundry-tools#185: a string is the end of the chain, so there is nothing to
+// select `record-file` off. GateFile is the same grading with the other
+// transport, and it is a sibling rather than a changed signature because the
+// door resolves the gate pin from main's tip — a Gate that returned an object
+// would print one to a fleet whose `gate_job_call` still ended at `gate`, and
+// every gate run in the fleet would settle could-not-run for the want of a
+// record the instant it landed.
 func (m *FoundryTools) Gate(
 	ctx context.Context,
 	// The tree the door named (CA_GATE_TREE). The fetched commit's tree must
@@ -60,17 +71,60 @@ func (m *FoundryTools) Gate(
 	// +optional
 	stage string,
 ) (string, error) {
+	return m.gateStage(ctx, tree, stage, base).Record()
+}
+
+// GateFile is the same grading, handed over as a FILE instead of printed.
+//
+// The caller exports it onto the volume the door mounted:
+//
+//	dagger call … gate-file --tree=… --pin=… --base=… export --path /out/record.json
+//
+// WHY A SECOND ENTRY POINT AT ALL. containerd splits any container log line
+// over max_container_log_line_size (16384, read off dev01) into partial CRI
+// entries, and the pod-log endpoint has no stream selector, so stdout and
+// stderr come back merged in kubelet order and a foreign entry can land between
+// one line's partials. Measured in erebus: 56 of 2197 records carried on stdout
+// were refused that way — 2.5% of graded runs in the fleet settling
+// could-not-run on a run whose atoms had all passed. Records average 26KB
+// against that 16KB ceiling and a 54-atom gate's non-log structure alone is
+// 18.5KB, so the transport had to move rather than the budget.
+//
+// IT GRADES THROUGH THE SAME gateStage, so the two cannot answer differently
+// about one tree: a lane that graded one way on stdout and another on a volume
+// would be worse than the bug this replaces.
+func (m *FoundryTools) GateFile(
+	ctx context.Context,
+	// The tree the door named (CA_GATE_TREE).
+	tree string,
+	// The foundry-tools pin the door resolved (CA_GATE_MODULE).
+	pin string,
+	// The change set's base (CA_GATE_BASE).
+	// +optional
+	base string,
+	// Only atoms at this stage: empty is the pull path, "mutation" the
+	// mutation lane.
+	// +optional
+	stage string,
+) (*dagger.File, error) {
+	return m.gateStage(ctx, tree, stage, base).RecordFile()
+}
+
+// gateStage proves the tree, grades it and answers the stage result both entry
+// points settle from.
+//
+// THE SAME SHAPE THE COMMIT STAGE BUILDS, on purpose: SettleStage and
+// stageResult are what Check and Push already use to turn a vector into a
+// StageResult, and reusing them is what makes "the verdict did not move" cheap
+// to prove. The state inside the record is checks.Worst over the same vector
+// the exit code was computed from.
+func (m *FoundryTools) gateStage(ctx context.Context, tree, stage, base string) *StageResult {
 	lane := "gate"
 	if stage == "mutation" {
 		lane = "mutation"
 	}
 	vector, _ := m.gradeTree(ctx, lane, tree, stage, base)
-	// THE SAME SHAPE THE COMMIT STAGE BUILDS, on purpose: SettleStage and
-	// stageResult are what Check and Push already use to turn a vector into a
-	// StageResult, and reusing them is what makes "the verdict did not move"
-	// cheap to prove. The state inside the record is checks.Worst over the
-	// same vector the exit code was computed from.
-	return stageResult(checks.SettleStage(lane, vector)).Record()
+	return stageResult(checks.SettleStage(lane, vector))
 }
 
 // gradeTree proves the tree and answers the vector and its worst state. Every

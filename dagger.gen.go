@@ -1048,6 +1048,41 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*FoundryTools).Gate(&parent, ctx, tree, pin, base, stage)
+		case "GateFile":
+			var parent FoundryTools
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var tree string
+			if inputArgs["tree"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["tree"]), &tree)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg tree", err))
+				}
+			}
+			var pin string
+			if inputArgs["pin"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["pin"]), &pin)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg pin", err))
+				}
+			}
+			var base string
+			if inputArgs["base"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["base"]), &base)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg base", err))
+				}
+			}
+			var stage string
+			if inputArgs["stage"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["stage"]), &stage)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg stage", err))
+				}
+			}
+			return (*FoundryTools).GateFile(&parent, ctx, tree, pin, base, stage)
 		case "Go":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)

@@ -185,3 +185,65 @@ func TestExactlyOneRecordPerRun(t *testing.T) {
 		t.Fatalf("the run emitted %d records, want exactly 1", n)
 	}
 }
+
+// THE TWO TRANSPORTS GRADE THE SAME TREE THE SAME WAY. A lane that said one
+// thing on stdout and another on a volume would be worse than the interleaving
+// bug the volume replaces, so both entry points go through gateStage and this
+// asserts they still do — including for a red vector, where a disagreement
+// would actually cost somebody a verdict.
+func TestTheFileAndTheLineAreTheSameRecord(t *testing.T) {
+	for _, vector := range []string{cleanVector, redVector} {
+		m := gateOn(t, vector)
+		line := runGate(t, m, "")
+
+		engine.reset()
+		engine.withTree(map[string]string{"go.mod": "module x\n"})
+		engine.stdout(`"rev-parse","HEAD^{tree}"`, fakeTree+"\n")
+		f, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "")
+		if err != nil {
+			t.Fatalf("gate-file: %v", err)
+		}
+		// The SDK is lazy — building a File issues no query — so the chain only
+		// exists once something asks for the contents.
+		_, _ = f.Contents(context.Background())
+		chain := engine.chain("withNewFile", RecordFileName)
+		if chain == "" {
+			t.Fatalf("gate-file wrote no %s; the engine saw:\n%s",
+				RecordFileName, strings.Join(engine.chains(), "\n"))
+		}
+		// The WHOLE record, not a prefix of it: the door parses one JSON object
+		// off the sentinel, so a file holding less is a file that grades
+		// differently. Compared through the chain, because that is where the
+		// bytes actually go.
+		if !strings.Contains(chain, quotedInto(line)) {
+			t.Errorf("the file is not the line the door reads.\nline:  %s\nchain: %s", line, chain)
+		}
+	}
+}
+
+// quotedInto answers the line as it appears inside the recorded GraphQL chain,
+// where it travels as a JSON string argument.
+func quotedInto(line string) string {
+	b, err := json.Marshal(line)
+	if err != nil {
+		panic(err)
+	}
+	return string(b[1 : len(b)-1])
+}
+
+// AND THE MUTATION LANE GOES THROUGH THE SAME DOOR. --stage=mutation is how the
+// lane is selected on both transports; a GateFile that dropped it would hand the
+// door a record labelled `gate` out of the mutation Job, and the coordinate's
+// fold would attribute the verdict to the wrong lane.
+func TestGateFileCarriesTheStageItWasAsked(t *testing.T) {
+	m := gateOn(t, cleanVector)
+	f, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "mutation")
+	if err != nil {
+		t.Fatalf("gate-file: %v", err)
+	}
+	_, _ = f.Contents(context.Background())
+	chain := engine.chain("withNewFile", RecordFileName)
+	if !strings.Contains(chain, `\"Stage\":\"mutation\"`) {
+		t.Errorf("the mutation lane's file is not labelled mutation:\n%s", chain)
+	}
+}
