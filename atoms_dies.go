@@ -30,6 +30,7 @@ func init() {
 	register("dies:contracts", diesContracts)
 	register("dies:schema", diesSchema)
 	register("dies:findings", diesFindings)
+	register("dies:schemas", diesSchemas)
 	register("dies:canonical", diesCanonical)
 }
 
@@ -624,6 +625,52 @@ func diesFindings(ctx context.Context, r *run) checks.Verdict {
 	return verdict(ctx, a, r.lane(checks.ImageFleet).
 		WithExec([]string{"uv", "--version"}).
 		WithExec(schemapy("tools/check_findings.py"), anyExit))
+}
+
+// EVERY schema in the tree is checked, discovered rather than listed.
+//
+// WHY THIS EXISTS BESIDE dies:schema AND dies:findings. Those two name their
+// files: dies_schema.py names slag and slag-v2, dies:findings names findings'
+// schema and its checker. Both are correct about what they name and silent
+// about everything else — so slag-v3.schema.json was never checked for
+// well-formedness at all, and operable.schema.json landed carrying nineteen
+// negative fixtures that no lane ever ran. Neither gap was decided; each was a
+// list nobody grew. A discovery step cannot forget, which is the whole reason
+// this atom takes no file names.
+//
+// THE CHECKER IS THE TREE'S, NOT EMBEDDED — the dies:contracts and
+// dies:findings shape, for the alarm-asymmetry reason check_contracts.py's own
+// header argues: the repo that OWNS a contract is the repo that should go red
+// when it breaks. An embedded copy here would make this module the author of a
+// rule about foundry-dies' data.
+//
+// THE SCRIPT'S EXIT LADDER IS ALREADY THIS ATOM'S VERDICT, so nothing
+// translates it. check_schemas.py answers the worst code across every schema —
+// 0 clean, 1 a fixture disagreed, 2 a schema is missing, unparseable or not
+// valid draft-2020-12 — which is the same three-state vocabulary the findings
+// schema makes normative, and its precedence: could-not-run outranks a
+// finding, because a check that did not run cannot be trusted to have found
+// anything.
+//
+// IT DOES NOT REQUIRE ANY PARTICULAR SCHEMA. A tree with no schema/ directory
+// is a could-not-run the SCRIPT reports; naming one here would pin foundry-dies'
+// layout into foundry-tools, which is the coupling this shape exists to avoid.
+func diesSchemas(ctx context.Context, r *run) checks.Verdict {
+	a := checks.AtomByID("dies:schemas")
+	if stop := diesShape(ctx, r, a); stop != nil {
+		return *stop
+	}
+	if stop := requirePaths(ctx, r, a, [][2]string{
+		{"tools/check_schemas.py", "tools/check_schemas.py is absent, so there is no checker to run."},
+	}); stop != nil {
+		return *stop
+	}
+
+	// `uv --version` is the provisioning probe on its own exec under the
+	// default Expect: an image without uv is a could-not-run, not a finding.
+	return verdict(ctx, a, r.lane(checks.ImageFleet).
+		WithExec([]string{"uv", "--version"}).
+		WithExec(schemapy("tools/check_schemas.py"), anyExit))
 }
 
 // diesCanonical grades the FORM of every committed record, in Go, with no
