@@ -79,6 +79,31 @@ func TestTheVocabularyBindsInOrderAndNamesTheRest(t *testing.T) {
 	if got := dbs[1].DSN(); !strings.Contains(got, "@db-novector:5432/") {
 		t.Errorf("the novector server has its own host: %q", got)
 	}
+	// A LANE'S OWN HOST. The empty scope is the shared binding every lane had;
+	// a named one gets a host of its own, so two lanes running side by side
+	// cannot be handed the same database.
+	if got := dbs[0].AliasFor(""); got != dbs[0].Alias {
+		t.Errorf("the empty scope is the shared binding: %q", got)
+	}
+	if got := dbs[0].AliasFor("mutation"); got != "db-mutation" {
+		t.Errorf("AliasFor(mutation) = %q", got)
+	}
+	if got := dbs[1].AliasFor("mutation"); got != "db-novector-mutation" {
+		t.Errorf("every server the tree carries moves with the lane: %q", got)
+	}
+	if got := dbs[0].DSNFor("mutation"); !strings.Contains(got, "@db-mutation:5432/") {
+		t.Errorf("DSNFor(mutation) = %q", got)
+	}
+	// And the two are genuinely different hosts — the whole point.
+	if dbs[0].DSNFor("mutation") == dbs[0].DSN() {
+		t.Error("a scoped DSN that equals the shared one separates nothing")
+	}
+	// DSN() is DSNFor("") and must not have moved: go:test-race still binds the
+	// shared server, and its own assertion compares against DSN().
+	if dbs[0].DSN() != dbs[0].DSNFor("") {
+		t.Error("DSN() drifted from the empty scope")
+	}
+
 	// The order of the tree's tags does not reorder the binding.
 	rev := TestDBsFor([]string{"live_db_novector", "live_db"})
 	if rev[0].Tag != "live_db" {

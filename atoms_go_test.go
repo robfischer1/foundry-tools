@@ -198,6 +198,12 @@ func TestGoTestRaceBringsTheRecordsPostgres(t *testing.T) {
 			t.Errorf("no service chain runs %s:\n%v", img, engine.chains())
 		}
 	}
+	// go:test-race KEEPS THE SHARED SERVER — it runs in the sequence, so it
+	// contends with nothing. Its service must carry no lane word, or it would be
+	// a third database nobody asked for.
+	if hasCall(engine.chain(checks.ImagePgvector, "asService"), "withEnvVariable", `name:"FOUNDRY_TEST_DB_LANE"`) {
+		t.Error("go:test-race took a lane-scoped server; it shares by design")
+	}
 	if !hasCall(engine.chain(checks.ImagePgvector, "asService"), "withExposedPort", "5432") {
 		t.Errorf("the pgvector service must expose 5432:\n%v", engine.chains())
 	}
@@ -292,8 +298,13 @@ func TestGoMutationCompilesTheRecordsDBTags(t *testing.T) {
 	}
 	c := engine.chain(goMutantsNeedle, "exitCode")
 	wantCalls(t, c,
-		[]string{"withServiceBinding", `alias:"db"`},
-		[]string{"withEnvVariable", `name:"TEST_DATABASE_URL"`},
+		// ITS OWN SERVER, not the one go:test-race binds. This lane runs BESIDE
+		// the complex checks, both reset the same schema per test, and dagger
+		// content-addresses services — so a shared definition handed both lanes
+		// one Postgres and they tore each other apart (chaos: 150/50/72 distinct
+		// failures over three runs of one unchanged suite).
+		[]string{"withServiceBinding", `alias:"db-mutation"`},
+		[]string{"withEnvVariable", `name:"TEST_DATABASE_URL"`, `value:"` + checks.TestDBs[0].DSNFor("mutation") + `"`},
 		// the coverage run compiles the tag and serialises on the one database
 		// the coverage run covers the diff's package (a.go: the root) and no other
 		[]string{"withExec", `"-coverprofile","mutation-cover.out","-tags","live_db","-p","1","."`},
@@ -301,6 +312,21 @@ func TestGoMutationCompilesTheRecordsDBTags(t *testing.T) {
 	)
 	if hasCall(c, "withServiceBinding", `alias:"db-novector"`) {
 		t.Errorf("only the tags the tree carries are bound:\n%s", c)
+	}
+	// AND IT MUST NOT REACH THE SHARED ONE. This is the assertion the defect
+	// would have failed: before the lane scope, this atom bound plain `db`.
+	if hasCall(c, "withServiceBinding", `alias:"db"`) {
+		t.Errorf("the mutation gate bound the shared server it races:\n%s", c)
+	}
+	// THE SERVICE DEFINITION ITSELF CARRIES THE LANE, and that is what makes it
+	// a second Postgres rather than a second name for the first: dagger
+	// content-addresses services, so two identical definitions resolve to one
+	// container however many aliases point at it. Asserted on the SERVICE's own
+	// recorded chain, not the lane container's — the lane only ever sees an
+	// opaque service id.
+	svc := engine.chain(checks.ImagePgvector, "asService")
+	if !hasCall(svc, "withEnvVariable", `name:"FOUNDRY_TEST_DB_LANE"`, `value:"mutation"`) {
+		t.Errorf("the mutation lane's server is defined identically to the shared one:\n%s", svc)
 	}
 
 	// NO BACKEND, NO TAGS AT ALL — not an empty one: an empty -tags word is
