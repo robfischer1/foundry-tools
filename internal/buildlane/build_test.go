@@ -379,3 +379,56 @@ func TestToolFailedAlsoSeesAContendedCache(t *testing.T) {
 		t.Errorf("ToolFailed must inherit the contended-cache verdict, got %d", code)
 	}
 }
+
+// TestAFaultIsTransientAndANotFoundIsNot pins both sides of the fault
+// classification, because the regexp is the only thing standing between a
+// two-minute registry outage and a nine-rung re-ask ladder — and it got the
+// second side wrong until 2026-09-26.
+//
+// THE TRANSIENT ROWS ARE INCIDENTS, not invented strings. Each one is a
+// phrasing a real lane settled on: the anvil 502 (2026-09-16, zot rebuilding
+// its metadata DB), the glaucus 500 and harmonia engine-load (2026-09-18,
+// seaweedfs down ~2 min after dev01 rebooted). They are here so a later
+// narrowing cannot quietly re-break the case the narrowing was for.
+//
+// THE PERMANENT ROWS ARE WHY THIS TEST EXISTS. A 4xx is the registry
+// answering correctly about something absent, and `: not found` names a
+// digest that is gone. Retrying either burns the ladder on a condition no
+// re-ask can change — measured on foundry/base-images 92eb0db0 as five
+// byte-identical settles, five of nine rungs, stopped only by the landing.
+func TestAFaultIsTransientAndANotFoundIsNot(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		out  string
+	}{
+		{"oras writes a colon before the reason", "Error: failed to push: response status code 502: Bad Gateway"},
+		{"a tool's 503, spaced", "Error: GET https://registry: 503 Service Unavailable"},
+		{"buildkit's pusher on zot's own 500", "unexpected status from POST request to https://registry.notusmi.com/v2/foundry/base-images/go/blobs/uploads/abc: 500 Internal Server Error"},
+		{"the engine cannot load what it pulled", "failed to load container from converted ID: failed to content hash dockerfile copy: exit code: 1"},
+		{"the S3 backend refuses the connection", "dial tcp 10.43.1.2:8333: connection refused"},
+		{"name resolution", "no such host"},
+		{"the registry is rate limiting", "toomanyrequests: retry later"},
+		{"a wrapper whose CAUSE is transient", "failed to resolve source metadata for registry.notusmi.com/foundry/base-images/go:stable: dial tcp: connection refused"},
+		{"a blob upload's 502", "unexpected status from PUT request to https://registry/v2/x/blobs/uploads/y: 502 Bad Gateway"},
+		{"a reaped blob, which the producing build re-pushes", "unexpected media type application/x for sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc: not found"},
+	} {
+		if v, why := Failed("build", c.out); v != CouldNotRun || !strings.Contains(why, "network fault") {
+			t.Errorf("transient %q read as %d %q — a re-ask is the whole fix here", c.name, v, why)
+		}
+	}
+
+	for _, c := range []struct {
+		name string
+		out  string
+	}{
+		{"a manifest that is not there", "unexpected status from GET request to https://registry.notusmi.com/v2/foundry/base-images/go/manifests/sha256:deadbeef: 404 Not Found"},
+		{"credentials the registry rejects", "unexpected status from HEAD request to https://registry.notusmi.com/v2/x/manifests/latest: 401 Unauthorized"},
+		{"a pull the registry forbids", "unexpected status from GET request to https://registry/v2/x/manifests/latest: 403 Forbidden"},
+		{"the same wrapper, permanent cause", "failed to resolve source metadata for registry.notusmi.com/foundry/base-images/go:stable: not found"},
+		{"a reference that resolves to nothing", "failed to resolve source metadata for registry/x:tag: registry/x:tag: not found"},
+	} {
+		if _, why := Failed("build", c.out); strings.Contains(why, "network fault") {
+			t.Errorf("permanent %q read as a network fault (%q) — this spends the ladder on a condition no re-ask changes", c.name, why)
+		}
+	}
+}
