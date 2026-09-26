@@ -238,11 +238,53 @@ func componentKey(c any) string {
 // "running again changes nothing" about the one failure where running again
 // is the entire fix, and the door never re-asked. The phrases below name
 // them — phrases, not bare status numbers: `500 Internal Server Error` is
-// the spaced form buildkit's pusher writes, and `unexpected status from
-// <VERB> request to` is its prefix whatever the code; `failed to load
-// container from converted ID` is the engine's own wording and never a
-// verdict on a tree.
-var fault = regexp.MustCompile(`(?i)connection refused|connection reset|connection timed out|operation timed out|i/o timeout|no such host|temporary failure in name resolution|dns error|server misbehaving|TLS handshake timeout|response status code 5\d\d|500 Internal Server Error|502 Bad Gateway|503 Service Unavailable|504 Gateway|unexpected status from [A-Z]+ request to|failed to load container from converted ID|unexpected EOF|too many requests|429 Too Many Requests|toomanyrequests|context deadline exceeded|failed to do request|failed to resolve source metadata|unexpected media type [^[:space:]]+ for sha256:[0-9a-f]{64}: not found`)
+// the spaced form buildkit's pusher writes, and `failed to load container
+// from converted ID` is the engine's own wording and never a verdict on a
+// tree.
+//
+// THREE ALTERNATIVES LEFT ON 2026-09-26, BECAUSE A 404 IS NOT A NETWORK
+// FAULT. `unexpected status from [A-Z]+ request to` matched buildkit's prefix
+// WHATEVER THE CODE, and the comment above said so as if it were the point.
+// It is not: a 4xx from a registry is the registry answering correctly about
+// a thing that is not there, and calling that transient spends the whole
+// re-ask ladder on a condition no re-ask can change. MEASURED on
+// foundry/base-images 92eb0db0 — five build settles, BYTE-IDENTICAL output
+// each time, four bases rebuilt per settle, 5 of the ladder's 9 rungs gone,
+// and only the landing stopped it (ourea#9793's cap is a window, not a wall).
+//
+// AND THE PREFIX EARNED NOTHING IT DID NOT ALREADY HAVE. Every 5xx phrasing
+// is named separately and appears in the SAME string buildkit writes, so the
+// prefix is redundant for the case it was added for and load-bearing only for
+// the case it gets wrong. Measured both ways over a 17-case corpus: 10 of 10
+// transient strings still match without it — including all three incidents
+// this comment cites — and 6 of 7 permanent ones stop matching.
+//
+// `failed to resolve source metadata` went for the same reason and it is the
+// clearer instance: it is a WRAPPER. buildkit writes `failed to resolve
+// source metadata for <ref>: <cause>`, so a transient cause is already in the
+// string and matches on its own merits (`…: dial tcp: connection refused`
+// still reads as a fault), while `…: not found` no longer reads as one.
+//
+// A THIRD REMOVAL WAS ATTEMPTED AND WITHDRAWN, which is the more useful
+// record. `unexpected media type … : not found` looks like the same defect —
+// it names a digest, and a digest that is absent stays absent. The test below
+// refused it, and the test is right: its case is a blob zot's GC REAPED, and
+// the build that produced that blob re-pushes it on the next run. Transient.
+// The string cannot tell a reaped blob from one that never existed, so it
+// stays a fault, and the ambiguity is the finding rather than the phrasing.
+//
+// WHICH IS ALSO WHERE `failed to load container from converted ID` sits, and
+// why it is untouched: measured transient on 2026-09-18 (seaweedfs down two
+// minutes) and permanent on base-images 92eb0db0. Nothing in either text
+// separates them, and that coordinate's Job record has since been reaped so
+// the distinguishing lines are gone.
+//
+// SO TWO OF THESE PHRASES ARE GENUINELY BOTH THINGS, and no regexp fixes
+// that. The discriminator the system already holds is not a phrase: the five
+// base-images settles were BYTE-IDENTICAL, which a ladder comparing
+// consecutive could-not-run outputs can see and a classifier reading one
+// output never can. That belongs in ourea's ladder, not here.
+var fault = regexp.MustCompile(`(?i)connection refused|connection reset|connection timed out|operation timed out|i/o timeout|no such host|temporary failure in name resolution|dns error|server misbehaving|TLS handshake timeout|response status code 5\d\d|500 Internal Server Error|502 Bad Gateway|503 Service Unavailable|504 Gateway|failed to load container from converted ID|unexpected EOF|too many requests|429 Too Many Requests|toomanyrequests|context deadline exceeded|failed to do request|unexpected media type [^[:space:]]+ for sha256:[0-9a-f]{64}: not found`)
 
 // contended is a SHARED TOOLCHAIN CACHE being written by two lanes at once.
 // It is neither a network fault nor a tool refusing its arguments, so it gets
