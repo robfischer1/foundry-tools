@@ -430,6 +430,12 @@ const GoMutationNothingGraded = "NOTHING WAS GRADED"
 type GoMutationRun struct {
 	// Status is gremlins' exit code.
 	Status int
+	// Log is the run's combined output, and it is here because a run that could
+	// not measure has to say WHY without a transcript dig. Its Rust and
+	// TypeScript siblings have carried theirs all along (RustMutationRun.Log,
+	// StrykerRun.Log); this one did not, and the cost was measured — see the
+	// no-report branch of GoMutationVerdict.
+	Log string
 	// Report is mutation-go.json; empty when gremlins wrote none.
 	Report []byte
 	// Profile is the coverage profile; empty when none was gathered.
@@ -464,7 +470,23 @@ func GoMutationVerdict(run GoMutationRun) (int, string, []Finding) {
 			// measured nothing.
 			return 0, "gremlins had no results to report (exit 0, no report): the pull touched no mutable Go code in scope", nil
 		}
-		return 2, fmt.Sprintf("gremlins exited %d and wrote no mutation-go.json — nothing was measured", run.Status), nil
+		// AND IT SAYS WHY, because the exit code alone sent a reader to the
+		// archive. MEASURED on ourea@59b3a39 (2026-09-26): this branch settled
+		// the lane could-not-run with `gremlins exited 1 and wrote no
+		// mutation-go.json — nothing was measured`, twice, and the actual cause
+		// was one flaky unit test — gremlins gathers baseline coverage with
+		// `go test`, a failing package makes that exit 1, and it aborts before
+		// writing the report. The cause was in the pod transcript the whole time:
+		//
+		//     --- FAIL: TestThePollerLingersAndThenStops
+		//     citail_test.go:288: the poller stopped capturing while idle (3 -> 3)
+		//     ERROR: failed to gather coverage: impossible to executeCoverage
+		//
+		// Finding that took reading 539 archived lines for a fact the settle
+		// could have carried in twenty. The Rust and TypeScript siblings already
+		// tail their log here; this one now does too.
+		return 2, fmt.Sprintf("gremlins exited %d and wrote no mutation-go.json — nothing was measured\n%s",
+			run.Status, tail(run.Log, 20)), nil
 	}
 	// THE CLASSIFIER NOT ANSWERING IS A FACT THE VERDICT MUST CARRY. Scored
 	// without it, every unkillable declaration reads as a survivor and a

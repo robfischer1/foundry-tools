@@ -933,7 +933,11 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 		WithEnvVariable("GIT_CONFIG_KEY_1", "diff.context").
 		WithEnvVariable("GIT_CONFIG_VALUE_1", "0").
 		WithExec(args, anyExit)
-	status, err := mutated.ExitCode(ctx)
+	// THE LOG COMES BACK WITH THE EXIT CODE, so a run that could not measure can
+	// say why. outputBoth is what the Rust lane already uses for this; reading
+	// only the exit code is what made a flaky unit test settle as an
+	// unexplained "nothing was measured".
+	log, status, err := outputBoth(ctx, mutated)
 	if err != nil {
 		return neverRan(err)
 	}
@@ -953,7 +957,7 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	}
 
 	state, reason, found := checks.GoMutationVerdict(checks.GoMutationRun{
-		Status: status, Report: []byte(report), Profile: profile, Canary: canary, Workers: goMutationWorkers,
+		Status: status, Log: log, Report: []byte(report), Profile: profile, Canary: canary, Workers: goMutationWorkers,
 		Classified: []byte(classified), ClassifyErr: classifyErr,
 		MainCanary: mainCanary, MisgradedFiles: misgraded, MisgradedFilesErr: misgradedErr,
 	})
