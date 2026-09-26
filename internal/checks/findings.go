@@ -53,6 +53,29 @@ type Finding struct {
 	Probe string
 }
 
+// The schema's verdict lattice, as words rather than as literals scattered
+// through the parsers.
+//
+// SIX, AND THE PRECEDENCE IS NORMATIVE: unanalyzable > violated > drifted >
+// excluded > holds, and inert does not vote. An unknown verdict MUST degrade to
+// unanalyzable and never to holds — the safe direction is the loud one, because
+// the failure this whole record exists to end is a check that could not run
+// reading as a check that passed.
+const (
+	// VerdictHolds — looked, and it is right.
+	VerdictHolds = "holds"
+	// VerdictDrifted — something moved; it may or may not be a defect.
+	VerdictDrifted = "drifted"
+	// VerdictViolated — a defect.
+	VerdictViolated = "violated"
+	// VerdictExcluded — set aside deliberately, and the cause says by what.
+	VerdictExcluded = "excluded"
+	// VerdictUnanalyzable — could not be determined. NOT a pass.
+	VerdictUnanalyzable = "unanalyzable"
+	// VerdictInert — nothing to check here.
+	VerdictInert = "inert"
+)
+
 // findingCap bounds how many findings one atom contributes.
 //
 // A RUNAWAY SUITE MUST NOT BECOME A RUNAWAY RECORD. The record travels on ONE
@@ -81,6 +104,13 @@ func FindingsOf(atomID, output string) []Finding {
 		found = positionalFindings(output, atomID)
 	default:
 		// Recognised nowhere: no findings, and depth 4 says which lane.
+		//
+		// `go:mutation` IS NOT MISSING FROM THIS LIST — it is deliberately not
+		// here. Its findings are built in ScoreGoMutation, from the structured
+		// score, and attached by the atom; parsing its rendered report instead
+		// would be reading back a rendering of data we already had, and that
+		// rendering is lossy (an ungraded LIVED mutant is indistinguishable from
+		// a missed one). Adding a case here would produce a second, worse set.
 		return nil
 	}
 	return capFindings(found, atomID)
@@ -98,7 +128,7 @@ func capFindings(found []Finding, atomID string) []Finding {
 	}
 	kept := append([]Finding(nil), found[:findingCap]...)
 	return append(kept, Finding{
-		Verdict: "excluded",
+		Verdict: VerdictExcluded,
 		Subject: atomID,
 		Cause:   "finding-cap",
 		Detail:  "this atom found more than the record carries; the rest are in its lines",
@@ -130,7 +160,7 @@ func goTestFindings(output, atomID string) []Finding {
 		if m == nil {
 			continue
 		}
-		f := Finding{Verdict: "violated", Subject: m[1], Cause: "test-failed", Probe: atomID}
+		f := Finding{Verdict: VerdictViolated, Subject: m[1], Cause: "test-failed", Probe: atomID}
 		// The detail is the next line that is INDENTED and not itself a FAIL
 		// header — go test indents a test's own output beneath its result.
 		for _, next := range lines[i+1:] {
@@ -188,7 +218,7 @@ func positionalFindings(output, atomID string) []Finding {
 			cause = code[1]
 		}
 		out = append(out, Finding{
-			Verdict: "violated",
+			Verdict: VerdictViolated,
 			Subject: file + ":" + lineNo,
 			Cause:   cause,
 			Detail:  msg,
