@@ -933,11 +933,20 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 		classified, classifyErr, _ = classify(ctx, mutated.WithExec([]string{"mutation-gate", "-report", goMutationReport, "-C", ".", "-json"}, anyExit))
 	}
 
-	return settle(checks.GoMutationVerdict(checks.GoMutationRun{
+	state, reason, found := checks.GoMutationVerdict(checks.GoMutationRun{
 		Status: status, Report: []byte(report), Profile: profile, Canary: canary, Workers: goMutationWorkers,
 		Classified: []byte(classified), ClassifyErr: classifyErr,
 		MainCanary: mainCanary, MisgradedFiles: misgraded, MisgradedFilesErr: misgradedErr,
-	}))
+	})
+	v := settle(state, reason)
+	// THE FINDINGS COME FROM THE SCORE, NOT FROM THE REASON. checks.VerdictOf
+	// leaves them nil for this atom on purpose — FindingsOf does not parse the
+	// mutation report, because the report is a RENDERING of the score and reading
+	// it back would lose a distinction the score keeps (an ungraded LIVED mutant
+	// and a missed LIVED mutant render identically). Attached here, at the one
+	// return that has a scored run in hand.
+	v.Findings = found
+	return v
 }
 
 // goMutationCoverPackages names the packages the COVER step runs, from the

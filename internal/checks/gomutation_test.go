@@ -149,7 +149,7 @@ func TestScoreGoMutationOfAnEmptyReportAndAZeroClock(t *testing.T) {
 	if s.MsPerMutant != 0 || !strings.Contains(s.Summary, "_0ms of wall clock per mutant across 1 worker(s)._") {
 		t.Errorf("a zero clock is a cost of zero, printed: %v\n%s", s.MsPerMutant, s.Summary)
 	}
-	if _, reason := GoMutationVerdict(GoMutationRun{Report: []byte(zero), Canary: CanaryOK}); !strings.Contains(reason, "0% timed out, 0.0ms of wall clock per mutant") {
+	if _, reason, _ := GoMutationVerdict(GoMutationRun{Report: []byte(zero), Canary: CanaryOK}); !strings.Contains(reason, "0% timed out, 0.0ms of wall clock per mutant") {
 		t.Errorf("the measured line dropped a zero cost: %q", reason)
 	}
 }
@@ -190,7 +190,7 @@ func TestGoMutationVerdictSettlesEveryRun(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			state, reason := GoMutationVerdict(c.run)
+			state, reason, _ := GoMutationVerdict(c.run)
 			if state != c.state || !strings.Contains(reason, c.reason) {
 				t.Fatalf("settled %d %q, want %d naming %q", state, reason, c.state, c.reason)
 			}
@@ -199,7 +199,7 @@ func TestGoMutationVerdictSettlesEveryRun(t *testing.T) {
 	survivors := `{"files":[{"file_name":"a.go","mutations":[{"type":"T","status":"KILLED","line":1,"column":1},{"type":"T","status":"LIVED","line":2,"column":3}]}]}`
 	// A survivor is a 1 only once the classifier has answered — with nothing,
 	// here — and said it is not noise; see TestGoMutationVerdictReadsTheClassification.
-	state, reason := GoMutationVerdict(GoMutationRun{Report: []byte(survivors), Canary: CanaryOK, Classified: []byte(`{"noise":[]}`)})
+	state, reason, _ := GoMutationVerdict(GoMutationRun{Report: []byte(survivors), Canary: CanaryOK, Classified: []byte(`{"noise":[]}`)})
 	if state != 1 || !strings.Contains(reason, "1 mutant(s) survived or were never covered") || !strings.Contains(reason, "a.go:2:3  LIVED") {
 		t.Errorf("survivors: %d %q", state, reason)
 	}
@@ -287,7 +287,7 @@ func TestGoMutationVerdictReadsTheClassification(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			state, reason := GoMutationVerdict(GoMutationRun{
+			state, reason, _ := GoMutationVerdict(GoMutationRun{
 				Report: []byte(report), Canary: CanaryOK, Workers: 1,
 				Classified: []byte(c.classified), ClassifyErr: c.classifyErr,
 			})
@@ -297,7 +297,7 @@ func TestGoMutationVerdictReadsTheClassification(t *testing.T) {
 		})
 	}
 	// A clean run needs no classification: nothing survived to classify.
-	state, _ := GoMutationVerdict(GoMutationRun{
+	state, _, _ := GoMutationVerdict(GoMutationRun{
 		Report: []byte(`{"files":[{"file_name":"a.go","mutations":[{"type":"T","status":"KILLED","line":1,"column":1}]}]}`),
 		Canary: CanaryOK, Workers: 1,
 	})
@@ -453,7 +453,7 @@ func TestGoMutationVerdictTrustsAMainPackageOnlyWhenItsControlSaysSo(t *testing.
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			state, reason := GoMutationVerdict(GoMutationRun{
+			state, reason, _ := GoMutationVerdict(GoMutationRun{
 				Report: []byte(c.report), Canary: CanaryOK, Workers: 1,
 				Classified: []byte(`{"noise":[]}`),
 				MainCanary: c.canary, MisgradedFiles: c.files, MisgradedFilesErr: c.listErr,
@@ -471,7 +471,7 @@ func TestGoMutationVerdictTrustsAMainPackageOnlyWhenItsControlSaysSo(t *testing.
 	// claiming the hole is not there, and the hole is in the summary either way.
 	graded := `{"files":[{"file_name":"lib/lib.go","mutations":[{"type":"T","status":"KILLED","line":1,"column":1}]},
 {"file_name":"cmd/tool/main.go","mutations":[{"type":"T","status":"KILLED","line":4,"column":35}]}]}`
-	state, reason := GoMutationVerdict(GoMutationRun{
+	state, reason, _ := GoMutationVerdict(GoMutationRun{
 		Report: []byte(graded), Canary: CanaryOK, Workers: 1,
 		Classified: []byte(`{"noise":[]}`), MainCanary: CanaryBroken, MisgradedFiles: files,
 	})
@@ -486,7 +486,7 @@ func TestGoMutationVerdictTrustsAMainPackageOnlyWhenItsControlSaysSo(t *testing.
 	// because of #268 — it has no ungraded mutants, so the headline is not its
 	// sentence. The scorer's own "measured NONE of them" block is.
 	inert := `{"files":[{"file_name":"lib/lib.go","mutations":[{"type":"T","status":"NOT VIABLE","line":1,"column":1}]}]}`
-	state, reason = GoMutationVerdict(GoMutationRun{
+	state, reason, _ = GoMutationVerdict(GoMutationRun{
 		Report: []byte(inert), Canary: CanaryOK, Workers: 1,
 		Classified: []byte(`{"noise":[]}`), MainCanary: CanaryBroken, MisgradedFiles: files,
 	})
@@ -500,7 +500,7 @@ func TestGoMutationVerdictTrustsAMainPackageOnlyWhenItsControlSaysSo(t *testing.
 	// A GREEN THAT SAYS IT VERIFIED NOTHING. Exit 0, because there is no test
 	// gap to point at and no committer who can fix #268 — but the reason says so
 	// in as many words, rather than claiming every viable mutant was caught.
-	_, reason = GoMutationVerdict(GoMutationRun{
+	_, reason, _ = GoMutationVerdict(GoMutationRun{
 		Report: []byte(kill), Canary: CanaryOK, Workers: 1,
 		Classified: []byte(`{"noise":[]}`), MainCanary: CanaryBroken, MisgradedFiles: files,
 	})

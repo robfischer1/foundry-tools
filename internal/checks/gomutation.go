@@ -53,6 +53,21 @@ type GoMutationScore struct {
 	// neither the kills nor the misses and not in the rate's denominator: a
 	// verdict the gate cannot trust is not a measurement it can count.
 	Ungraded []string
+	// Findings are the mutants that are worth a reader's attention, one entry
+	// each, in the findings schema's shape.
+	//
+	// BUILT HERE AND NOT PARSED BACK OUT OF Summary, because the rendering is
+	// LOSSY in a way that matters: an Ungraded LIVED mutant and a Missed LIVED
+	// mutant produce the identical `where` line, and only their section in the
+	// report tells them apart. A text reader would have to guess, and the guess
+	// that reads `drifted` where the truth is `unanalyzable` is the quiet
+	// direction. Here the disposition is known exactly, because this is the loop
+	// that decides it.
+	//
+	// A KILLED MUTANT IS NOT A FINDING. It is the tests working, and the counts
+	// already carry it — a run of 25 kills and 2,763 inert would otherwise emit
+	// thousands of entries and become the payload the cap exists to stop.
+	Findings []Finding
 	// TimedOutPct is timed-out mutants over every mutant generated.
 	TimedOutPct float64
 	// MsPerMutant is wall clock per mutant that ran, times the workers; -1 when
@@ -156,6 +171,55 @@ func gradedStatus(status string) bool {
 // ScoreGoMutation scores gremlins' mutation-go.json against the coverage
 // profile the lane gathered and the classification the testkit's gate
 // answered. A nil noise forgives nothing; a nil misgraded distrusts nothing.
+// goMutationAtom names what produced a mutation finding. This scorer reads
+// gremlins, so it is always the Go lane's atom.
+const goMutationAtom = "go:mutation"
+
+// mutantFinding is one mutant as a finding.
+//
+// THE SUBJECT IS file:line, NOT file:line:col, matching the rest of this
+// package's findings: a reader acts on the LINE — they write a test that reaches
+// it — and `cause` already names which kind of change was made to it. The column
+// rides in the detail, where it identifies the individual mutant without
+// splitting one line's findings across several subjects, which is the opposite of
+// what a grouping key is for.
+func mutantFinding(verdict, file string, line, col int, cause, detail string) Finding {
+	return Finding{
+		Verdict: verdict,
+		Subject: fmt.Sprintf("%s:%d", file, line),
+		Cause:   cause,
+		Detail:  fmt.Sprintf("%s, col %d", detail, col),
+		Probe:   goMutationAtom,
+	}
+}
+
+// mutantVerdict maps a mutant's status onto the schema's lattice.
+//
+// EVERY ROW IS THIS FILE'S OWN WORDS, not my reading of them:
+//
+//   - NOT COVERED is `violated` — the report itself calls it "the sharper of the
+//     two: no test executes that code at all". That is a defect, not a maybe.
+//   - LIVED is `drifted` — the report is emphatic that a survivor "is a
+//     HYPOTHESIS, not a finding ... may be a real test gap or equivalent to the
+//     original". `drifted` is the schema's word for exactly that: something moved,
+//     look at it, no claim that it is broken. Calling it `violated` would assert
+//     a defect the runner explicitly refuses to assert.
+//   - COVERED-UNRUN is `unanalyzable` — this file's header says "not a miss, not
+//     a kill, unmeasured by name", and unmeasured is what unanalyzable means.
+//   - TIMED OUT is `unanalyzable` for the same reason: it never answered.
+//   - Anything else is `unanalyzable`, which is the schema's own degrade rule.
+//     KILLED and the inert statuses never reach here.
+func mutantVerdict(status string) string {
+	switch status {
+	case "NOT COVERED":
+		return VerdictViolated
+	case "LIVED":
+		return VerdictDrifted
+	default:
+		return VerdictUnanalyzable
+	}
+}
+
 func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoMutationNoise, misgraded GoMisgradedFiles) (GoMutationScore, error) {
 	var d struct {
 		GoModule    string   `json:"go_module"`
@@ -201,6 +265,13 @@ func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoM
 			// forgiveness can reach — and it is the direction that reads green.
 			if misgraded[f.FileName] && gradedStatus(status) {
 				s.Ungraded = append(s.Ungraded, where)
+				// UNANALYZABLE WHATEVER THE STATUS SAID, including a KILLED —
+				// this is the one place a kill becomes a finding, because the
+				// verdict is about a different package and "the gate cannot
+				// trust it" is a fact a reader needs, not a pass.
+				s.Findings = append(s.Findings, mutantFinding(VerdictUnanalyzable,
+					f.FileName, m.Line, m.Column, m.Type,
+					status+" but graded against the wrong package (gremlins#268)"))
 				continue
 			}
 			// Only a survivor is a candidate: the testkit classifies NOT
@@ -210,6 +281,13 @@ func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoM
 			// forgiven mutant lands in exactly one column.
 			if reason, ok := noise[fmt.Sprintf("%s:%d:%d", f.FileName, m.Line, m.Column)]; ok && (status == "NOT COVERED" || status == "LIVED") {
 				s.Forgiven = append(s.Forgiven, fmt.Sprintf("%s  [%s]", where, reason))
+				// THE CAUSE IS THE FORGIVENESS, NOT THE OPERATOR. For an
+				// `excluded` finding the schema requires a cause and means it to
+				// answer "by what", and the reader's question about a forgiven
+				// mutant is which class excused it — `3 × unkillable-declaration`
+				// is the line they act on. The operator moves to the detail.
+				s.Findings = append(s.Findings, mutantFinding(VerdictExcluded,
+					f.FileName, m.Line, m.Column, reason, status+" but forgiven, "+m.Type))
 				continue
 			}
 			switch status {
@@ -218,16 +296,27 @@ func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoM
 			case "LIVED":
 				s.Lived++
 				s.Missed = append(s.Missed, where)
+				s.Findings = append(s.Findings, mutantFinding(mutantVerdict(status),
+					f.FileName, m.Line, m.Column, m.Type, status))
 			case "NOT COVERED":
 				s.NotCovered++
 				s.Missed = append(s.Missed, where)
+				s.Findings = append(s.Findings, mutantFinding(mutantVerdict(status),
+					f.FileName, m.Line, m.Column, m.Type, status))
 			case "TIMED OUT":
 				s.TimedOut++
 				timed = append(timed, where)
+				s.Findings = append(s.Findings, mutantFinding(mutantVerdict(status),
+					f.FileName, m.Line, m.Column, m.Type, status))
 			case "COVERED-UNRUN":
 				s.CoveredUnrun++
 				misread = append(misread, where)
+				s.Findings = append(s.Findings, mutantFinding(mutantVerdict(status),
+					f.FileName, m.Line, m.Column, m.Type, status))
 			case "NOT VIABLE", "SKIPPED":
+				// NOTHING TO CHECK, so nothing to report. `inert` exists in the
+				// lattice for this, but a finding per inert mutant would be 2,763
+				// of them on a real run — the counts carry it.
 				s.Inert++
 			}
 		}
@@ -367,15 +456,15 @@ type GoMutationRun struct {
 
 // GoMutationVerdict settles a diff-mode run: 0 clean, 1 survivors, 2 did not
 // measure. The reason carries the summary whenever a report was scored.
-func GoMutationVerdict(run GoMutationRun) (int, string) {
+func GoMutationVerdict(run GoMutationRun) (int, string, []Finding) {
 	if len(run.Report) == 0 {
 		if run.Status == 0 {
 			// gremlins writes no report when it has nothing to report and exits
 			// 0: the pull touched no mutable Go in scope. Clean, and said to have
 			// measured nothing.
-			return 0, "gremlins had no results to report (exit 0, no report): the pull touched no mutable Go code in scope"
+			return 0, "gremlins had no results to report (exit 0, no report): the pull touched no mutable Go code in scope", nil
 		}
-		return 2, fmt.Sprintf("gremlins exited %d and wrote no mutation-go.json — nothing was measured", run.Status)
+		return 2, fmt.Sprintf("gremlins exited %d and wrote no mutation-go.json — nothing was measured", run.Status), nil
 	}
 	// THE CLASSIFIER NOT ANSWERING IS A FACT THE VERDICT MUST CARRY. Scored
 	// without it, every unkillable declaration reads as a survivor and a
@@ -406,7 +495,7 @@ func GoMutationVerdict(run GoMutationRun) (int, string) {
 	}
 	s, err := ScoreGoMutation(run.Report, run.Profile, "diff", run.Workers, noise, misgraded)
 	if err != nil {
-		return 2, "the mutation report could not be read: " + err.Error()
+		return 2, "the mutation report could not be read: " + err.Error(), nil
 	}
 	missed := len(s.Missed)
 	measured := fmt.Sprintf("measured: %d missed, %s%% timed out", missed, strconv.FormatFloat(s.TimedOutPct, 'f', -1, 64))
@@ -415,33 +504,38 @@ func GoMutationVerdict(run GoMutationRun) (int, string) {
 	}
 	with := func(line string) string { return line + "\n" + measured + "\n\n" + s.Summary }
 	if run.Status != 0 {
-		return 2, with(fmt.Sprintf("gremlins exited %d — a broken run, not a survivor report", run.Status))
+		return 2, with(fmt.Sprintf("gremlins exited %d — a broken run, not a survivor report", run.Status)), nil
 	}
 	if s.TimedOutPct > GoMutationTimeoutBudget {
-		return 2, with(fmt.Sprintf("%s%% of mutants TIMED OUT, over the %.0f%% budget — the suite was not measured", strconv.FormatFloat(s.TimedOutPct, 'f', -1, 64), GoMutationTimeoutBudget))
+		return 2, with(fmt.Sprintf("%s%% of mutants TIMED OUT, over the %.0f%% budget — the suite was not measured", strconv.FormatFloat(s.TimedOutPct, 'f', -1, 64), GoMutationTimeoutBudget)), nil
 	}
 	if run.Canary == CanaryBroken {
 		// Fatal like a timeout-heavy run: neither measured anything.
-		return 2, with("the harness scores unrun tests as kills: the control mutant, which must SURVIVE, came back KILLED — every kill in this report is false. See #7649")
+		return 2, with("the harness scores unrun tests as kills: the control mutant, which must SURVIVE, came back KILLED — every kill in this report is false. See #7649"), nil
 	}
 	if run.MainCanary != CanaryOK && run.MisgradedFilesErr != "" {
 		// NOTHING TO EXCLUDE WITH. This gremlins grades a main package against
 		// the module root and the lane could not say which files are in one, so
 		// the counts below may include verdicts about other code entirely — and
 		// the gate cannot point at which. That is a could-not-measure, not a pass.
-		return 2, with("this gremlins grades a `package main` against the module root (gremlins#268) and the lane could not list which files are in one: " + run.MisgradedFilesErr)
+		return 2, with("this gremlins grades a `package main` against the module root (gremlins#268) and the lane could not list which files are in one: " + run.MisgradedFilesErr), nil
 	}
 	if missed == 0 {
 		if len(s.Ungraded) > 0 && s.Viable() == 0 {
 			// Clean, and clean ABOUT it: exit 0, because there is no test gap to
 			// point at and no committer who can fix #268 — and a reason that says
 			// in as many words that this run verified nothing.
-			return 0, with(fmt.Sprintf("%s — all %d mutant(s) with a verdict sit in a `package main` below the module root, which this gremlins grades against the root instead (gremlins#268). This run did not verify the tests", GoMutationNothingGraded, len(s.Ungraded)))
+			return 0, with(fmt.Sprintf("%s — all %d mutant(s) with a verdict sit in a `package main` below the module root, which this gremlins grades against the root instead (gremlins#268). This run did not verify the tests", GoMutationNothingGraded, len(s.Ungraded))), nil
 		}
-		return 0, with("every viable mutant was caught")
+		return 0, with("every viable mutant was caught"), nil
 	}
 	if noise == nil {
-		return 2, with(fmt.Sprintf("%d mutant(s) survived and the unkillability classifier did not answer (%s) — this run cannot tell a test gap from a declaration no test could reach", missed, classifyErr))
+		return 2, with(fmt.Sprintf("%d mutant(s) survived and the unkillability classifier did not answer (%s) — this run cannot tell a test gap from a declaration no test could reach", missed, classifyErr)), nil
 	}
-	return 1, with(fmt.Sprintf("%d mutant(s) survived or were never covered — see the list below", missed))
+	// CAPPED LIKE EVERY OTHER ATOM'S. These findings do not come through
+	// FindingsOf, so they do not get capFindings for free — and a wide pull can
+	// generate hundreds of survivors, which is exactly the runaway the cap exists
+	// to stop: the record travels on ONE line of stdout. The cut states itself as
+	// an `excluded` finding and the full list is in the summary either way.
+	return 1, with(fmt.Sprintf("%d mutant(s) survived or were never covered — see the list below", missed)), capFindings(s.Findings, goMutationAtom)
 }
