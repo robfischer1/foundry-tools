@@ -140,12 +140,27 @@ func Line(in ...Pin) (string, []string) {
 // the branch and slice target[:-1], which panics. Tested, because a lane that
 // crashed while declaring a fact about an artifact it had already published
 // would turn a bookkeeping line into a failed build.
-func Image(target, digest string) Pin {
+func Image(target, digest string) Pin { return of(target, digest, KindImage) }
+
+// Bundle is the same reference, declared as a bundle rather than an image. The
+// cast lane publishes app/<name>:stable through mold, and a bundle's digest is
+// reaped by exactly the retention that reaps an image's — so the door wants it
+// on the same wire, told apart only by kind.
+//
+// IT IS A SEPARATE CONSTRUCTOR RATHER THAN A KIND ARGUMENT because Kind is a
+// closed set the door refuses outside of (tap.PinsIn), and a caller that can
+// pass a string can pass a wrong one. Two names cost a line each and make the
+// wrong call unwritable.
+func Bundle(target, digest string) Pin { return of(target, digest, KindBundle) }
+
+// of splits a target into artifact and tag and stamps the kind. Shared by the
+// constructors so the comparison below is reasoned about once.
+func of(target, digest, kind string) Pin {
 	artifact, tag := target, ""
 	if i := strings.LastIndex(target, ":"); i > strings.LastIndex(target, "/") {
 		artifact, tag = target[:i], target[i+1:]
 	}
-	return Pin{Artifact: artifact, Digest: digest, Tag: tag, Kind: KindImage}
+	return Pin{Artifact: artifact, Digest: digest, Tag: tag, Kind: kind}
 }
 
 // consumedRe finds a reference to the fleet's OWN registry that names a digest.

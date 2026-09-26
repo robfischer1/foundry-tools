@@ -38,7 +38,7 @@ func sayings(t *testing.T, f func()) string {
 // which is exactly the gap build_pins exists to close.
 func TestDeclarePrintsTheLineTheDoorReads(t *testing.T) {
 	out := sayings(t, func() {
-		declare(pins.Image("registry.notusmi.com/rob/ourea:stable", "sha256:"+strings.Repeat("a", 64)))
+		declare(say, pins.Image("registry.notusmi.com/rob/ourea:stable", "sha256:"+strings.Repeat("a", 64)))
 	})
 	var found string
 	for _, line := range strings.Split(out, "\n") {
@@ -62,7 +62,7 @@ func TestDeclarePrintsTheLineTheDoorReads(t *testing.T) {
 // goes unrecorded without anyone noticing.
 func TestDeclareSaysWhatItWouldNotPrint(t *testing.T) {
 	out := sayings(t, func() {
-		declare(pins.Image("registry.notusmi.com/rob/ourea:stable", "sha256:fc4f0fa1610b"))
+		declare(say, pins.Image("registry.notusmi.com/rob/ourea:stable", "sha256:fc4f0fa1610b"))
 	})
 	if strings.Contains(out, pins.MarkerPrefix) {
 		t.Errorf("an uncheckable digest was declared: %s", out)
@@ -76,8 +76,8 @@ func TestDeclareSaysWhatItWouldNotPrint(t *testing.T) {
 // have nothing to say, and a bare marker with no payload would be a line the
 // door has to decide about.
 func TestDeclaringNothingPrintsNothing(t *testing.T) {
-	if out := sayings(t, func() { declare() }); out != "" {
-		t.Errorf("declare() printed %q", out)
+	if out := sayings(t, func() { declare(say) }); out != "" {
+		t.Errorf("declare(say) printed %q", out)
 	}
 }
 
