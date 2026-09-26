@@ -78,6 +78,11 @@ type Verdict struct {
 	// OriginalBytes is the size of the output BEFORE any cut — the true
 	// number, always, so a reader can tell how much they are not seeing.
 	OriginalBytes int `json:"original_bytes,omitempty"`
+	// Findings are what this atom FOUND, one entry per result — the tier
+	// between the verdict above and the lines beside it. Empty for a passing
+	// atom and for every atom whose tool's output format nothing parses yet;
+	// the reader treats those the same and says which lane it was.
+	Findings []Finding `json:"findings,omitempty"`
 }
 
 // VerdictOf builds one element of the vector from a raw exit code.
@@ -127,7 +132,32 @@ func VerdictOf(a AtomDef, exit int, output string) Verdict {
 		Logs:          logs,
 		Truncated:     truncated,
 		OriginalBytes: originalBytes,
+		// THE FINDINGS ARE EXTRACTED HERE FOR CaptureLogs' REASON, one line up:
+		// this is the only place every atom's raw output is still in hand, so it
+		// is the only place the parsing can be done ONCE. Extracting at any call
+		// site would mean forty of them, each with its own idea of the shape.
+		//
+		// ONLY FOR A STATE THAT FOUND SOMETHING. A passing atom has nothing to
+		// report, and an atom that could not run found nothing either — it never
+		// looked, which is the distinction StateCannotRun exists to keep, so
+		// manufacturing findings from its error output would put "evidence of
+		// nothing" in a field that means "what was found".
+		Findings: findingsFor(s, a.ID, output),
 	}
+}
+
+// findingsFor extracts an atom's findings, and only where findings are what the
+// state means.
+//
+// StateFindings ONLY: a pass found nothing, and a cannot-run never looked. The
+// three states are kept apart everywhere else in this module for exactly this
+// reason, and a findings list on a cannot-run would read downstream as a defect
+// the run proved — when what it actually proves is that nobody measured.
+func findingsFor(s State, atomID, output string) []Finding {
+	if s != StateFindings {
+		return nil
+	}
+	return FindingsOf(atomID, output)
 }
 
 // AnnouncedAbsence reports whether the atom's own output declared ABSENT, and
