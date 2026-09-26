@@ -80,7 +80,7 @@ func TestEveryImageIsPinnedByDigest(t *testing.T) {
 // moves on its own schedule, and this is where a quay.io or vendor image
 // would be caught. The trivy databases are the exception by design — pulled
 // by trivy from inside the lane container, where the engine's mirror config
-// does not reach — and name zot's prefix on the fleet's own registry.
+// does not reach — and name the fleet's ghcr alias host in full.
 func TestEveryImageComesThroughTheFleetMirror(t *testing.T) {
 	for _, img := range append(append([]string{}, LaneImages...), ImageCosign, ImageSyft, ImageStatic) {
 		if !mirrored(img) {
@@ -88,8 +88,8 @@ func TestEveryImageComesThroughTheFleetMirror(t *testing.T) {
 		}
 	}
 	for _, repo := range []string{TrivyDBRepo, TrivyJavaDBRepo} {
-		if !strings.HasPrefix(repo, "registry.notusmi.com/ghcr/") {
-			t.Errorf("trivy database %q is pulled from inside the lane container and must name zot's ghcr/ prefix, not an upstream", repo)
+		if !strings.HasPrefix(repo, "ghcr.notusmi.com/") {
+			t.Errorf("trivy database %q is pulled from inside the lane container, where no mirror config reaches, so it must name the fleet's ghcr alias in full rather than an upstream", repo)
 		}
 	}
 }

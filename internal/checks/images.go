@@ -46,7 +46,8 @@ package checks
 // image string was the only way through a mirror. It is not any more: the
 // engine's registries.mirrors (infra flux/apps/dagger-engine.yaml, master-plan
 // "Transparent Cache — Nexus Retired" F5) sends docker.io, ghcr.io and gcr.io
-// through zot's hub/, ghcr/ and gcr/ prefixes with the upstream as buildkit's
+// to hub./ghcr./gcr.notusmi.com — three Distribution pull-through caches
+// (registry-proxy.yaml) — with the upstream as buildkit's
 // fallback, so `docker.io/library/python@sha256:…` IS the mirrored pull, and
 // says where the image lives. MirroredRegistries below is that set, and the
 // tests hold every image to it; an image from anywhere else (quay.io, a
@@ -118,15 +119,23 @@ const (
 	// flux/infrastructure/vuln-3p.yaml); the databases move by tag on purpose,
 	// because a scan against last month's advisories is not a scan.
 	//
-	// THE DATABASES NAME ZOT'S ghcr/ PREFIX, NOT ghcr.io. trivy pulls them
-	// itself, from INSIDE the lane container, where the engine's mirror
-	// config does not reach — a bare ghcr.io there is an unmirrored,
-	// rate-limited pull on every scan. registry.notusmi.com is the fleet's
-	// own registry, and its ghcr/ prefix is the same on-demand mirror the
-	// engine uses (F3).
+	// THE DATABASES NAME A FLEET HOST, NOT ghcr.io. trivy pulls them itself,
+	// from INSIDE the lane container, where the engine's mirror config does
+	// not reach — a bare ghcr.io there is an unmirrored, rate-limited pull on
+	// every scan. So the reference has to carry the fleet host in the name.
+	//
+	// THE HOST CHANGED ON 2026-09-26, and the old one had been dead for a
+	// week. These read registry.notusmi.com/ghcr/… — zot's on-demand sync
+	// prefix — which zot stopped serving on 2026-09-19 when third-party
+	// images moved to three Distribution pull-through caches (infra
+	// registry-proxy.yaml). zot answers 404 for that path today, measured.
+	// Unlike a containerd MIRROR miss there is no fallback here: the hostname
+	// IS the fleet's, so every endpoint resolves to zot and the pull simply
+	// fails. ghcr.notusmi.com fronts registry-proxy-ghcr, which serves
+	// ghcr.io at its root with no prefix — measured 200 for both databases.
 	ImageTrivy      = "docker.io/aquasec/trivy:0.72.0@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f"
-	TrivyDBRepo     = "registry.notusmi.com/ghcr/aquasecurity/trivy-db:2"
-	TrivyJavaDBRepo = "registry.notusmi.com/ghcr/aquasecurity/trivy-java-db:1"
+	TrivyDBRepo     = "ghcr.notusmi.com/aquasecurity/trivy-db:2"
+	TrivyJavaDBRepo = "ghcr.notusmi.com/aquasecurity/trivy-java-db:1"
 )
 
 // The tools the lanes install, pinned. Binaries come from their own release
@@ -328,13 +337,14 @@ const (
 	ImageKubeLinter = "docker.io/stackrox/kube-linter:v0.8.3-alpine@sha256:b8311611c27032d4922bc67719225e373e4a0ab0c767bbdcf5f20a9306b1a3bb"
 )
 
-// MirroredRegistries are the upstream registries the engine pulls through
-// zot (infra dagger-engine.yaml registries.mirrors → hub./ghcr./gcr.notusmi.com,
-// F5), and so the only hosts a lane image may name: an image from any other
-// registry is a pull the fleet does not mirror. registry.notusmi.com is the
-// fleet's own registry and is allowed beside them for what is pulled from
-// INSIDE a lane container (trivy's databases), which the engine's mirror
-// config cannot see.
+// MirroredRegistries are the upstream registries the engine pulls through the
+// fleet's caches (infra dagger-engine.yaml registries.mirrors →
+// hub./ghcr./gcr.notusmi.com, which front three Distribution pull-through
+// caches — registry-proxy.yaml, not zot; zot carried them only between
+// 2026-09-18 and 2026-09-19), and so the only hosts a lane image may name: an
+// image from any other registry is a pull the fleet does not mirror. What is
+// pulled from INSIDE a lane container names one of those alias hosts in full
+// instead (trivy's databases), because the engine's mirror config cannot see it.
 var MirroredRegistries = []string{"docker.io/", "ghcr.io/", "gcr.io/"}
 
 // CRDSchema is the schema location the kubeconform atom adds to the default
