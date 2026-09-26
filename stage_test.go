@@ -664,3 +664,64 @@ func TestTheRecordCarriesWhatTheAtomsFound(t *testing.T) {
 		t.Fatalf("an omitted atom invented findings: %+v", back.Omitted[0].Findings)
 	}
 }
+
+// THE FILE IS THE SAME BYTES AS THE LINE, sentinel included.
+//
+// A second format for one record is how two readers come to disagree about it, so
+// RecordFile has to be Record's bytes and nothing else — the door's reader looks
+// for `ourea-run-record/1` whether those bytes arrived on a log line or on a
+// volume. Asserted through the paper engine's recorded chain, which is what makes
+// this a test of the bytes rather than a test that the call did not error.
+func TestTheRecordFileCarriesTheRecordLineVerbatim(t *testing.T) {
+	engine.reset()
+	s := &StageResult{
+		Stage: "gate", State: 1, Lanes: []string{"go"},
+		Atoms: []AtomResult{{Atom: "go:vet", State: 1, Result: "findings", Logs: []string{"boom"},
+			Findings: []Finding{{Verdict: "violated", Subject: "a.go:1", Cause: "U1000", Probe: "go:vet"}}}},
+	}
+	line, err := s.Record()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := s.RecordFile()
+	if err != nil {
+		t.Fatalf("the file could not be built: %v", err)
+	}
+	// THE SDK IS LAZY, so building the File sends nothing and the paper engine
+	// records nothing. Resolving it is what puts the chain — and the contents the
+	// caller asked for — on the wire, which is the thing under test. The returned
+	// value is the paper engine's synthesis and is deliberately ignored: what
+	// matters is what this module ASKED for, not what a fake answered.
+	_, _ = f.Contents(context.Background())
+
+	chain := engine.chain("withNewFile", RecordFileName)
+	if chain == "" {
+		t.Fatalf("no chain wrote %s; the engine saw:\n%s", RecordFileName, strings.Join(engine.chains(), "\n"))
+	}
+	// THE SENTINEL TRAVELS WITH IT. Without this the door finds no record on the
+	// volume and settles could-not-run on a run that graded everything.
+	if !strings.Contains(chain, runRecordSentinel) {
+		t.Errorf("the file's contents carry no sentinel:\n%s", chain)
+	}
+	// AND THE ATOM'S OWN EVIDENCE, so the file is the whole record and not a
+	// summary of it: the wire field names, the findings, the lines.
+	for _, want := range []string{`Findings`, `U1000`, `OriginalBytes`, `boom`} {
+		if !strings.Contains(chain, want) {
+			t.Errorf("the file's contents lack %q:\n%s", want, chain)
+		}
+	}
+	// The line itself must still be the line — a change to Record that this file
+	// silently stopped matching is the drift the test exists to prevent.
+	if !strings.HasPrefix(line, runRecordSentinel+" ") {
+		t.Fatalf("the record line lost its sentinel: %.40q", line)
+	}
+}
+
+// THE NAME IS A CROSS-REPO CONTRACT. The door mounts a volume and reads
+// `<mount>/record.json`; neither repository can import the other, so the string is
+// written in both and a change to one is a run whose record is never found.
+func TestTheRecordFileNameIsTheNameTheDoorReads(t *testing.T) {
+	if RecordFileName != "record.json" {
+		t.Fatalf("RecordFileName = %q, and gatejob.RecordFileName says \"record.json\"", RecordFileName)
+	}
+}

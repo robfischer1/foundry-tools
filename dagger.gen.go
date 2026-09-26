@@ -1514,6 +1514,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*StageResult).Record(&parent)
+		case "RecordFile":
+			var parent StageResult
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*StageResult).RecordFile(&parent)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}

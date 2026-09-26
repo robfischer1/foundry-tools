@@ -258,6 +258,47 @@ func (s *StageResult) Record() (string, error) {
 	return runRecordSentinel + " " + string(raw), nil
 }
 
+// RecordFileName is what the record is called when it travels as a file. The
+// door names the same thing (gatejob.RecordFileName); it is stated in both places
+// because it is a contract between two repositories and neither can import the
+// other.
+const RecordFileName = "record.json"
+
+// RecordFile is the stage's answer as a FILE the caller exports, rather than as a
+// line the caller has to find in a log.
+//
+// WHY THE RECORD IS LEAVING STDOUT. containerd splits any container log line over
+// `max_container_log_line_size` — 16384 — into partial CRI entries, and the
+// pod-log endpoint has no stream selector, so stdout and stderr come back merged
+// in kubelet order and a foreign entry can land between one line's partials.
+// Measured in erebus: 56 of 2197 records carried on stdout were refused that way.
+// 2.5% of every graded run in the fleet settled COULD-NOT-RUN on a run whose atoms
+// had all passed, and told the committer their work was non-compliant.
+//
+// Records average 26KB against that 16KB limit, and capping the logs cannot fix
+// it: on a 54-atom gate the non-log structure ALONE is 18.5KB. So the transport
+// had to move, not the budget.
+//
+// IT IS THE SAME BYTES Record() PRODUCES, sentinel included. The door's reader
+// looks for that sentinel whether the bytes arrived on a log line or on a volume,
+// so the file is the record and not a second format — a second format is how two
+// readers come to disagree about one record.
+//
+// THE CALLER EXPORTS IT; THIS ONLY BUILDS IT. `dagger call <stage> record-file
+// export --path <mount>/record.json` writes it onto the volume the door mounted,
+// and the door collects it from there. That also means the CLI exits 0 for a
+// findings verdict — which is the point RecordLanes was written for: once a lane
+// hands back a record instead of an error, an exit code says only that the CLI
+// ran, and the door settles from the record or settles could-not-run for the want
+// of one.
+func (s *StageResult) RecordFile() (*dagger.File, error) {
+	rec, err := s.Record()
+	if err != nil {
+		return nil, err
+	}
+	return dag.Directory().WithNewFile(RecordFileName, rec).File(RecordFileName), nil
+}
+
 func (s *StageResult) Exit(ctx context.Context) error {
 	return settle(ctx, s.State, checks.LogTail(s.Log, stageLogLimit))
 }
