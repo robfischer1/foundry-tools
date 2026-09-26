@@ -176,8 +176,20 @@ func TestGoMutationVerdictSettlesEveryRun(t *testing.T) {
 		state  int
 		reason string
 	}{
-		"no report, gremlins clean":   {GoMutationRun{Status: 0}, 0, "gremlins had no results to report"},
-		"no report, gremlins broken":  {GoMutationRun{Status: 3}, 2, "gremlins exited 3 and wrote no mutation-go.json"},
+		"no report, gremlins clean":  {GoMutationRun{Status: 0}, 0, "gremlins had no results to report"},
+		"no report, gremlins broken": {GoMutationRun{Status: 3}, 2, "gremlins exited 3 and wrote no mutation-go.json"},
+		// THE REASON CARRIES THE CAUSE, not just the exit code. This settled a
+		// real lane could-not-run on ourea@59b3a39 with nothing but `exited 1`,
+		// while the actual cause — one failing unit test, which makes gremlins'
+		// baseline coverage exit 1 and abort before writing the report — sat in a
+		// pod transcript 539 lines long. The named test must reach the reason.
+		"no report, and the log says which test failed": {GoMutationRun{Status: 1, Log: "" +
+			"ok  \tgit.notusmi.com/rob/ourea/internal/tap\t0.881s\n" +
+			"--- FAIL: TestThePollerLingersAndThenStops (0.31s)\n" +
+			"    citail_test.go:288: the poller stopped capturing while idle (3 -> 3)\n" +
+			"FAIL\tgit.notusmi.com/rob/ourea/internal/citail\t0.451s\n" +
+			"ERROR: failed to gather coverage: impossible to executeCoverage coverage: exit status 1\n",
+		}, 2, "TestThePollerLingersAndThenStops"},
 		"a report that does not read": {GoMutationRun{Report: []byte("{")}, 2, "could not be read"},
 		"gremlins broke with a report": {GoMutationRun{Status: 10, Report: []byte(clean), Canary: CanaryOK}, 2,
 			"gremlins exited 10 — a broken run"},
