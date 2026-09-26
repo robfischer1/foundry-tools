@@ -109,6 +109,28 @@ runtime-evaluated-base-classes = [
 "**/crates/**/*.py" = ["INP001"]
 "docs/**/*.py" = ["INP001"]
 "**/docs/**/*.py" = ["INP001"]
+# A HOOK DIRECTORY IS NOT A PACKAGE, which is the same fact about layout
+# every glob above it states, and it is a harder fact here than anywhere else
+# on the list: these hooks CANNOT be made packages.
+#
+# Each hook file shares its basename with its directory
+# (git_guard/git_guard.py, and 13 more in foundry-stocks). That suite's
+# hooks/conftest.py puts every hook dir on sys.path and each test imports its
+# hook bare — `import git_guard`. An __init__.py would bind the PACKAGE to
+# that name before the test's own import ran, so the import would resolve to
+# the empty __init__ rather than the hook. Obeying INP001 here breaks 234
+# passing tests.
+#
+# INP001 AND NOTHING ELSE, deliberately. stop-justifications rules an entry
+# the KNOWN IDIOM only when INP001 is its every rule, and "any other rule in
+# the same entry takes it out of the idiom" — correctly, because a layout fact
+# and a claim that a tool is wrong are different claims and only one of them
+# is free. The first cut of this entry bundled S603, S310 and S608 in and the
+# commit stage refused it, by name, as a CONFIG-level suppression. It was
+# right to: those three are a real suppression and belong behind a real grant,
+# not smuggled in beside a fact.
+"hooks/**/*.py" = ["INP001"]
+"**/hooks/**/*.py" = ["INP001"]
 "probe/**/*.py" = ["INP001"]
 "**/probe/**/*.py" = ["INP001"]
 "probes/**/*.py" = ["INP001"]
