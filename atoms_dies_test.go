@@ -19,7 +19,7 @@ import (
 var diesAtoms = []string{
 	"dies:opa-test", "dies:admission-dogfood", "dies:data-keys",
 	"dies:canary-visibility", "dies:contracts", "dies:schema", "dies:findings",
-	"dies:canonical",
+	"dies:schemas", "dies:canonical",
 }
 
 // diesBuiltAContainer reports whether anything pulled an image. Named for this
@@ -852,4 +852,62 @@ func TestDiesCanonicalCannotRunWithoutARecordItCanRead(t *testing.T) {
 	engine.withTree(diesTree(nil))
 	engine.fail(`glob(pattern:"fleet/stars/*/slag.json")`, "the glob would not evaluate")
 	wantState(t, runAtom(t, "dies:canonical", ""), 2, "fleet/stars/ could not be scanned", "would not evaluate")
+}
+
+var schemasPaths = map[string]string{
+	"tools/check_schemas.py": "",
+}
+
+// THE ATOM NAMES NO SCHEMA, and that is the whole point of it. dies:schema
+// names slag and slag-v2, dies:findings names findings' two paths, and both
+// are silent about everything else — which is how slag-v3 went unchecked for
+// well-formedness and operable landed with nineteen negative fixtures no lane
+// ran. A list forgets; a discovery step cannot.
+func TestDiesSchemasRequiresOnlyTheChecker(t *testing.T) {
+	engine.reset()
+	engine.withTree(diesTree(schemasPaths))
+	wantState(t, runAtom(t, "dies:schemas", ""), 0)
+
+	c := engine.chain("tools/check_schemas.py", "exitCode")
+	wantCalls(t, c,
+		[]string{"withExec", `args:["uv","--version"]`},
+		[]string{"withExec", "expect:ANY", `"--with","jsonschema>=4.20","python3","tools/check_schemas.py"`},
+	)
+	// NOTHING IS EMBEDDED. An embedded copy would make this module the author
+	// of a rule about another repo's data — the coupling check_contracts.py's
+	// own header rejects.
+	if strings.Contains(c, "withNewFile") {
+		t.Errorf("dies:schemas wrote a script into the container; the tree's own checker is the tool:\n%s", c)
+	}
+	// AND IT NAMES NO SCHEMA PATH. Requiring one here would pin foundry-dies'
+	// layout into foundry-tools, which is the coupling this shape avoids — and
+	// it would re-introduce the list.
+	if strings.Contains(c, ".schema.json") {
+		t.Errorf("dies:schemas named a schema file; discovery is the script's job:\n%s", c)
+	}
+}
+
+// THE SCRIPT'S EXIT CODE IS THE VERDICT, unmapped. check_schemas.py answers
+// the WORST code across every schema it found — 0 clean, 1 a fixture
+// disagreed, 2 a schema is missing, unparseable or not valid draft-2020-12 —
+// which is the same three-state vocabulary, and the same precedence, the
+// findings schema makes normative.
+func TestDiesSchemasPassesTheExitCodeStraightThrough(t *testing.T) {
+	for code, want := range map[int]int{0: 0, 1: 1, 2: 2} {
+		engine.reset()
+		engine.withTree(diesTree(schemasPaths))
+		engine.exitCode(`"python3","tools/check_schemas.py"`, code)
+		wantState(t, runAtom(t, "dies:schemas", ""), want)
+	}
+}
+
+// No checker is a COULD-NOT-RUN naming it, never a pass: there is nothing to
+// check the schemas with, which is not the same as their being fine.
+func TestDiesSchemasCannotRunWithoutAChecker(t *testing.T) {
+	engine.reset()
+	engine.withTree(diesTree(map[string]string{}, "tools/check_schemas.py"))
+	// The refusal must NAME the missing half — "could not run" with no reason
+	// is indistinguishable from a suppression.
+	wantState(t, runAtom(t, "dies:schemas", ""), 2,
+		"tools/check_schemas.py is absent")
 }

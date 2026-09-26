@@ -410,6 +410,10 @@ func atomTable() []AtomDef {
 			Desc: "The findings schema is a valid Draft 2020-12 document and still refuses what it exists to refuse — every fixture classifies as its name claims.",
 		},
 		{
+			ID: "dies:schemas", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "EVERY schema in schema/ is a valid Draft 2020-12 document, and every one with fixtures still refuses what it exists to refuse — discovered, never listed.",
+		},
+		{
 			ID: "dies:canonical", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every committed fleet/stars/<star>/slag.json is byte-for-byte its own canonical form (sorted keys, two-space indent, ensure_ascii, trailing LF).",
 		},
