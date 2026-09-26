@@ -1,6 +1,7 @@
 package checks
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -223,5 +224,69 @@ func TestVerdictOfAnAbsentAtomCarriesNoFindings(t *testing.T) {
 	}
 	if len(v.Findings) != 0 {
 		t.Fatalf("an absence found nothing: %+v", v.Findings)
+	}
+}
+
+// ---- the boundaries a surviving mutant named --------------------------------
+
+// EXACTLY AT THE CAP IS NOT A CUT. An atom that found precisely `findingCap`
+// things was not truncated, and must not append an `excluded` finding claiming
+// it was — a reader who sees `finding-cap` goes looking in the lines for a
+// remainder that is not there. Only a test AT the boundary can tell `<=` from
+// `<`, which is exactly what the mutation lane pointed at.
+func TestFindingsOfDoesNotCutExactlyAtTheCap(t *testing.T) {
+	var b strings.Builder
+	for i := 0; i < findingCap; i++ {
+		fmt.Fprintf(&b, "--- FAIL: TestNumber%d\n", i)
+	}
+	got := FindingsOf("go:test", b.String())
+	if len(got) != findingCap {
+		t.Fatalf("exactly the cap is all of them and nothing more: got %d, want %d", len(got), findingCap)
+	}
+	for _, f := range got {
+		if f.Cause == "finding-cap" {
+			t.Fatalf("an uncut list claimed it was cut: %+v", f)
+		}
+	}
+	// And ONE PAST IT does cut — pinned in the same test so the two sides of
+	// the boundary cannot drift apart into two tests that agree with a bug.
+	fmt.Fprint(&b, "--- FAIL: TestOneMore\n")
+	over := FindingsOf("go:test", b.String())
+	if len(over) != findingCap+1 || over[len(over)-1].Cause != "finding-cap" {
+		t.Fatalf("one past the cap cuts and says so: %d findings, last %+v", len(over), over[len(over)-1])
+	}
+}
+
+// A FAILING TEST THAT PRINTED NOTHING HAS NO DETAIL, and must not borrow the
+// next unindented line as one. This is the common shape — a `t.FailNow()`, a
+// helper that failed without a message — and what follows is `FAIL` or the
+// package summary, neither of which says anything about the test. Attributing
+// one would put a confident, wrong sentence in a record the door stores as fact.
+func TestFindingsOfAFailingTestWithNoOutputOfItsOwn(t *testing.T) {
+	got := FindingsOf("go:test", `--- FAIL: TestSilent (0.00s)
+FAIL
+FAIL	git.notusmi.com/rob/ourea/internal/gatejob	1.204s
+`)
+	if len(got) != 1 {
+		t.Fatalf("one finding: %+v", got)
+	}
+	if got[0].Subject != "TestSilent" {
+		t.Errorf("subject = %q", got[0].Subject)
+	}
+	if got[0].Detail != "" {
+		t.Errorf("the finding borrowed an unindented line it has no claim to: %q", got[0].Detail)
+	}
+}
+
+// A TAB-INDENTED DETAIL IS STILL THE TEST'S OWN OUTPUT. go test indents with
+// spaces, but anything a test prints itself may carry a tab, and the reader's
+// question is "is this line the test's", not "which whitespace did it use".
+func TestFindingsOfATabIndentedDetail(t *testing.T) {
+	got := FindingsOf("go:test", "--- FAIL: TestTabbed (0.00s)\n\twant 2 got 3\nFAIL\n")
+	if len(got) != 1 {
+		t.Fatalf("one finding: %+v", got)
+	}
+	if got[0].Detail != "want 2 got 3" {
+		t.Errorf("a tab-indented detail was dropped: %q", got[0].Detail)
 	}
 }

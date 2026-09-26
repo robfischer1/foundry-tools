@@ -369,6 +369,7 @@ func (r AtomResult) MarshalJSON() ([]byte, error) {
 		Logs          []string
 		Truncated     bool
 		OriginalBytes int
+		Findings      []Finding
 	}
 	concrete.Atom = r.Atom
 	concrete.Group = r.Group
@@ -378,6 +379,7 @@ func (r AtomResult) MarshalJSON() ([]byte, error) {
 	concrete.Logs = r.Logs
 	concrete.Truncated = r.Truncated
 	concrete.OriginalBytes = r.OriginalBytes
+	concrete.Findings = r.Findings
 	return json.Marshal(&concrete)
 }
 
@@ -391,6 +393,7 @@ func (r *AtomResult) UnmarshalJSON(bs []byte) error {
 		Logs          []string
 		Truncated     bool
 		OriginalBytes int
+		Findings      []Finding
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -404,6 +407,43 @@ func (r *AtomResult) UnmarshalJSON(bs []byte) error {
 	r.Logs = concrete.Logs
 	r.Truncated = concrete.Truncated
 	r.OriginalBytes = concrete.OriginalBytes
+	r.Findings = concrete.Findings
+	return nil
+}
+
+func (r Finding) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Verdict string
+		Subject string
+		Cause   string
+		Detail  string
+		Probe   string
+	}
+	concrete.Verdict = r.Verdict
+	concrete.Subject = r.Subject
+	concrete.Cause = r.Cause
+	concrete.Detail = r.Detail
+	concrete.Probe = r.Probe
+	return json.Marshal(&concrete)
+}
+
+func (r *Finding) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Verdict string
+		Subject string
+		Cause   string
+		Detail  string
+		Probe   string
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Verdict = concrete.Verdict
+	r.Subject = concrete.Subject
+	r.Cause = concrete.Cause
+	r.Detail = concrete.Detail
+	r.Probe = concrete.Probe
 	return nil
 }
 

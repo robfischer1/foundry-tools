@@ -137,7 +137,13 @@ func goTestFindings(output, atomID string) []Finding {
 			if strings.TrimSpace(next) == "" {
 				continue
 			}
-			if next[0] != ' ' && next[0] != '\t' {
+			// UNINDENTED MEANS THE TEST'S OWN OUTPUT IS OVER — the next
+			// package line, the bare `FAIL`, the next test's header. Asked as
+			// one question rather than two byte comparisons: a line that is
+			// unchanged by stripping its indent never had any. The two-operand
+			// form also read `next[0]` for its bounds safety off the blank
+			// check above, which is a coupling nothing stated.
+			if next == strings.TrimLeft(next, " \t") {
 				break
 			}
 			if goFailLine.MatchString(next) {
