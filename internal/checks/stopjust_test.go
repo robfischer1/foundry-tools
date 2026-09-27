@@ -16,15 +16,14 @@ import (
 // Every directive below is assembled from fragments. Written whole, a tool
 // that reads this file for its own directives would obey them.
 const (
-	sjNoqa            = "no" + "qa"
-	sjTypeIg          = "type: ig" + "nore"
-	sjNoCover         = "pragma: no co" + "ver"
-	sjAllow           = "all" + "ow"
-	sjIgnore          = "ig" + "nore"
-	sjNolint          = "no" + "lint"
-	sjSkip            = "Sk" + "ip"
-	sjHado            = "hado" + "lint"
-	sjAllowlistPragma = "pragma: allowlist sec" + "ret"
+	sjNoqa    = "no" + "qa"
+	sjTypeIg  = "type: ig" + "nore"
+	sjNoCover = "pragma: no co" + "ver"
+	sjAllow   = "all" + "ow"
+	sjIgnore  = "ig" + "nore"
+	sjNolint  = "no" + "lint"
+	sjSkip    = "Sk" + "ip"
+	sjHado    = "hado" + "lint"
 )
 
 // sjTree scans an in-memory repository. tracked is the map's keys in git's
@@ -74,7 +73,6 @@ func TestStopJustificationsCatchesAPlantedDirectiveInEveryLanguage(t *testing.T)
 		{"python fmt", "a.py", "x = 1  # fmt: o" + "ff\n", "ruff-format · fmt off/on/skip"},
 		{"python mypy file", "a.py", "# mypy: ig" + "nore-errors\n", "mypy · mypy: ignore-errors"},
 		{"python pyright", "a.py", "x = 1  # pyright: ig" + "nore\n", "pyright · pyright: ignore"},
-		{"python detect-secrets", "a.py", "x = 1  # " + sjAllowlistPragma + "\n", "detect-secrets · pragma: allowlist secret"},
 		{"python bandit", "a.py", "x = 1  # no" + "sec\n", "bandit (legacy) · nosec"},
 		{"python isort", "a.py", "import x  # isort: sk" + "ip\n", "isort · isort: skip"},
 		{"python pylint", "a.py", "x = 1  # pylint: dis" + "able=x\n", "pylint · pylint: disable"},
@@ -604,22 +602,6 @@ func TestStopJustificationsCannotRunOnAnUnreadableFile(t *testing.T) {
 	}
 }
 
-func TestStopJustificationsYAMLPragmas(t *testing.T) {
-	idiom := "jobs:\n  b:\n    secrets: inherit  # " + sjAllowlistPragma + "\n"
-	out := wantSJ(t, "the secrets-inherit idiom", 0, "x", map[string]string{"k.yml": idiom})
-	if !strings.Contains(out, "\nstop-justifications: 1 detect-secrets pragma(s) in YAML/shell are a KNOWN IDIOM — ruled, exempt, nothing to do.\n  `secrets: inherit` passes") || strings.Contains(out, "ADVISORY") {
-		t.Errorf("the idiom is known, not advisory:\n%s", out)
-	}
-	if out := wantSJ(t, "the commented idiom", 0, "x", map[string]string{"c.yaml": "jobs:\n  b:\n    # secrets: inherit  # " + sjAllowlistPragma + "\n"}); !strings.Contains(out, "KNOWN IDIOM") {
-		t.Errorf("a commented idiom is the idiom:\n%s", out)
-	}
-	other := "jobs:\n  a:\n    env:\n      TOKEN: abc123  # " + sjAllowlistPragma + "\n"
-	out = wantSJ(t, "a non-idiom pragma", 0, "x", map[string]string{"w.yml": other, "k.yml": idiom, "s.sh": "T=x  # " + sjAllowlistPragma + "\n", "Dockerfile": "# " + sjAllowlistPragma + "\n"})
-	if !strings.Contains(out, "1 detect-secrets pragma(s) in YAML/shell are a KNOWN") || !strings.Contains(out, "\nstop-justifications: 2 detect-secrets pragma(s) in YAML/shell — ADVISORY, not counted as findings.\n  These are NOT") {
-		t.Errorf("mixed: one known, two advisory, the Dockerfile not counted:\n%s", out)
-	}
-}
-
 func TestStopJustificationsConfigSilencing(t *testing.T) {
 	pfi := "[tool.ruff.lint.per-file-ignores]\n"
 	for _, tc := range []struct {
@@ -737,27 +719,6 @@ func TestRequiredModeVarsReadsEveryNameOnTheLine(t *testing.T) {
 	}
 	if got := RequiredModeVars("python", []string{`x = "A_REQUIRED"  # B_REQUIRED is prose`}); len(got) != 1 || !got["A_REQUIRED"] {
 		t.Errorf("code counts, the comment does not: %v", got)
-	}
-}
-
-// The advisory counts .yml, .yaml AND .sh — each suffix on its own, so dropping
-// any one of the three is visible.
-func TestYAMLPragmasCountEachAdvisorySuffix(t *testing.T) {
-	line := []string{"T = x  # " + sjAllowlistPragma}
-	for _, rel := range []string{"w.yml", "w.yaml", "s.sh"} {
-		known, other := YAMLPragmas(rel, line)
-		if known != 0 || other != 1 {
-			t.Errorf("%s: known=%d other=%d, want 0/1", rel, known, other)
-		}
-	}
-	for _, rel := range []string{"a.py", "Dockerfile", "w.yml.jinja", "noext"} {
-		if known, other := YAMLPragmas(rel, line); known != 0 || other != 0 {
-			t.Errorf("%s is not an advisory suffix: known=%d other=%d", rel, known, other)
-		}
-	}
-	known, other := YAMLPragmas("k.yml", []string{"    secrets: inherit  # " + sjAllowlistPragma})
-	if known != 1 || other != 0 {
-		t.Errorf("the ruled idiom: known=%d other=%d", known, other)
 	}
 }
 

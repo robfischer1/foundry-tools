@@ -58,7 +58,7 @@ var ConflictMarker = sjPy(`tool-conflict:\s*\S`)
 var ToolWords = map[string]string{
 	"ruff": "ruff", "mypy": "mypy", "pyright": "pyright", "pytest": "pytest",
 	"coverage": "coverage", "coverage.py": "coverage",
-	"detect-secrets": "detect-secrets", "semgrep": "opengrep",
+	"semgrep": "opengrep",
 	// ops:kube-linter gates rob/infra's flux/ tree, and the conflicts it
 	// enters are with the API server rather than another linter — a check
 	// demanding a migration to an apiVersion the CRD does not serve. So
@@ -80,7 +80,7 @@ var ToolWords = map[string]string{
 // ESCAPED spelling first, ties in declaration order. Only a shared prefix at
 // one position can tell two orders apart (coverage.py before coverage).
 var toolWordOrder = []string{
-	"detect-secrets", "golangci-lint", "coverage.py", "staticcheck", "typescript",
+	"golangci-lint", "coverage.py", "staticcheck", "typescript",
 	"shellcheck", "coverage", "opengrep", "prettier", "pydantic", "hadolint",
 	"pyright", "semgrep", "go vet", "pytest", "bandit", "pylint", "clippy",
 	"eslint", "vitest", "isort", "black", "rustc", "cargo", "gosec", "ruff",
@@ -203,7 +203,6 @@ var sjPatterns = map[string][]sjForm{
 		{tool: "pytest", form: "skip/skipif/xfail marker", re: sjPy(`@pytest\.mark\.(skip|skipif|xfail)\b`), code: true, skip: true},
 		{tool: "pytest", form: "pytest.skip()", re: sjPy(`\bpytest\.skip\(`), code: true, skip: true},
 		{tool: "coverage", form: "pragma: no cover", re: sjPy(`#\s*pragma:\s*no cover\b`)},
-		{tool: "detect-secrets", form: "pragma: allowlist secret", re: sjPy(`#\s*pragma:\s*allowlist secret\b`)},
 		{tool: "opengrep", form: "nosemgrep", re: sjPy(`#\s*nosemgrep\b`)},
 		{tool: "bandit (legacy)", form: "nosec", re: sjPy(`#\s*nosec\b`)},
 		{tool: "isort", form: "isort: skip", re: sjPy(`#\s*isort:\s*skip\b`)},
@@ -462,37 +461,6 @@ func RequiredModeVars(lang string, lines []string) map[string]bool {
 		}
 	}
 	return found
-}
-
-// ---- the yaml advisory ------------------------------------------------------
-
-// detect-secrets reads YAML and shell too. Its pragma there is COUNTED, not
-// enforced: enforcing lit 142 lines across 53 repos, the fingerprint of a
-// scaffold pour. One idiom is ruled — `secrets: inherit`, 239 instances and
-// one distinct line, load-bearing (strip it and detect-secrets-hook reds).
-var (
-	sjYAMLSecretPragma = sjPy(`#\s*pragma:\s*allowlist secret\b`)
-	sjYAMLIdiom        = sjPy(`^\s*#?\s*secrets:\s*inherit\s+#\s*pragma:\s*allowlist secret\b`)
-)
-
-// YAMLPragmas counts detect-secrets pragmas in a .yml/.yaml/.sh file as
-// (known idiom, other).
-func YAMLPragmas(rel string, lines []string) (known, other int) {
-	s := pathSuffix(rel)
-	if s != ".yml" && s != ".yaml" && s != ".sh" {
-		return 0, 0
-	}
-	for _, line := range lines {
-		if !sjYAMLSecretPragma.MatchString(line) {
-			continue
-		}
-		if sjYAMLIdiom.MatchString(line) {
-			known++
-		} else {
-			other++
-		}
-	}
-	return known, other
 }
 
 // ---- kube-linter ignore annotations ----------------------------------------
@@ -839,13 +807,11 @@ type sjKLIgnore struct {
 
 // sjScan is the state scan's accumulated record.
 type sjScan struct {
-	in        SJInput
-	out       strings.Builder
-	findings  []sjFinding
-	markers   int
-	ratified  int
-	yamlKnown int
-	yamlOther int
+	in       SJInput
+	out      strings.Builder
+	findings []sjFinding
+	markers  int
+	ratified int
 	// kube-linter's per-object escape hatch, and what .kube-linter.yaml says
 	// about it. Compared in report(): the tree and the header must agree.
 	klIgnores  []sjKLIgnore
@@ -934,9 +900,6 @@ func (s *sjScan) file(rel string) error {
 		return nil
 	}
 	s.scanned++
-	known, other := YAMLPragmas(rel, lines)
-	s.yamlKnown += known
-	s.yamlOther += other
 	for _, ig := range KubeLinterIgnores(rel, lines) {
 		s.klIgnores = append(s.klIgnores, sjKLIgnore{rel: rel, KLIgnore: ig})
 	}
@@ -1056,21 +1019,6 @@ func (s *sjScan) report() int {
 	}
 	if len(s.self) > 0 {
 		fmt.Fprintf(w, "stop-justifications: skipped its own definition (%s) — it names every directive it forbids.\n", strings.Join(s.self, ", "))
-	}
-	if s.yamlKnown > 0 {
-		fmt.Fprintf(w, "\nstop-justifications: %d detect-secrets pragma(s) in YAML/shell are a KNOWN IDIOM — ruled, exempt, nothing to do.\n", s.yamlKnown)
-		w.WriteString("  `secrets: inherit` passes the caller's secrets to a reusable\n" +
-			"  workflow and names no credential; detect-secrets' Secret Keyword\n" +
-			"  detector fires on the word itself. Measured 2026-08-20: 239 such\n" +
-			"  pragmas across 53 repos and exactly ONE distinct line under them.\n" +
-			"  Load-bearing — strip one and that repo's pre-commit reds.\n\n")
-	}
-	if s.yamlOther > 0 {
-		fmt.Fprintf(w, "\nstop-justifications: %d detect-secrets pragma(s) in YAML/shell — ADVISORY, not counted as findings.\n", s.yamlOther)
-		w.WriteString("  These are NOT the known `secrets: inherit` idiom, so each is a\n" +
-			"  decision nobody has ruled on. Reported rather than enforced\n" +
-			"  because enforcing the whole class at once lit 142 lines across\n" +
-			"  53 repos — a scaffold pour, not 53 decisions.\n\n")
 	}
 	klBad := s.reportKubeLinter(w)
 	if len(s.exempted) > 0 {

@@ -5,8 +5,10 @@ import (
 	"testing"
 )
 
-// permittedSha is built, not written: a forty-hex literal reads as a secret to
-// detect-secrets, and no pragma is how that gets answered.
+// permittedSha is built, not written: a forty-hex literal read as a secret to
+// detect-secrets, and no pragma was how that got answered. The atom went on
+// 2026-09-25 and the pragmas with it; the construction is kept on its own
+// merit.
 var permittedSha = strings.Repeat("fedcba98", 5)
 
 func TestIsCommitTakesOnlyAFullLowercaseRevision(t *testing.T) {

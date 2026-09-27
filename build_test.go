@@ -164,8 +164,10 @@ func TestATipBuildWithoutItsCredentialsIsCouldNotRun(t *testing.T) {
 }
 
 // permittedSha is the commit a star's :stable was built from: what the permit
-// last delivered, and what a change set is taken since. Built, not written: a
-// forty-hex literal reads as a secret to detect-secrets.
+// last delivered, and what a change set is taken since. Built rather than
+// written because a forty-hex literal read as a secret to detect-secrets; that
+// atom is retired (2026-09-25) and nothing reads for entropy now, but a
+// constructed sha still says "fake" louder than a spelled one.
 var permittedSha = strings.Repeat("fedcba98", 5)
 
 // A commit whose every change since the last permitted build is inert builds

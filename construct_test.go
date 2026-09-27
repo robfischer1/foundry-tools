@@ -6,8 +6,9 @@ import (
 	"testing"
 )
 
-// Built rather than spelled: a 40-hex literal reads as a secret to
-// detect-secrets, and these are a commit and a tree that never existed.
+// Built rather than spelled: a 40-hex literal read as a secret to
+// detect-secrets, retired 2026-09-25. The shape stays because these are a
+// commit and a tree that never existed, and it should be obvious.
 var (
 	fakeSha  = strings.Repeat("ab", 20)
 	fakeTree = strings.Repeat("cd", 20)
