@@ -523,3 +523,94 @@ func TestGoMutationVerdictTrustsAMainPackageOnlyWhenItsControlSaysSo(t *testing.
 		t.Errorf("the reason must say what it did not do, and name what it skipped:\n%s", reason)
 	}
 }
+
+// THE JOIN SURVIVES A MODULE NAME NOBODY CAN PARSE, and narcissus is why. gremlins reads
+// only the FIRST LINE of go.mod and TrimPrefixes "module ", so a comment there becomes the
+// module NAME and lands in the report's `go_module`. The old coveredBlocks stripped that
+// string from every profile path, matched nothing, and this cross-check — the gate's only
+// defence against a coverage map that disagrees with the profile beside it — answered
+// "nothing is covered" for the whole repo. Measured 2026-09-27 on narcissus#105/#106.
+func TestScoreGoMutationJoinsTheProfileWithoutTrustingTheModuleName(t *testing.T) {
+	// The profile names files as <import-path>/<relpath>; the report names them <relpath>.
+	const profile = "mode: set\ngit.notusmi.com/rob/narcissus/internal/surface/surface.go:94.12,96.3 1 1\n"
+	// `go_module` is the GARBAGE gremlins produced from a commented first line.
+	const report = `{"go_module":"// USE ` + "`go mod tidy -e`" + ` IN THIS REPO","elapsed_time":1,"files":[
+		{"file_name":"internal/surface/surface.go","mutations":[
+			{"type":"CONDITIONALS_BOUNDARY","status":"NOT COVERED","line":94,"column":7}]}]}`
+	s, err := ScoreGoMutation([]byte(report), profile, "diff", 1, GoMutationNoise{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The suffix join found the block, so the switch-case correction still fires.
+	if s.CoveredUnrun != 1 {
+		t.Errorf("the profile did not join despite an unparseable module name: %+v", s)
+	}
+	if s.ProfileDisagrees != 1 {
+		t.Errorf("ProfileDisagrees = %d, want 1 — the lane's profile covers that line", s.ProfileDisagrees)
+	}
+}
+
+// A RUN THAT GRADED NOTHING IS could-not-measure, NOT A WALL OF SURVIVORS. Killed 0,
+// lived 0, and every uncovered mutant on a line the lane's own profile reports as running:
+// gremlins' coverage map is empty relative to ours, so nothing was measured against the
+// tests. narcissus#105 reported 14 violations in exactly this state.
+func TestGoMutationVerdictCannotMeasureWhenEveryUncoveredMutantIsDisputed(t *testing.T) {
+	const profile = "mode: set\nmod/pkg/a.go:10.1,12.3 1 1\nmod/pkg/a.go:20.1,22.3 1 1\n"
+	const report = `{"go_module":"mod","elapsed_time":1,"files":[{"file_name":"pkg/a.go","mutations":[
+		{"type":"CONDITIONALS_NEGATION","status":"NOT COVERED","line":10,"column":5},
+		{"type":"CONDITIONALS_NEGATION","status":"NOT COVERED","line":20,"column":5}]}]}`
+	state, reason, _ := GoMutationVerdict(GoMutationRun{
+		Report: []byte(report), Profile: profile, Workers: 1,
+		Canary: CanaryOK, MainCanary: CanaryOK, Classified: []byte("{}"),
+	})
+	if state != 2 {
+		t.Fatalf("state = %d, want 2 (could not measure): %s", state, reason)
+	}
+	if !strings.Contains(reason, GoMutationNothingGraded) {
+		t.Errorf("the reason must say nothing was graded: %s", reason)
+	}
+	if !strings.Contains(reason, "go.mod") {
+		t.Errorf("the reason must name the first-line go.mod trap, which is the cause to check: %s", reason)
+	}
+}
+
+// AND IT CANNOT SUPPRESS A REAL TEST GAP. The same shape — killed 0, lived 0, all NOT
+// COVERED — with a profile that does NOT cover those lines is genuinely untested code, and
+// must stay a red. The equality in the guard is what separates them: every uncovered
+// mutant must be disputed, not merely some.
+func TestGoMutationVerdictStillRedsGenuinelyUntestedCode(t *testing.T) {
+	// The profile covers a DIFFERENT line in the same file — so the file is known, the
+	// mutants' own lines are not.
+	const profile = "mode: set\nmod/pkg/a.go:99.1,101.3 1 1\n"
+	const report = `{"go_module":"mod","elapsed_time":1,"files":[{"file_name":"pkg/a.go","mutations":[
+		{"type":"CONDITIONALS_NEGATION","status":"NOT COVERED","line":10,"column":5},
+		{"type":"CONDITIONALS_NEGATION","status":"NOT COVERED","line":20,"column":5}]}]}`
+	state, reason, found := GoMutationVerdict(GoMutationRun{
+		Report: []byte(report), Profile: profile, Workers: 1,
+		Canary: CanaryOK, MainCanary: CanaryOK, Classified: []byte("{}"),
+	})
+	if state != 1 {
+		t.Fatalf("state = %d, want 1 (survivors): %s", state, reason)
+	}
+	if len(found) == 0 {
+		t.Error("an untested pull must still carry its findings")
+	}
+}
+
+// ONE DISPUTED MUTANT IS NOISE, NOT A BROKEN MAP. A killed mutant beside an uncovered one
+// proves the map works, so the guard must not fire — the switch-case correction already
+// names that single case, and stealing it would hide a real survivor behind a
+// could-not-measure.
+func TestGoMutationVerdictDoesNotFireWhenSomethingWasKilled(t *testing.T) {
+	const profile = "mode: set\nmod/pkg/a.go:10.1,12.3 1 1\n"
+	const report = `{"go_module":"mod","elapsed_time":1,"files":[{"file_name":"pkg/a.go","mutations":[
+		{"type":"CONDITIONALS_NEGATION","status":"KILLED","line":5,"column":5},
+		{"type":"CONDITIONALS_NEGATION","status":"NOT COVERED","line":10,"column":5}]}]}`
+	state, reason, _ := GoMutationVerdict(GoMutationRun{
+		Report: []byte(report), Profile: profile, Workers: 1,
+		Canary: CanaryOK, MainCanary: CanaryOK, Classified: []byte("{}"),
+	})
+	if strings.Contains(reason, GoMutationNothingGraded) {
+		t.Errorf("a run that killed something measured something: state=%d %s", state, reason)
+	}
+}

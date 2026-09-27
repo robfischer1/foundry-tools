@@ -39,6 +39,16 @@ import (
 // GoMutationScore is a gremlins report scored the way the gate reads it.
 type GoMutationScore struct {
 	Killed, Lived, NotCovered, TimedOut, CoveredUnrun, Inert, Generated int
+	// ProfileDisagrees counts the NOT COVERED mutants for which the profile the
+	// LANE gathered has a covered block starting on the mutant's own line. Each
+	// one is a position two coverage reads disagree about, and the lane's read is
+	// the one that ran `go test -cover` in this container moments earlier.
+	//
+	// ONE OF THEM IS NOISE; ALL OF THEM IS A BROKEN MAP. A single disagreement is
+	// the switch-case misread CoveredUnrun already names. But a run that killed
+	// nothing, lost nothing, and disagrees about EVERY uncovered mutant did not
+	// measure the tests at all — see GoMutationVerdict.
+	ProfileDisagrees int
 	// Missed are the LIVED and NOT COVERED mutants, as file:line:col status type.
 	Missed []string
 	// Forgiven are the survivors the testkit's classifier named unkillable by
@@ -89,9 +99,23 @@ func (s GoMutationScore) Viable() int { return s.Killed + s.Lived + s.NotCovered
 // verdict.
 var profileRow = regexp.MustCompile(`^(.+):(\d+)\.(\d+),\d+\.\d+ \d+ (\d+)$`)
 
-// coveredBlocks reads a `go test -coverprofile` into the start (line, column)
-// of every block that ran, by file relative to the module.
-func coveredBlocks(profile, module string) map[string][][2]int {
+// coveredBlocks reads a `go test -coverprofile` into the start (line, column) of every
+// block that ran, keyed by the path the PROFILE names — `<import-path>/<relpath>`.
+//
+// IT NO LONGER TAKES A MODULE NAME, and that is the fix rather than a tidy-up. It used to
+// strip `module+"/"` from each key so the result matched the report's module-relative file
+// names, and the module it was given came from gremlins' own report — which reads only the
+// FIRST LINE of go.mod and TrimPrefixes "module " (gremlins internal/gomodule/gomodule.go).
+// A comment on that line therefore becomes the module NAME: nothing is stripped, no key
+// matches a report file name, and this cross-check — the gate's ONLY defence against a
+// coverage map that disagrees with the profile the lane gathered itself — silently answers
+// "nothing is covered" for every mutant in the repo. Measured 2026-09-27 on narcissus,
+// where go.mod line 1 was a `go mod tidy -e` note: covered-unrun 0 while the lane's own
+// cover step reported 92.9-98.2% on the very packages in question.
+//
+// [blocksFor] does the join by suffix instead, which needs no module name and cannot be
+// fooled by one.
+func coveredBlocks(profile string) map[string][][2]int {
 	covered := map[string][][2]int{}
 	for _, ln := range strings.Split(profile, "\n") {
 		m := profileRow.FindStringSubmatch(strings.TrimSpace(ln))
@@ -105,13 +129,47 @@ func coveredBlocks(profile, module string) map[string][][2]int {
 		if count, _ := strconv.Atoi(m[4]); count == 0 {
 			continue
 		}
-		name := m[1]
-		if module != "" {
-			name = strings.TrimPrefix(name, module+"/")
-		}
-		covered[name] = append(covered[name], [2]int{sl, sc})
+		covered[m[1]] = append(covered[m[1]], [2]int{sl, sc})
 	}
 	return covered
+}
+
+// startsOnLine reports whether the lane's profile has a covered block starting on this
+// file's given line — the coarse question "did anything here run", as against
+// [ScoreGoMutation]'s `misjudged`, which asks the exact switch-case signature.
+//
+// coveredBlocks keeps only block STARTS, so this cannot see a line in the middle of a
+// multi-line block. That makes it a strict UNDER-count of the disagreements, which is the
+// safe direction for what reads it: a guard that fires on "every uncovered mutant is
+// disputed" must never fire on a partial view.
+func startsOnLine(covered map[string][][2]int, name string, line int) bool {
+	for _, b := range blocksFor(covered, name) {
+		if b[0] == line {
+			return true
+		}
+	}
+	return false
+}
+
+// blocksFor answers the covered blocks for one module-relative file name.
+//
+// SUFFIX, NOT PREFIX-STRIPPING. A profile row names a file as `<import-path>/<relpath>`
+// and gremlins' report names the same file as `<relpath>`, so a prefix strip needs the
+// module path and is only as good as whoever parsed it. A relpath is unique within a
+// module, so `key == name || strings.HasSuffix(key, "/"+name)` is exact and needs nothing
+// but the two strings. The exact hit is tried first so a profile that already carries
+// relative paths costs no scan.
+func blocksFor(covered map[string][][2]int, name string) [][2]int {
+	if b, ok := covered[name]; ok {
+		return b
+	}
+	suffix := "/" + name
+	for key, b := range covered {
+		if strings.HasSuffix(key, suffix) {
+			return b
+		}
+	}
+	return nil
 }
 
 // pythonRound rounds half to even at the given decimals, as the scorer this
@@ -222,6 +280,10 @@ func mutantVerdict(status string) string {
 
 func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoMutationNoise, misgraded GoMisgradedFiles) (GoMutationScore, error) {
 	var d struct {
+		// GoModule IS DELIBERATELY UNREAD. gremlins fills it from its own go.mod
+		// parse, which takes only the first line, so it is the one field in this
+		// report the gate may not trust — see coveredBlocks. Kept because it
+		// documents the wire shape, not because anything consumes it.
 		GoModule    string   `json:"go_module"`
 		ElapsedTime *float64 `json:"elapsed_time"`
 		Files       []struct {
@@ -238,9 +300,9 @@ func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoM
 		return GoMutationScore{}, fmt.Errorf("the mutation report is not gremlins JSON: %v", err)
 	}
 	workers = max(1, workers)
-	covered := coveredBlocks(profile, d.GoModule)
+	covered := coveredBlocks(profile)
 	misjudged := func(name string, line, col int) bool {
-		for _, b := range covered[name] {
+		for _, b := range blocksFor(covered, name) {
 			if b[0] == line && b[1] > col {
 				return true
 			}
@@ -253,8 +315,13 @@ func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoM
 	for _, f := range d.Files {
 		for _, m := range f.Mutations {
 			status := m.Status
-			if status == "NOT COVERED" && misjudged(f.FileName, m.Line, m.Column) {
-				status = "COVERED-UNRUN"
+			if status == "NOT COVERED" {
+				if startsOnLine(covered, f.FileName, m.Line) {
+					s.ProfileDisagrees++
+				}
+				if misjudged(f.FileName, m.Line, m.Column) {
+					status = "COVERED-UNRUN"
+				}
 			}
 			s.Generated++
 			where := fmt.Sprintf("%s:%d:%d  %-13s %s", f.FileName, m.Line, m.Column, status, m.Type)
@@ -541,6 +608,30 @@ func GoMutationVerdict(run GoMutationRun) (int, string, []Finding) {
 		// the counts below may include verdicts about other code entirely — and
 		// the gate cannot point at which. That is a could-not-measure, not a pass.
 		return 2, with("this gremlins grades a `package main` against the module root (gremlins#268) and the lane could not list which files are in one: " + run.MisgradedFilesErr), nil
+	}
+	// NOTHING WAS GRADED AGAINST THE TESTS, and the profile says so. A run that
+	// killed nothing, lost nothing, and whose EVERY uncovered mutant sits on a line
+	// the lane's own `go test -cover` reported as running did not measure the tests
+	// — its coverage map is empty relative to ours. That is could-not-measure, not
+	// a wall of survivors: by findings.schema.json `unanalyzable` is "could not
+	// run, EVIDENCE OF NOTHING" while `violated` is "ran; found a defect", and
+	// reporting the second for the first is the conflation that shape exists to kill.
+	//
+	// MEASURED 2026-09-27 on narcissus#105/#106: `Mutator coverage: 0.00%`, killed 0,
+	// lived 0, every added line NOT COVERED — over packages the lane's own cover step
+	// had just measured at 92.9-98.2%. The cause was a comment on go.mod line 1,
+	// which gremlins reads as the module name (see coveredBlocks); the lane reported
+	// 14 violations and cost three wrong diagnoses before anyone read the parser.
+	//
+	// IT CANNOT SUPPRESS A REAL TEST GAP, and that is what the profile term buys. A
+	// pull that genuinely adds untested code is also killed 0 / lived 0 — but the
+	// lane's profile has NO covered block on those lines, so ProfileDisagrees stays
+	// below NotCovered and this does not fire. The equality is the whole guard:
+	// every single uncovered mutant must be disputed, not merely some.
+	if s.Killed == 0 && s.Lived == 0 && s.NotCovered > 0 && s.ProfileDisagrees == s.NotCovered {
+		return 2, with(fmt.Sprintf(
+			"%s — killed 0, lived 0, and all %d NOT COVERED mutant(s) sit on lines this lane's own coverage profile reports as running. gremlins' coverage map is empty relative to the profile gathered beside it, so nothing here was measured against the tests. Check that go.mod's FIRST line is `module ...` — gremlins reads only that line",
+			GoMutationNothingGraded, s.NotCovered)), nil
 	}
 	if missed == 0 {
 		if len(s.Ungraded) > 0 && s.Viable() == 0 {
