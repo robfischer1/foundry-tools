@@ -1177,7 +1177,6 @@ func TestFleetHadolintEngineFailures(t *testing.T) {
 func TestFleetProbesNeverCarryAnyExit(t *testing.T) {
 	probes := []string{
 		`"uvx","--from","pre-commit-hooks","check-yaml","--help"`,
-		`"uvx","--from","detect-secrets","detect-secrets-hook","--help"`,
 		`"python3","--version"`,
 		`"uv","--version"`,
 		`"opengrep","--version"`,

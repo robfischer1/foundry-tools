@@ -56,7 +56,7 @@ var InertPaths = []string{
 	".pre-commit-config.yaml",
 	".copier-answers.yml", ".copier-answers.*.yml",
 	".gitignore", ".gitattributes", ".editorconfig",
-	".secrets.baseline", ".hadolint.yaml", "cliff.toml", "renovate.json",
+	".hadolint.yaml", "cliff.toml", "renovate.json",
 }
 
 // InertPathsAreRootAnchored is the invariant the exclude set lives under: no
