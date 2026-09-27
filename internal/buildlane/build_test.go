@@ -248,8 +248,9 @@ func TestThePermitAnswerFoldsIntoTheVerdict(t *testing.T) {
 	}
 	built := "0123456789abcdef"
 	// movedTip is a commit this build never claimed. It is deliberately dull
-	// hex: a realistic sha literal reads to detect-secrets as a high-entropy
-	// string and reds the commit stage, and the entropy is doing no work here.
+	// hex: a realistic sha literal read to detect-secrets as a high-entropy
+	// string and redded the commit stage. That atom is retired (2026-09-25);
+	// the dullness stays because the entropy was doing no work here anyway.
 	movedTip := strings.Repeat("fe", 8)
 	for _, c := range []struct {
 		name   string
