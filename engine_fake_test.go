@@ -640,7 +640,6 @@ var everyLaneTree = map[string]string{
 	"Cargo.toml":                       "[package]\nname = \"x\"\n",
 	"package.json":                     "{}",
 	"a.test.ts":                        "",
-	".secrets.baseline":                "{}",
 	"rules/sast/go.yml":                "rules:\n  - languages: [go, python, rust, typescript]\n",
 	"orbit.toml":                       "",
 	"policy/.manifest":                 "",
