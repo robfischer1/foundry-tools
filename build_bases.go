@@ -77,16 +77,22 @@ func (l *buildLane) buildArgs(ctx context.Context) ([]string, error) {
 // runBases builds every base and settles on the worst of them: a base that
 // could not run outranks one with findings, which outranks a clean one.
 func (l *buildLane) runBases(ctx context.Context, star string, bases []string) (int, string) {
-	say("%d base image(s) under %s/: %s", len(bases), buildlane.BasesDir, strings.Join(bases, ", "))
+	l.say("%d base image(s) under %s/: %s", len(bases), buildlane.BasesDir, strings.Join(bases, ", "))
 	args, err := l.buildArgs(ctx)
 	if err != nil {
-		return buildlane.CouldNotRun, err.Error()
+		return l.stop("build:detect", buildlane.CouldNotRun, err.Error())
 	}
+	l.seal("build:detect", buildlane.Clean, fmt.Sprintf("%d base image(s) under %s/", len(bases), buildlane.BasesDir))
 	worst := buildlane.Clean
 	var lines []string
 	for _, b := range bases {
 		code, why := l.base(ctx, star, b, args)
-		say("%s: %s", b, why)
+		l.say("%s: %s", b, why)
+		// ONE ATOM PER BASE, AND THE SEQUENCE DOES NOT STOP. Unlike the star
+		// path, a base that fails does not spare the others — they are
+		// independent images and the run grades all of them — so every base
+		// seals its own verdict and the lane settles on the worst.
+		l.seal(baseAtom(b), code, why)
 		lines = append(lines, b+": "+why)
 		worst = max(worst, code)
 	}

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"dagger/foundry-tools/internal/buildlane"
 	"dagger/foundry-tools/internal/checks"
@@ -627,7 +628,19 @@ func goGovulncheck(ctx context.Context, r *run) checks.Verdict {
 		// govulncheck's 3 is "vulnerabilities found" and reads as 1; any
 		// other non-zero with a network fault in it is the database not
 		// answering, which AuditVerdict reads as could-not-run.
-		return checks.AuditVerdict(a, checks.GovulncheckExit(code), out)
+		exit := checks.GovulncheckExit(code)
+		// AND ONLY THEN, THE ALLOWANCE. It is checked against a FINDINGS exit
+		// alone — never a could-not-run — because a scan that did not complete
+		// has found nothing to allow, and letting an allowance answer for it
+		// would turn "the advisory database was unreachable" into a pass.
+		// checks.SuppressedVulnReason fails closed on anything it cannot parse
+		// and on any advisory not covered; see vulnallow.go for why this exists.
+		if exit == 1 {
+			if why, ok := checks.SuppressedVulnReason(out, time.Now()); ok {
+				return checks.AllowedVulnVerdict(a, why, out)
+			}
+		}
+		return checks.AuditVerdict(a, exit, out)
 	})
 }
 

@@ -1298,3 +1298,51 @@ func TestGoMutationCannotMeasureWithoutTheMisgradedSet(t *testing.T) {
 		t.Errorf("a passing atom kept no logs, so its summary is unreadable:\n%s", v.Logs)
 	}
 }
+
+// allowedVulnReport is govulncheck's own text shape for the advisory the gate
+// currently allows (internal/checks/vulnallow.go).
+const allowedVulnReport = `=== Symbol Results ===
+
+Vulnerability #1: GO-2026-6508
+  More info: https://pkg.go.dev/vuln/GO-2026-6508
+    Found in: go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc@v0.19.0
+    Fixed in: go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc@v0.21.0
+
+Your code is affected by 1 vulnerability from 1 module.
+`
+
+// THE ALLOWANCE IS APPLIED BY THE ATOM, not merely available to it — which is
+// the half checks' own tests cannot see, because they never run the atom.
+//
+// EVERY CASE ANSWERS A SURVIVING MUTANT reported on 68432ba: atoms_go.go:638
+// (the exit == 1 guard) LIVED, and :640 (the reason joined to the output) was
+// NOT COVERED — nothing executed the allowance branch at all.
+func TestTheGovulncheckAtomAppliesTheGatesAllowance(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+
+	// An ALLOWED advisory on a findings exit passes — loudly, with govulncheck's
+	// own report still attached as evidence.
+	engine.exitCode(`"govulncheck","./..."`, 3)
+	engine.stdout(`"govulncheck","./..."`, allowedVulnReport)
+	v := runAtom(t, "go:govulncheck", "")
+	wantState(t, v, 0, "GO-2026-6508", "ALLOWED", "not a clean scan", "dagger/otel-go")
+	// AND THE REPORT IS STILL THE EVIDENCE. The reason says what was allowed;
+	// govulncheck's own output stays as the atom's lines, exactly as a red
+	// run's would, so the allowance can be checked rather than taken on trust.
+	if !strings.Contains(strings.Join(v.Logs, "\n"), "Fixed in") {
+		t.Errorf("the scan's own report must survive as the atom's lines:\n%v", v.Logs)
+	}
+
+	// An advisory NOBODY allowed still reds, whatever it arrived beside.
+	engine.stdout(`"govulncheck","./..."`, allowedVulnReport+"\nVulnerability #2: GO-2026-9999\n")
+	wantState(t, runAtom(t, "go:govulncheck", ""), 1)
+
+	// AND AN ALLOWANCE NEVER RESCUES A COULD-NOT-RUN. exit 2 is the advisory
+	// database not answering; a scan that did not complete has found nothing to
+	// allow, and reading one as a pass would turn a substrate fault into a
+	// clean bill of health — the exact conflation AuditVerdict exists to stop.
+	engine.exitCode(`"govulncheck","./..."`, 2)
+	engine.stdout(`"govulncheck","./..."`, allowedVulnReport)
+	wantState(t, runAtom(t, "go:govulncheck", ""), 2)
+}
