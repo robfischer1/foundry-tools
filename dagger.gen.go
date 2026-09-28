@@ -886,7 +886,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg force", err))
 				}
 			}
-			return nil, (*FoundryTools).Build(&parent, ctx, tip, spire, registryAuth, cosignKey, cosignPassphrase, indexUrl, registry, sourceBase, hades, hadesId, force)
+			var recordToken *dagger.Secret
+			if inputArgs["recordToken"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["recordToken"]), &recordToken)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg recordToken", err))
+				}
+			}
+			return nil, (*FoundryTools).Build(&parent, ctx, tip, spire, registryAuth, cosignKey, cosignPassphrase, indexUrl, registry, sourceBase, hades, hadesId, force, recordToken)
 		case "Bundle":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)

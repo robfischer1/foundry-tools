@@ -92,6 +92,16 @@ func (m *FoundryTools) Build(
 	// the signature and the tag move exactly as on any other build.
 	// +optional
 	force bool,
+	// The run's record token (CA_RECORD_TOKEN), which authorises posting this
+	// run's record to the door it fetched the tree from. Absent and the lane
+	// posts nothing and settles on its exit code, exactly as it did before.
+	//
+	// A SECRET, NOT A STRING, for the reason GateFile's own token states at
+	// length: dagger echoes call arguments verbatim into plain-progress
+	// narration (dagger/dagger#14363), so a token passed as a string would be
+	// printed into the pod log and shipped to Loki. A Secret is masked.
+	// +optional
+	recordToken *dagger.Secret,
 ) error {
 	l := &buildLane{
 		m: m, tip: tip, force: force, spire: spire,
@@ -100,6 +110,19 @@ func (m *FoundryTools) Build(
 		stamp: strconv.FormatInt(time.Now().UnixNano(), 10),
 	}
 	code, reason := l.run(ctx)
+	// THE RECORD EXPLAINS THE VERDICT; IT DOES NOT DECIDE IT. settle() below is
+	// unchanged and the exit code is still what the door settles this lane on —
+	// the record is additive until `build` is named in ourea's record_lanes,
+	// which is a separate landing with its own evidence. Naming it there before
+	// records are observed arriving would settle every build in the fleet
+	// could-not-run at once.
+	//
+	// THE POST CANNOT FAIL THE RUN. postRecord answers nothing and swallows
+	// everything, exactly as it does for the gate: a lane's verdict must not
+	// turn on whether an HTTP request succeeded.
+	if record, err := l.record("build", code).Record(); err == nil {
+		postRecord(ctx, m.Repo, recordToken, record)
+	}
 	return settle(ctx, code, "build: "+reason)
 }
 
@@ -116,6 +139,10 @@ type buildLane struct {
 	// stamp is this run's, on every step that must happen again on a rerun of
 	// the same commit: signing, attesting and the permit are acts, not results.
 	stamp string
+	// atoms are the phases that have sealed, in the order they ran, and lines
+	// are what the phase now running has said. See build_record.go.
+	atoms []AtomResult
+	lines []string
 	// published accumulates what this run pushed, declared ONCE at the end of
 	// the lane rather than at each push. See declarePins.
 	published []pins.Pin
@@ -126,7 +153,17 @@ type buildLane struct {
 	consumed []pins.Pin
 }
 
-func say(format string, args ...any) { fmt.Fprintf(os.Stderr, "build: "+format+"\n", args...) }
+func say(format string, args ...any) { sayf(format, args...) }
+
+// sayf is say with the line handed back, so a phase can keep what it printed.
+// ONE WRITER, TWO READERS: the pod log a person tails while the lane runs, and
+// the record the door folds into a verdict. A second formatting path would let
+// the two drift, and the log is the evidence for the record.
+func sayf(format string, args ...any) string {
+	line := fmt.Sprintf(format, args...)
+	fmt.Fprintln(os.Stderr, "build: "+line)
+	return line
+}
 
 // starOf is the star a repository URL or custody key names:
 // http://ourea…:8215/rob/ares.git and rob/ares are both ares.
@@ -153,13 +190,14 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 	defer l.declarePins()
 	m := l.m
 	if m.Repo == "" || m.Sha == "" {
-		return buildlane.CouldNotRun, "the build lane builds a commit the engine fetched — construct the module with --repo and --sha"
+		return l.stop("build:preflight", buildlane.CouldNotRun, "the build lane builds a commit the engine fetched — construct the module with --repo and --sha")
 	}
 	if l.tip && withheld(l.spire, l.registryAuth, l.cosignKey, l.cosignPassphrase) {
-		return buildlane.CouldNotRun, "a tip build publishes, signs and permits: --spire, --registry-auth, --cosign-key and --cosign-passphrase are all required"
+		return l.stop("build:preflight", buildlane.CouldNotRun, "a tip build publishes, signs and permits: --spire, --registry-auth, --cosign-key and --cosign-passphrase are all required")
 	}
 	star := starOf(m.Repo)
-	say("%s for %s at %.12s", map[bool]string{true: "tip build", false: "pull-time build (publishes nothing)"}[l.tip], star, m.Sha)
+	l.say("%s for %s at %.12s", map[bool]string{true: "tip build", false: "pull-time build (publishes nothing)"}[l.tip], star, m.Sha)
+	l.seal("build:preflight", buildlane.Clean, "the lane has its commit and its credentials")
 
 	// WHAT THIS TREE DEPENDS ON, read before anything can return. The reaper
 	// keeps `inuse-<digest12>` and nothing else durably — every build tag is
@@ -173,14 +211,20 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 	// said on stderr and the lane carries on with an empty dependency set — a
 	// build that works is not held up by bookkeeping about it.
 	if deps, err := l.dependencies(ctx); err != nil {
-		say("the tree's dependencies could not be read, so this build declares none: %v", err)
+		// NOT A FAILURE, and the record has to say so as plainly as the code
+		// does: this phase is bookkeeping about the build, and a build that
+		// works is not held up by it. It seals CLEAN with the fault as its
+		// reason, so the fact is on the record without voting on the verdict.
+		l.say("the tree's dependencies could not be read, so this build declares none: %v", err)
+		l.seal("build:dependencies", buildlane.Clean, "declared none: the tree's dependencies could not be read")
 	} else {
 		l.consumed = deps
+		l.seal("build:dependencies", buildlane.Clean, fmt.Sprintf("declared %d", len(deps)))
 	}
 
 	bases, err := l.bases(ctx)
 	if err != nil {
-		return buildlane.CouldNotRun, fmt.Sprintf("could not run: the tree's bases could not be read: %v", err)
+		return l.stop("build:detect", buildlane.CouldNotRun, fmt.Sprintf("could not run: the tree's bases could not be read: %v", err))
 	}
 	if len(bases) > 0 {
 		return l.runBases(ctx, star, bases)
@@ -190,7 +234,7 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 	for _, f := range buildlane.ComposeFiles {
 		body, ok, err := fileIn(ctx, m.Source, f)
 		if err != nil {
-			return buildlane.CouldNotRun, fmt.Sprintf("could not read %s: %v", f, err)
+			return l.stop("build:detect", buildlane.CouldNotRun, fmt.Sprintf("could not read %s: %v", f, err))
 		}
 		if ok {
 			compose = body
@@ -200,32 +244,39 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 	pushRepo := buildlane.PushRepo(l.registry, buildlane.DeclaredImage(compose, star))
 
 	needed, why, code := l.detect(ctx, pushRepo)
-	say("%s", why)
+	l.say("%s", why)
 	if code != buildlane.Clean {
-		return code, why
+		return l.stop("build:detect", code, why)
 	}
 	if !needed {
-		return buildlane.Clean, "stood down: " + why
+		// A STAND-DOWN IS A CLEAN RUN THAT BUILT NOTHING, and the phases after
+		// it never ran rather than passing — which is exactly what Unreached
+		// is for, and why this returns through stop() like a failure does.
+		return l.stop("build:detect", buildlane.Clean, "stood down: "+why)
 	}
+	l.seal("build:detect", buildlane.Clean, why)
 
 	args, err := l.buildArgs(ctx)
 	if err != nil {
-		return buildlane.CouldNotRun, err.Error()
+		return l.stop("build:image", buildlane.CouldNotRun, err.Error())
 	}
 	img, err := m.Image(ctx, m.Sha, l.sourceBase+"/"+star, star, args, "")
 	if err != nil {
-		return buildlane.CouldNotRun, err.Error()
+		return l.stop("build:image", buildlane.CouldNotRun, err.Error())
 	}
 	if code, why := l.stageRelease(ctx, img); code != buildlane.Clean {
-		return code, why
+		return l.stop("build:release", code, why)
 	}
+	l.seal("build:release", buildlane.Clean, "")
 	// The build is forced here, on both paths, so a Dockerfile that does not
 	// build is classified as a build (findings, or could-not-run on a network
 	// fault) — not as a scan that could not run, which is what the tarball
 	// read below would have made of it.
 	if _, err := img.Container().Sync(ctx); err != nil {
-		return buildlane.Failed("the image build", err.Error())
+		code, why := buildlane.Failed("the image build", err.Error())
+		return l.stop("build:image", code, why)
 	}
+	l.seal("build:image", buildlane.Clean, "built "+star+" at "+shortSha(m.Sha))
 
 	// NOTHING IS PUBLISHED THAT THE SCAN DID NOT PASS (CA master-plan F14).
 	// Verify's trivy atom runs here on the image the engine just built — the
@@ -239,24 +290,31 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 	// attest time, below; the standalone Verify stage stays for the door's
 	// own run of the chain (F16).
 	if code, why := l.verify(ctx, img); code != buildlane.Clean {
-		return code, why
+		return l.stop("build:verify", code, why)
 	}
+	l.seal("build:verify", buildlane.Clean, "no fixable HIGH or CRITICAL in the star's own layer")
 
 	if !l.tip {
-		return buildlane.Clean, fmt.Sprintf("clean: built %s at %.12s and its scan passed — nothing published, signed or permitted; the landing does that", star, m.Sha)
+		// A PULL ENDS HERE, CLEAN, and publish/sign/permit are UNREACHED rather
+		// than passed. The landing does them; saying they held would claim this
+		// run proved something it never ran.
+		return l.stop("", buildlane.Clean, fmt.Sprintf("clean: built %s at %.12s and its scan passed — nothing published, signed or permitted; the landing does that", star, m.Sha))
 	}
 
 	ref, code, why := l.publish(ctx, img, pushRepo, star)
 	if code != buildlane.Clean {
-		return code, why
+		return l.stop("build:publish", code, why)
 	}
+	l.seal("build:publish", buildlane.Clean, "pushed "+ref)
 	if code, why := l.sign(ctx, img, ref, star); code != buildlane.Clean {
-		return code, why
+		return l.stop("build:sign", code, why)
 	}
+	l.seal("build:sign", buildlane.Clean, "signed and attested "+ref)
 	code, why = l.permit(ctx, star)
 	if code != buildlane.Clean {
-		return code, why
+		return l.stop("build:permit", code, why)
 	}
+	l.seal("build:permit", buildlane.Clean, why)
 	return buildlane.Clean, fmt.Sprintf("clean: published and signed %s; %s", ref, why)
 }
 
