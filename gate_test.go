@@ -199,7 +199,9 @@ func TestTheFileAndTheLineAreTheSameRecord(t *testing.T) {
 		engine.reset()
 		engine.withTree(map[string]string{"go.mod": "module x\n"})
 		engine.stdout(`"rev-parse","HEAD^{tree}"`, fakeTree+"\n")
-		f, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "")
+		// No record token: this case proves the FILE, and a nil token is also
+		// the shape every lane has until its Call declares one.
+		f, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "", nil)
 		if err != nil {
 			t.Fatalf("gate-file: %v", err)
 		}
@@ -237,7 +239,7 @@ func quotedInto(line string) string {
 // fold would attribute the verdict to the wrong lane.
 func TestGateFileCarriesTheStageItWasAsked(t *testing.T) {
 	m := gateOn(t, cleanVector)
-	f, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "mutation")
+	f, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "mutation", nil)
 	if err != nil {
 		t.Fatalf("gate-file: %v", err)
 	}
