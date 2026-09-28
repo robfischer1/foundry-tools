@@ -106,8 +106,39 @@ func (m *FoundryTools) GateFile(
 	// mutation lane.
 	// +optional
 	stage string,
+	// The run's record token (CA_RECORD_TOKEN), which authorises posting this
+	// run's record to the door it fetched the tree from. Absent and the record
+	// travels on its volume alone, exactly as it did before.
+	//
+	// A SECRET, NOT A STRING, and that is load-bearing rather than tidy: dagger
+	// echoes call arguments verbatim into its plain-progress narration
+	// (dagger/dagger#14363), so a token passed as a string would be printed into
+	// the pod log and shipped to Loki. A Secret is masked.
+	// +optional
+	recordToken *dagger.Secret,
 ) (*dagger.File, error) {
-	return m.gateStage(ctx, tree, stage, base).RecordFile()
+	result := m.gateStage(ctx, tree, stage, base)
+	// POST FIRST, THEN HAND BACK THE FILE. Both transports carry the same bytes
+	// — Record()'s whole output, sentinel included — because ourea reads
+	// whichever arrives through one parser, and a record that differed by
+	// transport is how two readers come to disagree about one run.
+	//
+	// THE POST CANNOT FAIL THE RUN. postRecord answers nothing and swallows
+	// everything: the file below is the fallback, and a lane's verdict must not
+	// turn on whether an HTTP request succeeded.
+	//
+	// THE MARSHAL ERROR IS DROPPED RATHER THAN BRANCHED ON, and the mutation
+	// lane is why. Record() fails only if json.Marshal does, and json.Marshal
+	// fails only on a type it cannot encode — a channel, a func, a cycle.
+	// StageResult is strings, ints and slices of the same, so the error arm is
+	// unreachable: a test cannot enter it and `err == nil` therefore survived
+	// negation (gate.go:129 LIVED, 2026-09-28). A branch no test can take is a
+	// branch that should not exist. An empty record is refused downstream by
+	// sendRecord, so the impossible case is still handled — just not by a
+	// conditional pretending to be reachable.
+	record, _ := result.Record()
+	postRecord(ctx, m.Repo, recordToken, record)
+	return result.RecordFile()
 }
 
 // gateStage proves the tree, grades it and answers the stage result both entry
