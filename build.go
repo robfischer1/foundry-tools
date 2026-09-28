@@ -120,9 +120,16 @@ func (m *FoundryTools) Build(
 	// THE POST CANNOT FAIL THE RUN. postRecord answers nothing and swallows
 	// everything, exactly as it does for the gate: a lane's verdict must not
 	// turn on whether an HTTP request succeeded.
-	if record, err := l.record("build", code).Record(); err == nil {
-		postRecord(ctx, m.Repo, recordToken, record)
-	}
+	//
+	// AND THE MARSHAL ERROR IS DROPPED RATHER THAN BRANCHED ON, for the reason
+	// GateFile's own comment gives: Record() fails only if json.Marshal does,
+	// and StageResult is strings, ints and slices of the same, so the error arm
+	// is unreachable. `err == nil` survived negation here exactly as it did
+	// there (build.go:123 LIVED, 2026-09-28). A branch no test can take is a
+	// branch that should not exist; an empty record is refused downstream by
+	// sendRecord, so the impossible case is still handled.
+	record, _ := l.record("build", code).Record()
+	postRecord(ctx, m.Repo, recordToken, record)
 	return settle(ctx, code, "build: "+reason)
 }
 

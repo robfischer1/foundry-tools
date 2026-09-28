@@ -143,3 +143,55 @@ func TestEveryAllowanceIsDatedAndExplained(t *testing.T) {
 		}
 	}
 }
+
+// SEVERAL ALLOWED ADVISORIES COME OUT IN A STABLE ORDER, which is why the
+// reason is sorted rather than emitted in the order govulncheck happened to
+// print them: a reason that reshuffles between runs is a diff nobody can read.
+//
+// IT ANSWERS A SURVIVING MUTANT (vulnallow.go:116 NOT COVERED, 2026-09-28):
+// with one entry on the list the comparator never ran, so nothing could tell
+// the sort from its absence.
+func TestSeveralAllowedAdvisoriesAreNamedInAStableOrder(t *testing.T) {
+	until := time.Date(2026, time.December, 1, 0, 0, 0, 0, time.UTC)
+	restore := vulnAllowed
+	vulnAllowed = []VulnAllowance{
+		{ID: "GO-2026-8888", Until: until, Why: "second. CLEARED BY: nothing, this is a test"},
+		{ID: "GO-2026-1111", Until: until, Why: "first. CLEARED BY: nothing, this is a test"},
+	}
+	t.Cleanup(func() { vulnAllowed = restore })
+
+	// Deliberately reported in the opposite order to the one wanted back.
+	out := "Vulnerability #1: GO-2026-8888\nVulnerability #2: GO-2026-1111\n"
+	why, ok := SuppressedVulnReason(out, until.AddDate(0, 0, -1))
+	if !ok {
+		t.Fatal("two allowed advisories must suppress")
+	}
+	first, second := strings.Index(why, "GO-2026-1111"), strings.Index(why, "GO-2026-8888")
+	if first < 0 || second < 0 {
+		t.Fatalf("both advisories must be named:\n%s", why)
+	}
+	if first > second {
+		t.Fatalf("the reason is sorted by advisory id, not by report order:\n%s", why)
+	}
+	if !strings.Contains(why, "2 known vulnerability") {
+		t.Fatalf("the reason counts what it allowed:\n%s", why)
+	}
+}
+
+// AND ONE EXPIRED ENTRY AMONG SEVERAL STILL REDS THE RUN. The allowance is per
+// advisory and per date; a list that passed because MOST of it was current
+// would be the hole this whole file is shaped to avoid.
+func TestOneExpiredEntryAmongSeveralStillReds(t *testing.T) {
+	now := time.Date(2026, time.October, 1, 0, 0, 0, 0, time.UTC)
+	restore := vulnAllowed
+	vulnAllowed = []VulnAllowance{
+		{ID: "GO-2026-1111", Until: now.AddDate(0, 1, 0), Why: "current. CLEARED BY: nothing, this is a test"},
+		{ID: "GO-2026-8888", Until: now.AddDate(0, 0, -1), Why: "lapsed. CLEARED BY: nothing, this is a test"},
+	}
+	t.Cleanup(func() { vulnAllowed = restore })
+
+	out := "Vulnerability #1: GO-2026-1111\nVulnerability #2: GO-2026-8888\n"
+	if _, ok := SuppressedVulnReason(out, now); ok {
+		t.Fatal("one lapsed entry must red the whole run")
+	}
+}

@@ -637,7 +637,7 @@ func goGovulncheck(ctx context.Context, r *run) checks.Verdict {
 		// and on any advisory not covered; see vulnallow.go for why this exists.
 		if exit == 1 {
 			if why, ok := checks.SuppressedVulnReason(out, time.Now()); ok {
-				return checks.VerdictOf(a, 0, why+"\n\n"+out)
+				return checks.AllowedVulnVerdict(a, why, out)
 			}
 		}
 		return checks.AuditVerdict(a, exit, out)

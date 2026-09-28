@@ -297,3 +297,59 @@ func TestABaseThatFailsLeavesTheOthersGraded(t *testing.T) {
 		}
 	}
 }
+
+// EVERY CASE BELOW ANSWERS A SURVIVING MUTANT the lane reported on 68432ba:
+// build_record.go:143 (the reason's em-dash), :151 (the never-reached line) and
+// :174 twice (shortSha's boundary). They are written as behaviour, but the
+// reason each exists is that nothing distinguished the code from its mutant.
+
+// A PHASE WITH NOTHING TO SAY RENDERS WITHOUT A DASH, and one with a reason
+// renders with it. build:release seals empty on the common path, so a log that
+// printed a bare dash for it would be in front of every reader of every build.
+func TestTheRenderedLogOnlyDashesAPhaseThatGaveAReason(t *testing.T) {
+	l := &buildLane{}
+	l.seal("build:release", buildlane.Clean, "")
+	l.seal("build:image", buildlane.Clean, "built ares")
+
+	log := l.renderLog(nil)
+	if !strings.Contains(log, "build:release: pass\n") || strings.Contains(log, "build:release: pass —") {
+		t.Fatalf("a phase with no reason gets no dash:\n%s", log)
+	}
+	if !strings.Contains(log, "build:image: pass — built ares") {
+		t.Fatalf("a phase with a reason keeps it:\n%s", log)
+	}
+}
+
+// AND A RUN THAT REACHED EVERYTHING SAYS NOTHING ABOUT WHAT IT DID NOT. The
+// trailing line is evidence when it is there, so it must be absent when there
+// is nothing to report rather than present and empty.
+func TestTheRenderedLogOmitsTheNeverReachedLineWhenNothingWasMissed(t *testing.T) {
+	l := &buildLane{}
+	l.seal("build:preflight", buildlane.Clean, "ready")
+
+	if got := l.renderLog(nil); strings.Contains(got, "never reached") {
+		t.Fatalf("nothing was missed, so nothing is named:\n%s", got)
+	}
+	if got := l.renderLog([]string{"build:sign"}); !strings.Contains(got, "never reached: build:sign") {
+		t.Fatalf("what was missed is named:\n%s", got)
+	}
+}
+
+// THE SHA IS SHORTENED AT TWELVE, and both sides of that are pinned: a sha
+// already twelve long is handed back whole, and thirteen is the first that is
+// cut. Every other coordinate in the fleet is written at twelve.
+func TestTheShaIsShortenedAtTwelveExactly(t *testing.T) {
+	for _, c := range []struct{ name, in, want string }{
+		{"shorter than twelve", "0123456789", "0123456789"},
+		{"exactly twelve", "0123456789ab", "0123456789ab"},
+		{"thirteen, the first that is cut", "0123456789abc", "0123456789ab"},
+		{"a full sha", "0123456789abcdef0123456789abcdef01234567", "0123456789ab"},
+		{"empty", "", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := shortSha(c.in); got != c.want {
+				t.Fatalf("shortSha(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+}

@@ -121,3 +121,30 @@ func SuppressedVulnReason(out string, t time.Time) (string, bool) {
 	}
 	return b.String(), true
 }
+
+// AllowedVulnVerdict is a PASS that says what it allowed.
+//
+// IT DOES NOT GO THROUGH VerdictOf, and that is the whole point. VerdictOf's
+// reasonFor DISCARDS the output for a passing atom and answers "<id>: PASS" —
+// correct for every other atom, and exactly wrong here, because it would make a
+// suppressed vulnerability indistinguishable from a clean scan in the one field
+// a reader looks at. AbsentVerdict is built by hand for the same reason its own
+// comment gives: a lane with no surface "reports ABSENT, exits 0, and SAYS SO.
+// Silence would be indistinguishable from a scan that found nothing."
+//
+// THE OUTPUT IS STILL THE LINES. govulncheck's whole report is captured exactly
+// as a red run's would be, so the evidence for the allowance travels with it.
+func AllowedVulnVerdict(a AtomDef, why, output string) Verdict {
+	logs, truncated, originalBytes := CaptureLogs(output)
+	return Verdict{
+		Atom:          a.ID,
+		Stage:         a.Stage,
+		Lane:          string(a.Lane),
+		State:         int(StatePass),
+		Result:        StatePass.String(),
+		Reason:        a.ID + ": " + why,
+		Logs:          logs,
+		Truncated:     truncated,
+		OriginalBytes: originalBytes,
+	}
+}
