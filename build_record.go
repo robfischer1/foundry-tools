@@ -170,9 +170,11 @@ func (l *buildLane) stop(atom string, code int, reason string) (int, string) {
 
 // shortSha is the twelve characters every other coordinate in the fleet is
 // written with.
-func shortSha(sha string) string {
-	if len(sha) > 12 {
-		return sha[:12]
-	}
-	return sha
-}
+//
+// NO CONDITIONAL, DELIBERATELY. `if len(sha) > 12` carried a boundary mutant
+// that no test can kill, because at EXACTLY twelve the two arms agree:
+// sha[:12] of a twelve-character string is that string. `>` and `>=` are
+// therefore the same function, and the lane said so (build_record.go:174
+// LIVED, twice). Slicing to a min has no boundary to mutate, and the sha's
+// length is checked by the cases either way.
+func shortSha(sha string) string { return sha[:min(len(sha), 12)] }

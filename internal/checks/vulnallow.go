@@ -105,15 +105,23 @@ func SuppressedVulnReason(out string, t time.Time) (string, bool) {
 	if len(ids) == 0 {
 		return "", false
 	}
+	// SORTED BY ID, so the reason reads the same however govulncheck ordered
+	// its report — a reason that reshuffles between runs is a diff nobody can
+	// read. The ids are sorted rather than the allowances: a comparator of my
+	// own carried a boundary mutant no test can kill (`<` and `<=` are the same
+	// function over distinct keys, and these are distinct by FoundVulnIDs'
+	// dedupe), so this uses the stdlib's sort over strings and has no
+	// comparator to get wrong.
+	sorted := append([]string(nil), ids...)
+	sort.Strings(sorted)
 	var allowed []VulnAllowance
-	for _, id := range ids {
+	for _, id := range sorted {
 		a, ok := AllowedVuln(id, t)
 		if !ok {
 			return "", false
 		}
 		allowed = append(allowed, a)
 	}
-	sort.Slice(allowed, func(i, j int) bool { return allowed[i].ID < allowed[j].ID })
 	var b strings.Builder
 	fmt.Fprintf(&b, "%d known vulnerability(ies) found and ALLOWED by the gate's own list — this is not a clean scan:", len(allowed))
 	for _, a := range allowed {

@@ -195,3 +195,45 @@ func TestOneExpiredEntryAmongSeveralStillReds(t *testing.T) {
 		t.Fatal("one lapsed entry must red the whole run")
 	}
 }
+
+// THE VERDICT IS BUILT HERE, AND TESTED HERE. The atom's own test exercises it
+// from package main, which this package's coverage never sees — the lane said
+// so (vulnallow.go:145 NOT COVERED, twice, 2026-09-28).
+//
+// WHAT IT PINS is the property the whole file exists for: a PASS that still
+// says what it allowed. VerdictOf would have answered "<id>: PASS" here and
+// made a suppressed vulnerability read exactly like a clean scan.
+func TestAnAllowedVerdictPassesAndStillSaysWhatItAllowed(t *testing.T) {
+	a := AtomByID("go:govulncheck")
+	v := AllowedVulnVerdict(a, "1 known vulnerability(ies) found and ALLOWED", "Vulnerability #1: GO-2026-6508\nFixed in: v0.21.0\n")
+
+	if v.State != int(StatePass) {
+		t.Fatalf("an allowed advisory is a pass, got state %d", v.State)
+	}
+	if v.Atom != "go:govulncheck" {
+		t.Fatalf("the verdict carries its atom, got %q", v.Atom)
+	}
+	// The reason is the atom's id, a colon-space, then the allowance — the
+	// shape every other reason in this package takes.
+	want := "go:govulncheck: 1 known vulnerability(ies) found and ALLOWED"
+	if v.Reason != want {
+		t.Fatalf("reason\n want %q\n  got %q", want, v.Reason)
+	}
+	// AND THE SCAN'S OWN REPORT IS THE EVIDENCE, captured as the atom's lines
+	// exactly as a red run's would be, so the allowance can be checked rather
+	// than taken on trust.
+	joined := strings.Join(v.Logs, "\n")
+	if !strings.Contains(joined, "GO-2026-6508") || !strings.Contains(joined, "Fixed in") {
+		t.Fatalf("the report must survive as the atom's lines:\n%v", v.Logs)
+	}
+}
+
+// AN EMPTY REPORT STILL PRODUCES A WELL-FORMED VERDICT rather than a nil log
+// list: "this printed nothing" is a different fact from "nobody set this
+// field", which is the rule every atom in this package follows.
+func TestAnAllowedVerdictNeverCarriesANilLogList(t *testing.T) {
+	v := AllowedVulnVerdict(AtomByID("go:govulncheck"), "allowed", "")
+	if v.Logs == nil {
+		t.Fatal("an allowed verdict carries [], never nil")
+	}
+}
