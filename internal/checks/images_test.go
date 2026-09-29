@@ -1,6 +1,7 @@
 package checks
 
 import (
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -203,5 +204,61 @@ func TestNoServiceAddressNamesANamespace(t *testing.T) {
 		if strings.Contains(addr, ".svc.cluster.local") {
 			t.Errorf("%s pins a namespace: %q — a bare service name resolves in any namespace", name, addr)
 		}
+	}
+}
+
+// EVERY PINNED TOOL NAMES ITS OWN SOURCE, so nothing can be added unmanaged.
+//
+// THE GAP THIS CLOSES, measured 2026-09-29: eleven tool versions lived as Go
+// constants and NO renovate manager read them. The two customManagers in
+// renovate-config cover lane image digests in gate.yml and stellar_core pins
+// in the cluster tree; neither looks at Go source. So nothing had ever
+// proposed a bump for any of these, and docker-compose sat at 2.39.2 while
+// upstream shipped v5.5.1 — three major versions, silently.
+//
+// The remedy is a `// renovate:` marker above each pin, which is renovate's
+// own idiom for a value its managers cannot infer. A generic customManager
+// reads the marker rather than the constant's name, so ADDING a pinned tool
+// needs no config change — but only if the marker is actually there, and that
+// is what this test is for. A pin with no marker is a tool nothing will ever
+// bump, and the failure is silent by construction.
+func TestEveryPinnedVersionNamesItsRenovateSource(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("read package dir: %v", err)
+	}
+	// `<Name>Version = "..."`, the shape every pin in this package uses.
+	pin := regexp.MustCompile(`^\s*(?:const\s+)?([A-Za-z]+Version)\s*=\s*"`)
+	marker := regexp.MustCompile(`//\s*renovate:\s*datasource=\S+\s+depName=\S+`)
+
+	seen := 0
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		body, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		lines := strings.Split(string(body), "\n")
+		for i, line := range lines {
+			m := pin.FindStringSubmatch(line)
+			if m == nil {
+				continue
+			}
+			seen++
+			// The marker is the line immediately above the pin.
+			if i == 0 || !marker.MatchString(lines[i-1]) {
+				t.Errorf("%s:%d %s has no `// renovate:` marker above it — "+
+					"nothing will ever propose a bump for it", name, i+1, m[1])
+			}
+		}
+	}
+	// A guard that finds nothing is a guard that passes forever. The count is
+	// deliberately a floor, not an equality: adding a pin must not red this.
+	if seen < 8 {
+		t.Errorf("only %d version pin(s) found — the regex has stopped matching "+
+			"the shape this package uses, and this test is no longer checking anything", seen)
 	}
 }

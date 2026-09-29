@@ -160,8 +160,9 @@ const (
 // in step instead. GitHub's own release asset, no mirror address: the engine
 // fetches it, and inside the cluster the asset host is the fleet's cache.
 const (
+	// renovate: datasource=github-releases depName=opengrep/opengrep
 	OpengrepVersion = "v1.25.0"
-	OpengrepURL     = "https://github.com/opengrep/opengrep/releases/download/v1.25.0/opengrep_manylinux_x86"
+	OpengrepURL     = "https://github.com/opengrep/opengrep/releases/download/" + OpengrepVersion + "/opengrep_manylinux_x86"
 
 	StaticcheckModule = "honnef.co/go/tools/cmd/staticcheck@2025.1.1"
 	GovulncheckModule = "golang.org/x/vuln/cmd/govulncheck@v1.1.4"
@@ -186,12 +187,15 @@ const (
 	// lifts it by measurement when a fixed gremlins lands. A classifier cannot
 	// do that: it is handed one file at a time and cannot tell a misgraded
 	// verdict from an honest one, nor notice the runner was fixed.
-	MutationGateModule  = "git.notusmi.com/rob/forge-testkit-go/cmd/mutation-gate@v0.10.0"
-	CargoAuditVersion   = "0.22.2"
+	MutationGateModule = "git.notusmi.com/rob/forge-testkit-go/cmd/mutation-gate@v0.10.0"
+	// renovate: datasource=crate depName=cargo-audit
+	CargoAuditVersion = "0.22.2"
+	// renovate: datasource=crate depName=cargo-mutants
 	CargoMutantsVersion = "27.1.0"
 	// The mutation atom's test runner (`cargo mutants --test-tool nextest`).
 	// One process per test with a duration on every PASS/FAIL line, which is
 	// what lets the lane say which tests the per-mutant cost is made of.
+	// renovate: datasource=crate depName=cargo-nextest
 	CargoNextestVersion = "0.9.145"
 )
 
@@ -379,6 +383,7 @@ const (
 // with it, and bundle and cast push with it. A failed fetch is exit 2 rather
 // than a fallthrough.
 const (
+	// renovate: datasource=github-releases depName=oras-project/oras extractVersion=^v(?<version>.*)$
 	OrasVersion = "1.3.0"
 	OrasURL     = "https://github.com/oras-project/oras/releases/download/v" + OrasVersion + "/oras_" + OrasVersion + "_linux_amd64.tar.gz"
 )
@@ -398,6 +403,7 @@ const (
 // declared. v2.39.2 is the version the fleet's own hosts run, so the gate and
 // the box parse with the same schema.
 const (
+	// renovate: datasource=github-releases depName=docker/compose extractVersion=^v(?<version>.*)$
 	ComposeVersion = "2.39.2"
 	ComposeURL     = "https://github.com/docker/compose/releases/download/v" + ComposeVersion + "/docker-compose-linux-x86_64"
 )
@@ -415,6 +421,7 @@ const (
 // image may not have, which is the same reasoning that picks the alpine variants
 // for kubeconform and kube-linter above.
 const (
+	// renovate: datasource=github-releases depName=open-policy-agent/opa extractVersion=^v(?<version>.*)$
 	OpaVersion = "1.18.0"
 	OpaURL     = "https://openpolicyagent.org/downloads/v" + OpaVersion + "/opa_linux_amd64_static"
 )

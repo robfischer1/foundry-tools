@@ -48,14 +48,16 @@ const OpsUVIndex = "https://pypi.org/simple"
 // (2026-09-13, foundry-tools#47), and TestOpsToolPinsAgree holds the two
 // lines to one version instead.
 const (
+	// renovate: datasource=github-releases depName=twpayne/chezmoi extractVersion=^v(?<version>.*)$
 	ChezmoiVersion = "2.72.2"
-	ChezmoiURL     = "https://github.com/twpayne/chezmoi/releases/download/v2.72.2/chezmoi-linux-amd64"
+	ChezmoiURL     = "https://github.com/twpayne/chezmoi/releases/download/v" + ChezmoiVersion + "/chezmoi-linux-amd64"
 )
 
 // KubectlVersion / KubectlURL fetch the kubectl ops:flux builds Kustomizations
 // with — the cluster's own minor (k3s v1.36 serves it; the retired pipeline
 // pinned alpine/k8s:1.34.1 and ca-sweep stages the same series).
 const (
+	// renovate: datasource=github-releases depName=kubernetes/kubernetes extractVersion=^v(?<version>.*)$
 	KubectlVersion = "1.34.1"
-	KubectlURL     = "https://dl.k8s.io/release/v1.34.1/bin/linux/amd64/kubectl"
+	KubectlURL     = "https://dl.k8s.io/release/v" + KubectlVersion + "/bin/linux/amd64/kubectl"
 )
