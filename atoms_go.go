@@ -263,7 +263,7 @@ func (r *run) withTestDatabases(ctx context.Context, ctr *dagger.Container, scop
 			AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true})
 		ctr = ctr.WithServiceBinding(d.AliasFor(scope), svc).WithEnvVariable(d.Env, d.DSNFor(scope))
 	}
-	return ctr, dbs, checks.TestDBScope(dbs, checks.UncompiledTags(tags, dbs), "")
+	return ctr, dbs, checks.TestDBScope(dbs, checks.UncompiledTags(tags, dbs, checks.TestBrokers), "")
 }
 
 // withTestBrokers binds the fleet's test broker to a lane container for the
@@ -303,10 +303,17 @@ func (r *run) withTestBrokers(ctx context.Context, ctr *dagger.Container, scope 
 		// per lane for free — the database path needs FOUNDRY_TEST_DB_LANE to
 		// achieve the same thing, because dagger content-addresses services and
 		// two lanes with byte-identical definitions were handed one server.
+		// NOT WithExec. A WithExec is an op with a snapshot to commit and a
+		// service command never exits, so the commit never lands, the service
+		// never reads ready, and the client exec that binds it never starts —
+		// the lane then emits nothing and dies on the silence limit while the
+		// broker's own log shows it healthy. checks.TestBroker.StartArgs
+		// carries the measurements; the Postgres service above is built the
+		// same way for the same reason.
 		svc := dag.Container().From(b.Image).
 			WithExposedPort(b.Port).
-			WithExec(b.StartArgs(scope)).
-			AsService()
+			WithDefaultArgs(b.StartArgs(scope)).
+			AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true})
 		ctr = ctr.WithServiceBinding(b.AliasFor(scope), svc).WithEnvVariable(b.Env, b.AddrFor(scope))
 	}
 	return ctr, brokers, scopeLine

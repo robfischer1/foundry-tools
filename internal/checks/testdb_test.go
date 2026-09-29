@@ -67,7 +67,7 @@ func TestTheVocabularyBindsInOrderAndNamesTheRest(t *testing.T) {
 	if got := BuildTags(dbs, nil); got != "live_db,live_db_novector" {
 		t.Errorf("BuildTags = %q", got)
 	}
-	if got := UncompiledTags(tags, dbs); !reflect.DeepEqual(got, []string{"integration"}) {
+	if got := UncompiledTags(tags, dbs, nil); !reflect.DeepEqual(got, []string{"integration"}) {
 		t.Errorf("UncompiledTags = %v", got)
 	}
 	// The DSN names the role twice (its credential is its name), the alias
@@ -310,12 +310,21 @@ func TestStartArgsRefusesToInventTopics(t *testing.T) {
 	args := TestBrokers[0].StartArgs("")
 	joined := strings.Join(args, " ")
 
-	// INVOKED THROUGH rpk. The bare `redpanda` binary rejects every flag here —
-	// dagger's WithExec bypasses the image entrypoint that would otherwise shell out
-	// to rpk, and tartarus #87 could-not-run on "unrecognised option '--check=false'"
-	// after a local docker run of the same args had succeeded.
-	if len(args) < 3 || args[0] != "rpk" || args[1] != "redpanda" || args[2] != "start" {
-		t.Errorf("must invoke rpk, not the bare binary, which rejects these flags: %v", args[:min(3, len(args))])
+	// INVOKED THROUGH THE IMAGE ENTRYPOINT, which is the wrapper that shells out to
+	// rpk — so the args are `redpanda start`, not `rpk redpanda start`. The bare
+	// binary does reject these flags ("unrecognised option '--check=false'",
+	// tartarus #87), which is why an earlier fix reached for rpk and a WithExec; that
+	// bypassed the entrypoint and the service then never became ready at all. The
+	// caller's WithDefaultArgs + AsService(UseEntrypoint) is the other half.
+	if len(args) < 2 || args[0] != "redpanda" || args[1] != "start" {
+		t.Errorf("the entrypoint takes `redpanda start`, not the rpk spelling: %v", args[:min(2, len(args))])
+	}
+	// A dagger container has no memory cgroup, so the entrypoint computes no bound
+	// and seastar reserves nearly the whole host — the lane's broker logged
+	// mem_available 65410170880 on a 64G node and never came up. Measured: without
+	// these two flags the same definition never becomes ready.
+	if !strings.Contains(joined, "--memory 1G") || !strings.Contains(joined, "--reserve-memory 0M") {
+		t.Errorf("seastar must be bounded or the service never becomes ready: %q", joined)
 	}
 	// `--mode dev-container` turns auto-creation ON, so this setting is what keeps a
 	// topic the record never declared from springing into being. NOT, as I first wrote
@@ -340,5 +349,31 @@ func TestStartArgsRefusesToInventTopics(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(TestBrokers[0].StartArgs("mutation"), " "), "broker-mutation:9092") {
 		t.Error("the scoped lane advertises its own alias")
+	}
+}
+
+// TestTheScopeLineNeverCallsABoundTagUncompiled is the regression for a lane that
+// printed `tags left uncompiled (not in the fleet's vocabulary): live_kafka`
+// directly above `test brokers: live_kafka -> KAFKA_BOOTSTRAP`. UncompiledTags is
+// the complement of the -tags word, so it has to be taken against BOTH
+// vocabularies; told only about the databases it libels every broker tag.
+func TestTheScopeLineNeverCallsABoundTagUncompiled(t *testing.T) {
+	tags := []string{"integration", "live_db", "live_kafka"}
+	dbs := TestDBsFor(tags)
+	brokers := TestBrokersFor(tags)
+	if len(dbs) == 0 || len(brokers) == 0 {
+		t.Fatalf("fixture needs one of each: dbs=%v brokers=%v", dbs, brokers)
+	}
+	compiled := strings.Split(BuildTags(dbs, brokers), ",")
+	uncompiled := UncompiledTags(tags, dbs, brokers)
+	for _, c := range compiled {
+		for _, u := range uncompiled {
+			if c == u {
+				t.Errorf("%q is in the -tags word and also reported uncompiled", c)
+			}
+		}
+	}
+	if !reflect.DeepEqual(uncompiled, []string{"integration"}) {
+		t.Errorf("UncompiledTags = %v, want only the tag no vocabulary names", uncompiled)
 	}
 }
