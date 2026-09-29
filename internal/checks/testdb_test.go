@@ -310,11 +310,11 @@ func TestStartArgsRefusesToInventTopics(t *testing.T) {
 	args := TestBrokers[0].StartArgs("")
 	joined := strings.Join(args, " ")
 
-	// THE LINE THIS TEST EXISTS FOR. `--mode dev-container` turns auto-creation ON,
-	// and a broker that invents a topic on first write makes "the broker never
-	// accepted this" unassertable — tartarus's undelivered-event test requires that
-	// write to fail. Measured against the pinned image: without this setting,
-	// auto_create_topics_enabled answers true.
+	// `--mode dev-container` turns auto-creation ON, so this setting is what keeps a
+	// topic the record never declared from springing into being. NOT, as I first wrote
+	// here, what keeps tartarus's undelivered-event test honest — measured both ways,
+	// that test passes either way, because franz-go never asks the broker to create an
+	// unknown topic. See StartArgs' doc for the correction.
 	if !strings.Contains(joined, "redpanda.auto_create_topics_enabled=false") {
 		t.Errorf("a broker that auto-creates topics cannot refuse an undeclared one: %q", joined)
 	}
