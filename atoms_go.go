@@ -305,13 +305,7 @@ func (r *run) withTestBrokers(ctx context.Context, ctr *dagger.Container, scope 
 		// two lanes with byte-identical definitions were handed one server.
 		svc := dag.Container().From(b.Image).
 			WithExposedPort(b.Port).
-			WithExec([]string{
-				"redpanda", "start",
-				"--smp", "1", "--overprovisioned", "--node-id", "0", "--check=false",
-				"--mode", "dev-container",
-				"--kafka-addr", b.ListenFor(),
-				"--advertise-kafka-addr", b.AdvertiseFor(scope),
-			}).
+			WithExec(b.StartArgs(scope)).
 			AsService()
 		ctr = ctr.WithServiceBinding(b.AliasFor(scope), svc).WithEnvVariable(b.Env, b.AddrFor(scope))
 	}
