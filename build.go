@@ -107,7 +107,8 @@ func (m *FoundryTools) Build(
 		m: m, tip: tip, force: force, spire: spire,
 		registryAuth: registryAuth, cosignKey: cosignKey, cosignPassphrase: cosignPassphrase,
 		indexURL: indexURL, registry: registry, sourceBase: sourceBase, hades: hades, hadesID: hadesID,
-		stamp: strconv.FormatInt(time.Now().UnixNano(), 10),
+		stamp:  strconv.FormatInt(time.Now().UnixNano(), 10),
+		phases: phases{group: buildGroup, order: buildPhases},
 	}
 	code, reason := l.run(ctx)
 	// THE RECORD EXPLAINS THE VERDICT; IT DOES NOT DECIDE IT. settle() below is
@@ -146,10 +147,8 @@ type buildLane struct {
 	// stamp is this run's, on every step that must happen again on a rerun of
 	// the same commit: signing, attesting and the permit are acts, not results.
 	stamp string
-	// atoms are the phases that have sealed, in the order they ran, and lines
-	// are what the phase now running has said. See build_record.go.
-	atoms []AtomResult
-	lines []string
+	// phases records what each step of the lane answered. See lanerecord.go.
+	phases
 	// published accumulates what this run pushed, declared ONCE at the end of
 	// the lane rather than at each push. See declarePins.
 	published []pins.Pin
@@ -160,17 +159,17 @@ type buildLane struct {
 	consumed []pins.Pin
 }
 
-func say(format string, args ...any) { sayf(format, args...) }
+func say(format string, args ...any) { sayLine(sprintf(format, args...)) }
 
-// sayf is say with the line handed back, so a phase can keep what it printed.
-// ONE WRITER, TWO READERS: the pod log a person tails while the lane runs, and
-// the record the door folds into a verdict. A second formatting path would let
-// the two drift, and the log is the evidence for the record.
-func sayf(format string, args ...any) string {
-	line := fmt.Sprintf(format, args...)
-	fmt.Fprintln(os.Stderr, "build: "+line)
-	return line
-}
+// sayLine is the build lane's one writer to stderr. ONE WRITER, TWO READERS:
+// the pod log a person tails while the lane runs, and the record the door folds
+// into a verdict. A second formatting path would let the two drift, and the log
+// is the evidence for the record.
+func sayLine(line string) { fmt.Fprintln(os.Stderr, "build: "+line) }
+
+// sprintf is fmt.Sprintf under a name that says why it is here: a lane formats
+// ONCE and then decides who gets the line.
+func sprintf(format string, args ...any) string { return fmt.Sprintf(format, args...) }
 
 // starOf is the star a repository URL or custody key names:
 // http://ourea…:8215/rob/ares.git and rob/ares are both ares.

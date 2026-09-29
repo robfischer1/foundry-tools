@@ -80,7 +80,7 @@ func casts(t *testing.T, m *FoundryTools) {
 
 func castWith(t *testing.T, m *FoundryTools, spire *dagger.Socket, token *dagger.Secret, doorbell string, dryRun bool) {
 	t.Helper()
-	if err := m.Cast(context.Background(), spire, token, doorbell, "https://hades:8102", "spiffe://notusmi.com/star/hades", dryRun); err != nil {
+	if err := m.Cast(context.Background(), spire, token, doorbell, "https://hades:8102", "spiffe://notusmi.com/star/hades", dryRun, nil); err != nil {
 		t.Fatalf("cast: %v", err)
 	}
 }

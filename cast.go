@@ -67,17 +67,39 @@ func (m *FoundryTools) Cast(
 	// nothing.
 	// +optional
 	dryRun bool,
+	// The run's record token (CA_RECORD_TOKEN), which authorises posting this
+	// run's record to the door it fetched the tree from. Absent and the lane
+	// posts nothing and settles on its exit code, exactly as it did before.
+	//
+	// A SECRET, NOT A STRING, for the reason GateFile's own token states at
+	// length: dagger echoes call arguments verbatim into plain-progress
+	// narration (dagger/dagger#14363), so a token passed as a string would be
+	// printed into the pod log and shipped to Loki. A Secret is masked.
+	// +optional
+	recordToken *dagger.Secret,
 ) error {
 	l := &castLane{
 		m: m, spire: spire, registryToken: registryToken, doorbellURL: doorbellURL,
 		hades: hades, hadesID: hadesID, dryRun: dryRun,
-		stamp: strconv.FormatInt(time.Now().UnixNano(), 10),
+		stamp:  strconv.FormatInt(time.Now().UnixNano(), 10),
+		phases: phases{group: castGroup, order: castPhases},
 	}
 	code, reason := l.run(ctx)
+	// THE RECORD EXPLAINS THE VERDICT; IT DOES NOT DECIDE IT. settle() is
+	// unchanged and the exit code is still what the door settles this lane on.
+	//
+	// THE MARSHAL ERROR IS DROPPED rather than branched on, for the reason
+	// GateFile's own comment gives: StageResult is strings, ints and slices, so
+	// json.Marshal cannot fail on it and the error arm is unreachable. A branch
+	// no test can take is a branch that should not exist.
+	record, _ := l.record("cast", code).Record()
+	postRecord(ctx, m.Repo, recordToken, record)
 	return settle(ctx, code, "cast: "+reason)
 }
 
 type castLane struct {
+	// phases records what each step of the lane answered. See lanerecord.go.
+	phases
 	m              *FoundryTools
 	spire          *dagger.Socket
 	registryToken  *dagger.Secret
@@ -94,28 +116,33 @@ type castLane struct {
 // filesystem, so the binaries can be read back out.
 const castTarget = "/work/target"
 
-func castSay(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "cast: "+format+"\n", args...)
-}
+func castSay(format string, args ...any) { castSayLine(sprintf(format, args...)) }
+
+// castSayLine is the cast lane's one writer to stderr, for the reason build's
+// own says at length: a lane formats once and then decides who gets the line —
+// the pod log a person tails, and the record the door folds into a verdict.
+func castSayLine(line string) { fmt.Fprintln(os.Stderr, "cast: "+line) }
 
 func (l *castLane) run(ctx context.Context) (int, string) {
 	m := l.m
 	if m.Repo == "" || m.Sha == "" {
-		return buildlane.CouldNotRun, "could not run: the cast lane casts a commit the engine fetched — construct the module with --repo and --sha"
+		return l.stop("cast:preflight", buildlane.CouldNotRun, "could not run: the cast lane casts a commit the engine fetched — construct the module with --repo and --sha")
 	}
 	if !l.dryRun && (l.spire == nil || l.registryToken == nil) {
-		return buildlane.CouldNotRun, "could not run: a cast stages, mints and verifies: --spire and --registry-token are both required (--dry-run needs neither)"
+		return l.stop("cast:preflight", buildlane.CouldNotRun, "could not run: a cast stages, mints and verifies: --spire and --registry-token are both required (--dry-run needs neither)")
 	}
+	l.seal("cast:preflight", buildlane.Clean, "the lane has its commit and its credentials")
 	star := starOf(m.Repo)
 	shard := "fleet/stars/" + star + "/slag.json"
 	slag, err := dag.Git(checks.DiesRepo).Ref(checks.DiesRef).Tree().File(shard).Contents(ctx)
 	if err != nil || strings.TrimSpace(slag) == "" {
-		return buildlane.CouldNotRun, fmt.Sprintf("could not run: no record for %s could be read at foundry-dies %s, so nothing says what it ships (%v)", star, shard, err)
+		return l.stop("cast:record", buildlane.CouldNotRun, fmt.Sprintf("could not run: no record for %s could be read at foundry-dies %s, so nothing says what it ships (%v)", star, shard, err))
 	}
 	c, err := castlane.FromRecord(slag)
 	if err != nil {
-		return buildlane.Findings, "findings: " + err.Error()
+		return l.stop("cast:record", buildlane.Findings, "findings: "+err.Error())
 	}
+	l.seal("cast:record", buildlane.Clean, "foundry-dies says "+star+" ships "+strings.Join(c.Binaries, ", "))
 	mode := ""
 	if l.dryRun {
 		mode = " — dry run: the build and the pin run for real; nothing is staged, minted or verified"
@@ -123,43 +150,52 @@ func (l *castLane) run(ctx context.Context) (int, string) {
 	castSay("%s at %.12s, binaries %v, payload_extra %v%s", c.Artifact(), m.Sha, c.Binaries, c.PayloadExtra, mode)
 
 	if _, ok, err := fileIn(ctx, m.Source, "cosign.pub"); err != nil {
-		return buildlane.CouldNotRun, fmt.Sprintf("could not run: the tree could not be read for cosign.pub: %v", err)
+		return l.stop("cast:cosign", buildlane.CouldNotRun, fmt.Sprintf("could not run: the tree could not be read for cosign.pub: %v", err))
 	} else if !ok {
-		return buildlane.Findings, "findings: this repo carries no cosign.pub, so a landed digest could not be verified — nothing was built"
+		return l.stop("cast:cosign", buildlane.Findings, "findings: this repo carries no cosign.pub, so a landed digest could not be verified — nothing was built")
 	}
+	l.seal("cast:cosign", buildlane.Clean, "the tree carries cosign.pub, so a landed digest can be verified")
 	payload, code, why := l.payload(ctx, c)
 	if code != buildlane.Clean {
-		return code, why
+		return l.stop("cast:payload", code, why)
 	}
+	l.seal("cast:payload", buildlane.Clean, "built and assembled what "+c.Artifact()+" ships")
 	pin, files, code, why := l.pin(ctx, payload)
 	if code != buildlane.Clean {
-		return code, why
+		return l.stop("cast:pin", code, why)
 	}
-	castSay("payload pins to %s over %d file(s): %s", pin, len(files), strings.Join(files, ", "))
+	l.say("payload pins to %s over %d file(s): %s", pin, len(files), strings.Join(files, ", "))
+	l.seal("cast:pin", buildlane.Clean, fmt.Sprintf("%d file(s) pin to %s", len(files), pin))
 	if l.dryRun {
-		return buildlane.Clean, fmt.Sprintf("clean: dry run — %d file(s) pin to %s for %s; nothing was staged, minted or verified", len(files), pin, c.Artifact())
+		// A DRY RUN STOPS HERE, CLEAN, and the stage, the mint and the
+		// signature are UNREACHED rather than passed. Reporting them as held
+		// would claim the one thing this mode deliberately does not do.
+		return l.stop("", buildlane.Clean, fmt.Sprintf("clean: dry run — %d file(s) pin to %s for %s; nothing was staged, minted or verified", len(files), pin, c.Artifact()))
 	}
 
 	token, err := l.registryToken.Plaintext(ctx)
 	if err != nil {
-		return buildlane.CouldNotRun, fmt.Sprintf("could not run: the registry token did not read: %v", err)
+		return l.stop("cast:stage", buildlane.CouldNotRun, fmt.Sprintf("could not run: the registry token did not read: %v", err))
 	}
 	l.registryConfig = dag.SetSecret("cast-registry-config", bundlelane.DockerConfig(bundlelane.RegistryHost, bundlelane.RegistryUser, strings.TrimSpace(token)))
 
 	ref := c.Stage(bundlelane.RegistryHost, pin)
 	digest, code, why := l.stage(ctx, payload, ref, files)
 	if code != buildlane.Clean {
-		return code, why
+		return l.stop("cast:stage", code, why)
 	}
-	castSay("staged %s@%s", ref, digest)
+	l.say("staged %s@%s", ref, digest)
+	l.seal("cast:stage", buildlane.Clean, "staged "+ref+"@"+digest)
 	r, code, why := l.mint(ctx, c, ref+"@"+digest, pin)
 	if code != buildlane.Clean {
-		return code, why
+		return l.stop("cast:mint", code, why)
 	}
-	castSay("mold minted %s at index %d (%s, %s)", r.Channel, r.Index, r.Pin, r.Digest)
+	l.say("mold minted %s at index %d (%s, %s)", r.Channel, r.Index, r.Pin, r.Digest)
+	l.seal("cast:mint", buildlane.Clean, fmt.Sprintf("mold minted %s at index %d (%s, %s)", r.Channel, r.Index, r.Pin, r.Digest))
 	if code, why := l.verify(ctx, c, r); code != buildlane.Clean {
-		return code, why
+		return l.stop("cast:verify", code, why)
 	}
+	l.seal("cast:verify", buildlane.Clean, "verified "+r.Digest+" against cosign.pub")
 	// DECLARED AFTER VERIFY AND BEFORE THE BELL. After, because a pin is a claim
 	// that this digest is the artifact — unverified is exactly the thing not to
 	// put in a reaper's keep-set. Before, because ring is best-effort and a
@@ -178,7 +214,12 @@ func (l *castLane) run(ctx context.Context) (int, string) {
 	// The tag is the PIN, not `stable`. stable moves; the keep-set is latest
 	// plus one rollback, and a rollback names a version.
 	declare(castSay, pins.Bundle(bundlelane.RegistryHost+"/app/"+c.Name+":"+r.Pin, r.Digest))
+	// THE BELL CANNOT FAIL THE CAST — ring answers a string and never a code,
+	// because the hosts' delivery timer delivers whether or not the doorbell
+	// answered. It seals CLEAN with whatever it reported, so the fact is on
+	// the record without voting on the verdict.
 	bell := l.ring(ctx, c, r)
+	l.seal("cast:ring", buildlane.Clean, strings.TrimPrefix(strings.TrimSpace(bell), "; "))
 	noop := ""
 	if r.NoOp {
 		noop = " (the channel's head already carried this pin; mold re-signed it and allocated no index)"
