@@ -280,6 +280,15 @@ func (b TestBroker) AdvertiseFor(scope string) string {
 // IT LIVES HERE BECAUSE IT IS A CONTRACT, NOT PLUMBING. The caller builds a dagger
 // container, which no unit test can inspect; this is a []string, which one can.
 //
+// IT IS rpk, NOT THE BARE BINARY, and that is not cosmetic. Every flag below is an
+// `rpk redpanda start` flag; the `redpanda` executable itself does not accept them
+// and refuses with "unrecognised option '--check=false'". The image's ENTRYPOINT is
+// the wrapper that shells out to rpk, so `docker run <image> redpanda start ...`
+// works while dagger's WithExec — which bypasses the entrypoint — does not. MEASURED
+// the hard way: tartarus #87 could-not-run on exactly that, after a local
+// `docker run` of the same argument list had succeeded. A local container check only
+// reproduces the lane if it bypasses the entrypoint too.
+//
 // AUTO-CREATION IS OFF, and the reason I first gave for it was WRONG. `--mode
 // dev-container` does turn auto_create_topics_enabled ON — that part is measured,
 // `rpk cluster config get` answering true. What I claimed followed from it does not:
@@ -301,7 +310,7 @@ func (b TestBroker) AdvertiseFor(scope string) string {
 // Struck rather than deleted so the next reader does not re-derive the wrong theory.
 func (b TestBroker) StartArgs(scope string) []string {
 	return []string{
-		"redpanda", "start",
+		"rpk", "redpanda", "start",
 		"--smp", "1", "--overprovisioned", "--node-id", "0", "--check=false",
 		"--mode", "dev-container",
 		"--set", "redpanda.auto_create_topics_enabled=false",
