@@ -880,9 +880,9 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	if len(dbs) > 0 || len(brokers) > 0 {
 		tags = []string{"-tags", checks.BuildTags(dbs, brokers)}
 	}
-	// NO CONFIG FILE TO FETCH. gomutants is flag-only, so the knobs are the argv
-	// below and the consts beside it — checks.go's retired TestkitRepo block says
-	// why that is one home rather than none.
+	// NO CONFIG FILE IS FETCHED, AND NONE IS HONOURED. The knobs are the argv
+	// below and the consts beside it; goMutationNoConfig is what stops the tree's
+	// own .gomutants.yml joining them, and says why that is not optional.
 	base := ctr
 
 	// COVER: the profile the scorer reads to tell a misjudged NOT COVERED from
@@ -962,6 +962,7 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 
 	// MUTATE.
 	args := append([]string{"gomutants", "-output", goMutationReport,
+		"-config", goMutationNoConfig,
 		"-workers", strconv.Itoa(goMutationWorkers),
 		"-disable", goMutationDisable,
 		"-exclude-files", goMutationExclude,
@@ -1143,6 +1144,39 @@ const (
 	// `i--`, which is a real operator on a real statement, and it was one of
 	// gremlins' five. These four are its numeric-literal namesakes.
 	goMutationDisable = "INTEGER_INCREMENT,INTEGER_DECREMENT,FLOAT_INCREMENT,FLOAT_DECREMENT"
+	// goMutationNoConfig IS WHAT MAKES THE ARGV THE WHOLE CONFIGURATION, and it
+	// closes a hole this lane shipped with.
+	//
+	// gomutants DOES read a config file: -config defaults to `.gomutants.yml`
+	// and config.Load reads it from the WORKDIR — the tree under check — while
+	// answering Default(),nil when it is absent. That silence is why the flip
+	// landed without anyone noticing: no repo carries one (measured, 0 of 77
+	// checkouts on origin/main), so the lane behaved exactly as if no such file
+	// existed. It would have kept behaving that way until the first repo wrote
+	// four lines.
+	//
+	// A FLAG ONLY WINS WHERE THERE IS A FLAG. Config.ApplyFlags runs after Load,
+	// so every knob this lane passes overrides the file — and every knob it does
+	// NOT pass is taken from the file unopposed. `only` is the sharp one, because
+	// it disables every mutator it does not name. MEASURED 2026-09-29, this
+	// argv, the canary fixture:
+	//
+	//	no file                    24 types enabled, 2 mutants found
+	//	only: [INVERT_BITWISE]      1 type  enabled, 0 mutants found, exit 0
+	//	  + -config /dev/null      24 types enabled, 2 mutants found
+	//
+	// A population of zero has no survivors, so the gate goes green over a repo
+	// that graded nothing. exclude-calls, coverpkg, integration, test-flags and
+	// mutants.enabled are unopposed the same way.
+	//
+	// THE RULE IS THE RETIRED .gremlins.yaml's RULE — A REPO HAS NO SAY — and it
+	// used to be enforced by WRITING the canonical config over whatever the tree
+	// carried. The knobs moved onto this argv, which is the better shape, but the
+	// enforcement has to move with them: /dev/null is a file Load reads to empty
+	// bytes with no error, so it keeps its own defaults and the tree's file is
+	// never opened. Not a path that merely does not exist — absence is what was
+	// indistinguishable from safety in the first place.
+	goMutationNoConfig = "/dev/null"
 	// goMutationExclude keeps generated Go out of the mutant population —
 	// vendored code, dagger's codegen, protobuf stubs and kubebuilder's
 	// zz_generated. See goMutation for the measurement.
@@ -1165,6 +1199,7 @@ const (
 // runner is not running what it thinks it is.
 func canaryVerdict(ctx context.Context, control *dagger.Container, dir string) string {
 	run := control.WithExec([]string{"gomutants",
+		"-config", goMutationNoConfig,
 		"-workers", "1",
 		"-cache=off",
 		"-disable", goMutationDisable,

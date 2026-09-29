@@ -307,12 +307,20 @@ const (
 // foundry-tools is not the tree under test either, and a repo can no more edit
 // this module than it could edit that file.
 //
-// gomutants takes flags and reads no config file, so keeping the split would
-// have meant inventing a file format to hold flags in another repo, plus the git
-// clone that fetched it and the could-not-run branch for when the door is
+// gomutants takes flags for every knob this gate sets, so keeping the split
+// would have meant inventing a file format to hold flags in another repo, plus
+// the git clone that fetched it and the could-not-run branch for when the door is
 // unreachable. One home, in the code that builds the argv, is the smaller
 // correct thing — goMutationDisable in atoms_go.go carries the set and the
 // measurement behind it.
+//
+// IT DOES ALSO READ A CONFIG FILE, and the first version of this paragraph said
+// otherwise. -config defaults to `.gomutants.yml` in the WORKDIR, which is the
+// tree under check, and a knob the argv does not pass is taken from it
+// unopposed — `only:` alone can empty the population and take the gate green
+// with it. That was measured, and it is now closed by goMutationNoConfig rather
+// than by this comment being right. The rule did not change; only what enforces
+// it did.
 //
 // TestkitRepo / TestkitRef went with it. The testkit is still the CLASSIFIER
 // (MutationGateModule above), which the lane installs by module path; the TREE
