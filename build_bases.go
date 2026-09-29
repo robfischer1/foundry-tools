@@ -82,6 +82,9 @@ func (l *buildLane) runBases(ctx context.Context, star string, bases []string) (
 	if err != nil {
 		return l.stop("build:detect", buildlane.CouldNotRun, err.Error())
 	}
+	// A FANOUT, NOT THE STAR SEQUENCE. Marked here so Unreached stays empty:
+	// the bases that ran are the bases there were.
+	l.fanout = true
 	l.seal("build:detect", buildlane.Clean, fmt.Sprintf("%d base image(s) under %s/", len(bases), buildlane.BasesDir))
 	worst := buildlane.Clean
 	var lines []string

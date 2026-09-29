@@ -27,7 +27,11 @@ func laneFor(t *testing.T, m *FoundryTools, tip bool) (*buildLane, int, string) 
 	t.Helper()
 	l := &buildLane{m: m, tip: tip, registry: "registry.notusmi.com",
 		sourceBase: "https://forgejo.notusmi.com/rob", hades: "https://hades:8102",
-		hadesID: "spiffe://notusmi.com/star/hades", stamp: "1"}
+		hadesID: "spiffe://notusmi.com/star/hades", stamp: "1",
+		// EXACTLY AS Build DOES, including the phase order — without it
+		// Unreached is empty and every case about what a run did NOT reach
+		// passes vacuously.
+		phases: phases{group: buildGroup, order: buildPhases}}
 	if tip {
 		l.spire = dag.LoadSocketFromID("spire-agent-socket")
 		l.registryAuth = dag.SetSecret("registry-auth", `{"auths":{"registry.notusmi.com":{"username":"publisher","password":"hunter2"}}}`)
@@ -204,8 +208,8 @@ func TestTheLanesStatesReadAsTheGatesResults(t *testing.T) {
 		{buildlane.Findings, "findings"},
 		{buildlane.CouldNotRun, "cannot-run"},
 	} {
-		if got := buildResult(c.code); got != c.want {
-			t.Errorf("buildResult(%d) = %q, want %q", c.code, got, c.want)
+		if got := phaseResult(c.code); got != c.want {
+			t.Errorf("phaseResult(%d) = %q, want %q", c.code, got, c.want)
 		}
 	}
 }
@@ -307,7 +311,7 @@ func TestABaseThatFailsLeavesTheOthersGraded(t *testing.T) {
 // renders with it. build:release seals empty on the common path, so a log that
 // printed a bare dash for it would be in front of every reader of every build.
 func TestTheRenderedLogOnlyDashesAPhaseThatGaveAReason(t *testing.T) {
-	l := &buildLane{}
+	l := &buildLane{phases: phases{group: buildGroup}}
 	l.seal("build:release", buildlane.Clean, "")
 	l.seal("build:image", buildlane.Clean, "built ares")
 
@@ -324,7 +328,7 @@ func TestTheRenderedLogOnlyDashesAPhaseThatGaveAReason(t *testing.T) {
 // trailing line is evidence when it is there, so it must be absent when there
 // is nothing to report rather than present and empty.
 func TestTheRenderedLogOmitsTheNeverReachedLineWhenNothingWasMissed(t *testing.T) {
-	l := &buildLane{}
+	l := &buildLane{phases: phases{group: buildGroup}}
 	l.seal("build:preflight", buildlane.Clean, "ready")
 
 	if got := l.renderLog(nil); strings.Contains(got, "never reached") {
