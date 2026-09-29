@@ -434,7 +434,7 @@ func TestGoMutationMeasuresTheDiffAndSettlesInGo(t *testing.T) {
 		// derived from, and a CACHED baseline is ~1s for a module that tests in
 		// minutes (ourea aeb9cd9 under gremlins: killed 72, TIMED OUT 79).
 		[]string{"withEnvVariable", `name:"GOFLAGS"`, `value:"-p=1 -count=1"`},
-		[]string{"withExec", `expect:ANY`, `"gomutants","-output","mutation-go.json","-workers","4","-disable","` + goMutationDisable + `","-exclude-files","` + strings.ReplaceAll(goMutationExclude, `\`, `\\`) + `","-changed-since","since0","./..."`},
+		[]string{"withExec", `expect:ANY`, `"gomutants","-output","mutation-go.json","-config","/dev/null","-workers","4","-disable","` + goMutationDisable + `","-exclude-files","` + strings.ReplaceAll(goMutationExclude, `\`, `\\`) + `","-changed-since","since0","./..."`},
 	)
 	// NO CONFIG FILE IS WRITTEN OR FETCHED, which is the other half of the argv
 	// being the knobs: a file here would mean two homes again, and the one this
@@ -449,7 +449,7 @@ func TestGoMutationMeasuresTheDiffAndSettlesInGo(t *testing.T) {
 		[]string{"withNewFile", `path:"/tmp/mutation/canary/go.mod"`},
 		[]string{"withNewFile", `path:"/tmp/mutation/canary/canary_test.go"`},
 		[]string{"withWorkdir", `path:"/tmp/mutation/canary"`},
-		[]string{"withExec", `"gomutants","-workers","1","-cache=off","-disable","` + goMutationDisable + `","-output","mutation-go.json","./..."`},
+		[]string{"withExec", `"gomutants","-config","/dev/null","-workers","1","-cache=off","-disable","` + goMutationDisable + `","-output","mutation-go.json","./..."`},
 		[]string{"file", goCanaryReportRead},
 	)
 	// THE SECOND CONTROL'S SHAPE IS THE TEST. A main package AT the module root
@@ -464,7 +464,7 @@ func TestGoMutationMeasuresTheDiffAndSettlesInGo(t *testing.T) {
 		[]string{"withNewFile", `path:"/tmp/mutation/maincanary/cmd/tool/main.go"`},
 		[]string{"withNewFile", `path:"/tmp/mutation/maincanary/cmd/tool/main_test.go"`},
 		[]string{"withWorkdir", `path:"/tmp/mutation/maincanary"`},
-		[]string{"withExec", `"gomutants","-workers","1","-cache=off","-disable","` + goMutationDisable + `","-output","mutation-go.json","./..."`},
+		[]string{"withExec", `"gomutants","-config","/dev/null","-workers","1","-cache=off","-disable","` + goMutationDisable + `","-output","mutation-go.json","./..."`},
 		[]string{"file", goMainCanaryReportRead},
 	)
 	if strings.Contains(main, `path:"/tmp/mutation/maincanary/main.go"`) {
@@ -595,7 +595,7 @@ func TestGoMutationSettlesWhatItMeasured(t *testing.T) {
 // canaryVerdict's two failure branches, because nothing covered them. `||` could
 // become `&&` and both early returns could be voided with every test green.
 func TestAControlThatDidNotRunNeverReadsAReport(t *testing.T) {
-	gomutantsExec := `"gomutants","-workers","1"`
+	gomutantsExec := `"gomutants","-config","/dev/null","-workers","1"`
 	for _, c := range []struct {
 		name   string
 		script func()
@@ -956,6 +956,52 @@ func TestLanesNamesTheNestedModulesTheGateRuns(t *testing.T) {
 // A REPO STILL HAS NO SAY: the file comes from that pinned repo through the
 // door, never from the tree under check, so a star cannot dial its own gate
 // down by editing itself.
+// A REPO HAS NO SAY, AND -config IS WHAT ENFORCES IT NOW.
+//
+// gomutants reads `.gomutants.yml` from the workdir — the tree under check — and
+// answers its own defaults when the file is absent, so its absence is
+// indistinguishable from safety. That silence is what let the flip land with this
+// hole: no repo carries one (0 of 77 checkouts, measured), so the lane behaved as
+// though the file could not exist.
+//
+// A FLAG ONLY WINS WHERE THERE IS A FLAG. ApplyFlags runs after the load, so the
+// six knobs this lane passes override the file and every other knob is taken from
+// it unopposed. MEASURED 2026-09-29 with this argv on the canary fixture:
+//
+//	no file                  24 types enabled, 2 mutants found
+//	only: [INVERT_BITWISE]    1 type  enabled, 0 mutants found, exit 0
+//	  + -config /dev/null    24 types enabled, 2 mutants found
+//
+// Zero mutants have no survivors, so four lines in a repo take its gate green
+// over a run that graded nothing. This asserts the flag is on EVERY gomutants
+// exec — the measured run and both controls — because a control that honoured the
+// tree's config would clear a runner the tree had just hobbled.
+func TestARepoCannotConfigureTheMutationGate(t *testing.T) {
+	scriptGoMutation(nil)
+	wantState(t, runAtom(t, "go:mutation", "abc123"), 0)
+	for _, c := range []struct{ name, needle string }{
+		{"the measured run", goMutantsNeedle},
+		{"the harness control", goCanaryNeedle},
+		{"the package-main control", goMainCanaryNeedle},
+	} {
+		chain := engine.chain(c.needle, `"gomutants"`)
+		if chain == "" {
+			t.Errorf("%s ran no gomutants at all", c.name)
+			continue
+		}
+		if !strings.Contains(chain, `"-config","`+goMutationNoConfig+`"`) {
+			t.Errorf("%s does not pass -config, so the tree's .gomutants.yml is honoured:\n%s", c.name, chain)
+		}
+	}
+	// AND THE PATH IS A FILE THAT READS EMPTY, not one that is merely missing.
+	// config.Load answers its own defaults for a nonexistent path, which is the
+	// same silence that hid this — a reader has to be able to tell "no config" from
+	// "nobody checked".
+	if goMutationNoConfig != "/dev/null" {
+		t.Errorf("goMutationNoConfig is %q; it must be a readable empty file", goMutationNoConfig)
+	}
+}
+
 func TestGoMutationFetchesNoConfigAndCarriesItsKnobsOnTheArgv(t *testing.T) {
 	scriptGoMutation(nil)
 	wantState(t, runAtom(t, "go:mutation", "abc123"), 0)
