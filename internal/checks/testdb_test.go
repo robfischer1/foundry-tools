@@ -260,6 +260,15 @@ func TestSelectBrokersNamesWhichReadRefused(t *testing.T) {
 			BrokerReads{Answers: answers, Slag: topics, Tags: "//go:build live_db\n"}, 0, "no test file sits behind a tag"},
 		{"topics named and the tag carried",
 			BrokerReads{Answers: answers, Slag: topics, Tags: tagged}, 1, "live_kafka → KAFKA_BOOTSTRAP"},
+		// GREP'S EXIT 1 IS AN ANSWER, NOT A FAILURE, and the boundary between it
+		// and 2 is the whole reason the guard reads `> 1`. A tree with no build
+		// tags at all is the COMMONEST case in the fleet: read `>= 1` and every
+		// one of those repos is told its tags "could not be read" instead of that
+		// no test sits behind one — a wrong diagnosis, delivered confidently.
+		{"grep matched nothing, which is an answer",
+			BrokerReads{Answers: answers, Slag: topics, Tags: "", TagsCode: 1}, 0, "no test file sits behind a tag"},
+		{"grep itself failed",
+			BrokerReads{Answers: answers, Slag: topics, Tags: "", TagsCode: 2}, 0, "build tags could not be read"},
 	} {
 		got, line := SelectBrokers(tc.reads)
 		if len(got) != tc.bound {
@@ -282,6 +291,13 @@ func TestSelectBrokersNamesWhichReadRefused(t *testing.T) {
 	if tagsUnread == tagsEmpty {
 		t.Errorf("a grep that failed and a grep that matched nothing are different refusals: %q", tagsUnread)
 	}
+	// The two sides of that boundary must not produce the same sentence.
+	_, matchedNothing := SelectBrokers(BrokerReads{Answers: answers, Slag: topics, TagsCode: 1})
+	_, grepFailed := SelectBrokers(BrokerReads{Answers: answers, Slag: topics, TagsCode: 2})
+	if matchedNothing == grepFailed {
+		t.Errorf("exit 1 is grep answering, exit 2 is grep failing: both said %q", matchedNothing)
+	}
+
 	// The order of the guards is itself a contract: a tree carrying the tag but a
 	// record naming no topics binds nothing, and says so about the RECORD.
 	_, line := SelectBrokers(BrokerReads{Answers: answers, Slag: `{"backends":{"kafka":[]}}`, Tags: tagged})
