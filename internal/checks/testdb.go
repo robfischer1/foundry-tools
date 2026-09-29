@@ -335,3 +335,54 @@ func TestBrokerScope(brokers []TestBroker, why string) string {
 	return "test brokers: " + strings.Join(parts, ", ") +
 		"; one broker serves every package — mint unique topic and group names per test"
 }
+
+// BrokerReads is the three reads withTestBrokers makes, handed over as data.
+//
+// THE DECISION IS PURE, THE I/O IS THE CALLER'S, and that split is not tidiness.
+// The first cut put all four guards inside the dagger method, where no unit test
+// can reach them: the mutation lane graded them NOT COVERED and LIVED on the very
+// pull that introduced them (foundry-tools #196, six survivors at atoms_go.go
+// 287-304). A guard no test can execute is a guard that is not there — so the
+// decision moved here, where every arm is a table row.
+//
+// An error is not the same fact as an empty read, for either one: a record that could not
+// be fetched and a record that names no topic are different refusals, and the
+// scope line has to say which.
+type BrokerReads struct {
+	// Answers is .copier-answers.yml's contents; "" when it could not be read.
+	Answers string
+	// Slag is the record's contents, SlagErr the error fetching it. The error
+	// distinguishes "could not fetch" from "fetched and says nothing".
+	Slag    string
+	SlagErr error
+	// Tags is the tree's `//go:build` grep output; TagsErr and TagsCode are the
+	// grep's own outcome. grep exits 1 for no match, which is an ANSWER; 2 and up
+	// is grep failing, which is not the same as the grep finding nothing.
+	Tags     string
+	TagsErr  error
+	TagsCode int
+}
+
+// SelectBrokers answers which brokers the lane binds and the scope line to print,
+// from the three reads. The empty slice is a decision, never an oversight — the
+// line always says which read refused.
+func SelectBrokers(r BrokerReads) ([]TestBroker, string) {
+	star := ServiceName(r.Answers)
+	if star == "" {
+		return nil, TestBrokerScope(nil, "no service_name in .copier-answers.yml, so no record to read")
+	}
+	if r.SlagErr != nil {
+		return nil, TestBrokerScope(nil, "no record at fleet/stars/"+star+"/slag.json")
+	}
+	if !KafkaBackend(r.Slag) {
+		return nil, TestBrokerScope(nil, "the record names no kafka topics")
+	}
+	if r.TagsErr != nil || r.TagsCode > 1 {
+		return nil, TestBrokerScope(nil, "the tree's build tags could not be read")
+	}
+	brokers := TestBrokersFor(GoBuildTags(r.Tags))
+	if len(brokers) == 0 {
+		return nil, TestBrokerScope(nil, "the record names kafka topics but no test file sits behind a tag the fleet names")
+	}
+	return brokers, TestBrokerScope(brokers, "")
+}

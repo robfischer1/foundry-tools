@@ -282,28 +282,21 @@ func (r *run) withTestDatabases(ctx context.Context, ctr *dagger.Container, scop
 // names — a suite that hardcodes a topic reads another package's records, which
 // is why TestBrokerScope prints the caveat on every run.
 func (r *run) withTestBrokers(ctx context.Context, ctr *dagger.Container, scope string) (*dagger.Container, []checks.TestBroker, string) {
+	// NO BRANCH LIVES HERE. This makes the three reads and hands them over as
+	// facts; every decision is checks.SelectBrokers', where a unit test can reach
+	// it. The first cut guarded in place and the mutation lane graded those guards
+	// NOT COVERED and LIVED on the pull that added them (#196, six survivors) — a
+	// guard no test can execute is a guard that is not there.
 	answers, _ := r.src.File(".copier-answers.yml").Contents(ctx)
-	star := checks.ServiceName(answers)
-	if star == "" {
-		return ctr, nil, checks.TestBrokerScope(nil, "no service_name in .copier-answers.yml, so no record to read")
-	}
-	slag, err := r.dies.File("fleet/stars/" + star + "/slag.json").Contents(ctx)
-	if err != nil {
-		return ctr, nil, checks.TestBrokerScope(nil, "no record at fleet/stars/"+star+"/slag.json")
-	}
-	if !checks.KafkaBackend(slag) {
-		return ctr, nil, checks.TestBrokerScope(nil, "the record names no kafka topics")
-	}
-	out, code, err := output(ctx, ctr.WithExec([]string{
+	slag, slagErr := r.dies.File("fleet/stars/" + checks.ServiceName(answers) + "/slag.json").Contents(ctx)
+	out, code, tagsErr := output(ctx, ctr.WithExec([]string{
 		"grep", "-rhoE", `^//go:build [A-Za-z0-9_]+$`, "--include=*_test.go", ".",
 	}, anyExit))
-	if err != nil || code > 1 {
-		return ctr, nil, checks.TestBrokerScope(nil, "the tree's build tags could not be read")
-	}
-	brokers := checks.TestBrokersFor(checks.GoBuildTags(out))
-	if len(brokers) == 0 {
-		return ctr, nil, checks.TestBrokerScope(nil, "the record names kafka topics but no test file sits behind a tag the fleet names")
-	}
+	brokers, scopeLine := checks.SelectBrokers(checks.BrokerReads{
+		Answers: answers,
+		Slag:    slag, SlagErr: slagErr,
+		Tags: out, TagsErr: tagsErr, TagsCode: code,
+	})
 	for _, b := range brokers {
 		// THE ADVERTISED ADDRESS IS THE ALIAS, and it is what makes this work
 		// through a binding at all. It also makes the service DEFINITION differ
@@ -322,7 +315,7 @@ func (r *run) withTestBrokers(ctx context.Context, ctr *dagger.Container, scope 
 			AsService()
 		ctr = ctr.WithServiceBinding(b.AliasFor(scope), svc).WithEnvVariable(b.Env, b.AddrFor(scope))
 	}
-	return ctr, brokers, checks.TestBrokerScope(brokers, "")
+	return ctr, brokers, scopeLine
 }
 
 // Every Go file is gofmt-clean.
