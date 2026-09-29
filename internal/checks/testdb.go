@@ -171,10 +171,21 @@ func BuildTags(dbs []TestDB, brokers []TestBroker) string {
 }
 
 // UncompiledTags is what the tree carries that the vocabulary does not name.
-func UncompiledTags(tags []string, dbs []TestDB) []string {
+//
+// IT HAS TO SEE BOTH VOCABULARIES. Told only about the databases, it reported
+// every broker tag as "not in the fleet's vocabulary" — on the same lane whose
+// very next line announced it had bound a broker for that tag. The word is built
+// from both (BuildTags), so the complement has to be taken against both, or the
+// scope line calls a compiled suite uncompiled. Measured on tartarus #87, whose
+// gate printed `tags left uncompiled ...: live_kafka` directly above
+// `test brokers: live_kafka -> KAFKA_BOOTSTRAP`.
+func UncompiledTags(tags []string, dbs []TestDB, brokers []TestBroker) []string {
 	named := map[string]bool{}
 	for _, d := range dbs {
 		named[d.Tag] = true
+	}
+	for _, b := range brokers {
+		named[b.Tag] = true
 	}
 	var out []string
 	for _, t := range tags {
@@ -280,14 +291,32 @@ func (b TestBroker) AdvertiseFor(scope string) string {
 // IT LIVES HERE BECAUSE IT IS A CONTRACT, NOT PLUMBING. The caller builds a dagger
 // container, which no unit test can inspect; this is a []string, which one can.
 //
-// IT IS rpk, NOT THE BARE BINARY, and that is not cosmetic. Every flag below is an
-// `rpk redpanda start` flag; the `redpanda` executable itself does not accept them
-// and refuses with "unrecognised option '--check=false'". The image's ENTRYPOINT is
-// the wrapper that shells out to rpk, so `docker run <image> redpanda start ...`
-// works while dagger's WithExec — which bypasses the entrypoint — does not. MEASURED
-// the hard way: tartarus #87 could-not-run on exactly that, after a local
-// `docker run` of the same argument list had succeeded. A local container check only
-// reproduces the lane if it bypasses the entrypoint too.
+// IT GOES THROUGH THE IMAGE'S ENTRYPOINT, and the caller must build the service
+// with WithDefaultArgs + AsService(UseEntrypoint), never WithExec. Both halves are
+// load-bearing and each was measured on its own against the pinned image:
+//
+//	WithExec(...)            + AsService()                  -> never becomes ready
+//	WithDefaultArgs(...)     + AsService(UseEntrypoint:true) -> ready in seconds
+//
+// A WithExec is an operation with a snapshot to COMMIT. A service command never
+// exits, so the commit never lands and dagger never marks the service ready: the
+// client exec that binds it is simply never started. The engine says so —
+// `commit output ref ...: context canceled` after the run is killed — and the
+// symptom upstream is a lane that emits nothing at all and dies on the silence
+// limit, with the broker's own log showing a perfectly healthy broker.
+//
+// THE ARGS ARE `redpanda start`, NOT `rpk redpanda start`, because the entrypoint
+// is the wrapper that shells out to rpk. The bare `redpanda` executable refuses
+// these flags with "unrecognised option '--check=false'" (tartarus #87), which is
+// true and is why an earlier fix reached for rpk directly — but bypassing the
+// entrypoint is what broke readiness. Through the entrypoint, `redpanda start` is
+// the spelling that works.
+//
+// --memory IS NOT OPTIONAL. A dagger container carries no memory cgroup limit, so
+// the entrypoint computes no bound and seastar reserves nearly the whole host:
+// the lane's broker logged mem_available 65410170880 on a 64G node. That alone
+// keeps the service from ever coming up. Measured: the same definition with these
+// flags and no --memory never becomes ready; with them it is ready in seconds.
 //
 // AUTO-CREATION IS OFF, and the reason I first gave for it was WRONG. `--mode
 // dev-container` does turn auto_create_topics_enabled ON — that part is measured,
@@ -310,8 +339,9 @@ func (b TestBroker) AdvertiseFor(scope string) string {
 // Struck rather than deleted so the next reader does not re-derive the wrong theory.
 func (b TestBroker) StartArgs(scope string) []string {
 	return []string{
-		"rpk", "redpanda", "start",
+		"redpanda", "start",
 		"--smp", "1", "--overprovisioned", "--node-id", "0", "--check=false",
+		"--memory", "1G", "--reserve-memory", "0M",
 		"--mode", "dev-container",
 		"--set", "redpanda.auto_create_topics_enabled=false",
 		"--kafka-addr", b.ListenFor(),
