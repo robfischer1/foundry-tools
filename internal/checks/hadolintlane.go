@@ -37,8 +37,9 @@ import (
 // pull are the same program at the same version — a finding here is a
 // finding there.
 const (
+	// renovate: datasource=github-releases depName=hadolint/hadolint extractVersion=^v(?<version>.*)$
 	HadolintVersion = "2.15.1"
-	HadolintURL     = "https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-linux-x86_64"
+	HadolintURL     = "https://github.com/hadolint/hadolint/releases/download/v" + HadolintVersion + "/hadolint-linux-x86_64"
 )
 
 // HadolintConfigPath is where the atom writes the fleet's ruleset inside the

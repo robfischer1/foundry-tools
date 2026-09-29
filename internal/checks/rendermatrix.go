@@ -41,6 +41,7 @@ import (
 // WHAT IS NOT PORTED: the script's --matrix, --case and --keep flags, and its
 // COPIER_VERSION env override. The atom is the only caller and passes none of
 // them (the reusable workflow that did retired with the act-runner).
+// renovate: datasource=pypi depName=copier
 const CopierVersion = "9.17.0"
 
 // MatrixCase is one declared render: the answers copier is given, and what the
