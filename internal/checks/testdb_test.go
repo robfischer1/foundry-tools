@@ -310,6 +310,13 @@ func TestStartArgsRefusesToInventTopics(t *testing.T) {
 	args := TestBrokers[0].StartArgs("")
 	joined := strings.Join(args, " ")
 
+	// INVOKED THROUGH rpk. The bare `redpanda` binary rejects every flag here —
+	// dagger's WithExec bypasses the image entrypoint that would otherwise shell out
+	// to rpk, and tartarus #87 could-not-run on "unrecognised option '--check=false'"
+	// after a local docker run of the same args had succeeded.
+	if len(args) < 3 || args[0] != "rpk" || args[1] != "redpanda" || args[2] != "start" {
+		t.Errorf("must invoke rpk, not the bare binary, which rejects these flags: %v", args[:min(3, len(args))])
+	}
 	// `--mode dev-container` turns auto-creation ON, so this setting is what keeps a
 	// topic the record never declared from springing into being. NOT, as I first wrote
 	// here, what keeps tartarus's undelivered-event test honest — measured both ways,
