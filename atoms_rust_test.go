@@ -54,7 +54,7 @@ func TestRustCargoFmtCompilesNothingAndFetchesNothing(t *testing.T) {
 		[]string{"withWorkdir", `path:"/src"`},
 		[]string{"withExec", `expect:ANY`, `args:["cargo","fmt","--all","--check"]`},
 	)
-	if strings.Contains(c, `"cargo","fetch"`) {
+	if strings.Contains(c, `"cargo","fetch","--locked"`) {
 		t.Errorf("rustfmt parses; nothing may fetch the dependency graph for it:\n%s", c)
 	}
 	if strings.Contains(c, "GATE_BASE") {
@@ -92,11 +92,11 @@ func TestRustCargoClippyNamesTheFleetsLintSetAfterTheSeparator(t *testing.T) {
 
 	c := engine.chain(`"cargo","clippy"`, "exitCode")
 	wantCalls(t, c,
-		[]string{"withExec", `args:["cargo","fetch"]`},
+		[]string{"withExec", `args:["cargo","fetch","--locked"]`},
 		[]string{"withExec", `expect:ANY`,
 			`args:["cargo","clippy","--workspace","--all-targets","--","-W","clippy::all","-D","warnings"]`},
 	)
-	if hasCall(c, "withExec", `args:["cargo","fetch"]`, "expect:ANY") {
+	if hasCall(c, "withExec", `args:["cargo","fetch","--locked"]`, "expect:ANY") {
 		t.Errorf("the fetch is provisioning and must run under the default Expect:\n%s", c)
 	}
 	if strings.Contains(c, "GATE_BASE") {
@@ -118,7 +118,7 @@ func TestRustCargoClippyNamesTheFleetsLintSetAfterTheSeparator(t *testing.T) {
 	// Rule 1: a registry outage is the engine's, not the committer's.
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	engine.fail(`"cargo","fetch"`, "failed to download `deranged v0.5.8`")
+	engine.fail(`"cargo","fetch","--locked"`, "failed to download `deranged v0.5.8`")
 	wantState(t, runAtom(t, "rust:cargo-clippy", ""), 2, "never ran", "deranged")
 }
 
@@ -134,12 +134,12 @@ func TestRustCargoTestListsTheSuiteBeforeItRunsIt(t *testing.T) {
 
 	list := engine.chain(`"--list"`, "exitCode")
 	wantCalls(t, list,
-		[]string{"withExec", `args:["cargo","fetch"]`},
+		[]string{"withExec", `args:["cargo","fetch","--locked"]`},
 		[]string{"withExec", `expect:ANY`, `args:["cargo","test","--workspace","--","--list"]`},
 	)
 	run := engine.chain(`args:["cargo","test","--workspace"]`, "exitCode")
 	wantCalls(t, run,
-		[]string{"withExec", `args:["cargo","fetch"]`},
+		[]string{"withExec", `args:["cargo","fetch","--locked"]`},
 		[]string{"withExec", `expect:ANY`, `args:["cargo","test","--workspace"]`},
 	)
 	if strings.Contains(run, "--list") {
@@ -259,7 +259,7 @@ func TestRustCargoAuditPassesItsOwnExitCodeThroughRaw(t *testing.T) {
 
 	c := engine.chain(`args:["cargo","audit"]`, "exitCode")
 	wantCalls(t, c,
-		[]string{"withExec", `args:["cargo","fetch"]`},
+		[]string{"withExec", `args:["cargo","fetch","--locked"]`},
 		[]string{"withExec", `args:["cargo","audit","--version"]`},
 		[]string{"withExec", `expect:ANY`, `args:["cargo","audit"]`},
 	)
@@ -316,11 +316,11 @@ func TestCargoDepsIsTheBaseOfEveryCompilingAtom(t *testing.T) {
 		engine.stdout(`"--list"`, "a::b: test\n")
 		runAtom(t, tc.id, "abc123")
 
-		c := engine.chain(`args:["cargo","fetch"]`)
+		c := engine.chain(`args:["cargo","fetch","--locked"]`)
 		if (c != "") != tc.fetches {
 			t.Errorf("%s fetches the dependency graph = %v, want %v", tc.id, c != "", tc.fetches)
 		}
-		if c != "" && hasCall(c, "withExec", `args:["cargo","fetch"]`, "expect:ANY") {
+		if c != "" && hasCall(c, "withExec", `args:["cargo","fetch","--locked"]`, "expect:ANY") {
 			t.Errorf("%s runs the fetch under expect:ANY; rule 1 says a registry outage is a could-not-run:\n%s", tc.id, c)
 		}
 	}
@@ -367,7 +367,7 @@ func TestRustMutationMeasuresTheDiffFromTheFetchedLayer(t *testing.T) {
 		t.Errorf("rust:mutation must run in the rust lane image:\n%s", c)
 	}
 	wantCalls(t, c,
-		[]string{"withExec", `args:["cargo","fetch"]`},
+		[]string{"withExec", `args:["cargo","fetch","--locked"]`},
 		[]string{"withEnvVariable", `name:"GATE_BASE"`, `value:"abc123"`},
 		[]string{"withExec", `args:["cargo","mutants","--version"]`},
 		[]string{"withNewFile", `path:"/tmp/mutation/pr.diff"`},
@@ -396,7 +396,7 @@ func TestRustMutationMeasuresTheDiffFromTheFetchedLayer(t *testing.T) {
 		[]string{"withoutEnvVariable", `name:"CARGO_TARGET_DIR"`},
 		[]string{"withoutMount", `path:"/cache/cargo-target"`},
 	)
-	fetch := lastCall(c, "withExec", `args:["cargo","fetch"]`)
+	fetch := lastCall(c, "withExec", `args:["cargo","fetch","--locked"]`)
 	drop := lastCall(c, "withoutEnvVariable", `name:"CARGO_TARGET_DIR"`)
 	if fetch < 0 || drop < 0 || drop < fetch {
 		t.Errorf("the target dir must be dropped after the fetch layer, not before it:\n%s", c)
@@ -481,7 +481,7 @@ func TestRustMutationStandsDownOrCannotRun(t *testing.T) {
 		reached []string
 		never   []string
 	}{
-		"no base": {"", nil, 0, nil, nil, []string{rustBaseNeedle, `args:["cargo","fetch"]`}},
+		"no base": {"", nil, 0, nil, nil, []string{rustBaseNeedle, `args:["cargo","fetch","--locked"]`}},
 		"a base the history lacks": {"abc123", func() { engine.exitCode(rustBaseNeedle, 1) }, 0, nil,
 			[]string{rustBaseNeedle}, []string{mergeBaseNeedle, rustDiffNeedle}},
 		"no merge base": {"abc123", func() { engine.exitCode(mergeBaseNeedle, 1) }, 2,
@@ -583,7 +583,7 @@ func TestRustReleaseBuildsWhatTheImageWillCarry(t *testing.T) {
 	wantState(t, runAtom(t, "rust:release", ""), 0, "release build: tron", "the star's own name", "--locked")
 	c := engine.chain(`"cargo","build","--release"`, "exitCode")
 	wantCalls(t, c,
-		[]string{"withExec", `args:["cargo","fetch"]`},
+		[]string{"withExec", `args:["cargo","fetch","--locked"]`},
 		[]string{"withEnvVariable", `name:"CARGO_TARGET_DIR"`, `value:"/work/target"`},
 		[]string{"withExec", `expect:ANY`, `args:["cargo","build","--release","--locked","-p","tron"]`},
 	)
@@ -591,7 +591,7 @@ func TestRustReleaseBuildsWhatTheImageWillCarry(t *testing.T) {
 	// rule: one fetch, then the build reads), and the target directory is
 	// the container's — set AFTER the lane's cache mounts named the cache
 	// volume's, so the override is the one cargo sees.
-	fetch, target, build := strings.Index(c, `"cargo","fetch"`), strings.LastIndex(c, `name:"CARGO_TARGET_DIR"`), strings.Index(c, `"cargo","build","--release"`)
+	fetch, target, build := strings.Index(c, `"cargo","fetch","--locked"`), strings.LastIndex(c, `name:"CARGO_TARGET_DIR"`), strings.Index(c, `"cargo","build","--release"`)
 	if !(fetch < target && target < build) {
 		t.Errorf("fetch, then the target override, then the build — got %d %d %d:\n%s", fetch, target, build, c)
 	}
@@ -743,8 +743,8 @@ func TestRustSharedTargetBuildsRunUnderTheStamp(t *testing.T) {
 		if c == "" {
 			t.Fatalf("%s: no chain ran %s", tc.atom, tc.needle)
 		}
-		wantCalls(t, c, []string{"withExec", `args:["cargo","fetch"]`}, stamp)
-		if strings.Index(c, `"cargo","fetch"`) > strings.Index(c, `"find"`) {
+		wantCalls(t, c, []string{"withExec", `args:["cargo","fetch","--locked"]`}, stamp)
+		if strings.Index(c, `"cargo","fetch","--locked"`) > strings.Index(c, `"find"`) {
 			t.Errorf("%s: the stamp follows the fetch:\n%s", tc.atom, c)
 		}
 	}
