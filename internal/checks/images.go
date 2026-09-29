@@ -96,6 +96,14 @@ const (
 	ImagePgvector = "docker.io/pgvector/pgvector:pg18@sha256:1d50c689b0a6511b9ea0a15615281c81a59fd04a08eb35057ec8646fb3a2118a"
 	ImagePostgres = "docker.io/library/postgres:18-bookworm@sha256:a10c981235b4f635e65df0cfb66a5598064628128505dbc6a3ed4ca303717521"
 
+	// THE TEST BROKER a Go star's broker-gated suites run against (testdb.go's
+	// TestBrokers, tag `live_kafka`). Redpanda, NOT cp-kafka: the fleet's broker
+	// is Redpanda, and a fixture standing for a different implementation pins
+	// conformance to the wrong substrate. This is the SAME digest
+	// forge-testkit-go's containers.Kafka fixture pulls, so a suite moving off
+	// that fixture and onto the lane's service does not also change broker build.
+	ImageRedpanda = "docker.notusmi.com/redpandadata/redpanda@sha256:6d627e3ebdc05438d1e8e3b55695ac1a7a0f79e7d5ca90b3b0f12dc984633e83"
+
 	// THE BUILD LANE'S TOOLS, run by their own entrypoints: cosign signs the
 	// published image and attests its SBOM, syft reads that SBOM, and the
 	// empty static base runs the lane's own two binaries (verdict, hadescall).

@@ -63,7 +63,7 @@ func TestTheVocabularyBindsInOrderAndNamesTheRest(t *testing.T) {
 	if len(dbs) != 2 || dbs[0].Tag != "live_db" || dbs[1].Tag != "live_db_novector" {
 		t.Fatalf("TestDBsFor = %+v", dbs)
 	}
-	if got := BuildTags(dbs); got != "live_db,live_db_novector" {
+	if got := BuildTags(dbs, nil); got != "live_db,live_db_novector" {
 		t.Errorf("BuildTags = %q", got)
 	}
 	if got := UncompiledTags(tags, dbs); !reflect.DeepEqual(got, []string{"integration"}) {
@@ -109,7 +109,7 @@ func TestTheVocabularyBindsInOrderAndNamesTheRest(t *testing.T) {
 	if rev[0].Tag != "live_db" {
 		t.Errorf("binding order is the vocabulary's, not the tree's: %+v", rev)
 	}
-	if got := BuildTags(nil); got != "" {
+	if got := BuildTags(nil, nil); got != "" {
 		t.Errorf("no databases, no -tags word: %q", got)
 	}
 	// Every vocabulary entry points at a pinned image the fleet checks.
@@ -133,5 +133,103 @@ func TestTestDBScopeIsPrintedEitherWay(t *testing.T) {
 	}
 	if strings.Contains(TestDBScope(TestDBs[:1], nil, ""), "uncompiled") {
 		t.Errorf("nothing uncompiled, nothing said about it")
+	}
+}
+
+func TestTheBrokerVocabularyBindsAndAddressesItself(t *testing.T) {
+	brokers := TestBrokersFor([]string{"integration", "live_kafka"})
+	if len(brokers) != 1 || brokers[0].Tag != "live_kafka" {
+		t.Fatalf("TestBrokersFor = %+v", brokers)
+	}
+	b := brokers[0]
+	if b.Env != "KAFKA_BOOTSTRAP" {
+		t.Errorf("the fleet's name for a bootstrap address is KAFKA_BOOTSTRAP, got %q", b.Env)
+	}
+	// The shared binding, and a lane's own.
+	if got := b.AddrFor(""); got != "broker:9092" {
+		t.Errorf("AddrFor(shared) = %q", got)
+	}
+	if got := b.AddrFor("mutation"); got != "broker-mutation:9092" {
+		t.Errorf("AddrFor(lane) = %q", got)
+	}
+	// ADVERTISED IS THE ALIAS, LISTENED IS EVERY INTERFACE. Swap these and the
+	// broker answers the first connection, then hands the client an address it
+	// cannot dial — a hang, not a refusal.
+	if got := b.AdvertiseFor("mutation"); got != "PLAINTEXT://broker-mutation:9092" {
+		t.Errorf("AdvertiseFor = %q", got)
+	}
+	if got := b.ListenFor(); got != "PLAINTEXT://0.0.0.0:9092" {
+		t.Errorf("ListenFor = %q", got)
+	}
+	// A scoped lane's definition differs WITHOUT a perturbation, because the
+	// advertised address carries the alias. That is the property the database
+	// path needs FOUNDRY_TEST_DB_LANE to buy.
+	if b.AdvertiseFor("") == b.AdvertiseFor("mutation") {
+		t.Error("two lanes must not build byte-identical broker definitions")
+	}
+	if got := BuildTags(nil, brokers); got != "live_kafka" {
+		t.Errorf("BuildTags(brokers only) = %q", got)
+	}
+	if got := BuildTags(TestDBs[:1], brokers); got != "live_db,live_kafka" {
+		t.Errorf("databases before brokers, one word: %q", got)
+	}
+	for _, e := range TestBrokers {
+		if !strings.Contains(e.Image, "@sha256:") {
+			t.Errorf("%s: image is not pinned: %s", e.Tag, e.Image)
+		}
+	}
+}
+
+func TestKafkaBackendReadsAnArrayOfTopicsNotAnObject(t *testing.T) {
+	// The shape is NOT postgres'. backends.kafka is the array of topics the star
+	// carries; a star with no broker records false.
+	for _, tc := range []struct {
+		name string
+		slag string
+		want bool
+	}{
+		{"topics named", `{"backends":{"kafka":["ci-attest","tartarus.acts"]}}`, true},
+		{"one topic", `{"backends":{"kafka":["session-events"]}}`, true},
+		{"false", `{"backends":{"kafka":false}}`, false},
+		{"empty array names no seam", `{"backends":{"kafka":[]}}`, false},
+		{"absent", `{"backends":{"postgres":{"database":"x"}}}`, false},
+		{"no backends", `{}`, false},
+		{"unparseable", `{`, false},
+		// An object is postgres' shape, not kafka's: reading one as the other is
+		// how a star with a database would have been handed a broker.
+		{"an object is not a topic list", `{"backends":{"kafka":{"topics":["a"]}}}`, false},
+	} {
+		if got := KafkaBackend(tc.slag); got != tc.want {
+			t.Errorf("%s: KafkaBackend = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	// The two predicates do not read each other's field.
+	both := `{"backends":{"kafka":["a"],"postgres":{"database":"x"}}}`
+	if !KafkaBackend(both) || !PostgresBackend(both) {
+		t.Error("a star with both backends declares both")
+	}
+	if PostgresBackend(`{"backends":{"kafka":["a"]}}`) {
+		t.Error("topics are not a postgres declaration")
+	}
+	if KafkaBackend(`{"backends":{"postgres":{"database":"x"}}}`) {
+		t.Error("a database is not a topic list")
+	}
+}
+
+func TestTestBrokerScopeIsPrintedEitherWayAndCarriesTheCaveat(t *testing.T) {
+	none := TestBrokerScope(nil, "the record names no kafka topics")
+	if !strings.HasPrefix(none, "test brokers: none — ") || !strings.Contains(none, "no kafka topics") {
+		t.Errorf("%q", none)
+	}
+	some := TestBrokerScope(TestBrokers, "")
+	for _, want := range []string{"live_kafka → KAFKA_BOOTSTRAP", "unique topic and group names"} {
+		if !strings.Contains(some, want) {
+			t.Errorf("%q lacks %q", some, want)
+		}
+	}
+	// The caveat rides on the BOUND line, not the empty one: there is nothing to
+	// warn about when no broker was brought.
+	if strings.Contains(none, "unique topic") {
+		t.Errorf("no broker, no caveat: %q", none)
 	}
 }

@@ -181,12 +181,19 @@ func goTestIn(ctx context.Context, r *run, a checks.AtomDef, dir string, race bo
 	scope := "unit suite: no race detector and no database — go:test-race runs those at the push"
 	if race {
 		var dbs []checks.TestDB
+		var brokers []checks.TestBroker
+		var bscope string
 		// The shared binding: the complex checks run in sequence, so they do
 		// not contend with each other. Only the mutation gate runs beside them.
 		mods, dbs, scope = r.withTestDatabases(ctx, mods, "")
+		mods, brokers, bscope = r.withTestBrokers(ctx, mods, "")
+		scope = scope + "\n" + bscope
 		args = append(args, "-race")
-		if len(dbs) > 0 {
-			args = append(args, "-tags", checks.BuildTags(dbs), "-p", "1")
+		// `-p 1` for EITHER kind. The databases share one server and the suites
+		// reset its schema; one broker serves every package and its isolation
+		// unit is the topic. Parallel packages break both the same way.
+		if len(dbs) > 0 || len(brokers) > 0 {
+			args = append(args, "-tags", checks.BuildTags(dbs, brokers), "-p", "1")
 		}
 	}
 	args = append(args, "./...")
@@ -257,6 +264,65 @@ func (r *run) withTestDatabases(ctx context.Context, ctr *dagger.Container, scop
 		ctr = ctr.WithServiceBinding(d.AliasFor(scope), svc).WithEnvVariable(d.Env, d.DSNFor(scope))
 	}
 	return ctr, dbs, checks.TestDBScope(dbs, checks.UncompiledTags(tags, dbs), "")
+}
+
+// withTestBrokers binds the fleet's test broker to a lane container for the
+// broker-gated suites the tree carries, when the star's RECORD names topics —
+// checks/testdb.go carries the reasoning and the vocabulary.
+//
+// THE SAME THREE READS as withTestDatabases, and none of them a knob: the star's
+// name off the answers file, its record off the mounted dies, and the tree's
+// single-tag `//go:build` lines off one recursive grep. The grep is the same exec
+// the database path runs, so the engine serves it from cache rather than twice.
+//
+// NO ISOLATION HELPER, unlike the database path, and that is the broker's own
+// contract rather than a shortcut: kafka's isolation unit is the topic plus the
+// consumer group, so one bound broker has exactly the semantics
+// forge-testkit-go's fixture documented. What the lane CANNOT do is mint the
+// names — a suite that hardcodes a topic reads another package's records, which
+// is why TestBrokerScope prints the caveat on every run.
+func (r *run) withTestBrokers(ctx context.Context, ctr *dagger.Container, scope string) (*dagger.Container, []checks.TestBroker, string) {
+	answers, _ := r.src.File(".copier-answers.yml").Contents(ctx)
+	star := checks.ServiceName(answers)
+	if star == "" {
+		return ctr, nil, checks.TestBrokerScope(nil, "no service_name in .copier-answers.yml, so no record to read")
+	}
+	slag, err := r.dies.File("fleet/stars/" + star + "/slag.json").Contents(ctx)
+	if err != nil {
+		return ctr, nil, checks.TestBrokerScope(nil, "no record at fleet/stars/"+star+"/slag.json")
+	}
+	if !checks.KafkaBackend(slag) {
+		return ctr, nil, checks.TestBrokerScope(nil, "the record names no kafka topics")
+	}
+	out, code, err := output(ctx, ctr.WithExec([]string{
+		"grep", "-rhoE", `^//go:build [A-Za-z0-9_]+$`, "--include=*_test.go", ".",
+	}, anyExit))
+	if err != nil || code > 1 {
+		return ctr, nil, checks.TestBrokerScope(nil, "the tree's build tags could not be read")
+	}
+	brokers := checks.TestBrokersFor(checks.GoBuildTags(out))
+	if len(brokers) == 0 {
+		return ctr, nil, checks.TestBrokerScope(nil, "the record names kafka topics but no test file sits behind a tag the fleet names")
+	}
+	for _, b := range brokers {
+		// THE ADVERTISED ADDRESS IS THE ALIAS, and it is what makes this work
+		// through a binding at all. It also makes the service DEFINITION differ
+		// per lane for free — the database path needs FOUNDRY_TEST_DB_LANE to
+		// achieve the same thing, because dagger content-addresses services and
+		// two lanes with byte-identical definitions were handed one server.
+		svc := dag.Container().From(b.Image).
+			WithExposedPort(b.Port).
+			WithExec([]string{
+				"redpanda", "start",
+				"--smp", "1", "--overprovisioned", "--node-id", "0", "--check=false",
+				"--mode", "dev-container",
+				"--kafka-addr", b.ListenFor(),
+				"--advertise-kafka-addr", b.AdvertiseFor(scope),
+			}).
+			AsService()
+		ctr = ctr.WithServiceBinding(b.AliasFor(scope), svc).WithEnvVariable(b.Env, b.AddrFor(scope))
+	}
+	return ctr, brokers, checks.TestBrokerScope(brokers, "")
 }
 
 // Every Go file is gofmt-clean.
@@ -763,6 +829,8 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	// ITS OWN SERVER, because this lane runs BESIDE the complex checks rather
 	// than after them, and go:test-race resets the same schema per test.
 	ctr, dbs, scope := r.withTestDatabases(ctx, ctr, mutationDBLane)
+	ctr, brokers, bscope := r.withTestBrokers(ctx, ctr, mutationDBLane)
+	scope = scope + "\n" + bscope
 	// The scope line is set on the verdict, not folded into the output: a pass
 	// keeps no output (checks.VerdictOf), and the line is printed either way.
 	//
@@ -815,8 +883,8 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	}
 
 	var tags []string
-	if len(dbs) > 0 {
-		tags = []string{"--tags", checks.BuildTags(dbs)}
+	if len(dbs) > 0 || len(brokers) > 0 {
+		tags = []string{"--tags", checks.BuildTags(dbs, brokers)}
 	}
 	// THE CANONICAL CONFIG, at its one home. A read that fails is a lane that
 	// could not measure, never a gate that passes: without this file gremlins
@@ -838,8 +906,8 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	// 4m44s of an 11m44s lane for a pull that touched one package whose
 	// suite runs in ~100s. goMutationCoverPackages names the packages.
 	coverArgs := []string{"go", "test", "-cover", "-coverprofile", goMutationProfile}
-	if len(dbs) > 0 {
-		coverArgs = append(coverArgs, "-tags", checks.BuildTags(dbs), "-p", "1")
+	if len(dbs) > 0 || len(brokers) > 0 {
+		coverArgs = append(coverArgs, "-tags", checks.BuildTags(dbs, brokers), "-p", "1")
 	}
 	covered := canonical.WithExec(append(coverArgs, goMutationCoverPackages(changed)...), anyExit)
 	if _, err := covered.ExitCode(ctx); err != nil {
@@ -898,8 +966,8 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	misgraded := checks.GoMisgradedFiles{}
 	var misgradedErr string
 	listArgs := []string{"go", "list", "-e", "-f", checks.GoMainFilesFormat}
-	if len(dbs) > 0 {
-		listArgs = append(listArgs, "-tags", checks.BuildTags(dbs))
+	if len(dbs) > 0 || len(brokers) > 0 {
+		listArgs = append(listArgs, "-tags", checks.BuildTags(dbs, brokers))
 	}
 	switch out, code, err := output(ctx, canonical.WithExec(append(listArgs, "./..."), anyExit)); {
 	case err != nil:
