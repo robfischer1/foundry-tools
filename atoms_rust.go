@@ -58,8 +58,34 @@ func cargoVerdict(ctx context.Context, a checks.AtomDef, ctr *dagger.Container) 
 // to point at first.
 // cargoDeps is the rust lane's provisioned base: the lane container with the
 // dependency graph fetched. See the file header for the measurement behind it.
+//
+// --locked, AND IT IS THE GATE'S ONLY VIEW OF THE LOCK. Every lock-dependent
+// atom branches from here, so this one flag is where a stale Cargo.lock gets
+// caught -- at the fetch, before a single crate compiles.
+//
+// WITHOUT IT THE GATE AND THE CAST DISAGREED ABOUT WHAT THEY WERE BUILDING.
+// The cast's release build has always passed --locked
+// (`cargo build --release --locked -p <pkg>`, checks.RustReleaseArgs),
+// correctly: a release must build from the RECORDED graph, not from whatever
+// resolves today. The gate passed nothing, so cargo silently re-resolved,
+// wrote a lock the container then threw away, and reported green. A stale lock
+// was therefore invisible to every pre-merge signal and fatal to the one lane
+// that ships.
+//
+// MEASURED, 2026-09-29. renovate moves a MANIFEST's git dependency without
+// regenerating the lock -- it regenerates for registry deps and not for these
+// -- and the result landed on main three times before anyone looked: cerberus
+// (rob/cerberus#96), anvil and bellows. cerberus's cast was red for every
+// landing that day while `app/cerberus:stable` sat at one bundle behind, so
+// main advanced and nothing reached a host.
+//
+// THE COST IS A TWO-STEP ON A GIT-DEP BUMP, and it is the right cost: such a
+// PR now reds its own gate until the lock is regenerated, which is simply the
+// gate noticing that the change is incomplete. Blast radius was measured
+// before landing this -- `cargo fetch --locked` across all nine rust stars,
+// two stale, both repaired first -- so no star reds on the change itself.
 func (r *run) cargoDeps() *dagger.Container {
-	return r.lane(checks.ImageRust).WithExec([]string{"cargo", "fetch"})
+	return r.lane(checks.ImageRust).WithExec([]string{"cargo", "fetch", "--locked"})
 }
 
 // cargoFresh is cargoDeps for the atoms that build into the shared
