@@ -164,7 +164,7 @@ func TestTheProvisionedToolsArePinnedAndTheReleaseURLCarriesTheVersion(t *testin
 	if !strings.Contains(OpengrepURL, "/"+OpengrepVersion+"/") || !strings.HasSuffix(OpengrepURL, "/opengrep_manylinux_x86") {
 		t.Errorf("the opengrep URL does not name the pin and the artefact: %s", OpengrepURL)
 	}
-	for _, mod := range []string{StaticcheckModule, GovulncheckModule, GremlinsModule, MutationGateModule} {
+	for _, mod := range []string{StaticcheckModule, GovulncheckModule, GomutantsModule, MutationGateModule} {
 		at := strings.LastIndex(mod, "@")
 		if at < 0 || at == len(mod)-1 || mod[at+1:] == "latest" {
 			t.Errorf("go tool %q is not pinned to a version", mod)

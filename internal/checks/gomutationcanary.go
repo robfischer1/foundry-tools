@@ -1,32 +1,41 @@
 package checks
 
 import (
+	"encoding/json"
 	"path"
 	"strings"
 )
 
 // THE CONTROLS FOR THE GO MUTATION GATE, and the file set one of them governs.
 //
-// A MUTATION RUN'S OWN OUTPUT CANNOT SAY WHETHER IT MEASURED ANYTHING. gremlins'
+// A MUTATION RUN'S OWN OUTPUT CANNOT SAY WHETHER IT MEASURED ANYTHING. The
 // oracle is the test process's exit code, so both ways it can be wrong produce a
 // report that reads exactly like a measurement:
 //
 //  1. IT NEVER STARTS THE CHILD. Every mutant reads KILLED and a broken harness
-//     scores perfectly (v0.6.0 mangled --test-cpu into one argv word, #7649: 264
-//     "kills" in 262ms). No wall-clock floor detects it — a failing `go test`
-//     costs ~1ms in CI and ~250ms on a host re-execing a toolchain.
-//  2. IT GRADES THE WRONG PACKAGE. It resolves a file's package from the PACKAGE
-//     CLAUSE, so every file in a `package main` resolves to the module root
-//     (upstream gremlins#268, open since Jan 2026; fix open at #306). The tests it
-//     then runs for such a mutant are not the tests that cover it.
+//     scores perfectly (gremlins v0.6.0 mangled --test-cpu into one argv word,
+//     #7649: 264 "kills" in 262ms). No wall-clock floor detects it — a failing
+//     `go test` costs ~1ms in CI and ~250ms on a host re-execing a toolchain.
+//  2. IT GRADES THE WRONG PACKAGE. gremlins resolved a file's package from the
+//     PACKAGE CLAUSE, so every file in a `package main` resolved to the module
+//     root (gremlins#268). The tests it then ran for such a mutant were not the
+//     tests that cover it.
 //
-// Each control is a module whose ONE mutant has a known honest verdict, run by
-// the same binary with the same config, so a wrong answer there is the same
-// wrongness the real run carries. Both read through GoMutationCanary and both
-// expect LIVED. What differs is what a broken answer MEANS: the harness control
-// is fatal — a harness that cannot run tests measured nothing — while the
-// package-main control is the EXPECTED answer on gremlins 0.6.0 and switches on
-// an exclusion instead. GoMutationVerdict holds that asymmetry.
+// BOTH CONTROLS SURVIVE THE MOVE TO gomutants, and #2 is why the second one is
+// kept rather than deleted on a promise. gomutants resolves packages properly
+// and MEASURED CLEAN against the shape of #268 on 2026-09-29 — a `package main`
+// at cmd/tool with nothing at the module root, graded LIVED, the honest verdict.
+// That is a measurement of one version of one tool, and the control is what
+// re-takes it on every run. When it has stood green for a while, ScoreGoMutation's
+// `ungraded` bucket and GoMisgradedFiles below go with it, and the control last.
+//
+// Each control is a module whose mutants have a known honest verdict, run by the
+// same binary with the same flags, so a wrong answer there is the same wrongness
+// the real run carries. Both read through GoMutationCanary and both expect a
+// survivor. What differs is what a broken answer MEANS: the harness control is
+// fatal — a harness that cannot run tests measured nothing — while the
+// package-main control switches on an exclusion instead. GoMutationVerdict holds
+// that asymmetry.
 
 // The canary's answers.
 const (
@@ -35,16 +44,61 @@ const (
 	CanaryUnknown = "unknown"
 )
 
-// GoMutationCanary reads a control run's gremlins output. A control's honest
-// verdict is one LIVED mutant: a run that graded it answers Killed 0 / Lived 1,
-// one that did not answers Killed 1, and anything else could not be read.
-func GoMutationCanary(out string) string {
-	switch {
-	case strings.Contains(out, "Killed: 0, Lived: 1"):
-		return CanaryOK
-	case strings.Contains(out, "Lived: 0"):
-		return CanaryBroken
+// GoMutationCanary reads a control run's JSON REPORT — the same wire shape
+// ScoreGoMutation parses, so the control and the run being controlled are read
+// by one contract.
+//
+// A CONTROL'S HONEST VERDICT IS A SHAPE, NOT A COUNT. Every mutant in both
+// fixtures is under-tested on purpose, so a run that GRADED them kills none and
+// survives at least one. Killing any of them means the runner is not running the
+// tests it thinks it is — the failure this exists to catch — and that is broken
+// whatever else the report says.
+//
+// It is deliberately NOT "lived == 1". The old form matched the literal string
+// "Killed: 0, Lived: 1" in gremlins' summary, which pinned both the formatting
+// and the exact population; gomutants finds two mutants in the same four-line
+// fixture, so that test would answer `unknown` forever and a control that cannot
+// fail controls nothing. A mutator set changing the count is not a broken
+// harness.
+//
+// NOT COVERED AND NOT VIABLE DO NOT VOTE. Neither is a graded verdict, so
+// neither can say whether the tests ran; the maincanary's `func main` body earns
+// a few of the former and it is not evidence either way.
+func GoMutationCanary(report string) string {
+	var d struct {
+		Files []struct {
+			Mutations []struct {
+				Status string `json:"status"`
+			} `json:"mutations"`
+		} `json:"files"`
 	}
+	// A PARSE FAILURE NEEDS NO BRANCH OF ITS OWN, and that is a measurement
+	// rather than a preference. `if err != nil { return CanaryUnknown }` here was
+	// an UNKILLABLE mutant: a failed unmarshal leaves d zero-valued, so the count
+	// below is 0 and 0 and the fall-through already answers unknown — identical,
+	// for every input, which is why deleting the branch is the fix and forgiving
+	// the mutant would not have been. Found by gomutants on this very diff
+	// (2026-09-29, 23 mutants, this the only survivor).
+	_ = json.Unmarshal([]byte(report), &d)
+	var killed, lived int
+	for _, f := range d.Files {
+		for _, m := range f.Mutations {
+			switch m.Status {
+			case "KILLED":
+				killed++
+			case "LIVED":
+				lived++
+			}
+		}
+	}
+	switch {
+	case killed > 0:
+		return CanaryBroken
+	case lived > 0:
+		return CanaryOK
+	}
+	// Nothing graded either way: no mutants, or every one inert. That is not a
+	// control that passed and not one that failed — it is one that did not run.
 	return CanaryUnknown
 }
 

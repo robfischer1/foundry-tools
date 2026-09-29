@@ -24,13 +24,13 @@ package checks
 // volatile tools in the next layer, most volatile tools last." So: from(the
 // toolchain) → the distro packages the image lacks → the stable binaries
 // (uv, node) → the pinned scanner (opengrep) → the tools built from
-// source at a version that moves most (staticcheck, govulncheck, gremlins;
+// source at a version that moves most (staticcheck, govulncheck, gomutants;
 // cargo-audit, cargo-mutants). A cache hit survives everything but the last
 // layer moving.
 //
 // WHAT EACH LANE EXECS, measured at the exec sites (atoms_*.go):
 //
-//	go       go, staticcheck, govulncheck, gremlins, git
+//	go       go, staticcheck, govulncheck, gomutants, git
 //	python   uv, uvx, python3, prlimit, opengrep, git, tar, bash; opa (dies)
 //	         the atoms fetch themselves, pinned below
 //	rust     cargo (+ rustfmt, clippy, audit, mutants), git
@@ -166,9 +166,28 @@ const (
 
 	StaticcheckModule = "honnef.co/go/tools/cmd/staticcheck@2025.1.1"
 	GovulncheckModule = "golang.org/x/vuln/cmd/govulncheck@v1.1.4"
-	GremlinsModule    = "github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0"
+	// GomutantsModule is the Go mutation runner. It replaced gremlins v0.6.0 on
+	// 2026-09-29 and the flip was decided by measurement, on ourea's
+	// internal/gatejob at 5743c86 against 8d9f610 — the same tree and the same
+	// diff gremlins had just scored as ZERO survivors:
+	//
+	//	gremlins   28 viable, 0 lived                     148s
+	//	gomutants  114 tested, 5 survivors, 0 timed out     69s
+	//
+	// The five are real: an unasserted `%w` wrap, an unexercised no-annotation
+	// guard, an unexercised name-mismatch skip, an unexercised error return, and
+	// a loop body no test reaches. gremlins never GENERATED any of them, because
+	// its five mutators do not include the operators that make them.
+	//
+	// THE MODULE PATH IS NOT THE REPO PATH, and `go install
+	// github.com/gomutants/gomutants@latest` fails on exactly that: the go.mod
+	// declares `github.com/szhekpisov/gomutants`. Reported upstream; the declared
+	// path is what installs.
+	//
+	// renovate: datasource=go depName=github.com/szhekpisov/gomutants
+	GomutantsModule = "github.com/szhekpisov/gomutants@v0.6.1"
 	// MutationGateModule is forge-testkit-go's gate, run in the lane after
-	// gremlins for its -json classification of what is unkillable — the AST
+	// the mutation run for its -json classification of what is unkillable — the AST
 	// walk that decides a top-level declaration or a case expression has no
 	// coverage block. It is installed the way gremlins is, through GoProxy,
 	// which the door serves for fleet modules (probed: HTTP 200 for
@@ -177,16 +196,14 @@ const (
 	// builds this module with its own proxy settings, not the lane's.
 	//
 	// A `package main` IS NOT ONE OF ITS CLASSES, and v0.9.0 is skipped on
-	// purpose for that reason. v0.9.0 added a package-main class that forgave
-	// any mutant whose file said `package main` — over-wide by one case, because
-	// gremlins#268 resolves a main package to the MODULE ROOT, so a main package
-	// that IS the root resolves to itself and is graded correctly. Pinning
-	// v0.9.0 would forgive real survivors in the one repo of 38 with a root main
-	// package: this one. v0.10.0 removed the class, and the exclusion lives HERE
-	// instead — ScoreGoMutation's `ungraded` bucket, keyed on a control that
-	// lifts it by measurement when a fixed gremlins lands. A classifier cannot
-	// do that: it is handed one file at a time and cannot tell a misgraded
-	// verdict from an honest one, nor notice the runner was fixed.
+	// purpose for that reason. v0.9.0 added a package-main class that forgave any
+	// mutant whose file said `package main`, which was over-wide even while
+	// gremlins#268 stood. It is doubly wrong now: gomutants resolves packages
+	// properly and has no #268 at all — MEASURED 2026-09-29 against the
+	// package-main control, the exact shape of the bug (a `package main` in a
+	// subdirectory, nothing at the module root), which gomutants grades LIVED,
+	// the honest verdict. So ScoreGoMutation's `ungraded` bucket is expected to
+	// stay EMPTY, and the control is what says so rather than this pin.
 	MutationGateModule = "git.notusmi.com/rob/forge-testkit-go/cmd/mutation-gate@v0.10.0"
 	// renovate: datasource=crate depName=cargo-audit
 	CargoAuditVersion = "0.22.2"
@@ -280,31 +297,26 @@ const (
 // 2026-09-23 (internal/checks/rulesets). Nothing fetches foundry-stocks now,
 // which is what lets its ci/ tree be deleted rather than merely unused.
 
-// TestkitRepo / TestkitRef pin the ONE definition of the mutation gate's knobs.
+// THE MUTATION GATE'S KNOBS HAVE ONE HOME, AND IT IS NOW THIS MODULE.
 //
-// SAME REASONING AS the retired StocksRepo, applied to a config rather than a
-// script. The
-// mutation atom used to write its own comment-only "neutral" file and discard
-// whatever the repo carried, on the rule that A REPO HAS NO SAY. That
-// rule is right and is kept: this config still does not come from the tree
-// under test — it comes from forge-testkit-go, read at its one home through the
-// door. What changes is that "neutral" meant "state nothing and inherit
-// gremlins' defaults", so the fleet's gate was defined by whatever the tool
-// happened to default to, in two places that agreed by luck.
+// They used to have two. `.gremlins.yaml` in forge-testkit-go carried the mutator
+// set and the timeout coefficient; goMutationWorkers and goMutationExclude in
+// atoms_go.go carried the rest — and the CLI's --workers overrode the file's, so
+// the two homes did not even agree about the one knob they shared. The rule that
+// made the file exist is A REPO HAS NO SAY, and that rule is untouched:
+// foundry-tools is not the tree under test either, and a repo can no more edit
+// this module than it could edit that file.
 //
-// forge-testkit-go/mutation generates that file and a unit test there fails if
-// the checked-in copy drifts from the generator, so the file read here is the
-// same bytes the package asserts.
+// gomutants takes flags and reads no config file, so keeping the split would
+// have meant inventing a file format to hold flags in another repo, plus the git
+// clone that fetched it and the could-not-run branch for when the door is
+// unreachable. One home, in the code that builds the argv, is the smaller
+// correct thing — goMutationDisable in atoms_go.go carries the set and the
+// measurement behind it.
 //
-// main, not a tag, matching Rule #2: one canonical gate for every
-// repo, ALWAYS THE LATEST. A pinned tag would let a repo's gate sit on knobs the
-// fleet had already moved off.
-const (
-	TestkitRepo = "https://git.notusmi.com/rob/forge-testkit-go.git"
-	TestkitRef  = "main"
-	// TestkitGremlinsConfig is the generated config's path in that tree.
-	TestkitGremlinsConfig = ".gremlins.yaml"
-)
+// TestkitRepo / TestkitRef went with it. The testkit is still the CLASSIFIER
+// (MutationGateModule above), which the lane installs by module path; the TREE
+// had exactly one reader in the whole module and it was that config file.
 
 // DiesRepo / DiesRef pin the fleet's RECORD tree — foundry-dies — for the
 // atoms whose subject is the fleet rather than the repository under test.

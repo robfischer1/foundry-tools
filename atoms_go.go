@@ -878,16 +878,12 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 
 	var tags []string
 	if len(dbs) > 0 || len(brokers) > 0 {
-		tags = []string{"--tags", checks.BuildTags(dbs, brokers)}
+		tags = []string{"-tags", checks.BuildTags(dbs, brokers)}
 	}
-	// THE CANONICAL CONFIG, at its one home. A read that fails is a lane that
-	// could not measure, never a gate that passes: without this file gremlins
-	// would fall back to its own defaults and score a different population.
-	cfg, err := r.testkit.File(checks.TestkitGremlinsConfig).Contents(ctx)
-	if err != nil {
-		return neverRan(fmt.Errorf("reading the canonical gremlins config from %s: %w", checks.TestkitRepo, err))
-	}
-	canonical := ctr.WithNewFile(goMutationConfig, cfg)
+	// NO CONFIG FILE TO FETCH. gomutants is flag-only, so the knobs are the argv
+	// below and the consts beside it — checks.go's retired TestkitRepo block says
+	// why that is one home rather than none.
+	base := ctr
 
 	// COVER: the profile the scorer reads to tell a misjudged NOT COVERED from
 	// a real one. Never fatal — gremlins gathers its own; this one only corrects
@@ -903,7 +899,7 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	if len(dbs) > 0 || len(brokers) > 0 {
 		coverArgs = append(coverArgs, "-tags", checks.BuildTags(dbs, brokers), "-p", "1")
 	}
-	covered := canonical.WithExec(append(coverArgs, goMutationCoverPackages(changed)...), anyExit)
+	covered := base.WithExec(append(coverArgs, goMutationCoverPackages(changed)...), anyExit)
 	if _, err := covered.ExitCode(ctx); err != nil {
 		return neverRan(err)
 	}
@@ -911,18 +907,14 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 
 	// THE CANARY, in a module of its own.
 	canary := checks.CanaryUnknown
-	control := canonical.
+	control := base.
 		WithNewFile(mutationDir+"/canary/go.mod", checks.GoMutationCanaryMod).
 		WithNewFile(mutationDir+"/canary/canary.go", checks.GoMutationCanaryCode).
 		WithNewFile(mutationDir+"/canary/canary_test.go", checks.GoMutationCanaryTest).
 		WithWorkdir(mutationDir+"/canary").
 		WithExec([]string{"go", "test", "-cover", "-coverprofile", goMutationProfile, "./..."}, anyExit)
 	if code, err := control.ExitCode(ctx); err == nil && code == 0 {
-		out, _, err := outputBoth(ctx, control.WithExec([]string{"gremlins", "unleash", "--config", goMutationConfig,
-			"--workers", "1", "."}, anyExit))
-		if err == nil {
-			canary = checks.GoMutationCanary(out)
-		}
+		canary = canaryVerdict(ctx, control, mutationDir+"/canary")
 	}
 
 	// THE PACKAGE-MAIN CONTROL, in a module of its own, SHAPED LIKE THE BUG:
@@ -932,18 +924,14 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	// correctly and answers LIVED, so a control shaped like the harness canary
 	// above is blind to #268. Only this shape sees it.
 	mainCanary := checks.CanaryUnknown
-	mainControl := canonical.
+	mainControl := base.
 		WithNewFile(mutationDir+"/maincanary/go.mod", checks.GoMutationMainCanaryMod).
 		WithNewFile(mutationDir+"/maincanary/cmd/tool/main.go", checks.GoMutationMainCanaryCode).
 		WithNewFile(mutationDir+"/maincanary/cmd/tool/main_test.go", checks.GoMutationMainCanaryTest).
 		WithWorkdir(mutationDir+"/maincanary").
 		WithExec([]string{"go", "test", "-cover", "-coverprofile", goMutationProfile, "./..."}, anyExit)
 	if code, err := mainControl.ExitCode(ctx); err == nil && code == 0 {
-		out, _, err := outputBoth(ctx, mainControl.WithExec([]string{"gremlins", "unleash", "--config", goMutationConfig,
-			"--workers", "1", "."}, anyExit))
-		if err == nil {
-			mainCanary = checks.GoMutationCanary(out)
-		}
+		mainCanary = canaryVerdict(ctx, mainControl, mutationDir+"/maincanary")
 	}
 
 	// WHICH FILES THAT CONTROL GOVERNS — THE TOOLCHAIN ANSWERS, NOT A GREP.
@@ -963,7 +951,7 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	if len(dbs) > 0 || len(brokers) > 0 {
 		listArgs = append(listArgs, "-tags", checks.BuildTags(dbs, brokers))
 	}
-	switch out, code, err := output(ctx, canonical.WithExec(append(listArgs, "./..."), anyExit)); {
+	switch out, code, err := output(ctx, base.WithExec(append(listArgs, "./..."), anyExit)); {
 	case err != nil:
 		misgradedErr = err.Error()
 	case code != 0:
@@ -973,32 +961,35 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	}
 
 	// MUTATE.
-	args := append([]string{"gremlins", "unleash", "--config", goMutationConfig, "--output", goMutationReport,
-		"--workers", strconv.Itoa(goMutationWorkers)}, tags...)
-	args = append(args, "--exclude-files", goMutationExclude, "--diff", since, ".")
-	// THE SCOPE IS THE ADDED LINES, NOT THE HUNK. gremlins reads its own
-	// `git diff --merge-base` and takes each fragment as one contiguous range
-	// of LinesAdded lines from its first addition — so with git's default
-	// three lines of context, two insertions six lines apart merge into one
-	// fragment and the UNCHANGED lines between them come into scope. Measured
-	// on kairos e138f50 (2026-09-18): a three-line insertion into main()
-	// dragged main's own `err != nil`, a line the pull never touched and no
-	// test can reach through a process boundary, in as NOT COVERED — a red
-	// on code the pull did not write. diff.context=0 makes every fragment
-	// exactly its additions (the same dry run: that mutant SKIPPED, the real
-	// one still RUNNABLE).
-	// THE BASELINE IS NEVER CACHED. gremlins times each mutant against the
-	// unmutated suite's runtime, which it measures in its own coverage gather
-	// — a `go test -cover ./...` in this container, on the tree the COVER
-	// step above just tested with the same flags. Go's test cache answered
-	// it: MEASURED 2026-09-18 on ourea aeb9cd9 (mutation-ourea-aeb9cd9-7kj9n),
-	// "Gathering coverage... done in 1.09s" for a module whose gatejob
-	// package alone tests in ~100s, so the per-mutant timeout was ten times
-	// a cached read — about eight seconds — and the run scored killed 72,
-	// TIMED OUT 79, honest 1: half the population unanswered and the gate
-	// green over it. -count=1 makes every run under gremlins a real one, the
-	// baseline included; the profile above may stay cached — it is the same
-	// tree either way.
+	args := append([]string{"gomutants", "-output", goMutationReport,
+		"-workers", strconv.Itoa(goMutationWorkers),
+		"-disable", goMutationDisable,
+		"-exclude-files", goMutationExclude,
+		"-changed-since", since}, tags...)
+	args = append(args, "./...")
+	// THE SCOPE IS THE CHANGED LINES, and gomutants reads them itself off
+	// `-changed-since` rather than being handed a file list. MEASURED
+	// 2026-09-29 on ourea internal/gatejob at 5743c86 against 8d9f610: the
+	// mutant population was gatejob.go 3083-3123 and watch.go 195-301 and
+	// NOTHING ELSE — exactly the two edits, in two files of a 40-file package.
+	//
+	// diff.context=0 IS KEPT ANYWAY, and it is cheap insurance rather than a
+	// measured need here. gremlins took each diff fragment as one contiguous
+	// range from its first addition, so three lines of git context merged two
+	// insertions six lines apart and dragged the untouched lines between them
+	// into scope (kairos e138f50, 2026-09-18: a red on code the pull did not
+	// write). gomutants was not observed doing that, but it reads the same git
+	// and nothing about context=0 can widen a scope.
+	//
+	// THE BASELINE IS NEVER CACHED, and this is the knob that decided whether
+	// gremlins was correct at all. It timed each mutant against a coverage
+	// gather Go's test cache answered in 1.09s for a module whose suite runs
+	// ~100s, making the per-mutant budget about eight seconds: MEASURED
+	// 2026-09-18 on ourea aeb9cd9, killed 72 / TIMED OUT 79 / honest 1 — half
+	// the population unanswered and the gate green over it. gomutants measures
+	// its own baseline as a phase and states the ceiling it derived ("baseline
+	// done (2.5s, ceiling: 25s)"), and -adaptive-timeout sizes each mutant off
+	// per-test durations; -count=1 keeps every run under it a real one.
 	mutated := covered.
 		WithEnvVariable("GOMAXPROCS", "1").
 		WithEnvVariable("GOFLAGS", "-p=1 -count=1").
@@ -1107,17 +1098,105 @@ const (
 	// when removing it costs nothing. (mutationDir is still shared by the
 	// canary and the python lane, where every use is inside a function body and
 	// its mutants are killable.)
-	goMutationConfig = "/tmp/mutation/gremlins-canonical.yaml"
 	// goMutationReport and goMutationProfile are what the run leaves in /src.
 	goMutationReport  = "mutation-go.json"
 	goMutationProfile = "mutation-cover.out"
-	// goMutationWorkers is gremlins' --workers.
+	// goMutationWorkers is gomutants' -workers, and it is a CORRECTNESS knob,
+	// not a speed one. Parallel mutants slow each other's tests down and trip
+	// their own timeouts, and a TIMED OUT mutant answers neither killed nor
+	// survived — it leaves the population, quietly. MEASURED 2026-09-29, ourea
+	// internal/gatejob, the same 28-mutator run both ways:
+	//
+	//	-workers 16   killed 70, lived 22, TIMED OUT 15    148s
+	//	-workers  4   killed 83, lived 24, TIMED OUT  0     69s
+	//
+	// All 15 timeouts were contention. Nine of them had a comparable mutant in
+	// the second run and every one of the nine came back KILLED; not one killed
+	// mutant flipped the other way. 4 is the number that measured clean, and it
+	// is the number gremlins' own config had settled on for the same reason.
 	goMutationWorkers = 4
+	// goMutationDisable is the mutator set, by exclusion. gomutants ships 28
+	// operators; these four perturb a NUMERIC LITERAL by one, and on this fleet's
+	// Go they generate mutants no correct test can kill.
+	//
+	// MEASURED 2026-09-29 on ourea internal/gatejob — 25 survivors with all 28
+	// enabled, 5 with these off, and the 20 that left were ALL of one shape:
+	//
+	//	18  `0` -> `1`/`-1` on the discarded value of `return 0, err`
+	//	                    and `return false, 0`. Go's contract says the other
+	//	                    returns are unspecified when the error is non-nil;
+	//	                    a test asserting them pins what the API does not
+	//	                    promise.
+	//	 2  `64` -> `63`/`65` in `strconv.ParseFloat(q, 64)`. PROVEN equivalent,
+	//	                    not argued: ParseFloat takes the 32-bit path only
+	//	                    for bitSize 32, so 63, 64 and 65 return bit-identical
+	//	                    results for every input including MaxFloat64.
+	//	 2  `1e6` -> `999999.0` as a nanocore divisor under int64 truncation.
+	//	                    Identical output at every realistic reading.
+	//
+	// The five that remain are real test gaps, and gremlins' five mutators
+	// never GENERATED any of them. So this set is 19 operators wider than the
+	// gate had before it, not narrower — the point is that it is STATED, which
+	// is the same reason the retired .gremlins.yaml listed gremlins' five.
+	//
+	// INCREMENT_DECREMENT IS NOT IN HERE and must not be: it mutates `i++` to
+	// `i--`, which is a real operator on a real statement, and it was one of
+	// gremlins' five. These four are its numeric-literal namesakes.
+	goMutationDisable = "INTEGER_INCREMENT,INTEGER_DECREMENT,FLOAT_INCREMENT,FLOAT_DECREMENT"
 	// goMutationExclude keeps generated Go out of the mutant population —
 	// vendored code, dagger's codegen, protobuf stubs and kubebuilder's
 	// zz_generated. See goMutation for the measurement.
 	goMutationExclude = `^vendor/|(^|/)dagger\.gen\.go$|\.pb\.go$|(^|/)zz_generated`
 )
+
+// canaryVerdict runs a control and reads its JSON REPORT, never its stdout.
+//
+// THE REPORT IS THE ONLY SURFACE WITH A CONTRACT. The old canary matched the
+// literal string "Killed: 0, Lived: 1" in gremlins' summary line, which tied a
+// control — the one thing in this lane that decides whether anything was
+// measured at all — to a tool's human-readable formatting AND to the exact
+// mutant COUNT. gomutants prints a multi-line block and finds 2 mutants in the
+// same fixture (an ARITHMETIC_BASE and a RETURN_ZERO), so that match would
+// silently answer `unknown` forever: a control that cannot fail is not a control.
+//
+// The honest verdict is unchanged and is now stated as a shape rather than a
+// string: the fixture's mutants are all under-tested on purpose, so a run that
+// GRADED them kills none and survives at least one. Killing them means the
+// runner is not running what it thinks it is.
+func canaryVerdict(ctx context.Context, control *dagger.Container, dir string) string {
+	run := control.WithExec([]string{"gomutants",
+		"-workers", "1",
+		"-cache=off",
+		"-disable", goMutationDisable,
+		"-output", goMutationReport,
+		"./..."}, anyExit)
+	// ONE RETURN, AND THE REPORT IS THE ONLY THING THAT CARRIES A VERDICT. A run
+	// that did not exit 0 never has its report read, so report stays empty and
+	// GoMutationCanary answers unknown — the same answer it gives an empty or
+	// unparseable one, because they are the same fact: nothing was graded. Saying
+	// that once, there, beats saying it three times here.
+	//
+	// THE THREE EARLY RETURNS THIS REPLACED WERE UNKILLABLE, every one, and the
+	// tool this diff installs is what said so (2026-09-29: 13 mutants in this
+	// package, 6 survivors, all six in these branches). Nothing compares
+	// checks.CanaryUnknown anywhere — GoMutationVerdict tests only for CanaryOK
+	// and CanaryBroken — so `return CanaryUnknown` and `return ""` are the same
+	// program, and a branch whose body is deleted still falls through to the same
+	// answer. The fix is to stop naming it, not to forgive the mutants.
+	//
+	// EXIT 0 OR IT DID NOT RUN, measured rather than guessed (gomutants v0.6.1,
+	// these exact fixtures): the canary with TWO survivors exits 0, while an
+	// unbuildable package and a package that does not exist both exit 1.
+	// Survivors are not an error to this tool unless -threshold-efficacy asks,
+	// and the controls do not ask. The first cut read `code > 1`, which tolerated
+	// the exit 1 that means could-not-run and leaned on the report read to fail
+	// instead — right answer, false reasoning.
+	var report string
+	if code, err := run.ExitCode(ctx); err == nil && code == 0 {
+		report, _ = run.File(dir + "/" + goMutationReport).Contents(ctx)
+	}
+	return checks.GoMutationCanary(report)
+}
 
 // lastLine is the tail of a tool's output — the line a human reads first.
 func lastLine(s string) string {

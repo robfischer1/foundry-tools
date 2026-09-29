@@ -241,18 +241,25 @@ func TestGoTestRaceBringsTheRecordsPostgres(t *testing.T) {
 
 // The go:mutation needles, each in one exec's chain.
 const (
-	goMutantsNeedle = `"--output","mutation-go.json"`
-	// THE TWO CONTROLS BOTH RUN `--workers","1"`, which is why neither needle is
+	goMutantsNeedle = `"-output","mutation-go.json"`
+	// THE TWO CONTROLS BOTH RUN `-workers","1"`, which is why neither needle is
 	// that argv: it would match both chains and chain() answers the newest. The
 	// workdir is unique per control, and the closing quote keeps each needle off
 	// the withNewFile paths under it.
 	goCanaryNeedle     = `path:"/tmp/mutation/canary"`
 	goMainCanaryNeedle = `path:"/tmp/mutation/maincanary"`
+	// THE REPORT READ NEEDS ITS OWN NEEDLE, and it is the report PATH rather than
+	// the `contents` leaf: every control chain already carries the literal text
+	// `contents:"module canary…"` inside its withNewFile calls, so a "contents"
+	// needle matches a chain that never read a report and the assertion below
+	// cannot fail. The path appears in exactly one call.
+	goCanaryReportRead     = `path:"/tmp/mutation/canary/mutation-go.json"`
+	goMainCanaryReportRead = `path:"/tmp/mutation/maincanary/mutation-go.json"`
 	// goMainListNeedle is the `go list` that names which files are in a
 	// `package main` — the set the package-main control governs.
 	goMainListNeedle = `"go","list","-e","-f"`
-	// goClassifyNeedle is the testkit's gate, run in the lane after gremlins
-	// for its classification of what no test could kill.
+	// goClassifyNeedle is the testkit's gate, run in the lane after the mutation
+	// run for its classification of what no test could kill.
 	goClassifyNeedle = `"mutation-gate","-report","mutation-go.json","-C",".","-json"`
 	goDiffNeedle     = `"git","diff","--relative"`
 	goReportRead     = `file(path:"/src/mutation-go.json"){contents}`
@@ -262,6 +269,31 @@ const (
 
 // scriptGoMutation answers a pull that changed Go, with a canary that honestly
 // survives and a clean report.
+// THE CONTROLS ARE READ AS REPORTS NOW, so the fixtures are reports. Shapes
+// taken from real gomutants runs on the real fixtures (2026-09-29): the harness
+// canary's four lines earn TWO mutants, not one, which is exactly why the canary
+// no longer counts them — see checks.GoMutationCanary.
+const (
+	goCanaryHonest = `{"go_module":"canary","files":[{"file_name":"canary.go","mutations":[` +
+		`{"type":"RETURN_ZERO","status":"LIVED","line":4,"column":33},` +
+		`{"type":"ARITHMETIC_BASE","status":"LIVED","line":4,"column":35}]}]}`
+	// A KILL IS THE BROKEN SHAPE. The fixture's mutants are under-tested on
+	// purpose, so a runner that reports one dead did not run the tests it thinks
+	// it did — gremlins v0.6.0 with a mangled --test-cpu scored 264 such "kills"
+	// in 262ms.
+	goCanaryKilled = `{"go_module":"canary","files":[{"file_name":"canary.go","mutations":[` +
+		`{"type":"ARITHMETIC_BASE","status":"KILLED","line":4,"column":35}]}]}`
+	// The maincanary's honest shape, from the same run: two LIVED in cmd/tool,
+	// plus NOT COVERED mutants in `func main` that no test can reach. Neither
+	// status votes, and having them here is the assertion that they do not.
+	goMainCanaryHonest = `{"go_module":"maincanary","files":[{"file_name":"main.go","mutations":[` +
+		`{"type":"RETURN_ZERO","status":"LIVED","line":4,"column":33},` +
+		`{"type":"ARITHMETIC_BASE","status":"LIVED","line":4,"column":35},` +
+		`{"type":"INTEGER_INCREMENT","status":"NOT COVERED","line":6,"column":23}]}]}`
+	goMainCanaryKilled = `{"go_module":"maincanary","files":[{"file_name":"main.go","mutations":[` +
+		`{"type":"ARITHMETIC_BASE","status":"KILLED","line":4,"column":35}]}]}`
+)
+
 func scriptGoMutation(tree map[string]string) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
@@ -269,12 +301,15 @@ func scriptGoMutation(tree map[string]string) {
 	engine.withTree(tree)
 	engine.stdout(mergeBaseNeedle, sinceSha+"\n")
 	engine.stdout(goDiffNeedle, "a.go\n")
-	engine.stdout(goCanaryNeedle, "Killed: 0, Lived: 1, Not covered: 0\n")
-	// THE PACKAGE-MAIN CONTROL ANSWERS BROKEN BY DEFAULT, because that is what
-	// gremlins 0.6.0 answers: the lane's ordinary state is one working harness
-	// and one bug it is working around. A test that wants the other world says
-	// so (TestGoMutationDoesNotCountAMainPackageItCannotGrade).
-	engine.stdout(goMainCanaryNeedle, "Killed: 1, Lived: 0, Not covered: 0\n")
+	engine.contents(goCanaryNeedle, goCanaryHonest)
+	// THE PACKAGE-MAIN CONTROL ANSWERS OK BY DEFAULT NOW, and that inversion is
+	// the flip to gomutants. Under gremlins 0.6.0 the lane's ordinary state was
+	// one working harness and one bug it was working around (#268); gomutants
+	// resolves packages properly and MEASURED clean against the shape of that bug
+	// on 2026-09-29, so the ordinary state is TWO working controls and an
+	// `ungraded` bucket that stays empty. A test that wants the misgrading world
+	// now has to say so.
+	engine.contents(goMainCanaryNeedle, goMainCanaryHonest)
 	// The classifier answered, and named nothing: every survivor is real.
 	engine.stdout(goClassifyNeedle, `{"noise":[]}`+"\n")
 }
@@ -308,7 +343,10 @@ func TestGoMutationCompilesTheRecordsDBTags(t *testing.T) {
 		// the coverage run compiles the tag and serialises on the one database
 		// the coverage run covers the diff's package (a.go: the root) and no other
 		[]string{"withExec", `"-coverprofile","mutation-cover.out","-tags","live_db","-p","1","."`},
-		[]string{"withExec", `"--tags","live_db"`},
+		// AND SO DOES THE MUTATION RUN, after -changed-since and before the
+		// package. An untagged run compiles a different population than the
+		// coverage profile beside it was gathered from.
+		[]string{"withExec", `"-changed-since","since0","-tags","live_db","./..."`},
 	)
 	if hasCall(c, "withServiceBinding", `alias:"db-novector"`) {
 		t.Errorf("only the tags the tree carries are bound:\n%s", c)
@@ -373,9 +411,16 @@ func TestGoStaticcheckAndGovulncheckUseTheBakedBinaries(t *testing.T) {
 	wantState(t, runAtom(t, "go:govulncheck", ""), 2, "not found")
 }
 
-// The gate measures the pull's diff in Go: the canonical config, the canary, the
-// bound through the environment, the fleet's exclusions and the base — no
-// script, no shell, no foundry-stocks mount.
+// The gate measures the pull's diff in Go: the knobs on the argv, the canary,
+// the bound through the environment, the fleet's exclusions and the base — no
+// config file, no script, no shell, no foundry-stocks mount.
+//
+// -cache=off ON THE CONTROLS IS LOAD-BEARING. gomutants' incremental cache skips
+// a mutant whose package and covering tests are byte-identical to a cached run,
+// and the control fixtures ARE byte-identical on every run of every repo — a
+// cached control answers from the last verdict instead of re-taking it, which is
+// a control that stopped controlling. The measured run keeps the cache, where
+// re-using an unchanged package's verdict is the point.
 func TestGoMutationMeasuresTheDiffAndSettlesInGo(t *testing.T) {
 	scriptGoMutation(nil)
 	wantState(t, runAtom(t, "go:mutation", "abc123"), 0)
@@ -383,23 +428,29 @@ func TestGoMutationMeasuresTheDiffAndSettlesInGo(t *testing.T) {
 	wantCalls(t, c,
 		[]string{"withEnvVariable", `name:"GATE_BASE"`, `value:"abc123"`},
 		[]string{"withMountedDirectory", `path:"/dies"`},
-		[]string{"withNewFile", `path:"/tmp/mutation/gremlins-canonical.yaml"`},
 		[]string{"withExec", `"go","test","-cover","-coverprofile","mutation-cover.out","."`},
 		[]string{"withEnvVariable", `name:"GOMAXPROCS"`, `value:"1"`},
-		// -count=1: gremlins' own coverage gather is the baseline every
-		// mutant's timeout is ten times, and a cached one is ~1s for a module
-		// that tests in minutes (ourea aeb9cd9: killed 72, TIMED OUT 79).
+		// -count=1: the runner's own baseline is what every mutant's timeout is
+		// derived from, and a CACHED baseline is ~1s for a module that tests in
+		// minutes (ourea aeb9cd9 under gremlins: killed 72, TIMED OUT 79).
 		[]string{"withEnvVariable", `name:"GOFLAGS"`, `value:"-p=1 -count=1"`},
-		[]string{"withExec", `expect:ANY`, `"gremlins","unleash","--config","/tmp/mutation/gremlins-canonical.yaml","--output","mutation-go.json","--workers","4","--exclude-files","` + strings.ReplaceAll(goMutationExclude, `\`, `\\`) + `","--diff","since0","."`},
+		[]string{"withExec", `expect:ANY`, `"gomutants","-output","mutation-go.json","-workers","4","-disable","` + goMutationDisable + `","-exclude-files","` + strings.ReplaceAll(goMutationExclude, `\`, `\\`) + `","-changed-since","since0","./..."`},
 	)
+	// NO CONFIG FILE IS WRITTEN OR FETCHED, which is the other half of the argv
+	// being the knobs: a file here would mean two homes again, and the one this
+	// replaced could make the lane could-not-run by being unreachable.
+	if strings.Contains(c, `path:"/tmp/mutation/`+"gremlins") || strings.Contains(c, `.gremlins.yaml`) {
+		t.Errorf("the lane still writes a config file:\n%s", c)
+	}
 	if strings.Contains(c, `path:"/stocks"`) || strings.Contains(c, `"bash"`) {
 		t.Errorf("the gate mounted foundry-stocks or ran bash:\n%s", c)
 	}
-	wantCalls(t, engine.chain(goCanaryNeedle, "stdout"),
+	wantCalls(t, engine.chain(goCanaryNeedle, "contents"),
 		[]string{"withNewFile", `path:"/tmp/mutation/canary/go.mod"`},
 		[]string{"withNewFile", `path:"/tmp/mutation/canary/canary_test.go"`},
 		[]string{"withWorkdir", `path:"/tmp/mutation/canary"`},
-		[]string{"withExec", `"gremlins","unleash","--config","/tmp/mutation/gremlins-canonical.yaml","--workers","1","."`},
+		[]string{"withExec", `"gomutants","-workers","1","-cache=off","-disable","` + goMutationDisable + `","-output","mutation-go.json","./..."`},
+		[]string{"file", goCanaryReportRead},
 	)
 	// THE SECOND CONTROL'S SHAPE IS THE TEST. A main package AT the module root
 	// is graded correctly by the gremlins this works around, so a control
@@ -407,13 +458,14 @@ func TestGoMutationMeasuresTheDiffAndSettlesInGo(t *testing.T) {
 	// subdirectory with NOTHING at the root. cmd/tool/main.go, and no root .go
 	// file, is that shape — assert it here, because a later tidy-up that moves
 	// the file to the root would leave a control that always answers OK.
-	main := engine.chain(goMainCanaryNeedle, "stdout")
+	main := engine.chain(goMainCanaryNeedle, "contents")
 	wantCalls(t, main,
 		[]string{"withNewFile", `path:"/tmp/mutation/maincanary/go.mod"`},
 		[]string{"withNewFile", `path:"/tmp/mutation/maincanary/cmd/tool/main.go"`},
 		[]string{"withNewFile", `path:"/tmp/mutation/maincanary/cmd/tool/main_test.go"`},
 		[]string{"withWorkdir", `path:"/tmp/mutation/maincanary"`},
-		[]string{"withExec", `"gremlins","unleash","--config","/tmp/mutation/gremlins-canonical.yaml","--workers","1","."`},
+		[]string{"withExec", `"gomutants","-workers","1","-cache=off","-disable","` + goMutationDisable + `","-output","mutation-go.json","./..."`},
+		[]string{"file", goMainCanaryReportRead},
 	)
 	if strings.Contains(main, `path:"/tmp/mutation/maincanary/main.go"`) {
 		t.Errorf("the package-main control grew a root package, which this gremlins grades correctly:\n%s", main)
@@ -446,15 +498,15 @@ func TestGoMutationSettlesWhatItMeasured(t *testing.T) {
 		"every mutant caught": {nil, 0, nil},
 		"a survivor": {func() { engine.withTree(map[string]string{"/src/mutation-go.json": survivors}) }, 1,
 			[]string{"1 mutant(s) survived or were never covered", "a.go:2:3  LIVED"}},
-		"a canary killed": {func() { engine.stdout(goCanaryNeedle, "Killed: 1, Lived: 0, Not covered: 0\n") }, 2,
+		"a canary killed": {func() { engine.contents(goCanaryNeedle, goCanaryKilled) }, 2,
 			[]string{"the harness scores unrun tests as kills"}},
 		// a canary that could not build is a control that could not control,
 		// and a clean report still stands on its own
 		"a canary that does not build": {func() { engine.exitCode(`"/tmp/mutation/canary/canary_test.go"`, 1) }, 0, nil},
-		"gremlins broken, no report": {func() {
+		"the runner broken, no report": {func() {
 			engine.exitCode(goMutantsNeedle, 3)
 			engine.fail(goReportRead, "no such file")
-		}, 2, []string{"gremlins exited 3 and wrote no mutation-go.json"}},
+		}, 2, []string{"gomutants exited 3 and wrote no mutation-go.json"}},
 		"nothing to report": {func() { engine.fail(goReportRead, "no such file") }, 0,
 			nil},
 		// THE CLASS THIS RUN EXISTS FOR. A mutant in a top-level declaration
@@ -517,7 +569,7 @@ func TestGoMutationSettlesWhatItMeasured(t *testing.T) {
 		t.Error("mutation-gate ran with no report to read")
 	}
 
-	// A canary that did not build never runs gremlins, either control.
+	// A canary that did not build never runs the mutation tool, either control.
 	for _, c := range []struct{ name, file, needle string }{
 		{"the harness control", `"/tmp/mutation/canary/canary_test.go"`, goCanaryNeedle},
 		{"the package-main control", `"/tmp/mutation/maincanary/cmd/tool/main_test.go"`, goMainCanaryNeedle},
@@ -525,8 +577,58 @@ func TestGoMutationSettlesWhatItMeasured(t *testing.T) {
 		scriptGoMutation(nil)
 		engine.exitCode(c.file, 1)
 		runAtom(t, "go:mutation", "abc123")
-		if chain := engine.chain(c.needle, `"gremlins"`); chain != "" {
-			t.Errorf("gremlins ran %s, whose tests do not build:\n%s", c.name, chain)
+		if chain := engine.chain(c.needle, `"gomutants"`); chain != "" {
+			t.Errorf("gomutants ran %s, whose tests do not build:\n%s", c.name, chain)
+		}
+	}
+}
+
+// A CONTROL THAT DID NOT RUN NEVER READS A REPORT, and that is the assertion
+// because it is the observable one. An `unknown` control does not red a clean
+// run (a control that could not control leaves the report standing on its own —
+// TestGoMutationSettlesWhatItMeasured pins that), so the atom's STATE cannot
+// tell a failed control from a healthy one. What can is whether the atom went on
+// to read a verdict out of a run that did not produce one.
+//
+// THESE CASES WERE FOUND BY MUTATION, on this diff, by the tool this diff
+// installs: 13 mutants in the root package, 6 survivors, all six inside
+// canaryVerdict's two failure branches, because nothing covered them. `||` could
+// become `&&` and both early returns could be voided with every test green.
+func TestAControlThatDidNotRunNeverReadsAReport(t *testing.T) {
+	gomutantsExec := `"gomutants","-workers","1"`
+	for _, c := range []struct {
+		name   string
+		script func()
+	}{
+		// MEASURED 2026-09-29: gomutants exits 1 for an unbuildable package and
+		// for a package that does not exist. Either is a control that cannot
+		// clear the runner, and a report read after it would be a verdict about
+		// nothing — or a stale file from a previous layer.
+		{"the control run exits 1", func() { engine.exitCode(gomutantsExec, 1) }},
+		{"the control run exits 2", func() { engine.exitCode(gomutantsExec, 2) }},
+		{"the exit code could not be read", func() { engine.fail(gomutantsExec, "engine gone") }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			scriptGoMutation(nil)
+			c.script()
+			runAtom(t, "go:mutation", "abc123")
+			for _, needle := range []string{goCanaryReportRead, goMainCanaryReportRead} {
+				if chain := engine.chain(needle); chain != "" {
+					t.Errorf("a control whose run failed still had its report read:\n%s", chain)
+				}
+			}
+		})
+	}
+	// AND EXIT 0 IS THE HEALTHY CASE, so the report IS read. gomutants exits 0
+	// with survivors — the fixture's mutants are meant to live — which is why the
+	// boundary is `!= 0` and not `> 1` or `>= 1`: the first tolerates the exit 1
+	// that means could-not-run, and the second rejects every healthy control.
+	scriptGoMutation(nil)
+	engine.exitCode(gomutantsExec, 0)
+	wantState(t, runAtom(t, "go:mutation", "abc123"), 0)
+	for _, needle := range []string{goCanaryReportRead, goMainCanaryReportRead} {
+		if engine.chain(needle) == "" {
+			t.Errorf("a control that exited 0 never had its report read, so it controlled nothing")
 		}
 	}
 }
@@ -773,7 +875,7 @@ func TestGoMutationInANestedModuleDiffsRelativeToIt(t *testing.T) {
 	engine.withTree(map[string]string{"/src/tools/forge/mutation-go.json": goCleanReport})
 	engine.stdout(mergeBaseNeedle, sinceSha+"\n")
 	engine.stdout(goDiffNeedle, "internal/oci/oci.go\n")
-	engine.stdout(goCanaryNeedle, "Killed: 0, Lived: 1, Not covered: 0\n")
+	engine.contents(goCanaryNeedle, goCanaryHonest)
 	engine.stdout(goClassifyNeedle, `{"noise":[]}`)
 	wantState(t, runAtom(t, "go:mutation", "abc123"), 0, "PASS in 1 Go module (tools/forge)")
 	c := engine.chain(goMutantsNeedle, "exitCode")
@@ -854,61 +956,59 @@ func TestLanesNamesTheNestedModulesTheGateRuns(t *testing.T) {
 // A REPO STILL HAS NO SAY: the file comes from that pinned repo through the
 // door, never from the tree under check, so a star cannot dial its own gate
 // down by editing itself.
-func TestGoMutationReadsTheCanonicalConfigAtItsOneHome(t *testing.T) {
+func TestGoMutationFetchesNoConfigAndCarriesItsKnobsOnTheArgv(t *testing.T) {
 	scriptGoMutation(nil)
 	wantState(t, runAtom(t, "go:mutation", "abc123"), 0)
 	c := engine.chain(goMutantsNeedle, "exitCode")
-	// The paper engine answers every git-home file with its own marker, so
-	// seeing it here is seeing that the contents came from the REMOTE tree.
-	wantCalls(t, c,
-		[]string{"withNewFile", `path:"/tmp/mutation/gremlins-canonical.yaml"`, "the paper engine's copy"},
-	)
-	if hasCall(c, "withNewFile", `path:"/tmp/mutation/gremlins-canonical.yaml"`, "neutral") {
-		t.Errorf("the atom is still authoring its own config:\n%s", c)
+	// EVERY KNOB IS HERE, NAMED. The rule this test used to enforce was that the
+	// config came from the door and not from the tree under check, so a star
+	// could not dial its own gate down by editing itself. That rule is intact and
+	// stronger: there is no file to edit anywhere, and a star cannot reach this
+	// argv at all.
+	for _, knob := range []string{`"-workers","4"`, `"-disable","` + goMutationDisable + `"`, `"-exclude-files"`, `"-changed-since"`} {
+		if !strings.Contains(c, knob) {
+			t.Errorf("the run does not state %s, so it inherits a default nobody declared:\n%s", knob, c)
+		}
+	}
+	// AND NOTHING IS CLONED TO GET THEM. The testkit tree had exactly one reader
+	// and it was that config, so a git mount here means the clone came back —
+	// with its could-not-run branch for an unreachable door.
+	if strings.Contains(c, "forge-testkit-go.git") || strings.Contains(c, `path:"/testkit"`) {
+		t.Errorf("the lane clones the testkit again, for a config that no longer exists:\n%s", c)
 	}
 }
 
-// TestGoMutationTakesTheTimeoutCoefficientFromTheConfigNotAFlag.
+// TestGoMutationDoesNotCapTheWorkersWhereItCostsTheMeasurement.
 //
-// THE COEFFICIENT DECIDES WHETHER THE RUN IS CORRECT, so it belongs with the
-// other knobs rather than duplicated in this argv. gremlins records a mutant
-// TIMED OUT when parallel workers slow each other past the timeout computed
-// from the unmutated suite, and TIMED OUT counts as neither killed nor
-// survived — it silently shrinks the population. MEASURED on an unchanged
-// 30-mutant tree: --workers 4 alone gave 15/12, 15/13, 14/14, 15/13 and 14/9
-// on five runs; with the coefficient, 16/14 three times.
+// THE WORKER COUNT DECIDES WHETHER THE RUN IS CORRECT, not how fast it is.
+// Parallel mutants slow each other's tests down and trip their own timeouts, and
+// a TIMED OUT mutant answers neither killed nor survived — it leaves the
+// population, quietly, and the gate goes green over the gap. MEASURED twice, on
+// two runners:
 //
-// --workers stays a flag: 4 is this LANE's deliberate override of a config
-// default of 1, which is what a repo whose suite binds a loopback server needs
-// and a CI runner does not.
-func TestGoMutationTakesTheTimeoutCoefficientFromTheConfigNotAFlag(t *testing.T) {
+//	gremlins,  30 mutants, 5 runs each: --workers 1 gave 16/14 every time;
+//	           --workers 4 gave 15/12, 15/13, 14/14, 15/13, 14/9; --workers 8
+//	           gave 0/0 three times, a vacuous pass.
+//	gomutants, ourea internal/gatejob, 2026-09-29: -workers 16 gave TIMED OUT 15
+//	           of 115; -workers 4 gave TIMED OUT 0, and all nine comparable
+//	           timeouts came back KILLED.
+//
+// So 4 is measured on both, and the assertion is that nothing quietly raises it.
+func TestGoMutationDoesNotCapTheWorkersWhereItCostsTheMeasurement(t *testing.T) {
 	scriptGoMutation(nil)
 	wantState(t, runAtom(t, "go:mutation", "abc123"), 0)
 	c := engine.chain(goMutantsNeedle, "exitCode")
-	if strings.Contains(c, "--timeout-coefficient") {
-		t.Errorf("the coefficient is still a flag here, so it is defined twice:\n%s", c)
+	if !strings.Contains(c, `"-workers","4"`) {
+		t.Errorf("the measured worker count is gone:\n%s", c)
 	}
-	if !strings.Contains(c, `"--workers","4"`) {
-		t.Errorf("the lane's deliberate worker override is gone:\n%s", c)
+	if goMutationWorkers > 4 {
+		t.Errorf("goMutationWorkers is %d; above 4 the timeouts measured here are unanswered mutants, not slow ones", goMutationWorkers)
 	}
-}
-
-// TestGoMutationCannotRunWithoutTheCanonicalConfig.
-//
-// WITHOUT THE FILE, GREMLINS FALLS BACK TO ITS OWN DEFAULTS and scores a
-// different population — so a config that could not be read is a lane that
-// could not measure (state 2), never a gate that quietly passes on defaults.
-func TestGoMutationCannotRunWithoutTheCanonicalConfig(t *testing.T) {
-	scriptGoMutation(nil)
-	// A checkout of the testkit that does NOT carry the config: the paper
-	// engine then answers "no such file" instead of its marker.
-	engine.withTree(map[string]string{"/testkit/README.md": "# no config here\n"})
-	v := runAtom(t, "go:mutation", "abc123")
-	if v.State != 2 {
-		t.Fatalf("a missing canonical config answered state %d, want 2 (could not run): %s", v.State, v.Reason)
-	}
-	if !strings.Contains(v.Reason, "canonical gremlins config") {
-		t.Errorf("the reason does not name what was missing: %s", v.Reason)
+	// -adaptive-timeout is gomutants' default and is what sizes each mutant off
+	// per-test durations. Turning it off would put the gate back on a blanket
+	// coefficient, which is what gremlins needed and could not get right.
+	if strings.Contains(c, "-adaptive-timeout=false") || strings.Contains(c, `"-adaptive-timeout","false"`) {
+		t.Errorf("the run disabled the adaptive timeout:\n%s", c)
 	}
 }
 
@@ -1226,13 +1326,14 @@ func TestGoMutationCountsAMisgradedFileOnceItsControlPasses(t *testing.T) {
 		state        int
 		reason       string
 	}{
-		{"the control passes, so the survivor is real", "Killed: 0, Lived: 1, Not covered: 0\n", 1, "1 mutant(s) survived or were never covered"},
+		{"the control passes, so the survivor is real", goMainCanaryHonest, 1, "1 mutant(s) survived or were never covered"},
 		// A PASS DISCARDS THE ATOM'S OUTPUT, so this green has to carry its own
 		// headline or it prints as an unqualified pass - the misreading the whole
 		// bucket exists to prevent.
-		{"the control is broken, so nothing was graded", "Killed: 1, Lived: 0, Not covered: 0\n", 0, checks.GoMutationNothingGraded},
-		// A control nobody could read has not cleared the runner.
-		{"the control could not be read", "gremlins: no such module\n", 0, checks.GoMutationNothingGraded},
+		{"the control is broken, so nothing was graded", goMainCanaryKilled, 0, checks.GoMutationNothingGraded},
+		// A control nobody could read has not cleared the runner. Not JSON at
+		// all is the shape of that: a crash message where a report should be.
+		{"the control could not be read", "gomutants: no such module\n", 0, checks.GoMutationNothingGraded},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			scriptGoMutation(map[string]string{"/src/mutation-go.json": report})
@@ -1240,7 +1341,7 @@ func TestGoMutationCountsAMisgradedFileOnceItsControlPasses(t *testing.T) {
 			// atoms_go.go is the module root's own main package: graded correctly,
 			// and never in the set.
 			engine.stdout(goMainListNeedle, "/src/verdict/main.go\n/src/atoms_go.go\n")
-			engine.stdout(goMainCanaryNeedle, c.canary)
+			engine.contents(goMainCanaryNeedle, c.canary)
 			wantState(t, runAtom(t, "go:mutation", "abc123"), c.state, c.reason)
 		})
 	}
@@ -1250,6 +1351,13 @@ func TestGoMutationCountsAMisgradedFileOnceItsControlPasses(t *testing.T) {
 // misgrades a main package and the lane cannot say which files are in one, there
 // is nothing to exclude WITH — every count may be about other code and the gate
 // cannot point at which. That is a could-not-measure, not a pass.
+//
+// EVERY CASE HERE NOW SCRIPTS A BROKEN CONTROL, and that is the flip showing
+// through rather than a weakening. The branch under test only exists while the
+// runner misgrades, so with gomutants — which does not — the honest default
+// makes the failed listing moot and the atom passes. Naming the broken control
+// is what keeps this path reachable and tested at all; the second half of the
+// test is the other world, where it is moot on purpose.
 func TestGoMutationCannotMeasureWithoutTheMisgradedSet(t *testing.T) {
 	for _, c := range []struct {
 		name   string
@@ -1261,16 +1369,20 @@ func TestGoMutationCannotMeasureWithoutTheMisgradedSet(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			scriptGoMutation(nil)
+			engine.contents(goMainCanaryNeedle, goMainCanaryKilled)
 			c.script()
 			wantState(t, runAtom(t, "go:mutation", "abc123"), 2,
 				"could not list which files are in one", c.reason)
 		})
 	}
-	// ...and once the runner is fixed there is nothing to exclude, so the same
-	// failed listing is MOOT: a clean report passes and says nothing about it.
+	// ...and with a runner that grades correctly there is nothing to exclude, so
+	// the same failed listing is MOOT: a clean report passes and says nothing
+	// about it. This is the ORDINARY case now (scriptGoMutation's default), and
+	// the stub is restated rather than dropped because the whole point of the
+	// assertion is which control answer produces it.
 	scriptGoMutation(nil)
 	engine.exitCode(goMainListNeedle, 1)
-	engine.stdout(goMainCanaryNeedle, "Killed: 0, Lived: 1, Not covered: 0\n")
+	engine.contents(goMainCanaryNeedle, goMainCanaryHonest)
 	v := runAtom(t, "go:mutation", "abc123")
 	wantState(t, v, 0)
 	if strings.Contains(v.Reason, "could not list") || strings.Contains(v.Reason, checks.GoMutationNothingGraded) {
@@ -1285,7 +1397,7 @@ func TestGoMutationCannotMeasureWithoutTheMisgradedSet(t *testing.T) {
 	// alone — a clean pass's first line does not contain that string, so the
 	// weaker test could not see the mutant.
 	scriptGoMutation(nil)
-	engine.stdout(goMainCanaryNeedle, "Killed: 0, Lived: 1, Not covered: 0\n")
+	engine.contents(goMainCanaryNeedle, goMainCanaryHonest)
 	v = runAtom(t, "go:mutation", "abc123")
 	for _, leaked := range []string{checks.GoMutationNothingGraded, "every viable mutant was caught", "Mutation gate"} {
 		if strings.Contains(v.Reason, leaked) {

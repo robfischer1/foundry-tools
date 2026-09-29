@@ -1,6 +1,7 @@
 package checks
 
 import (
+	"fmt"
 	"go/parser"
 	"go/token"
 	"strings"
@@ -146,18 +147,47 @@ func TestParseGoMisgradedFilesKeepsOnlyWhatIsMisgraded(t *testing.T) {
 	}
 }
 
-// GoMutationCanary is the reader for BOTH controls, and the two answers it can
-// read off a one-mutant module are the two the gate acts on. Anything else is
-// unknown, which distrusts rather than clears.
+// GoMutationCanary is the reader for BOTH controls, and it reads the JSON REPORT
+// rather than a summary line. The two answers it can read are the two the gate
+// acts on; anything else is unknown, which distrusts rather than clears.
 func TestGoMutationCanaryReadsTheControl(t *testing.T) {
-	for out, want := range map[string]string{
-		"Mutation testing completed\nKilled: 0, Lived: 1, Not covered: 0\n": CanaryOK,
-		"Killed: 1, Lived: 0, Not covered: 0":                               CanaryBroken,
-		"go: cannot find main module":                                       CanaryUnknown,
-		"":                                                                  CanaryUnknown,
+	mutants := func(statuses ...string) string {
+		var b strings.Builder
+		b.WriteString(`{"go_module":"canary","files":[{"file_name":"canary.go","mutations":[`)
+		for i, s := range statuses {
+			if i > 0 {
+				b.WriteString(",")
+			}
+			fmt.Fprintf(&b, `{"type":"ARITHMETIC_BASE","status":%q,"line":4,"column":%d}`, s, 30+i)
+		}
+		b.WriteString(`]}]}`)
+		return b.String()
+	}
+	for _, c := range []struct{ name, report, want string }{
+		// THE REAL SHAPE, from a gomutants run on the real fixture: the four-line
+		// canary earns TWO mutants, and both survive. A reader that wanted
+		// exactly one would call this broken.
+		{"both survive, which is the fixture's honest answer", mutants("LIVED", "LIVED"), CanaryOK},
+		{"one survives", mutants("LIVED"), CanaryOK},
+		// A KILL IS THE FAILURE, whatever else is in the report. The fixture is
+		// under-tested on purpose, so a dead mutant means the runner did not run
+		// the tests it thinks it did — and a report that is PART right is the
+		// dangerous case, so the kill outvotes the survivor.
+		{"a kill", mutants("KILLED"), CanaryBroken},
+		{"a kill beside a survivor still reads broken", mutants("KILLED", "LIVED"), CanaryBroken},
+		// NEITHER OF THESE VOTES. NOT COVERED and NOT VIABLE are not graded
+		// verdicts, so they cannot say whether the tests ran — the maincanary's
+		// `func main` body earns the former on every run.
+		{"nothing graded", mutants("NOT COVERED", "NOT VIABLE"), CanaryUnknown},
+		{"no mutants at all", `{"go_module":"canary","files":[]}`, CanaryUnknown},
+		// NOT A REPORT IS NOT A VERDICT. A crash message where the JSON should be
+		// is the shape of a control that never produced one.
+		{"a crash message", "gomutants: cannot find main module", CanaryUnknown},
+		{"nothing", "", CanaryUnknown},
+		{"truncated JSON", `{"files":[{"mutations":[`, CanaryUnknown},
 	} {
-		if got := GoMutationCanary(out); got != want {
-			t.Errorf("%q: %s, want %s", out, got, want)
+		if got := GoMutationCanary(c.report); got != c.want {
+			t.Errorf("%s: %s, want %s\n%s", c.name, got, c.want, c.report)
 		}
 	}
 }

@@ -297,7 +297,7 @@ func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoM
 		} `json:"files"`
 	}
 	if err := json.Unmarshal(report, &d); err != nil {
-		return GoMutationScore{}, fmt.Errorf("the mutation report is not gremlins JSON: %v", err)
+		return GoMutationScore{}, fmt.Errorf("the mutation report is not a gomutants report: %v", err)
 	}
 	workers = max(1, workers)
 	covered := coveredBlocks(profile)
@@ -535,7 +535,7 @@ func GoMutationVerdict(run GoMutationRun) (int, string, []Finding) {
 			// gremlins writes no report when it has nothing to report and exits
 			// 0: the pull touched no mutable Go in scope. Clean, and said to have
 			// measured nothing.
-			return 0, "gremlins had no results to report (exit 0, no report): the pull touched no mutable Go code in scope", nil
+			return 0, "gomutants had no results to report (exit 0, no report): the pull touched no mutable Go code in scope", nil
 		}
 		// AND IT SAYS WHY, because the exit code alone sent a reader to the
 		// archive. MEASURED on ourea@59b3a39 (2026-09-26): this branch settled
@@ -552,7 +552,7 @@ func GoMutationVerdict(run GoMutationRun) (int, string, []Finding) {
 		// Finding that took reading 539 archived lines for a fact the settle
 		// could have carried in twenty. The Rust and TypeScript siblings already
 		// tail their log here; this one now does too.
-		return 2, fmt.Sprintf("gremlins exited %d and wrote no mutation-go.json — nothing was measured\n%s",
+		return 2, fmt.Sprintf("gomutants exited %d and wrote no mutation-go.json — nothing was measured\n%s",
 			run.Status, tail(run.Log, 20)), nil
 	}
 	// THE CLASSIFIER NOT ANSWERING IS A FACT THE VERDICT MUST CARRY. Scored
@@ -593,7 +593,7 @@ func GoMutationVerdict(run GoMutationRun) (int, string, []Finding) {
 	}
 	with := func(line string) string { return line + "\n" + measured + "\n\n" + s.Summary }
 	if run.Status != 0 {
-		return 2, with(fmt.Sprintf("gremlins exited %d — a broken run, not a survivor report", run.Status)), nil
+		return 2, with(fmt.Sprintf("gomutants exited %d — a broken run, not a survivor report", run.Status)), nil
 	}
 	if s.TimedOutPct > GoMutationTimeoutBudget {
 		return 2, with(fmt.Sprintf("%s%% of mutants TIMED OUT, over the %.0f%% budget — the suite was not measured", strconv.FormatFloat(s.TimedOutPct, 'f', -1, 64), GoMutationTimeoutBudget)), nil
