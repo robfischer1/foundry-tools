@@ -280,18 +280,25 @@ func (b TestBroker) AdvertiseFor(scope string) string {
 // IT LIVES HERE BECAUSE IT IS A CONTRACT, NOT PLUMBING. The caller builds a dagger
 // container, which no unit test can inspect; this is a []string, which one can.
 //
-// AUTO-CREATION IS OFF, and that is the line worth the most. `--mode dev-container`
-// turns auto_create_topics_enabled ON — MEASURED against the pinned image, `rpk
-// cluster config get auto_create_topics_enabled` answering true. A broker that
-// invents a topic on first write makes "the broker never accepted this"
-// unassertable: tartarus's TestSessionEvent_AnUndeliveredEventIsAnError points its
-// producer at an undeclared topic and requires the write to FAIL, and under
-// auto-creation it succeeds. That suite would have flipped from pass to fail on the
-// day it moved off the container fixture, and the diff would have looked unrelated.
+// AUTO-CREATION IS OFF, and the reason I first gave for it was WRONG. `--mode
+// dev-container` does turn auto_create_topics_enabled ON — that part is measured,
+// `rpk cluster config get` answering true. What I claimed followed from it does not:
+// I wrote that tartarus's TestSessionEvent_AnUndeliveredEventIsAnError, which points
+// its producer at an undeclared topic and requires the write to FAIL, would flip to
+// failing under an auto-creating broker.
 //
-// It matters beyond that one test: a topic the record never declared should not
-// spring into being because a suite misspelled one. The fixture this replaces has
-// auto-creation off, so this is parity, not a new opinion.
+// IT DOES NOT. Measured against the pinned image both ways, that test PASSES with
+// auto-creation on, and `rpk topic list` afterwards shows the undeclared topic was
+// never created — only the two Connect declared. franz-go does not ask the broker to
+// create an unknown topic, so the broker-side setting never enters that path. The
+// mechanism was plausible and I shipped it as established before checking it.
+//
+// WHAT THE SETTING IS ACTUALLY FOR, on its own and smaller merit: a topic the record
+// never declared should not spring into being because a suite misspelled one. The
+// record names the topics; the broker inventing more of them turns a typo into a
+// passing test somewhere else. That is hygiene, not a measured defect — no suite in
+// the fleet depends on it today, and it is cheap enough to keep on that basis alone.
+// Struck rather than deleted so the next reader does not re-derive the wrong theory.
 func (b TestBroker) StartArgs(scope string) []string {
 	return []string{
 		"redpanda", "start",
