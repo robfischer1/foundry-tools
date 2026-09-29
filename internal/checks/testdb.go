@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -150,12 +151,21 @@ func TestDBsFor(tags []string) []TestDB {
 	return out
 }
 
-// BuildTags is the -tags word for the databases bound: comma-joined, in
-// binding order, "" when none.
-func BuildTags(dbs []TestDB) string {
-	tags := make([]string, 0, len(dbs))
+// BuildTags is the -tags word for every service bound: comma-joined, databases
+// before brokers, "" when none.
+//
+// ONE FUNCTION FOR BOTH KINDS, deliberately. A second way to build this word is
+// how it ends up incomplete — and an incomplete -tags word does not fail, it
+// compiles the un-named suites OUT and the lane reports green over tests that
+// never built. That is the exact shape this file exists to end, so the word has
+// one author.
+func BuildTags(dbs []TestDB, brokers []TestBroker) string {
+	tags := make([]string, 0, len(dbs)+len(brokers))
 	for _, d := range dbs {
 		tags = append(tags, d.Tag)
+	}
+	for _, b := range brokers {
+		tags = append(tags, b.Tag)
 	}
 	return strings.Join(tags, ",")
 }
@@ -191,4 +201,188 @@ func TestDBScope(dbs []TestDB, uncompiled []string, why string) string {
 		line += "; tags left uncompiled (not in the fleet's vocabulary): " + strings.Join(uncompiled, ", ")
 	}
 	return line
+}
+
+// THE RECORD SAYS KAFKA, THE TREE SAYS WHICH TAG, THE LANE BRINGS THE BROKER.
+// The broker half of the same contract, and deliberately a SEPARATE table from
+// TestDBs rather than a row in it: TestDB.DSNFor builds a postgres URL and the
+// service the caller constructs sets POSTGRES_USER/PASSWORD/DB on port 5432.
+// A broker shares none of that, and overloading one table would have put a
+// `if kind == kafka` branch in the middle of the path every repo's gate runs.
+//
+// ISOLATION IS THE TOPIC, NOT THE SERVER, and that is why this needs no helper
+// where Postgres needed one. forge-testkit-go's containers.Kafka says it in its
+// own doc: "this hands every test in the process an address for one broker,
+// because Kafka's isolation unit is the topic plus the consumer group and not
+// the broker process. Callers MUST mint unique topic and group names per test."
+// One lane-bound broker has exactly those semantics, so a suite already obeying
+// that rule needs nothing but the address. A suite that HARDCODES a topic name
+// was already broken under the fixture and is broken louder here, across
+// packages rather than within one process — see the caveat on TestBrokerScope.
+//
+// THE PER-LANE DEFINITION DIFFERS FOR FREE. The Postgres path has to perturb
+// its service (FOUNDRY_TEST_DB_LANE) because dagger content-addresses services
+// and two lanes built byte-identical definitions got handed ONE database. A
+// broker's advertised address embeds its own alias — a scoped lane advertises
+// broker-<scope>:9092 — so the definition already differs and no artificial
+// perturbation is needed.
+type TestBroker struct {
+	// Tag is the `//go:build` tag the suite sits behind, and the -tags word.
+	Tag string
+	// Env is the variable the suite reads its bootstrap address from.
+	Env string
+	// Alias is the service's hostname inside the lane container, and the host
+	// the broker advertises to clients.
+	Alias string
+	// Image is the pinned broker image (images.go).
+	Image string
+	// Port is the kafka wire, exposed and advertised.
+	Port int
+}
+
+// TestBrokers is the vocabulary, in binding order.
+var TestBrokers = []TestBroker{
+	{Tag: "live_kafka", Env: "KAFKA_BOOTSTRAP", Alias: "broker", Image: ImageRedpanda, Port: 9092},
+}
+
+// AliasFor is the broker's hostname for one LANE, on the same rule as TestDB's.
+func (b TestBroker) AliasFor(scope string) string {
+	if scope == "" {
+		return b.Alias
+	}
+	return b.Alias + "-" + scope
+}
+
+// AddrFor is the bootstrap address the suite is handed — host:port, the form
+// every kafka client takes as a seed broker.
+func (b TestBroker) AddrFor(scope string) string {
+	return b.AliasFor(scope) + ":" + strconv.Itoa(b.Port)
+}
+
+// ListenFor is the address the broker binds inside its own container: every
+// interface, so the binding can reach it. Paired with AdvertiseFor — a broker
+// that listens on localhost is unreachable through a service binding, and one
+// that advertises 0.0.0.0 hands the client an address it cannot dial.
+func (b TestBroker) ListenFor() string {
+	return "PLAINTEXT://0.0.0.0:" + strconv.Itoa(b.Port)
+}
+
+// AdvertiseFor is what the broker must advertise to be reachable through its
+// binding. A broker that advertises anything else answers the first connection
+// and then hands the client an address it cannot dial, which reads as a hang
+// rather than as a refusal.
+func (b TestBroker) AdvertiseFor(scope string) string {
+	return "PLAINTEXT://" + b.AddrFor(scope)
+}
+
+// TestBrokersFor is the vocabulary's entries for the tags a tree carries, in
+// binding order.
+func TestBrokersFor(tags []string) []TestBroker {
+	has := map[string]bool{}
+	for _, t := range tags {
+		has[t] = true
+	}
+	var out []TestBroker
+	for _, b := range TestBrokers {
+		if has[b.Tag] {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// KafkaBackend answers whether a slag record declares a kafka backend.
+//
+// THE SHAPE IS NOT POSTGRES'. backends.postgres is an OBJECT (cluster, database,
+// owner); backends.kafka is the ARRAY OF TOPICS the star produces or consumes,
+// and a star with no broker carries `false`. So an empty array is no more a
+// declaration than `false` is: a star that names no topic has no broker seam for
+// a suite to exercise.
+func KafkaBackend(slag string) bool {
+	var doc struct {
+		Backends map[string]json.RawMessage `json:"backends"`
+	}
+	if err := json.Unmarshal([]byte(slag), &doc); err != nil {
+		return false
+	}
+	raw, ok := doc.Backends["kafka"]
+	if !ok {
+		return false
+	}
+	var topics []string
+	if err := json.Unmarshal(raw, &topics); err != nil {
+		return false
+	}
+	return len(topics) > 0
+}
+
+// TestBrokerScope is the line an atom prints about the brokers it brought, and
+// it is printed EITHER WAY, on the same rule as TestDBScope: a lane that bound
+// nothing says why.
+//
+// IT CARRIES THE TOPIC CAVEAT, because the lane cannot enforce it. One broker
+// serves every package in the run, so two suites that hardcode the same topic
+// read each other's records — intermittently, which looks like flake rather than
+// like the ordering dependency it is.
+func TestBrokerScope(brokers []TestBroker, why string) string {
+	if len(brokers) == 0 {
+		return "test brokers: none — " + why
+	}
+	parts := make([]string, 0, len(brokers))
+	for _, b := range brokers {
+		parts = append(parts, b.Tag+" → "+b.Env)
+	}
+	return "test brokers: " + strings.Join(parts, ", ") +
+		"; one broker serves every package — mint unique topic and group names per test"
+}
+
+// BrokerReads is the three reads withTestBrokers makes, handed over as data.
+//
+// THE DECISION IS PURE, THE I/O IS THE CALLER'S, and that split is not tidiness.
+// The first cut put all four guards inside the dagger method, where no unit test
+// can reach them: the mutation lane graded them NOT COVERED and LIVED on the very
+// pull that introduced them (foundry-tools #196, six survivors at atoms_go.go
+// 287-304). A guard no test can execute is a guard that is not there — so the
+// decision moved here, where every arm is a table row.
+//
+// An error is not the same fact as an empty read, for either one: a record that could not
+// be fetched and a record that names no topic are different refusals, and the
+// scope line has to say which.
+type BrokerReads struct {
+	// Answers is .copier-answers.yml's contents; "" when it could not be read.
+	Answers string
+	// Slag is the record's contents, SlagErr the error fetching it. The error
+	// distinguishes "could not fetch" from "fetched and says nothing".
+	Slag    string
+	SlagErr error
+	// Tags is the tree's `//go:build` grep output; TagsErr and TagsCode are the
+	// grep's own outcome. grep exits 1 for no match, which is an ANSWER; 2 and up
+	// is grep failing, which is not the same as the grep finding nothing.
+	Tags     string
+	TagsErr  error
+	TagsCode int
+}
+
+// SelectBrokers answers which brokers the lane binds and the scope line to print,
+// from the three reads. The empty slice is a decision, never an oversight — the
+// line always says which read refused.
+func SelectBrokers(r BrokerReads) ([]TestBroker, string) {
+	star := ServiceName(r.Answers)
+	if star == "" {
+		return nil, TestBrokerScope(nil, "no service_name in .copier-answers.yml, so no record to read")
+	}
+	if r.SlagErr != nil {
+		return nil, TestBrokerScope(nil, "no record at fleet/stars/"+star+"/slag.json")
+	}
+	if !KafkaBackend(r.Slag) {
+		return nil, TestBrokerScope(nil, "the record names no kafka topics")
+	}
+	if r.TagsErr != nil || r.TagsCode > 1 {
+		return nil, TestBrokerScope(nil, "the tree's build tags could not be read")
+	}
+	brokers := TestBrokersFor(GoBuildTags(r.Tags))
+	if len(brokers) == 0 {
+		return nil, TestBrokerScope(nil, "the record names kafka topics but no test file sits behind a tag the fleet names")
+	}
+	return brokers, TestBrokerScope(brokers, "")
 }
