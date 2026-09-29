@@ -104,6 +104,13 @@ func (e *fakeEngine) stderr(match, out string) {
 	e.script(script{match: match, leaf: "stderr", value: out})
 }
 
+// contents scripts the body of a file an atom reads back OUT OF A CONTAINER, as
+// opposed to out of the repository's tree — how a test hands the mutation lane a
+// control's JSON report, which the container wrote and no tree holds.
+func (e *fakeEngine) contents(match, out string) {
+	e.script(script{match: match, leaf: "contents", value: out})
+}
+
 // label scripts an image label read off every chain whose query text contains
 // match — how a test hands the build lane a :stable's revision.
 func (e *fakeEngine) label(match, value string) {

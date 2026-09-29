@@ -121,7 +121,7 @@ func TestScoreGoMutationSaysWhenItMeasuredNothing(t *testing.T) {
 	if s.MsPerMutant != -1 {
 		t.Errorf("nothing ran, and a cost was reported: %v", s.MsPerMutant)
 	}
-	if _, err := ScoreGoMutation([]byte("{"), "", "diff", 1, nil, nil); err == nil || !strings.Contains(err.Error(), "not gremlins JSON") {
+	if _, err := ScoreGoMutation([]byte("{"), "", "diff", 1, nil, nil); err == nil || !strings.Contains(err.Error(), "not a gomutants report") {
 		t.Errorf("a report that does not parse: %v", err)
 	}
 }
@@ -176,8 +176,8 @@ func TestGoMutationVerdictSettlesEveryRun(t *testing.T) {
 		state  int
 		reason string
 	}{
-		"no report, gremlins clean":  {GoMutationRun{Status: 0}, 0, "gremlins had no results to report"},
-		"no report, gremlins broken": {GoMutationRun{Status: 3}, 2, "gremlins exited 3 and wrote no mutation-go.json"},
+		"no report, gremlins clean":  {GoMutationRun{Status: 0}, 0, "gomutants had no results to report"},
+		"no report, gremlins broken": {GoMutationRun{Status: 3}, 2, "gomutants exited 3 and wrote no mutation-go.json"},
 		// THE REASON CARRIES THE CAUSE, not just the exit code. This settled a
 		// real lane could-not-run on ourea@59b3a39 with nothing but `exited 1`,
 		// while the actual cause — one failing unit test, which makes gremlins'
@@ -192,7 +192,7 @@ func TestGoMutationVerdictSettlesEveryRun(t *testing.T) {
 		}, 2, "TestThePollerLingersAndThenStops"},
 		"a report that does not read": {GoMutationRun{Report: []byte("{")}, 2, "could not be read"},
 		"gremlins broke with a report": {GoMutationRun{Status: 10, Report: []byte(clean), Canary: CanaryOK}, 2,
-			"gremlins exited 10 — a broken run"},
+			"gomutants exited 10 — a broken run"},
 		"too many timed out":    {GoMutationRun{Report: []byte(timedOut), Canary: CanaryOK}, 2, "50% of mutants TIMED OUT, over the 10% budget"},
 		"exactly at the budget": {GoMutationRun{Report: []byte(atBudget), Canary: CanaryOK}, 0, "every viable mutant was caught"},
 		"a broken canary":       {GoMutationRun{Report: []byte(clean), Canary: CanaryBroken}, 2, "the harness scores unrun tests as kills"},
