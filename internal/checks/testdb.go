@@ -275,6 +275,34 @@ func (b TestBroker) AdvertiseFor(scope string) string {
 	return "PLAINTEXT://" + b.AddrFor(scope)
 }
 
+// StartArgs is the broker's own start command.
+//
+// IT LIVES HERE BECAUSE IT IS A CONTRACT, NOT PLUMBING. The caller builds a dagger
+// container, which no unit test can inspect; this is a []string, which one can.
+//
+// AUTO-CREATION IS OFF, and that is the line worth the most. `--mode dev-container`
+// turns auto_create_topics_enabled ON — MEASURED against the pinned image, `rpk
+// cluster config get auto_create_topics_enabled` answering true. A broker that
+// invents a topic on first write makes "the broker never accepted this"
+// unassertable: tartarus's TestSessionEvent_AnUndeliveredEventIsAnError points its
+// producer at an undeclared topic and requires the write to FAIL, and under
+// auto-creation it succeeds. That suite would have flipped from pass to fail on the
+// day it moved off the container fixture, and the diff would have looked unrelated.
+//
+// It matters beyond that one test: a topic the record never declared should not
+// spring into being because a suite misspelled one. The fixture this replaces has
+// auto-creation off, so this is parity, not a new opinion.
+func (b TestBroker) StartArgs(scope string) []string {
+	return []string{
+		"redpanda", "start",
+		"--smp", "1", "--overprovisioned", "--node-id", "0", "--check=false",
+		"--mode", "dev-container",
+		"--set", "redpanda.auto_create_topics_enabled=false",
+		"--kafka-addr", b.ListenFor(),
+		"--advertise-kafka-addr", b.AdvertiseFor(scope),
+	}
+}
+
 // TestBrokersFor is the vocabulary's entries for the tags a tree carries, in
 // binding order.
 func TestBrokersFor(tags []string) []TestBroker {

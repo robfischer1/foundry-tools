@@ -305,3 +305,33 @@ func TestSelectBrokersNamesWhichReadRefused(t *testing.T) {
 		t.Errorf("the record is read before the tree: %q", line)
 	}
 }
+
+func TestStartArgsRefusesToInventTopics(t *testing.T) {
+	args := TestBrokers[0].StartArgs("")
+	joined := strings.Join(args, " ")
+
+	// THE LINE THIS TEST EXISTS FOR. `--mode dev-container` turns auto-creation ON,
+	// and a broker that invents a topic on first write makes "the broker never
+	// accepted this" unassertable — tartarus's undelivered-event test requires that
+	// write to fail. Measured against the pinned image: without this setting,
+	// auto_create_topics_enabled answers true.
+	if !strings.Contains(joined, "redpanda.auto_create_topics_enabled=false") {
+		t.Errorf("a broker that auto-creates topics cannot refuse an undeclared one: %q", joined)
+	}
+	// Listened on every interface, advertised as the alias. Swap them and the broker
+	// answers the first connection, then hands the client an address it cannot dial.
+	if !strings.Contains(joined, "--kafka-addr PLAINTEXT://0.0.0.0:9092") {
+		t.Errorf("must listen on every interface: %q", joined)
+	}
+	if !strings.Contains(joined, "--advertise-kafka-addr PLAINTEXT://broker:9092") {
+		t.Errorf("must advertise the binding alias: %q", joined)
+	}
+	// A scoped lane's command differs, which is what keeps dagger from handing two
+	// lanes one content-addressed service.
+	if strings.Join(TestBrokers[0].StartArgs("mutation"), " ") == joined {
+		t.Error("two lanes must not build byte-identical start commands")
+	}
+	if !strings.Contains(strings.Join(TestBrokers[0].StartArgs("mutation"), " "), "broker-mutation:9092") {
+		t.Error("the scoped lane advertises its own alias")
+	}
+}
