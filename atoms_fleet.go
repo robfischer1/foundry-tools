@@ -323,14 +323,14 @@ func fleetSastRulesetLanes(ctx context.Context, r *run) checks.Verdict {
 		return cannotEnumerate(a, err)
 	}
 	if !checks.HasEntry(entries, "rules") {
-		return absentRuleset(ctx, r, a, entries)
+		return absentRuleset(ctx, r, a)
 	}
 	rulesEntries, err := r.src.Directory("rules").Entries(ctx)
 	if err != nil {
 		return cannotEnumerate(a, err)
 	}
 	if !checks.HasEntry(rulesEntries, "sast") {
-		return absentRuleset(ctx, r, a, entries)
+		return absentRuleset(ctx, r, a)
 	}
 
 	paths, err := r.src.Glob(ctx, "rules/sast/*.yml")
@@ -443,14 +443,14 @@ func fleetOpengrepSast(ctx context.Context, r *run) checks.Verdict {
 		return cannotEnumerate(a, err)
 	}
 	if !checks.HasEntry(entries, "rules") {
-		return absentRuleset(ctx, r, a, entries)
+		return absentRuleset(ctx, r, a)
 	}
 	rulesEntries, err := r.src.Directory("rules").Entries(ctx)
 	if err != nil {
 		return cannotEnumerate(a, err)
 	}
 	if !checks.HasEntry(rulesEntries, "sast") {
-		return absentRuleset(ctx, r, a, entries)
+		return absentRuleset(ctx, r, a)
 	}
 
 	scan := r.lane(checks.ImageFleet).

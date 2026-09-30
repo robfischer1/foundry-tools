@@ -115,14 +115,20 @@ func fleetCopierAnswersIntact(ctx context.Context, r *run) checks.Verdict {
 // narrower than "is copier involved here" — it is "did one of OUR templates
 // stamp this, and therefore ship this repo a SAST ruleset".
 //
-// An unreadable or unparseable file answers "" and the caller treats the tree as
-// unstamped. That is deliberate: this helper decides whether to make another
-// atom STRICTER, so a failure to read must not invent strictness out of nothing.
-// The atom above is what fails loudly on a file it cannot read.
-func copierTemplate(ctx context.Context, r *run, entries []string) string {
-	if !checks.HasEntry(entries, answersFile) {
-		return ""
-	}
+// An unreadable, absent or unparseable file answers "" and the caller treats the
+// tree as unstamped. That is deliberate: this helper decides whether to make
+// another atom STRICTER, so a failure to read must not invent strictness out of
+// nothing. The atom above is what fails loudly on a file it cannot read.
+//
+// NO `HasEntry` GUARD, and its absence is the point rather than an oversight.
+// One stood here and the mutation gate showed it could not change an answer:
+// reading a path that is not there ERRORS, and the error path already returns
+// "", so the guard and the read agreed on every input. An unkillable branch is
+// not a cheap safety net — it is a line that looks like a decision and is not,
+// and the next reader has to prove that for themselves. The cost of dropping it
+// is one failing Contents call on a tree that has neither rules/sast nor an
+// answers file, which is the rarest shape there is.
+func copierTemplate(ctx context.Context, r *run) string {
 	body, err := r.src.File(answersFile).Contents(ctx)
 	if err != nil {
 		return ""
@@ -163,8 +169,8 @@ func copierTemplate(ctx context.Context, r *run, entries []string) string {
 // to carry the ruleset that template ships, and its absence is a check that did
 // not run rather than a repo with nothing to check. Exit 2, the same verdict
 // this file's neighbours give a scan they could not perform.
-func absentRuleset(ctx context.Context, r *run, a checks.AtomDef, entries []string) checks.Verdict {
-	tpl := copierTemplate(ctx, r, entries)
+func absentRuleset(ctx context.Context, r *run, a checks.AtomDef) checks.Verdict {
+	tpl := copierTemplate(ctx, r)
 	if tpl == "" {
 		return checks.VerdictOf(a, 0, string(a.ID)+
 			": ABSENT - no rules/sast in this tree, and no fleet template stamped it")
