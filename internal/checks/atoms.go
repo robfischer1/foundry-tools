@@ -125,6 +125,10 @@ func atomTable() []AtomDef {
 			Desc: "No crashed copier render is recorded in .copier-answers.yml.",
 		},
 		{
+			ID: "fleet:ourea-config-retired-keys", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "The ourea ConfigMap names no key the door has stopped reading.",
+		},
+		{
 			ID: "fleet:orbit-drift", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
 			Desc: "This repo's declared seams agree with the canonical contracts in foundry-dies/orbits.",
 		},
