@@ -120,19 +120,19 @@ func fleetCopierAnswersIntact(ctx context.Context, r *run) checks.Verdict {
 // another atom STRICTER, so a failure to read must not invent strictness out of
 // nothing. The atom above is what fails loudly on a file it cannot read.
 //
-// NO `HasEntry` GUARD, and its absence is the point rather than an oversight.
-// One stood here and the mutation gate showed it could not change an answer:
-// reading a path that is not there ERRORS, and the error path already returns
-// "", so the guard and the read agreed on every input. An unkillable branch is
-// not a cheap safety net — it is a line that looks like a decision and is not,
-// and the next reader has to prove that for themselves. The cost of dropping it
-// is one failing Contents call on a tree that has neither rules/sast nor an
-// answers file, which is the rarest shape there is.
+// NEITHER A `HasEntry` GUARD NOR AN `err` BRANCH, and that is the point rather
+// than an oversight. Both stood here and the mutation gate showed neither could
+// change an answer: a path that is not there ERRORS, an errored read leaves body
+// "", and a body with no `_src_path` already returns "". Absent, unreadable and
+// unstamped were three spellings of one outcome, so two branches looked like
+// decisions and were not — and the next reader would have had to prove that for
+// themselves.
+//
+// The discard is the fleet's existing idiom for exactly this read, not a
+// shortcut invented here: atoms_ts.go:145 and atoms_python.go:328 both take
+// `.copier-answers.yml` with `answers, _ := ...Contents(ctx)`.
 func copierTemplate(ctx context.Context, r *run) string {
-	body, err := r.src.File(answersFile).Contents(ctx)
-	if err != nil {
-		return ""
-	}
+	body, _ := r.src.File(answersFile).Contents(ctx)
 	for _, line := range strings.Split(body, "\n") {
 		rest, ok := strings.CutPrefix(strings.TrimSpace(line), "_src_path:")
 		if !ok {
