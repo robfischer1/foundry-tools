@@ -1504,3 +1504,56 @@ func TestTheGovulncheckAtomAppliesTheGatesAllowance(t *testing.T) {
 	engine.stdout(`"govulncheck","./..."`, allowedVulnReport)
 	wantState(t, runAtom(t, "go:govulncheck", ""), 2)
 }
+
+// THE ARGV'S EXCLUSION SET AND THE RATIFIED TABLE ARE ONE DECISION, and this is
+// what makes them one. goMutationDisable is what the lane actually passes;
+// checks.RatifiedMutators is what Rob signed. They live in different packages
+// because the table is also what fleet:stop-justifications grades a repository's
+// own .gomutants.yaml against — one definition, two readers — and two literals
+// with no test between them is how a fifth operator gets added by a session that
+// meant well.
+//
+// BOTH DIRECTIONS, AND THE COUNT. A one-way check passes a table that has grown
+// past the argv (a row nobody enforces) or an argv that has grown past the table
+// (an operator nobody signed), and it is the second one this exists to refuse.
+func TestTheDisabledOperatorsAreExactlyTheRatifiedSet(t *testing.T) {
+	passed := strings.Split(goMutationDisable, ",")
+	signed := map[string]bool{}
+	for _, r := range checks.RatifiedMutators {
+		signed[r.Mutator] = true
+	}
+	onArgv := map[string]bool{}
+	for _, name := range passed {
+		if name != strings.TrimSpace(name) || name == "" {
+			t.Errorf("goMutationDisable entry %q is not a bare name — gomutants splits on the comma and nothing trims it", name)
+		}
+		if !signed[name] {
+			t.Errorf("the lane disables %s and no checks.RatifiedMutators row names it — an unsigned suppression of the fleet's mutation gate", name)
+		}
+		onArgv[name] = true
+	}
+	for _, r := range checks.RatifiedMutators {
+		if !onArgv[r.Mutator] {
+			t.Errorf("%s is ratified and the lane does not disable it — the row enforces nothing", r.Mutator)
+		}
+	}
+	if len(passed) != len(checks.RatifiedMutators) {
+		t.Errorf("goMutationDisable names %d operator(s), RatifiedMutators has %d rows", len(passed), len(checks.RatifiedMutators))
+	}
+}
+
+// INCREMENT_DECREMENT IS NOT THE ONE THAT LEAVES, and the argv is where the
+// confusion would do its damage. It mutates `i++` to `i--` — a real operator on
+// a real statement, one of gremlins' own five — and it shares a word with the
+// four numeric-literal operators that do leave. A substring match is the shape
+// of the mistake, so the check is a substring match.
+func TestTheStatementOperatorIsNotDisabledByAccident(t *testing.T) {
+	for _, name := range strings.Split(goMutationDisable, ",") {
+		if name == "INCREMENT_DECREMENT" {
+			t.Fatal("the lane disables INCREMENT_DECREMENT — that mutates i++ to i--, not a literal")
+		}
+	}
+	if strings.Contains(goMutationDisable, "INCREMENT_DECREMENT") {
+		t.Errorf("goMutationDisable %q contains INCREMENT_DECREMENT as a substring of some other entry", goMutationDisable)
+	}
+}

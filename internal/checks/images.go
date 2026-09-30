@@ -325,6 +325,18 @@ const (
 // TestkitRepo / TestkitRef went with it. The testkit is still the CLASSIFIER
 // (MutationGateModule above), which the lane installs by module path; the TREE
 // had exactly one reader in the whole module and it was that config file.
+//
+// AND THEY STAY GONE, on a measurement rather than on the above being tidy.
+// `gomutants -h` at v0.6.1 has a flag for every knob that file set, two of them
+// already its defaults, so restoring the clone would buy a door dependency and
+// a CANNOT RUN branch to express what the argv expresses. What the file WAS
+// carrying that the argv could not was the ratification — the four disabled
+// operators, and the fact that Rob signed those four and no others. That is now
+// RatifiedMutators in stopjust.go: data in this module, enforced two ways. A
+// unit test refuses goMutationDisable and the table disagreeing, and
+// fleet:stop-justifications grades a .gomutants.yaml in ANY repository's tree
+// against it — including forge-testkit-go's own canonical copy, which is what
+// makes that file's set checked rather than merely committed.
 
 // DiesRepo / DiesRef pin the fleet's RECORD tree — foundry-dies — for the
 // atoms whose subject is the fleet rather than the repository under test.

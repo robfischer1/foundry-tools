@@ -1118,3 +1118,95 @@ func TestAnEmptyRecordIsACannotRunNotAnEmptyScan(t *testing.T) {
 		t.Errorf("the refusal must say why:\n%s", out)
 	}
 }
+
+// A DISABLED OPERATOR IS THE WIDEST SUPPRESSION IN THIS CHECK, and before this
+// there was nothing anywhere that would have noticed a fifth. The directive
+// inventory is source-level by construction — a comment a tool reads, or a call
+// like t.Skip — and a YAML key matches none of it.
+func TestStopJustificationsGradesTheMutationGatesOperatorSet(t *testing.T) {
+	const canonical = "workers: 1\ndisable:\n  - INTEGER_INCREMENT\n  - INTEGER_DECREMENT\n  - FLOAT_INCREMENT\n  - FLOAT_DECREMENT\n"
+	for _, tc := range []struct {
+		label, path, body string
+		want              int
+		says              string
+	}{
+		{"the ratified four", ".gomutants.yaml", canonical, 0,
+			"stop-justifications: 4 mutation operator(s) switched off on a RATIFIED row — excused, nothing to do.\n"},
+		{"a fifth nobody signed", ".gomutants.yaml", canonical + "  - CONDITIONALS_BOUNDARY\n", 1,
+			"    .gomutants.yaml:7\n        gomutants · CONDITIONALS_BOUNDARY\n        disable: - CONDITIONALS_BOUNDARY\n"},
+		{"the .yml spelling gomutants auto-loads", ".gomutants.yml", "disable:\n  - INVERT_BITWISE\n", 1,
+			".gomutants.yml:2\n        gomutants · INVERT_BITWISE"},
+		{"a config in a subdirectory", "sub/.gomutants.yaml", "disable:\n  - INVERT_BITWISE\n", 1, "sub/.gomutants.yaml:2"},
+		{"flow style", ".gomutants.yaml", "disable: [INVERT_BITWISE]\n", 1, "disable: [INVERT_BITWISE]"},
+		{"flow style, several", ".gomutants.yaml", "disable: [INVERT_BITWISE, ARITHMETIC_BASE]\n", 1, "gomutants · ARITHMETIC_BASE"},
+		{"flow style, all ratified", ".gomutants.yaml", "disable: [FLOAT_INCREMENT, FLOAT_DECREMENT]\n", 0, "2 mutation operator(s) switched off on a RATIFIED row"},
+		// only IS THE INVERSE KEY: it disables the 27 it does not name, so
+		// naming a ratified operator there is the widest suppression of all.
+		{"only, naming a ratified operator", ".gomutants.yaml", "only:\n  - FLOAT_INCREMENT\n", 1,
+			"    .gomutants.yaml:2\n        gomutants · FLOAT_INCREMENT\n        only: - FLOAT_INCREMENT\n"},
+		{"only, flow style", ".gomutants.yaml", "only: [INVERT_BITWISE]\n", 1, "only: [INVERT_BITWISE]"},
+		{"an empty only names nothing", ".gomutants.yaml", "only:\nworkers: 4\n", 0, "no undocumented suppressions"},
+		{"the nested spelling", ".gomutants.yaml", "mutants:\n  ARITHMETIC_BASE:\n    enabled: false\n", 1,
+			"    .gomutants.yaml:3\n        gomutants · ARITHMETIC_BASE\n        mutants.ARITHMETIC_BASE.enabled: false\n"},
+		{"the nested spelling, ratified", ".gomutants.yaml", "mutants:\n  FLOAT_DECREMENT:\n    enabled: false\n", 0, "1 mutation operator(s) switched off on a RATIFIED row"},
+		{"enabled true switches nothing off", ".gomutants.yaml", "mutants:\n  ARITHMETIC_BASE:\n    enabled: true\n", 0, "no undocumented suppressions"},
+		{"a comment naming an operator", ".gomutants.yaml", "# INVERT_BITWISE is left on\ndisable:\n  # and so is ARITHMETIC_BASE\n  - FLOAT_INCREMENT\n", 0, "1 mutation operator(s)"},
+		{"a trailing comment on an entry", ".gomutants.yaml", "disable:\n  - INVERT_BITWISE  # because\n", 1, "gomutants · INVERT_BITWISE"},
+		{"a top-level key ends the block", ".gomutants.yaml", "disable:\n  - FLOAT_INCREMENT\nworkers: 4\n  - INVERT_BITWISE\n", 0, "1 mutation operator(s)"},
+		{"another key's sequence is not the set", ".gomutants.yaml", "exclude-calls:\n  - INVERT_BITWISE\n", 0, "no undocumented suppressions"},
+		{"a disable key in a file that is not a gomutants config", "ci.yaml", "disable:\n  - INVERT_BITWISE\n", 0, "no undocumented suppressions"},
+		{"a name that is not a gomutants config", "gomutants.yaml", "disable:\n  - INVERT_BITWISE\n", 0, "no undocumented suppressions"},
+	} {
+		t.Run(tc.label, func(t *testing.T) {
+			out := wantSJ(t, tc.label, tc.want, "forge-testkit-go", map[string]string{tc.path: tc.body})
+			if !strings.Contains(out, tc.says) {
+				t.Errorf("want %q in:\n%s", tc.says, out)
+			}
+		})
+	}
+}
+
+// AN UNRATIFIED OPERATOR IS A FINDING WITH NOTHING ELSE WRONG IN THE TREE, and
+// that is the whole point: nothing else in the scan would have failed, so the
+// clean line and the exit both have to answer to this block alone.
+func TestAnUnratifiedMutatorFailsOnItsOwn(t *testing.T) {
+	code, out := sjTree("x", map[string]string{
+		".gomutants.yaml": "disable:\n  - INVERT_BITWISE\n",
+		"b.go":            "package b\n\nfunc F() int { return 1 }\n",
+	})
+	if code != 1 {
+		t.Errorf("exit %d, want 1 — an unratified operator is a finding:\n%s", code, out)
+	}
+	if strings.Contains(out, "no undocumented suppressions") {
+		t.Errorf("a clean line over an unratified operator:\n%s", out)
+	}
+	if !strings.Contains(out, "that authorised it.\n\n") {
+		t.Errorf("the block names the remedy:\n%s", out)
+	}
+}
+
+// EVERY ROW CARRIES ITS PROVENANCE, for the reason DirectoryExempt's do: a table
+// that says a suppression is allowed without saying who allowed it is a session
+// excusing itself, and this table's blast radius is every repository the fleet
+// mutates.
+func TestEveryRatifiedMutatorRowIsSigned(t *testing.T) {
+	if len(RatifiedMutators) == 0 {
+		t.Fatal("RatifiedMutators is empty — nothing grades the exclusion set")
+	}
+	seen := map[string]bool{}
+	for _, r := range RatifiedMutators {
+		if r.Mutator == "" || r.Approved == "" || r.Provenance == "" || r.Reason == "" {
+			t.Errorf("row %+v is missing a field — mutator, approved, provenance and reason are all required", r)
+		}
+		if seen[r.Mutator] {
+			t.Errorf("%s is ratified twice — the count the report prints would double it", r.Mutator)
+		}
+		seen[r.Mutator] = true
+	}
+	// INCREMENT_DECREMENT mutates `i++` to `i--`: a real operator on a real
+	// statement, and one of gremlins' own five. It is NOT the numeric-literal
+	// namesake and must never be ratified by being confused with one.
+	if seen["INCREMENT_DECREMENT"] {
+		t.Error("INCREMENT_DECREMENT is ratified — that operator mutates a statement, not a literal")
+	}
+}

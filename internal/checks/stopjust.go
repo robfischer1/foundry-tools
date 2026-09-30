@@ -761,6 +761,174 @@ func allExempt(rules []string, glob string) bool {
 	return true
 }
 
+// ---- the mutation gate's operator set ---------------------------------------
+
+// MutatorRow is one mutation operator the fleet's gomutants config is allowed
+// to switch off. Keyed by the OPERATOR, never by the config's path: the file
+// has already moved once (.gremlins.yaml -> .gomutants.yaml) and a ratification
+// keyed to a filename would have evaporated with the rename.
+type MutatorRow struct {
+	Mutator, Approved, Provenance, Reason string
+}
+
+// RatifiedMutators is the mutation gate's exclusion set, and the whole of it.
+// A config that disables an operator no row here names is a finding.
+//
+// A DISABLED OPERATOR IS A SUPPRESSION, and it is the widest one in this file.
+// A `noqa` silences one line; a ruff per-file-ignores entry silences one glob
+// in one repository; this silences an operator in EVERY repository the fleet
+// mutates, from a file most readers never open. The class is the same and the
+// scale is not, so it earns the same rule: Rob's words, or it is a finding.
+//
+// THE DIRECTIVE TABLE ABOVE CANNOT SEE IT, which is why this exists as data
+// rather than as another sjForm. Every form in sjPatterns is a SOURCE-level
+// suppression — a comment a compiler or a linter reads, or a call like t.Skip.
+// A YAML `disable:` key matches none of them (measured 2026-09-29 against the
+// generated .gomutants.yaml: zero hits from the whole inventory), so before
+// this table a fifth operator could be added to the fleet's mutation gate with
+// nothing anywhere to notice.
+//
+// RATIFIED BY ROB, session 836886a4 (Hamilton20), 2026-09-29: "Find our
+// canonical CI/lint configs, author a .gomutants.yaml with the 24/28, and wire
+// that in to the stop-justifications workflow. Cite this turn as provenance for
+// my ratifcation (You'll need it for stop-justifications)". The 24/28 is this
+// set: gomutants ships 28 operators and these four leave, so the gate the fleet
+// actually runs is 19 operators WIDER than gremlins' five defaults, not
+// narrower. The point of naming them is that the width is stated.
+//
+// `only:` IS NOT RATIFIABLE AND HAS NO ROW. It is the inverse key — it disables
+// every operator it does not name — so one line of it empties the population
+// and takes the gate green over a repository that graded nothing (measured
+// 2026-09-29: `only: [INVERT_BITWISE]` took 24 enabled types to 1 and 2 mutants
+// to 0, exit 0). There is no set of four words that makes that a measurement,
+// so every entry under it is a finding on sight.
+var RatifiedMutators = []MutatorRow{
+	{
+		Mutator: "INTEGER_INCREMENT", Approved: "2026-09-29T00:00:00Z",
+		Provenance: "session 836886a4 (Hamilton20), in-session",
+		Reason:     "an integer literal +1: `0`->`1` on the DISCARDED value of `return 0, err`, which Go leaves unspecified, and `64`->`65` in `strconv.ParseFloat(q, 64)`, bit-identical for every input",
+	},
+	{
+		Mutator: "INTEGER_DECREMENT", Approved: "2026-09-29T00:00:00Z",
+		Provenance: "session 836886a4 (Hamilton20), in-session",
+		Reason:     "the same literal -1: `0`->`-1` on a discarded return, `64`->`63` in ParseFloat, which takes the 32-bit path only for bitSize 32",
+	},
+	{
+		Mutator: "FLOAT_INCREMENT", Approved: "2026-09-29T00:00:00Z",
+		Provenance: "session 836886a4 (Hamilton20), in-session",
+		Reason:     "a float literal +1: `1e6`->`1000001.0` as a nanocore divisor, identical under int64 truncation at every realistic reading",
+	},
+	{
+		Mutator: "FLOAT_DECREMENT", Approved: "2026-09-29T00:00:00Z",
+		Provenance: "session 836886a4 (Hamilton20), in-session",
+		Reason:     "the same literal -1: `1e6`->`999999.0`, identical under the same truncation",
+	},
+}
+
+// SJMutatorFinding is one operator a gomutants config switches off that no
+// RatifiedMutators row names.
+type SJMutatorFinding struct {
+	Line         int
+	Key, Mutator string
+	Detail       string
+}
+
+// gomutants auto-loads `.gomutants.yml` from its workdir and the fleet's
+// canonical copy is `.gomutants.yaml`; both spellings are read here, wherever
+// in the tree they sit. A config is a config whether or not this particular
+// tool would have auto-loaded it — `-config` takes a path.
+var sjGomutantsConfig = regexp.MustCompile(`^\.gomutants\.ya?ml$`)
+
+// The config schema is FLAT, so the keys that disable an operator are three and
+// they are all reachable line by line: `disable:` and `only:` as sequences, and
+// `mutants.<NAME>.enabled: false` as the one nested spelling.
+var (
+	sjMutKey     = sjPy(`^(disable|only|mutants)\s*:\s*(.*)$`)
+	sjMutItem    = sjPy(`^\s+-\s*"?([A-Za-z0-9_]+)"?\s*(?:#.*)?$`)
+	sjMutName    = sjPy(`^\s+"?([A-Za-z0-9_]+)"?\s*:\s*(?:#.*)?$`)
+	sjMutEnabled = sjPy(`^\s+enabled\s*:\s*(true|false)\s*(?:#.*)?$`)
+)
+
+// MutationSilencing answers the operators a gomutants config switches off and
+// how many of them RatifiedMutators names.
+//
+// READ AS LINES, not unmarshalled, and that is deliberate rather than lazy.
+// Unmarshalling answers what the TOOL would run; this check answers what the
+// FILE says, and those differ in the direction that matters: a key this scan
+// cannot parse is a key it reports, where a decoder would either drop it into a
+// zero value or refuse the whole document and take the check with it. It also
+// keeps the line number, which is the only coordinate a reviewer can act on.
+func MutationSilencing(rel string, lines []string) (found []SJMutatorFinding, ratified int) {
+	if !sjGomutantsConfig.MatchString(pathBase(rel)) {
+		return nil, 0
+	}
+	signed := map[string]bool{}
+	for _, r := range RatifiedMutators {
+		signed[r.Mutator] = true
+	}
+	// grade folds one named operator into the answer, under the key that named
+	// it. `only` never reaches signed: it is the inverse key, so naming a
+	// ratified operator there disables the other 27.
+	grade := func(i int, key, name, detail string) {
+		if key != "only" && signed[name] {
+			ratified++
+			return
+		}
+		found = append(found, SJMutatorFinding{Line: i + 1, Key: key, Mutator: name, Detail: detail})
+	}
+	key, mutant := "", ""
+	for i, line := range lines {
+		bare := pyStrip(line)
+		if bare == "" || strings.HasPrefix(bare, "#") {
+			continue
+		}
+		if m := sjMutKey.FindStringSubmatch(line); m != nil {
+			key, mutant = m[1], ""
+			for _, name := range sjFlowItems(m[2]) {
+				grade(i, key, name, key+": ["+name+"]")
+				key = ""
+			}
+			continue
+		}
+		if line[0] != ' ' && line[0] != '\t' {
+			key, mutant = "", ""
+			continue
+		}
+		switch key {
+		case "disable", "only":
+			if m := sjMutItem.FindStringSubmatch(line); m != nil {
+				grade(i, key, m[1], key+": - "+m[1])
+			}
+		case "mutants":
+			if m := sjMutName.FindStringSubmatch(line); m != nil {
+				mutant = m[1]
+				continue
+			}
+			if m := sjMutEnabled.FindStringSubmatch(line); m != nil && mutant != "" && m[1] == "false" {
+				grade(i, "mutants", mutant, "mutants."+mutant+".enabled: false")
+			}
+		}
+	}
+	return found, ratified
+}
+
+// sjFlowItems answers a YAML flow sequence's entries — `[A, B]` on the key's
+// own line — and nothing for any other value, so a scalar or a block opener
+// falls through to the line scan below it.
+func sjFlowItems(rest string) []string {
+	rest = pyStrip(rest)
+	if !strings.HasPrefix(rest, "[") {
+		return nil
+	}
+	var out []string
+	for _, f := range strings.Split(strings.TrimSuffix(strings.TrimPrefix(rest, "["), "]"), ",") {
+		if f = strings.Trim(pyStrip(f), `"'`); f != "" {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 // ---- the state scan ---------------------------------------------------------
 
 // SJInput is one repository as the scan sees it.
@@ -799,6 +967,12 @@ type sjConfig struct {
 	SJConfigFinding
 }
 
+// sjMutator is one operator a gomutants config switches off, and where.
+type sjMutator struct {
+	rel string
+	SJMutatorFinding
+}
+
 // sjKLIgnore is one ignore-check.kube-linter.io annotation, and where it is.
 type sjKLIgnore struct {
 	rel string
@@ -825,6 +999,10 @@ type sjScan struct {
 	exempted    []sjExempted
 	config      []sjConfig
 	idioms      int
+	// the mutation gate's operator set as the tree's gomutants config sets it,
+	// and how many of those entries RatifiedMutators names.
+	mutators    []sjMutator
+	mutRatified int
 	self        []string
 	excluded    int
 	scanned     int
@@ -895,6 +1073,11 @@ func (s *sjScan) file(rel string) error {
 	s.idioms += idioms
 	for _, f := range found {
 		s.config = append(s.config, sjConfig{rel: rel, SJConfigFinding: f})
+	}
+	mutants, signed := MutationSilencing(rel, lines)
+	s.mutRatified += signed
+	for _, f := range mutants {
+		s.mutators = append(s.mutators, sjMutator{rel: rel, SJMutatorFinding: f})
 	}
 	if lang == "" {
 		return nil
@@ -1079,7 +1262,37 @@ func (s *sjScan) report() int {
 			"  this: a config entry is not a line, so it cannot carry a\n" +
 			"  tool-conflict on one.\n\n")
 	}
-	if len(s.findings) == 0 && len(s.config) == 0 && !klBad {
+	if s.mutRatified > 0 {
+		fmt.Fprintf(w, "\nstop-justifications: %d mutation operator(s) switched off on a RATIFIED row — excused, nothing to do.\n", s.mutRatified)
+		w.WriteString("  The fleet's gomutants config runs 24 of its 28 operators. The four\n" +
+			"  it switches off perturb a NUMERIC LITERAL by one, and on this fleet's\n" +
+			"  Go they generate mutants no correct test can kill — 20 of 25 survivors\n" +
+			"  on the module this was measured against, every one of three provable\n" +
+			"  shapes. Printed rather than passed over in silence: a gate whose width\n" +
+			"  the reader cannot see is a gate nobody can argue with.\n\n")
+	}
+	if len(s.mutators) > 0 {
+		fmt.Fprintf(w, "\nstop-justifications: %d mutation operator(s) switched off that NO ratified row names.\n\n", len(s.mutators))
+		for _, m := range s.mutators {
+			fmt.Fprintf(w, "    %s:%d\n        gomutants · %s\n        %s\n", m.rel, m.Line, m.Mutator, m.Detail)
+		}
+		w.WriteString("\n  Switching an operator off silences it in EVERY repository the fleet\n" +
+			"  mutates, out of a file most readers never open. It is the widest\n" +
+			"  suppression this check knows and the only one whose blast radius is\n" +
+			"  the whole fleet, so it earns the rule a one-line noqa earns: Rob's\n" +
+			"  words, or it is a finding.\n" +
+			"\n" +
+			"  An `only:` entry is wider still and is never ratifiable — that key\n" +
+			"  disables every operator it does NOT name, so four lines of it empty\n" +
+			"  the population and take the mutation gate green over a repository\n" +
+			"  that graded nothing. Measured 2026-09-29: 24 enabled types to 1, 2\n" +
+			"  mutants to 0, exit 0.\n" +
+			"\n" +
+			"  Kill the mutants instead. If they are genuinely unkillable, bring the\n" +
+			"  measurement to Rob and add a RatifiedMutators row carrying the words\n" +
+			"  that authorised it.\n\n")
+	}
+	if len(s.findings) == 0 && len(s.config) == 0 && len(s.mutators) == 0 && !klBad {
 		fmt.Fprintf(w, "stop-justifications: %d file(s) scanned, no undocumented suppressions.\n", s.scanned)
 		return 0
 	}
