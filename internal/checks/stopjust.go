@@ -900,11 +900,14 @@ func MutationSilencing(rel string, lines []string) (found []SJMutatorFinding, ra
 				grade(i, key, m[1], key+": - "+m[1])
 			}
 		case "mutants":
+			// ELSE-IF RATHER THAN A continue, and the mutation gate is why. A
+			// `continue` here sits inside a switch case, where the mutation that
+			// tests it — `break` — breaks the SWITCH and falls through to the
+			// same place. Nothing could tell the two apart, so the statement had
+			// to go rather than earn a test.
 			if m := sjMutName.FindStringSubmatch(line); m != nil {
 				mutant = m[1]
-				continue
-			}
-			if m := sjMutEnabled.FindStringSubmatch(line); m != nil && mutant != "" && m[1] == "false" {
+			} else if m := sjMutEnabled.FindStringSubmatch(line); m != nil && mutant != "" && m[1] == "false" {
 				grade(i, "mutants", mutant, "mutants."+mutant+".enabled: false")
 			}
 		}

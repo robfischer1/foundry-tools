@@ -1131,12 +1131,34 @@ func TestStopJustificationsGradesTheMutationGatesOperatorSet(t *testing.T) {
 		says              string
 	}{
 		{"the ratified four", ".gomutants.yaml", canonical, 0,
-			"stop-justifications: 4 mutation operator(s) switched off on a RATIFIED row — excused, nothing to do.\n"},
+			"stop-justifications: 4 mutation operator(s) switched off on a RATIFIED row — excused, nothing to do.\n" +
+				"  The fleet's gomutants config runs 24 of its 28 operators. The four\n"},
 		{"a fifth nobody signed", ".gomutants.yaml", canonical + "  - CONDITIONALS_BOUNDARY\n", 1,
 			"    .gomutants.yaml:7\n        gomutants · CONDITIONALS_BOUNDARY\n        disable: - CONDITIONALS_BOUNDARY\n"},
 		{"the .yml spelling gomutants auto-loads", ".gomutants.yml", "disable:\n  - INVERT_BITWISE\n", 1,
 			".gomutants.yml:2\n        gomutants · INVERT_BITWISE"},
 		{"a config in a subdirectory", "sub/.gomutants.yaml", "disable:\n  - INVERT_BITWISE\n", 1, "sub/.gomutants.yaml:2"},
+		{"two unsigned operators are counted", ".gomutants.yaml", "disable:\n  - INVERT_BITWISE\n  - ARITHMETIC_BASE\n", 1,
+			"stop-justifications: 2 mutation operator(s) switched off that NO ratified row names.\n"},
+		// A BLANK LINE IS NOT A LINE WITH A FIRST BYTE. Without the empty check
+		// the indent test below indexes line[0] on "" and panics, which is the
+		// whole reason it is the first thing the loop asks.
+		{"a blank line inside the block", ".gomutants.yaml", "disable:\n\n  - INVERT_BITWISE\n", 1, ".gomutants.yaml:3"},
+		// A COMMENT AT COLUMN ZERO IS NOT A TOP-LEVEL KEY. Read as one it would
+		// close the block and the entries under it would go unread.
+		{"a comment at column zero inside the block", ".gomutants.yaml", "disable:\n# a note\n  - INVERT_BITWISE\n", 1, ".gomutants.yaml:3"},
+		{"a tab-indented entry", ".gomutants.yaml", "disable:\n\t- INVERT_BITWISE\n", 1, ".gomutants.yaml:2"},
+		// A FLOW SEQUENCE CLOSES ITS KEY. The file below is malformed — a key
+		// cannot carry both forms — and the scan must not invent an entry from
+		// the half YAML would have refused.
+		{"a stray item after a flow sequence", ".gomutants.yaml", "disable: [FLOAT_INCREMENT]\n  - INVERT_BITWISE\n", 0, "1 mutation operator(s) switched off on a RATIFIED row"},
+		{"trailing space after a flow sequence", ".gomutants.yaml", "disable: [FLOAT_INCREMENT] \n", 0, "1 mutation operator(s) switched off on a RATIFIED row"},
+		// A SCALAR IS NOT A SEQUENCE, and gomutants refuses such a file outright
+		// (disable is []string; unmarshalling a scalar into it is an error, rc 2).
+		// A file the tool will not read silences nothing, so neither does this.
+		{"a scalar value is not a set", ".gomutants.yaml", "disable: INVERT_BITWISE\n", 0, "no undocumented suppressions"},
+		{"enabled false with no operator named", ".gomutants.yaml", "mutants:\n  enabled: false\n", 0, "no undocumented suppressions"},
+		{"another key under an operator", ".gomutants.yaml", "mutants:\n  ARITHMETIC_BASE:\n    something: else\n", 0, "no undocumented suppressions"},
 		{"flow style", ".gomutants.yaml", "disable: [INVERT_BITWISE]\n", 1, "disable: [INVERT_BITWISE]"},
 		{"flow style, several", ".gomutants.yaml", "disable: [INVERT_BITWISE, ARITHMETIC_BASE]\n", 1, "gomutants · ARITHMETIC_BASE"},
 		{"flow style, all ratified", ".gomutants.yaml", "disable: [FLOAT_INCREMENT, FLOAT_DECREMENT]\n", 0, "2 mutation operator(s) switched off on a RATIFIED row"},
@@ -1208,5 +1230,19 @@ func TestEveryRatifiedMutatorRowIsSigned(t *testing.T) {
 	// namesake and must never be ratified by being confused with one.
 	if seen["INCREMENT_DECREMENT"] {
 		t.Error("INCREMENT_DECREMENT is ratified — that operator mutates a statement, not a literal")
+	}
+}
+
+// THE RATIFIED COUNT IS A SUM ACROSS FILES, and one file cannot show that. With
+// a single config `total = n` and `total += n` are the same number, so the
+// accumulator only becomes observable when two trees carry a config — which is
+// not hypothetical: a repository can carry a root config and a fixture one.
+func TestTheRatifiedCountSumsEveryConfigInTheTree(t *testing.T) {
+	out := wantSJ(t, "two configs", 0, "x", map[string]string{
+		".gomutants.yaml":     "disable:\n  - FLOAT_INCREMENT\n  - FLOAT_DECREMENT\n",
+		"sub/.gomutants.yaml": "disable:\n  - INTEGER_INCREMENT\n  - INTEGER_DECREMENT\n",
+	})
+	if !strings.Contains(out, "4 mutation operator(s) switched off on a RATIFIED row") {
+		t.Errorf("the count is the sum over both configs, not the last one's:\n%s", out)
 	}
 }
