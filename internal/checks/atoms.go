@@ -121,6 +121,10 @@ func atomTable() []AtomDef {
 			Desc: "The SAST ruleset declares every lane this repository actually builds.",
 		},
 		{
+			ID: "fleet:copier-answers-intact", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "No crashed copier render is recorded in .copier-answers.yml.",
+		},
+		{
 			ID: "fleet:orbit-drift", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
 			Desc: "This repo's declared seams agree with the canonical contracts in foundry-dies/orbits.",
 		},
