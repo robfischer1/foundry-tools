@@ -63,6 +63,31 @@ func TestThePushRepoIsTheRegistryAndThePathWithoutTheTag(t *testing.T) {
 	}
 }
 
+// The stamp tag is `{unix-ts}-{sha7}` off git's %ct, newline and all; a commit
+// too short to name seven characters, a time that is not a number, and a time
+// that is not after the epoch each refuse rather than mint a tag a numerical
+// policy would misorder.
+func TestStampTag(t *testing.T) {
+	got, err := StampTag("registry.notusmi.com/rob/ares", "0123456789abcdef", " 1790812800\n")
+	if err != nil || got != "registry.notusmi.com/rob/ares:1790812800-0123456" {
+		t.Fatalf("StampTag = %q, %v", got, err)
+	}
+	if got, err := StampTag("r", "0123456", "1"); err != nil || got != "r:1-0123456" {
+		t.Fatalf("a seven-character commit at second one: %q, %v", got, err)
+	}
+	for _, c := range []struct{ sha, ct string }{
+		{"012345", "1790812800"},
+		{"0123456", ""},
+		{"0123456", "yesterday"},
+		{"0123456", "0"},
+		{"0123456", "-5"},
+	} {
+		if got, err := StampTag("r", c.sha, c.ct); err == nil {
+			t.Errorf("StampTag(%q, %q) = %q, want a refusal", c.sha, c.ct, got)
+		}
+	}
+}
+
 func TestBuildArgsSkipBlanksAndCommentsAndKeepLinesVerbatim(t *testing.T) {
 	got := BuildArgs("# comment\nA=1\n\nB=two words\r\nC= spaced \n")
 	want := []string{"A=1", "B=two words", "C= spaced "}

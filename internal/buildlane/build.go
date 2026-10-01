@@ -90,6 +90,25 @@ func GPin(pushRepo, sha string) (string, error) {
 	return pushRepo + ":g" + sha[:12], nil
 }
 
+// StampTag is the tag Flux's image automation reads (Scheduler Redistribution
+// Part II, D7): `{unix-ts}-{sha7}`, the timestamp the commit's COMMITTER time.
+// The ImagePolicy orders numerically on the first field, so the field has to
+// order the way main does — and the committer time of a door landing is the
+// moment it landed. The build's own clock was the other candidate and is wrong:
+// the door re-asks a could-not-run tip for hours (couldNotRunCooldown), and a
+// rerun of an older landing would carry a newer stamp and roll the star back.
+// committed is `git log -1 --format=%ct` verbatim, newline and all.
+func StampTag(pushRepo, sha, committed string) (string, error) {
+	if len(sha) < 7 {
+		return "", fmt.Errorf("the commit %q is too short for a stamp tag", sha)
+	}
+	ts := strings.TrimSpace(committed)
+	if n, err := strconv.ParseInt(ts, 10, 64); err != nil || n <= 0 {
+		return "", fmt.Errorf("the commit time %q is not a unix timestamp", ts)
+	}
+	return pushRepo + ":" + ts + "-" + sha[:7], nil
+}
+
 // BuildArgs reads .forgejo/build-args.env — KEY=VALUE per line, blank lines
 // and # comments skipped — into entries, verbatim.
 func BuildArgs(contents string) []string {

@@ -38,8 +38,8 @@ import (
 
 // Build builds the commit the module was constructed on and settles the
 // build lane. A pull builds the image and publishes nothing; a tip publishes
-// it under the g-pin, signs it, attests its SBOM and asks hades for the
-// permit. A commit whose every change since the last permitted build (:stable)
+// it under the g-pin and the stamp tag Flux reads (publishTip), signs it,
+// attests its SBOM and asks hades for the permit. A commit whose every change since the last permitted build (:stable)
 // is inert builds nothing.
 func (m *FoundryTools) Build(
 	ctx context.Context,
@@ -307,11 +307,11 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 		return l.stop("", buildlane.Clean, fmt.Sprintf("clean: built %s at %.12s and its scan passed — nothing published, signed or permitted; the landing does that", star, m.Sha))
 	}
 
-	ref, code, why := l.publish(ctx, img, pushRepo, star)
-	if code != buildlane.Clean {
-		return l.stop("build:publish", code, why)
+	ref, stamp, failed := l.publishTip(ctx, img, pushRepo, star)
+	if failed != nil {
+		return l.stop("build:publish", failed.code, failed.why)
 	}
-	l.seal("build:publish", buildlane.Clean, "pushed "+ref)
+	l.seal("build:publish", buildlane.Clean, "pushed "+ref+" as "+stamp)
 	if code, why := l.sign(ctx, img, ref, star); code != buildlane.Clean {
 		return l.stop("build:sign", code, why)
 	}
@@ -449,6 +449,46 @@ func (l *buildLane) publish(ctx context.Context, img *Image, pushRepo, star stri
 		return "", buildlane.CouldNotRun, err.Error()
 	}
 	return l.push(ctx, img, pushRepo, gpin, star)
+}
+
+// publishTip is publish for a star's tip: the g-pin, and beside it the stamp
+// tag Flux's ImagePolicy reads (D7, buildlane.StampTag). The commit time is
+// read BEFORE anything is pushed, so a history that cannot be read leaves the
+// registry as it was rather than holding a g-pin no policy can see. Bases do
+// not come through here: no ImagePolicy follows a base.
+//
+// THE RETENTION IS THE REAPER'S, NOT THIS LANE'S. zot keeps a stamp tag the
+// way it keeps a g-pin — 24h, or the two most recently pushed (flux
+// infrastructure/zot-config.json) — which is the current build and its
+// rollback. A revert a week later does not need the TAG: the manifest it
+// restores pins the digest, and forge-inuse holds the digest a pin named
+// before its last change as inuse-<digest12>.
+func (l *buildLane) publishTip(ctx context.Context, img *Image, pushRepo, star string) (ref, stamp string, failed *laneStop) {
+	r := newRun(l.m.Source, l.m.Repo, "")
+	committed, rc, err := output(ctx, r.gitReady(ctx, r.lane(checks.ImageFleet)).WithExec([]string{"git", "log", "-1", "--format=%ct", "HEAD"}, anyExit))
+	if err != nil || rc != 0 {
+		return "", "", &laneStop{buildlane.CouldNotRun, fmt.Sprintf("could not run: the commit time could not be read (exit %d): %v %.200s", rc, err, committed)}
+	}
+	stamp, err = buildlane.StampTag(pushRepo, l.m.Sha, committed)
+	if err != nil {
+		return "", "", &laneStop{buildlane.CouldNotRun, "could not run: " + err.Error()}
+	}
+	ref, code, why := l.publish(ctx, img, pushRepo, star)
+	if code != buildlane.Clean {
+		return "", "", &laneStop{code, why}
+	}
+	if _, code, why := l.push(ctx, img, pushRepo, stamp, star); code != buildlane.Clean {
+		return "", "", &laneStop{code, why}
+	}
+	return ref, stamp, nil
+}
+
+// laneStop is a step's verdict when it stops the lane: the code and the
+// reason stop() records. A step that answers one only on failure returns nil
+// for success, so success carries no code of its own to get wrong.
+type laneStop struct {
+	code int
+	why  string
 }
 
 // push pushes the image under target, a tag of pushRepo, and answers
