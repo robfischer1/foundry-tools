@@ -61,6 +61,20 @@ var vulnAllowed = []VulnAllowance{
 			"is dagger's own generated dispatch — and OTLP log shipping was reverted at Rob's instruction. " +
 			"CLEARED BY: a dagger/otel-go release built against otel/log v0.21.0 or later, then drop this entry.",
 	},
+	{
+		// THE SAME WALL, ONE MODULE OVER (2026-10-01). GO-2026-6615 is otel/sdk/log
+		// <= v0.20.x, fixed in v0.21.0 — and sdk/log v0.21.0 pulls otel/log v0.21.0,
+		// which otlploghttp v0.19.0 and dagger/otel-go@v1.43.0 do not compile
+		// against (measured: `undefined: api.KeyValue`). Its sibling GO-2026-6505
+		// (otlptrace) was not this: v1.46.0 builds, and was bumped instead.
+		ID:    "GO-2026-6615",
+		Until: time.Date(2026, time.December, 1, 0, 0, 0, 0, time.UTC),
+		Why: "otel/sdk/log's fix is v0.21.0, which drags otel/log to v0.21.0, whose API " +
+			"github.com/dagger/otel-go@v1.43.0 (the latest release) and otlploghttp v0.19.0 do not compile " +
+			"against. The only reachability is dagger's own generated dispatch (otel.InitEmbedded / otel.Close). " +
+			"CLEARED BY: a dagger/otel-go release built against otel/log v0.21.0 or later, then drop this entry " +
+			"with GO-2026-6508's.",
+	},
 }
 
 // vulnID matches the advisory on govulncheck's own "Vulnerability #N:" line,
