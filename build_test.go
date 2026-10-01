@@ -21,8 +21,18 @@ func buildOn(t *testing.T, tree map[string]string) *FoundryTools {
 	engine.reset()
 	engine.withTree(tree)
 	scanClean()
+	engine.stdout(commitTimeNeedle, buildCommitted+"\n")
 	return &FoundryTools{Source: dag.Directory(), Repo: "http://door:8215/rob/ares.git", Sha: buildSha}
 }
+
+const (
+	// commitTimeNeedle is in the commit-time read and in no other exec.
+	commitTimeNeedle = `"--format=%ct"`
+	// buildCommitted is the test commit's committer time, as git prints it.
+	buildCommitted = "1790812800"
+	// buildStamp is the tag that time and buildSha make (D7).
+	buildStamp = "registry.notusmi.com/rob/ares:" + buildCommitted + "-0123456"
+)
 
 // scanClean scripts the verify scan every build now runs before it publishes
 // (F14) as clean, for the image and for a pinned base alike. A test about the
@@ -467,10 +477,15 @@ func TestATipPublishesSignsAttestsAndIsPermitted(t *testing.T) {
 	tip(t, m)
 	ref := "registry.notusmi.com/rob/ares@sha256:" + strings.Repeat("d", 64)
 
-	wantCalls(t, engine.chain("publish("),
+	wantCalls(t, engine.chain("publish(", ":g0123456789ab"),
 		[]string{"dockerBuild", `"UV_INDEX_URL"`, `"https://nexus.example/simple"`},
 		[]string{"withRegistryAuth", `"registry.notusmi.com"`, `"publisher"`},
 		[]string{"publish", `"registry.notusmi.com/rob/ares:g0123456789ab"`},
+	)
+	// Beside the g-pin, the same image under the stamp tag Flux reads (D7).
+	wantCalls(t, engine.chain("publish(", buildStamp),
+		[]string{"withRegistryAuth", `"registry.notusmi.com"`, `"publisher"`},
+		[]string{"publish", `"` + buildStamp + `"`},
 	)
 	wantCalls(t, engine.chain(`"sign","--key"`),
 		[]string{"from", checks.ImageCosign},
@@ -1024,4 +1039,88 @@ func TestADockerfileThatCopiesFromReleaseInARepoThatNamesNoStarIsFindings(t *tes
 	engine.stdout("--name-only", "cmd/ares/main.go\n")
 	pull(t, m)
 	settledOn(t, "1", "findings in the release build")
+}
+
+// A tip's image is published under the stamp tag too — `{unix-ts}-{sha7}`, the
+// commit's committer time read from the fetched history — and the record says
+// which tag the policy will see.
+func TestATipIsAlsoPublishedUnderItsStampTag(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	scriptATip()
+	tip(t, m)
+	wantCalls(t, engine.chain(commitTimeNeedle),
+		[]string{"from", checks.ImageFleet},
+		[]string{"withExec", `"git"`, `"log"`, `"-1"`, commitTimeNeedle, `"HEAD"`},
+	)
+	if engine.chain("publish(", buildStamp) == "" {
+		t.Fatalf("no publish under %s", buildStamp)
+	}
+	settledOn(t, "0", "clean: published and signed")
+}
+
+// The publish phase's record names the stamp tag beside the ref, so the build
+// a policy will pick is readable off the record without the registry.
+func TestThePublishPhaseRecordsTheStampTag(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	scriptATip()
+	l, code, _ := laneFor(t, m, true)
+	if code != buildlane.Clean {
+		t.Fatalf("a clean tip settles clean, got %d", code)
+	}
+	want := "pushed registry.notusmi.com/rob/ares@sha256:" + strings.Repeat("d", 64) + " as " + buildStamp
+	if got := atomNamed(t, l, "build:publish").Reason; got != want {
+		t.Fatalf("build:publish reason\n want %q\n  got %q", want, got)
+	}
+}
+
+// A history whose commit time cannot be read publishes NOTHING — not even the
+// g-pin, because a tip no policy can see is a tip that never rolls.
+func TestATipWhoseCommitTimeCannotBeReadPublishesNothing(t *testing.T) {
+	for name, c := range map[string]struct {
+		arm  func()
+		want string
+	}{
+		// A time on stdout from an exec that FAILED is not a time: git's exit
+		// is read before its output is.
+		"the exec exits non-zero": {func() { engine.exitCode(commitTimeNeedle, 1) }, "could not run: the commit time could not be read (exit 1)"},
+		"git prints no time":      {func() { engine.stdout(commitTimeNeedle, "\n") }, "is not a unix timestamp"},
+		"the engine is gone":      {func() { engine.fail(commitTimeNeedle, "connection reset") }, "could not run: the commit time could not be read (exit 0): "},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+			scriptATip()
+			c.arm()
+			tip(t, m)
+			settledOn(t, "2", c.want)
+			if engine.chain("publish(") != "" {
+				t.Fatal("a tip whose commit time did not read was published")
+			}
+		})
+	}
+}
+
+// The stamp tag's push failing is the publish failing: could-not-run, and
+// nothing is signed or permitted.
+func TestATipWhoseStampPushFailsIsCouldNotRun(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	scriptATip()
+	engine.fail(buildStamp, "failed to push "+buildStamp+": 503 Service Unavailable")
+	tip(t, m)
+	settledOn(t, "2", "network fault")
+	if engine.chain(`"sign","--key"`) != "" || engine.chain(`"forge_mold"`) != "" {
+		t.Fatal("a tip whose stamp tag did not push was signed or permitted")
+	}
+}
+
+// A g-pin that does not push stops the publish there: the stamp tag is never
+// pushed, so no policy can see a build the registry does not hold.
+func TestATipWhoseGPinFailsPushesNoStampTag(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	scriptATip()
+	engine.fail(":g0123456789ab", "failed to push registry.notusmi.com/rob/ares:g0123456789ab: 503 Service Unavailable")
+	tip(t, m)
+	settledOn(t, "2", "network fault")
+	if engine.chain("publish(", buildStamp) != "" {
+		t.Fatal("the stamp tag was pushed after the g-pin failed")
+	}
 }
