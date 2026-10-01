@@ -173,26 +173,48 @@ func TestATipBuildWithoutItsCredentialsIsCouldNotRun(t *testing.T) {
 	}
 }
 
-// permittedSha is the commit a star's :stable was built from: what the permit
-// last delivered, and what a change set is taken since. Built rather than
-// written because a forty-hex literal read as a secret to detect-secrets; that
-// atom is retired (2026-09-25) and nothing reads for entropy now, but a
-// constructed sha still says "fake" louder than a spelled one.
+// permittedSha is the commit a star's last published tip was built from, and
+// what a change set is taken since. Built rather than written because a
+// forty-hex literal read as a secret to detect-secrets; that atom is retired
+// (2026-09-25) and nothing reads for entropy now, but a constructed sha still
+// says "fake" louder than a spelled one.
 var permittedSha = strings.Repeat("fedcba98", 5)
 
-// A commit whose every change since the last permitted build is inert builds
-// nothing and settles clean: :stable already carries its source. The change
-// set runs from :stable's commit, never from the parent.
-func TestACommitInertSinceTheLastPermitStandsDownWithoutBuilding(t *testing.T) {
+const (
+	// lastStamp is the newest stamp tag on the star's push repository: the
+	// last published tip, built from permittedSha.
+	lastStamp = "1790812700-fedcba9"
+	// tagsNeedle is in the tag listing and in no other exec.
+	tagsNeedle = `"repo","tags"`
+)
+
+// published scripts the star's push repository as the registry lists it — an
+// older stamp, :stable, a g-pin and the newest stamp, in no order — and the
+// newest stamp's image as built from revision.
+func published(revision string) {
+	engine.stdout(tagsNeedle, "1790726400-0123456\nstable\n"+lastStamp+"\ng"+permittedSha[:12]+"\n")
+	engine.label(":"+lastStamp, revision)
+}
+
+// A commit whose every change since the last published tip is inert builds
+// nothing and settles clean: the newest stamp already carries its source. The
+// change set runs from that stamp's commit, never from the parent — and never
+// from :stable, which nothing moves once the permit retires.
+func TestACommitInertSinceTheLastPublishedTipStandsDownWithoutBuilding(t *testing.T) {
 	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
-	engine.label(":stable", permittedSha)
+	published(permittedSha)
+	engine.label(":stable", strings.Repeat("0", 40))
 	engine.stdout("--name-only", "README.md\ndocs/guide.md\n.claude/settings.json\n")
 	pull(t, m)
-	settledOn(t, "0", "stood down: every change since "+permittedSha[:12]+", the last permitted build (:stable), is inert")
+	settledOn(t, "0", "stood down: every change since "+permittedSha[:12]+", the last published build (:"+lastStamp+"), is inert")
+	wantCalls(t, engine.chain(tagsNeedle), []string{"withExec", `"oras"`, `"repo"`, `"tags"`, `"registry.notusmi.com/rob/ares"`})
+	if engine.chain(`rob/ares:stable"`) != "" {
+		t.Fatal("a star's stand-down read :stable")
+	}
 	wantCalls(t, engine.chain("--is-ancestor"), []string{"withExec", `"merge-base"`, `"--is-ancestor"`, `"` + permittedSha + `"`, `"HEAD"`})
 	wantCalls(t, engine.chain("--name-only"), []string{"withExec", `"diff"`, `"--name-only"`, `"` + permittedSha + `"`, `"HEAD"`})
 	if engine.chain("dockerBuild") != "" {
-		t.Fatal("a commit inert since the last permit was built")
+		t.Fatal("a commit inert since the last published tip was built")
 	}
 	if engine.chain("HEAD^1") != "" {
 		t.Fatal("the lane took its change set from the parent")
@@ -208,9 +230,9 @@ func TestACommitInertSinceTheLastPermitStandsDownWithoutBuilding(t *testing.T) {
 // so the run still shows what it would have decided; the verdict is an
 // ordinary build. Same tree and same change set as the stand-down test above
 // — only the flag differs.
-func TestForcedTheLaneBuildsATreeStableAlreadyCarries(t *testing.T) {
+func TestForcedTheLaneBuildsATreeTheLastTipAlreadyCarries(t *testing.T) {
 	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
-	engine.label(":stable", permittedSha)
+	published(permittedSha)
 	engine.stdout("--name-only", "README.md\ndocs/guide.md\n")
 	pullForced(t, m)
 	settledOn(t, "0", "clean: built ares")
@@ -220,44 +242,78 @@ func TestForcedTheLaneBuildsATreeStableAlreadyCarries(t *testing.T) {
 }
 
 // A commit inert against its parent still builds when the parent's build never
-// reached a permit, because the change set since :stable's commit carries the
-// source that build did not deliver. Measured on athena 2026-09-14: a446514
+// published, because the change set since the last published tip's commit
+// carries the source that build did not deliver. Measured on athena 2026-09-14: a446514
 // changed source and failed at sign; 570be49, quickstart.md alone on top of
 // it, diffed inert against its parent and stood down.
 func TestACommitInertAgainstAnUnpermittedParentStillBuilds(t *testing.T) {
 	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
-	engine.label(":stable", permittedSha)
+	published(permittedSha)
 	engine.stdout("--name-only", "cmd/ares/main.go\ndocs/quickstart.md\n")
 	pull(t, m)
 	settledOn(t, "0", "clean: built ares")
 	if engine.chain("dockerBuild") == "" {
-		t.Fatal("source the last permit never delivered was not built")
+		t.Fatal("source the last published tip never delivered was not built")
 	}
 }
 
-// With no permitted build to compare against the lane builds, and reads no
-// history: no :stable, a :stable that does not read, or one whose image names
-// no commit.
-func TestWithNoPermittedBuildToCompareAgainstTheLaneBuilds(t *testing.T) {
-	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
-	// The needle is the address, not ":stable": a stood-down verdict's reason
-	// names :stable too, and would fail with it.
-	engine.fail(`rob/ares:stable"`, "failed to resolve source metadata for registry.notusmi.com/rob/ares:stable: not found")
-	engine.stdout("--name-only", "README.md\n")
-	pull(t, m)
-	settledOn(t, "0", "clean: built ares")
-	if engine.chain("--is-ancestor") != "" || engine.chain("--name-only") != "" {
-		t.Fatal("the lane read the history against a :stable it could not read")
+// With no published build to compare against the lane builds, and reads no
+// history: tags that do not list (no repository yet, or a registry that did
+// not answer), a listing with no stamp tag in it, a newest stamp whose image
+// does not read, or one whose image names no commit. Every case also says it
+// built to be safe, so the log names the reason.
+func TestWithNoPublishedBuildToCompareAgainstTheLaneBuilds(t *testing.T) {
+	for _, c := range []struct {
+		name, said string
+		script     func()
+	}{
+		{"oras cannot be provisioned", "oras could not be provisioned", func() {
+			engine.fail(`http(url:"`+checks.OrasURL+`")`, "502 from upstream")
+		}},
+		{"the tags do not list", "registry.notusmi.com/rob/ares's tags did not list (exit 1)", func() {
+			engine.exitCode(tagsNeedle, 1)
+			engine.label(":"+lastStamp, permittedSha)
+		}},
+		{"the listing cannot run", "registry.notusmi.com/rob/ares's tags did not list", func() {
+			engine.failLeaf(tagsNeedle, "exitCode", "the engine went away")
+		}},
+		{"no stamp tag", "registry.notusmi.com/rob/ares carries no stamp tag", func() {
+			engine.stdout(tagsNeedle, "stable\ng"+permittedSha[:12]+"\n")
+			engine.label(":stable", permittedSha)
+		}},
+		{"the stamp's image does not read", "registry.notusmi.com/rob/ares:" + lastStamp + " did not read", func() {
+			engine.stdout(tagsNeedle, lastStamp+"\n")
+			engine.fail(`rob/ares:`+lastStamp+`"`, "failed to resolve source metadata: not found")
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+			c.script()
+			engine.stdout("--name-only", "README.md\n")
+			l, code, _ := laneFor(t, m, false)
+			if code != buildlane.Clean {
+				t.Fatalf("the lane settled %d", code)
+			}
+			detect := atomNamed(t, l, "build:detect").Reason
+			want := "no published build to compare against: " + c.said
+			if !strings.HasPrefix(detect, want) || !strings.HasSuffix(detect, " — building to be safe") {
+				t.Errorf("detect said %q, want %q … building to be safe", detect, want)
+			}
+			atomNamed(t, l, "build:image")
+			if engine.chain("--is-ancestor") != "" || engine.chain("--name-only") != "" {
+				t.Fatal("the lane read the history with no published build to compare against")
+			}
+		})
 	}
 
 	for _, revision := range []string{"", "v1.4.0", permittedSha[:12]} {
-		m = buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
-		engine.label(":stable", revision)
+		m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+		published(revision)
 		engine.stdout("--name-only", "README.md\n")
 		pull(t, m)
 		settledOn(t, "0", "clean: built ares")
 		if engine.chain("--is-ancestor") != "" {
-			t.Fatalf("the lane compared against a :stable whose revision is %q", revision)
+			t.Fatalf("the lane compared against a stamp whose revision is %q", revision)
 		}
 	}
 }
@@ -275,7 +331,7 @@ func TestWithNoPermittedBuildToCompareAgainstTheLaneBuilds(t *testing.T) {
 // on 2026-09-15.
 func TestAPermitOutsideThisHistoryBuildsWithoutDiffing(t *testing.T) {
 	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
-	engine.label(":stable", permittedSha)
+	published(permittedSha)
 	engine.exitCode(`"`+permittedSha+`^{commit}"`, 1)
 	engine.stdout("--name-only", "README.md\n")
 	pull(t, m)
@@ -286,7 +342,7 @@ func TestAPermitOutsideThisHistoryBuildsWithoutDiffing(t *testing.T) {
 	}
 
 	m = buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
-	engine.label(":stable", permittedSha)
+	published(permittedSha)
 	engine.exitCode("--is-ancestor", 1)
 	engine.stdout("--name-only", "README.md\n")
 	pull(t, m)
@@ -300,7 +356,7 @@ func TestAPermitOutsideThisHistoryBuildsWithoutDiffing(t *testing.T) {
 // nor one to stand down.
 func TestAHistoryOrChangeSetThatCannotBeReadIsCouldNotRun(t *testing.T) {
 	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
-	engine.label(":stable", permittedSha)
+	published(permittedSha)
 	engine.fail(`"`+permittedSha+`^{commit}"`, "the engine went away")
 	pull(t, m)
 	settledOn(t, "2", "the history could not be read")
@@ -309,13 +365,13 @@ func TestAHistoryOrChangeSetThatCannotBeReadIsCouldNotRun(t *testing.T) {
 	}
 
 	m = buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
-	engine.label(":stable", permittedSha)
+	published(permittedSha)
 	engine.fail("--is-ancestor", "the engine went away")
 	pull(t, m)
 	settledOn(t, "2", "the history could not be read")
 
 	m = buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
-	engine.label(":stable", permittedSha)
+	published(permittedSha)
 	engine.exitCode("--name-only", 128)
 	pull(t, m)
 	settledOn(t, "2", "the change set could not be read")
@@ -324,18 +380,20 @@ func TestAHistoryOrChangeSetThatCannotBeReadIsCouldNotRun(t *testing.T) {
 	}
 }
 
-// The permit's output is read where the image is pushed: the compose file's
-// declared image on the lane's registry, not the star's name.
-func TestThePermittedRevisionIsReadWhereTheImageIsPushed(t *testing.T) {
+// The last published tip is read where the image is pushed: the compose
+// file's declared image on the lane's registry, not the star's name — its
+// tags listed there, and its newest stamp read there.
+func TestTheLastPublishedRevisionIsReadWhereTheImageIsPushed(t *testing.T) {
 	m := buildOn(t, map[string]string{
 		"Dockerfile":   "FROM scratch\n",
 		"compose.yaml": "services:\n  web:\n    image: registry.notusmi.com/rob/ares-web:latest\n",
 	})
-	engine.label(":stable", permittedSha)
+	published(permittedSha)
 	engine.stdout("--name-only", "README.md\n")
 	pull(t, m)
+	wantCalls(t, engine.chain(tagsNeedle), []string{"withExec", `"oras"`, `"repo"`, `"tags"`, `"registry.notusmi.com/rob/ares-web"`})
 	wantCalls(t, engine.chain("label("),
-		[]string{"from", `"registry.notusmi.com/rob/ares-web:stable"`},
+		[]string{"from", `"registry.notusmi.com/rob/ares-web:` + lastStamp + `"`},
 		[]string{"label", `"org.opencontainers.image.revision"`},
 	)
 }
@@ -441,7 +499,7 @@ func TestAWidePushNamesItsFirstEightChanges(t *testing.T) {
 	for _, f := range []string{"a", "b", "c", "d", "e", "f", "g", "h", "i"} {
 		files = append(files, "cmd/"+f+".go")
 	}
-	engine.label(":stable", permittedSha)
+	published(permittedSha)
 	engine.stdout("--name-only", strings.Join(files, "\n"))
 	pull(t, m)
 	settledOn(t, "0", "clean: built ares")
@@ -1122,5 +1180,79 @@ func TestATipWhoseGPinFailsPushesNoStampTag(t *testing.T) {
 	settledOn(t, "2", "network fault")
 	if engine.chain("publish(", buildStamp) != "" {
 		t.Fatal("the stamp tag was pushed after the g-pin failed")
+	}
+}
+
+// WHAT DETECT SAYS IS THE RECORD OF WHY IT BUILT. Each way the lane decides to
+// build without a stand-down to compare against names itself on the detect
+// atom, so a reader of the record can tell a forced rescan from a branch older
+// than the last build from a stamp whose image names no commit.
+func TestDetectNamesWhyItBuilt(t *testing.T) {
+	for _, c := range []struct {
+		name, said string
+		script     func()
+		force      bool
+	}{
+		{"the stamp names no commit", "no published build to compare against: registry.notusmi.com/rob/ares:" + lastStamp + ` names no commit (revision "v1.4.0") — building to be safe`, func() {
+			published("v1.4.0")
+		}, false},
+		{"a branch older than the last build", "the last published build " + permittedSha[:12] + " is not in this checkout (a branch older than that build) — building", func() {
+			published(permittedSha)
+			engine.exitCode(`"`+permittedSha+`^{commit}"`, 1)
+		}, false},
+		{"the last build is not an ancestor", "the last published build " + permittedSha[:12] + " is not in this commit's history (git exit 1) — building", func() {
+			published(permittedSha)
+			engine.exitCode("--is-ancestor", 1)
+		}, false},
+		{"forced over an inert change set", "forced: every change since " + permittedSha[:12] + ", the last published build (:" + lastStamp + "), is inert", func() {
+			published(permittedSha)
+			engine.stdout("--name-only", "README.md\n")
+		}, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+			c.script()
+			l := &buildLane{m: m, registry: "registry.notusmi.com", stamp: "1", force: c.force}
+			needed, why, failed := l.detect(context.Background(), "registry.notusmi.com/rob/ares")
+			if failed != nil || !needed {
+				t.Fatalf("detect = %v, %q, %+v; want a build", needed, why, failed)
+			}
+			if !strings.HasPrefix(why, c.said) {
+				t.Errorf("detect said %q, want %q", why, c.said)
+			}
+		})
+	}
+}
+
+// A history that cannot be read answers a stop, never a reason: the code is
+// could-not-run and the reason says what could not be read.
+func TestDetectStopsOnAnUnreadableHistory(t *testing.T) {
+	for _, c := range []struct {
+		name, said string
+		script     func()
+	}{
+		{"rev-parse", "could not run: the history could not be read", func() {
+			engine.fail(`"`+permittedSha+`^{commit}"`, "the engine went away")
+		}},
+		{"merge-base", "could not run: the history could not be read", func() {
+			engine.fail("--is-ancestor", "the engine went away")
+		}},
+		{"diff", "could not run: the change set could not be read", func() {
+			engine.exitCode("--name-only", 128)
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+			published(permittedSha)
+			c.script()
+			l := &buildLane{m: m, registry: "registry.notusmi.com", stamp: "1"}
+			needed, why, failed := l.detect(context.Background(), "registry.notusmi.com/rob/ares")
+			if failed == nil {
+				t.Fatalf("detect = %v, %q with no stop", needed, why)
+			}
+			if needed || why != "" || failed.code != buildlane.CouldNotRun || !strings.HasPrefix(failed.why, c.said) {
+				t.Errorf("detect = %v, %q, {%d %q}", needed, why, failed.code, failed.why)
+			}
+		})
 	}
 }
