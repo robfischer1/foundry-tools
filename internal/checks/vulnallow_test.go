@@ -237,3 +237,21 @@ func TestAnAllowedVerdictNeverCarriesANilLogList(t *testing.T) {
 		t.Fatal("an allowed verdict carries [], never nil")
 	}
 }
+
+// The dagger/otel-go wall covers two advisories now, and a run that finds both
+// passes — loudly, naming each — until either allowance lapses.
+func TestBothOtelLogAdvisoriesAreAllowedTogether(t *testing.T) {
+	out := "Vulnerability #1: GO-2026-6615\nVulnerability #2: GO-2026-6508\n"
+	reason, ok := SuppressedVulnReason(out, beforeExpiry(t))
+	if !ok {
+		t.Fatal("a run naming only the two otel/log advisories was not allowed")
+	}
+	for _, want := range []string{"2 known vulnerability(ies)", "GO-2026-6508", "GO-2026-6615", "otel/sdk/log"} {
+		if !strings.Contains(reason, want) {
+			t.Errorf("the reason does not name %q:\n%s", want, reason)
+		}
+	}
+	if _, ok := SuppressedVulnReason(out+"Vulnerability #3: GO-2026-6505\n", beforeExpiry(t)); ok {
+		t.Error("GO-2026-6505 was bumped, not allowed — a run naming it must red")
+	}
+}
