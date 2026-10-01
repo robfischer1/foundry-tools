@@ -39,8 +39,8 @@ import (
 // Build builds the commit the module was constructed on and settles the
 // build lane. A pull builds the image and publishes nothing; a tip publishes
 // it under the g-pin and the stamp tag Flux reads (publishTip), signs it,
-// attests its SBOM and asks hades for the permit. A commit whose every change since the last permitted build (:stable)
-// is inert builds nothing.
+// attests its SBOM and asks hades for the permit. A commit whose every change since the last published tip (its
+// newest stamp tag) is inert builds nothing.
 func (m *FoundryTools) Build(
 	ctx context.Context,
 	// The default branch's tip: publish, sign, attest and permit. Without it
@@ -83,7 +83,7 @@ func (m *FoundryTools) Build(
 	// +optional
 	// +default="spiffe://notusmi.com/star/hades"
 	hadesID string,
-	// Build even when :stable already carries this commit's source — the
+	// Build even when the last published tip already carries this commit's source — the
 	// PERIODIC RESCAN path. The stand-down asks whether the SOURCE changed,
 	// which is the right question for a landing and the wrong one for a
 	// rebuild: the python and bun bases run `apt-get update && apt-get
@@ -137,8 +137,8 @@ func (m *FoundryTools) Build(
 type buildLane struct {
 	m   *FoundryTools
 	tip bool
-	// force skips the stand-down: the tree is built whether or not :stable
-	// already carries its source. See Build's own doc.
+	// force skips the stand-down: the tree is built whether or not the last
+	// published tip already carries its source. See Build's own doc.
 	force                                     bool
 	spire                                     *dagger.Socket
 	registryAuth, cosignKey, cosignPassphrase *dagger.Secret
@@ -249,11 +249,12 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 	}
 	pushRepo := buildlane.PushRepo(l.registry, buildlane.DeclaredImage(compose, star))
 
-	needed, why, code := l.detect(ctx, pushRepo)
-	l.say("%s", why)
-	if code != buildlane.Clean {
-		return l.stop("build:detect", code, why)
+	needed, why, failed := l.detect(ctx, pushRepo)
+	if failed != nil {
+		l.say("%s", failed.why)
+		return l.stop("build:detect", failed.code, failed.why)
 	}
+	l.say("%s", why)
 	if !needed {
 		// A STAND-DOWN IS A CLEAN RUN THAT BUILT NOTHING, and the phases after
 		// it never ran rather than passing — which is exactly what Unreached
@@ -316,7 +317,7 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 		return l.stop("build:sign", code, why)
 	}
 	l.seal("build:sign", buildlane.Clean, "signed and attested "+ref)
-	code, why = l.permit(ctx, star)
+	code, why := l.permit(ctx, star)
 	if code != buildlane.Clean {
 		return l.stop("build:permit", code, why)
 	}
@@ -373,11 +374,20 @@ func (l *buildLane) verify(ctx context.Context, img *Image) (int, string) {
 }
 
 // detect answers whether this commit needs building. The question is whether
-// :stable already carries its source, not whether this push changed any.
-// :stable is the permit's own output (hephaestus' mold stamps it), and the
-// image under it names the commit it was built from. So the change set is
-// taken since THAT commit: every change inert stands down, anything else
-// builds.
+// the star's last PUBLISHED tip already carries its source, not whether this
+// push changed any. The last published tip is the newest stamp tag on the push
+// repository (buildlane.NewestStamp) — what Flux's ImagePolicy rolls the star
+// to — and the image under it names the commit it was built from. So the
+// change set is taken since THAT commit: every change inert stands down,
+// anything else builds.
+//
+// NOT :stable. :stable was the permit's output (hephaestus' mold stamped it),
+// and once the permit retires nothing moves a star's :stable: a change set
+// taken since it would grow with every landing until a README rebuilt and
+// rolled the star. The stamp tag moves on every tip that publishes and on
+// nothing else, which is exactly "the last build", and zot keeps the two most
+// recently pushed stamps of every repository (flux foundry/zot-config.json),
+// so the newest survives however long a star sits still.
 //
 // THE PARENT WAS THE WRONG BEFORE-REF, measured 2026-09-14 on athena. a446514
 // changed source and failed at sign, so nothing was permitted; 570be49,
@@ -385,28 +395,59 @@ func (l *buildLane) verify(ctx context.Context, img *Image) (int, string) {
 // down, leaving main two landings ahead of :stable with no build coming until
 // someone changed source again. build.sh's detect had the same rule.
 //
-// Anything that leaves the permitted source unknown builds: no :stable, a
-// :stable whose image names no commit, a permitted commit outside this
-// history.
-func (l *buildLane) detect(ctx context.Context, pushRepo string) (needed bool, why string, code int) {
-	return l.detectWhere(ctx, pushRepo, nil)
+// Anything that leaves the last published source unknown builds: tags that
+// do not list, no stamp tag, a stamp whose image names no commit, a published
+// commit outside this history.
+//
+// A HISTORY THAT CANNOT BE READ IS NEITHER ANSWER, and it is the only thing
+// that answers a laneStop: success carries no code of its own to get wrong
+// (publishTip's convention).
+func (l *buildLane) detect(ctx context.Context, pushRepo string) (needed bool, why string, failed *laneStop) {
+	tag, why := l.newestStamp(ctx, pushRepo)
+	if tag == "" {
+		return true, why, nil
+	}
+	return l.detectWhere(ctx, pushRepo, tag, nil)
 }
 
-// detectWhere is detect with the change set narrowed first: a base in a repo
-// of several counts only the changes that reach it (buildlane.BaseChanges).
-func (l *buildLane) detectWhere(ctx context.Context, pushRepo string, relevant func(changed string) string) (needed bool, why string, code int) {
-	label, err := dag.Container().From(pushRepo+":stable").Label(ctx, "org.opencontainers.image.revision")
+// newestStamp answers the newest stamp tag on pushRepo, or "" and why there is
+// none to compare against. The read is anonymous (the fleet's registry answers
+// reads without a login, and a pull carries no credential) and is run fresh on
+// every lane: a cached listing would compare against a build that is no longer
+// the newest.
+func (l *buildLane) newestStamp(ctx context.Context, pushRepo string) (tag, why string) {
+	oras, err := orasIn(ctx, nil)
 	if err != nil {
-		return true, fmt.Sprintf("no permitted build to compare against: %s:stable did not read (%.200s) — building to be safe", pushRepo, err.Error()), buildlane.Clean
+		return "", fmt.Sprintf("no published build to compare against: %v — building to be safe", err)
 	}
-	permitted := strings.TrimSpace(label)
-	if !buildlane.IsCommit(permitted) {
-		return true, fmt.Sprintf("no permitted build to compare against: %s:stable names no commit (revision %q) — building to be safe", pushRepo, permitted), buildlane.Clean
+	listed, rc, err := output(ctx, orasRead(oras, l.stamp, "repo", "tags", pushRepo))
+	if err != nil || rc != 0 {
+		return "", fmt.Sprintf("no published build to compare against: %s's tags did not list (exit %d): %v %.200s — building to be safe", pushRepo, rc, err, listed)
+	}
+	tag, ok := buildlane.NewestStamp(listed)
+	if !ok {
+		return "", fmt.Sprintf("no published build to compare against: %s carries no stamp tag — building to be safe", pushRepo)
+	}
+	return tag, ""
+}
+
+// detectWhere is detect against one tag of pushRepo, with the change set
+// narrowed first: a base in a repo of several counts only the changes that
+// reach it (buildlane.BaseChanges). A star compares against its newest stamp;
+// a base against its :stable, which the base lane moves itself.
+func (l *buildLane) detectWhere(ctx context.Context, pushRepo, tag string, relevant func(changed string) string) (needed bool, why string, failed *laneStop) {
+	label, err := dag.Container().From(pushRepo+":"+tag).Label(ctx, "org.opencontainers.image.revision")
+	if err != nil {
+		return true, fmt.Sprintf("no published build to compare against: %s:%s did not read (%.200s) — building to be safe", pushRepo, tag, err.Error()), nil
+	}
+	last := strings.TrimSpace(label)
+	if !buildlane.IsCommit(last) {
+		return true, fmt.Sprintf("no published build to compare against: %s:%s names no commit (revision %q) — building to be safe", pushRepo, tag, last), nil
 	}
 	r := newRun(l.m.Source, l.m.Repo, "")
 	git := r.gitReady(ctx, r.lane(checks.ImageFleet))
-	// ASK WHETHER THIS CHECKOUT CARRIES THE PERMIT BEFORE ASKING ABOUT ANCESTRY.
-	// A pull branched before :stable's commit does not carry it, and `git
+	// ASK WHETHER THIS CHECKOUT CARRIES THE BUILD BEFORE ASKING ABOUT ANCESTRY.
+	// A pull branched before the published build's commit does not carry it, and `git
 	// merge-base --is-ancestor` on a commit it cannot name exits 128 — and
 	// Expect ANY covers exit codes 0-127 and 192-255 only (the SDK's own
 	// ReturnTypeAny), so the engine reports 128 as an ERROR, the lane filed it
@@ -414,32 +455,32 @@ func (l *buildLane) detectWhere(ctx context.Context, pushRepo string, relevant f
 	// terpsichore bf13591, hephaestus e353d2b, nyx 27945a7, hades 3d74db7 and
 	// ourea 8e7e113. `rev-parse --verify --quiet` answers the same question
 	// with a quiet exit 1.
-	_, present, err := output(ctx, git.WithExec([]string{"git", "rev-parse", "--verify", "--quiet", permitted + "^{commit}"}, anyExit))
+	_, present, err := output(ctx, git.WithExec([]string{"git", "rev-parse", "--verify", "--quiet", last + "^{commit}"}, anyExit))
 	if err != nil {
-		return false, fmt.Sprintf("could not run: the history could not be read: %v", err), buildlane.CouldNotRun
+		return false, "", &laneStop{buildlane.CouldNotRun, fmt.Sprintf("could not run: the history could not be read: %v", err)}
 	}
 	if present != 0 {
-		return true, fmt.Sprintf("the last permitted build %.12s is not in this checkout (a branch older than the permit) — building", permitted), buildlane.Clean
+		return true, fmt.Sprintf("the last published build %.12s is not in this checkout (a branch older than that build) — building", last), nil
 	}
-	_, ancestry, err := output(ctx, git.WithExec([]string{"git", "merge-base", "--is-ancestor", permitted, "HEAD"}, anyExit))
+	_, ancestry, err := output(ctx, git.WithExec([]string{"git", "merge-base", "--is-ancestor", last, "HEAD"}, anyExit))
 	if err != nil {
-		return false, fmt.Sprintf("could not run: the history could not be read: %v", err), buildlane.CouldNotRun
+		return false, "", &laneStop{buildlane.CouldNotRun, fmt.Sprintf("could not run: the history could not be read: %v", err)}
 	}
 	if ancestry != 0 {
-		return true, fmt.Sprintf("the last permitted build %.12s is not in this commit's history (git exit %d) — building", permitted, ancestry), buildlane.Clean
+		return true, fmt.Sprintf("the last published build %.12s is not in this commit's history (git exit %d) — building", last, ancestry), nil
 	}
-	changed, rc, err := output(ctx, git.WithExec([]string{"git", "diff", "--name-only", permitted, "HEAD"}, anyExit))
+	changed, rc, err := output(ctx, git.WithExec([]string{"git", "diff", "--name-only", last, "HEAD"}, anyExit))
 	if err != nil || rc != 0 {
-		return false, fmt.Sprintf("could not run: the change set could not be read (exit %d): %v %s", rc, err, changed), buildlane.CouldNotRun
+		return false, "", &laneStop{buildlane.CouldNotRun, fmt.Sprintf("could not run: the change set could not be read (exit %d): %v %s", rc, err, changed)}
 	}
 	if relevant != nil {
 		changed = relevant(changed)
 	}
-	needed, why = buildlane.Standing(permitted, changed)
+	needed, why = buildlane.Standing(last, tag, changed)
 	if !needed && l.force {
-		return true, "forced: " + why + " — building anyway, because a rebuild of the same tree is not the same image (the apt layers move under it)", buildlane.Clean
+		return true, "forced: " + why + " — building anyway, because a rebuild of the same tree is not the same image (the apt layers move under it)", nil
 	}
-	return needed, why, buildlane.Clean
+	return needed, why, nil
 }
 
 // publish pushes the image under the g-pin and answers `<repo>@<digest>`.

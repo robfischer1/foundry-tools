@@ -120,7 +120,7 @@ func TestAFindingSealsTheScanAndStopsThere(t *testing.T) {
 // unreached rather than passed — a distinction the exit code cannot draw at all.
 func TestAStandDownSealsDetectAndReachesNoFurther(t *testing.T) {
 	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
-	engine.label(":stable", permittedSha)
+	published(permittedSha)
 	engine.stdout("--name-only", "README.md\ndocs/guide.md\n.claude/settings.json\n")
 	l, code, _ := laneFor(t, m, false)
 
@@ -133,6 +133,11 @@ func TestAStandDownSealsDetectAndReachesNoFurther(t *testing.T) {
 	}
 	if contains(atomNames(l), "build:image") {
 		t.Fatal("a stand-down built nothing, so build:image must not seal")
+	}
+	// The detect atom's log is the line the pod log carried: the stand-down's
+	// reason, said once before the phase sealed.
+	if logs := detect.Logs; len(logs) == 0 || !strings.Contains(logs[len(logs)-1], "is inert") {
+		t.Errorf("detect's log does not carry its reason: %q", logs)
 	}
 	if !contains(l.record("build", code).Unreached, "build:image") {
 		t.Fatal("build:image must read as unreached on a stand-down")
@@ -355,5 +360,24 @@ func TestTheShaIsShortenedAtTwelveExactly(t *testing.T) {
 				t.Fatalf("shortSha(%q) = %q, want %q", c.in, got, c.want)
 			}
 		})
+	}
+}
+
+// A DETECT THAT COULD NOT READ THE HISTORY SAYS SO IN ITS OWN LOG, and seals
+// could-not-run with the same reason.
+func TestADetectThatCannotReadTheHistoryLogsWhy(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	published(permittedSha)
+	engine.fail("--is-ancestor", "the engine went away")
+	l, code, _ := laneFor(t, m, false)
+	if code != buildlane.CouldNotRun {
+		t.Fatalf("got %d, want could-not-run", code)
+	}
+	detect := atomNamed(t, l, "build:detect")
+	if !strings.HasPrefix(detect.Reason, "could not run: the history could not be read") {
+		t.Errorf("detect sealed %q", detect.Reason)
+	}
+	if logs := detect.Logs; len(logs) == 0 || logs[len(logs)-1] != detect.Reason {
+		t.Errorf("detect's log does not carry its reason: %q", logs)
 	}
 }

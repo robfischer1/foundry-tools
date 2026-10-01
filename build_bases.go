@@ -105,9 +105,9 @@ func (l *buildLane) runBases(ctx context.Context, star string, bases []string) (
 // base builds, scans and — on a tip — publishes, signs and promotes one base.
 func (l *buildLane) base(ctx context.Context, star, base string, args []string) (int, string) {
 	pushRepo := buildlane.BasePushRepo(l.registry, l.m.Repo, base)
-	needed, why, code := l.detectWhere(ctx, pushRepo, func(changed string) string { return buildlane.BaseChanges(base, changed) })
-	if code != buildlane.Clean {
-		return code, why
+	needed, why, failed := l.detectWhere(ctx, pushRepo, "stable", func(changed string) string { return buildlane.BaseChanges(base, changed) })
+	if failed != nil {
+		return failed.code, failed.why
 	}
 	if !needed {
 		return buildlane.Clean, "stood down: " + why

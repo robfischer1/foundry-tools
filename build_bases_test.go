@@ -249,3 +249,16 @@ func TestARelockThatFailsStopsTheBase(t *testing.T) {
 	pull(t, m)
 	settledOn(t, "2", "could not run: the relock did not run")
 }
+
+// A base whose history cannot be read is could-not-run, and builds nothing:
+// the stop detect answers is the base's verdict, carried whole.
+func TestABaseWhoseHistoryCannotBeReadIsCouldNotRun(t *testing.T) {
+	m := basesOn(t, map[string]string{"bases/go/Dockerfile": "FROM scratch\n"})
+	engine.label("foundry/base-images/go:stable", permittedSha)
+	engine.fail(`"`+permittedSha+`^{commit}"`, "the engine went away")
+	pull(t, m)
+	settledOn(t, "2", "go: could not run: the history could not be read")
+	if engine.chain(`dockerfile:"bases/go/Dockerfile"`) != "" {
+		t.Fatal("a base whose history could not be read was built")
+	}
+}
