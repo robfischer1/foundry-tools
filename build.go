@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path"
@@ -31,24 +30,28 @@ import (
 // wrapped; a plain Go error exits 1). So nothing here returns a plain error
 // for a verdict — a could-not-run can never reach the door as a finding.
 //
-// THE PERMIT IS ASKED AS THE CALLING POD. `spire` is the pod's SPIRE agent
-// socket, forwarded by the CLI; the agent attests the CLI's pod, so hadescall
-// holds the build lane's own SVID (ci/default/ca-build) exactly as permit.py
-// did in that pod.
+// THE LANE ASKS FOR NO PERMIT (Scheduler Redistribution Part II, Phase 13).
+// It used to end a tip by calling hades's forge_mold as the calling pod, which
+// verified CI's signature, re-signed and stamped :stable. Nothing reads a
+// star's :stable now — Flux's image automation rolls a star from its stamp tag,
+// and the stand-down compares against that stamp (detect) — so a published,
+// scanned, signed tip IS the release. --spire, --hades and --hades-id are
+// still accepted, because every lane Job passes them, and are unused.
 
 // Build builds the commit the module was constructed on and settles the
 // build lane. A pull builds the image and publishes nothing; a tip publishes
-// it under the g-pin and the stamp tag Flux reads (publishTip), signs it,
-// attests its SBOM and asks hades for the permit. A commit whose every change since the last published tip (its
+// it under the g-pin and the stamp tag Flux reads (publishTip), signs it and
+// attests its SBOM. A commit whose every change since the last published tip (its
 // newest stamp tag) is inert builds nothing.
 func (m *FoundryTools) Build(
 	ctx context.Context,
-	// The default branch's tip: publish, sign, attest and permit. Without it
+	// The default branch's tip: publish, sign and attest. Without it
 	// the lane settles on the build alone.
 	// +optional
 	tip bool,
-	// The SPIRE agent's workload socket, forwarded by the calling pod — the
-	// identity the permit is asked as. Required with --tip.
+	// The SPIRE agent's workload socket, forwarded by the calling pod. UNUSED
+	// since the permit retired (Phase 13); accepted so no lane Job's call
+	// breaks.
 	// +optional
 	spire *dagger.Socket,
 	// The registry credential, a docker config JSON (ca-build-registry's
@@ -104,9 +107,9 @@ func (m *FoundryTools) Build(
 	recordToken *dagger.Secret,
 ) error {
 	l := &buildLane{
-		m: m, tip: tip, force: force, spire: spire,
+		m: m, tip: tip, force: force,
 		registryAuth: registryAuth, cosignKey: cosignKey, cosignPassphrase: cosignPassphrase,
-		indexURL: indexURL, registry: registry, sourceBase: sourceBase, hades: hades, hadesID: hadesID,
+		indexURL: indexURL, registry: registry, sourceBase: sourceBase,
 		stamp:  strconv.FormatInt(time.Now().UnixNano(), 10),
 		phases: phases{group: buildGroup, order: buildPhases},
 	}
@@ -140,12 +143,10 @@ type buildLane struct {
 	// force skips the stand-down: the tree is built whether or not the last
 	// published tip already carries its source. See Build's own doc.
 	force                                     bool
-	spire                                     *dagger.Socket
 	registryAuth, cosignKey, cosignPassphrase *dagger.Secret
 	indexURL, registry, sourceBase            string
-	hades, hadesID                            string
 	// stamp is this run's, on every step that must happen again on a rerun of
-	// the same commit: signing, attesting and the permit are acts, not results.
+	// the same commit: signing and attesting are acts, not results.
 	stamp string
 	// phases records what each step of the lane answered. See lanerecord.go.
 	phases
@@ -175,12 +176,9 @@ func sprintf(format string, args ...any) string { return fmt.Sprintf(format, arg
 // http://ourea…:8215/rob/ares.git and rob/ares are both ares.
 func starOf(repo string) string { return path.Base(strings.TrimSuffix(repo, ".git")) }
 
-// withheld answers whether a tip was handed less than it publishes, signs and
-// permits with: the socket and every secret.
-func withheld(spire *dagger.Socket, secrets ...*dagger.Secret) bool {
-	if spire == nil {
-		return true
-	}
+// withheld answers whether a tip was handed less than it publishes and signs
+// with: every secret.
+func withheld(secrets ...*dagger.Secret) bool {
 	for _, s := range secrets {
 		if s == nil {
 			return true
@@ -198,8 +196,8 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 	if m.Repo == "" || m.Sha == "" {
 		return l.stop("build:preflight", buildlane.CouldNotRun, "the build lane builds a commit the engine fetched — construct the module with --repo and --sha")
 	}
-	if l.tip && withheld(l.spire, l.registryAuth, l.cosignKey, l.cosignPassphrase) {
-		return l.stop("build:preflight", buildlane.CouldNotRun, "a tip build publishes, signs and permits: --spire, --registry-auth, --cosign-key and --cosign-passphrase are all required")
+	if l.tip && withheld(l.registryAuth, l.cosignKey, l.cosignPassphrase) {
+		return l.stop("build:preflight", buildlane.CouldNotRun, "a tip build publishes and signs: --registry-auth, --cosign-key and --cosign-passphrase are all required")
 	}
 	star := starOf(m.Repo)
 	l.say("%s for %s at %.12s", map[bool]string{true: "tip build", false: "pull-time build (publishes nothing)"}[l.tip], star, m.Sha)
@@ -302,10 +300,10 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 	l.seal("build:verify", buildlane.Clean, "no fixable HIGH or CRITICAL in the star's own layer")
 
 	if !l.tip {
-		// A PULL ENDS HERE, CLEAN, and publish/sign/permit are UNREACHED rather
+		// A PULL ENDS HERE, CLEAN, and publish/sign are UNREACHED rather
 		// than passed. The landing does them; saying they held would claim this
 		// run proved something it never ran.
-		return l.stop("", buildlane.Clean, fmt.Sprintf("clean: built %s at %.12s and its scan passed — nothing published, signed or permitted; the landing does that", star, m.Sha))
+		return l.stop("", buildlane.Clean, fmt.Sprintf("clean: built %s at %.12s and its scan passed — nothing published or signed; the landing does that", star, m.Sha))
 	}
 
 	ref, stamp, failed := l.publishTip(ctx, img, pushRepo, star)
@@ -317,11 +315,7 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 		return l.stop("build:sign", code, why)
 	}
 	l.seal("build:sign", buildlane.Clean, "signed and attested "+ref)
-	code, why := l.permit(ctx, star)
-	if code != buildlane.Clean {
-		return l.stop("build:permit", code, why)
-	}
-	l.seal("build:permit", buildlane.Clean, why)
+	why = "published as " + stamp + " — no permit is asked; Flux's image automation rolls the star from that tag"
 	return buildlane.Clean, fmt.Sprintf("clean: published and signed %s; %s", ref, why)
 }
 
@@ -691,30 +685,6 @@ func orVerify(ctx context.Context, step string, act, check *dagger.Container) (i
 		return buildlane.Clean, ""
 	}
 	return buildlane.ToolFailed(step, out+"\n"+checked)
-}
-
-// permit asks hades for forge_mold on this star, as the calling pod, and folds
-// the answer into the verdict.
-func (l *buildLane) permit(ctx context.Context, star string) (int, string) {
-	args, err := json.Marshal(map[string]string{"name": star})
-	if err != nil {
-		return buildlane.CouldNotRun, err.Error()
-	}
-	call := hadesCaller(l.spire, l.hades, l.hadesID, l.stamp).
-		WithExec([]string{"/usr/local/bin/hadescall", "forge_mold", string(args)}, anyExit)
-	out, code, err := output(ctx, call)
-	if err != nil {
-		return buildlane.CouldNotRun, fmt.Sprintf("could not run: could not ask hades: %v", err)
-	}
-	if code != 0 {
-		return buildlane.CouldNotRun, "could not run: could not ask hades: " + out
-	}
-	status, body, err := buildlane.ParseCall(out)
-	if err != nil {
-		return buildlane.CouldNotRun, "could not run: " + err.Error()
-	}
-	say("hades answered forge_mold HTTP %d", status)
-	return buildlane.Permit(status, body, l.m.Sha)
 }
 
 // hadesCaller is the container hadescall runs in: the binary built from this

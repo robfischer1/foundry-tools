@@ -8,7 +8,7 @@ package main
 //
 // THE PHASES ARE NOT INVENTED, and that is the reason this shape and not
 // another. run() was already a sequence of named methods — detect, stageRelease,
-// verify, publish, sign, permit — each answering the same (code, reason) pair the
+// verify, publish, sign — each answering the same (code, reason) pair the
 // lane settles on. This records what they already answer instead of asking them
 // to answer differently, so the atom names are the code's own vocabulary rather
 // than a second one laid over it.
@@ -35,7 +35,6 @@ var buildPhases = []string{
 	"build:verify",
 	"build:publish",
 	"build:sign",
-	"build:permit",
 }
 
 // baseAtom names one base's whole build, scan, publish and promote.

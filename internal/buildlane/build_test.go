@@ -258,63 +258,6 @@ func TestTheCallOutputIsReadOrRefused(t *testing.T) {
 	}
 }
 
-func TestThePermitAnswerFoldsIntoTheVerdict(t *testing.T) {
-	tool := func(isError bool, text string) string {
-		b, _ := json.Marshal(map[string]any{"isError": isError, "content": []map[string]string{{"type": "text", "text": text}}})
-		return string(b)
-	}
-	// molded is mold's refusal verbatim — hephaestus internal/mold/mold.go,
-	// the error it returns when no g-pin in the tip's history resolves. If
-	// that sentence is ever reworded, these cases stop reading SUPERSEDED and
-	// this test is the thing that notices.
-	molded := func(tip string) string {
-		return "mold iris: no CI artifact at the tip " + tip +
-			" or the 3 commit(s) behind it — mold stamps, it does not build; run the build for the tip first"
-	}
-	built := "0123456789abcdef"
-	// movedTip is a commit this build never claimed. It is deliberately dull
-	// hex: a realistic sha literal read to detect-secrets as a high-entropy
-	// string and redded the commit stage. That atom is retired (2026-09-25);
-	// the dullness stays because the entropy was doing no work here anyway.
-	movedTip := strings.Repeat("fe", 8)
-	for _, c := range []struct {
-		name   string
-		status int
-		raw    string
-		want   int
-		reason string
-	}{
-		{"no principal", 403, "forbidden: unidentifiable caller", CouldNotRun, "DERIVE a principal"},
-		{"policy refused", 403, "not granted", Findings, "POLICY refused"},
-		{"no cert", 401, "", CouldNotRun, "401"},
-		{"hades down", 502, "", CouldNotRun, "HTTP 502"},
-		{"not a tool answer", 200, "<html>", CouldNotRun, "not a tool answer"},
-		// EVERY REFUSAL BELOW IS MOLD'S OWN SENTENCE, copied from hephaestus
-		// internal/mold/mold.go. The fixtures this replaced read "no CI
-		// artifact at g<12 hex>" — a message mold has never produced — so the
-		// matcher and its test agreed with each other and with nothing else.
-		{"superseded", 200, tool(true, molded(movedTip)), CouldNotRun, "SUPERSEDED"},
-		{"refused", 200, tool(true, molded(built)), Findings, "PERMIT REFUSED"},
-		// The tip and the build's sha name one commit at different lengths,
-		// either way round. Both must read as the SAME commit: an abbreviation
-		// is not a race.
-		{"same commit, tip abbreviated", 200, tool(true, molded(built[:12])), Findings, "PERMIT REFUSED"},
-		{"same commit, tip in full", 200, tool(true, molded(built+strings.Repeat("a", 24))), Findings, "PERMIT REFUSED"},
-		{"refused at length", 200, tool(true, strings.Repeat("x", 400)), Findings, "promoted. " + strings.Repeat("x", 300)},
-		{"no-op", 200, tool(false, `{"no_op":true}`), Clean, "no-op"},
-		{"stamped", 200, tool(false, `{"digest":"sha256:d","pushed_ref":"r:stable"}`), Clean, "digest=sha256:d, ref=r:stable"},
-		{"an answer with no content", 200, `{"isError":false,"content":[]}`, Clean, "digest=?, ref=?"},
-	} {
-		got, reason := Permit(c.status, c.raw, built)
-		if got != c.want || !strings.Contains(reason, c.reason) {
-			t.Errorf("%s: %d %q, want %d containing %q", c.name, got, reason, c.want, c.reason)
-		}
-		if c.name == "refused at length" && strings.Contains(reason, strings.Repeat("x", 301)) {
-			t.Errorf("the refusal was not cut at 300 characters: %d", len(reason))
-		}
-	}
-}
-
 // A REGISTRY 5xx IS A FAULT, AND ORAS SPELLS IT WITH A COLON.
 //
 // Every case below is a real phrasing. The first is anvil's own output from
