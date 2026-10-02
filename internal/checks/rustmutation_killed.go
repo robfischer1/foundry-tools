@@ -164,10 +164,8 @@ func rustMutationKilled(status int, log string, timeoutDetected bool) (int, stri
 	return state, "CANNOT RUN - " + head + strings.TrimPrefix(reason, "CANNOT RUN - ") + after.String(), nil
 }
 
-// lines is a list as mutants.out writes one: a name per line.
+// lines is a list as mutants.out writes one: a name per line. An empty list
+// is a lone newline, which lineCount reads as the zero it is.
 func lines(names []string) string {
-	if len(names) == 0 {
-		return ""
-	}
 	return strings.Join(names, "\n") + "\n"
 }

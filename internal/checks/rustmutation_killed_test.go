@@ -133,6 +133,20 @@ func TestRustMutationKilled(t *testing.T) {
 			findings: []string{"mutation-killed", "mutant-missed"},
 		},
 		{
+			name: "an unviable mutant was graded too", status: 137, state: 1,
+			log:  m137Killed + "\nunviable src/lib.rs:9:1: replace q with r in 2s build",
+			head: "cargo mutants was killed (SIGKILL 137) after 13 of 21 mutants, before its summary — 8 were never graded. 2 viable mutant(s) survived the suite before the kill — see the survivor list below",
+			has:  []string{"| 10 | 2 | 1 | 0 | 83% of 12 viable |"}, findings: []string{"mutation-killed", "mutant-missed", "mutant-missed"},
+		},
+		{
+			// A summary the engine kept with its head cut off: the outcomes
+			// before the cut are not in the record, so they are not whole.
+			name: "a kept summary behind a cut is not whole", status: 137, state: 1,
+			log:      "[omitting 9 bytes]...xx\nMISSED   src/a.rs:4:2: replace f with g in 1s build + 1s test\n5 mutants tested in 9s: 1 missed, 4 caught",
+			head:     "cargo mutants was killed (SIGKILL 137) after 1 mutants — how many there were is not in what the engine kept. 1 viable mutant(s) survived the suite before the kill — see the survivor list below",
+			findings: []string{"mutation-killed", "mutant-missed"},
+		},
+		{
 			name: "a count of zero is a count", status: 137, state: 2, log: "Found 0 mutants to test",
 			head: "CANNOT RUN - cargo mutants was killed (SIGKILL 137) after 0 of 0 mutants, before its summary — 0 were never graded. Nothing was measured",
 		},
