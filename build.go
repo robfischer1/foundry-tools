@@ -40,12 +40,14 @@ import (
 
 // Build builds the commit the module was constructed on and settles the
 // build lane. A pull builds the image and publishes nothing; a tip publishes
-// it under the g-pin and the stamp tag Flux reads (publishTip), signs it and
-// attests its SBOM. A commit whose every change since the last published tip (its
+// it under the g-pin and the stamp tag Flux reads (publishTip) and attaches
+// its SBOM, UNSIGNED (D11: nothing verifies a star image since the permit
+// retired); a base is also signed (build_bases.go). A commit whose every change since the last published tip (its
 // newest stamp tag) is inert builds nothing.
 func (m *FoundryTools) Build(
 	ctx context.Context,
-	// The default branch's tip: publish, sign and attest. Without it
+	// The default branch's tip: publish and attach the SBOM (a base is also
+	// signed). Without it
 	// the lane settles on the build alone.
 	// +optional
 	tip bool,
@@ -311,12 +313,13 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 		return l.stop("build:publish", failed.code, failed.why)
 	}
 	l.seal("build:publish", buildlane.Clean, "pushed "+ref+" as "+stamp)
-	if code, why := l.sign(ctx, img, ref, star); code != buildlane.Clean {
-		return l.stop("build:sign", code, why)
+	// UNSIGNED (D11): the SBOM is attached; no CI signature, no signed pointer.
+	if failed := l.publishSBOM(ctx, img, ref); failed != nil {
+		return l.stop("build:sbom", failed.code, failed.why)
 	}
-	l.seal("build:sign", buildlane.Clean, "signed and attested "+ref)
-	why = "published as " + stamp + " — no permit is asked; Flux's image automation rolls the star from that tag"
-	return buildlane.Clean, fmt.Sprintf("clean: published and signed %s; %s", ref, why)
+	// The last phase seals with the run's own verdict: what it says IS the
+	// lane's answer, so the two can never read differently.
+	return l.stop("build:sbom", buildlane.Clean, fmt.Sprintf("clean: published %s as %s with its SBOM, unsigned — Flux's image automation rolls the star from that tag", ref, stamp))
 }
 
 // stageRelease hands the image the artifact the Gate compiled, when its
@@ -643,15 +646,10 @@ func (l *buildLane) sign(ctx context.Context, img *Image, ref, star string) (int
 	}
 	say("signed %s with the CI key — the fleet signature is mold's to write, at permit", ref)
 
-	oras, err := orasIn(ctx, l.registryAuth)
-	if err != nil {
-		return buildlane.CouldNotRun, "could not run: " + err.Error()
+	oras, sbom, failed := l.composedSBOM(ctx, img)
+	if failed != nil {
+		return failed.code, failed.why
 	}
-	sbom, note, code, why := sbomOf(ctx, l.m.Source, img, oras, l.stamp)
-	if code != buildlane.Clean {
-		return code, why
-	}
-	say("%s", note)
 	if code, why := l.attestSBOM(ctx, cosign, oras, ref, sbom); code != buildlane.Clean {
 		return code, why
 	}
