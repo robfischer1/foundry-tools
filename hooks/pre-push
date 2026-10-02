@@ -15,5 +15,5 @@
 # but never deletes one, so removing it would leave every repo's old
 # `exec just gate` in place; the recopy also reads a missing hooks/pre-push as
 # a wiped surface (speckit_recopy HOOK_FILES).
-echo "push: this branch's lanes are its gate: the door runs them on the cluster for the head you pushed (metered by daedalus); git_pr open parks on them, and git_ci_logs / repo_ci_logs read them" >&2
+echo "push: this branch's lanes are its gate: the door runs them on the cluster for the head you pushed (metered by daedalus); git_pr open parks on them, and repo_ci_logs reads them" >&2
 exit 0
