@@ -356,14 +356,21 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 	for _, p := range packages {
 		args = append(args, "-p", p)
 	}
+	//
+	// UNDER execmem (2026-10-02, foundry-tools #13052). A kill takes the exec
+	// and everything that could be read from it afterwards, so the cgroup's
+	// memory is printed WHILE the run goes — peak, cap, OOM-kill count — and
+	// the last reading before a kill rides the error's stderr into
+	// checks.RustMutationKilled. internal/execmem says why not after the run.
 	mutated := ctr.
+		WithFile(execMemPath, execMemBinary()).
 		WithNewFile(rustMutationDiff, diff+"\n").
 		WithDirectory(mutationDir+"/tmp", dag.Directory()).
 		WithEnvVariable("TMPDIR", mutationDir+"/tmp").
 		WithEnvVariable("CARGO_PROFILE_DEV_DEBUG", "0").
 		WithEnvVariable("CARGO_PROFILE_TEST_DEBUG", "0").
 		WithEnvVariable(rustTestRunnerEnv, rustTestRunner).
-		WithExec(append(args, "-D", rustMutationDiff), anyExit)
+		WithExec(append(append([]string{execMemPath, "--"}, args...), "-D", rustMutationDiff), anyExit)
 	log, status, err := outputBoth(ctx, mutated)
 	// A KILLED RUN RAN. The engine answers an exec that ended in the signal
 	// range (137: SIGKILL) with an error, not a code, and the error carries
@@ -399,6 +406,23 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 	// suppression (findings.schema.json).
 	v.Findings = found
 	return v
+}
+
+// execMemPath is where execmem sits in the lane's container.
+const execMemPath = "/usr/local/bin/execmem"
+
+// execMemBinary is internal/execmem's process, built from this module's own
+// source the way settle builds verdict (build.go): standard library only,
+// GOPROXY=off, static, so it runs in the Rust image as it is.
+func execMemBinary() *dagger.File {
+	return dag.Container().From(checks.ImageGo).
+		WithEnvVariable("CGO_ENABLED", "0").
+		WithEnvVariable("GOTOOLCHAIN", "local").
+		WithEnvVariable("GOPROXY", "off").
+		WithMountedDirectory("/src", dag.CurrentModule().Source()).
+		WithWorkdir("/src").
+		WithExec([]string{"go", "build", "-o", "/out/execmem", "./execmem"}).
+		File("/out/execmem")
 }
 
 // joinOutput is an ExecError's stdout then its stderr, each kept whole: the

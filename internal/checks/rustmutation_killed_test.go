@@ -73,7 +73,7 @@ func TestRustMutationKilled(t *testing.T) {
 			name: "killed mid-stream with survivors is a survivor report", status: 137, log: m137Killed, state: 1,
 			head: "cargo mutants was killed (SIGKILL 137) after 12 of 21 mutants, before its summary — 9 were never graded. 2 viable mutant(s) survived the suite before the kill — see the survivor list below",
 			has: []string{"| 10 | 2 | 0 | 0 | 83% of 12 viable |", "src/lib.rs:3:34: replace untested -> i32 with 1\n```",
-				"the last 20 lines it printed:\n```\nFound 21 mutants to test\n", "```\n\nthe last 20 lines"},
+				"the last 20 lines it printed:\n```\nFound 21 mutants to test\n", "```\n\nthe exec printed no memory reading\n\nthe last 20 lines"},
 			findings: []string{"mutation-killed", "mutant-missed", "mutant-missed"},
 		},
 		{
@@ -241,6 +241,54 @@ func TestSignalOf(t *testing.T) {
 	for code, want := range map[int]string{137: "SIGKILL 137", 143: "SIGTERM 143", 134: "SIGABRT 134", 139: "SIGSEGV 139", 130: "SIGINT 130", 129: "signal 1, exit 129", 128: "exit 128", 2: "exit 2"} {
 		if got := signalOf(code); got != want {
 			t.Errorf("signalOf(%d) = %q, want %q", code, got, want)
+		}
+	}
+}
+
+// THE MEMORY READING (execmem): the last one printed before the kill rides
+// the record, and an OOM kill it counted is named in the headline.
+func TestRustMutationKilledCarriesTheMemoryReading(t *testing.T) {
+	const reads = "\nexec-memory: peak_bytes=12791808 memory_max=max oom_kill=0" +
+		"\nexec-memory: peak_bytes=17179860992 memory_max=17179869184 oom_kill=1"
+	for _, c := range []struct {
+		name, log, head, has string
+	}{
+		{"an OOM kill counted", m137Killed + reads,
+			"cargo mutants was killed (SIGKILL 137) after 12 of 21 mutants, out of memory (oom_kill=1 at peak_bytes=17179860992 of memory_max=17179869184), before its summary — 9 were never graded. 2 viable mutant(s) survived the suite before the kill — see the survivor list below",
+			"The exec's memory at its last reading (execmem, every second — a lower bound): peak_bytes=17179860992 memory_max=17179869184 oom_kill=1"},
+		{"no OOM kill counted", m137Killed + "\nexec-memory: peak_bytes=2163326976 memory_max=17179869184 oom_kill=0",
+			"cargo mutants was killed (SIGKILL 137) after 12 of 21 mutants, before its summary — 9 were never graded. 2 viable mutant(s) survived the suite before the kill — see the survivor list below",
+			"The exec's memory at its last reading (execmem, every second — a lower bound): peak_bytes=2163326976 memory_max=17179869184 oom_kill=0. No OOM kill was counted by then; a kill inside the final second is not seen."},
+		{"nothing graded, out of memory", "Found 3 mutants to test" + reads,
+			"CANNOT RUN - cargo mutants was killed (SIGKILL 137) after 0 of 3 mutants, out of memory (oom_kill=1 at peak_bytes=17179860992 of memory_max=17179869184), before its summary — 3 were never graded. Nothing was measured",
+			"oom_kill=1\n\nthe last 20 lines"},
+		{"no reading printed", m137Killed, "", "the exec printed no memory reading"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, reason, _ := RustMutationKilled(137, c.log)
+			if head, _, _ := strings.Cut(reason, "\n"); c.head != "" && head != c.head {
+				t.Errorf("headline\n got %q\nwant %q", head, c.head)
+			}
+			if !strings.Contains(reason, c.has) {
+				t.Errorf("reason lacks %q:\n%s", c.has, reason)
+			}
+		})
+	}
+}
+
+func TestLastExecMemory(t *testing.T) {
+	for _, c := range []struct {
+		log, line string
+		oom       bool
+	}{
+		{"", "", false},
+		{"exec-memory: peak_bytes=1 memory_max=max oom_kill=0\nexec-memory: peak_bytes=2 memory_max=max oom_kill=0", "peak_bytes=2 memory_max=max oom_kill=0", false},
+		{"  exec-memory: peak_bytes=3 memory_max=9 oom_kill=2\r\nMISSED x", "peak_bytes=3 memory_max=9 oom_kill=2", true},
+		{"exec-memory: could not start x: no such file", "", false},
+	} {
+		line, oom := lastExecMemory(c.log)
+		if line != c.line || oom != c.oom {
+			t.Errorf("lastExecMemory(%q) = %q %v, want %q %v", c.log, line, oom, c.line, c.oom)
 		}
 	}
 }

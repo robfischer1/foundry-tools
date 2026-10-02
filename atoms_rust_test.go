@@ -381,8 +381,20 @@ func TestRustMutationMeasuresTheDiffFromTheFetchedLayer(t *testing.T) {
 		// every test process under RLIMIT_DATA, so a runaway mutant fails its
 		// test instead of meeting the engine's per-exec OOM kill
 		[]string{"withEnvVariable", `name:"CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER"`, `value:"prlimit --data=4294967296 --"`},
-		[]string{"withExec", "expect:ANY", `args:["mold","-run","cargo","mutants","--colors","never","--caught","--unviable","-j","2","--build-timeout","900","--minimum-test-timeout","60","--test-tool","nextest","-f","src/lib.rs","-D","/tmp/mutation/pr.diff"]`},
+		[]string{"withExec", "expect:ANY", `args:["/usr/local/bin/execmem","--","mold","-run","cargo","mutants","--colors","never","--caught","--unviable","-j","2","--build-timeout","900","--minimum-test-timeout","60","--test-tool","nextest","-f","src/lib.rs","-D","/tmp/mutation/pr.diff"]`},
 	)
+	// execmem rides into the exec as a file built from this module's own
+	// source: offline and static, as verdict is.
+	wantCalls(t, c, []string{"withFile", `path:"/usr/local/bin/execmem"`})
+	b := engine.chain(`"go","build","-o","/out/execmem","./execmem"`)
+	wantCalls(t, b,
+		[]string{"withEnvVariable", `name:"CGO_ENABLED"`, `value:"0"`},
+		[]string{"withEnvVariable", `name:"GOPROXY"`, `value:"off"`},
+		[]string{"withMountedDirectory", `path:"/src"`},
+	)
+	if !strings.Contains(b, checks.ImageGo) {
+		t.Errorf("execmem is built in the Go image:\n%s", b)
+	}
 	if hasCall(c, "withExec", `args:["cargo","mutants","--version"]`, "expect:ANY") {
 		t.Errorf("the cargo-mutants probe is provisioning and must run under the default Expect:\n%s", c)
 	}
@@ -485,6 +497,8 @@ func TestRustMutationSalvagesAKilledRun(t *testing.T) {
 			[]string{"cargo mutants was killed (SIGKILL 137) after 2 of 9 mutants, before its summary — 7 were never graded", "| 1 | 1 | 0 | 0 | 50% of 2 viable |"}, 2},
 		{"stderr follows stdout on its own line", printed, "error: process didn't exit successfully", 1,
 			[]string{"replace f -> i32 with 1 in 1s build + 1s test\nerror: process didn't exit successfully"}, 2},
+		{"execmem's last reading rides stderr", printed, "exec-memory: peak_bytes=17179860992 memory_max=17179869184 oom_kill=1", 1,
+			[]string{"after 2 of 9 mutants, out of memory (oom_kill=1 at peak_bytes=17179860992 of memory_max=17179869184)"}, 2},
 		{"killed before any mutant", "Found 9 mutants to test", "", 2,
 			[]string{"CANNOT RUN - cargo mutants was killed (SIGKILL 137) after 0 of 9 mutants", "Nothing was measured"}, 0},
 	} {

@@ -25,6 +25,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"dagger/foundry-tools/internal/execmem"
 )
 
 // rustPrinted is what a cargo mutants run printed, read back into the lists
@@ -121,10 +123,23 @@ func rustMutationKilled(status int, log string, timeoutDetected bool) (int, stri
 	if whole {
 		where = ", after its summary, so the outcomes are whole"
 	}
-	killed := fmt.Sprintf("killed (%s) after %s mutants", signalOf(status), count)
+	mem := execMemoryReading(log)
+	oomNote := ""
+	if mem != nil && mem[4] != "0" {
+		oomNote = fmt.Sprintf(", out of memory (oom_kill=%s at peak_bytes=%s of memory_max=%s)", mem[4], mem[2], mem[3])
+	}
+	killed := fmt.Sprintf("killed (%s) after %s mutants%s", signalOf(status), count, oomNote)
 	head := "cargo mutants was " + killed + where + ". "
 
 	var after strings.Builder
+	switch {
+	case mem == nil:
+		after.WriteString("\n\nthe exec printed no memory reading")
+	case oomNote != "":
+		after.WriteString("\n\n" + execMemoryLead + mem[1])
+	default:
+		after.WriteString("\n\n" + execMemoryLead + mem[1] + ". No OOM kill was counted by then; a kill inside the final second is not seen.")
+	}
 	if p.Omitted != "" {
 		fmt.Fprintf(&after, "\n\nThe engine kept only the end of its output (it omitted %s bytes): outcomes printed before that are not in this record.", p.Omitted)
 	}
@@ -162,6 +177,35 @@ func rustMutationKilled(status int, log string, timeoutDetected bool) (int, stri
 		return 1, head + reason + after.String(), found
 	}
 	return state, "CANNOT RUN - " + head + strings.TrimPrefix(reason, "CANNOT RUN - ") + after.String(), nil
+}
+
+// THE EXEC'S MEMORY, as execmem printed it while cargo mutants ran: the
+// cgroup's peak, its cap and its OOM-kill count, read every second. The last
+// line printed before a kill is the record; nothing can be read after one.
+var execMemoryLine = regexp.MustCompile(`^` + regexp.QuoteMeta(execmem.Prefix) + ` (peak_bytes=(\d+) memory_max=(\S+) oom_kill=(\d+))$`)
+
+const execMemoryLead = "The exec's memory at its last reading (execmem, every second — a lower bound): "
+
+// execMemoryReading is the last reading in log as its submatches — the
+// reading, peak, cap, OOM-kill count — or nil when there is none.
+func execMemoryReading(log string) []string {
+	var last []string
+	for _, ln := range strings.Split(log, "\n") {
+		if m := execMemoryLine.FindStringSubmatch(strings.TrimSpace(ln)); m != nil {
+			last = m
+		}
+	}
+	return last
+}
+
+// lastExecMemory is the last reading without its prefix, and whether it
+// counted an OOM kill.
+func lastExecMemory(log string) (string, bool) {
+	m := execMemoryReading(log)
+	if m == nil {
+		return "", false
+	}
+	return m[1], m[4] != "0"
 }
 
 // lines is a list as mutants.out writes one: a name per line. An empty list
