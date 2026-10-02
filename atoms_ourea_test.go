@@ -49,8 +49,8 @@ func configMap(body string) string {
 // with ourea's published list seeded beside it.
 func fluxTree(toml string) map[string]string {
 	return fleetTree(map[string]string{
-		"infrastructure/ourea-config.yaml": configMap(toml),
-		oureaListPath:                      oureaRetiredList,
+		"prime/ourea-config.yaml": configMap(toml),
+		oureaListPath:             oureaRetiredList,
 	})
 }
 
@@ -61,22 +61,24 @@ gate_job_env = "ca-gate-env"
 
 // ---- absence: this atom is one repository's business ----
 
-func TestOureaConfigIsAbsentWithNoInfrastructureDirectory(t *testing.T) {
-	engine.reset()
-	engine.withTree(fleetTree(nil))
-	wantState(t, runAtom(t, "fleet:ourea-config-retired-keys", ""), 0,
-		"ABSENT", "not the fleet's flux tree")
-	fleetNoContainer(t, "absence decided from the Directory")
-}
-
-// A tree with an infrastructure/ directory that is not flux's — every repo may
-// have one — is still not this atom's business.
-func TestOureaConfigIsAbsentWhenInfrastructureHoldsNoOureaConfig(t *testing.T) {
+func TestOureaConfigIsAbsentWithNoPrimeDirectory(t *testing.T) {
 	engine.reset()
 	engine.withTree(fleetTree(map[string]string{"infrastructure/something-else.yaml": "kind: Service\n"}))
 	wantState(t, runAtom(t, "fleet:ourea-config-retired-keys", ""), 0,
-		"ABSENT", "infrastructure/ourea-config.yaml")
+		"ABSENT", "carries no prime/", "not the fleet's flux tree")
 	fleetNoContainer(t, "absence decided from the Directory")
+}
+
+// prime/ is the flux tree's and nothing else's. A prime/ with no ConfigMap is
+// the ConfigMap having moved — which is how this atom graded nothing from the
+// namespace split until this test existed — so it cannot answer "nothing to
+// check".
+func TestOureaConfigCannotRunWhenTheFluxTreeHoldsNoOureaConfig(t *testing.T) {
+	engine.reset()
+	engine.withTree(fleetTree(map[string]string{"prime/something-else.yaml": "kind: Service\n"}))
+	wantState(t, runAtom(t, "fleet:ourea-config-retired-keys", ""), 2,
+		"CANNOT RUN", "prime/ourea-config.yaml", "the door's ConfigMap moved")
+	fleetNoContainer(t, "decided from the Directory")
 }
 
 // ---- the pass, and what it is allowed to forgive ----
@@ -182,10 +184,10 @@ func TestOureaConfigRefusesATreeItCannotEnumerate(t *testing.T) {
 		"CANNOT RUN", "would not enumerate", "the tree went away")
 }
 
-func TestOureaConfigRefusesAnInfrastructureDirectoryItCannotList(t *testing.T) {
+func TestOureaConfigRefusesAPrimeDirectoryItCannotList(t *testing.T) {
 	engine.reset()
 	engine.withTree(fluxTree(cleanConfig))
-	engine.fail(`directory(path:"infrastructure")`, "i/o error")
+	engine.fail(`directory(path:"prime")`, "i/o error")
 	wantState(t, runAtom(t, "fleet:ourea-config-retired-keys", ""), 2,
 		"CANNOT RUN", "would not enumerate", "i/o error")
 }
@@ -193,7 +195,7 @@ func TestOureaConfigRefusesAnInfrastructureDirectoryItCannotList(t *testing.T) {
 func TestOureaConfigRefusesAConfigMapItCannotRead(t *testing.T) {
 	engine.reset()
 	engine.withTree(fluxTree(cleanConfig))
-	engine.fail(`file(path:"infrastructure/ourea-config.yaml")`, "i/o error")
+	engine.fail(`file(path:"prime/ourea-config.yaml")`, "i/o error")
 	wantState(t, runAtom(t, "fleet:ourea-config-retired-keys", ""), 2,
 		"CANNOT RUN", "would not read", "i/o error")
 }
@@ -209,8 +211,8 @@ func TestOureaConfigRefusesAFileItCannotParse(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			engine.reset()
 			engine.withTree(fleetTree(map[string]string{
-				"infrastructure/ourea-config.yaml": c.body,
-				oureaListPath:                      oureaRetiredList,
+				"prime/ourea-config.yaml": c.body,
+				oureaListPath:             oureaRetiredList,
 			}))
 			wantState(t, runAtom(t, "fleet:ourea-config-retired-keys", ""), 2,
 				"CANNOT RUN", "would not parse", c.want)
@@ -237,8 +239,8 @@ func TestOureaConfigRefusesAListItCannotUse(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			engine.reset()
 			engine.withTree(fleetTree(map[string]string{
-				"infrastructure/ourea-config.yaml": configMap(cleanConfig),
-				oureaListPath:                      c.body,
+				"prime/ourea-config.yaml": configMap(cleanConfig),
+				oureaListPath:             c.body,
 			}))
 			wantState(t, runAtom(t, "fleet:ourea-config-retired-keys", ""), 2,
 				"CANNOT RUN", c.want)

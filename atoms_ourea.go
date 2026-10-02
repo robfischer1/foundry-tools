@@ -24,8 +24,16 @@ func init() {
 const (
 	// oureaConfigPath is the ConfigMap that overrides ourea's defaults in the
 	// cluster. It is also the only file in the fleet this atom has an opinion
-	// about — a tree without it is not this atom's business.
-	oureaConfigPath = "infrastructure/ourea-config.yaml"
+	// about.
+	//
+	// IT MOVED ONCE AND THIS ATOM KEPT PASSING. The flux tree was split by
+	// namespace on 2026-10-01 and the ConfigMap went from infrastructure/ to
+	// prime/; infrastructure/ stayed, without it, so "no such file in that
+	// directory" read as ABSENT and every flux pull since was graded by
+	// nothing — including the one that added and the one that removed
+	// cast_on_build. The directory is now prime/, which only the fleet's flux
+	// tree has, and a prime/ without the ConfigMap is no longer absence.
+	oureaConfigPath = "prime/ourea-config.yaml"
 
 	// oureaConfigKey is the ConfigMap data key holding the door's TOML.
 	oureaConfigKey = "config.toml"
@@ -40,11 +48,11 @@ const (
 	// pull against what the door CURRENTLY ignores, and a key retired after a
 	// pinned sha would be graded by nothing — the silent skip again, wearing a
 	// version number.
-	OureaRepo          = "https://git.notusmi.com/rob/ourea.git"
-	OureaRef           = "main"
-	OureaRetiredKeys   = "internal/config/retired-keys.json"
-	oureaInfraDir      = "infrastructure"
-	oureaConfigInInfra = "ourea-config.yaml"
+	OureaRepo        = "https://git.notusmi.com/rob/ourea.git"
+	OureaRef         = "main"
+	OureaRetiredKeys = "internal/config/retired-keys.json"
+	oureaConfigDir   = "prime"
+	oureaConfigInDir = "ourea-config.yaml"
 )
 
 // The ourea ConfigMap names no key the door has stopped reading.
@@ -82,20 +90,25 @@ func fleetOureaConfigRetiredKeys(ctx context.Context, r *run) checks.Verdict {
 	if err != nil {
 		return cannotEnumerate(a, err)
 	}
-	if !checks.HasEntry(entries, oureaInfraDir) {
+	if !checks.HasEntry(entries, oureaConfigDir) {
 		return checks.VerdictOf(a, 0, string(a.ID)+
-			": ABSENT - this tree carries no "+oureaInfraDir+"/, so it is not the fleet's flux tree and holds no ourea ConfigMap")
+			": ABSENT - this tree carries no "+oureaConfigDir+"/, so it is not the fleet's flux tree and holds no ourea ConfigMap")
 	}
-	infra, err := r.src.Directory(oureaInfraDir).Entries(ctx)
+	infra, err := r.src.Directory(oureaConfigDir).Entries(ctx)
 	if err != nil {
 		// The directory is there and would not list. Guessing the ConfigMap is
 		// absent is how a check reports a pass over a file it never opened.
 		return checks.VerdictOf(a, 2, fmt.Sprintf(
-			"%s: CANNOT RUN - %s/ would not enumerate: %v", a.ID, oureaInfraDir, err))
+			"%s: CANNOT RUN - %s/ would not enumerate: %v", a.ID, oureaConfigDir, err))
 	}
-	if !checks.HasEntry(infra, oureaConfigInInfra) {
-		return checks.VerdictOf(a, 0, string(a.ID)+
-			": ABSENT - no "+oureaConfigPath+" in this tree, so nothing here configures the door")
+	if !checks.HasEntry(infra, oureaConfigInDir) {
+		// NOT ABSENCE. prime/ is the fleet's flux tree and nothing else's, so
+		// a prime/ with no ConfigMap means the ConfigMap moved — and an atom
+		// that answers "nothing to check" then is the silent skip that let it
+		// grade nothing for a day.
+		return checks.VerdictOf(a, 2, string(a.ID)+
+			": CANNOT RUN - this is the fleet's flux tree ("+oureaConfigDir+"/ is here) and "+oureaConfigPath+
+			" is not in it: the door's ConfigMap moved, and this atom grades nothing until oureaConfigPath says where")
 	}
 
 	body, err := r.src.File(oureaConfigPath).Contents(ctx)
