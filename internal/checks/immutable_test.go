@@ -120,12 +120,14 @@ func TestImmutableInputsFollowsRelativeReferences(t *testing.T) {
 		"loop/a":       "resources: [../b]\n",
 		"loop/b":       "resources: [../a]\n",
 	}
-	read := func(d string) (string, bool) { s, ok := trees[d]; return s, ok }
+	read := func(d string) string { return trees[d] }
 	for dir, want := range map[string]string{
 		"blades":  "blades,hemera/x.yaml,prime/images",
 		"foundry": "foundry",
 		"alloy":   "../outside,alloy",
 		"loop/a":  "loop/a,loop/b",
+		// An unclean path is cleaned before it is read or reported.
+		"./foundry/": "foundry",
 	} {
 		if got := strings.Join(ImmutableInputs(dir, read), ","); got != want {
 			t.Errorf("ImmutableInputs(%s) = %s, want %s", dir, got, want)

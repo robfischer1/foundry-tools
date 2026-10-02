@@ -27,8 +27,8 @@ var immutableRef = regexp.MustCompile(`(?:\.\./)+[A-Za-z0-9_][A-Za-z0-9_./-]*`)
 // ImmutableInputs answers what the Kustomization at dir reads: dir itself and
 // every directory or file its kustomization.yaml (and theirs, recursively)
 // references through `../`, cleaned and repository-relative. read answers a
-// directory's kustomization.yaml, or false when it has none.
-func ImmutableInputs(dir string, read func(dir string) (string, bool)) []string {
+// directory's kustomization.yaml, or "" when it has none.
+func ImmutableInputs(dir string, read func(dir string) string) []string {
 	seen := map[string]bool{}
 	var walk func(d string)
 	walk = func(d string) {
@@ -37,11 +37,7 @@ func ImmutableInputs(dir string, read func(dir string) (string, bool)) []string 
 			return
 		}
 		seen[d] = true
-		src, ok := read(d)
-		if !ok {
-			return
-		}
-		for _, ref := range immutableRef.FindAllString(src, -1) {
+		for _, ref := range immutableRef.FindAllString(read(d), -1) {
 			walk(path.Join(d, strings.TrimRight(ref, "/")))
 		}
 	}

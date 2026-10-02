@@ -230,7 +230,10 @@ func TestOpsImmutableRendersOnlyThePathsWhoseInputsChanged(t *testing.T) {
 			"clusters/pantheon/kustomization.yaml": "resources: [crs.yaml]\n",
 			"clusters/pantheon/crs.yaml": "apiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nspec:\n  path: ./blades\n  sourceRef: {name: flux-system}\n" +
 				"---\napiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nspec:\n  path: ./foundry\n  sourceRef: {name: flux-system}\n",
-			"blades/kustomization.yaml":       "resources: []\ncomponents:\n  - ../prime/images\n",
+			// A ../ reference to a FILE as well as a directory: the file is an
+			// input, and there is no kustomization.yaml under it to read.
+			"blades/kustomization.yaml":       "resources: [../hemera/rules.yaml]\ncomponents:\n  - ../prime/images\n",
+			"hemera/rules.yaml":               "kind: PrometheusRule\n",
 			"foundry/kustomization.yaml":      "resources: []\n",
 			"prime/images/kustomization.yaml": "kind: Component\n",
 		})
@@ -254,6 +257,18 @@ func TestOpsImmutableRendersOnlyThePathsWhoseInputsChanged(t *testing.T) {
 	if engine.chain(`"kubectl","kustomize"`) != "" || engine.chain(`"worktree","add"`) != "" {
 		t.Error("an untouched tree renders nothing and checks nothing out")
 	}
+	// A change to a file a path references directly reaches that path too.
+	tree("hemera/rules.yaml\n")
+	v = runAtom(t, "ops:immutable", "base-sha")
+	wantState(t, v, 0)
+	wantLogs(t, v, "the 1 of 2 whose inputs changed")
+	if engine.chain(`"kustomize","blades","-o"`) == "" {
+		t.Error("a referenced file's change renders the path that references it")
+	}
+	// The diff exec failing in the engine is a CANNOT RUN too.
+	tree("foundry/x.yaml\n")
+	engine.script(script{match: imDiff, leaf: "exitCode", fail: "engine went away"})
+	wantState(t, runAtom(t, "ops:immutable", "base-sha"), 2, "CANNOT RUN - the changed files against "+sinceSha+" would not list", "engine went away")
 	// A diff that will not list is a CANNOT RUN, never a pass.
 	tree("")
 	engine.exitCode(imDiff, 1)

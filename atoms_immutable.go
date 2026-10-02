@@ -92,17 +92,16 @@ func opsImmutable(ctx context.Context, r *run) checks.Verdict {
 		tracked[f] = true
 	}
 	var readErr error
-	read := func(dir string) (string, bool) {
+	read := func(dir string) string {
 		k := dir + "/kustomization.yaml"
-		if !tracked[k] || readErr != nil {
-			return "", false
+		if !tracked[k] {
+			return ""
 		}
 		src, err := r.src.File(k).Contents(ctx)
 		if err != nil {
-			readErr = fmt.Errorf("%s could not be read: %w", k, err)
-			return "", false
+			readErr = errors.New(k + " could not be read: " + err.Error())
 		}
-		return src, true
+		return src
 	}
 	var touched []string
 	for _, p := range paths {
