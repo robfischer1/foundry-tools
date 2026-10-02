@@ -23,6 +23,7 @@ func TestIsOpsTreeReadsEachMarkerAlone(t *testing.T) {
 		"dup-check":           {"tools/dup-check"},
 		"declaration":         {"tools/declaration-integrity"},
 		"console-specs":       {"tools/console-specs"},
+		"metric-allowlist":    {"tools/metric-allowlist"},
 		"compose":             {"compose.yaml"},
 		"compose yml":         {"stacks/compose.yml"},
 		"buried in a star":    {"go.mod", "main.go", "flux/x.yaml"},

@@ -21,7 +21,7 @@ func IsOpsTree(files []string) bool {
 			return true
 		case strings.HasSuffix(f, ".rego"):
 			return true
-		case f == "tools/dup-check" || f == "tools/declaration-integrity" || f == "tools/console-specs":
+		case f == "tools/dup-check" || f == "tools/declaration-integrity" || f == "tools/console-specs" || f == "tools/metric-allowlist":
 			return true
 		}
 		if len(ComposeSpecs([]string{f})) > 0 {

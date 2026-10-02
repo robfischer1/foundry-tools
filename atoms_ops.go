@@ -54,6 +54,7 @@ func init() {
 	register("ops:dup", opsDup)
 	register("ops:declaration", opsDeclaration)
 	register("ops:specs", opsSpecs)
+	register("ops:metrics", opsMetrics)
 	register("ops:ansible", opsAnsible)
 	register("ops:flux", opsFlux)
 	register("ops:kube-linter", opsKubeLinter)
@@ -363,6 +364,25 @@ func opsSpecs(ctx context.Context, r *run) checks.Verdict {
 			return opsResult{state: 2, out: out + "\nspecs: could not read the source — did not look"}, err
 		}
 		return opsSettled("specs", rc, out), err
+	}, nil)
+}
+
+// ops:metrics — every metric a rule or dashboard reads is on a keep-list.
+// Ingest is keep-lists (KSM's metricAllowlist, both cadvisor jobs' keep
+// rules), and a keep-list fails silently: a query against an omitted family
+// reads "no data" forever. The tool grades itself: 2 is "could not read a
+// keep-list or a source", could-not-run whatever its words were.
+func opsMetrics(ctx context.Context, r *run) checks.Verdict {
+	return opsAtom(ctx, r, "ops:metrics", func(ctx context.Context, ctr *dagger.Container, files []checks.OpsFile) (opsResult, error) {
+		if !checks.OpsHasTool(files, "metric-allowlist", false) {
+			return opsResult{absent: "no tools/metric-allowlist in this tree"}, nil
+		}
+		_, out, rc, err := opsRun(ctx, ctr, uvPython("metric-allowlist"))
+		res := opsSettled("metrics", rc, out)
+		if rc == 2 {
+			res = opsResult{state: 2, out: out + "\nmetrics: could not read a keep-list or a source — did not look"}
+		}
+		return res, err
 	}, nil)
 }
 
