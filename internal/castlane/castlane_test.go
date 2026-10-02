@@ -230,12 +230,12 @@ func TestMintedSettlesEveryOtherAnswer(t *testing.T) {
 		code     int
 	}{
 		"no principal":      {403, `{"detail":"unidentifiable caller"}`, "did not derive a principal", buildlane.CouldNotRun},
-		"not granted":       {403, `{"detail":"denied"}`, "not granted forge_mold", buildlane.Findings},
+		"not granted":       {403, `{"detail":"denied"}`, "not granted forge_layer_cast", buildlane.Findings},
 		"no certificate":    {401, ``, "rejected the caller at the door", buildlane.CouldNotRun},
 		"a server error":    {503, ``, "HTTP 503", buildlane.CouldNotRun},
 		"not a tool answer": {200, `garbage`, "not a tool answer", buildlane.CouldNotRun},
 		"an empty answer":   {200, `{"content":[]}`, "not a tool answer", buildlane.CouldNotRun},
-		"mold refused":      {200, answer(true, "mold app/tongs:stable: staged payload pin mismatch"), "findings in forge_mold", buildlane.Findings},
+		"mold refused":      {200, answer(true, "mold app/tongs:stable: staged payload pin mismatch"), "findings in forge_layer_cast", buildlane.Findings},
 		"mold lost the net": {200, answer(true, "dial tcp 10.0.0.1:443: connect: connection refused"), "could not run", buildlane.CouldNotRun},
 		"not a result":      {200, answer(false, "stamped"), "not a cast result", buildlane.CouldNotRun},
 		"no digest":         {200, answer(false, strings.Replace(minted, `"sha256:abc"`, `""`, 1)), "answered no digest", buildlane.CouldNotRun},

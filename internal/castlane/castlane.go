@@ -1,13 +1,14 @@
 // Package castlane is the cast lane's decisions as pure functions: what a
 // record asks the lane to cast, the staged payload's content pin, and how
-// hades's answer to forge_mold settles. cast.go is the chain.
+// hades's answer to forge_layer_cast settles. cast.go is the chain.
 //
 // WHAT IT REPLACES. infra's ca-cast script, which every binary repo reached
 // through a one-line ci/cast.sh (`exec ca-cast --artifact app/<name>:stable
 // --binaries …`) and which pip-installed a Python caster from a hephaestus pin
 // 580 commits old. The arguments moved into the record (tools.cast,
-// foundry-dies#226, hephaestus#97); the caster is the served forge_mold, which
-// consumes a STAGED payload by reference, re-pins what it pulls and signs.
+// foundry-dies#226, hephaestus#97); the caster is the served forge_layer_cast
+// (forge_mold until D12), which consumes a STAGED payload by reference, re-pins
+// what it pulls and signs.
 package castlane
 
 import (
@@ -217,7 +218,10 @@ type Result struct {
 	NoOp    bool   `json:"noop"`
 }
 
-// Minted folds hades's answer to forge_mold into a verdict. staged is the pin
+// Verb is the hades verb a bundle is cast with: layer_cast, signed (D12).
+const Verb = "forge_layer_cast"
+
+// Minted folds hades's answer to forge_layer_cast into a verdict. staged is the pin
 // the lane pushed; mold re-derives the pin from what it pulls and refuses a
 // mismatch itself, so an answer carrying another pin is one the lane cannot
 // account for.
@@ -226,7 +230,7 @@ func Minted(status int, raw, staged string) (Result, int, string) {
 		return Result{}, buildlane.CouldNotRun, "could not run: hades did not derive a principal from the peer SVID, so the PDP was never consulted — check the deployed hades revision, not the policy"
 	}
 	if status == 403 {
-		return Result{}, buildlane.Findings, "findings: hades identified the caller and the policy refused it: the cast lane's SVID is not granted forge_mold — check policy/authz_grants in foundry-dies"
+		return Result{}, buildlane.Findings, "findings: hades identified the caller and the policy refused it: the cast lane's SVID is not granted " + Verb + " — check policy/authz_grants in foundry-dies"
 	}
 	if status == 401 {
 		return Result{}, buildlane.CouldNotRun, "could not run: hades rejected the caller at the door (401): the client certificate was not presented or did not verify against the SPIRE bundle"
@@ -245,7 +249,7 @@ func Minted(status int, raw, staged string) (Result, int, string) {
 	}
 	text := answer.Content[0].Text
 	if answer.IsError {
-		code, why := buildlane.ToolFailed("forge_mold", text)
+		code, why := buildlane.ToolFailed(Verb, text)
 		return Result{}, code, why
 	}
 	var r Result
