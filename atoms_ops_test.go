@@ -595,3 +595,48 @@ func TestOpsFluxAndKubeLinterRunOnARootFluxTree(t *testing.T) {
 		t.Error("no lint may run on an unreadable cluster manifest")
 	}
 }
+
+// flux #264, replayed through the atom: prime's CR sets no targetNamespace and
+// its tree builds a CiliumNetworkPolicy that names none, so ops:flux is red
+// even though every tree built and kubeconform passed. foundry's CR sets one,
+// so the same object there is not a finding.
+func TestOpsFluxRefusesANamespacelessObjectUnderAnUnscopedCR(t *testing.T) {
+	crs := "apiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nmetadata: {name: prime}\nspec: {path: ./prime}\n" +
+		"---\napiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nmetadata: {name: foundry}\nspec: {path: ./foundry, targetNamespace: foundry}\n"
+	cnp := func(ns string) string {
+		return "apiVersion: cilium.io/v2\nkind: CiliumNetworkPolicy\nmetadata:\n  name: ingress-fence\n" + ns
+	}
+	tree := func(primeStream string) {
+		opsTree(map[string]string{"clusters/pantheon/kustomization.yaml": "resources: [crs.yaml]\n", "clusters/pantheon/crs.yaml": crs}, nil)
+		engine.script(script{match: `/tmp/kustomize.0.yaml`, leaf: "contents", value: cnp("")})
+		engine.script(script{match: `/tmp/kustomize.1.yaml`, leaf: "contents", value: primeStream})
+	}
+	tree(cnp(""))
+	v := runAtom(t, "ops:flux", "")
+	wantState(t, v, 1, "prime: CiliumNetworkPolicy/ingress-fence names no namespace, and Kustomization prime sets no targetNamespace",
+		"1 tree(s) applied with no targetNamespace checked", "flux failed (rc=1) — findings")
+	if strings.Contains(v.Reason, "foundry: CiliumNetworkPolicy") {
+		t.Errorf("foundry's CR places its objects:\n%s", v.Reason)
+	}
+
+	tree(cnp("  namespace: prime\n"))
+	wantState(t, runAtom(t, "ops:flux", ""), 0)
+
+	// A stream that does not parse is a finding naming the tree, never a pass.
+	tree(": [bad\n")
+	wantState(t, runAtom(t, "ops:flux", ""), 1, "a built tree did not parse: prime: ")
+
+	// A kubeconform red keeps its own exit code, and the namespace lines
+	// still say what they found.
+	tree(cnp(""))
+	engine.exitCode(`"kubeconform","-strict"`, 3)
+	wantState(t, runAtom(t, "ops:flux", ""), 1, "prime: CiliumNetworkPolicy/ingress-fence names no namespace", "flux failed (rc=3)")
+
+	// With every CR scoped there is nothing to check, and the count says so.
+	opsTree(map[string]string{"clusters/pantheon/kustomization.yaml": "resources: [crs.yaml]\n",
+		"clusters/pantheon/crs.yaml": strings.Replace(crs, "spec: {path: ./prime}", "spec: {path: ./prime, targetNamespace: prime}", 1)}, nil)
+	engine.script(script{match: `"kubectl","kustomize"`, leaf: "contents", value: cnp("")})
+	v = runAtom(t, "ops:flux", "")
+	wantState(t, v, 0)
+	wantLogs(t, v, "0 tree(s) applied with no targetNamespace checked")
+}

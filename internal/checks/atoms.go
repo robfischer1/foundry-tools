@@ -183,7 +183,7 @@ func atomTable() []AtomDef {
 		},
 		{
 			ID: "ops:flux", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "Every Flux Kustomization under flux/ builds with kubectl kustomize — a duplicate resource id, a missing base or a bad patch is a finding before flux meets it.",
+			Desc: "Every Flux Kustomization under flux/ builds with kubectl kustomize — a duplicate resource id, a missing base or a bad patch is a finding before flux meets it, and so is a namespaced object that names no namespace under a CR that sets no targetNamespace.",
 		},
 		// CAME HOME FROM THE SWEEP 2026-09-23 (CA F18). It was sweep:kube-linter,
 		// on a clock, because F9 read it as a question about a REPOSITORY. The

@@ -567,6 +567,7 @@ func opsFluxPhase(ctx context.Context, ctr *dagger.Container, files []checks.Ops
 	}
 	var out, built strings.Builder
 	var renderedFiles []string
+	streams := map[string]string{}
 	for _, p := range problems {
 		out.WriteString(p + "\n")
 	}
@@ -609,6 +610,7 @@ func opsFluxPhase(ctx context.Context, ctr *dagger.Container, files []checks.Ops
 		// reads them there, one argument per tree, and the joined stream is
 		// never sent back into the container.
 		built.WriteString(stream + "\n---\n")
+		streams[p] = stream
 		ctr = next
 		renderedFiles = append(renderedFiles, rendered)
 	}
@@ -624,6 +626,17 @@ func opsFluxPhase(ctx context.Context, ctr *dagger.Container, files []checks.Ops
 		return opsResult{}, err
 	}
 	out.WriteString(validated)
+	// A tree its CR applies with no targetNamespace must place every
+	// namespaced object itself (checks.OpsNamespacelessReport; flux #264).
+	report, bad, err := checks.OpsNamespacelessReport(paths, streams, checks.OpsFluxUnscoped(manifests))
+	if err != nil {
+		out.WriteString("a built tree did not parse: " + err.Error() + "\n")
+		bad = true
+	}
+	out.WriteString(report)
+	if bad && rc == 0 {
+		rc = 1
+	}
 	return opsSettled("flux", rc, out.String()), nil
 }
 
