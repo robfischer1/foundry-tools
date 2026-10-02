@@ -587,7 +587,7 @@ func (l *bundleLane) cosign(ctx context.Context) (*dagger.Container, gateResult)
 		return nil, g
 	}
 	nonroot := dagger.ContainerWithMountedSecretOpts{Owner: "65532:65532"}
-	return dag.Container().From(checks.ImageCosign).
+	return cosignIn().
 		WithMountedTemp("/tmp").
 		WithEnvVariable("HOME", "/tmp").
 		WithMountedSecret("/run/cosign/key", dag.SetSecret("bundle-cosign-key", key), nonroot).

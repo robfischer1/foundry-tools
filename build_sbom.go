@@ -46,7 +46,7 @@ func orasRead(oras *dagger.Container, stamp string, args ...string) *dagger.Cont
 // SBOM — 56% of the fleet's volume — and the one reader takes components
 // carrying a purl, so nothing had ever read one. iris: 2,819 KB -> 1,916 KB.
 func syftIn() *dagger.Container {
-	return dag.Container().From(checks.ImageSyft).
+	return toolOnAlpine(checks.ImageSyft, "/syft", "syft").
 		WithEnvVariable("SYFT_FILE_METADATA_SELECTION", "none")
 }
 
