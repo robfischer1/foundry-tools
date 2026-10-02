@@ -381,7 +381,7 @@ func TestRustMutationMeasuresTheDiffFromTheFetchedLayer(t *testing.T) {
 		// every test process under RLIMIT_DATA, so a runaway mutant fails its
 		// test instead of meeting the engine's per-exec OOM kill
 		[]string{"withEnvVariable", `name:"CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER"`, `value:"prlimit --data=4294967296 --"`},
-		[]string{"withExec", "expect:ANY", `args:["mold","-run","cargo","mutants","--colors","never","-j","2","--build-timeout","900","--minimum-test-timeout","60","--test-tool","nextest","-f","src/lib.rs","-D","/tmp/mutation/pr.diff"]`},
+		[]string{"withExec", "expect:ANY", `args:["mold","-run","cargo","mutants","--colors","never","--caught","--unviable","-j","2","--build-timeout","900","--minimum-test-timeout","60","--test-tool","nextest","-f","src/lib.rs","-D","/tmp/mutation/pr.diff"]`},
 	)
 	if hasCall(c, "withExec", `args:["cargo","mutants","--version"]`, "expect:ANY") {
 		t.Errorf("the cargo-mutants probe is provisioning and must run under the default Expect:\n%s", c)
@@ -461,6 +461,67 @@ func TestRustMutationSettlesWhatItMeasured(t *testing.T) {
 	wantState(t, runAtom(t, "rust:mutation", "abc123"), 2,
 		"no critical modules declared",
 		"cargo mutants exited 4", "ERROR cargo test failed in an unmutated tree")
+}
+
+// A KILLED RUN RAN (foundry-tools #13052): an exec the engine ended with
+// SIGKILL answers every read with an error, but the error carries what cargo
+// mutants printed, and the survivors in it are the atom's findings — never
+// "the atom never ran". The tree's mutants.out is gone with the exec, so a
+// list the test leaves in it must not be read.
+func TestRustMutationSalvagesAKilledRun(t *testing.T) {
+	const printed = "Found 9 mutants to test\n" +
+		"ok       Unmutated baseline in 1s build + 1s test\n" +
+		"caught   src/lib.rs:1:1: replace f -> i32 with 0 in 1s build + 1s test\n" +
+		"MISSED   src/lib.rs:1:1: replace f -> i32 with 1 in 1s build + 1s test"
+	for _, c := range []struct {
+		name     string
+		stdout   string
+		stderr   string
+		state    int
+		reason   []string
+		findings int
+	}{
+		{"survivors printed before the kill", printed, "", 1,
+			[]string{"cargo mutants was killed (SIGKILL 137) after 2 of 9 mutants, before its summary — 7 were never graded", "| 1 | 1 | 0 | 0 | 50% of 2 viable |"}, 2},
+		{"stderr follows stdout on its own line", printed, "error: process didn't exit successfully", 1,
+			[]string{"replace f -> i32 with 1 in 1s build + 1s test\nerror: process didn't exit successfully"}, 2},
+		{"killed before any mutant", "Found 9 mutants to test", "", 2,
+			[]string{"CANNOT RUN - cargo mutants was killed (SIGKILL 137) after 0 of 9 mutants", "Nothing was measured"}, 0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			scriptRustMutation(map[string]string{"/src/mutants.out/missed.txt": "src/stale.rs:1:1: not this run\n"})
+			engine.exitCode(rustMutantsNeedle, 137)
+			engine.stdout(rustMutantsNeedle, c.stdout)
+			engine.stderr(rustMutantsNeedle, c.stderr)
+			v := runAtom(t, "rust:mutation", "abc123")
+			wantState(t, v, c.state, c.reason...)
+			if strings.Contains(v.Reason, "never ran") || strings.Contains(v.Reason, "stale.rs") {
+				t.Errorf("reason:\n%s", v.Reason)
+			}
+			if len(v.Findings) != c.findings {
+				t.Errorf("findings %+v", v.Findings)
+			}
+		})
+	}
+	// 128 is an exit, not a signal: no salvage, still never-ran.
+	scriptRustMutation(nil)
+	engine.exitCode(rustMutantsNeedle, 128)
+	engine.stdout(rustMutantsNeedle, printed)
+	wantState(t, runAtom(t, "rust:mutation", "abc123"), 2, "CANNOT RUN - the atom never ran: exit code: 128")
+	// An engine error that is not the exec's own is still never-ran.
+	scriptRustMutation(nil)
+	engine.fail(rustMutantsNeedle, "exit code: 137")
+	wantState(t, runAtom(t, "rust:mutation", "abc123"), 2, "CANNOT RUN - the atom never ran: exit code: 137")
+}
+
+func TestJoinOutput(t *testing.T) {
+	for _, c := range []struct{ out, err, want string }{
+		{"a", "b", "a\nb"}, {"a\n", "b", "a\nb"}, {"", "b", "b"}, {"a", "", "a"}, {"", "", ""},
+	} {
+		if got := joinOutput(c.out, c.err); got != c.want {
+			t.Errorf("joinOutput(%q, %q) = %q, want %q", c.out, c.err, got, c.want)
+		}
+	}
 }
 
 // AN EMPTY DECLARATION IS NOT AN OPT-OUT: the whole diff's rust sources are the

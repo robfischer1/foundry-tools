@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
 
@@ -341,7 +342,13 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 	// a 1G data cap while a 256M-chunk grower aborted at it. The unmutated
 	// baseline runs under the same runner, so a real test that needs more than
 	// this fails the baseline loudly rather than skewing any verdict.
-	args := []string{"mold", "-run", "cargo", "mutants", "--colors", "never", "-j", strconv.Itoa(rustMutationJobs),
+	//
+	// EVERY GRADED MUTANT PRINTS A LINE (--caught --unviable, 2026-10-02). An
+	// exec the engine kills takes mutants.out with it, and the output its error
+	// carries is all that is left (checks.RustMutationKilled). Without these
+	// two, cargo-mutants prints only MISSED and TIMEOUT, and a killed run could
+	// name its survivors but not how far it got.
+	args := []string{"mold", "-run", "cargo", "mutants", "--colors", "never", "--caught", "--unviable", "-j", strconv.Itoa(rustMutationJobs),
 		"--build-timeout", "900", "--minimum-test-timeout", "60", "--test-tool", "nextest"}
 	for _, m := range strings.Fields(mods) {
 		args = append(args, "-f", m)
@@ -358,6 +365,16 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 		WithEnvVariable(rustTestRunnerEnv, rustTestRunner).
 		WithExec(append(args, "-D", rustMutationDiff), anyExit)
 	log, status, err := outputBoth(ctx, mutated)
+	// A KILLED RUN RAN. The engine answers an exec that ended in the signal
+	// range (137: SIGKILL) with an error, not a code, and the error carries
+	// what the exec printed: the outcomes graded before the kill are in it.
+	var killed *dagger.ExecError
+	if errors.As(err, &killed) && killed.ExitCode > 128 {
+		state, reason, found := checks.RustMutationKilled(killed.ExitCode, joinOutput(killed.Stdout, killed.Stderr))
+		v := settle(state, reason)
+		v.Findings = found
+		return v
+	}
 	if err != nil {
 		return neverRan(err)
 	}
@@ -382,6 +399,16 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 	// suppression (findings.schema.json).
 	v.Findings = found
 	return v
+}
+
+// joinOutput is an ExecError's stdout then its stderr, each kept whole: the
+// error's streams carry no trailing newline, and a line must not run into the
+// next stream's first.
+func joinOutput(stdout, stderr string) string {
+	if stdout == "" || stderr == "" || strings.HasSuffix(stdout, "\n") {
+		return stdout + stderr
+	}
+	return stdout + "\n" + stderr
 }
 
 const (
