@@ -11,4 +11,9 @@ import (
 	"dagger/foundry-tools/internal/execmem"
 )
 
-func main() { os.Exit(execmem.Main(os.Args[1:], os.Stderr)) }
+// exit is os.Exit, and a variable so main_test.go can run main: go:mutation
+// grades a line no test executes as NOT COVERED, and a one-line main is
+// still a line.
+var exit = os.Exit
+
+func main() { exit(execmem.Main(os.Args[1:], os.Stderr)) }

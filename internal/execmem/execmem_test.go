@@ -151,6 +151,26 @@ func TestRunSamplesWhileTheCommandRuns(t *testing.T) {
 	}
 }
 
+// A reading that is not due leaves the tracker as it was: what was printed
+// stays printed, so the same reading is never printed twice.
+func TestTrackerSample(t *testing.T) {
+	dir := cgroup(t, "7", "max", "0")
+	var out bytes.Buffer
+	first := tracker{}.sample(dir, &out)
+	if first != (tracker{last: Reading{Peak: 7, Max: "max"}, printed: true}) {
+		t.Fatalf("%+v", first)
+	}
+	if again := first.sample(dir, &out); again != first {
+		t.Errorf("not due, and the tracker moved: %+v", again)
+	}
+	if none := (tracker{}).sample(t.TempDir(), &out); none != (tracker{}) {
+		t.Errorf("an unreadable cgroup moved the tracker: %+v", none)
+	}
+	if out.String() != "exec-memory: peak_bytes=7 memory_max=max oom_kill=0\n" {
+		t.Errorf("%q", out.String())
+	}
+}
+
 // A cgroup with no memory files prints nothing, and the command still runs.
 func TestRunWithoutACgroup(t *testing.T) {
 	var out bytes.Buffer
