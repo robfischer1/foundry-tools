@@ -50,7 +50,7 @@ check:
 # and says the same. To grade a foundry-tools change against itself by hand,
 # `dagger call -m . push --base=<merge-base> exit` is still the call.
 gate:
-    @echo "gate: this branch's lanes are its gate: the door runs them on the cluster for the head you pushed (metered by daedalus); git_pr open parks on them, and git_ci_logs / repo_ci_logs read them" >&2
+    @echo "gate: this branch's lanes are its gate: the door runs them on the cluster for the head you pushed (metered by daedalus); git_pr open parks on them, and repo_ci_logs reads them" >&2
 
 # List the atoms this module carries.
 atoms:
