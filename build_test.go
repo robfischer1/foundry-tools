@@ -547,10 +547,10 @@ func TestATipPublishesItsSBOMUnsigned(t *testing.T) {
 	)
 	// The image is scanned as the tarball the engine built — the same chain
 	// the publish pushed — with syft told to write no file entries.
-	// syft runs grafted onto Alpine (toolOnAlpine) so the engine can install
+	// syft runs grafted onto the fleet base (toolOnFleetBase) so the engine can install
 	// its cache CA; its binary comes from the pinned syft image.
 	wantCalls(t, engine.chain(imageScanNeedle),
-		[]string{"from", checks.ImageAlpine},
+		[]string{"from", checks.ImageFleet},
 		[]string{"withFile", `"/usr/local/bin/syft"`},
 		[]string{"withEntrypoint", `"/usr/local/bin/syft"`},
 		[]string{"withEnvVariable", `"SYFT_FILE_METADATA_SELECTION"`, `"none"`},
@@ -634,7 +634,7 @@ func TestABaseTipIsSignedAndItsSBOMPointerAttested(t *testing.T) {
 	m := signedTip(t)
 	tip(t, m)
 	wantCalls(t, engine.chain(`"sign","--key"`),
-		[]string{"from", checks.ImageAlpine},
+		[]string{"from", checks.ImageFleet},
 		[]string{"withFile", `"/usr/local/bin/cosign"`},
 		[]string{"withEntrypoint", `"/usr/local/bin/cosign"`},
 		[]string{"withUser", `"65532:65532"`},
