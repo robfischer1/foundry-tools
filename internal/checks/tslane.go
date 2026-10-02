@@ -38,3 +38,25 @@ var TSTestPatterns = []string{
 	"**/*.spec.ts", "**/*.spec.tsx", "**/*.spec.js", "**/*.spec.jsx",
 	"**/*_test_*", "**/*_spec_*",
 }
+
+// BunGateExit translates THE REPO'S OWN GATE SCRIPT'S exit into the three states.
+//
+// `bun run gate` is the star's script (format:check, then turbo over lint,
+// typecheck, build and test), and its exit is whatever the failing tool
+// returned. tsc answers 2, not 1, for type errors under --noEmit, and turbo and
+// bun pass the 2 straight through. StateFor reads a 2 as CANNOT RUN — right for
+// a tool that speaks the convention, wrong here — so a type error filed as
+// "could not run" and the door re-asked a red that was the committer's: demeter
+// 2026-10-02, `@pantheon/web#typecheck` TS2769, 26 gate runs in a day reported
+// as unanalyzable.
+//
+// Everything that could keep the script from running is judged BEFORE it runs
+// (the frozen-lockfile install, the tree enumeration), so a 2 from the script
+// is a finding. Narrowed to that one code, as CargoExit is to 101: a 127 (no
+// binary) and a 137 (OOM) still reach StateFor as could-not-runs.
+func BunGateExit(code int) int {
+	if code == 2 {
+		return 1
+	}
+	return code
+}

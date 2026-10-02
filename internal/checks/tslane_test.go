@@ -68,3 +68,19 @@ func matchesAny(patterns []string, name string) bool {
 	}
 	return false
 }
+
+// A 2 from the star's gate script is tsc's "type errors" passed through turbo
+// and bun, so it is a FINDING; the codes that mean the script never got to
+// judge anything keep their could-not-run reading.
+func TestBunGateExitFilesTscsTwoAsFindings(t *testing.T) {
+	for _, c := range []struct{ in, want int }{
+		{0, 0}, {1, 1}, {2, 1}, {126, 126}, {127, 127}, {137, 137}, {143, 143},
+	} {
+		if got := BunGateExit(c.in); got != c.want {
+			t.Errorf("BunGateExit(%d) = %d, want %d", c.in, got, c.want)
+		}
+		if c.in == 2 && StateFor(BunGateExit(c.in)) != StateFindings {
+			t.Errorf("a gate script's exit 2 must read as findings, got %v", StateFor(BunGateExit(c.in)))
+		}
+	}
+}
