@@ -95,11 +95,10 @@ func New(
 	// Names `sha` with it. THE FETCH IS THE ENGINE'S AND SO IS THE CACHE:
 	// the runner Job used to clone the tree onto its own filesystem and
 	// upload it into the engine on every run (15s of a 59s infra gate,
-	// measured 2026-09-13); a git-sourced Directory is cached by commit and
-	// the second gate on a repo fetches only what moved. Full history, not
-	// the CLI's shallow `url#ref` (depth 1, measured): fleet:witness and the
-	// mutation lane diff against the pull's base, which a depth-1 tree
-	// cannot reach.
+	// measured 2026-09-13); the fetched tree is cached by commit, and the
+	// second commit of a repo fetches only what moved (sourceAt). Full
+	// history, not a shallow one: fleet:witness and the mutation lane diff
+	// against the pull's merge base, which no fixed depth reaches.
 	// +optional
 	repo string,
 	// The commit to fetch when `repo` is named. A commit, not a ref: the
@@ -117,10 +116,11 @@ func New(
 	if sha == "" {
 		return nil, fmt.Errorf("--repo=%s names where to fetch from, and needs --sha to say which commit", repo)
 	}
-	// Depth -1 is "all of it" to the SDK (the zero value is dropped from
-	// the query and the engine's default is 1). Measured 2026-09-13 against
-	// the cluster engine: default 1 commit, -1 the whole 135.
-	return &FoundryTools{Source: dag.Git(repo).Ref(sha).Tree(dagger.GitRefTreeOpts{Depth: -1}), Repo: repo, Sha: sha}, nil
+	// The whole history, fetched through a warm per-repository cache rather
+	// than GitRef.tree(depth: -1), whose mirror re-sent every repository whole
+	// for every new commit. sourceAt holds the list of what reads the history
+	// and the measurements behind the choice.
+	return &FoundryTools{Source: sourceAt(repo, sha), Repo: repo, Sha: sha}, nil
 }
 
 // Tree answers the git tree hash of the bound repository — the key the

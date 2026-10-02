@@ -391,7 +391,7 @@ func TestTSMutationPatchesTheBrokenVitestRunnerAndSaysIt(t *testing.T) {
 	scriptTSMutation(broken("4.1.11"))
 	engine.stdout(tsFindNeedle, found)
 	wantState(t, runAtom(t, "ts:mutation", "abc123"), 0, "runner 10.0.0, vitest 4.1.11 — left as shipped")
-	if hasCall(engine.chain(tsStrykerNeedle, "exitCode"), "withNewFile") {
+	if hasCall(engine.chain(tsStrykerNeedle, "exitCode"), "withNewFile", `path:"`+runner) {
 		t.Errorf("a runner under vitest 4 was patched")
 	}
 
@@ -504,7 +504,7 @@ func TestTSMutationRebuildsAWorktreesRepository(t *testing.T) {
 
 	c := engine.chain(tsStrykerNeedle, "exitCode")
 	wantCalls(t, c,
-		[]string{"withExec", `args:["git","config","--global","--add","safe.directory","*"]`},
+		[]string{"withNewFile", `path:"/etc/gitconfig"`, `directory = *`},
 		[]string{"withExec", `args:["git","init","-q","."]`},
 		[]string{"withExec", `args:["git","add","-A"]`},
 		[]string{"withExec", `args:["git","remote","add","origin","/home/rob/Forge/Outputs/foundry-tools.git"]`},

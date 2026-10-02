@@ -258,7 +258,7 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 		return settle(2, "CANNOT RUN - "+err.Error())
 	}
 	if since == "" {
-		return settle(0, noBase)
+		return settle(r.missingBase(noBase))
 	}
 
 	// HEAD AS CHECKED OUT: cargo-mutants verifies the diff's `+` lines against

@@ -583,7 +583,7 @@ func (r *run) gitReadyOn(ctx context.Context, ctr *dagger.Container, tree *dagge
 		history := dag.Git(r.origin).Ref(r.base).Tree().Directory(".git")
 		return ctr.
 			WithMountedDirectory("/src", tree.WithoutFile(".git").WithDirectory(".git", history)).
-			WithExec([]string{"git", "config", "--global", "--add", "safe.directory", "*"}).
+			WithNewFile(gitSystemConfig, safeDirectoryConfig).
 			WithExec([]string{"git", "config", "--local", "ca.snapshot", "linked-worktree"}).
 			WithExec([]string{"git", "add", "-A"}).
 			WithExec([]string{"git", "-c", "user.name=ca", "-c", "user.email=ca@notusmi.com", "commit", "-q", "--allow-empty", "-m", "snapshot: the working tree as pushed, on " + r.base})
@@ -603,7 +603,8 @@ func (r *run) gitReadyOn(ctx context.Context, ctr *dagger.Container, tree *dagge
 	}
 	// The clone is owned by whoever made it; git refuses a repository it does
 	// not own (exit 128, "dubious ownership") and the process here is root.
-	ctr = ctr.WithExec([]string{"git", "config", "--global", "--add", "safe.directory", "*"})
+	// A FILE, NOT AN EXEC (safeDirectoryConfig says why).
+	ctr = ctr.WithNewFile(gitSystemConfig, safeDirectoryConfig)
 	if err != nil {
 		// `.git` is a directory (a primary checkout) or absent: nothing to rebuild.
 		return ctr

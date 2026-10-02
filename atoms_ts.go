@@ -174,7 +174,7 @@ func tsMutation(ctx context.Context, r *run) checks.Verdict {
 		return settle(2, "CANNOT RUN - "+err.Error())
 	}
 	if since == "" {
-		return settle(0, noBase)
+		return settle(r.missingBase(noBase))
 	}
 
 	// The diff is taken at the root and each range handed to the package that

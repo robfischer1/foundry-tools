@@ -321,8 +321,8 @@ func TestDiesBundleBuildsWithTheRevisionAndOpensTheDataDocument(t *testing.T) {
 	}
 	// git is made safe first, because the process here is root and the clone is
 	// not its own.
-	if !hasCall(engine.chain(`"git","rev-parse"`, "exitCode"), "withExec", `"safe.directory"`) {
-		t.Errorf("the revision read must come after git config safe.directory:\n%v", engine.chains())
+	if !hasCall(engine.chain(`"git","rev-parse"`, "exitCode"), "withNewFile", `path:"/etc/gitconfig"`, `directory = *`) {
+		t.Errorf("the revision read must come after safe.directory is configured:\n%v", engine.chains())
 	}
 }
 

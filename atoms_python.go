@@ -365,7 +365,7 @@ func pythonMutation(ctx context.Context, r *run) checks.Verdict {
 		return settle(2, "CANNOT RUN - "+err.Error())
 	}
 	if since == "" {
-		return settle(0, noBase)
+		return settle(r.missingBase(noBase))
 	}
 
 	// RESOLVE: the declared modules, or every python source the pull added or

@@ -481,7 +481,7 @@ func TestAWorktreePushWithAnOriginGradesTheRealChangeSet(t *testing.T) {
 		t.Errorf("/src does not mount the snapshot less its .git file with the fetched .git in its place:\n%s\n%v", c, engine.chains())
 	}
 	wantCalls(t, c,
-		[]string{"withExec", `args:["git","config","--global","--add","safe.directory","*"]`},
+		[]string{"withNewFile", `path:"/etc/gitconfig"`, `directory = *`},
 		[]string{"withExec", `args:["git","config","--local","ca.snapshot","linked-worktree"]`},
 		[]string{"withExec", `args:["git","add","-A"]`},
 		[]string{"withExec", `"commit"`, `"snapshot: the working tree as pushed, on abc123"`},

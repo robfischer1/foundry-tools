@@ -119,7 +119,7 @@ func TestGitReadyRebuildsALinkedWorktreeAndNamesItsOrigin(t *testing.T) {
 	wantState(t, runAtom(t, "go:mutation", "abc"), 0)
 	c := engine.chain(`"git","rev-parse","--verify"`)
 	wantCalls(t, c,
-		[]string{"withExec", `args:["git","config","--global","--add","safe.directory","*"]`},
+		[]string{"withNewFile", `path:"/etc/gitconfig"`, `directory = *`},
 		[]string{"withExec", `args:["git","init","-q","."]`},
 		[]string{"withExec", `args:["git","add","-A"]`},
 		[]string{"withExec", `args:["git","remote","add","origin","/home/rob/Forge/Outputs/tartarus.git"]`},
@@ -147,7 +147,7 @@ func TestGitReadyRebuildsALinkedWorktreeAndNamesItsOrigin(t *testing.T) {
 	engine.stdout(`"git","merge-base","abc","HEAD"`, sinceSha+"\n")
 	wantState(t, runAtom(t, "go:mutation", "abc"), 0)
 	c = engine.chain(`"git","rev-parse","--verify"`)
-	if hasCall(c, "withExec", `args:["git","init","-q","."]`) || !hasCall(c, "withExec", `"safe.directory"`) {
+	if hasCall(c, "withExec", `args:["git","init","-q","."]`) || !hasCall(c, "withNewFile", `path:"/etc/gitconfig"`, `directory = *`) {
 		t.Errorf("a primary checkout keeps its repository and still gets safe.directory:\n%s", c)
 	}
 }
