@@ -96,8 +96,19 @@ func sourceAt(repo, sha string) *dagger.Directory {
 		WithExec([]string{"git", "clone", "--quiet", "--no-checkout", "--no-hardlinks", "--no-tags", cache, out}).
 		WithExec([]string{"git", "-C", out, "-c", "advice.detachedHead=false", "checkout", "--quiet", "--detach", sha}).
 		WithExec([]string{"git", "-C", out, "remote", "set-url", "origin", repo}).
-		Directory(out)
+		Directory(out).
+		// EVERY TIMESTAMP AT ONE SECOND PAST THE EPOCH, as GitRef.tree left
+		// them (measured on the cluster engine: 1970-01-01 00:00:01 on every
+		// file). A checkout stamps each file with the moment it was written,
+		// and go's test-result cache keys on the mtime of every file a test
+		// opens — so a fresh mtime per run turned infra's cached
+		// `go test -race` (0.9s) into a real one (8-13s) on every gate after
+		// #225. The contents are the commit's either way.
+		WithTimestamps(sourceTimestamp)
 }
+
+// sourceTimestamp is the mtime sourceAt gives every file: GitRef.tree's.
+const sourceTimestamp = 1
 
 // missingBase is how a diff-scoped atom settles when the door named a base and
 // changeBase found it nowhere in the history: the state and the reason.
