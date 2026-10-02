@@ -547,6 +547,39 @@ func (e *fakeEngine) answer(q string) (data any, errMsg string) {
 	return out, ""
 }
 
+// execError is the extensions the cluster engine attaches to a signal-range
+// exec's error, which the SDK reads as an ExecError: the exit code and what the
+// exec printed before it ended (measured 2026-10-02 against the cluster engine,
+// v0.21.9: `sh -c 'echo out; echo err >&2; kill -9 $$'` under Expect ANY
+// answered ExecError{ExitCode: 137, Stdout: "out", Stderr: "err"}). nil for
+// every other query.
+func (e *fakeEngine) execError(q string) map[string]any {
+	if !strings.Contains(q, "withExec") {
+		return nil
+	}
+	e.mu.Lock()
+	scripts := append([]script(nil), e.scripts...)
+	e.mu.Unlock()
+	ext := map[string]any{"_type": "EXEC_ERROR", "stdout": "", "stderr": ""}
+	code := -1
+	for _, s := range scripts { // last matching script wins, as in answer
+		if s.fail != "" || !strings.Contains(q, s.match) {
+			continue
+		}
+		switch s.leaf {
+		case "exitCode":
+			code, _ = s.value.(int)
+		case "stdout", "stderr":
+			ext[s.leaf] = s.value
+		}
+	}
+	if code < 128 || code > 191 {
+		return nil
+	}
+	ext["exitCode"] = code
+	return ext
+}
+
 // fakeID is the id this engine answers for a query, and it is A FUNCTION OF
 // THE QUERY — which is what lets a test follow an object from the chain that
 // BUILT it to the call that CONSUMED it. The querybuilder marshals an object
@@ -570,7 +603,11 @@ func (e *fakeEngine) serve(w http.ResponseWriter, r *http.Request) {
 	data, errMsg := e.answer(req.Query)
 	w.Header().Set("Content-Type", "application/json")
 	if errMsg != "" {
-		_ = json.NewEncoder(w).Encode(map[string]any{"errors": []map[string]any{{"message": errMsg}}})
+		gqlErr := map[string]any{"message": errMsg}
+		if ext := e.execError(req.Query); ext != nil {
+			gqlErr["extensions"] = ext
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"errors": []map[string]any{gqlErr}})
 		return
 	}
 	_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
