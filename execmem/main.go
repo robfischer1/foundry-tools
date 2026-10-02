@@ -7,11 +7,8 @@ package main
 
 import (
 	"os"
-	"time"
 
 	"dagger/foundry-tools/internal/execmem"
 )
 
-func main() {
-	os.Exit(execmem.Run(execmem.Command(os.Args[1:]), "/sys/fs/cgroup", time.Second, os.Stderr))
-}
+func main() { os.Exit(execmem.Main(os.Args[1:], os.Stderr)) }

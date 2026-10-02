@@ -2,8 +2,12 @@ package execmem
 
 import (
 	"bytes"
+	"errors"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -36,13 +40,11 @@ func TestRead(t *testing.T) {
 	if got.Line() != "exec-memory: peak_bytes=17179869184 memory_max=17179869184 oom_kill=1" {
 		t.Errorf("%q", got.Line())
 	}
-	for name, dir := range map[string]string{
-		"no cgroup":       t.TempDir(),
-		"peak not a size": cgroup(t, "lots", "max", "0"),
-	} {
-		if _, err := Read(dir); err == nil {
-			t.Errorf("%s: want an error", name)
-		}
+	if _, err := Read(t.TempDir()); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("no cgroup: %v", err)
+	}
+	if _, err := Read(cgroup(t, "lots", "max", "0")); !errors.Is(err, strconv.ErrSyntax) || !strings.HasPrefix(err.Error(), "memory.peak: ") {
+		t.Errorf("peak not a size: %v", err)
 	}
 	// A memory.events without the counter (an older kernel) and an unreadable
 	// memory.max are partial readings, not failures: the peak is the point.
@@ -111,28 +113,41 @@ func TestRun(t *testing.T) {
 }
 
 // The sampler prints while the command runs — the reading that survives a
-// kill of the whole exec is the last one printed before it.
+// kill of the whole exec is the last one printed before it. The command
+// waits for the test to release it, so a reading the test sees first can only
+// have come from a tick.
 func TestRunSamplesWhileTheCommandRuns(t *testing.T) {
 	dir := cgroup(t, "1", "max", "0")
 	var out syncBuffer
 	done := make(chan int)
-	go func() { done <- Run([]string{"sleep", "1"}, dir, 10*time.Millisecond, &out) }()
-	deadline := time.After(5 * time.Second)
-	for !strings.Contains(out.String(), "peak_bytes=1 ") {
-		select {
-		case <-deadline:
-			t.Fatalf("no reading while the command ran:\n%s", out.String())
-		case <-time.After(5 * time.Millisecond):
+	release := filepath.Join(dir, "release")
+	go func() {
+		done <- Run([]string{"sh", "-c", `while [ ! -e "$0" ]; do sleep 0.01; done`, release}, dir, 10*time.Millisecond, &out)
+	}()
+	waitFor := func(line string) {
+		t.Helper()
+		deadline := time.After(5 * time.Second)
+		for !strings.Contains(out.String(), line) {
+			select {
+			case <-deadline:
+				t.Fatalf("no %q while the command ran:\n%s", line, out.String())
+			case <-time.After(5 * time.Millisecond):
+			}
 		}
 	}
+	waitFor("oom_kill=0\n") // the first reading, before the command starts
 	if err := os.WriteFile(filepath.Join(dir, "memory.events"), []byte("oom_kill 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	waitFor("oom_kill=1\n")
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if code := <-done; code != 0 {
 		t.Fatalf("code %d", code)
 	}
-	if got := out.String(); !strings.Contains(got, "oom_kill=1\n") || strings.Count(got, "\n") > 3 {
-		t.Errorf("an OOM kill mid-run is printed, and nothing is printed twice:\n%s", got)
+	if got := out.String(); strings.Count(got, "oom_kill=1\n") != 1 {
+		t.Errorf("nothing is printed twice:\n%s", got)
 	}
 }
 
@@ -168,8 +183,20 @@ func TestCommand(t *testing.T) {
 	if got := Command([]string{"a"}); strings.Join(got, " ") != "a" {
 		t.Errorf("no separator: %q", got)
 	}
-	if got := Command([]string{"--"}); len(got) != 0 {
-		t.Errorf("%q", got)
+	for _, args := range [][]string{{"--"}, nil, {}} {
+		if got := Command(args); len(got) != 0 {
+			t.Errorf("Command(%q) = %q", args, got)
+		}
+	}
+}
+
+func TestMainRunsTheCommand(t *testing.T) {
+	var out bytes.Buffer
+	if code := Main([]string{"--"}, &out); code != 2 || out.String() != "usage: execmem -- <command> [args...]\n" {
+		t.Errorf("code %d: %q", code, out.String())
+	}
+	if code := Main([]string{"--", "sh", "-c", "exit 5"}, io.Discard); code != 5 {
+		t.Errorf("code %d", code)
 	}
 }
 

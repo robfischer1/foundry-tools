@@ -87,6 +87,12 @@ func Command(args []string) []string {
 	return args
 }
 
+// Main is execmem's process: the command after "--", the exec's own cgroup,
+// a reading every second.
+func Main(args []string, out io.Writer) int {
+	return Run(Command(args), "/sys/fs/cgroup", time.Second, out)
+}
+
 // Run runs args with the process's own stdin, stdout and stderr, prints
 // dir's readings to out every interval while it runs, and answers its exit
 // code: the tool's own, 128 plus the signal that ended it, 127 when it did not
@@ -96,17 +102,7 @@ func Run(args []string, dir string, every time.Duration, out io.Writer) int {
 		fmt.Fprintln(out, "usage: execmem -- <command> [args...]")
 		return 2
 	}
-	var last Reading
-	printed := false
-	sample := func() {
-		now, err := Read(dir)
-		if err != nil || !due(last, now, printed) {
-			return
-		}
-		fmt.Fprintln(out, now.Line())
-		last, printed = now, true
-	}
-	sample()
+	t := tracker{}.sample(dir, out)
 
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
@@ -114,28 +110,44 @@ func Run(args []string, dir string, every time.Duration, out io.Writer) int {
 		fmt.Fprintf(out, "%s could not start %s: %v\n", Prefix, args[0], err)
 		return 127
 	}
-	// The sampler is Run's: it stops when the command has been waited for,
-	// and Run waits for it before the last reading, so out is never written
-	// from two goroutines at once.
-	stop, stopped := make(chan struct{}), make(chan struct{})
-	go func() {
-		defer close(stopped)
+	// The sampler is Run's. It owns the tracker while the command runs and
+	// hands it back when stopped, so the last reading follows every tick and
+	// out is never written from two goroutines at once.
+	stop, done := make(chan struct{}), make(chan tracker)
+	go func(t tracker) {
 		tick := time.NewTicker(every)
 		defer tick.Stop()
 		for {
 			select {
 			case <-stop:
+				done <- t
 				return
 			case <-tick.C:
-				sample()
+				t = t.sample(dir, out)
 			}
 		}
-	}()
+	}(t)
 	err := cmd.Wait()
 	close(stop)
-	<-stopped
-	sample()
+	(<-done).sample(dir, out)
 	return exitCode(err)
+}
+
+// tracker is what has been printed: the last reading, and whether any was.
+type tracker struct {
+	last    Reading
+	printed bool
+}
+
+// sample reads dir and prints the reading when it is due, answering the
+// tracker that follows. A cgroup that does not read prints nothing.
+func (t tracker) sample(dir string, out io.Writer) tracker {
+	now, err := Read(dir)
+	if err != nil || !due(t.last, now, t.printed) {
+		return t
+	}
+	fmt.Fprintln(out, now.Line())
+	return tracker{last: now, printed: true}
 }
 
 // exitCode is a waited command's code as a shell would report it.
