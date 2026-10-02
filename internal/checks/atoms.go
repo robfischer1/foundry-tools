@@ -174,6 +174,10 @@ func atomTable() []AtomDef {
 			Desc: "The repo's own tools/console-specs (infra): the console ConfigMap's read-model specs follow the stacks' emits, or it names which drifted.",
 		},
 		{
+			ID: "ops:metrics", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "The repo's own tools/metric-allowlist (flux): every kube_*/container_* name a rule or dashboard reads is on a keep-list some job ingests, or it names which are not.",
+		},
+		{
 			ID: "ops:ansible", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every playbook under ansible/playbooks passes ansible-playbook --syntax-check and ansible-lint at profile min; the basic-profile count is reported, not gated.",
 		},
