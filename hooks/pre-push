@@ -1,27 +1,19 @@
 #!/bin/sh
-# THE PUSH STAGE, AS THE PUSH HOOK (CA master-plan F15): `just gate`.
+# THE PUSH HOOK RUNS NOTHING, SINCE 2026-10-02 (Rob, "Option 1": the lanes are
+# the gate). The door asks a pushed branch's lanes on the cluster — metered by
+# daedalus, in the CI record, reused by the pull that opens on the head — so
+# grading the push here too would be the second run of the same checks, and
+# the unmetered one (six at once OOMKilled an engine on 2026-09-19; a
+# push-stage mutation run killed node dev01 twice on 2026-10-02). main is
+# still guarded: nothing lands without the pull's lanes going green.
 #
-# What a push must pass is the `gate` recipe in stages.just beside the justfile
-# — the same recipe a session runs by hand. The hook adds one thing the recipe
-# cannot know: whether this push carries a tree at all.
+# IT SAYS WHERE THE ANSWER IS, so a push that returns at once is not read as a
+# push that was checked and passed. It never fails: a push is refused by the
+# door or not at all.
 #
-# A PUSH THAT ONLY DELETES REFS HAS NOTHING TO GRADE. git hands the hook one
-# line per ref on stdin — `<local ref> <local sha> <remote ref> <remote sha>` —
-# and a deletion's local sha is all zeros. Measured 2026-09-19 (ourea): a
-# `git push <door> :refs/heads/deploy/…` sweep from another repo's checkout ran
-# the full gate on THAT checkout's tree, per repo, for a push that sent no
-# object and advanced no ref — minutes on the engine to grade bytes the push
-# was not carrying. So the refs are read first, and a push with nothing but
-# deletions (or nothing at all) is admitted without the engine. Anything that
-# advances a ref still pays the gate in full; there is still no skip list and
-# no --no-verify.
-pushes=0
-while read -r _local_ref local_sha _remote_ref _remote_sha; do
-    case "$local_sha" in
-        0000000000000000000000000000000000000000) ;;
-        "") ;;
-        *) pushes=1 ;;
-    esac
-done
-[ "$pushes" -eq 1 ] || exit 0
-exec just gate
+# THE FILE STAYS. The spec-kit recopy overwrites the files this template lays
+# but never deletes one, so removing it would leave every repo's old
+# `exec just gate` in place; the recopy also reads a missing hooks/pre-push as
+# a wiped surface (speckit_recopy HOOK_FILES).
+echo "push: this branch's lanes are its gate: the door runs them on the cluster for the head you pushed (metered by daedalus); git_pr open parks on them, and git_ci_logs / repo_ci_logs read them" >&2
+exit 0
