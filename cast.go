@@ -460,7 +460,7 @@ func (l *castLane) ask(ctx context.Context, verb, args string) (int, string, err
 func (l *castLane) verify(ctx context.Context, c castlane.Cast, r castlane.Result) (int, string) {
 	ref := bundlelane.RegistryHost + "/app/" + c.Name + "@" + r.Digest
 	nonroot := dagger.ContainerWithMountedSecretOpts{Owner: "65532:65532"}
-	out, code, err := output(ctx, dag.Container().From(checks.ImageCosign).
+	out, code, err := output(ctx, cosignIn().
 		WithMountedTemp("/tmp").
 		WithEnvVariable("HOME", "/tmp").
 		WithMountedSecret("/run/docker/config.json", l.registryConfig, nonroot).

@@ -547,11 +547,16 @@ func TestATipPublishesItsSBOMUnsigned(t *testing.T) {
 	)
 	// The image is scanned as the tarball the engine built — the same chain
 	// the publish pushed — with syft told to write no file entries.
+	// syft runs grafted onto Alpine (toolOnAlpine) so the engine can install
+	// its cache CA; its binary comes from the pinned syft image.
 	wantCalls(t, engine.chain(imageScanNeedle),
-		[]string{"from", checks.ImageSyft},
+		[]string{"from", checks.ImageAlpine},
+		[]string{"withFile", `"/usr/local/bin/syft"`},
+		[]string{"withEntrypoint", `"/usr/local/bin/syft"`},
 		[]string{"withEnvVariable", `"SYFT_FILE_METADATA_SELECTION"`, `"none"`},
 		[]string{"withExec", imageScanNeedle, `"cyclonedx-json@1.6"`},
 	)
+	wantCalls(t, engine.chain(checks.ImageSyft), []string{"file", `"/syft"`})
 	// The SBOM rides as a referrer: attached, its manifest read back, and the
 	// blob the registry stored checked readable.
 	wantCalls(t, engine.chain(sbomAttachNeedle),
@@ -629,11 +634,15 @@ func TestABaseTipIsSignedAndItsSBOMPointerAttested(t *testing.T) {
 	m := signedTip(t)
 	tip(t, m)
 	wantCalls(t, engine.chain(`"sign","--key"`),
-		[]string{"from", checks.ImageCosign},
+		[]string{"from", checks.ImageAlpine},
+		[]string{"withFile", `"/usr/local/bin/cosign"`},
+		[]string{"withEntrypoint", `"/usr/local/bin/cosign"`},
+		[]string{"withUser", `"65532:65532"`},
 		[]string{"withMountedSecret", `"/run/cosign/key"`},
 		[]string{"withSecretVariable", `"COSIGN_PASSWORD"`},
 		[]string{"withExec", `"sign"`, `"--tlog-upload=false"`, baseRef},
 	)
+	wantCalls(t, engine.chain(checks.ImageCosign), []string{"file", `"/ko-app/cosign"`})
 	wantCalls(t, engine.chain(sbomAttachNeedle), []string{"withNewFile", `"/in/sbom.cdx.json"`, "pkg:deb/runtime@1"})
 	wantCalls(t, engine.chain(pointerNeedle),
 		[]string{"withNewFile", `"/in/sbom-ref.json"`, sbomArtifact, sbomBlob, "4812", "CycloneDX"},

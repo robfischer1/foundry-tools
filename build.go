@@ -623,7 +623,7 @@ func (l *buildLane) sign(ctx context.Context, img *Image, ref, star string) (int
 	if err != nil {
 		return buildlane.CouldNotRun, "could not run: the CI signing key is not base64"
 	}
-	cosign := dag.Container().From(checks.ImageCosign).
+	cosign := cosignIn().
 		WithMountedTemp("/tmp").
 		WithEnvVariable("HOME", "/tmp").
 		WithMountedSecret("/run/cosign/key", dag.SetSecret("build-cosign-key-"+star, string(key)), dagger.ContainerWithMountedSecretOpts{Owner: "65532:65532"}).

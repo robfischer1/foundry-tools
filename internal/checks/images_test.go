@@ -83,7 +83,7 @@ func TestEveryImageIsPinnedByDigest(t *testing.T) {
 // by trivy from inside the lane container, where the engine's mirror config
 // does not reach — and name the fleet's ghcr alias host in full.
 func TestEveryImageComesThroughTheFleetMirror(t *testing.T) {
-	for _, img := range append(append([]string{}, LaneImages...), ImageCosign, ImageSyft, ImageStatic) {
+	for _, img := range append(append([]string{}, LaneImages...), ImageCosign, ImageSyft, ImageStatic, ImageAlpine) {
 		if !mirrored(img) {
 			t.Errorf("image %q is not on a registry the engine mirrors (%v)", img, MirroredRegistries)
 		}
