@@ -17,8 +17,8 @@ develop:
     go mod tidy
 
 # THE TWO STAGES A COMMIT AND A PUSH MUST PASS (CA master-plan F15), as the
-# recipes the tracked hooks call: hooks/pre-commit is `just check`, hooks/pre-push
-# is `just gate`. The hook never changes; what a commit must pass is a recipe.
+# recipes the tracked hooks call: hooks/pre-commit is `just check`; hooks/pre-push
+# ran `just gate` until 2026-10-02 and now runs nothing (see `gate` below).
 #
 # `-m .`, never main: a module whose job is gating gates its own changes with the
 # code being changed. The fleet's copy of these two recipes (foundry-stocks,
@@ -43,17 +43,14 @@ develop:
 check:
     dagger call -m . check exit
 
-# The push stage, on the engine — what hooks/pre-push runs.
+# The push stage runs nothing since 2026-10-02 (Rob, "Option 1": the lanes are
+# the gate): the door asks a pushed branch's lanes on the cluster, metered by
+# daedalus, and the pull that opens on the head reuses them (ourea #355).
+# hooks/pre-push says so and exits 0; the recipe keeps its name for its callers
+# and says the same. To grade a foundry-tools change against itself by hand,
+# `dagger call -m . push --base=<merge-base> exit` is still the call.
 gate:
-    #!/bin/sh
-    set -eu
-    base=$(git merge-base origin/main HEAD 2>/dev/null || true)
-    if [ -n "$base" ]; then
-        # The origin rides along so a worktree's push has the base's history
-        # (the engine fetches it from the door) and mutation grades the real diff.
-        exec dagger call -m . push --base="$base" --origin="$(git remote get-url origin)" exit
-    fi
-    exec dagger call -m . push exit
+    @echo "gate: this branch's lanes are its gate: the door runs them on the cluster for the head you pushed (metered by daedalus); git_pr open parks on them, and git_ci_logs / repo_ci_logs read them" >&2
 
 # List the atoms this module carries.
 atoms:
