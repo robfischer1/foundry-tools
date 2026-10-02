@@ -51,6 +51,8 @@ func TestNewFetchesTheCommitOnTheEngineWithFullHistory(t *testing.T) {
 		`args:["git","-C","/out","-c","advice.detachedHead=false","checkout","--quiet","--detach","` + fakeSha + `"]`,
 		`args:["git","-C","/out","remote","set-url","origin","` + repo + `"]`,
 		`directory(path:"/out")`,
+		// GitRef.tree's timestamps: go's test cache keys on mtimes.
+		`withTimestamps(timestamp:1)`,
 	}
 	at := 0
 	for _, s := range steps {
