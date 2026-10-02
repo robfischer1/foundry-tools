@@ -33,7 +33,7 @@ import (
 //
 // HEPHAESTUS CASTS AND SIGNS, ON PURPOSE (Scheduler Redistribution Part II,
 // D12). The lane stages the payload unsigned under {registry}/staging/, which
-// grants nothing, and asks hades for forge_layer_cast with sign=true as the
+// grants nothing, and asks hades for layer_cast with sign=true as the
 // calling pod — a bundle is signed because every consumer verifies it, and the
 // lane says so rather than inheriting it from a verb. Hephaestus pulls the
 // staged tree, re-derives its pin (a mismatch is tamper and refuses),
@@ -47,7 +47,7 @@ import (
 func (m *FoundryTools) Cast(
 	ctx context.Context,
 	// The SPIRE agent's workload socket, forwarded by the calling pod: the
-	// identity forge_layer_cast is asked as. Required unless --dry-run.
+	// identity layer_cast is asked as. Required unless --dry-run.
 	// +optional
 	spire *dagger.Socket,
 	// The token that logs in to the bundle registry (REGISTRY_TOKEN). Required
@@ -422,29 +422,18 @@ func (l *castLane) stage(ctx context.Context, payload *dagger.Directory, ref str
 	return digest, buildlane.Clean, ""
 }
 
-// mint asks hades for the layer_cast mint on the channel with sign=true, as
-// the calling pod, with the staged payload and the commit it was built from.
-// It asks castlane.Verb first and, only when hades says it cannot route that
-// name for this lane (castlane.Unroutable), asks castlane.LegacyVerb with the
-// same arguments — the bridge across hephaestus's forge -> layer prefix flip.
-// Any other answer, failure included, is settled as it came.
+// mint asks hades for castlane.Verb on the channel with sign=true, as the
+// calling pod, with the staged payload and the commit it was built from. Any
+// answer, failure included, is settled as it came.
 func (l *castLane) mint(ctx context.Context, c castlane.Cast, payloadRef, pin string) (castlane.Result, int, string) {
 	// Strings and a bool always marshal.
 	args, _ := json.Marshal(map[string]any{"ref": c.Artifact(), "sign": true, "payload_ref": payloadRef, "source_sha": l.m.Sha})
-	verb := castlane.Verb
-	status, body, err := l.ask(ctx, verb, string(args))
+	status, body, err := l.ask(ctx, castlane.Verb, string(args))
 	if err != nil {
 		return castlane.Result{}, buildlane.CouldNotRun, err.Error()
 	}
-	if castlane.Unroutable(status, body) {
-		castSay("hades cannot route %s for this lane (HTTP %d) — asking %s, the same mint under today's prefix", verb, status, castlane.LegacyVerb)
-		verb = castlane.LegacyVerb
-		if status, body, err = l.ask(ctx, verb, string(args)); err != nil {
-			return castlane.Result{}, buildlane.CouldNotRun, err.Error()
-		}
-	}
-	castSay("hades answered %s HTTP %d", verb, status)
-	return castlane.Minted(verb, status, body, pin)
+	castSay("hades answered %s HTTP %d", castlane.Verb, status)
+	return castlane.Minted(status, body, pin)
 }
 
 // ask execs hadescall for one verb and answers hades's status and body; an
@@ -465,8 +454,8 @@ func (l *castLane) ask(ctx context.Context, verb, args string) (int, string, err
 	return status, body, nil
 }
 
-// verify checks the digest mold landed against the repo's own cosign.pub. Key
-// only: mold's signature carries no transparency-log entry (foundry-tools
+// verify checks the digest hephaestus landed against the repo's own cosign.pub.
+// Key only: hephaestus's signature carries no transparency-log entry (foundry-tools
 // #61 chose key-only verification), so the check is told not to demand one.
 func (l *castLane) verify(ctx context.Context, c castlane.Cast, r castlane.Result) (int, string) {
 	ref := bundlelane.RegistryHost + "/app/" + c.Name + "@" + r.Digest

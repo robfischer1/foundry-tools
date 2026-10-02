@@ -22,7 +22,6 @@ const (
 	castpinNeedle = `"/usr/local/bin/castpin"`
 	stageNeedle   = `"oras","push"`
 	mintNeedle    = `"layer_cast"`
-	legacyNeedle  = `"forge_layer_cast"`
 	verifyNeedle  = `"verify","--key"`
 	bellNeedle    = `"curl"`
 )
@@ -122,40 +121,14 @@ func TestACastStagesMintsVerifiesAndRings(t *testing.T) {
 		[]string{"withExec", `"--insecure-ignore-tlog=true"`, `"foundry.notusmi.com/app/tongs@` + castLanded + `"`},
 	)
 	wantCalls(t, engine.chain(bellNeedle), []string{"withExec", castDoorbell, `index`, castLanded})
-	if engine.chain(legacyNeedle) != "" {
-		t.Error("a mint layer_cast answered asked forge_layer_cast too")
+	if engine.chain(`"forge_layer_cast"`) != "" {
+		t.Error("the lane asked the retired forge_layer_cast")
 	}
 }
 
-// THE BRIDGE ACROSS THE PREFIX FLIP. When hades says it cannot route
-// layer_cast for this lane — no star serves it, or the caller is not permitted
-// it — the lane asks forge_layer_cast with the same arguments, says so, and
-// the cast lands through the old name.
-func TestACastFallsBackToTheOldNameOnlyWhenTheNewOneCannotBeRouted(t *testing.T) {
-	for name, answer := range map[string]string{
-		"no star serves it": "HTTP 404\n{\"detail\":\"no star serves verb \\\"layer_cast\\\"\"}",
-		"not permitted":     "HTTP 403\n{\"detail\":\"forbidden: caller not permitted for verb \\\"layer_cast\\\": no grant\"}",
-	} {
-		t.Run(name, func(t *testing.T) {
-			m := castOn(t, nil)
-			scriptACast(castPin + "\ntongs\n")
-			engine.stdout(mintNeedle, answer)
-			engine.stdout(legacyNeedle, "HTTP 200\n"+toolAnswer(false, castResult(castPin, true)))
-			said := sayings(t, func() { casts(t, m) })
-			settledOn(t, "0", "clean: cast app/tongs:stable at index 7")
-			wantCalls(t, engine.chain(legacyNeedle), []string{"withExec", `app/tongs:stable`, castRef + "@" + castStaged, buildSha, `sign\":true`})
-			for _, want := range []string{"hades cannot route layer_cast for this lane", "asking forge_layer_cast", "hades answered forge_layer_cast HTTP 200"} {
-				if !strings.Contains(said, want) {
-					t.Errorf("the log does not say %q:\n%s", want, said)
-				}
-			}
-		})
-	}
-}
-
-// A real failure of the cast under the new name is the cast's failure: the
-// old name is never asked, and the verdict names layer_cast.
-func TestACastNeverMasksARealFailureBehindTheOldName(t *testing.T) {
+// A failure of the cast is the cast's failure: the lane asks layer_cast once,
+// never a second name, and the verdict names layer_cast.
+func TestAFailedCastIsAskedOnceAndNamesLayerCast(t *testing.T) {
 	cases := map[string]struct {
 		script       func()
 		code, reason string
@@ -166,6 +139,12 @@ func TestACastNeverMasksARealFailureBehindTheOldName(t *testing.T) {
 		"hades cannot reach the star": {func() {
 			engine.stdout(mintNeedle, "HTTP 503\n{\"detail\":\"downstream unavailable\"}")
 		}, "2", "HTTP 503"},
+		"no star serves the name": {func() {
+			engine.stdout(mintNeedle, "HTTP 404\n{\"detail\":\"no star serves verb \\\"layer_cast\\\"\"}")
+		}, "2", "HTTP 404"},
+		"the caller is not permitted": {func() {
+			engine.stdout(mintNeedle, "HTTP 403\n{\"detail\":\"forbidden: caller not permitted for verb \\\"layer_cast\\\": no grant\"}")
+		}, "1", "not granted layer_cast"},
 		"hades cannot identify the caller": {func() {
 			engine.stdout(mintNeedle, "HTTP 403\n{\"detail\":\"forbidden: caller not permitted for verb \\\"layer_cast\\\": unidentifiable caller\"}")
 		}, "2", "did not derive a principal"},
@@ -178,44 +157,15 @@ func TestACastNeverMasksARealFailureBehindTheOldName(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			m := castOn(t, nil)
 			scriptACast(castPin + "\ntongs\n")
-			engine.stdout(legacyNeedle, "HTTP 200\n"+toolAnswer(false, castResult(castPin, true)))
 			c.script()
 			casts(t, m)
 			settledOn(t, c.code, c.reason)
-			if engine.chain(legacyNeedle) != "" {
-				t.Error("a real failure of layer_cast fell back to forge_layer_cast")
+			if n := strings.Count(engine.chain(mintNeedle), `["/usr/local/bin/hadescall",`); n != 1 {
+				t.Errorf("the lane asked hades %d times", n)
 			}
-			if engine.chain(verifyNeedle) != "" {
-				t.Error("a cast that did not mint went on to verify")
+			if engine.chain(`"forge_layer_cast"`) != "" {
+				t.Error("a failure of layer_cast fell back to forge_layer_cast")
 			}
-		})
-	}
-}
-
-// The old name answers for itself: a fallback that fails settles naming
-// forge_layer_cast, and a fallback hadescall cannot ask is could-not-run.
-func TestAFallbackThatFailsNamesTheOldVerb(t *testing.T) {
-	unknown := "HTTP 404\n{\"detail\":\"no star serves verb \\\"layer_cast\\\"\"}"
-	cases := map[string]struct {
-		script       func()
-		code, reason string
-	}{
-		"the old name is refused": {func() {
-			engine.stdout(legacyNeedle, "HTTP 403\n{\"detail\":\"denied\"}")
-		}, "1", "not granted forge_layer_cast"},
-		"the old name cannot be asked": {func() {
-			engine.exitCode(legacyNeedle, 2)
-			engine.stdout(legacyNeedle, "hades did not answer")
-		}, "2", "could not ask hades: hades did not answer"},
-	}
-	for name, c := range cases {
-		t.Run(name, func(t *testing.T) {
-			m := castOn(t, nil)
-			scriptACast(castPin + "\ntongs\n")
-			engine.stdout(mintNeedle, unknown)
-			c.script()
-			casts(t, m)
-			settledOn(t, c.code, c.reason)
 			if engine.chain(verifyNeedle) != "" {
 				t.Error("a cast that did not mint went on to verify")
 			}
@@ -640,7 +590,7 @@ func TestACastSaysWhichVerbHadesAnswered(t *testing.T) {
 	if !strings.Contains(said, "hephaestus minted foundry.notusmi.com/app/tongs:stable at index 7 ("+castPin+", "+castLanded+")") {
 		t.Errorf("the log does not say what hephaestus minted:\n%s", said)
 	}
-	if !strings.Contains(said, "hades answered layer_cast HTTP 200") || strings.Contains(said, "asking forge_layer_cast") {
+	if !strings.Contains(said, "hades answered layer_cast HTTP 200") || strings.Contains(said, "forge_layer_cast") {
 		t.Errorf("the log does not name the verb hades answered:\n%s", said)
 	}
 }
