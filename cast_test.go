@@ -21,7 +21,8 @@ const (
 	cargoNeedle   = `"cargo","build"`
 	castpinNeedle = `"/usr/local/bin/castpin"`
 	stageNeedle   = `"oras","push"`
-	moldNeedle    = `"forge_layer_cast"`
+	mintNeedle    = `"layer_cast"`
+	legacyNeedle  = `"forge_layer_cast"`
 	verifyNeedle  = `"verify","--key"`
 	bellNeedle    = `"curl"`
 )
@@ -68,7 +69,7 @@ func castResult(pin string, signed bool) string {
 func scriptACast(listing string) {
 	engine.stdout(castpinNeedle, listing)
 	engine.stdout(stageNeedle, castStaged+"\n")
-	engine.stdout(moldNeedle, "HTTP 200\n"+toolAnswer(false, castResult(castPin, true)))
+	engine.stdout(mintNeedle, "HTTP 200\n"+toolAnswer(false, castResult(castPin, true)))
 }
 
 // casts runs the lane the way a landing does: the socket, the token and the
@@ -111,9 +112,9 @@ func TestACastStagesMintsVerifiesAndRings(t *testing.T) {
 		[]string{"withMountedSecret", `"/run/docker/config.json"`},
 		[]string{"withExec", `"--registry-config"`, `"{{.digest}}"`, `"` + castRef + `","tongs"]`},
 	)
-	wantCalls(t, engine.chain(moldNeedle), []string{"withExec", `app/tongs:stable`, castRef + "@" + castStaged, buildSha})
+	wantCalls(t, engine.chain(mintNeedle), []string{"withExec", `app/tongs:stable`, castRef + "@" + castStaged, buildSha})
 	// SIGNED ON PURPOSE (D12): the lane asks for the signature by name.
-	if mint := engine.chain(moldNeedle); !strings.Contains(mint, `sign\":true`) {
+	if mint := engine.chain(mintNeedle); !strings.Contains(mint, `sign\":true`) {
 		t.Errorf("the mint did not ask for sign=true:\n%s", mint)
 	}
 	wantCalls(t, engine.chain(verifyNeedle),
@@ -121,6 +122,105 @@ func TestACastStagesMintsVerifiesAndRings(t *testing.T) {
 		[]string{"withExec", `"--insecure-ignore-tlog=true"`, `"foundry.notusmi.com/app/tongs@` + castLanded + `"`},
 	)
 	wantCalls(t, engine.chain(bellNeedle), []string{"withExec", castDoorbell, `index`, castLanded})
+	if engine.chain(legacyNeedle) != "" {
+		t.Error("a mint layer_cast answered asked forge_layer_cast too")
+	}
+}
+
+// THE BRIDGE ACROSS THE PREFIX FLIP. When hades says it cannot route
+// layer_cast for this lane — no star serves it, or the caller is not permitted
+// it — the lane asks forge_layer_cast with the same arguments, says so, and
+// the cast lands through the old name.
+func TestACastFallsBackToTheOldNameOnlyWhenTheNewOneCannotBeRouted(t *testing.T) {
+	for name, answer := range map[string]string{
+		"no star serves it": "HTTP 404\n{\"detail\":\"no star serves verb \\\"layer_cast\\\"\"}",
+		"not permitted":     "HTTP 403\n{\"detail\":\"forbidden: caller not permitted for verb \\\"layer_cast\\\": no grant\"}",
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := castOn(t, nil)
+			scriptACast(castPin + "\ntongs\n")
+			engine.stdout(mintNeedle, answer)
+			engine.stdout(legacyNeedle, "HTTP 200\n"+toolAnswer(false, castResult(castPin, true)))
+			said := sayings(t, func() { casts(t, m) })
+			settledOn(t, "0", "clean: cast app/tongs:stable at index 7")
+			wantCalls(t, engine.chain(legacyNeedle), []string{"withExec", `app/tongs:stable`, castRef + "@" + castStaged, buildSha, `sign\":true`})
+			for _, want := range []string{"hades cannot route layer_cast for this lane", "asking forge_layer_cast", "hades answered forge_layer_cast HTTP 200"} {
+				if !strings.Contains(said, want) {
+					t.Errorf("the log does not say %q:\n%s", want, said)
+				}
+			}
+		})
+	}
+}
+
+// A real failure of the cast under the new name is the cast's failure: the
+// old name is never asked, and the verdict names layer_cast.
+func TestACastNeverMasksARealFailureBehindTheOldName(t *testing.T) {
+	cases := map[string]struct {
+		script       func()
+		code, reason string
+	}{
+		"the star refuses the cast": {func() {
+			engine.stdout(mintNeedle, "HTTP 200\n"+toolAnswer(true, "layer_cast app/tongs:stable: staged payload pin mismatch"))
+		}, "1", "findings in layer_cast"},
+		"hades cannot reach the star": {func() {
+			engine.stdout(mintNeedle, "HTTP 503\n{\"detail\":\"downstream unavailable\"}")
+		}, "2", "HTTP 503"},
+		"hades cannot identify the caller": {func() {
+			engine.stdout(mintNeedle, "HTTP 403\n{\"detail\":\"forbidden: caller not permitted for verb \\\"layer_cast\\\": unidentifiable caller\"}")
+		}, "2", "did not derive a principal"},
+		"hadescall cannot ask": {func() {
+			engine.exitCode(mintNeedle, 2)
+			engine.stdout(mintNeedle, "no identity within 2m0s")
+		}, "2", "could not ask hades: no identity"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			m := castOn(t, nil)
+			scriptACast(castPin + "\ntongs\n")
+			engine.stdout(legacyNeedle, "HTTP 200\n"+toolAnswer(false, castResult(castPin, true)))
+			c.script()
+			casts(t, m)
+			settledOn(t, c.code, c.reason)
+			if engine.chain(legacyNeedle) != "" {
+				t.Error("a real failure of layer_cast fell back to forge_layer_cast")
+			}
+			if engine.chain(verifyNeedle) != "" {
+				t.Error("a cast that did not mint went on to verify")
+			}
+		})
+	}
+}
+
+// The old name answers for itself: a fallback that fails settles naming
+// forge_layer_cast, and a fallback hadescall cannot ask is could-not-run.
+func TestAFallbackThatFailsNamesTheOldVerb(t *testing.T) {
+	unknown := "HTTP 404\n{\"detail\":\"no star serves verb \\\"layer_cast\\\"\"}"
+	cases := map[string]struct {
+		script       func()
+		code, reason string
+	}{
+		"the old name is refused": {func() {
+			engine.stdout(legacyNeedle, "HTTP 403\n{\"detail\":\"denied\"}")
+		}, "1", "not granted forge_layer_cast"},
+		"the old name cannot be asked": {func() {
+			engine.exitCode(legacyNeedle, 2)
+			engine.stdout(legacyNeedle, "hades did not answer")
+		}, "2", "could not ask hades: hades did not answer"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			m := castOn(t, nil)
+			scriptACast(castPin + "\ntongs\n")
+			engine.stdout(mintNeedle, unknown)
+			c.script()
+			casts(t, m)
+			settledOn(t, c.code, c.reason)
+			if engine.chain(verifyNeedle) != "" {
+				t.Error("a cast that did not mint went on to verify")
+			}
+		})
+	}
 }
 
 // A directory in payload_extra ships under its basename beside the binaries,
@@ -221,7 +321,7 @@ func TestADryRunBuildsAndPinsAndPublishesNothing(t *testing.T) {
 	if engine.chain(castpinNeedle) == "" {
 		t.Fatal("a dry run did not pin")
 	}
-	for _, needle := range []string{stageNeedle, moldNeedle, verifyNeedle, bellNeedle} {
+	for _, needle := range []string{stageNeedle, mintNeedle, verifyNeedle, bellNeedle} {
 		if engine.chain(needle) != "" {
 			t.Errorf("a dry run reached %s", needle)
 		}
@@ -263,31 +363,31 @@ func TestACastThatFailsStopsWhereItFailed(t *testing.T) {
 		"the registry refuses the push": {nil, func() {
 			engine.exitCode(stageNeedle, 1)
 			engine.stdout(stageNeedle, "Error: failed to push: unauthorized")
-		}, "1", "findings in staging push", nil, []string{moldNeedle}},
+		}, "1", "findings in staging push", nil, []string{mintNeedle}},
 		"the push cannot run": {nil, func() {
 			engine.failLeaf(stageNeedle, "exitCode", "the engine went away")
-		}, "2", "the staging push did not run", nil, []string{moldNeedle}},
+		}, "2", "the staging push did not run", nil, []string{mintNeedle}},
 		"the push answers no digest": {nil, func() {
 			engine.stdout(stageNeedle, "Pushed\n")
-		}, "2", "answered no digest", nil, []string{moldNeedle}},
+		}, "2", "answered no digest", nil, []string{mintNeedle}},
 		"hades cannot be asked": {nil, func() {
-			engine.exitCode(moldNeedle, 1)
-			engine.stdout(moldNeedle, "no identity within 2m0s")
+			engine.exitCode(mintNeedle, 1)
+			engine.stdout(mintNeedle, "no identity within 2m0s")
 		}, "2", "could not ask hades: no identity", nil, []string{verifyNeedle}},
 		"hadescall cannot run": {nil, func() {
-			engine.failLeaf(moldNeedle, "exitCode", "the engine went away")
+			engine.failLeaf(mintNeedle, "exitCode", "the engine went away")
 		}, "2", "could not ask hades", nil, []string{verifyNeedle}},
 		"hades answers no status": {nil, func() {
-			engine.stdout(moldNeedle, "garbage")
+			engine.stdout(mintNeedle, "garbage")
 		}, "2", "no status line", nil, []string{verifyNeedle}},
 		"mold refuses the payload": {nil, func() {
-			engine.stdout(moldNeedle, "HTTP 200\n"+toolAnswer(true, "mold app/tongs:stable: staged payload pin mismatch"))
-		}, "1", "findings in forge_layer_cast", nil, []string{verifyNeedle}},
+			engine.stdout(mintNeedle, "HTTP 200\n"+toolAnswer(true, "mold app/tongs:stable: staged payload pin mismatch"))
+		}, "1", "findings in layer_cast", nil, []string{verifyNeedle}},
 		"the policy refuses the lane": {nil, func() {
-			engine.stdout(moldNeedle, "HTTP 403\n{\"detail\":\"denied\"}")
-		}, "1", "not granted forge_layer_cast", nil, []string{verifyNeedle}},
+			engine.stdout(mintNeedle, "HTTP 403\n{\"detail\":\"denied\"}")
+		}, "1", "not granted layer_cast", nil, []string{verifyNeedle}},
 		"mold mints another pin": {nil, func() {
-			engine.stdout(moldNeedle, "HTTP 200\n"+toolAnswer(false, castResult("gffffffffffff", true)))
+			engine.stdout(mintNeedle, "HTTP 200\n"+toolAnswer(false, castResult("gffffffffffff", true)))
 		}, "2", "minted pin gffffffffffff", nil, []string{verifyNeedle}},
 		"the landed digest does not verify": {nil, func() {
 			engine.exitCode(verifyNeedle, 10)
@@ -352,7 +452,7 @@ func TestTheDoorbellNeverFailsACast(t *testing.T) {
 func TestACastOfAnUnchangedPayloadSaysSo(t *testing.T) {
 	m := castOn(t, nil)
 	scriptACast(castPin + "\ntongs\n")
-	engine.stdout(moldNeedle, "HTTP 200\n"+toolAnswer(false, strings.Replace(castResult(castPin, true), `"noop":false`, `"noop":true`, 1)))
+	engine.stdout(mintNeedle, "HTTP 200\n"+toolAnswer(false, strings.Replace(castResult(castPin, true), `"noop":false`, `"noop":true`, 1)))
 	casts(t, m)
 	settledOn(t, "0", "already carried this pin")
 }
@@ -398,7 +498,7 @@ func TestAGoBinaryRepoCastsThroughTheGoLane(t *testing.T) {
 		t.Error("a Go repo asked cargo to build")
 	}
 	wantCalls(t, engine.chain(`directory{withFile`), []string{"withFile", `path:"tongs"`})
-	wantCalls(t, engine.chain(moldNeedle), []string{"withExec", `app/tongs:stable`, castRef + "@" + castStaged, buildSha})
+	wantCalls(t, engine.chain(mintNeedle), []string{"withExec", `app/tongs:stable`, castRef + "@" + castStaged, buildSha})
 }
 
 // A module that vendors builds with -mod=vendor; one that declares several
@@ -537,7 +637,10 @@ func TestACastSaysWhichVerbHadesAnswered(t *testing.T) {
 	m := castOn(t, nil)
 	scriptACast(castPin + "\ntongs\n")
 	said := sayings(t, func() { casts(t, m) })
-	if !strings.Contains(said, "hades answered forge_layer_cast HTTP 200") {
+	if !strings.Contains(said, "hephaestus minted foundry.notusmi.com/app/tongs:stable at index 7 ("+castPin+", "+castLanded+")") {
+		t.Errorf("the log does not say what hephaestus minted:\n%s", said)
+	}
+	if !strings.Contains(said, "hades answered layer_cast HTTP 200") || strings.Contains(said, "asking forge_layer_cast") {
 		t.Errorf("the log does not name the verb hades answered:\n%s", said)
 	}
 }

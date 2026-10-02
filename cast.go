@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -194,8 +195,8 @@ func (l *castLane) run(ctx context.Context) (int, string) {
 	if code != buildlane.Clean {
 		return l.stop("cast:mint", code, why)
 	}
-	l.say("mold minted %s at index %d (%s, %s)", r.Channel, r.Index, r.Pin, r.Digest)
-	l.seal("cast:mint", buildlane.Clean, fmt.Sprintf("mold minted %s at index %d (%s, %s)", r.Channel, r.Index, r.Pin, r.Digest))
+	l.say("hephaestus minted %s at index %d (%s, %s)", r.Channel, r.Index, r.Pin, r.Digest)
+	l.seal("cast:mint", buildlane.Clean, fmt.Sprintf("hephaestus minted %s at index %d (%s, %s)", r.Channel, r.Index, r.Pin, r.Digest))
 	if code, why := l.verify(ctx, c, r); code != buildlane.Clean {
 		return l.stop("cast:verify", code, why)
 	}
@@ -226,9 +227,11 @@ func (l *castLane) run(ctx context.Context) (int, string) {
 	l.seal("cast:ring", buildlane.Clean, strings.TrimPrefix(strings.TrimSpace(bell), "; "))
 	noop := ""
 	if r.NoOp {
-		noop = " (the channel's head already carried this pin; mold re-signed it and allocated no index)"
+		noop = " (the channel's head already carried this pin; hephaestus re-signed it and allocated no index)"
 	}
-	return buildlane.Clean, fmt.Sprintf("clean: cast %s at index %d (%s, %s) — staged, minted and signed by mold, verified against cosign.pub%s%s", c.Artifact(), r.Index, r.Pin, r.Digest, noop, bell)
+	// 0 is buildlane.Clean, spelled as the literal: the constant's name in a
+	// return slot is a RETURN_ZERO mutant that rewrites it to itself.
+	return 0, fmt.Sprintf("clean: cast %s at index %d (%s, %s) — staged, minted and signed by hephaestus, verified against cosign.pub%s%s", c.Artifact(), r.Index, r.Pin, r.Digest, noop, bell)
 }
 
 // payload builds the release binaries and assembles what ships: each binary at
@@ -419,25 +422,47 @@ func (l *castLane) stage(ctx context.Context, payload *dagger.Directory, ref str
 	return digest, buildlane.Clean, ""
 }
 
-// mint asks hades for forge_layer_cast on the channel with sign=true, as the
-// calling pod, with the staged payload and the commit it was built from.
+// mint asks hades for the layer_cast mint on the channel with sign=true, as
+// the calling pod, with the staged payload and the commit it was built from.
+// It asks castlane.Verb first and, only when hades says it cannot route that
+// name for this lane (castlane.Unroutable), asks castlane.LegacyVerb with the
+// same arguments — the bridge across hephaestus's forge -> layer prefix flip.
+// Any other answer, failure included, is settled as it came.
 func (l *castLane) mint(ctx context.Context, c castlane.Cast, payloadRef, pin string) (castlane.Result, int, string) {
 	// Strings and a bool always marshal.
 	args, _ := json.Marshal(map[string]any{"ref": c.Artifact(), "sign": true, "payload_ref": payloadRef, "source_sha": l.m.Sha})
-	out, code, err := output(ctx, hadesCaller(l.spire, l.hades, l.hadesID, l.stamp).
-		WithExec([]string{"/usr/local/bin/hadescall", castlane.Verb, string(args)}, anyExit))
+	verb := castlane.Verb
+	status, body, err := l.ask(ctx, verb, string(args))
 	if err != nil {
-		return castlane.Result{}, buildlane.CouldNotRun, fmt.Sprintf("could not run: could not ask hades: %v", err)
+		return castlane.Result{}, buildlane.CouldNotRun, err.Error()
+	}
+	if castlane.Unroutable(status, body) {
+		castSay("hades cannot route %s for this lane (HTTP %d) — asking %s, the same mint under today's prefix", verb, status, castlane.LegacyVerb)
+		verb = castlane.LegacyVerb
+		if status, body, err = l.ask(ctx, verb, string(args)); err != nil {
+			return castlane.Result{}, buildlane.CouldNotRun, err.Error()
+		}
+	}
+	castSay("hades answered %s HTTP %d", verb, status)
+	return castlane.Minted(verb, status, body, pin)
+}
+
+// ask execs hadescall for one verb and answers hades's status and body; an
+// error is a could-not-run, already worded as one.
+func (l *castLane) ask(ctx context.Context, verb, args string) (int, string, error) {
+	out, code, err := output(ctx, hadesCaller(l.spire, l.hades, l.hadesID, l.stamp).
+		WithExec([]string{"/usr/local/bin/hadescall", verb, args}, anyExit))
+	if err != nil {
+		return 0, "", fmt.Errorf("could not run: could not ask hades: %v", err)
 	}
 	if code != 0 {
-		return castlane.Result{}, buildlane.CouldNotRun, "could not run: could not ask hades: " + out
+		return 0, "", errors.New("could not run: could not ask hades: " + out)
 	}
 	status, body, err := buildlane.ParseCall(out)
 	if err != nil {
-		return castlane.Result{}, buildlane.CouldNotRun, "could not run: " + err.Error()
+		return 0, "", errors.New("could not run: " + err.Error())
 	}
-	castSay("hades answered %s HTTP %d", castlane.Verb, status)
-	return castlane.Minted(status, body, pin)
+	return status, body, nil
 }
 
 // verify checks the digest mold landed against the repo's own cosign.pub. Key
