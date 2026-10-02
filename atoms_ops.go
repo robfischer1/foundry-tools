@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -543,11 +542,16 @@ func opsFlux(ctx context.Context, r *run) checks.Verdict {
 // The constant stays as the name of the thing that no longer exists.
 
 func opsFluxPhase(ctx context.Context, ctr *dagger.Container, files []checks.OpsFile) (opsResult, error) {
-	if !slices.ContainsFunc(files, func(f checks.OpsFile) bool { return strings.HasPrefix(f.Path, "flux/") }) {
-		return opsResult{absent: "no flux/ in this tree"}, nil
+	tracked := make([]string, len(files))
+	for i, f := range files {
+		tracked[i] = f.Path
+	}
+	root, ok := checks.FluxRoot(tracked)
+	if !ok {
+		return opsResult{absent: "no Flux tree here: neither flux/ nor clusters/<name>/kustomization.yaml at the root"}, nil
 	}
 	manifests := map[string]string{}
-	for _, m := range checks.OpsFluxClusterManifests(files) {
+	for _, m := range checks.OpsFluxClusterManifests(files, root) {
 		src, err := ctr.File("/src/" + m).Contents(ctx)
 		if err != nil {
 			return opsResult{}, err
@@ -556,10 +560,10 @@ func opsFluxPhase(ctx context.Context, ctr *dagger.Container, files []checks.Ops
 	}
 	paths, problems := checks.OpsFluxPaths(manifests)
 	if len(paths) == 0 {
-		paths = checks.OpsFluxFallback(files)
+		paths = checks.OpsFluxFallback(files, root)
 	}
 	if len(paths) == 0 {
-		return opsResult{absent: "flux/ carries no Kustomization CR and no kustomization.yaml"}, nil
+		return opsResult{absent: "the Flux tree carries no Kustomization CR and no kustomization.yaml"}, nil
 	}
 	var out, built strings.Builder
 	var renderedFiles []string
@@ -634,19 +638,40 @@ func opsFluxPhase(ctx context.Context, ctr *dagger.Container, files []checks.Ops
 func opsKubeLinter(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("ops:kube-linter")
 
-	entries, err := r.src.Entries(ctx)
+	files, err := r.population(ctx)
 	if err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the repository root could not be read: "+err.Error())
+		return cannotEnumerate(a, err)
 	}
-	if !checks.HasEntry(entries, "flux") {
-		return checks.VerdictOf(a, 0, a.ID+": ABSENT - no flux/ tree at the repository root.")
+	root, ok := checks.FluxRoot(files)
+	if !ok {
+		return checks.VerdictOf(a, 0, a.ID+": ABSENT - no Flux tree here: neither flux/ nor clusters/<name>/kustomization.yaml at the root.")
+	}
+	// WHAT TO LINT. The infra shape keeps every manifest under flux/, so the
+	// directory is the population. A repository that IS the Flux tree keeps
+	// them in one directory per Kustomization beside docs and tooling, so the
+	// population is exactly the paths its CRs apply (and clusters/ itself).
+	targets := []string{"flux/"}
+	if root == "" {
+		manifests := map[string]string{}
+		for _, m := range checks.OpsFluxClusterManifests(checks.OpsFiles(files), root) {
+			src, err := r.src.File(m).Contents(ctx)
+			if err != nil {
+				return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+m+" could not be read: "+err.Error())
+			}
+			manifests[m] = src
+		}
+		paths, _ := checks.OpsFluxPaths(manifests)
+		if len(paths) == 0 {
+			paths = checks.OpsFluxFallback(checks.OpsFiles(files), root)
+		}
+		targets = append([]string{"clusters/"}, paths...)
 	}
 
 	// The refusal arrives on stderr and the findings on stdout, and the code
 	// is the same 1 for both — so both streams are read before anything is
 	// decided.
 	out, code, err := outputBoth(ctx, r.lane(checks.ImageKubeLinter).
-		WithExec([]string{"/kube-linter", "lint", "--fail-if-no-objects-found", "flux/"}, anyExit))
+		WithExec(append([]string{"/kube-linter", "lint", "--fail-if-no-objects-found"}, targets...), anyExit))
 	if err != nil {
 		return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
 	}

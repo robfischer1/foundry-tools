@@ -146,10 +146,10 @@ func TestOpsFluxPaths(t *testing.T) {
 	files := []OpsFile{{"flux/b/kustomization.yaml", ""}, {"flux/a/kustomization.yaml", ""}, {"flux/a/x/kustomization.yaml", ""},
 		{"flux/kustomization.yaml", ""}, {"other/c/kustomization.yaml", ""}, {"flux/clusters/home/x.yaml", ""},
 		{"flux/clusters/home/deep/y.yaml", ""}, {"flux/clusters/home/z.yml", ""}, {"flux/apps/w.yaml", ""}}
-	if got := strings.Join(OpsFluxFallback(files), ","); got != "flux/a,flux/b" {
+	if got := strings.Join(OpsFluxFallback(files, "flux/"), ","); got != "flux/a,flux/b" {
 		t.Errorf("fallback %s", got)
 	}
-	if got := strings.Join(OpsFluxClusterManifests(files), ","); got != "flux/clusters/home/x.yaml,flux/clusters/home/deep/y.yaml" {
+	if got := strings.Join(OpsFluxClusterManifests(files, "flux/"), ","); got != "flux/clusters/home/x.yaml,flux/clusters/home/deep/y.yaml" {
 		t.Errorf("cluster manifests %s", got)
 	}
 }
@@ -221,5 +221,41 @@ func TestOpsBatches(t *testing.T) {
 	}
 	if got := OpsBatches([]string{strings.Repeat("y", argvBudget+10)}); len(got) != 1 || len(got[0]) != 1 {
 		t.Errorf("an oversized file is its own batch: %v", len(got))
+	}
+}
+
+// A repository that IS the Flux tree (foundry/flux since 2026-09-29) keeps
+// clusters/ and one directory per Kustomization at its own root. Discovery
+// takes root "" and answers the same shapes the flux/ layout did, minus
+// clusters/ as a fallback tree (it holds the CRs, not a tree they apply).
+func TestOpsFluxDiscoveryAtTheRoot(t *testing.T) {
+	files := []OpsFile{{"prime/kustomization.yaml", ""}, {"data/kustomization.yaml", ""},
+		{"clusters/kustomization.yaml", ""}, {"clusters/pantheon/kustomization.yaml", ""},
+		{"clusters/pantheon/prime.yaml", ""}, {"clusters/pantheon/deep/x.yaml", ""},
+		{"prime/sub/kustomization.yaml", ""}, {"docs/notes.yaml", ""}, {"flux.yaml", ""}}
+	if got := strings.Join(OpsFluxFallback(files, ""), ","); got != "data,prime" {
+		t.Errorf("fallback %s, want data,prime: clusters/ is never a fallback tree at the root", got)
+	}
+	if got := strings.Join(OpsFluxClusterManifests(files, ""), ","); got != "clusters/kustomization.yaml,clusters/pantheon/kustomization.yaml,clusters/pantheon/prime.yaml,clusters/pantheon/deep/x.yaml" {
+		t.Errorf("cluster manifests %s", got)
+	}
+	// The flux/ layout reads only under flux/: a root-level x/kustomization.yaml
+	// is not one of its trees.
+	if got := strings.Join(OpsFluxFallback([]OpsFile{{"x/kustomization.yaml", ""}, {"flux/a/kustomization.yaml", ""}}, "flux/"), ","); got != "flux/a" {
+		t.Errorf("flux/ layout fallback reads outside flux/: %s", got)
+	}
+	// The flux/ layout keeps clusters/ as a fallback tree, as before.
+	if got := strings.Join(OpsFluxFallback([]OpsFile{{"flux/clusters/kustomization.yaml", ""}}, "flux/"), ","); got != "flux/clusters" {
+		t.Errorf("flux/ layout fallback %s", got)
+	}
+	// Paths from root-layout CRs are already repo-root relative.
+	paths, problems := OpsFluxPaths(map[string]string{
+		"clusters/pantheon/prime.yaml": "apiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nspec:\n  path: ./prime\n  sourceRef: {name: flux-system}\n",
+	})
+	if strings.Join(paths, ",") != "prime" || len(problems) != 0 {
+		t.Errorf("paths %v problems %v", paths, problems)
+	}
+	if got := OpsFiles([]string{"a", "b/c"}); len(got) != 2 || got[1].Path != "b/c" || got[1].Mode != "" {
+		t.Errorf("OpsFiles %v", got)
 	}
 }

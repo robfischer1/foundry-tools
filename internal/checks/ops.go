@@ -15,6 +15,8 @@ func IsOpsTree(files []string) bool {
 		switch {
 		case strings.HasPrefix(f, "flux/"):
 			return true
+		case isRootFluxCluster(f):
+			return true
 		case strings.HasPrefix(f, "ansible/playbooks/") && (strings.HasSuffix(f, ".yml") || strings.HasSuffix(f, ".yaml")):
 			return true
 		case f == ".chezmoiignore" || f == ".chezmoiroot" || f == ".chezmoiversion" || strings.HasPrefix(f, "dot_"):
@@ -61,3 +63,36 @@ const (
 	KubectlVersion = "1.34.1"
 	KubectlURL     = "https://dl.k8s.io/release/v" + KubectlVersion + "/bin/linux/amd64/kubectl"
 )
+
+// FluxRoot answers where a tree's Flux layout starts: "flux/" for the infra
+// shape (flux/clusters/<name>/, flux/<dir>/), or "" for a repository that IS
+// the Flux tree (clusters/<name>/kustomization.yaml at its own root) — the
+// shape foundry/flux took when it left infra on 2026-09-29. ok is false when
+// the tree carries neither.
+//
+// THE ROOT SHAPE WAS INVISIBLE FOR TWO WEEKS. Every flux atom asked for a
+// flux/ prefix, so on foundry/flux ops:flux and ops:kube-linter both read
+// ABSENT and no Kustomization was built or linted before it reached the
+// cluster (measured 2026-10-02 on flux@dce6833: 9 holds, 50 inert, neither
+// flux atom among the holds). clusters/<name>/kustomization.yaml is the
+// marker because it is the one file only a Flux root carries: a bare
+// clusters/ directory of notes would not have it.
+func FluxRoot(files []string) (root string, ok bool) {
+	for _, f := range files {
+		if strings.HasPrefix(f, "flux/") {
+			return "flux/", true
+		}
+	}
+	for _, f := range files {
+		if isRootFluxCluster(f) {
+			return "", true
+		}
+	}
+	return "", false
+}
+
+// isRootFluxCluster is clusters/<name>/kustomization.yaml, exactly.
+func isRootFluxCluster(f string) bool {
+	parts := strings.Split(f, "/")
+	return len(parts) == 3 && parts[0] == "clusters" && parts[1] != "" && parts[2] == "kustomization.yaml"
+}

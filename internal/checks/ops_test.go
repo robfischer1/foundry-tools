@@ -27,6 +27,7 @@ func TestIsOpsTreeReadsEachMarkerAlone(t *testing.T) {
 		"compose":             {"compose.yaml"},
 		"compose yml":         {"stacks/compose.yml"},
 		"buried in a star":    {"go.mod", "main.go", "flux/x.yaml"},
+		"a flux root":         {"clusters/pantheon/kustomization.yaml"},
 	}
 	for name, files := range yes {
 		if !IsOpsTree(files) {
@@ -34,15 +35,20 @@ func TestIsOpsTreeReadsEachMarkerAlone(t *testing.T) {
 		}
 	}
 	no := map[string][]string{
-		"empty":                       {},
-		"a go star":                   {"go.mod", "main.go", "ci/run.sh", "k8s/deploy.yaml"},
-		"ansible without playbook":    {"ansible/README.md", "ansible/inventory/hosts.yml"},
-		"a playbook that is not yaml": {"ansible/playbooks/notes.md"},
-		"flux-named file at root":     {"fluxion.yaml"},
-		"dot in the middle":           {"src/dot_x.tmpl"},
-		"a tool by another name":      {"tools/other"},
-		"rego-ish":                    {"policy/x.rego.md"},
-		"chezmoi marker elsewhere":    {"docs/.chezmoiroot"},
+		"empty":                        {},
+		"a go star":                    {"go.mod", "main.go", "ci/run.sh", "k8s/deploy.yaml"},
+		"ansible without playbook":     {"ansible/README.md", "ansible/inventory/hosts.yml"},
+		"a playbook that is not yaml":  {"ansible/playbooks/notes.md"},
+		"flux-named file at root":      {"fluxion.yaml"},
+		"dot in the middle":            {"src/dot_x.tmpl"},
+		"a tool by another name":       {"tools/other"},
+		"rego-ish":                     {"policy/x.rego.md"},
+		"chezmoi marker elsewhere":     {"docs/.chezmoiroot"},
+		"clusters without a cluster":   {"clusters/kustomization.yaml"},
+		"a cluster file, not the root": {"clusters/pantheon/prime.yaml"},
+		"too deep to be a cluster":     {"clusters/pantheon/x/kustomization.yaml"},
+		"nested clusters":              {"docs/clusters/pantheon/kustomization.yaml"},
+		"not a clusters dir":           {"stacks/pantheon/kustomization.yaml"},
 	}
 	for name, files := range no {
 		if IsOpsTree(files) {
@@ -65,5 +71,27 @@ func TestOpsToolPinsAgree(t *testing.T) {
 	}
 	if !strings.HasPrefix(KubectlURL, "https://dl.k8s.io/") {
 		t.Errorf("kubectl must come from dl.k8s.io: %s", KubectlURL)
+	}
+}
+
+// FluxRoot answers flux/ for the infra layout, "" for a repository that is the
+// Flux tree, and not-ok for neither. flux/ wins when both appear.
+func TestFluxRoot(t *testing.T) {
+	cases := map[string]struct {
+		files []string
+		root  string
+		ok    bool
+	}{
+		"infra layout": {[]string{"README.md", "flux/apps/x.yaml"}, "flux/", true},
+		"root layout":  {[]string{"prime/x.yaml", "clusters/pantheon/kustomization.yaml"}, "", true},
+		"both":         {[]string{"clusters/pantheon/kustomization.yaml", "flux/a.yaml"}, "flux/", true},
+		"neither":      {[]string{"go.mod", "clusters/notes.md", "clusters//kustomization.yaml"}, "", false},
+		"empty":        {nil, "", false},
+	}
+	for name, c := range cases {
+		root, ok := FluxRoot(c.files)
+		if root != c.root || ok != c.ok {
+			t.Errorf("%s: FluxRoot = (%q, %v), want (%q, %v)", name, root, ok, c.root, c.ok)
+		}
 	}
 }
