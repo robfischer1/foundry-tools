@@ -93,8 +93,7 @@ const (
 )
 
 // scriptATip scripts every step of a tip that goes through: a source change,
-// the public key, the SBOM, its referrer and stored layer, and hades stamping
-// the permit.
+// the public key, the SBOM, and its referrer and stored layer.
 func scriptATip() {
 	engine.stdout("--name-only", "cmd/ares/main.go\n")
 	engine.stdout(`"public-key"`, "-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----")
@@ -102,7 +101,6 @@ func scriptATip() {
 	engine.stdout(`"oci-archive:/in/builder.tar"`, builderSBOM)
 	engine.stdout(sbomAttachNeedle, sbomArtifact+"\n")
 	engine.stdout(sbomManifestNeedle, `{"schemaVersion":2,"artifactType":"application/vnd.cyclonedx+json","layers":[{"mediaType":"application/vnd.cyclonedx+json","digest":"`+sbomBlob+`","size":4812}]}`)
-	engine.stdout(`"forge_mold"`, "HTTP 200\n"+toolAnswer(false, `{"digest":"sha256:eee","pushed_ref":"registry.notusmi.com/rob/ares:stable"}`))
 }
 
 var (
@@ -527,9 +525,9 @@ func TestAnImageThatDoesNotBuildIsFindingsUnlessTheNetworkFailed(t *testing.T) {
 
 // A tip that goes through: published under the g-pin as the registry's
 // publisher with the runner's index crossing the seam, signed with the CI key,
-// its SBOM read by syft and attested, the signature verified, and the permit
-// asked of hades as the pod the socket came from.
-func TestATipPublishesSignsAttestsAndIsPermitted(t *testing.T) {
+// its SBOM read by syft and attested, the signature verified — and no permit
+// asked of anyone.
+func TestATipPublishesSignsAndAttests(t *testing.T) {
 	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
 	scriptATip()
 	tip(t, m)
@@ -593,21 +591,12 @@ func TestATipPublishesSignsAttestsAndIsPermitted(t *testing.T) {
 	if engine.chain(`"verify","--key","/run/cosign/key.pub"`) == "" {
 		t.Error("the signature was never verified")
 	}
-	wantCalls(t, engine.chain(`"forge_mold"`),
-		[]string{"from", checks.ImageStatic},
-		// Owned by the static base's nonroot user: forwarded root-owned, the
-		// socket refused hadescall's connect and the permit waited out two
-		// minutes for an identity (athena b66d46f).
-		[]string{"withUnixSocket", `"/run/spire/agent.sock"`, `owner:"65532:65532"`},
-		[]string{"withEnvVariable", `"HADESCALL_HADES"`, `"https://hades:8102"`},
-		[]string{"withExec", `"/usr/local/bin/hadescall"`, `"forge_mold"`, "ares"},
-	)
-	// hadescall is built with the Go lane's caches, the build cache by its
-	// variable.
-	wantCalls(t, engine.chain(`"./hadescall"`),
-		[]string{"withEnvVariable", `"GOCACHE"`, `"/opt/go-build-cache"`},
-		[]string{"withMountedCache", `path:"/go/pkg/mod"`},
-	)
+	// THE LANE ASKS FOR NO PERMIT (Phase 13): a published, scanned, signed tip
+	// is the release, and Flux rolls it from its stamp tag.
+	if engine.chain(`"forge_mold"`) != "" || engine.chain(`"./hadescall"`) != "" {
+		t.Error("a tip asked hades for a permit")
+	}
+	settledOn(t, "0", "published as "+buildStamp+" — no permit is asked")
 	settledOn(t, "0", "clean: published and signed "+ref)
 }
 
@@ -838,60 +827,6 @@ func TestABuilderSBOMThatDoesNotMergeLeavesTheImagesSBOM(t *testing.T) {
 	engine.stdout(`"oci-archive:/in/builder.tar"`, "not an sbom")
 	tip(t, m)
 	attachesTheImageAlone(t)
-}
-
-// moldRefusal is hephaestus internal/mold/mold.go's sentence when no g-pin in
-// the tip's history resolves to an artifact. The tip it names is a RAW sha,
-// which is the whole of task #181: the lane used to match `at g<12 hex>`, a
-// message mold never sends, so a superseded permit was read as a refusal.
-func moldRefusal(tip string) string {
-	return "mold ares: no CI artifact at the tip " + tip +
-		" or the 3 commit(s) behind it — mold stamps, it does not build; run the build for the tip first"
-}
-
-// hades's refusal of the permit is the lane's finding; its answer is read the
-// way permit.py read it. Mold names THIS build's tip, so nothing moved and the
-// refusal is about this build.
-func TestATipWhosePermitIsRefusedIsFindings(t *testing.T) {
-	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
-	scriptATip()
-	engine.stdout(`"forge_mold"`, "HTTP 200\n"+toolAnswer(true, moldRefusal(buildSha)))
-	tip(t, m)
-	settledOn(t, "1", "PERMIT REFUSED")
-}
-
-// THE RACE THIS LANE MUST NOT BLAME ITSELF FOR. Mold stamps the current head
-// only. When the tip moves between this build's publish and its permit, mold
-// looks at the NEW head, finds nothing stamped there, and refuses — a refusal
-// about a commit this build never claimed. That is a could-not-run the sweep
-// re-asks, not a finding that reds the star.
-func TestATipSupersededBeforeItsPermitIsCouldNotRun(t *testing.T) {
-	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
-	scriptATip()
-	engine.stdout(`"forge_mold"`, "HTTP 200\n"+toolAnswer(true, moldRefusal(strings.Repeat("fe", 20))))
-	tip(t, m)
-	settledOn(t, "2", "SUPERSEDED")
-}
-
-// An answer that is not hadescall's shape is a could-not-run.
-func TestAPermitAnswerWithNoStatusLineIsCouldNotRun(t *testing.T) {
-	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
-	scriptATip()
-	engine.stdout(`"forge_mold"`, "garbage")
-	tip(t, m)
-	settledOn(t, "2", "no status line")
-}
-
-// hadescall that could not ask — no SVID, hades unreachable — is a
-// could-not-run, never a finding.
-func TestATipThatCannotAskHadesIsCouldNotRun(t *testing.T) {
-	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
-	scriptATip()
-	engine.exitCode(`"forge_mold"`, 2)
-	engine.stdout(`"forge_mold"`, "")
-	engine.stderr(`"forge_mold"`, "hadescall forge_mold: no identity from unix:///run/spire/agent.sock within 2m0s")
-	tip(t, m)
-	settledOn(t, "2", "could not ask hades")
 }
 
 // The star is the repository's last path segment, from a clone URL or a
