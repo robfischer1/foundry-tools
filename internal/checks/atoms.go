@@ -129,6 +129,10 @@ func atomTable() []AtomDef {
 			Desc: "The ourea ConfigMap names no key the door has stopped reading.",
 		},
 		{
+			ID: "fleet:retired-verbs", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "No skill, agent, command, hook, setting, governance block or rule names a retired MCP verb.",
+		},
+		{
 			ID: "fleet:orbit-drift", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
 			Desc: "This repo's declared seams agree with the canonical contracts in foundry-dies/orbits.",
 		},
