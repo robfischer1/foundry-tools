@@ -89,10 +89,14 @@ func TestScoreGoMutationFindingsMapTheLattice(t *testing.T) {
 		t.Errorf("NOT COVERED = %q, want violated: %+v", notCovered.Verdict, notCovered)
 	}
 
-	// TIMED OUT is `unanalyzable`: it never answered.
-	timedOut := findingFor(t, s.Findings, "pkg/a.go:30", "INCREMENT_DECREMENT")
-	if timedOut.Verdict != VerdictUnanalyzable {
-		t.Errorf("TIMED OUT = %q, want unanalyzable: %+v", timedOut.Verdict, timedOut)
+	// TIMED OUT is the fleet's one timeout decision: `excluded` under
+	// mutant-timeout while TimedOutMutantIsDetected, the operator in the detail.
+	timedOut := findingFor(t, s.Findings, "pkg/a.go:30", MutantTimeoutCause)
+	if timedOut.Verdict != timedOutMutantVerdict(TimedOutMutantIsDetected) || timedOut.Verdict != VerdictExcluded {
+		t.Errorf("TIMED OUT = %q, want excluded: %+v", timedOut.Verdict, timedOut)
+	}
+	if !strings.Contains(timedOut.Detail, "TIMED OUT INCREMENT_DECREMENT — "+MutantTimeoutAdvice) {
+		t.Errorf("detail = %q", timedOut.Detail)
 	}
 
 	// TWO MUTANTS ON ONE LINE keep one subject and are told apart by cause —

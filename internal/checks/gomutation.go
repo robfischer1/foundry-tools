@@ -264,7 +264,7 @@ func mutantFinding(verdict, file string, line, col int, cause, detail string) Fi
 //     a defect the runner explicitly refuses to assert.
 //   - COVERED-UNRUN is `unanalyzable` — this file's header says "not a miss, not
 //     a kill, unmeasured by name", and unmeasured is what unanalyzable means.
-//   - TIMED OUT is `unanalyzable` for the same reason: it never answered.
+//   - TIMED OUT is not here: it is TimedOutMutantIsDetected's to say.
 //   - Anything else is `unanalyzable`, which is the schema's own degrade rule.
 //     KILLED and the inert statuses never reach here.
 func mutantVerdict(status string) string {
@@ -371,10 +371,14 @@ func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoM
 				s.Findings = append(s.Findings, mutantFinding(mutantVerdict(status),
 					f.FileName, m.Line, m.Column, m.Type, status))
 			case "TIMED OUT":
+				// ONE TIMEOUT DECISION FOR EVERY LANE (TimedOutMutantIsDetected):
+				// its word and its cause are the Rust lane's, the operator moves
+				// to the detail, and GoMutationTimeoutBudget stays this lane's
+				// guard against a run that is mostly hangs.
 				s.TimedOut++
 				timed = append(timed, where)
-				s.Findings = append(s.Findings, mutantFinding(mutantVerdict(status),
-					f.FileName, m.Line, m.Column, m.Type, status))
+				s.Findings = append(s.Findings, mutantFinding(timedOutMutantVerdict(TimedOutMutantIsDetected),
+					f.FileName, m.Line, m.Column, MutantTimeoutCause, status+" "+m.Type+" — "+MutantTimeoutAdvice))
 			case "COVERED-UNRUN":
 				s.CoveredUnrun++
 				misread = append(misread, where)
@@ -466,8 +470,9 @@ func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoM
 	if len(timed) > 0 {
 		out = append(out,
 			fmt.Sprintf("**%d mutant(s) TIMED OUT — neither killed nor survived.**", len(timed)),
-			"A timeout is an UNMEASURED mutant; gremlins drops them from its own",
-			"score, this gate counts them.", "")
+			"gremlins drops them from its own score; this gate lists each as a",
+			"`mutant-timeout` finding, and over the timeout budget the suite was",
+			"not measured.", "")
 	}
 	if len(s.Missed) > 0 {
 		out = append(out,

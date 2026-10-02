@@ -351,11 +351,18 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 	// The baseline's own log: the unmutated build and test run, where nextest
 	// stamped every test with its wall time.
 	baseline, _ := mutated.File("/src/mutants.out/log/baseline.log").Contents(ctx)
-	return settle(checks.RustMutationVerdict(checks.RustMutationRun{
+	state, reason, found := checks.RustMutationVerdict(checks.RustMutationRun{
 		Status: status, Log: log,
 		Missed: list("missed"), Caught: list("caught"), Unviable: list("unviable"), Timeout: list("timeout"),
 		Baseline: baseline,
-	}))
+	})
+	v := settle(state, reason)
+	// THE FINDINGS COME FROM THE OUTCOME LISTS, as go:mutation's come from its
+	// score: FindingsOf parses no mutation report, and a timed-out mutant's
+	// finding rides a PASSING atom too — an exclusion nobody can read is a
+	// suppression (findings.schema.json).
+	v.Findings = found
+	return v
 }
 
 const (
