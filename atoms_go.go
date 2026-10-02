@@ -860,7 +860,7 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 		return settle(2, "CANNOT RUN - "+err.Error())
 	}
 	if since == "" {
-		return settle(0, noBase)
+		return settle(r.missingBase(noBase))
 	}
 	// AN EMPTY DIFF MEANS "MUTATE EVERYTHING" TO GREMLINS, written for "no
 	// --diff was given". A pull that changes no Go produces exactly that, so it

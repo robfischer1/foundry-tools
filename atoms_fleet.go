@@ -241,7 +241,7 @@ func fleetStopJustifications(ctx context.Context, r *run) checks.Verdict {
 	// No origin is a repository that names no exemption, not a refusal: the
 	// script's fallback named the checkout directory, which in the lane is
 	// /src and matches no row.
-	origin, code, err := output(ctx, ctr.WithExec([]string{"git", "remote", "get-url", "origin"}, anyExit))
+	origin, code, err := r.originURL(ctx, ctr)
 	if err != nil {
 		return neverRan(a, err)
 	}
@@ -456,7 +456,11 @@ func fleetOpengrepSast(ctx context.Context, r *run) checks.Verdict {
 	scan := r.lane(checks.ImageFleet).
 		WithEnvVariable("LANG", "C.UTF-8").
 		WithEnvVariable("LC_ALL", "C.UTF-8").
-		WithExec([]string{"opengrep", "--version"}).
+		// NO `opengrep --version` HERE: provision runs that probe in the
+		// image's own layer, under the default Expect, so a binary that does
+		// not run is already a provisioning failure. Repeated here it sat
+		// after the tree mount and ran once per tree (52 times in 63 sampled
+		// gates, 162 exec-seconds — the CI pipeline audit, lever F).
 		WithExec([]string{"opengrep", "scan", "--config", "rules/sast", "--error", "."}, anyExit)
 
 	out, code, err := output(ctx, scan)
@@ -560,7 +564,7 @@ func fleetWitness(ctx context.Context, r *run) checks.Verdict {
 		return settle(state, reason, nil)
 	}
 
-	origin, code, err := git("remote", "get-url", "origin")
+	origin, code, err := r.originURL(ctx, ctr)
 	if err != nil {
 		return neverRan(a, err)
 	}

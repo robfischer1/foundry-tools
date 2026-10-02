@@ -385,7 +385,7 @@ func TestFleetStopJustificationsScansTheTrackedTreeInGo(t *testing.T) {
 		t.Errorf("the tree is listed in the fleet lane:\n%s", c)
 	}
 	wantCalls(t, c,
-		[]string{"withExec", `args:["git","config","--global","--add","safe.directory","*"]`},
+		[]string{"withNewFile", `path:"/etc/gitconfig"`, `directory = *`},
 		// NOT -z: one path per line, so a repository's file list never reaches
 		// the log as a single entry Loki cuts in half (infra #10719).
 		[]string{"withExec", `expect:ANY`, `args:["git","ls-files"]`},
@@ -1181,7 +1181,6 @@ func TestFleetProbesNeverCarryAnyExit(t *testing.T) {
 		`"uv","--version"`,
 		`"opengrep","--version"`,
 		`"hadolint","--version"`,
-		`"git","config","--global","--add","safe.directory","*"`,
 	}
 	for _, a := range checks.Atoms {
 		if !strings.HasPrefix(a.ID, "fleet:") {

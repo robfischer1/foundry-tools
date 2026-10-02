@@ -84,7 +84,7 @@ func TestTemplateRenderMatrixRendersEachCaseAndGradesTheOutput(t *testing.T) {
 		[]string{"withMountedDirectory", `path:"/src"`},
 		// gitReady's other half: git refuses a repository it does not own, and
 		// the process here is root over a mounted tree.
-		[]string{"withExec", `args:["git","config","--global","--add","safe.directory","*"]`},
+		[]string{"withNewFile", `path:"/etc/gitconfig"`, `directory = *`},
 		// The provisioning probe: copier is fetched through uvx, and a missing
 		// uvx is state 2 with the engine's error, never a green.
 		[]string{"withExec", `args:["uvx","--version"]`},
