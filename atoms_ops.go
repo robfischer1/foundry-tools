@@ -378,10 +378,11 @@ func opsMetrics(ctx context.Context, r *run) checks.Verdict {
 			return opsResult{absent: "no tools/metric-allowlist in this tree"}, nil
 		}
 		_, out, rc, err := opsRun(ctx, ctr, uvPython("metric-allowlist"))
+		res := opsSettled("metrics", rc, out)
 		if rc == 2 {
-			return opsResult{state: 2, out: out + "\nmetrics: could not read a keep-list or a source — did not look"}, err
+			res = opsResult{state: 2, out: out + "\nmetrics: could not read a keep-list or a source — did not look"}
 		}
-		return opsSettled("metrics", rc, out), err
+		return res, err
 	}, nil)
 }
 

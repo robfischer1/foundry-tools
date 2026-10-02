@@ -235,6 +235,11 @@ func TestOpsRepoTools(t *testing.T) {
 	engine.exitCode(`"tools/metric-allowlist"`, 2)
 	engine.stdout(`"tools/metric-allowlist"`, "could not read — no metricAllowlist")
 	wantState(t, runAtom(t, "ops:metrics", ""), 2, "could not read — no metricAllowlist", "metrics: could not read a keep-list or a source — did not look")
+
+	// The tool's own exec failing in the engine is could-not-run, not a pass.
+	opsTree(tools, exec)
+	engine.fail(`"tools/metric-allowlist"`, "engine gone")
+	wantState(t, runAtom(t, "ops:metrics", ""), 2, "never ran", "engine gone")
 }
 
 func TestOpsAnsible(t *testing.T) {
