@@ -432,6 +432,26 @@ func TestRustMutationSettlesWhatItMeasured(t *testing.T) {
 		"| 1 | 1 | 0 | 0 | 50% of 2 viable |",
 		"src/lib.rs:1:1: replace f -> i32 with 1")
 
+	v := runAtom(t, "rust:mutation", "abc123")
+	if len(v.Findings) != 1 || v.Findings[0].Cause != "mutant-missed" || v.Findings[0].Subject != "src/lib.rs:1" {
+		t.Errorf("the survivor is a finding on the atom: %+v", v.Findings)
+	}
+
+	// EXIT 3 IS A REPORT (anvil@0c5355f): a timed-out mutant beside a caught
+	// one is a pass, and the timeout rides the passing atom as a finding.
+	scriptRustMutation(map[string]string{
+		"/src/mutants.out/caught.txt":  "src/lib.rs:1:1: replace f -> i32 with 0\nsrc/lib.rs:1:1: replace f -> i32 with -1\n",
+		"/src/mutants.out/timeout.txt": "src/lib.rs:1:1: replace f -> i32 with 1\n",
+	})
+	engine.exitCode(rustMutantsNeedle, 3)
+	engine.stdout(rustMutantsNeedle, "TIMEOUT  src/lib.rs:1:1: replace f -> i32 with 1 in 0s build + 60s test\n3 mutants tested in 2m: 2 caught, 1 timeouts\n")
+	v = runAtom(t, "rust:mutation", "abc123")
+	wantState(t, v, 0)
+	if len(v.Findings) != 1 || v.Findings[0].Cause != checks.MutantTimeoutCause || v.Findings[0].Verdict != checks.VerdictExcluded ||
+		!strings.Contains(v.Findings[0].Detail, "after 60s of test") {
+		t.Errorf("the timeout is a finding on the passing atom: %+v", v.Findings)
+	}
+
 	scriptRustMutation(nil)
 	engine.exitCode(rustMutantsNeedle, 4)
 	engine.stdout(rustMutantsNeedle, "Found 3 mutants\nERROR cargo test failed in an unmutated tree\n")
@@ -462,7 +482,10 @@ func TestRustMutationScopesAnUndeclaredPullToTheWholeDiffAndItsMembers(t *testin
 
 	// The value is the answers file's, one leading and one trailing quote
 	// stripped, and each module is its own pathspec and its own -f.
-	scriptRustMutation(map[string]string{".copier-answers.yml": "other: 1\ncritical_modules: 'src/lib.rs src/gate.rs'\n"})
+	scriptRustMutation(map[string]string{
+		".copier-answers.yml":         "other: 1\ncritical_modules: 'src/lib.rs src/gate.rs'\n",
+		"/src/mutants.out/missed.txt": "src/lib.rs:1:1: replace f -> i32 with 1\n",
+	})
 	engine.exitCode(rustMutantsNeedle, 2)
 	wantState(t, runAtom(t, "rust:mutation", "abc123"), 1,
 		"scoped to the declared critical modules: src/lib.rs src/gate.rs")

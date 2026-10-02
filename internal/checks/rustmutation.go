@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // THE RUST MUTATION GATE'S DECISIONS, in Go. They were foundry-stocks'
@@ -17,9 +18,11 @@ import (
 //
 // THERE IS NO PERCENTAGE THRESHOLD. cargo-mutants exits 2 on ANY viable
 // survivor and rustc drops the unviable for free, so the exit code is the
-// answer and the counts are for the reader. Every other non-zero exit — a
-// baseline that did not build, a timeout, a diff that did not match the tree
-// (5) — measured nothing, and is a could-not-run, never a pass.
+// answer and the counts are for the reader. Exit 3 — a mutant timed out — is a
+// report too, read the same way (TimedOutMutantIsDetected, RustTimeoutGuard).
+// Every other non-zero exit — a baseline that did not build, a diff that did
+// not match the tree (5) — measured nothing, and is a could-not-run, never a
+// pass.
 //
 // Only what the atom reached was ported. rust.sh also took a full mode, a
 // workdir, a named package list and a gate switch; the atom set none of them,
@@ -183,16 +186,48 @@ func SlowestTests(baseline string, n int) string {
 	return b.String()
 }
 
+// cargo-mutants' exit codes, as its own exit_code.rs names them. Only the two
+// OUTCOME exits carry a report: 2 (a viable mutant was missed) and 3 (a mutant
+// timed out — and 3 wins when both happened, which is how anvil@0c5355f's one
+// missed mutant came to be thrown away with the run). 4 is a baseline that
+// failed or hung, so nothing was tested; 1 a usage error; 5 and 6 a diff that
+// did not match the tree; 70 a crash.
+const (
+	cargoMutantsMissed  = 2
+	cargoMutantsTimeout = 3
+)
+
+// RustTimeoutGuard: a run whose timed-out mutants are MORE THAN HALF of the
+// viable ones (caught + missed + timed out), or that caught none except by
+// timeout, did not show that the suite works — it showed a suite, or a runner,
+// that hangs. That run is could-not-run with the counts in its reason, never a
+// green. Half is the line because below it the suite demonstrably answered
+// most mutants by failing; at or above it, "detected by hanging" is the
+// majority of the evidence and no longer the exception.
+func RustTimeoutGuard(caught, missed, timeout int) bool {
+	return timeout > 0 && (caught == 0 || 2*timeout > caught+missed+timeout)
+}
+
 // RustMutationVerdict settles a cargo mutants run: 0 when every viable mutant
-// was caught, 1 when any survived, 2 for every other exit. The reason is the
-// verdict's line, then the table and the survivor and timeout lists.
-func RustMutationVerdict(run RustMutationRun) (int, string) {
+// was caught (a timed-out one counts as caught, TimedOutMutantIsDetected), 1
+// when any survived, 2 when nothing was measured. The reason is the verdict's
+// line, then the table and the survivor and timeout lists; the findings are
+// one per survivor and one per timed-out mutant.
+func RustMutationVerdict(run RustMutationRun) (int, string, []Finding) {
+	return rustMutationVerdict(run, TimedOutMutantIsDetected)
+}
+
+func rustMutationVerdict(run RustMutationRun, timeoutDetected bool) (int, string, []Finding) {
 	missed, caught := lineCount(run.Missed), lineCount(run.Caught)
 	unviable, timeout := lineCount(run.Unviable), lineCount(run.Timeout)
-	viable := missed + caught
+	viable := missed + caught + timeout
+	detected := caught
+	if timeoutDetected {
+		detected += timeout
+	}
 	pct := 0
 	if viable > 0 {
-		pct = caught * 100 / viable
+		pct = detected * 100 / viable
 	}
 
 	var b strings.Builder
@@ -204,21 +239,147 @@ func RustMutationVerdict(run RustMutationRun) (int, string) {
 		b.WriteString("```\n")
 	}
 	if timeout > 0 {
-		b.WriteString("\n**Timed out** — neither caught nor survived; the suite never answered. Usually a mutant that made a loop unbounded.\n\n```\n")
+		b.WriteString("\n**Timed out** — the suite noticed each of these by hanging until the test timeout killed it. ")
+		if timeoutDetected {
+			b.WriteString("Counted as caught, so they do not red the lane; ")
+		} else {
+			b.WriteString("Not counted as caught: a timeout is unmeasured; ")
+		}
+		b.WriteString(MutantTimeoutAdvice + ".\n\n```\n")
 		b.WriteString(withNewline(run.Timeout))
 		b.WriteString("```\n")
 	}
 	b.WriteString(SlowestTests(run.Baseline, SlowestTestsShown))
 	summary := b.String()
 
-	if run.Status == 0 {
-		return 0, fmt.Sprintf("every viable mutant was caught (%d of %d)\n\n%s", caught, viable, summary)
+	switch run.Status {
+	case 0:
+		return 0, fmt.Sprintf("every viable mutant was caught (%d of %d)\n\n%s", caught, viable, summary), nil
+	case cargoMutantsMissed, cargoMutantsTimeout:
+	default:
+		return 2, cannotRunRust(run), nil
 	}
-	if run.Status == 2 {
-		return 1, fmt.Sprintf("%d viable mutant(s) survived the suite — see the survivor list below\n\n%s", missed, summary)
+
+	// AN OUTCOME EXIT WITH NO OUTCOME BEHIND IT is a run whose lists did not
+	// read, not a report: exit 3 means mutants.out/timeout.txt names at least
+	// one mutant, exit 2 that missed.txt does.
+	if (run.Status == cargoMutantsTimeout && timeout == 0) || (run.Status == cargoMutantsMissed && missed == 0) {
+		return 2, fmt.Sprintf("%s — and mutants.out lists no mutant with that outcome, so the outcomes could not be read\n\n%s", cannotRunRust(run), summary), nil
 	}
-	return 2, fmt.Sprintf("CANNOT RUN - cargo mutants exited %d — a broken run, not a survivor report (a baseline that did not build, a timeout, a diff that did not match the tree): %s",
-		run.Status, firstErrorLine(run.Log))
+	if timeout > 0 && !timeoutDetected {
+		return 2, fmt.Sprintf("CANNOT RUN - %d mutant(s) timed out and a timeout is unmeasured (TimedOutMutantIsDetected is off) — %d caught, %d missed\n\n%s",
+			timeout, caught, missed, summary), nil
+	}
+	if RustTimeoutGuard(caught, missed, timeout) {
+		return 2, fmt.Sprintf("CANNOT RUN - %d of %d viable mutant(s) timed out and %d were caught by a failing test — a suite or a runner that hangs, not evidence the suite works (could-not-run when timeouts are more than half the viable mutants, or nothing was caught but by timeout)\n\n%s",
+			timeout, viable, caught, summary), nil
+	}
+
+	found := rustMutantFindings(run.Missed, VerdictDrifted, "mutant-missed", func(string) string {
+		return "survived the suite — a test gap or an equivalent mutant; read it before writing a test for it"
+	})
+	timeouts := rustTimeoutTimes(run.Log)
+	found = append(found, rustMutantFindings(run.Timeout, timedOutMutantVerdict(timeoutDetected), MutantTimeoutCause, func(name string) string {
+		after := "at the test timeout"
+		if secs, ok := timeouts[name]; ok {
+			after = "after " + secs + " of test, the timeout"
+		}
+		return "timed out " + after + ": " + MutantTimeoutAdvice
+	})...)
+	found = capFindings(found, "rust:mutation")
+
+	hung := ""
+	if timeout > 0 {
+		hung = fmt.Sprintf("; %d more timed out, counted as caught and listed below", timeout)
+	}
+	if missed > 0 {
+		return 1, fmt.Sprintf("%d viable mutant(s) survived the suite — see the survivor list below%s\n\n%s", missed, hung, summary), found
+	}
+	return 0, fmt.Sprintf("every viable mutant was caught (%d by a failing test, %d by a timeout, of %d)\n\n%s", caught, timeout, viable, summary), found
+}
+
+// cannotRunRust is a run that measured nothing, IN THE TOOL'S OWN WORDS. It
+// used to end at the first output line that said "error" — and a run that
+// says no such thing (anvil@0c5355f's exit 3: TIMEOUT, MISSED and a summary)
+// left the sentence ending in a colon and nothing after it. So the headline
+// carries the tool's summary line or its first error, and the tail of its
+// output follows, bounded.
+func cannotRunRust(run RustMutationRun) string {
+	said := firstErrorLine(run.Log)
+	if s := rustSummaryLine(run.Log); s != "" {
+		said = s
+	}
+	if said == "" {
+		said = "it printed no summary and no error"
+	}
+	return fmt.Sprintf("CANNOT RUN - cargo mutants exited %d — a broken run, not a survivor report (a baseline that did not build, a diff that did not match the tree, a crash): %s\n\nthe tail of its output:\n```\n%s\n```",
+		run.Status, said, boundedTail(run.Log, 20, 4000))
+}
+
+// rustSummaryLine is cargo-mutants' closing count, `58 mutants tested in 6m: 1
+// missed, 51 caught, 5 unviable, 1 timeouts`.
+var rustSummary = regexp.MustCompile(`^\d+ mutants? tested in .*$`)
+
+func rustSummaryLine(log string) string {
+	for _, ln := range strings.Split(log, "\n") {
+		if m := rustSummary.FindString(strings.TrimSpace(ln)); m != "" {
+			return m
+		}
+	}
+	return ""
+}
+
+// boundedTail is the last n lines of s, and at most limit bytes of them, cut
+// at a rune boundary from the front: a tool's failure is at its end.
+func boundedTail(s string, n, limit int) string {
+	t := tail(s, n)
+	if len(t) <= limit {
+		return t
+	}
+	from := len(t) - limit
+	for from < len(t) && !utf8.RuneStart(t[from]) {
+		from++
+	}
+	return "…" + t[from:]
+}
+
+// rustMutantLine is one line of a mutants.out outcome list:
+// `crates/anvil/src/inotify.rs:148:5: replace poll_ms -> i32 with -1`.
+var rustMutantLine = regexp.MustCompile(`^(\S+?):(\d+)(?::\d+)?: (.+)$`)
+
+// rustMutantFindings is one finding per line of an outcome list. The subject
+// is file:line, as every mutation finding's is (mutantFinding); the mutation
+// itself leads the detail.
+func rustMutantFindings(list, verdict, cause string, why func(name string) string) []Finding {
+	var out []Finding
+	for _, ln := range strings.Split(list, "\n") {
+		ln = strings.TrimSpace(ln)
+		if ln == "" {
+			continue
+		}
+		subject, mutation := ln, ln
+		if m := rustMutantLine.FindStringSubmatch(ln); m != nil {
+			subject, mutation = m[1]+":"+m[2], m[3]
+		}
+		out = append(out, Finding{Verdict: verdict, Subject: subject, Cause: cause, Detail: mutation + " — " + why(ln), Probe: "rust:mutation"})
+	}
+	return out
+}
+
+// rustTimeoutLine is cargo-mutants' progress line for a hang:
+// `TIMEOUT  crates/anvil/src/inotify.rs:148:5: replace poll_ms -> i32 with -1 in 0s build + 60s test`.
+var rustTimeoutLine = regexp.MustCompile(`^TIMEOUT\s+(.+) in \S+ build \+ (\S+) test\s*$`)
+
+// rustTimeoutTimes maps each timed-out mutant, as its outcome list names it,
+// to the test time its own line reports — the timeout it hit.
+func rustTimeoutTimes(log string) map[string]string {
+	out := map[string]string{}
+	for _, ln := range strings.Split(log, "\n") {
+		if m := rustTimeoutLine.FindStringSubmatch(strings.TrimSpace(ln)); m != nil {
+			out[m[1]] = m[2]
+		}
+	}
+	return out
 }
 
 // lineCount is `grep -c .`: the lines that hold at least one character.

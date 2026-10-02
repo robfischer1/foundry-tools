@@ -88,16 +88,18 @@ func TestRustMutationVerdict(t *testing.T) {
 			[]string{"(0 of 0)", "| 0 | 0 | 0 | 0 | 0% of 0 viable |"}, nil},
 		{"survivors", RustMutationRun{Status: 2, Missed: "src/lib.rs:3: replace f\nsrc/lib.rs:4: replace g", Caught: "c\n\n"}, 1,
 			[]string{"2 viable mutant(s) survived the suite", "| 1 | 2 | 0 | 0 | 33% of 3 viable |",
-				"**Survivors** — each is a HYPOTHESIS", "src/lib.rs:4: replace g\n```"}, []string{"**Timed out**"}},
-		{"timeouts listed", RustMutationRun{Status: 2, Missed: "m\n", Timeout: "src/lib.rs:9: loop"}, 1,
-			[]string{"**Timed out** — neither caught nor survived", "src/lib.rs:9: loop\n```"}, nil},
+				"**Survivors** — each is a HYPOTHESIS", "src/lib.rs:4: replace g\n```"}, []string{"**Timed out**", "more timed out"}},
+		{"timeouts listed", RustMutationRun{Status: 2, Missed: "m\n", Caught: five, Timeout: "src/lib.rs:9: loop"}, 1,
+			[]string{"**Timed out** — the suite noticed each", "src/lib.rs:9: loop\n```", "| 5 | 1 | 0 | 1 | 85% of 7 viable |"}, nil},
+		// The headline is the first error, cut to 160 runes; the tail follows.
 		{"a broken baseline", RustMutationRun{Status: 4, Log: "Found 3 mutants\nwarning: x\nERROR " + strings.Repeat("é", 200) + "\nerror: second"}, 2,
-			[]string{"cargo mutants exited 4", "a broken run, not a survivor report", ": ERROR " + strings.Repeat("é", 154)},
-			[]string{strings.Repeat("é", 155), "second", "| caught |"}},
+			[]string{"cargo mutants exited 4", "a broken run, not a survivor report", ": ERROR " + strings.Repeat("é", 154) + "\n",
+				"the tail of its output:\n```\nFound 3 mutants\n", "\nerror: second\n```"},
+			[]string{"| caught |"}},
 		{"a usage error with nothing to say", RustMutationRun{Status: 1, Log: "Usage: cargo mutants"}, 2,
-			[]string{"cargo mutants exited 1"}, nil},
+			[]string{"cargo mutants exited 1", ": it printed no summary and no error", "```\nUsage: cargo mutants\n```"}, nil},
 	} {
-		state, reason := RustMutationVerdict(c.run)
+		state, reason, _ := RustMutationVerdict(c.run)
 		if state != c.state {
 			t.Errorf("%s: state %d, want %d\n%s", c.name, state, c.state, reason)
 		}
@@ -175,15 +177,15 @@ func TestSlowestTestsNamesTheBaselinesLongestFirst(t *testing.T) {
 }
 
 func TestRustMutationVerdictCarriesTheSlowestTests(t *testing.T) {
-	_, reason := RustMutationVerdict(RustMutationRun{Status: 0, Caught: "a\n", Baseline: nextestBaseline})
+	_, reason, _ := RustMutationVerdict(RustMutationRun{Status: 0, Caught: "a\n", Baseline: nextestBaseline})
 	if !strings.Contains(reason, "  12.31s  bellows::mcp tests::witness_waits_for_the_broker") {
 		t.Errorf("the verdict lacks the slowest test:\n%s", reason)
 	}
-	_, reason = RustMutationVerdict(RustMutationRun{Status: 2, Missed: "m\n", Baseline: nextestBaseline})
+	_, reason, _ = RustMutationVerdict(RustMutationRun{Status: 2, Missed: "m\n", Baseline: nextestBaseline})
 	if !strings.Contains(reason, "**Survivors**") || !strings.Contains(reason, "**Where the test half") {
 		t.Errorf("a survivor verdict should carry both sections:\n%s", reason)
 	}
-	_, reason = RustMutationVerdict(RustMutationRun{Status: 0, Caught: "a\n"})
+	_, reason, _ = RustMutationVerdict(RustMutationRun{Status: 0, Caught: "a\n"})
 	if strings.Contains(reason, "**Where the test half") {
 		t.Errorf("no baseline, no section:\n%s", reason)
 	}
