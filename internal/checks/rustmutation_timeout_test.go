@@ -225,6 +225,10 @@ func TestBoundedTail(t *testing.T) {
 	if got := boundedTail("abcdef", 5, 3); got != "…def" {
 		t.Errorf("bytes: %q", got)
 	}
+	// Bytes that never start a rune run the cut off the end, not past it.
+	if got := boundedTail("\x80\x80\x80", 5, 2); got != "…" {
+		t.Errorf("no rune start: %q", got)
+	}
 	// é is two bytes; a cut inside one moves forward to the next rune.
 	if got := boundedTail("éé", 5, 3); got != "…é" {
 		t.Errorf("runes: %q", got)
@@ -244,8 +248,19 @@ func TestRustSummaryLine(t *testing.T) {
 }
 
 func TestRustMutantFindingsKeepAnUnparsedLineWhole(t *testing.T) {
-	got := rustMutantFindings("odd line\n\n", VerdictDrifted, "c", func(string) string { return "w" })
+	// A blank line BEFORE a mutant is skipped, not the end of the list, and a
+	// line's surrounding space is not part of its name.
+	got := rustMutantFindings("\n  odd line \r\n\n", VerdictDrifted, "c", func(string) string { return "w" })
 	if len(got) != 1 || got[0].Subject != "odd line" || got[0].Detail != "odd line — w" {
 		t.Errorf("%+v", got)
+	}
+}
+
+// A wide pull's findings are capped like every other atom's, and the cut says so.
+func TestRustMutationFindingsAreCapped(t *testing.T) {
+	run := RustMutationRun{Status: 2, Missed: mutantList(findingCap+1, "replace missed"), Caught: mutantList(findingCap, "replace caught")}
+	_, _, found := RustMutationVerdict(run)
+	if len(found) != findingCap+1 || found[findingCap].Cause != "finding-cap" {
+		t.Errorf("%d findings, last %+v", len(found), found[len(found)-1])
 	}
 }
