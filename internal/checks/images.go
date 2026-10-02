@@ -121,18 +121,6 @@ const (
 	ImageSyft   = "docker.io/anchore/syft:v1.33.0@sha256:f94e5d9fce1f2278491a8e3a63bd5f6ddb81fdfdbb8bf7a1637565c1d5344357"
 	ImageStatic = "gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab"
 
-	// THE BASE THE DISTROLESS TOOLS RUN ON (2026-10-02). The engine installs
-	// its cache CA into every container it runs, and Dagger's installer
-	// recognises a distro by its layout. syft's image is FROM scratch and
-	// cosign's is a ko image, so each run logged "failed to create cacerts
-	// installer ... invalid argument" (and the matching "uninstall CA certs"
-	// cleanup failure) and ran WITHOUT the CA — 351 failing spans in 24h on the
-	// live engines. toolOnAlpine grafts each binary onto this base and keeps
-	// the image's entrypoint; verified on a CA-mounted engine that cache-ca.crt
-	// lands in the trust store and no installer error is logged. Digest is the
-	// index's, resolved 2026-10-02.
-	ImageAlpine = "docker.io/library/alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8"
-
 	// THE BASE-IMAGE GATE'S SCANNER: trivy, and the two vulnerability
 	// databases it pulls as OCI artifacts. The pin is the one ca-rescan and
 	// vuln-3p already run (infra flux/apps/ca-rescan.yaml,
