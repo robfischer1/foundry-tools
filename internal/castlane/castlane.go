@@ -1,6 +1,6 @@
 // Package castlane is the cast lane's decisions as pure functions: what a
 // record asks the lane to cast, the staged payload's content pin, and how
-// hades's answer to forge_layer_cast settles. cast.go is the chain.
+// hades's answer to the layer_cast mint settles. cast.go is the chain.
 //
 // WHAT IT REPLACES. infra's ca-cast script, which every binary repo reached
 // through a one-line ci/cast.sh (`exec ca-cast --artifact app/<name>:stable
@@ -218,19 +218,44 @@ type Result struct {
 	NoOp    bool   `json:"noop"`
 }
 
-// Verb is the hades verb a bundle is cast with: layer_cast, signed (D12).
-const Verb = "forge_layer_cast"
+// Verb is the name the lane asks first for the mint: layer_cast, signed (D12).
+// It is the mint's wire name once hephaestus's verb_prefix flips from forge to
+// layer (D17); until then no star serves it and hades says so.
+const Verb = "layer_cast"
 
-// Minted folds hades's answer to forge_layer_cast into a verdict. staged is the pin
-// the lane pushed; mold re-derives the pin from what it pulls and refuses a
-// mismatch itself, so an answer carrying another pin is one the lane cannot
-// account for.
-func Minted(status int, raw, staged string) (Result, int, string) {
+// LegacyVerb is the same mint under today's prefix. The lane asks it only when
+// hades answers Verb with Unroutable — and only until the flip, after which
+// this fallback and the name both go.
+const LegacyVerb = "forge_layer_cast"
+
+// Unroutable reports whether hades answered an ask by saying it cannot route
+// that NAME for this caller, which is the only answer the lane retries under
+// LegacyVerb: no star serves the verb (404, edge/call.go's "no star serves
+// verb"), or the policy identified the caller and does not permit it the verb
+// (403, "caller not permitted for verb"). Everything else is the cast's own
+// answer and is settled as one — a star's refusal, a 401 at the door, a 503,
+// and a 403 for a caller hades could not identify, which the old name would
+// meet the same way.
+func Unroutable(status int, raw string) bool {
+	switch status {
+	case 404:
+		return strings.Contains(raw, "no star serves verb")
+	case 403:
+		return strings.Contains(raw, "caller not permitted for verb") && !strings.Contains(raw, "unidentifiable caller")
+	}
+	return false
+}
+
+// Minted folds hades's answer to verb into a verdict. staged is the pin
+// the lane pushed; hephaestus re-derives the pin from what it pulls and
+// refuses a mismatch itself, so an answer carrying another pin is one the lane
+// cannot account for.
+func Minted(verb string, status int, raw, staged string) (Result, int, string) {
 	if status == 403 && strings.Contains(raw, "unidentifiable caller") {
 		return Result{}, buildlane.CouldNotRun, "could not run: hades did not derive a principal from the peer SVID, so the PDP was never consulted — check the deployed hades revision, not the policy"
 	}
 	if status == 403 {
-		return Result{}, buildlane.Findings, "findings: hades identified the caller and the policy refused it: the cast lane's SVID is not granted " + Verb + " — check policy/authz_grants in foundry-dies"
+		return Result{}, buildlane.Findings, "findings: hades identified the caller and the policy refused it: the cast lane's SVID is not granted " + verb + " — check policy/authz_grants in foundry-dies"
 	}
 	if status == 401 {
 		return Result{}, buildlane.CouldNotRun, "could not run: hades rejected the caller at the door (401): the client certificate was not presented or did not verify against the SPIRE bundle"
@@ -249,7 +274,7 @@ func Minted(status int, raw, staged string) (Result, int, string) {
 	}
 	text := answer.Content[0].Text
 	if answer.IsError {
-		code, why := buildlane.ToolFailed(Verb, text)
+		code, why := buildlane.ToolFailed(verb, text)
 		return Result{}, code, why
 	}
 	var r Result
@@ -260,10 +285,10 @@ func Minted(status int, raw, staged string) (Result, int, string) {
 		return Result{}, buildlane.CouldNotRun, fmt.Sprintf("could not run: mold answered no digest: %.200q", text)
 	}
 	if r.Pin != staged {
-		return Result{}, buildlane.CouldNotRun, fmt.Sprintf("could not run: mold minted pin %s, and the lane staged %s", r.Pin, staged)
+		return Result{}, buildlane.CouldNotRun, fmt.Sprintf("could not run: hephaestus minted pin %s, and the lane staged %s", r.Pin, staged)
 	}
 	if !r.Signed {
-		return Result{}, buildlane.Findings, fmt.Sprintf("findings: mold minted %s@%s and did not sign it", r.Channel, r.Digest)
+		return Result{}, buildlane.Findings, fmt.Sprintf("findings: hephaestus minted %s@%s and did not sign it", r.Channel, r.Digest)
 	}
 	return r, buildlane.Clean, ""
 }

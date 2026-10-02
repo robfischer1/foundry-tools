@@ -71,7 +71,7 @@ func TestACastSealsEveryPhaseItRan(t *testing.T) {
 	if len(rec.Unreached) != 0 {
 		t.Fatalf("a whole cast reaches everything, got unreached %v", rec.Unreached)
 	}
-	if mint := castAtomNamed(t, l, "cast:mint"); !strings.Contains(mint.Reason, "mold minted") {
+	if mint := castAtomNamed(t, l, "cast:mint"); !strings.Contains(mint.Reason, "hephaestus minted") {
 		t.Fatalf("the mint carries what mold answered, got %q", mint.Reason)
 	}
 }
