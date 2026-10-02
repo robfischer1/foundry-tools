@@ -191,6 +191,13 @@ func atomTable() []AtomDef {
 			ID: "ops:kube-linter", Stage: StagePrecommit, Lane: LaneAny, Image: ImageKubeLinter,
 			Desc: "Every workload under flux/ passes kube-linter's default checks.",
 		},
+		// THE LIVE-OBJECT QUESTION, which ops:flux cannot ask: it judges the head
+		// alone. Added 2026-10-02 after flux #206 froze foundry with a Job
+		// template edit the API server refused.
+		{
+			ID: "ops:immutable", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
+			Desc: "No pull edits a field the API server refuses to change on a live object (Job template, workload selector, StatefulSet claims, binding roleRef, pinned clusterIP, PVC spec, immutable ConfigMap/Secret) — core kinds only, CRD rules are out of reach.",
+		},
 
 		// ---- template: the copier templates ----
 		//
