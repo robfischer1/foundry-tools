@@ -111,6 +111,8 @@ func TestFindMatchesAWholeNameOnly(t *testing.T) {
 		{"a longer name on the left, letter", "xourea_pr", false},
 		{"a longer name on the left, digit", "9ourea_pr", false},
 		{"one underscore is not the session prefix", "_ourea_pr", false},
+		{"the session prefix at the start of a line", "__ourea_pr", true},
+		{"one underscore after a word", "x_ourea_pr", false},
 		{"a miss then a hit", "ourea_pr_total and ourea_pr", true},
 		{"a hit after a left miss", "xourea_pr ourea_pr", true},
 		{"upper case on the right", "ourea_prX", false},
@@ -147,5 +149,20 @@ func TestFindReportsLinesAndEveryVerb(t *testing.T) {
 func TestFindOnACleanTextIsEmpty(t *testing.T) {
 	if hits := Find("p", "git_pr and model_pnl\n", mustParse(t, ledger)); len(hits) != 0 {
 		t.Errorf("hits %+v", hits)
+	}
+}
+
+// identByte decides both edges of every match, so each end of each range is
+// pinned, with the byte just outside it.
+func TestIdentByte(t *testing.T) {
+	for _, b := range []byte("_09azAZ5mM") {
+		if !identByte(b) {
+			t.Errorf("identByte(%q) = false, want true", b)
+		}
+	}
+	for _, b := range []byte("/:@[`{ -.\"(") {
+		if identByte(b) {
+			t.Errorf("identByte(%q) = true, want false", b)
+		}
 	}
 }

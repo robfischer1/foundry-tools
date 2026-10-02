@@ -71,10 +71,9 @@ var scannedSuffixes = []string{".md", ".toml", ".py", ".json"}
 // Scanned reports whether path is a unit this check reads.
 func Scanned(path string) bool {
 	path = strings.TrimPrefix(path, "./")
-	dir, _, nested := strings.Cut(path, "/")
-	if !nested {
-		return false
-	}
+	// A path with no directory is never a unit: none of the directory names
+	// carries a unit's suffix, so the two tests below already refuse it.
+	dir, _, _ := strings.Cut(path, "/")
 	inDir := false
 	for _, d := range scannedDirs {
 		if dir == d {
