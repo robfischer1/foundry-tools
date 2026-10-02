@@ -160,58 +160,117 @@ func baseDocument(ctx context.Context, oras *dagger.Container, base, digest, sta
 	return []byte(body), l, fmt.Sprintf("base %s's SBOM linked at %s", at, l.Locator()), buildlane.Clean, ""
 }
 
-// attestSBOM puts the image's SBOM beside it as a plain OCI referrer and signs a
-// POINTER to it (buildlane.SBOMRefType) — never the SBOM itself, which zot copied
-// into its metadata whole (internal/buildlane/sbomref.go has the measurement).
-// Then it checks both halves, every time: the pointer verifies against the CI
-// key, and the blob it names is readable from the registry. Either failing
-// withholds the permit as a could-not-run, as a failed sign does — the reader
-// that follows the pointer (foundry-stocks' forge-portfolio) is owed a good one on
-// every image this lane publishes (Zuse7, 2026-09-15).
-func (l *buildLane) attestSBOM(ctx context.Context, cosign, oras *dagger.Container, ref, sbom string) (int, string) {
-	repo, _, _ := strings.Cut(ref, "@")
-	oras = oras.
+// composedSBOM provisions oras with the registry login and reads the image's
+// composed SBOM (sbomOf), saying what composing did.
+func (l *buildLane) composedSBOM(ctx context.Context, img *Image) (*dagger.Container, string, *laneStop) {
+	oras, err := orasIn(ctx, l.registryAuth)
+	if err != nil {
+		return nil, "", &laneStop{buildlane.CouldNotRun, "could not run: " + err.Error()}
+	}
+	sbom, note, code, why := sbomOf(ctx, l.m.Source, img, oras, l.stamp)
+	if code != buildlane.Clean {
+		return nil, "", &laneStop{code, why}
+	}
+	say("%s", note)
+	return oras, sbom, nil
+}
+
+// publishSBOM is a star tip's SBOM, UNSIGNED (Scheduler Redistribution Part
+// II, D11): the composed document attached beside the image as a plain OCI
+// referrer, read back, and its blob checked readable. A star's image carries
+// no CI signature and no signed pointer any more — nothing verifies either
+// since the permit retired (Phase 13) — but the SBOM is still owed to every
+// image this lane publishes.
+func (l *buildLane) publishSBOM(ctx context.Context, img *Image, ref string) *laneStop {
+	oras, sbom, failed := l.composedSBOM(ctx, img)
+	if failed != nil {
+		return failed
+	}
+	oras = sbomIn(oras, sbom, l.stamp)
+	_, blob, _, failed := attachSBOM(ctx, oras, ref)
+	if failed != nil {
+		return failed
+	}
+	return blobReadable(ctx, oras, ref, blob)
+}
+
+// sbomIn is oras with the SBOM written where the attach reads it.
+func sbomIn(oras *dagger.Container, sbom, stamp string) *dagger.Container {
+	return oras.
 		WithNewFile("/in/sbom.cdx.json", sbom).
 		WithWorkdir("/in").
-		WithEnvVariable("BUILD_RUN", l.stamp)
-	// orasExec runs one oras command with the registry login. The login is a flag
-	// of the command, so it follows the whole command path (`oras manifest fetch
-	// --registry-config …`), never the first word of it.
-	orasExec := func(command []string, args ...string) *dagger.Container {
-		argv := append(append([]string{"oras"}, command...), "--registry-config", "/run/docker/config.json")
-		return oras.WithExec(append(argv, args...), anyExit)
-	}
+		WithEnvVariable("BUILD_RUN", stamp)
+}
 
+// orasExec runs one oras command with the registry login. The login is a flag
+// of the command, so it follows the whole command path (`oras manifest fetch
+// --registry-config …`), never the first word of it.
+func orasExec(oras *dagger.Container, command []string, args ...string) *dagger.Container {
+	argv := append(append([]string{"oras"}, command...), "--registry-config", "/run/docker/config.json")
+	return oras.WithExec(append(argv, args...), anyExit)
+}
+
+// attachSBOM puts the image's SBOM beside it as a plain OCI referrer and reads
+// back what the registry stored: the referrer's manifest digest and its one
+// layer's blob and size.
+func attachSBOM(ctx context.Context, oras *dagger.Container, ref string) (artifact, blob string, size int64, failed *laneStop) {
+	repo, _, _ := strings.Cut(ref, "@")
 	// The layer is titled by its file name, so the attach runs where the file is,
 	// and it prints the referrer's digest alone — its text output also names the
 	// subject's digest, which is not the one the pointer needs.
-	out, code, err := output(ctx, orasExec([]string{"attach"},
+	out, code, err := output(ctx, orasExec(oras, []string{"attach"},
 		"--artifact-type", buildlane.SBOMMediaType,
 		"--annotation", "org.opencontainers.image.created="+time.Now().UTC().Format(time.RFC3339),
 		"--format", "go-template", "--template", "{{.digest}}",
 		ref, "sbom.cdx.json:"+buildlane.SBOMMediaType))
 	if err != nil {
-		return buildlane.CouldNotRun, fmt.Sprintf("could not run: the SBOM attach did not run: %v", err)
+		return "", "", 0, &laneStop{buildlane.CouldNotRun, fmt.Sprintf("could not run: the SBOM attach did not run: %v", err)}
 	}
 	if code != 0 {
-		return buildlane.ToolFailed("SBOM attach", out)
+		c, why := buildlane.ToolFailed("SBOM attach", out)
+		return "", "", 0, &laneStop{c, why}
 	}
-	artifact := buildlane.DigestOf(out)
+	artifact = buildlane.DigestOf(out)
 	if artifact == "" {
-		return buildlane.CouldNotRun, fmt.Sprintf("could not run: oras attached the SBOM and answered no digest: %.200s", out)
+		return "", "", 0, &laneStop{buildlane.CouldNotRun, fmt.Sprintf("could not run: oras attached the SBOM and answered no digest: %.200s", out)}
 	}
 	// The pointer names what the registry stored, read back — never a hash of the
 	// local file.
-	manifest, code, err := output(ctx, orasExec([]string{"manifest", "fetch"}, repo+"@"+artifact))
+	manifest, code, err := output(ctx, orasExec(oras, []string{"manifest", "fetch"}, repo+"@"+artifact))
 	if err != nil || code != 0 {
-		return buildlane.CouldNotRun, fmt.Sprintf("could not run: the SBOM referrer %s could not be read back (exit %d): %v %.200s", artifact, code, err, manifest)
+		return "", "", 0, &laneStop{buildlane.CouldNotRun, fmt.Sprintf("could not run: the SBOM referrer %s could not be read back (exit %d): %v %.200s", artifact, code, err, manifest)}
 	}
-	blob, size, err := buildlane.SBOMLayer(manifest)
+	blob, size, err = buildlane.SBOMLayer(manifest)
 	if err != nil {
-		return buildlane.CouldNotRun, "could not run: " + err.Error()
+		return "", "", 0, &laneStop{buildlane.CouldNotRun, "could not run: " + err.Error()}
 	}
 	say("attached the SBOM to %s as %s (blob %s, %d bytes)", ref, artifact, blob, size)
+	return artifact, blob, size, nil
+}
 
+// blobReadable checks the SBOM's blob is readable from the registry: the
+// reader that follows the referrer is owed a document it can fetch.
+func blobReadable(ctx context.Context, oras *dagger.Container, ref, blob string) *laneStop {
+	repo, _, _ := strings.Cut(ref, "@")
+	found, code, err := output(ctx, orasExec(oras, []string{"blob", "fetch"}, "--descriptor", repo+"@"+blob))
+	if err != nil || code != 0 {
+		return &laneStop{buildlane.CouldNotRun, fmt.Sprintf("could not run: the SBOM blob the pointer names (%s@%s) is not readable from the registry (exit %d): %v %.200s", repo, blob, code, err, found)}
+	}
+	return nil
+}
+
+// attestSBOM is a BASE's SBOM: attached and read back as a star's is
+// (attachSBOM), and a POINTER to it (buildlane.SBOMRefType) signed — never the
+// SBOM itself, which zot copied into its metadata whole
+// (internal/buildlane/sbomref.go has the measurement). Then it checks both
+// halves: the pointer verifies against the CI key, and the blob it names is
+// readable from the registry.
+func (l *buildLane) attestSBOM(ctx context.Context, cosign, oras *dagger.Container, ref, sbom string) (int, string) {
+	oras = sbomIn(oras, sbom, l.stamp)
+	artifact, blob, size, failed := attachSBOM(ctx, oras, ref)
+	if failed != nil {
+		return failed.code, failed.why
+	}
 	pointing := cosign.WithNewFile("/in/sbom-ref.json", buildlane.SBOMRefPredicate(artifact, blob, size))
 	attested, attestCode, err := output(ctx, pointing.WithExec([]string{"attest", "--key", "/run/cosign/key", "--type", buildlane.SBOMRefType, "--predicate", "/in/sbom-ref.json", "--yes", "--tlog-upload=false", "--use-signing-config=false", ref}, entrypointAnyExit))
 	if err != nil {
@@ -229,9 +288,8 @@ func (l *buildLane) attestSBOM(ctx context.Context, cosign, oras *dagger.Contain
 		}
 		return buildlane.CouldNotRun, fmt.Sprintf("could not run: the SBOM pointer was attested and does not verify against the CI key: %.200s", checked)
 	}
-	found, code, err := output(ctx, orasExec([]string{"blob", "fetch"}, "--descriptor", repo+"@"+blob))
-	if err != nil || code != 0 {
-		return buildlane.CouldNotRun, fmt.Sprintf("could not run: the SBOM blob the pointer names (%s@%s) is not readable from the registry (exit %d): %v %.200s", repo, blob, code, err, found)
+	if failed := blobReadable(ctx, oras, ref, blob); failed != nil {
+		return failed.code, failed.why
 	}
 	say("attested a pointer to the SBOM (%s) on %s", buildlane.SBOMRefType, ref)
 	return buildlane.Clean, ""

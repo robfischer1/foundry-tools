@@ -78,7 +78,7 @@ func TestAPullSealsThePhasesItRanAndLeavesTheRestUnreached(t *testing.T) {
 	if rec.State != buildlane.Clean {
 		t.Fatalf("the record's state is the lane's verdict, got %d", rec.State)
 	}
-	wantUnreached := []string{"build:publish", "build:sign"}
+	wantUnreached := []string{"build:publish", "build:sbom"}
 	if !equalStrings(rec.Unreached, wantUnreached) {
 		t.Fatalf("unreached\n want %v\n  got %v", wantUnreached, rec.Unreached)
 	}
@@ -104,7 +104,7 @@ func TestAFindingSealsTheScanAndStopsThere(t *testing.T) {
 		t.Fatalf("the scan's atom carries its own reason, got %q", verify.Reason)
 	}
 	rec := l.record("build", code)
-	for _, after := range []string{"build:publish", "build:sign"} {
+	for _, after := range []string{"build:publish", "build:sbom"} {
 		if contains(atomNames(l), after) {
 			t.Fatalf("%s sealed although the scan stopped the lane", after)
 		}
@@ -227,7 +227,7 @@ func TestTheRenderedLogNamesWhatWasNeverReached(t *testing.T) {
 	if !strings.Contains(log, "build:verify: pass") {
 		t.Fatalf("the log names each phase and its verdict:\n%s", log)
 	}
-	if !strings.Contains(log, "never reached: build:publish, build:sign") {
+	if !strings.Contains(log, "never reached: build:publish, build:sbom") {
 		t.Fatalf("the log names what never ran:\n%s", log)
 	}
 }
@@ -279,7 +279,7 @@ func TestEveryBaseSealsItsOwnAtomAndNothingIsUnreached(t *testing.T) {
 	// AND THE STAR PHASES ARE NOT CLAIMED. A bases run never had an image to
 	// publish, so naming build:publish at all — held or unreached — would
 	// describe a step this shape of run does not contain.
-	for _, p := range []string{"build:image", "build:publish", "build:sign"} {
+	for _, p := range []string{"build:image", "build:publish", "build:sbom"} {
 		if contains(atomNames(l), p) {
 			t.Fatalf("a bases run sealed the star phase %s", p)
 		}
@@ -337,7 +337,7 @@ func TestTheRenderedLogOmitsTheNeverReachedLineWhenNothingWasMissed(t *testing.T
 	if got := l.renderLog(nil); strings.Contains(got, "never reached") {
 		t.Fatalf("nothing was missed, so nothing is named:\n%s", got)
 	}
-	if got := l.renderLog([]string{"build:sign"}); !strings.Contains(got, "never reached: build:sign") {
+	if got := l.renderLog([]string{"build:sbom"}); !strings.Contains(got, "never reached: build:sbom") {
 		t.Fatalf("what was missed is named:\n%s", got)
 	}
 }
