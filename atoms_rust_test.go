@@ -378,6 +378,9 @@ func TestRustMutationMeasuresTheDiffFromTheFetchedLayer(t *testing.T) {
 		// #31a47b3: 14s build + 30s test per mutant before this).
 		[]string{"withEnvVariable", `name:"CARGO_PROFILE_DEV_DEBUG"`, `value:"0"`},
 		[]string{"withEnvVariable", `name:"CARGO_PROFILE_TEST_DEBUG"`, `value:"0"`},
+		// every test process under RLIMIT_DATA, so a runaway mutant fails its
+		// test instead of meeting the engine's per-exec OOM kill
+		[]string{"withEnvVariable", `name:"CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER"`, `value:"prlimit --data=4294967296 --"`},
 		[]string{"withExec", "expect:ANY", `args:["mold","-run","cargo","mutants","--colors","never","-j","2","--build-timeout","900","--minimum-test-timeout","60","--test-tool","nextest","-f","src/lib.rs","-D","/tmp/mutation/pr.diff"]`},
 	)
 	if hasCall(c, "withExec", `args:["cargo","mutants","--version"]`, "expect:ANY") {

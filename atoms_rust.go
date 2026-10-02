@@ -321,8 +321,26 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 	//                      RustMutationVerdict reads to name the ten tests the
 	//                      test half is made of. Seven Rust stars, none with a
 	//                      nextest config or serial_test, checked before this.
-	// The job count stays two: the engine is 8 CPU / 24Gi shared by every lane
-	// in flight, and two copies at a rustc each is what fits beside them.
+	// The job count stays two: the engine is shared by every lane in flight,
+	// and two copies at a rustc each is what fits beside them.
+	//
+	// EVERY TEST PROCESS RUNS UNDER RLIMIT_DATA (2026-10-02). A mutant can turn
+	// a bounded loop into an unbounded allocation: paneless d988b9b grew one
+	// test binary to 16.4G and the engine's per-exec memory.max killed it, on
+	// dev01 and llm01 within a minute. The verdict survived, but a lane did the
+	// work of a kernel OOM kill and paged as one. cargo-mutants has no memory
+	// flag, so the cap rides cargo's target runner, which nextest honours: the
+	// test binaries run under prlimit, and rustc, the linker and build scripts
+	// do not. The runaway mutant now dies with "memory allocation failed", its
+	// test fails, and the mutant is CAUGHT, which is the honest outcome.
+	//
+	// DATA, NOT AS. RLIMIT_AS counts reservations: 64 idle threads hold 4.3G
+	// of address space (stacks + glibc's 64M arenas) on 2.6M of RSS, so an AS
+	// cap fails thread-heavy tests that use nothing. RLIMIT_DATA counts
+	// writable private memory: measured in this image, 256 threads ran under
+	// a 1G data cap while a 256M-chunk grower aborted at it. The unmutated
+	// baseline runs under the same runner, so a real test that needs more than
+	// this fails the baseline loudly rather than skewing any verdict.
 	args := []string{"mold", "-run", "cargo", "mutants", "--colors", "never", "-j", strconv.Itoa(rustMutationJobs),
 		"--build-timeout", "900", "--minimum-test-timeout", "60", "--test-tool", "nextest"}
 	for _, m := range strings.Fields(mods) {
@@ -337,6 +355,7 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 		WithEnvVariable("TMPDIR", mutationDir+"/tmp").
 		WithEnvVariable("CARGO_PROFILE_DEV_DEBUG", "0").
 		WithEnvVariable("CARGO_PROFILE_TEST_DEBUG", "0").
+		WithEnvVariable(rustTestRunnerEnv, rustTestRunner).
 		WithExec(append(args, "-D", rustMutationDiff), anyExit)
 	log, status, err := outputBoth(ctx, mutated)
 	if err != nil {
@@ -369,6 +388,13 @@ const (
 	// rustMutationDiff is the pull's diff as cargo mutants -D reads it.
 	rustMutationDiff = mutationDir + "/pr.diff"
 	rustMutationJobs = 2
+	// rustTestRunnerEnv keys cargo's runner by the host triple; every engine
+	// node is x86_64 (measured 2026-10-02).
+	rustTestRunnerEnv = "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER"
+	// rustTestRunner caps each test process at 4GiB of data. A mutant's test
+	// that needs more than that is a runaway; the 16G per-exec memory.max
+	// stays as the backstop behind it.
+	rustTestRunner = "prlimit --data=4294967296 --"
 )
 
 // THE RELEASE BUILD, AND IT IS THE ONE THE IMAGE CARRIES — go:release's
