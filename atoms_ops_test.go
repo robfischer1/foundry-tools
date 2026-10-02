@@ -415,10 +415,10 @@ func TestOpsFlux(t *testing.T) {
 
 	opsTree(map[string]string{"flux/README.md": ""}, nil)
 	engine.script(script{match: `"kubectl","kustomize"`, leaf: "contents", value: "kind: A\n---\nkind: B"})
-	wantState(t, runAtom(t, "ops:flux", ""), 0, "ABSENT - flux/ carries no Kustomization CR and no kustomization.yaml")
+	wantState(t, runAtom(t, "ops:flux", ""), 0, "ABSENT - the Flux tree carries no Kustomization CR and no kustomization.yaml")
 	opsTree(map[string]string{"ansible/playbooks/a.yml": ""}, nil)
 	engine.script(script{match: `"kubectl","kustomize"`, leaf: "contents", value: "kind: A\n---\nkind: B"})
-	wantState(t, runAtom(t, "ops:flux", ""), 0, "ABSENT - no flux/ in this tree")
+	wantState(t, runAtom(t, "ops:flux", ""), 0, "ABSENT - no Flux tree here")
 }
 
 // Every ops atom files an engine that would not answer as could-not-run: the
@@ -509,19 +509,78 @@ func TestOpsKubeLinterIsAbsentWithoutFluxAndRefusesAnUnreadableRoot(t *testing.T
 	engine.reset()
 	engine.withTree(templateTree([]string{"flux/x.yaml"}, nil))
 	v := runAtom(t, "ops:kube-linter", "")
-	wantState(t, v, 0, "no flux/ tree at the repository root")
+	wantState(t, v, 0, "no Flux tree here: neither flux/ nor clusters/<name>/kustomization.yaml")
 	if v.Result != "absent" {
 		t.Errorf("result %q, want absent:\n%s", v.Result, v.Reason)
 	}
-	wantNoContainer(t, "no flux/ tree is decided in Go")
+	wantNoContainer(t, "no Flux tree is decided in Go")
 
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	engine.fail(rootEntries, "mount evaporated")
-	wantState(t, runAtom(t, "ops:kube-linter", ""), 2, "the repository root could not be read", "mount evaporated")
+	engine.fail(`glob(pattern:"**")`, "mount evaporated")
+	wantState(t, runAtom(t, "ops:kube-linter", ""), 2, "the tree would not enumerate", "mount evaporated")
 
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	engine.fail(`"/kube-linter"`, "failed to resolve image")
 	wantState(t, runAtom(t, "ops:kube-linter", ""), 2, "never ran", "failed to resolve image")
+}
+
+// A REPOSITORY THAT IS THE FLUX TREE (foundry/flux since 2026-09-29): its
+// clusters/ and one directory per Kustomization sit at the root. ops:flux
+// builds every path its CRs apply, and ops:kube-linter lints exactly those
+// paths plus clusters/ — not the whole root, which carries docs and tooling.
+// Both read ABSENT on this shape until 2026-10-02.
+func TestOpsFluxAndKubeLinterRunOnARootFluxTree(t *testing.T) {
+	cr := "apiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nspec:\n  path: ./prime\n  sourceRef: {name: flux-system}\n"
+	rootTree := map[string]string{
+		"clusters/pantheon/kustomization.yaml": "resources: [prime.yaml]\n",
+		"clusters/pantheon/prime.yaml":         cr,
+		"prime/kustomization.yaml":             "resources: []\n",
+		"docs/notes.md":                        "",
+	}
+	opsTree(rootTree, nil)
+	engine.script(script{match: `"kubectl","kustomize"`, leaf: "contents", value: "kind: A\n---\nkind: B"})
+	wantState(t, runAtom(t, "ops:flux", ""), 0)
+	if engine.chain(`"kustomize","prime","-o"`) == "" {
+		t.Error("the root tree's Kustomization path was not built")
+	}
+
+	// kube-linter: clusters/ and the CR paths, from EVERY cluster manifest,
+	// and not a kustomization.yaml no CR applies (data/ here).
+	lintTree := map[string]string{
+		"clusters/pantheon/kustomization.yaml": "resources: [prime.yaml, spire.yaml]\n",
+		"clusters/pantheon/prime.yaml":         cr,
+		"clusters/pantheon/spire.yaml":         strings.Replace(cr, "./prime", "./spire", 1),
+		"prime/kustomization.yaml":             "resources: []\n",
+		"spire/kustomization.yaml":             "resources: []\n",
+		"data/kustomization.yaml":              "resources: []\n",
+	}
+	engine.reset()
+	engine.withTree(lintTree)
+	wantState(t, runAtom(t, "ops:kube-linter", ""), 0)
+	if engine.chain(`"/kube-linter","lint","--fail-if-no-objects-found","clusters/","prime","spire"]`) == "" {
+		t.Error("kube-linter must lint clusters/ and the CR paths of every cluster manifest, nothing else")
+	}
+
+	// No CR at the root: every <dir>/kustomization.yaml but clusters/.
+	engine.reset()
+	engine.withTree(map[string]string{
+		"clusters/pantheon/kustomization.yaml": "resources: []\n",
+		"prime/kustomization.yaml":             "resources: []\n",
+	})
+	wantState(t, runAtom(t, "ops:kube-linter", ""), 0)
+	if engine.chain(`"/kube-linter","lint","--fail-if-no-objects-found","clusters/","prime"]`) == "" {
+		t.Error("with no CR, kube-linter lints the fallback trees")
+	}
+
+	// A cluster manifest that cannot be read is a CANNOT RUN, never a lint of
+	// a guessed population.
+	engine.reset()
+	engine.withTree(rootTree)
+	engine.fail(`file(path:"clusters/pantheon/prime.yaml")`, "read evaporated")
+	wantState(t, runAtom(t, "ops:kube-linter", ""), 2, "CANNOT RUN - clusters/pantheon/prime.yaml could not be read", "read evaporated")
+	if engine.chain(`"/kube-linter","lint"`) != "" {
+		t.Error("no lint may run on an unreadable cluster manifest")
+	}
 }

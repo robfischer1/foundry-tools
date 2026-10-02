@@ -46,6 +46,16 @@ type OpsFile struct {
 	Mode string
 }
 
+// OpsFiles wraps bare tracked paths as OpsFiles with no mode, for a caller
+// that has the population but not the ls-files record (ops:kube-linter).
+func OpsFiles(paths []string) []OpsFile {
+	out := make([]OpsFile, len(paths))
+	for i, p := range paths {
+		out[i] = OpsFile{Path: p}
+	}
+	return out
+}
+
 // OpsTracked reads `git ls-files -s -z` into the tracked files.
 func OpsTracked(lsFiles string) []OpsFile {
 	var out []OpsFile
@@ -325,25 +335,32 @@ func OpsFluxPaths(manifests map[string]string) ([]string, []string) {
 	return paths, problems
 }
 
-// OpsFluxFallback is every flux/<dir> that carries a kustomization.yaml, for
-// a flux/ tree with no Kustomization CR.
-func OpsFluxFallback(files []OpsFile) []string {
+// OpsFluxFallback is every <root><dir> that carries a kustomization.yaml, for
+// a Flux tree with no Kustomization CR. root is FluxRoot's answer: "flux/" or
+// "" for a repository that is the Flux tree. In the root shape clusters/ is
+// never a fallback path: it holds the CRs, not a tree they apply, and at the
+// root it would be the only kustomization.yaml next to every real one.
+func OpsFluxFallback(files []OpsFile, root string) []string {
 	var out []string
 	for _, f := range files {
-		parts := strings.Split(f.Path, "/")
-		if len(parts) == 3 && parts[0] == "flux" && parts[2] == "kustomization.yaml" {
-			out = append(out, parts[0]+"/"+parts[1])
+		rest, ok := strings.CutPrefix(f.Path, root)
+		if !ok {
+			continue
+		}
+		parts := strings.Split(rest, "/")
+		if len(parts) == 2 && parts[1] == "kustomization.yaml" && (root != "" || parts[0] != "clusters") {
+			out = append(out, root+parts[0])
 		}
 	}
 	sort.Strings(out)
 	return out
 }
 
-// OpsFluxClusterManifests is every tracked flux/clusters/**/*.yaml.
-func OpsFluxClusterManifests(files []OpsFile) []string {
+// OpsFluxClusterManifests is every tracked <root>clusters/**/*.yaml.
+func OpsFluxClusterManifests(files []OpsFile, root string) []string {
 	var out []string
 	for _, f := range files {
-		if strings.HasPrefix(f.Path, "flux/clusters/") && path.Ext(f.Path) == ".yaml" {
+		if strings.HasPrefix(f.Path, root+"clusters/") && path.Ext(f.Path) == ".yaml" {
 			out = append(out, f.Path)
 		}
 	}
