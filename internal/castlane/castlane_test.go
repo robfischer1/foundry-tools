@@ -209,7 +209,7 @@ func answer(isError bool, text string) string {
 const minted = `{"channel":"foundry.notusmi.com/app/tongs:stable","kind":"app","name":"tongs","tag":"stable","version_index":7,"pin":"g0123456789ab","digest":"sha256:abc","signed":true,"source_sha":"` + "dddddddddddddddddddddddddddddddddddddddd" + `","noop":false}`
 
 func TestMintedReadsTheCast(t *testing.T) {
-	r, code, why := Minted(Verb, 200, answer(false, minted), "g0123456789ab")
+	r, code, why := Minted(200, answer(false, minted), "g0123456789ab")
 	if code != buildlane.Clean || why != "" {
 		t.Fatalf("settled %d %q", code, why)
 	}
@@ -218,7 +218,7 @@ func TestMintedReadsTheCast(t *testing.T) {
 		t.Errorf("got %+v, want %+v", r, want)
 	}
 	noop := strings.Replace(minted, `"noop":false`, `"noop":true`, 1)
-	if r, code, _ := Minted(Verb, 200, answer(false, noop), "g0123456789ab"); code != buildlane.Clean || !r.NoOp {
+	if r, code, _ := Minted(200, answer(false, noop), "g0123456789ab"); code != buildlane.Clean || !r.NoOp {
 		t.Errorf("a no-op cast is clean and says so: %+v %d", r, code)
 	}
 }
@@ -230,12 +230,12 @@ func TestMintedSettlesEveryOtherAnswer(t *testing.T) {
 		code     int
 	}{
 		"no principal":      {403, `{"detail":"unidentifiable caller"}`, "did not derive a principal", buildlane.CouldNotRun},
-		"not granted":       {403, `{"detail":"denied"}`, "not granted forge_layer_cast", buildlane.Findings},
+		"not granted":       {403, `{"detail":"denied"}`, "not granted layer_cast", buildlane.Findings},
 		"no certificate":    {401, ``, "rejected the caller at the door", buildlane.CouldNotRun},
 		"a server error":    {503, ``, "HTTP 503", buildlane.CouldNotRun},
 		"not a tool answer": {200, `garbage`, "not a tool answer", buildlane.CouldNotRun},
 		"an empty answer":   {200, `{"content":[]}`, "not a tool answer", buildlane.CouldNotRun},
-		"mold refused":      {200, answer(true, "mold app/tongs:stable: staged payload pin mismatch"), "findings in forge_layer_cast", buildlane.Findings},
+		"mold refused":      {200, answer(true, "mold app/tongs:stable: staged payload pin mismatch"), "findings in layer_cast", buildlane.Findings},
 		"mold lost the net": {200, answer(true, "dial tcp 10.0.0.1:443: connect: connection refused"), "could not run", buildlane.CouldNotRun},
 		"not a result":      {200, answer(false, "stamped"), "not a cast result", buildlane.CouldNotRun},
 		"no digest":         {200, answer(false, strings.Replace(minted, `"sha256:abc"`, `""`, 1)), "answered no digest", buildlane.CouldNotRun},
@@ -244,7 +244,7 @@ func TestMintedSettlesEveryOtherAnswer(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			r, code, why := Minted(LegacyVerb, c.status, c.raw, "g0123456789ab")
+			r, code, why := Minted(c.status, c.raw, "g0123456789ab")
 			if code != c.code || !strings.Contains(why, c.why) {
 				t.Fatalf("settled %d %q, want %d naming %q", code, why, c.code, c.why)
 			}
@@ -271,38 +271,15 @@ func TestDoorbellCarriesWhatDeliveryReads(t *testing.T) {
 	}
 }
 
-// Only an answer that says hades cannot route the NAME for this caller sends
-// the lane to the old name; a real failure of the cast never does.
-func TestUnroutableIsTheNameNotTheCast(t *testing.T) {
-	cases := map[string]struct {
-		status int
-		raw    string
-		want   bool
-	}{
-		"no star serves it":           {404, `{"detail":"no star serves verb \"layer_cast\""}`, true},
-		"not permitted":               {403, `{"detail":"forbidden: caller not permitted for verb \"layer_cast\": no grant"}`, true},
-		"not permitted, unidentified": {403, `{"detail":"forbidden: caller not permitted for verb \"layer_cast\": unidentifiable caller"}`, false},
-		"a 404 that is not hades's":   {404, `not found`, false},
-		"a 403 that is not hades's":   {403, `{"detail":"denied"}`, false},
-		"the door rejects the caller": {401, `{"detail":"caller not permitted for verb"}`, false},
-		"the star is down":            {503, `{"detail":"no star serves verb"}`, false},
-		"the star refuses the cast":   {200, answer(true, "layer_cast app/tongs:stable: staged payload pin mismatch"), false},
-		"the cast lands":              {200, answer(false, minted), false},
+// The verdict names layer_cast, the one verb the lane asks.
+func TestMintedNamesLayerCast(t *testing.T) {
+	if _, _, why := Minted(403, `{"detail":"denied"}`, "g0123456789ab"); !strings.Contains(why, "not granted layer_cast") {
+		t.Errorf("denied: %q", why)
 	}
-	for name, c := range cases {
-		if got := Unroutable(c.status, c.raw); got != c.want {
-			t.Errorf("%s: Unroutable(%d, %q) = %v, want %v", name, c.status, c.raw, got, c.want)
-		}
+	if _, _, why := Minted(200, answer(true, "refused: payload pin mismatch"), "g0123456789ab"); !strings.Contains(why, "layer_cast") {
+		t.Errorf("refused: %q", why)
 	}
-}
-
-// The verdict names the verb it was asked with, so a refusal after the
-// fallback reads as the old name's.
-func TestMintedNamesTheVerbItWasAsked(t *testing.T) {
-	if _, _, why := Minted(Verb, 403, `{"detail":"denied"}`, "g0123456789ab"); !strings.Contains(why, "not granted layer_cast") {
-		t.Errorf("denied under Verb: %q", why)
-	}
-	if _, _, why := Minted(LegacyVerb, 200, answer(true, "refused: payload pin mismatch"), "g0123456789ab"); !strings.Contains(why, "forge_layer_cast") {
-		t.Errorf("refused under LegacyVerb: %q", why)
+	if _, _, why := Minted(200, answer(false, "stamped"), "g0123456789ab"); !strings.Contains(why, "layer_cast's answer is not a cast result") {
+		t.Errorf("not a result: %q", why)
 	}
 }
