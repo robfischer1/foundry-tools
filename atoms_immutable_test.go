@@ -16,6 +16,7 @@ const (
 	imBaseBuild    = `"kustomize","/tmp/immutable-base/foundry","-o","/tmp/immutable-base.0.yaml"`
 	imHeadContents = `/tmp/immutable-head.0.yaml`
 	imBaseContents = `/tmp/immutable-base.0.yaml`
+	imDiff         = `"git","diff","--name-only","` + sinceSha + `","HEAD"`
 )
 
 func imJob(cpu string) string {
@@ -33,6 +34,7 @@ func imTree(base, head string) {
 		"foundry/kustomization.yaml":           "resources: []\n",
 	})
 	engine.stdout(imMergeNeedle, sinceSha+"\n")
+	engine.stdout(imDiff, "foundry/job.yaml\n")
 	engine.script(script{match: imHeadContents, leaf: "contents", value: head})
 	engine.script(script{match: imBaseContents, leaf: "contents", value: base})
 }
@@ -57,7 +59,7 @@ func TestOpsImmutablePassesAnUnchangedTree(t *testing.T) {
 	imTree(imJob("200m"), imJob("200m"))
 	v := runAtom(t, "ops:immutable", "base-sha")
 	wantState(t, v, 0)
-	wantLogs(t, v, "PASS - 1 path(s) compared against "+sinceSha)
+	wantLogs(t, v, "PASS - 1 path(s) compared against "+sinceSha+", the 1 of 1 whose inputs changed")
 }
 
 // wantLogs: a passing atom's reason is just PASS; what it said is in Logs.
@@ -143,6 +145,7 @@ func TestOpsImmutableFallsBackAndCountsPaths(t *testing.T) {
 		"data/kustomization.yaml":              "resources: []\n",
 	})
 	engine.stdout(imMergeNeedle, sinceSha+"\n")
+	engine.stdout(imDiff, "foundry/job.yaml\ndata/x.yaml\n")
 	engine.script(script{match: `/tmp/immutable-`, leaf: "contents", value: imJob("1")})
 	v := runAtom(t, "ops:immutable", "base-sha")
 	wantState(t, v, 0)
@@ -171,6 +174,7 @@ func TestOpsImmutableKeepsGoingAndComparesTheCRPaths(t *testing.T) {
 			"loose/kustomization.yaml":             "resources: []\n",
 		})
 		engine.stdout(imMergeNeedle, sinceSha+"\n")
+		engine.stdout(imDiff, "data/x.yaml\nfoundry/job.yaml\nloose/x.yaml\n")
 		engine.script(script{match: `/tmp/immutable-head.`, leaf: "contents", value: imJob("1")})
 		engine.script(script{match: `/tmp/immutable-base.`, leaf: "contents", value: imJob("200m")})
 	}
@@ -214,4 +218,64 @@ func TestOpsImmutableEngineFailuresAreCannotRun(t *testing.T) {
 			t.Errorf("%s: state %d, reason %s", name, v.State, v.Reason)
 		}
 	}
+}
+
+// Only paths whose inputs changed are rendered: a path's own files, or a
+// directory its kustomization reaches through ../. A pull that touches
+// nothing a path reads renders nothing at all.
+func TestOpsImmutableRendersOnlyThePathsWhoseInputsChanged(t *testing.T) {
+	tree := func(diff string) {
+		engine.reset()
+		engine.withTree(map[string]string{
+			"clusters/pantheon/kustomization.yaml": "resources: [crs.yaml]\n",
+			"clusters/pantheon/crs.yaml": "apiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nspec:\n  path: ./blades\n  sourceRef: {name: flux-system}\n" +
+				"---\napiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nspec:\n  path: ./foundry\n  sourceRef: {name: flux-system}\n",
+			// A ../ reference to a FILE as well as a directory: the file is an
+			// input, and there is no kustomization.yaml under it to read.
+			"blades/kustomization.yaml":       "resources: [../hemera/rules.yaml]\ncomponents:\n  - ../prime/images\n",
+			"hemera/rules.yaml":               "kind: PrometheusRule\n",
+			"foundry/kustomization.yaml":      "resources: []\n",
+			"prime/images/kustomization.yaml": "kind: Component\n",
+		})
+		engine.stdout(imMergeNeedle, sinceSha+"\n")
+		engine.stdout(imDiff, diff)
+		engine.script(script{match: `/tmp/immutable-`, leaf: "contents", value: imJob("1")})
+	}
+	// An image pin: only blades reads prime/images.
+	tree("prime/images/kustomization.yaml\n")
+	v := runAtom(t, "ops:immutable", "base-sha")
+	wantState(t, v, 0)
+	wantLogs(t, v, "PASS - 1 path(s) compared against "+sinceSha+", the 1 of 2 whose inputs changed")
+	if engine.chain(`"kustomize","blades","-o"`) == "" || engine.chain(`"kustomize","foundry","-o"`) != "" {
+		t.Error("an image pin renders the path that reads it and no other")
+	}
+	// Nothing a path reads: no render, no base checkout.
+	tree("README.md\nclusters/pantheon/README.md\n")
+	v = runAtom(t, "ops:immutable", "base-sha")
+	wantState(t, v, 0)
+	wantLogs(t, v, "PASS - no Flux path's inputs changed against "+sinceSha+"; 2 path(s), nothing to compare")
+	if engine.chain(`"kubectl","kustomize"`) != "" || engine.chain(`"worktree","add"`) != "" {
+		t.Error("an untouched tree renders nothing and checks nothing out")
+	}
+	// A change to a file a path references directly reaches that path too.
+	tree("hemera/rules.yaml\n")
+	v = runAtom(t, "ops:immutable", "base-sha")
+	wantState(t, v, 0)
+	wantLogs(t, v, "the 1 of 2 whose inputs changed")
+	if engine.chain(`"kustomize","blades","-o"`) == "" {
+		t.Error("a referenced file's change renders the path that references it")
+	}
+	// The diff exec failing in the engine is a CANNOT RUN too.
+	tree("foundry/x.yaml\n")
+	engine.script(script{match: imDiff, leaf: "exitCode", fail: "engine went away"})
+	wantState(t, runAtom(t, "ops:immutable", "base-sha"), 2, "CANNOT RUN - the changed files against "+sinceSha+" would not list", "engine went away")
+	// A diff that will not list is a CANNOT RUN, never a pass.
+	tree("")
+	engine.exitCode(imDiff, 1)
+	engine.stdout(imDiff, "fatal: bad revision")
+	wantState(t, runAtom(t, "ops:immutable", "base-sha"), 2, "CANNOT RUN - the changed files against "+sinceSha+" would not list (exit 1)", "bad revision")
+	// A kustomization that will not read is a CANNOT RUN naming it.
+	tree("foundry/x.yaml\n")
+	engine.fail(`file(path:"blades/kustomization.yaml")`, "read evaporated")
+	wantState(t, runAtom(t, "ops:immutable", "base-sha"), 2, "CANNOT RUN - blades/kustomization.yaml could not be read", "read evaporated")
 }
