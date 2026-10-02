@@ -21,7 +21,7 @@ const (
 	cargoNeedle   = `"cargo","build"`
 	castpinNeedle = `"/usr/local/bin/castpin"`
 	stageNeedle   = `"oras","push"`
-	moldNeedle    = `"forge_mold"`
+	moldNeedle    = `"forge_layer_cast"`
 	verifyNeedle  = `"verify","--key"`
 	bellNeedle    = `"curl"`
 )
@@ -112,6 +112,10 @@ func TestACastStagesMintsVerifiesAndRings(t *testing.T) {
 		[]string{"withExec", `"--registry-config"`, `"{{.digest}}"`, `"` + castRef + `","tongs"]`},
 	)
 	wantCalls(t, engine.chain(moldNeedle), []string{"withExec", `app/tongs:stable`, castRef + "@" + castStaged, buildSha})
+	// SIGNED ON PURPOSE (D12): the lane asks for the signature by name.
+	if mint := engine.chain(moldNeedle); !strings.Contains(mint, `sign\":true`) {
+		t.Errorf("the mint did not ask for sign=true:\n%s", mint)
+	}
 	wantCalls(t, engine.chain(verifyNeedle),
 		[]string{"withFile", `"/run/cosign/cosign.pub"`},
 		[]string{"withExec", `"--insecure-ignore-tlog=true"`, `"foundry.notusmi.com/app/tongs@` + castLanded + `"`},
@@ -278,10 +282,10 @@ func TestACastThatFailsStopsWhereItFailed(t *testing.T) {
 		}, "2", "no status line", nil, []string{verifyNeedle}},
 		"mold refuses the payload": {nil, func() {
 			engine.stdout(moldNeedle, "HTTP 200\n"+toolAnswer(true, "mold app/tongs:stable: staged payload pin mismatch"))
-		}, "1", "findings in forge_mold", nil, []string{verifyNeedle}},
+		}, "1", "findings in forge_layer_cast", nil, []string{verifyNeedle}},
 		"the policy refuses the lane": {nil, func() {
 			engine.stdout(moldNeedle, "HTTP 403\n{\"detail\":\"denied\"}")
-		}, "1", "not granted forge_mold", nil, []string{verifyNeedle}},
+		}, "1", "not granted forge_layer_cast", nil, []string{verifyNeedle}},
 		"mold mints another pin": {nil, func() {
 			engine.stdout(moldNeedle, "HTTP 200\n"+toolAnswer(false, castResult("gffffffffffff", true)))
 		}, "2", "minted pin gffffffffffff", nil, []string{verifyNeedle}},
@@ -524,5 +528,16 @@ func TestACastWhoseTreeCannotBeReadCouldNotRun(t *testing.T) {
 				t.Fatal("a cast that could not read its tree built")
 			}
 		})
+	}
+}
+
+// The pod log names the verb the mint was asked with and what hades answered,
+// so a refusal reads as the verb that was refused.
+func TestACastSaysWhichVerbHadesAnswered(t *testing.T) {
+	m := castOn(t, nil)
+	scriptACast(castPin + "\ntongs\n")
+	said := sayings(t, func() { casts(t, m) })
+	if !strings.Contains(said, "hades answered forge_layer_cast HTTP 200") {
+		t.Errorf("the log does not name the verb hades answered:\n%s", said)
 	}
 }

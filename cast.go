@@ -30,10 +30,14 @@ import (
 // for every binary repo. A repo whose record has no tools.cast is a finding,
 // not a fall-back to its tree.
 //
-// MOLD MINTS AND SIGNS. The lane stages the payload unsigned under
-// {registry}/staging/, which grants nothing, and asks hades for forge_mold as
-// the calling pod. Mold pulls the staged tree, re-derives its pin (a mismatch
-// is tamper and refuses), allocates the channel's next index and signs. Then
+// HEPHAESTUS CASTS AND SIGNS, ON PURPOSE (Scheduler Redistribution Part II,
+// D12). The lane stages the payload unsigned under {registry}/staging/, which
+// grants nothing, and asks hades for forge_layer_cast with sign=true as the
+// calling pod — a bundle is signed because every consumer verifies it, and the
+// lane says so rather than inheriting it from a verb. Hephaestus pulls the
+// staged tree, re-derives its pin (a mismatch is tamper and refuses),
+// allocates the channel's next index and signs. It used to be forge_mold,
+// which routed a bundle name into the same mint (D16). Then
 // the lane verifies the landed digest against the repo's OWN cosign.pub —
 // the step that makes the cast a claim rather than a hope.
 
@@ -42,7 +46,7 @@ import (
 func (m *FoundryTools) Cast(
 	ctx context.Context,
 	// The SPIRE agent's workload socket, forwarded by the calling pod: the
-	// identity forge_mold is asked as. Required unless --dry-run.
+	// identity forge_layer_cast is asked as. Required unless --dry-run.
 	// +optional
 	spire *dagger.Socket,
 	// The token that logs in to the bundle registry (REGISTRY_TOKEN). Required
@@ -415,13 +419,13 @@ func (l *castLane) stage(ctx context.Context, payload *dagger.Directory, ref str
 	return digest, buildlane.Clean, ""
 }
 
-// mint asks hades for forge_mold on the channel, as the calling pod, with the
-// staged payload and the commit it was built from.
+// mint asks hades for forge_layer_cast on the channel with sign=true, as the
+// calling pod, with the staged payload and the commit it was built from.
 func (l *castLane) mint(ctx context.Context, c castlane.Cast, payloadRef, pin string) (castlane.Result, int, string) {
-	// A map of strings always marshals.
-	args, _ := json.Marshal(map[string]string{"name": c.Artifact(), "payload_ref": payloadRef, "source_sha": l.m.Sha})
+	// Strings and a bool always marshal.
+	args, _ := json.Marshal(map[string]any{"ref": c.Artifact(), "sign": true, "payload_ref": payloadRef, "source_sha": l.m.Sha})
 	out, code, err := output(ctx, hadesCaller(l.spire, l.hades, l.hadesID, l.stamp).
-		WithExec([]string{"/usr/local/bin/hadescall", "forge_mold", string(args)}, anyExit))
+		WithExec([]string{"/usr/local/bin/hadescall", castlane.Verb, string(args)}, anyExit))
 	if err != nil {
 		return castlane.Result{}, buildlane.CouldNotRun, fmt.Sprintf("could not run: could not ask hades: %v", err)
 	}
@@ -432,7 +436,7 @@ func (l *castLane) mint(ctx context.Context, c castlane.Cast, payloadRef, pin st
 	if err != nil {
 		return castlane.Result{}, buildlane.CouldNotRun, "could not run: " + err.Error()
 	}
-	castSay("hades answered forge_mold HTTP %d", status)
+	castSay("hades answered %s HTTP %d", castlane.Verb, status)
 	return castlane.Minted(status, body, pin)
 }
 
