@@ -93,7 +93,13 @@ func tsGate(ctx context.Context, r *run, id string) checks.Verdict {
 		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - no test file in the tree (bun's pattern: {.test,.spec,_test_,_spec_}.{js,ts,jsx,tsx}); nothing is built without tests")
 	}
 
-	return verdict(ctx, a, installed.WithExec([]string{"bun", "run", "gate"}, anyExit))
+	out, code, err = output(ctx, installed.WithExec([]string{"bun", "run", "gate"}, anyExit))
+	if err != nil {
+		return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
+	}
+	// The script's exit is its failing tool's: tsc's 2 is a finding, not a
+	// could-not-run (checks.BunGateExit says why).
+	return checks.VerdictOf(a, checks.BunGateExit(code), out)
 }
 
 // bun audit reports nothing at high or above.
