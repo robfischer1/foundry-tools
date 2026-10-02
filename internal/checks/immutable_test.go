@@ -111,3 +111,45 @@ func TestImmutableEditsWrapsTheParseError(t *testing.T) {
 		}
 	}
 }
+
+func TestImmutableInputsFollowsRelativeReferences(t *testing.T) {
+	trees := map[string]string{
+		"blades":       "resources: [a.yaml]\ncomponents:\n  - ../prime/images\n",
+		"prime/images": "kind: Component\n# see ../../hemera/x.yaml\n",
+		"alloy":        "resources:\n  - ../alloy/\n  - ../../outside\n",
+		"loop/a":       "resources: [../b]\n",
+		"loop/b":       "resources: [../a]\n",
+	}
+	read := func(d string) (string, bool) { s, ok := trees[d]; return s, ok }
+	for dir, want := range map[string]string{
+		"blades":  "blades,hemera/x.yaml,prime/images",
+		"foundry": "foundry",
+		"alloy":   "../outside,alloy",
+		"loop/a":  "loop/a,loop/b",
+	} {
+		if got := strings.Join(ImmutableInputs(dir, read), ","); got != want {
+			t.Errorf("ImmutableInputs(%s) = %s, want %s", dir, got, want)
+		}
+	}
+}
+
+func TestImmutableTouched(t *testing.T) {
+	inputs := []string{"blades", "hemera/x.yaml", "prime/images"}
+	for changed, want := range map[string]bool{
+		"blades/a.yaml":                   true,
+		"prime/images/kustomization.yaml": true,
+		"hemera/x.yaml":                   true,
+		"hemera/y.yaml":                   false,
+		"bladesx/a.yaml":                  false,
+		"prime/imagesx":                   false,
+		"":                                false,
+	} {
+		var c []string
+		if changed != "" {
+			c = []string{"README.md", changed}
+		}
+		if got := ImmutableTouched(inputs, c); got != want {
+			t.Errorf("ImmutableTouched(%q) = %v, want %v", changed, got, want)
+		}
+	}
+}

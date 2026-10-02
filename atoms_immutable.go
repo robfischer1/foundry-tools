@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -81,10 +82,44 @@ func opsImmutable(ctx context.Context, r *run) checks.Verdict {
 	if since == "" {
 		return settle(2, "CANNOT RUN - the base "+r.base+" is not in this history")
 	}
+	diff, rc, err := output(ctx, ctr.WithExec([]string{"git", "diff", "--name-only", since, "HEAD"}, anyExit))
+	if err != nil || rc != 0 {
+		return settle(2, fmt.Sprintf("CANNOT RUN - the changed files against %s would not list (exit %d): %v %.200s", since, rc, err, diff))
+	}
+	changed := strings.Fields(diff)
+	tracked := map[string]bool{}
+	for _, f := range files {
+		tracked[f] = true
+	}
+	var readErr error
+	read := func(dir string) (string, bool) {
+		k := dir + "/kustomization.yaml"
+		if !tracked[k] || readErr != nil {
+			return "", false
+		}
+		src, err := r.src.File(k).Contents(ctx)
+		if err != nil {
+			readErr = fmt.Errorf("%s could not be read: %w", k, err)
+			return "", false
+		}
+		return src, true
+	}
+	var touched []string
+	for _, p := range paths {
+		if checks.ImmutableTouched(checks.ImmutableInputs(p, read), changed) {
+			touched = append(touched, p)
+		}
+	}
+	if readErr != nil {
+		return settle(2, "CANNOT RUN - "+readErr.Error())
+	}
+	if len(touched) == 0 {
+		return settle(0, fmt.Sprintf("PASS - no Flux path's inputs changed against %s; %d path(s), nothing to compare", since, len(paths)))
+	}
 	ctr = ctr.WithExec([]string{"git", "worktree", "add", "--detach", "/tmp/immutable-base", since})
 
 	var edits, notes []string
-	for i, p := range paths {
+	for i, p := range touched {
 		head, err := renderAt(ctx, ctr, p, "/tmp/immutable-head."+strconv.Itoa(i)+".yaml")
 		if errors.Is(err, errNotBuilt) {
 			// ops:flux reports a head that does not build; this atom has
@@ -122,7 +157,7 @@ func opsImmutable(ctx context.Context, r *run) checks.Verdict {
 		}
 		return settle(1, out.String())
 	}
-	out.WriteString("PASS - " + strconv.Itoa(len(paths)) + " path(s) compared against " + since)
+	out.WriteString("PASS - " + strconv.Itoa(len(touched)) + " path(s) compared against " + since + ", the " + strconv.Itoa(len(touched)) + " of " + strconv.Itoa(len(paths)) + " whose inputs changed")
 	return settle(0, out.String())
 }
 
