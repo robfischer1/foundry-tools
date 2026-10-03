@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -284,6 +285,17 @@ func mutantVerdict(status string) string {
 }
 
 func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoMutationNoise, misgraded GoMisgradedFiles) (GoMutationScore, error) {
+	scored, elapsed, err := classifyGoReport(report, profile, noise, misgraded)
+	if err != nil {
+		return GoMutationScore{}, err
+	}
+	return scoreGoMutants(scored, GradingCounts{}, elapsed, mode, workers), nil
+}
+
+// classifyGoReport decides every mutant of a gomutants report: its status
+// after the covered-unrun correction, and its outcome — ungraded, forgiven, or
+// the status's own. These are the run's decisions; scoreGoMutants counts them.
+func classifyGoReport(report []byte, profile string, noise GoMutationNoise, misgraded GoMisgradedFiles) ([]ScoredMutant, *float64, error) {
 	var d struct {
 		// GoModule IS DELIBERATELY UNREAD. gremlins fills it from its own go.mod
 		// parse, which takes only the first line, so it is the one field in this
@@ -302,9 +314,8 @@ func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoM
 		} `json:"files"`
 	}
 	if err := json.Unmarshal(report, &d); err != nil {
-		return GoMutationScore{}, fmt.Errorf("the mutation report is not a gomutants report: %v", err)
+		return nil, nil, fmt.Errorf("the mutation report is not a gomutants report: %v", err)
 	}
-	workers = max(1, workers)
 	covered := coveredBlocks(profile)
 	misjudged := func(name string, line, col int) bool {
 		for _, b := range blocksFor(covered, name) {
@@ -314,96 +325,106 @@ func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoM
 		}
 		return false
 	}
-
-	var s GoMutationScore
-	var timed, misread []string
+	var scored []ScoredMutant
 	for _, f := range d.Files {
 		for _, m := range f.Mutations {
 			status := m.Status
-			scored := ScoredMutant{File: f.FileName, Line: m.Line, Col: m.Column, Op: m.Type}
+			sm := ScoredMutant{File: f.FileName, Line: m.Line, Col: m.Column, Op: m.Type}
 			if status == "NOT COVERED" {
-				if startsOnLine(covered, f.FileName, m.Line) {
-					s.ProfileDisagrees++
-					scored.Disputed = true
-				}
+				sm.Disputed = startsOnLine(covered, f.FileName, m.Line)
 				if misjudged(f.FileName, m.Line, m.Column) {
 					status = "COVERED-UNRUN"
 				}
 			}
-			s.Generated++
-			scored.Status = status
-			where := fmt.Sprintf("%s:%d:%d  %-13s %s", f.FileName, m.Line, m.Column, status, m.Type)
+			sm.Status = status
+			reason, noisy := noise[fmt.Sprintf("%s:%d:%d", f.FileName, m.Line, m.Column)]
+			switch {
 			// THE FIRST QUESTION IS WHETHER THIS VERDICT IS ABOUT THIS CODE.
 			// It is asked before forgiveness and before the counts because the
 			// answer disqualifies both: the classifier can only speak about
 			// survivors, so a FALSE KILL in a main package is a hole no
 			// forgiveness can reach — and it is the direction that reads green.
-			if misgraded[f.FileName] && gradedStatus(status) {
-				s.Ungraded = append(s.Ungraded, where)
-				scored.Outcome = OutcomeUngraded
-				s.Scored = append(s.Scored, scored)
-				// UNANALYZABLE WHATEVER THE STATUS SAID, including a KILLED —
-				// this is the one place a kill becomes a finding, because the
-				// verdict is about a different package and "the gate cannot
-				// trust it" is a fact a reader needs, not a pass.
-				s.Findings = append(s.Findings, mutantFinding(VerdictUnanalyzable,
-					f.FileName, m.Line, m.Column, m.Type,
-					status+" but graded against the wrong package (gremlins#268)"))
-				continue
-			}
+			case misgraded[f.FileName] && gradedStatus(status):
+				sm.Outcome = OutcomeUngraded
 			// Only a survivor is a candidate: the testkit classifies NOT
 			// COVERED alone, and a mutant that LIVED was executed by a test
 			// that failed to notice it — a test gap by definition, never
 			// forgiven. The key is asked before the status is counted so a
 			// forgiven mutant lands in exactly one column.
-			if reason, ok := noise[fmt.Sprintf("%s:%d:%d", f.FileName, m.Line, m.Column)]; ok && (status == "NOT COVERED" || status == "LIVED") {
-				s.Forgiven = append(s.Forgiven, fmt.Sprintf("%s  [%s]", where, reason))
-				scored.Outcome, scored.Detail = OutcomeForgiven, reason
-				s.Scored = append(s.Scored, scored)
-				// THE CAUSE IS THE FORGIVENESS, NOT THE OPERATOR. For an
-				// `excluded` finding the schema requires a cause and means it to
-				// answer "by what", and the reader's question about a forgiven
-				// mutant is which class excused it — `3 × unkillable-declaration`
-				// is the line they act on. The operator moves to the detail.
-				s.Findings = append(s.Findings, mutantFinding(VerdictExcluded,
-					f.FileName, m.Line, m.Column, reason, status+" but forgiven, "+m.Type))
-				continue
+			case noisy && (status == "NOT COVERED" || status == "LIVED"):
+				sm.Outcome, sm.Detail = OutcomeForgiven, reason
+			default:
+				sm.Outcome = goOutcomes[status]
 			}
-			scored.Outcome = goOutcomes[status]
-			s.Scored = append(s.Scored, scored)
-			switch status {
-			case "KILLED":
-				s.Killed++
-			case "LIVED":
-				s.Lived++
-				s.Missed = append(s.Missed, where)
-				s.Findings = append(s.Findings, mutantFinding(mutantVerdict(status),
-					f.FileName, m.Line, m.Column, m.Type, status))
-			case "NOT COVERED":
-				s.NotCovered++
-				s.Missed = append(s.Missed, where)
-				s.Findings = append(s.Findings, mutantFinding(mutantVerdict(status),
-					f.FileName, m.Line, m.Column, m.Type, status))
-			case "TIMED OUT":
-				// ONE TIMEOUT DECISION FOR EVERY LANE (TimedOutMutantIsDetected):
-				// its word and its cause are the Rust lane's, the operator moves
-				// to the detail, and GoMutationTimeoutBudget stays this lane's
-				// guard against a run that is mostly hangs.
-				s.TimedOut++
-				timed = append(timed, where)
-				s.Findings = append(s.Findings, mutantFinding(timedOutMutantVerdict(TimedOutMutantIsDetected),
-					f.FileName, m.Line, m.Column, MutantTimeoutCause, status+" "+m.Type+" — "+MutantTimeoutAdvice))
-			case "COVERED-UNRUN":
-				s.CoveredUnrun++
-				misread = append(misread, where)
-				s.Findings = append(s.Findings, mutantFinding(mutantVerdict(status),
-					f.FileName, m.Line, m.Column, m.Type, status))
-			case "NOT VIABLE", "SKIPPED":
-				// NOTHING TO CHECK, so nothing to report. `inert` exists in the
-				// lattice for this, but a finding per inert mutant would be 2,763
-				// of them on a real run — the counts carry it.
-				s.Inert++
-			}
+			scored = append(scored, sm)
+		}
+	}
+	return scored, d.ElapsedTime, nil
+}
+
+// scoreGoMutants counts decided mutants into the gate's score: the counts,
+// the survivor lists, the findings and the summary. extra are the mutants a
+// reused grading carries as counts alone (killed and inert). The mutants are
+// read in position order, so a run that graded every unit and a run that
+// reused some answer the same findings in the same order.
+func scoreGoMutants(scored []ScoredMutant, extra GradingCounts, elapsed *float64, mode string, workers int) GoMutationScore {
+	workers = max(1, workers)
+	sorted := slices.Clone(scored)
+	slices.SortStableFunc(sorted, compareMutants)
+	s := GoMutationScore{Scored: sorted, Generated: len(sorted) + extra.Generated, Killed: extra.Killed, Inert: extra.Inert}
+	var timed, misread []string
+	for _, m := range sorted {
+		where := fmt.Sprintf("%s:%d:%d  %-13s %s", m.File, m.Line, m.Col, m.Status, m.Op)
+		if m.Disputed {
+			s.ProfileDisagrees++
+		}
+		switch m.Outcome {
+		case OutcomeUngraded:
+			s.Ungraded = append(s.Ungraded, where)
+			// UNANALYZABLE WHATEVER THE STATUS SAID, including a KILLED —
+			// this is the one place a kill becomes a finding, because the
+			// verdict is about a different package and "the gate cannot
+			// trust it" is a fact a reader needs, not a pass.
+			s.Findings = append(s.Findings, mutantFinding(VerdictUnanalyzable,
+				m.File, m.Line, m.Col, m.Op,
+				m.Status+" but graded against the wrong package (gremlins#268)"))
+		case OutcomeForgiven:
+			s.Forgiven = append(s.Forgiven, fmt.Sprintf("%s  [%s]", where, m.Detail))
+			// THE CAUSE IS THE FORGIVENESS, NOT THE OPERATOR. For an
+			// `excluded` finding the schema requires a cause and means it to
+			// answer "by what", and the reader's question about a forgiven
+			// mutant is which class excused it — `3 × unkillable-declaration`
+			// is the line they act on. The operator moves to the detail.
+			s.Findings = append(s.Findings, mutantFinding(VerdictExcluded,
+				m.File, m.Line, m.Col, m.Detail, m.Status+" but forgiven, "+m.Op))
+		case OutcomeKilled:
+			s.Killed++
+		case OutcomeLived:
+			s.Lived++
+			s.Missed = append(s.Missed, where)
+			s.Findings = append(s.Findings, mutantFinding(mutantVerdict(m.Status), m.File, m.Line, m.Col, m.Op, m.Status))
+		case OutcomeNotCovered:
+			s.NotCovered++
+			s.Missed = append(s.Missed, where)
+			s.Findings = append(s.Findings, mutantFinding(mutantVerdict(m.Status), m.File, m.Line, m.Col, m.Op, m.Status))
+		case OutcomeTimedOut:
+			// ONE TIMEOUT DECISION FOR EVERY LANE (TimedOutMutantIsDetected):
+			// its word and its cause are the Rust lane's, the operator moves
+			// to the detail, and GoMutationTimeoutBudget stays this lane's
+			// guard against a run that is mostly hangs.
+			s.TimedOut++
+			timed = append(timed, where)
+			s.Findings = append(s.Findings, mutantFinding(timedOutMutantVerdict(TimedOutMutantIsDetected),
+				m.File, m.Line, m.Col, MutantTimeoutCause, m.Status+" "+m.Op+" — "+MutantTimeoutAdvice))
+		case OutcomeCoveredUnrun:
+			s.CoveredUnrun++
+			misread = append(misread, where)
+			s.Findings = append(s.Findings, mutantFinding(mutantVerdict(m.Status), m.File, m.Line, m.Col, m.Op, m.Status))
+		case OutcomeInert:
+			// NOTHING TO CHECK, so nothing to report. `inert` exists in the
+			// lattice for this, but a finding per inert mutant would be 2,763
+			// of them on a real run — the counts carry it.
+			s.Inert++
 		}
 	}
 	viable := s.Viable()
@@ -415,8 +436,8 @@ func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoM
 		s.TimedOutPct = pythonRound(float64(s.TimedOut)/float64(s.Generated)*100, 1)
 	}
 	s.MsPerMutant = -1
-	if ran := s.Killed + s.Lived + s.TimedOut; d.ElapsedTime != nil && ran > 0 {
-		s.MsPerMutant = *d.ElapsedTime * 1000 * float64(workers) / float64(ran)
+	if ran := s.Killed + s.Lived + s.TimedOut; elapsed != nil && ran > 0 {
+		s.MsPerMutant = *elapsed * 1000 * float64(workers) / float64(ran)
 	}
 
 	out := []string{
@@ -496,7 +517,7 @@ func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoM
 		out = append(append(out, s.Missed...), "```")
 	}
 	s.Summary = strings.Join(out, "\n") + "\n"
-	return s, nil
+	return s
 }
 
 // goOutcomes maps a status the scorer counts onto its grading outcome. A
@@ -565,12 +586,35 @@ func GoMutationVerdict(run GoMutationRun) (int, string, []Finding) {
 // from — nil when no report was scored — which the atom builds its gradings
 // from (gradings.go).
 func GoMutationVerdictScored(run GoMutationRun) (int, string, []Finding, *GoMutationScore) {
-	if len(run.Report) == 0 {
+	f := GoMutationVerdictReusing(run, ".", nil)
+	return f.State, f.Reason, f.Findings, f.Score
+}
+
+// GoFold is a Go mutation run's verdict over the units it graded and the
+// gradings it reused: the state, reason and findings a run that graded every
+// unit would have answered, the score over all of them, and the mutants this
+// run graded itself (module-relative), which are all its gradings may store.
+type GoFold struct {
+	State    int
+	Reason   string
+	Findings []Finding
+	Score    *GoMutationScore
+	Fresh    []ScoredMutant
+}
+
+// GoMutationVerdictReusing settles a run that graded only the units no stored
+// grading answered, folding the reused gradings in (dir is the module's
+// directory; reused mutants are repository-relative). The fold is one score
+// over every mutant, so every count, every guard and every finding is the one
+// a cold run makes — which is the contract: a reuse run's verdict equals a
+// cold run's. With nothing reused it is GoMutationVerdictScored exactly.
+func GoMutationVerdictReusing(run GoMutationRun, dir string, reused []ReusedGrading) GoFold {
+	if len(run.Report) == 0 && (len(reused) == 0 || run.Status != 0) {
 		if run.Status == 0 {
 			// gremlins writes no report when it has nothing to report and exits
 			// 0: the pull touched no mutable Go in scope. Clean, and said to have
 			// measured nothing.
-			return 0, "gomutants had no results to report (exit 0, no report): the pull touched no mutable Go code in scope", nil, nil
+			return GoFold{State: 0, Reason: "gomutants had no results to report (exit 0, no report): the pull touched no mutable Go code in scope"}
 		}
 		// AND IT SAYS WHY, because the exit code alone sent a reader to the
 		// archive. MEASURED on ourea@59b3a39 (2026-09-26): this branch settled
@@ -587,8 +631,8 @@ func GoMutationVerdictScored(run GoMutationRun) (int, string, []Finding, *GoMuta
 		// Finding that took reading 539 archived lines for a fact the settle
 		// could have carried in twenty. The Rust and TypeScript siblings already
 		// tail their log here; this one now does too.
-		return 2, fmt.Sprintf("gomutants exited %d and wrote no mutation-go.json — nothing was measured\n%s",
-			run.Status, tail(run.Log, 20)), nil, nil
+		return GoFold{State: 2, Reason: fmt.Sprintf("gomutants exited %d and wrote no mutation-go.json — nothing was measured\n%s",
+			run.Status, tail(run.Log, 20))}
 	}
 	// THE CLASSIFIER NOT ANSWERING IS A FACT THE VERDICT MUST CARRY. Scored
 	// without it, every unkillable declaration reads as a survivor and a
@@ -596,9 +640,16 @@ func GoMutationVerdictScored(run GoMutationRun) (int, string, []Finding, *GoMuta
 	// answered "nothing", the same. So a missing classification forgives
 	// nothing here, and below it turns a survivor verdict into "could not
 	// measure" — the survivors are real or noise and this run cannot say.
+	//
+	// A FOLD WITH NO FRESH REPORT HAS NOTHING OF ITS OWN TO CLASSIFY: every
+	// survivor it holds was classified in the run that graded it, and only a
+	// trusted run's gradings are reused. So the classification is present and
+	// empty, never "did not answer".
 	var noise GoMutationNoise
 	classifyErr := strings.TrimSpace(run.ClassifyErr)
-	if len(bytes.TrimSpace(run.Classified)) > 0 {
+	if len(run.Report) == 0 {
+		noise, classifyErr = GoMutationNoise{}, ""
+	} else if len(bytes.TrimSpace(run.Classified)) > 0 {
 		var err error
 		if noise, err = ParseGoMutationNoise(run.Classified); err != nil {
 			classifyErr = err.Error()
@@ -617,12 +668,21 @@ func GoMutationVerdictScored(run GoMutationRun) (int, string, []Finding, *GoMuta
 	if run.MainCanary == CanaryOK {
 		misgraded = nil
 	}
-	s, err := ScoreGoMutation(run.Report, run.Profile, "diff", run.Workers, noise, misgraded)
-	if err != nil {
-		return 2, "the mutation report could not be read: " + err.Error(), nil, nil
+	var fresh []ScoredMutant
+	var elapsed *float64
+	if len(run.Report) > 0 {
+		var err error
+		if fresh, elapsed, err = classifyGoReport(run.Report, run.Profile, noise, misgraded); err != nil {
+			return GoFold{State: 2, Reason: "the mutation report could not be read: " + err.Error()}
+		}
 	}
+	listed, extra := reusedInModule(reused, dir)
+	s := scoreGoMutants(append(slices.Clone(fresh), listed...), extra, elapsed, "diff", run.Workers)
 	state, reason, found := goScoredVerdict(run, s, noise, classifyErr)
-	return state, reason, found, &s
+	if len(reused) > 0 {
+		reason += "\n" + ReusedSection(reused)
+	}
+	return GoFold{State: state, Reason: reason, Findings: found, Score: &s, Fresh: fresh}
 }
 
 // goScoredVerdict settles a run whose report scored: its exit, the timeout
