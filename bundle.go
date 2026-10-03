@@ -157,11 +157,17 @@ func (l *bundleLane) run(ctx context.Context) (int, string) {
 		return g.code, g.reason
 	}
 
-	if !publishPolicy && !publishFleet {
-		return buildlane.Clean, "clean: both dies gated clean and neither has anything to publish for this landing (nothing outside **.md, .forgejo/ and schema/ moved, and nothing under fleet/)"
+	contracts, orbits, g := l.orbitPayloads(ctx)
+	if g.code != buildlane.Clean {
+		return g.code, g.reason
+	}
+	publishOrbits := bundlelane.OrbitsPublish(changed)
+
+	if !publishPolicy && !publishFleet && !publishOrbits {
+		return buildlane.Clean, "clean: every die gated clean and neither has anything to publish for this landing (nothing outside **.md, .forgejo/ and schema/ moved, and nothing under fleet/ or orbits/)"
 	}
 	if l.dryRun {
-		return buildlane.Clean, fmt.Sprintf("clean: both dies gated clean — dry run, nothing pushed, tagged or signed (a landing would publish policy=%v fleet=%v at %s)", publishPolicy, publishFleet, pin)
+		return buildlane.Clean, fmt.Sprintf("clean: every die gated clean — dry run, nothing pushed, tagged or signed (a landing would publish policy=%v fleet=%v orbits=%v at %s)", publishPolicy, publishFleet, publishOrbits, pin)
 	}
 
 	var published []string
@@ -183,7 +189,16 @@ func (l *bundleLane) run(ctx context.Context) (int, string) {
 	} else {
 		bundleSay("fleet: nothing under fleet/ (nor policy/.manifest, policy/admission/stubs.rego) changed — the roster's revision keeps meaning 'changed'")
 	}
-	return buildlane.Clean, "clean: gated both dies; published and signed " + strings.Join(published, ", ")
+	if publishOrbits {
+		refs, g := l.publishOrbits(ctx, fleet, pin, contracts, orbits)
+		if g.code != buildlane.Clean {
+			return g.code, g.reason
+		}
+		published = append(published, refs...)
+	} else {
+		bundleSay("orbits: nothing under orbits/ changed — data/contracts and data/orbits stay where they are")
+	}
+	return buildlane.Clean, "clean: gated every die; published and signed " + strings.Join(published, ", ")
 }
 
 // signingKey answers the ES256 key the twins are built with, as a secret.
@@ -552,6 +567,12 @@ func (l *bundleLane) pushPin(ctx context.Context, oras *dagger.Container, die, t
 		// not a changed tree, and the published pin is the one that was gated.
 		bundleSay("%s already stands (published layer %s, this build %s) — a pin is immutable, not re-pushing", ref, remote, local)
 	}
+	return l.moveChannel(ctx, oras, die, ref, channel)
+}
+
+// moveChannel points channel at the pushed ref and answers die@digest.
+func (l *bundleLane) moveChannel(ctx context.Context, oras *dagger.Container, die, ref, channel string) (string, gateResult) {
+	cfg := []string{"--registry-config", "/run/docker/config.json"}
 	out, code, g := exec(ctx, oras, "oras tag "+ref, append([]string{"oras", "tag"}, append(cfg, ref, channel)...)...)
 	if g.code != buildlane.Clean {
 		return "", g
