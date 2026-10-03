@@ -193,7 +193,9 @@ func TestAStoreThatDoesNotAnswerGradesCold(t *testing.T) {
 }
 
 // A sampled share of reuse runs grades every unit cold anyway and audits what
-// the lookup answered; the verdict is the cold one.
+// the lookup answered; the verdict is the cold one. The sample is keyed on the
+// commit alone, so the shas below are fixtures of the hash, not of time: x6's
+// sha256 starts with 5, s255's with exactly 13, "a"'s with 202.
 func TestASampledReuseRunGradesColdAndAudits(t *testing.T) {
 	if !auditSampled("x6") || auditSampled(buildSha) || auditSampled("a") || auditSampled("s255") {
 		t.Fatal("the sample is sha256(sha)[0] < 13 (s255's is exactly 13)")
