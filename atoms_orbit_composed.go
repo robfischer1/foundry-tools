@@ -57,8 +57,8 @@ func opsOrbitComposed(ctx context.Context, r *run) checks.Verdict {
 	if err != nil {
 		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - foundry-dies' contracts could not be read: "+err.Error())
 	}
-	state, report := orbitcompose.CheckDrift(contracts, have, orbitNamespace)
-	return checks.VerdictOf(a, state, orbitRenderDir+" against foundry-dies main: "+report)
+	d := orbitcompose.CheckDrift(contracts, have, orbitNamespace)
+	return checks.VerdictOf(a, d.State, orbitRenderDir+" against foundry-dies main: "+d.Report)
 }
 
 // filesByName reads every file a glob matches in dir, keyed by base name, as

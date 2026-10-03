@@ -112,3 +112,23 @@ func TestOrbitComposedCannotRunOnBrokenContracts(t *testing.T) {
 	})
 	wantState(t, runAtom(t, "ops:orbit-composed", ""), 2, "the contracts do not compose")
 }
+
+// EVERY ENTRY IS READ, A DIRECTORY ANYWHERE AMONG THEM INCLUDED: one that
+// sorts first is named and the files after it are still read.
+func TestFilesByNameNamesADirectoryAndReadsWhatFollows(t *testing.T) {
+	engine.reset()
+	engine.withTree(map[string]string{
+		"prime/orbits/a/":                "",
+		"prime/orbits/themis.orbit.toml": "sidecar\n",
+	})
+	got, err := filesByName(t.Context(), dag.Directory(), "prime/orbits/*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw, ok := got["a"]; !ok || raw != nil {
+		t.Errorf("the directory must be named with nil bytes: %v", got)
+	}
+	if string(got["themis.orbit.toml"]) != "sidecar\n" {
+		t.Errorf("the file after the directory was not read: %v", got)
+	}
+}

@@ -1,6 +1,7 @@
 package orbitcompose
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -20,6 +21,9 @@ import (
 // carries it today and a dedicated orbit lane can carry the same function
 // later without unpicking it from another check.
 
+// ErrNoContract is ContractsOf's answer for a set holding no .toml file.
+var ErrNoContract = errors.New("holds no contract (*.toml)")
+
 // ContractsOf parses contract files keyed by file name, in name order. A name
 // that is not a .toml file is not a contract (the README); none at all is an
 // error.
@@ -31,7 +35,7 @@ func ContractsOf(files map[string][]byte) ([]Contract, error) {
 		}
 	}
 	if len(names) == 0 {
-		return nil, fmt.Errorf("holds no contract (*.toml)")
+		return nil, ErrNoContract
 	}
 	slices.Sort(names)
 	out := make([]Contract, 0, len(names))
@@ -52,28 +56,33 @@ const (
 	DriftCannotGo = 2 // the contracts themselves do not compose
 )
 
+// Drift is the check's answer: the gate state, and the lines a reader needs.
+type Drift struct {
+	State  int
+	Report string
+}
+
 // CheckDrift compares the rendered directory have with what contracts
-// compose to under namespace. It answers the state and the lines a reader
-// needs.
+// compose to under namespace.
 //
 // A DIRECTORY THAT IS NOT THE COMPOSED SET IS A FINDING, and so is a file in
 // it the composer does not own. Both are faults in the rendered tree and its
 // committer's to fix. CONTRACTS THAT DO NOT PARSE ARE A COULD-NOT-RUN: the
 // rendered tree cannot be judged against a source that does not compose,
 // and the source repository's own gate is where that red belongs.
-func CheckDrift(contracts, have map[string][]byte, namespace string) (int, string) {
+func CheckDrift(contracts, have map[string][]byte, namespace string) Drift {
 	cs, err := ContractsOf(contracts)
 	if err != nil {
-		return DriftCannotGo, "the contracts do not compose: " + err.Error()
+		return Drift{State: DriftCannotGo, Report: "the contracts do not compose: " + err.Error()}
 	}
 	c, err := Plan(Files(namespace, Compose(cs)), have)
 	if err != nil {
-		return DriftFound, err.Error()
+		return Drift{State: DriftFound, Report: err.Error()}
 	}
 	if c.Empty() {
-		return DriftNone, fmt.Sprintf("the directory is the composed set of %d contract(s)", len(cs))
+		return Drift{State: DriftNone, Report: fmt.Sprintf("the directory is the composed set of %d contract(s)", len(cs))}
 	}
-	return DriftFound, "stale against its contracts — a re-render would:\n" + Report(c) + "\n" + RenderHint
+	return Drift{State: DriftFound, Report: "stale against its contracts — a re-render would:\n" + Report(c) + "\n" + RenderHint}
 }
 
 // RenderHint is how a person brings the directory back, as the line the

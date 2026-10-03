@@ -1,6 +1,9 @@
 package orbitcompose
 
 import (
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -28,7 +31,7 @@ func TestContractsOfParsesTheTomlInNameOrderAndSkipsTheRest(t *testing.T) {
 	if err != nil || len(cs) != 2 || cs[0].Name != "chaos-themis" || cs[1].Name != "urania-themis" {
 		t.Fatalf("%+v %v", cs, err)
 	}
-	if _, err := ContractsOf(map[string][]byte{"README.md": nil}); err == nil || !strings.Contains(err.Error(), "holds no contract") {
+	if _, err := ContractsOf(map[string][]byte{"README.md": nil}); !errors.Is(err, ErrNoContract) {
 		t.Fatalf("no .toml must be an error: %v", err)
 	}
 	if _, err := ContractsOf(map[string][]byte{"urania-themis.toml": []byte("version = 1")}); err == nil {
@@ -38,9 +41,9 @@ func TestContractsOfParsesTheTomlInNameOrderAndSkipsTheRest(t *testing.T) {
 
 // A RENDER THAT MATCHES IS NO DRIFT, and says how many contracts it holds.
 func TestCheckDriftOfTheComposedSetIsNone(t *testing.T) {
-	state, report := CheckDrift(contractsFixture(), composedFixture(t), "prime")
-	if state != DriftNone || report != "the directory is the composed set of 2 contract(s)" {
-		t.Fatalf("state %d report %q", state, report)
+	d := CheckDrift(contractsFixture(), composedFixture(t), "prime")
+	if d.State != DriftNone || d.Report != "the directory is the composed set of 2 contract(s)" {
+		t.Fatalf("%+v", d)
 	}
 }
 
@@ -51,7 +54,8 @@ func TestCheckDriftNamesWhatAReRenderWouldChange(t *testing.T) {
 	delete(have, "chaos.orbit.toml")
 	have["nyx.orbit.toml"] = []byte("gone\n")
 	have["themis.orbit.toml"] = []byte("edited by hand\n")
-	state, report := CheckDrift(contractsFixture(), have, "prime")
+	d := CheckDrift(contractsFixture(), have, "prime")
+	state, report := d.State, d.Report
 	if state != DriftFound {
 		t.Fatalf("state %d: %s", state, report)
 	}
@@ -70,17 +74,17 @@ func TestCheckDriftNamesWhatAReRenderWouldChange(t *testing.T) {
 func TestCheckDriftFindsAForeignFile(t *testing.T) {
 	have := composedFixture(t)
 	have["notes.md"] = []byte("mine")
-	state, report := CheckDrift(contractsFixture(), have, "prime")
-	if state != DriftFound || !strings.Contains(report, "notes.md is not the composer's") {
-		t.Fatalf("state %d report %q", state, report)
+	d := CheckDrift(contractsFixture(), have, "prime")
+	if d.State != DriftFound || !strings.Contains(d.Report, "notes.md is not the composer's") {
+		t.Fatalf("%+v", d)
 	}
 }
 
 // CONTRACTS THAT DO NOT COMPOSE CANNOT JUDGE THE RENDER.
 func TestCheckDriftCannotGoOnBrokenContracts(t *testing.T) {
-	state, report := CheckDrift(map[string][]byte{"urania-themis.toml": []byte("version = 1")}, composedFixture(t), "prime")
-	if state != DriftCannotGo || !strings.HasPrefix(report, "the contracts do not compose: ") {
-		t.Fatalf("state %d report %q", state, report)
+	d := CheckDrift(map[string][]byte{"urania-themis.toml": []byte("version = 1")}, composedFixture(t), "prime")
+	if d.State != DriftCannotGo || !strings.HasPrefix(d.Report, "the contracts do not compose: ") {
+		t.Fatalf("%+v", d)
 	}
 }
 
@@ -91,5 +95,18 @@ func TestReportSortsWritesAndRemoves(t *testing.T) {
 	}
 	if Report(Change{}) != "orbitcompose: up to date" {
 		t.Fatal("an empty change is up to date")
+	}
+}
+
+// A DIRECTORY WITH NO CONTRACT SAYS SO, AND SAYS WHICH: the error names the
+// directory and is still ErrNoContract underneath.
+func TestReadContractsOfAnEmptyDirectoryIsErrNoContract(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ReadContracts(dir)
+	if !errors.Is(err, ErrNoContract) || !strings.HasPrefix(err.Error(), dir+": ") {
+		t.Fatalf("err %v", err)
 	}
 }
