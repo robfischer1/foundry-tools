@@ -30,6 +30,10 @@ func TestALookupAsksTheDoorUnderTheRunsToken(t *testing.T) {
 	door := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		auth, body, path, kind = r.Header.Get("Authorization"), string(b), r.URL.Path, r.Header.Get("Content-Type")
+		if strings.TrimSpace(auth) == "Bearer" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
 		w.WriteHeader(status)
 		_, _ = io.WriteString(w, answer)
 	}))
@@ -52,11 +56,13 @@ func TestALookupAsksTheDoorUnderTheRunsToken(t *testing.T) {
 	if _, err := look(context.Background(), "go", "E", reuseKeys); err == nil {
 		t.Fatal("an answer about another unit was believed")
 	}
+	// The door answers a good grading from here on: each failure below must be
+	// the client's own refusal, not the door's.
+	status, answer = http.StatusOK, `{"gradings":[{"lang":"go","unit":"internal/x","hash":"hx","ranges":"rx","run_number":7}],"misses":[]}`
 	for name, l := range map[string]gradingLookup{
 		"an empty token, which the door refuses": lookupVia(door.URL+"/x.git", fixedToken{}),
 		"no repo URL":                            lookupVia("", fixedToken{value: "tok"}),
-		"an unreadable token":                    lookupVia(door.URL, fixedToken{err: errors.New("no secret")}),
-		"an empty token":                         lookupVia(door.URL, fixedToken{}),
+		"an unreadable token":                    lookupVia(door.URL, fixedToken{value: "tok", err: errors.New("no secret")}),
 		"a door that is gone":                    lookupVia("http://127.0.0.1:1/x.git", fixedToken{value: "tok"}),
 		"a bad URL":                              lookupVia("http://door\x7f/x.git", fixedToken{value: "tok"}),
 	} {

@@ -84,7 +84,7 @@ func MissPatterns(dir string, misses []UnitKey) []string {
 	var out []string
 	for _, k := range misses {
 		rel := strings.TrimPrefix(k.Unit, dir+"/")
-		if rel == "." || rel == dir {
+		if rel == dir {
 			out = append(out, ".")
 			continue
 		}
