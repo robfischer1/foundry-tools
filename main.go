@@ -398,9 +398,23 @@ func verdictFor(ctx context.Context, r *run, id string) (checks.Verdict, error) 
 		// catches it in the tests rather than on a gate.
 		return checks.Verdict{}, fmt.Errorf("%s has no runner registered", id)
 	}
+	started := atomClock()
+	v := askedTwice(ctx, r, fn)
+	return checks.Timed(v, started, atomClock()), nil
+}
+
+// atomClock is what an atom's start and finish are read from: the wall clock,
+// and a variable so a test can say what time it is.
+var atomClock = time.Now
+
+// askedTwice runs an atom's runner and, if it could not run, runs it again
+// past the engine's cache. ITS TIME IS BOTH ASKS: the atom started when the
+// first ask did and finished when its reported answer came back, so a
+// re-asked atom's timing says what the re-ask cost.
+func askedTwice(ctx context.Context, r *run, fn atomFn) checks.Verdict {
 	v := fn(ctx, r)
 	if v.State != int(checks.StateCannotRun) {
-		return v, nil
+		return v
 	}
 	// A COULD-NOT-RUN IS ASKED AGAIN, PAST THE CACHE, BEFORE IT IS REPORTED.
 	// An exec that expects any exit caches its failure, and since the engine
@@ -411,10 +425,10 @@ func verdictFor(ctx context.Context, r *run, id string) (checks.Verdict, error) 
 	// 2026-09-09 -> 17: 759 could-not-run rows against 1,362 findings.
 	again := fn(ctx, newRun(r.src, r.repo, r.base).fromOrigin(r.origin).reasked(strconv.FormatInt(time.Now().UnixNano(), 10)))
 	if again.State != int(checks.StateCannotRun) {
-		return again, nil
+		return again
 	}
 	again.Reason += "\n(asked twice, the second time past the engine's cache: it could not run both times)"
-	return again, nil
+	return again
 }
 
 // check is what every `+check` function calls: one atom, one verdict, answered the

@@ -64,6 +64,61 @@ type AtomResult struct {
 	// record marshals this struct with no json tags, so these field names ARE
 	// the wire format and ourea's RecordFinding mirrors them.
 	Findings []Finding
+	// StartedAt and FinishedAt are when the atom ran, RFC 3339 UTC — empty for
+	// one that never started. THESE TWO ARE snake_case ON THE WIRE, unlike
+	// every field above: Daedalus's ci_atom columns read exactly `started_at`
+	// and `finished_at` (Task #85). The tag names them; dagger's codegen
+	// copies the name but DROPS omitempty, which is why Record writes through
+	// recordAtom rather than trusting this struct to leave an unstarted atom's
+	// times out.
+	StartedAt  string `json:"started_at"`
+	FinishedAt string `json:"finished_at"`
+}
+
+// recordAtom is AtomResult as the record writes it: the same fields, by
+// construction — Record converts one to the other, so a field AtomResult gains
+// and this lacks is a compile error rather than a silent drop — with the two
+// times omitted when empty. An atom that never started has no time to report,
+// and "" is not a time any reader should be asked to parse.
+type recordAtom struct {
+	Atom          string
+	Group         string
+	State         int
+	Result        string
+	Reason        string
+	Logs          []string
+	Truncated     bool
+	OriginalBytes int
+	Findings      []Finding
+	StartedAt     string `json:"started_at,omitempty"`
+	FinishedAt    string `json:"finished_at,omitempty"`
+}
+
+// recordStage is StageResult as the record writes it, its atoms as recordAtom.
+type recordStage struct {
+	Stage     string
+	State     int
+	Lanes     []string
+	Atoms     []recordAtom
+	Omitted   []recordAtom
+	Unreached []string
+	Log       string
+}
+
+// wire is the stage in the shape Record marshals.
+func (s *StageResult) wire() recordStage {
+	atoms := func(as []AtomResult) []recordAtom {
+		if as == nil {
+			return nil
+		}
+		out := make([]recordAtom, len(as))
+		for i, a := range as {
+			out[i] = recordAtom(a)
+		}
+		return out
+	}
+	return recordStage{Stage: s.Stage, State: s.State, Lanes: s.Lanes, Atoms: atoms(s.Atoms),
+		Omitted: atoms(s.Omitted), Unreached: s.Unreached, Log: s.Log}
 }
 
 // Finding is one of an atom's findings on the module's PUBLIC surface.
@@ -251,7 +306,7 @@ const runRecordSentinel = "ourea-run-record/1"
 // every atom's lines are full of newlines; JSON escapes them, so they travel
 // intact without breaking the line the reader scans for.
 func (s *StageResult) Record() (string, error) {
-	raw, err := json.Marshal(s)
+	raw, err := json.Marshal(s.wire())
 	if err != nil {
 		return "", fmt.Errorf("the stage's record could not be marshalled: %w", err)
 	}
@@ -309,7 +364,7 @@ func stageResult(st checks.Stage) *StageResult {
 		for i, a := range as {
 			out[i] = AtomResult{Atom: a.Atom, Group: a.Group, State: a.State, Result: a.Result, Reason: a.Reason,
 				Logs: a.Logs, Truncated: a.Truncated, OriginalBytes: a.OriginalBytes,
-				Findings: publicFindings(a.Findings)}
+				Findings: publicFindings(a.Findings), StartedAt: a.StartedAt, FinishedAt: a.FinishedAt}
 		}
 		return out
 	}

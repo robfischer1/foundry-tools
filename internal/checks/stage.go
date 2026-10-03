@@ -44,6 +44,10 @@ type StageAtom struct {
 	// one of two hops between the Verdict and the run record, and a field that
 	// stops at either is a field the door never stores.
 	Findings []Finding
+	// When the atom started and finished, carried through for the same
+	// reason; empty for an atom that never started.
+	StartedAt  string
+	FinishedAt string
 }
 
 // Stage is a stage's settled answer.
@@ -100,7 +104,7 @@ func SettleStage(name string, vs []Verdict, unreached ...string) Stage {
 			}
 			a := StageAtom{Atom: v.Atom, Group: group, State: v.State, Result: v.Result, Reason: v.Reason,
 				Logs: v.Logs, Truncated: v.Truncated, OriginalBytes: v.OriginalBytes,
-				Findings: v.Findings}
+				Findings: v.Findings, StartedAt: v.StartedAt, FinishedAt: v.FinishedAt}
 			if v.Result == "absent" {
 				st.Omitted = append(st.Omitted, a)
 				continue
