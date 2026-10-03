@@ -129,8 +129,9 @@ func TestOrbitContractsReadsTheBaseFromTheDies(t *testing.T) {
 
 func TestOrbitContractsIsAbsentOutsideTheContractsTree(t *testing.T) {
 	for name, tree := range map[string]map[string]string{
-		"a star":       laneDies(map[string]string{"go.mod": "module x"}),
-		"orbits alone": laneDies(map[string]string{"orbits/urania-themis.toml": laneContract}),
+		"a star":         laneDies(map[string]string{"go.mod": "module x"}),
+		"orbits alone":   laneDies(map[string]string{"orbits/urania-themis.toml": laneContract}),
+		"a roster alone": laneDies(map[string]string{"fleet/stars/urania/data.json": uraniaRoster}),
 	} {
 		v := orbitAtom(t, "orbit:contracts", "themis", tree)
 		wantState(t, v, 0, "orbit:contracts: ABSENT - this tree is not the contracts' repository")
@@ -143,8 +144,7 @@ func TestOrbitContractsIsAbsentOutsideTheContractsTree(t *testing.T) {
 
 func TestOrbitContractsCannotRunWhenATreeCannotBeRead(t *testing.T) {
 	for name, tc := range map[string]struct{ needle, leaf, want string }{
-		"the shape":      {`"orbits/*.toml"`, "glob", "CANNOT RUN"},
-		"the contracts":  {`"orbits/*"`, "glob", "orbits/* could not be read"},
+		"the contracts":  {`pattern:"orbits/*"`, "glob", "orbits/* could not be read"},
 		"a contract":     {`"orbits/urania-themis.toml"`, "contents", "could not be read"},
 		"the roster":     {`"fleet/stars/*/data.json"`, "", "the roster could not be listed"},
 		"a roster shard": {`"fleet/stars/themis/data.json"`, "contents", "could not be read"},
@@ -248,6 +248,11 @@ func TestOrbitSurfaceIsAbsentWhereThereIsNoSeamToCheck(t *testing.T) {
 	v := orbitAtom(t, "orbit:surface", "foundry-dies", contractsTree(nil))
 	wantState(t, v, 0, "orbit:surface: ABSENT - the contracts' repository")
 
+	engine.reset()
+	engine.withTree(laneDies(nil))
+	scriptNarc(narcSurfaceNone, narcSurfaceNone)
+	v = orbitAtomAgain(t, "orbit:surface", "http://door/rob/urania.git")
+	wantSaid(t, v, 0, "urania registers no neighbors")
 	v = orbitAtom(t, "orbit:surface", "http://door/rob/eros.git", laneDies(nil))
 	wantState(t, v, 0, "orbit:surface: ABSENT - eros takes part in no contracted seam")
 
@@ -258,7 +263,8 @@ func TestOrbitSurfaceCannotRunWhenItCannotLook(t *testing.T) {
 		script func()
 		want   string
 	}{
-		"the shape":     {func() { engine.failLeaf(`pattern:"orbits/*.toml"`, "glob", "gone") }, "CANNOT RUN"},
+		"the tree":      {func() { engine.failLeaf(`pattern:"orbits/*"`, "glob", "gone") }, "orbits/* could not be read"},
+		"the contracts": {func() { engine.failLeaf(`pattern:"orbits/*.toml"`, "glob", "gone") }, "foundry-dies: orbits/*.toml could not be read"},
 		"the roster":    {func() { engine.failLeaf(`pattern:"fleet/stars/*/data.json"`, "glob", "gone") }, "foundry-dies: the roster could not be listed"},
 		"a narc scan":   {func() { engine.failLeaf(`"narc","scan","orbits"`, "stdout", "gone") }, "narc scan orbits never ran"},
 		"a narc answer": {func() { scriptNarc("a table", narcSurfaceNone) }, "narc scan surface answered something that is not its report"},

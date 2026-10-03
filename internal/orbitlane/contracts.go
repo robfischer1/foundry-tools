@@ -65,7 +65,9 @@ func contract(name string, raw, baseRaw []byte, roster map[string]bool) checks.F
 				star+" is not on the fleet roster (fleet/stars/"+star+"/data.json)")
 		}
 	}
-	if c.Status == "approved" && baseRaw != nil {
+	// A base the composer cannot read (absent: a new contract) answers an
+	// error, and then there is nothing to compare against.
+	if c.Status == "approved" {
 		if was, err := orbitcompose.ParseContract(name, baseRaw); err == nil &&
 			!slices.Equal(was.Verbs, c.Verbs) && was.Version == c.Version {
 			return finding(checks.VerdictViolated, subject, "approved-verbs-moved",

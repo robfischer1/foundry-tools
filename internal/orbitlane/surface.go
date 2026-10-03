@@ -55,11 +55,11 @@ type dial struct{ verb, where string }
 func Surface(in SurfaceInput) ([]checks.Finding, error) {
 	registered, unresolved, err := readSurface(in.Surface)
 	if err != nil {
-		return nil, fmt.Errorf("narc scan surface answered something that is not its report: %w", err)
+		return nil, fmt.Errorf("narc scan surface answered something that is not its report: %v", err)
 	}
 	dials, err := readDials(in.Orbits)
 	if err != nil {
-		return nil, fmt.Errorf("narc scan orbits answered something that is not its report: %w", err)
+		return nil, fmt.Errorf("narc scan orbits answered something that is not its report: %v", err)
 	}
 	out := produced(in, registered, unresolved)
 	out = append(out, dialled(in, registered, dials)...)
@@ -180,14 +180,15 @@ func (in SurfaceInput) serving(verb string, mine bool) []served {
 		if mine && c.Consumer != in.Star {
 			continue
 		}
+		// The whole name first; then the name with THIS producer's prefix cut,
+		// which is the name unchanged when it carries no such prefix (and no
+		// verb in the fleet begins with the bare "_" an empty prefix cuts).
 		native := verb
-		if p := in.Prefixes[c.Producer]; p != "" && strings.HasPrefix(verb, p+"_") {
-			native = strings.TrimPrefix(verb, p+"_")
-		}
-		if slices.Contains(c.Verbs, verb) {
-			native = verb
-		} else if !slices.Contains(c.Verbs, native) {
-			continue
+		if !slices.Contains(c.Verbs, verb) {
+			native = strings.TrimPrefix(verb, in.Prefixes[c.Producer]+"_")
+			if !slices.Contains(c.Verbs, native) {
+				continue
+			}
 		}
 		if !seen[c.Producer] {
 			seen[c.Producer] = true

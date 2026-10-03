@@ -57,37 +57,32 @@ func orbitCannot(id string, err error) checks.Verdict {
 func filesIn(ctx context.Context, dir *dagger.Directory, pattern string) (map[string][]byte, error) {
 	out, err := filesByName(ctx, dir, pattern)
 	if err != nil {
-		return nil, fmt.Errorf("%s could not be read: %w", pattern, err)
+		return nil, fmt.Errorf("%s could not be read: %v", pattern, err)
 	}
 	return out, nil
 }
 
-// isContractsTree reports whether dir is the contracts' own repository:
-// contracts beside the fleet roster.
-func isContractsTree(ctx context.Context, dir *dagger.Directory) (bool, error) {
-	for _, p := range []string{"orbits/*.toml", "fleet/stars/*/data.json"} {
-		m, err := dir.Glob(ctx, p)
-		if err != nil {
-			return false, err
-		}
-		if len(m) == 0 {
-			return false, nil
+// hasContract reports whether a directory's files hold any contract.
+func hasContract(files map[string][]byte) bool {
+	for name := range files {
+		if strings.HasSuffix(name, ".toml") {
+			return true
 		}
 	}
-	return true, nil
+	return false
 }
 
 // roster answers each star on dir's fleet roster and its verb prefix.
 func roster(ctx context.Context, dir *dagger.Directory) (map[string]string, error) {
 	paths, err := dir.Glob(ctx, "fleet/stars/*/data.json")
 	if err != nil {
-		return nil, fmt.Errorf("the roster could not be listed: %w", err)
+		return nil, fmt.Errorf("the roster could not be listed: %v", err)
 	}
 	out := map[string]string{}
 	for _, p := range paths {
 		body, err := dir.File(p).Contents(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("%s could not be read: %w", p, err)
+			return nil, fmt.Errorf("%s could not be read: %v", p, err)
 		}
 		var star struct {
 			VerbPrefix string `json:"verb_prefix"`
@@ -104,11 +99,11 @@ func roster(ctx context.Context, dir *dagger.Directory) (map[string]string, erro
 func (r *run) fleetContracts(ctx context.Context) ([]orbitcompose.Contract, error) {
 	files, err := filesIn(ctx, r.dies, "orbits/*.toml")
 	if err != nil {
-		return nil, fmt.Errorf("foundry-dies: %w", err)
+		return nil, fmt.Errorf("foundry-dies: %v", err)
 	}
 	cs, err := orbitcompose.ContractsOf(files)
 	if err != nil {
-		return nil, fmt.Errorf("foundry-dies/orbits does not compose: %w", err)
+		return nil, fmt.Errorf("foundry-dies/orbits does not compose: %v", err)
 	}
 	return cs, nil
 }
@@ -119,9 +114,11 @@ func (r *run) fleetContracts(ctx context.Context) ([]orbitcompose.Contract, erro
 func orbitContracts(ctx context.Context, r *run) checks.Verdict {
 	const id = "orbit:contracts"
 	const notHere = "this tree is not the contracts' repository (it needs orbits/*.toml beside fleet/stars/)"
-	if m, err := r.src.Glob(ctx, "orbits/*.toml"); err != nil {
+	files, err := filesIn(ctx, r.src, "orbits/*")
+	if err != nil {
 		return orbitCannot(id, err)
-	} else if len(m) == 0 {
+	}
+	if !hasContract(files) {
 		return orbitAbsent(id, notHere)
 	}
 	stars, err := roster(ctx, r.src)
@@ -131,13 +128,9 @@ func orbitContracts(ctx context.Context, r *run) checks.Verdict {
 	if len(stars) == 0 {
 		return orbitAbsent(id, notHere)
 	}
-	files, err := filesIn(ctx, r.src, "orbits/*")
-	if err != nil {
-		return orbitCannot(id, err)
-	}
 	base, err := filesIn(ctx, r.dies, "orbits/*.toml")
 	if err != nil {
-		return orbitCannot(id, fmt.Errorf("foundry-dies main: %w", err))
+		return orbitCannot(id, fmt.Errorf("foundry-dies main: %v", err))
 	}
 	names := map[string]bool{}
 	for s := range stars {
@@ -168,9 +161,11 @@ func orbitRepo(ctx context.Context, r *run) checks.Verdict {
 // analyzer run over the checkout.
 func orbitSurface(ctx context.Context, r *run) checks.Verdict {
 	const id = "orbit:surface"
-	if ok, err := isContractsTree(ctx, r.src); err != nil {
+	own, err := filesIn(ctx, r.src, "orbits/*")
+	if err != nil {
 		return orbitCannot(id, err)
-	} else if ok {
+	}
+	if hasContract(own) {
 		return orbitAbsent(id, "the contracts' repository: each contract is checked against the code in its producer's and consumer's own orbit lane, where the checkout is the code")
 	}
 	star := starOf(r.repo)
@@ -183,7 +178,7 @@ func orbitSurface(ctx context.Context, r *run) checks.Verdict {
 	}
 	prefixes, err := roster(ctx, r.dies)
 	if err != nil {
-		return orbitCannot(id, fmt.Errorf("foundry-dies: %w", err))
+		return orbitCannot(id, fmt.Errorf("foundry-dies: %v", err))
 	}
 	ctr := r.lane(checks.ImageFleet).
 		WithFile("/usr/local/bin/narc", dag.Container().From(NarcissusImage).File("/narc"), dagger.ContainerWithFileOpts{Permissions: 0o755})
@@ -195,7 +190,7 @@ func orbitSurface(ctx context.Context, r *run) checks.Verdict {
 	for _, scan := range []string{"surface", "orbits"} {
 		out, err := ctr.WithExec([]string{"narc", "scan", scan, "--json", "-", "/src"}, anyExit).Stdout(ctx)
 		if err != nil {
-			return orbitCannot(id, fmt.Errorf("narc scan %s never ran: %w", scan, err))
+			return orbitCannot(id, fmt.Errorf("narc scan %s never ran: %v", scan, err))
 		}
 		reports[scan] = []byte(out)
 	}

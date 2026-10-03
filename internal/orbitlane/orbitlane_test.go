@@ -146,15 +146,27 @@ func TestContractsOfAnEmptyDirectoryIsAViolation(t *testing.T) {
 func TestAnApprovedContractWithNoBaseOrAnUnparseableBaseHolds(t *testing.T) {
 	approved := strings.Replace(body, "generated", "approved", 1)
 	roster := map[string]bool{"urania": true, "themis": true}
+	moved := strings.Replace(approved, `"shape_for"`, `"shapes"`, 1)
 	for name, base := range map[string]map[string][]byte{
-		"new":         nil,
-		"broken base": {"urania-themis.toml": []byte("version = 1")},
-		"same verbs":  {"urania-themis.toml": []byte(approved)},
+		// A base the composer refuses (no status) still decodes its verbs
+		// and version; refused is refused, and nothing is compared.
+		"refused base": {"urania-themis.toml": []byte(strings.Replace(moved, `status = "approved"`, `status = ""`, 1))},
+		"new":          nil,
+		"broken base":  {"urania-themis.toml": []byte("version = 1")},
+		"same verbs":   {"urania-themis.toml": []byte(approved)},
 	} {
 		got := verdicts(Contracts(map[string][]byte{"urania-themis.toml": []byte(approved)}, base, roster))
 		if !slices.Equal(got, []string{"holds contract orbits/urania-themis.toml"}) {
 			t.Errorf("%s: %v", name, got)
 		}
+	}
+}
+
+func TestAGeneratedContractsVerbsMoveFreely(t *testing.T) {
+	roster := map[string]bool{"urania": true, "themis": true}
+	base := map[string][]byte{"urania-themis.toml": []byte(strings.Replace(body, `"shape_for"`, `"shapes"`, 1))}
+	if got := verdicts(Contracts(map[string][]byte{"urania-themis.toml": []byte(body)}, base, roster)); !slices.Equal(got, []string{"holds contract orbits/urania-themis.toml"}) {
+		t.Errorf("%v", got)
 	}
 }
 

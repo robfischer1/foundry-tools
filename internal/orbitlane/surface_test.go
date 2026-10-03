@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"dagger/foundry-tools/internal/checks"
+	"dagger/foundry-tools/internal/orbitcompose"
 )
 
 // report is a narcissus JSON report holding the findings given as
@@ -37,10 +38,10 @@ func TestSurfaceHoldsWhenCodeAndContractsAgree(t *testing.T) {
 	found := surfaceOf(t, "themis",
 		report("inert|close_node|one-exposer|registered via literal", "inert|admit|one-exposer|registered via literal"),
 		report("holds|cgo|mechanism|searched",
+			"unanalyzable|/src/c.go:4|loose-verb|admit — its own verb, read first",
 			"unanalyzable|/src/a.go:1|loose-verb|neighbors — the receiver traces to no dial",
 			"unanalyzable|/src/a.go:2|loose-verb|neighbors — again, deduplicated",
 			"unanalyzable|/src/b.go:3|loose-verb|graph_quads_to — via the gateway",
-			"unanalyzable|/src/c.go:4|loose-verb|admit — its own verb",
 			"unanalyzable|/src/main.go:9|unresolved-peer|mcpclient.Dial(url, peer, ident)"))
 	got := verdicts(found)
 	want := []string{"holds served orbits/themis-athena.toml", "holds dials-contracted themis"}
@@ -115,9 +116,9 @@ func TestAVerbSeveralProducersServeIsUnattributed(t *testing.T) {
 }
 
 func TestAnUnresolvedRegistrationMakesAMissingVerbUnanalyzable(t *testing.T) {
-	found := surfaceOf(t, "urania", report("unanalyzable|verbs.go:9|unresolved|tools[i].Name"), report())
+	found := surfaceOf(t, "urania", report("unanalyzable|verbs.go:9|unresolved|tools[i].Name", "inert|shape_for|one-exposer|read after the hole"), report())
 	got := verdicts(found)
-	want := []string{"unanalyzable registration-unresolved urania neighbors", "unanalyzable registration-unresolved urania shape_for"}
+	want := []string{"unanalyzable registration-unresolved urania neighbors"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("got %v", got)
 	}
@@ -140,5 +141,46 @@ func TestSurfaceRefusesAReportItCannotRead(t *testing.T) {
 		if _, err := Surface(in); err == nil || !strings.Contains(err.Error(), "narc scan "+name) {
 			t.Errorf("%s: %v", name, err)
 		}
+	}
+}
+
+// Every contract a star produces is judged: the first agreeing does not end
+// the walk.
+func TestEveryProducedContractIsJudged(t *testing.T) {
+	in := SurfaceInput{Star: "themis", Contracts: []orbitcompose.Contract{
+		parse(t, "themis-athena.toml", strings.Replace(body, `"neighbors", "shape_for"`, `"close_node"`, 1)),
+		parse(t, "themis-urania.toml", strings.Replace(body, `"neighbors", "shape_for"`, `"admit"`, 1)),
+	}, Surface: report("inert|close_node|one-exposer|x"), Orbits: report()}
+	found, err := Surface(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := verdicts(found); !slices.Equal(got, []string{"holds served orbits/themis-athena.toml", "violated contracted-verb-unregistered themis admit"}) {
+		t.Errorf("%v", got)
+	}
+}
+
+// One dial held and one its own: the counts are both said.
+func TestHeldAndOwnDialsAreCountedApart(t *testing.T) {
+	found := surfaceOf(t, "themis", report("inert|admit|one-exposer|x", "inert|close_node|one-exposer|x"),
+		report("unanalyzable|/src/a.go:1|loose-verb|admit — own", "unanalyzable|/src/b.go:2|loose-verb|neighbors — held"))
+	last := found[len(found)-1]
+	if last.Cause != "dials-contracted" || last.Detail != "1 dialled verb(s) are on themis's contracts, 1 are its own" {
+		t.Errorf("%+v", last)
+	}
+}
+
+// A producer named on several contracts is one producer.
+func TestAProducerOnSeveralContractsIsOneProducer(t *testing.T) {
+	in := SurfaceInput{Star: "athena", Contracts: append(contractsFor(t),
+		parse(t, "chaos-urania.toml", strings.Replace(body, `"neighbors", "shape_for"`, `"quads_to"`, 1))),
+		Prefixes: map[string]string{"chaos": "graph"},
+		Surface:  report(), Orbits: report("unanalyzable|/src/x.go:1|loose-verb|graph_quads_to — chaos twice")}
+	found, err := Surface(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := verdicts(found); !slices.Equal(got, []string{"violated dial-uncontracted /src/x.go:1"}) {
+		t.Errorf("%v", got)
 	}
 }
