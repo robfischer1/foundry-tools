@@ -126,9 +126,8 @@ func TestDieIsEverySidecarAndTheIndex(t *testing.T) {
 	if !slices.Equal(names, []string{"orbits.json", "themis.orbit.toml", "urania.orbit.toml"}) {
 		t.Errorf("files %v", names)
 	}
-	flux := Files("prime", Compose([]Contract{ut}))
-	if !bytes.Equal(files["urania.orbit.toml"], flux["urania.orbit.toml"]) {
-		t.Error("the die's sidecar differs from the one flux mounts")
+	if !bytes.Equal(files["urania.orbit.toml"], RenderReference(Compose([]Contract{ut})[1])) {
+		t.Errorf("the die's star file is not the reference dialect:\n%s", files["urania.orbit.toml"])
 	}
 	if !bytes.Equal(files[DieIndex], Index([]Contract{ut})) {
 		t.Error("the die's index is not Index")
