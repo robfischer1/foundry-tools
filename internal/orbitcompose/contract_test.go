@@ -1,9 +1,12 @@
 package orbitcompose
 
 import (
+	"errors"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/BurntSushi/toml"
 )
 
 const contractBody = `# a comment the composer drops
@@ -63,6 +66,10 @@ func TestParseContractRefusesWhatTheReaderWouldTripOn(t *testing.T) {
 		if _, err := ParseContract("urania-themis.toml", []byte(tc.body)); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: err %v, want it to name %q", name, err, tc.want)
 		}
+	}
+	var perr toml.ParseError
+	if _, err := ParseContract("urania-themis.toml", []byte("verbs = [")); !errors.As(err, &perr) {
+		t.Errorf("the decoder's error is not carried: %v", err)
 	}
 	if _, err := ParseContract("urania.toml", []byte(contractBody)); err == nil {
 		t.Error("a badly named file parsed")

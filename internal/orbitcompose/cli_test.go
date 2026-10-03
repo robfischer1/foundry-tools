@@ -2,6 +2,8 @@ package orbitcompose
 
 import (
 	"bytes"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -168,6 +170,10 @@ func TestMainRefusesBadUsage(t *testing.T) {
 			t.Errorf("%v: exit %d stderr %q", args, code, stderr)
 		}
 	}
+	// flag's own complaint goes to the composer's error stream too.
+	if _, _, stderr := run("-nope"); !strings.Contains(stderr, "flag provided but not defined: -nope") {
+		t.Errorf("stderr %q", stderr)
+	}
 }
 
 func TestMainCannotComposeIsTwo(t *testing.T) {
@@ -199,9 +205,13 @@ func TestMainApplyFailureIsTwo(t *testing.T) {
 	if err := os.WriteFile(file, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// out under a regular file: ReadDir answers an error that is not "absent".
-	if code, _, stderr := run("-contracts", good, "-out", filepath.Join(file, "orbits")); code != 2 || stderr == "" {
-		t.Errorf("exit %d stderr %q", code, stderr)
+	// out under a regular file: ReadDir answers an error that is not "absent",
+	// and -check (which writes nothing) still cannot compare against it.
+	for _, args := range [][]string{{}, {"-check"}} {
+		args = append(args, "-contracts", good, "-out", filepath.Join(file, "orbits"))
+		if code, _, stderr := run(args...); code != 2 || !strings.Contains(stderr, "not a directory") {
+			t.Errorf("%v: exit %d stderr %q", args, code, stderr)
+		}
 	}
 }
 
@@ -210,11 +220,11 @@ func TestReadDirRefusesASubdirectoryAndReadsAbsentAsEmpty(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(dir, "sub"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ReadDir(dir); err == nil || !strings.Contains(err.Error(), "is a directory") {
+	if _, err := ReadDir(dir); err == nil || !strings.Contains(err.Error(), "holds only files") {
 		t.Errorf("err %v", err)
 	}
 	have, err := ReadDir(filepath.Join(dir, "absent"))
-	if err != nil || len(have) != 0 {
+	if err != nil || have == nil || len(have) != 0 {
 		t.Errorf("have %v err %v", have, err)
 	}
 }
@@ -256,15 +266,15 @@ func TestMainWriteFailureIsTwo(t *testing.T) {
 }
 
 func TestReadContractsRefusesWhatItCannotRead(t *testing.T) {
-	if _, err := ReadContracts(filepath.Join(t.TempDir(), "bad[")); err == nil {
-		t.Error("a malformed glob answered nil")
+	if _, err := ReadContracts(filepath.Join(t.TempDir(), "absent")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("an absent directory: err %v", err)
 	}
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, "chaos-themis.toml"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ReadContracts(dir); err == nil {
-		t.Error("a directory named like a contract read")
+	if _, err := ReadContracts(dir); err == nil || !strings.Contains(err.Error(), "is a directory") {
+		t.Errorf("a directory named like a contract: err %v", err)
 	}
 }
 
@@ -273,8 +283,15 @@ func TestReadDirRefusesAnUnreadableFile(t *testing.T) {
 	if err := os.Symlink(filepath.Join(dir, "nowhere"), filepath.Join(dir, "a.orbit.toml")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ReadDir(dir); err == nil {
-		t.Error("a dangling link read")
+	if _, err := ReadDir(dir); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("a dangling link: err %v", err)
+	}
+	file := filepath.Join(dir, "plain")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadDir(filepath.Join(file, "orbits")); err == nil {
+		t.Error("a directory under a file read as absent")
 	}
 }
 

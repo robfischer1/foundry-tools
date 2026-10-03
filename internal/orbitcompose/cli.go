@@ -47,28 +47,30 @@ func Plan(want, have map[string][]byte) (Change, error) {
 	return c, nil
 }
 
-// ReadContracts parses every <producer>-<consumer>.toml in dir. Anything that
-// is not a .toml file (the README) is not a contract.
+// ReadContracts parses every <producer>-<consumer>.toml in dir, in file name
+// order. Anything that is not a .toml file (the README) is not a contract.
 func ReadContracts(dir string) ([]Contract, error) {
-	names, err := filepath.Glob(filepath.Join(dir, "*.toml"))
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
-	if len(names) == 0 {
-		return nil, fmt.Errorf("%s holds no contract (*.toml)", dir)
-	}
-	slices.Sort(names)
-	out := make([]Contract, 0, len(names))
-	for _, n := range names {
-		raw, err := os.ReadFile(n)
+	var out []Contract
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".toml") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
 		if err != nil {
 			return nil, err
 		}
-		c, err := ParseContract(n, raw)
+		c, err := ParseContract(e.Name(), raw)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, c)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("%s holds no contract (*.toml)", dir)
 	}
 	return out, nil
 }
