@@ -55,7 +55,16 @@ const recordPostTimeout = 15 * time.Second
 // is printed — one line, on the lane's stderr, near the end of its log where
 // Daedalus's log_tail and repo_ci_logs show it — and still decides nothing.
 func postRecord(ctx context.Context, repo string, token *dagger.Secret, record string) {
-	_, _ = fmt.Fprintln(recordPostOut, "record post: "+recordPostOutcome(ctx, repo, token, record))
+	// A TYPED NIL IS NOT A NIL INTERFACE, so the nil check happens HERE, on the
+	// concrete type, before the value is ever widened. A (*dagger.Secret)(nil)
+	// assigned to plaintexter is a non-nil interface holding a nil pointer, and
+	// calling through it panics — which is the common path, since every lane
+	// runs with no token until its call declares one.
+	var secret plaintexter
+	if token != nil {
+		secret = token
+	}
+	_, _ = fmt.Fprintln(recordPostOut, "record post: "+recordPostOutcome(ctx, repo, secret, record))
 }
 
 // recordPostOut is where postRecord's one line goes: the lane's stderr, the
@@ -63,13 +72,9 @@ func postRecord(ctx context.Context, repo string, token *dagger.Secret, record s
 var recordPostOut io.Writer = os.Stderr
 
 // recordPostOutcome is postRecord without the printing: what the post got, as
-// the line a reader of the lane's log needs.
-func recordPostOutcome(ctx context.Context, repo string, token *dagger.Secret, record string) string {
-	// A TYPED NIL IS NOT A NIL INTERFACE, so the nil check happens HERE, on the
-	// concrete type, before the value is ever widened. A (*dagger.Secret)(nil)
-	// assigned to plaintexter is a non-nil interface holding a nil pointer, and
-	// calling through it panics — which is the common path, since every lane
-	// runs with no token until its call declares one.
+// the line a reader of the lane's log needs. A nil token is a lane whose call
+// declared none.
+func recordPostOutcome(ctx context.Context, repo string, token plaintexter, record string) string {
 	if token == nil {
 		return "not posted: no record token"
 	}

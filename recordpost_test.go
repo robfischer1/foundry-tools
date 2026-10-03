@@ -341,6 +341,7 @@ func TestEachNotPostedCaseNamesItsReason(t *testing.T) {
 		{"no door", postRecordWith(t.Context(), "", fakeSecret{value: "t"}, "r"), "not posted: no door to post to (the run was built with no repo URL)"},
 		{"unreadable token", postRecordWith(t.Context(), "http://d/o/r.git", fakeSecret{err: errRefused}, "r"), "not posted: the record token could not be read: the secret refused to read"},
 		{"nil token", recordPostOutcome(t.Context(), "http://d/o/r.git", nil, "r"), "not posted: no record token"},
+		{"a token, no door", recordPostOutcome(t.Context(), "", fakeSecret{value: "t"}, "r"), "not posted: no door to post to (the run was built with no repo URL)"},
 	} {
 		if c.got != c.want {
 			t.Errorf("%s:\n want %q\n  got %q", c.name, c.want, c.got)
