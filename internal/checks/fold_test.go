@@ -84,9 +84,9 @@ func TestAReuseRunAnswersWhatAColdRunAnswers(t *testing.T) {
 			noise: `{"noise":[]}`, reuse: []string{"a/x.go"}},
 		{name: "survivors in the reused unit and the fresh one", state: 1, dir: ".",
 			files: map[string]string{
-				"a/x.go": `{"type":"T","status":"LIVED","line":4,"column":2},{"type":"U","status":"KILLED","line":4,"column":2},{"type":"N","status":"NOT COVERED","line":9,"column":1}`,
+				"a/x.go": `{"type":"T","status":"LIVED","line":4,"column":2},{"type":"U","status":"KILLED","line":4,"column":2},{"type":"N","status":"NOT COVERED","line":9,"column":1},{"type":"V","status":"SKIPPED","line":10,"column":1}`,
 				"b/y.go": `{"type":"T","status":"LIVED","line":1,"column":1}`,
-				"c/z.go": `{"type":"T","status":"KILLED","line":1,"column":1}`,
+				"c/z.go": `{"type":"T","status":"KILLED","line":1,"column":1},{"type":"V","status":"NOT VIABLE","line":2,"column":1}`,
 			},
 			noise: `{"noise":[]}`, reuse: []string{"a/x.go", "c/z.go"}},
 		{name: "forgiven, covered-unrun, ungraded and a fresh timeout, in a nested module", state: 0, dir: "tools/forge",
@@ -127,6 +127,9 @@ func TestAReuseRunAnswersWhatAColdRunAnswers(t *testing.T) {
 				wc.TimedOut != cc.TimedOut || wc.ProfileDisagrees != cc.ProfileDisagrees || wc.TimedOutPct != cc.TimedOutPct {
 				t.Fatalf("counts differ:\nreuse %+v\ncold  %+v", wc, cc)
 			}
+			if first := func(r string) string { return strings.SplitN(r, "\n", 2)[0] }; first(warm.Reason) != first(cold.Reason) {
+				t.Fatalf("the verdict lines differ: %q / %q", first(warm.Reason), first(cold.Reason))
+			}
 			if !strings.Contains(warm.Reason, "### Reused — ") || strings.Contains(cold.Reason, "### Reused") {
 				t.Fatal("only a reuse run says what it reused")
 			}
@@ -151,7 +154,7 @@ func TestARunThatReusedEveryUnitAnswersTheColdVerdict(t *testing.T) {
 	}
 	// A fresh run that broke is a broken run, whatever was reused.
 	broken := GoMutationVerdictReusing(GoMutationRun{Status: 1, Canary: CanaryOK}, ".", storedGradingsOf(t, fx))
-	if broken.State != 2 || !strings.Contains(broken.Reason, "gomutants exited 1") {
+	if broken.State != 2 || !strings.Contains(broken.Reason, "gomutants exited 1 and wrote no mutation-go.json") {
 		t.Fatalf("a broken fresh run: %d %s", broken.State, broken.Reason)
 	}
 	// A fresh report that does not read is could-not-run, whatever was reused.
@@ -164,9 +167,18 @@ func TestARunThatReusedEveryUnitAnswersTheColdVerdict(t *testing.T) {
 func TestTheReusedSectionNamesEachUnitAndItsRun(t *testing.T) {
 	got := ReusedSection([]ReusedGrading{{Unit: "internal/a", Lane: "mutation", RunNumber: 41, Sha: "abcdef0123456789", GradedAt: "2026-10-03T16:00:00Z",
 		Counts: GradingCounts{Generated: 9, Killed: 5, Lived: 1, NotCovered: 1}}})
-	for _, want := range []string{"### Reused — 1 unit(s)", "| internal/a | mutation run #41 | abcdef012345 2026-10-03T16:00:00Z | 5 | 2 | 2 |"} {
+	for _, want := range []string{"### Reused — 1 unit(s)", "| unit | graded by | at | killed | survived | other |\n|---|", "| internal/a | mutation run #41 | abcdef012345 2026-10-03T16:00:00Z | 5 | 2 | 2 |"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("section lacks %q:\n%s", want, got)
 		}
+	}
+}
+
+// A score over no stated worker count counts one, as every run does.
+func TestAScoreCountsAtLeastOneWorker(t *testing.T) {
+	elapsed := 2.0
+	s := scoreGoMutants([]ScoredMutant{{Outcome: OutcomeKilled}, {Outcome: OutcomeLived}}, GradingCounts{}, &elapsed, "diff", 0)
+	if s.MsPerMutant != 1000 {
+		t.Fatalf("ms per mutant = %v, want 2s × 1 worker / 2 mutants", s.MsPerMutant)
 	}
 }
