@@ -61,7 +61,7 @@ func ReadContracts(dir string) ([]Contract, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []Contract
+	files := map[string][]byte{}
 	for _, e := range entries {
 		if !strings.HasSuffix(e.Name(), ".toml") {
 			continue
@@ -70,16 +70,13 @@ func ReadContracts(dir string) ([]Contract, error) {
 		if err != nil {
 			return nil, err
 		}
-		c, err := ParseContract(e.Name(), raw)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, c)
+		files[e.Name()] = raw
 	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("%s holds no contract (*.toml)", dir)
+	cs, err := ContractsOf(files)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", dir, err)
 	}
-	return out, nil
+	return cs, nil
 }
 
 // ReadDir answers the regular files in dir by name; an absent dir is empty.
@@ -181,9 +178,14 @@ func plan(contracts, out, die, namespace string) (Change, error) {
 
 // report says what the change is, one file per line, sorted.
 func report(out io.Writer, c Change) {
+	fmt.Fprintln(out, Report(c))
+}
+
+// Report is what the change is, one file per line, sorted: "write <file>" or
+// "remove <file>", or that the directory is up to date.
+func Report(c Change) string {
 	if c.Empty() {
-		fmt.Fprintln(out, "orbitcompose: up to date")
-		return
+		return "orbitcompose: up to date"
 	}
 	var lines []string
 	for name := range c.Write {
@@ -193,5 +195,5 @@ func report(out io.Writer, c Change) {
 		lines = append(lines, "remove "+name)
 	}
 	slices.Sort(lines)
-	fmt.Fprintln(out, strings.Join(lines, "\n"))
+	return strings.Join(lines, "\n")
 }
