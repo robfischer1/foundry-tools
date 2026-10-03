@@ -54,11 +54,10 @@ func GoClosures(out, root string) map[string][]string {
 	var recs [][]string
 	for _, ln := range strings.Split(out, "\n") {
 		// A package that imports nothing ends in a tab the caller's trim may
-		// have taken, so a record of two fields has no deps rather than none.
-		f := append(strings.SplitN(ln, "\t", 3), "")
-		if len(f) < 3 {
-			continue
-		}
+		// have taken, so a short record is padded: no deps rather than no
+		// record. A line that is no record at all has no directory, and no
+		// directory is under root.
+		f := append(strings.SplitN(ln, "\t", 3), "", "")
 		importPath, _, _ := strings.Cut(f[0], " ")
 		dirOf[importPath] = f[1]
 		recs = append(recs, f)

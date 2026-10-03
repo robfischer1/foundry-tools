@@ -60,6 +60,22 @@ func TestAKeyReadThatFailsLeavesTheVerdictAlone(t *testing.T) {
 	}
 }
 
+// A read that exits non-zero is not believed, whatever it printed.
+func TestAKeyReadThatExitsWrongIsNotBelieved(t *testing.T) {
+	for _, needle := range []string{keyDiff, depsNeedle, lsTreeNeedle} {
+		scriptGoMutation(nil)
+		engine.stdout(lsTreeNeedle, "100644 blob b1\tgo.mod\x00100644 blob b2\ta.go\x00")
+		engine.stdout(keyDiff, "+++ b/a.go\n@@ -1 +1 @@\n+x\n")
+		engine.stdout(depsNeedle, "m\t/src\t\n")
+		engine.exitCode(needle, 2)
+		v := runAtom(t, "go:mutation", "abc123")
+		wantState(t, v, 0)
+		if len(v.Gradings) != 1 || v.Gradings[0].WhyNot != checks.WhyNotUnkeyable {
+			t.Fatalf("%s exited 2: gradings = %+v", needle, v.Gradings)
+		}
+	}
+}
+
 // The keys read the closure under the databases' build tags, as the run does:
 // a DB-gated test file's imports are in the closure only under its tag.
 func TestTheClosureIsReadUnderTheRunsTags(t *testing.T) {

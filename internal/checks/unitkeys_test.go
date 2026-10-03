@@ -58,7 +58,9 @@ func TestUnitKeysKeyEveryChangedUnit(t *testing.T) {
 	}
 	closures := GoClosures(goListOut, "/src")
 	diff := "+++ b/internal/a/a.go\n@@ -1 +1,2 @@\n+x\n+y\n+++ b/internal/c/c.go\n@@ -5 +5 @@\n+z\n"
-	changed := []string{"internal/c/c.go", "internal/a/a_test.go", "migrations/1.sql", "internal/a/a.go"}
+	// An orphan and a unit already keyed are passed over, never the end of
+	// the list.
+	changed := []string{"migrations/1.sql", "internal/a/a.go", "internal/a/a_test.go", "internal/c/c.go"}
 	keys, owner := UnitKeys(unitkey.Go, entries, diff, closures, changed, "")
 	if len(keys) != 2 || keys[0].Unit != "internal/a" || keys[1].Unit != "internal/c" {
 		t.Fatalf("keys = %+v (one per changed unit, in path order, an orphan keys nothing)", keys)
@@ -85,6 +87,10 @@ func TestUnitKeysKeyEveryChangedUnit(t *testing.T) {
 	failed, _ := UnitKeys(unitkey.Go, entries, diff, closures, []string{"internal/a/a.go"}, "go list exited 1")
 	if len(failed) != 1 || failed[0].Err != "go list exited 1" || failed[0].Hash != "" || failed[0].Ranges != "" {
 		t.Fatalf("a read that failed keys nothing: %+v", failed)
+	}
+	both, _ := UnitKeys(unitkey.Go, entries, diff, map[string][]string{}, []string{"internal/a/a.go"}, "git diff exited 128")
+	if len(both) != 1 || both[0].Err != "git diff exited 128" {
+		t.Fatalf("the read that failed is the reason, not the closure it left out: %+v", both)
 	}
 }
 
