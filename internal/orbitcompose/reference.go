@@ -31,7 +31,8 @@ func RenderReference(s Sidecar) []byte {
 	b.WriteString("# version and sha256 of its bytes. The verbs live in the contract.\n")
 	fmt.Fprintf(&b, "# [[produces]] is who breaks if %s changes what it SERVES; [[consumes]] is\n", s.Star)
 	fmt.Fprintf(&b, "# what %s breaks if it changes how it CALLS. To change a seam, edit the\n", s.Star)
-	b.WriteString("# contract in a foundry-dies pull (orbits/README.md says how), then re-lay.\n")
+	b.WriteString("# contract in a foundry-dies pull (orbits/README.md says how), then re-lay\n")
+	b.WriteString("# from the repo root: furnace die --for . --dest DIR && gavel order . --from DIR\n")
 	for _, c := range s.Produces {
 		reference(&b, "produces", "to", c.Consumer, c)
 	}

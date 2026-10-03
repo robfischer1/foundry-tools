@@ -21,8 +21,11 @@ import (
 // before the die) is judged on the keys it shares with the reference dialect,
 // and the extra keys are not graded.
 
-// RelayHint is how a star brings its orbit.toml back to the die.
-const RelayHint = "re-lay it from the die: oras pull foundry.notusmi.com/data/orbits:stable, then copy <star>.orbit.toml over orbit.toml"
+// RelayHint is how a star brings its orbit.toml back to the die: the
+// governance rail lays it (furnace renders it from the signed data/orbits die,
+// gavel lays it and records it), and the result is committed through the
+// repo's normal landing.
+const RelayHint = "re-lay it from the die, in a worktree at the repo root: furnace die --for . --dest DIR && gavel order . --from DIR, then commit orbit.toml"
 
 type laidEdge struct {
 	To       string `toml:"to"`
