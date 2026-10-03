@@ -249,3 +249,47 @@ func TestGateFileCarriesTheStageItWasAsked(t *testing.T) {
 		t.Errorf("the mutation lane's file is not labelled mutation:\n%s", chain)
 	}
 }
+
+// THE COMMIT HOOK'S CHECK IS ITS OWN LANE. A precommit run is labelled
+// `check`, so the door never folds a check's verdict in as a gate's; every
+// other stage keeps the label it had.
+func TestLaneOfLabelsEachStage(t *testing.T) {
+	for stage, want := range map[string]string{
+		"": "gate", "prepush": "gate", "sweep": "gate",
+		"mutation": "mutation", "precommit": "check",
+	} {
+		if got := laneOf(stage); got != want {
+			t.Errorf("laneOf(%q) = %q, want %q", stage, got, want)
+		}
+	}
+}
+
+// A gate-file at --stage=precommit grades the precommit atoms only and hands
+// the door a record labelled `check` — and a run that could not grade says
+// so under `check` too (CannotRunVector names the lane as its atom).
+func TestGateFileAtPrecommitIsTheCheckLane(t *testing.T) {
+	m := gateOn(t, cleanVector)
+	var stage string
+	gateVector = func(_ context.Context, _ *FoundryTools, s, _ string) (string, error) {
+		stage = s
+		return cleanVector, nil
+	}
+	f, err := m.GateFile(context.Background(), fakeTree, gatePin, "", "precommit", nil)
+	if err != nil {
+		t.Fatalf("gate-file: %v", err)
+	}
+	_, _ = f.Contents(context.Background())
+	if stage != "precommit" {
+		t.Fatalf("the vector was graded at stage %q, want precommit", stage)
+	}
+	if chain := engine.chain("withNewFile", RecordFileName); !strings.Contains(chain, `\"Stage\":\"check\"`) {
+		t.Errorf("the precommit file is not labelled check:\n%s", chain)
+	}
+	rec := gateOnTree(t, m, "another-tree", "precommit")
+	recordedOn(t, rec, "2", "refusing to grade")
+	var got StageResult
+	_ = json.Unmarshal([]byte(strings.TrimPrefix(rec, "ourea-run-record/1 ")), &got)
+	if got.Stage != "check" || len(got.Atoms) != 1 || got.Atoms[0].Atom != "check" {
+		t.Fatalf("a check that could not grade must say so as check: %+v", got)
+	}
+}
