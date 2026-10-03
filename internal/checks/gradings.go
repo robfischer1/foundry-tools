@@ -42,6 +42,11 @@ const (
 	OutcomeUnviable     = "unviable"
 )
 
+// MutationGradingEpoch is the hand-bumped part of every lane's engine id:
+// bump it when a change to how a mutant is graded or folded would make a
+// stored grading mean something else, and every stored grading misses.
+const MutationGradingEpoch = "1"
+
 // Why a grading is not reusable.
 const (
 	WhyNotTimeout   = "timeout"

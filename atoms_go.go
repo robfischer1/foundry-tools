@@ -960,6 +960,9 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 		misgraded = checks.ParseGoMisgradedFiles(out, path.Join("/src", dir))
 	}
 
+	// THE KEYS of the units this diff touches, read before the mutants run.
+	keys, owner := goGradingKeys(ctx, base, dir, since, changed, tags)
+
 	// MUTATE.
 	args := append([]string{"gomutants", "-output", goMutationReport,
 		"-config", goMutationNoConfig,
@@ -993,7 +996,7 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	// per-test durations; -count=1 keeps every run under it a real one.
 	mutated := covered.
 		WithEnvVariable("GOMAXPROCS", "1").
-		WithEnvVariable("GOFLAGS", "-p=1 -count=1").
+		WithEnvVariable("GOFLAGS", goMutationGoflags).
 		WithEnvVariable("GIT_CONFIG_COUNT", "2").
 		WithEnvVariable("GIT_CONFIG_KEY_0", "diff.relative").
 		WithEnvVariable("GIT_CONFIG_VALUE_0", "true").
@@ -1023,7 +1026,7 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 		classified, classifyErr, _ = classify(ctx, mutated.WithExec([]string{"mutation-gate", "-report", goMutationReport, "-C", ".", "-json"}, anyExit))
 	}
 
-	state, reason, found := checks.GoMutationVerdict(checks.GoMutationRun{
+	state, reason, found, score := checks.GoMutationVerdictScored(checks.GoMutationRun{
 		Status: status, Log: log, Report: []byte(report), Profile: profile, Canary: canary, Workers: goMutationWorkers,
 		Classified: []byte(classified), ClassifyErr: classifyErr,
 		MainCanary: mainCanary, MisgradedFiles: misgraded, MisgradedFilesErr: misgradedErr,
@@ -1036,6 +1039,7 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	// and a missed LIVED mutant render identically). Attached here, at the one
 	// return that has a scored run in hand.
 	v.Findings = found
+	v.Gradings = checks.GoGradings(score, dir, goMutationEngine(), checks.GoGradingTrusted(state, canary), keys, owner)
 	return v
 }
 
