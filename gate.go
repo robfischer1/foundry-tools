@@ -116,7 +116,17 @@ func (m *FoundryTools) GateFile(
 	// the pod log and shipped to Loki. A Secret is masked.
 	// +optional
 	recordToken *dagger.Secret,
+	// Reuse the gradings an earlier run stored for a unit with the same
+	// content, scope and engine, and grade only the rest (the mutation lane;
+	// mutation_reuse.go). It needs the record token, which authorises the
+	// lookup; without one, or with a store that does not answer, every unit is
+	// graded cold.
+	// +optional
+	reuse bool,
 ) (*dagger.File, error) {
+	if reuse && recordToken != nil {
+		m.lookup = lookupVia(m.Repo, recordToken)
+	}
 	result := m.gateStage(ctx, tree, stage, base)
 	// POST FIRST, THEN HAND BACK THE FILE. Both transports carry the same bytes
 	// — Record()'s whole output, sentinel included — because ourea reads

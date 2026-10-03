@@ -885,6 +885,23 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	// own .gomutants.yml joining them, and says why that is not optional.
 	base := ctr
 
+	// THE KEYS of the units this diff touches, and — under --reuse — which of
+	// them a stored grading already answers (mutation_reuse.go). Those are not
+	// graded again; with every unit answered, nothing below runs at all.
+	keys, owner := goGradingKeys(ctx, base, dir, since, changed, tags)
+	reused, reuseNote := r.reusable(ctx, "go", goMutationEngine(), keys)
+	misses := checks.Misses(keys, reused)
+	if len(reused) > 0 && len(misses) == 0 {
+		return goFolded(settle, checks.GoMutationRun{Canary: checks.CanaryOK, MainCanary: checks.CanaryOK, Workers: goMutationWorkers},
+			dir, reused, reuseNote, misses, owner)
+	}
+	scopeArgs := goMutationCoverPackages(changed)
+	mutateArgs := []string{"./..."}
+	if len(reused) > 0 {
+		scopeArgs = checks.MissPatterns(dir, misses)
+		mutateArgs = scopeArgs
+	}
+
 	// COVER: the profile the scorer reads to tell a misjudged NOT COVERED from
 	// a real one. Never fatal — gremlins gathers its own; this one only corrects
 	// the switch-case misread.
@@ -899,7 +916,7 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	if len(dbs) > 0 || len(brokers) > 0 {
 		coverArgs = append(coverArgs, "-tags", checks.BuildTags(dbs, brokers), "-p", "1")
 	}
-	covered := base.WithExec(append(coverArgs, goMutationCoverPackages(changed)...), anyExit)
+	covered := base.WithExec(append(coverArgs, scopeArgs...), anyExit)
 	if _, err := covered.ExitCode(ctx); err != nil {
 		return neverRan(err)
 	}
@@ -960,9 +977,6 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 		misgraded = checks.ParseGoMisgradedFiles(out, path.Join("/src", dir))
 	}
 
-	// THE KEYS of the units this diff touches, read before the mutants run.
-	keys, owner := goGradingKeys(ctx, base, dir, since, changed, tags)
-
 	// MUTATE.
 	args := append([]string{"gomutants", "-output", goMutationReport,
 		"-config", goMutationNoConfig,
@@ -970,7 +984,7 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 		"-disable", goMutationDisable,
 		"-exclude-files", goMutationExclude,
 		"-changed-since", since}, tags...)
-	args = append(args, "./...")
+	args = append(args, mutateArgs...)
 	// THE SCOPE IS THE CHANGED LINES, and gomutants reads them itself off
 	// `-changed-since` rather than being handed a file list. MEASURED
 	// 2026-09-29 on ourea internal/gatejob at 5743c86 against 8d9f610: the
@@ -1026,20 +1040,36 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 		classified, classifyErr, _ = classify(ctx, mutated.WithExec([]string{"mutation-gate", "-report", goMutationReport, "-C", ".", "-json"}, anyExit))
 	}
 
-	state, reason, found, score := checks.GoMutationVerdictScored(checks.GoMutationRun{
+	return goFolded(settle, checks.GoMutationRun{
 		Status: status, Log: log, Report: []byte(report), Profile: profile, Canary: canary, Workers: goMutationWorkers,
 		Classified: []byte(classified), ClassifyErr: classifyErr,
 		MainCanary: mainCanary, MisgradedFiles: misgraded, MisgradedFilesErr: misgradedErr,
-	})
-	v := settle(state, reason)
-	// THE FINDINGS COME FROM THE SCORE, NOT FROM THE REASON. checks.VerdictOf
-	// leaves them nil for this atom on purpose — FindingsOf does not parse the
-	// mutation report, because the report is a RENDERING of the score and reading
-	// it back would lose a distinction the score keeps (an ungraded LIVED mutant
-	// and a missed LIVED mutant render identically). Attached here, at the one
-	// return that has a scored run in hand.
-	v.Findings = found
-	v.Gradings = checks.GoGradings(score, dir, goMutationEngine(), checks.GoGradingTrusted(state, canary), keys, owner)
+	}, dir, reused, reuseNote, misses, owner)
+}
+
+// goFolded settles a Go mutation run: what it graded, folded with what it
+// reused (checks.GoMutationVerdictReusing — with nothing reused, the cold
+// verdict exactly), and the gradings of the units it graded itself.
+//
+// THE FINDINGS COME FROM THE SCORE, NOT FROM THE REASON. checks.VerdictOf
+// leaves them nil for this atom on purpose — FindingsOf does not parse the
+// mutation report, because the report is a RENDERING of the score and reading
+// it back would lose a distinction the score keeps (an ungraded LIVED mutant
+// and a missed LIVED mutant render identically).
+func goFolded(settle func(int, string) checks.Verdict, run checks.GoMutationRun, dir string,
+	reused map[string]checks.ReusedGrading, note string, misses []checks.UnitKey, owner func(string) (string, bool)) checks.Verdict {
+	list := checks.Reused(reused)
+	f := checks.GoMutationVerdictReusing(run, dir, list)
+	v := settle(f.State, f.Reason)
+	// THE REUSE RIDES BESIDE THE VERDICT, like the scope line: a pass keeps no
+	// output, and what a pass did not grade itself is what its reader needs.
+	for _, line := range []string{note, checks.ReuseLine("go:mutation", list, len(list)+len(misses))} {
+		if line != "" {
+			v.Reason = line + "\n" + v.Reason
+		}
+	}
+	v.Findings = f.Findings
+	v.Gradings = checks.GoGradings(f.Fresh, dir, goMutationEngine(), checks.GoGradingTrusted(f.State, run.Canary), misses, owner)
 	return v
 }
 

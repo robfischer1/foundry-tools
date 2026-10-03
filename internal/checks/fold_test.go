@@ -59,7 +59,7 @@ func storedGradingsOf(t *testing.T, fx foldFixture) []ReusedGrading {
 	for f := range reused {
 		keys = append(keys, UnitKey{Unit: path.Dir(path.Join(fx.dir, f)), Hash: "h", Ranges: "r"})
 	}
-	gradings := GoGradings(&GoMutationScore{Scored: earlier.Fresh}, fx.dir, "E", GoGradingTrusted(earlier.State, CanaryOK), keys, owner)
+	gradings := GoGradings(earlier.Fresh, fx.dir, "E", GoGradingTrusted(earlier.State, CanaryOK), keys, owner)
 	raw, _ := json.Marshal(gradings)
 	var out []ReusedGrading
 	if err := json.Unmarshal(raw, &out); err != nil {

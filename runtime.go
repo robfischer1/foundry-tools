@@ -67,6 +67,9 @@ type run struct {
 	// layers, so every exec after it is keyed afresh and nothing the engine
 	// cached answers it (verdictFor's re-ask of a could-not-run).
 	reask string
+	// lookup, when set, is how the mutation atoms ask which of their units a
+	// stored grading already answers (mutation_reuse.go); nil grades every unit.
+	lookup gradingLookup
 
 	dies *dagger.Directory
 
