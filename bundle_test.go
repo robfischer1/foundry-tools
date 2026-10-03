@@ -17,6 +17,8 @@ const (
 	// rosterData is a built roster's data.json.
 	rosterData = `{"fleet":{"map":{"athena":{},"ares":{}},"topics":["athena._ops.calls"],"stars":{"athena":{"name":"athena"},"ares":{"name":"ares"}}}}`
 	// plantedDenied is the composition probe's answer when both guards fire.
+	// orbitContract is one seam contract in foundry-dies/orbits.
+	orbitContract = "version = \"1\"\nstatus = \"generated\"\nwire_form = \"native\"\nverbs = [\"neighbors\"]\n"
 	plantedDenied = `{"result":[{"expressions":[{"value":["seam to definitely-not-a-real-star is not in the fleet roster","topic not-a-registered-topic is not in the fleet roster"]}]}]}`
 )
 
@@ -33,6 +35,8 @@ func bundleOn(t *testing.T, tree map[string]string) *FoundryTools {
 		"fleet/stars/athena/slag.json":     "{}",
 		"fleet/stars/ares/slag.json":       "{}",
 		"cosign.pub":                       "-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----\n",
+		"orbits/urania-themis.toml":        orbitContract,
+		"orbits/README.md":                 "the contracts",
 	}
 	for k, v := range tree {
 		if v == "" {

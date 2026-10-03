@@ -77,7 +77,8 @@ func (m *FoundryTools) Bundle(
 		stamp: strconv.FormatInt(time.Now().UnixNano(), 10),
 	}
 	code, reason := l.run(ctx)
-	return settle(ctx, code, "bundle: "+reason)
+	g := l.orbitDies(ctx, gateResult{code, reason})
+	return settle(ctx, g.code, "bundle: "+g.reason)
 }
 
 type bundleLane struct {
@@ -87,6 +88,10 @@ type bundleLane struct {
 	// stamp is this run's, on every registry read and write: what a registry
 	// holds is a fact about now, and a push or a signature is an act.
 	stamp string
+	// built and changed are run's, for the orbit dies after it: the container
+	// the dies were built in, and the paths the landing touched (touched).
+	built   *dagger.Container
+	touched []string
 }
 
 // workDir is where the bundles are built, outside the mounted tree.
@@ -146,6 +151,7 @@ func (l *bundleLane) run(ctx context.Context) (int, string) {
 		return g.code, g.reason
 	}
 	publishPolicy, publishFleet := bundlelane.Publishes(changed)
+	l.touched = changed
 
 	// EVERY GATE RUNS ON EVERY LANDING.
 	policy, g := l.policy(ctx, tools)
@@ -156,6 +162,7 @@ func (l *bundleLane) run(ctx context.Context) (int, string) {
 	if g.code != buildlane.Clean {
 		return g.code, g.reason
 	}
+	l.built = fleet
 
 	if !publishPolicy && !publishFleet {
 		return buildlane.Clean, "clean: both dies gated clean and neither has anything to publish for this landing (nothing outside **.md, .forgejo/ and schema/ moved, and nothing under fleet/)"
@@ -552,6 +559,12 @@ func (l *bundleLane) pushPin(ctx context.Context, oras *dagger.Container, die, t
 		// not a changed tree, and the published pin is the one that was gated.
 		bundleSay("%s already stands (published layer %s, this build %s) — a pin is immutable, not re-pushing", ref, remote, local)
 	}
+	return l.moveChannel(ctx, oras, die, ref, channel)
+}
+
+// moveChannel points channel at the pushed ref and answers die@digest.
+func (l *bundleLane) moveChannel(ctx context.Context, oras *dagger.Container, die, ref, channel string) (string, gateResult) {
+	cfg := []string{"--registry-config", "/run/docker/config.json"}
 	out, code, g := exec(ctx, oras, "oras tag "+ref, append([]string{"oras", "tag"}, append(cfg, ref, channel)...)...)
 	if g.code != buildlane.Clean {
 		return "", g
