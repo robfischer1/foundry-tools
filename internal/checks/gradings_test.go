@@ -32,6 +32,7 @@ func TestBuildGradingsSplitsARunIntoItsUnits(t *testing.T) {
 		{File: "b/y.go", Line: 1, Col: 1, Op: "T", Outcome: OutcomeTimedOut},
 		{File: "broken/z.go", Line: 1, Col: 1, Op: "T", Outcome: OutcomeKilled},
 		{File: "elsewhere/q.go", Line: 1, Col: 1, Op: "T", Outcome: OutcomeLived},
+		{File: "elsewhere/q.go", Line: 2, Col: 1, Op: "T", Outcome: OutcomeKilled},
 		{File: "nowhere/n.go", Line: 1, Col: 1, Op: "T", Outcome: OutcomeLived},
 	}
 	got := BuildGradings("go", "E", keys, dirOwner, mutants, true)
@@ -77,7 +78,7 @@ func TestBuildGradingsSplitsARunIntoItsUnits(t *testing.T) {
 	if got[4].Mutants == nil || got[4].Engine != "E" || got[4].Lang != "go" {
 		t.Fatalf("an unkeyed unit still says what graded it: %+v", got[4])
 	}
-	if got[4].Counts.Lived != 1 || got[5].Counts.Lived != 1 {
+	if got[4].Counts.Lived != 1 || got[4].Counts.Killed != 1 || got[5].Counts.Lived != 1 {
 		t.Fatal("a mutant no key names is still counted")
 	}
 }
@@ -93,7 +94,7 @@ func TestAnUntrustedRunIsNeverReusable(t *testing.T) {
 
 func TestRustScoredReadsTheOutcomeLists(t *testing.T) {
 	got := RustScored("crates/a/src/x.rs:148:5: replace poll_ms -> i32 with -1\n",
-		"\nsrc/lib.rs:2: replace + with -\n", "src/lib.rs:3:1: replace f with ()", "garbage\n")
+		"\nsrc/lib.rs:2: replace + with -\n", "  src/lib.rs:3:1: replace f with ()  ", "garbage\n")
 	want := []ScoredMutant{
 		{File: "crates/a/src/x.rs", Line: 148, Col: 5, Op: "replace poll_ms -> i32 with -1", Outcome: OutcomeMissed},
 		{File: "src/lib.rs", Line: 2, Col: 0, Op: "replace + with -", Outcome: OutcomeCaught},
