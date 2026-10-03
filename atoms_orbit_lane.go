@@ -112,17 +112,37 @@ func roster(ctx context.Context, dir *dagger.Directory) (map[string]string, erro
 	return out, nil
 }
 
-// fleetContracts answers the contracts on foundry-dies main.
-func (r *run) fleetContracts(ctx context.Context) ([]orbitcompose.Contract, error) {
+// starSet is a roster as the set of its star names; none at all is nil, the
+// two-part file-name rule alone.
+func starSet(prefixes map[string]string) map[string]bool {
+	if len(prefixes) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(prefixes))
+	for s := range prefixes {
+		out[s] = true
+	}
+	return out
+}
+
+// fleetContracts answers the contracts on foundry-dies main that parse, and a
+// finding for each that does not: one bad file is a finding about that file,
+// never the directory's could-not-run. Names split against foundry-dies' own
+// roster, so a hyphenated star (blade-runner) is one party.
+func (r *run) fleetContracts(ctx context.Context) ([]orbitcompose.Contract, []checks.Finding, error) {
 	files, err := filesIn(ctx, r.dies, "orbits/*.toml")
 	if err != nil {
-		return nil, fmt.Errorf("foundry-dies: %v", err)
+		return nil, nil, fmt.Errorf("foundry-dies: %v", err)
 	}
-	cs, err := orbitcompose.ContractsOf(files)
+	prefixes, err := roster(ctx, r.dies)
 	if err != nil {
-		return nil, fmt.Errorf("foundry-dies/orbits does not compose: %v", err)
+		return nil, nil, fmt.Errorf("foundry-dies: %v", err)
 	}
-	return cs, nil
+	cs, bad, err := orbitcompose.ParseAll(files, starSet(prefixes))
+	if err != nil {
+		return nil, nil, fmt.Errorf("foundry-dies/orbits does not compose: %v", err)
+	}
+	return cs, orbitlane.Unreadable(bad), nil
 }
 
 // orbit:contracts — every contract parses, names two stars on the roster,
@@ -149,11 +169,7 @@ func orbitContracts(ctx context.Context, r *run) checks.Verdict {
 	if err != nil {
 		return orbitCannot(id, fmt.Errorf("foundry-dies main: %v", err))
 	}
-	names := map[string]bool{}
-	for s := range stars {
-		names[s] = true
-	}
-	return orbitVerdict(id, orbitlane.Contracts(files, base, names))
+	return orbitVerdict(id, orbitlane.Contracts(files, base, starSet(stars)))
 }
 
 // orbit:repo — a laid orbit.toml is what the contracts compose to for this
@@ -167,11 +183,11 @@ func orbitRepo(ctx context.Context, r *run) checks.Verdict {
 	if !ok {
 		return orbitAbsent(id, "this repository carries no root orbit.toml (it is laid from the data/orbits die)")
 	}
-	cs, err := r.fleetContracts(ctx)
+	cs, bad, err := r.fleetContracts(ctx)
 	if err != nil {
 		return orbitCannot(id, err)
 	}
-	return orbitVerdict(id, orbitlane.Repo(starOf(r.repo), []byte(laid), cs))
+	return orbitVerdict(id, append(orbitlane.Repo(starOf(r.repo), []byte(laid), cs), bad...))
 }
 
 // orbit:surface — the star's code against its contracts, from narcissus's
@@ -186,7 +202,7 @@ func orbitSurface(ctx context.Context, r *run) checks.Verdict {
 		return orbitAbsent(id, "the contracts' repository: each contract is checked against the code in its producer's and consumer's own orbit lane, where the checkout is the code")
 	}
 	star := starOf(r.repo)
-	cs, err := r.fleetContracts(ctx)
+	cs, bad, err := r.fleetContracts(ctx)
 	if err != nil {
 		return orbitCannot(id, err)
 	}
@@ -221,7 +237,7 @@ func orbitSurface(ctx context.Context, r *run) checks.Verdict {
 	if err != nil {
 		return orbitCannot(id, err)
 	}
-	return orbitVerdict(id, found)
+	return orbitVerdict(id, append(found, bad...))
 }
 
 // party reports whether star is either side of any contract.

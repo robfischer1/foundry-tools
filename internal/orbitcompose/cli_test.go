@@ -231,7 +231,7 @@ func TestReadDirRefusesASubdirectoryAndReadsAbsentAsEmpty(t *testing.T) {
 
 func TestReadContractsIsSortedByFile(t *testing.T) {
 	dir := writeContracts(t, map[string]string{"urania-themis.toml": contractBody, "chaos-themis.toml": contractBody})
-	cs, err := ReadContracts(dir)
+	cs, err := ReadContracts(dir, nil)
 	if err != nil || len(cs) != 2 || cs[0].Name != "chaos-themis" || cs[1].Name != "urania-themis" {
 		t.Errorf("%+v %v", cs, err)
 	}
@@ -266,14 +266,14 @@ func TestMainWriteFailureIsTwo(t *testing.T) {
 }
 
 func TestReadContractsRefusesWhatItCannotRead(t *testing.T) {
-	if _, err := ReadContracts(filepath.Join(t.TempDir(), "absent")); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := ReadContracts(filepath.Join(t.TempDir(), "absent"), nil); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("an absent directory: err %v", err)
 	}
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, "chaos-themis.toml"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ReadContracts(dir); err == nil || !strings.Contains(err.Error(), "is a directory") {
+	if _, err := ReadContracts(dir, nil); err == nil || !strings.Contains(err.Error(), "is a directory") {
 		t.Errorf("a directory named like a contract: err %v", err)
 	}
 }
@@ -309,5 +309,93 @@ func TestApplyFailuresAnswerTheError(t *testing.T) {
 	}
 	if err := Apply(dir, Change{Write: map[string][]byte{"sub.orbit.toml": []byte("x")}}); err == nil {
 		t.Error("writing over a directory answered nil")
+	}
+}
+
+// ONE BAD FILE REFUSES THE WRITE, NAMED, AND WRITES NOTHING.
+func TestMainWithAnUnreadableContractWritesNothingAndNamesEachFile(t *testing.T) {
+	contracts := writeContracts(t, map[string]string{
+		"urania-themis.toml": contractBody, "broken-themis.toml": "version = 1", "also-bad.toml": "x",
+	})
+	out := filepath.Join(t.TempDir(), "prime", "orbits")
+	for _, args := range [][]string{{"-contracts", contracts, "-out", out}, {"-contracts", contracts, "-out", out, "-check"}} {
+		code, stdout, stderr := run(args...)
+		if code != 2 || stdout != "" || !strings.Contains(stderr, "broken-themis.toml") || !strings.Contains(stderr, "also-bad.toml") {
+			t.Errorf("%v: exit %d stdout %q stderr %q", args, code, stdout, stderr)
+		}
+	}
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Errorf("the output directory was created: %v", err)
+	}
+}
+
+// THE ROSTER BESIDE THE CONTRACTS (foundry-dies' fleet/stars) LETS A
+// HYPHENATED STAR COMPOSE, or a named one does.
+func TestMainReadsTheRosterBesideTheContracts(t *testing.T) {
+	root := t.TempDir()
+	for _, star := range []string{"blade-runner", "poseidon"} {
+		if err := os.MkdirAll(filepath.Join(root, "fleet", "stars", star), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(root, "orbits"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "orbits", "blade-runner-poseidon.toml"), []byte(contractBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "orbits")
+	code, stdout, stderr := run("-contracts", filepath.Join(root, "orbits"), "-out", out)
+	if code != 0 || stderr != "" || !strings.Contains(stdout, "write  blade-runner.orbit.toml") || !strings.Contains(stdout, "write  poseidon.orbit.toml") {
+		t.Fatalf("exit %d stdout %q stderr %q", code, stdout, stderr)
+	}
+	plain := writeContracts(t, map[string]string{"urania-themis.toml": contractBody})
+	fresh := filepath.Join(t.TempDir(), "orbits")
+	if code, stdout, stderr := run("-contracts", plain, "-stars", filepath.Join(root, "absent"), "-out", fresh); code != 2 || stdout != "" || !strings.Contains(stderr, "absent") {
+		t.Errorf("a named roster that is not there: exit %d stdout %q stderr %q", code, stdout, stderr)
+	}
+	if _, err := os.Stat(fresh); !os.IsNotExist(err) {
+		t.Errorf("a refused run wrote: %v", err)
+	}
+}
+
+func TestRosterForIsTheNamedDirectoryElseTheOneBesideElseNone(t *testing.T) {
+	root := t.TempDir()
+	contracts := filepath.Join(root, "orbits")
+	if stars, err := RosterFor(contracts, ""); stars != nil || err != nil {
+		t.Errorf("no roster beside: %v %v", stars, err)
+	}
+	named := filepath.Join(root, "named")
+	if err := os.MkdirAll(filepath.Join(named, "zeta"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(named, "README"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stars, err := RosterFor(contracts, named)
+	if err != nil || len(stars) != 1 || !stars["zeta"] {
+		t.Errorf("named: %v %v (a file is not a star)", stars, err)
+	}
+	beside := filepath.Join(root, "fleet", "stars", "alpha")
+	if err := os.MkdirAll(beside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if stars, err := RosterFor(contracts, ""); err != nil || !stars["alpha"] {
+		t.Errorf("beside: %v %v", stars, err)
+	}
+	if _, err := RosterFor(contracts, filepath.Join(root, "absent")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("named but absent: %v", err)
+	}
+	// a roster beside that cannot be read (here: a file where the directory
+	// goes) is an error, never silently no roster
+	other := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(other, "fleet"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(other, "fleet", "stars"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if stars, err := RosterFor(filepath.Join(other, "orbits"), ""); err == nil || stars != nil {
+		t.Errorf("an unreadable roster beside: %v %v", stars, err)
 	}
 }

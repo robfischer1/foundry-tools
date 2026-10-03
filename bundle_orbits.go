@@ -72,7 +72,11 @@ func (l *bundleLane) orbitPayloads(ctx context.Context) (contracts, orbits map[s
 		}
 		files[path.Base(p)] = []byte(body)
 	}
-	contracts, orbits, err = orbitcompose.Payloads(files)
+	prefixes, err := roster(ctx, src)
+	if err != nil {
+		return nil, nil, couldNotRun("the roster beside orbits/ could not be read: %v", err)
+	}
+	contracts, orbits, err = orbitcompose.Payloads(files, starSet(prefixes))
 	if err != nil {
 		return nil, nil, findings("foundry-dies/orbits does not compose, so neither orbit die can be built: " + err.Error())
 	}

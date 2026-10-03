@@ -22,7 +22,7 @@ verbs = ["shape_for"]
 func composedTree(t *testing.T, edit func(map[string][]byte)) {
 	t.Helper()
 	contracts := map[string][]byte{"urania-themis.toml": []byte(composedContract)}
-	cs, err := orbitcompose.ContractsOf(contracts)
+	cs, err := orbitcompose.ContractsOf(contracts, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,15 +102,42 @@ func TestOrbitComposedCannotRunWhenADirectoryCannotBeRead(t *testing.T) {
 	wantState(t, runAtom(t, "ops:orbit-composed", ""), 2, "the rendered sidecars could not be read", "read refused")
 }
 
-// CONTRACTS THAT DO NOT COMPOSE ARE A COULD-NOT-RUN, not a finding against
-// the render.
-func TestOrbitComposedCannotRunOnBrokenContracts(t *testing.T) {
+// A CONTRACT THAT DOES NOT PARSE IS A FINDING ON THAT FILE, not a could-not-run:
+// the readable contracts are still compared with the render.
+func TestOrbitComposedReportsABrokenContractAsAFinding(t *testing.T) {
 	composedTree(t, nil)
 	engine.withTree(map[string]string{
 		"/dies/orbits/urania-themis.toml": "version = 1",
 		"prime/orbits/kustomization.yaml": orbitcompose.OwnerMark + "\n",
 	})
-	wantState(t, runAtom(t, "ops:orbit-composed", ""), 2, "the contracts do not compose")
+	wantState(t, runAtom(t, "ops:orbit-composed", ""), 1, "contract-unparseable: urania-themis.toml")
+}
+
+// A ROSTER THAT CANNOT BE LISTED IS A COULD-NOT-RUN that says so.
+func TestOrbitComposedCannotRunWhenTheRosterCannotBeRead(t *testing.T) {
+	composedTree(t, nil)
+	engine.fail(`"fleet/stars/*/data.json"`, "the dies went away")
+	wantState(t, runAtom(t, "ops:orbit-composed", ""), 2, "foundry-dies' roster could not be read", "the dies went away")
+}
+
+// A HYPHENATED STAR IS COMPOSED WHEN foundry-dies' ROSTER NAMES IT.
+func TestOrbitComposedSplitsHyphenatedStarsAgainstTheDiesRoster(t *testing.T) {
+	stars := map[string]bool{"blade-runner": true, "themis": true}
+	cs, err := orbitcompose.ContractsOf(map[string][]byte{"blade-runner-themis.toml": []byte(composedContract)}, stars)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree := map[string]string{
+		"/dies/orbits/blade-runner-themis.toml":    composedContract,
+		"/dies/fleet/stars/blade-runner/data.json": "{}",
+		"/dies/fleet/stars/themis/data.json":       "{}",
+	}
+	for name, raw := range orbitcompose.Files(orbitNamespace, orbitcompose.Compose(cs)) {
+		tree["prime/orbits/"+name] = string(raw)
+	}
+	engine.reset()
+	engine.withTree(tree)
+	wantState(t, runAtom(t, "ops:orbit-composed", ""), 0)
 }
 
 // EVERY ENTRY IS READ, A DIRECTORY ANYWHERE AMONG THEM INCLUDED: one that
