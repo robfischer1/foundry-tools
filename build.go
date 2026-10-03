@@ -657,8 +657,6 @@ func (l *buildLane) sign(ctx context.Context, img *Image, ref, star string) (int
 	); code != buildlane.Clean {
 		return code, why
 	}
-	say("signed %s with the CI key (--sign-bases)", ref)
-
 	oras, sbom, failed := l.composedSBOM(ctx, img)
 	if failed != nil {
 		return failed.code, failed.why

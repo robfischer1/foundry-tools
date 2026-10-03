@@ -141,10 +141,11 @@ func (l *buildLane) base(ctx context.Context, star, base string, args []string) 
 	if code, why := l.baseSBOM(ctx, img, ref, name); code != buildlane.Clean {
 		return code, why
 	}
-	if code, why := l.stable(ctx, img, pushRepo, ref, name); code != buildlane.Clean {
-		return code, why
+	code, why = l.stable(ctx, img, pushRepo, ref, name)
+	if code == buildlane.Clean {
+		why = baseClean(ref, l.signBases)
 	}
-	return buildlane.Clean, baseClean(ref, l.signBases)
+	return code, why
 }
 
 // baseSBOM is a published base's SBOM. UNSIGNED BY DEFAULT (Scheduler
@@ -158,10 +159,24 @@ func (l *buildLane) baseSBOM(ctx context.Context, img *Image, ref, name string) 
 	if l.signBases {
 		return l.sign(ctx, img, ref, name)
 	}
-	if failed := l.publishSBOM(ctx, img, ref); failed != nil {
-		return failed.code, failed.why
+	return stopped(l.publishSBOM(ctx, img, ref))
+}
+
+// stopped is a laneStop as the (code, why) pair the base path speaks: nil is
+// clean with nothing to say.
+//
+// NO LITERAL buildlane.Clean RETURN, here or in base's tail, and that is the
+// mutation lane's doing: Clean is 0, so RETURN_ZERO on `return
+// buildlane.Clean, …` is an EQUIVALENT MUTANT no test can kill (LIVED on
+// foundry-tools #258, build_bases.go:147 and :164). Returning the code that
+// was actually answered keeps every mutant of these lines observable.
+func stopped(s *laneStop) (int, string) {
+	var code int
+	var why string
+	if s != nil {
+		code, why = s.code, s.why
 	}
-	return buildlane.Clean, ""
+	return code, why
 }
 
 // baseClean is a promoted base's verdict line, which says whether it was
