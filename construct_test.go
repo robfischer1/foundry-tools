@@ -147,7 +147,7 @@ func TestTreeAnswersTheTreeHashOrRefuses(t *testing.T) {
 	if err != nil || got != fakeTree {
 		t.Fatalf("Tree = %q, %v; want the trimmed hash and no error", got, err)
 	}
-	if engine.chain(`"rev-parse","HEAD^{tree}"`, `withNewFile(path:"/etc/gitconfig"`) == "" {
+	if engine.chain(`"rev-parse","HEAD^{tree}"`, `withNewFile(`, `path:"/etc/gitconfig"`) == "" {
 		t.Errorf("the tree is read through gitReady (safe.directory first): %v", engine.chains())
 	}
 

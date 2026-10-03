@@ -372,7 +372,7 @@ func TestOpsFlux(t *testing.T) {
 		// of a 4.1 MB gate log, measured).
 		[]string{"withExec", "expect:ANY", `args:["kubeconform","-strict","-summary","-ignore-missing-schemas","-skip","CustomResourceDefinition","-schema-location","default","/tmp/kustomize.0.yaml","/tmp/kustomize.1.yaml"]`},
 	)
-	if engine.chain(`withNewFile(path:"/tmp/ops/flux.built.yaml"`) != "" {
+	if engine.chain(`"/tmp/ops/flux.built.yaml"`) != "" {
 		t.Error("the built stream was sent back through withNewFile — that argument is rendered whole into the lane's log")
 	}
 	if hasCall(v, "withExec", `args:["kubeconform","-v"]`, "expect:ANY") {
