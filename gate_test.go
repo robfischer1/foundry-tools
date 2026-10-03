@@ -256,7 +256,7 @@ func TestGateFileCarriesTheStageItWasAsked(t *testing.T) {
 func TestLaneOfLabelsEachStage(t *testing.T) {
 	for stage, want := range map[string]string{
 		"": "gate", "prepush": "gate", "sweep": "gate",
-		"mutation": "mutation", "precommit": "check",
+		"mutation": "mutation", "precommit": "check", "mutation-bg": "mutation-bg",
 	} {
 		if got := laneOf(stage); got != want {
 			t.Errorf("laneOf(%q) = %q, want %q", stage, got, want)
@@ -291,5 +291,37 @@ func TestGateFileAtPrecommitIsTheCheckLane(t *testing.T) {
 	_ = json.Unmarshal([]byte(strings.TrimPrefix(rec, "ourea-run-record/1 ")), &got)
 	if got.Stage != "check" || len(got.Atoms) != 1 || got.Atoms[0].Atom != "check" {
 		t.Fatalf("a check that could not grade must say so as check: %+v", got)
+	}
+}
+
+// THE BACKGROUND MUTATION LANE GRADES THE MUTATION ATOMS UNDER ITS OWN LABEL:
+// the vector is asked at stage mutation, the record says mutation-bg, and a
+// run that could not grade says so as mutation-bg at the mutation stage.
+func TestTheBackgroundMutationLaneGradesMutationUnderItsOwnName(t *testing.T) {
+	m := gateOn(t, redVector)
+	var stage string
+	gateVector = func(_ context.Context, _ *FoundryTools, s, _ string) (string, error) {
+		stage = s
+		return redVector, nil
+	}
+	rec := runGate(t, m, "mutation-bg")
+	if stage != "mutation" {
+		t.Fatalf("the vector was graded at stage %q, want mutation", stage)
+	}
+	recordedOn(t, rec, "1", "FAIL TestX")
+	var got StageResult
+	_ = json.Unmarshal([]byte(strings.TrimPrefix(rec, "ourea-run-record/1 ")), &got)
+	if got.Stage != "mutation-bg" {
+		t.Fatalf("the record must name the background lane, got %q", got.Stage)
+	}
+	bad := gateOnTree(t, m, "another-tree", "mutation-bg")
+	_ = json.Unmarshal([]byte(strings.TrimPrefix(bad, "ourea-run-record/1 ")), &got)
+	if len(got.Atoms) != 1 || got.Atoms[0].Atom != "mutation-bg" || got.Stage != "mutation-bg" {
+		t.Fatalf("a background run that could not grade = %+v", got)
+	}
+	for in, want := range map[string]string{"mutation-bg": "mutation", "mutation": "mutation", "precommit": "precommit", "": ""} {
+		if g := gradedStage(in); g != want {
+			t.Errorf("gradedStage(%q) = %q, want %q", in, g, want)
+		}
 	}
 }
