@@ -211,6 +211,14 @@ func atomTable() []AtomDef {
 			ID: "ops:orbit-sidecars", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every composed orbit sidecar (*.orbit.toml) an ops tree tracks parses with stellar-core-go policy.ParseACL, the reader a witness-mode star refuses to boot without.",
 		},
+		// THE RENDER IS NOT STALE. orbitcompose writes prime/orbits from
+		// foundry-dies/orbits and nothing runs it, so a contract change sat
+		// unrendered until someone remembered (Task #104.1). This composes
+		// the dies at main and refuses a render a re-run would change.
+		{
+			ID: "ops:orbit-composed", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
+			Desc: "The orbit sidecars a tree renders (prime/orbits) are exactly what orbitcompose composes from foundry-dies/orbits at main — nothing a re-render would write or remove.",
+		},
 
 		// ---- template: the copier templates ----
 		//
