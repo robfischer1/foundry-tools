@@ -165,6 +165,8 @@ func laneOf(stage string) string {
 	switch stage {
 	case checks.StageMutation:
 		return "mutation"
+	case checks.StageOrbit:
+		return "orbit"
 	case checks.StagePrecommit:
 		return "check"
 	}
