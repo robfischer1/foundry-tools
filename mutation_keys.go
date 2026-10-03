@@ -54,3 +54,43 @@ func goGradingKeys(ctx context.Context, ctr *dagger.Container, dir, since, chang
 	return checks.UnitKeys(unitkey.Go, checks.ParseLsTree(tree), diff, checks.GoClosures(list, "/src"),
 		checks.InModule(dir, strings.Split(changed, "\n")), failed)
 }
+
+// The Rust lane's per-mutant budgets, as cargo-mutants is handed them.
+const (
+	rustBuildTimeout   = "900"
+	rustMinTestTimeout = "60"
+)
+
+// rustMutationEngine is E for the Rust lane. TestTheRustEngineIsPinned holds
+// its value.
+func rustMutationEngine() string {
+	return unitkey.Engine(map[string]string{
+		"image":                checks.ImageRust,
+		"cargo-mutants":        checks.CargoMutantsVersion,
+		"cargo-nextest":        checks.CargoNextestVersion,
+		"python":               checks.FleetPython,
+		"jobs":                 strconv.Itoa(rustMutationJobs),
+		"build-timeout":        rustBuildTimeout,
+		"minimum-test-timeout": rustMinTestTimeout,
+		"test-runner":          rustTestRunner,
+		"epoch":                checks.MutationGradingEpoch,
+	})
+}
+
+// rustGradingKeys keys the units the pull's critical-module diff touched:
+// the tree's blobs, the diff cargo-mutants is handed (its `+` lines are the
+// ranges), each member's path-dependency closure off the metadata already
+// read, widened to the workspace when the tree's mutants config tests wider
+// than a mutant's own crate.
+func rustGradingKeys(ctx context.Context, ctr *dagger.Container, diff, files, metadata, config string) ([]checks.UnitKey, func(string) (string, bool)) {
+	tree, code, err := output(ctx, ctr.WithExec([]string{"git", "-C", "/src", "ls-tree", "-r", "-z", "--full-tree", "HEAD"}, anyExit))
+	failed := checks.ReadFailed("git ls-tree", code, err)
+	closures, err := checks.RustClosures([]byte(metadata), "/src")
+	if err != nil {
+		failed = cmp.Or(failed, err.Error())
+	}
+	if checks.RustTestScopeWide(config) {
+		closures = checks.Widened(closures)
+	}
+	return checks.UnitKeys(unitkey.Rust, checks.ParseLsTree(tree), diff, closures, strings.Split(files, "\x00"), failed)
+}

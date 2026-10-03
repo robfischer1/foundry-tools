@@ -1,6 +1,9 @@
 package main
 
 import (
+	"context"
+	"reflect"
+	"strings"
 	"testing"
 
 	"dagger/foundry-tools/internal/checks"
@@ -86,4 +89,71 @@ func TestTheClosureIsReadUnderTheRunsTags(t *testing.T) {
 	engine.stdout(`"grep","-rhoE"`, "//go:build live_db\n")
 	runAtom(t, "go:mutation", "abc123")
 	wantCalls(t, engine.chain(depsNeedle, "stdout"), []string{"withExec", `"-test","-f"`, `"-tags","live_db","./..."`})
+}
+
+func TestTheRustEngineIsPinned(t *testing.T) {
+	const want = "1c46a081bfa87c12cd086d2849e6fe7192d36e85babc319c330e5a6e8962c9eb"
+	if got := rustMutationEngine(); got != want {
+		t.Fatalf("rustMutationEngine() = %s, want %s — an input moved; every stored Rust grading now misses. If that is meant, pin the new value", got, want)
+	}
+}
+
+const rustTree = "100644 blob m\tCargo.toml\x00100644 blob l\tCargo.lock\x00100644 blob s\tsrc/lib.rs\x00"
+
+// The Rust lane keys the crate its diff touched and hands back its grading,
+// trusted only when the run measured.
+func TestRustMutationGradesTheCrateItTouched(t *testing.T) {
+	scriptRustMutation(map[string]string{"/src/mutants.out/missed.txt": "src/lib.rs:1:1: replace f -> i32 with 1\n"})
+	engine.exitCode(rustMutantsNeedle, 2)
+	engine.stdout(lsTreeNeedle, rustTree)
+	v := runAtom(t, "rust:mutation", "abc123")
+	wantState(t, v, 1)
+	if len(v.Gradings) != 1 {
+		t.Fatalf("gradings = %+v", v.Gradings)
+	}
+	g := v.Gradings[0]
+	entries := checks.ParseLsTree(rustTree)
+	if g.Unit != "." || g.Lang != "rust" || g.Engine != rustMutationEngine() || !g.Reusable ||
+		g.Counts.Caught != 1 || g.Counts.Missed != 1 || len(g.Mutants) != 1 || g.Mutants[0].Op != "replace f -> i32 with 1" ||
+		g.Hash != unitkey.Hash(unitkey.Rust, entries, []string{"."}) ||
+		g.Ranges != unitkey.Ranges(unitkey.Rust, entries, ".", map[string][]unitkey.Range{"src/lib.rs": {{Start: 1, End: 1}}}) {
+		t.Fatalf("grading = %+v", g)
+	}
+	wantCalls(t, engine.chain(rustMutantsNeedle, "exitCode"), []string{"withExec", `"--build-timeout","900","--minimum-test-timeout","60"`})
+
+	scriptRustMutation(nil)
+	engine.exitCode(rustMutantsNeedle, 4)
+	engine.stdout(lsTreeNeedle, rustTree)
+	v = runAtom(t, "rust:mutation", "abc123")
+	if len(v.Gradings) != 1 || v.Gradings[0].Reusable || v.Gradings[0].WhyNot != checks.WhyNotUntrusted {
+		t.Fatalf("a run that could not measure is stored untrusted: %+v", v.Gradings)
+	}
+}
+
+// A repository whose mutants config tests the whole workspace keys each crate
+// over the whole workspace.
+func TestAWideMutantsConfigWidensEveryClosure(t *testing.T) {
+	scriptRustMutation(map[string]string{".cargo/mutants.toml": "test_workspace = true\n"})
+	engine.stdout(rustFilesNeedle, "a/src/lib.rs\x00")
+	engine.stdout(rustMetaNeedle, `{"packages":[{"name":"a","id":"a","manifest_path":"/src/a/Cargo.toml","dependencies":[]},`+
+		`{"name":"b","id":"b","manifest_path":"/src/b/Cargo.toml","dependencies":[{"name":"a","path":"/src/a"}]}],"workspace_members":["a","b"]}`)
+	tree := "100644 blob w\tCargo.toml\x00100644 blob am\ta/Cargo.toml\x00100644 blob a\ta/src/lib.rs\x00100644 blob bm\tb/Cargo.toml\x00100644 blob b\tb/src/lib.rs\x00"
+	engine.stdout(lsTreeNeedle, tree)
+	v := runAtom(t, "rust:mutation", "abc123")
+	// The fixture's caught mutant sits in src/lib.rs, which no crate of this
+	// tree owns: it lands in an unkeyable grading of its own, after a's.
+	if len(v.Gradings) != 2 || v.Gradings[0].Unit != "a" || !reflect.DeepEqual(v.Gradings[0].Closure, []string{"a", "b"}) || v.Gradings[1].Reusable {
+		t.Fatalf("gradings = %+v", v.Gradings)
+	}
+}
+
+// Metadata that does not parse keys nothing — the atom has already refused
+// such a run, and the keys say so on their own.
+func TestRustKeysOverUnreadableMetadataAreUnkeyable(t *testing.T) {
+	engine.reset()
+	engine.stdout(lsTreeNeedle, rustTree)
+	keys, _ := rustGradingKeys(context.Background(), dag.Container(), rustDiff, "src/lib.rs", "not json", "")
+	if len(keys) != 1 || !strings.Contains(keys[0].Err, "cargo metadata did not parse") {
+		t.Fatalf("keys = %+v", keys)
+	}
 }
