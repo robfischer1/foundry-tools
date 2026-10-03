@@ -124,8 +124,9 @@ if drift or unpinned:
     if drift:
         print(
             "The canonical contract moved and this repo's declaration did not. "
-            "Re-read foundry-dies/orbits and update orbit.toml, or say why the "
-            "seam changed.",
+            "Re-lay orbit.toml from the die, in a worktree at the repo root: "
+            "furnace die --for . --dest DIR && gavel order . --from DIR, then "
+            "commit orbit.toml.",
             file=sys.stderr,
         )
     if unpinned:
