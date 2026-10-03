@@ -110,6 +110,11 @@ var SurfaceNamespaces = map[string]string{
 	// came home: four repos of eighty carry the surface, which is exactly the
 	// argument above for why it is NOT `fleet:`.
 	"template": "a ci-matrix.toml at the root — the copier templates",
+	// orbit: the orbit lane (2026-10-03), its own stage and Job. Its surface
+	// is a seam: the contracts' repository (orbits/ beside fleet/stars/), a
+	// star that is party to a contract, flux's prime/orbits, or a laid root
+	// orbit.toml — each atom finds its own and answers ABSENT elsewhere.
+	"orbit": "a seam — foundry-dies/orbits, a contracted star, flux prime/orbits, or a laid orbit.toml",
 }
 
 // IsSurfaceNamespace reports whether an atom id sits in a declared surface

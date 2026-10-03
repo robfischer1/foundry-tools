@@ -35,6 +35,14 @@ const (
 	// foundry-stocks ci/lib/mutation/, and all four have since been ported
 	// here as plain execs settled in Go.
 	StageMutation = "mutation"
+	// StageOrbit is the orbit lane (Rob, 2026-10-03: "Ultimately want orbit
+	// validation to be a CI check/lane of its own"): the seam contracts, a
+	// star's code against them, the composed sidecars and a star's laid
+	// orbit.toml. Like mutation it is NOT in PullPathStages — the door asks
+	// for it by name, as its own lane (`gate-file --stage=orbit`), so it
+	// settles beside the gate and never inside it. It starts REPORT-ONLY
+	// (internal/orbitlane Enforce).
+	StageOrbit = "orbit"
 )
 
 // AtomDef is one catalogued check, as code.
@@ -458,6 +466,23 @@ func atomTable() []AtomDef {
 			Desc: "Every committed fleet/stars/<star>/slag.json is byte-for-byte its own canonical form (sorted keys, two-space indent, ensure_ascii, trailing LF).",
 		},
 
+		// ---- orbit: the orbit lane, asked for by name (StageOrbit) ----
+		{
+			ID: "orbit:contracts", Stage: StageOrbit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "Every seam contract in foundry-dies/orbits parses, names two stars on the roster, carries a known status, and an approved one moved its version with its verbs.",
+		},
+		{
+			ID: "orbit:surface", Stage: StageOrbit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "A star's code matches its contracts (narcissus's analyzer over the checkout): every contracted verb it serves is registered, every verb it dials is on that pair's contract.",
+		},
+		{
+			ID: "orbit:sidecars", Stage: StageOrbit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "flux prime/orbits is what the contracts compose to and every sidecar parses with policy.ParseACL.",
+		},
+		{
+			ID: "orbit:repo", Stage: StageOrbit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "A star's laid orbit.toml names every seam the contracts give it, each pinned to the contract's current version and digest.",
+		},
 		// ---- mutation: a pull's change set, mutated ----
 		//
 		// ONE VERDICT, FOUR LANGUAGES. Each atom mutates in DIFF mode against
