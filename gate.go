@@ -151,12 +151,24 @@ func (m *FoundryTools) GateFile(
 // to prove. The state inside the record is checks.Worst over the same vector
 // the exit code was computed from.
 func (m *FoundryTools) gateStage(ctx context.Context, tree, stage, base string) *StageResult {
-	lane := "gate"
-	if stage == "mutation" {
-		lane = "mutation"
-	}
+	lane := laneOf(stage)
 	vector, _ := m.gradeTree(ctx, lane, tree, stage, base)
 	return stageResult(checks.SettleStage(lane, vector))
+}
+
+// laneOf is the lane a stage's record is labelled with — the name the door
+// and Daedalus fold the verdict under. The pull path (no stage) and prepush
+// are the gate; the mutation stage is its own lane; precommit is the commit
+// hook's `check` lane, run as a Daedalus Job (the hook-check design, base
+// pull 1), so its record is never mistaken for a gate's.
+func laneOf(stage string) string {
+	switch stage {
+	case checks.StageMutation:
+		return "mutation"
+	case checks.StagePrecommit:
+		return "check"
+	}
+	return "gate"
 }
 
 // gradeTree proves the tree and answers the vector and its worst state. Every
