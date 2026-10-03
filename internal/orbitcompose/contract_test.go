@@ -71,6 +71,10 @@ func TestSplitNameWithNoReadingIsTheExistingRefusal(t *testing.T) {
 			}
 		}
 	}
+	// a split must be AT a hyphen: two roster stars that merely abut are no pair
+	if _, _, err := SplitName("abcd.toml", map[string]bool{"ab": true, "d": true}); err == nil {
+		t.Error("a name with no hyphen split at a letter")
+	}
 	// without the roster a hyphenated star has no reading at all
 	if _, _, err := SplitName("blade-runner-poseidon.toml", nil); err == nil {
 		t.Error("a hyphenated star split with no roster")

@@ -113,6 +113,13 @@ func TestOrbitComposedReportsABrokenContractAsAFinding(t *testing.T) {
 	wantState(t, runAtom(t, "ops:orbit-composed", ""), 1, "contract-unparseable: urania-themis.toml")
 }
 
+// A ROSTER THAT CANNOT BE LISTED IS A COULD-NOT-RUN that says so.
+func TestOrbitComposedCannotRunWhenTheRosterCannotBeRead(t *testing.T) {
+	composedTree(t, nil)
+	engine.fail(`"fleet/stars/*/data.json"`, "the dies went away")
+	wantState(t, runAtom(t, "ops:orbit-composed", ""), 2, "foundry-dies' roster could not be read", "the dies went away")
+}
+
 // A HYPHENATED STAR IS COMPOSED WHEN foundry-dies' ROSTER NAMES IT.
 func TestOrbitComposedSplitsHyphenatedStarsAgainstTheDiesRoster(t *testing.T) {
 	stars := map[string]bool{"blade-runner": true, "themis": true}

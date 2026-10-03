@@ -222,6 +222,23 @@ func TestOrbitRepoSplitsAHyphenatedStarAgainstTheDiesRoster(t *testing.T) {
 	}
 }
 
+func TestOrbitRepoCannotRunWhenTheRosterCannotBeListed(t *testing.T) {
+	engine.reset()
+	engine.withTree(laneDies(map[string]string{"orbit.toml": "# x\n"}))
+	engine.failLeaf(`pattern:"fleet/stars/*/data.json"`, "glob", "engine went away")
+	wantState(t, orbitAtomAgain(t, "orbit:repo", "themis"), 2, "foundry-dies: the roster could not be listed")
+}
+
+func TestStarSetIsTheRostersNamesOrNilForNone(t *testing.T) {
+	if starSet(nil) != nil || starSet(map[string]string{}) != nil {
+		t.Error("an empty roster must be nil, the two-part rule alone")
+	}
+	got := starSet(map[string]string{"blade-runner": "blade", "themis": ""})
+	if len(got) != 2 || !got["blade-runner"] || !got["themis"] {
+		t.Errorf("got %v", got)
+	}
+}
+
 func mustContracts(t *testing.T, names ...string) []orbitcompose.Contract {
 	t.Helper()
 	files := map[string][]byte{}

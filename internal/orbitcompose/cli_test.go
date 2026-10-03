@@ -349,8 +349,13 @@ func TestMainReadsTheRosterBesideTheContracts(t *testing.T) {
 	if code != 0 || stderr != "" || !strings.Contains(stdout, "write  blade-runner.orbit.toml") || !strings.Contains(stdout, "write  poseidon.orbit.toml") {
 		t.Fatalf("exit %d stdout %q stderr %q", code, stdout, stderr)
 	}
-	if code, _, stderr := run("-contracts", filepath.Join(root, "orbits"), "-stars", filepath.Join(root, "absent"), "-out", out); code != 2 || stderr == "" {
-		t.Errorf("a named roster that is not there: exit %d stderr %q", code, stderr)
+	plain := writeContracts(t, map[string]string{"urania-themis.toml": contractBody})
+	fresh := filepath.Join(t.TempDir(), "orbits")
+	if code, stdout, stderr := run("-contracts", plain, "-stars", filepath.Join(root, "absent"), "-out", fresh); code != 2 || stdout != "" || !strings.Contains(stderr, "absent") {
+		t.Errorf("a named roster that is not there: exit %d stdout %q stderr %q", code, stdout, stderr)
+	}
+	if _, err := os.Stat(fresh); !os.IsNotExist(err) {
+		t.Errorf("a refused run wrote: %v", err)
 	}
 }
 
@@ -380,5 +385,17 @@ func TestRosterForIsTheNamedDirectoryElseTheOneBesideElseNone(t *testing.T) {
 	}
 	if _, err := RosterFor(contracts, filepath.Join(root, "absent")); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("named but absent: %v", err)
+	}
+	// a roster beside that cannot be read (here: a file where the directory
+	// goes) is an error, never silently no roster
+	other := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(other, "fleet"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(other, "fleet", "stars"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if stars, err := RosterFor(filepath.Join(other, "orbits"), ""); err == nil || stars != nil {
+		t.Errorf("an unreadable roster beside: %v %v", stars, err)
 	}
 }

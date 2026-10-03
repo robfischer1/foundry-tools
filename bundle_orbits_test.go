@@ -146,6 +146,15 @@ func TestAContractTheEngineCannotReadCouldNotRun(t *testing.T) {
 	noOrbitDie(t)
 }
 
+func TestARosterBesideTheContractsTheEngineCannotListCouldNotRun(t *testing.T) {
+	m := bundleOn(t, nil)
+	scriptAGreenBundle()
+	engine.fail(`"fleet/stars/*/data.json"`, "the engine went away")
+	bundles(t, m)
+	settledOn(t, "2", "roster beside orbits/")
+	noOrbitDie(t)
+}
+
 func TestAnOrbitsDirectoryTheEngineCannotListCouldNotRun(t *testing.T) {
 	m := bundleOn(t, nil)
 	scriptAGreenBundle()
