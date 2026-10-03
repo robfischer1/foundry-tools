@@ -22,9 +22,17 @@ func TestRenderReferencePinsEachEdgeAndCarriesNoVerbs(t *testing.T) {
 	if !strings.HasSuffix(raw, want) {
 		t.Errorf("edges:\n%s\nwant suffix:\n%s", raw, want)
 	}
-	if !strings.HasPrefix(raw, "# orbit.toml — urania's seams, by reference.") || !strings.Contains(raw, "who breaks if urania changes what it SERVES") ||
-		!strings.Contains(raw, "what urania breaks if it changes how it CALLS") {
-		t.Errorf("header does not name the star:\n%s", raw)
+	header := "# orbit.toml — urania's seams, by reference. Laid from the data/orbits die\n" +
+		"# (foundry-tools orbitcompose over foundry-dies/orbits). Generated — do not\n" +
+		"# hand-edit: a local edit is drift, and the next lay overwrites it.\n" +
+		"#\n" +
+		"# Each edge names a contract, foundry-dies/orbits/<contract>.toml, by name,\n" +
+		"# version and sha256 of its bytes. The verbs live in the contract.\n" +
+		"# [[produces]] is who breaks if urania changes what it SERVES; [[consumes]] is\n" +
+		"# what urania breaks if it changes how it CALLS. To change a seam, edit the\n" +
+		"# contract in a foundry-dies pull (orbits/README.md says how), then re-lay.\n"
+	if raw != header+want {
+		t.Errorf("got:\n%s\nwant:\n%s", raw, header+want)
 	}
 	if strings.Contains(raw, "\nverbs =") || strings.Contains(raw, "\nstatus =") || strings.Contains(raw, "\nwire_form =") {
 		t.Errorf("a reference restates the contract's body:\n%s", raw)
