@@ -2,6 +2,7 @@ package orbitcompose
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,7 +14,7 @@ import (
 )
 
 // Usage is the command line.
-const Usage = "usage: orbitcompose -contracts <foundry-dies>/orbits -out <flux>/prime/orbits [-namespace prime] [-check]"
+const Usage = "usage: orbitcompose -contracts <foundry-dies>/orbits (-out <flux>/prime/orbits [-namespace prime] | -die <dir>) [-check]"
 
 // Change is what bringing the directory to the composed set takes.
 type Change struct {
@@ -29,10 +30,16 @@ func (c Change) Empty() bool { return len(c.Write) == 0 && len(c.Remove) == 0 }
 // composer's whole, and a person's file in it is a fault to report, never a
 // file to overwrite or delete.
 func Plan(want, have map[string][]byte) (Change, error) {
+	return PlanOwned(want, have, Owned)
+}
+
+// PlanOwned is Plan over a directory whose files the composer owns by owned:
+// the flux directory's (Owned) or a die directory's (DieOwned).
+func PlanOwned(want, have map[string][]byte, owned func(name string, existing []byte) bool) (Change, error) {
 	c := Change{Write: map[string][]byte{}}
 	for name, raw := range have {
-		if !Owned(name, raw) {
-			return Change{}, fmt.Errorf("%s is not the composer's (no %q first line, or not a sidecar); the directory must hold only what orbitcompose writes", name, OwnerMark)
+		if !owned(name, raw) {
+			return Change{}, fmt.Errorf("%s is not the composer's (a sidecar, %s, or a kustomization with the %q first line); the directory must hold only what orbitcompose writes", name, DieIndex, OwnerMark)
 		}
 		if _, ok := want[name]; !ok {
 			c.Remove = append(c.Remove, name)
@@ -128,13 +135,14 @@ func Main(args []string, out, errOut io.Writer) int {
 	fs.SetOutput(errOut)
 	contracts := fs.String("contracts", "", "the contracts directory (foundry-dies/orbits)")
 	dir := fs.String("out", "", "the directory the composer owns (flux prime/orbits)")
+	die := fs.String("die", "", "instead of -out: the data/orbits die payload directory (every sidecar + orbits.json)")
 	namespace := fs.String("namespace", "prime", "the ConfigMaps' namespace")
 	check := fs.Bool("check", false, "write nothing; exit 1 if the directory is not the composed set")
-	if err := fs.Parse(args); err != nil || *contracts == "" || *dir == "" || fs.NArg() != 0 {
+	if err := fs.Parse(args); err != nil || *contracts == "" || (*dir == "") == (*die == "") || fs.NArg() != 0 {
 		fmt.Fprintln(errOut, Usage)
 		return 2
 	}
-	c, err := plan(*contracts, *dir, *namespace)
+	c, err := plan(*contracts, *dir, *die, *namespace)
 	if err != nil {
 		fmt.Fprintln(errOut, "orbitcompose:", err)
 		return 2
@@ -146,25 +154,29 @@ func Main(args []string, out, errOut io.Writer) int {
 		}
 		return 1
 	}
-	if err := apply(*dir, c); err != nil {
+	if err := apply(cmp.Or(*dir, *die), c); err != nil {
 		fmt.Fprintln(errOut, "orbitcompose:", err)
 		return 2
 	}
 	return 0
 }
 
-// plan composes contracts and compares the result with dir.
-func plan(contracts, dir, namespace string) (Change, error) {
+// plan composes contracts and compares the result with the one directory
+// named: out (the flux set) or die (the die payload). Main admits exactly one.
+func plan(contracts, out, die, namespace string) (Change, error) {
 	cs, err := ReadContracts(contracts)
 	if err != nil {
 		return Change{}, err
 	}
-	sidecars := Compose(cs)
+	want, dir, owned := Files(namespace, Compose(cs)), out, Owned
+	if die != "" {
+		want, dir, owned = Die(cs), die, DieOwned
+	}
 	have, err := ReadDir(dir)
 	if err != nil {
 		return Change{}, err
 	}
-	return Plan(Files(namespace, sidecars), have)
+	return PlanOwned(want, have, owned)
 }
 
 // report says what the change is, one file per line, sorted.

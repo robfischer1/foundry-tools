@@ -19,6 +19,7 @@
 package orbitcompose
 
 import (
+	"cmp"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -37,6 +38,12 @@ type Contract struct {
 	Status   string
 	WireForm string
 	Verbs    []string
+	// Via is the transport: "mcp" when the file names none, which is every
+	// contract today. Carried into the die's index, not into a sidecar.
+	Via string
+	// Digest is sha256 over the file's bytes (Digest), the die's per-edge
+	// pin.
+	Digest string
 }
 
 // contractDoc is the on-disk contract. Typed fields make an integer version
@@ -46,6 +53,7 @@ type contractDoc struct {
 	Status   string   `toml:"status"`
 	WireForm string   `toml:"wire_form"`
 	Verbs    []string `toml:"verbs"`
+	Via      string   `toml:"via"`
 }
 
 // ident is what may appear between the quotes this package writes: every
@@ -80,7 +88,7 @@ func ParseContract(file string, raw []byte) (Contract, error) {
 	c := Contract{
 		Name: producer + "-" + consumer, Producer: producer, Consumer: consumer,
 		Version: doc.Version, Status: doc.Status, WireForm: doc.WireForm,
-		Verbs: sortedSet(doc.Verbs),
+		Verbs: sortedSet(doc.Verbs), Via: cmp.Or(doc.Via, ViaMCP), Digest: Digest(raw),
 	}
 	return c, validate(file, c)
 }
@@ -91,7 +99,7 @@ func ParseContract(file string, raw []byte) (Contract, error) {
 // render cannot quote verbatim.
 func validate(file string, c Contract) error {
 	for _, f := range []struct{ key, val string }{
-		{"version", c.Version}, {"status", c.Status}, {"wire_form", c.WireForm},
+		{"version", c.Version}, {"status", c.Status}, {"wire_form", c.WireForm}, {"via", c.Via},
 	} {
 		if !ident.MatchString(f.val) {
 			return fmt.Errorf("%s: %s %q is blank or not a plain identifier", file, f.key, f.val)
