@@ -184,3 +184,13 @@ func TestAProducerOnSeveralContractsIsOneProducer(t *testing.T) {
 		t.Errorf("%v", got)
 	}
 }
+
+// Behind an unresolved site, every missing verb is unanalyzable, not only the
+// first.
+func TestEveryMissingVerbBehindAHoleIsUnanalyzable(t *testing.T) {
+	got := verdicts(surfaceOf(t, "urania", report("unanalyzable|verbs.go:9|unresolved|tools[i].Name"), report()))
+	want := []string{"unanalyzable registration-unresolved urania neighbors", "unanalyzable registration-unresolved urania shape_for"}
+	if !slices.Equal(got, want) {
+		t.Errorf("%v", got)
+	}
+}
