@@ -120,16 +120,16 @@ func TestReadFailed(t *testing.T) {
 }
 
 func TestGoGradingsMoveTheModuleOntoTheRoot(t *testing.T) {
-	score := &GoMutationScore{Scored: []ScoredMutant{{File: "x/a.go", Line: 1, Outcome: OutcomeLived}, {File: "x/a.go", Line: 2, Outcome: OutcomeKilled}}}
+	fresh := []ScoredMutant{{File: "x/a.go", Line: 1, Outcome: OutcomeLived}, {File: "x/a.go", Line: 2, Outcome: OutcomeKilled}}
 	owner := func(f string) (string, bool) { return path.Dir(f), true }
 	keys := []UnitKey{{Unit: "tools/forge/x", Hash: "h"}}
-	got := GoGradings(score, "tools/forge", "E", true, keys, owner)
+	got := GoGradings(fresh, "tools/forge", "E", true, keys, owner)
 	if len(got) != 1 || got[0].Lang != "go" || got[0].Engine != "E" || !got[0].Reusable || got[0].Counts.Killed != 1 ||
 		len(got[0].Mutants) != 1 || got[0].Mutants[0].File != "tools/forge/x/a.go" {
 		t.Fatalf("got %+v", got)
 	}
-	if score.Scored[0].File != "x/a.go" {
-		t.Fatal("the score itself is left as it was")
+	if fresh[0].File != "x/a.go" {
+		t.Fatal("the run's own mutants are left as they were")
 	}
 	none := GoGradings(nil, ".", "E", false, keys, owner)
 	if len(none) != 1 || none[0].Counts.Generated != 0 || none[0].WhyNot != WhyNotUntrusted {

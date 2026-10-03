@@ -1111,7 +1111,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg recordToken", err))
 				}
 			}
-			return (*FoundryTools).GateFile(&parent, ctx, tree, pin, base, stage, recordToken)
+			var reuse bool
+			if inputArgs["reuse"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["reuse"]), &reuse)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg reuse", err))
+				}
+			}
+			return (*FoundryTools).GateFile(&parent, ctx, tree, pin, base, stage, recordToken, reuse)
 		case "Go":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)

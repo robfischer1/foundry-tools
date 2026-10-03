@@ -140,17 +140,15 @@ func ReadFailed(what string, code int, err error) string {
 	return ""
 }
 
-// GoGradings are a Go mutation run's gradings: the score's mutants moved from
-// the module onto the repository root, split by unit under the run's keys.
-// A run with no score (no report) grades its keyed units as having made no
-// mutant, trusted or not as the run was.
-func GoGradings(score *GoMutationScore, dir, engine string, trusted bool, keys []UnitKey, owner func(string) (string, bool)) []Grading {
+// GoGradings are a Go mutation run's gradings: the mutants it graded itself
+// moved from the module onto the repository root, split by unit under the
+// keys of the units it graded. A run with no report grades those units as
+// having made no mutant, trusted or not as the run was.
+func GoGradings(fresh []ScoredMutant, dir, engine string, trusted bool, keys []UnitKey, owner func(string) (string, bool)) []Grading {
 	var mutants []ScoredMutant
-	if score != nil {
-		for _, m := range score.Scored {
-			m.File = path.Join(dir, m.File)
-			mutants = append(mutants, m)
-		}
+	for _, m := range fresh {
+		m.File = path.Join(dir, m.File)
+		mutants = append(mutants, m)
 	}
 	return BuildGradings(string(unitkey.Go), engine, keys, owner, mutants, trusted)
 }
