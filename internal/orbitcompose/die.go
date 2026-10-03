@@ -16,8 +16,9 @@ import (
 // original orbit premise (2026-07-03): the seam is visible from a file, not
 // derived from the source.
 //
-// SHAPE. Every star's composed sidecar as <star>.orbit.toml (byte-identical to
-// the flux directory's, Render), plus orbits.json. orbits.json keeps the frozen
+// SHAPE. Every star's REFERENCE-dialect orbit.toml as <star>.orbit.toml
+// (RenderReference — the file laid into the star's repository root; the
+// inlined runtime form stays flux's), plus orbits.json. orbits.json keeps the frozen
 // 2026-08-01 shape — {generated_from, edges[{producer, consumer, contract,
 // version, status, wire_form, verbs}]} — and adds, per edge, `via` (the
 // transport; every contract today is an MCP verb seam) and `digest` (sha256 of
@@ -101,11 +102,12 @@ func Index(contracts []Contract) []byte {
 	return append(raw, '\n')
 }
 
-// Die is the whole payload by file name: each star's sidecar and orbits.json.
+// Die is the whole payload by file name: each star's reference-dialect
+// orbit.toml and orbits.json.
 func Die(contracts []Contract) map[string][]byte {
 	files := map[string][]byte{DieIndex: Index(contracts)}
 	for _, s := range Compose(contracts) {
-		files[s.Star+SidecarSuffix] = Render(s)
+		files[s.Star+SidecarSuffix] = RenderReference(s)
 	}
 	return files
 }
