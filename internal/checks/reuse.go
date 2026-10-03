@@ -83,10 +83,7 @@ func Misses(keys []UnitKey, reused map[string]ReusedGrading) []UnitKey {
 func MissPatterns(dir string, misses []UnitKey) []string {
 	var out []string
 	for _, k := range misses {
-		rel := k.Unit
-		if dir != "." {
-			rel = strings.TrimPrefix(k.Unit, dir+"/")
-		}
+		rel := strings.TrimPrefix(k.Unit, dir+"/")
 		if rel == "." || rel == dir {
 			out = append(out, ".")
 			continue

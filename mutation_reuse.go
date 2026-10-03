@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
+	"strings"
 	"time"
 
 	"dagger/foundry-tools/internal/checks"
@@ -57,33 +57,28 @@ func (r *run) reusable(ctx context.Context, lang, engine string, keys []checks.U
 }
 
 // mutantsEndpoint is the door's /ci/mutants, derived from the repo URL the
-// run was built with — as the record post's is (recordEndpoint).
-func mutantsEndpoint(repo string) (string, bool) {
-	u, err := url.Parse(repo)
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		return "", false
-	}
-	return fmt.Sprintf("%s://%s%s", u.Scheme, u.Host, mutantsPath), true
+// run was built with exactly as the record post's is (recordEndpoint). A run
+// built with no repo URL gets the bare path, which no client can reach — so
+// its lookup fails, and it grades cold.
+func mutantsEndpoint(repo string) string {
+	record, _ := recordEndpoint(repo)
+	return strings.TrimSuffix(record, recordPostPath) + mutantsPath
 }
 
 // lookupVia is a gradingLookup over the door, authorised by the run's record
 // token.
 func lookupVia(repo string, token plaintexter) gradingLookup {
 	return func(ctx context.Context, lang, engine string, keys []checks.UnitKey) (map[string]checks.ReusedGrading, error) {
-		endpoint, ok := mutantsEndpoint(repo)
-		if !ok {
-			return nil, fmt.Errorf("no door to ask (the run was built with no repo URL)")
-		}
+		endpoint := mutantsEndpoint(repo)
 		secret, err := token.Plaintext(ctx)
-		if err != nil || secret == "" {
-			return nil, fmt.Errorf("the record token could not be read (%v)", err)
+		if err != nil {
+			return nil, fmt.Errorf("the record token could not be read: %v", err)
 		}
 		ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
 		defer cancel()
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(checks.LookupBody(lang, engine, keys)))
-		if err != nil {
-			return nil, fmt.Errorf("no request could be built for %q: %v", endpoint, err)
-		}
+		// NO ERROR TO HANDLE: the method is a constant and the endpoint is a URL
+		// recordEndpoint built, or a bare path, both of which parse.
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(checks.LookupBody(lang, engine, keys)))
 		req.Header.Set("Authorization", "Bearer "+secret)
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := http.DefaultClient.Do(req)

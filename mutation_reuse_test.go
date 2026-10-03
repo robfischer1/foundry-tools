@@ -25,11 +25,11 @@ var reuseKeys = []checks.UnitKey{{Unit: "internal/x", Hash: "hx", Ranges: "rx"}}
 // only an answer about them; every other outcome is an error, which grades
 // cold.
 func TestALookupAsksTheDoorUnderTheRunsToken(t *testing.T) {
-	var auth, body, path string
+	var auth, body, path, kind string
 	answer, status := `{"gradings":[{"lang":"go","unit":"internal/x","hash":"hx","ranges":"rx","run_number":7}],"misses":[]}`, http.StatusOK
 	door := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
-		auth, body, path = r.Header.Get("Authorization"), string(b), r.URL.Path
+		auth, body, path, kind = r.Header.Get("Authorization"), string(b), r.URL.Path, r.Header.Get("Content-Type")
 		w.WriteHeader(status)
 		_, _ = io.WriteString(w, answer)
 	}))
@@ -39,8 +39,8 @@ func TestALookupAsksTheDoorUnderTheRunsToken(t *testing.T) {
 	if err != nil || got["internal/x"].RunNumber != 7 {
 		t.Fatalf("got %+v %v", got, err)
 	}
-	if auth != "Bearer tok" || path != "/ci/mutants" || body != string(checks.LookupBody("go", "E", reuseKeys)) {
-		t.Fatalf("the door saw %q %q %q", auth, path, body)
+	if auth != "Bearer tok" || path != "/ci/mutants" || kind != "application/json" || body != string(checks.LookupBody("go", "E", reuseKeys)) {
+		t.Fatalf("the door saw %q %q %q %q", auth, path, kind, body)
 	}
 
 	status, answer = http.StatusUnauthorized, "that token names no mutation run tok"
@@ -53,18 +53,22 @@ func TestALookupAsksTheDoorUnderTheRunsToken(t *testing.T) {
 		t.Fatal("an answer about another unit was believed")
 	}
 	for name, l := range map[string]gradingLookup{
-		"no repo URL":         lookupVia("", fixedToken{value: "tok"}),
-		"an unreadable token": lookupVia(door.URL, fixedToken{err: errors.New("no secret")}),
-		"an empty token":      lookupVia(door.URL, fixedToken{}),
-		"a door that is gone": lookupVia("http://127.0.0.1:1/x.git", fixedToken{value: "tok"}),
-		"a bad URL":           lookupVia("http://door\x7f/x.git", fixedToken{value: "tok"}),
+		"an empty token, which the door refuses": lookupVia(door.URL+"/x.git", fixedToken{}),
+		"no repo URL":                            lookupVia("", fixedToken{value: "tok"}),
+		"an unreadable token":                    lookupVia(door.URL, fixedToken{err: errors.New("no secret")}),
+		"an empty token":                         lookupVia(door.URL, fixedToken{}),
+		"a door that is gone":                    lookupVia("http://127.0.0.1:1/x.git", fixedToken{value: "tok"}),
+		"a bad URL":                              lookupVia("http://door\x7f/x.git", fixedToken{value: "tok"}),
 	} {
 		if got, err := l(context.Background(), "go", "E", reuseKeys); err == nil || got != nil {
 			t.Errorf("%s: %+v %v", name, got, err)
 		}
 	}
-	if ep, ok := mutantsEndpoint("https://git.notusmi.com/rob/ares.git"); !ok || ep != "https://git.notusmi.com/ci/mutants" {
-		t.Fatalf("endpoint = %q %v", ep, ok)
+	if ep := mutantsEndpoint("https://git.notusmi.com/rob/ares.git"); ep != "https://git.notusmi.com/ci/mutants" {
+		t.Fatalf("endpoint = %q", ep)
+	}
+	if ep := mutantsEndpoint(""); ep != "/ci/mutants" {
+		t.Fatalf("no repo URL: %q", ep)
 	}
 }
 
