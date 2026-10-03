@@ -78,6 +78,11 @@ type GoMutationScore struct {
 	// already carry it — a run of 25 kills and 2,763 inert would otherwise emit
 	// thousands of entries and become the payload the cap exists to stop.
 	Findings []Finding
+	// Scored is every mutant as this scorer decided it, in report order, its
+	// file as the report names it (module-relative). It is what a run's
+	// gradings are built from (gradings.go): the same decisions as the counts
+	// and findings above, one record each.
+	Scored []ScoredMutant
 	// TimedOutPct is timed-out mutants over every mutant generated.
 	TimedOutPct float64
 	// MsPerMutant is wall clock per mutant that ran, times the workers; -1 when
@@ -315,15 +320,18 @@ func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoM
 	for _, f := range d.Files {
 		for _, m := range f.Mutations {
 			status := m.Status
+			scored := ScoredMutant{File: f.FileName, Line: m.Line, Col: m.Column, Op: m.Type}
 			if status == "NOT COVERED" {
 				if startsOnLine(covered, f.FileName, m.Line) {
 					s.ProfileDisagrees++
+					scored.Disputed = true
 				}
 				if misjudged(f.FileName, m.Line, m.Column) {
 					status = "COVERED-UNRUN"
 				}
 			}
 			s.Generated++
+			scored.Status = status
 			where := fmt.Sprintf("%s:%d:%d  %-13s %s", f.FileName, m.Line, m.Column, status, m.Type)
 			// THE FIRST QUESTION IS WHETHER THIS VERDICT IS ABOUT THIS CODE.
 			// It is asked before forgiveness and before the counts because the
@@ -332,6 +340,8 @@ func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoM
 			// forgiveness can reach — and it is the direction that reads green.
 			if misgraded[f.FileName] && gradedStatus(status) {
 				s.Ungraded = append(s.Ungraded, where)
+				scored.Outcome = OutcomeUngraded
+				s.Scored = append(s.Scored, scored)
 				// UNANALYZABLE WHATEVER THE STATUS SAID, including a KILLED —
 				// this is the one place a kill becomes a finding, because the
 				// verdict is about a different package and "the gate cannot
@@ -348,6 +358,8 @@ func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoM
 			// forgiven mutant lands in exactly one column.
 			if reason, ok := noise[fmt.Sprintf("%s:%d:%d", f.FileName, m.Line, m.Column)]; ok && (status == "NOT COVERED" || status == "LIVED") {
 				s.Forgiven = append(s.Forgiven, fmt.Sprintf("%s  [%s]", where, reason))
+				scored.Outcome, scored.Detail = OutcomeForgiven, reason
+				s.Scored = append(s.Scored, scored)
 				// THE CAUSE IS THE FORGIVENESS, NOT THE OPERATOR. For an
 				// `excluded` finding the schema requires a cause and means it to
 				// answer "by what", and the reader's question about a forgiven
@@ -357,6 +369,8 @@ func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoM
 					f.FileName, m.Line, m.Column, reason, status+" but forgiven, "+m.Type))
 				continue
 			}
+			scored.Outcome = goOutcomes[status]
+			s.Scored = append(s.Scored, scored)
 			switch status {
 			case "KILLED":
 				s.Killed++
@@ -485,6 +499,14 @@ func ScoreGoMutation(report []byte, profile, mode string, workers int, noise GoM
 	return s, nil
 }
 
+// goOutcomes maps a status the scorer counts onto its grading outcome. A
+// status it does not know maps to "", counted as generated and nothing else.
+var goOutcomes = map[string]string{
+	"KILLED": OutcomeKilled, "LIVED": OutcomeLived, "NOT COVERED": OutcomeNotCovered,
+	"TIMED OUT": OutcomeTimedOut, "COVERED-UNRUN": OutcomeCoveredUnrun,
+	"NOT VIABLE": OutcomeInert, "SKIPPED": OutcomeInert,
+}
+
 // GoMutationTimeoutBudget is the percent of timed-out mutants over which a run
 // did not measure the suite.
 const GoMutationTimeoutBudget = 10.0
@@ -535,12 +557,20 @@ type GoMutationRun struct {
 // GoMutationVerdict settles a diff-mode run: 0 clean, 1 survivors, 2 did not
 // measure. The reason carries the summary whenever a report was scored.
 func GoMutationVerdict(run GoMutationRun) (int, string, []Finding) {
+	state, reason, found, _ := GoMutationVerdictScored(run)
+	return state, reason, found
+}
+
+// GoMutationVerdictScored is GoMutationVerdict with the score it settled
+// from — nil when no report was scored — which the atom builds its gradings
+// from (gradings.go).
+func GoMutationVerdictScored(run GoMutationRun) (int, string, []Finding, *GoMutationScore) {
 	if len(run.Report) == 0 {
 		if run.Status == 0 {
 			// gremlins writes no report when it has nothing to report and exits
 			// 0: the pull touched no mutable Go in scope. Clean, and said to have
 			// measured nothing.
-			return 0, "gomutants had no results to report (exit 0, no report): the pull touched no mutable Go code in scope", nil
+			return 0, "gomutants had no results to report (exit 0, no report): the pull touched no mutable Go code in scope", nil, nil
 		}
 		// AND IT SAYS WHY, because the exit code alone sent a reader to the
 		// archive. MEASURED on ourea@59b3a39 (2026-09-26): this branch settled
@@ -558,7 +588,7 @@ func GoMutationVerdict(run GoMutationRun) (int, string, []Finding) {
 		// could have carried in twenty. The Rust and TypeScript siblings already
 		// tail their log here; this one now does too.
 		return 2, fmt.Sprintf("gomutants exited %d and wrote no mutation-go.json — nothing was measured\n%s",
-			run.Status, tail(run.Log, 20)), nil
+			run.Status, tail(run.Log, 20)), nil, nil
 	}
 	// THE CLASSIFIER NOT ANSWERING IS A FACT THE VERDICT MUST CARRY. Scored
 	// without it, every unkillable declaration reads as a survivor and a
@@ -589,7 +619,7 @@ func GoMutationVerdict(run GoMutationRun) (int, string, []Finding) {
 	}
 	s, err := ScoreGoMutation(run.Report, run.Profile, "diff", run.Workers, noise, misgraded)
 	if err != nil {
-		return 2, "the mutation report could not be read: " + err.Error(), nil
+		return 2, "the mutation report could not be read: " + err.Error(), nil, nil
 	}
 	missed := len(s.Missed)
 	measured := fmt.Sprintf("measured: %d missed, %s%% timed out", missed, strconv.FormatFloat(s.TimedOutPct, 'f', -1, 64))
@@ -598,21 +628,21 @@ func GoMutationVerdict(run GoMutationRun) (int, string, []Finding) {
 	}
 	with := func(line string) string { return line + "\n" + measured + "\n\n" + s.Summary }
 	if run.Status != 0 {
-		return 2, with(fmt.Sprintf("gomutants exited %d — a broken run, not a survivor report", run.Status)), nil
+		return 2, with(fmt.Sprintf("gomutants exited %d — a broken run, not a survivor report", run.Status)), nil, &s
 	}
 	if s.TimedOutPct > GoMutationTimeoutBudget {
-		return 2, with(fmt.Sprintf("%s%% of mutants TIMED OUT, over the %.0f%% budget — the suite was not measured", strconv.FormatFloat(s.TimedOutPct, 'f', -1, 64), GoMutationTimeoutBudget)), nil
+		return 2, with(fmt.Sprintf("%s%% of mutants TIMED OUT, over the %.0f%% budget — the suite was not measured", strconv.FormatFloat(s.TimedOutPct, 'f', -1, 64), GoMutationTimeoutBudget)), nil, &s
 	}
 	if run.Canary == CanaryBroken {
 		// Fatal like a timeout-heavy run: neither measured anything.
-		return 2, with("the harness scores unrun tests as kills: the control mutant, which must SURVIVE, came back KILLED — every kill in this report is false. See #7649"), nil
+		return 2, with("the harness scores unrun tests as kills: the control mutant, which must SURVIVE, came back KILLED — every kill in this report is false. See #7649"), nil, &s
 	}
 	if run.MainCanary != CanaryOK && run.MisgradedFilesErr != "" {
 		// NOTHING TO EXCLUDE WITH. This gremlins grades a main package against
 		// the module root and the lane could not say which files are in one, so
 		// the counts below may include verdicts about other code entirely — and
 		// the gate cannot point at which. That is a could-not-measure, not a pass.
-		return 2, with("this gremlins grades a `package main` against the module root (gremlins#268) and the lane could not list which files are in one: " + run.MisgradedFilesErr), nil
+		return 2, with("this gremlins grades a `package main` against the module root (gremlins#268) and the lane could not list which files are in one: " + run.MisgradedFilesErr), nil, &s
 	}
 	// NOTHING WAS GRADED AGAINST THE TESTS, and the profile says so. A run that
 	// killed nothing, lost nothing, and whose EVERY uncovered mutant sits on a line
@@ -636,24 +666,24 @@ func GoMutationVerdict(run GoMutationRun) (int, string, []Finding) {
 	if s.Killed == 0 && s.Lived == 0 && s.NotCovered > 0 && s.ProfileDisagrees == s.NotCovered {
 		return 2, with(fmt.Sprintf(
 			"%s — killed 0, lived 0, and all %d NOT COVERED mutant(s) sit on lines this lane's own coverage profile reports as running. gremlins' coverage map is empty relative to the profile gathered beside it, so nothing here was measured against the tests. Check that go.mod's FIRST line is `module ...` — gremlins reads only that line",
-			GoMutationNothingGraded, s.NotCovered)), nil
+			GoMutationNothingGraded, s.NotCovered)), nil, &s
 	}
 	if missed == 0 {
 		if len(s.Ungraded) > 0 && s.Viable() == 0 {
 			// Clean, and clean ABOUT it: exit 0, because there is no test gap to
 			// point at and no committer who can fix #268 — and a reason that says
 			// in as many words that this run verified nothing.
-			return 0, with(fmt.Sprintf("%s — all %d mutant(s) with a verdict sit in a `package main` below the module root, which this gremlins grades against the root instead (gremlins#268). This run did not verify the tests", GoMutationNothingGraded, len(s.Ungraded))), nil
+			return 0, with(fmt.Sprintf("%s — all %d mutant(s) with a verdict sit in a `package main` below the module root, which this gremlins grades against the root instead (gremlins#268). This run did not verify the tests", GoMutationNothingGraded, len(s.Ungraded))), nil, &s
 		}
-		return 0, with("every viable mutant was caught"), nil
+		return 0, with("every viable mutant was caught"), nil, &s
 	}
 	if noise == nil {
-		return 2, with(fmt.Sprintf("%d mutant(s) survived and the unkillability classifier did not answer (%s) — this run cannot tell a test gap from a declaration no test could reach", missed, classifyErr)), nil
+		return 2, with(fmt.Sprintf("%d mutant(s) survived and the unkillability classifier did not answer (%s) — this run cannot tell a test gap from a declaration no test could reach", missed, classifyErr)), nil, &s
 	}
 	// CAPPED LIKE EVERY OTHER ATOM'S. These findings do not come through
 	// FindingsOf, so they do not get capFindings for free — and a wide pull can
 	// generate hundreds of survivors, which is exactly the runaway the cap exists
 	// to stop: the record travels on ONE line of stdout. The cut states itself as
 	// an `excluded` finding and the full list is in the summary either way.
-	return 1, with(fmt.Sprintf("%d mutant(s) survived or were never covered — see the list below", missed)), capFindings(s.Findings, goMutationAtom)
+	return 1, with(fmt.Sprintf("%d mutant(s) survived or were never covered — see the list below", missed)), capFindings(s.Findings, goMutationAtom), &s
 }

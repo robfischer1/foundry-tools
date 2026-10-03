@@ -165,16 +165,21 @@ func FoldModules(a AtomDef, mods []ModuleVerdict) Verdict {
 	default:
 		fmt.Fprintf(&b, "%s: CANNOT RUN in %d of %s (%s) — a module that was not checked is not a module that passed.", a.ID, len(dirs), goModules(len(mods)), strings.Join(dirs, ", "))
 	}
+	// Each module's gradings are its own units', repo-relative, so the fold is
+	// their concatenation.
+	var gradings []Grading
 	for _, m := range mods {
 		fmt.Fprintf(&b, "\n── module %s ──\n%s", m.Dir, m.Verdict.Reason)
+		gradings = append(gradings, m.Verdict.Gradings...)
 	}
 	return Verdict{
-		Atom:   a.ID,
-		Stage:  a.Stage,
-		Lane:   string(a.Lane),
-		State:  int(state),
-		Result: state.String(),
-		Reason: b.String(),
+		Atom:     a.ID,
+		Stage:    a.Stage,
+		Lane:     string(a.Lane),
+		State:    int(state),
+		Result:   state.String(),
+		Reason:   b.String(),
+		Gradings: gradings,
 	}
 }
 
