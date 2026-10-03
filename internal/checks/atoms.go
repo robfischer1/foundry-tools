@@ -202,6 +202,15 @@ func atomTable() []AtomDef {
 			ID: "ops:immutable", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
 			Desc: "No pull edits a field the API server refuses to change on a live object (Job template, workload selector, StatefulSet claims, binding roleRef, pinned clusterIP, PVC spec, immutable ConfigMap/Secret) — core kinds only, CRD rules are out of reach.",
 		},
+		// THE STAR'S OWN READER, BEFORE FLUX. A composed orbit sidecar that does
+		// not parse refuses a witness-mode star's boot (stellar-core-go policy),
+		// so every one an ops tree tracks is parsed by that parser — imported,
+		// not re-implemented — before it can reach a mount. Constellation Mesh
+		// W3, 2026-10-03.
+		{
+			ID: "ops:orbit-sidecars", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
+			Desc: "Every composed orbit sidecar (*.orbit.toml) an ops tree tracks parses with stellar-core-go policy.ParseACL, the reader a witness-mode star refuses to boot without.",
+		},
 
 		// ---- template: the copier templates ----
 		//
