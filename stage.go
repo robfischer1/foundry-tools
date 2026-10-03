@@ -39,6 +39,12 @@ type StageResult struct {
 	// Log is every atom that ran, in order, then the omitted list, then what
 	// the stage never reached.
 	Log string
+	// gradings are each mutation atom's gradings, by atom id, for the record
+	// alone. UNEXPORTED ON PURPOSE: an exported field is the module's GraphQL
+	// surface and a code-generated type, and nothing but the record reads
+	// these. The record is written in the call that graded (GateFile, Gate),
+	// so they never need to survive one dagger call into the next.
+	gradings map[string][]checks.Grading
 }
 
 // AtomResult is one atom's line in a stage.
@@ -81,6 +87,15 @@ type AtomResult struct {
 // times omitted when empty. An atom that never started has no time to report,
 // and "" is not a time any reader should be asked to parse.
 type recordAtom struct {
+	atomWire
+	// Gradings are the atom's mutation gradings (checks.Grading), absent for
+	// every other atom. Daedalus stores them at settle; a record reader that
+	// does not know the key ignores it.
+	Gradings []checks.Grading `json:"gradings,omitempty"`
+}
+
+// atomWire is AtomResult's fields as the record spells them.
+type atomWire struct {
 	Atom          string
 	Group         string
 	State         int
@@ -113,7 +128,7 @@ func (s *StageResult) wire() recordStage {
 		}
 		out := make([]recordAtom, len(as))
 		for i, a := range as {
-			out[i] = recordAtom(a)
+			out[i] = recordAtom{atomWire: atomWire(a), Gradings: s.gradings[a.Atom]}
 		}
 		return out
 	}
@@ -368,9 +383,14 @@ func stageResult(st checks.Stage) *StageResult {
 		}
 		return out
 	}
+	gradings := map[string][]checks.Grading{}
+	for _, a := range st.Ran {
+		gradings[a.Atom] = a.Gradings
+	}
 	return &StageResult{
 		Stage: st.Name, State: st.State, Lanes: st.Lanes,
 		Atoms: rows(st.Ran), Omitted: rows(st.Omitted), Unreached: st.Unreached, Log: st.Log,
+		gradings: gradings,
 	}
 }
 

@@ -90,6 +90,9 @@ type Verdict struct {
 	// time it did not run at is a fact nobody measured.
 	StartedAt  string `json:"started_at,omitempty"`
 	FinishedAt string `json:"finished_at,omitempty"`
+	// Gradings are a mutation atom's units and what each one's mutants did
+	// (gradings.go) — what a later run may reuse. Empty for every other atom.
+	Gradings []Grading `json:"gradings,omitempty"`
 }
 
 // VerdictOf builds one element of the vector from a raw exit code.
