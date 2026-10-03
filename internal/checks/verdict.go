@@ -3,6 +3,7 @@ package checks
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // State is an atom's verdict. THREE STATES, NEVER TWO.
@@ -83,6 +84,12 @@ type Verdict struct {
 	// atom and for every atom whose tool's output format nothing parses yet;
 	// the reader treats those the same and says which lane it was.
 	Findings []Finding `json:"findings,omitempty"`
+	// StartedAt and FinishedAt are when the atom's runner was entered and when
+	// it answered, as RFC 3339 UTC (see Timed). EMPTY FOR AN ATOM THAT NEVER
+	// STARTED — one the plan left absent, one another atom covered — because a
+	// time it did not run at is a fact nobody measured.
+	StartedAt  string `json:"started_at,omitempty"`
+	FinishedAt string `json:"finished_at,omitempty"`
 }
 
 // VerdictOf builds one element of the vector from a raw exit code.
@@ -248,4 +255,18 @@ func (v Verdict) Answer() (string, error) {
 		return v.Reason, nil
 	}
 	return "", fmt.Errorf("%s", v.Reason)
+}
+
+// TimeLayout is how an atom's start and finish are written: RFC 3339 in UTC,
+// to the millisecond. Most atoms answer in well under a second from a warm
+// cache, so whole seconds would make half the fleet's timings read zero.
+const TimeLayout = "2006-01-02T15:04:05.000Z07:00"
+
+// Timed stamps a verdict with when its atom started and finished. The times
+// are converted to UTC here, so a runner whose clock carries a zone still
+// writes the one the record's readers expect.
+func Timed(v Verdict, started, finished time.Time) Verdict {
+	v.StartedAt = started.UTC().Format(TimeLayout)
+	v.FinishedAt = finished.UTC().Format(TimeLayout)
+	return v
 }

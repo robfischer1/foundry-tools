@@ -370,6 +370,8 @@ func (r AtomResult) MarshalJSON() ([]byte, error) {
 		Truncated     bool
 		OriginalBytes int
 		Findings      []Finding
+		StartedAt     string `json:"started_at"`
+		FinishedAt    string `json:"finished_at"`
 	}
 	concrete.Atom = r.Atom
 	concrete.Group = r.Group
@@ -380,6 +382,8 @@ func (r AtomResult) MarshalJSON() ([]byte, error) {
 	concrete.Truncated = r.Truncated
 	concrete.OriginalBytes = r.OriginalBytes
 	concrete.Findings = r.Findings
+	concrete.StartedAt = r.StartedAt
+	concrete.FinishedAt = r.FinishedAt
 	return json.Marshal(&concrete)
 }
 
@@ -394,6 +398,8 @@ func (r *AtomResult) UnmarshalJSON(bs []byte) error {
 		Truncated     bool
 		OriginalBytes int
 		Findings      []Finding
+		StartedAt     string `json:"started_at"`
+		FinishedAt    string `json:"finished_at"`
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -408,6 +414,8 @@ func (r *AtomResult) UnmarshalJSON(bs []byte) error {
 	r.Truncated = concrete.Truncated
 	r.OriginalBytes = concrete.OriginalBytes
 	r.Findings = concrete.Findings
+	r.StartedAt = concrete.StartedAt
+	r.FinishedAt = concrete.FinishedAt
 	return nil
 }
 
