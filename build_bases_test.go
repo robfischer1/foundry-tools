@@ -128,10 +128,10 @@ func scriptABaseTip() {
 	engine.stdout(sbomManifestNeedle, `{"schemaVersion":2,"artifactType":"application/vnd.cyclonedx+json","layers":[{"mediaType":"application/vnd.cyclonedx+json","digest":"`+sbomBlob+`","size":4812}]}`)
 }
 
-// A tip publishes the scanned base under its repository's own path, signs it
-// and attests its SBOM, moves :stable to that exact digest, and asks no
-// permit: a base is not a star.
-func TestATipPublishesSignsAndMovesStableWithoutAPermit(t *testing.T) {
+// A tip publishes the scanned base under its repository's own path, attaches
+// its SBOM UNSIGNED (D13: base signing is off by default), moves :stable to
+// that exact digest, and asks no permit: a base is not a star.
+func TestATipPublishesUnsignedWithItsSBOMAndMovesStableWithoutAPermit(t *testing.T) {
 	m := basesOn(t, map[string]string{"bases/go/Dockerfile": "FROM scratch\n", "stellar-boot/main.go": "package main\n"})
 	engine.stdout("--name-only", "stellar-boot/main.go\n")
 	engine.script(script{match: trivyReport, leaf: "contents", value: cleanReport})
@@ -144,15 +144,54 @@ func TestATipPublishesSignsAndMovesStableWithoutAPermit(t *testing.T) {
 		[]string{"withRegistryAuth", `"registry.notusmi.com"`, `"publisher"`},
 		[]string{"publish", `"registry.notusmi.com/foundry/base-images/go:g0123456789ab"`},
 	)
-	wantCalls(t, engine.chain(`"sign","--key"`), []string{"withExec", `"sign"`, ref})
+	// The SBOM rides as a plain referrer — what a star built FROM this base
+	// links to — and its blob is checked readable.
+	wantCalls(t, engine.chain(sbomAttachNeedle), []string{"withExec", `"--artifact-type"`, `"application/vnd.cyclonedx+json"`, ref})
+	wantCalls(t, engine.chain(sbomBlobNeedle), []string{"withExec", `"--descriptor"`, `"registry.notusmi.com/foundry/base-images/go@` + sbomBlob + `"`})
+	for _, signing := range []string{checks.ImageCosign, `"sign","--key"`, pointerNeedle, `"verify-attestation"`, `"public-key"`} {
+		if engine.chain(signing) != "" {
+			t.Errorf("an unsigned base tip reached %s: base signing is the explicit --sign-bases act (D13)", signing)
+		}
+	}
 	wantCalls(t, engine.chain("publish(", "go:stable"), []string{"publish", `"registry.notusmi.com/foundry/base-images/go:stable"`})
 	if engine.chain(`"forge_mold"`) != "" {
 		t.Fatal("a base asked hades for a star's permit")
 	}
+	settledOn(t, "0", "go: clean: published and scanned "+ref+" with its SBOM, unsigned; :stable moved to it")
+}
+
+// --sign-bases is the explicit act: the same tip signs the base, attests the
+// pointer to its SBOM, and says it signed.
+func TestATipToldToSignBasesSignsAndMovesStable(t *testing.T) {
+	m := basesOn(t, map[string]string{"bases/go/Dockerfile": "FROM scratch\n"})
+	engine.stdout("--name-only", "bases/go/Dockerfile\n")
+	engine.script(script{match: trivyReport, leaf: "contents", value: cleanReport})
+	scriptABaseTip()
+	engine.script(script{leaf: "publish", match: "foundry/base-images/go", value: "registry.notusmi.com/foundry/base-images/go@sha256:" + strings.Repeat("d", 64)})
+	tipSigned(t, m)
+	ref := "registry.notusmi.com/foundry/base-images/go@sha256:" + strings.Repeat("d", 64)
+	wantCalls(t, engine.chain(`"sign","--key"`), []string{"withExec", `"sign"`, ref})
+	wantCalls(t, engine.chain(pointerNeedle), []string{"withExec", `"attest"`, ref})
+	wantCalls(t, engine.chain("publish(", "go:stable"), []string{"publish", `"registry.notusmi.com/foundry/base-images/go:stable"`})
 	settledOn(t, "0", "go: clean: published, scanned and signed "+ref+"; :stable moved to it")
 }
 
-// :stable must land on the signed digest; a push that minted another is a
+// A base whose unsigned SBOM does not attach is not promoted.
+func TestAnUnsignedBaseWhoseSBOMDoesNotAttachDoesNotPromote(t *testing.T) {
+	m := basesOn(t, map[string]string{"bases/go/Dockerfile": "FROM scratch\n"})
+	engine.stdout("--name-only", "bases/go/Dockerfile\n")
+	engine.script(script{match: trivyReport, leaf: "contents", value: cleanReport})
+	scriptABaseTip()
+	engine.exitCode(sbomAttachNeedle, 1)
+	engine.stdout(sbomAttachNeedle, "Error: failed to push: denied\n")
+	tip(t, m)
+	settledOn(t, "1", "go: findings in SBOM attach")
+	if engine.chain("publish(", "go:stable") != "" {
+		t.Fatal("a base whose SBOM did not attach moved :stable")
+	}
+}
+
+// :stable must land on the published digest; a push that minted another is a
 // finding, not a success.
 func TestAStableThatNamesAnotherDigestIsAFinding(t *testing.T) {
 	m := basesOn(t, map[string]string{"bases/go/Dockerfile": "FROM scratch\n"})
@@ -214,7 +253,7 @@ func TestAPythonBaseWithNoLockIsRelockedAgainstTheLanesIndex(t *testing.T) {
 	if strings.Contains(engine.chain(`dockerfile:"bases/go/Dockerfile"`, "sync"), `path:"bases/`) {
 		t.Error("a base with no pyproject was relocked")
 	}
-	settledOn(t, "0", "python: clean: published, scanned and signed")
+	settledOn(t, "0", "python: clean: published and scanned")
 
 	m = basesOn(t, map[string]string{
 		"bases/python/Dockerfile":     "FROM scratch\n",
