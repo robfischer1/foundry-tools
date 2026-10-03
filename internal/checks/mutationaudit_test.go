@@ -31,7 +31,7 @@ func TestAnAtomsAuditFoldsOverItsModules(t *testing.T) {
 		in   []string
 		want string
 	}{
-		{nil, ""}, {[]string{"", ""}, ""}, {[]string{"", AuditMatch}, AuditMatch},
+		{nil, ""}, {[]string{"", ""}, ""}, {[]string{AuditMatch, ""}, AuditMatch},
 		{[]string{AuditMatch, "mismatch: a", "", "mismatch: b, c"}, "mismatch: a, b, c"},
 	} {
 		if got := FoldAudits(c.in); got != c.want {

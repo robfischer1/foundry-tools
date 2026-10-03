@@ -156,8 +156,8 @@ func TestAReuseRunGradesOnlyItsMisses(t *testing.T) {
 	wantState(t, v, 0, "go:mutation: reused 1 of 2 unit(s), graded earlier at the same content, scope and engine: internal/x (mutation #9 @)")
 	wantCalls(t, engine.chain(goMutantsNeedle, "exitCode"), []string{"withExec", `"-changed-since","since0","."]`})
 	wantCalls(t, engine.chain(goMutantsNeedle, "exitCode"), []string{"withExec", `"-coverprofile","mutation-cover.out","."]`})
-	if len(v.Gradings) != 1 || v.Gradings[0].Unit != "." {
-		t.Fatalf("the run stores only what it graded: %+v", v.Gradings)
+	if len(v.Gradings) != 1 || v.Gradings[0].Unit != "." || v.Audit != "" {
+		t.Fatalf("the run stores only what it graded, and audits nothing unsampled: %+v %q", v.Gradings, v.Audit)
 	}
 }
 
@@ -195,8 +195,8 @@ func TestAStoreThatDoesNotAnswerGradesCold(t *testing.T) {
 // A sampled share of reuse runs grades every unit cold anyway and audits what
 // the lookup answered; the verdict is the cold one.
 func TestASampledReuseRunGradesColdAndAudits(t *testing.T) {
-	if !auditSampled("x6") || auditSampled(buildSha) || auditSampled("a") {
-		t.Fatal("the sample is sha256(sha)[0] < 13")
+	if !auditSampled("x6") || auditSampled(buildSha) || auditSampled("a") || auditSampled("s255") {
+		t.Fatal("the sample is sha256(sha)[0] < 13 (s255's is exactly 13)")
 	}
 	scriptTwoUnits()
 	r := newRun(dag.Directory(), "", "abc123").withAudit(true).withLookup(func(_ context.Context, _, _ string, keys []checks.UnitKey) (map[string]checks.ReusedGrading, error) {
