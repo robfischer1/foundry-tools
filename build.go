@@ -35,20 +35,20 @@ import (
 // verified CI's signature, re-signed and stamped :stable. Nothing reads a
 // star's :stable now — Flux's image automation rolls a star from its stamp tag,
 // and the stand-down compares against that stamp (detect) — so a published,
-// scanned, signed tip IS the release. --spire, --hades and --hades-id are
+// scanned tip IS the release. --spire, --hades and --hades-id are
 // still accepted, because every lane Job passes them, and are unused.
 
 // Build builds the commit the module was constructed on and settles the
 // build lane. A pull builds the image and publishes nothing; a tip publishes
 // it under the g-pin and the stamp tag Flux reads (publishTip) and attaches
 // its SBOM, UNSIGNED (D11: nothing verifies a star image since the permit
-// retired); a base is also signed (build_bases.go). A commit whose every change since the last published tip (its
-// newest stamp tag) is inert builds nothing.
+// retired). A base is unsigned too unless --sign-bases asks (D13,
+// build_bases.go). A commit whose every change since the last published tip
+// (its newest stamp tag) is inert builds nothing.
 func (m *FoundryTools) Build(
 	ctx context.Context,
-	// The default branch's tip: publish and attach the SBOM (a base is also
-	// signed). Without it
-	// the lane settles on the build alone.
+	// The default branch's tip: publish and attach the SBOM. Without it the
+	// lane settles on the build alone.
 	// +optional
 	tip bool,
 	// The SPIRE agent's workload socket, forwarded by the calling pod. UNUSED
@@ -94,7 +94,7 @@ func (m *FoundryTools) Build(
 	// rebuild: the python and bun bases run `apt-get update && apt-get
 	// upgrade`, so the same tree built a week later picks up every Debian
 	// security update published since. Nothing else is skipped — the scan,
-	// the signature and the tag move exactly as on any other build.
+	// the SBOM and the tag move exactly as on any other build.
 	// +optional
 	force bool,
 	// The run's record token (CA_RECORD_TOKEN), which authorises posting this
@@ -107,9 +107,18 @@ func (m *FoundryTools) Build(
 	// printed into the pod log and shipped to Loki. A Secret is masked.
 	// +optional
 	recordToken *dagger.Secret,
+	// Sign each base a tip publishes with the CI key and attest a pointer to
+	// its SBOM — THE EXPLICIT ACT (Scheduler Redistribution Part II, D13:
+	// base-image signing off by default, explicit where a consumer verifies).
+	// Off, a base gets its SBOM unsigned, exactly as a star tip does (D11);
+	// nothing in the fleet verifies a base image's signature (the consumer
+	// search is in the pull that made this the default). It changes nothing
+	// for a star: a star tip is never signed.
+	// +optional
+	signBases bool,
 ) error {
 	l := &buildLane{
-		m: m, tip: tip, force: force,
+		m: m, tip: tip, force: force, signBases: signBases,
 		registryAuth: registryAuth, cosignKey: cosignKey, cosignPassphrase: cosignPassphrase,
 		indexURL: indexURL, registry: registry, sourceBase: sourceBase,
 		stamp:  strconv.FormatInt(time.Now().UnixNano(), 10),
@@ -144,7 +153,10 @@ type buildLane struct {
 	tip bool
 	// force skips the stand-down: the tree is built whether or not the last
 	// published tip already carries its source. See Build's own doc.
-	force                                     bool
+	force bool
+	// signBases signs each base a tip publishes (--sign-bases, D13). Off by
+	// default; a star is never signed.
+	signBases                                 bool
 	registryAuth, cosignKey, cosignPassphrase *dagger.Secret
 	indexURL, registry, sourceBase            string
 	// stamp is this run's, on every step that must happen again on a rerun of
@@ -609,7 +621,8 @@ func declare(emit func(string, ...any), in ...pins.Pin) {
 	}
 }
 
-// sign signs the published image with the CI key, reads its composed SBOM
+// sign is --sign-bases' path (D13; never a star's): it signs the published
+// base with the CI key, reads its composed SBOM
 // (sbomOf: the builder stage's dependencies folded in, the base's document
 // linked rather than copied), attaches the SBOM and attests a pointer to it
 // (attestSBOM), and verifies the signature against the key's public half. A
@@ -644,8 +657,6 @@ func (l *buildLane) sign(ctx context.Context, img *Image, ref, star string) (int
 	); code != buildlane.Clean {
 		return code, why
 	}
-	say("signed %s with the CI key — the fleet signature is mold's to write, at permit", ref)
-
 	oras, sbom, failed := l.composedSBOM(ctx, img)
 	if failed != nil {
 		return failed.code, failed.why

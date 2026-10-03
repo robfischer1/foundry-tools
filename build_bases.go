@@ -15,7 +15,8 @@ import (
 // Dockerfile and one or more bases/<lang>/Dockerfile is a repository of base
 // images (foundry/base-images), and the build lane builds each of them the way
 // it builds a star: through Image, against the whole tree, with the same
-// labels, g-pin, signature and SBOM. Rob, 2026-09-14: "stand up a thin dagger
+// labels, g-pin and SBOM — and, like a star's, UNSIGNED by default (D13);
+// --sign-bases is the explicit act that signs them. Rob, 2026-09-14: "stand up a thin dagger
 // module that runs base images through the image lane and runs trivy at the
 // end". Three things differ, and they are the whole of this file:
 //
@@ -27,8 +28,8 @@ import (
 //  3. THE LANE MOVES :stable ITSELF. A star's :stable is its permit's output
 //     (hephaestus' mold stamps it against the star's record), and mold is one
 //     record to one image. A base is not a star — it ships no service, holds
-//     no identity and deploys nothing — so the lane that built, scanned,
-//     signed and verified it moves :stable to that digest. The tag keeps the
+//     no identity and deploys nothing — so the lane that built, scanned and
+//     published it (and signed it, when told to) moves :stable to that digest. The tag keeps the
 //     fleet's meaning (Rob, 2026-09-14: ":stable for the moving tag, to match
 //     convention"): the last build that passed everything.
 //
@@ -102,7 +103,8 @@ func (l *buildLane) runBases(ctx context.Context, star string, bases []string) (
 	return worst, strings.Join(lines, "\n")
 }
 
-// base builds, scans and — on a tip — publishes, signs and promotes one base.
+// base builds, scans and — on a tip — publishes, attaches the SBOM (signing
+// only when told to) and promotes one base.
 func (l *buildLane) base(ctx context.Context, star, base string, args []string) (int, string) {
 	pushRepo := buildlane.BasePushRepo(l.registry, l.m.Repo, base)
 	needed, why, failed := l.detectWhere(ctx, pushRepo, "stable", func(changed string) string { return buildlane.BaseChanges(base, changed) })
@@ -136,13 +138,54 @@ func (l *buildLane) base(ctx context.Context, star, base string, args []string) 
 	if code != buildlane.Clean {
 		return code, why
 	}
-	if code, why := l.sign(ctx, img, ref, name); code != buildlane.Clean {
+	if code, why := l.baseSBOM(ctx, img, ref, name); code != buildlane.Clean {
 		return code, why
 	}
-	if code, why := l.stable(ctx, img, pushRepo, ref, name); code != buildlane.Clean {
-		return code, why
+	code, why = l.stable(ctx, img, pushRepo, ref, name)
+	if code == buildlane.Clean {
+		why = baseClean(ref, l.signBases)
 	}
-	return buildlane.Clean, fmt.Sprintf("clean: published, scanned and signed %s; :stable moved to it", ref)
+	return code, why
+}
+
+// baseSBOM is a published base's SBOM. UNSIGNED BY DEFAULT (Scheduler
+// Redistribution Part II, D13, ruled by Rob 2026-10-03): attached as a plain
+// referrer exactly as a star tip's is (publishSBOM), which is also what a star
+// built FROM the base links to (baseDocument reads the CycloneDX referrer, not
+// the signed pointer). With --sign-bases the base is signed and the pointer to
+// its SBOM attested (sign) — the explicit act D13 keeps for a consumer that
+// verifies; none does today.
+func (l *buildLane) baseSBOM(ctx context.Context, img *Image, ref, name string) (int, string) {
+	if l.signBases {
+		return l.sign(ctx, img, ref, name)
+	}
+	return stopped(l.publishSBOM(ctx, img, ref))
+}
+
+// stopped is a laneStop as the (code, why) pair the base path speaks: nil is
+// clean with nothing to say.
+//
+// NO LITERAL buildlane.Clean RETURN, here or in base's tail, and that is the
+// mutation lane's doing: Clean is 0, so RETURN_ZERO on `return
+// buildlane.Clean, …` is an EQUIVALENT MUTANT no test can kill (LIVED on
+// foundry-tools #258, build_bases.go:147 and :164). Returning the code that
+// was actually answered keeps every mutant of these lines observable.
+func stopped(s *laneStop) (int, string) {
+	var code int
+	var why string
+	if s != nil {
+		code, why = s.code, s.why
+	}
+	return code, why
+}
+
+// baseClean is a promoted base's verdict line, which says whether it was
+// signed: an unsigned base must never read as a signed one.
+func baseClean(ref string, signed bool) string {
+	if signed {
+		return fmt.Sprintf("clean: published, scanned and signed %s; :stable moved to it", ref)
+	}
+	return fmt.Sprintf("clean: published and scanned %s with its SBOM, unsigned; :stable moved to it", ref)
 }
 
 // trivyReport is where the scan writes its JSON — a file, not stdout, because
@@ -189,7 +232,7 @@ func (l *buildLane) scan(ctx context.Context, img *Image) (int, string) {
 	return buildlane.Clean, ""
 }
 
-// stable moves <pushRepo>:stable to the image just published and signed, and
+// stable moves <pushRepo>:stable to the image just published, and
 // holds the registry to it: the tag must name the digest the g-pin minted. The
 // image's config is stamped once (Image.Created), so a second push of the same
 // image is the same manifest, and a different digest is a different image.
@@ -199,7 +242,7 @@ func (l *buildLane) stable(ctx context.Context, img *Image, pushRepo, ref, name 
 		return code, why
 	}
 	if moved != ref {
-		return buildlane.Findings, fmt.Sprintf("findings in :stable: the push minted %s, not the signed %s", moved, ref)
+		return buildlane.Findings, fmt.Sprintf("findings in :stable: the push minted %s, not the published %s", moved, ref)
 	}
 	say("moved %s:stable to %s", pushRepo, ref)
 	return buildlane.Clean, ""

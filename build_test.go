@@ -47,7 +47,7 @@ func scanClean() {
 func pull(t *testing.T, m *FoundryTools) {
 	t.Helper()
 	if err := m.Build(context.Background(), false, nil, nil, nil, nil, "",
-		"registry.notusmi.com", "https://forgejo.notusmi.com/rob", "https://hades:8102", "spiffe://notusmi.com/star/hades", false, nil); err != nil {
+		"registry.notusmi.com", "https://forgejo.notusmi.com/rob", "https://hades:8102", "spiffe://notusmi.com/star/hades", false, nil, false); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 }
@@ -56,7 +56,7 @@ func pull(t *testing.T, m *FoundryTools) {
 func pullForced(t *testing.T, m *FoundryTools) {
 	t.Helper()
 	if err := m.Build(context.Background(), false, nil, nil, nil, nil, "",
-		"registry.notusmi.com", "https://forgejo.notusmi.com/rob", "https://hades:8102", "spiffe://notusmi.com/star/hades", true, nil); err != nil {
+		"registry.notusmi.com", "https://forgejo.notusmi.com/rob", "https://hades:8102", "spiffe://notusmi.com/star/hades", true, nil, false); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 }
@@ -70,13 +70,24 @@ func tip(t *testing.T, m *FoundryTools) {
 
 func tipWith(t *testing.T, m *FoundryTools, registryAuth string) {
 	t.Helper()
+	tipAs(t, m, registryAuth, false)
+}
+
+// tipSigned is tip with --sign-bases: the explicit act that signs a base (D13).
+func tipSigned(t *testing.T, m *FoundryTools) {
+	t.Helper()
+	tipAs(t, m, `{"auths":{"registry.notusmi.com":{"username":"publisher","password":"hunter2"}}}`, true)
+}
+
+func tipAs(t *testing.T, m *FoundryTools, registryAuth string, signBases bool) {
+	t.Helper()
 	auth := dag.SetSecret("registry-auth", registryAuth)
 	key := dag.SetSecret("cosign-key", base64.StdEncoding.EncodeToString([]byte("-----BEGIN ENCRYPTED SIGSTORE PRIVATE KEY-----")))
 	password := dag.SetSecret("cosign-password", "pw")
 	// A module has no Host to open a socket on; the socket a caller forwards
 	// arrives as an id, which is what the lane receives.
 	if err := m.Build(context.Background(), true, dag.LoadSocketFromID("spire-agent-socket"), auth, key, password, "https://nexus.example/simple",
-		"registry.notusmi.com", "https://forgejo.notusmi.com/rob", "https://hades:8102", "spiffe://notusmi.com/star/hades", false, nil); err != nil {
+		"registry.notusmi.com", "https://forgejo.notusmi.com/rob", "https://hades:8102", "spiffe://notusmi.com/star/hades", false, nil, signBases); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 }
@@ -163,7 +174,7 @@ func TestTheVerdictIsBuiltWithNothingFetched(t *testing.T) {
 func TestATipBuildWithoutItsCredentialsIsCouldNotRun(t *testing.T) {
 	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
 	if err := m.Build(context.Background(), true, nil, nil, nil, nil, "",
-		"registry.notusmi.com", "https://forgejo.notusmi.com/rob", "https://hades:8102", "spiffe://notusmi.com/star/hades", false, nil); err != nil {
+		"registry.notusmi.com", "https://forgejo.notusmi.com/rob", "https://hades:8102", "spiffe://notusmi.com/star/hades", false, nil, false); err != nil {
 		t.Fatal(err)
 	}
 	settledOn(t, "2", "are all required")
@@ -610,10 +621,11 @@ func TestATipWhosePublishHitsARegistryOutageIsCouldNotRun(t *testing.T) {
 	}
 }
 
-// SIGNING IS A BASE'S NOW (D11 took it off star tips). signedTip is a
-// base-image repository with one base, go, whose tip goes through every step:
-// built, scanned clean, published, signed, its SBOM attached and a pointer to
-// it attested, verified, and :stable moved.
+// SIGNING IS AN EXPLICIT ACT NOW, AND ONLY A BASE'S (D11 took it off star
+// tips; D13 made it opt-in for bases). signedTip is a base-image repository
+// with one base, go, whose tip — run with tipSigned, --sign-bases — goes
+// through every step: built, scanned clean, published, signed, its SBOM
+// attached and a pointer to it attested, verified, and :stable moved.
 func signedTip(t *testing.T) *FoundryTools {
 	t.Helper()
 	m := basesOn(t, map[string]string{"bases/go/Dockerfile": "FROM scratch\n"})
@@ -632,7 +644,7 @@ var baseRef = "registry.notusmi.com/foundry/base-images/go@sha256:" + strings.Re
 // verified.
 func TestABaseTipIsSignedAndItsSBOMPointerAttested(t *testing.T) {
 	m := signedTip(t)
-	tip(t, m)
+	tipSigned(t, m)
 	wantCalls(t, engine.chain(`"sign","--key"`),
 		[]string{"from", checks.ImageFleet},
 		[]string{"withFile", `"/usr/local/bin/cosign"`},
@@ -679,7 +691,7 @@ func TestABaseThatCannotBeSignedIsFindings(t *testing.T) {
 	m := signedTip(t)
 	engine.exitCode(`"sign","--key"`, 1)
 	engine.exitCode(`"verify","--key"`, 1)
-	tip(t, m)
+	tipSigned(t, m)
 	settledOn(t, "1", "findings in sign —")
 	if engine.chain(sbomAttachNeedle) != "" || engine.chain(pointerNeedle) != "" || engine.chain("publish(", "go:stable") != "" {
 		t.Fatal("an unsigned base went on to be attested or promoted")
@@ -698,7 +710,7 @@ func TestASignThatRefusesTheLanesArgumentsIsCouldNotRun(t *testing.T) {
 	engine.stderr(`"sign","--key"`, refusal)
 	engine.exitCode(`"verify","--key"`, 10)
 	engine.stderr(`"verify","--key"`, "Error: no signatures found\n")
-	tip(t, m)
+	tipSigned(t, m)
 	settledOn(t, "2", "sign refused the lane's own arguments (Error: unknown flag: --use-signing-config)")
 	if engine.chain(sbomAttachNeedle) != "" || engine.chain(pointerNeedle) != "" {
 		t.Fatal("a sign that never ran went on to be attested")
@@ -710,7 +722,7 @@ func TestASignThatRefusesTheLanesArgumentsIsCouldNotRun(t *testing.T) {
 func TestAnImageAlreadySignedVerifiesInsteadOfFailing(t *testing.T) {
 	m := signedTip(t)
 	engine.exitCode(`"sign","--key"`, 1)
-	tip(t, m)
+	tipSigned(t, m)
 	settledOn(t, "0", "go: clean: published, scanned and signed")
 }
 
@@ -719,7 +731,7 @@ func TestASignWhoseCheckCannotRunIsNotAPass(t *testing.T) {
 	m := signedTip(t)
 	engine.exitCode(`"sign","--key"`, 1)
 	engine.failLeaf(`"verify","--key"`, "exitCode", "the engine went away")
-	tip(t, m)
+	tipSigned(t, m)
 	settledOn(t, "1", "findings in sign —")
 	if engine.chain(sbomAttachNeedle) != "" || engine.chain(pointerNeedle) != "" {
 		t.Fatal("a sign nobody could check went on to be attested")
@@ -731,7 +743,7 @@ func TestASignWhoseCheckCannotRunIsNotAPass(t *testing.T) {
 func TestAnSBOMPointerAlreadyThereVerifiesInsteadOfFailing(t *testing.T) {
 	m := signedTip(t)
 	engine.exitCode(pointerNeedle, 1)
-	tip(t, m)
+	tipSigned(t, m)
 	settledOn(t, "0", "go: clean: published, scanned and signed")
 }
 
@@ -822,7 +834,7 @@ func TestABaseSBOMThatDoesNotPublishDoesNotPromote(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			m := signedTip(t)
 			c.script()
-			tip(t, m)
+			tipSigned(t, m)
 			settledOn(t, c.code, "go: ")
 			settledOn(t, c.code, c.reason)
 			if engine.chain("publish(", "go:stable") != "" {
@@ -837,7 +849,7 @@ func TestABaseSBOMThatDoesNotPublishDoesNotPromote(t *testing.T) {
 func TestABaseWhoseSignatureDoesNotVerifyIsFindings(t *testing.T) {
 	m := signedTip(t)
 	engine.exitCode(`"verify","--key"`, 1)
-	tip(t, m)
+	tipSigned(t, m)
 	settledOn(t, "1", "findings in sign (verify)")
 	if engine.chain("publish(", "go:stable") != "" {
 		t.Fatal("an unverified base moved :stable")
