@@ -55,6 +55,9 @@ type FoundryTools struct {
 	// set by GateFile under --reuse, nil otherwise. UNEXPORTED, so it is no
 	// part of the module's surface and does not outlive the call that set it.
 	lookup gradingLookup
+	// audit is whether this call's reuse run is one of the sampled few that
+	// grade cold anyway and audit what they would have reused (auditSampled).
+	audit bool
 }
 
 // New binds the module to the caller's repository — the tree it is standing
@@ -320,7 +323,7 @@ func (m *FoundryTools) vector(ctx context.Context, stage, only, base string) ([]
 	// An atom another SELECTED atom covers stands down here rather than in the
 	// runner, so the caller still gets its line (checks.Subsumed says why).
 	selected, covered := checks.Subsumed(selected)
-	r := newRun(m.Source, m.Repo, base).fromOrigin(m.Origin).withLookup(m.lookup)
+	r := newRun(m.Source, m.Repo, base).fromOrigin(m.Origin).withLookup(m.lookup).withAudit(m.audit)
 	plan, absent, err := r.plan(ctx, selected)
 	if err != nil {
 		return nil, err

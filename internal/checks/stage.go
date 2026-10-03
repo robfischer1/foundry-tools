@@ -48,8 +48,10 @@ type StageAtom struct {
 	// reason; empty for an atom that never started.
 	StartedAt  string
 	FinishedAt string
-	// A mutation atom's gradings, carried through for the same reason.
+	// A mutation atom's gradings and audit, carried through for the same
+	// reason.
 	Gradings []Grading
+	Audit    string
 }
 
 // Stage is a stage's settled answer.
@@ -106,7 +108,7 @@ func SettleStage(name string, vs []Verdict, unreached ...string) Stage {
 			}
 			a := StageAtom{Atom: v.Atom, Group: group, State: v.State, Result: v.Result, Reason: v.Reason,
 				Logs: v.Logs, Truncated: v.Truncated, OriginalBytes: v.OriginalBytes,
-				Findings: v.Findings, StartedAt: v.StartedAt, FinishedAt: v.FinishedAt, Gradings: v.Gradings}
+				Findings: v.Findings, StartedAt: v.StartedAt, FinishedAt: v.FinishedAt, Gradings: v.Gradings, Audit: v.Audit}
 			if v.Result == "absent" {
 				st.Omitted = append(st.Omitted, a)
 				continue

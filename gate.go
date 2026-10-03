@@ -126,6 +126,7 @@ func (m *FoundryTools) GateFile(
 ) (*dagger.File, error) {
 	if reuse && recordToken != nil {
 		m.lookup = lookupVia(m.Repo, recordToken)
+		m.audit = auditSampled(m.Sha)
 	}
 	result := m.gateStage(ctx, tree, stage, base)
 	// POST FIRST, THEN HAND BACK THE FILE. Both transports carry the same bytes

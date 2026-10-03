@@ -191,3 +191,30 @@ func TestAStoreThatDoesNotAnswerGradesCold(t *testing.T) {
 		t.Fatalf("a cold run stores every unit it graded: %+v", v.Gradings)
 	}
 }
+
+// A sampled share of reuse runs grades every unit cold anyway and audits what
+// the lookup answered; the verdict is the cold one.
+func TestASampledReuseRunGradesColdAndAudits(t *testing.T) {
+	if !auditSampled("x6") || auditSampled(buildSha) || auditSampled("a") {
+		t.Fatal("the sample is sha256(sha)[0] < 13")
+	}
+	scriptTwoUnits()
+	r := newRun(dag.Directory(), "", "abc123").withAudit(true).withLookup(func(_ context.Context, _, _ string, keys []checks.UnitKey) (map[string]checks.ReusedGrading, error) {
+		return hitFor("internal/x", checks.ReusedGrading{Lane: "mutation", RunNumber: 9, Counts: checks.GradingCounts{Generated: 3, Killed: 3}})(keys)
+	})
+	v := registry["go:mutation"](context.Background(), r)
+	wantState(t, v, 0, "go:mutation: audit — the 1 unit(s) a lookup answered were graded cold again: mismatch: internal/x")
+	wantCalls(t, engine.chain(goMutantsNeedle, "exitCode"), []string{"withExec", `"-changed-since","since0","./..."]`})
+	if v.Audit != "mismatch: internal/x" || len(v.Gradings) != 2 {
+		t.Fatalf("audit %q gradings %+v", v.Audit, v.Gradings)
+	}
+	m := gateOn(t, cleanVector)
+	m.Sha = "x6"
+	if _, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "mutation", dag.SetSecret("record-token", "tok"), true); err != nil || !m.audit {
+		t.Fatalf("a sampled commit under --reuse is audited: %v %v", m.audit, err)
+	}
+	res := stageResult(checks.Stage{Name: "mutation", Ran: []checks.StageAtom{{Atom: "go:mutation", Result: "pass", Audit: v.Audit}}})
+	if rec, _ := res.Record(); !strings.Contains(rec, `"audit":"mismatch: internal/x"`) {
+		t.Fatalf("the audit did not ride the record: %s", rec)
+	}
+}
