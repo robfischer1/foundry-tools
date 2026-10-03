@@ -152,8 +152,24 @@ func (m *FoundryTools) GateFile(
 // the exit code was computed from.
 func (m *FoundryTools) gateStage(ctx context.Context, tree, stage, base string) *StageResult {
 	lane := laneOf(stage)
-	vector, _ := m.gradeTree(ctx, lane, tree, stage, base)
+	vector, _ := m.gradeTree(ctx, lane, tree, gradedStage(stage), base)
 	return stageResult(checks.SettleStage(lane, vector))
+}
+
+// StageMutationBg is the background mutation lane's stage (hook-check
+// addendum M8): Daedalus runs it at tier 5 on a commit the hook checked, and
+// it grades exactly what the mutation stage grades — only its label differs,
+// so the door and the record never take a background run for the pull's
+// mutation lane.
+const StageMutationBg = "mutation-bg"
+
+// gradedStage is the atom stage a stage grades: the background mutation lane
+// grades the mutation atoms; every other stage grades itself.
+func gradedStage(stage string) string {
+	if stage == StageMutationBg {
+		return checks.StageMutation
+	}
+	return stage
 }
 
 // laneOf is the lane a stage's record is labelled with — the name the door
@@ -167,6 +183,8 @@ func laneOf(stage string) string {
 		return "mutation"
 	case checks.StagePrecommit:
 		return "check"
+	case StageMutationBg:
+		return "mutation-bg"
 	}
 	return "gate"
 }
