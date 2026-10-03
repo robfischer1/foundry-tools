@@ -93,6 +93,9 @@ type Verdict struct {
 	// Gradings are a mutation atom's units and what each one's mutants did
 	// (gradings.go) — what a later run may reuse. Empty for every other atom.
 	Gradings []Grading `json:"gradings,omitempty"`
+	// Audit is a mutation atom's soundness audit (audit.go): "match", or
+	// "mismatch: <units>", on a sampled reuse run; empty on every other.
+	Audit string `json:"audit,omitempty"`
 }
 
 // VerdictOf builds one element of the vector from a raw exit code.

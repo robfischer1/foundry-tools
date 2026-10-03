@@ -45,6 +45,9 @@ type StageResult struct {
 	// these. The record is written in the call that graded (GateFile, Gate),
 	// so they never need to survive one dagger call into the next.
 	gradings map[string][]checks.Grading
+	// audits are each mutation atom's soundness audit, by atom id, for the
+	// record alone, for the same reason.
+	audits map[string]string
 }
 
 // AtomResult is one atom's line in a stage.
@@ -92,6 +95,9 @@ type recordAtom struct {
 	// every other atom. Daedalus stores them at settle; a record reader that
 	// does not know the key ignores it.
 	Gradings []checks.Grading `json:"gradings,omitempty"`
+	// Audit is the atom's soundness audit (checks.AuditGradings), absent for
+	// every atom but a sampled reuse run's mutation atom.
+	Audit string `json:"audit,omitempty"`
 }
 
 // atomWire is AtomResult's fields as the record spells them.
@@ -128,7 +134,7 @@ func (s *StageResult) wire() recordStage {
 		}
 		out := make([]recordAtom, len(as))
 		for i, a := range as {
-			out[i] = recordAtom{atomWire: atomWire(a), Gradings: s.gradings[a.Atom]}
+			out[i] = recordAtom{atomWire: atomWire(a), Gradings: s.gradings[a.Atom], Audit: s.audits[a.Atom]}
 		}
 		return out
 	}
@@ -383,14 +389,15 @@ func stageResult(st checks.Stage) *StageResult {
 		}
 		return out
 	}
-	gradings := map[string][]checks.Grading{}
+	gradings, audits := map[string][]checks.Grading{}, map[string]string{}
 	for _, a := range st.Ran {
-		gradings[a.Atom] = a.Gradings
+		gradings[a.Atom], audits[a.Atom] = a.Gradings, a.Audit
 	}
 	return &StageResult{
 		Stage: st.Name, State: st.State, Lanes: st.Lanes,
 		Atoms: rows(st.Ran), Omitted: rows(st.Omitted), Unreached: st.Unreached, Log: st.Log,
 		gradings: gradings,
+		audits:   audits,
 	}
 }
 

@@ -168,9 +168,11 @@ func FoldModules(a AtomDef, mods []ModuleVerdict) Verdict {
 	// Each module's gradings are its own units', repo-relative, so the fold is
 	// their concatenation.
 	var gradings []Grading
+	var audits []string
 	for _, m := range mods {
 		fmt.Fprintf(&b, "\n── module %s ──\n%s", m.Dir, m.Verdict.Reason)
 		gradings = append(gradings, m.Verdict.Gradings...)
+		audits = append(audits, m.Verdict.Audit)
 	}
 	return Verdict{
 		Atom:     a.ID,
@@ -180,6 +182,7 @@ func FoldModules(a AtomDef, mods []ModuleVerdict) Verdict {
 		Result:   state.String(),
 		Reason:   b.String(),
 		Gradings: gradings,
+		Audit:    FoldAudits(audits),
 	}
 }
 

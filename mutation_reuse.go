@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"net/http"
@@ -41,6 +42,24 @@ type gradingLookup func(ctx context.Context, lang, engine string, keys []checks.
 func (r *run) withLookup(l gradingLookup) *run {
 	r.lookup = l
 	return r
+}
+
+// withAudit makes a reuse run grade cold and audit what it would have reused.
+func (r *run) withAudit(audit bool) *run {
+	r.audit = audit
+	return r
+}
+
+// auditThreshold is the sampled share of reuse runs that grade cold anyway
+// and audit (M6): a commit whose sha's sha256 starts with a byte below it —
+// 13 of 256, 5.1%. Keyed on the commit, so a re-run of one commit is
+// audited or not the same way.
+const auditThreshold = 13
+
+// auditSampled reports whether a reuse run on this commit is audited.
+func auditSampled(sha string) bool {
+	sum := sha256.Sum256([]byte(sha))
+	return sum[0] < auditThreshold
 }
 
 // reusable answers the gradings a run may reuse for its keys, and a line for

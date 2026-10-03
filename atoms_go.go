@@ -890,10 +890,15 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	// graded again; with every unit answered, nothing below runs at all.
 	keys, owner := goGradingKeys(ctx, base, dir, since, changed, tags)
 	reused, reuseNote := r.reusable(ctx, "go", goMutationEngine(), keys)
+	// A SAMPLED RUN GRADES COLD ANYWAY, and audits what it would have reused.
+	var audited map[string]checks.ReusedGrading
+	if r.audit {
+		audited, reused = reused, nil
+	}
 	misses := checks.Misses(keys, reused)
 	if len(reused) > 0 && len(misses) == 0 {
 		return goFolded(settle, checks.GoMutationRun{Canary: checks.CanaryOK, MainCanary: checks.CanaryOK, Workers: goMutationWorkers},
-			dir, reused, reuseNote, misses, owner)
+			dir, reused, reuseNote, misses, owner, nil)
 	}
 	scopeArgs := goMutationCoverPackages(changed)
 	mutateArgs := []string{"./..."}
@@ -1044,7 +1049,7 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 		Status: status, Log: log, Report: []byte(report), Profile: profile, Canary: canary, Workers: goMutationWorkers,
 		Classified: []byte(classified), ClassifyErr: classifyErr,
 		MainCanary: mainCanary, MisgradedFiles: misgraded, MisgradedFilesErr: misgradedErr,
-	}, dir, reused, reuseNote, misses, owner)
+	}, dir, reused, reuseNote, misses, owner, audited)
 }
 
 // goFolded settles a Go mutation run: what it graded, folded with what it
@@ -1057,7 +1062,8 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 // it back would lose a distinction the score keeps (an ungraded LIVED mutant
 // and a missed LIVED mutant render identically).
 func goFolded(settle func(int, string) checks.Verdict, run checks.GoMutationRun, dir string,
-	reused map[string]checks.ReusedGrading, note string, misses []checks.UnitKey, owner func(string) (string, bool)) checks.Verdict {
+	reused map[string]checks.ReusedGrading, note string, misses []checks.UnitKey, owner func(string) (string, bool),
+	audited map[string]checks.ReusedGrading) checks.Verdict {
 	list := checks.Reused(reused)
 	f := checks.GoMutationVerdictReusing(run, dir, list)
 	v := settle(f.State, f.Reason)
@@ -1070,6 +1076,10 @@ func goFolded(settle func(int, string) checks.Verdict, run checks.GoMutationRun,
 	}
 	v.Findings = f.Findings
 	v.Gradings = checks.GoGradings(f.Fresh, dir, goMutationEngine(), checks.GoGradingTrusted(f.State, run.Canary), misses, owner)
+	if len(audited) > 0 {
+		v.Audit = checks.AuditGradings(checks.Reused(audited), v.Gradings)
+		v.Reason = "go:mutation: audit — the " + strconv.Itoa(len(audited)) + " unit(s) a lookup answered were graded cold again: " + v.Audit + "\n" + v.Reason
+	}
 	return v
 }
 

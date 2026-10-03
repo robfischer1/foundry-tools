@@ -70,6 +70,9 @@ type run struct {
 	// lookup, when set, is how the mutation atoms ask which of their units a
 	// stored grading already answers (mutation_reuse.go); nil grades every unit.
 	lookup gradingLookup
+	// audit, when set, grades every unit cold even where a lookup answered,
+	// and holds the answered gradings against the cold ones (mutation_reuse.go).
+	audit bool
 
 	dies *dagger.Directory
 
