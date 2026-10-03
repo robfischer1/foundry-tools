@@ -7,41 +7,74 @@ import (
 	"dagger/foundry-tools/internal/bundlelane"
 )
 
-// A landing that touched a contract publishes both orbit dies under the pin,
-// in the die shape data/orbits was first cast in, moves each :stable, and
-// signs both.
-func TestAContractLandingPublishesBothOrbitDies(t *testing.T) {
+func noOrbitDie(t *testing.T) {
+	t.Helper()
+	for _, die := range []string{bundlelane.ContractsDie, bundlelane.OrbitsDie} {
+		if chain := engine.chain(`"push"`, `"`+die+":"); chain != "" {
+			t.Fatalf("%s was pushed:\n%s", die, chain)
+		}
+	}
+}
+
+// orbitLanding runs a green landing whose change set is changed, and answers
+// what the lane narrated.
+func orbitLanding(t *testing.T, changed string, script func()) string {
+	t.Helper()
 	m := bundleOn(t, nil)
 	scriptAGreenBundle()
-	engine.stdout(`"--name-only"`, "orbits/urania-themis.toml\n")
-	bundles(t, m)
-	settledOn(t, "0", "published and signed")
+	engine.stdout(`"--name-only"`, changed)
+	if script != nil {
+		script()
+	}
+	return sayings(t, func() { bundles(t, m) })
+}
+
+// A landing that touched a contract publishes both orbit dies under the pin,
+// in the die shape data/orbits was first cast in, moves each :stable, and
+// signs both — and the verdict names both digests.
+func TestAContractLandingPublishesBothOrbitDies(t *testing.T) {
+	said := orbitLanding(t, "orbits/urania-themis.toml\n", nil)
+	settledOn(t, "0", "orbits: 1 contracts compose to 3 files of data/orbits; published and signed "+
+		bundlelane.ContractsDie+"@sha256:"+strings.Repeat("1b", 32)+", "+bundlelane.OrbitsDie+"@sha256:")
 	pin := pinOf(t)
 	for die, files := range map[string][]string{
-		bundlelane.ContractsDie: {`"urania-themis.toml:application/octet-stream"`},
-		bundlelane.OrbitsDie:    {`"orbits.json:application/octet-stream"`, `"themis.orbit.toml:application/octet-stream"`, `"urania.orbit.toml:application/octet-stream"`},
+		bundlelane.ContractsDie: {"urania-themis.toml"},
+		bundlelane.OrbitsDie:    {"orbits.json", "themis.orbit.toml", "urania.orbit.toml"},
 	} {
 		chain := pushed(die, pin)
 		if chain == "" {
 			t.Fatalf("%s:%s was not pushed", die, pin)
 		}
-		wantCalls(t, chain, append([]string{"withExec", `"--artifact-type"`, `"application/vnd.hephaestus.die.v1"`,
-			`"org.notusmi.die.source-sha=` + buildSha + `"`}, files...))
-		if strings.Contains(chain, "README.md:") {
+		args := []string{"withExec", `"--artifact-type"`, `"application/vnd.hephaestus.die.v1"`, `"org.notusmi.die.source-sha=` + buildSha + `"`}
+		dir := "/work/die-orbits/"
+		if die == bundlelane.ContractsDie {
+			dir = "/work/die-contracts/"
+		}
+		for _, f := range files {
+			args = append(args, `"`+f+`:application/octet-stream"`)
+			wantCalls(t, chain, []string{"withNewFile", `"` + dir + f + `"`})
+		}
+		wantCalls(t, chain, args, []string{"withWorkdir", `"` + strings.TrimSuffix(dir, "/") + `"`})
+		if strings.Contains(chain, "README.md:") || strings.Contains(chain, "die-contracts/README.md") {
 			t.Errorf("%s carries the README:\n%s", die, chain)
 		}
 		if engine.chain(`"tag"`, `"`+die+":"+pin+`"`, `"stable"`) == "" {
 			t.Errorf("%s:stable was not moved to the pin", die)
 		}
+		for _, line := range []string{"── " + die + ": publish — immutable pin first, then move the channel ──", "pushed " + die + ":" + pin + " (" + string(rune('0'+len(files))) + " files)"} {
+			if !strings.Contains(said, line) {
+				t.Errorf("the lane did not say %q:\n%s", line, said)
+			}
+		}
 	}
-	// Each die is staged in its own directory and pushed from it, so a layer's
-	// title is the bare file name (orbitcompose.Payloads proves the bytes).
-	wantCalls(t, pushed(bundlelane.ContractsDie, pin),
-		[]string{"withDirectory", `"/work/die-contracts"`}, []string{"withWorkdir", `"/work/die-contracts"`})
-	wantCalls(t, pushed(bundlelane.OrbitsDie, pin),
-		[]string{"withDirectory", `"/work/die-orbits"`}, []string{"withWorkdir", `"/work/die-orbits"`})
-	if pushed(bundlelane.PolicyDie, pin) == "" {
-		t.Error("orbits/ is outside the policy's ignore list, so the policy publishes too")
+	// The contract's own bytes are what is staged.
+	if !strings.Contains(pushed(bundlelane.ContractsDie, pin), `neighbors`) {
+		t.Error("the contract's bytes were not staged")
+	}
+	for _, line := range []string{"── orbits GATE: every contract composes ──", "orbits: 1 contracts compose to 3 files of data/orbits"} {
+		if !strings.Contains(said, line) {
+			t.Errorf("the lane did not say %q", line)
+		}
 	}
 	if pushed(bundlelane.FleetDie, pin) != "" {
 		t.Error("the roster was republished on a contract landing")
@@ -52,10 +85,9 @@ func TestAContractLandingPublishesBothOrbitDies(t *testing.T) {
 }
 
 func TestALandingThatMissedOrbitsLeavesBothOrbitDiesAlone(t *testing.T) {
-	m := bundleOn(t, nil)
-	scriptAGreenBundle()
-	bundles(t, m)
-	settledOn(t, "0", "published and signed")
+	orbitLanding(t, "policy/authz/visible.rego\n", nil)
+	settledOn(t, "0", "published and signed "+bundlelane.PolicyDie)
+	settledOn(t, "0", "; orbits: 1 contracts compose to 3 files of data/orbits — nothing under orbits/ changed, data/contracts and data/orbits stay where they are")
 	for _, die := range []string{bundlelane.ContractsDie, bundlelane.OrbitsDie} {
 		if pushed(die, pinOf(t)) != "" {
 			t.Errorf("%s was published on a landing that did not touch orbits/", die)
@@ -63,22 +95,19 @@ func TestALandingThatMissedOrbitsLeavesBothOrbitDiesAlone(t *testing.T) {
 	}
 }
 
-func TestAnOrbitsOnlyReadmeLandingPublishesOnlyTheOrbitDies(t *testing.T) {
-	m := bundleOn(t, nil)
-	scriptAGreenBundle()
-	engine.stdout(`"--name-only"`, "orbits/README.md\n")
-	bundles(t, m)
-	settledOn(t, "0", "published and signed")
+func TestAnOrbitsReadmeLandingPublishesOnlyTheOrbitDies(t *testing.T) {
+	orbitLanding(t, "orbits/README.md\n", nil)
+	settledOn(t, "0", "neither has anything to publish")
+	settledOn(t, "0", "; published and signed "+bundlelane.ContractsDie)
 	if pushed(bundlelane.PolicyDie, pinOf(t)) != "" || pushed(bundlelane.FleetDie, pinOf(t)) != "" {
 		t.Error("a README landing republished the policy or the roster")
 	}
-	if pushed(bundlelane.OrbitsDie, pinOf(t)) == "" {
-		t.Error("data/orbits was not published")
-	}
 }
 
-// Contracts that do not compose are a finding about the tree, and nothing is
-// published — not even the dies the contracts do not feed.
+// Contracts that do not compose are a finding about the tree, and the orbit
+// dies are not published. The policy and the roster are independent of the
+// contracts and settle first, so a broken contract does not hold them back —
+// the lane is red all the same.
 func TestContractsThatDoNotComposeAreAFinding(t *testing.T) {
 	for name, tree := range map[string]map[string]string{
 		"a bad contract": {"orbits/urania-themis.toml": "version = 1\n"},
@@ -87,10 +116,24 @@ func TestContractsThatDoNotComposeAreAFinding(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			m := bundleOn(t, tree)
 			scriptAGreenBundle()
+			engine.stdout(`"--name-only"`, "orbits/urania-themis.toml\n")
 			bundles(t, m)
 			settledOn(t, "1", "does not compose")
-			nothingPushed(t)
+			noOrbitDie(t)
 		})
+	}
+}
+
+// A lane that already failed stays failed, and the orbit step adds nothing.
+func TestAFailedLaneIsPassedThroughUntouched(t *testing.T) {
+	m := bundleOn(t, nil)
+	scriptAGreenBundle()
+	engine.stdout(`"-v"`, "FAIL: 1/325")
+	engine.exitCode(`"-v"`, 1)
+	bundles(t, m)
+	settledOn(t, "1", "opa test policy/ failed")
+	if strings.Contains(engine.chain(`"/usr/local/bin/verdict"`), "orbits:") {
+		t.Error("the orbit step spoke on a lane that had already failed")
 	}
 }
 
@@ -100,7 +143,7 @@ func TestAContractTheEngineCannotReadCouldNotRun(t *testing.T) {
 	engine.fail(`"orbits/urania-themis.toml"`, "the engine went away")
 	bundles(t, m)
 	settledOn(t, "2", "could not be read")
-	nothingPushed(t)
+	noOrbitDie(t)
 }
 
 func TestAnOrbitsDirectoryTheEngineCannotListCouldNotRun(t *testing.T) {
@@ -109,30 +152,29 @@ func TestAnOrbitsDirectoryTheEngineCannotListCouldNotRun(t *testing.T) {
 	engine.fail(`"orbits/*"`, "the engine went away")
 	bundles(t, m)
 	settledOn(t, "2", "could not be listed")
-	nothingPushed(t)
+	noOrbitDie(t)
 }
 
-func TestADryRunSaysItWouldPublishTheOrbitDies(t *testing.T) {
+func TestADryRunGatesTheOrbitDiesAndPublishesNeither(t *testing.T) {
 	m := bundleOn(t, nil)
 	scriptAGreenBundle()
 	engine.stdout(`"--name-only"`, "orbits/urania-themis.toml\n")
 	bundleWith(t, m, true, nil, nil, nil, nil)
-	settledOn(t, "0", "orbits=true")
+	settledOn(t, "0", "compose to 3 files of data/orbits — dry run, data/contracts and data/orbits not published")
 	nothingPushed(t)
 }
 
 func TestAStandingOrbitPinIsNotPushedAgain(t *testing.T) {
-	m := bundleOn(t, nil)
-	scriptAGreenBundle()
-	engine.stdout(`"--name-only"`, "orbits/README.md\n")
-	engine.exitCode(`"fetch"`, 0)
-	bundles(t, m)
+	said := orbitLanding(t, "orbits/README.md\n", func() { engine.exitCode(`"fetch"`, 0) })
 	settledOn(t, "0", "published and signed")
 	if chain := engine.chain(`"push"`, `"--artifact-type"`); chain != "" {
 		t.Fatalf("a standing pin was pushed again:\n%s", chain)
 	}
 	if engine.chain(`"tag"`, `"`+bundlelane.OrbitsDie+":"+pinOf(t)+`"`, `"stable"`) == "" {
 		t.Error("data/orbits:stable was not re-pointed at the standing pin")
+	}
+	if !strings.Contains(said, bundlelane.OrbitsDie+":"+pinOf(t)+" already stands — a pin is immutable, not re-pushing") {
+		t.Errorf("the lane did not say the pin stands:\n%s", said)
 	}
 }
 
@@ -159,11 +201,7 @@ func TestAnOrbitDieSettlesByWhatTheRegistryAndSignerAnswered(t *testing.T) {
 		}, "1", "findings in cosign sign"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			m := bundleOn(t, nil)
-			scriptAGreenBundle()
-			engine.stdout(`"--name-only"`, "orbits/README.md\n")
-			tc.script()
-			bundles(t, m)
+			orbitLanding(t, "orbits/README.md\n", tc.script)
 			settledOn(t, tc.code, tc.reason)
 		})
 	}

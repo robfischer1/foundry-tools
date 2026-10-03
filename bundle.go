@@ -77,7 +77,8 @@ func (m *FoundryTools) Bundle(
 		stamp: strconv.FormatInt(time.Now().UnixNano(), 10),
 	}
 	code, reason := l.run(ctx)
-	return settle(ctx, code, "bundle: "+reason)
+	g := l.orbitDies(ctx, gateResult{code, reason})
+	return settle(ctx, g.code, "bundle: "+g.reason)
 }
 
 type bundleLane struct {
@@ -87,6 +88,10 @@ type bundleLane struct {
 	// stamp is this run's, on every registry read and write: what a registry
 	// holds is a fact about now, and a push or a signature is an act.
 	stamp string
+	// built and changed are run's, for the orbit dies after it: the container
+	// the dies were built in, and the paths the landing touched (touched).
+	built   *dagger.Container
+	touched []string
 }
 
 // workDir is where the bundles are built, outside the mounted tree.
@@ -146,6 +151,7 @@ func (l *bundleLane) run(ctx context.Context) (int, string) {
 		return g.code, g.reason
 	}
 	publishPolicy, publishFleet := bundlelane.Publishes(changed)
+	l.touched = changed
 
 	// EVERY GATE RUNS ON EVERY LANDING.
 	policy, g := l.policy(ctx, tools)
@@ -156,18 +162,13 @@ func (l *bundleLane) run(ctx context.Context) (int, string) {
 	if g.code != buildlane.Clean {
 		return g.code, g.reason
 	}
+	l.built = fleet
 
-	contracts, orbits, g := l.orbitPayloads(ctx)
-	if g.code != buildlane.Clean {
-		return g.code, g.reason
-	}
-	publishOrbits := bundlelane.OrbitsPublish(changed)
-
-	if !publishPolicy && !publishFleet && !publishOrbits {
-		return buildlane.Clean, "clean: every die gated clean and neither has anything to publish for this landing (nothing outside **.md, .forgejo/ and schema/ moved, and nothing under fleet/ or orbits/)"
+	if !publishPolicy && !publishFleet {
+		return buildlane.Clean, "clean: both dies gated clean and neither has anything to publish for this landing (nothing outside **.md, .forgejo/ and schema/ moved, and nothing under fleet/)"
 	}
 	if l.dryRun {
-		return buildlane.Clean, fmt.Sprintf("clean: every die gated clean — dry run, nothing pushed, tagged or signed (a landing would publish policy=%v fleet=%v orbits=%v at %s)", publishPolicy, publishFleet, publishOrbits, pin)
+		return buildlane.Clean, fmt.Sprintf("clean: both dies gated clean — dry run, nothing pushed, tagged or signed (a landing would publish policy=%v fleet=%v at %s)", publishPolicy, publishFleet, pin)
 	}
 
 	var published []string
@@ -189,16 +190,7 @@ func (l *bundleLane) run(ctx context.Context) (int, string) {
 	} else {
 		bundleSay("fleet: nothing under fleet/ (nor policy/.manifest, policy/admission/stubs.rego) changed — the roster's revision keeps meaning 'changed'")
 	}
-	if publishOrbits {
-		refs, g := l.publishOrbits(ctx, fleet, pin, contracts, orbits)
-		if g.code != buildlane.Clean {
-			return g.code, g.reason
-		}
-		published = append(published, refs...)
-	} else {
-		bundleSay("orbits: nothing under orbits/ changed — data/contracts and data/orbits stay where they are")
-	}
-	return buildlane.Clean, "clean: gated every die; published and signed " + strings.Join(published, ", ")
+	return buildlane.Clean, "clean: gated both dies; published and signed " + strings.Join(published, ", ")
 }
 
 // signingKey answers the ES256 key the twins are built with, as a secret.
