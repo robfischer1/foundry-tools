@@ -122,7 +122,8 @@ func TestGoGradingTrusted(t *testing.T) {
 	}
 }
 
-// The scorer's per-mutant records say exactly what its counts say.
+// The scorer's per-mutant records say exactly what its counts say, in
+// position order.
 func TestTheScoreRecordsEveryMutantItDecided(t *testing.T) {
 	report := `{"files":[
 	 {"file_name":"main/m.go","mutations":[{"type":"T","status":"KILLED","line":1,"column":1}]},
@@ -143,7 +144,6 @@ func TestTheScoreRecordsEveryMutantItDecided(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []ScoredMutant{
-		{File: "main/m.go", Line: 1, Col: 1, Op: "T", Outcome: OutcomeUngraded, Status: "KILLED"},
 		{File: "a.go", Line: 1, Col: 1, Op: "K", Outcome: OutcomeKilled, Status: "KILLED"},
 		{File: "a.go", Line: 2, Col: 1, Op: "L", Outcome: OutcomeLived, Status: "LIVED"},
 		{File: "a.go", Line: 3, Col: 1, Op: "N", Outcome: OutcomeNotCovered, Status: "NOT COVERED"},
@@ -153,6 +153,7 @@ func TestTheScoreRecordsEveryMutantItDecided(t *testing.T) {
 		{File: "a.go", Line: 7, Col: 1, Op: "V", Outcome: OutcomeInert, Status: "NOT VIABLE"},
 		{File: "a.go", Line: 8, Col: 1, Op: "P", Outcome: OutcomeInert, Status: "SKIPPED"},
 		{File: "a.go", Line: 9, Col: 1, Op: "Z", Status: "WHO KNOWS"},
+		{File: "main/m.go", Line: 1, Col: 1, Op: "T", Outcome: OutcomeUngraded, Status: "KILLED"},
 	}
 	if !reflect.DeepEqual(s.Scored, want) {
 		t.Fatalf("scored:\n%+v\nwant\n%+v", s.Scored, want)
