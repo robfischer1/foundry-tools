@@ -48,12 +48,28 @@ func Contracts(files, base map[string][]byte, roster map[string]bool) []checks.F
 	return out
 }
 
+// Unreadable is one contract-unparseable finding per file the composer could
+// not read, so a bad file is a finding about that file in every lane that
+// composes the directory, never the directory's could-not-run.
+func Unreadable(bad []orbitcompose.Unreadable) []checks.Finding {
+	out := make([]checks.Finding, len(bad))
+	for i, b := range bad {
+		out[i] = unparseable(b.File, b.Err)
+	}
+	return out
+}
+
+// unparseable is the finding for the contract file name that did not parse.
+func unparseable(name string, err error) checks.Finding {
+	return finding(checks.VerdictViolated, "orbits/"+name, "contract-unparseable", err.Error()+"; "+Teach)
+}
+
 // contract judges one file.
 func contract(name string, raw, baseRaw []byte, roster map[string]bool) checks.Finding {
 	subject := "orbits/" + name
-	c, err := orbitcompose.ParseContract(name, raw)
+	c, err := orbitcompose.ParseContract(name, raw, roster)
 	if err != nil {
-		return finding(checks.VerdictViolated, subject, "contract-unparseable", err.Error()+"; "+Teach)
+		return unparseable(name, err)
 	}
 	if !slices.Contains(statuses, c.Status) {
 		return finding(checks.VerdictViolated, subject, "status-unknown",
@@ -68,7 +84,7 @@ func contract(name string, raw, baseRaw []byte, roster map[string]bool) checks.F
 	// A base the composer cannot read (absent: a new contract) answers an
 	// error, and then there is nothing to compare against.
 	if c.Status == "approved" {
-		if was, err := orbitcompose.ParseContract(name, baseRaw); err == nil &&
+		if was, err := orbitcompose.ParseContract(name, baseRaw, roster); err == nil &&
 			!slices.Equal(was.Verbs, c.Verbs) && was.Version == c.Version {
 			return finding(checks.VerdictViolated, subject, "approved-verbs-moved",
 				"an approved contract's verbs changed ("+strings.Join(was.Verbs, ",")+" -> "+strings.Join(c.Verbs, ",")+

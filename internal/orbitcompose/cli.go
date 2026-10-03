@@ -14,7 +14,7 @@ import (
 )
 
 // Usage is the command line.
-const Usage = "usage: orbitcompose -contracts <foundry-dies>/orbits (-out <flux>/prime/orbits [-namespace prime] | -die <dir>) [-check]"
+const Usage = "usage: orbitcompose -contracts <foundry-dies>/orbits [-stars <foundry-dies>/fleet/stars] (-out <flux>/prime/orbits [-namespace prime] | -die <dir>) [-check]"
 
 // Change is what bringing the directory to the composed set takes.
 type Change struct {
@@ -55,8 +55,10 @@ func PlanOwned(want, have map[string][]byte, owned func(name string, existing []
 }
 
 // ReadContracts parses every <producer>-<consumer>.toml in dir, in file name
-// order. Anything that is not a .toml file (the README) is not a contract.
-func ReadContracts(dir string) ([]Contract, error) {
+// order, or refuses them all naming each file it cannot read: the write path
+// never composes a subset. Anything that is not a .toml file (the README) is
+// not a contract. stars is SplitName's roster.
+func ReadContracts(dir string, stars map[string]bool) ([]Contract, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
@@ -72,11 +74,43 @@ func ReadContracts(dir string) ([]Contract, error) {
 		}
 		files[e.Name()] = raw
 	}
-	cs, err := ContractsOf(files)
+	cs, err := ContractsOf(files, stars)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", dir, err)
 	}
 	return cs, nil
+}
+
+// StarsIn answers the star names under a fleet/stars directory (foundry-dies):
+// one per subdirectory.
+func StarsIn(dir string) (map[string]bool, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	stars := map[string]bool{}
+	for _, e := range entries {
+		if e.IsDir() {
+			stars[e.Name()] = true
+		}
+	}
+	return stars, nil
+}
+
+// RosterFor answers the roster the contracts directory is read against: the
+// directory named by flag, else fleet/stars beside contracts (foundry-dies
+// keeps orbits/ and fleet/ side by side). A default that is not there is no
+// roster (the two-part rule alone); a named one that is not there is an
+// error.
+func RosterFor(contracts, flag string) (map[string]bool, error) {
+	if flag != "" {
+		return StarsIn(flag)
+	}
+	stars, err := StarsIn(filepath.Join(contracts, "..", "fleet", "stars"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	return stars, err
 }
 
 // ReadDir answers the regular files in dir by name; an absent dir is empty.
@@ -133,13 +167,19 @@ func Main(args []string, out, errOut io.Writer) int {
 	contracts := fs.String("contracts", "", "the contracts directory (foundry-dies/orbits)")
 	dir := fs.String("out", "", "the directory the composer owns (flux prime/orbits)")
 	die := fs.String("die", "", "instead of -out: the data/orbits die payload directory (every sidecar + orbits.json)")
+	starsDir := fs.String("stars", "", "the fleet roster directory (default: fleet/stars beside -contracts); star names may carry hyphens only when it is there")
 	namespace := fs.String("namespace", "prime", "the ConfigMaps' namespace")
 	check := fs.Bool("check", false, "write nothing; exit 1 if the directory is not the composed set")
 	if err := fs.Parse(args); err != nil || *contracts == "" || (*dir == "") == (*die == "") || fs.NArg() != 0 {
 		fmt.Fprintln(errOut, Usage)
 		return 2
 	}
-	c, err := plan(*contracts, *dir, *die, *namespace)
+	stars, err := RosterFor(*contracts, *starsDir)
+	if err != nil {
+		fmt.Fprintln(errOut, "orbitcompose:", err)
+		return 2
+	}
+	c, err := plan(*contracts, *dir, *die, *namespace, stars)
 	if err != nil {
 		fmt.Fprintln(errOut, "orbitcompose:", err)
 		return 2
@@ -160,8 +200,8 @@ func Main(args []string, out, errOut io.Writer) int {
 
 // plan composes contracts and compares the result with the one directory
 // named: out (the flux set) or die (the die payload). Main admits exactly one.
-func plan(contracts, out, die, namespace string) (Change, error) {
-	cs, err := ReadContracts(contracts)
+func plan(contracts, out, die, namespace string, stars map[string]bool) (Change, error) {
+	cs, err := ReadContracts(contracts, stars)
 	if err != nil {
 		return Change{}, err
 	}

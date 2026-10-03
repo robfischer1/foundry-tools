@@ -12,7 +12,7 @@ import (
 
 func mustParse(t *testing.T, file, body string) Contract {
 	t.Helper()
-	c, err := ParseContract(file, []byte(body))
+	c, err := ParseContract(file, []byte(body), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestParseContractStampsTheDigestAndDefaultsViaToMCP(t *testing.T) {
 	if k.Via != "kafka" {
 		t.Errorf("a named via was replaced: %q", k.Via)
 	}
-	if _, err := ParseContract("urania-themis.toml", []byte(`via = "a b"`+"\n"+contractBody)); err == nil || !strings.Contains(err.Error(), "via") {
+	if _, err := ParseContract("urania-themis.toml", []byte(`via = "a b"`+"\n"+contractBody), nil); err == nil || !strings.Contains(err.Error(), "via") {
 		t.Errorf("a via render cannot quote: err %v", err)
 	}
 }

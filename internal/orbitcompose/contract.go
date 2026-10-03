@@ -61,13 +61,34 @@ type contractDoc struct {
 // values to it is what lets render quote without escaping.
 var ident = regexp.MustCompile(`^[A-Za-z0-9_.]+$`)
 
-// starName is a star: lowercase, no hyphen, so producer-consumer splits one
-// way only.
+// starName is a star as a two-part file name reads it: lowercase, no hyphen,
+// so producer-consumer splits one way only.
 var starName = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
+// rosterStar is a star the roster names: starName, hyphens allowed
+// (blade-runner, stellar-core-go). A roster directory outside it is never a
+// party, so a name cannot smuggle a character render could not quote.
+var rosterStar = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
+
 // SplitName answers the producer and consumer a contract file is named for.
-func SplitName(file string) (producer, consumer string, err error) {
+//
+// With a roster (stars: every star on foundry-dies' fleet/stars) a star name
+// may carry hyphens, so the split is the one (producer, consumer) with
+// producer-consumer == the name and BOTH on the roster. Two such readings are
+// an error naming both. No such reading falls back to the two-part rule, so a
+// name that holds no hyphenated star splits exactly as it always did (and a
+// party off the roster is orbit:contracts' party-not-on-roster, not a
+// refusal to read the file). A nil roster is the two-part rule alone.
+func SplitName(file string, stars map[string]bool) (producer, consumer string, err error) {
 	name := strings.TrimSuffix(filepath.Base(file), ".toml")
+	reads := rosterReads(name, stars)
+	if len(reads) > 1 {
+		return "", "", fmt.Errorf("%s: ambiguous, it reads as %s and as %s — both are stars on the roster",
+			file, reads[0], reads[1])
+	}
+	if len(reads) == 1 {
+		return reads[0].producer, reads[0].consumer, nil
+	}
 	parts := strings.Split(name, "-")
 	if len(parts) != 2 || !starName.MatchString(parts[0]) || !starName.MatchString(parts[1]) {
 		return "", "", fmt.Errorf("%s: a contract is named <producer>-<consumer>.toml, two star names", file)
@@ -75,9 +96,31 @@ func SplitName(file string) (producer, consumer string, err error) {
 	return parts[0], parts[1], nil
 }
 
-// ParseContract reads one contract file's bytes.
-func ParseContract(file string, raw []byte) (Contract, error) {
-	producer, consumer, err := SplitName(file)
+// reading is one way a contract name splits into two roster stars.
+type reading struct{ producer, consumer string }
+
+// String is the reading as the error names it: producer->consumer.
+func (r reading) String() string { return r.producer + "->" + r.consumer }
+
+// rosterReads is every split of name at a hyphen whose two halves are both
+// stars on the roster, in left-to-right order.
+func rosterReads(name string, stars map[string]bool) []reading {
+	var out []reading
+	for i := 0; i < len(name); i++ {
+		if name[i] != '-' {
+			continue
+		}
+		p, c := name[:i], name[i+1:]
+		if stars[p] && stars[c] && rosterStar.MatchString(p) && rosterStar.MatchString(c) {
+			out = append(out, reading{p, c})
+		}
+	}
+	return out
+}
+
+// ParseContract reads one contract file's bytes; stars is SplitName's roster.
+func ParseContract(file string, raw []byte, stars map[string]bool) (Contract, error) {
+	producer, consumer, err := SplitName(file, stars)
 	if err != nil {
 		return Contract{}, err
 	}

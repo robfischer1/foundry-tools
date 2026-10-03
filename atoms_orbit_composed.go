@@ -57,7 +57,11 @@ func opsOrbitComposed(ctx context.Context, r *run) checks.Verdict {
 	if err != nil {
 		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - foundry-dies' contracts could not be read: "+err.Error())
 	}
-	d := orbitcompose.CheckDrift(contracts, have, orbitNamespace)
+	prefixes, err := roster(ctx, r.dies)
+	if err != nil {
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - foundry-dies' roster could not be read: "+err.Error())
+	}
+	d := orbitcompose.CheckDrift(contracts, have, orbitNamespace, starSet(prefixes))
 	return checks.VerdictOf(a, d.State, orbitRenderDir+" against foundry-dies main: "+d.Report)
 }
 

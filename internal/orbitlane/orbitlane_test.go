@@ -13,7 +13,7 @@ const body = "version = \"1\"\nstatus = \"generated\"\nwire_form = \"native\"\nv
 
 func parse(t *testing.T, name, raw string) orbitcompose.Contract {
 	t.Helper()
-	c, err := orbitcompose.ParseContract(name, []byte(raw))
+	c, err := orbitcompose.ParseContract(name, []byte(raw), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,5 +237,41 @@ func TestRepoRefusesAFileThatDoesNotParseAndSaysNothingForNoSeams(t *testing.T) 
 	}
 	if got := verdicts(Repo("eros", []byte("# nothing\n"), contractsFor(t))); !slices.Equal(got, []string{"inert no-seams orbit.toml"}) {
 		t.Errorf("%v", got)
+	}
+}
+
+// A HYPHENATED STAR IS ONE PARTY: the roster splits the name.
+func TestContractsSplitsAHyphenatedStarAgainstTheRoster(t *testing.T) {
+	roster := map[string]bool{"blade-runner": true, "poseidon": true}
+	files := map[string][]byte{"blade-runner-poseidon.toml": []byte(body)}
+	if got := verdicts(Contracts(files, nil, roster)); !slices.Equal(got, []string{"holds contract orbits/blade-runner-poseidon.toml"}) {
+		t.Errorf("with the roster: %v", got)
+	}
+	if got := verdicts(Contracts(files, nil, map[string]bool{"poseidon": true})); !slices.Equal(got, []string{"violated contract-unparseable orbits/blade-runner-poseidon.toml"}) {
+		t.Errorf("blade-runner off the roster: %v", got)
+	}
+}
+
+// Every file the composer could not read is a contract-unparseable finding
+// on that file, with the teaching line.
+func TestUnreadableIsOneFindingPerFile(t *testing.T) {
+	_, bad, err := orbitcompose.ParseAll(map[string][]byte{
+		"urania-themis.toml": []byte(body), "b-bad.toml": []byte("version = 1"), "a-bad.toml": []byte("x"),
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := Unreadable(bad)
+	if got := verdicts(found); !slices.Equal(got, []string{
+		"violated contract-unparseable orbits/a-bad.toml", "violated contract-unparseable orbits/b-bad.toml"}) {
+		t.Fatalf("got %v", got)
+	}
+	for i, f := range found {
+		if !strings.HasPrefix(f.Detail, bad[i].File+": ") || !strings.HasSuffix(f.Detail, "; "+Teach) {
+			t.Errorf("detail %q", f.Detail)
+		}
+	}
+	if len(Unreadable(nil)) != 0 {
+		t.Error("nothing unreadable, nothing found")
 	}
 }

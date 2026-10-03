@@ -118,6 +118,17 @@ func TestOrbitContractsReportsABadContractWithoutFailing(t *testing.T) {
 	}
 }
 
+// A hyphenated contract on the contracts tree reads against its own roster.
+func TestOrbitContractsHoldsAHyphenatedStarOnTheRoster(t *testing.T) {
+	v := orbitAtom(t, "orbit:contracts", "foundry-dies", contractsTree(map[string]string{
+		"orbits/blade-runner-themis.toml":    laneContract,
+		"fleet/stars/blade-runner/data.json": `{"name":"blade-runner","verb_prefix":"blade"}`,
+	}))
+	if got := findingsOf(v); !strings.Contains(got, "holds contract orbits/blade-runner-themis.toml") {
+		t.Errorf("findings %s", got)
+	}
+}
+
 // The base is foundry-dies main: an approved contract whose verbs moved
 // there without a version bump is the finding.
 func TestOrbitContractsReadsTheBaseFromTheDies(t *testing.T) {
@@ -169,7 +180,7 @@ func TestOrbitContractsCannotRunWhenTheDiesCannotBeRead(t *testing.T) {
 }
 
 func TestOrbitRepoJudgesTheLaidFile(t *testing.T) {
-	cs, err := orbitcompose.ContractsOf(map[string][]byte{"urania-themis.toml": []byte(laneContract)})
+	cs, err := orbitcompose.ContractsOf(map[string][]byte{"urania-themis.toml": []byte(laneContract)}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,6 +193,46 @@ func TestOrbitRepoJudgesTheLaidFile(t *testing.T) {
 	stale := strings.Replace(laid, "sha256:", "sha256:0", 1)
 	v = orbitAtom(t, "orbit:repo", "http://door/rob/themis.git", laneDies(map[string]string{"orbit.toml": stale}))
 	wantSaid(t, v, 0, "1 drifted", "the contract moved and this file did not")
+}
+
+// ONE BAD CONTRACT IN foundry-dies IS A FINDING ON THAT FILE in a star's own
+// lane, and the star is still judged against the contracts that read.
+func TestOrbitRepoReportsAnUnreadableContractAndJudgesTheRest(t *testing.T) {
+	laid := string(orbitcompose.RenderReference(orbitcompose.Compose(mustContracts(t, "urania-themis.toml"))[0]))
+	v := orbitAtom(t, "orbit:repo", "themis", laneDies(map[string]string{
+		"orbit.toml":                      laid,
+		"/dies/orbits/broken-themis.toml": "version = 1",
+	}))
+	wantState(t, v, 0)
+	got := findingsOf(v)
+	if !strings.Contains(got, "holds edge consumes urania") || !strings.Contains(got, "drifted contract-unparseable orbits/broken-themis.toml") {
+		t.Errorf("findings %s", got)
+	}
+}
+
+// A HYPHENATED STAR IS ONE PARTY, split against foundry-dies' own roster.
+func TestOrbitRepoSplitsAHyphenatedStarAgainstTheDiesRoster(t *testing.T) {
+	v := orbitAtom(t, "orbit:repo", "themis", laneDies(map[string]string{
+		"orbit.toml":                               "# x\n",
+		"/dies/orbits/blade-runner-themis.toml":    laneContract,
+		"/dies/fleet/stars/blade-runner/data.json": `{"name":"blade-runner","verb_prefix":"blade"}`,
+	}))
+	if got := findingsOf(v); !strings.Contains(got, "consumes blade-runner") || strings.Contains(got, "contract-unparseable") {
+		t.Errorf("findings %s", got)
+	}
+}
+
+func mustContracts(t *testing.T, names ...string) []orbitcompose.Contract {
+	t.Helper()
+	files := map[string][]byte{}
+	for _, n := range names {
+		files[n] = []byte(laneContract)
+	}
+	cs, err := orbitcompose.ContractsOf(files, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cs
 }
 
 func TestOrbitRepoIsAbsentWithoutALaidFile(t *testing.T) {
