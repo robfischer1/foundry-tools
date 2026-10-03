@@ -75,6 +75,8 @@ type run struct {
 	audit bool
 
 	dies *dagger.Directory
+	// flux is foundry/flux at main: the pins flux image automation writes.
+	flux *dagger.Directory
 
 	// goMods is the tree's Go modules, read once per run: the lane check and
 	// every go atom ask, and they run concurrently.
@@ -110,6 +112,7 @@ func newRun(src *dagger.Directory, repo, base string) *run {
 		// The fleet's record tree, for the atoms that grade the fleet rather
 		// than the repo under test.
 		dies: dag.Git(checks.DiesRepo).Ref(checks.DiesRef).Tree(),
+		flux: dag.Git(checks.FluxRepo).Ref(checks.FluxRef).Tree(),
 	}
 }
 

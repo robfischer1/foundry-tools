@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"dagger/foundry-tools/internal/checks"
+	"dagger/foundry-tools/internal/fluxpin"
 	"dagger/foundry-tools/internal/orbitcompose"
 )
 
@@ -38,6 +39,7 @@ func laneDies(extra map[string]string) map[string]string {
 		"/dies/fleet/stars/urania/data.json": uraniaRoster,
 		"/dies/fleet/stars/themis/data.json": themisRoster,
 		"/dies/fleet/stars/broken/data.json": "not json",
+		"/flux/" + fluxpin.File:              fluxPins,
 	}
 	for k, v := range extra {
 		tree[k] = v
@@ -210,6 +212,14 @@ func scriptNarc(surface, orbits string) {
 	engine.stdout(`"narc","scan","orbits"`, orbits)
 }
 
+// narcissus as flux pins it live.
+const (
+	narcDigest = "sha256:0774e298540cdf764d5ed20e57241db84ea1af9c09f8aac16219bed017a05921"
+	fluxPins   = "apiVersion: kustomize.config.k8s.io/v1alpha1\nkind: Component\nimages:\n" +
+		"  - name: " + NarcissusImage + "\n    newTag: 1791061288-a2c1393 # {\"$imagepolicy\": \"flux-system:narcissus:tag\"}\n" +
+		"    digest: " + narcDigest + " # {\"$imagepolicy\": \"flux-system:narcissus:digest\"}\n"
+)
+
 func TestOrbitSurfaceRunsNarcissusOverTheCheckout(t *testing.T) {
 	engine.reset()
 	engine.withTree(laneDies(map[string]string{"go.mod": "module themis"}))
@@ -222,8 +232,11 @@ func TestOrbitSurfaceRunsNarcissusOverTheCheckout(t *testing.T) {
 	if !hasCall(chain, "withFile", `"/usr/local/bin/narc"`) || !strings.Contains(chain, `"narc","scan","surface","--json","-","/src"`) || !strings.Contains(chain, "expect:ANY") {
 		t.Errorf("narc was not run over /src with any exit:\n%s", chain)
 	}
-	if engine.chain(`"`+NarcissusImage+`"`, `"/narc"`) == "" {
-		t.Error("narc did not come from narcissus's own image")
+	if engine.chain(`"`+NarcissusImage+`:1791061288-a2c1393@`+narcDigest+`"`, `"/narc"`) == "" {
+		t.Error("narc did not come from narcissus's image at the tag and digest flux pins")
+	}
+	if engine.chain(`narcissus:stable`) != "" {
+		t.Error("narc was pulled from the frozen :stable tag")
 	}
 	if engine.chain(`"narc","scan","orbits"`) == "" {
 		t.Error("the dials were never read")
@@ -306,4 +319,32 @@ func TestOrbitSidecarsCannotRunWhenACheckCannot(t *testing.T) {
 	composedTree(t, nil)
 	engine.failLeaf(`pattern:"prime/orbits/*.orbit.toml"`, "glob", "gone")
 	wantState(t, orbitAtomAgain(t, "orbit:sidecars", "flux"), 2, "CANNOT RUN")
+}
+
+// No pin, no run: an unreadable pin or one with no narcissus entry settles the
+// atom COULD-NOT-RUN naming the file and why, and never reaches narc.
+func TestOrbitSurfaceCannotRunWithoutAFluxPin(t *testing.T) {
+	for name, tc := range map[string]struct {
+		pins, why string
+	}{
+		"no entry":  {"images: []\n", "has no entry for " + NarcissusImage},
+		"malformed": {strings.Replace(fluxPins, narcDigest, "sha256:zz", 1), "malformed digest"},
+	} {
+		engine.reset()
+		engine.withTree(laneDies(map[string]string{"go.mod": "module themis", "/flux/" + fluxpin.File: tc.pins}))
+		scriptNarc(narcSurfaceNone, narcSurfaceNone)
+		v := orbitAtomAgain(t, "orbit:surface", "http://door/rob/themis.git")
+		wantState(t, v, 2, "CANNOT RUN", fluxpin.File, tc.why)
+		if engine.chain(`"narc","scan"`) != "" {
+			t.Errorf("%s: narc ran without a pin", name)
+		}
+	}
+	// The file is gone from a flux tree that is otherwise there.
+	tree := laneDies(map[string]string{"go.mod": "module themis", "/flux/README.md": "x"})
+	delete(tree, "/flux/"+fluxpin.File)
+	engine.reset()
+	engine.withTree(tree)
+	scriptNarc(narcSurfaceNone, narcSurfaceNone)
+	wantState(t, orbitAtomAgain(t, "orbit:surface", "http://door/rob/themis.git"), 2,
+		"CANNOT RUN", fluxpin.File, "could not be read")
 }

@@ -356,6 +356,13 @@ const (
 	DiesRef  = "main"
 )
 
+// FluxRepo / FluxRef locate the fleet's flux tree, read at a moving ref for
+// DiesRepo's reason: what a lane wants is what is pinned live NOW.
+const (
+	FluxRepo = "https://git.notusmi.com/foundry/flux.git"
+	FluxRef  = "main"
+)
+
 // The sweep's images. Same rule as the lane images above — one place — and
 // pinned by DIGEST rather than by tag, so a rebuild upstream cannot move the
 // check under the pin.

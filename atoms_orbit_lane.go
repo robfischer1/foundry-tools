@@ -9,6 +9,7 @@ import (
 
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
+	"dagger/foundry-tools/internal/fluxpin"
 	"dagger/foundry-tools/internal/orbitcompose"
 	"dagger/foundry-tools/internal/orbitlane"
 )
@@ -29,10 +30,26 @@ func init() {
 	register("orbit:repo", orbitRepo)
 }
 
-// NarcissusImage carries `narc`, narcissus's own analyzer, at its released
-// build. The lane runs the star's reader, never a port of it: `narc scan` is
+// NarcissusImage names the image that carries `narc`, narcissus's own
+// analyzer. The lane runs the star's reader, never a port of it: `narc scan` is
 // the table code_query answers on the wire, and it takes no store and no door.
-const NarcissusImage = "registry.notusmi.com/rob/narcissus:stable"
+//
+// IT IS RUN AT THE BUILD FLUX HAS PINNED LIVE, NOT AT :stable. A star image's
+// :stable tag is frozen (nothing moves it), so it is a stale narc; the cluster
+// runs what prime/images/kustomization.yaml pins, and Rob's ruling is "whatever
+// flux has pinned live" (2026-10-03). narcissusRef resolves the pin by digest.
+const NarcissusImage = "registry.notusmi.com/rob/narcissus"
+
+// narcissusRef is NarcissusImage at the tag and digest flux pins live, read
+// from foundry/flux main when the lane runs. A pin that cannot be read is an
+// error naming the file and why: there is no fallback to :stable.
+func narcissusRef(ctx context.Context, r *run) (string, error) {
+	body, err := r.flux.File(fluxpin.File).Contents(ctx)
+	if err != nil {
+		return "", fmt.Errorf("foundry/flux %s could not be read: %v", fluxpin.File, err)
+	}
+	return fluxpin.Ref([]byte(body), NarcissusImage)
+}
 
 // orbitVerdict settles an atom's findings into its vector element.
 func orbitVerdict(id string, found []checks.Finding) checks.Verdict {
@@ -180,8 +197,12 @@ func orbitSurface(ctx context.Context, r *run) checks.Verdict {
 	if err != nil {
 		return orbitCannot(id, fmt.Errorf("foundry-dies: %v", err))
 	}
+	narcRef, err := narcissusRef(ctx, r)
+	if err != nil {
+		return orbitCannot(id, err)
+	}
 	ctr := r.lane(checks.ImageFleet).
-		WithFile("/usr/local/bin/narc", dag.Container().From(NarcissusImage).File("/narc"), dagger.ContainerWithFileOpts{Permissions: 0o755})
+		WithFile("/usr/local/bin/narc", dag.Container().From(narcRef).File("/narc"), dagger.ContainerWithFileOpts{Permissions: 0o755})
 	// STDOUT ALONE, AND ANY EXIT. narc exits 2 when a site could not be
 	// followed and still prints its whole JSON report — the hole is part of
 	// the answer — and with --json - the report is its only stdout, so
