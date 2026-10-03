@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"dagger/foundry-tools/internal/dagger"
 )
 
 // THE DOOR IS DERIVED FROM THE TREE'S ORIGIN, which is the property that makes
@@ -363,6 +365,22 @@ func TestPostRecordPrintsOneLine(t *testing.T) {
 	postRecord(t.Context(), "http://ourea:8215/rob/infra.git", nil, "ourea-run-record/1 {}")
 
 	if got := buf.String(); got != "record post: not posted: no record token\n" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// A REAL TOKEN IS WIDENED AND CARRIED, not mistaken for none. With no door the
+// secret is never read, so a zero *dagger.Secret is safe to hand over — and the
+// line must name the missing door, not a missing token.
+func TestPostRecordCarriesARealTokenThrough(t *testing.T) {
+	var buf strings.Builder
+	prev := recordPostOut
+	recordPostOut = &buf
+	t.Cleanup(func() { recordPostOut = prev })
+
+	postRecord(t.Context(), "", &dagger.Secret{}, "ourea-run-record/1 {}")
+
+	if got := buf.String(); got != "record post: not posted: no door to post to (the run was built with no repo URL)\n" {
 		t.Fatalf("got %q", got)
 	}
 }
