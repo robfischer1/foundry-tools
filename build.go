@@ -123,9 +123,9 @@ func (m *FoundryTools) Build(
 	// records are observed arriving would settle every build in the fleet
 	// could-not-run at once.
 	//
-	// THE POST CANNOT FAIL THE RUN. postRecord answers nothing and swallows
-	// everything, exactly as it does for the gate: a lane's verdict must not
-	// turn on whether an HTTP request succeeded.
+	// THE POST CANNOT FAIL THE RUN. postRecord returns nothing and prints one
+	// `record post:` line, exactly as it does for the gate: a lane's verdict
+	// must not turn on whether an HTTP request succeeded.
 	//
 	// AND THE MARSHAL ERROR IS DROPPED RATHER THAN BRANCHED ON, for the reason
 	// GateFile's own comment gives: Record() fails only if json.Marshal does,

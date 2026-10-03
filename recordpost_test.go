@@ -232,3 +232,136 @@ var errRefused = errRefusedType{}
 type errRefusedType struct{}
 
 func (errRefusedType) Error() string { return "the secret refused to read" }
+
+// THE LINE SAYS WHAT THE DOOR ANSWERED. On 2026-10-03 every lane posted into a
+// 404 for 2 h 37 m and nothing anywhere said so; the line is the guard. Each
+// known status names where to look, an unknown one is its number, and a
+// refusal carries the first line of the door's reply.
+func TestThePostSaysWhatTheDoorAnswered(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		status int
+		reply  string
+		want   string
+	}{
+		{"taken", http.StatusNoContent, "", " → 204"},
+		{"taken with a body", http.StatusOK, "ok\n", " → 200"},
+		{"refused token", http.StatusUnauthorized, "unknown token\nmore", " → 401 (Daedalus refused this run's record token): unknown token"},
+		{"no relay", http.StatusNotFound, "404 page not found\n", " → 404 (the door serves no /ci/record): 404 page not found"},
+		{"no daedalus", http.StatusBadGateway, "", " → 502 (the door could not reach Daedalus)"},
+		{"unknown status", http.StatusTeapot, "  short and stout  ", " → 418: short and stout"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(c.status)
+				_, _ = io.WriteString(w, c.reply)
+			}))
+			defer srv.Close()
+			endpoint := srv.URL + recordPostPath
+
+			got := sendRecord(t.Context(), endpoint, "tok-zz9", "ourea-run-record/1 {}")
+
+			if want := "POST " + endpoint + c.want; got != want {
+				t.Fatalf("line\n want %q\n  got %q", want, got)
+			}
+		})
+	}
+}
+
+// A 2xx REPLY IS NOT QUOTED. Only a refusal's reason earns log space; a door
+// that says "ok" has nothing to add.
+func TestATakenPostDoesNotQuoteTheReply(t *testing.T) {
+	if got := postAnswer("http://d/ci/record", 202, "accepted"); got != "POST http://d/ci/record → 202" {
+		t.Fatalf("got %q", got)
+	}
+	if got := postAnswer("http://d/ci/record", 299, "x"); got != "POST http://d/ci/record → 299" {
+		t.Fatalf("got %q", got)
+	}
+	if got := postAnswer("http://d/ci/record", 300, "moved"); got != "POST http://d/ci/record → 300: moved" {
+		t.Fatalf("got %q", got)
+	}
+	if got := postAnswer("http://d/ci/record", 199, "early"); got != "POST http://d/ci/record → 199: early" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// AN UNREACHABLE DOOR SAYS SO, with the endpoint it tried.
+func TestAnUnreachableDoorSaysSo(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	dead := srv.URL + recordPostPath
+	srv.Close()
+
+	got := sendRecord(t.Context(), dead, "tok", "ourea-run-record/1 {}")
+
+	if want := "POST " + dead + " → could not reach the door: "; !strings.HasPrefix(got, want) {
+		t.Fatalf("line\n want prefix %q\n  got %q", want, got)
+	}
+}
+
+// THE TOKEN NEVER REACHES THE LINE, even when the door echoes it back.
+func TestTheTokenIsScrubbedFromTheReply(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, "refused "+r.Header.Get("Authorization"))
+	}))
+	defer srv.Close()
+
+	got := sendRecord(t.Context(), srv.URL, "s3cret-tok", "ourea-run-record/1 {}")
+
+	if strings.Contains(got, "s3cret-tok") {
+		t.Fatalf("the token leaked into the line: %q", got)
+	}
+	if !strings.HasSuffix(got, ": refused Bearer <token>") {
+		t.Fatalf("the reply must survive with the token scrubbed, got %q", got)
+	}
+}
+
+// A LONG REPLY IS CAPPED, so a door answering a page of HTML cannot flood the
+// tail Daedalus keeps.
+func TestALongReplyIsCapped(t *testing.T) {
+	long := strings.Repeat("x", replyLineCap+50)
+	if got := firstLine(long); got != strings.Repeat("x", replyLineCap)+"…" {
+		t.Fatalf("got %d bytes: %q", len(got), got)
+	}
+	exact := strings.Repeat("y", replyLineCap)
+	if got := firstLine(exact); got != exact {
+		t.Fatalf("a reply exactly at the cap is kept whole, got %q", got)
+	}
+	if got := firstLine("  first  \r\nsecond"); got != "first" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// EVERY NOT-POSTED CASE NAMES ITS REASON, so "no token" and "no door" read
+// differently in a log.
+func TestEachNotPostedCaseNamesItsReason(t *testing.T) {
+	for _, c := range []struct{ name, got, want string }{
+		{"empty secret", sendRecord(t.Context(), "http://d/ci/record", "", "r"), "not posted: the record token is empty"},
+		{"empty record", sendRecord(t.Context(), "http://d/ci/record", "t", ""), "not posted: the record is empty"},
+		{"no door", postRecordWith(t.Context(), "", fakeSecret{value: "t"}, "r"), "not posted: no door to post to (the run was built with no repo URL)"},
+		{"unreadable token", postRecordWith(t.Context(), "http://d/o/r.git", fakeSecret{err: errRefused}, "r"), "not posted: the record token could not be read: the secret refused to read"},
+		{"nil token", recordPostOutcome(t.Context(), "http://d/o/r.git", nil, "r"), "not posted: no record token"},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s:\n want %q\n  got %q", c.name, c.want, c.got)
+		}
+	}
+	if got := sendRecord(t.Context(), "http://\x7f/ci/record", "t", "r"); !strings.HasPrefix(got, `not posted: no request could be built for "http://\x7f/ci/record": `) {
+		t.Errorf("unbuildable: got %q", got)
+	}
+}
+
+// postRecord PRINTS THE LINE, prefixed, once — and a nil token is a line, not
+// a panic.
+func TestPostRecordPrintsOneLine(t *testing.T) {
+	var buf strings.Builder
+	prev := recordPostOut
+	recordPostOut = &buf
+	t.Cleanup(func() { recordPostOut = prev })
+
+	postRecord(t.Context(), "http://ourea:8215/rob/infra.git", nil, "ourea-run-record/1 {}")
+
+	if got := buf.String(); got != "record post: not posted: no record token\n" {
+		t.Fatalf("got %q", got)
+	}
+}

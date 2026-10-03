@@ -123,9 +123,10 @@ func (m *FoundryTools) GateFile(
 	// whichever arrives through one parser, and a record that differed by
 	// transport is how two readers come to disagree about one run.
 	//
-	// THE POST CANNOT FAIL THE RUN. postRecord answers nothing and swallows
-	// everything: the file below is the fallback, and a lane's verdict must not
-	// turn on whether an HTTP request succeeded.
+	// THE POST CANNOT FAIL THE RUN. postRecord returns nothing and prints one
+	// `record post:` line saying what the door answered: the file below is the
+	// fallback, and a lane's verdict must not turn on whether an HTTP request
+	// succeeded.
 	//
 	// THE MARSHAL ERROR IS DROPPED RATHER THAN BRANCHED ON, and the mutation
 	// lane is why. Record() fails only if json.Marshal does, and json.Marshal
