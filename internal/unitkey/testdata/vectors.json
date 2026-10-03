@@ -1,0 +1,593 @@
+{
+  "version": "unitkey/1",
+  "hashes": [
+    {
+      "name": "go: a unit and its import",
+      "lang": "go",
+      "entries": [
+        {
+          "path": "main.go",
+          "blob": "m1"
+        },
+        {
+          "path": "go.mod",
+          "blob": "gm"
+        },
+        {
+          "path": "go.sum",
+          "blob": "gs"
+        },
+        {
+          "path": "justfile",
+          "blob": "j1"
+        },
+        {
+          "path": "README.md",
+          "blob": "r1"
+        },
+        {
+          "path": "internal/a/a.go",
+          "blob": "a1"
+        },
+        {
+          "path": "internal/a/a_test.go",
+          "blob": "at"
+        },
+        {
+          "path": "internal/a/testdata/golden.json",
+          "blob": "ag"
+        },
+        {
+          "path": "internal/b/b.go",
+          "blob": "b1"
+        },
+        {
+          "path": "internal/c/c.go",
+          "blob": "c1"
+        },
+        {
+          "path": "migrations/001.sql",
+          "blob": "s1"
+        }
+      ],
+      "closure": [
+        "internal/a",
+        "internal/b"
+      ],
+      "hash": "37428b67c2132442df23993885fb92053cf1b7ce54fb291aabc0406dc90071aa"
+    },
+    {
+      "name": "go: a sibling package edited (same as above)",
+      "lang": "go",
+      "entries": [
+        {
+          "path": "main.go",
+          "blob": "m1"
+        },
+        {
+          "path": "go.mod",
+          "blob": "gm"
+        },
+        {
+          "path": "go.sum",
+          "blob": "gs"
+        },
+        {
+          "path": "justfile",
+          "blob": "j1"
+        },
+        {
+          "path": "README.md",
+          "blob": "r1"
+        },
+        {
+          "path": "internal/a/a.go",
+          "blob": "a1"
+        },
+        {
+          "path": "internal/a/a_test.go",
+          "blob": "at"
+        },
+        {
+          "path": "internal/a/testdata/golden.json",
+          "blob": "ag"
+        },
+        {
+          "path": "internal/b/b.go",
+          "blob": "b1"
+        },
+        {
+          "path": "internal/c/c.go",
+          "blob": "c2"
+        },
+        {
+          "path": "migrations/001.sql",
+          "blob": "s1"
+        }
+      ],
+      "closure": [
+        "internal/a",
+        "internal/b"
+      ],
+      "hash": "37428b67c2132442df23993885fb92053cf1b7ce54fb291aabc0406dc90071aa"
+    },
+    {
+      "name": "go: the unit's testdata edited",
+      "lang": "go",
+      "entries": [
+        {
+          "path": "main.go",
+          "blob": "m1"
+        },
+        {
+          "path": "go.mod",
+          "blob": "gm"
+        },
+        {
+          "path": "go.sum",
+          "blob": "gs"
+        },
+        {
+          "path": "justfile",
+          "blob": "j1"
+        },
+        {
+          "path": "README.md",
+          "blob": "r1"
+        },
+        {
+          "path": "internal/a/a.go",
+          "blob": "a1"
+        },
+        {
+          "path": "internal/a/a_test.go",
+          "blob": "at"
+        },
+        {
+          "path": "internal/a/testdata/golden.json",
+          "blob": "ag2"
+        },
+        {
+          "path": "internal/b/b.go",
+          "blob": "b1"
+        },
+        {
+          "path": "internal/c/c.go",
+          "blob": "c1"
+        },
+        {
+          "path": "migrations/001.sql",
+          "blob": "s1"
+        }
+      ],
+      "closure": [
+        "internal/a",
+        "internal/b"
+      ],
+      "hash": "2b8db61e9ebfaaa0ae85050ec25851275be4abe922c13b7d5875b78437e05cc2"
+    },
+    {
+      "name": "go: an orphan edited",
+      "lang": "go",
+      "entries": [
+        {
+          "path": "main.go",
+          "blob": "m1"
+        },
+        {
+          "path": "go.mod",
+          "blob": "gm"
+        },
+        {
+          "path": "go.sum",
+          "blob": "gs"
+        },
+        {
+          "path": "justfile",
+          "blob": "j1"
+        },
+        {
+          "path": "README.md",
+          "blob": "r1"
+        },
+        {
+          "path": "internal/a/a.go",
+          "blob": "a1"
+        },
+        {
+          "path": "internal/a/a_test.go",
+          "blob": "at"
+        },
+        {
+          "path": "internal/a/testdata/golden.json",
+          "blob": "ag"
+        },
+        {
+          "path": "internal/b/b.go",
+          "blob": "b1"
+        },
+        {
+          "path": "internal/c/c.go",
+          "blob": "c1"
+        },
+        {
+          "path": "migrations/001.sql",
+          "blob": "s2"
+        }
+      ],
+      "closure": [
+        "internal/a",
+        "internal/b"
+      ],
+      "hash": "552fe8e3d5b3075b454dff0069a5c29df3ab3abeea99f76f8338fda109ed359e"
+    },
+    {
+      "name": "go: a doc edited (same as the first)",
+      "lang": "go",
+      "entries": [
+        {
+          "path": "main.go",
+          "blob": "m1"
+        },
+        {
+          "path": "go.mod",
+          "blob": "gm"
+        },
+        {
+          "path": "go.sum",
+          "blob": "gs"
+        },
+        {
+          "path": "justfile",
+          "blob": "j1"
+        },
+        {
+          "path": "README.md",
+          "blob": "r2"
+        },
+        {
+          "path": "internal/a/a.go",
+          "blob": "a1"
+        },
+        {
+          "path": "internal/a/a_test.go",
+          "blob": "at"
+        },
+        {
+          "path": "internal/a/testdata/golden.json",
+          "blob": "ag"
+        },
+        {
+          "path": "internal/b/b.go",
+          "blob": "b1"
+        },
+        {
+          "path": "internal/c/c.go",
+          "blob": "c1"
+        },
+        {
+          "path": "migrations/001.sql",
+          "blob": "s1"
+        }
+      ],
+      "closure": [
+        "internal/a",
+        "internal/b"
+      ],
+      "hash": "37428b67c2132442df23993885fb92053cf1b7ce54fb291aabc0406dc90071aa"
+    },
+    {
+      "name": "go: the root package",
+      "lang": "go",
+      "entries": [
+        {
+          "path": "main.go",
+          "blob": "m1"
+        },
+        {
+          "path": "go.mod",
+          "blob": "gm"
+        },
+        {
+          "path": "go.sum",
+          "blob": "gs"
+        },
+        {
+          "path": "justfile",
+          "blob": "j1"
+        },
+        {
+          "path": "README.md",
+          "blob": "r1"
+        },
+        {
+          "path": "internal/a/a.go",
+          "blob": "a1"
+        },
+        {
+          "path": "internal/a/a_test.go",
+          "blob": "at"
+        },
+        {
+          "path": "internal/a/testdata/golden.json",
+          "blob": "ag"
+        },
+        {
+          "path": "internal/b/b.go",
+          "blob": "b1"
+        },
+        {
+          "path": "internal/c/c.go",
+          "blob": "c1"
+        },
+        {
+          "path": "migrations/001.sql",
+          "blob": "s1"
+        }
+      ],
+      "closure": [
+        "."
+      ],
+      "hash": "cd587dc66e306d517dece7d9be7afdbfc6e76325f48332fc87895c721e935175"
+    },
+    {
+      "name": "rust: a crate and its path dependency",
+      "lang": "rust",
+      "entries": [
+        {
+          "path": "Cargo.toml",
+          "blob": "w"
+        },
+        {
+          "path": "Cargo.lock",
+          "blob": "l"
+        },
+        {
+          "path": ".cargo/mutants.toml",
+          "blob": "c"
+        },
+        {
+          "path": "a/Cargo.toml",
+          "blob": "am"
+        },
+        {
+          "path": "a/src/lib.rs",
+          "blob": "a"
+        },
+        {
+          "path": "b/Cargo.toml",
+          "blob": "bm"
+        },
+        {
+          "path": "b/src/lib.rs",
+          "blob": "b"
+        },
+        {
+          "path": "b/tests/it.rs",
+          "blob": "bt"
+        },
+        {
+          "path": "README.md",
+          "blob": "r"
+        }
+      ],
+      "closure": [
+        "b",
+        "a"
+      ],
+      "hash": "427f05fad9a42fe395f4e422bfe12227d4c214ee8ba589e2392ac55be5a0c07d"
+    },
+    {
+      "name": "rust: the dependency alone",
+      "lang": "rust",
+      "entries": [
+        {
+          "path": "Cargo.toml",
+          "blob": "w"
+        },
+        {
+          "path": "Cargo.lock",
+          "blob": "l"
+        },
+        {
+          "path": ".cargo/mutants.toml",
+          "blob": "c"
+        },
+        {
+          "path": "a/Cargo.toml",
+          "blob": "am"
+        },
+        {
+          "path": "a/src/lib.rs",
+          "blob": "a"
+        },
+        {
+          "path": "b/Cargo.toml",
+          "blob": "bm"
+        },
+        {
+          "path": "b/src/lib.rs",
+          "blob": "b"
+        },
+        {
+          "path": "b/tests/it.rs",
+          "blob": "bt"
+        },
+        {
+          "path": "README.md",
+          "blob": "r"
+        }
+      ],
+      "closure": [
+        "a"
+      ],
+      "hash": "9325c4eb834d013be8b6ea81af6cd6d2ab3a177246aae4d625be04a33d625652"
+    }
+  ],
+  "ranges": [
+    {
+      "name": "go: -U0 over an edit, a new file and a deletion",
+      "diff": "diff --git a/internal/a/a.go b/internal/a/a.go\nindex 1..2 100644\n--- a/internal/a/a.go\n+++ b/internal/a/a.go\n@@ -3 +3,2 @@ func A() {\n-\treturn 1\n+\tx := 2\n+\treturn x\n@@ -10,2 +11,0 @@ func B() {\n-\tgone()\n-\tgone()\n@@ -20,0 +20 @@ func C() {\n+\tadded()\ndiff --git a/new.go b/new.go\nnew file mode 100644\n--- /dev/null\n+++ b/new.go\t2026-10-03 00:00:00\n@@ -0,0 +1,3 @@\n+package main\n+\n+func N() {}\ndiff --git a/old.go b/old.go\ndeleted file mode 100644\n--- a/old.go\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-package main\n-func O() {}\n",
+      "parsed": {
+        "internal/a/a.go": [
+          {
+            "start": 3,
+            "end": 4
+          },
+          {
+            "start": 20,
+            "end": 20
+          }
+        ],
+        "new.go": [
+          {
+            "start": 1,
+            "end": 3
+          }
+        ]
+      },
+      "lang": "go",
+      "entries": [
+        {
+          "path": "main.go",
+          "blob": "m1"
+        },
+        {
+          "path": "go.mod",
+          "blob": "gm"
+        },
+        {
+          "path": "go.sum",
+          "blob": "gs"
+        },
+        {
+          "path": "justfile",
+          "blob": "j1"
+        },
+        {
+          "path": "README.md",
+          "blob": "r1"
+        },
+        {
+          "path": "internal/a/a.go",
+          "blob": "a1"
+        },
+        {
+          "path": "internal/a/a_test.go",
+          "blob": "at"
+        },
+        {
+          "path": "internal/a/testdata/golden.json",
+          "blob": "ag"
+        },
+        {
+          "path": "internal/b/b.go",
+          "blob": "b1"
+        },
+        {
+          "path": "internal/c/c.go",
+          "blob": "c1"
+        },
+        {
+          "path": "migrations/001.sql",
+          "blob": "s1"
+        },
+        {
+          "path": "new.go",
+          "blob": "n"
+        }
+      ],
+      "unit": "internal/a",
+      "ranges": "4e204d1fb0bc9ede1e1a99d2a34ff18bce87c23f7f98f4b41c841e9638409d6f"
+    },
+    {
+      "name": "go: the root unit's share of the same diff",
+      "diff": "diff --git a/internal/a/a.go b/internal/a/a.go\nindex 1..2 100644\n--- a/internal/a/a.go\n+++ b/internal/a/a.go\n@@ -3 +3,2 @@ func A() {\n-\treturn 1\n+\tx := 2\n+\treturn x\n@@ -10,2 +11,0 @@ func B() {\n-\tgone()\n-\tgone()\n@@ -20,0 +20 @@ func C() {\n+\tadded()\ndiff --git a/new.go b/new.go\nnew file mode 100644\n--- /dev/null\n+++ b/new.go\t2026-10-03 00:00:00\n@@ -0,0 +1,3 @@\n+package main\n+\n+func N() {}\ndiff --git a/old.go b/old.go\ndeleted file mode 100644\n--- a/old.go\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-package main\n-func O() {}\n",
+      "parsed": {
+        "internal/a/a.go": [
+          {
+            "start": 3,
+            "end": 4
+          },
+          {
+            "start": 20,
+            "end": 20
+          }
+        ],
+        "new.go": [
+          {
+            "start": 1,
+            "end": 3
+          }
+        ]
+      },
+      "lang": "go",
+      "entries": [
+        {
+          "path": "main.go",
+          "blob": "m1"
+        },
+        {
+          "path": "go.mod",
+          "blob": "gm"
+        },
+        {
+          "path": "go.sum",
+          "blob": "gs"
+        },
+        {
+          "path": "justfile",
+          "blob": "j1"
+        },
+        {
+          "path": "README.md",
+          "blob": "r1"
+        },
+        {
+          "path": "internal/a/a.go",
+          "blob": "a1"
+        },
+        {
+          "path": "internal/a/a_test.go",
+          "blob": "at"
+        },
+        {
+          "path": "internal/a/testdata/golden.json",
+          "blob": "ag"
+        },
+        {
+          "path": "internal/b/b.go",
+          "blob": "b1"
+        },
+        {
+          "path": "internal/c/c.go",
+          "blob": "c1"
+        },
+        {
+          "path": "migrations/001.sql",
+          "blob": "s1"
+        },
+        {
+          "path": "new.go",
+          "blob": "n"
+        }
+      ],
+      "unit": ".",
+      "ranges": "505dff99014c03201518a6c93cbca3e437e8ff3cdb4acca66e67337557062f72"
+    }
+  ],
+  "engines": [
+    {
+      "inputs": {
+        "gomutants": "github.com/szhekpisov/gomutants@v0.6.1",
+        "image": "golang@sha256:116d",
+        "workers": "4"
+      },
+      "engine": "9ee73ab157be05b7efdd3a544e37185556760ac73adf073a2ec55ec88887813c"
+    },
+    {
+      "inputs": {},
+      "engine": "fe8cf508084ace4050c2996f86990dd9500705dd296934b442e366197f5be88d"
+    }
+  ]
+}
