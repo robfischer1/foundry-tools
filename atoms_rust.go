@@ -9,6 +9,7 @@ import (
 	"dagger/foundry-tools/internal/buildlane"
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
+	"dagger/foundry-tools/internal/unitkey"
 )
 
 // THE RUST LANE, AS TYPED CHAINS. Read runtime.go's eight rules and
@@ -303,6 +304,11 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 		return settle(2, "CANNOT RUN - could not map the diff onto the workspace members: "+err.Error())
 	}
 
+	// THE KEYS of the units the diff touched, for the run's gradings. Reading
+	// them cannot change the verdict (mutation_keys.go).
+	config, _ := r.src.File(".cargo/mutants.toml").Contents(ctx)
+	keys, owner := rustGradingKeys(ctx, ctr, diff, files, meta, config)
+
 	// MUTATE. The copies go under TMPDIR, outside the tree being mutated.
 	//
 	// THE PER-MUTANT COST, measured on bellows #31a47b3 (2026-09-18, 169
@@ -349,7 +355,7 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 	// two, cargo-mutants prints only MISSED and TIMEOUT, and a killed run could
 	// name its survivors but not how far it got.
 	args := []string{"mold", "-run", "cargo", "mutants", "--colors", "never", "--caught", "--unviable", "-j", strconv.Itoa(rustMutationJobs),
-		"--build-timeout", "900", "--minimum-test-timeout", "60", "--test-tool", "nextest"}
+		"--build-timeout", rustBuildTimeout, "--minimum-test-timeout", rustMinTestTimeout, "--test-tool", "nextest"}
 	for _, m := range strings.Fields(mods) {
 		args = append(args, "-f", m)
 	}
@@ -394,12 +400,15 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 	// The baseline's own log: the unmutated build and test run, where nextest
 	// stamped every test with its wall time.
 	baseline, _ := mutated.File("/src/mutants.out/log/baseline.log").Contents(ctx)
+	missed, caught, unviable, timeout := list("missed"), list("caught"), list("unviable"), list("timeout")
 	state, reason, found := checks.RustMutationVerdict(checks.RustMutationRun{
 		Status: status, Log: log,
-		Missed: list("missed"), Caught: list("caught"), Unviable: list("unviable"), Timeout: list("timeout"),
+		Missed: missed, Caught: caught, Unviable: unviable, Timeout: timeout,
 		Baseline: baseline,
 	})
 	v := settle(state, reason)
+	v.Gradings = checks.BuildGradings(string(unitkey.Rust), rustMutationEngine(), keys, owner,
+		checks.RustScored(missed, caught, unviable, timeout), state < 2)
 	// THE FINDINGS COME FROM THE OUTCOME LISTS, as go:mutation's come from its
 	// score: FindingsOf parses no mutation report, and a timed-out mutant's
 	// finding rides a PASSING atom too — an exclusion nobody can read is a
