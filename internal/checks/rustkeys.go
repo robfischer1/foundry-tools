@@ -32,7 +32,7 @@ func RustClosures(metadata []byte, root string) (map[string][]string, error) {
 		} `json:"packages"`
 	}
 	if err := json.Unmarshal(metadata, &meta); err != nil {
-		return nil, fmt.Errorf("cargo metadata did not parse: %w", err)
+		return nil, fmt.Errorf("cargo metadata did not parse: %v", err)
 	}
 	deps := map[string][]string{}
 	for _, p := range meta.Packages {
@@ -50,15 +50,17 @@ func RustClosures(metadata []byte, root string) (map[string][]string, error) {
 	closures := map[string][]string{}
 	for unit := range deps {
 		seen := map[string]bool{}
-		walk := []string{unit}
-		for len(walk) > 0 {
-			d := walk[len(walk)-1]
-			walk = walk[:len(walk)-1]
-			if !seen[d] {
-				seen[d] = true
-				walk = append(walk, deps[d]...)
+		var visit func(d string)
+		visit = func(d string) {
+			if seen[d] {
+				return
+			}
+			seen[d] = true
+			for _, next := range deps[d] {
+				visit(next)
 			}
 		}
+		visit(unit)
 		closures[unit] = slices.Sorted(maps.Keys(seen))
 	}
 	return closures, nil

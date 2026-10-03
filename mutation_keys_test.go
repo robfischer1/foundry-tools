@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 
 	"dagger/foundry-tools/internal/checks"
@@ -152,7 +153,7 @@ func TestRustKeysOverUnreadableMetadataAreUnkeyable(t *testing.T) {
 	engine.reset()
 	engine.stdout(lsTreeNeedle, rustTree)
 	keys, _ := rustGradingKeys(context.Background(), dag.Container(), rustDiff, "src/lib.rs", "not json", "")
-	if len(keys) != 1 || keys[0].Err == "" {
+	if len(keys) != 1 || !strings.Contains(keys[0].Err, "cargo metadata did not parse") {
 		t.Fatalf("keys = %+v", keys)
 	}
 }
