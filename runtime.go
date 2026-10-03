@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -440,7 +441,7 @@ func (r *run) population(ctx context.Context, patterns ...string) ([]string, err
 // pass. Otherwise the last exec's exit code is the state and its output is
 // the result.
 func verdict(ctx context.Context, a checks.AtomDef, ctr *dagger.Container) checks.Verdict {
-	code, err := ctr.ExitCode(ctx)
+	code, err := exitCodeOf(ctx, ctr)
 	if err != nil {
 		return checks.VerdictOf(a, 2, fmt.Sprintf("the atom never ran: %v", err))
 	}
@@ -454,7 +455,7 @@ func verdict(ctx context.Context, a checks.AtomDef, ctr *dagger.Container) check
 // checks.AuditVerdict reads a network fault off a non-zero exit as could-not-run,
 // which is what makes verdictFor ask it again past the cache.
 func audit(ctx context.Context, a checks.AtomDef, ctr *dagger.Container) checks.Verdict {
-	code, err := ctr.ExitCode(ctx)
+	code, err := exitCodeOf(ctx, ctr)
 	if err != nil {
 		return checks.VerdictOf(a, 2, fmt.Sprintf("the atom never ran: %v", err))
 	}
@@ -470,7 +471,7 @@ func audit(ctx context.Context, a checks.AtomDef, ctr *dagger.Container) checks.
 // would not pull) and is the caller's state 2; a non-zero code is the
 // tool's, and what it means is the caller's to decide.
 func output(ctx context.Context, ctr *dagger.Container) (stdout string, code int, err error) {
-	code, err = ctr.ExitCode(ctx)
+	code, err = exitCodeOf(ctx, ctr)
 	if err != nil {
 		return "", 0, err
 	}
@@ -499,7 +500,7 @@ func output(ctx context.Context, ctr *dagger.Container) (stdout string, code int
 // THE TWO FAILURES STAY DISTINCT, as in output(): err is the engine's (state 2
 // for the caller) and code is the tool's (the caller's to interpret).
 func outputBoth(ctx context.Context, ctr *dagger.Container) (out string, code int, err error) {
-	code, err = ctr.ExitCode(ctx)
+	code, err = exitCodeOf(ctx, ctr)
 	if err != nil {
 		return "", 0, err
 	}
@@ -643,4 +644,60 @@ func fetchTool(ctx context.Context, url string) (*dagger.File, error) {
 		return nil, fmt.Errorf("could not fetch %s: %w", url, err)
 	}
 	return f, nil
+}
+
+// exitCodeOf reads a chain's exit code, and when the ENGINE refuses — an exec
+// earlier in the chain that expected success and did not get it — answers an
+// error that says which command failed and what it printed.
+//
+// WHY. The engine's own message for that failure is "exit code: 1" and a
+// traceparent, nothing else: the command and its output ride the error's
+// extensions, and err.Error() drops them. Every atom files that message as
+// "the atom never ran: …", so the record said an atom could not run and gave
+// no reason. Measured in erebus.ci_atom over the three days to 2026-10-03:
+// 231 could-not-run rows read only "exit code: N" — blade-runner's six go
+// atoms up to 35 times each over 9 commits (an exec in front of all of them
+// failed, and nothing says which), demeter's ts:bun-gate 20, paneless's
+// rust:mutation 5.
+//
+// The original error is WRAPPED, so errors.As still finds the ExecError: the
+// rust mutation atom reads a signal-range kill's streams off it.
+func exitCodeOf(ctx context.Context, ctr *dagger.Container) (int, error) {
+	code, err := ctr.ExitCode(ctx)
+	return code, withExecEvidence(err)
+}
+
+// withExecEvidence is err with the failed exec's command and output appended,
+// when err is an exec failure; any other error is answered unchanged.
+func withExecEvidence(err error) error {
+	var ex *dagger.ExecError
+	if !errors.As(err, &ex) {
+		return err
+	}
+	evidence := execEvidence(ex.Cmd, ex.Stdout, ex.Stderr)
+	if evidence == "" {
+		return err
+	}
+	return fmt.Errorf("%w\n%s", err, evidence)
+}
+
+// execEvidenceLines bounds how much of the failed exec's output the reason
+// carries: a failure is at the END of a tool's output, and the atom's record
+// is capped downstream anyway.
+const execEvidenceLines = 20
+
+// execEvidence is what a failed exec said, as the lines a reader of the
+// record needs: the command, then the tail of its stderr and stdout. Empty
+// when the engine attached nothing.
+func execEvidence(cmd []string, stdout, stderr string) string {
+	var b strings.Builder
+	if len(cmd) > 0 {
+		b.WriteString("failed: " + strings.Join(cmd, " ") + "\n")
+	}
+	for _, stream := range []string{stderr, stdout} {
+		if s := strings.TrimSpace(stream); s != "" {
+			b.WriteString(lastLines(s, execEvidenceLines) + "\n")
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
