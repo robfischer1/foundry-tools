@@ -80,6 +80,10 @@ func TestUnitKeysKeyEveryChangedUnit(t *testing.T) {
 		t.Fatal("an orphan has no owner")
 	}
 
+	sorted, _ := UnitKeys(unitkey.Go, entries, diff, closures, []string{"internal/c/c.go", "internal/a/a.go"}, "")
+	if len(sorted) != 2 || sorted[0].Unit != "internal/a" || sorted[1].Unit != "internal/c" {
+		t.Fatalf("keys come in path order, whatever order the diff named them: %+v", sorted)
+	}
 	missing, _ := UnitKeys(unitkey.Go, entries, diff, map[string][]string{}, []string{"internal/a/a.go"}, "")
 	if len(missing) != 1 || missing[0].Err == "" || missing[0].Hash != "" {
 		t.Fatalf("a unit the toolchain did not list is unkeyable: %+v", missing)
