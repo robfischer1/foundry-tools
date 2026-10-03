@@ -121,3 +121,25 @@ func TestTheRecordKeepsNullAndEmptyAtomListsApart(t *testing.T) {
 		t.Fatalf("null and [] must survive the rewrite: %s", rec)
 	}
 }
+
+// A COULD-NOT-RUN THAT HOLDS ON THE RE-ASK REPORTS THE RE-ASK'S WHOLE ANSWER —
+// its atom, its result, its lines — not merely a zero state.
+func TestAReaskThatHoldsReportsItsOwnAnswer(t *testing.T) {
+	tickingClock(t)
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.exitCode(`"go","vet"`, 2)
+	engine.exitCode(`name:"CA_REASK"`, 0)
+	v, err := askedTwiceFor(t, "go:vet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Atom != "go:vet" || v.State != 0 || v.Result != "pass" || v.Logs == nil {
+		t.Fatalf("the re-ask's own answer was not the one reported: %+v", v)
+	}
+}
+
+func askedTwiceFor(t *testing.T, id string) (checks.Verdict, error) {
+	t.Helper()
+	return verdictFor(t.Context(), newRun(dag.Directory(), "", ""), id)
+}
