@@ -366,11 +366,13 @@ func ArtifactRef(registry, repo, sha string) (string, error) {
 	return registry + "/" + ArtifactRepo + "/" + star + ":" + sha, nil
 }
 
-// FetchHint is the line that says how to read an artifact back: one layer,
-// a tar of results/ (the diffs, per suite dir) and baselines/ (every snapshot
-// the update run wrote, at its path in the tree).
+// FetchHint is the line that says how to read an artifact back: results/ (the
+// diffs, per suite dir) and baselines/ (every snapshot the update run wrote,
+// at its path in the tree). The engine writes ONE LAYER PER DIRECTORY ADDED
+// (measured on gijmo-ui bc4d4ea: two layers, the first holding results/
+// alone), so every layer is applied, in manifest order.
 func FetchHint(ref string) string {
 	return "artifact " + ref + " — results/<suite>/ holds the diffs, baselines/ the regenerated snapshots at their tree paths; " +
-		"fetch: oras manifest fetch " + ref + " | jq -r '.layers[0].digest' | xargs -I{} oras blob fetch --output - " +
-		ref[:strings.LastIndex(ref, ":")] + "@{} | tar xz"
+		"fetch: oras manifest fetch " + ref + " | jq -r '.layers[].digest' | xargs -I{} sh -c 'oras blob fetch --output - " +
+		ref[:strings.LastIndex(ref, ":")] + "@{} | tar xz'"
 }

@@ -266,7 +266,8 @@ func TestFetchHintNamesTheRepoAndTheLayer(t *testing.T) {
 	for _, want := range []string{
 		"artifact " + ref,
 		"oras manifest fetch " + ref,
-		"oras blob fetch --output - registry.notusmi.com/foundry/visual/gijmo-ui@{} | tar xz",
+		"jq -r '.layers[].digest'",
+		"oras blob fetch --output - registry.notusmi.com/foundry/visual/gijmo-ui@{} | tar xz'",
 		"baselines/",
 	} {
 		if !strings.Contains(got, want) {
