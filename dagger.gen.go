@@ -1125,7 +1125,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg reuse", err))
 				}
 			}
-			return (*FoundryTools).GateFile(&parent, ctx, tree, pin, base, stage, recordToken, reuse)
+			var spire *dagger.Socket
+			if inputArgs["spire"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["spire"]), &spire)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg spire", err))
+				}
+			}
+			return (*FoundryTools).GateFile(&parent, ctx, tree, pin, base, stage, recordToken, reuse, spire)
 		case "Go":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
