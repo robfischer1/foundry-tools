@@ -62,6 +62,31 @@ func TestSplitNameSplitsAgainstTheRoster(t *testing.T) {
 	}
 }
 
+// A CI LANE IS A CONSUMER: <producer>-job.<lane>, with or without a roster,
+// hyphenated producers and lanes alike. A name that is not that shape is
+// read as two stars, as before.
+func TestSplitNameReadsAJobConsumer(t *testing.T) {
+	for file, want := range map[string]string{
+		"/x/orbits/narcissus-job.gate.toml": "narcissus job.gate",
+		"blade-runner-job.mutation-bg.toml": "blade-runner job.mutation-bg",
+	} {
+		for _, roster := range []map[string]bool{nil, rosterStars} {
+			p, c, err := SplitName(file, roster)
+			if err != nil || p+" "+c != want {
+				t.Errorf("%s: got %q %q %v, want %s", file, p, c, err, want)
+			}
+		}
+	}
+	for _, f := range []string{"narcissus-job.Gate.toml", "Narcissus-job.gate.toml", "narcissus-job..toml", "-job.gate.toml"} {
+		if _, _, err := SplitName(f, nil); err == nil {
+			t.Errorf("%s read as a contract", f)
+		}
+	}
+	if !IsJob("job.gate") || IsJob("narcissus") || IsJob("jobs") {
+		t.Error("IsJob")
+	}
+}
+
 // ZERO READINGS IS THE EXISTING REFUSAL, with or without a roster.
 func TestSplitNameWithNoReadingIsTheExistingRefusal(t *testing.T) {
 	for _, f := range []string{"blade-runner-ghost.toml", "ghost-blade-runner.toml", "Blade-runner-poseidon.toml", "a-b-c.toml"} {

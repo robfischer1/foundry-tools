@@ -70,7 +70,30 @@ var starName = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 // party, so a name cannot smuggle a character render could not quote.
 var rosterStar = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 
+// JobPrefix names a CI lane as a contract's consumer: job.<lane>, a run of
+// that lane (spiffe://notusmi.com/job/<lane>/<id>; Rob, 2026-10-04). The
+// endpoint PEP holds a job peer to the [[produces]] entry for job.<lane>
+// (stellar-core-go policy.ConsumerOf). No star name holds a dot, so the two
+// never collide.
+const JobPrefix = "job."
+
+// jobConsumer is a job consumer as a file name carries it: job.<lane>, the
+// lane a k8s label value Daedalus stamps (gate, mutation-bg, …).
+var jobConsumer = regexp.MustCompile(`^job\.[a-z][a-z0-9-]*$`)
+
+// IsJob reports whether a contract party is a CI lane rather than a star.
+func IsJob(party string) bool { return strings.HasPrefix(party, JobPrefix) }
+
+// splitJob answers <producer>-job.<lane> as its producer and job consumer.
+func splitJob(name string) (producer, consumer string, ok bool) {
+	// A name with no "-job." cuts to an empty lane, which jobConsumer refuses.
+	p, lane, _ := strings.Cut(name, "-"+JobPrefix)
+	consumer = JobPrefix + lane
+	return p, consumer, rosterStar.MatchString(p) && jobConsumer.MatchString(consumer)
+}
+
 // SplitName answers the producer and consumer a contract file is named for.
+// A consumer job.<lane> is a CI lane (splitJob); every other name is two stars.
 //
 // With a roster (stars: every star on foundry-dies' fleet/stars) a star name
 // may carry hyphens, so the split is the one (producer, consumer) with
@@ -81,6 +104,9 @@ var rosterStar = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 // refusal to read the file). A nil roster is the two-part rule alone.
 func SplitName(file string, stars map[string]bool) (producer, consumer string, err error) {
 	name := strings.TrimSuffix(filepath.Base(file), ".toml")
+	if p, c, ok := splitJob(name); ok {
+		return p, c, nil
+	}
 	reads := rosterReads(name, stars)
 	if len(reads) > 1 {
 		return "", "", fmt.Errorf("%s: ambiguous, it reads as %s and as %s — both are stars on the roster",
