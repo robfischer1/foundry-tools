@@ -131,6 +131,7 @@ func TestWitGuestWorlds(t *testing.T) {
 		{"neither", "[features]\ndefault = []\nwit = []\n", nil},
 		{"a bare prefix is not a world", "[features]\nwit-guest- = []\n", nil},
 		{"a dependency is not a feature", "[dependencies]\nwit-guest-x = \"1\"\n", nil},
+		{"a long name without the prefix is not a world", "[features]\nunrelated-feature-name-longer-than-the-prefix = []\n", nil},
 		{"empty", "", nil},
 	} {
 		got := WitGuestWorlds(c.manifest)

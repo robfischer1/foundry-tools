@@ -129,7 +129,6 @@ func rustWitGuest(ctx context.Context, r *run) checks.Verdict {
 	}
 
 	module := checks.WitGuestTargetDir + "/" + checks.WitGuestTarget + "/release/" + artifact
-	var last checks.Verdict
 	var logs []string
 	for _, world := range worlds {
 		component := "/tmp/" + world + ".component.wasm"
@@ -163,10 +162,8 @@ func rustWitGuest(ctx context.Context, r *run) checks.Verdict {
 		if v = cargoVerdict(ctx, a, tested); v.State != int(checks.StatePass) {
 			return namedWorld(v, a, world, "test")
 		}
-		last = v
 	}
-	last.Logs = logs
-	return last
+	return checks.VerdictOf(a, 0, strings.Join(logs, "\n"))
 }
 
 // namedWorld stamps a failing step's verdict with the world and step that
