@@ -1,6 +1,7 @@
 package buildlane
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -103,5 +104,20 @@ func TestSmokeFailedFilesADeadImageAsFindings(t *testing.T) {
 	}
 	if code, _ := SmokeFailed("something else broke"); code != Findings {
 		t.Errorf("an unclassified failure is findings, got %d", code)
+	}
+}
+
+func TestSmokeVerdicts(t *testing.T) {
+	if code, why := SmokeUndeclared(nil); code != Clean || why != "no boot smoke declared (org.notusmi.smoke)" {
+		t.Errorf("undeclared: %d %q", code, why)
+	}
+	if code, why := SmokeUndeclared(errors.New("no port")); code != Findings || why != "findings in the boot smoke: no port" {
+		t.Errorf("unreadable: %d %q", code, why)
+	}
+	if code, why := SmokeAnswered(0, " smoke: answered 405\n"); code != Clean || why != "smoke: answered 405" {
+		t.Errorf("answered: %d %q", code, why)
+	}
+	if code, why := SmokeAnswered(1, "smoke: did not answer\n"); code != Findings || why != "findings in the boot smoke: smoke: did not answer" {
+		t.Errorf("silent: %d %q", code, why)
 	}
 }

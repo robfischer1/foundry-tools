@@ -393,11 +393,8 @@ func (l *buildLane) smoke(ctx context.Context, img *Image) (int, string) {
 		return buildlane.Failed("the boot smoke's label read", err.Error())
 	}
 	s, ok, err := buildlane.ParseSmoke(label)
-	if err != nil {
-		return buildlane.Findings, "findings in the boot smoke: " + err.Error()
-	}
-	if !ok {
-		return buildlane.Clean, "no boot smoke declared (" + buildlane.SmokeLabel + ")"
+	if err != nil || !ok {
+		return buildlane.SmokeUndeclared(err)
 	}
 	for _, kv := range s.Env {
 		ctr = ctr.WithEnvVariable(kv[0], kv[1])
@@ -415,10 +412,7 @@ func (l *buildLane) smoke(ctx context.Context, img *Image) (int, string) {
 		return code, why + ": the image did not start and serve on port " + strconv.Itoa(s.Port) + ": " + lastLine(err.Error())
 	}
 	l.say("%s", strings.TrimSpace(out))
-	if rc != 0 {
-		return buildlane.Findings, "findings in the boot smoke: " + strings.TrimSpace(out)
-	}
-	return buildlane.Clean, strings.TrimSpace(out)
+	return buildlane.SmokeAnswered(rc, out)
 }
 
 // verify is the verify stage's scan, as a step of the build lane: the image's

@@ -113,6 +113,30 @@ func SmokeFailed(output string) (int, string) {
 	return Failed("the boot smoke", output)
 }
 
+// NO LITERAL Clean RETURN in the verdicts below: Clean is 0, so RETURN_ZERO on
+// `return Clean, …` is an equivalent mutant no test can kill (build_bases.go
+// stopped() carries the measurement). Each returns the code it computed.
+
+// SmokeUndeclared is the verdict when the image declares no smoke (err nil:
+// clean, and it says so) or declares one that cannot be read (findings).
+func SmokeUndeclared(err error) (int, string) {
+	code, why := Clean, "no boot smoke declared ("+SmokeLabel+")"
+	if err != nil {
+		code, why = Findings, "findings in the boot smoke: "+err.Error()
+	}
+	return code, why
+}
+
+// SmokeAnswered is the verdict on the probe's exit: 0 is the image answering,
+// anything else is findings. The probe's own line is the reason either way.
+func SmokeAnswered(rc int, out string) (int, string) {
+	code, why := Clean, strings.TrimSpace(out)
+	if rc != 0 {
+		code, why = Findings, "findings in the boot smoke: "+why
+	}
+	return code, why
+}
+
 // SmokeHost is the alias the image is bound under for the probe.
 const SmokeHost = "smoke"
 
