@@ -146,9 +146,24 @@ func TestIdentifiedPostAnswersWhatWitnesscallPrinted(t *testing.T) {
 	if err != nil || status != 503 || ctype != "text/plain" || body != "busy" {
 		t.Errorf("%d %q %q %v", status, ctype, body, err)
 	}
+	engine.reset()
+	engine.fail(postNeedle, "engine gone")
+	if _, _, _, err := identifiedPost(witnessCaller(dag.LoadSocketFromID("s"), "r"))(context.Background(), "{}"); err == nil || !strings.Contains(err.Error(), "engine gone") {
+		t.Errorf("an exec that never ran answered %v", err)
+	}
+	engine.reset()
 	engine.exitCode(postNeedle, 2)
 	engine.stderr(postNeedle, "cannot ask")
 	if _, _, _, err := identifiedPost(witnessCaller(dag.LoadSocketFromID("s"), "r"))(context.Background(), "{}"); err == nil || !strings.Contains(err.Error(), "cannot ask") {
 		t.Errorf("err %v", err)
+	}
+}
+
+// gate-file hands the lane's socket to the run that grades it.
+func TestGateFileKeepsTheLanesSocket(t *testing.T) {
+	m := gateOn(t, cleanVector)
+	spire := dag.LoadSocketFromID("spire-agent-socket")
+	if _, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "", nil, false, spire); err != nil || m.spire != spire {
+		t.Fatalf("spire %v err %v", m.spire, err)
 	}
 }

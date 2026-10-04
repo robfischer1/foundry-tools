@@ -47,9 +47,12 @@ func TestTheDefaultsAreTheFleets(t *testing.T) {
 	if err != nil || c.socket != "unix:///s" || c.serverID.String() != "spiffe://x.org/star/y" || c.wait != 3*time.Second {
 		t.Errorf("overrides %+v %v", c, err)
 	}
+	// A refused value names its key, wraps the parser's error, and keeps what
+	// was already read.
 	for k, v := range map[string]string{"WITNESSCALL_SERVER_ID": "not an id", "WITNESSCALL_IDENTITY_WAIT": "soon"} {
-		if _, err := configOf(func(n string) string { return map[string]string{k: v}[n] }); err == nil || !strings.Contains(err.Error(), k) {
-			t.Errorf("%s=%s: %v", k, v, err)
+		c, err := configOf(func(n string) string { return map[string]string{k: v}[n] })
+		if err == nil || !strings.Contains(err.Error(), k) || errors.Unwrap(err) == nil || c.socket != "unix:///run/spire/agent.sock" {
+			t.Errorf("%s=%s: %+v %v", k, v, c, err)
 		}
 	}
 }
@@ -104,7 +107,7 @@ func TestWhoamiPrintsTheLanesID(t *testing.T) {
 	p := newPKI(t)
 	id := &fakeIdentity{svid: p.svid(t, "spiffe://notusmi.com/job/gate/gate-x-1")}
 	code, stdout, _ := run(id, nil, noEnv, noFile, "whoami")
-	if code != Answered || stdout != "spiffe://notusmi.com/job/gate/gate-x-1\n" {
+	if code != 0 || stdout != "spiffe://notusmi.com/job/gate/gate-x-1\n" {
 		t.Errorf("code %d stdout %q", code, stdout)
 	}
 	if !id.closed {
@@ -132,7 +135,7 @@ func TestAPostPresentsTheLanesSVIDAndPrintsTheAnswer(t *testing.T) {
 	id := &fakeIdentity{svid: p.svid(t, "spiffe://notusmi.com/job/gate/gate-x-1"), bundle: x509bundle.FromX509Authorities(p.td, []*x509.Certificate{p.ca})}
 	read := func(string) ([]byte, error) { return []byte(`{"jsonrpc":"2.0"}`), nil }
 	code, stdout, stderr := run(id, nil, noEnv, read, "post", n.URL+"/mcp", "/req.json")
-	if code != Answered || stdout != "HTTP 200\ntext/event-stream\ndata: {}\n\n" {
+	if code != 0 || stdout != "HTTP 200\ntext/event-stream\ndata: {}\n\n" {
 		t.Fatalf("code %d stdout %q stderr %q", code, stdout, stderr)
 	}
 	n.mu.Lock()
@@ -162,7 +165,7 @@ func TestAServerThatIsNotNarcissusIsNeverAsked(t *testing.T) {
 
 func TestAnAddressThatIsNotAURLIsCouldNotAsk(t *testing.T) {
 	var out, errOut bytes.Buffer
-	if code := post(context.Background(), http.DefaultClient, "::", nil, &out, &errOut); code != CouldNotAsk || out.Len() != 0 {
+	if code := post(context.Background(), http.DefaultClient, "::", nil, &out, &errOut); code != CouldNotAsk || out.Len() != 0 || !strings.Contains(errOut.String(), "missing protocol scheme") {
 		t.Errorf("code %d out %q err %q", code, out.String(), errOut.String())
 	}
 }

@@ -15,7 +15,8 @@
 // exported or passed as a secret.
 //
 // Exit codes: 0 narcissus answered (whatever it said), 2 could not ask,
-// 3 no identity — the caller asks in the clear on anything but 0.
+// 3 no identity — the caller asks in the clear on anything but 0. The 0 is
+// spelled as a literal: a named zero is a RETURN_ZERO mutant no test can kill.
 package witnesscall
 
 import (
@@ -39,9 +40,8 @@ Reads WITNESSCALL_SOCKET (unix:///run/spire/agent.sock),
 WITNESSCALL_SERVER_ID (spiffe://notusmi.com/star/narcissus) and
 WITNESSCALL_IDENTITY_WAIT (20s).`
 
-// The exit codes the atom reads.
+// The non-zero exit codes the atom reads.
 const (
-	Answered    = 0
 	CouldNotAsk = 2
 	NoIdentity  = 3
 )
@@ -108,7 +108,7 @@ func Run(ctx context.Context, args []string, env func(string) string, readFile f
 	}
 	if args[0] == "whoami" {
 		fmt.Fprintln(stdout, svid.ID)
-		return Answered
+		return 0
 	}
 	body, err := readFile(args[2])
 	if err != nil {
@@ -148,5 +148,5 @@ func post(ctx context.Context, client *http.Client, url string, body []byte, std
 		return CouldNotAsk
 	}
 	fmt.Fprintf(stdout, "HTTP %d\n%s\n%s", resp.StatusCode, resp.Header.Get("Content-Type"), raw)
-	return Answered
+	return 0
 }

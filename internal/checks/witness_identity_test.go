@@ -37,7 +37,7 @@ func TestTheIdentityLineSaysHowTheWitnessWasAsked(t *testing.T) {
 	if got := WitnessAskedAs("spiffe://notusmi.com/job/gate/g", 0, 3); got != "identity: asked as spiffe://notusmi.com/job/gate/g at https://narcissus:8201/mcp" {
 		t.Errorf("%q", got)
 	}
-	if got := WitnessAskedAs("spiffe://x/job/gate/g", 1, 3); !strings.HasSuffix(got, " (1 of 3 ask(s) fell back to http://narcissus:8200/mcp in the clear)") {
+	if got := WitnessAskedAs("spiffe://x/job/gate/g", 1, 3); got != "identity: asked as spiffe://x/job/gate/g at https://narcissus:8201/mcp (1 of 3 ask(s) fell back to http://narcissus:8200/mcp in the clear)" {
 		t.Errorf("%q", got)
 	}
 	if got := WitnessInTheClear("no socket"); got != "identity: none — asked http://narcissus:8200/mcp in the clear: no socket" {

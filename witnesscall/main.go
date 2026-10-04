@@ -13,6 +13,10 @@ import (
 	"dagger/foundry-tools/internal/witnesscall"
 )
 
+// exit is os.Exit, and a variable so main_test.go can run main: go:mutation
+// grades a line no test executes as NOT COVERED.
+var exit = os.Exit
+
 func main() {
-	os.Exit(witnesscall.Run(context.Background(), os.Args[1:], os.Getenv, os.ReadFile, os.Stdout, os.Stderr))
+	exit(witnesscall.Run(context.Background(), os.Args[1:], os.Getenv, os.ReadFile, os.Stdout, os.Stderr))
 }
