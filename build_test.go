@@ -408,11 +408,27 @@ func TestTheLastPublishedRevisionIsReadWhereTheImageIsPushed(t *testing.T) {
 	)
 }
 
+// A build-args.env the engine cannot read is could-not-run, not a build without
+// the star's args.
+func TestAnUnreadableBuildArgsFileCouldNotRun(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n", "build-args.env": "FOO=bar\n"})
+	engine.stdout("--name-only", "cmd/ares/main.go\n")
+	engine.fail(`file(path:"build-args.env")`, "i/o error")
+	pull(t, m)
+	settledOn(t, "2", "could not read build-args.env")
+	if engine.chain("dockerBuild") != "" {
+		t.Fatal("a tree whose build args could not be read was built")
+	}
+}
+
 // A pull builds the image — its build args and labels — and publishes nothing.
 func TestAPullBuildsTheImageAndPublishesNothing(t *testing.T) {
 	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n", "build-args.env": "# the star's args\nFOO=bar\n"})
 	engine.stdout("--name-only", "cmd/ares/main.go\n")
-	pull(t, m)
+	said := sayings(t, func() { pull(t, m) })
+	if !strings.Contains(said, "build args: 1 from build-args.env") {
+		t.Fatalf("the lane did not say where the build args came from: %q", said)
+	}
 	wantCalls(t, engine.chain("dockerBuild", "sync"),
 		[]string{"dockerBuild", `"FOO"`, `"bar"`},
 		[]string{"withLabel", labelRevision, buildSha},
