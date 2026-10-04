@@ -70,7 +70,7 @@ func TestAPullSealsThePhasesItRanAndLeavesTheRestUnreached(t *testing.T) {
 	if code != buildlane.Clean {
 		t.Fatalf("a clean pull settles clean, got %d", code)
 	}
-	want := []string{"build:preflight", "build:dependencies", "build:detect", "build:release", "build:image", "build:verify"}
+	want := []string{"build:preflight", "build:dependencies", "build:detect", "build:release", "build:image", "build:smoke", "build:verify"}
 	if got := atomNames(l); !equalStrings(got, want) {
 		t.Fatalf("phases sealed\n want %v\n  got %v", want, got)
 	}

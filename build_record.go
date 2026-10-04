@@ -32,6 +32,7 @@ var buildPhases = []string{
 	"build:detect",
 	"build:release",
 	"build:image",
+	"build:smoke",
 	"build:verify",
 	"build:publish",
 	"build:sbom",
