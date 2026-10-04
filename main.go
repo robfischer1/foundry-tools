@@ -61,6 +61,10 @@ type FoundryTools struct {
 	// spire is the lane pod's forwarded SPIRE socket — set by GateFile under
 	// --spire, nil otherwise; fleet:witness presents the SVID it issues.
 	spire *dagger.Socket
+	// artifactAuth is the visual lane's registry credential — set by GateFile
+	// under --artifact-auth, nil otherwise; ts:visual pushes its artifact
+	// with it.
+	artifactAuth *dagger.Secret
 }
 
 // New binds the module to the caller's repository — the tree it is standing
@@ -326,7 +330,7 @@ func (m *FoundryTools) vector(ctx context.Context, stage, only, base string) ([]
 	// An atom another SELECTED atom covers stands down here rather than in the
 	// runner, so the caller still gets its line (checks.Subsumed says why).
 	selected, covered := checks.Subsumed(selected)
-	r := newRun(m.Source, m.Repo, base).fromOrigin(m.Origin).withLookup(m.lookup).withAudit(m.audit).withSpire(m.spire)
+	r := newRun(m.Source, m.Repo, base).fromOrigin(m.Origin).withLookup(m.lookup).withAudit(m.audit).withSpire(m.spire).withArtifacts(m.artifactAuth, m.Sha)
 	plan, absent, err := r.plan(ctx, selected)
 	if err != nil {
 		return nil, err

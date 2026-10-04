@@ -130,12 +130,19 @@ func (m *FoundryTools) GateFile(
 	// clear exactly as before and says so.
 	// +optional
 	spire *dagger.Socket,
+	// The registry credential the visual lane pushes its artifact with — the
+	// diff images and the regenerated baselines (atoms_ts_visual.go), a docker
+	// config JSON naming registry.notusmi.com. Only the visual stage reads it;
+	// absent, that lane grades exactly the same and says it pushed nothing.
+	// +optional
+	artifactAuth *dagger.Secret,
 ) (*dagger.File, error) {
 	if reuse && recordToken != nil {
 		m.lookup = lookupVia(m.Repo, recordToken)
 		m.audit = auditSampled(m.Sha)
 	}
 	m.spire = spire
+	m.artifactAuth = artifactAuth
 	result := m.gateStage(ctx, tree, stage, base)
 	// POST FIRST, THEN HAND BACK THE FILE. Both transports carry the same bytes
 	// — Record()'s whole output, sentinel included — because ourea reads
@@ -202,6 +209,8 @@ func laneOf(stage string) string {
 		return "mutation"
 	case checks.StageOrbit:
 		return "orbit"
+	case checks.StageVisual:
+		return "visual"
 	case checks.StagePrecommit:
 		return "check"
 	case StageMutationBg:

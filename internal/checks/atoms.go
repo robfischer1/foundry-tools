@@ -43,6 +43,13 @@ const (
 	// settles beside the gate and never inside it. It starts REPORT-ONLY
 	// (internal/orbitlane Enforce).
 	StageOrbit = "orbit"
+	// StageVisual is the visual lane (Rob, 2026-10-04: "Give 'em a cluster
+	// lane"): a tree's Playwright screenshot suites, run in the ts lane's
+	// pinned image against the baselines it commits. Like orbit it is NOT in
+	// PullPathStages — the door asks for it by name (`gate-file
+	// --stage=visual`) where the tree declares a suite, and waits on it or
+	// not by its own list (ourea cirun.AdvisoryLanes): advisory first.
+	StageVisual = "visual"
 )
 
 // AtomDef is one catalogued check, as code.
@@ -497,6 +504,11 @@ func atomTable() []AtomDef {
 		{
 			ID: "orbit:repo", Stage: StageOrbit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "A star's laid orbit.toml names every seam the contracts give it, each pinned to the contract's current version and digest.",
+		},
+		// ---- visual: the visual lane, asked for by name (StageVisual) ----
+		{
+			ID: "ts:visual", Stage: StageVisual, Lane: LaneTS, Image: ImageTS, NeedsManifest: true,
+			Desc: "Every Playwright screenshot suite visual.toml declares matches its committed baselines, rendered in the lane's pinned image.",
 		},
 		// ---- mutation: a pull's change set, mutated ----
 		//
