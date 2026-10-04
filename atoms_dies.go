@@ -484,10 +484,11 @@ func schemapy(args ...string) []string {
 // reconcile lists that may be identical. So an unreachable door is a 2 here and
 // every other answer stays the checker's own.
 //
-// THE PROBE IS A FILE NOW, not a heredoc: internal/checks/scripts/
-// dies_door_probe.py, embedded, byte for byte what the shell wrote to
-// /tmp/dies-door-probe.py. Rule 6 — a script that IS the tool stays the tool —
-// and a python program in a Go string is a program nothing can lint.
+// THE PROBE IS GO, in the module (checks.DoorProbe), and it asks Ourea — the
+// door's archive read — not Forgejo's raw API, which is being retired. It was
+// dies_door_probe.py. check_contracts.py is the tree's own and still names its
+// door by DEFAULT_DOOR; that moves in foundry-dies, and until it does the probe
+// and the checker disagree about which host they depend on.
 func diesContracts(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("dies:contracts")
 	if stop := diesShape(ctx, r, a); stop != nil {
@@ -501,12 +502,9 @@ func diesContracts(ctx context.Context, r *run) checks.Verdict {
 		return *stop
 	}
 
-	probe := scripts.DiesDoorProbe
-
 	// `uv --version` is the provisioning probe, on its own exec under the
 	// default Expect: an image without uv is a could-not-run, not a finding.
-	// The probe SCRIPT lands after the fixtures so that editing it does not
-	// invalidate thirteen cached fixture runs that never read it.
+	// The door probe runs after the fixtures, and none of them read it.
 	ctr := r.lane(checks.ImageFleet).
 		WithExec([]string{"uv", "--version"})
 
@@ -529,13 +527,12 @@ func diesContracts(ctx context.Context, r *run) checks.Verdict {
 		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - the fixtures no longer prove the gate detects:\n"+strings.Join(lines, "\n"))
 	}
 
-	ctr = ctr.WithNewFile("/tmp/dies-door-probe.py", string(probe))
-	out, code, err := output(ctx, ctr.WithExec(tomlpy("/tmp/dies-door-probe.py"), anyExit))
+	manifest, err := r.src.File(checks.DoorManifest).Contents(ctx)
 	if err != nil {
 		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the door reachability probe never ran: "+err.Error())
 	}
-	if code != 0 {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the door's raw API is unreachable, so the remote copies cannot be read. A copy that could not be fetched is not a copy that agrees.\n"+out)
+	if code, out := checks.DoorProbe(ctx, manifest, oureaDoor); code != 0 {
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the door's archive read is unreachable, so the remote copies cannot be read. A copy that could not be fetched is not a copy that agrees.\n"+out)
 	}
 
 	return verdict(ctx, a, ctr.WithExec(tomlpy("tools/check_contracts.py"), anyExit))

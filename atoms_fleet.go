@@ -10,7 +10,6 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"dagger/foundry-tools/internal/checks"
-	"dagger/foundry-tools/internal/checks/scripts"
 	"dagger/foundry-tools/internal/dagger"
 )
 
@@ -359,6 +358,10 @@ func fleetSastRulesetLanes(ctx context.Context, r *run) checks.Verdict {
 		strings.Join(declared, " "), strings.Join(missing, " ")))
 }
 
+// oureaDoor is where fleet:orbit-drift and dies:contracts read contracts. A
+// variable so the tests can point it at a fake door.
+var oureaDoor = checks.NewDoor()
+
 // This repo's declared seams agree with the canonical contracts in
 // foundry-dies/orbits.
 //
@@ -373,25 +376,22 @@ func fleetSastRulesetLanes(ctx context.Context, r *run) checks.Verdict {
 // exist to detect. A check whose own failure mode is the thing it detects is not
 // a check. Bytes either hash to what the star recorded or they do not.
 //
-// THE DOOR IS THE SAME ONE dies:contracts READS, anonymously, over the raw API.
-// It is still forgejo, which is being sunset; when that read moves, it moves for
-// both atoms together rather than one of them drifting off alone.
+// THE DOOR IS THE SAME ONE dies:contracts PROBES: Ourea, anonymously, over its
+// archive read (checks.Door). It was Forgejo's raw API until 2026-10-04, which
+// is being retired; both atoms moved together, as they must.
 //
 // An edge that declares no digest is a FINDING, not a pass. It means the repo
 // named a seam and pinned nothing, so this atom compared nothing — and "nothing
 // to check" is not "checked and clean", which is this module's founding
 // argument.
 //
-// THE PYTHON IS THE TOOL (rule 6) and it is now a FILE. It ran as a heredoc
-// inside a shell string, which is a program nothing could lint; it is unchanged,
-// byte for byte, at internal/checks/scripts/fleet_orbit_drift.py, embedded and
-// mounted. It carries its own 0/1/2 and they reach the verdict untouched.
-//
-// uv RUNS IT, UNCONDITIONALLY. The script wants tomllib and falls back to tomli;
-// the lane image's system python3 is not promised to be ≥3.11, and the shell's
-// probe-then-choose dance existed only to find that out. `uv run --with
-// 'tomli>=2.0'` answers for both interpreters, and the uv cache is a volume, so
-// the resolve is paid once per engine rather than once per gate.
+// IT IS GO, AND IT RUNS IN THE MODULE, NOT IN A LANE CONTAINER. It was a python
+// file run under uv; the judgement is checks.OrbitDrift, with the same 0/1/2
+// ladder, and the door is read the way fleet:witness reads narcissus and the
+// record post reads the door — over net/http from the function, so no
+// container, no interpreter and no uv resolve stand between the gate and the
+// answer, and the contract a repo is compared to is not frozen into a cached
+// exec. A door that cannot answer is 2, as it was.
 func fleetOrbitDrift(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("fleet:orbit-drift")
 
@@ -403,13 +403,12 @@ func fleetOrbitDrift(ctx context.Context, r *run) checks.Verdict {
 		return checks.VerdictOf(a, 0, "fleet:orbit-drift: ABSENT - no orbit.toml in this tree, so this repo declares no seams")
 	}
 
-	body := scripts.FleetOrbitDrift
-
-	return verdict(ctx, a, r.lane(checks.ImageFleet).
-		WithNewFile("/tmp/orbit-drift.py", string(body)).
-		WithExec([]string{"uv", "--version"}).
-		WithExec([]string{"uv", "run", "--no-project", "--quiet", "--with", "tomli>=2.0",
-			"python3", "/tmp/orbit-drift.py"}, anyExit))
+	declared, err := r.src.File("orbit.toml").Contents(ctx)
+	if err != nil {
+		return checks.VerdictOf(a, 2, "fleet:orbit-drift: CANNOT RUN - orbit.toml did not parse: "+err.Error())
+	}
+	state, report := checks.OrbitDrift(ctx, declared, oureaDoor)
+	return checks.VerdictOf(a, state, report)
 }
 
 // opengrepRefusal is the zero-file refusal, kept as written.

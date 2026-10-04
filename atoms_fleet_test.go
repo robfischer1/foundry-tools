@@ -2,8 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -562,68 +567,147 @@ func TestFleetOrbitDriftIsAbsentWithoutAnOrbitToml(t *testing.T) {
 	fleetNoContainer(t, "no orbit.toml")
 }
 
-// Rule 6: the python IS the tool, and it is a FILE — embedded, mounted, and
-// run by uv so tomllib/tomli answers on either interpreter.
-func TestFleetOrbitDriftMountsTheEmbeddedCheckerAndRunsItUnderUv(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
+// sha256Of is the digest an orbit.toml edge pins for a contract body.
+func sha256Of(body string) string {
+	sum := sha256.Sum256([]byte(body))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
 
-	wantState(t, runAtom(t, "fleet:orbit-drift", ""), 0)
+const seamContract = "verbs = [\"ping\"]\n"
 
-	c := engine.chain(`"/tmp/orbit-drift.py"`, "exitCode")
-	// THE DOOR IS SPELLED IN TWO PIECES SINCE 2026-09-25, and both are asserted
-	// rather than the one contiguous string this used to look for. ruff's S310
-	// wants the scheme as a literal AT the urlopen — a constant holding the
-	// whole URL is opaque to it — so the host lives at the call and the rest
-	// of the path in ORBITS. The thing this test cares about is unchanged:
-	// the embedded checker points at foundry-dies/orbits on the door.
-	wantCalls(t, c,
-		[]string{"withNewFile", `path:"/tmp/orbit-drift.py"`, "import hashlib"},
-		[]string{"withNewFile", `path:"/tmp/orbit-drift.py"`, "forgejo.notusmi.com/api/v1/repos/{ORBITS}"},
-		[]string{"withNewFile", `path:"/tmp/orbit-drift.py"`, "foundry/foundry-dies/raw/orbits"},
-		[]string{"withExec", `args:["uv","--version"]`},
-		[]string{"withExec", `expect:ANY`, `args:["uv","run","--no-project","--quiet","--with","tomli>=2.0","python3","/tmp/orbit-drift.py"]`},
-	)
-	if hasCall(c, "withExec", `"uv","--version"`, `expect:ANY`) {
-		t.Errorf("the uv probe is provisioning and must run under the default Expect:\n%s", c)
+// orbitToml declares one consumed edge per (peer, contract, digest) triple.
+func orbitToml(edges ...[3]string) string {
+	var b strings.Builder
+	for _, e := range edges {
+		b.WriteString("[[consumes]]\nfrom = \"" + e[0] + "\"\n")
+		if e[1] != "" {
+			b.WriteString("contract = \"" + e[1] + "\"\n")
+		}
+		if e[2] != "" {
+			b.WriteString("digest = \"" + e[2] + "\"\n")
+		}
 	}
-	if strings.Contains(c, `"sh"`) || strings.Contains(c, "<<") {
-		t.Errorf("the checker is a file, not a heredoc:\n%s", c)
-	}
-	if strings.Contains(c, "GATE_BASE") {
-		t.Errorf("rule 8: fleet:orbit-drift must not read GATE_BASE:\n%s", c)
+	return b.String()
+}
+
+// serveContracts answers the archive read from a name -> body map; anything
+// else is the door's own 404.
+func serveContracts(bodies map[string]string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimSuffix(strings.TrimPrefix(r.URL.Query().Get("path"), "orbits/"), ".toml")
+		body, ok := bodies[name]
+		if !ok {
+			http.Error(w, "archive: no file", http.StatusNotFound)
+			return
+		}
+		_, _ = io.WriteString(w, body)
 	}
 }
 
-// The script carries its own 0/1/2 and they reach the verdict untouched.
-func TestFleetOrbitDriftPassesTheScriptsExitThrough(t *testing.T) {
-	const tool = `"/tmp/orbit-drift.py"`
+// THE DOOR IS OUREA, and it is asked for the orbits directory of
+// foundry/foundry-dies, owner-qualified — no container runs for it.
+func TestFleetOrbitDriftReadsTheContractsFromOurea(t *testing.T) {
 	engine.reset()
-	engine.withTree(everyLaneTree)
+	engine.withTree(fleetTree(map[string]string{
+		"orbit.toml": orbitToml([3]string{"hades", "a-b", sha256Of(seamContract)}),
+	}))
+	asks := fakeDoor(t, serveContracts(map[string]string{"a-b": seamContract}))
 
-	engine.exitCode(tool, 0)
-	engine.stdout(tool, "fleet:orbit-drift: orbit.toml declares no seams")
-	wantState(t, runAtom(t, "fleet:orbit-drift", ""), 0)
+	wantReport(t, runAtom(t, "fleet:orbit-drift", ""), 0, "1 seam(s) agree with foundry-dies/orbits")
 
-	// An edge that declares no digest is a FINDING: the repo named a seam and
-	// pinned nothing, so this atom compared nothing.
-	engine.exitCode(tool, 1)
-	engine.stdout(tool, "consumes tartarus names no contract")
-	wantState(t, runAtom(t, "fleet:orbit-drift", ""), 1, "names no contract")
+	want := []doorAsk{{"foundry/foundry-dies", "orbits/a-b.toml"}}
+	if !reflect.DeepEqual(*asks, want) {
+		t.Errorf("the door was asked %v, want %v", *asks, want)
+	}
+	fleetNoContainer(t, "orbit-drift reads the door from the module")
+	if strings.Contains(strings.Join(engine.chains(), "\n"), "GATE_BASE") {
+		t.Errorf("rule 8: fleet:orbit-drift must not read GATE_BASE")
+	}
+	if checks.OureaDoor != "https://git.notusmi.com" {
+		t.Errorf("the production door is %q, want git.notusmi.com", checks.OureaDoor)
+	}
+}
 
-	engine.exitCode(tool, 2)
-	engine.stderr(tool, "CANNOT RUN - orbit.toml did not parse")
-	wantState(t, runAtom(t, "fleet:orbit-drift", ""), 2, "orbit.toml did not parse")
+func TestFleetOrbitDriftLadderMatchesTheScriptItReplaced(t *testing.T) {
+	good := sha256Of(seamContract)
+	for _, tc := range []struct {
+		name    string
+		orbit   string
+		door    http.HandlerFunc
+		dead    bool
+		state   int
+		needles []string
+	}{
+		{"empty", "# no seams\n", nil, false, 0, []string{"declares no seams"}},
+		{"unparseable", "this is = = not toml", nil, false, 2, []string{"orbit.toml did not parse"}},
+		{"no contract named", orbitToml([3]string{"hades", "", ""}), nil, false, 1,
+			[]string{"orbit-drift: consumes hades names no contract", "compared nothing"}},
+		{"agrees", orbitToml([3]string{"hades", "c", good}), serveContracts(map[string]string{"c": seamContract}), false, 0,
+			[]string{"1 seam(s) agree"}},
+		{"digest moved", orbitToml([3]string{"hades", "c", "sha256:old"}), serveContracts(map[string]string{"c": seamContract}), false, 1,
+			[]string{"hades: contract 'c' hashes to " + good + ", orbit.toml records sha256:old", "Re-lay orbit.toml from the die"}},
+		{"no digest", orbitToml([3]string{"hades", "c", ""}), serveContracts(map[string]string{"c": seamContract}), false, 1,
+			[]string{"contract 'c' carries no digest", "pins nothing"}},
+		{"contract absent from the die", orbitToml([3]string{"hades", "gone", good}), serveContracts(nil), false, 1,
+			[]string{"names contract 'gone', which is not in foundry-dies/orbits"}},
+		{"door error", orbitToml([3]string{"hades", "c", good}),
+			func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "boom", http.StatusServiceUnavailable) }, false, 2,
+			[]string{"CANNOT RUN", "answered HTTP 503", "archive?repo=foundry/foundry-dies&path=orbits/c.toml"}},
+		{"door unreachable", orbitToml([3]string{"hades", "c", good}), nil, true, 2,
+			[]string{"CANNOT RUN - the door is unreachable"}},
+		{"html is not a contract", orbitToml([3]string{"hades", "c", good}), serveContracts(map[string]string{"c": "<html>login</html>"}), false, 2,
+			[]string{"did not answer a TOML document", "not a contract that disagrees"}},
+		{"not utf-8", orbitToml([3]string{"hades", "c", good}), serveContracts(map[string]string{"c": "verbs = \"\xff\"\n"}), false, 2,
+			[]string{"did not answer a TOML document", "UTF-8"}},
+		{"toml without verbs", orbitToml([3]string{"hades", "c", good}), serveContracts(map[string]string{"c": "x = 1\n"}), false, 2,
+			[]string{"carries no verbs key"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			engine.reset()
+			engine.withTree(fleetTree(map[string]string{"orbit.toml": tc.orbit}))
+			switch {
+			case tc.dead:
+				deadDoor(t)
+			case tc.door != nil:
+				fakeDoor(t, tc.door)
+			default:
+				asks := fakeDoor(t, serveContracts(nil))
+				defer func() {
+					if len(*asks) != 0 {
+						t.Errorf("settled before any fetch, yet the door was asked %v", *asks)
+					}
+				}()
+			}
+			wantReport(t, runAtom(t, "fleet:orbit-drift", ""), tc.state, tc.needles...)
+		})
+	}
+}
 
+// Edges are read from both directions, and from both TOML spellings.
+func TestFleetOrbitDriftReadsEveryEdgeInBothDirectionsAndSpellings(t *testing.T) {
 	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.fail(`"uv","--version"`, "exit code: 127: uv: not found")
-	wantState(t, runAtom(t, "fleet:orbit-drift", ""), 2, "the atom never ran", "uv: not found")
+	engine.withTree(fleetTree(map[string]string{
+		"orbit.toml": "consumes = [{ from = \"a\", contract = \"one\", digest = \"" + sha256Of(seamContract) + "\" }]\n" +
+			"[[produces]]\nto = \"b\"\ncontract = \"two\"\ndigest = \"" + sha256Of(seamContract) + "\"\n" +
+			"[[produces]]\ncontract = \"three\"\n",
+	}))
+	asks := fakeDoor(t, serveContracts(map[string]string{"one": seamContract, "two": seamContract, "three": seamContract}))
+	wantReport(t, runAtom(t, "fleet:orbit-drift", ""), 1, "?: contract 'three' carries no digest")
+	if len(*asks) != 3 || (*asks)[0].Path != "orbits/one.toml" || (*asks)[1].Path != "orbits/two.toml" {
+		t.Errorf("want consumes then produces, three reads; got %v", *asks)
+	}
+}
 
+func TestFleetOrbitDriftNeverRunsWhenTheTreeWillNotAnswer(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	engine.fail(`directory{entries}`, "the tree went away")
-	wantState(t, runAtom(t, "fleet:orbit-drift", ""), 2, "the tree would not enumerate")
+	wantReport(t, runAtom(t, "fleet:orbit-drift", ""), 2, "the tree would not enumerate")
+
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.failLeaf(`"orbit.toml"`, "contents", "orbit.toml would not read")
+	wantReport(t, runAtom(t, "fleet:orbit-drift", ""), 2, "CANNOT RUN - orbit.toml did not parse", "would not read")
 }
 
 // ---- fleet:opengrep-sast ----
