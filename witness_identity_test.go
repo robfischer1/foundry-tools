@@ -163,7 +163,7 @@ func TestIdentifiedPostAnswersWhatWitnesscallPrinted(t *testing.T) {
 func TestGateFileKeepsTheLanesSocket(t *testing.T) {
 	m := gateOn(t, cleanVector)
 	spire := dag.LoadSocketFromID("spire-agent-socket")
-	if _, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "", nil, false, spire); err != nil || m.spire != spire {
+	if _, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "", nil, false, spire, nil); err != nil || m.spire != spire {
 		t.Fatalf("spire %v err %v", m.spire, err)
 	}
 }

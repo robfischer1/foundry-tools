@@ -1132,7 +1132,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg spire", err))
 				}
 			}
-			return (*FoundryTools).GateFile(&parent, ctx, tree, pin, base, stage, recordToken, reuse, spire)
+			var artifactAuth *dagger.Secret
+			if inputArgs["artifactAuth"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["artifactAuth"]), &artifactAuth)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg artifactAuth", err))
+				}
+			}
+			return (*FoundryTools).GateFile(&parent, ctx, tree, pin, base, stage, recordToken, reuse, spire, artifactAuth)
 		case "Go":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)

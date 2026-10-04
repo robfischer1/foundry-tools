@@ -101,7 +101,7 @@ func TestGateFileArmsTheLookupUnderReuse(t *testing.T) {
 		if !c.token {
 			tok = nil
 		}
-		if _, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "mutation", tok, c.reuse, nil); err != nil {
+		if _, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "mutation", tok, c.reuse, nil, nil); err != nil {
 			t.Fatal(err)
 		}
 		if (m.lookup != nil) != c.armed {
@@ -212,7 +212,7 @@ func TestASampledReuseRunGradesColdAndAudits(t *testing.T) {
 	}
 	m := gateOn(t, cleanVector)
 	m.Sha = "x6"
-	if _, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "mutation", dag.SetSecret("record-token", "tok"), true, nil); err != nil || !m.audit {
+	if _, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "mutation", dag.SetSecret("record-token", "tok"), true, nil, nil); err != nil || !m.audit {
 		t.Fatalf("a sampled commit under --reuse is audited: %v %v", m.audit, err)
 	}
 	res := stageResult(checks.Stage{Name: "mutation", Ran: []checks.StageAtom{{Atom: "go:mutation", Result: "pass", Audit: v.Audit}}})

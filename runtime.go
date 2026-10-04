@@ -76,6 +76,11 @@ type run struct {
 	// spire, when set, is the lane pod's SPIRE socket: fleet:witness asks as
 	// the SVID it issues (witness_identity.go); nil asks in the clear.
 	spire *dagger.Socket
+	// artifactAuth, when set, is the registry credential the visual atom
+	// pushes its artifact with, and sha the commit that artifact is tagged by
+	// (atoms_ts_visual.go); nil pushes nothing.
+	artifactAuth *dagger.Secret
+	sha          string
 
 	dies *dagger.Directory
 	// flux is foundry/flux at main: the pins flux image automation writes.

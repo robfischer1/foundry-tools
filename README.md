@@ -100,7 +100,7 @@ dagger call -m git.notusmi.com/rob/foundry-tools@<sha> --source=. verdicts --sta
 
 **`rust:`** (`Cargo.toml`) — `cargo-fmt` · `cargo-clippy` · `cargo-test` (commit) · `cargo-audit` (push)
 
-**`ts:`** (`package.json`) — `bun-gate` (commit) · `bun-audit` (push)
+**`ts:`** (`package.json`) — `bun-gate` (commit) · `bun-audit` (push) · `visual` (the visual lane, its own Job: `gate-file --stage=visual` runs every Playwright screenshot suite a root `visual.toml` declares, in the ts image, against the committed baselines; a red run pushes its diffs and the baselines it would accept to `registry.notusmi.com/foundry/visual/<star>:<sha>`)
 
 **`compose:`** (a tracked `compose.ya?ml`) — `config` · `no-tracked-secrets` · `third-party-pins` (commit)
 
