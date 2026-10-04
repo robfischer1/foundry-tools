@@ -297,6 +297,15 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 	}
 	l.seal("build:image", buildlane.Clean, "built "+star+" at "+shortSha(m.Sha))
 
+	// THE IMAGE IS STARTED BEFORE IT IS SCANNED OR PUBLISHED, when it asks
+	// to be (buildlane.SmokeLabel). A star that cannot boot is the one thing
+	// no other phase can see — calliope crash-looped on a green bump.
+	code, why := l.smoke(ctx, img)
+	if code != buildlane.Clean {
+		return l.stop("build:smoke", code, why)
+	}
+	l.seal("build:smoke", buildlane.Clean, why)
+
 	// NOTHING IS PUBLISHED THAT THE SCAN DID NOT PASS (CA master-plan F14).
 	// Verify's trivy atom runs here on the image the engine just built — the
 	// same chain the publish pushes — and a fixable HIGH or CRITICAL in the
@@ -367,6 +376,49 @@ func (l *buildLane) stageRelease(ctx context.Context, img *Image) (int, string) 
 	img.Source = l.m.Source.WithDirectory(buildlane.ReleaseDir, release)
 	say("release: the Dockerfile copies from %s/ — the Gate's artifact is staged there; the image compiles nothing", buildlane.ReleaseDir)
 	return buildlane.Clean, ""
+}
+
+// smoke starts the built image alone and asks it to answer once it has been up
+// for the label's wait (buildlane.Smoke). No label is a clean pass that says
+// so; a label that cannot be read is findings, because the star asked for a
+// check and would otherwise get none.
+//
+// THE PROBE IS STAMPED. The engine content-addresses execs, so without this
+// run's stamp a probe identical to an earlier green one would be answered from
+// cache and never start the image at all.
+func (l *buildLane) smoke(ctx context.Context, img *Image) (int, string) {
+	ctr := img.Container()
+	label, err := ctr.Label(ctx, buildlane.SmokeLabel)
+	if err != nil {
+		return buildlane.Failed("the boot smoke's label read", err.Error())
+	}
+	s, ok, err := buildlane.ParseSmoke(label)
+	if err != nil {
+		return buildlane.Findings, "findings in the boot smoke: " + err.Error()
+	}
+	if !ok {
+		return buildlane.Clean, "no boot smoke declared (" + buildlane.SmokeLabel + ")"
+	}
+	for _, kv := range s.Env {
+		ctr = ctr.WithEnvVariable(kv[0], kv[1])
+	}
+	svc := ctr.WithExposedPort(s.Port).AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true})
+	probe := dag.Container().From(checks.ImagePython).
+		WithEnvVariable("FOUNDRY_SMOKE_STAMP", l.stamp).
+		WithServiceBinding(buildlane.SmokeHost, svc).
+		WithNewFile("/smoke.py", s.ProbeScript()).
+		WithExec([]string{"python3", "/smoke.py"}, anyExit)
+	out, rc, err := output(ctx, probe)
+	if err != nil {
+		say("smoke: %v", err)
+		code, why := buildlane.SmokeFailed(err.Error())
+		return code, why + ": the image did not start and serve on port " + strconv.Itoa(s.Port) + ": " + lastLine(err.Error())
+	}
+	say("%s", strings.TrimSpace(out))
+	if rc != 0 {
+		return buildlane.Findings, "findings in the boot smoke: " + strings.TrimSpace(out)
+	}
+	return buildlane.Clean, strings.TrimSpace(out)
 }
 
 // verify is the verify stage's scan, as a step of the build lane: the image's
