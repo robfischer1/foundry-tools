@@ -123,11 +123,19 @@ func (m *FoundryTools) GateFile(
 	// graded cold.
 	// +optional
 	reuse bool,
+	// The SPIRE agent's workload socket, forwarded by the lane pod
+	// (--spire=/run/spire/agent/public/api.sock). fleet:witness asks narcissus
+	// over its mTLS door as the SVID it issues — the lane's own run,
+	// spiffe://notusmi.com/job/<lane>/<job>. Absent, the witness asks in the
+	// clear exactly as before and says so.
+	// +optional
+	spire *dagger.Socket,
 ) (*dagger.File, error) {
 	if reuse && recordToken != nil {
 		m.lookup = lookupVia(m.Repo, recordToken)
 		m.audit = auditSampled(m.Sha)
 	}
+	m.spire = spire
 	result := m.gateStage(ctx, tree, stage, base)
 	// POST FIRST, THEN HAND BACK THE FILE. Both transports carry the same bytes
 	// — Record()'s whole output, sentinel included — because ourea reads

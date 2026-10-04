@@ -575,6 +575,9 @@ func fleetWitness(ctx context.Context, r *run) checks.Verdict {
 
 	// A FEW AT ONCE. The rows keep git's order, whatever order the answers
 	// arrive in, and one file's failure is that file's row, not the run's.
+	// WHO IS ASKING: the lane's run when it forwarded --spire, the clear port
+	// otherwise (witness_identity.go). Said in the output either way.
+	via := r.witnessAsker(ctx)
 	rows := make([]checks.WitnessRow, len(sources))
 	g := new(errgroup.Group)
 	g.SetLimit(checks.WitnessWorkers)
@@ -586,7 +589,7 @@ func fleetWitness(ctx context.Context, r *run) checks.Verdict {
 				return nil
 			}
 			body := checks.WitnessRequest(i+1, query, checks.WitnessLanguage(p), "ci:gate:"+star+"@HEAD", p)
-			status, contentType, answer, err := askWitness(ctx, body)
+			status, contentType, answer, err := via.ask(ctx, body)
 			if err != nil {
 				rows[i] = checks.WitnessRow{Path: p, Class: "could-not-consult", Reason: "could not ask the witness: " + err.Error()}
 				return nil
@@ -598,7 +601,7 @@ func fleetWitness(ctx context.Context, r *run) checks.Verdict {
 	}
 	_ = g.Wait() // every ask files its own row; none returns an error
 	state, reason := checks.AggregateWitness(rows, skipped, vendored)
-	return settle(state, reason, rows)
+	return settle(state, reason+"\n"+via.say(), rows)
 }
 
 // askWitness posts one JSON-RPC request to narcissus's MCP port

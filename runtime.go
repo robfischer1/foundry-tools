@@ -73,6 +73,9 @@ type run struct {
 	// audit, when set, grades every unit cold even where a lookup answered,
 	// and holds the answered gradings against the cold ones (mutation_reuse.go).
 	audit bool
+	// spire, when set, is the lane pod's SPIRE socket: fleet:witness asks as
+	// the SVID it issues (witness_identity.go); nil asks in the clear.
+	spire *dagger.Socket
 
 	dies *dagger.Directory
 	// flux is foundry/flux at main: the pins flux image automation writes.
