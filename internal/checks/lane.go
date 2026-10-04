@@ -115,6 +115,11 @@ var SurfaceNamespaces = map[string]string{
 	// star that is party to a contract, flux's prime/orbits, or a laid root
 	// orbit.toml — each atom finds its own and answers ABSENT elsewhere.
 	"orbit": "a seam — foundry-dies/orbits, a contracted star, flux prime/orbits, or a laid orbit.toml",
+	// wit: an interface repository — tracked wit/**/*.wit beside a root
+	// justfile that defines validate (2026-10-03, rob/stellar-core#13761).
+	// One repository of the fleet carries it; the atom answers ABSENT
+	// everywhere else, which is the argument above for why it is NOT `fleet:`.
+	"wit": "tracked wit/**/*.wit beside a root justfile that defines validate — an interface repository",
 }
 
 // IsSurfaceNamespace reports whether an atom id sits in a declared surface

@@ -241,6 +241,16 @@ func atomTable() []AtomDef {
 			Desc: "Every case in this template's ci-matrix.toml still renders.",
 		},
 
+		// ---- wit: interface repos ----
+		//
+		// An interface repo carries WIT and a tape and no language, so no lane
+		// graded it (rob/stellar-core#13761). Its own `just validate` is the
+		// check; this runs it. ABSENT without wit/*.wit and a validate recipe.
+		{
+			ID: "wit:validate", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
+			Desc: "The repository's own `just validate` passes — wasm-tools resolves every WIT package the tree carries.",
+		},
+
 		// ---- go ----
 		{
 			ID: "go:gofmt", Stage: StagePrecommit, Lane: LaneGo, Image: ImageGo,
@@ -373,6 +383,11 @@ func atomTable() []AtomDef {
 		{
 			ID: "rust:cargo-audit", Stage: StagePrepush, Lane: LaneRust, Image: ImageRust,
 			Desc: "cargo audit reports no known vulnerability.",
+		},
+		{
+			ID: "rust:wit-guest", Stage: StagePrepush, Lane: LaneRust, Image: ImageRust,
+			Desc:          "The crate's wit-guest feature builds for wasm32-unknown-unknown and the module lifts to a component that validates; absent where the manifest declares no such feature.",
+			NeedsManifest: true,
 		},
 
 		// ---- ts ----
