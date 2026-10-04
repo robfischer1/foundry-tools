@@ -78,6 +78,9 @@ func TestHasCargoFeature(t *testing.T) {
 	if HasCargoFeature("[features]\ndefault = []\n\n[dependencies]\nwit-guest = \"1\"\n", "wit-guest") {
 		t.Error("a key after the [features] table is not in it")
 	}
+	if !HasCargoFeature("  [features]\r\n  wit-guest = []\r\n", "wit-guest") {
+		t.Error("indentation and CRLF do not hide a feature")
+	}
 	if HasCargoFeature("", "wit-guest") {
 		t.Error("an empty manifest declares nothing")
 	}
@@ -96,6 +99,9 @@ func TestWitGuestArtifact(t *testing.T) {
 	}
 	if got := WitGuestArtifact("[package]\nname = unquoted\n"); got != "" {
 		t.Errorf("an unquoted name is not read: got %q", got)
+	}
+	if got := WitGuestArtifact("[package]\nname = x\"y\"\n"); got != "" {
+		t.Errorf("a value that does not open with a quote is not read: got %q", got)
 	}
 	if got := WitGuestArtifact("[package]\nname = \"broken\n"); got != "" {
 		t.Errorf("an unterminated name is not read: got %q", got)
