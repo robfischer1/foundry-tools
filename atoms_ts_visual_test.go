@@ -131,8 +131,9 @@ func TestTSVisualPassesAndBuildsTheChainInOrder(t *testing.T) {
 	if strings.Contains(c, `expect:ANY, args:["bunx","playwright@`) || hasCall(c, "withExec", "expect:ANY", `"playwright@1.62.0"`) {
 		t.Errorf("the browser install is provisioning and takes the default Expect:\n%s", c)
 	}
-	if !hasCall(c, "withWorkdir", `path:"/src/apps/gallery"`) {
-		t.Errorf("the suite runs from its own directory:\n%s", c)
+	// After turbo ran at the root, the suite runs from its own directory again.
+	if suite := lastCall(c, "withWorkdir", `path:"/src/apps/gallery"`); suite < turbo || lastCall(c, "withWorkdir") != suite {
+		t.Errorf("the suite runs from its own directory, after the build:\n%s", c)
 	}
 	if engine.chain(visualUpdateNeedle) != "" || engine.chain("publish") != "" {
 		t.Error("a passing run regenerated or pushed something")

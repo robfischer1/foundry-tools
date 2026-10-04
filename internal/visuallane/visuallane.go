@@ -116,9 +116,9 @@ func PackageName(packageJSON string) string {
 	var p struct {
 		Name string `json:"name"`
 	}
-	if json.Unmarshal([]byte(packageJSON), &p) != nil {
-		return ""
-	}
+	// A manifest that does not parse leaves p zero — the "" the doc promises —
+	// so the error says nothing the answer does not already say.
+	_ = json.Unmarshal([]byte(packageJSON), &p)
 	return p.Name
 }
 
@@ -360,7 +360,7 @@ func ArtifactRef(registry, repo, sha string) (string, error) {
 	switch {
 	case !shaRE.MatchString(sha):
 		return "", fmt.Errorf("the run names no commit sha, so its artifact has no tag")
-	case repo == "" || !starRE.MatchString(star):
+	case !starRE.MatchString(star): // "" is path.Base's ".", which no star is
 		return "", fmt.Errorf("the repo %q names no registry path", repo)
 	}
 	return registry + "/" + ArtifactRepo + "/" + star + ":" + sha, nil
