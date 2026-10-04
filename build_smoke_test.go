@@ -21,7 +21,7 @@ func TestAnImageWithNoSmokeLabelIsNotStarted(t *testing.T) {
 	if code != buildlane.Clean {
 		t.Fatalf("settled %d", code)
 	}
-	if got := atomNamed(t, l, "build:smoke"); got.State != buildlane.Clean || !strings.Contains(got.Reason, "no boot smoke declared") {
+	if got := atomNamed(t, l, "build:smoke"); got.State != buildlane.Clean || got.Reason != "no boot smoke declared (org.notusmi.smoke)" {
 		t.Fatalf("smoke atom: %+v", got)
 	}
 	if engine.chain(smokeProbeNeedle) != "" {
@@ -39,7 +39,8 @@ func TestADeclaredSmokeStartsTheImageAndAsksIt(t *testing.T) {
 	if code != buildlane.Clean {
 		t.Fatalf("settled %d", code)
 	}
-	if got := atomNamed(t, l, "build:smoke"); got.State != buildlane.Clean || !strings.Contains(got.Reason, "answered 405") {
+	answered := "smoke: http://smoke:8204/mcp answered 405 after 3s up"
+	if got := atomNamed(t, l, "build:smoke"); got.State != buildlane.Clean || got.Reason != answered || !contains(got.Logs, answered) {
 		t.Fatalf("smoke atom: %+v", got)
 	}
 	probe := engine.chain(smokeProbeNeedle)
@@ -70,7 +71,8 @@ func TestAnImageThatDoesNotAnswerIsFindings(t *testing.T) {
 	if code != buildlane.Findings {
 		t.Fatalf("settled %d, want findings", code)
 	}
-	if got := atomNamed(t, l, "build:smoke"); got.State != buildlane.Findings || !strings.Contains(got.Reason, "did not answer") {
+	refused := "smoke: http://smoke:8204/ did not answer after 8s: connection refused"
+	if got := atomNamed(t, l, "build:smoke"); got.State != buildlane.Findings || got.Reason != "findings in the boot smoke: "+refused || !contains(got.Logs, refused) {
 		t.Fatalf("smoke atom: %+v", got)
 	}
 	for _, after := range []string{"build:verify", "build:publish"} {
@@ -90,8 +92,12 @@ func TestAnImageThatDiesBeforeServingIsFindings(t *testing.T) {
 	if code != buildlane.Findings {
 		t.Fatalf("settled %d, want findings", code)
 	}
-	if got := atomNamed(t, l, "build:smoke"); !strings.Contains(got.Reason, "did not start and serve on port 8204") {
+	got := atomNamed(t, l, "build:smoke")
+	if !strings.Contains(got.Reason, "exited instead of serving: the image did not start and serve on port 8204") {
 		t.Fatalf("smoke atom: %+v", got)
+	}
+	if len(got.Logs) == 0 || !strings.Contains(got.Logs[0], "ENOENT") {
+		t.Fatalf("the engine's error is not in the smoke's log: %+v", got.Logs)
 	}
 }
 

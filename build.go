@@ -410,11 +410,11 @@ func (l *buildLane) smoke(ctx context.Context, img *Image) (int, string) {
 		WithExec([]string{"python3", "/smoke.py"}, anyExit)
 	out, rc, err := output(ctx, probe)
 	if err != nil {
-		say("smoke: %v", err)
+		l.say("smoke: %v", err)
 		code, why := buildlane.SmokeFailed(err.Error())
 		return code, why + ": the image did not start and serve on port " + strconv.Itoa(s.Port) + ": " + lastLine(err.Error())
 	}
-	say("%s", strings.TrimSpace(out))
+	l.say("%s", strings.TrimSpace(out))
 	if rc != 0 {
 		return buildlane.Findings, "findings in the boot smoke: " + strings.TrimSpace(out)
 	}
