@@ -29,6 +29,7 @@ func init() {
 	register("fleet:stop-justifications", fleetStopJustifications)
 	register("fleet:sast-ruleset-lanes", fleetSastRulesetLanes)
 	register("fleet:orbit-drift", fleetOrbitDrift)
+	register("fleet:dagger-lockstep", fleetDaggerLockstep)
 	register("fleet:opengrep-sast", fleetOpengrepSast)
 	register("fleet:witness", fleetWitness)
 	register("fleet:hadolint", fleetHadolint)
@@ -358,7 +359,8 @@ func fleetSastRulesetLanes(ctx context.Context, r *run) checks.Verdict {
 		strings.Join(declared, " "), strings.Join(missing, " ")))
 }
 
-// oureaDoor is where fleet:orbit-drift and dies:contracts read contracts. A
+// oureaDoor is where fleet:orbit-drift and dies:contracts read contracts, and
+// fleet:dagger-lockstep reads the engine flux runs. A
 // variable so the tests can point it at a fake door.
 var oureaDoor = checks.NewDoor()
 
@@ -408,6 +410,39 @@ func fleetOrbitDrift(ctx context.Context, r *run) checks.Verdict {
 		return checks.VerdictOf(a, 2, "fleet:orbit-drift: CANNOT RUN - orbit.toml did not parse: "+err.Error())
 	}
 	state, report := checks.OrbitDrift(ctx, declared, oureaDoor)
+	return checks.VerdictOf(a, state, report)
+}
+
+// The dagger CLI, the engine and any dagger module in this tree are held to
+// one version: the engine foundry/flux runs.
+//
+// LOCKSTEP, AND THE ENGINE LEADS (Rob, 2026-10-04: "Bump CLI and engine in
+// lockstep for dagger"). The judgement, and why each pin is read the way it
+// is, is checks.DaggerLockstep. This reads the pin files the tree holds — a
+// literal glob each, so a tree that holds none costs no read at all — and
+// hands them over. Like orbit-drift it is Go in the module: the engine
+// version a tree is held to is read from the door at gate time, never frozen
+// into a cached exec.
+func fleetDaggerLockstep(ctx context.Context, r *run) checks.Verdict {
+	a := checks.AtomByID("fleet:dagger-lockstep")
+
+	paths := []string{checks.DaggerModuleManifest}
+	for _, f := range checks.DaggerPinFiles {
+		paths = append(paths, f.Path)
+	}
+	present, err := r.population(ctx, paths...)
+	if err != nil {
+		return cannotEnumerate(a, err)
+	}
+	files := map[string]string{}
+	for _, p := range present {
+		body, err := r.src.File(p).Contents(ctx)
+		if err != nil {
+			return checks.VerdictOf(a, 2, fmt.Sprintf("fleet:dagger-lockstep: CANNOT RUN - %s would not read: %v", p, err))
+		}
+		files[p] = body
+	}
+	state, report := checks.DaggerLockstep(ctx, files, oureaDoor)
 	return checks.VerdictOf(a, state, report)
 }
 
