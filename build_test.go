@@ -410,7 +410,7 @@ func TestTheLastPublishedRevisionIsReadWhereTheImageIsPushed(t *testing.T) {
 
 // A pull builds the image — its build args and labels — and publishes nothing.
 func TestAPullBuildsTheImageAndPublishesNothing(t *testing.T) {
-	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n", ".forgejo/build-args.env": "# the star's args\nFOO=bar\n"})
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n", "build-args.env": "# the star's args\nFOO=bar\n"})
 	engine.stdout("--name-only", "cmd/ares/main.go\n")
 	pull(t, m)
 	wantCalls(t, engine.chain("dockerBuild", "sync"),

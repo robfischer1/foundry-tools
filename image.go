@@ -96,7 +96,7 @@ func (m *FoundryTools) Image(
 	// The star's name — org.opencontainers.image.title.
 	title string,
 	// Build args as KEY=VALUE, one per entry: the star's
-	// .forgejo/build-args.env and the runner's own index (UV_INDEX_URL),
+	// build-args.env and the runner's own index (UV_INDEX_URL),
 	// which a RUN sees only when it crosses the seam by name.
 	// +optional
 	buildArgs []string,

@@ -118,10 +118,10 @@ They exist because the **act-runner is being removed**, and what it validated is
 
 | atom | ported from | what it asks | ABSENT when |
 | :-- | :-- | :-- | :-- |
-| `compose:config` | `{nas01,llm01}-stacks/.forgejo/workflows/validate.yml` | every tracked compose spec parses, env_file targets stubbed, `--no-interpolate` | no tracked `compose.ya?ml` |
+| `compose:config` | the stacks repos' former validate workflow | every tracked compose spec parses, env_file targets stubbed, `--no-interpolate` | no tracked `compose.ya?ml` |
 | `compose:no-tracked-secrets` | same | no `.env` / `envs/` / `.pem` / `.key` / `_rsa` file is **tracked** | ″ |
 | `compose:third-party-pins` | nas01's BP6b ratchet | zero `${PIN_}` image interpolations, as a **count** | ″ |
-| `dies:opa-test` | `foundry-dies/.forgejo/workflows/ci.yml` | the rego unit + invariant suite passes | not `policy/.manifest` + `fleet/stars/` |
+| `dies:opa-test` | foundry-dies' former ci workflow | the rego unit + invariant suite passes | not `policy/.manifest` + `fleet/stars/` |
 | `dies:admission-dogfood` | ″ | the admission domain admits our own star shape | ″ |
 | `dies:data-keys` | ″ | the **built bundle** carries every data root, non-empty | ″ |
 | `dies:canary-visibility` | ″ | the **built bundle** still hides a curated verb from a session principal | ″ |

@@ -108,8 +108,8 @@ func requirePaths(ctx context.Context, r *run, a checks.AtomDef, required [][2]s
 // The rego language version is a property of the binary: a suite written for v1
 // semantics graded by a different major answers a different question, and "the
 // policy suite passed" would then be a true statement about the wrong language.
-// The workflow this ports pinned 1.18.0 by hand (foundry-dies
-// .forgejo/workflows/ci.yml:47-53); the pin lives in checks.OpaVersion now.
+// The workflow this ports pinned 1.18.0 by hand (foundry-dies's
+// retired CI workflow); the pin lives in checks.OpaVersion now.
 //
 // THE VERSION IS CHECKED RATHER THAN ASSUMED, so a mirror that served something
 // else — or an image that starts shipping its own opa on PATH — cannot silently

@@ -102,8 +102,8 @@ type Verdict struct {
 //
 // AN ATOM THAT DECLARED ITSELF ABSENT IS NOT REPORTED AS A PASS. Half the
 // atoms here find their own absence in the tree rather than off a root
-// manifest — no rules/sast, no Dockerfile, no digest reference under
-// .forgejo/workflows — and they say so on stdout before exiting 0. Rendering
+// manifest — no rules/sast, no Dockerfile, no digest reference in
+// a compose file — and they say so on stdout before exiting 0. Rendering
 // that as "pass" flattens "there was nothing to check" into "I checked and it
 // was clean", which is the same conflation StateCannotRun exists to prevent,
 // one shelf up: measured on ca-sweep-manual-1788973171, 28 of the run's 86
