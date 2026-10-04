@@ -148,7 +148,12 @@ func TestRustWitGuestIsAbsentWithoutTheFeature(t *testing.T) {
 func TestRustWitGuestBuildsLiftsAndValidates(t *testing.T) {
 	engine.reset()
 	engine.withTree(map[string]string{"Cargo.toml": witCargo})
-	wantState(t, runAtom(t, "rust:wit-guest", ""), 0)
+	engine.stdout(`"component","wit"`, "world identity-core")
+	v := runAtom(t, "rust:wit-guest", "")
+	wantState(t, v, 0)
+	if !strings.Contains(strings.Join(v.Logs, "\n"), "world identity-core") {
+		t.Errorf("the read-back world is the atom's output, got %q", v.Logs)
+	}
 
 	module := checks.WitGuestTargetDir + "/" + checks.WitGuestTarget + "/release/stellar_core.wasm"
 	const component = "/tmp/wit-guest.component.wasm"
@@ -218,13 +223,19 @@ func TestRustWitGuestMapsEachStepsExit(t *testing.T) {
 		})
 	}
 
-	// A build that failed goes no further.
-	engine.reset()
-	engine.withTree(map[string]string{"Cargo.toml": witCargo})
-	engine.exitCode(guestBuild, 1)
-	runAtom(t, "rust:wit-guest", "")
-	if engine.chain(`"component","new"`) != "" {
-		t.Errorf("a guest that did not build was lifted anyway:\n%v", engine.chains())
+	// A step that failed goes no further.
+	for _, c := range [][2]string{
+		{guestBuild, `"component","new"`},
+		{`"component","new"`, `"wasm-tools","validate"`},
+		{`"wasm-tools","validate"`, `"component","wit"`},
+	} {
+		engine.reset()
+		engine.withTree(map[string]string{"Cargo.toml": witCargo})
+		engine.exitCode(c[0], 1)
+		runAtom(t, "rust:wit-guest", "")
+		if engine.chain(c[1]) != "" {
+			t.Errorf("%s failed and %s ran anyway:\n%v", c[0], c[1], engine.chains())
+		}
 	}
 }
 

@@ -92,15 +92,15 @@ func HasWitFiles(files []string) bool {
 
 // tomlValue is the string a `key = "value"` line holds, "" for anything else.
 func tomlValue(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if len(raw) < 2 || raw[0] != '"' {
+	rest, ok := strings.CutPrefix(raw, `"`)
+	if !ok {
 		return ""
 	}
-	end := strings.IndexByte(raw[1:], '"')
-	if end < 0 {
+	value, _, closed := strings.Cut(rest, `"`)
+	if !closed {
 		return ""
 	}
-	return raw[1 : 1+end]
+	return value
 }
 
 // cargoSection answers the keys of one table of a Cargo.toml, as written.
@@ -114,12 +114,7 @@ func cargoSection(cargoToml, table string) map[string]string {
 		line = strings.TrimSpace(line)
 		if m := sectionHeader.FindStringSubmatch(line); m != nil {
 			in = m[1] == table
-			continue
-		}
-		if !in {
-			continue
-		}
-		if m := keyLine.FindStringSubmatch(line); m != nil {
+		} else if m := keyLine.FindStringSubmatch(line); m != nil && in {
 			keys[m[1]] = m[2]
 		}
 	}
