@@ -393,7 +393,9 @@ func (l *buildLane) smoke(ctx context.Context, img *Image) (int, string) {
 		return buildlane.Failed("the boot smoke's label read", err.Error())
 	}
 	s, ok, err := buildlane.ParseSmoke(label)
-	if err != nil || !ok {
+	// ParseSmoke answers ok false on every error, so !ok covers both: no
+	// smoke (err nil) and one that cannot be read (err set).
+	if !ok {
 		return buildlane.SmokeUndeclared(err)
 	}
 	for _, kv := range s.Env {
