@@ -119,3 +119,24 @@ func TestWitPinsAgree(t *testing.T) {
 		t.Errorf("JustURL %q does not follow JustVersion: want %q", JustURL, want)
 	}
 }
+
+func TestWitGuestWorlds(t *testing.T) {
+	for _, c := range []struct {
+		name, manifest string
+		want           []string
+	}{
+		{"two worlds and the alias", "[features]\nwit-guest = [\"wit-guest-identity\"]\nwit-guest-reader = []\nwit-guest-identity = []\ndefault = []\n", []string{"wit-guest-identity", "wit-guest-reader"}},
+		{"worlds without the alias", "[features]\nwit-guest-reader = []\n", []string{"wit-guest-reader"}},
+		{"the alias alone is the one world", "[features]\nwit-guest = []\n", []string{"wit-guest"}},
+		{"neither", "[features]\ndefault = []\nwit = []\n", nil},
+		{"a bare prefix is not a world", "[features]\nwit-guest- = []\n", nil},
+		{"a dependency is not a feature", "[dependencies]\nwit-guest-x = \"1\"\n", nil},
+		{"a long name without the prefix is not a world", "[features]\nunrelated-feature-name-longer-than-the-prefix = []\n", nil},
+		{"empty", "", nil},
+	} {
+		got := WitGuestWorlds(c.manifest)
+		if strings.Join(got, ",") != strings.Join(c.want, ",") {
+			t.Errorf("%s: WitGuestWorlds = %v, want %v", c.name, got, c.want)
+		}
+	}
+}

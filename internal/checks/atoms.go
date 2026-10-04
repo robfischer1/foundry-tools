@@ -393,7 +393,7 @@ func atomTable() []AtomDef {
 		},
 		{
 			ID: "rust:wit-guest", Stage: StagePrepush, Lane: LaneRust, Image: ImageRust,
-			Desc:          "The crate's wit-guest feature builds for wasm32-unknown-unknown and the module lifts to a component that validates; absent where the manifest declares no such feature.",
+			Desc:          "Each wit-guest-<world> feature (discovered from Cargo.toml) builds for wasm32-unknown-unknown, lifts to a component that validates, and passes its native cargo test; absent where the manifest declares none.",
 			NeedsManifest: true,
 		},
 

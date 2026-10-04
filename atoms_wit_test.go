@@ -138,7 +138,7 @@ func TestRustWitGuestIsAbsentWithoutTheFeature(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree) // Cargo.toml declares no features
 	v := runAtom(t, "rust:wit-guest", "")
-	wantState(t, v, 0, "rust:wit-guest: ABSENT", "declares no wit-guest feature")
+	wantState(t, v, 0, "rust:wit-guest: ABSENT", "declares no wit-guest-<world> feature")
 	if v.Result != "absent" {
 		t.Errorf("want absent, got %q", v.Result)
 	}
@@ -258,4 +258,90 @@ func TestRustWitGuestRefusalsAreCouldNotRuns(t *testing.T) {
 	engine.withTree(map[string]string{"Cargo.toml": witCargo})
 	engine.fail(`file(path:"Cargo.toml")`, "read refused")
 	wantState(t, runAtom(t, "rust:wit-guest", ""), 2, "Cargo.toml would not read", "read refused")
+}
+
+// ---- rust:wit-guest: world discovery (rob/stellar-core-rust#14205) ----
+
+const witTwoWorlds = "[package]\nname = \"stellar-core\"\n\n[features]\ndefault = []\nwit-guest = [\"wit-guest-identity\"]\nwit-guest-identity = [\"dep:wit-bindgen\"]\nwit-guest-reader = [\"dep:wit-bindgen\"]\n"
+
+func feat(world string) string { return `"--features","` + world + `"` }
+
+// Two worlds and the alias: exactly the two are built and tested, the alias
+// never is, and each world gets all five steps.
+func TestRustWitGuestGradesEveryWorldAndNotTheAlias(t *testing.T) {
+	engine.reset()
+	engine.withTree(map[string]string{"Cargo.toml": witTwoWorlds})
+	engine.stdout(`"component","wit"`, "world w")
+	v := runAtom(t, "rust:wit-guest", "")
+	wantState(t, v, 0)
+
+	for _, w := range []string{"wit-guest-identity", "wit-guest-reader"} {
+		if engine.chain(guestBuild, feat(w), "exitCode") == "" {
+			t.Errorf("%s: no wasm32 build:\n%v", w, engine.chains())
+		}
+		if engine.chain(`"cargo","test"`, `"--no-default-features"`, feat(w), "exitCode") == "" {
+			t.Errorf("%s: no native cargo test:\n%v", w, engine.chains())
+		}
+		if !strings.Contains(strings.Join(v.Logs, "\n"), "["+w+"] ") {
+			t.Errorf("%s: pass logs name the world, got %q", w, v.Logs)
+		}
+	}
+	if engine.chain(guestBuild, feat("wit-guest"), "exitCode") != "" || engine.chain(`"cargo","test"`, feat("wit-guest"), "exitCode") != "" {
+		t.Errorf("the bare alias must not be graded when a world exists:\n%v", engine.chains())
+	}
+}
+
+// The alias alone, with no wit-guest-<world>, is ITSELF the one world: it is
+// what the atom graded before the split, and going inert would stop grading
+// that guest. It is built and tested like a world.
+func TestRustWitGuestAliasAloneIsTheOneWorld(t *testing.T) {
+	engine.reset()
+	engine.withTree(map[string]string{"Cargo.toml": witCargo})
+	wantState(t, runAtom(t, "rust:wit-guest", ""), 0)
+	if engine.chain(guestBuild, feat("wit-guest"), "exitCode") == "" || engine.chain(`"cargo","test"`, feat("wit-guest"), "exitCode") == "" {
+		t.Errorf("the lone alias is built and tested:\n%v", engine.chains())
+	}
+}
+
+// A red names the world and the step; the other world's failure is not
+// attributed to the first.
+func TestRustWitGuestFindingsNameTheFailingWorld(t *testing.T) {
+	for _, c := range []struct{ name, needle, world, step string }{
+		{"reader build", guestBuild + `,"--no-default-features",` + feat("wit-guest-reader"), "wit-guest-reader", "build"},
+		{"reader test", `"cargo","test","--locked","--no-default-features",` + feat("wit-guest-reader"), "wit-guest-reader", "test"},
+		{"identity test", `"cargo","test","--locked","--no-default-features",` + feat("wit-guest-identity"), "wit-guest-identity", "test"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			engine.reset()
+			engine.withTree(map[string]string{"Cargo.toml": witTwoWorlds})
+			engine.exitCode(c.needle, 101)
+			v := runAtom(t, "rust:wit-guest", "")
+			wantState(t, v, 1, "world "+c.world, c.step)
+			if len(v.Logs) == 0 || !strings.Contains(v.Logs[0], c.world) {
+				t.Errorf("first log line names the world, got %q", v.Logs)
+			}
+		})
+	}
+
+	// identity (sorted first) failing stops before reader is built.
+	engine.reset()
+	engine.withTree(map[string]string{"Cargo.toml": witTwoWorlds})
+	engine.exitCode(`"cargo","test","--locked","--no-default-features",`+feat("wit-guest-identity"), 101)
+	runAtom(t, "rust:wit-guest", "")
+	if engine.chain(feat("wit-guest-reader")) != "" {
+		t.Errorf("a failed world goes no further:\n%v", engine.chains())
+	}
+}
+
+// A crate with no wit-guest feature at all, even one with other features, is
+// inert and never starts a container.
+func TestRustWitGuestInertWithoutAnyWorld(t *testing.T) {
+	engine.reset()
+	engine.withTree(map[string]string{"Cargo.toml": "[package]\nname = \"x\"\n\n[features]\ndefault = []\nwit = []\n"})
+	v := runAtom(t, "rust:wit-guest", "")
+	wantState(t, v, 0, "ABSENT")
+	if v.Result != "absent" {
+		t.Errorf("want absent, got %q", v.Result)
+	}
+	fleetNoContainer(t, "no worlds")
 }
