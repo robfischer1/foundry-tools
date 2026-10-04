@@ -76,7 +76,8 @@ func contract(name string, raw, baseRaw []byte, roster map[string]bool) checks.F
 			"status "+c.Status+" is not one of generated, approved")
 	}
 	for _, star := range []string{c.Producer, c.Consumer} {
-		if !roster[star] {
+		// A CI lane consumer (job.<lane>) is no star and is on no roster.
+		if !roster[star] && !orbitcompose.IsJob(star) {
 			return finding(checks.VerdictViolated, subject, "party-not-on-roster",
 				star+" is not on the fleet roster (fleet/stars/"+star+"/data.json)")
 		}

@@ -88,6 +88,9 @@ func TestContractsJudgesEveryFile(t *testing.T) {
 		"themis-chaos.toml":   []byte(strings.Replace(strings.Replace(approved, `"shape_for"`, `"shapes"`, 1), `"1"`, `"2"`, 1)),
 		"urania-chaos.toml":   []byte(approved),
 		"themis-themis2.toml": []byte(body),
+		// A CI lane consumer is on no roster and needs none; its producer does.
+		"chaos-job.gate.toml": []byte(body),
+		"ghost-job.gate.toml": []byte(body),
 	}
 	base := map[string][]byte{
 		"themis-urania.toml": []byte(approved),
@@ -97,9 +100,11 @@ func TestContractsJudgesEveryFile(t *testing.T) {
 	got := verdicts(Contracts(files, base, roster))
 	want := []string{
 		"violated party-not-on-roster orbits/chaos-ghost.toml",
+		"holds contract orbits/chaos-job.gate.toml",
 		"violated status-unknown orbits/chaos-themis.toml",
 		"violated contract-unparseable orbits/chaos-urania.toml",
 		"violated party-not-on-roster orbits/ghost-chaos.toml",
+		"violated party-not-on-roster orbits/ghost-job.gate.toml",
 		"holds contract orbits/themis-chaos.toml",
 		"violated party-not-on-roster orbits/themis-themis2.toml",
 		"violated approved-verbs-moved orbits/themis-urania.toml",

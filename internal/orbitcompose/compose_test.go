@@ -74,6 +74,17 @@ wire_form = "native"
 verbs = ["shapes"]
 `
 
+// A CI lane's edge is on its producer's sidecar alone: a job has no sidecar.
+func TestComposeGivesAJobNoSidecar(t *testing.T) {
+	got := Compose([]Contract{contract("narcissus", "job.gate", "witness")})
+	if len(got) != 1 || got[0].Star != "narcissus" || names(got[0].Produces) != "narcissus-job.gate" || len(got[0].Consumes) != 0 {
+		t.Fatalf("%+v", got)
+	}
+	if r := string(Render(got[0])); !strings.Contains(r, "[[produces]]\nto = \"job.gate\"\ncontract = \"narcissus-job.gate\"") {
+		t.Errorf("%s", r)
+	}
+}
+
 func TestRenderIsTheComposedSidecarDialect(t *testing.T) {
 	approved := contract("chaos", "urania", "shapes")
 	approved.Version, approved.Status = "2", "approved"

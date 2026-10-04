@@ -34,7 +34,11 @@ func Compose(contracts []Contract) []Sidecar {
 	}
 	for _, c := range contracts {
 		get(c.Producer).Produces = append(get(c.Producer).Produces, c)
-		get(c.Consumer).Consumes = append(get(c.Consumer).Consumes, c)
+		// A CI lane is no star: it has no sidecar, no ConfigMap and no PEP.
+		// Its edge lives on the producer's side alone.
+		if !IsJob(c.Consumer) {
+			get(c.Consumer).Consumes = append(get(c.Consumer).Consumes, c)
+		}
 	}
 	out := make([]Sidecar, 0, len(byStar))
 	for _, s := range byStar {
