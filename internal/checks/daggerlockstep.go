@@ -233,8 +233,10 @@ func daggerParts(v string) []int {
 // daggerNewer reports whether a is a later version than b. Both are
 // daggerSemver; an unreadable one is never newer.
 func daggerNewer(a, b string) bool {
+	// An unreadable version is nil, and nil is never the length of a readable
+	// one; two unreadable ones compare no parts at all.
 	pa, pb := daggerParts(a), daggerParts(b)
-	if pa == nil || pb == nil {
+	if len(pa) != len(pb) {
 		return false
 	}
 	for i := range pa {

@@ -207,6 +207,8 @@ func TestDaggerVersionsCompareNumerically(t *testing.T) {
 		{"v0.99.99", "v1.0.0", false},
 		{"0.22.0", "v0.21.9", false},
 		{"v0.22.0", "v0.21", false},
+		{"v0.21", "v0.22.0", false},
+		{"bad", "worse", false},
 	} {
 		if got := daggerNewer(tc.a, tc.b); got != tc.newer {
 			t.Errorf("daggerNewer(%s, %s) = %v, want %v", tc.a, tc.b, got, tc.newer)
