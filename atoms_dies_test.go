@@ -1,6 +1,9 @@
 package main
 
 import (
+	"io"
+	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -513,10 +516,10 @@ func TestDiesContractsProvesDetectionThenProbesTheDoorThenChecks(t *testing.T) {
 		if c == "" {
 			t.Fatalf("fixture %s never ran:\n%v", f.name, engine.chains())
 		}
-		// THE PROBE SCRIPT LANDS AFTER THE FIXTURES, so editing it does not
-		// invalidate thirteen cached fixture runs that never read it.
-		if strings.Contains(c, "dies-door-probe.py") {
-			t.Errorf("fixture %s must not carry the door probe in its cache key:\n%s", f.name, c)
+		// THE DOOR PROBE IS NOT A FILE ANY MORE, and no fixture's cache key
+		// carries it.
+		if strings.Contains(c, "dies-door-probe") {
+			t.Errorf("fixture %s must not carry the door probe:\n%s", f.name, c)
 		}
 		wantCalls(t, c,
 			[]string{"withExec", `args:["uv","--version"]`},
@@ -535,11 +538,9 @@ func TestDiesContractsProvesDetectionThenProbesTheDoorThenChecks(t *testing.T) {
 		t.Errorf("the detection proof is nine fixtures and four controls, got %d/%d", nFail, nPass)
 	}
 
-	door := engine.chain(`"python3","/tmp/dies-door-probe.py"`, "exitCode")
-	wantCalls(t, door,
-		[]string{"withNewFile", `path:"/tmp/dies-door-probe.py"`},
-		[]string{"withExec", "expect:ANY", `"python3","/tmp/dies-door-probe.py"`},
-	)
+	if c := engine.chain("dies-door-probe"); c != "" {
+		t.Errorf("the door probe is Go in the module, not a script in the lane:\n%s", c)
+	}
 	if engine.chain(`"tools/check_contracts.py"]`, "exitCode") == "" {
 		t.Errorf("the live manifest is never checked:\n%v", engine.chains())
 	}
@@ -557,8 +558,9 @@ func scriptContractFixtures() {
 
 func TestDiesContractsFailsWhenTheProofNoLongerHolds(t *testing.T) {
 	// A fixture the checker stopped detecting.
+	asks := fakeDoor(t, func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "x") })
 	engine.reset()
-	engine.withTree(everyLaneTree)
+	engine.withTree(diesTree(map[string]string{"contracts/contracts.toml": remoteManifest}))
 	scriptContractFixtures()
 	engine.exitCode(`"--contract","expired_retiring"`, 0)
 	wantState(t, runAtom(t, "dies:contracts", ""), 1,
@@ -575,8 +577,49 @@ func TestDiesContractsFailsWhenTheProofNoLongerHolds(t *testing.T) {
 		"control 'holding_pending' FAILED - the checker invents divergence")
 
 	// A broken proof stops before the door is ever probed.
-	if engine.chain(`"python3","/tmp/dies-door-probe.py"`) != "" {
-		t.Errorf("the door must not be probed once the proof has failed:\n%v", engine.chains())
+	if len(*asks) != 0 {
+		t.Errorf("the door must not be probed once the proof has failed: %v", *asks)
+	}
+}
+
+// remoteManifest declares two contracts; the first copy of the first one that
+// is remote is what the probe reaches for, and a local copy is skipped.
+const remoteManifest = `
+[contracts.star_kind]
+copies = [
+  { name = "local", source = { local = "schema/slag.schema.json" } },
+  { name = "stocks", source = { repo = "foundry-stocks", path = "star-kinds.toml" } },
+]
+
+[contracts.other]
+copies = [{ name = "x", source = { repo = "second", path = "never.toml" } }]
+`
+
+// THE PROBE ASKS OUREA for the manifest's first remote copy, over the archive
+// read, and any HTTP answer at all is "reachable": what the door said about one
+// file is the checker's finding to make.
+func TestDiesContractsProbesTheOureaDoorForTheFirstRemoteCopy(t *testing.T) {
+	for _, status := range []int{http.StatusOK, http.StatusNotFound, http.StatusServiceUnavailable} {
+		engine.reset()
+		engine.withTree(diesTree(map[string]string{"contracts/contracts.toml": remoteManifest}))
+		scriptContractFixtures()
+		asks := fakeDoor(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(status) })
+		wantState(t, runAtom(t, "dies:contracts", ""), 0)
+		if want := []doorAsk{{"foundry-stocks", "star-kinds.toml"}}; !reflect.DeepEqual(*asks, want) {
+			t.Errorf("status %d: the door was asked %v, want %v", status, *asks, want)
+		}
+	}
+
+	// Every copy local: nothing to reach, and the door is not touched.
+	engine.reset()
+	engine.withTree(diesTree(map[string]string{"contracts/contracts.toml": `[contracts.a]
+copies = [{ source = { local = "schema/slag.schema.json" } }]
+`}))
+	scriptContractFixtures()
+	asks := fakeDoor(t, func(http.ResponseWriter, *http.Request) {})
+	wantState(t, runAtom(t, "dies:contracts", ""), 0)
+	if len(*asks) != 0 {
+		t.Errorf("all copies are local, yet the door was asked %v", *asks)
 	}
 }
 
@@ -585,17 +628,19 @@ func TestDiesContractsFailsWhenTheProofNoLongerHolds(t *testing.T) {
 // lists that may be identical.
 func TestDiesContractsSeparatesADeadDoorFromADisagreement(t *testing.T) {
 	engine.reset()
-	engine.withTree(everyLaneTree)
+	engine.withTree(diesTree(map[string]string{"contracts/contracts.toml": remoteManifest}))
 	scriptContractFixtures()
-	engine.exitCode(`"python3","/tmp/dies-door-probe.py"`, 2)
-	engine.stdout(`"python3","/tmp/dies-door-probe.py"`, "urlopen error timed out")
+	deadDoor(t)
 	wantState(t, runAtom(t, "dies:contracts", ""), 2,
-		"the door's raw API is unreachable", "not a copy that agrees", "timed out")
+		"the door's archive read is unreachable", "not a copy that agrees", "foundry-stocks:star-kinds.toml")
+	if engine.chain(`"tools/check_contracts.py"]`, "exitCode") != "" {
+		t.Errorf("the checker must not run behind a dead door:\n%v", engine.chains())
+	}
 
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	scriptContractFixtures()
-	engine.fail(`"python3","/tmp/dies-door-probe.py"`, "engine went away")
+	engine.failLeaf(`"contracts/contracts.toml"`, "contents", "engine went away")
 	wantState(t, runAtom(t, "dies:contracts", ""), 2,
 		"the door reachability probe never ran", "engine went away")
 

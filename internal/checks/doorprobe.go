@@ -1,0 +1,78 @@
+package checks
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/BurntSushi/toml"
+)
+
+// DoorManifest is the contracts manifest dies:contracts reads, in the tree.
+const DoorManifest = "contracts/contracts.toml"
+
+// manifestContract is the slice of one manifest entry the probe reads.
+type manifestContract struct {
+	Copies []struct {
+		Source map[string]any `toml:"source"`
+	} `toml:"copies"`
+}
+
+// DoorProbe is dies:contracts' provisioning probe, in Go: can this run reach
+// the door. It was dies_door_probe.py.
+//
+// A contract copy is fetched from the door, so a checker that cannot reach it
+// has not found a drifted contract; it has found nothing. The probe runs first
+// and answers 2 so that unreachability reads as CANNOT RUN rather than as the
+// checker's finding. Exit 0 is "reachable, or nothing to reach"; 2 is "the door
+// is not there".
+//
+// THE TARGET IS READ OUT OF THE MANIFEST — the first remote copy in document
+// order — never named, so the probe follows whatever the checker will fetch.
+// ANY HTTP ANSWER MEANS REACHABLE, a 404 or a 503 included: what the door said
+// about one file is the checker's finding to make. Only a request that got no
+// answer at all is the probe's.
+func DoorProbe(ctx context.Context, manifest string, door Door) (int, string) {
+	var doc struct {
+		Contracts map[string]manifestContract `toml:"contracts"`
+	}
+	md, err := toml.Decode(manifest, &doc)
+	if err != nil {
+		return 0, fmt.Sprintf("could not read the manifest for the reachability probe (%v); letting the checker be the judge", err)
+	}
+
+	repo, path, found := firstRemoteCopy(md, doc.Contracts)
+	if !found {
+		return 0, "every declared copy is local; the live check needs no network"
+	}
+
+	target := repo + ":" + path
+	status, _, err := door.Get(ctx, repo, path)
+	switch {
+	case err != nil:
+		return 2, fmt.Sprintf("the door's archive read is unreachable (%s): %v", target, err)
+	case status >= 200 && status < 300:
+		return 0, fmt.Sprintf("door archive read reachable (%s -> HTTP %d)", target, status)
+	}
+	return 0, fmt.Sprintf("door archive read answered HTTP %d for %s; that is the checker's finding to make, not a provisioning failure", status, target)
+}
+
+// firstRemoteCopy walks the manifest's contracts in the order the document
+// declares them (a Go map has none; the decode's key list does) and answers the
+// first copy whose source names both a repo and a path.
+func firstRemoteCopy(md toml.MetaData, contracts map[string]manifestContract) (repo, path string, found bool) {
+	seen := map[string]bool{}
+	for _, key := range md.Keys() {
+		if len(key) < 2 || key[0] != "contracts" || seen[key[1]] {
+			continue
+		}
+		seen[key[1]] = true
+		for _, c := range contracts[key[1]].Copies {
+			r, rok := c.Source["repo"].(string)
+			p, pok := c.Source["path"].(string)
+			if rok && pok {
+				return r, p, true
+			}
+		}
+	}
+	return "", "", false
+}

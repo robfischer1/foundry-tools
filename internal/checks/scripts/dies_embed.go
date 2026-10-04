@@ -6,11 +6,6 @@ package scripts
 
 import _ "embed"
 
-// DiesDoorProbe is dies:contracts' reachability probe for the door's raw API.
-//
-//go:embed dies_door_probe.py
-var DiesDoorProbe string
-
 // DiesSchema is dies:schema's validator over the slag schema and the v2 records.
 //
 //go:embed dies_schema.py
