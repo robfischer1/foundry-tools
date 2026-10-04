@@ -156,7 +156,16 @@ func rustWitGuest(ctx context.Context, r *run) checks.Verdict {
 			}
 		}
 		logs = append(logs, prefixLines(world, v.Logs)...)
-		tested := base.WithExec([]string{
+		// The native test builds into the shared foundry-cargo-target, so it
+		// runs under the Unstale stamp like cargo-test and clippy. WITHOUT IT
+		// cargo called the crate Fresh and ran the test binary an older tree
+		// had left in the volume: a test module added since (a new file, which
+		// the old dep-info never listed) was neither compiled nor run, and a
+		// compile_error! under cfg(test) read green. MEASURED on
+		// stellar-core-rust#14205: the identity world stayed at 197 tests with
+		// 26 round-trip tests in the tree. The wasm32 build above has a target
+		// dir of its own and needs no stamp.
+		tested := base.WithExec(checks.Unstale()).WithExec([]string{
 			"cargo", "test", "--locked", "--no-default-features", "--features", world,
 		}, anyExit)
 		if v = cargoVerdict(ctx, a, tested); v.State != int(checks.StatePass) {

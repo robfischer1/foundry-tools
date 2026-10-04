@@ -291,6 +291,30 @@ func TestRustWitGuestGradesEveryWorldAndNotTheAlias(t *testing.T) {
 	}
 }
 
+// The native test builds into the shared foundry-cargo-target, so it runs under
+// the Unstale stamp, after the fetch and before cargo. Without the stamp cargo
+// reuses the test binary an older tree left behind and a module added since is
+// never compiled (stellar-core-rust#14205: 26 round-trip tests absent, a
+// compile_error! under cfg(test) green).
+func TestRustWitGuestNativeTestRunsUnderTheStamp(t *testing.T) {
+	engine.reset()
+	engine.withTree(map[string]string{"Cargo.toml": witTwoWorlds})
+	engine.stdout(`"component","wit"`, "world w")
+	wantState(t, runAtom(t, "rust:wit-guest", ""), 0)
+
+	stamp := `"touch","-c","-d","@4102444800"`
+	for _, w := range []string{"wit-guest-identity", "wit-guest-reader"} {
+		c := engine.chain(`"cargo","test"`, `"--no-default-features"`, feat(w), "exitCode")
+		if c == "" {
+			t.Fatalf("%s: no native cargo test:\n%v", w, engine.chains())
+		}
+		fetch, find, test := strings.Index(c, `"cargo","fetch","--locked"`), strings.Index(c, stamp), strings.Index(c, `"cargo","test"`)
+		if fetch < 0 || find < 0 || !(fetch < find && find < test) {
+			t.Errorf("%s: want fetch, then the stamp, then cargo test (fetch %d, stamp %d, test %d):\n%s", w, fetch, find, test, c)
+		}
+	}
+}
+
 // The alias alone, with no wit-guest-<world>, is ITSELF the one world: it is
 // what the atom graded before the split, and going inert would stop grading
 // that guest. It is built and tested like a world.
