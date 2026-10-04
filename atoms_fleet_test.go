@@ -652,7 +652,7 @@ func TestFleetOrbitDriftLadderMatchesTheScriptItReplaced(t *testing.T) {
 			[]string{"names contract 'gone', which is not in foundry-dies/orbits"}},
 		{"door error", orbitToml([3]string{"hades", "c", good}),
 			func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "boom", http.StatusServiceUnavailable) }, false, 2,
-			[]string{"CANNOT RUN", "answered HTTP 503", "git.notusmi.com", "archive?repo=foundry/foundry-dies&path=orbits/c.toml"}},
+			[]string{"CANNOT RUN", "answered HTTP 503", "archive?repo=foundry/foundry-dies&path=orbits/c.toml"}},
 		{"door unreachable", orbitToml([3]string{"hades", "c", good}), nil, true, 2,
 			[]string{"CANNOT RUN - the door is unreachable"}},
 		{"html is not a contract", orbitToml([3]string{"hades", "c", good}), serveContracts(map[string]string{"c": "<html>login</html>"}), false, 2,

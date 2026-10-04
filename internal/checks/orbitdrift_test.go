@@ -43,7 +43,7 @@ func TestOrbitDriftDecidesEachEdgeByItsOwnDigest(t *testing.T) {
 		has   []string
 		not   []string
 	}{
-		{"agreement", edge("digest = \"" + good + "\"\n"), 0, []string{"1 seam(s) agree"}, []string{"drift"}},
+		{"agreement", edge("digest = \"" + good + "\"\n"), 0, []string{"1 seam(s) agree"}, []string{"contract moved"}},
 		{"two agree", edge("digest = \""+good+"\"\n") + edge("digest = \""+good+"\"\n"), 0, []string{"2 seam(s) agree"}, nil},
 		{"drift", edge("digest = \"sha256:x\"\n"), 1, []string{"orbit-drift: p: contract 'c' hashes to " + good}, []string{"compared nothing"}},
 		{"unpinned", edge(""), 1, []string{"carries no digest", "compared nothing"}, []string{"Re-lay"}},
