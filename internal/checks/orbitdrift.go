@@ -28,7 +28,7 @@ const orbitContractsDir = "orbits"
 // OrbitDrift judges one orbit.toml against the door and answers the atom's
 // state with its report.
 //
-// A DOOR THAT COULD NOT ANSWER IS 2, NEVER 1. Unreachable, any status but 2xx
+// A DOOR THAT COULD NOT ANSWER IS 2, NEVER 1. Unreachable, any status but 200
 // and 404, a body that is not TOML, a TOML body with no `verbs` key: each is a
 // contract that was not read, and a contract that was not read is not a
 // contract that disagrees. A body that is not a contract hashes to a confident
@@ -67,7 +67,7 @@ func OrbitDrift(ctx context.Context, orbitToml string, door Door) (int, string) 
 		case status == http.StatusNotFound:
 			drift = append(drift, fmt.Sprintf("%s: names contract '%s', which is not in foundry-dies/orbits", e.peer, e.contract))
 			continue
-		case status < 200 || status >= 300:
+		case status != http.StatusOK:
 			return 2, fmt.Sprintf("fleet:orbit-drift: CANNOT RUN - the door answered HTTP %d for %s. A contract that could not be fetched is not a contract that agrees.", status, at)
 		}
 		parsed, err := parseContract(body)
@@ -92,7 +92,7 @@ func OrbitDrift(ctx context.Context, orbitToml string, door Door) (int, string) 
 	if len(drift) == 0 && len(unpinned) == 0 {
 		return 0, fmt.Sprintf("fleet:orbit-drift: %d seam(s) agree with foundry-dies/orbits", len(agree))
 	}
-	lines := make([]string, 0, len(drift)+len(unpinned)+2)
+	var lines []string
 	for _, l := range append(drift, unpinned...) {
 		lines = append(lines, "orbit-drift: "+l)
 	}

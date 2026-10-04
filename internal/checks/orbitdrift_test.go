@@ -45,6 +45,11 @@ func TestOrbitDriftDecidesEachEdgeByItsOwnDigest(t *testing.T) {
 	}{
 		{"agreement", edge("digest = \"" + good + "\"\n"), 0, []string{"1 seam(s) agree"}, []string{"contract moved"}},
 		{"two agree", edge("digest = \""+good+"\"\n") + edge("digest = \""+good+"\"\n"), 0, []string{"2 seam(s) agree"}, nil},
+		{"a contract the die does not hold is drift, and the next edge is still read",
+			"[[consumes]]\nfrom = \"gone\"\ncontract = \"missing\"\n" + edge("digest = \""+good+"\"\n"), 1,
+			[]string{"gone: names contract 'missing', which is not in foundry-dies/orbits", "Re-lay"}, []string{"agree"}},
+		{"an unpinned edge does not end the walk", "[[consumes]]\nfrom = \"u\"\n" + edge("digest = \"sha256:x\"\n"), 1,
+			[]string{"u names no contract", "p: contract 'c' hashes to"}, nil},
 		{"drift", edge("digest = \"sha256:x\"\n"), 1, []string{"orbit-drift: p: contract 'c' hashes to " + good}, []string{"compared nothing"}},
 		{"unpinned", edge(""), 1, []string{"carries no digest", "compared nothing"}, []string{"Re-lay"}},
 		{"drift beats nothing but both are reported", edge("digest = \"sha256:x\"\n") + edge(""), 1,
@@ -86,6 +91,8 @@ func TestOrbitDriftSettlesWhatItCannotReadAsCannotRun(t *testing.T) {
 	}{
 		{"server error", 500, "x", "answered HTTP 500"},
 		{"redirect that was not followed", 304, "", "answered HTTP 304"},
+		{"a 300", 300, "verbs = []\n", "answered HTTP 300"},
+		{"a 202 is not the door's answer", 202, "verbs = []\n", "answered HTTP 202"},
 		{"login wall", 200, "<html>", "did not answer a TOML document"},
 		{"no verbs", 200, "k = 1", "carries no verbs key"},
 	} {
@@ -98,16 +105,6 @@ func TestOrbitDriftSettlesWhatItCannotReadAsCannotRun(t *testing.T) {
 		if state != 2 || !strings.Contains(out, "CANNOT RUN") || !strings.Contains(out, tc.has) {
 			t.Errorf("%s: got %d %q", tc.name, state, out)
 		}
-	}
-
-	// A 2xx other than 200 is a body like any other.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusAccepted)
-		_, _ = w.Write([]byte("verbs = []\n"))
-	}))
-	defer srv.Close()
-	if state, out := OrbitDrift(ctx, edge, Door{Base: srv.URL}); state != 1 || !strings.Contains(out, "hashes to") {
-		t.Errorf("a 202 carrying a contract is compared: %d %q", state, out)
 	}
 
 	if state, out := OrbitDrift(ctx, "= =", Door{}); state != 2 || !strings.Contains(out, "orbit.toml did not parse") {

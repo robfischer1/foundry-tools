@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -98,11 +99,7 @@ func TestDoorProbeIsTwoOnlyWhenNothingAnswered(t *testing.T) {
 		if code != 0 {
 			t.Errorf("status %d: an answer is reachable, got %d %q", status, code, out)
 		}
-		want := "answered HTTP"
-		if status < 300 {
-			want = "reachable (r:p -> HTTP"
-		}
-		if !strings.Contains(out, want) {
+		if want := "reachable (r:p -> HTTP " + strconv.Itoa(status) + ")"; !strings.Contains(out, want) {
 			t.Errorf("status %d: report %q lacks %q", status, out, want)
 		}
 	}

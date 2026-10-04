@@ -50,22 +50,18 @@ func DoorProbe(ctx context.Context, manifest string, door Door) (int, string) {
 	switch {
 	case err != nil:
 		return 2, fmt.Sprintf("the door's archive read is unreachable (%s): %v", target, err)
-	case status >= 200 && status < 300:
-		return 0, fmt.Sprintf("door archive read reachable (%s -> HTTP %d)", target, status)
 	}
-	return 0, fmt.Sprintf("door archive read answered HTTP %d for %s; that is the checker's finding to make, not a provisioning failure", status, target)
+	return 0, fmt.Sprintf("door archive read reachable (%s -> HTTP %d); what it said about the file is the checker's finding to make, not a provisioning failure", target, status)
 }
 
 // firstRemoteCopy walks the manifest's contracts in the order the document
 // declares them (a Go map has none; the decode's key list does) and answers the
 // first copy whose source names both a repo and a path.
 func firstRemoteCopy(md toml.MetaData, contracts map[string]manifestContract) (repo, path string, found bool) {
-	seen := map[string]bool{}
 	for _, key := range md.Keys() {
-		if len(key) < 2 || key[0] != "contracts" || seen[key[1]] {
+		if len(key) < 2 || key[0] != "contracts" {
 			continue
 		}
-		seen[key[1]] = true
 		for _, c := range contracts[key[1]].Copies {
 			r, rok := c.Source["repo"].(string)
 			p, pok := c.Source["path"].(string)
