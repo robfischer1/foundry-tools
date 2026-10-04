@@ -2,6 +2,7 @@ package checks
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -18,10 +19,12 @@ import (
 // a component, read green.
 
 const (
-	// WitGuestFeature is the cargo feature that builds the WIT export. A crate
-	// that declares it has a wasm guest to build; one that does not has nothing
-	// for rust:wit-guest to say.
-	WitGuestFeature = "wit-guest"
+	// WitGuestAlias is the bare feature name that predates per-world features.
+	// It is an ALIAS for one world, never a world of its own once any
+	// wit-guest-<world> feature exists (see WitGuestWorlds).
+	WitGuestAlias = "wit-guest"
+	// WitGuestPrefix marks a per-world feature: one build = one world.
+	WitGuestPrefix = "wit-guest-"
 	// WitGuestTarget is the target the guest is built for. It is the core-module
 	// target: wit-bindgen embeds the component type in the module and
 	// `wasm-tools component new` lifts it.
@@ -141,4 +144,29 @@ func WitGuestArtifact(cargoToml string) string {
 		return ""
 	}
 	return strings.ReplaceAll(name, "-", "_") + ".wasm"
+}
+
+// WitGuestWorlds answers the features rust:wit-guest grades, sorted: every
+// [features] key with the wit-guest- prefix, one world each, so a new world is
+// picked up with no lane edit (rob/stellar-core-rust#14205).
+//
+// THE BARE ALIAS IS SKIPPED WHEN A WORLD EXISTS: it resolves to one of them, so
+// building it too would grade that world twice, and a star that drops the alias
+// must not go inert. THE ALIAS ALONE, WITH NO wit-guest-<world> FEATURE, IS
+// ITSELF THE ONE WORLD (behaves as before the split): such a crate has a guest
+// the old atom graded, and going inert would silently stop grading it - the
+// exact blind spot this discovery exists to close. A crate with neither is
+// inert (nil).
+func WitGuestWorlds(cargoToml string) []string {
+	var worlds []string
+	for name := range cargoSection(cargoToml, "features") {
+		if strings.HasPrefix(name, WitGuestPrefix) && len(name) > len(WitGuestPrefix) {
+			worlds = append(worlds, name)
+		}
+	}
+	slices.Sort(worlds)
+	if len(worlds) == 0 && HasCargoFeature(cargoToml, WitGuestAlias) {
+		return []string{WitGuestAlias}
+	}
+	return worlds
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
@@ -88,23 +89,23 @@ func witValidate(ctx context.Context, r *run) checks.Verdict {
 	return verdict(ctx, a, ctr.WithExec([]string{"just", "validate"}, anyExit))
 }
 
-// The crate's wit-guest feature builds for wasm32-unknown-unknown, the module
-// lifts to a component, and the component validates.
+// Every wit-guest-<world> feature of the crate builds for wasm32-unknown-unknown,
+// the module lifts to a component, the component validates, and the world's
+// own tests pass natively.
 //
-// ABSENT WHERE THE MANIFEST DECLARES NO wit-guest FEATURE, decided in Go off
-// Cargo.toml before any container runs. The default-features test run never
-// compiles the guest's WIT export, so a guest that stopped building — or whose
-// WIT drifted from the copy it reads — read green everywhere; this is the one
-// atom that compiles it.
+// DISCOVERED, NOT NAMED (rob/stellar-core-rust#14205): checks.WitGuestWorlds
+// reads the [features] table, so a new world is graded with no lane edit and a
+// manifest with none is ABSENT, decided in Go before any container runs. The
+// default-features test run never compiles a guest's WIT export, so a guest that
+// stopped building - or whose WIT drifted - read green everywhere; this is the
+// one atom that compiles each world, and its native `cargo test` is where the
+// crossing-type round trips run, because the types exist only under the feature.
 //
-// FOUR STEPS, EACH ITS OWN VERDICT: the build (cargo's exit, translated by
-// cargoVerdict), `wasm-tools component new` (the module carries the component
-// type wit-bindgen embedded, so a refusal here is a guest that is not the
-// interface it claims), `wasm-tools validate` (the component is well formed),
-// and `wasm-tools component wit` (the world can be read back; its text is the
-// atom's result). The build writes to its own target directory, outside the
-// lane's shared cargo-target volume, so the artifact's path is a fact this atom
-// owns rather than a guess about a volume's contents.
+// FIVE STEPS PER WORLD, EACH ITS OWN VERDICT: the build, `wasm-tools component
+// new`, `wasm-tools validate`, `wasm-tools component wit` (read-back), and
+// `cargo test --no-default-features --features <world>`. The first failure
+// returns, and its reason and first log line NAME THE WORLD, so a red says
+// which one. A pass carries every world's lines, each prefixed with its name.
 func rustWitGuest(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("rust:wit-guest")
 
@@ -112,12 +113,13 @@ func rustWitGuest(ctx context.Context, r *run) checks.Verdict {
 	if err != nil {
 		return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - Cargo.toml would not read: %v", a.ID, err))
 	}
-	if !checks.HasCargoFeature(manifest, checks.WitGuestFeature) {
-		return checks.VerdictOf(a, 0, a.ID+": ABSENT - Cargo.toml declares no "+checks.WitGuestFeature+" feature, so this crate exports no WIT guest to build")
+	worlds := checks.WitGuestWorlds(manifest)
+	if len(worlds) == 0 {
+		return checks.VerdictOf(a, 0, a.ID+": ABSENT - Cargo.toml declares no "+checks.WitGuestPrefix+"<world> feature, so this crate exports no WIT guest to build")
 	}
 	artifact := checks.WitGuestArtifact(manifest)
 	if artifact == "" {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - Cargo.toml declares the "+checks.WitGuestFeature+" feature but names no [package] or [lib] name, so the guest's file name is unknown")
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - Cargo.toml declares wit-guest features but names no [package] or [lib] name, so the guest's file name is unknown")
 	}
 
 	base := r.cargoDeps().WithExec([]string{"rustup", "target", "add", checks.WitGuestTarget})
@@ -126,28 +128,59 @@ func rustWitGuest(ctx context.Context, r *run) checks.Verdict {
 		return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - %v. A guest that was never validated is not a guest that passed.", a.ID, err))
 	}
 
-	built := base.WithExec([]string{
-		"cargo", "build", "--locked", "--release",
-		"--no-default-features", "--features", checks.WitGuestFeature,
-		"--target", checks.WitGuestTarget, "--target-dir", checks.WitGuestTargetDir,
-	}, anyExit)
-	if v := cargoVerdict(ctx, a, built); v.State != int(checks.StatePass) {
-		return v
-	}
-
 	module := checks.WitGuestTargetDir + "/" + checks.WitGuestTarget + "/release/" + artifact
-	const component = "/tmp/wit-guest.component.wasm"
-	ctr := built
-	var v checks.Verdict
-	for _, step := range [][]string{
-		{"wasm-tools", "component", "new", module, "-o", component},
-		{"wasm-tools", "validate", component},
-		{"wasm-tools", "component", "wit", component},
-	} {
-		ctr = ctr.WithExec(step, anyExit)
-		if v = verdict(ctx, a, ctr); v.State != int(checks.StatePass) {
-			return v
+	var last checks.Verdict
+	var logs []string
+	for _, world := range worlds {
+		component := "/tmp/" + world + ".component.wasm"
+		built := base.WithExec([]string{
+			"cargo", "build", "--locked", "--release",
+			"--no-default-features", "--features", world,
+			"--target", checks.WitGuestTarget, "--target-dir", checks.WitGuestTargetDir,
+		}, anyExit)
+		v := cargoVerdict(ctx, a, built)
+		if v.State != int(checks.StatePass) {
+			return namedWorld(v, a, world, "build")
 		}
+		ctr := built
+		for _, step := range []struct {
+			name string
+			args []string
+		}{
+			{"component new", []string{"wasm-tools", "component", "new", module, "-o", component}},
+			{"validate", []string{"wasm-tools", "validate", component}},
+			{"component wit", []string{"wasm-tools", "component", "wit", component}},
+		} {
+			ctr = ctr.WithExec(step.args, anyExit)
+			if v = verdict(ctx, a, ctr); v.State != int(checks.StatePass) {
+				return namedWorld(v, a, world, step.name)
+			}
+		}
+		logs = append(logs, prefixLines(world, v.Logs)...)
+		tested := base.WithExec([]string{
+			"cargo", "test", "--locked", "--no-default-features", "--features", world,
+		}, anyExit)
+		if v = cargoVerdict(ctx, a, tested); v.State != int(checks.StatePass) {
+			return namedWorld(v, a, world, "test")
+		}
+		last = v
 	}
+	last.Logs = logs
+	return last
+}
+
+// namedWorld stamps a failing step's verdict with the world and step that
+// produced it, in the reason and as the first log line.
+func namedWorld(v checks.Verdict, a checks.AtomDef, world, step string) checks.Verdict {
+	v.Reason = fmt.Sprintf("%s [world %s, %s]%s", a.ID, world, step, strings.TrimPrefix(v.Reason, a.ID))
+	v.Logs = append([]string{fmt.Sprintf("world %s failed at %s", world, step)}, v.Logs...)
 	return v
+}
+
+func prefixLines(world string, lines []string) []string {
+	out := make([]string, len(lines))
+	for i, l := range lines {
+		out[i] = "[" + world + "] " + l
+	}
+	return out
 }
