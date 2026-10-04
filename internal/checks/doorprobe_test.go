@@ -10,12 +10,10 @@ import (
 	"testing"
 )
 
-func TestDoorProbeReadsTheManifestsFirstRemoteCopyInDocumentOrder(t *testing.T) {
-	// "zeta" is declared first and sorts last; a Go map would visit "alpha".
+func TestDoorProbeReadsTheFirstRemoteCopyOfTheFirstNamedContract(t *testing.T) {
+	// "zeta" is declared first and sorts last; the walk is by name, so the
+	// target is the same on every run: alpha's.
 	manifest := `
-[meta.alpha]
-note = "a table that is not a contract, named like one"
-
 [contracts.zeta]
 copies = [
   { source = { local = "a" } },
@@ -36,13 +34,13 @@ copies = [{ source = { repo = "ar", path = "ap.toml" } }]
 	defer srv.Close()
 
 	code, out := DoorProbe(context.Background(), manifest, Door{Base: srv.URL})
-	if code != 0 || !strings.Contains(out, "zr:zp.toml -> HTTP 200") {
+	if code != 0 || !strings.Contains(out, "ar:ap.toml -> HTTP 200") {
 		t.Errorf("got %d %q", code, out)
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(asked) != 1 || asked[0] != "zr:zp.toml" {
-		t.Errorf("asked %v, want one read of zr:zp.toml", asked)
+	if len(asked) != 1 || asked[0] != "ar:ap.toml" {
+		t.Errorf("asked %v, want one read of ar:ap.toml", asked)
 	}
 }
 

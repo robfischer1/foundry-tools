@@ -582,7 +582,7 @@ func TestDiesContractsFailsWhenTheProofNoLongerHolds(t *testing.T) {
 	}
 }
 
-// remoteManifest declares two contracts; the first copy of the first one that
+// remoteManifest declares two contracts; the first remote copy of the first-named one that
 // is remote is what the probe reaches for, and a local copy is skipped.
 const remoteManifest = `
 [contracts.star_kind]
@@ -591,7 +591,7 @@ copies = [
   { name = "stocks", source = { repo = "foundry-stocks", path = "star-kinds.toml" } },
 ]
 
-[contracts.other]
+[contracts.zother]
 copies = [{ name = "x", source = { repo = "second", path = "never.toml" } }]
 `
 

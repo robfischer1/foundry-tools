@@ -3,6 +3,8 @@ package checks
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/BurntSushi/toml"
 )
@@ -26,8 +28,8 @@ type manifestContract struct {
 // checker's finding. Exit 0 is "reachable, or nothing to reach"; 2 is "the door
 // is not there".
 //
-// THE TARGET IS READ OUT OF THE MANIFEST — the first remote copy in document
-// order — never named, so the probe follows whatever the checker will fetch.
+// THE TARGET IS READ OUT OF THE MANIFEST — the first remote copy of the
+// first-named contract that has one — never named, so the probe follows whatever the checker will fetch.
 // ANY HTTP ANSWER MEANS REACHABLE, a 404 or a 503 included: what the door said
 // about one file is the checker's finding to make. Only a request that got no
 // answer at all is the probe's.
@@ -35,12 +37,12 @@ func DoorProbe(ctx context.Context, manifest string, door Door) (int, string) {
 	var doc struct {
 		Contracts map[string]manifestContract `toml:"contracts"`
 	}
-	md, err := toml.Decode(manifest, &doc)
+	_, err := toml.Decode(manifest, &doc)
 	if err != nil {
 		return 0, fmt.Sprintf("could not read the manifest for the reachability probe (%v); letting the checker be the judge", err)
 	}
 
-	repo, path, found := firstRemoteCopy(md, doc.Contracts)
+	repo, path, found := firstRemoteCopy(doc.Contracts)
 	if !found {
 		return 0, "every declared copy is local; the live check needs no network"
 	}
@@ -54,15 +56,11 @@ func DoorProbe(ctx context.Context, manifest string, door Door) (int, string) {
 	return 0, fmt.Sprintf("door archive read reachable (%s -> HTTP %d); what it said about the file is the checker's finding to make, not a provisioning failure", target, status)
 }
 
-// firstRemoteCopy walks the manifest's contracts in the order the document
-// declares them (a Go map has none; the decode's key list does) and answers the
-// first copy whose source names both a repo and a path.
-func firstRemoteCopy(md toml.MetaData, contracts map[string]manifestContract) (repo, path string, found bool) {
-	for _, key := range md.Keys() {
-		if len(key) < 2 || key[0] != "contracts" {
-			continue
-		}
-		for _, c := range contracts[key[1]].Copies {
+// firstRemoteCopy answers the first copy whose source names both a repo and a
+// path, walking the contracts by name so the target is the same on every run.
+func firstRemoteCopy(contracts map[string]manifestContract) (repo, path string, found bool) {
+	for _, name := range slices.Sorted(maps.Keys(contracts)) {
+		for _, c := range contracts[name].Copies {
 			r, rok := c.Source["repo"].(string)
 			p, pok := c.Source["path"].(string)
 			if rok && pok {
