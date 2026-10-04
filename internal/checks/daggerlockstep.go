@@ -87,30 +87,31 @@ func DaggerLockstep(ctx context.Context, files map[string]string, door Door) (in
 	const id = "fleet:dagger-lockstep"
 	var engines, clis, modules []daggerPin
 	var findings []string
+	pinned := false
 
 	for _, f := range DaggerPinFiles {
 		body, ok := files[f.Path]
 		if !ok {
 			continue
 		}
-		n := 0
+		pinned = true
+		var found []daggerPin
 		switch f.role {
 		case daggerEngine:
 			for _, m := range daggerEngineRef.FindAllStringSubmatch(body, -1) {
-				engines = append(engines, daggerPin{f.Path, "engine image", m[1], m[2]})
-				n++
+				found = append(found, daggerPin{f.Path, "engine image", m[1], m[2]})
 			}
 			for _, m := range daggerHelmChart.FindAllStringSubmatch(body, -1) {
-				engines = append(engines, daggerPin{f.Path, "dagger-helm chart", "v" + m[1], ""})
-				n++
+				found = append(found, daggerPin{f.Path, "dagger-helm chart", "v" + m[1], ""})
 			}
+			engines = append(engines, found...)
 		case daggerCLI:
 			for _, m := range daggerCLIVersion.FindAllStringSubmatch(body, -1) {
-				clis = append(clis, daggerPin{f.Path, "CLI (ARG DAGGER_VERSION)", vPrefixed(m[1]), ""})
-				n++
+				found = append(found, daggerPin{f.Path, "CLI (ARG DAGGER_VERSION)", vPrefixed(m[1]), ""})
 			}
+			clis = append(clis, found...)
 		}
-		if n == 0 {
+		if len(found) == 0 {
 			findings = append(findings, fmt.Sprintf("%s: names no dagger version this atom can read, so the lockstep compared nothing there. The pin's spelling moved; move checks.DaggerPinFiles' patterns with it.", f.Path))
 		}
 	}
@@ -121,6 +122,7 @@ func DaggerLockstep(ctx context.Context, files map[string]string, door Door) (in
 			return 2, fmt.Sprintf("%s: CANNOT RUN - %s did not parse: %v", id, DaggerModuleManifest, err)
 		}
 		if _, isModule := manifest["sdk"]; isModule {
+			pinned = true
 			v, _ := manifest["engineVersion"].(string)
 			if !daggerSemver(v) {
 				findings = append(findings, fmt.Sprintf("%s: a module with no readable engineVersion (%q); an engine cannot tell which API it was written against.", DaggerModuleManifest, v))
@@ -130,7 +132,7 @@ func DaggerLockstep(ctx context.Context, files map[string]string, door Door) (in
 		}
 	}
 
-	if len(engines)+len(clis)+len(modules)+len(findings) == 0 {
+	if !pinned {
 		return 0, id + ": ABSENT - this tree pins no dagger CLI, engine or module, so there is nothing to hold in lockstep"
 	}
 
@@ -144,10 +146,10 @@ func DaggerLockstep(ctx context.Context, files map[string]string, door Door) (in
 			engine, digest, from = p.version, p.digest, p.path+" (this tree)"
 		}
 	}
-	if engine == "" && len(engines) > 0 {
+	switch {
+	case len(engines) > 0 && engine == "":
 		findings = append(findings, fmt.Sprintf("this tree pins the dagger engine but %s names no engine image, so there is no engine to hold the other pins to.", DaggerEngineSource))
-	}
-	if engine == "" && len(engines) == 0 {
+	case len(engines) == 0:
 		at := door.URL(DaggerEngineRepo, DaggerEngineSource)
 		status, body, err := door.Get(ctx, DaggerEngineRepo, DaggerEngineSource)
 		switch {
@@ -208,37 +210,39 @@ func vPrefixed(v string) string {
 
 // daggerSemver reports whether v is a vMAJOR.MINOR.PATCH.
 func daggerSemver(v string) bool {
-	_, ok := daggerParts(v)
-	return ok
+	return daggerParts(v) != nil
 }
 
-func daggerParts(v string) ([3]int, bool) {
-	var out [3]int
+// daggerParts answers v's three numbers, or nil when v is not daggerSemver.
+func daggerParts(v string) []int {
 	parts := strings.Split(strings.TrimPrefix(v, "v"), ".")
 	if !strings.HasPrefix(v, "v") || len(parts) != 3 {
-		return out, false
+		return nil
 	}
-	for i, p := range parts {
+	var out []int
+	for _, p := range parts {
 		n, err := strconv.Atoi(p)
 		if err != nil || n < 0 {
-			return out, false
+			return nil
 		}
-		out[i] = n
+		out = append(out, n)
 	}
-	return out, true
+	return out
 }
 
 // daggerNewer reports whether a is a later version than b. Both are
 // daggerSemver; an unreadable one is never newer.
 func daggerNewer(a, b string) bool {
-	pa, okA := daggerParts(a)
-	pb, okB := daggerParts(b)
-	if !okA || !okB {
+	pa, pb := daggerParts(a), daggerParts(b)
+	if pa == nil || pb == nil {
 		return false
 	}
 	for i := range pa {
-		if pa[i] != pb[i] {
-			return pa[i] > pb[i]
+		if pa[i] > pb[i] {
+			return true
+		}
+		if pa[i] < pb[i] {
+			return false
 		}
 	}
 	return false

@@ -755,7 +755,7 @@ func TestFleetDaggerLockstepJudgesFluxOnItsOwnTree(t *testing.T) {
 		"prime/daedalus-jobs.yaml":      "BUILD_JOB_IMAGE: \"" + ref + "\"\nLANE_CALL_IMAGE: \"" + ref + "\"\n",
 	}))
 	asks := fakeDoor(t, func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
-	wantReport(t, runAtom(t, "fleet:dagger-lockstep", ""), 0, "4 pin(s) agree with the engine v0.21.9")
+	wantReport(t, runAtom(t, "fleet:dagger-lockstep", ""), 0, "lockstep: 4 pin(s) agree with the engine v0.21.9")
 	if len(*asks) != 0 {
 		t.Errorf("flux's own tree holds the engine, yet the door was asked %v", *asks)
 	}

@@ -86,7 +86,7 @@ func TestDaggerLockstepJudgesEveryPinAgainstTheEngine(t *testing.T) {
 
 		// flux: its own tree is the engine, and the door is never asked.
 		{"flux, four pins agree", agreeing, "", 0,
-			[]string{"4 pin(s) agree with the engine v0.21.9 (forge/dagger-engine-helm.yaml (this tree))"}, []string{"ABSENT"}, false},
+			[]string{"lockstep: 4 pin(s) agree with the engine v0.21.9 (forge/dagger-engine-helm.yaml (this tree))"}, []string{"ABSENT"}, false},
 		{"flux, the chart moved alone", with(map[string]string{DaggerEngineSource: helmPins("0.21.10", "v0.21.9", lockDigest)}), "", 1,
 			[]string{"1 pin(s) out of lockstep", "forge/dagger-engine-helm.yaml: dagger-helm chart v0.21.10, but the engine is v0.21.9", "move in one pull"}, nil, false},
 		{"flux, the engine moved but not the gate jobs", with(map[string]string{DaggerEngineSource: helmPins("0.21.10", "v0.21.10", lockOther)}), "", 1,
@@ -95,6 +95,8 @@ func TestDaggerLockstepJudgesEveryPinAgainstTheEngine(t *testing.T) {
 			[]string{"1 pin(s) out of lockstep", "engine image v0.21.9@" + lockOther + ", but forge/dagger-engine-helm.yaml pins the same tag at " + lockDigest, "One version, one digest"}, nil, false},
 		{"flux, the first image in the source is the engine", with(map[string]string{DaggerEngineSource: helmPins("0.21.9", "v0.21.9", lockDigest) + "  other: registry.dagger.io/engine:v0.21.10@" + lockOther + "\n"}), "", 1,
 			[]string{"1 pin(s) out of lockstep", "engine image v0.21.10, but the engine is v0.21.9"}, nil, false},
+		{"flux, a second chart in the source is read too", with(map[string]string{DaggerEngineSource: helmPins("0.21.9", "v0.21.9", lockDigest) + "  chart: dagger-helm\n  version: 0.21.10\n"}), "", 1,
+			[]string{"1 pin(s) out of lockstep", "dagger-helm chart v0.21.10, but the engine is v0.21.9"}, nil, false},
 		{"flux, the gate jobs without the source", with(map[string]string{DaggerEngineSource: ""}), fluxMain, 1,
 			[]string{"forge/dagger-engine-helm.yaml names no engine image"}, nil, false},
 		{"flux, a source with only the chart", with(map[string]string{DaggerEngineSource: "chart: dagger-helm\n  version: 0.21.9\n"}), fluxMain, 1,
@@ -104,9 +106,13 @@ func TestDaggerLockstepJudgesEveryPinAgainstTheEngine(t *testing.T) {
 
 		// base-images: the CLI is held to flux main's engine, read through the door.
 		{"the CLI equals flux main", map[string]string{"bases/layer-dagger-cli/Dockerfile": cliPin("v0.21.9")}, fluxMain, 0,
-			[]string{"1 pin(s) agree with the engine v0.21.9 (foundry/flux main forge/dagger-engine-helm.yaml)"}, nil, true},
+			[]string{"lockstep: 1 pin(s) agree with the engine v0.21.9 (foundry/flux main forge/dagger-engine-helm.yaml)"}, nil, true},
 		{"a bare CLI version reads as the tag", map[string]string{"bases/layer-dagger-cli/Dockerfile": cliPin("0.21.9")}, fluxMain, 0,
-			[]string{"1 pin(s) agree"}, nil, true},
+			[]string{"lockstep: 1 pin(s) agree"}, nil, true},
+		{"every CLI pin in the Dockerfile is read", map[string]string{"bases/layer-dagger-cli/Dockerfile": cliPin("v0.21.9") + "ARG DAGGER_VERSION=v0.21.10\n"}, fluxMain, 1,
+			[]string{"1 pin(s) out of lockstep", "CLI (ARG DAGGER_VERSION) v0.21.10"}, nil, true},
+		{"two CLI pins at the engine", map[string]string{"bases/layer-dagger-cli/Dockerfile": cliPin("v0.21.9") + "ARG DAGGER_VERSION=v0.21.9\n"}, fluxMain, 0,
+			[]string{"lockstep: 2 pin(s) agree"}, nil, true},
 		{"the CLI moved ahead of the engine", map[string]string{"bases/layer-dagger-cli/Dockerfile": cliPin("v0.21.10")}, fluxMain, 1,
 			[]string{"bases/layer-dagger-cli/Dockerfile: CLI (ARG DAGGER_VERSION) v0.21.10, but the engine is v0.21.9 (foundry/flux main", "custom.dagger-engine"}, nil, true},
 		{"the engine landed and the CLI has not followed", map[string]string{"bases/layer-dagger-cli/Dockerfile": cliPin("v0.21.9")}, helmPins("0.21.10", "v0.21.10", lockOther), 1,
@@ -116,9 +122,9 @@ func TestDaggerLockstepJudgesEveryPinAgainstTheEngine(t *testing.T) {
 
 		// modules: never newer than the engine.
 		{"a module at the engine", map[string]string{"dagger.json": `{"name":"m","sdk":{"source":"go"},"engineVersion":"v0.21.9"}`}, fluxMain, 0,
-			[]string{"1 pin(s) agree"}, nil, true},
+			[]string{"lockstep: 1 pin(s) agree"}, nil, true},
 		{"a module behind the engine", map[string]string{"dagger.json": `{"name":"m","sdk":{"source":"go"},"engineVersion":"v0.20.12"}`}, fluxMain, 0,
-			[]string{"1 pin(s) agree"}, nil, true},
+			[]string{"lockstep: 1 pin(s) agree"}, nil, true},
 		{"a module ahead of the engine", map[string]string{"dagger.json": `{"name":"m","sdk":{"source":"go"},"engineVersion":"v0.21.10"}`}, fluxMain, 1,
 			[]string{"dagger.json: module engineVersion v0.21.10 is newer than the engine v0.21.9", "Land the engine first"}, nil, true},
 		{"a module with no engineVersion", map[string]string{"dagger.json": `{"name":"m","sdk":{"source":"go"}}`}, fluxMain, 1,
