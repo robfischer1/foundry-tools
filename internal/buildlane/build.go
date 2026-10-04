@@ -109,7 +109,7 @@ func StampTag(pushRepo, sha, committed string) (string, error) {
 	return pushRepo + ":" + ts + "-" + sha[:7], nil
 }
 
-// BuildArgs reads .forgejo/build-args.env — KEY=VALUE per line, blank lines
+// BuildArgs reads the root build-args.env — KEY=VALUE per line, blank lines
 // and # comments skipped — into entries, verbatim.
 func BuildArgs(contents string) []string {
 	var out []string

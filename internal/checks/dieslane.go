@@ -21,7 +21,7 @@ import (
 // binary: a suite written for v1 and graded by another major answers a
 // different question, and "the policy suite passed" would then be a true
 // statement about the wrong language. foundry-dies pinned 1.18.0 by hand in
-// its own workflow (.forgejo/workflows/ci.yml:47-53); the pin moved into
+// its own workflow (since retired); the pin moved into
 // OpaVersion and this is what proves the binary on PATH honours it.
 //
 // The match is a WHOLE LINE, which is what the shell's `grep -qx` meant: opa

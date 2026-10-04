@@ -237,7 +237,7 @@ var LaneImages = []string{
 // container (probed from inside one: HTTP 200 for
 // forge-testkit-go/@v/list), and these are the same three values every other
 // lane in the fleet already sets — infra's ci-gate-pipeline.yaml stepTemplate
-// and tartarus's .forgejo/build-args.env, verbatim.
+// and tartarus's build-args.env, verbatim.
 const (
 	// GoProxy puts the DOOR FIRST. It answers 404 for anything that is not a
 	// fleet module, so the go command moves on to the public proxy by itself;

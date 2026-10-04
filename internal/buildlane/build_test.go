@@ -9,9 +9,9 @@ import (
 )
 
 func TestOnlyNonInertChangesBuild(t *testing.T) {
-	changed := "README.md\ndocs/a.md\n.forgejo/build-args.env\nstar.toml\nsrc/main.go\n\nDockerfile\nnested/justfile\ninfra/prod.tfvars\n.claude/settings.json\nnested/stages.just\nhooks/git_guard/git_guard.py\nhooks/pre-push.d/x\n"
+	changed := "README.md\ndocs/a.md\nbuild-args.env\nstar.toml\nsrc/main.go\n\nDockerfile\nnested/justfile\ninfra/prod.tfvars\n.claude/settings.json\nnested/stages.just\nhooks/git_guard/git_guard.py\nhooks/pre-push.d/x\n"
 	got := NonInert(changed)
-	want := []string{"src/main.go", "Dockerfile", "nested/justfile", "nested/stages.just", "hooks/git_guard/git_guard.py", "hooks/pre-push.d/x"}
+	want := []string{"build-args.env", "src/main.go", "Dockerfile", "nested/justfile", "nested/stages.just", "hooks/git_guard/git_guard.py", "hooks/pre-push.d/x"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("NonInert = %v, want %v", got, want)
 	}

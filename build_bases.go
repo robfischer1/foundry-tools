@@ -59,15 +59,15 @@ func (l *buildLane) bases(ctx context.Context) ([]string, error) {
 	return out, nil
 }
 
-// buildArgs reads the tree's .forgejo/build-args.env and adds the runner's
+// buildArgs reads the tree's root build-args.env and adds the runner's
 // python index, which a RUN sees only when it crosses the seam by name.
 func (l *buildLane) buildArgs(ctx context.Context) ([]string, error) {
 	var args []string
-	if env, ok, err := fileIn(ctx, l.m.Source, ".forgejo/build-args.env"); err != nil {
-		return nil, fmt.Errorf("could not read .forgejo/build-args.env: %v", err)
+	if env, ok, err := fileIn(ctx, l.m.Source, "build-args.env"); err != nil {
+		return nil, fmt.Errorf("could not read build-args.env: %v", err)
 	} else if ok {
 		args = buildlane.BuildArgs(env)
-		say("build args: %d from .forgejo/build-args.env", len(args))
+		say("build args: %d from build-args.env", len(args))
 	}
 	if l.indexURL != "" {
 		args = append(args, "UV_INDEX_URL="+l.indexURL)
