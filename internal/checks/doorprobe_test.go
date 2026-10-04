@@ -13,6 +13,9 @@ import (
 func TestDoorProbeReadsTheManifestsFirstRemoteCopyInDocumentOrder(t *testing.T) {
 	// "zeta" is declared first and sorts last; a Go map would visit "alpha".
 	manifest := `
+[meta.alpha]
+note = "a table that is not a contract, named like one"
+
 [contracts.zeta]
 copies = [
   { source = { local = "a" } },

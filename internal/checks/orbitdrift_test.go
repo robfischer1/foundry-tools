@@ -119,3 +119,13 @@ func TestOrbitDriftRefusesANotUTF8Body(t *testing.T) {
 		t.Errorf("got %d %q", state, out)
 	}
 }
+
+func TestOrbitDriftIsTwoWhenTheDoorIsGone(t *testing.T) {
+	dead := httptest.NewServer(http.NotFoundHandler())
+	base := dead.URL
+	dead.Close()
+	state, out := OrbitDrift(context.Background(), "[[consumes]]\nfrom = \"p\"\ncontract = \"c\"\n", Door{Base: base})
+	if state != 2 || !strings.Contains(out, "CANNOT RUN - the door is unreachable") || !strings.Contains(out, "path=orbits/c.toml") {
+		t.Errorf("got %d %q", state, out)
+	}
+}
