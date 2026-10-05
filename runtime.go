@@ -596,8 +596,10 @@ func (r *run) gitReady(ctx context.Context, ctr *dagger.Container) *dagger.Conta
 // a change set fleet:witness can grade, and the door's Job still grades the
 // real commits.
 func (r *run) gitReadyOn(ctx context.Context, ctr *dagger.Container, tree *dagger.Directory) *dagger.Container {
-	gitdir, err := r.src.File(".git").Contents(ctx)
-	if err == nil && r.origin != "" && r.base != "" {
+	// fileIfPresent: a primary checkout's .git is a directory, and asking for it
+	// as a File failed a span on every run (probe.go says why that mattered).
+	gitdir, linked, _ := fileIfPresent(ctx, r.src, ".git")
+	if linked && r.origin != "" && r.base != "" {
 		history := dag.Git(r.origin).Ref(r.base).Tree().Directory(".git")
 		return ctr.
 			WithMountedDirectory("/src", tree.WithoutFile(".git").WithDirectory(".git", history)).
@@ -606,7 +608,7 @@ func (r *run) gitReadyOn(ctx context.Context, ctr *dagger.Container, tree *dagge
 			WithExec([]string{"git", "add", "-A"}).
 			WithExec([]string{"git", "-c", "user.name=ca", "-c", "user.email=ca@notusmi.com", "commit", "-q", "--allow-empty", "-m", "snapshot: the working tree as pushed, on " + r.base})
 	}
-	if err == nil {
+	if linked {
 		// THE MOUNT SWAP COMES FIRST, before ANY git command — including the
 		// --global config below, which needs no repository. git discovers the
 		// repository at startup regardless of the subcommand, and a `.git` file
@@ -623,7 +625,7 @@ func (r *run) gitReadyOn(ctx context.Context, ctr *dagger.Container, tree *dagge
 	// not own (exit 128, "dubious ownership") and the process here is root.
 	// A FILE, NOT AN EXEC (safeDirectoryConfig says why).
 	ctr = ctr.WithNewFile(gitSystemConfig, safeDirectoryConfig)
-	if err != nil {
+	if !linked {
 		// `.git` is a directory (a primary checkout) or absent: nothing to rebuild.
 		return ctr
 	}

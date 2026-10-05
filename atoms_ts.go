@@ -148,7 +148,7 @@ func tsBunAudit(ctx context.Context, r *run) checks.Verdict {
 func tsMutation(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("ts:mutation")
 	// critical_modules is read in Go off the tree, before any container runs.
-	answers, _ := r.src.File(".copier-answers.yml").Contents(ctx)
+	answers, _, _ := fileIfPresent(ctx, r.src, ".copier-answers.yml")
 	mods := checks.CriticalModules(answers)
 	scope := checks.MutationScope(a.ID, mods)
 	// WHAT THE RUNNER PATCH DID RIDES ON EVERY VERDICT THIS ATOM FILES, beside
@@ -246,8 +246,8 @@ func tsMutation(ctx context.Context, r *run) checks.Verdict {
 			return neverRan(err)
 		}
 		// A file that does not read is absent: no report, no exemptions.
-		report, _ := mutated.File(dir + "/reports/mutation/mutation.json").Contents(ctx)
-		exemptions, _ := mutated.File(dir + "/stryker-honest.json").Contents(ctx)
+		report, _, _ := ctrFileIfPresent(ctx, mutated, dir+"/reports/mutation/mutation.json")
+		exemptions, _, _ := ctrFileIfPresent(ctx, mutated, dir+"/stryker-honest.json")
 		runs = append(runs, checks.StrykerRun{Dir: pkg.Dir, Status: status, Log: log, Report: report, Exemptions: exemptions})
 	}
 	return settle(checks.TSMutationVerdict(runs))

@@ -64,7 +64,7 @@ func templateRenderMatrix(ctx context.Context, r *run) checks.Verdict {
 	if !checks.HasEntry(entries, ".git") {
 		return checks.VerdictOf(a, 2, a.ID+noRepository)
 	}
-	if _, err := r.src.File(".git").Contents(ctx); err == nil {
+	if _, linked, _ := fileIfPresent(ctx, r.src, ".git"); linked {
 		return checks.VerdictOf(a, 2, a.ID+noRepository+" Here .git is a FILE, not a directory: this tree came from a linked worktree, and the gitdir it names is a host path that does not exist inside the container. That is a refusal on purpose — an index can be rebuilt, a history cannot.")
 	}
 

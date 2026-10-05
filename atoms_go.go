@@ -220,7 +220,7 @@ func goTestIn(ctx context.Context, r *run, a checks.AtomDef, dir string, race bo
 // stops it when nothing needs it — the fixture the retired star.toml
 // provisioned through the Docker Engine API, without the socket.
 func (r *run) withTestDatabases(ctx context.Context, ctr *dagger.Container, scope string) (*dagger.Container, []checks.TestDB, string) {
-	answers, _ := r.src.File(".copier-answers.yml").Contents(ctx)
+	answers, _, _ := fileIfPresent(ctx, r.src, ".copier-answers.yml")
 	star := checks.ServiceName(answers)
 	if star == "" {
 		return ctr, nil, checks.TestDBScope(nil, nil, "no service_name in .copier-answers.yml, so no record to read")
@@ -287,7 +287,7 @@ func (r *run) withTestBrokers(ctx context.Context, ctr *dagger.Container, scope 
 	// it. The first cut guarded in place and the mutation lane graded those guards
 	// NOT COVERED and LIVED on the pull that added them (#196, six survivors) — a
 	// guard no test can execute is a guard that is not there.
-	answers, _ := r.src.File(".copier-answers.yml").Contents(ctx)
+	answers, _, _ := fileIfPresent(ctx, r.src, ".copier-answers.yml")
 	slag, slagErr := r.dies.File("fleet/stars/" + checks.ServiceName(answers) + "/slag.json").Contents(ctx)
 	out, code, tagsErr := output(ctx, ctr.WithExec([]string{
 		"grep", "-rhoE", `^//go:build [A-Za-z0-9_]+$`, "--include=*_test.go", ".",
@@ -511,8 +511,7 @@ func (r *run) asksForRelease(ctx context.Context, dockerfiles []string) (bool, e
 // Release() failed on the same sentence — a star with a record, read as none.
 func (r *run) starName(ctx context.Context) (string, error) {
 	lacks := "no .copier-answers.yml"
-	answers, err := r.src.File(".copier-answers.yml").Contents(ctx)
-	if err == nil {
+	if answers, present, _ := fileIfPresent(ctx, r.src, ".copier-answers.yml"); present {
 		if star := checks.ServiceName(answers); star != "" {
 			return star, nil
 		}

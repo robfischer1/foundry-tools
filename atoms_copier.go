@@ -132,7 +132,7 @@ func fleetCopierAnswersIntact(ctx context.Context, r *run) checks.Verdict {
 // shortcut invented here: atoms_ts.go:145 and atoms_python.go:328 both take
 // `.copier-answers.yml` with `answers, _ := ...Contents(ctx)`.
 func copierTemplate(ctx context.Context, r *run) string {
-	body, _ := r.src.File(answersFile).Contents(ctx)
+	body, _, _ := fileIfPresent(ctx, r.src, answersFile)
 	for _, line := range strings.Split(body, "\n") {
 		rest, ok := strings.CutPrefix(strings.TrimSpace(line), "_src_path:")
 		if !ok {

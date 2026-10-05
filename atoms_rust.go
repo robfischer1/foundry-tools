@@ -232,7 +232,7 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("rust:mutation")
 	// critical_modules is read in Go off the tree, before any container runs.
 	// A missing answers file is an empty declaration.
-	answers, _ := r.src.File(".copier-answers.yml").Contents(ctx)
+	answers, _, _ := fileIfPresent(ctx, r.src, ".copier-answers.yml")
 	mods := checks.CriticalModules(answers)
 	scope := checks.MutationScope(a.ID, mods)
 	settle := func(state int, reason string) checks.Verdict {
