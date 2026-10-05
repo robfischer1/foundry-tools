@@ -66,6 +66,9 @@ type fakeEngine struct {
 	queries []string
 }
 
+// paperTree is the declared repository as one request sees it.
+type paperTree map[string]string
+
 type script struct {
 	match string // substring of the query text; "" matches every query
 	leaf  string // which leaf this answers: exitCode, stdout, stderr, sync, any ("" = any)
@@ -277,8 +280,8 @@ func gitMount(git field) string {
 }
 
 // hasDir answers whether the tree holds anything under dir.
-func (e *fakeEngine) hasDir(dir string) bool {
-	for k := range e.tree {
+func (tree paperTree) hasDir(dir string) bool {
+	for k := range tree {
 		if strings.HasPrefix(k, dir+"/") {
 			return true
 		}
@@ -298,14 +301,14 @@ func dirOf(fields []field) string {
 	return dir
 }
 
-func (e *fakeEngine) entries(dir string) []string {
+func (tree paperTree) entries(dir string) []string {
 	seen := map[string]bool{}
 	var out []string
 	prefix := ""
 	if dir != "" {
 		prefix = strings.TrimSuffix(dir, "/") + "/"
 	}
-	for p := range e.tree {
+	for p := range tree {
 		if !strings.HasPrefix(p, prefix) {
 			continue
 		}
@@ -353,14 +356,14 @@ func globRE(pattern string) *regexp.Regexp {
 	return regexp.MustCompile(b.String())
 }
 
-func (e *fakeEngine) glob(dir, pattern string, gitless bool) []string {
+func (tree paperTree) glob(dir, pattern string, gitless bool) []string {
 	re := globRE(pattern)
 	var out []string
 	prefix := ""
 	if dir != "" {
 		prefix = strings.TrimSuffix(dir, "/") + "/"
 	}
-	for p := range e.tree {
+	for p := range tree {
 		if !strings.HasPrefix(p, prefix) {
 			continue
 		}
@@ -391,11 +394,15 @@ func (e *fakeEngine) answer(q string) (data any, errMsg string) {
 	if len(fields) == 0 {
 		return nil, "the paper engine could not parse: " + q
 	}
+	// THE TREE IS READ FROM THIS SNAPSHOT ALONE. A request still in flight
+	// when the next test calls reset() raced on e.tree (go:test-race,
+	// TestATreeThePlannerCannotReadIsACouldNotRunPerLaneAtom, 2026-10-05):
+	// reset swaps in a new map under the lock, so the map taken here is never
+	// written again and needs no lock to read.
 	e.mu.Lock()
-	tree := e.tree
+	tree := paperTree(e.tree)
 	scripts := append([]script(nil), e.scripts...)
 	e.mu.Unlock()
-	_ = tree
 
 	leaf := fields[len(fields)-1]
 	for _, s := range scripts {
@@ -443,7 +450,7 @@ func (e *fakeEngine) answer(q string) (data any, errMsg string) {
 			val = []string{}
 			break
 		}
-		val = e.entries(dirOf(fields))
+		val = tree.entries(dirOf(fields))
 	case "glob":
 		p, _ := leaf.arg("pattern")
 		gitless := strings.Contains(q, "filter(")
@@ -453,14 +460,14 @@ func (e *fakeEngine) answer(q string) (data any, errMsg string) {
 		// the way `contents` reads one — so a test can hand an atom the fleet's
 		// records and let it find the one it needs.
 		if fields[0].name == "git" {
-			if mount := gitMount(fields[0]); mount != "" && e.hasDir(mount) {
+			if mount := gitMount(fields[0]); mount != "" && tree.hasDir(mount) {
 				dir = path.Join(mount, dir)
 			} else {
 				val = []string{}
 				break
 			}
 		}
-		val = e.glob(dir, p, gitless)
+		val = tree.glob(dir, p, gitless)
 	case "contents":
 		// A scripted answer first: a test may hand an atom the file a body
 		// wrote inside the container (an rc file, a reason) without placing it
@@ -477,7 +484,7 @@ func (e *fakeEngine) answer(q string) (data any, errMsg string) {
 			// read, and a path it lacks is absent. That is how a test hands an
 			// atom a star's RECORD (fleet/stars/<star>/slag.json) and how it
 			// models a star the dies do not know.
-			if mount := gitMount(fields[0]); mount != "" && e.hasDir(mount) {
+			if mount := gitMount(fields[0]); mount != "" && tree.hasDir(mount) {
 				fp := ""
 				for _, f := range fields {
 					if f.name == "file" {
@@ -486,7 +493,7 @@ func (e *fakeEngine) answer(q string) (data any, errMsg string) {
 						}
 					}
 				}
-				c, ok := e.tree[fp]
+				c, ok := tree[fp]
 				if !ok {
 					return nil, fmt.Sprintf("no such file or directory: %s", fp)
 				}
@@ -504,7 +511,7 @@ func (e *fakeEngine) answer(q string) (data any, errMsg string) {
 				}
 			}
 		}
-		c, ok := e.tree[fp]
+		c, ok := tree[fp]
 		if !ok {
 			return nil, fmt.Sprintf("no such file or directory: %s", fp)
 		}
@@ -526,15 +533,15 @@ func (e *fakeEngine) answer(q string) (data any, errMsg string) {
 		dir := dirOf(fields)
 		if fields[0].name == "git" {
 			mount := gitMount(fields[0])
-			if mount == "" || !e.hasDir(mount) {
+			if mount == "" || !tree.hasDir(mount) {
 				val = true // the paper engine's copy of every file it serves
 				break
 			}
 			dir = path.Join(mount, dir)
 		}
 		fp := path.Join(dir, p)
-		_, isFile := e.tree[fp]
-		isDir := e.hasDir(fp)
+		_, isFile := tree[fp]
+		isDir := tree.hasDir(fp)
 		switch {
 		case strings.Contains(leaf.args, "REGULAR_TYPE"):
 			val = isFile
