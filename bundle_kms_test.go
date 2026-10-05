@@ -218,3 +218,127 @@ func TestAFleetKeyFailureNeverReachesTheKMSKey(t *testing.T) {
 		t.Errorf("the KMS key signed after the fleet key failed:\n%s", c)
 	}
 }
+
+// bundlesKMSOnly runs the lane after the dual-sign window: no file key at all,
+// the KMS key and its token alone.
+func bundlesKMSOnly(t *testing.T, m *FoundryTools, cosignKey, cosignPassphrase *dagger.Secret) {
+	t.Helper()
+	if err := m.Bundle(context.Background(), dag.SetSecret("opa-key", pem64()), dag.SetSecret("registry-token", bundleToken),
+		cosignKey, cosignPassphrase, false, kmsSpec, dag.SetSecret("kms-token", saToken)); err != nil {
+		t.Fatalf("bundle: %v", err)
+	}
+}
+
+// AFTER THE WINDOW the KMS key signs alone ("Trust Roots to KMS" T1): no file
+// key is mounted, no passphrase is set, the repo's cosign.pub is never read,
+// and every signature is checked against the KMS key itself.
+func TestWithKMSAloneTheKMSKeySignsAndNothingElseDoes(t *testing.T) {
+	m := bundleOn(t, nil)
+	scriptAGreenBundle()
+	plain, signed := distinctDigests()
+	said := sayings(t, func() { bundlesKMSOnly(t, m, nil, nil) })
+	settledOn(t, "0", "published and signed")
+	for _, ref := range []string{plain, signed} {
+		if engine.chain(kmsSignOf(ref)) == "" {
+			t.Errorf("%s was not signed by the KMS key", ref)
+		}
+	}
+	for needle, what := range map[string]string{
+		`"/run/cosign/key"`:        "the file key was mounted or signed with",
+		`"COSIGN_PASSWORD"`:        "a passphrase was set",
+		`"/run/cosign/cosign.pub"`: "the repo's cosign.pub was read",
+		`"withoutMount"`:           "a mount that was never made was taken away",
+	} {
+		if c := engine.chain(needle); c != "" {
+			t.Errorf("%s with --kms alone:\n%s", what, c)
+		}
+	}
+	if engine.chain(`"after-sign"`, `"verify"`, `"`+kmsKeyRef+`"`) == "" {
+		t.Error("the KMS signature was not verified against the KMS key after it was made")
+	}
+	if !strings.Contains(said, "signature, "+kmsKeyRef+" (the KMS key alone)") {
+		t.Errorf("the lane did not say the KMS key signs alone:\n%s", said)
+	}
+	if strings.Contains(said, "dual-sign window") {
+		t.Errorf("the lane claimed a dual-sign window it is not in:\n%s", said)
+	}
+}
+
+// Half a file key is a misconfiguration, not a choice: refused before anything
+// is built, with --kms or without it.
+func TestHalfAFileKeyIsCouldNotRun(t *testing.T) {
+	for name, c := range map[string]struct{ key, pass bool }{
+		"a key, no passphrase": {true, false},
+		"a passphrase, no key": {false, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := bundleOn(t, nil)
+			scriptAGreenBundle()
+			var key, pass *dagger.Secret
+			if c.key {
+				key = dag.SetSecret("cosign-key", pem64())
+			}
+			if c.pass {
+				pass = dag.SetSecret("cosign-password", "pw")
+			}
+			bundlesKMSOnly(t, m, key, pass)
+			settledOn(t, "2", "go together")
+			nothingPushed(t)
+		})
+	}
+}
+
+// With neither the file key nor --kms there is nothing to sign with.
+func TestABundleWithNoSignerAtAllIsCouldNotRun(t *testing.T) {
+	m := bundleOn(t, nil)
+	scriptAGreenBundle()
+	bundleWith(t, m, false, dag.SetSecret("opa-key", pem64()), dag.SetSecret("registry-token", bundleToken), nil, nil)
+	settledOn(t, "2", "a bundle is signed by something")
+	nothingPushed(t)
+}
+
+// A dry run needs no signer at all.
+func TestADryRunNeedsNoSigner(t *testing.T) {
+	m := bundleOn(t, nil)
+	scriptAGreenBundle()
+	bundleWith(t, m, true, nil, nil, nil, nil)
+	if c := engine.chain(`"/usr/local/bin/verdict"`, `"2"`); c != "" {
+		t.Fatalf("a dry run with no signer could not run:\n%s", c)
+	}
+	nothingPushed(t)
+}
+
+// Inside the window the file key is still judged against the repo's own
+// cosign.pub, mounted into the signer — the half --kms alone drops.
+func TestInTheDualSignWindowTheFileKeyIsCheckedAgainstTheReposCosignPub(t *testing.T) {
+	m := bundleOn(t, nil)
+	scriptAGreenBundle()
+	bundlesWithKMS(t, m, kmsSpec, dag.SetSecret("kms-token", saToken))
+	settledOn(t, "0", "published and signed")
+	verify := engine.chain(`"verify"`, `"--key"`, `"/run/cosign/cosign.pub"`)
+	if verify == "" {
+		t.Fatal("the file key's signature was never verified against cosign.pub")
+	}
+	wantCalls(t, verify, []string{"withFile", `"/run/cosign/cosign.pub"`})
+}
+
+// A missing registry token refuses on its own, with the OPA key present.
+func TestABundleWithoutItsRegistryTokenBuildsNothing(t *testing.T) {
+	m := bundleOn(t, nil)
+	bundleWith(t, m, false, dag.SetSecret("opa-key", pem64()), nil,
+		dag.SetSecret("cosign-key", pem64()), dag.SetSecret("cosign-password", "pw"))
+	settledOn(t, "2", "--opa-signing-key and --registry-token are both required")
+	nothingPushed(t)
+}
+
+// A dry run is not held to the file key's pairing: half a key is not refused,
+// because nothing is signed.
+func TestADryRunWithHalfAFileKeyStillRuns(t *testing.T) {
+	m := bundleOn(t, nil)
+	scriptAGreenBundle()
+	bundleWith(t, m, true, nil, nil, dag.SetSecret("cosign-key", pem64()), nil)
+	if c := engine.chain(`"/usr/local/bin/verdict"`, `"2"`); c != "" {
+		t.Fatalf("a dry run with half a file key could not run:\n%s", c)
+	}
+	nothingPushed(t)
+}

@@ -60,21 +60,24 @@ func (m *FoundryTools) Bundle(
 	// Required unless --dry-run.
 	// +optional
 	registryToken *dagger.Secret,
-	// The fleet cosign key the dies are signed with: base64 of its PEM
-	// (COSIGN_PRIVATE_KEY). Required unless --dry-run.
+	// The fleet FILE key the dies are signed with: base64 of its PEM
+	// (COSIGN_PRIVATE_KEY), checked against the repo's own cosign.pub. With
+	// --kms it is optional: --kms alone is the KMS key signing by itself, the
+	// end of the dual-sign window ("Trust Roots to KMS" T1). Without --kms it
+	// is required unless --dry-run.
 	// +optional
 	cosignKey *dagger.Secret,
-	// The cosign key's passphrase (COSIGN_PASSWORD). Required unless --dry-run.
+	// The file key's passphrase (COSIGN_PASSWORD). Goes with --cosign-key.
 	// +optional
 	cosignPassphrase *dagger.Secret,
 	// Build and gate everything for real; push, tag and sign nothing.
 	// +optional
 	dryRun bool,
-	// A SECOND signer, for the dual-sign window of plan "Trust Roots to KMS":
-	// infisical://<key>?project=<id>&identity=<id>. Every digest the fleet key
-	// signs is then signed by this non-exportable KMS key too, so verifiers can
-	// move to it one at a time. Ids only, no credential. Empty means the fleet
-	// key alone, as before.
+	// The KMS signer of plan "Trust Roots to KMS":
+	// infisical://<key>?project=<id>&identity=<id>, a non-exportable key.
+	// Beside --cosign-key it is the second signature of the dual-sign window;
+	// alone it is the only one. Ids only, no credential. Empty means the file
+	// key alone.
 	// +optional
 	kms string,
 	// The ServiceAccount token the KMS plugin logs in with by kubernetes-auth
@@ -104,6 +107,8 @@ type bundleLane struct {
 	kmsToken *dagger.Secret
 	kms      bundlelane.KMS
 	kmsOn    bool
+	// fleetOn says whether the file key signs at all: --cosign-key was given.
+	fleetOn bool
 	// stamp is this run's, on every registry read and write: what a registry
 	// holds is a fact about now, and a push or a signature is an act.
 	stamp string
@@ -139,13 +144,20 @@ func (l *bundleLane) run(ctx context.Context) (int, string) {
 	if m.Repo == "" || m.Sha == "" {
 		return buildlane.CouldNotRun, "the bundle lane publishes a commit the engine fetched — construct the module with --repo and --sha"
 	}
-	if !l.dryRun && (l.opaSigningKey == nil || l.registryToken == nil || l.cosignKey == nil || l.cosignPassphrase == nil) {
-		return buildlane.CouldNotRun, "a bundle publishes and signs: --opa-signing-key, --registry-token, --cosign-key and --cosign-passphrase are all required (--dry-run needs none)"
-	}
 	kms, kmsOn, err := bundlelane.ParseKMS(l.kmsSpec)
 	if err != nil {
 		return buildlane.CouldNotRun, err.Error()
 	}
+	if !l.dryRun && (l.opaSigningKey == nil || l.registryToken == nil) {
+		return buildlane.CouldNotRun, "a bundle publishes and signs: --opa-signing-key and --registry-token are both required (--dry-run needs none)"
+	}
+	if !l.dryRun && (l.cosignKey == nil) != (l.cosignPassphrase == nil) {
+		return buildlane.CouldNotRun, "--cosign-key and --cosign-passphrase go together: one without the other opens nothing"
+	}
+	if !l.dryRun && l.cosignKey == nil && !kmsOn {
+		return buildlane.CouldNotRun, "a bundle is signed by something: --kms, or --cosign-key with --cosign-passphrase, is required (--dry-run needs neither)"
+	}
+	l.fleetOn = l.cosignKey != nil
 	if kmsOn && !l.dryRun && l.kmsToken == nil {
 		return buildlane.CouldNotRun, "--kms signs as a machine identity: --kms-token (the pod's ServiceAccount token) is required with it"
 	}
@@ -609,42 +621,55 @@ func (l *bundleLane) moveChannel(ctx context.Context, oras *dagger.Container, di
 	return die + "@" + digest, clean()
 }
 
-// cosign is the pinned cosign image holding the fleet key, its passphrase,
-// the registry login and the repo's own cosign.pub.
+// cosign is the pinned cosign image holding the registry login and, when the
+// file key signs, that key, its passphrase and the repo's own cosign.pub.
+// Without the file key nothing reads cosign.pub: the KMS signature is checked
+// against the KMS key itself.
 func (l *bundleLane) cosign(ctx context.Context) (*dagger.Container, gateResult) {
-	encoded, err := l.cosignKey.Plaintext(ctx)
-	if err != nil {
-		return nil, couldNotRun("the cosign key did not read: %v", err)
-	}
-	key, err := bundlelane.DecodeKey("COSIGN_PRIVATE_KEY", encoded)
-	if err != nil {
-		return nil, couldNotRun("%v", err)
+	nonroot := dagger.ContainerWithMountedSecretOpts{Owner: "65532:65532"}
+	c := cosignIn().
+		WithMountedTemp("/tmp").
+		WithEnvVariable("HOME", "/tmp")
+	if l.fleetOn {
+		encoded, err := l.cosignKey.Plaintext(ctx)
+		if err != nil {
+			return nil, couldNotRun("the cosign key did not read: %v", err)
+		}
+		key, err := bundlelane.DecodeKey("COSIGN_PRIVATE_KEY", encoded)
+		if err != nil {
+			return nil, couldNotRun("%v", err)
+		}
+		c = c.WithMountedSecret("/run/cosign/key", dag.SetSecret("bundle-cosign-key", key), nonroot).
+			WithSecretVariable("COSIGN_PASSWORD", l.cosignPassphrase).
+			WithFile("/run/cosign/cosign.pub", l.m.Source.File("cosign.pub"))
 	}
 	cfg, g := l.registryConfig(ctx)
 	if g.code != buildlane.Clean {
 		return nil, g
 	}
-	nonroot := dagger.ContainerWithMountedSecretOpts{Owner: "65532:65532"}
-	return cosignIn().
-		WithMountedTemp("/tmp").
-		WithEnvVariable("HOME", "/tmp").
-		WithMountedSecret("/run/cosign/key", dag.SetSecret("bundle-cosign-key", key), nonroot).
-		WithSecretVariable("COSIGN_PASSWORD", l.cosignPassphrase).
+	return c.
 		WithMountedSecret("/run/docker/config.json", cfg, nonroot).
 		WithEnvVariable("DOCKER_CONFIG", "/run/docker").
-		WithFile("/run/cosign/cosign.pub", l.m.Source.File("cosign.pub")).
 		WithEnvVariable("BUNDLE_RUN", l.stamp), clean()
 }
 
-// signAll signs every ref with the fleet key and, inside the dual-sign window,
-// with the KMS key as well. A KMS failure fails the lane: once a verifier has
-// moved to the KMS key, a digest without that signature is one it refuses.
+// signAll signs every ref with each signer the lane was handed: the file key,
+// then the KMS key — both inside the dual-sign window, the KMS key alone after
+// it. Any failure fails the lane: once a verifier has moved to the KMS key, a
+// digest without that signature is one it refuses.
 func (l *bundleLane) signAll(ctx context.Context, cosign *dagger.Container, die string, refs []string) gateResult {
-	g := signEach(ctx, cosign, refs, fleetKey)
+	g := clean()
+	if l.fleetOn {
+		g = signEach(ctx, cosign, refs, fleetKey)
+	}
 	if g.code != buildlane.Clean || !l.kmsOn {
 		return g
 	}
-	bundleSay("── %s: second signature, %s (dual-sign window) ──", die, l.kms.KeyRef)
+	if l.fleetOn {
+		bundleSay("── %s: second signature, %s (dual-sign window) ──", die, l.kms.KeyRef)
+	} else {
+		bundleSay("── %s: signature, %s (the KMS key alone) ──", die, l.kms.KeyRef)
+	}
 	return signEach(ctx, l.kmsSigner(cosign), refs, signingKeys{sign: l.kms.KeyRef, verify: l.kms.KeyRef, name: l.kms.KeyRef})
 }
 
@@ -666,12 +691,13 @@ func signEach(ctx context.Context, cosign *dagger.Container, refs []string, keys
 // never leaves KMS, and the token is good only for the identity bound to this
 // lane's ServiceAccount.
 func (l *bundleLane) kmsSigner(fleet *dagger.Container) *dagger.Container {
-	c := fleet.
-		WithoutMount("/run/cosign/key").
-		WithoutSecretVariable("COSIGN_PASSWORD").
-		WithFile("/usr/local/bin/sigstore-kms-infisical",
-			dag.Container().From(checks.ImageSigningTools).File("/usr/local/bin/sigstore-kms-infisical"),
-			dagger.ContainerWithFileOpts{Permissions: 0o755}).
+	c := fleet
+	if l.fleetOn {
+		c = c.WithoutMount("/run/cosign/key").WithoutSecretVariable("COSIGN_PASSWORD")
+	}
+	c = c.WithFile("/usr/local/bin/sigstore-kms-infisical",
+		dag.Container().From(checks.ImageSigningTools).File("/usr/local/bin/sigstore-kms-infisical"),
+		dagger.ContainerWithFileOpts{Permissions: 0o755}).
 		WithMountedSecret(bundlelane.KMSTokenPath, l.kmsToken, dagger.ContainerWithMountedSecretOpts{Owner: "65532:65532"})
 	for _, kv := range l.kms.Env() {
 		c = c.WithEnvVariable(kv[0], kv[1])

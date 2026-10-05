@@ -22,6 +22,13 @@ func TestOnlyNonInertChangesBuild(t *testing.T) {
 	if got := NonInert("stages.just\nhooks/pre-commit\nhooks/pre-push\ncliff.toml\n"); got != nil {
 		t.Fatalf("a hook-files-only push builds: %v", got)
 	}
+	// The cosign pin at the root is a lane's; one in a subtree is not.
+	if got := NonInert("cosign.pub\n"); got != nil {
+		t.Fatalf("a cosign.pub re-pin builds: %v", got)
+	}
+	if got := NonInert("bases/chairman/cosign.pub\n"); !reflect.DeepEqual(got, []string{"bases/chairman/cosign.pub"}) {
+		t.Fatalf("a cosign.pub an image COPYs is inert: %v", got)
+	}
 }
 
 func TestTheDeclaredImageComesFromComposeOrTheStarsName(t *testing.T) {
