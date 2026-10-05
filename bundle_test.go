@@ -95,7 +95,7 @@ func bundles(t *testing.T, m *FoundryTools) {
 
 func bundleWith(t *testing.T, m *FoundryTools, dryRun bool, opaKey, token, cosignKey, cosignPassphrase *dagger.Secret) {
 	t.Helper()
-	if err := m.Bundle(context.Background(), opaKey, token, cosignKey, cosignPassphrase, dryRun); err != nil {
+	if err := m.Bundle(context.Background(), opaKey, token, cosignKey, cosignPassphrase, dryRun, "", nil); err != nil {
 		t.Fatalf("bundle: %v", err)
 	}
 }

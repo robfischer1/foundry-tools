@@ -114,10 +114,8 @@ func (l *bundleLane) publishOrbits(ctx context.Context, contracts, orbits map[st
 	if g.code != buildlane.Clean {
 		return g
 	}
-	for _, ref := range refs {
-		if g := signVerify(ctx, cosign, ref); g.code != buildlane.Clean {
-			return g
-		}
+	if g := l.signAll(ctx, cosign, "orbit dies", refs); g.code != buildlane.Clean {
+		return g
 	}
 	return gateResult{buildlane.Clean, "published and signed " + strings.Join(refs, ", ")}
 }
