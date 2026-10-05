@@ -60,11 +60,13 @@ func (m *FoundryTools) Build(
 	// REGISTRY_AUTH_JSON). Required with --tip.
 	// +optional
 	registryAuth *dagger.Secret,
-	// The CI signing key: base64 of the cosign private key
-	// (CI_COSIGN_PRIVATE_KEY). Required with --tip.
+	// A base's signing key: base64 of a cosign private key. Required with
+	// --sign-bases and read by nothing else — a star image is never signed
+	// (D11), so a tip that signs no base needs no key ("Trust Roots to KMS"
+	// T1 retired the CI key the lane used to be handed).
 	// +optional
 	cosignKey *dagger.Secret,
-	// The CI signing key's passphrase (CI_COSIGN_PASSWORD). Required with --tip.
+	// That key's passphrase. Required with --sign-bases.
 	// +optional
 	cosignPassphrase *dagger.Secret,
 	// The python index a Dockerfile RUN reads as UV_INDEX_URL.
@@ -210,8 +212,11 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 	if m.Repo == "" || m.Sha == "" {
 		return l.stop("build:preflight", buildlane.CouldNotRun, "the build lane builds a commit the engine fetched — construct the module with --repo and --sha")
 	}
-	if l.tip && withheld(l.registryAuth, l.cosignKey, l.cosignPassphrase) {
-		return l.stop("build:preflight", buildlane.CouldNotRun, "a tip build publishes and signs: --registry-auth, --cosign-key and --cosign-passphrase are all required")
+	if l.tip && withheld(l.registryAuth) {
+		return l.stop("build:preflight", buildlane.CouldNotRun, "a tip build publishes: --registry-auth is required")
+	}
+	if l.tip && l.signBases && withheld(l.cosignKey, l.cosignPassphrase) {
+		return l.stop("build:preflight", buildlane.CouldNotRun, "--sign-bases signs what the tip publishes: --cosign-key and --cosign-passphrase are both required")
 	}
 	star := starOf(m.Repo)
 	l.say("%s for %s at %.12s", map[bool]string{true: "tip build", false: "pull-time build (publishes nothing)"}[l.tip], star, m.Sha)
