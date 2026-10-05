@@ -136,7 +136,7 @@ func TestTheBundleLaneRefusesATreeItDidNotFetch(t *testing.T) {
 func TestABundleWithoutItsSecretsBuildsNothing(t *testing.T) {
 	m := bundleOn(t, nil)
 	bundleWith(t, m, false, nil, dag.SetSecret("registry-token", bundleToken), nil, nil)
-	settledOn(t, "2", "are all required")
+	settledOn(t, "2", "--opa-signing-key and --registry-token are both required")
 	if engine.chain(`"--revision"`) != "" {
 		t.Error("a bundle that could never publish built anyway")
 	}
