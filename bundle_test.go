@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"dagger/foundry-tools/internal/bundlelane"
+	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
 )
 
@@ -55,7 +56,9 @@ func bundleOn(t *testing.T, tree map[string]string) *FoundryTools {
 // chain the fleet's, so later stages are scripted after earlier ones and the
 // one-exec needles last.
 func scriptAGreenBundle() {
-	engine.stdout(`"version"`, "Version: 1.18.0\n")
+	// The pin, not a literal: Renovate moves checks.OpaVersion, and a literal
+	// here turned every bump into 79 red bundle tests (rollup c6bba07, 2026-10-05).
+	engine.stdout(`"version"`, "Version: "+checks.OpaVersion+"\n")
 	engine.stdout(`"--name-only"`, "policy/authz/visible.rego\nfleet/stars/athena/slag.json\n")
 	engine.stdout(`"-v"`, "PASS: 325/325")
 	engine.stdout(`"tests/fixtures/ouranos-self.json"`, `{"result":[{"expressions":[{"value":[]}]}]}`)
