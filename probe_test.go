@@ -109,3 +109,32 @@ func TestCtrFileIfPresentPassesTheEnginesFailureOn(t *testing.T) {
 		t.Fatalf("got (%v, %v), want the read's error", present, err)
 	}
 }
+
+// starRecord: a record the dies hold is read; one they do not hold, or an
+// unnamed star, is the "no record" error the callers word, found without a read.
+func TestStarRecordReadsOnlyARecordTheDiesHold(t *testing.T) {
+	engine.reset()
+	engine.withTree(map[string]string{"/dies/fleet/stars/clio/slag.json": `{"apiVersion":3}`})
+	r := newRun(dag.Directory(), "", "")
+	body, err := r.starRecord(t.Context(), "clio")
+	if err != nil || body != `{"apiVersion":3}` {
+		t.Fatalf("got (%q, %v), want the record", body, err)
+	}
+	for _, star := range []string{"hades", ""} {
+		engine.reset()
+		engine.withTree(map[string]string{"/dies/fleet/stars/clio/slag.json": "{}"})
+		body, err := r.starRecord(t.Context(), star)
+		if err == nil || body != "" || !strings.Contains(err.Error(), "no record at fleet/stars/"+star+"/slag.json") {
+			t.Errorf("star %q: got (%q, %v), want the no-record error", star, body, err)
+		}
+		if _, rd := fileQueries(); rd != 0 {
+			t.Errorf("star %q: an absent record must not be read, got %d reads", star, rd)
+		}
+	}
+	engine.reset()
+	engine.withTree(map[string]string{"/dies/fleet/stars/clio/slag.json": "{}"})
+	engine.failLeaf("", "exists", "engine went away")
+	if _, err := r.starRecord(t.Context(), "clio"); err == nil || !strings.Contains(err.Error(), "engine went away") {
+		t.Errorf("the engine's failure should ride the error, got %v", err)
+	}
+}

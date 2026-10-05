@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"dagger/foundry-tools/internal/dagger"
 )
@@ -42,4 +44,17 @@ func ctrFileIfPresent(ctx context.Context, ctr *dagger.Container, path string) (
 	}
 	body, err = ctr.File(path).Contents(ctx)
 	return body, err == nil, err
+}
+
+// starRecord reads a star's record, fleet/stars/<star>/slag.json, off the dies.
+// A record the dies do not hold is an error, as it always was to these callers,
+// but it is found by fileIfPresent rather than by a failed read. An unnamed star
+// asks for fleet/stars//slag.json, which is simply absent.
+func (r *run) starRecord(ctx context.Context, star string) (string, error) {
+	p := "fleet/stars/" + star + "/slag.json"
+	body, present, err := fileIfPresent(ctx, r.dies, p)
+	if !present {
+		return "", errors.Join(err, fmt.Errorf("no record at %s", p))
+	}
+	return body, nil
 }

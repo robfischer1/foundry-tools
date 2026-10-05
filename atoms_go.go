@@ -225,7 +225,7 @@ func (r *run) withTestDatabases(ctx context.Context, ctr *dagger.Container, scop
 	if star == "" {
 		return ctr, nil, checks.TestDBScope(nil, nil, "no service_name in .copier-answers.yml, so no record to read")
 	}
-	slag, err := r.dies.File("fleet/stars/" + star + "/slag.json").Contents(ctx)
+	slag, err := r.starRecord(ctx, star)
 	if err != nil {
 		return ctr, nil, checks.TestDBScope(nil, nil, "no record at fleet/stars/"+star+"/slag.json")
 	}
@@ -288,7 +288,7 @@ func (r *run) withTestBrokers(ctx context.Context, ctr *dagger.Container, scope 
 	// NOT COVERED and LIVED on the pull that added them (#196, six survivors) — a
 	// guard no test can execute is a guard that is not there.
 	answers, _, _ := fileIfPresent(ctx, r.src, ".copier-answers.yml")
-	slag, slagErr := r.dies.File("fleet/stars/" + checks.ServiceName(answers) + "/slag.json").Contents(ctx)
+	slag, slagErr := r.starRecord(ctx, checks.ServiceName(answers))
 	out, code, tagsErr := output(ctx, ctr.WithExec([]string{
 		"grep", "-rhoE", `^//go:build [A-Za-z0-9_]+$`, "--include=*_test.go", ".",
 	}, anyExit))
@@ -573,7 +573,7 @@ func (r *run) starOfRepo(ctx context.Context, key string) (string, error) {
 // about the repository and settles as a could-not-run.
 func (r *run) releasePlan(ctx context.Context, star string) (checks.ReleasePlan, string) {
 	var declared []string
-	if slag, err := r.dies.File("fleet/stars/" + star + "/slag.json").Contents(ctx); err == nil {
+	if slag, err := r.starRecord(ctx, star); err == nil {
 		declared = checks.ReleaseBinaries(slag)
 	}
 	vendored := false
