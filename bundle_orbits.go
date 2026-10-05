@@ -110,9 +110,9 @@ func (l *bundleLane) publishOrbits(ctx context.Context, contracts, orbits map[st
 		}
 		refs = append(refs, ref)
 	}
-	cosign, g := l.cosign(ctx)
-	if g.code != buildlane.Clean {
-		return g
+	cosign, failed := l.cosign(ctx)
+	if failed != nil {
+		return *failed
 	}
 	if g := l.signAll(ctx, cosign, "orbit dies", refs); g.code != buildlane.Clean {
 		return g
