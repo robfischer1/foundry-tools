@@ -161,3 +161,60 @@ func TestADryRunWithKMSNeedsNoToken(t *testing.T) {
 	}
 	nothingPushed(t)
 }
+
+// kmsSignOf is the needle for the KMS signature of one ref: cosign's argv as
+// the engine records it, contiguous.
+func kmsSignOf(ref string) string {
+	return `"` + kmsKeyRef + `","--yes","` + ref + `"`
+}
+
+// distinctDigests makes the signed twin resolve to its own digest, so a test
+// can tell the two refs of one die apart.
+func distinctDigests() (plain, signed string) {
+	engine.stdout(`-signed"`, "sha256:"+strings.Repeat("2c", 32)+"\n")
+	return bundlelane.PolicyDie + "@sha256:" + strings.Repeat("1b", 32), bundlelane.PolicyDie + "@sha256:" + strings.Repeat("2c", 32)
+}
+
+// Every ref is signed by the KMS key, not only the first.
+func TestTheKMSKeySignsEveryRefOfADie(t *testing.T) {
+	m := bundleOn(t, nil)
+	scriptAGreenBundle()
+	plain, signed := distinctDigests()
+	bundlesWithKMS(t, m, kmsSpec, dag.SetSecret("kms-token", saToken))
+	settledOn(t, "0", "published and signed")
+	for _, ref := range []string{plain, signed} {
+		if engine.chain(kmsSignOf(ref)) == "" {
+			t.Errorf("%s was not signed by the KMS key", ref)
+		}
+	}
+}
+
+// The first KMS refusal stops the die: the next ref is not signed, and the
+// lane does not settle green on the strength of a later success.
+func TestTheFirstKMSRefusalStopsTheDie(t *testing.T) {
+	m := bundleOn(t, nil)
+	scriptAGreenBundle()
+	plain, signed := distinctDigests()
+	engine.exitCode(kmsSignOf(plain), 1)
+	bundlesWithKMS(t, m, kmsSpec, dag.SetSecret("kms-token", saToken))
+	if c := engine.chain(`"/usr/local/bin/verdict"`, `"0"`); c != "" {
+		t.Fatalf("the lane settled green after the KMS key refused %s:\n%s", plain, c)
+	}
+	if c := engine.chain(kmsSignOf(signed)); c != "" {
+		t.Errorf("signing went on to %s after the KMS key refused %s:\n%s", signed, plain, c)
+	}
+}
+
+// A fleet-key failure fails the lane before the KMS key is asked at all.
+func TestAFleetKeyFailureNeverReachesTheKMSKey(t *testing.T) {
+	m := bundleOn(t, nil)
+	scriptAGreenBundle()
+	engine.exitCode(`"/run/cosign/key","--yes"`, 1)
+	bundlesWithKMS(t, m, kmsSpec, dag.SetSecret("kms-token", saToken))
+	if c := engine.chain(`"/usr/local/bin/verdict"`, `"0"`); c != "" {
+		t.Fatalf("the lane settled green after the fleet key failed:\n%s", c)
+	}
+	if c := engine.chain(`"sign"`, `"`+kmsKeyRef+`"`, `"--yes"`); c != "" {
+		t.Errorf("the KMS key signed after the fleet key failed:\n%s", c)
+	}
+}
