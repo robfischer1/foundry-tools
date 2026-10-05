@@ -219,6 +219,8 @@ func publishVisual(ctx context.Context, r *run, runs []visualSuite) string {
 	art := dag.Directory()
 	carried := false
 	for _, s := range runs {
+		// Baselines are only regenerated for a suite that ran and wrote results,
+		// so results alone say whether anything is carried.
 		if s.results != nil {
 			art = art.WithDirectory(path.Join("results", s.dir), s.results)
 			carried = true
@@ -228,7 +230,6 @@ func publishVisual(ctx context.Context, r *run, runs []visualSuite) string {
 				Include: []string{"**/*-snapshots/**"},
 				Exclude: []string{"**/node_modules/**"},
 			}))
-			carried = true
 		}
 	}
 	// NOTHING TO CARRY IS NOT A PUSH. A suite that never ran, because what it
