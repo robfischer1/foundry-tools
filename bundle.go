@@ -522,9 +522,9 @@ func (l *bundleLane) publishDie(ctx context.Context, built *dagger.Container, di
 		return nil, g
 	}
 	bundleSay("── %s: sign + verify by digest ──", die)
-	cosign, failed := l.cosign(ctx)
-	if failed != nil {
-		return nil, *failed
+	cosign, g := l.cosign(ctx)
+	if g.code != buildlane.Clean {
+		return nil, g
 	}
 	if g := l.signAll(ctx, cosign, die, []string{digest, signedDigest}); g.code != buildlane.Clean {
 		return nil, g
@@ -625,15 +625,7 @@ func (l *bundleLane) moveChannel(ctx context.Context, oras *dagger.Container, di
 // file key signs, that key, its passphrase and the repo's own cosign.pub.
 // Without the file key nothing reads cosign.pub: the KMS signature is checked
 // against the KMS key itself.
-//
-// A REFUSAL IS A NON-NIL *gateResult, success a nil one — not a clean()
-// value: a zero gateResult IS clean(), so a success return of one is a
-// mutant (RETURN_ZERO) no test can tell from the original.
-func (l *bundleLane) cosign(ctx context.Context) (*dagger.Container, *gateResult) {
-	cfg, g := l.registryConfig(ctx)
-	if g.code != buildlane.Clean {
-		return nil, &g
-	}
+func (l *bundleLane) cosign(ctx context.Context) (*dagger.Container, gateResult) {
 	nonroot := dagger.ContainerWithMountedSecretOpts{Owner: "65532:65532"}
 	c := cosignIn().
 		WithMountedTemp("/tmp").
@@ -641,23 +633,24 @@ func (l *bundleLane) cosign(ctx context.Context) (*dagger.Container, *gateResult
 	if l.fleetOn {
 		encoded, err := l.cosignKey.Plaintext(ctx)
 		if err != nil {
-			failed := couldNotRun("the cosign key did not read: %v", err)
-			return nil, &failed
+			return nil, couldNotRun("the cosign key did not read: %v", err)
 		}
 		key, err := bundlelane.DecodeKey("COSIGN_PRIVATE_KEY", encoded)
 		if err != nil {
-			failed := couldNotRun("%v", err)
-			return nil, &failed
+			return nil, couldNotRun("%v", err)
 		}
 		c = c.WithMountedSecret("/run/cosign/key", dag.SetSecret("bundle-cosign-key", key), nonroot).
-			WithSecretVariable("COSIGN_PASSWORD", l.cosignPassphrase)
+			WithSecretVariable("COSIGN_PASSWORD", l.cosignPassphrase).
+			WithFile("/run/cosign/cosign.pub", l.m.Source.File("cosign.pub"))
 	}
-	c = c.WithMountedSecret("/run/docker/config.json", cfg, nonroot).
-		WithEnvVariable("DOCKER_CONFIG", "/run/docker")
-	if l.fleetOn {
-		c = c.WithFile("/run/cosign/cosign.pub", l.m.Source.File("cosign.pub"))
+	cfg, g := l.registryConfig(ctx)
+	if g.code != buildlane.Clean {
+		return nil, g
 	}
-	return c.WithEnvVariable("BUNDLE_RUN", l.stamp), nil
+	return c.
+		WithMountedSecret("/run/docker/config.json", cfg, nonroot).
+		WithEnvVariable("DOCKER_CONFIG", "/run/docker").
+		WithEnvVariable("BUNDLE_RUN", l.stamp), clean()
 }
 
 // signAll signs every ref with each signer the lane was handed: the file key,
