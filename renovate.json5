@@ -1,0 +1,27 @@
+// foundry-tools' local Renovate config, on top of renovate-config's global
+// config.js (which says "drop a renovate.json into a repo to override
+// locally"). It is a repo file because Renovate autodiscovers this fleet, and
+// autodiscovery discards per-repo objects in a global `repositories` list. A
+// global packageRule cannot reach this setting either: a vulnerability rule
+// takes its `force` from the package file's vulnerabilityAlerts, not from any
+// rule.
+{
+  // VULNERABILITY BUMPS ARE OFF HERE UNTIL 2026-12-01 (Rob, 2026-10-05).
+  // OSV's fixes for GO-2026-6508 (otlploggrpc) and GO-2026-6615 (otel/sdk/log)
+  // are v0.21.0. That pulls otel/log v0.21.0, whose API
+  // github.com/dagger/otel-go@v1.43.0 (the latest release) does not compile
+  // against: 13 undefined symbols, the module cannot load, and every
+  // foundry-tools rollup since 2026-09-28 has been red on it. A vulnerability
+  // rule's allowedVersions overrides the hold in config.js
+  // ("OpenTelemetry Go log family held below the v0.21 API break").
+  //
+  // With this off, a vulnerable dependency gets no bump at all here. The gate
+  // still grades the vulnerabilities: govulncheck runs on every pull and
+  // accepts only the two allowances in internal/checks/vulnallow.go, which
+  // expire 2026-12-01.
+  //
+  // RE-ENABLE (delete this file) when a dagger/otel-go release builds against
+  // otel/log v0.21.0+, or on 2026-12-01 when those allowances lapse, whichever
+  // comes first.
+  vulnerabilityAlerts: { enabled: false },
+}
