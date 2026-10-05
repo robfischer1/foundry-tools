@@ -152,6 +152,10 @@ func atomTable() []AtomDef {
 			Desc: "This repo's declared seams agree with the canonical contracts in foundry-dies/orbits.",
 		},
 		{
+			ID: "fleet:dagger-lockstep", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
+			Desc: "The dagger CLI, engine and module pins in this tree agree with the engine foundry/flux runs — CLI and engine move in lockstep.",
+		},
+		{
 			ID: "fleet:opengrep-sast", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "SAST scan that refuses a zero-file scan.",
 		},

@@ -729,6 +729,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Fleet).CheckYaml(&parent, ctx)
+		case "DaggerLockstep":
+			var parent Fleet
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Fleet).DaggerLockstep(&parent, ctx)
 		case "Hadolint":
 			var parent Fleet
 			err = json.Unmarshal(parentJSON, &parent)

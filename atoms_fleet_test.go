@@ -710,6 +710,69 @@ func TestFleetOrbitDriftNeverRunsWhenTheTreeWillNotAnswer(t *testing.T) {
 	wantReport(t, runAtom(t, "fleet:orbit-drift", ""), 2, "CANNOT RUN - orbit.toml did not parse", "would not read")
 }
 
+// ---- fleet:dagger-lockstep ----
+
+func TestFleetDaggerLockstepIsAbsentWithoutAPin(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	asks := fakeDoor(t, func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
+	v := runAtom(t, "fleet:dagger-lockstep", "")
+	wantState(t, v, 0, "ABSENT", "pins no dagger")
+	if v.Result != "absent" {
+		t.Errorf("want absent, got %q", v.Result)
+	}
+	if len(*asks) != 0 {
+		t.Errorf("nothing to compare, yet the door was asked %v", *asks)
+	}
+	fleetNoContainer(t, "no dagger pin")
+}
+
+// THE CLI IS HELD TO FLUX MAIN'S ENGINE, read from the door by name — and
+// only the files the tree holds are read.
+func TestFleetDaggerLockstepHoldsTheCLIToFluxMain(t *testing.T) {
+	engine.reset()
+	engine.withTree(fleetTree(map[string]string{
+		"bases/layer-dagger-cli/Dockerfile": "ARG DAGGER_VERSION=v0.21.9\n",
+	}))
+	asks := fakeDoor(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "ref: registry.dagger.io/engine:v0.21.10@sha256:"+strings.Repeat("b", 64)+"\n")
+	})
+	wantReport(t, runAtom(t, "fleet:dagger-lockstep", ""), 1,
+		"bases/layer-dagger-cli/Dockerfile: CLI (ARG DAGGER_VERSION) v0.21.9, but the engine is v0.21.10 (foundry/flux main forge/dagger-engine-helm.yaml)")
+	want := []doorAsk{{"foundry/flux", "forge/dagger-engine-helm.yaml"}}
+	if !reflect.DeepEqual(*asks, want) {
+		t.Errorf("the door was asked %v, want %v", *asks, want)
+	}
+	fleetNoContainer(t, "dagger-lockstep reads the door from the module")
+}
+
+// A tree that IS the engine source is judged on itself; the door is not asked.
+func TestFleetDaggerLockstepJudgesFluxOnItsOwnTree(t *testing.T) {
+	engine.reset()
+	ref := "registry.dagger.io/engine:v0.21.9@sha256:" + strings.Repeat("c", 64)
+	engine.withTree(fleetTree(map[string]string{
+		"forge/dagger-engine-helm.yaml": "chart: dagger-helm\n  version: 0.21.9\nref: " + ref + "\n",
+		"prime/daedalus-jobs.yaml":      "BUILD_JOB_IMAGE: \"" + ref + "\"\nLANE_CALL_IMAGE: \"" + ref + "\"\n",
+	}))
+	asks := fakeDoor(t, func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
+	wantReport(t, runAtom(t, "fleet:dagger-lockstep", ""), 0, "lockstep: 4 pin(s) agree with the engine v0.21.9")
+	if len(*asks) != 0 {
+		t.Errorf("flux's own tree holds the engine, yet the door was asked %v", *asks)
+	}
+}
+
+func TestFleetDaggerLockstepNeverRunsWhenTheTreeWillNotAnswer(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.fail(`glob(pattern:"dagger.json")`, "the tree went away")
+	wantState(t, runAtom(t, "fleet:dagger-lockstep", ""), 2, "the tree would not enumerate")
+
+	engine.reset()
+	engine.withTree(fleetTree(map[string]string{"bases/layer-dagger-cli/Dockerfile": "ARG DAGGER_VERSION=v0.21.9\n"}))
+	engine.failLeaf(`"bases/layer-dagger-cli/Dockerfile"`, "contents", "the Dockerfile would not read")
+	wantState(t, runAtom(t, "fleet:dagger-lockstep", ""), 2, "CANNOT RUN - bases/layer-dagger-cli/Dockerfile would not read", "would not read")
+}
+
 // ---- fleet:opengrep-sast ----
 
 func TestFleetOpengrepIsAbsentWithoutRulesSast(t *testing.T) {

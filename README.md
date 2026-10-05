@@ -84,7 +84,7 @@ dagger call -m git.notusmi.com/rob/foundry-tools@<sha> --source=. verdicts --sta
 **The Go suite is split by cadence (CA F13).** `go:test` is the commit's unit run — the same packages with no race detector, no database and no build tags, so the DB-gated suites do not compile in — and `go:test-race` is the push's run, with `-race` and the live databases the record declares. A caller that asks for both stages at once (the door's gate lane, until F16 runs the stages separately) gets the race run and an omission line for the unit one: `AtomDef.SubsumedBy` stands it down rather than compiling the suite twice.
 
 **`fleet:`** — every repository, whatever it is written in.
-`check-yaml` · `check-added-large-files` · `check-merge-conflict` · `stop-justifications` · `hadolint` · `sast-ruleset-lanes` · `opengrep-sast` (commit) · `orbit-drift` · `witness` (push)
+`check-yaml` · `check-added-large-files` · `check-merge-conflict` · `stop-justifications` · `hadolint` · `sast-ruleset-lanes` · `opengrep-sast` (commit) · `orbit-drift` · `dagger-lockstep` · `witness` (push)
 
 **`go:`** (`go.mod`) — `gofmt` · `vet` · `test` (commit) · `staticcheck` · `govulncheck` · `build` · `release` · `test-race` (push)
 
