@@ -115,7 +115,7 @@ func pythonRuffFormat(ctx context.Context, r *run) checks.Verdict {
 	// The width reads the manifest's CONTENTS, not just its name: a
 	// pyproject that declares an environment rather than a distribution is
 	// not a python star. checks.RuffLineLength carries the measurement.
-	pyproject, _ := r.src.File("pyproject.toml").Contents(ctx)
+	pyproject, _, _ := fileIfPresent(ctx, r.src, "pyproject.toml")
 	targets, ok := checks.RuffFormatTargets(entries)
 	if !ok {
 		return checks.VerdictOf(a, 0, a.ID+": ABSENT - a go star with no product python under src/ or tests/")
@@ -179,8 +179,8 @@ func forgeTestkitLint(mode, pattern string) atomFn {
 func pythonForgeTestkit(ctx context.Context, r *run, mode, pattern string) checks.Verdict {
 	a := checks.AtomByID("python:forge-testkit-" + mode)
 
-	pyproject, err := r.src.File("pyproject.toml").Contents(ctx)
-	if err != nil || !checks.DeclaresForgeTestkit(pyproject) {
+	pyproject, present, _ := fileIfPresent(ctx, r.src, "pyproject.toml")
+	if !present || !checks.DeclaresForgeTestkit(pyproject) {
 		return checks.VerdictOf(a, 0, a.ID+": ABSENT - forge-testkit is not a dependency of this project")
 	}
 	files, err := r.population(ctx, pattern)
@@ -325,7 +325,7 @@ func pythonPipAudit(ctx context.Context, r *run) checks.Verdict {
 func pythonMutation(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("python:mutation")
 	// Absent answers file, absent declaration: "" is the whole diff.
-	answers, _ := r.src.File(".copier-answers.yml").Contents(ctx)
+	answers, _, _ := fileIfPresent(ctx, r.src, ".copier-answers.yml")
 	mods := checks.CriticalModules(answers)
 	scope := checks.MutationScope(a.ID, mods)
 	settle := func(state int, reason string) checks.Verdict {

@@ -509,6 +509,40 @@ func (e *fakeEngine) answer(q string) (data any, errMsg string) {
 			return nil, fmt.Sprintf("no such file or directory: %s", fp)
 		}
 		val = c
+	case "exists":
+		// fileIfPresent's question (probe.go): is there a regular file (or a
+		// directory) at the path? It answers from the same places `contents`
+		// reads, so a file a test placed or scripted is present and one it did
+		// not is absent, never an error.
+		if v, ok := scripted("exists"); ok {
+			val = v
+			break
+		}
+		if _, ok := scripted("contents"); ok {
+			val = true
+			break
+		}
+		p, _ := leaf.arg("path")
+		dir := dirOf(fields)
+		if fields[0].name == "git" {
+			mount := gitMount(fields[0])
+			if mount == "" || !e.hasDir(mount) {
+				val = true // the paper engine's copy of every file it serves
+				break
+			}
+			dir = path.Join(mount, dir)
+		}
+		fp := path.Join(dir, p)
+		_, isFile := e.tree[fp]
+		isDir := e.hasDir(fp)
+		switch {
+		case strings.Contains(leaf.args, "REGULAR_TYPE"):
+			val = isFile
+		case strings.Contains(leaf.args, "DIRECTORY_TYPE"):
+			val = isDir
+		default:
+			val = isFile || isDir
+		}
 	case "label":
 		// An image label: what the test scripted for this chain, or none.
 		val = ""

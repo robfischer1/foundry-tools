@@ -526,6 +526,23 @@ func TestAWorktreePushWithAnOriginGradesTheRealChangeSet(t *testing.T) {
 	if engine.chain(`"git","init","-q","."`) == "" {
 		t.Errorf("without a base the snapshot gets its throwaway repository:\n%v", engine.chains())
 	}
+
+	// A PRIMARY CHECKOUT already has its history: .git is a directory, so with
+	// both an origin and a base nothing is fetched, nothing is swapped, and no
+	// throwaway is built. Only a linked worktree's .git FILE asks for the door's.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{".git/HEAD": "ref: refs/heads/main\n", ".copier-answers.yml": "service_name: hades\n"})
+	engine.stdout(`"git","list","-f"`, "11\n")
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Push(context.Background(), "abc123", origin); err != nil {
+		t.Fatal(err)
+	}
+	if engine.chain(`git(url:"`+origin+`")`) != "" {
+		t.Errorf("a primary checkout carries its own history, yet the origin was fetched:\n%v", engine.chains())
+	}
+	if engine.chain(`withoutFile(path:".git")`) != "" || engine.chain(`"ca.snapshot","linked-worktree"`) != "" {
+		t.Errorf("a primary checkout's .git was swapped or rebuilt:\n%v", engine.chains())
+	}
 }
 
 // THE RECORD IS ONE LINE, WHATEVER IS INSIDE IT. The rendered log and every
