@@ -289,3 +289,47 @@ func TestGateFileKeepsTheArtifactCredential(t *testing.T) {
 		}
 	}
 }
+
+// A suite whose imports did not build wrote nothing, so there is no artifact
+// to push. An empty rootfs would be a layerless manifest the registry refuses.
+func TestTSVisualPushesNothingWhenNoSuiteRan(t *testing.T) {
+	visualTree(map[string]string{visualReport: visualFailReport})
+	engine.exitCode(visualTurboNeedle, 2)
+	v := runVisual(t, visualRepo, visualSha, visualAuth)
+	wantState(t, v, 1, "what the suite imports did not build", "artifact: not pushed — no suite ran far enough to write results or baselines")
+	if engine.chain("publish") != "" || engine.chain("visual-registry-password") != "" {
+		t.Errorf("nothing was carried, yet a push was attempted:\n%v", engine.chains())
+	}
+}
+
+// An absent package.json is said as one; an engine that failed to answer is
+// said as itself, not as an absence.
+func TestTSVisualSaysWhyThePackageJSONDidNotRead(t *testing.T) {
+	visualTree(map[string]string{
+		"visual.toml": "[[suite]]\ndir = \"apps/missing\"\n",
+	})
+	v := runVisual(t, visualRepo, visualSha, "")
+	wantState(t, v, 1, "apps/missing: FINDINGS - the suite has no package.json: no such file")
+
+	visualTree(map[string]string{
+		"visual.toml": "[[suite]]\ndir = \"apps/gallery\"\n",
+	})
+	engine.failLeaf(`apps/gallery/package.json`, "exists", "engine went away")
+	v = runVisual(t, visualRepo, visualSha, "")
+	wantState(t, v, 1, "apps/gallery: FINDINGS - the suite has no package.json: engine went away")
+}
+
+// One suite that passed and wrote results, beside one whose imports did not
+// build: the results are carried, so the artifact is pushed.
+func TestTSVisualPushesWhatAPassingSuiteWrote(t *testing.T) {
+	visualTree(map[string]string{
+		"visual.toml":                 "[[suite]]\ndir = \"apps/gallery\"\n\n[[suite]]\ndir = \"apps/docs\"\n",
+		"/src/apps/docs/package.json": `{"name":"@gijmo/docs"}`,
+	})
+	engine.exitCode(`"--filter=@gijmo/docs^..."`, 2)
+	v := runVisual(t, visualRepo, visualSha, visualAuth)
+	wantState(t, v, 1, "apps/gallery: 3 passed", "apps/docs: FINDINGS - what the suite imports did not build")
+	if engine.chain("publish") == "" {
+		t.Errorf("the passing suite's results were not pushed:\n%v", engine.chains())
+	}
+}

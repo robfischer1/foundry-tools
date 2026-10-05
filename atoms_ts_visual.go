@@ -132,9 +132,13 @@ func runVisualSuite(ctx context.Context, installed *dagger.Container, dir string
 		vs.state, vs.reason = 2, dir+": CANNOT RUN - "+why
 		return vs
 	}
-	pkg, err := installed.File(path.Join("/src", dir, "package.json")).Contents(ctx)
-	if err != nil {
-		vs.state, vs.reason = 1, dir+": FINDINGS - the suite has no package.json: "+err.Error()
+	pkg, present, err := ctrFileIfPresent(ctx, installed, path.Join("/src", dir, "package.json"))
+	if !present {
+		why := "no such file"
+		if err != nil {
+			why = err.Error()
+		}
+		vs.state, vs.reason = 1, dir+": FINDINGS - the suite has no package.json: "+why
 		return vs
 	}
 	built := installed.WithWorkdir(path.Join("/src", dir))
@@ -161,8 +165,8 @@ func runVisualSuite(ctx context.Context, installed *dagger.Container, dir string
 	if err != nil {
 		return cannot("the suite never ran: " + err.Error())
 	}
-	raw, err := check.File(visualReport).Contents(ctx)
-	if err != nil {
+	raw, wrote, _ := ctrFileIfPresent(ctx, check, visualReport)
+	if !wrote {
 		return cannot("Playwright wrote no JSON report (exit " + strconv.Itoa(code) + ")\n" + out)
 	}
 	found, stats, err := visuallane.Failures(dir, visualResults, []byte(raw))
@@ -213,9 +217,13 @@ func publishVisual(ctx context.Context, r *run, runs []visualSuite) string {
 		return "artifact: not pushed — the lane was given no --artifact-auth"
 	}
 	art := dag.Directory()
+	carried := false
 	for _, s := range runs {
+		// Baselines are only regenerated for a suite that ran and wrote results,
+		// so results alone say whether anything is carried.
 		if s.results != nil {
 			art = art.WithDirectory(path.Join("results", s.dir), s.results)
+			carried = true
 		}
 		if s.updated != nil {
 			art = art.WithDirectory(path.Join("baselines", s.dir), s.updated.Filter(dagger.DirectoryFilterOpts{
@@ -223,6 +231,15 @@ func publishVisual(ctx context.Context, r *run, runs []visualSuite) string {
 				Exclude: []string{"**/node_modules/**"},
 			}))
 		}
+	}
+	// NOTHING TO CARRY IS NOT A PUSH. A suite that never ran, because what it
+	// imports did not build or it has no package.json, writes no results. An
+	// image of an empty rootfs is a manifest with no layers, and the registry
+	// refuses it: "PUT …/manifests/<sha>: 400 Bad Request, unknown: manifest
+	// invalid" (gijmo-ui 4ed2dae, 2026-10-05). That failed push put six ERROR
+	// spans into a transcript whose real finding was the build.
+	if !carried {
+		return "artifact: not pushed — no suite ran far enough to write results or baselines"
 	}
 	auth, err := r.artifactAuth.Plaintext(ctx)
 	if err != nil {
