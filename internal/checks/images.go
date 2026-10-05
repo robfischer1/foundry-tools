@@ -118,8 +118,16 @@ const (
 	// failed at sign (athena a446514), and it would have written legacy
 	// .sig tags that nothing in the fleet reads. The digest is the index's.
 	ImageCosign = "ghcr.io/sigstore/cosign/cosign:v3.1.1@sha256:6bbe0d281d955c79f85b325f0f7e651c1bcab5a4fa4ad4903d74955178a3b2eb"
-	ImageSyft   = "docker.io/anchore/syft:v1.33.0@sha256:f94e5d9fce1f2278491a8e3a63bd5f6ddb81fdfdbb8bf7a1637565c1d5344357"
-	ImageStatic = "gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab"
+	// THE FLEET'S SIGNING CARRIER (foundry/base-images bases/signing-tools,
+	// 3c54b74): FROM scratch, holding cosign, oras and the forked
+	// sigstore-kms-infisical plugin. The bundle lane takes ONLY the plugin from
+	// it and puts it on PATH beside ImageCosign, so `cosign --key
+	// infisical://<name>` reaches a non-exportable Infisical KMS key (plan
+	// "Trust Roots to KMS", T1). It is the fleet's own registry, not a mirror of
+	// an upstream: the carrier is built here. Digest resolved 2026-10-05.
+	ImageSigningTools = "registry.notusmi.com/foundry/base-images/signing-tools:stable@sha256:e15ba67886b94bec6cb11f58cbe7746812f3372857e4042294ec7d389a808e82"
+	ImageSyft         = "docker.io/anchore/syft:v1.33.0@sha256:f94e5d9fce1f2278491a8e3a63bd5f6ddb81fdfdbb8bf7a1637565c1d5344357"
+	ImageStatic       = "gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab"
 
 	// THE BASE-IMAGE GATE'S SCANNER: trivy, and the two vulnerability
 	// databases it pulls as OCI artifacts. The pin is the one ca-rescan and

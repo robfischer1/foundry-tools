@@ -957,7 +957,21 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg dryRun", err))
 				}
 			}
-			return nil, (*FoundryTools).Bundle(&parent, ctx, opaSigningKey, registryToken, cosignKey, cosignPassphrase, dryRun)
+			var kms string
+			if inputArgs["kms"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["kms"]), &kms)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kms", err))
+				}
+			}
+			var kmsToken *dagger.Secret
+			if inputArgs["kmsToken"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["kmsToken"]), &kmsToken)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kmsToken", err))
+				}
+			}
+			return nil, (*FoundryTools).Bundle(&parent, ctx, opaSigningKey, registryToken, cosignKey, cosignPassphrase, dryRun, kms, kmsToken)
 		case "Cast":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
