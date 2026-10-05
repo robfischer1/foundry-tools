@@ -25,8 +25,9 @@ import (
 
 // fileIfPresent reads path off dir when it is a regular file there.
 func fileIfPresent(ctx context.Context, dir *dagger.Directory, path string) (body string, present bool, err error) {
+	// The SDK answers false alongside any error, so !ok covers both.
 	ok, err := dir.Exists(ctx, path, dagger.DirectoryExistsOpts{ExpectedType: dagger.ExistsTypeRegularType})
-	if err != nil || !ok {
+	if !ok {
 		return "", false, err
 	}
 	body, err = dir.File(path).Contents(ctx)
@@ -36,7 +37,7 @@ func fileIfPresent(ctx context.Context, dir *dagger.Directory, path string) (bod
 // ctrFileIfPresent is fileIfPresent for a path inside a container's filesystem.
 func ctrFileIfPresent(ctx context.Context, ctr *dagger.Container, path string) (body string, present bool, err error) {
 	ok, err := ctr.Exists(ctx, path, dagger.ContainerExistsOpts{ExpectedType: dagger.ExistsTypeRegularType})
-	if err != nil || !ok {
+	if !ok {
 		return "", false, err
 	}
 	body, err = ctr.File(path).Contents(ctx)
