@@ -640,52 +640,43 @@ func (l *bundleLane) cosign(ctx context.Context) (*dagger.Container, gateResult)
 // with the KMS key as well. A KMS failure fails the lane: once a verifier has
 // moved to the KMS key, a digest without that signature is one it refuses.
 func (l *bundleLane) signAll(ctx context.Context, cosign *dagger.Container, die string, refs []string) gateResult {
-	for _, ref := range refs {
-		if g := signVerify(ctx, cosign, ref, fleetKey); g.code != buildlane.Clean {
-			return g
-		}
-	}
-	if !l.kmsOn {
-		return clean()
-	}
-	bundleSay("── %s: second signature, %s (dual-sign window) ──", die, l.kms.KeyRef)
-	kmsCosign, g := l.cosignKMS(ctx)
-	if g.code != buildlane.Clean {
+	g := signEach(ctx, cosign, refs, fleetKey)
+	if g.code != buildlane.Clean || !l.kmsOn {
 		return g
 	}
-	keys := signingKeys{sign: l.kms.KeyRef, verify: l.kms.KeyRef, name: l.kms.KeyRef}
-	for _, ref := range refs {
-		if g := signVerify(ctx, kmsCosign, ref, keys); g.code != buildlane.Clean {
-			return g
-		}
-	}
-	return clean()
+	bundleSay("── %s: second signature, %s (dual-sign window) ──", die, l.kms.KeyRef)
+	return signEach(ctx, l.kmsSigner(cosign), refs, signingKeys{sign: l.kms.KeyRef, verify: l.kms.KeyRef, name: l.kms.KeyRef})
 }
 
-// cosignKMS is cosign with the KMS plugin on PATH, logging in by
-// kubernetes-auth with the mounted ServiceAccount token. It holds no key: the
-// key never leaves KMS, and the token is good only for the identity bound to
-// this lane's ServiceAccount.
-func (l *bundleLane) cosignKMS(ctx context.Context) (*dagger.Container, gateResult) {
-	cfg, g := l.registryConfig(ctx)
-	if g.code != buildlane.Clean {
-		return nil, g
+// signEach signs and verifies refs with one key, stopping at the first that
+// does not hold.
+func signEach(ctx context.Context, cosign *dagger.Container, refs []string, keys signingKeys) gateResult {
+	g := clean()
+	for _, ref := range refs {
+		if g = signVerify(ctx, cosign, ref, keys); g.code != buildlane.Clean {
+			break
+		}
 	}
-	nonroot := dagger.ContainerWithMountedSecretOpts{Owner: "65532:65532"}
-	c := cosignIn().
+	return g
+}
+
+// kmsSigner is the fleet signer with its file key taken away and the KMS
+// plugin put on PATH, logging in by kubernetes-auth with the mounted
+// ServiceAccount token. It keeps the registry login and holds no key: the key
+// never leaves KMS, and the token is good only for the identity bound to this
+// lane's ServiceAccount.
+func (l *bundleLane) kmsSigner(fleet *dagger.Container) *dagger.Container {
+	c := fleet.
+		WithoutMount("/run/cosign/key").
+		WithoutSecretVariable("COSIGN_PASSWORD").
 		WithFile("/usr/local/bin/sigstore-kms-infisical",
 			dag.Container().From(checks.ImageSigningTools).File("/usr/local/bin/sigstore-kms-infisical"),
 			dagger.ContainerWithFileOpts{Permissions: 0o755}).
-		WithMountedTemp("/tmp").
-		WithEnvVariable("HOME", "/tmp").
-		WithMountedSecret(bundlelane.KMSTokenPath, l.kmsToken, nonroot).
-		WithMountedSecret("/run/docker/config.json", cfg, nonroot).
-		WithEnvVariable("DOCKER_CONFIG", "/run/docker").
-		WithEnvVariable("BUNDLE_RUN", l.stamp)
+		WithMountedSecret(bundlelane.KMSTokenPath, l.kmsToken, dagger.ContainerWithMountedSecretOpts{Owner: "65532:65532"})
 	for _, kv := range l.kms.Env() {
 		c = c.WithEnvVariable(kv[0], kv[1])
 	}
-	return c, clean()
+	return c
 }
 
 // signingKeys names the key a signature is made with, the key it is checked

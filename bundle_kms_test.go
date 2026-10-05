@@ -52,11 +52,14 @@ func TestInTheDualSignWindowEveryDigestCarriesBothSignatures(t *testing.T) {
 		[]string{"withEnvVariable", `"INFISICAL_KUBERNETES_SERVICE_ACCOUNT_TOKEN_PATH"`, `"/run/kms/token"`},
 		[]string{"withMountedSecret", `"/run/docker/config.json"`},
 		[]string{"withEnvVariable", `"DOCKER_CONFIG"`, `"/run/docker"`},
+		[]string{"withFile", "permissions:493", `"/usr/local/bin/sigstore-kms-infisical"`},
 	)
 	wantCalls(t, engine.chain(checks.ImageSigningTools), []string{"file", `"/usr/local/bin/sigstore-kms-infisical"`})
-	if strings.Contains(kms, `"/run/cosign/key"`) || strings.Contains(kms, `"COSIGN_PASSWORD"`) {
-		t.Errorf("the KMS signer was handed the file key:\n%s", kms)
-	}
+	// It is the fleet signer with the file key taken AWAY, after it was mounted.
+	wantCalls(t, kms,
+		[]string{"withoutMount", `"/run/cosign/key"`},
+		[]string{"withoutSecretVariable", `"COSIGN_PASSWORD"`},
+	)
 	if strings.Contains(kms, saToken) {
 		t.Errorf("the ServiceAccount token reached the chain in the clear:\n%s", kms)
 	}
@@ -102,8 +105,11 @@ func TestADigestTheKMSKeyAlreadySignedIsNotSignedTwice(t *testing.T) {
 	m := bundleOn(t, nil)
 	scriptAGreenBundle()
 	engine.exitCode(`"`+kmsKeyRef+`"`, 0)
-	bundlesWithKMS(t, m, kmsSpec, dag.SetSecret("kms-token", saToken))
+	said := sayings(t, func() { bundlesWithKMS(t, m, kmsSpec, dag.SetSecret("kms-token", saToken)) })
 	settledOn(t, "0", "published and signed")
+	if !strings.Contains(said, "already carries a signature "+kmsKeyRef+" verifies — not stacking a second one") {
+		t.Errorf("the lane did not say why it skipped the KMS signature:\n%s", said)
+	}
 	if c := engine.chain(`"sign"`, `"`+kmsKeyRef+`"`, `"--yes"`); c != "" {
 		t.Errorf("a digest the KMS key already verifies was signed again:\n%s", c)
 	}

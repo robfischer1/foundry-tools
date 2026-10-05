@@ -1,6 +1,8 @@
 package bundlelane
 
 import (
+	"errors"
+	"net/url"
 	"reflect"
 	"strings"
 	"testing"
@@ -60,6 +62,12 @@ func TestAKMSSpecThatCannotSignIsRefused(t *testing.T) {
 		if !strings.Contains(err.Error(), c.why) {
 			t.Errorf("%s: error %q does not say %q", c.name, err, c.why)
 		}
+	}
+	// The parse failure keeps url.Parse's own error, so a caller can ask it.
+	_, _, err := ParseKMS("infisical://%zz")
+	var uerr *url.Error
+	if !errors.As(err, &uerr) {
+		t.Errorf("the parse error %v does not wrap url.Parse's", err)
 	}
 }
 
