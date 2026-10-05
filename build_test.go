@@ -169,17 +169,88 @@ func TestTheVerdictIsBuiltWithNothingFetched(t *testing.T) {
 	)
 }
 
-// A tip publishes, signs and permits; without the credentials and the socket
-// for that it cannot run, and it says so before looking at the tree.
+// A tip publishes; without the registry credential it cannot run, and it says
+// so before looking at the tree.
 func TestATipBuildWithoutItsCredentialsIsCouldNotRun(t *testing.T) {
 	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
 	if err := m.Build(context.Background(), true, nil, nil, nil, nil, "",
 		"registry.notusmi.com", "https://forgejo.notusmi.com/rob", "https://hades:8102", "spiffe://notusmi.com/star/hades", false, nil, false); err != nil {
 		t.Fatal(err)
 	}
-	settledOn(t, "2", "are all required")
+	settledOn(t, "2", "--registry-auth is required")
 	if engine.chain("dockerBuild") != "" || engine.chain("--name-only") != "" {
 		t.Fatal("a tip with no credentials went on to read or build the tree")
+	}
+}
+
+// preflightOf runs the lane on a buildable tree with exactly the credentials
+// named, and answers the lane and its verdict.
+func preflightOf(t *testing.T, tip, signBases, auth, key, pass bool) (*buildLane, int, string) {
+	t.Helper()
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	l := &buildLane{m: m, tip: tip, signBases: signBases, registry: "registry.notusmi.com",
+		sourceBase: "https://forgejo.notusmi.com/rob", stamp: "1",
+		phases: phases{group: buildGroup, order: buildPhases}}
+	if auth {
+		l.registryAuth = dag.SetSecret("registry-auth", `{"auths":{"registry.notusmi.com":{"username":"publisher","password":"hunter2"}}}`)
+	}
+	if key {
+		l.cosignKey = dag.SetSecret("cosign-key", base64.StdEncoding.EncodeToString([]byte("a fake key")))
+	}
+	if pass {
+		l.cosignPassphrase = dag.SetSecret("cosign-password", "pw")
+	}
+	code, reason := l.run(context.Background())
+	return l, code, reason
+}
+
+// passedPreflight says whether the lane got past its argument check: preflight
+// sealed first and some later phase ran.
+func passedPreflight(l *buildLane) bool {
+	names := atomNames(l)
+	return len(names) > 1 && names[0] == "build:preflight"
+}
+
+// THE CI KEY IS RETIRED ("Trust Roots to KMS" T1). A star image is never
+// signed (D11), so a tip that signs no base is handed no key and still builds.
+func TestATipThatSignsNoBaseNeedsNoSigningKey(t *testing.T) {
+	l, code, reason := preflightOf(t, true, false, true, false, false)
+	if code == buildlane.CouldNotRun && strings.Contains(reason, "--cosign-key") {
+		t.Fatalf("a tip without --sign-bases refused for want of a key: %s", reason)
+	}
+	if !passedPreflight(l) {
+		t.Fatalf("a tip with its registry credential stopped at preflight: %v (%s)", atomNames(l), reason)
+	}
+}
+
+// --sign-bases IS THE ONE ACT THAT SIGNS, and it still needs both halves of a
+// key: missing either one refuses before the tree is read.
+func TestSignBasesWithoutBothKeyHalvesIsCouldNotRun(t *testing.T) {
+	for name, c := range map[string]struct{ key, pass bool }{
+		"no key, no passphrase": {false, false},
+		"a key, no passphrase":  {true, false},
+		"a passphrase, no key":  {false, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			l, code, reason := preflightOf(t, true, true, true, c.key, c.pass)
+			if code != buildlane.CouldNotRun || !strings.Contains(reason, "--sign-bases signs what the tip publishes") {
+				t.Fatalf("want could-not-run naming --sign-bases, got %d %q", code, reason)
+			}
+			if got := atomNames(l); !equalStrings(got, []string{"build:preflight"}) {
+				t.Fatalf("only preflight seals, got %v", got)
+			}
+		})
+	}
+}
+
+// --sign-bases with its key passes preflight; so does a pull that names it
+// with no key, because a pull publishes and signs nothing.
+func TestSignBasesWithItsKeyAndAPullWithoutOnePassPreflight(t *testing.T) {
+	if l, _, reason := preflightOf(t, true, true, true, true, true); !passedPreflight(l) {
+		t.Fatalf("a signing tip with its key stopped at preflight: %v (%s)", atomNames(l), reason)
+	}
+	if l, _, reason := preflightOf(t, false, true, false, false, false); !passedPreflight(l) {
+		t.Fatalf("a pull stopped at preflight: %v (%s)", atomNames(l), reason)
 	}
 }
 
