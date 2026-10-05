@@ -52,6 +52,14 @@ func TestADeclaredSmokeStartsTheImageAndAsksIt(t *testing.T) {
 	// The service is the built image itself, with the label's env, its port
 	// exposed and its own entrypoint.
 	svc := engine.chain("asService", "CALLIOPE_MCP_BACKEND")
+	for _, kv := range smokeTelemetryOff {
+		if !hasCall(svc, "withEnvVariable", `name:"`+kv[0]+`"`, `value:"`+kv[1]+`"`) {
+			t.Errorf("the smoked service does not start with %s=%s:\n%s", kv[0], kv[1], svc)
+		}
+	}
+	if len(smokeTelemetryOff) != 4 {
+		t.Errorf("the smoke declines the SDK and all three exporters, got %v", smokeTelemetryOff)
+	}
 	for _, want := range []string{`value:"fixture"`, "withExposedPort", "8204", "useEntrypoint:true"} {
 		if !strings.Contains(svc, want) {
 			t.Errorf("the service chain lacks %s:\n%s", want, svc)

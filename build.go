@@ -386,6 +386,15 @@ func (l *buildLane) stageRelease(ctx context.Context, img *Image) (int, string) 
 // THE PROBE IS STAMPED. The engine content-addresses execs, so without this
 // run's stamp a probe identical to an earlier green one would be answered from
 // cache and never start the image at all.
+// smokeTelemetryOff is the env the boot smoke's service starts with: the
+// OpenTelemetry SDK disabled, and every exporter declined.
+var smokeTelemetryOff = [][2]string{
+	{"OTEL_SDK_DISABLED", "true"},
+	{"OTEL_TRACES_EXPORTER", "none"},
+	{"OTEL_METRICS_EXPORTER", "none"},
+	{"OTEL_LOGS_EXPORTER", "none"},
+}
+
 func (l *buildLane) smoke(ctx context.Context, img *Image) (int, string) {
 	ctr := img.Container()
 	label, err := ctr.Label(ctx, buildlane.SmokeLabel)
@@ -397,6 +406,17 @@ func (l *buildLane) smoke(ctx context.Context, img *Image) (int, string) {
 	// smoke (err nil) and one that cannot be read (err set).
 	if !ok {
 		return buildlane.SmokeUndeclared(err)
+	}
+	// THE SMOKED STAR SENDS NO TELEMETRY TO THE ENGINE. The engine injects an
+	// OTLP endpoint into every service it runs, protobuf-only, and keeps an
+	// explicit OTEL_TRACES_EXPORTER. A star that exports there sends spans
+	// nobody reads, and a JSON exporter's spans are refused and logged on the
+	// engine at error: "error unmarshalling trace request" (charon's smoke,
+	// stellar-core-ts, 2026-10-05). The same goes for a Sum metric ("unknown
+	// aggregation from pb"). These are the spec's own switches; a label env
+	// set after them can still turn them back on.
+	for _, kv := range smokeTelemetryOff {
+		ctr = ctr.WithEnvVariable(kv[0], kv[1])
 	}
 	for _, kv := range s.Env {
 		ctr = ctr.WithEnvVariable(kv[0], kv[1])
