@@ -651,7 +651,10 @@ func (l *bundleLane) cosign(ctx context.Context) (*dagger.Container, gateResult)
 	if l.fleetOn {
 		c = c.WithFile("/run/cosign/cosign.pub", l.m.Source.File("cosign.pub"))
 	}
-	return c.WithEnvVariable("BUNDLE_RUN", l.stamp), clean()
+	// g, not clean(): it IS clean here (registryConfig's refusal returned
+	// above), and a literal clean() is a mutant no test can kill — a zero
+	// gateResult is clean().
+	return c.WithEnvVariable("BUNDLE_RUN", l.stamp), g
 }
 
 // signAll signs every ref with each signer the lane was handed: the file key,

@@ -307,3 +307,38 @@ func TestADryRunNeedsNoSigner(t *testing.T) {
 	}
 	nothingPushed(t)
 }
+
+// Inside the window the file key is still judged against the repo's own
+// cosign.pub, mounted into the signer — the half --kms alone drops.
+func TestInTheDualSignWindowTheFileKeyIsCheckedAgainstTheReposCosignPub(t *testing.T) {
+	m := bundleOn(t, nil)
+	scriptAGreenBundle()
+	bundlesWithKMS(t, m, kmsSpec, dag.SetSecret("kms-token", saToken))
+	settledOn(t, "0", "published and signed")
+	verify := engine.chain(`"verify"`, `"--key"`, `"/run/cosign/cosign.pub"`)
+	if verify == "" {
+		t.Fatal("the file key's signature was never verified against cosign.pub")
+	}
+	wantCalls(t, verify, []string{"withFile", `"/run/cosign/cosign.pub"`})
+}
+
+// A missing registry token refuses on its own, with the OPA key present.
+func TestABundleWithoutItsRegistryTokenBuildsNothing(t *testing.T) {
+	m := bundleOn(t, nil)
+	bundleWith(t, m, false, dag.SetSecret("opa-key", pem64()), nil,
+		dag.SetSecret("cosign-key", pem64()), dag.SetSecret("cosign-password", "pw"))
+	settledOn(t, "2", "--opa-signing-key and --registry-token are both required")
+	nothingPushed(t)
+}
+
+// A dry run is not held to the file key's pairing: half a key is not refused,
+// because nothing is signed.
+func TestADryRunWithHalfAFileKeyStillRuns(t *testing.T) {
+	m := bundleOn(t, nil)
+	scriptAGreenBundle()
+	bundleWith(t, m, true, nil, nil, dag.SetSecret("cosign-key", pem64()), nil)
+	if c := engine.chain(`"/usr/local/bin/verdict"`, `"2"`); c != "" {
+		t.Fatalf("a dry run with half a file key could not run:\n%s", c)
+	}
+	nothingPushed(t)
+}
