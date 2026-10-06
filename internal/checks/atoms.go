@@ -488,6 +488,10 @@ func atomTable() []AtomDef {
 			Desc: "EVERY schema in schema/ is a valid Draft 2020-12 document, and every one with fixtures still refuses what it exists to refuse — discovered, never listed.",
 		},
 		{
+			ID: "dies:wit-regenerated", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "The committed wit/ is byte-for-byte what wit-from-schema generates from schema/ — a schema change without regeneration, or a hand edit of a generated file, fails.",
+		},
+		{
 			ID: "dies:canonical", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every committed fleet/stars/<star>/slag.json is byte-for-byte its own canonical form (sorted keys, two-space indent, ensure_ascii, trailing LF).",
 		},

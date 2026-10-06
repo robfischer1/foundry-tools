@@ -31,6 +31,7 @@ func init() {
 	register("dies:schema", diesSchema)
 	register("dies:findings", diesFindings)
 	register("dies:schemas", diesSchemas)
+	register("dies:wit-regenerated", diesWitRegenerated)
 	register("dies:canonical", diesCanonical)
 }
 
@@ -668,6 +669,41 @@ func diesSchemas(ctx context.Context, r *run) checks.Verdict {
 	return verdict(ctx, a, r.lane(checks.ImageFleet).
 		WithExec([]string{"uv", "--version"}).
 		WithExec(schemapy("tools/check_schemas.py"), anyExit))
+}
+
+// stdlibpy runs a tree-owned script that needs nothing but the interpreter. It
+// goes through uv for the same reason schemapy does (the lane images are
+// uv-managed and carry no bare python3 on PATH) and asks for no packages, so a
+// gate that only reads files cannot be broken by a registry.
+func stdlibpy(args ...string) []string {
+	return append([]string{"uv", "run", "--no-project", "--quiet", "python3"}, args...)
+}
+
+// The committed wit/ is what the generator makes of schema/ (stellar-core F2).
+//
+// THE CHECKER IS THE TREE'S, NOT EMBEDDED, for the dies:schemas reason: the repo
+// that owns the schemas and their WIT rendering is the repo that goes red when
+// the two part. tools/check_wit_regenerated.py regenerates in memory and
+// compares bytes, so a schema edit nobody re-ran, a hand edit of a generated
+// file and a generated file the generator stopped emitting are one failure.
+//
+// THE SCRIPT'S EXIT CODE IS THE VERDICT, unmapped: 0 identical, 1 stale, 2 the
+// check could not run (no schema/, an unparseable schema) — the fleet's ladder,
+// where could-not-run outranks a finding. A refusal in the generator's report is
+// NOT a finding here: the report is itself a generated, compared file.
+func diesWitRegenerated(ctx context.Context, r *run) checks.Verdict {
+	a := checks.AtomByID("dies:wit-regenerated")
+	if stop := diesShape(ctx, r, a); stop != nil {
+		return *stop
+	}
+	if stop := requirePaths(ctx, r, a, [][2]string{
+		{"tools/check_wit_regenerated.py", "tools/check_wit_regenerated.py is absent, so there is no checker to run."},
+	}); stop != nil {
+		return *stop
+	}
+	return verdict(ctx, a, r.lane(checks.ImageFleet).
+		WithExec([]string{"uv", "--version"}).
+		WithExec(stdlibpy("tools/check_wit_regenerated.py"), anyExit))
 }
 
 // diesCanonical grades the FORM of every committed record, in Go, with no
