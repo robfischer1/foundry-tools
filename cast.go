@@ -160,6 +160,11 @@ func (l *castLane) run(ctx context.Context) (int, string) {
 		return l.stop("cast:cosign", buildlane.Findings, "findings: this repo carries no cosign.pub, so a landed digest could not be verified — nothing was built")
 	}
 	l.seal("cast:cosign", buildlane.Clean, "the tree carries cosign.pub, so a landed digest can be verified")
+	if !l.dryRun {
+		if err := l.credentials(ctx); err != nil {
+			return l.stop("cast:stage", buildlane.CouldNotRun, fmt.Sprintf("could not run: the registry token did not read: %v", err))
+		}
+	}
 	payload, code, why := l.payload(ctx, c)
 	if code != buildlane.Clean {
 		return l.stop("cast:payload", code, why)
@@ -176,10 +181,6 @@ func (l *castLane) run(ctx context.Context) (int, string) {
 		// signature are UNREACHED rather than passed. Reporting them as held
 		// would claim the one thing this mode deliberately does not do.
 		return l.stop("", buildlane.Clean, fmt.Sprintf("clean: dry run — %d file(s) pin to %s for %s; nothing was staged, minted or verified", len(files), pin, c.Artifact()))
-	}
-
-	if _, err := l.registry(ctx); err != nil {
-		return l.stop("cast:stage", buildlane.CouldNotRun, fmt.Sprintf("could not run: the registry token did not read: %v", err))
 	}
 
 	ref := c.Stage(bundlelane.RegistryHost, pin)
@@ -232,20 +233,16 @@ func (l *castLane) run(ctx context.Context) (int, string) {
 	return 0, fmt.Sprintf("clean: cast %s at index %d (%s, %s) — staged, minted and signed by hephaestus, verified against cosign.pub%s%s", c.Artifact(), r.Index, r.Pin, r.Digest, noop, bell)
 }
 
-// registry is the registry credential as a docker config, made once from the
-// token and answered nil when the lane holds none (a dry run). The kit cast
-// needs it BEFORE the stage does — it pulls the signed furnace — so it is made
-// on first ask, not at the stage.
-func (l *castLane) registry(ctx context.Context) (*dagger.Secret, error) {
-	if l.registryConfig != nil || l.registryToken == nil {
-		return l.registryConfig, nil
-	}
+// credentials makes the registry credential, a docker config built from the
+// token. It is made BEFORE the payload, because the kit cast pulls the signed
+// furnace with it; a dry run holds no token and makes none.
+func (l *castLane) credentials(ctx context.Context) error {
 	token, err := l.registryToken.Plaintext(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	l.registryConfig = dag.SetSecret("cast-registry-config", bundlelane.DockerConfig(bundlelane.RegistryHost, bundlelane.RegistryUser, strings.TrimSpace(token)))
-	return l.registryConfig, nil
+	return nil
 }
 
 // payload builds the release binaries and assembles what ships: each binary at

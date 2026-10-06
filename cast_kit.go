@@ -66,7 +66,7 @@ func (l *castLane) kitDie(ctx context.Context, c castlane.Cast) (*dagger.Directo
 	castSay("furnace rendered %s at %.12s: %s", c.Kit, l.m.Sha, strings.TrimSpace(out))
 	// AN EMPTY RENDER NEEDS NO CHECK OF ITS OWN: castpin refuses a payload that
 	// pins no file, and furnace refuses a kit it does not know.
-	return rendered.Directory("/die"), buildlane.Clean, ""
+	return rendered.Directory("/die"), 0, ""
 }
 
 // furnaceBinary fetches the signed furnace the hosts run and verifies it
@@ -82,10 +82,7 @@ func (l *castLane) furnaceBinary(ctx context.Context) (*dagger.File, int, string
 	// A DRY RUN HOLDS NO REGISTRY TOKEN, so it reads anonymously: the registry
 	// answers anonymous pulls, and a dry run that could not render would prove
 	// nothing about the render.
-	cfg, err := l.registry(ctx)
-	if err != nil {
-		return nil, buildlane.CouldNotRun, fmt.Sprintf("could not run: the registry token did not read: %v", err)
-	}
+	cfg := l.registryConfig
 	if cfg == nil {
 		cfg = dag.SetSecret("cast-anon-registry-config", "{}")
 	}
@@ -126,7 +123,6 @@ func (l *castLane) furnaceBinary(ctx context.Context) (*dagger.File, int, string
 		cls, why := buildlane.ToolFailed("cosign verify "+ref, vout)
 		return nil, cls, why
 	}
-	castSay("verified %s against cosign.pub before rendering with it", ref)
 
 	pulled := oras.WithExec([]string{"oras", "pull", "--registry-config", "/run/docker/config.json", "-o", "/furnace", ref}, anyExit)
 	pout, pcode, err := output(ctx, pulled)
@@ -141,5 +137,5 @@ func (l *castLane) furnaceBinary(ctx context.Context) (*dagger.File, int, string
 	if _, err := bin.Size(ctx); err != nil {
 		return nil, buildlane.Findings, fmt.Sprintf("findings: %s carries no furnace binary at its root", ref)
 	}
-	return bin, buildlane.Clean, ""
+	return bin, 0, ""
 }

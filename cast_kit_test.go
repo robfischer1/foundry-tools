@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"strings"
 	"testing"
+
+	"dagger/foundry-tools/internal/bundlelane"
 )
 
 // THE KIT CAST, THROUGH THE REAL LANE. foundry-stocks casts a kit, not a
@@ -64,6 +67,14 @@ func TestAKitCastRendersWithTheVerifiedFurnaceAndShipsItsDie(t *testing.T) {
 	casts(t, m)
 	settledOn(t, "0", "clean: cast app/forge-user:stable at index 7 ("+castPin+", "+castLanded+")")
 
+	// THE FURNACE IS PULLED AS THE LANE, with the same credential the stage uses.
+	real, err := dag.SetSecret("cast-registry-config", bundlelane.DockerConfig(bundlelane.RegistryHost, bundlelane.RegistryUser, "tok")).ID(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(engine.chain(resolveNeedle), string(real)) {
+		t.Errorf("the furnace was not resolved with the lane's credential %s:\n%s", real, engine.chain(resolveNeedle))
+	}
 	wantCalls(t, engine.chain(resolveNeedle),
 		[]string{"withMountedSecret", `"/run/docker/config.json"`},
 		[]string{"withExec", `"foundry.notusmi.com/app/furnace:stable"`},
@@ -122,6 +133,13 @@ func TestAKitDryRunRendersAndPinsAndPublishesNothing(t *testing.T) {
 		if engine.chain(needle) == "" {
 			t.Errorf("a dry run never reached %s", needle)
 		}
+	}
+	anon, err := dag.SetSecret("cast-anon-registry-config", "{}").ID(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(engine.chain(resolveNeedle), string(anon)) {
+		t.Errorf("a dry run holds no token and must read anonymously:\n%s", engine.chain(resolveNeedle))
 	}
 	for _, needle := range []string{stageNeedle, mintNeedle, bellNeedle} {
 		if engine.chain(needle) != "" {
@@ -195,5 +213,18 @@ func TestAKitCastThatFailsStopsWhereItFailed(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A binary cast whose registry token cannot be read stops before it builds
+// anything: the credential is made first, for the furnace pull and the stage.
+func TestACastWhoseRegistryTokenCannotBeReadBuildsNothing(t *testing.T) {
+	m := castOn(t, nil)
+	scriptACast(castPin + "\ntongs\n")
+	engine.failLeaf("registry-token", "plaintext", "the secret went away")
+	casts(t, m)
+	settledOn(t, "2", "the registry token did not read")
+	if engine.chain(cargoNeedle) != "" || engine.chain(stageNeedle) != "" {
+		t.Fatal("a cast with no credential built or staged")
 	}
 }
