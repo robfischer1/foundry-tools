@@ -69,7 +69,8 @@ func TestRSSSumsTheGroupInKiB(t *testing.T) {
 		"15/stat":   "no parenthesis at all",    // not a stat line
 		"16/stat":   "16 (x) S 1 notanumber 1 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 0 0 5 0\n",
 		"17/stat":   "17 (x) S 1 10 1 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 0 0 lots 0\n",
-		"self/stat": stat("self", 10, 77),                                      // not a pid directory
+		"self/stat": stat("self", 5, 77),                                       // the asker, in gomutants' group
+		"stat":      "cpu 1 2 3\n",                                             // a file, with no stat inside it
 		"18/status": "no stat file here",                                       // a process gone before its read
 		"19/stat":   "19 (x) S 1 10 1 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 0 0 6\n", // ends at rss
 	})
@@ -79,6 +80,11 @@ func TestRSSSumsTheGroupInKiB(t *testing.T) {
 	}
 	if want := []int64{400, 8000, 12, 24}; !equal(got, want) {
 		t.Errorf("got %v, want %v", got, want)
+	}
+	// A line that could not be read belongs to no group — not even group 0,
+	// the group an unread field would parse as.
+	if got, err := RSS(proc, 0, 4); err != nil || len(got) != 0 {
+		t.Errorf("group 0: got %v %v, want nothing", got, err)
 	}
 	if _, err := RSS(filepath.Join(proc, "missing"), 10, 4); err == nil {
 		t.Error("an unreadable proc root answered no error")

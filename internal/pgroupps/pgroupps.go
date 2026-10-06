@@ -56,16 +56,15 @@ func RSS(proc string, pgid int, pageKiB int64) ([]int64, error) {
 		return nil, err
 	}
 	var kib []int64
+	// Every entry is read, not only the numeric ones: a file such as
+	// /proc/stat has no stat inside it, and self or thread-self is a process
+	// that is not in the group (the one asking was started by gomutants, in
+	// gomutants' group, never the test's).
 	for _, e := range entries {
-		if _, err := strconv.Atoi(e.Name()); err != nil {
-			continue
-		}
-		// A process that exits between the listing and the read is simply
-		// not in the group any more.
-		raw, err := os.ReadFile(filepath.Join(proc, e.Name(), "stat"))
-		if err != nil {
-			continue
-		}
+		// A read that fails — a process that exited between the listing and
+		// the read, an entry that is no process — reads empty, and statFields
+		// refuses an empty line.
+		raw, _ := os.ReadFile(filepath.Join(proc, e.Name(), "stat"))
 		group, pages, ok := statFields(string(raw))
 		if ok && group == pgid {
 			kib = append(kib, pages*pageKiB)
@@ -79,13 +78,10 @@ func RSS(proc string, pgid int, pageKiB int64) ([]int64, error) {
 // because the command name before it is parenthesised and may hold spaces and
 // parentheses of its own.
 func statFields(stat string) (pgid int, pages int64, ok bool) {
-	i := strings.LastIndexByte(stat, ')')
-	if i < 0 {
-		return 0, 0, false
-	}
 	// After the name: state(3) ppid(4) pgrp(5) … rss(24), so pgrp is the
-	// third field and rss the twenty-second.
-	f := strings.Fields(stat[i+1:])
+	// third field and rss the twenty-second. A line with no ')' at all is
+	// read whole, and is too short or unparseable either way.
+	f := strings.Fields(stat[strings.LastIndexByte(stat, ')')+1:])
 	if len(f) < 22 {
 		return 0, 0, false
 	}
