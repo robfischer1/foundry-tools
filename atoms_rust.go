@@ -362,6 +362,11 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 	for _, p := range packages {
 		args = append(args, "-p", p)
 	}
+	// THE FLEET'S SKIPPED CLASSES, as cargo-mutants names its mutants
+	// (checks.RatifiedMutators): never generated, so never graded or printed.
+	for _, re := range checks.SkippedMutators(checks.MutatorRust) {
+		args = append(args, "--exclude-re", re)
+	}
 	//
 	// UNDER execmem (2026-10-02, foundry-tools #13052). A kill takes the exec
 	// and everything that could be read from it afterwards, so the cgroup's

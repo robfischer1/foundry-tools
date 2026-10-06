@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -381,7 +382,8 @@ func TestRustMutationMeasuresTheDiffFromTheFetchedLayer(t *testing.T) {
 		// every test process under RLIMIT_DATA, so a runaway mutant fails its
 		// test instead of meeting the engine's per-exec OOM kill
 		[]string{"withEnvVariable", `name:"CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER"`, `value:"prlimit --data=4294967296 --"`},
-		[]string{"withExec", "expect:ANY", `args:["/usr/local/bin/execmem","--","mold","-run","cargo","mutants","--colors","never","--caught","--unviable","-j","2","--build-timeout","900","--minimum-test-timeout","60","--test-tool","nextest","-f","src/lib.rs","-D","/tmp/mutation/pr.diff"]`},
+		// The fleet's skipped classes ride the argv, every Rust row in order.
+		[]string{"withExec", "expect:ANY", `args:["/usr/local/bin/execmem","--","mold","-run","cargo","mutants","--colors","never","--caught","--unviable","-j","2","--build-timeout","900","--minimum-test-timeout","60","--test-tool","nextest","-f","src/lib.rs",` + rustExcludes() + `"-D","/tmp/mutation/pr.diff"]`},
 	)
 	// execmem rides into the exec as a file built from this module's own
 	// source: offline and static, as verdict is.
@@ -553,7 +555,7 @@ func TestRustMutationScopesAnUndeclaredPullToTheWholeDiffAndItsMembers(t *testin
 	wantCalls(t, engine.chain(rustDiffNeedle, "stdout"),
 		[]string{"withExec", `args:["git","diff","--relative","since0","HEAD","--","*.rs",":!tests/"]`})
 	c := engine.chain(rustMutantsNeedle, "exitCode")
-	wantCalls(t, c, []string{"withExec", `"--test-tool","nextest","-p","gen","-p","x","-D"`})
+	wantCalls(t, c, []string{"withExec", `"--test-tool","nextest","-p","gen","-p","x",` + rustExcludes() + `"-D"`})
 	if strings.Contains(c, `"-f"`) {
 		t.Errorf("an empty declaration narrows nothing with -f:\n%s", c)
 	}
@@ -568,7 +570,7 @@ func TestRustMutationScopesAnUndeclaredPullToTheWholeDiffAndItsMembers(t *testin
 	wantState(t, runAtom(t, "rust:mutation", "abc123"), 1,
 		"scoped to the declared critical modules: src/lib.rs src/gate.rs")
 	wantCalls(t, engine.chain(rustMutantsNeedle, "exitCode"),
-		[]string{"withExec", `"-f","src/lib.rs","-f","src/gate.rs","-D"`})
+		[]string{"withExec", `"-f","src/lib.rs","-f","src/gate.rs",` + rustExcludes() + `"-D"`})
 }
 
 func TestRustMutationStandsDownOrCannotRun(t *testing.T) {
@@ -892,4 +894,14 @@ func TestTheFleetsPythonMatchesThePythonImage(t *testing.T) {
 	if !strings.Contains(checks.ImagePython, "python:"+checks.FleetPython) {
 		t.Errorf("ImagePython (%s) does not carry FleetPython (%s)", checks.ImagePython, checks.FleetPython)
 	}
+}
+
+// rustExcludes is the --exclude-re pairs the Rust rows put on the argv, as
+// the engine renders them.
+func rustExcludes() string {
+	var b strings.Builder
+	for _, re := range checks.SkippedMutators(checks.MutatorRust) {
+		b.WriteString(`"--exclude-re",` + strconv.Quote(re) + `,`)
+	}
+	return b.String()
 }

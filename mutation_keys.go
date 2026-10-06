@@ -73,6 +73,7 @@ func rustMutationEngine() string {
 		"build-timeout":        rustBuildTimeout,
 		"minimum-test-timeout": rustMinTestTimeout,
 		"test-runner":          rustTestRunner,
+		"exclude-re":           strings.Join(checks.SkippedMutators(checks.MutatorRust), "\n"),
 		"epoch":                checks.MutationGradingEpoch,
 	})
 }

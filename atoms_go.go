@@ -1170,44 +1170,6 @@ const (
 	// mutant flipped the other way. 4 is the number that measured clean, and it
 	// is the number gremlins' own config had settled on for the same reason.
 	goMutationWorkers = 4
-	// goMutationDisable is the mutator set, by exclusion. gomutants ships 28
-	// operators; these four perturb a NUMERIC LITERAL by one, and on this fleet's
-	// Go they generate mutants no correct test can kill.
-	//
-	// MEASURED 2026-09-29 on ourea internal/gatejob — 25 survivors with all 28
-	// enabled, 5 with these off, and the 20 that left were ALL of one shape:
-	//
-	//	18  `0` -> `1`/`-1` on the discarded value of `return 0, err`
-	//	                    and `return false, 0`. Go's contract says the other
-	//	                    returns are unspecified when the error is non-nil;
-	//	                    a test asserting them pins what the API does not
-	//	                    promise.
-	//	 2  `64` -> `63`/`65` in `strconv.ParseFloat(q, 64)`. PROVEN equivalent,
-	//	                    not argued: ParseFloat takes the 32-bit path only
-	//	                    for bitSize 32, so 63, 64 and 65 return bit-identical
-	//	                    results for every input including MaxFloat64.
-	//	 2  `1e6` -> `999999.0` as a nanocore divisor under int64 truncation.
-	//	                    Identical output at every realistic reading.
-	//
-	// The five that remain are real test gaps, and gremlins' five mutators
-	// never GENERATED any of them. So this set is 19 operators wider than the
-	// gate had before it, not narrower — the point is that it is STATED, which
-	// is the same reason the retired .gremlins.yaml listed gremlins' five.
-	//
-	// INCREMENT_DECREMENT IS NOT IN HERE and must not be: it mutates `i++` to
-	// `i--`, which is a real operator on a real statement, and it was one of
-	// gremlins' five. These four are its numeric-literal namesakes.
-	//
-	// THE SET IS RATIFIED DATA, NOT A LITERAL A SESSION CHOSE, and since
-	// 2026-09-29 something checks that. checks.RatifiedMutators carries one row
-	// per operator with Rob's words and the shape each one generates;
-	// TestTheDisabledOperatorsAreExactlyTheRatifiedSet refuses this string and
-	// that table disagreeing in either direction, and fleet:stop-justifications
-	// grades any .gomutants.yaml in any repository's tree against the same
-	// table. A fifth operator now needs a signed row before it can reach either
-	// surface — which is the rule every other suppression in the fleet already
-	// answered to, and this one did not.
-	goMutationDisable = "INTEGER_INCREMENT,INTEGER_DECREMENT,FLOAT_INCREMENT,FLOAT_DECREMENT"
 	// goMutationNoConfig IS WHAT MAKES THE ARGV THE WHOLE CONFIGURATION, and it
 	// closes a hole this lane shipped with.
 	//
@@ -1263,14 +1225,59 @@ const (
 	goMutationExclude = `^vendor/|(^|/)dagger\.gen\.go$|\.pb\.go$|(^|/)zz_generated`
 )
 
+// goMutationDisable is the mutator set, by exclusion. gomutants ships 28
+// operators; the first four perturb a NUMERIC LITERAL by one, and on this fleet's
+// Go they generate mutants no correct test can kill.
+//
+// MEASURED 2026-09-29 on ourea internal/gatejob — 25 survivors with all 28
+// enabled, 5 with these off, and the 20 that left were ALL of one shape:
+//
+//	18  `0` -> `1`/`-1` on the discarded value of `return 0, err`
+//	                    and `return false, 0`. Go's contract says the other
+//	                    returns are unspecified when the error is non-nil;
+//	                    a test asserting them pins what the API does not
+//	                    promise.
+//	 2  `64` -> `63`/`65` in `strconv.ParseFloat(q, 64)`. PROVEN equivalent,
+//	                    not argued: ParseFloat takes the 32-bit path only
+//	                    for bitSize 32, so 63, 64 and 65 return bit-identical
+//	                    results for every input including MaxFloat64.
+//	 2  `1e6` -> `999999.0` as a nanocore divisor under int64 truncation.
+//	                    Identical output at every realistic reading.
+//
+// The five that remain are real test gaps, and gremlins' five mutators
+// never GENERATED any of them. So this set is 19 operators wider than the
+// gate had before it, not narrower — the point is that it is STATED, which
+// is the same reason the retired .gremlins.yaml listed gremlins' five.
+//
+// INCREMENT_DECREMENT IS NOT IN HERE and must not be: it mutates `i++` to
+// `i--`, which is a real operator on a real statement, and it was one of
+// gremlins' five. These four are its numeric-literal namesakes.
+//
+// THE SET IS RATIFIED DATA, NOT A LITERAL A SESSION CHOSE, and since
+// 2026-09-29 something checks that. checks.RatifiedMutators carries one row
+// per operator with Rob's words and the shape each one generates;
+// TestTheDisabledOperatorsAreExactlyTheRatifiedSet refuses this string and
+// that table disagreeing in either direction, and fleet:stop-justifications
+// grades any .gomutants.yaml in any repository's tree against the same
+// table. A fifth operator now needs a signed row before it can reach either
+// surface — which is the rule every other suppression in the fleet already
+// answered to, and this one did not.
+//
+// AND SINCE 2026-10-06 THE STRING IS THE TABLE'S, not a literal beside it: the
+// low-value classes (boundary, arithmetic, loop control, error wrap) left every
+// lane on Rob's decision, in each tool's words, so this is the Go rows joined
+// and nothing a session types.
+var goMutationDisable = strings.Join(checks.SkippedMutators(checks.MutatorGo), ",")
+
 // canaryVerdict runs a control and reads its JSON REPORT, never its stdout.
 //
 // THE REPORT IS THE ONLY SURFACE WITH A CONTRACT. The old canary matched the
 // literal string "Killed: 0, Lived: 1" in gremlins' summary line, which tied a
 // control — the one thing in this lane that decides whether anything was
 // measured at all — to a tool's human-readable formatting AND to the exact
-// mutant COUNT. gomutants prints a multi-line block and finds 2 mutants in the
-// same fixture (an ARITHMETIC_BASE and a RETURN_ZERO), so that match would
+// mutant COUNT. gomutants prints a multi-line block and found 2 mutants in the
+// same fixture (an ARITHMETIC_BASE and a RETURN_ZERO; RETURN_ZERO alone since
+// ARITHMETIC_BASE left the set on 2026-10-06), so that match would
 // silently answer `unknown` forever: a control that cannot fail is not a control.
 //
 // The honest verdict is unchanged and is now stated as a shape rather than a

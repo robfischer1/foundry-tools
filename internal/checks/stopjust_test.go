@@ -2,6 +2,7 @@ package checks
 
 import (
 	"errors"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -1133,12 +1134,12 @@ func TestStopJustificationsGradesTheMutationGatesOperatorSet(t *testing.T) {
 		{"the ratified four", ".gomutants.yaml", canonical, 0,
 			"stop-justifications: 4 mutation operator(s) switched off on a RATIFIED row — excused, nothing to do.\n" +
 				"  The fleet's gomutants config runs 24 of its 28 operators. The four\n"},
-		{"a fifth nobody signed", ".gomutants.yaml", canonical + "  - CONDITIONALS_BOUNDARY\n", 1,
-			"    .gomutants.yaml:7\n        gomutants · CONDITIONALS_BOUNDARY\n        disable: - CONDITIONALS_BOUNDARY\n"},
+		{"a fifth nobody signed", ".gomutants.yaml", canonical + "  - BRANCH_IF\n", 1,
+			"    .gomutants.yaml:7\n        gomutants · BRANCH_IF\n        disable: - BRANCH_IF\n"},
 		{"the .yml spelling gomutants auto-loads", ".gomutants.yml", "disable:\n  - INVERT_BITWISE\n", 1,
 			".gomutants.yml:2\n        gomutants · INVERT_BITWISE"},
 		{"a config in a subdirectory", "sub/.gomutants.yaml", "disable:\n  - INVERT_BITWISE\n", 1, "sub/.gomutants.yaml:2"},
-		{"two unsigned operators are counted", ".gomutants.yaml", "disable:\n  - INVERT_BITWISE\n  - ARITHMETIC_BASE\n", 1,
+		{"two unsigned operators are counted", ".gomutants.yaml", "disable:\n  - INVERT_BITWISE\n  - STATEMENT_REMOVE\n", 1,
 			"stop-justifications: 2 mutation operator(s) switched off that NO ratified row names.\n"},
 		// A BLANK LINE IS NOT A LINE WITH A FIRST BYTE. Without the empty check
 		// the indent test below indexes line[0] on "" and panics, which is the
@@ -1158,9 +1159,9 @@ func TestStopJustificationsGradesTheMutationGatesOperatorSet(t *testing.T) {
 		// A file the tool will not read silences nothing, so neither does this.
 		{"a scalar value is not a set", ".gomutants.yaml", "disable: INVERT_BITWISE\n", 0, "no undocumented suppressions"},
 		{"enabled false with no operator named", ".gomutants.yaml", "mutants:\n  enabled: false\n", 0, "no undocumented suppressions"},
-		{"another key under an operator", ".gomutants.yaml", "mutants:\n  ARITHMETIC_BASE:\n    something: else\n", 0, "no undocumented suppressions"},
+		{"another key under an operator", ".gomutants.yaml", "mutants:\n  STATEMENT_REMOVE:\n    something: else\n", 0, "no undocumented suppressions"},
 		{"flow style", ".gomutants.yaml", "disable: [INVERT_BITWISE]\n", 1, "disable: [INVERT_BITWISE]"},
-		{"flow style, several", ".gomutants.yaml", "disable: [INVERT_BITWISE, ARITHMETIC_BASE]\n", 1, "gomutants · ARITHMETIC_BASE"},
+		{"flow style, several", ".gomutants.yaml", "disable: [INVERT_BITWISE, STATEMENT_REMOVE]\n", 1, "gomutants · STATEMENT_REMOVE"},
 		{"flow style, all ratified", ".gomutants.yaml", "disable: [FLOAT_INCREMENT, FLOAT_DECREMENT]\n", 0, "2 mutation operator(s) switched off on a RATIFIED row"},
 		// only IS THE INVERSE KEY: it disables the 27 it does not name, so
 		// naming a ratified operator there is the widest suppression of all.
@@ -1168,11 +1169,11 @@ func TestStopJustificationsGradesTheMutationGatesOperatorSet(t *testing.T) {
 			"    .gomutants.yaml:2\n        gomutants · FLOAT_INCREMENT\n        only: - FLOAT_INCREMENT\n"},
 		{"only, flow style", ".gomutants.yaml", "only: [INVERT_BITWISE]\n", 1, "only: [INVERT_BITWISE]"},
 		{"an empty only names nothing", ".gomutants.yaml", "only:\nworkers: 4\n", 0, "no undocumented suppressions"},
-		{"the nested spelling", ".gomutants.yaml", "mutants:\n  ARITHMETIC_BASE:\n    enabled: false\n", 1,
-			"    .gomutants.yaml:3\n        gomutants · ARITHMETIC_BASE\n        mutants.ARITHMETIC_BASE.enabled: false\n"},
+		{"the nested spelling", ".gomutants.yaml", "mutants:\n  STATEMENT_REMOVE:\n    enabled: false\n", 1,
+			"    .gomutants.yaml:3\n        gomutants · STATEMENT_REMOVE\n        mutants.STATEMENT_REMOVE.enabled: false\n"},
 		{"the nested spelling, ratified", ".gomutants.yaml", "mutants:\n  FLOAT_DECREMENT:\n    enabled: false\n", 0, "1 mutation operator(s) switched off on a RATIFIED row"},
-		{"enabled true switches nothing off", ".gomutants.yaml", "mutants:\n  ARITHMETIC_BASE:\n    enabled: true\n", 0, "no undocumented suppressions"},
-		{"a comment naming an operator", ".gomutants.yaml", "# INVERT_BITWISE is left on\ndisable:\n  # and so is ARITHMETIC_BASE\n  - FLOAT_INCREMENT\n", 0, "1 mutation operator(s)"},
+		{"enabled true switches nothing off", ".gomutants.yaml", "mutants:\n  STATEMENT_REMOVE:\n    enabled: true\n", 0, "no undocumented suppressions"},
+		{"a comment naming an operator", ".gomutants.yaml", "# INVERT_BITWISE is left on\ndisable:\n  # and so is STATEMENT_REMOVE\n  - FLOAT_INCREMENT\n", 0, "1 mutation operator(s)"},
 		{"a trailing comment on an entry", ".gomutants.yaml", "disable:\n  - INVERT_BITWISE  # because\n", 1, "gomutants · INVERT_BITWISE"},
 		{"a top-level key ends the block", ".gomutants.yaml", "disable:\n  - FLOAT_INCREMENT\nworkers: 4\n  - INVERT_BITWISE\n", 0, "1 mutation operator(s)"},
 		{"another key's sequence is not the set", ".gomutants.yaml", "exclude-calls:\n  - INVERT_BITWISE\n", 0, "no undocumented suppressions"},
@@ -1220,15 +1221,27 @@ func TestEveryRatifiedMutatorRowIsSigned(t *testing.T) {
 		if r.Mutator == "" || r.Approved == "" || r.Provenance == "" || r.Reason == "" {
 			t.Errorf("row %+v is missing a field — mutator, approved, provenance and reason are all required", r)
 		}
-		if seen[r.Mutator] {
+		switch r.Tool {
+		case MutatorGo, MutatorTS:
+		case MutatorRust, MutatorPython:
+			// A regex the tool cannot compile is a run that refuses to start
+			// fleet-wide; these patterns use only syntax Go, Rust and Python
+			// regexes share, so Go compiling it is the check.
+			if _, err := regexp.Compile(r.Mutator); err != nil {
+				t.Errorf("%s row %q does not compile: %v", r.Tool, r.Mutator, err)
+			}
+		default:
+			t.Errorf("row %+v names no lane — Tool must be one of go, rust, python, ts", r)
+		}
+		if seen[r.Tool+" "+r.Mutator] {
 			t.Errorf("%s is ratified twice — the count the report prints would double it", r.Mutator)
 		}
-		seen[r.Mutator] = true
+		seen[r.Tool+" "+r.Mutator] = true
 	}
 	// INCREMENT_DECREMENT mutates `i++` to `i--`: a real operator on a real
 	// statement, and one of gremlins' own five. It is NOT the numeric-literal
 	// namesake and must never be ratified by being confused with one.
-	if seen["INCREMENT_DECREMENT"] {
+	if seen[MutatorGo+" INCREMENT_DECREMENT"] {
 		t.Error("INCREMENT_DECREMENT is ratified — that operator mutates a statement, not a literal")
 	}
 }

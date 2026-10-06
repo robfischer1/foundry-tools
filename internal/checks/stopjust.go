@@ -761,70 +761,6 @@ func allExempt(rules []string, glob string) bool {
 	return true
 }
 
-// ---- the mutation gate's operator set ---------------------------------------
-
-// MutatorRow is one mutation operator the fleet's gomutants config is allowed
-// to switch off. Keyed by the OPERATOR, never by the config's path: the file
-// has already moved once (.gremlins.yaml -> .gomutants.yaml) and a ratification
-// keyed to a filename would have evaporated with the rename.
-type MutatorRow struct {
-	Mutator, Approved, Provenance, Reason string
-}
-
-// RatifiedMutators is the mutation gate's exclusion set, and the whole of it.
-// A config that disables an operator no row here names is a finding.
-//
-// A DISABLED OPERATOR IS A SUPPRESSION, and it is the widest one in this file.
-// A `noqa` silences one line; a ruff per-file-ignores entry silences one glob
-// in one repository; this silences an operator in EVERY repository the fleet
-// mutates, from a file most readers never open. The class is the same and the
-// scale is not, so it earns the same rule: Rob's words, or it is a finding.
-//
-// THE DIRECTIVE TABLE ABOVE CANNOT SEE IT, which is why this exists as data
-// rather than as another sjForm. Every form in sjPatterns is a SOURCE-level
-// suppression — a comment a compiler or a linter reads, or a call like t.Skip.
-// A YAML `disable:` key matches none of them (measured 2026-09-29 against the
-// generated .gomutants.yaml: zero hits from the whole inventory), so before
-// this table a fifth operator could be added to the fleet's mutation gate with
-// nothing anywhere to notice.
-//
-// RATIFIED BY ROB, session 836886a4 (Hamilton20), 2026-09-29: "Find our
-// canonical CI/lint configs, author a .gomutants.yaml with the 24/28, and wire
-// that in to the stop-justifications workflow. Cite this turn as provenance for
-// my ratifcation (You'll need it for stop-justifications)". The 24/28 is this
-// set: gomutants ships 28 operators and these four leave, so the gate the fleet
-// actually runs is 19 operators WIDER than gremlins' five defaults, not
-// narrower. The point of naming them is that the width is stated.
-//
-// `only:` IS NOT RATIFIABLE AND HAS NO ROW. It is the inverse key — it disables
-// every operator it does not name — so one line of it empties the population
-// and takes the gate green over a repository that graded nothing (measured
-// 2026-09-29: `only: [INVERT_BITWISE]` took 24 enabled types to 1 and 2 mutants
-// to 0, exit 0). There is no set of four words that makes that a measurement,
-// so every entry under it is a finding on sight.
-var RatifiedMutators = []MutatorRow{
-	{
-		Mutator: "INTEGER_INCREMENT", Approved: "2026-09-29T00:00:00Z",
-		Provenance: "session 836886a4 (Hamilton20), in-session",
-		Reason:     "an integer literal +1: `0`->`1` on the DISCARDED value of `return 0, err`, which Go leaves unspecified, and `64`->`65` in `strconv.ParseFloat(q, 64)`, bit-identical for every input",
-	},
-	{
-		Mutator: "INTEGER_DECREMENT", Approved: "2026-09-29T00:00:00Z",
-		Provenance: "session 836886a4 (Hamilton20), in-session",
-		Reason:     "the same literal -1: `0`->`-1` on a discarded return, `64`->`63` in ParseFloat, which takes the 32-bit path only for bitSize 32",
-	},
-	{
-		Mutator: "FLOAT_INCREMENT", Approved: "2026-09-29T00:00:00Z",
-		Provenance: "session 836886a4 (Hamilton20), in-session",
-		Reason:     "a float literal +1: `1e6`->`1000001.0` as a nanocore divisor, identical under int64 truncation at every realistic reading",
-	},
-	{
-		Mutator: "FLOAT_DECREMENT", Approved: "2026-09-29T00:00:00Z",
-		Provenance: "session 836886a4 (Hamilton20), in-session",
-		Reason:     "the same literal -1: `1e6`->`999999.0`, identical under the same truncation",
-	},
-}
-
 // SJMutatorFinding is one operator a gomutants config switches off that no
 // RatifiedMutators row names.
 type SJMutatorFinding struct {
@@ -863,8 +799,8 @@ func MutationSilencing(rel string, lines []string) (found []SJMutatorFinding, ra
 		return nil, 0
 	}
 	signed := map[string]bool{}
-	for _, r := range RatifiedMutators {
-		signed[r.Mutator] = true
+	for _, name := range SkippedMutators(MutatorGo) {
+		signed[name] = true
 	}
 	// grade folds one named operator into the answer, under the key that named
 	// it. `only` never reaches signed: it is the inverse key, so naming a

@@ -103,8 +103,10 @@ func GoMutationCanary(report string) string {
 }
 
 // THE HARNESS CONTROL, written into the lane's container from here: a mutant
-// whose honest verdict is LIVED. Add's `+` is mutable and its test runs it
-// without asserting the result, so an arithmetic mutation changes no outcome.
+// whose honest verdict is LIVED. Add's `return a + b` is mutable and its test
+// runs it without asserting the result, so no mutation of it changes an
+// outcome — RETURN_ZERO carries the control now that ARITHMETIC_BASE is not
+// generated (checks.RatifiedMutators).
 // Keep it dependency-free — a canary that cannot build is a control that
 // cannot control.
 const (

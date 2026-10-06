@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -542,7 +543,7 @@ func TestPythonMutationMeasuresAndMutatesInPlainExecs(t *testing.T) {
 	// NO --index: the cache answers for the fleet's own distributions on the
 	// intercepted pypi.org, so uv's default index reaches forge-testkit and
 	// devpi is never asked about a package it does not have (infra#848).
-	testkit := `"uv","run","--no-project","--isolated","--with","forge-testkit>=1.9.0","forge-testkit-mutation"`
+	testkit := `"uv","run","--no-project","--isolated","--with","forge-testkit>=2.1.0","forge-testkit-mutation"`
 	c := engine.chain(pyReportNeedle, "exitCode")
 	if !strings.Contains(c, checks.ImagePython) {
 		t.Errorf("python:mutation must run in the python lane image:\n%s", c)
@@ -557,7 +558,7 @@ func TestPythonMutationMeasuresAndMutatesInPlainExecs(t *testing.T) {
 		[]string{"withNewFile", `path:"/tmp/mutation/pr.diff"`, `+x = 1\n`},
 		[]string{"withExec", "expect:ANY", `args:["uv","run","--with","cosmic-ray","cosmic-ray","init","cosmic-ray.toml","session.sqlite"]`},
 		[]string{"withEnvVariable", `name:"GITHUB_OUTPUT"`, `value:"/tmp/mutation/scope.out"`},
-		[]string{"withExec", "expect:ANY", `args:[` + testkit + `,"scope","session.sqlite","--diff","/tmp/mutation/pr.diff","--base","since0"]`},
+		[]string{"withExec", "expect:ANY", `args:[` + testkit + `,"scope","session.sqlite","--diff","/tmp/mutation/pr.diff","--base","since0",` + pythonExcludes() + `]`},
 		[]string{"withExec", "expect:ANY", `args:[` + testkit + `,"plugin","--out","/tmp/mutation/plugin"]`},
 		[]string{"withEnvVariable", `name:"PYTEST_ADDOPTS"`, `value:"-p _forge_mutation_select"`},
 		[]string{"withDirectory", `path:"/tmp/mutation/measure"`},
@@ -925,4 +926,14 @@ func TestPythonMypyStandsDownWithoutAManifestWhileLintStillRuns(t *testing.T) {
 			t.Errorf("%s: a .py-declared lane still lints and tests, got %+v", want.id, v)
 		}
 	}
+}
+
+// pythonExcludes is the --exclude-operator pairs the Python rows put on the
+// scope argv, as the engine renders them.
+func pythonExcludes() string {
+	var parts []string
+	for _, op := range checks.SkippedMutators(checks.MutatorPython) {
+		parts = append(parts, `"--exclude-operator",`+strconv.Quote(op))
+	}
+	return strings.Join(parts, ",")
 }
