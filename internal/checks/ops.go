@@ -51,7 +51,7 @@ const OpsUVIndex = "https://pypi.org/simple"
 // lines to one version instead.
 const (
 	// renovate: datasource=github-releases depName=twpayne/chezmoi extractVersion=^v(?<version>.*)$
-	ChezmoiVersion = "2.72.2"
+	ChezmoiVersion = "2.73.0"
 	ChezmoiURL     = "https://github.com/twpayne/chezmoi/releases/download/v" + ChezmoiVersion + "/chezmoi-linux-amd64"
 )
 
@@ -60,7 +60,7 @@ const (
 // pinned alpine/k8s:1.34.1 and ca-sweep stages the same series).
 const (
 	// renovate: datasource=github-releases depName=kubernetes/kubernetes extractVersion=^v(?<version>.*)$
-	KubectlVersion = "1.34.1"
+	KubectlVersion = "1.37.1"
 	KubectlURL     = "https://dl.k8s.io/release/v" + KubectlVersion + "/bin/linux/amd64/kubectl"
 )
 

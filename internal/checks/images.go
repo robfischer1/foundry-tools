@@ -169,7 +169,7 @@ const (
 // fetches it, and inside the cluster the asset host is the fleet's cache.
 const (
 	// renovate: datasource=github-releases depName=opengrep/opengrep
-	OpengrepVersion = "v1.25.0"
+	OpengrepVersion = "v1.30.1"
 	OpengrepURL     = "https://github.com/opengrep/opengrep/releases/download/" + OpengrepVersion + "/opengrep_manylinux_x86"
 
 	StaticcheckModule = "honnef.co/go/tools/cmd/staticcheck@2025.1.1"
@@ -431,7 +431,7 @@ const (
 // than a fallthrough.
 const (
 	// renovate: datasource=github-releases depName=oras-project/oras extractVersion=^v(?<version>.*)$
-	OrasVersion = "1.3.0"
+	OrasVersion = "1.3.4"
 	OrasURL     = "https://github.com/oras-project/oras/releases/download/v" + OrasVersion + "/oras_" + OrasVersion + "_linux_amd64.tar.gz"
 )
 
@@ -451,7 +451,7 @@ const (
 // the box parse with the same schema.
 const (
 	// renovate: datasource=github-releases depName=docker/compose extractVersion=^v(?<version>.*)$
-	ComposeVersion = "2.39.2"
+	ComposeVersion = "5.6.0"
 	ComposeURL     = "https://github.com/docker/compose/releases/download/v" + ComposeVersion + "/docker-compose-linux-x86_64"
 )
 
@@ -469,6 +469,6 @@ const (
 // for kubeconform and kube-linter above.
 const (
 	// renovate: datasource=github-releases depName=open-policy-agent/opa extractVersion=^v(?<version>.*)$
-	OpaVersion = "1.18.0"
+	OpaVersion = "1.21.1"
 	OpaURL     = "https://openpolicyagent.org/downloads/v" + OpaVersion + "/opa_linux_amd64_static"
 )
