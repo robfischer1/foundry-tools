@@ -447,8 +447,10 @@ const (
 //
 // PINNED BY VERSION for the reason every other tool on this page is: a floating
 // client is a gate whose verdict is not a function of the pin the door
-// declared. v2.39.2 is the version the fleet's own hosts run, so the gate and
-// the box parse with the same schema.
+// declared. It is NOT held to a host's client: the cluster hosts run no docker,
+// and rob02 (the one box still running compose, v2.39.2) was measured parsing
+// every tracked spec identically to v5.6.0 on 2026-10-06 (`config
+// --no-interpolate --quiet`, exit 0 on all five). Renovate moves it.
 const (
 	// renovate: datasource=github-releases depName=docker/compose extractVersion=^v(?<version>.*)$
 	ComposeVersion = "5.6.0"
