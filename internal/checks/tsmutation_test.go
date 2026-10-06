@@ -568,3 +568,47 @@ func TestTSMutationFindingsAreCapped(t *testing.T) {
 		t.Errorf("got %d findings, last %+v", len(found), found[len(found)-1])
 	}
 }
+
+// Each directory answers its own config by base name; two in one directory
+// answer the first in name order, and a file that is not a config, or the
+// override the lane writes, answers nothing.
+func TestStrykerConfigFilesNamesEachDirectorysConfig(t *testing.T) {
+	got := StrykerConfigFiles([]string{
+		"stryker.config.json",
+		"apps/b/stryker.conf.mjs", "apps/b/.stryker.config.cjs",
+		"apps/c/" + StrykerOverrideFile, "apps/c/stryker.json",
+	})
+	want := map[string]string{".": "stryker.config.json", "apps/b": ".stryker.config.cjs"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for dir, base := range want {
+		if got[dir] != base {
+			t.Errorf("%s: got %q, want %q", dir, got[dir], base)
+		}
+	}
+	// Order of the listing does not decide it.
+	if got := StrykerConfigFiles([]string{"a/stryker.conf.js", "a/stryker.conf.cjs"}); got["a"] != "stryker.conf.cjs" {
+		t.Errorf("got %q, want the first in name order", got["a"])
+	}
+}
+
+// A JSON config is imported with its attribute and a JS one without; the
+// override keeps the package's own exclusions and adds the fleet's.
+func TestStrykerOverrideWrapsThePackagesConfig(t *testing.T) {
+	json := StrykerOverride("stryker.config.json", []string{"ArithmeticOperator", "Regex"})
+	for _, want := range []string{
+		`import config from "./stryker.config.json" with { type: "json" };` + "\n",
+		`const excluded = ["ArithmeticOperator","Regex"];` + "\n",
+		"...(base.mutator?.excludedMutations ?? []), ...excluded",
+		"export default {\n  ...base,\n",
+	} {
+		if !strings.Contains(json, want) {
+			t.Errorf("want %q in:\n%s", want, json)
+		}
+	}
+	js := StrykerOverride("stryker.conf.mjs", nil)
+	if !strings.HasPrefix(js, `import config from "./stryker.conf.mjs";`+"\n") || !strings.Contains(js, "const excluded = [];") {
+		t.Errorf("a JS config is imported plain, and no rows is an empty list:\n%s", js)
+	}
+}

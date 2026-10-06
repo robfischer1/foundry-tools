@@ -14,7 +14,7 @@ import (
 // the epoch — moves this value, and every stored grading misses: correct, and
 // a decision, so it fails here until someone writes the new value down.
 func TestTheGoEngineIsPinned(t *testing.T) {
-	const want = "64f90d39b74d389044d7f10eca9681fb5390f3a47215d4b35363e528b04ffe42"
+	const want = "8d1ae3b2682c0068014bccc85242dd721be6e976ea3fd85c0c822b1274d891cd"
 	if got := goMutationEngine(); got != want {
 		t.Fatalf("goMutationEngine() = %s, want %s — an input moved; every stored Go grading now misses. If that is meant, pin the new value", got, want)
 	}
@@ -92,7 +92,7 @@ func TestTheClosureIsReadUnderTheRunsTags(t *testing.T) {
 }
 
 func TestTheRustEngineIsPinned(t *testing.T) {
-	const want = "1c46a081bfa87c12cd086d2849e6fe7192d36e85babc319c330e5a6e8962c9eb"
+	const want = "6deea0d40393beb058633386b8290980828c47cca285fb4b367aabc6223f8c7b"
 	if got := rustMutationEngine(); got != want {
 		t.Fatalf("rustMutationEngine() = %s, want %s — an input moved; every stored Rust grading now misses. If that is meant, pin the new value", got, want)
 	}

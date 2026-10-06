@@ -246,7 +246,9 @@ func TestTSMutationMeasuresTheDiffWithThePackagesStryker(t *testing.T) {
 		[]string{"withExec", `args:["bun","--version"]`},
 		[]string{"withExec", "expect:ANY", `args:["bun","install","--frozen-lockfile"]`},
 		[]string{"withWorkdir", `path:"/src"`},
-		[]string{"withExec", "expect:ANY", `args:["/src/node_modules/.bin/stryker","run","--mutate","src/gate.ts:2-3","--concurrency","4","--reporters","clear-text,json"]`},
+		// The package's own config, wrapped with the fleet's skipped mutators.
+		[]string{"withNewFile", `path:"/src/.stryker-forge.mjs"`, `ArithmeticOperator`, `excludedMutations`},
+		[]string{"withExec", "expect:ANY", `args:["/src/node_modules/.bin/stryker","run",".stryker-forge.mjs","--mutate","src/gate.ts:2-3","--concurrency","4","--reporters","clear-text,json"]`},
 	)
 	if hasCall(c, "withExec", `args:["bun","--version"]`, "expect:ANY") {
 		t.Errorf("the bun probe is provisioning and must run under the default Expect:\n%s", c)
@@ -296,10 +298,10 @@ func TestTSMutationRunsEachPackageThatOwnsTheDiff(t *testing.T) {
 	// here, with its ranges relative to it.
 	wantCalls(t, engine.chain(tsStrykerNeedle, "exitCode", `"src/index.ts:2-2"`),
 		[]string{"withWorkdir", `path:"/src/packages/engine"`},
-		[]string{"withExec", `args:["/src/node_modules/.bin/stryker","run","--mutate","src/index.ts:2-2"`})
+		[]string{"withExec", `args:["/src/node_modules/.bin/stryker","run",".stryker-forge.mjs","--mutate","src/index.ts:2-2"`})
 	wantCalls(t, engine.chain(tsStrykerNeedle, "exitCode", `"src/gate.ts:2-3"`),
 		[]string{"withWorkdir", `path:"/src"`},
-		[]string{"withExec", `args:["/src/node_modules/.bin/stryker","run","--mutate","src/gate.ts:2-3"`})
+		[]string{"withExec", `args:["/src/node_modules/.bin/stryker","run",".stryker-forge.mjs","--mutate","src/gate.ts:2-3"`})
 
 	// The package's own bin is nearer than the root's.
 	scriptTSMutation(map[string]string{
@@ -310,7 +312,7 @@ func TestTSMutationRunsEachPackageThatOwnsTheDiff(t *testing.T) {
 	engine.stdout(tsDiffNeedle, "+++ b/packages/engine/src/index.ts\n@@ -1,0 +2 @@\n+x")
 	wantState(t, runAtom(t, "ts:mutation", "abc123"), 0)
 	wantCalls(t, engine.chain(tsStrykerNeedle, "exitCode"),
-		[]string{"withExec", `args:["/src/packages/engine/node_modules/.bin/stryker","run","--mutate","src/index.ts:2-2"`})
+		[]string{"withExec", `args:["/src/packages/engine/node_modules/.bin/stryker","run",".stryker-forge.mjs","--mutate","src/index.ts:2-2"`})
 
 	// A change no config owns is a finding, and nothing installs.
 	scriptTSMutation(nil)

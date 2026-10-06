@@ -204,6 +204,7 @@ func tsMutation(ctx context.Context, r *run) checks.Verdict {
 		return settle(2, "CANNOT RUN - could not enumerate the tree's Stryker configs: "+err.Error())
 	}
 	plan, orphans := checks.PlanStryker(ranges, checks.StrykerConfigDirs(configs))
+	owned := checks.StrykerConfigFiles(configs)
 	// A range no config owns is a FINDING, not a could-not-run: a package this
 	// pull changes that declares no mutation run is the committer's to set up,
 	// and nothing with tests goes un-mutation-tested (Rob, 2026-09-11).
@@ -239,8 +240,11 @@ func tsMutation(ctx context.Context, r *run) checks.Verdict {
 				break
 			}
 		}
+		// The package's own config, wrapped with the fleet's skipped mutators
+		// (checks.StrykerOverride): the list is the table's, never the package's.
 		mutated := installed.WithWorkdir(dir).
-			WithExec([]string{bin, "run", "--mutate", pkg.Mutate(), "--concurrency", "4", "--reporters", "clear-text,json"}, anyExit)
+			WithNewFile(path.Join(dir, checks.StrykerOverrideFile), checks.StrykerOverride(owned[pkg.Dir], checks.SkippedMutators(checks.MutatorTS))).
+			WithExec([]string{bin, "run", checks.StrykerOverrideFile, "--mutate", pkg.Mutate(), "--concurrency", "4", "--reporters", "clear-text,json"}, anyExit)
 		log, status, err := outputBoth(ctx, mutated)
 		if err != nil {
 			return neverRan(err)

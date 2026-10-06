@@ -24,7 +24,7 @@ import (
 const (
 	PythonMutationTimeout = 60
 	PythonMutationWorkers = 4
-	PythonMutationTestkit = "forge-testkit>=1.9.0"
+	PythonMutationTestkit = "forge-testkit>=2.1.0"
 	// NO INDEX FLAG ANY MORE, and that is the whole of infra#848. This named
 	// the fleet index as uv's EXTRA index so forge-testkit could be found —
 	// but uv searches an --index BEFORE the default, so fleet/prod was asked

@@ -100,12 +100,55 @@ var strykerConfigs = func() map[string]bool {
 // config, "." for the root.
 func StrykerConfigDirs(paths []string) map[string]bool {
 	dirs := map[string]bool{}
-	for _, p := range paths {
-		if strykerConfigs[path.Base(p)] {
-			dirs[path.Dir(p)] = true
-		}
+	for dir := range StrykerConfigFiles(paths) {
+		dirs[dir] = true
 	}
 	return dirs
+}
+
+// StrykerConfigFiles is the Stryker config each directory of a tree listing
+// holds, by its base name; where a directory holds more than one, the first
+// in name order, which is the one a reader finds first in a listing.
+func StrykerConfigFiles(paths []string) map[string]string {
+	files := map[string]string{}
+	for _, p := range paths {
+		dir, base := path.Dir(p), path.Base(p)
+		if seen, ok := files[dir]; strykerConfigs[base] && (!ok || base < seen) {
+			files[dir] = base
+		}
+	}
+	return files
+}
+
+// StrykerOverrideFile is the config ts:mutation hands Stryker, written beside
+// the package's own. Its name matches no strykerConfigs entry, so the next
+// listing never mistakes it for a package's declaration.
+const StrykerOverrideFile = ".stryker-forge.mjs"
+
+// StrykerOverride is that file: the package's own config, imported whole, with
+// the fleet's skipped mutators (checks.RatifiedMutators) added to whatever it
+// already excludes. STRYKER HAS NO FLAG FOR THEM — mutator.excludedMutations
+// is config-only — and the decision is the fleet's, not each package's
+// (Rob, 2026-10-06: "in the canonical config files, not per-repo"), so the
+// lane wraps the config rather than asking every package to carry the list.
+func StrykerOverride(config string, excluded []string) string {
+	attrs := ""
+	if strings.HasSuffix(config, ".json") {
+		attrs = ` with { type: "json" }`
+	}
+	// No rows is an empty list, never JSON null: spreading null throws, and
+	// every TypeScript run would stop at its config.
+	list, _ := json.Marshal(append([]string{}, excluded...)) // a []string always marshals
+	return "import config from " + strconv.Quote("./"+config) + attrs + ";\n" +
+		"const base = config.default ?? config;\n" +
+		"const excluded = " + string(list) + ";\n" +
+		"export default {\n" +
+		"  ...base,\n" +
+		"  mutator: {\n" +
+		"    ...base.mutator,\n" +
+		"    excludedMutations: [...new Set([...(base.mutator?.excludedMutations ?? []), ...excluded])],\n" +
+		"  },\n" +
+		"};\n"
 }
 
 // StrykerPackage is one package a pull's ranges are mutated in: its directory,

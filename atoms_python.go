@@ -436,11 +436,17 @@ func pythonMutation(ctx context.Context, r *run) checks.Verdict {
 
 	// SCOPE: drop the out-of-diff jobs. The base rides along (testkit 1.8.0),
 	// so an added line inside a unit whose AST is unchanged — a reformat —
-	// leaves the scope too.
+	// leaves the scope too. So do the fleet's skipped operator classes
+	// (checks.RatifiedMutators, testkit 2.1.0): deleted here rather than
+	// filtered, because a filtered job reports as "unknown" on every run.
+	scopeArgs := []string{"scope", "session.sqlite", "--diff", pythonMutationDiff, "--base", since}
+	for _, op := range checks.SkippedMutators(checks.MutatorPython) {
+		scopeArgs = append(scopeArgs, "--exclude-operator", op)
+	}
 	scoped, err := tk(inited.ctr.
 		WithNewFile(pythonMutationStepOutput, "").
 		WithEnvVariable("GITHUB_OUTPUT", pythonMutationStepOutput),
-		"scope", "session.sqlite", "--diff", pythonMutationDiff, "--base", since)
+		scopeArgs...)
 	if err != nil {
 		return neverRan(err)
 	}

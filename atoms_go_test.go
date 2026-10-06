@@ -1525,9 +1525,10 @@ func TestTheGovulncheckAtomAppliesTheGatesAllowance(t *testing.T) {
 // (an operator nobody signed), and it is the second one this exists to refuse.
 func TestTheDisabledOperatorsAreExactlyTheRatifiedSet(t *testing.T) {
 	passed := strings.Split(goMutationDisable, ",")
+	rows := checks.SkippedMutators(checks.MutatorGo)
 	signed := map[string]bool{}
-	for _, r := range checks.RatifiedMutators {
-		signed[r.Mutator] = true
+	for _, name := range rows {
+		signed[name] = true
 	}
 	onArgv := map[string]bool{}
 	for _, name := range passed {
@@ -1539,13 +1540,13 @@ func TestTheDisabledOperatorsAreExactlyTheRatifiedSet(t *testing.T) {
 		}
 		onArgv[name] = true
 	}
-	for _, r := range checks.RatifiedMutators {
-		if !onArgv[r.Mutator] {
-			t.Errorf("%s is ratified and the lane does not disable it — the row enforces nothing", r.Mutator)
+	for _, name := range rows {
+		if !onArgv[name] {
+			t.Errorf("%s is ratified and the lane does not disable it — the row enforces nothing", name)
 		}
 	}
-	if len(passed) != len(checks.RatifiedMutators) {
-		t.Errorf("goMutationDisable names %d operator(s), RatifiedMutators has %d rows", len(passed), len(checks.RatifiedMutators))
+	if len(passed) != len(rows) {
+		t.Errorf("goMutationDisable names %d operator(s), RatifiedMutators has %d Go rows", len(passed), len(rows))
 	}
 }
 
