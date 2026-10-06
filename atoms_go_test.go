@@ -429,6 +429,10 @@ func TestGoMutationMeasuresTheDiffAndSettlesInGo(t *testing.T) {
 		[]string{"withEnvVariable", `name:"GATE_BASE"`, `value:"abc123"`},
 		[]string{"withMountedDirectory", `path:"/dies"`},
 		[]string{"withExec", `"go","test","-cover","-coverprofile","mutation-cover.out","."`},
+		// gomutants' 2 GiB cap reads `ps -g`, which procps answers by session:
+		// the module's own pgroupps is the ps this exec finds first.
+		[]string{"withFile", `path:"/opt/pgroupps/ps"`},
+		[]string{"withEnvVariable", `name:"PATH"`, `value:"/opt/pgroupps:${PATH}"`, `expand:true`},
 		[]string{"withEnvVariable", `name:"GOMAXPROCS"`, `value:"1"`},
 		// -count=1: the runner's own baseline is what every mutant's timeout is
 		// derived from, and a CACHED baseline is ~1s for a module that tests in
@@ -436,6 +440,9 @@ func TestGoMutationMeasuresTheDiffAndSettlesInGo(t *testing.T) {
 		[]string{"withEnvVariable", `name:"GOFLAGS"`, `value:"-p=1 -count=1"`},
 		[]string{"withExec", `expect:ANY`, `"gomutants","-output","mutation-go.json","-config","/dev/null","-workers","4","-disable","` + goMutationDisable + `","-exclude-files","` + strings.ReplaceAll(goMutationExclude, `\`, `\\`) + `","-changed-since","since0","./..."`},
 	)
+	if b := engine.chain(`"go","build","-o","/out/pgroupps","./pgroupps"`); !strings.Contains(b, `from(address:"`+checks.ImageGo+`")`) {
+		t.Errorf("pgroupps is built from this module in the Go image:\n%s", b)
+	}
 	// NO CONFIG FILE IS WRITTEN OR FETCHED, which is the other half of the argv
 	// being the knobs: a file here would mean two homes again, and the one this
 	// replaced could make the lane could-not-run by being unreachable.

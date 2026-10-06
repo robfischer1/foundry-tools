@@ -420,18 +420,21 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 // execMemPath is where execmem sits in the lane's container.
 const execMemPath = "/usr/local/bin/execmem"
 
-// execMemBinary is internal/execmem's process, built from this module's own
-// source the way settle builds verdict (build.go): standard library only,
-// GOPROXY=off, static, so it runs in the Rust image as it is.
-func execMemBinary() *dagger.File {
+// execMemBinary is internal/execmem's process.
+func execMemBinary() *dagger.File { return moduleBinary("execmem") }
+
+// moduleBinary is the program in this module's directory name, built from the
+// module's own source the way settle builds verdict (build.go): standard
+// library only, GOPROXY=off, static, so it runs in any lane's image as it is.
+func moduleBinary(name string) *dagger.File {
 	return dag.Container().From(checks.ImageGo).
 		WithEnvVariable("CGO_ENABLED", "0").
 		WithEnvVariable("GOTOOLCHAIN", "local").
 		WithEnvVariable("GOPROXY", "off").
 		WithMountedDirectory("/src", dag.CurrentModule().Source()).
 		WithWorkdir("/src").
-		WithExec([]string{"go", "build", "-o", "/out/execmem", "./execmem"}).
-		File("/out/execmem")
+		WithExec([]string{"go", "build", "-o", "/out/" + name, "./" + name}).
+		File("/out/" + name)
 }
 
 // joinOutput is an ExecError's stdout then its stderr, each kept whole: the

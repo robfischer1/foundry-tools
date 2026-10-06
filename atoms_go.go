@@ -1012,7 +1012,16 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	// its own baseline as a phase and states the ceiling it derived ("baseline
 	// done (2.5s, ceiling: 25s)"), and -adaptive-timeout sizes each mutant off
 	// per-test durations; -count=1 keeps every run under it a real one.
+	//
+	// AND gomutants' MEMORY CAP GETS A ps THAT ANSWERS IT. Each mutant's test
+	// tree is meant to die at 2 GiB resident, read off `ps -o rss= -g <pgid>`
+	// — a process-group selector on BSD that procps reads as a session, so
+	// the cap read 0 and never fired, and a runaway mutant took the whole exec
+	// down at its 16 GiB cgroup instead (internal/pgroupps has the
+	// measurement). Prepended to PATH for this exec only.
 	mutated := covered.
+		WithFile(pgroupPSDir+"/ps", moduleBinary("pgroupps")).
+		WithEnvVariable("PATH", pgroupPSDir+":${PATH}", dagger.ContainerWithEnvVariableOpts{Expand: true}).
 		WithEnvVariable("GOMAXPROCS", "1").
 		WithEnvVariable("GOFLAGS", goMutationGoflags).
 		WithEnvVariable("GIT_CONFIG_COUNT", "2").
@@ -1145,6 +1154,8 @@ const (
 	// goMutationReport and goMutationProfile are what the run leaves in /src.
 	goMutationReport  = "mutation-go.json"
 	goMutationProfile = "mutation-cover.out"
+	// pgroupPSDir holds the ps the mutation exec finds first (pgroupps).
+	pgroupPSDir = "/opt/pgroupps"
 	// goMutationWorkers is gomutants' -workers, and it is a CORRECTNESS knob,
 	// not a speed one. Parallel mutants slow each other's tests down and trip
 	// their own timeouts, and a TIMED OUT mutant answers neither killed nor
