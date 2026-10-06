@@ -1,7 +1,7 @@
 package main
 
 import (
-	"context"
+	"encoding/base64"
 	"strings"
 	"testing"
 
@@ -68,11 +68,10 @@ func TestAKitCastRendersWithTheVerifiedFurnaceAndShipsItsDie(t *testing.T) {
 	settledOn(t, "0", "clean: cast app/forge-user:stable at index 7 ("+castPin+", "+castLanded+")")
 
 	// THE FURNACE IS PULLED AS THE LANE, with the same credential the stage uses.
-	real, err := dag.SetSecret("cast-registry-config", bundlelane.DockerConfig(bundlelane.RegistryHost, bundlelane.RegistryUser, "tok")).ID(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(engine.chain(resolveNeedle), string(real)) {
+	// Its auth is the lane's own user and token, base64'd as DockerConfig writes it.
+	auth := base64.StdEncoding.EncodeToString([]byte(bundlelane.RegistryUser + ":tok"))
+	real := idsOf("setSecret", `"cast-registry-config"`, auth)
+	if !usesAny(engine.chain(resolveNeedle), real) {
 		t.Errorf("the furnace was not resolved with the lane's credential %s:\n%s", real, engine.chain(resolveNeedle))
 	}
 	wantCalls(t, engine.chain(resolveNeedle),
@@ -134,11 +133,8 @@ func TestAKitDryRunRendersAndPinsAndPublishesNothing(t *testing.T) {
 			t.Errorf("a dry run never reached %s", needle)
 		}
 	}
-	anon, err := dag.SetSecret("cast-anon-registry-config", "{}").ID(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(engine.chain(resolveNeedle), string(anon)) {
+	anon := idsOf("setSecret", `"cast-anon-registry-config"`)
+	if !usesAny(engine.chain(resolveNeedle), anon) {
 		t.Errorf("a dry run holds no token and must read anonymously:\n%s", engine.chain(resolveNeedle))
 	}
 	for _, needle := range []string{stageNeedle, mintNeedle, bellNeedle} {
