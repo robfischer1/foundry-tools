@@ -48,7 +48,7 @@ func (l *castLane) kitDie(ctx context.Context, c castlane.Cast) (*dagger.Directo
 	if code != buildlane.Clean {
 		return nil, code, why
 	}
-	billet := fmt.Sprintf("%s/%s.git@%s", kitDoor, strings.TrimSuffix(strings.TrimPrefix(l.m.Repo, "/"), ".git"), l.m.Sha)
+	billet := castlane.Billet(kitDoor, l.m.Repo, l.m.Sha)
 	// ImageRust, not the fleet base: furnace shells out to git to read the
 	// billet, and the python base carries none.
 	rendered := dag.Container().From(checks.ImageRust).
@@ -64,12 +64,9 @@ func (l *castLane) kitDie(ctx context.Context, c castlane.Cast) (*dagger.Directo
 		return nil, cls, why
 	}
 	castSay("furnace rendered %s at %.12s: %s", c.Kit, l.m.Sha, strings.TrimSpace(out))
-	die := rendered.Directory("/die")
-	entries, err := die.Entries(ctx)
-	if err != nil || len(entries) == 0 {
-		return nil, buildlane.Findings, fmt.Sprintf("findings: furnace die %s wrote no files, so there is nothing to ship (%v)", c.Kit, err)
-	}
-	return die, buildlane.Clean, ""
+	// AN EMPTY RENDER NEEDS NO CHECK OF ITS OWN: castpin refuses a payload that
+	// pins no file, and furnace refuses a kit it does not know.
+	return rendered.Directory("/die"), buildlane.Clean, ""
 }
 
 // furnaceBinary fetches the signed furnace the hosts run and verifies it
@@ -85,7 +82,10 @@ func (l *castLane) furnaceBinary(ctx context.Context) (*dagger.File, int, string
 	// A DRY RUN HOLDS NO REGISTRY TOKEN, so it reads anonymously: the registry
 	// answers anonymous pulls, and a dry run that could not render would prove
 	// nothing about the render.
-	cfg := l.registryConfig
+	cfg, err := l.registry(ctx)
+	if err != nil {
+		return nil, buildlane.CouldNotRun, fmt.Sprintf("could not run: the registry token did not read: %v", err)
+	}
 	if cfg == nil {
 		cfg = dag.SetSecret("cast-anon-registry-config", "{}")
 	}

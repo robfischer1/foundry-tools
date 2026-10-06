@@ -178,11 +178,9 @@ func (l *castLane) run(ctx context.Context) (int, string) {
 		return l.stop("", buildlane.Clean, fmt.Sprintf("clean: dry run — %d file(s) pin to %s for %s; nothing was staged, minted or verified", len(files), pin, c.Artifact()))
 	}
 
-	token, err := l.registryToken.Plaintext(ctx)
-	if err != nil {
+	if _, err := l.registry(ctx); err != nil {
 		return l.stop("cast:stage", buildlane.CouldNotRun, fmt.Sprintf("could not run: the registry token did not read: %v", err))
 	}
-	l.registryConfig = dag.SetSecret("cast-registry-config", bundlelane.DockerConfig(bundlelane.RegistryHost, bundlelane.RegistryUser, strings.TrimSpace(token)))
 
 	ref := c.Stage(bundlelane.RegistryHost, pin)
 	digest, code, why := l.stage(ctx, payload, ref, files)
@@ -232,6 +230,22 @@ func (l *castLane) run(ctx context.Context) (int, string) {
 	// 0 is buildlane.Clean, spelled as the literal: the constant's name in a
 	// return slot is a RETURN_ZERO mutant that rewrites it to itself.
 	return 0, fmt.Sprintf("clean: cast %s at index %d (%s, %s) — staged, minted and signed by hephaestus, verified against cosign.pub%s%s", c.Artifact(), r.Index, r.Pin, r.Digest, noop, bell)
+}
+
+// registry is the registry credential as a docker config, made once from the
+// token and answered nil when the lane holds none (a dry run). The kit cast
+// needs it BEFORE the stage does — it pulls the signed furnace — so it is made
+// on first ask, not at the stage.
+func (l *castLane) registry(ctx context.Context) (*dagger.Secret, error) {
+	if l.registryConfig != nil || l.registryToken == nil {
+		return l.registryConfig, nil
+	}
+	token, err := l.registryToken.Plaintext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	l.registryConfig = dag.SetSecret("cast-registry-config", bundlelane.DockerConfig(bundlelane.RegistryHost, bundlelane.RegistryUser, strings.TrimSpace(token)))
+	return l.registryConfig, nil
 }
 
 // payload builds the release binaries and assembles what ships: each binary at

@@ -322,3 +322,30 @@ func TestMintedNamesLayerCast(t *testing.T) {
 		t.Errorf("not a result: %q", why)
 	}
 }
+
+// Ships is the one line the record and the log say about a cast.
+func TestShipsNamesWhatThePayloadHolds(t *testing.T) {
+	if got := (Cast{Binaries: []string{"cerberus", "git-credential-cerberus"}}).Ships(); got != "cerberus, git-credential-cerberus" {
+		t.Errorf("binaries: %q", got)
+	}
+	if got := (Cast{Name: "forge-user", Kit: "forge-user"}).Ships(); got != "the forge-user kit's render" {
+		t.Errorf("kit: %q", got)
+	}
+}
+
+// The billet is the repository the tree came from, at the exact commit, on the
+// door's public address — the engine's own address is not furnace's to read.
+func TestBilletIsTheDoorAtTheExactCommit(t *testing.T) {
+	const sha = "0123456789abcdef0123456789abcdef01234567"
+	for repo, want := range map[string]string{
+		"http://ourea:8215/foundry/foundry-stocks.git": "https://git.notusmi.com/foundry/foundry-stocks.git@" + sha,
+		"http://ourea:8215/foundry/foundry-stocks":     "https://git.notusmi.com/foundry/foundry-stocks.git@" + sha,
+		"http://ourea:8215/telescope.git":              "https://git.notusmi.com/telescope.git@" + sha,
+		"foundry/foundry-stocks":                       "https://git.notusmi.com/foundry/foundry-stocks.git@" + sha,
+		"://not a url/foundry-stocks":                  "https://git.notusmi.com/://not a url/foundry-stocks.git@" + sha,
+	} {
+		if got := Billet("https://git.notusmi.com/", repo, sha); got != want {
+			t.Errorf("%s: got %q, want %q", repo, got, want)
+		}
+	}
+}

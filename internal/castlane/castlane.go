@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -52,6 +53,23 @@ func (c Cast) Ships() string {
 		return "the " + c.Kit + " kit's render"
 	}
 	return strings.Join(c.Binaries, ", ")
+}
+
+// Billet is the billet furnace renders from: the repository the lane's tree was
+// fetched from, read back through the door's public address at the exact commit,
+// as the URL@ref furnace's FURNACE_SOURCE takes. The lane's own address for the
+// repo is the engine's, and a container furnace runs in holds no credential for
+// it; the door serves anonymous read at the same path.
+//
+// IT CANNOT REFUSE. A repo that does not parse as a URL is taken as its own
+// path, which is what the lane's star name was already read from.
+func Billet(door, repo, sha string) string {
+	u, err := url.Parse(repo)
+	if err != nil {
+		u = &url.URL{Path: repo}
+	}
+	p := "/" + strings.TrimPrefix(strings.TrimSuffix(u.Path, ".git"), "/") + ".git"
+	return strings.TrimSuffix(door, "/") + p + "@" + sha
 }
 
 // KitDir is where a kit cast's render lands in the payload. The render goes in
@@ -136,9 +154,9 @@ func FromRecord(slag string) (Cast, error) {
 		return nil
 	}
 	if c.Kit != "" {
-		if err := claim(KitDir, "the kit's render"); err != nil {
-			return Cast{}, err
-		}
+		// The render holds its name before anything else can ask for it, so a
+		// binary or an extra that lands at KitDir is the one refused.
+		lands[KitDir] = "the kit's render"
 	}
 	for _, b := range c.Binaries {
 		if b == "" || strings.ContainsAny(b, `/\`) || strings.HasPrefix(b, ".") || strings.HasPrefix(b, "-") {
