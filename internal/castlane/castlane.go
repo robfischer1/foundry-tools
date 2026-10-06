@@ -30,14 +30,46 @@ import (
 )
 
 // Cast is what one record asks the lane to cast.
+//
+// Name is the CHANNEL's name: meta.name for a binary repo, and the kit's own
+// name for a kit repo (Kit != ""), because one repo can cast a kit whose name
+// is not its own — foundry-stocks casts forge-user, not foundry-stocks.
 type Cast struct {
 	Name         string
 	Binaries     []string
 	PayloadExtra []string
+	// Kit, when set, is the stocks kit whose standalone render IS the payload
+	// (under KitDir), in place of release binaries. A cast is binaries XOR a
+	// kit, never both: two producers on one channel would ship whichever the
+	// lane ran last.
+	Kit string
 }
 
+// Ships names what the cast puts in the payload, for the record's one line and
+// the lane's log: the binaries, or the kit whose render it is.
+func (c Cast) Ships() string {
+	if c.Kit != "" {
+		return "the " + c.Kit + " kit's render"
+	}
+	return strings.Join(c.Binaries, ", ")
+}
+
+// KitDir is where a kit cast's render lands in the payload. The render goes in
+// a directory of its own, never at the payload's root, because the consumer
+// lays it with `gavel order --from <staged>/die` and everything else in the
+// bundle (units/, beside it) is NOT governance and must not be laid at $HOME.
+const KitDir = "die"
+
+// kitRE is a channel name's grammar (hephaestus internal/bundle nameRE): one
+// lowercase segment. A kit that cannot be a channel is refused here, not at
+// the mint.
+var kitRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
+
 // Artifact is the bundle channel the cast mints into. It is app/<name>:stable
-// for every binary repo, which is why the record carries no artifact field.
+// for every cast, which is why the record carries no artifact field. The kind
+// is app for a kit as well, on purpose: anvil flips only the app kind
+// (bundle_reconcile.rs is_app), so a repo-gov channel would be staged by tongs
+// and never flipped by anything.
 func (c Cast) Artifact() string { return "app/" + c.Name + ":stable" }
 
 // Stage is the reference the payload is pushed to before mold consumes it:
@@ -62,6 +94,7 @@ func FromRecord(slag string) (Cast, error) {
 			Cast *struct {
 				Binaries     []string `json:"binaries"`
 				PayloadExtra []string `json:"payload_extra"`
+				Kit          string   `json:"kit"`
 			} `json:"cast"`
 		} `json:"tools"`
 	}
@@ -80,8 +113,16 @@ func FromRecord(slag string) (Cast, error) {
 	if rec.Tools.Cast == nil {
 		return Cast{}, errors.New("the record produces binary and carries no tools.cast, so the lane has no binaries to ship")
 	}
-	c := Cast{Name: rec.Meta.Name, Binaries: rec.Tools.Cast.Binaries, PayloadExtra: rec.Tools.Cast.PayloadExtra}
-	if len(c.Binaries) == 0 {
+	c := Cast{Name: rec.Meta.Name, Binaries: rec.Tools.Cast.Binaries, PayloadExtra: rec.Tools.Cast.PayloadExtra, Kit: rec.Tools.Cast.Kit}
+	switch {
+	case c.Kit != "" && len(c.Binaries) > 0:
+		return Cast{}, errors.New("tools.cast names both binaries and a kit, and a channel has one producer")
+	case c.Kit != "":
+		if !kitRE.MatchString(c.Kit) {
+			return Cast{}, fmt.Errorf("tools.cast.kit: %q is not a channel name (one lowercase segment)", c.Kit)
+		}
+		c.Name = c.Kit
+	case len(c.Binaries) == 0:
 		return Cast{}, errors.New("tools.cast.binaries is empty")
 	}
 	// Every binary and every extra lands at the payload's root under one name;
@@ -93,6 +134,11 @@ func FromRecord(slag string) (Cast, error) {
 		}
 		lands[name] = what
 		return nil
+	}
+	if c.Kit != "" {
+		if err := claim(KitDir, "the kit's render"); err != nil {
+			return Cast{}, err
+		}
 	}
 	for _, b := range c.Binaries {
 		if b == "" || strings.ContainsAny(b, `/\`) || strings.HasPrefix(b, ".") || strings.HasPrefix(b, "-") {

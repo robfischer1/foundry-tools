@@ -39,6 +39,45 @@ func TestFromRecordReadsTheCastArguments(t *testing.T) {
 	}
 }
 
+// foundry-stocks casts a kit, not a binary: the channel is the KIT's name, the
+// payload's render lands under die/, and units/ rides beside it.
+func TestFromRecordReadsAKitCast(t *testing.T) {
+	slag := strings.Replace(record(`["binary"]`, `{"cast":{"kit":"forge-user","payload_extra":["delivery/units"]}}`), `"name":"cerberus"`, `"name":"foundry-stocks"`, 1)
+	c, err := FromRecord(slag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Cast{Name: "forge-user", Kit: "forge-user", PayloadExtra: []string{"delivery/units"}}
+	if !reflect.DeepEqual(c, want) {
+		t.Fatalf("got %+v, want %+v", c, want)
+	}
+	if got := c.Artifact(); got != "app/forge-user:stable" {
+		t.Errorf("artifact %q: a kit ships on the app kind, the only one anvil flips", got)
+	}
+	if got := c.Stage("foundry.notusmi.com", "g0123456789ab"); got != "foundry.notusmi.com/staging/app-forge-user:g0123456789ab" {
+		t.Errorf("stage %q", got)
+	}
+}
+
+// A kit cast has one producer and one channel grammar.
+func TestFromRecordRefusesAKitThatCannotBeCast(t *testing.T) {
+	cast := func(block string) string { return record(`["binary"]`, `{"cast":`+block+`}`) }
+	cases := map[string]struct{ slag, why string }{
+		"a kit and binaries":    {cast(`{"kit":"forge-user","binaries":["x"]}`), "names both binaries and a kit"},
+		"a kit that is a path":  {cast(`{"kit":"a/b"}`), "is not a channel name"},
+		"an uppercase kit":      {cast(`{"kit":"Forge-User"}`), "is not a channel name"},
+		"an extra over the die": {cast(`{"kit":"forge-user","payload_extra":["x/die"]}`), `both land at "die"`},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := FromRecord(c.slag)
+			if err == nil || !strings.Contains(err.Error(), c.why) {
+				t.Fatalf("want a refusal naming %q, got %v", c.why, err)
+			}
+		})
+	}
+}
+
 // Every way a record cannot be cast is refused, naming what is wrong.
 func TestFromRecordRefusesARecordThatCannotBeCast(t *testing.T) {
 	cast := func(block string) string { return record(`["binary"]`, `{"cast":`+block+`}`) }

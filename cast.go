@@ -147,12 +147,12 @@ func (l *castLane) run(ctx context.Context) (int, string) {
 	if err != nil {
 		return l.stop("cast:record", buildlane.Findings, "findings: "+err.Error())
 	}
-	l.seal("cast:record", buildlane.Clean, "foundry-dies says "+star+" ships "+strings.Join(c.Binaries, ", "))
+	l.seal("cast:record", buildlane.Clean, "foundry-dies says "+star+" ships "+c.Ships())
 	mode := ""
 	if l.dryRun {
 		mode = " — dry run: the build and the pin run for real; nothing is staged, minted or verified"
 	}
-	castSay("%s at %.12s, binaries %v, payload_extra %v%s", c.Artifact(), m.Sha, c.Binaries, c.PayloadExtra, mode)
+	castSay("%s at %.12s, ships %s, payload_extra %v%s", c.Artifact(), m.Sha, c.Ships(), c.PayloadExtra, mode)
 
 	if _, ok, err := fileIn(ctx, m.Source, "cosign.pub"); err != nil {
 		return l.stop("cast:cosign", buildlane.CouldNotRun, fmt.Sprintf("could not run: the tree could not be read for cosign.pub: %v", err))
@@ -240,17 +240,25 @@ func (l *castLane) run(ctx context.Context) (int, string) {
 // rather than skipped: a bundle missing its hooks verifies clean and fails only
 // at runtime.
 func (l *castLane) payload(ctx context.Context, c castlane.Cast) (*dagger.Directory, int, string) {
-	built, dir, code, why := l.release(ctx, c)
-	if code != buildlane.Clean {
-		return nil, code, why
-	}
 	payload := dag.Directory()
-	for _, b := range c.Binaries {
-		f := built.File(path.Join(dir, b))
-		if _, err := f.Size(ctx); err != nil {
-			return nil, buildlane.Findings, fmt.Sprintf("findings: the release build left no %q in %s", b, dir)
+	if c.Kit != "" {
+		die, code, why := l.kitDie(ctx, c)
+		if code != buildlane.Clean {
+			return nil, code, why
 		}
-		payload = payload.WithFile(b, f)
+		payload = payload.WithDirectory(castlane.KitDir, die)
+	} else {
+		built, dir, code, why := l.release(ctx, c)
+		if code != buildlane.Clean {
+			return nil, code, why
+		}
+		for _, b := range c.Binaries {
+			f := built.File(path.Join(dir, b))
+			if _, err := f.Size(ctx); err != nil {
+				return nil, buildlane.Findings, fmt.Sprintf("findings: the release build left no %q in %s", b, dir)
+			}
+			payload = payload.WithFile(b, f)
+		}
 	}
 	for _, p := range c.PayloadExtra {
 		under, err := l.m.Source.Glob(ctx, path.Join(p, "**"))
