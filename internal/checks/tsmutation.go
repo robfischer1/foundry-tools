@@ -525,10 +525,26 @@ var (
 )
 
 // TSMutationVerdict settles every planned package's run as one verdict: the
-// worst of them, survivors summed.
-func TSMutationVerdict(runs []StrykerRun) (int, string) {
+// worst of them, survivors summed. Its findings are every package's mutants,
+// rooted at the repository so a subject reads the same as go:mutation's, and
+// bounded by the record's cap.
+func TSMutationVerdict(runs []StrykerRun) (int, string, []Finding) {
+	state, reason, found := tsMutationVerdict(runs)
+	return state, reason, capFindings(found, tsMutationAtom)
+}
+
+// rooted joins a package directory onto a package-relative finding subject.
+func rooted(dir string, found []Finding) []Finding {
+	for i := range found {
+		found[i].Subject = path.Join(dir, found[i].Subject)
+	}
+	return found
+}
+
+func tsMutationVerdict(runs []StrykerRun) (int, string, []Finding) {
 	multi := len(runs) > 1
 	var summary strings.Builder
+	var found []Finding
 	missed, zero := 0, 0
 	for _, run := range runs {
 		where := ""
@@ -549,19 +565,20 @@ func TSMutationVerdict(runs []StrykerRun) (int, string) {
 			continue
 		}
 		if run.Report == "" {
-			return 2, fmt.Sprintf("CANNOT RUN - stryker exited %d%s and wrote no reports/mutation/mutation.json — nothing was measured\n%s", run.Status, where, tail(run.Log, 20))
+			return 2, fmt.Sprintf("CANNOT RUN - stryker exited %d%s and wrote no reports/mutation/mutation.json — nothing was measured\n%s", run.Status, where, tail(run.Log, 20)), found
 		}
 		h, err := ScoreStryker(run.Report, run.Exemptions)
 		if err != nil {
-			return 2, "CANNOT RUN - the mutation report" + where + " could not be read: " + err.Error()
+			return 2, "CANNOT RUN - the mutation report" + where + " could not be read: " + err.Error(), found
 		}
+		found = append(found, rooted(run.Dir, h.Findings)...)
 		if h.State != 0 {
-			return h.State, h.Error + where + "\n\n" + h.Summary
+			return h.State, h.Error + where + "\n\n" + h.Summary, found
 		}
 		// Stryker exits non-zero for a broken run AND for a threshold break;
 		// this lane sets no threshold, so any non-zero is a broken run.
 		if run.Status != 0 {
-			return 2, fmt.Sprintf("CANNOT RUN - stryker exited %d%s — a broken run, not a survivor report\n%s", run.Status, where, tail(run.Log, 20))
+			return 2, fmt.Sprintf("CANNOT RUN - stryker exited %d%s — a broken run, not a survivor report\n%s", run.Status, where, tail(run.Log, 20)), found
 		}
 		missed += h.Missed
 		if multi {
@@ -571,12 +588,13 @@ func TSMutationVerdict(runs []StrykerRun) (int, string) {
 		}
 	}
 	if zero == len(runs) {
-		return 0, "the changed lines hold no mutable code — Stryker instrumented 0 mutants, nothing to mutate"
+		// Every run took the zero-instrumented continue, so nothing was scored.
+		return 0, "the changed lines hold no mutable code — Stryker instrumented 0 mutants, nothing to mutate", nil
 	}
 	if missed == 0 {
-		return 0, "every viable mutant was caught\n\n" + summary.String()
+		return 0, "every viable mutant was caught\n\n" + summary.String(), found
 	}
-	return 1, fmt.Sprintf("%d mutant(s) survived or were never covered — see the list below\n\n%s", missed, summary.String())
+	return 1, fmt.Sprintf("%d mutant(s) survived or were never covered — see the list below\n\n%s", missed, summary.String()), found
 }
 
 // StrykerScore is one package's report scored honestly: State 0 when it
@@ -587,6 +605,40 @@ type StrykerScore struct {
 	Error   string
 	Summary string
 	Missed  int
+	// Findings are the mutants in the schema's shape, one per surviving,
+	// uncovered, discounted or unmeasured mutant, with Subject relative to the
+	// package directory (TSMutationVerdict roots it in the repository).
+	Findings []Finding
+}
+
+// tsMutationAtom is the probe every TypeScript mutant finding carries.
+const tsMutationAtom = "ts:mutation"
+
+// strykerFinding maps one mutant onto the schema's lattice, in the same words
+// as the Go lane, so a fleet-wide read of the record can group the two lanes
+// together (until 2026-10-05 this lane wrote no findings at all, and an
+// inventory of the fleet's mutants could not see the frontend):
+//
+//   - Survived is `drifted` — Go's LIVED: a test ran, the change went unnoticed,
+//     and that may be a gap or an equivalent mutant.
+//   - NoCoverage is `violated` — Go's NOT COVERED: no test executes it.
+//   - a survivor no test even ran against is `unanalyzable` — Go's
+//     COVERED-UNRUN: nothing was measured, which is not a pass.
+//   - a discounted mutant (a ratified exemption, an unasserted message string)
+//     is `excluded`, with the reason, so a set-aside is never a silent one.
+func strykerFinding(file string, line int, mutator, status, reason string, unmeasured bool) Finding {
+	f := Finding{Subject: fmt.Sprintf("%s:%d", file, line), Cause: mutator, Probe: tsMutationAtom}
+	switch {
+	case unmeasured:
+		f.Verdict, f.Detail = VerdictUnanalyzable, "COVERED-UNRUN: no test ran against it"
+	case reason != "":
+		f.Verdict, f.Detail = VerdictExcluded, status+": "+reason
+	case status == "NoCoverage":
+		f.Verdict, f.Detail = VerdictViolated, "NOT COVERED"
+	default:
+		f.Verdict, f.Detail = VerdictDrifted, "LIVED"
+	}
+	return f
 }
 
 type strykerExemption struct {
@@ -695,6 +747,7 @@ func ScoreStryker(report, exemptions string) (StrykerScore, error) {
 
 	counts := map[string]int{}
 	var real, noise, unmeasured, static []string
+	var findings []Finding
 	paths := make([]string, 0, len(r.Files))
 	for p := range r.Files {
 		paths = append(paths, p)
@@ -706,7 +759,8 @@ func ScoreStryker(report, exemptions string) (StrykerScore, error) {
 		for _, m := range f.Mutants {
 			counts[m.Status]++
 			line := m.Location.Start.Line
-			if m.Status == "Survived" && m.TestsCompleted != nil && *m.TestsCompleted == 0 {
+			unrun := m.Status == "Survived" && m.TestsCompleted != nil && *m.TestsCompleted == 0
+			if unrun {
 				where := fmt.Sprintf("%s:%d %s", p, line, m.MutatorName)
 				unmeasured = append(unmeasured, where)
 				if m.Static != nil && *m.Static {
@@ -730,6 +784,7 @@ func ScoreStryker(report, exemptions string) (StrykerScore, error) {
 				}
 			}
 			row := fmt.Sprintf("%s:%d  %-10s %s", p, line, m.Status, m.MutatorName)
+			findings = append(findings, strykerFinding(p, line, m.MutatorName, m.Status, reason, unrun))
 			if reason != "" {
 				noise = append(noise, row+"   ["+reason+"]")
 			} else {
@@ -757,11 +812,11 @@ func ScoreStryker(report, exemptions string) (StrykerScore, error) {
 	}
 
 	if runner != "command" && testsSeen == 0 {
-		return StrykerScore{State: 1, Summary: strings.Join(out, "\n"), Missed: 1,
+		return StrykerScore{State: 1, Summary: strings.Join(out, "\n"), Missed: 1, Findings: findings,
 			Error: "Nothing was measured: the report records ZERO tests. A mutation score over a suite that never ran is not a low score, it is not a measurement."}, nil
 	}
 	if len(unmeasured) > 0 {
-		return StrykerScore{State: 2, Summary: strings.Join(out, "\n"),
+		return StrykerScore{State: 2, Summary: strings.Join(out, "\n"), Findings: findings,
 			Error: ZeroTestDiagnosis(unmeasured, static)}, nil
 	}
 	if runner == "command" {
@@ -781,7 +836,7 @@ func ScoreStryker(report, exemptions string) (StrykerScore, error) {
 		out = append(out, real...)
 		out = append(out, "```")
 	}
-	return StrykerScore{Summary: strings.Join(out, "\n"), Missed: missed}, nil
+	return StrykerScore{Summary: strings.Join(out, "\n"), Missed: missed, Findings: findings}, nil
 }
 
 // pct is killed over viable as a percentage to one decimal, printed the way

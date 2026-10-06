@@ -283,8 +283,15 @@ func TestTSMutationRunsEachPackageThatOwnsTheDiff(t *testing.T) {
 		"/src/packages/engine/reports/mutation/mutation.json": tsReport(`{"status":"NoCoverage","mutatorName":"BlockStatement","location":{"start":{"line":2}}}`),
 	})
 	engine.stdout(tsDiffNeedle, "+++ b/packages/engine/src/index.ts\n@@ -1,0 +2 @@\n+x\n"+tsDiff)
-	wantState(t, runAtom(t, "ts:mutation", "abc123"), 1,
+	v := runAtom(t, "ts:mutation", "abc123")
+	wantState(t, v, 1,
 		"1 mutant(s) survived or were never covered", "### packages/engine", "### .")
+	// The verdict carries the mutant as a finding, rooted at the repository,
+	// the way go:mutation's do — the door's record reads it, not the prose.
+	if len(v.Findings) != 1 || v.Findings[0].Verdict != "violated" || v.Findings[0].Cause != "BlockStatement" ||
+		!strings.HasPrefix(v.Findings[0].Subject, "packages/engine/") || v.Findings[0].Probe != "ts:mutation" {
+		t.Errorf("findings = %+v", v.Findings)
+	}
 	// Each package runs in its own directory on the nearest bin, the root's
 	// here, with its ranges relative to it.
 	wantCalls(t, engine.chain(tsStrykerNeedle, "exitCode", `"src/index.ts:2-2"`),
