@@ -22,7 +22,7 @@ import (
 var diesAtoms = []string{
 	"dies:opa-test", "dies:admission-dogfood", "dies:data-keys",
 	"dies:canary-visibility", "dies:contracts", "dies:schema", "dies:findings",
-	"dies:schemas", "dies:canonical",
+	"dies:schemas", "dies:wit-regenerated", "dies:canonical",
 }
 
 // diesBuiltAContainer reports whether anything pulled an image. Named for this
@@ -955,4 +955,48 @@ func TestDiesSchemasCannotRunWithoutAChecker(t *testing.T) {
 	// is indistinguishable from a suppression.
 	wantState(t, runAtom(t, "dies:schemas", ""), 2,
 		"tools/check_schemas.py is absent")
+}
+
+var witRegeneratedPaths = map[string]string{
+	"tools/check_wit_regenerated.py": "",
+}
+
+// THE TREE'S CHECKER RUNS, UNEMBEDDED, AND NEEDS NO PACKAGE. It reads two
+// directories and compares bytes; asking uv for a registry package would make
+// the gate depend on a network it has no use for.
+func TestDiesWitRegeneratedRunsTheTreesOwnCheckerWithNoPackages(t *testing.T) {
+	engine.reset()
+	engine.withTree(diesTree(witRegeneratedPaths))
+	wantState(t, runAtom(t, "dies:wit-regenerated", ""), 0)
+
+	c := engine.chain("tools/check_wit_regenerated.py", "exitCode")
+	wantCalls(t, c,
+		[]string{"withExec", `args:["uv","--version"]`},
+		[]string{"withExec", "expect:ANY", `"uv","run","--no-project","--quiet","python3","tools/check_wit_regenerated.py"`},
+	)
+	if strings.Contains(c, "withNewFile") {
+		t.Errorf("dies:wit-regenerated wrote a script into the container; the tree's own checker is the tool:\n%s", c)
+	}
+	if strings.Contains(c, "--with") {
+		t.Errorf("dies:wit-regenerated asked uv for a package; the checker is stdlib only:\n%s", c)
+	}
+}
+
+// 0 identical, 1 stale, 2 could not run: the script's ladder is the verdict.
+func TestDiesWitRegeneratedPassesTheExitCodeStraightThrough(t *testing.T) {
+	for code, want := range map[int]int{0: 0, 1: 1, 2: 2} {
+		engine.reset()
+		engine.withTree(diesTree(witRegeneratedPaths))
+		engine.exitCode(`"python3","tools/check_wit_regenerated.py"`, code)
+		wantState(t, runAtom(t, "dies:wit-regenerated", ""), want)
+	}
+}
+
+// No checker is a COULD-NOT-RUN naming it: a tree that cannot compare its WIT
+// has not shown the WIT is current.
+func TestDiesWitRegeneratedCannotRunWithoutAChecker(t *testing.T) {
+	engine.reset()
+	engine.withTree(diesTree(map[string]string{}, "tools/check_wit_regenerated.py"))
+	wantState(t, runAtom(t, "dies:wit-regenerated", ""), 2,
+		"tools/check_wit_regenerated.py is absent")
 }

@@ -93,6 +93,16 @@ func (d *Dies) Findings(ctx context.Context) (string, error) {
 	return check(ctx, d.Source, "dies:findings")
 }
 
+// The committed wit/ is byte-for-byte what tools/wit-from-schema generates from
+// schema/: a schema change without regeneration, or a hand edit of a generated
+// file, fails. The generator's refusals are listed in a generated report that
+// is compared too, so a new refusal is a diff, not a surprise.
+//
+// +check
+func (d *Dies) WitRegenerated(ctx context.Context) (string, error) {
+	return check(ctx, d.Source, "dies:wit-regenerated")
+}
+
 // Every committed record is byte-for-byte its own canonical form — the form
 // hephaestus' golden grades one repo away, refused here at the push instead.
 //
