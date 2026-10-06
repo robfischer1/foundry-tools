@@ -310,6 +310,11 @@ func TestACastThatFailsStopsWhereItFailed(t *testing.T) {
 		"castpin says nothing readable": {nil, func() {
 			engine.stdout(castpinNeedle, "garbage")
 		}, "2", "castpin answered no pin", nil, []string{stageNeedle}},
+		// The token is read after the pin and before the stage, so a cast
+		// whose credential is gone pins its payload and stages nothing.
+		"the registry token cannot be read": {nil, func() {
+			engine.failLeaf(`"registry-token"`, "plaintext", "the secret went away")
+		}, "2", "the registry token did not read", []string{castpinNeedle}, []string{stageNeedle}},
 		"the registry refuses the push": {nil, func() {
 			engine.exitCode(stageNeedle, 1)
 			engine.stdout(stageNeedle, "Error: failed to push: unauthorized")

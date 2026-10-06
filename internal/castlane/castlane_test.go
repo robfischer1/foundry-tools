@@ -39,45 +39,6 @@ func TestFromRecordReadsTheCastArguments(t *testing.T) {
 	}
 }
 
-// foundry-stocks casts a kit, not a binary: the channel is the KIT's name, the
-// payload's render lands under die/, and units/ rides beside it.
-func TestFromRecordReadsAKitCast(t *testing.T) {
-	slag := strings.Replace(record(`["binary"]`, `{"cast":{"kit":"forge-user","payload_extra":["delivery/units"]}}`), `"name":"cerberus"`, `"name":"foundry-stocks"`, 1)
-	c, err := FromRecord(slag)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := Cast{Name: "forge-user", Kit: "forge-user", PayloadExtra: []string{"delivery/units"}}
-	if !reflect.DeepEqual(c, want) {
-		t.Fatalf("got %+v, want %+v", c, want)
-	}
-	if got := c.Artifact(); got != "app/forge-user:stable" {
-		t.Errorf("artifact %q: a kit ships on the app kind, the only one anvil flips", got)
-	}
-	if got := c.Stage("foundry.notusmi.com", "g0123456789ab"); got != "foundry.notusmi.com/staging/app-forge-user:g0123456789ab" {
-		t.Errorf("stage %q", got)
-	}
-}
-
-// A kit cast has one producer and one channel grammar.
-func TestFromRecordRefusesAKitThatCannotBeCast(t *testing.T) {
-	cast := func(block string) string { return record(`["binary"]`, `{"cast":`+block+`}`) }
-	cases := map[string]struct{ slag, why string }{
-		"a kit and binaries":    {cast(`{"kit":"forge-user","binaries":["x"]}`), "names both binaries and a kit"},
-		"a kit that is a path":  {cast(`{"kit":"a/b"}`), "is not a channel name"},
-		"an uppercase kit":      {cast(`{"kit":"Forge-User"}`), "is not a channel name"},
-		"an extra over the die": {cast(`{"kit":"forge-user","payload_extra":["x/die"]}`), `both land at "die"`},
-	}
-	for name, c := range cases {
-		t.Run(name, func(t *testing.T) {
-			_, err := FromRecord(c.slag)
-			if err == nil || !strings.Contains(err.Error(), c.why) {
-				t.Fatalf("want a refusal naming %q, got %v", c.why, err)
-			}
-		})
-	}
-}
-
 // Every way a record cannot be cast is refused, naming what is wrong.
 func TestFromRecordRefusesARecordThatCannotBeCast(t *testing.T) {
 	cast := func(block string) string { return record(`["binary"]`, `{"cast":`+block+`}`) }
@@ -320,32 +281,5 @@ func TestMintedNamesLayerCast(t *testing.T) {
 	}
 	if _, _, why := Minted(200, answer(false, "stamped"), "g0123456789ab"); !strings.Contains(why, "layer_cast's answer is not a cast result") {
 		t.Errorf("not a result: %q", why)
-	}
-}
-
-// Ships is the one line the record and the log say about a cast.
-func TestShipsNamesWhatThePayloadHolds(t *testing.T) {
-	if got := (Cast{Binaries: []string{"cerberus", "git-credential-cerberus"}}).Ships(); got != "cerberus, git-credential-cerberus" {
-		t.Errorf("binaries: %q", got)
-	}
-	if got := (Cast{Name: "forge-user", Kit: "forge-user"}).Ships(); got != "the forge-user kit's render" {
-		t.Errorf("kit: %q", got)
-	}
-}
-
-// The billet is the repository the tree came from, at the exact commit, on the
-// door's public address — the engine's own address is not furnace's to read.
-func TestBilletIsTheDoorAtTheExactCommit(t *testing.T) {
-	const sha = "0123456789abcdef0123456789abcdef01234567"
-	for repo, want := range map[string]string{
-		"http://ourea:8215/foundry/foundry-stocks.git": "https://git.notusmi.com/foundry/foundry-stocks.git@" + sha,
-		"http://ourea:8215/foundry/foundry-stocks":     "https://git.notusmi.com/foundry/foundry-stocks.git@" + sha,
-		"http://ourea:8215/telescope.git":              "https://git.notusmi.com/telescope.git@" + sha,
-		"foundry/foundry-stocks":                       "https://git.notusmi.com/foundry/foundry-stocks.git@" + sha,
-		"://not a url/foundry-stocks":                  "https://git.notusmi.com/://not a url/foundry-stocks.git@" + sha,
-	} {
-		if got := Billet("https://git.notusmi.com/", repo, sha); got != want {
-			t.Errorf("%s: got %q, want %q", repo, got, want)
-		}
 	}
 }

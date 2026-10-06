@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -31,63 +30,14 @@ import (
 )
 
 // Cast is what one record asks the lane to cast.
-//
-// Name is the CHANNEL's name: meta.name for a binary repo, and the kit's own
-// name for a kit repo (Kit != ""), because one repo can cast a kit whose name
-// is not its own — foundry-stocks casts forge-user, not foundry-stocks.
 type Cast struct {
 	Name         string
 	Binaries     []string
 	PayloadExtra []string
-	// Kit, when set, is the stocks kit whose standalone render IS the payload
-	// (under KitDir), in place of release binaries. A cast is binaries XOR a
-	// kit, never both: two producers on one channel would ship whichever the
-	// lane ran last.
-	Kit string
 }
-
-// Ships names what the cast puts in the payload, for the record's one line and
-// the lane's log: the binaries, or the kit whose render it is.
-func (c Cast) Ships() string {
-	if c.Kit != "" {
-		return "the " + c.Kit + " kit's render"
-	}
-	return strings.Join(c.Binaries, ", ")
-}
-
-// Billet is the billet furnace renders from: the repository the lane's tree was
-// fetched from, read back through the door's public address at the exact commit,
-// as the URL@ref furnace's FURNACE_SOURCE takes. The lane's own address for the
-// repo is the engine's, and a container furnace runs in holds no credential for
-// it; the door serves anonymous read at the same path.
-//
-// IT CANNOT REFUSE. A repo that does not parse as a URL is taken as its own
-// path, which is what the lane's star name was already read from.
-func Billet(door, repo, sha string) string {
-	u, err := url.Parse(repo)
-	if err != nil {
-		u = &url.URL{Path: repo}
-	}
-	p := "/" + strings.TrimPrefix(strings.TrimSuffix(u.Path, ".git"), "/") + ".git"
-	return strings.TrimSuffix(door, "/") + p + "@" + sha
-}
-
-// KitDir is where a kit cast's render lands in the payload. The render goes in
-// a directory of its own, never at the payload's root, because the consumer
-// lays it with `gavel order --from <staged>/die` and everything else in the
-// bundle (units/, beside it) is NOT governance and must not be laid at $HOME.
-const KitDir = "die"
-
-// kitRE is a channel name's grammar (hephaestus internal/bundle nameRE): one
-// lowercase segment. A kit that cannot be a channel is refused here, not at
-// the mint.
-var kitRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 
 // Artifact is the bundle channel the cast mints into. It is app/<name>:stable
-// for every cast, which is why the record carries no artifact field. The kind
-// is app for a kit as well, on purpose: anvil flips only the app kind
-// (bundle_reconcile.rs is_app), so a repo-gov channel would be staged by tongs
-// and never flipped by anything.
+// for every binary repo, which is why the record carries no artifact field.
 func (c Cast) Artifact() string { return "app/" + c.Name + ":stable" }
 
 // Stage is the reference the payload is pushed to before mold consumes it:
@@ -112,7 +62,6 @@ func FromRecord(slag string) (Cast, error) {
 			Cast *struct {
 				Binaries     []string `json:"binaries"`
 				PayloadExtra []string `json:"payload_extra"`
-				Kit          string   `json:"kit"`
 			} `json:"cast"`
 		} `json:"tools"`
 	}
@@ -131,16 +80,8 @@ func FromRecord(slag string) (Cast, error) {
 	if rec.Tools.Cast == nil {
 		return Cast{}, errors.New("the record produces binary and carries no tools.cast, so the lane has no binaries to ship")
 	}
-	c := Cast{Name: rec.Meta.Name, Binaries: rec.Tools.Cast.Binaries, PayloadExtra: rec.Tools.Cast.PayloadExtra, Kit: rec.Tools.Cast.Kit}
-	switch {
-	case c.Kit != "" && len(c.Binaries) > 0:
-		return Cast{}, errors.New("tools.cast names both binaries and a kit, and a channel has one producer")
-	case c.Kit != "":
-		if !kitRE.MatchString(c.Kit) {
-			return Cast{}, fmt.Errorf("tools.cast.kit: %q is not a channel name (one lowercase segment)", c.Kit)
-		}
-		c.Name = c.Kit
-	case len(c.Binaries) == 0:
+	c := Cast{Name: rec.Meta.Name, Binaries: rec.Tools.Cast.Binaries, PayloadExtra: rec.Tools.Cast.PayloadExtra}
+	if len(c.Binaries) == 0 {
 		return Cast{}, errors.New("tools.cast.binaries is empty")
 	}
 	// Every binary and every extra lands at the payload's root under one name;
@@ -152,11 +93,6 @@ func FromRecord(slag string) (Cast, error) {
 		}
 		lands[name] = what
 		return nil
-	}
-	if c.Kit != "" {
-		// The render holds its name before anything else can ask for it, so a
-		// binary or an extra that lands at KitDir is the one refused.
-		lands[KitDir] = "the kit's render"
 	}
 	for _, b := range c.Binaries {
 		if b == "" || strings.ContainsAny(b, `/\`) || strings.HasPrefix(b, ".") || strings.HasPrefix(b, "-") {
