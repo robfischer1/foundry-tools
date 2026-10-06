@@ -32,6 +32,7 @@ func init() {
 	register("dies:findings", diesFindings)
 	register("dies:schemas", diesSchemas)
 	register("dies:wit-regenerated", diesWitRegenerated)
+	register("dies:schema-rendered", diesSchemaRendered)
 	register("dies:canonical", diesCanonical)
 }
 
@@ -704,6 +705,33 @@ func diesWitRegenerated(ctx context.Context, r *run) checks.Verdict {
 	return verdict(ctx, a, r.lane(checks.ImageFleet).
 		WithExec([]string{"uv", "--version"}).
 		WithExec(stdlibpy("tools/check_wit_regenerated.py"), anyExit))
+}
+
+// Every die schema is the render of urania's shapes (stellar-core F14).
+//
+// THE CHECKER IS THE TREE'S, for the dies:wit-regenerated reason. The lane holds
+// this tree and nothing else, so it cannot ask the graph: the committed
+// schema/<name>.shapes.json stands for the shapes, and tools/check_schema_rendered.py
+// re-renders it and compares BYTES to the schema (a hand-edited schema, a schema
+// with no snapshot, a snapshot with no schema, a hand-edited snapshot and a shape
+// with no receipt are one failure each). Whether the snapshot still equals the
+// graph is `--live`, which a session runs against a dump of shape_for replies.
+//
+// THE EXIT CODE IS THE VERDICT, unmapped: 0 every schema is its render, 1 one is
+// not, 2 the check could not run.
+func diesSchemaRendered(ctx context.Context, r *run) checks.Verdict {
+	a := checks.AtomByID("dies:schema-rendered")
+	if stop := diesShape(ctx, r, a); stop != nil {
+		return *stop
+	}
+	if stop := requirePaths(ctx, r, a, [][2]string{
+		{"tools/check_schema_rendered.py", "tools/check_schema_rendered.py is absent, so there is no checker to run."},
+	}); stop != nil {
+		return *stop
+	}
+	return verdict(ctx, a, r.lane(checks.ImageFleet).
+		WithExec([]string{"uv", "--version"}).
+		WithExec(stdlibpy("tools/check_schema_rendered.py"), anyExit))
 }
 
 // diesCanonical grades the FORM of every committed record, in Go, with no

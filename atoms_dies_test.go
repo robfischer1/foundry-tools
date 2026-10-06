@@ -22,7 +22,7 @@ import (
 var diesAtoms = []string{
 	"dies:opa-test", "dies:admission-dogfood", "dies:data-keys",
 	"dies:canary-visibility", "dies:contracts", "dies:schema", "dies:findings",
-	"dies:schemas", "dies:wit-regenerated", "dies:canonical",
+	"dies:schemas", "dies:wit-regenerated", "dies:schema-rendered", "dies:canonical",
 }
 
 // diesBuiltAContainer reports whether anything pulled an image. Named for this
@@ -999,4 +999,47 @@ func TestDiesWitRegeneratedCannotRunWithoutAChecker(t *testing.T) {
 	engine.withTree(diesTree(map[string]string{}, "tools/check_wit_regenerated.py"))
 	wantState(t, runAtom(t, "dies:wit-regenerated", ""), 2,
 		"tools/check_wit_regenerated.py is absent")
+}
+
+var schemaRenderedPaths = map[string]string{
+	"tools/check_schema_rendered.py": "",
+}
+
+// THE TREE'S CHECKER RUNS, UNEMBEDDED, AND NEEDS NO PACKAGE: it re-renders the
+// committed snapshots and compares bytes, so a registry has no part in it.
+func TestDiesSchemaRenderedRunsTheTreesOwnCheckerWithNoPackages(t *testing.T) {
+	engine.reset()
+	engine.withTree(diesTree(schemaRenderedPaths))
+	wantState(t, runAtom(t, "dies:schema-rendered", ""), 0)
+
+	c := engine.chain("tools/check_schema_rendered.py", "exitCode")
+	wantCalls(t, c,
+		[]string{"withExec", `args:["uv","--version"]`},
+		[]string{"withExec", "expect:ANY", `"uv","run","--no-project","--quiet","python3","tools/check_schema_rendered.py"`},
+	)
+	if strings.Contains(c, "withNewFile") {
+		t.Errorf("dies:schema-rendered wrote a script into the container; the tree's own checker is the tool:\n%s", c)
+	}
+	if strings.Contains(c, "--with") {
+		t.Errorf("dies:schema-rendered asked uv for a package; the checker is stdlib only:\n%s", c)
+	}
+}
+
+// 0 every schema is its render, 1 one is not, 2 could not run: the ladder is the verdict.
+func TestDiesSchemaRenderedPassesTheExitCodeStraightThrough(t *testing.T) {
+	for code, want := range map[int]int{0: 0, 1: 1, 2: 2} {
+		engine.reset()
+		engine.withTree(diesTree(schemaRenderedPaths))
+		engine.exitCode(`"python3","tools/check_schema_rendered.py"`, code)
+		wantState(t, runAtom(t, "dies:schema-rendered", ""), want)
+	}
+}
+
+// No checker is a COULD-NOT-RUN naming it: a tree that cannot compare its schemas
+// to their shapes has not shown they are rendered.
+func TestDiesSchemaRenderedCannotRunWithoutAChecker(t *testing.T) {
+	engine.reset()
+	engine.withTree(diesTree(map[string]string{}, "tools/check_schema_rendered.py"))
+	wantState(t, runAtom(t, "dies:schema-rendered", ""), 2,
+		"tools/check_schema_rendered.py is absent")
 }

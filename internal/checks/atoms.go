@@ -492,6 +492,10 @@ func atomTable() []AtomDef {
 			Desc: "The committed wit/ is byte-for-byte what wit-from-schema generates from schema/ — a schema change without regeneration, or a hand edit of a generated file, fails.",
 		},
 		{
+			ID: "dies:schema-rendered", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "Every die schema is the byte-for-byte render of the urania shapes its snapshot holds — a hand-edited schema, a schema with no shape, or a snapshot with no schema fails.",
+		},
+		{
 			ID: "dies:canonical", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every committed fleet/stars/<star>/slag.json is byte-for-byte its own canonical form (sorted keys, two-space indent, ensure_ascii, trailing LF).",
 		},

@@ -103,6 +103,15 @@ func (d *Dies) WitRegenerated(ctx context.Context) (string, error) {
 	return check(ctx, d.Source, "dies:wit-regenerated")
 }
 
+// Every die schema is the byte-for-byte render of the shapes its snapshot holds:
+// a schema edited by hand and never dissolved back through the shape door, a
+// schema with no shape, or a snapshot nobody rendered fails.
+//
+// +check
+func (d *Dies) SchemaRendered(ctx context.Context) (string, error) {
+	return check(ctx, d.Source, "dies:schema-rendered")
+}
+
 // Every committed record is byte-for-byte its own canonical form — the form
 // hephaestus' golden grades one repo away, refused here at the push instead.
 //
