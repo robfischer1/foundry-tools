@@ -446,7 +446,7 @@ func TestTSMutationVerdict(t *testing.T) {
 		{"a broken run with a report", []StrykerRun{{Dir: ".", Report: clean, Status: 1, Log: "Error: runner crashed"}}, 2,
 			[]string{"stryker exited 1 — a broken run, not a survivor report", "runner crashed"}, nil},
 	} {
-		state, reason := TSMutationVerdict(c.runs)
+		state, reason, _ := TSMutationVerdict(c.runs)
 		if state != c.state {
 			t.Errorf("%s: state %d, want %d\n%s", c.name, state, c.state, reason)
 		}
@@ -460,5 +460,100 @@ func TestTSMutationVerdict(t *testing.T) {
 				t.Errorf("%s: reason carries %q:\n%s", c.name, a, reason)
 			}
 		}
+	}
+}
+
+// fmtFindings renders findings one per line for whole-list comparison.
+func fmtFindings(found []Finding) string {
+	var b strings.Builder
+	for _, f := range found {
+		fmt.Fprintf(&b, "%s %s %s [%s] %s\n", f.Verdict, f.Subject, f.Cause, f.Detail, f.Probe)
+	}
+	return b.String()
+}
+
+// EVERY MUTANT THE SCORE COUNTS AGAINST THE SUITE BECOMES ONE FINDING, in the
+// same lattice words go:mutation uses; killed, timed-out and inert mutants
+// become none. The fixture is TestScoreStryker's, so the two read the same run.
+func TestScoreStrykerEmitsAFindingPerMutant(t *testing.T) {
+	src := `"source":"one\ntwo\nthree\nconsole.log(\nfive\nsix\nseven\neight\n"`
+	files := `{"src/b.ts":{"source":"","mutants":[` + mutant("Survived", "BooleanLiteral", 1, `"testsCompleted":2,`) + `]},` +
+		`"src/a.ts":{` + src + `,"mutants":[` + strings.Join([]string{
+		mutant("Killed", "X", 1, ""), mutant("Timeout", "X", 2, ""), mutant("CompileError", "X", 3, ""), mutant("RuntimeError", "X", 3, ""),
+		mutant("Survived", "StringLiteral", 5, `"testsCompleted":1,`),
+		mutant("Survived", "StringLiteral", 9, `"testsCompleted":1,`),
+		mutant("NoCoverage", "StringLiteral", 5, ""),
+		mutant("NoCoverage", "BlockStatement", 7, ""),
+		mutant("Survived", "EqualityOperator", 8, `"testsCompleted":1,`),
+	}, ",") + `]}}`
+	ex := `{"exemptions":[{"file":"src/a.ts","line":7,"mutator":"BlockStatement","reason":"ruling-12","ratifiedBy":"rob"}]}`
+	s, err := ScoreStryker(report(vitestCfg, oneTest, files), ex)
+	if err != nil || s.State != 0 {
+		t.Fatalf("%+v %v", s, err)
+	}
+	want := "excluded src/a.ts:5 StringLiteral [Survived: unasserted-message-string] ts:mutation\n" +
+		"drifted src/a.ts:9 StringLiteral [LIVED] ts:mutation\n" +
+		"violated src/a.ts:5 StringLiteral [NOT COVERED] ts:mutation\n" +
+		"excluded src/a.ts:7 BlockStatement [NoCoverage: ratified:ruling-12] ts:mutation\n" +
+		"drifted src/a.ts:8 EqualityOperator [LIVED] ts:mutation\n" +
+		"drifted src/b.ts:1 BooleanLiteral [LIVED] ts:mutation\n"
+	if got := fmtFindings(s.Findings); got != want {
+		t.Errorf("findings\n got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// A survivor no test ran against is not a measurement, and its finding says
+// so; the findings ride the could-not-run answer rather than being dropped.
+func TestAnUnmeasuredSurvivorIsUnanalyzable(t *testing.T) {
+	s, _ := ScoreStryker(report(vitestCfg, oneTest, `{"src/a.ts":{"mutants":[`+
+		mutant("Survived", "X", 3, `"testsCompleted":0,`)+","+mutant("Survived", "Y", 4, `"testsCompleted":2,`)+`]}}`), "")
+	want := "unanalyzable src/a.ts:3 X [COVERED-UNRUN: no test ran against it] ts:mutation\n" +
+		"drifted src/a.ts:4 Y [LIVED] ts:mutation\n"
+	if s.State != 2 || fmtFindings(s.Findings) != want {
+		t.Errorf("state %d findings:\n%s", s.State, fmtFindings(s.Findings))
+	}
+	// Zero tests at all: State 1, and the findings still ride.
+	z, _ := ScoreStryker(report(`{}`, `{}`, `{"src/a.ts":{"mutants":[`+mutant("NoCoverage", "X", 1, "")+`]}}`), "")
+	if z.State != 1 || fmtFindings(z.Findings) != "violated src/a.ts:1 X [NOT COVERED] ts:mutation\n" {
+		t.Errorf("zero tests: state %d findings:\n%s", z.State, fmtFindings(z.Findings))
+	}
+}
+
+// Subjects are rooted at the repository, so a TypeScript mutant reads like a
+// Go one (`apps/x/src/a.ts:1`), and a root package adds nothing.
+func TestTSMutationVerdictRootsFindingsAndKeepsThemOnEveryExit(t *testing.T) {
+	one := report(vitestCfg, oneTest, `{"src/a.ts":{"mutants":[`+mutant("Survived", "X", 1, `"testsCompleted":1,`)+`]}}`)
+	state, _, found := TSMutationVerdict([]StrykerRun{{Dir: "apps/x", Report: one}, {Dir: ".", Report: one}})
+	if want := "drifted apps/x/src/a.ts:1 X [LIVED] ts:mutation\ndrifted src/a.ts:1 X [LIVED] ts:mutation\n"; state != 1 || fmtFindings(found) != want {
+		t.Errorf("state %d findings:\n%s", state, fmtFindings(found))
+	}
+	unmeasured := report(vitestCfg, oneTest, `{"src/a.ts":{"mutants":[`+mutant("Survived", "X", 2, `"testsCompleted":0,`)+`]}}`)
+	for _, c := range []struct {
+		name string
+		runs []StrykerRun
+		want string
+	}{
+		{"a later package wrote no report", []StrykerRun{{Dir: "a", Report: one}, {Dir: "b", Status: 1, Log: "boom"}}, "drifted a/src/a.ts:1 X [LIVED] ts:mutation\n"},
+		{"a later report does not parse", []StrykerRun{{Dir: "a", Report: one}, {Dir: "b", Report: "{"}}, "drifted a/src/a.ts:1 X [LIVED] ts:mutation\n"},
+		{"the score could not measure", []StrykerRun{{Dir: "a", Report: unmeasured}}, "unanalyzable a/src/a.ts:2 X [COVERED-UNRUN: no test ran against it] ts:mutation\n"},
+		{"a broken run with a report", []StrykerRun{{Dir: "a", Report: one, Status: 1}}, "drifted a/src/a.ts:1 X [LIVED] ts:mutation\n"},
+		{"nothing instrumented", []StrykerRun{{Dir: "a", Log: "Instrumented 1 source file(s) with 0 mutant(s)"}}, ""},
+		{"all caught", []StrykerRun{{Dir: "a", Report: report(vitestCfg, oneTest, `{"src/a.ts":{"mutants":[`+mutant("Killed", "X", 1, "")+`]}}`)}}, ""},
+	} {
+		if _, _, found := TSMutationVerdict(c.runs); fmtFindings(found) != c.want {
+			t.Errorf("%s: findings\n%s", c.name, fmtFindings(found))
+		}
+	}
+}
+
+// The record's cap applies to this atom like any other, and says so.
+func TestTSMutationFindingsAreCapped(t *testing.T) {
+	ms := make([]string, findingCap+5)
+	for i := range ms {
+		ms[i] = mutant("NoCoverage", "X", i+1, "")
+	}
+	_, _, found := TSMutationVerdict([]StrykerRun{{Dir: ".", Report: report(vitestCfg, oneTest, `{"src/a.ts":{"mutants":[`+strings.Join(ms, ",")+`]}}`)}})
+	if len(found) != findingCap+1 || found[findingCap].Cause != "finding-cap" || found[findingCap].Probe != "ts:mutation" {
+		t.Errorf("got %d findings, last %+v", len(found), found[len(found)-1])
 	}
 }

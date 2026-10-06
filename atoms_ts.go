@@ -250,7 +250,12 @@ func tsMutation(ctx context.Context, r *run) checks.Verdict {
 		exemptions, _, _ := ctrFileIfPresent(ctx, mutated, dir+"/stryker-honest.json")
 		runs = append(runs, checks.StrykerRun{Dir: pkg.Dir, Status: status, Log: log, Report: report, Exemptions: exemptions})
 	}
-	return settle(checks.TSMutationVerdict(runs))
+	state, reason, found := checks.TSMutationVerdict(runs)
+	v := settle(state, reason)
+	// Built from the structured score, like go:mutation's — never parsed back
+	// out of the rendered report (see checks.FindingsOf).
+	v.Findings = found
+	return v
 }
 
 // npmRegistry answers checks.DiagnoseInstall's questions with curl, from the lane
