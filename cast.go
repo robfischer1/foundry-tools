@@ -147,12 +147,12 @@ func (l *castLane) run(ctx context.Context) (int, string) {
 	if err != nil {
 		return l.stop("cast:record", buildlane.Findings, "findings: "+err.Error())
 	}
-	l.seal("cast:record", buildlane.Clean, "foundry-dies says "+star+" ships "+strings.Join(c.Binaries, ", "))
+	l.seal("cast:record", buildlane.Clean, "foundry-dies says "+star+" ships "+c.Ships())
 	mode := ""
 	if l.dryRun {
 		mode = " — dry run: the build and the pin run for real; nothing is staged, minted or verified"
 	}
-	castSay("%s at %.12s, binaries %v, payload_extra %v%s", c.Artifact(), m.Sha, c.Binaries, c.PayloadExtra, mode)
+	castSay("%s at %.12s, ships %s, payload_extra %v%s", c.Artifact(), m.Sha, c.Ships(), c.PayloadExtra, mode)
 
 	if _, ok, err := fileIn(ctx, m.Source, "cosign.pub"); err != nil {
 		return l.stop("cast:cosign", buildlane.CouldNotRun, fmt.Sprintf("could not run: the tree could not be read for cosign.pub: %v", err))
@@ -160,6 +160,11 @@ func (l *castLane) run(ctx context.Context) (int, string) {
 		return l.stop("cast:cosign", buildlane.Findings, "findings: this repo carries no cosign.pub, so a landed digest could not be verified — nothing was built")
 	}
 	l.seal("cast:cosign", buildlane.Clean, "the tree carries cosign.pub, so a landed digest can be verified")
+	if !l.dryRun {
+		if err := l.credentials(ctx); err != nil {
+			return l.stop("cast:stage", buildlane.CouldNotRun, fmt.Sprintf("could not run: the registry token did not read: %v", err))
+		}
+	}
 	payload, code, why := l.payload(ctx, c)
 	if code != buildlane.Clean {
 		return l.stop("cast:payload", code, why)
@@ -177,12 +182,6 @@ func (l *castLane) run(ctx context.Context) (int, string) {
 		// would claim the one thing this mode deliberately does not do.
 		return l.stop("", buildlane.Clean, fmt.Sprintf("clean: dry run — %d file(s) pin to %s for %s; nothing was staged, minted or verified", len(files), pin, c.Artifact()))
 	}
-
-	token, err := l.registryToken.Plaintext(ctx)
-	if err != nil {
-		return l.stop("cast:stage", buildlane.CouldNotRun, fmt.Sprintf("could not run: the registry token did not read: %v", err))
-	}
-	l.registryConfig = dag.SetSecret("cast-registry-config", bundlelane.DockerConfig(bundlelane.RegistryHost, bundlelane.RegistryUser, strings.TrimSpace(token)))
 
 	ref := c.Stage(bundlelane.RegistryHost, pin)
 	digest, code, why := l.stage(ctx, payload, ref, files)
@@ -234,23 +233,43 @@ func (l *castLane) run(ctx context.Context) (int, string) {
 	return 0, fmt.Sprintf("clean: cast %s at index %d (%s, %s) — staged, minted and signed by hephaestus, verified against cosign.pub%s%s", c.Artifact(), r.Index, r.Pin, r.Digest, noop, bell)
 }
 
+// credentials makes the registry credential, a docker config built from the
+// token. It is made BEFORE the payload, because the kit cast pulls the signed
+// furnace with it; a dry run holds no token and makes none.
+func (l *castLane) credentials(ctx context.Context) error {
+	token, err := l.registryToken.Plaintext(ctx)
+	if err != nil {
+		return err
+	}
+	l.registryConfig = dag.SetSecret("cast-registry-config", bundlelane.DockerConfig(bundlelane.RegistryHost, bundlelane.RegistryUser, strings.TrimSpace(token)))
+	return nil
+}
+
 // payload builds the release binaries and assembles what ships: each binary at
 // the payload's root, and each payload_extra under its basename. A binary the
 // build did not leave, or an extra the checkout does not carry, is refused
 // rather than skipped: a bundle missing its hooks verifies clean and fails only
 // at runtime.
 func (l *castLane) payload(ctx context.Context, c castlane.Cast) (*dagger.Directory, int, string) {
-	built, dir, code, why := l.release(ctx, c)
-	if code != buildlane.Clean {
-		return nil, code, why
-	}
 	payload := dag.Directory()
-	for _, b := range c.Binaries {
-		f := built.File(path.Join(dir, b))
-		if _, err := f.Size(ctx); err != nil {
-			return nil, buildlane.Findings, fmt.Sprintf("findings: the release build left no %q in %s", b, dir)
+	if c.Kit != "" {
+		die, code, why := l.kitDie(ctx, c)
+		if code != buildlane.Clean {
+			return nil, code, why
 		}
-		payload = payload.WithFile(b, f)
+		payload = payload.WithDirectory(castlane.KitDir, die)
+	} else {
+		built, dir, code, why := l.release(ctx, c)
+		if code != buildlane.Clean {
+			return nil, code, why
+		}
+		for _, b := range c.Binaries {
+			f := built.File(path.Join(dir, b))
+			if _, err := f.Size(ctx); err != nil {
+				return nil, buildlane.Findings, fmt.Sprintf("findings: the release build left no %q in %s", b, dir)
+			}
+			payload = payload.WithFile(b, f)
+		}
 	}
 	for _, p := range c.PayloadExtra {
 		under, err := l.m.Source.Glob(ctx, path.Join(p, "**"))
