@@ -32,8 +32,8 @@ import (
 // THE ESCAPE, AND ITS SHAPE. Tools genuinely conflict. When they do, the line
 // says so in prose after `tool-conflict:`, naming both sides — and since
 // 2026-08-19 that marker is an ESCALATION, not a judgement its author makes
-// alone: "No supressions without my personal signoff" (Rob, session 1ca5cebf,
-// turn 840). A marker excuses only when a RATIFIED row names it. Measured on
+// alone: "No supressions without my personal signoff" (session 1ca5cebf, turn
+// 1644, 2026-08-17T02:35:54Z). A marker excuses only when a RATIFIED row names it. Measured on
 // first run: 35 markers across 7 repos, 2 ratified, 33 naming fewer than two
 // tools. An unratified marker is therefore not an excuse, and the suppression
 // it guards is an ordinary finding.
@@ -97,13 +97,13 @@ type RatifiedRow struct {
 // reaches it without Rob saying so, in words the header records:
 //
 //	grace — "Go ahead and merge it, I'm OK with the grace supression for the
-//	Windows API." (session bfef42da, turn 1583, 2026-08-18T00:56:17Z)
+//	Windows API." (session bfef42da, turn 3108, 2026-08-18T00:56:17Z)
 var Ratified = []RatifiedRow{
 	{
 		Path:       "apps/desktop/shell-verb/src/lib.rs",
 		Rule:       "non_snake_case",
 		Approved:   "2026-08-18T00:56:17Z",
-		Provenance: "session bfef42da, turn 1583",
+		Provenance: "session bfef42da, turn 3108",
 	},
 }
 
@@ -122,53 +122,58 @@ type ExemptRow struct {
 //
 //	cerberus probe/ and probes/, S603 — "Directory level exemption for probes/
 //	and S603 in cerberus only. Local, dev-only tooling that is required to test
-//	functionality of a 3P harness." (session Alder52, 2026-08-19)
+//	functionality of a 3P harness." (session Alder52, 2026-08-19 — TURN NOT
+//	RECOVERED: no transcript on rob02 and no row in fleet.turns holds the
+//	original; every copy found is a later session quoting this table)
 //
 //	foundry-stocks bases/blade-* and bases/chairman/, DL3002 — "Please, and give
 //	the blade docker files a temporary exemption, comment in the code that my
-//	exemption expires 9/20/26" (session b4bbf354, 2026-09-13); chairman
-//	confirmed "chairmen exemption is fine." (session c128c3c8). Extended to
-//	2026-10-20 on 2026-09-16, when Rob chose "Extend the grant" over the
-//	two-container split and a setuid launcher (session e1dba511, Curie18); the
-//	root-then-runuser redesign stays open as foundry-stocks work.
+//	exemption expires 9/20/26" (session b4bbf354, turn 3370,
+//	2026-09-13T07:46:39Z); chairman confirmed "chairmen exemption is fine."
+//	(session c128c3c8, turn 1975, 2026-09-14T01:52:38Z). Extended to
+//	2026-10-20: "Extend the grant" (session e1dba511, turn 3585,
+//	2026-09-16T21:46:23Z), Rob's answer over the two-container split and a
+//	setuid launcher; the root-then-runuser redesign stays open as
+//	foundry-stocks work.
 //
 //	wrecksys docker/ and src/wrecksys_one/, DL3026 — "give wrecksys an approved
 //	exemption to that rule. If it needs a quote - Wrecksys is my own personal,
 //	human-authored project and a live web service hosted on AWS with no access
-//	to our internal services or proxy." (session 9b7fcbb4, 2026-09-15). A
+//	to our internal services or proxy." (session 9b7fcbb4, turn 8370,
+//	2026-09-15T22:26:35Z). A
 //	repository that cannot reach the fleet's proxy cannot FROM through it; the
 //	grant covers DL3026 only.
 var DirectoryExempt = []ExemptRow{
 	{
 		Repo: "cerberus", Prefix: "probe/", Rule: "S603", Approved: "2026-08-19",
-		Provenance: "session Alder52, in-session",
+		Provenance: "session Alder52, turn not recovered",
 		Reason:     "local, dev-only tooling that tests a 3P harness",
 	},
 	{
 		Repo: "cerberus", Prefix: "probes/", Rule: "S603", Approved: "2026-08-19",
-		Provenance: "session Alder52, in-session",
+		Provenance: "session Alder52, turn not recovered",
 		Reason:     "local, dev-only tooling that tests a 3P harness",
 	},
 	{
 		Repo: "foundry-stocks", Prefix: "bases/blade-", Rule: "DL3002", Approved: "2026-09-13",
 		Expires:    "2026-10-20",
-		Provenance: "session b4bbf354 (Zuse5), in-session; extended in session e1dba511 (Curie18)",
+		Provenance: "session b4bbf354, turn 3370; extended in session e1dba511, turn 3585",
 		Reason:     "the entrypoint runusers the gate and the work; non-root cannot",
 	},
 	{
 		Repo: "foundry-stocks", Prefix: "bases/chairman/", Rule: "DL3002", Approved: "2026-09-13",
 		Expires:    "2026-10-20",
-		Provenance: "session b4bbf354 (Zuse5); confirmed in session c128c3c8; extended in session e1dba511 (Curie18)",
+		Provenance: "session b4bbf354, turn 3370; confirmed in session c128c3c8, turn 1975; extended in session e1dba511, turn 3585",
 		Reason:     "the same runuser seam as the blade bases",
 	},
 	{
 		Repo: "wrecksys", Prefix: "docker/", Rule: "DL3026", Approved: "2026-09-15",
-		Provenance: "session 9b7fcbb4 (Shannon19), in-session",
+		Provenance: "session 9b7fcbb4, turn 8370",
 		Reason:     "Rob's own human-authored project, live on AWS with no access to the fleet's proxy",
 	},
 	{
 		Repo: "wrecksys", Prefix: "src/wrecksys_one/", Rule: "DL3026", Approved: "2026-09-15",
-		Provenance: "session 9b7fcbb4 (Shannon19), in-session",
+		Provenance: "session 9b7fcbb4, turn 8370",
 		Reason:     "Rob's own human-authored project, live on AWS with no access to the fleet's proxy",
 	},
 }
@@ -478,9 +483,10 @@ func RequiredModeVars(lang string, lines []string) map[string]bool {
 //
 // BUT AN ANNOTATION IS STILL A SUPPRESSION OF A FLEET GATE, and this check
 // exists so none is filed silently. rob/infra declares every one in the
-// comment header of its .kube-linter.yaml, per workload (Rob, this session:
-// "Every single annotation that we're adding to a pod is identified in the
-// comment header of .kube-linter.yaml, per-workload"). This reader is what
+// comment header of its .kube-linter.yaml, per workload: "Every single
+// annotation that we're adding to a pod is identified in the comment header
+// of .kube-linter.yaml, per-workload" (session 56a7e9fb, turn 25883,
+// 2026-09-24T11:46:50Z). This reader is what
 // makes that a rule rather than a habit: the tree and the header must agree.
 //
 // ONE REPOSITORY CAN FAIL THIS, measured 2026-09-24: infra is the only repo in
@@ -566,10 +572,10 @@ func splitYAMLDocs(lines []string) [][]string {
 }
 
 // KLJustification is one row of .kube-justifications.json — the canonical
-// record. Rob, 2026-09-24 turn 26322: "Required fields -> timestamp,
-// session-uuid, rob-quote, turn-number, workload, exempt-from ...
-// .kube-justifications.json, as one file, in rob/infra, as the canonical
-// record."
+// record: "Required fields -> timestamp, session-uuid, rob-quote,
+// turn-number, workload, exempt-from ... .kube-justifications.json, as one
+// file, in rob/infra, as the canonical record." (session 56a7e9fb, turn
+// 26322, 2026-09-24T12:11:17Z)
 type KLJustification struct {
 	Timestamp   string `json:"timestamp"`
 	SessionUUID string `json:"session-uuid"`
@@ -631,9 +637,9 @@ func KubeJustifications(rel string, body string) ([]KLJustification, error) {
 // KubeLinterExcludes answers the checks a .kube-linter.yaml silences
 // REPO-WIDE. It no longer reads an inventory from the header: the canonical
 // record moved to .kube-justifications.json, and two records that can
-// disagree is a drift rather than a safeguard (Rob, 2026-09-24 turn 26339:
-// "The .json is the single source of truth that supersedes the previous
-// comment record").
+// disagree is a drift rather than a safeguard: "The .json is the single
+// source of truth that supersedes the previous comment record" (session
+// 56a7e9fb, turn 26387, 2026-09-24T12:13:02Z).
 func KubeLinterExcludes(rel string, lines []string) (excluded []string) {
 	if !IsKubeLinterConfig(rel) {
 		return nil
@@ -812,10 +818,11 @@ func SkippedMutators(tool string) []string {
 // this table a fifth operator could be added to the fleet's mutation gate with
 // nothing anywhere to notice.
 //
-// RATIFIED BY ROB, session 836886a4 (Hamilton20), 2026-09-29: "Find our
-// canonical CI/lint configs, author a .gomutants.yaml with the 24/28, and wire
-// that in to the stop-justifications workflow. Cite this turn as provenance for
-// my ratifcation (You'll need it for stop-justifications)". The 24/28 is this
+// RATIFIED BY ROB: "Find our canonical CI/lint configs, author a
+// .gomutants.yaml with the 24/28, and wire that in to the stop-justifications
+// workflow. Cite this turn as provenance for my ratifcation (You'll need it
+// for stop-justifications)" (session 836886a4, turn 190408,
+// 2026-09-29T23:48:53Z). The 24/28 is this
 // set: gomutants ships 28 operators and these four leave, so the gate the fleet
 // actually runs is 19 operators WIDER than gremlins' five defaults, not
 // narrower. The point of naming them is that the width is stated.
@@ -832,14 +839,15 @@ func SkippedMutators(tool string) []string {
 // 2026-10-05) put four classes' survivors at a small chance of being a real
 // bug each — boundary flips, arithmetic swaps, loop control, error-wrap text —
 // and every survivor still cost a reader's context, warning or not. RATIFIED
-// BY ROB, session a0814b82 (Hopper39): "Rather than warning only, can each of
-// our mutation suites be configured to skip the low-impact classes of
-// mutants? Warnings still consume context, which makes them still carry a
-// cost", then, choosing all four over three: "2, but in the canonical config
-// files, not per-repo". So they are rows here, in each tool's own words, and
+// BY ROB: "Rather than warning only, can each of our mutation suites be
+// configured to skip the low-impact classes of mutants? Warnings still consume
+// context, which makes them still carry a cost" (session a0814b82, turn 6381,
+// 2026-10-06T01:58:20Z), then, choosing all four over three: "2, but in the
+// canonical config files, not per-repo" (session a0814b82, turn 6434,
+// 2026-10-06T02:09:52Z). So they are rows here, in each tool's own words, and
 // no repository carries them — in THIS file, beside the rest of the fleet's
 // suppressions: "Nope, table is going back into stopjust.go, and with this
-// turn linked as the ratifcation line." (session a0814b82, turn 7642,
+// turn linked as the ratifcation line." (session a0814b82, turn 7643,
 // 2026-10-06T02:36:18Z). Where a tool cannot name a class without taking
 // a valuable one with it, it keeps the class: Stryker's EqualityOperator flips
 // `<` to `<=` AND `==` to `!=`, so TypeScript keeps its boundary mutants.
@@ -847,78 +855,78 @@ func SkippedMutators(tool string) []string {
 // loop-control one, so those rows do not exist.
 var RatifiedMutators = []MutatorRow{
 	{
-		Tool: MutatorGo, Mutator: "INTEGER_INCREMENT", Approved: "2026-09-29T00:00:00Z",
-		Provenance: "session 836886a4 (Hamilton20), in-session",
+		Tool: MutatorGo, Mutator: "INTEGER_INCREMENT", Approved: "2026-09-29T23:48:53Z",
+		Provenance: "session 836886a4, turn 190408",
 		Reason:     "an integer literal +1: `0`->`1` on the DISCARDED value of `return 0, err`, which Go leaves unspecified, and `64`->`65` in `strconv.ParseFloat(q, 64)`, bit-identical for every input",
 	},
 	{
-		Tool: MutatorGo, Mutator: "INTEGER_DECREMENT", Approved: "2026-09-29T00:00:00Z",
-		Provenance: "session 836886a4 (Hamilton20), in-session",
+		Tool: MutatorGo, Mutator: "INTEGER_DECREMENT", Approved: "2026-09-29T23:48:53Z",
+		Provenance: "session 836886a4, turn 190408",
 		Reason:     "the same literal -1: `0`->`-1` on a discarded return, `64`->`63` in ParseFloat, which takes the 32-bit path only for bitSize 32",
 	},
 	{
-		Tool: MutatorGo, Mutator: "FLOAT_INCREMENT", Approved: "2026-09-29T00:00:00Z",
-		Provenance: "session 836886a4 (Hamilton20), in-session",
+		Tool: MutatorGo, Mutator: "FLOAT_INCREMENT", Approved: "2026-09-29T23:48:53Z",
+		Provenance: "session 836886a4, turn 190408",
 		Reason:     "a float literal +1: `1e6`->`1000001.0` as a nanocore divisor, identical under int64 truncation at every realistic reading",
 	},
 	{
-		Tool: MutatorGo, Mutator: "FLOAT_DECREMENT", Approved: "2026-09-29T00:00:00Z",
-		Provenance: "session 836886a4 (Hamilton20), in-session",
+		Tool: MutatorGo, Mutator: "FLOAT_DECREMENT", Approved: "2026-09-29T23:48:53Z",
+		Provenance: "session 836886a4, turn 190408",
 		Reason:     "the same literal -1: `1e6`->`999999.0`, identical under the same truncation",
 	},
 	{
 		Tool: MutatorGo, Mutator: "ARITHMETIC_BASE", Approved: "2026-10-06T02:36:18Z",
-		Provenance: "session a0814b82, turn 7642",
+		Provenance: "session a0814b82, turn 7643",
 		Reason:     "`+`<->`-`, `*`<->`/`: 112 graded, 48 lived, ~1-3% a real bug — mostly timeouts and multipliers",
 	},
 	{
 		Tool: MutatorGo, Mutator: "CONDITIONALS_BOUNDARY", Approved: "2026-10-06T02:36:18Z",
-		Provenance: "session a0814b82, turn 7642",
+		Provenance: "session a0814b82, turn 7643",
 		Reason:     "`<`<->`<=`, `>`<->`>=`: 175 graded, 142 lived, ~2-5% a real bug — mostly equivalent at exact-equality points",
 	},
 	{
 		Tool: MutatorGo, Mutator: "ERRORF_WRAP", Approved: "2026-10-06T02:36:18Z",
-		Provenance: "session a0814b82, turn 7642",
+		Provenance: "session a0814b82, turn 7643",
 		Reason:     "an fmt.Errorf message's wrapping: 156 graded, 120 lived, <1% a real bug — message text only",
 	},
 	{
 		Tool: MutatorGo, Mutator: "INVERT_LOOP_CTRL", Approved: "2026-10-06T02:36:18Z",
-		Provenance: "session a0814b82, turn 7642",
+		Provenance: "session a0814b82, turn 7643",
 		Reason:     "`break`<->`continue`: 92 graded, 78 lived, ~5-10% a real bug (daedalus, once) — usually map-order equivalent",
 	},
 	{
 		Tool: MutatorRust, Mutator: `replace (< with <=|<= with <|> with >=|>= with >)( in |$)`, Approved: "2026-10-06T02:36:18Z",
-		Provenance: "session a0814b82, turn 7642",
+		Provenance: "session a0814b82, turn 7643",
 		Reason:     "the boundary flips, CONDITIONALS_BOUNDARY's twin; `<` to `>` or `==` stays",
 	},
 	{
 		Tool: MutatorRust, Mutator: `replace [-+*/%] with [-+*/%]( in |$)`, Approved: "2026-10-06T02:36:18Z",
-		Provenance: "session a0814b82, turn 7642",
+		Provenance: "session a0814b82, turn 7643",
 		Reason:     "the arithmetic swaps, ARITHMETIC_BASE's twin; bitwise `|` and `&` stay",
 	},
 	{
 		Tool: MutatorRust, Mutator: `replace [-+*/%]= with [-+*/%]=( in |$)`, Approved: "2026-10-06T02:36:18Z",
-		Provenance: "session a0814b82, turn 7642",
+		Provenance: "session a0814b82, turn 7643",
 		Reason:     "the same swaps on a compound assignment",
 	},
 	{
 		Tool: MutatorPython, Mutator: `core/ReplaceComparisonOperator_(Lt_LtE|LtE_Lt|Gt_GtE|GtE_Gt)$`, Approved: "2026-10-06T02:36:18Z",
-		Provenance: "session a0814b82, turn 7642",
+		Provenance: "session a0814b82, turn 7643",
 		Reason:     "the boundary flips, CONDITIONALS_BOUNDARY's twin; Lt to Gt, Eq or Is stays",
 	},
 	{
 		Tool: MutatorPython, Mutator: `core/ReplaceBinaryOperator_(Add|Sub|Mul|Div|FloorDiv|Mod|Pow)_(Add|Sub|Mul|Div|FloorDiv|Mod|Pow)$`, Approved: "2026-10-06T02:36:18Z",
-		Provenance: "session a0814b82, turn 7642",
+		Provenance: "session a0814b82, turn 7643",
 		Reason:     "the arithmetic swaps, ARITHMETIC_BASE's twin; a swap into or out of a bitwise or shift operator stays",
 	},
 	{
 		Tool: MutatorPython, Mutator: `core/Replace(BreakWithContinue|ContinueWithBreak)$`, Approved: "2026-10-06T02:36:18Z",
-		Provenance: "session a0814b82, turn 7642",
+		Provenance: "session a0814b82, turn 7643",
 		Reason:     "loop control, INVERT_LOOP_CTRL's twin",
 	},
 	{
 		Tool: MutatorTS, Mutator: "ArithmeticOperator", Approved: "2026-10-06T02:36:18Z",
-		Provenance: "session a0814b82, turn 7642",
+		Provenance: "session a0814b82, turn 7643",
 		Reason:     "the arithmetic swaps, ARITHMETIC_BASE's twin",
 	},
 }
@@ -1683,10 +1691,10 @@ func ScanTree(files map[string]string) ([]SJTreeFinding, error) {
 // kube-linter's per-object escape hatch, and answers whether any of it is a
 // finding.
 //
-// THE RECORD IS .kube-justifications.json, and it is the only one. Rob,
-// 2026-09-24 turn 26322: "Required fields -> timestamp, session-uuid,
-// rob-quote, turn-number, workload, exempt-from ... as one file, in rob/infra,
-// as the canonical record." An annotation no row names is a suppression filed
+// THE RECORD IS .kube-justifications.json, and it is the only one: "Required
+// fields -> timestamp, session-uuid, rob-quote, turn-number, workload,
+// exempt-from ... as one file, in rob/infra, as the canonical record."
+// (session 56a7e9fb, turn 26322, 2026-09-24T12:11:17Z). An annotation no row names is a suppression filed
 // silently; a row no annotation matches is an excuse outliving the thing it
 // excused; a row missing a required field cannot quote anyone authorising it,
 // which is a session excusing itself. All three count.

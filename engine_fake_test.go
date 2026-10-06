@@ -634,6 +634,44 @@ func fakeID(q string) string {
 	return "id-" + hex.EncodeToString(sum[:4])
 }
 
+// idsOf is every id the engine answered for a recorded query holding every
+// needle — the ids of the object a lane BUILT, named by its own chain.
+//
+// EVERY ONE, AND READ BACK, NEVER REBUILT. The querybuilder marshals a call's
+// arguments in map order, so `setSecret(name:…, plaintext:…)` and
+// `setSecret(plaintext:…, name:…)` are both what one call can send, and they
+// hash to different ids — and a lane that hands one object to two calls asks
+// for its id twice, so ONE object can answer two ids in one run. A test that
+// rebuilt the object, or took only the newest id, matched the lane only when
+// the orders happened to agree: the kit-cast credential tests failed about one
+// -race run in four that way (2026-10-06).
+func idsOf(needles ...string) []string {
+	var ids []string
+	for _, q := range engine.chains() {
+		ok := true
+		for _, n := range needles {
+			if !strings.Contains(q, n) {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			ids = append(ids, fakeID(q))
+		}
+	}
+	return ids
+}
+
+// usesAny reports whether chain names any of ids.
+func usesAny(chain string, ids []string) bool {
+	for _, id := range ids {
+		if strings.Contains(chain, id) {
+			return true
+		}
+	}
+	return false
+}
+
 func (e *fakeEngine) serve(w http.ResponseWriter, r *http.Request) {
 	b, _ := io.ReadAll(r.Body)
 	var req struct {
