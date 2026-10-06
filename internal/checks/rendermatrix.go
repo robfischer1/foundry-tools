@@ -42,7 +42,7 @@ import (
 // COPIER_VERSION env override. The atom is the only caller and passes none of
 // them (the reusable workflow that did retired with the act-runner).
 // renovate: datasource=pypi depName=copier
-const CopierVersion = "9.17.0"
+const CopierVersion = "9.18.2"
 
 // MatrixCase is one declared render: the answers copier is given, and what the
 // rendered tree must and must not contain.

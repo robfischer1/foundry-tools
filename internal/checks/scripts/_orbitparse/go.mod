@@ -2,7 +2,7 @@ module orbitparse
 
 go 1.26.6
 
-require git.notusmi.com/rob/stellar-core-go v0.69.0
+require git.notusmi.com/rob/stellar-core-go v0.94.0
 
 require (
 	github.com/BurntSushi/toml v1.6.0 // indirect
@@ -21,7 +21,8 @@ require (
 	github.com/prometheus/procfs v0.22.0 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
-	github.com/spiffe/go-spiffe/v2 v2.8.2 // indirect
+	github.com/spiffe/go-spiffe/v2 v2.9.0 // indirect
+	github.com/tetratelabs/wazero v1.12.0 // indirect
 	github.com/twmb/franz-go v1.22.1 // indirect
 	github.com/twmb/franz-go/pkg/kmsg v1.14.0 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
