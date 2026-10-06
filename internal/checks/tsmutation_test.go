@@ -512,6 +512,13 @@ func TestAnUnmeasuredSurvivorIsUnanalyzable(t *testing.T) {
 	if s.State != 2 || fmtFindings(s.Findings) != want {
 		t.Errorf("state %d findings:\n%s", s.State, fmtFindings(s.Findings))
 	}
+	// Only a survivor with zero tests completed is unrun: an uncovered mutant
+	// reporting zero is still NOT COVERED, and one carrying no count is LIVED.
+	u, _ := ScoreStryker(report(vitestCfg, oneTest, `{"src/a.ts":{"mutants":[`+
+		mutant("NoCoverage", "X", 3, `"testsCompleted":0,`)+","+mutant("Survived", "Y", 4, "")+`]}}`), "")
+	if want := "violated src/a.ts:3 X [NOT COVERED] ts:mutation\ndrifted src/a.ts:4 Y [LIVED] ts:mutation\n"; fmtFindings(u.Findings) != want {
+		t.Errorf("counted but not unrun: findings:\n%s", fmtFindings(u.Findings))
+	}
 	// Zero tests at all: State 1, and the findings still ride.
 	z, _ := ScoreStryker(report(`{}`, `{}`, `{"src/a.ts":{"mutants":[`+mutant("NoCoverage", "X", 1, "")+`]}}`), "")
 	if z.State != 1 || fmtFindings(z.Findings) != "violated src/a.ts:1 X [NOT COVERED] ts:mutation\n" {
@@ -539,6 +546,10 @@ func TestTSMutationVerdictRootsFindingsAndKeepsThemOnEveryExit(t *testing.T) {
 		{"a broken run with a report", []StrykerRun{{Dir: "a", Report: one, Status: 1}}, "drifted a/src/a.ts:1 X [LIVED] ts:mutation\n"},
 		{"nothing instrumented", []StrykerRun{{Dir: "a", Log: "Instrumented 1 source file(s) with 0 mutant(s)"}}, ""},
 		{"all caught", []StrykerRun{{Dir: "a", Report: report(vitestCfg, oneTest, `{"src/a.ts":{"mutants":[`+mutant("Killed", "X", 1, "")+`]}}`)}}, ""},
+		{"all caught but one set aside", []StrykerRun{{Dir: "a",
+			Report:     report(vitestCfg, oneTest, `{"src/a.ts":{"mutants":[`+mutant("Killed", "X", 1, "")+","+mutant("NoCoverage", "Y", 2, "")+`]}}`),
+			Exemptions: `{"exemptions":[{"file":"src/a.ts","line":2,"mutator":"Y","reason":"r","ratifiedBy":"rob"}]}`}},
+			"excluded a/src/a.ts:2 Y [NoCoverage: ratified:r] ts:mutation\n"},
 	} {
 		if _, _, found := TSMutationVerdict(c.runs); fmtFindings(found) != c.want {
 			t.Errorf("%s: findings\n%s", c.name, fmtFindings(found))

@@ -588,7 +588,8 @@ func tsMutationVerdict(runs []StrykerRun) (int, string, []Finding) {
 		}
 	}
 	if zero == len(runs) {
-		return 0, "the changed lines hold no mutable code — Stryker instrumented 0 mutants, nothing to mutate", found
+		// Every run took the zero-instrumented continue, so nothing was scored.
+		return 0, "the changed lines hold no mutable code — Stryker instrumented 0 mutants, nothing to mutate", nil
 	}
 	if missed == 0 {
 		return 0, "every viable mutant was caught\n\n" + summary.String(), found
@@ -613,8 +614,8 @@ type StrykerScore struct {
 // tsMutationAtom is the probe every TypeScript mutant finding carries.
 const tsMutationAtom = "ts:mutation"
 
-// strykerFinding maps one mutant onto the schema's lattice, the same words
-// go:mutation uses so a fleet-wide read of the record can group the two lanes
+// strykerFinding maps one mutant onto the schema's lattice, in the same words
+// as the Go lane, so a fleet-wide read of the record can group the two lanes
 // together (until 2026-10-05 this lane wrote no findings at all, and an
 // inventory of the fleet's mutants could not see the frontend):
 //
