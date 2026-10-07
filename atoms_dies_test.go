@@ -780,13 +780,12 @@ func TestDiesSchemaValidatesThroughUvWithTheEmbeddedValidator(t *testing.T) {
 	}
 }
 
-func TestDiesSchemaRefusesWithoutEitherSchema(t *testing.T) {
+func TestDiesSchemaRefusesWithoutTheV3Schema(t *testing.T) {
 	for _, tc := range []struct {
 		path   string
 		needle string
 	}{
-		{"schema/slag.schema.json", "there is no payload to validate"},
-		{"schema/slag-v2.schema.json", "the v2 records cannot be discriminated"},
+		{"schema/slag-v3.schema.json", "no schema to validate the records against"},
 	} {
 		engine.reset()
 		engine.withTree(diesTree(nil, tc.path))
@@ -795,9 +794,9 @@ func TestDiesSchemaRefusesWithoutEitherSchema(t *testing.T) {
 
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	engine.fail(`glob(pattern:"schema/slag.schema.json")`, "scan interrupted")
+	engine.fail(`glob(pattern:"schema/slag-v3.schema.json")`, "scan interrupted")
 	wantState(t, runAtom(t, "dies:schema", ""), 2,
-		"the tree could not be scanned for schema/slag.schema.json", "scan interrupted")
+		"the tree could not be scanned for schema/slag-v3.schema.json", "scan interrupted")
 }
 
 // REFUSING TO REPORT A VALIDATED SCHEMA THAT WAS NEVER VALIDATED is the whole
@@ -811,7 +810,7 @@ func TestDiesSchemaReadsTheValidatorsExit(t *testing.T) {
 	}{
 		{"a record that does not satisfy the schema", func() {
 			engine.exitCode(`"python3","/tmp/dies-schema.py"`, 1)
-			engine.stderr(`"python3","/tmp/dies-schema.py"`, "::error file=fleet/stars/x/x.slag::meta/name")
+			engine.stderr(`"python3","/tmp/dies-schema.py"`, "::error file=fleet/stars/x/slag.json::meta/name")
 		}, 1, []string{"meta/name"}},
 		{"the validator crashed", func() {
 			engine.exitCode(`"python3","/tmp/dies-schema.py"`, 2)

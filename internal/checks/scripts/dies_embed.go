@@ -6,7 +6,7 @@ package scripts
 
 import _ "embed"
 
-// DiesSchema is dies:schema's validator over the slag schema and the v2 records.
+// DiesSchema is dies:schema's validator over the slag v3 schema and the fleet records.
 //
 //go:embed dies_schema.py
 var DiesSchema string

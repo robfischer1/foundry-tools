@@ -739,7 +739,7 @@ var everyLaneTree = map[string]string{
 	"tests/contracts/fixtures.toml":    "",
 	"contracts/contracts.toml":         "",
 	"schema/slag.schema.json":          "{}",
-	"schema/slag-v2.schema.json":       "{}",
+	"schema/slag-v3.schema.json":       "{}",
 	"compose.yaml":                     "services: {}\n",
 	"Dockerfile":                       "FROM scratch\n",
 	".forgejo/workflows/ci.yml":        "uses: foundry/foundry-stocks/.forgejo/workflows/build.yml@main\nimage: x@sha256:" + strings.Repeat("a", 64) + "\n",

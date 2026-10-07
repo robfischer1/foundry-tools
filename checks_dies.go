@@ -75,8 +75,8 @@ func (d *Dies) Contracts(ctx context.Context) (string, error) {
 	return check(ctx, d.Source, "dies:contracts")
 }
 
-// The slag schema is a valid Draft 2020-12 document whose `required` names only
-// defined properties, and every fleet/stars/*/*.slag satisfies slag-v2.
+// The slag v3 schema is a valid Draft 2020-12 document whose `required` names
+// only defined properties, and every fleet/stars/*/slag.json satisfies it.
 //
 // +check
 func (d *Dies) Schema(ctx context.Context) (string, error) {
