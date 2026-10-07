@@ -26,20 +26,20 @@ func TestABaseIsPushedUnderItsRepositorysPath(t *testing.T) {
 	}
 }
 
-// A base's change set is its own directory and the shared sources; another
+// A base's change set is its own directory; another
 // base's directory, and a path that merely starts with the base's name, are
 // not.
-func TestABasesChangesAreItsDirectoryAndTheSharedSources(t *testing.T) {
+func TestABasesChangesAreItsDirectory(t *testing.T) {
 	changed := strings.Join([]string{
 		"bases/go/Dockerfile",
 		"bases/gopher/Dockerfile",
 		"bases/rust/Dockerfile",
-		"stellar-boot/main.go",
+		"docs/notes.md",
 		"README.md",
 		"",
 		"  bases/go/extra.txt  ",
 	}, "\n")
-	if got, want := BaseChanges("go", changed), "bases/go/Dockerfile\nstellar-boot/main.go\nbases/go/extra.txt"; got != want {
+	if got, want := BaseChanges("go", changed), "bases/go/Dockerfile\nbases/go/extra.txt"; got != want {
 		t.Fatalf("BaseChanges(go) = %q, want %q", got, want)
 	}
 	if got := BaseChanges("bun", "bases/go/Dockerfile\nREADME.md"); got != "" {

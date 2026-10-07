@@ -14,7 +14,6 @@ func baseTree() map[string]string {
 		"bases/go/Dockerfile":   "FROM docker.notusmi.com/library/golang:1.27 AS boot\nFROM scratch\n",
 		"bases/rust/Dockerfile": "FROM docker.notusmi.com/library/golang:1.27 AS boot\nFROM scratch\n",
 		"bases/README.md":       "not a base\n",
-		"stellar-boot/main.go":  "package main\n",
 		"README.md":             "# base-images\n",
 	}
 }
@@ -34,7 +33,7 @@ const cleanReport = `{"Results":[{"Target":"img","Vulnerabilities":null}]}`
 // clean when both pass. bases/README.md is not a base.
 func TestAPullBuildsAndScansEveryBaseAndPublishesNothing(t *testing.T) {
 	m := basesOn(t, baseTree())
-	engine.stdout("--name-only", "stellar-boot/main.go\n")
+	engine.stdout("--name-only", "bases/go/Dockerfile\nbases/rust/Dockerfile\n")
 	engine.script(script{match: trivyReport, leaf: "contents", value: cleanReport})
 	pull(t, m)
 	for _, b := range []string{"go", "rust"} {
@@ -103,8 +102,7 @@ func TestABaseThatDoesNotBuildIsFindings(t *testing.T) {
 }
 
 // Each base stands or builds on its own change set since its own :stable: a
-// change under bases/go/ builds go and stands rust down; the shared source
-// builds both.
+// change under bases/go/ builds go and stands rust down.
 func TestEachBaseStandsOnItsOwnChangesSinceItsStable(t *testing.T) {
 	m := basesOn(t, baseTree())
 	engine.label("foundry/base-images/go:stable", permittedSha)
@@ -132,8 +130,8 @@ func scriptABaseTip() {
 // its SBOM UNSIGNED (D13: base signing is off by default), moves :stable to
 // that exact digest, and asks no permit: a base is not a star.
 func TestATipPublishesUnsignedWithItsSBOMAndMovesStableWithoutAPermit(t *testing.T) {
-	m := basesOn(t, map[string]string{"bases/go/Dockerfile": "FROM scratch\n", "stellar-boot/main.go": "package main\n"})
-	engine.stdout("--name-only", "stellar-boot/main.go\n")
+	m := basesOn(t, map[string]string{"bases/go/Dockerfile": "FROM scratch\n"})
+	engine.stdout("--name-only", "bases/go/Dockerfile\n")
 	engine.script(script{match: trivyReport, leaf: "contents", value: cleanReport})
 	scriptABaseTip()
 	engine.script(script{leaf: "publish", match: "foundry/base-images/go", value: "registry.notusmi.com/foundry/base-images/go@sha256:" + strings.Repeat("d", 64)})
@@ -207,7 +205,7 @@ func TestAStableThatNamesAnotherDigestIsAFinding(t *testing.T) {
 // Could-not-run outranks a finding across bases: rerunning can change it.
 func TestTheWorstBaseSettlesTheLane(t *testing.T) {
 	m := basesOn(t, baseTree())
-	engine.stdout("--name-only", "stellar-boot/main.go\n")
+	engine.stdout("--name-only", "bases/go/Dockerfile\nbases/rust/Dockerfile\n")
 	engine.fail(`dockerfile:"bases/go/Dockerfile"`, "failed to solve: dockerfile parse error on line 1")
 	engine.fail(`dockerfile:"bases/rust/Dockerfile"`, "failed to resolve source metadata for docker.notusmi.com/x: 503 Service Unavailable")
 	pull(t, m)
@@ -235,7 +233,7 @@ func TestAPythonBaseWithNoLockIsRelockedAgainstTheLanesIndex(t *testing.T) {
 		"bases/python/pyproject.toml": "[project]\nname = \"base\"\n",
 		"bases/go/Dockerfile":         "FROM scratch\n",
 	})
-	engine.stdout("--name-only", "stellar-boot/main.go\n")
+	engine.stdout("--name-only", "bases/go/Dockerfile\nbases/python/Dockerfile\n")
 	engine.script(script{match: trivyReport, leaf: "contents", value: cleanReport})
 	scriptABaseTip()
 	tip(t, m)
