@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -30,6 +31,8 @@ func init() {
 	register("fleet:sast-ruleset-lanes", fleetSastRulesetLanes)
 	register("fleet:orbit-drift", fleetOrbitDrift)
 	register("fleet:dagger-lockstep", fleetDaggerLockstep)
+	register("fleet:node-kinds-declared", fleetNodeKindsDeclared)
+	register("fleet:consumed-events-emitted", fleetConsumedEventsEmitted)
 	register("fleet:opengrep-sast", fleetOpengrepSast)
 	register("fleet:witness", fleetWitness)
 	register("fleet:hadolint", fleetHadolint)
@@ -728,4 +731,87 @@ func fleetHadolint(ctx context.Context, r *run) checks.Verdict {
 
 	args := append([]string{"hadolint", "--no-color", "--config", checks.HadolintConfigPath, "--"}, dockerfiles...)
 	return verdict(ctx, a, ctr.WithExec(args, anyExit))
+}
+
+// Every node kind the tree's Go code captures is declared in chaos.
+//
+// THE POPULATION IS THE TREE'S OWN GO, and a tree that captures nothing never
+// asks the door: the vocabulary is fetched only when there is something to
+// compare. A door that would not answer is CANNOT RUN, never a finding — an
+// undeclared kind is a claim about chaos, and a chaos that was not read cannot
+// be quoted. The judgement is checks.NodeKindsDeclared.
+func fleetNodeKindsDeclared(ctx context.Context, r *run) checks.Verdict {
+	a := checks.AtomByID("fleet:node-kinds-declared")
+
+	paths, err := r.population(ctx, "**/*.go")
+	if err != nil {
+		return cannotEnumerate(a, err)
+	}
+	var wanted []string
+	for _, p := range paths {
+		if !strings.HasSuffix(p, "_test.go") {
+			wanted = append(wanted, p)
+		}
+	}
+	files, bad := readOK(readFiles(ctx, r.src, wanted))
+	if bad != "" {
+		return checks.VerdictOf(a, 2, "fleet:node-kinds-declared: CANNOT RUN - "+bad)
+	}
+	if uses, _ := checks.CapturedKinds(files); len(uses) == 0 {
+		state, report := checks.NodeKindsDeclared(files, "")
+		return checks.VerdictOf(a, state, report)
+	}
+	schema, err := checks.FetchNodeKindsSchema(ctx, oureaDoor)
+	if err != nil {
+		return checks.VerdictOf(a, 2, "fleet:node-kinds-declared: CANNOT RUN - "+err.Error()+". A vocabulary that was not read declares nothing, and an undeclared kind is not a finding about this tree.")
+	}
+	state, report := checks.NodeKindsDeclared(files, schema)
+	return checks.VerdictOf(a, state, report)
+}
+
+// Every event_type the tree consumes has an emitter somewhere in the fleet.
+//
+// THE TREE IS READ LOCALLY AND THE FLEET ONLY WHEN IT MUST BE: a type this tree
+// emits itself needs no door, and a tree that consumes no literal event_type
+// has no question to answer. The judgement is checks.ConsumedEventsEmitted.
+func fleetConsumedEventsEmitted(ctx context.Context, r *run) checks.Verdict {
+	a := checks.AtomByID("fleet:consumed-events-emitted")
+
+	paths, err := r.population(ctx, "**")
+	if err != nil {
+		return cannotEnumerate(a, err)
+	}
+	var wanted []string
+	for _, p := range paths {
+		if checks.EventSourceExt(p) {
+			wanted = append(wanted, p)
+		}
+	}
+	files, bad := readOK(readFiles(ctx, r.src, wanted))
+	if bad != "" {
+		return checks.VerdictOf(a, 2, "fleet:consumed-events-emitted: CANNOT RUN - "+bad)
+	}
+	state, report := checks.ConsumedEventsEmitted(ctx, files, func(ctx context.Context, need []string) (map[string]string, error) {
+		return checks.FleetEmitters(ctx, oureaDoor, "", need)
+	})
+	return checks.VerdictOf(a, state, report)
+}
+
+// readOK folds readFiles into path -> body, or the first path that would not
+// read: a file never read is a file never judged.
+func readOK(in map[string]fileRead) (map[string]string, string) {
+	out := make(map[string]string, len(in))
+	var failed []string
+	for p, f := range in {
+		if f.err != nil {
+			failed = append(failed, p+" ("+f.err.Error()+")")
+			continue
+		}
+		out[p] = f.body
+	}
+	if len(failed) == 0 {
+		return out, ""
+	}
+	sort.Strings(failed)
+	return nil, failed[0] + " would not read"
 }

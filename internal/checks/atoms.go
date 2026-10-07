@@ -156,6 +156,14 @@ func atomTable() []AtomDef {
 			Desc: "The dagger CLI, engine and module pins in this tree agree with the engine foundry/flux runs — CLI and engine move in lockstep.",
 		},
 		{
+			ID: "fleet:node-kinds-declared", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
+			Desc: "Every node kind this repo's Go code captures is declared in chaos's node_kinds, so the foreign key never refuses it at runtime.",
+		},
+		{
+			ID: "fleet:consumed-events-emitted", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
+			Desc: "Every event_type this repo consumes has at least one live emitter in the fleet, so a retired producer cannot leave a reader silent.",
+		},
+		{
 			ID: "fleet:opengrep-sast", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "SAST scan that refuses a zero-file scan.",
 		},
