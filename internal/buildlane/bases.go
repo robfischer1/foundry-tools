@@ -16,15 +16,11 @@ import (
 // A repository of base images holds one directory per base under bases/, each
 // with its own Dockerfile, and no Dockerfile at its root. Every base builds
 // against the whole tree, so a builder stage can compile source that sits
-// beside the bases (the shared stellar-boot) instead of copying it out of
+// beside the bases instead of copying it out of
 // another published image — the edge that made the old bases a DAG.
 
 // BasesDir is where a repository of base images keeps them.
 const BasesDir = "bases"
-
-// SharedBaseSources are the paths every base builds from besides its own
-// directory: a change under one rebuilds every base.
-var SharedBaseSources = []string{"stellar-boot/"}
 
 // BaseDockerfile is a base's Dockerfile, relative to the tree's root.
 func BaseDockerfile(base string) string { return BasesDir + "/" + base + "/Dockerfile" }
@@ -48,7 +44,7 @@ func BasePushRepo(registry, repo, base string) string {
 }
 
 // BaseChanges answers the lines of `git diff --name-only` output that concern
-// one base: its own directory and the sources every base shares. The rest of
+// one base: its own directory. The rest of
 // the repository — another base, the README — is not this base's change.
 func BaseChanges(base, changed string) string {
 	own := BasesDir + "/" + base + "/"
@@ -58,20 +54,11 @@ func BaseChanges(base, changed string) string {
 		if p == "" {
 			continue
 		}
-		if strings.HasPrefix(p, own) || sharedBaseSource(p) {
+		if strings.HasPrefix(p, own) {
 			out = append(out, p)
 		}
 	}
 	return strings.Join(out, "\n")
-}
-
-func sharedBaseSource(p string) bool {
-	for _, s := range SharedBaseSources {
-		if strings.HasPrefix(p, s) {
-			return true
-		}
-	}
-	return false
 }
 
 // trivyReport is the part of trivy's JSON the gate reads.

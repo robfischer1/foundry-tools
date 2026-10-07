@@ -34,8 +34,7 @@ import (
 //     convention"): the last build that passed everything.
 //
 // Each base stands or builds on its own change set since its own :stable, so
-// a Rust Dockerfile edit rebuilds rust and nothing else, and the shared
-// stellar-boot source rebuilds them all.
+// a Rust Dockerfile edit rebuilds rust and nothing else.
 
 // bases answers the base images the tree declares, sorted, or none when the
 // tree has a root Dockerfile (a star, built as one).

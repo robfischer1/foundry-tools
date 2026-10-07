@@ -259,7 +259,7 @@ func contains(haystack []string, needle string) bool {
 // are the same list.
 func TestEveryBaseSealsItsOwnAtomAndNothingIsUnreached(t *testing.T) {
 	m := basesOn(t, baseTree())
-	engine.stdout("--name-only", "stellar-boot/main.go\n")
+	engine.stdout("--name-only", "bases/go/Dockerfile\nbases/rust/Dockerfile\n")
 	engine.script(script{match: trivyReport, leaf: "contents", value: cleanReport})
 	l, code, _ := laneFor(t, m, false)
 
@@ -291,7 +291,7 @@ func TestEveryBaseSealsItsOwnAtomAndNothingIsUnreached(t *testing.T) {
 // the reason Unreached is empty for this path.
 func TestABaseThatFailsLeavesTheOthersGraded(t *testing.T) {
 	m := basesOn(t, baseTree())
-	engine.stdout("--name-only", "stellar-boot/main.go\n")
+	engine.stdout("--name-only", "bases/go/Dockerfile\nbases/rust/Dockerfile\n")
 	engine.script(script{match: trivyReport, leaf: "contents", value: report(grpcFinding)})
 	l, code, _ := laneFor(t, m, false)
 

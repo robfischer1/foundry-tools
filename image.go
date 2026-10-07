@@ -44,7 +44,7 @@ type Image struct {
 	// Dockerfile is the path of the Dockerfile inside Source; empty is the
 	// tree's root Dockerfile. A base image in a repo of several builds from
 	// bases/<lang>/Dockerfile against the whole tree, so a builder stage can
-	// reach source beside it (the shared stellar-boot).
+	// reach source beside it.
 	// +private
 	Dockerfile string
 	// Created is the image's creation time, stamped ONCE, when the image is
