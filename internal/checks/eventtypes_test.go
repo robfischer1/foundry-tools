@@ -558,3 +558,94 @@ func TestConsumedEventsEmittedSortsTypesAndListsThreeSites(t *testing.T) {
 		t.Errorf("only the unemitted type is a finding: %d\n%s", state, report)
 	}
 }
+
+func TestEveryPatternReadsEveryMatchNotJustTheFirst(t *testing.T) {
+	files := map[string]string{
+		"all.py": `read_a = tartarus_session_events_read(session, {"event_type": "rc1"})
+read_b = get_session_events(event_type="rc2")
+q = "WHERE event_type = 'eq1' OR event_type = 'eq2'"
+r = "event_type IN ('in1') AND event_type IN ('in2')"
+if e['event_type'] == 'cmp1' or e['event_type'] != 'cmp2': pass
+W1 = {'m1'}
+W2 = {'m2'}
+if e['event_type'] in W1 or e['event_type'] in W2: pass
+a = ev.get("event_type")
+b = ev.get("event_type")
+if a == 'al1' or a == 'al2' or b == 'bl1': pass
+t1 = ev.get("event_type")
+t2 = ev.get("event_type")
+if t1 in W1 or t2 in W2: pass
+`,
+		"sw.go": "package s\nfunc f(e E) {\n\tswitch e.EventType {\n\tcase \"s1\":\n\t}\n\tswitch x.EventType {\n\tcase \"s2\":\n\t}\n}\n",
+	}
+	consumed, _ := EventTypeUses(files)
+	want := []string{"al1", "al2", "bl1", "cmp1", "cmp2", "eq1", "eq2", "in1", "in2", "m1", "m2", "rc1", "rc2", "s1", "s2"}
+	if got := types(consumed); !same(got, want) {
+		t.Errorf("consumed\n got %v\nwant %v", got, want)
+	}
+	_, emitted := EventTypeUses(map[string]string{
+		"e.py": "emit({'event_type': 'e1'})\nemit({'event_type': 'e2'})\nX = 'x1'\nY = 'x2'\nemit({'event_type': X})\nemit({'event_type': Y})\nemit({'event_type': p.X})\n",
+	})
+	if got := types(emitted); !same(got, []string{"e1", "e2", "x1", "x2"}) {
+		t.Errorf("emitted %v", got)
+	}
+}
+
+func TestAnEmitterBesideAReadIsStillAnEmitter(t *testing.T) {
+	// The span of the read ends where its literal ends; an emitter flush against
+	// either edge is outside it.
+	body := `pre = {"event_type": "pre_emit"}; tartarus_session_events_read(event_type="filtered"); post = {"event_type": "post_emit"}` + "\n"
+	_, emitted := EventTypeUses(map[string]string{"x.py": body})
+	if got := types(emitted); !same(got, []string{"post_emit", "pre_emit"}) {
+		t.Errorf("emitted %v", got)
+	}
+	flush := `tartarus_session_events_read(event_type="filt")event_type: "flush_after"` + "\n"
+	if _, em := EventTypeUses(map[string]string{"y.py": flush}); !same(types(em), []string{"flush_after"}) {
+		t.Errorf("a literal starting where the read ends is an emitter: %v", em)
+	}
+	cs := "K = 'const_in_read'\ntartarus_session_events_read(event_type=K)\nW = 'plain_const'\nx = {'event_type': W}\n"
+	consumed, em := EventTypeUses(map[string]string{"z.py": cs})
+	if got := types(consumed); !same(got, []string{"const_in_read"}) {
+		t.Errorf("a constant passed to a read verb is consumed: %v", got)
+	}
+	if got := types(em); !same(got, []string{"plain_const"}) {
+		t.Errorf("a constant inside a read is a filter; one on a plain line is an emitter: %v", got)
+	}
+}
+
+func TestAliasedMembershipReadsTheConstantSet(t *testing.T) {
+	body := "WATCHED = ('w1', 'w2')\netype = ev.get('event_type')\nif etype in WATCHED:\n    pass\nif etype not in OTHER:\n    pass\n"
+	consumed, _ := EventTypeUses(map[string]string{"h.py": body})
+	if got := types(consumed); !same(got, []string{"w1", "w2"}) {
+		t.Errorf("consumed %v", got)
+	}
+}
+
+func TestFleetEmittersTransportFailureAndUnwantedTypes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/custody/repos":
+			_, _ = w.Write([]byte(`{"repos":["rob/a"]}`))
+		case "/tree":
+			_, _ = w.Write([]byte(`{"entries":[{"path":"a.py","mode":"0100644","size":50}]}`))
+		case "/archive":
+			if r.URL.Query().Get("path") == "a.py" {
+				panic(http.ErrAbortHandler)
+			}
+		}
+	}))
+	defer srv.Close()
+	found, err := FleetEmitters(context.Background(), Door{Base: srv.URL, Client: srv.Client()}, "", []string{"t"})
+	if err == nil || !strings.Contains(err.Error(), "rob/a a.py") || len(found) != 0 {
+		t.Errorf("a file that cut the connection is an error naming it: %v %v", found, err)
+	}
+
+	door := fleetDoor(t, map[string]map[string]string{"rob/a": {"a.py": `emit({"event_type": "wanted"}); emit({"event_type": "unwanted"})`}}, nil)
+	got, err := FleetEmitters(context.Background(), door, "", []string{"wanted"})
+	if err != nil || len(got) != 1 || got["wanted"] == "" {
+		t.Errorf("only wanted types are recorded: %v %v", got, err)
+	}
+	if _, err := FleetEmitters(context.Background(), fleetDoor(t, map[string]map[string]string{"rob/a": {"a.py": "x"}}, nil), "", []string{"t"}); err != nil {
+		t.Errorf("scanning without a find is not an error: %v", err)
+	}
+}

@@ -368,3 +368,79 @@ func TestNodeKindsDeclaredReportsKindsInOrderAndPluralizesSites(t *testing.T) {
 		t.Errorf("exactly three sites are listed whole:\n%s", report)
 	}
 }
+
+func TestStripSQLCommentTable(t *testing.T) {
+	for in, want := range map[string]string{
+		"plain":                   "plain",
+		"-- whole":                "",
+		"a, -- tail":              "a, ",
+		"'a--b', 'c'":             "'a--b', 'c'",
+		"'a--b', -- tail 'Ghost'": "'a--b', ",
+		"x - y -z":                "x - y -z",
+		"it''s -- tail":           "it''s ",
+		"'open -- never closed":   "'open -- never closed",
+		"":                        "",
+		"-":                       "-",
+	} {
+		if got := stripSQLComment(in); got != want {
+			t.Errorf("stripSQLComment(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestCapturedKindsRemainingShapes(t *testing.T) {
+	src := `package x
+
+const OpCreate = "createNode"
+var typed string
+var a, b string
+
+type Op struct{ Kind, CreateKind string }
+
+func external(kind string)
+
+func forward(kind string) Op {
+	return Op{Kind: OpCreate, CreateKind: kind, Extra: CreateNode("InForward", "l")}
+}
+
+func use() {
+	_ = Op{Kind: OpCreate, CreateKind: "ViaCreateKind"}
+	_ = CreateNode("Outer", CreateNode("Inner", "l"))
+	_ = CreateNode('c', "l")
+	external("x")
+}
+`
+	uses, unresolved := CapturedKinds(goFiles(src))
+	got := map[string]bool{}
+	for _, u := range uses {
+		got[u.Kind] = true
+	}
+	for _, k := range []string{"ViaCreateKind", "Outer", "Inner", "InForward"} {
+		if !got[k] {
+			t.Errorf("%s missed: %v", k, uses)
+		}
+	}
+	if len(got) != 4 || unresolved != 1 {
+		t.Errorf("a character literal is not a kind: kinds %v unresolved %d", got, unresolved)
+	}
+}
+
+func TestCapturedKindsDeduplicatesAConstDeclaredInTwoPackages(t *testing.T) {
+	files := map[string]string{
+		"internal/one/a.go": "package one\nconst K = \"Same\"\n",
+		"internal/two/a.go": "package two\nconst K = \"Same\"\n",
+		"internal/s/s.go":   "package s\nfunc f() { _ = CreateNode(K, \"l\") }\n",
+	}
+	if uses, _ := CapturedKinds(files); len(uses) != 1 {
+		t.Errorf("one value, one site: %v", uses)
+	}
+}
+
+func TestCapturedKindsSkipsAFileThatDoesNotParseWholly(t *testing.T) {
+	files := map[string]string{
+		"b/b.go": "package b\nfunc f() { _ = CreateNode(\"Partial\", \"l\") }\nfunc (((( broken\n",
+	}
+	if uses, unresolved := CapturedKinds(files); len(uses) != 0 || unresolved != 0 {
+		t.Errorf("a file that does not parse is skipped whole: %v %d", uses, unresolved)
+	}
+}

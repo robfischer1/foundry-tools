@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
@@ -53,7 +54,7 @@ var (
 	memberRe = regexp.MustCompile(`(?i)event_?type["'` + "`" + `]?[\])]*\s+(?:not\s+)?in\s+([A-Za-z_][A-Za-z0-9_]*)\b`)
 	// readCallRe is a read verb followed, in the same call, by an event_type
 	// literal: tartarus_session_events_read, get_session_events, and so on.
-	readCallRe = regexp.MustCompile(`(?is)(?:session_?events_?read|get_?session_?events|read_?session_?events)\b.{0,240}?event_?type["'` + "`" + `]?\s*(?::=|[:=,])\s*["'` + "`" + `]([A-Za-z0-9_.:-]+)["'` + "`" + `]`)
+	readCallRe = regexp.MustCompile(`(?is)(?:session_?events_?read|get_?session_?events|read_?session_?events)\b.{0,240}?event_?type["'` + "`" + `]?\s*(?::=|[:=,])\s*(?:["'` + "`" + `]([A-Za-z0-9_.:-]+)["'` + "`" + `]|([A-Za-z_][A-Za-z0-9_.]*))`)
 	// aliasRe is `etype = event.get("event_type")` / `et := e.EventType`: a name
 	// that now holds the event type, compared further down.
 	aliasRe = regexp.MustCompile(`(?im)^[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?::=|=)[^\n=]*event_?type`)
@@ -121,13 +122,13 @@ func EventTypeUses(files map[string]string) (consumed, emitted []EventSite) {
 
 	seenC, seenE := map[EventSite]bool{}, map[EventSite]bool{}
 	addC := func(t, f string) {
-		if s := (EventSite{t, f}); t != "" && !seenC[s] {
+		if s := (EventSite{t, f}); !seenC[s] {
 			seenC[s] = true
 			consumed = append(consumed, s)
 		}
 	}
 	addE := func(t, f string) {
-		if s := (EventSite{t, f}); t != "" && !seenE[s] {
+		if s := (EventSite{t, f}); !seenE[s] {
 			seenE[s] = true
 			emitted = append(emitted, s)
 		}
@@ -148,7 +149,14 @@ func EventTypeUses(files map[string]string) (consumed, emitted []EventSite) {
 		type span struct{ from, to int }
 		var reads []span
 		for _, m := range readCallRe.FindAllStringSubmatchIndex(body, -1) {
-			addC(body[m[2]:m[3]], p)
+			if m[2] >= 0 {
+				addC(body[m[2]:m[3]], p)
+			} else {
+				name := body[m[4]:m[5]]
+				for t := range consts[name[strings.LastIndex(name, ".")+1:]] {
+					addC(t, p)
+				}
+			}
 			reads = append(reads, span{m[0], m[1]})
 		}
 		for _, m := range sqlEqRe.FindAllStringSubmatch(body, -1) {
@@ -206,9 +214,7 @@ func EventTypeUses(files map[string]string) (consumed, emitted []EventSite) {
 				continue
 			}
 			name := body[m[2]:m[3]]
-			if i := strings.LastIndex(name, "."); i != -1 {
-				name = name[i+1:]
-			}
+			name = name[strings.LastIndex(name, ".")+1:]
 			for t := range consts[name] {
 				addE(t, p)
 			}
@@ -217,20 +223,22 @@ func EventTypeUses(files map[string]string) (consumed, emitted []EventSite) {
 	return consumed, emitted
 }
 
+// commentPrefixes is, per extension, what opens a whole-line comment. JSON and
+// markdown have none, so they are read whole.
+var commentPrefixes = map[string][]string{
+	".py": {"#"}, ".sh": {"#"}, ".sql": {"--"},
+	".go": cLike, ".ts": cLike, ".tsx": cLike, ".js": cLike, ".mjs": cLike, ".rs": cLike,
+}
+
+var cLike = []string{"//", "/*", "*"}
+
 // stripLineComments blanks the whole-line comments of a source file, so prose
 // that quotes a pattern (this package's own doc comments do) neither consumes
 // nor emits anything. Blanked, not removed, so offsets and lines keep their place.
 func stripLineComments(p, body string) string {
-	var prefixes []string
-	switch {
-	case strings.HasSuffix(p, ".py"), strings.HasSuffix(p, ".sh"):
-		prefixes = []string{"#"}
-	case strings.HasSuffix(p, ".sql"):
-		prefixes = []string{"--"}
-	case strings.HasSuffix(p, ".json"):
+	prefixes := commentPrefixes[path.Ext(p)]
+	if prefixes == nil {
 		return body
-	default:
-		prefixes = []string{"//", "/*", "*"}
 	}
 	lines := strings.Split(body, "\n")
 	for i, l := range lines {
@@ -342,7 +350,7 @@ repos:
 		var tree treeEntries
 		if err := door.getJSON(ctx, "/tree", url.Values{"repo": {repo}}, &tree); err != nil {
 			_ = g.Wait()
-			return found, fmt.Errorf("the tree of %s: %w", repo, err)
+			return nil, fmt.Errorf("the tree of %s: %w", repo, err)
 		}
 		for _, e := range tree.Entries {
 			if satisfied() {
@@ -363,7 +371,7 @@ repos:
 				mu.Lock()
 				defer mu.Unlock()
 				for _, s := range emitted {
-					if want[s.Type] && found[s.Type] == "" {
+					if want[s.Type] {
 						found[s.Type] = repo + ":" + e.Path
 					}
 				}

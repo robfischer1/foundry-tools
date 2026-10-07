@@ -46,12 +46,11 @@ var (
 // and the single-row `VALUES ('X', 'X', ...)` registrations. SQL comment lines
 // are dropped first, so prose that names a kind declares nothing.
 func DeclaredNodeKinds(schemaGo string) map[string]bool {
-	var code strings.Builder
-	for _, line := range strings.Split(schemaGo, "\n") {
-		code.WriteString(stripSQLComment(line))
-		code.WriteByte('\n')
+	lines := strings.Split(schemaGo, "\n")
+	for i, line := range lines {
+		lines[i] = stripSQLComment(line)
 	}
-	text := code.String()
+	text := strings.Join(lines, "\n")
 	out := map[string]bool{}
 	locs := kindInsertRe.FindAllStringIndex(text, -1)
 	for _, loc := range locs {
@@ -71,11 +70,10 @@ func DeclaredNodeKinds(schemaGo string) map[string]bool {
 // quoted string: a kind may spell two dashes.
 func stripSQLComment(line string) string {
 	inQuote := false
-	for i := 0; i+1 < len(line); i++ {
-		switch {
-		case line[i] == '\'':
+	for i, c := range line {
+		if c == '\'' {
 			inQuote = !inQuote
-		case !inQuote && line[i] == '-' && line[i+1] == '-':
+		} else if !inQuote && strings.HasPrefix(line[i:], "--") {
 			return line[:i]
 		}
 	}
