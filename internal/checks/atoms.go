@@ -144,6 +144,10 @@ func atomTable() []AtomDef {
 			Desc: "The ourea ConfigMap names no key the door has stopped reading.",
 		},
 		{
+			ID: "fleet:wit-topics", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "flux's committed redpanda/wit is current with redpanda/schemas - a topic schema changed, added or removed without regenerating, or a hand edit of aiws-topics.wit, fails (stellar-core F2).",
+		},
+		{
 			ID: "fleet:retired-verbs", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "No skill, agent, command, hook, setting, governance block or rule names a retired MCP verb.",
 		},
