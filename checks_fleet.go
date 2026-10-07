@@ -43,6 +43,26 @@ func (f *Fleet) DaggerLockstep(ctx context.Context) (string, error) {
 	return check(ctx, f.Source, "fleet:dagger-lockstep")
 }
 
+// Every node kind this repo's Go code captures is declared in chaos's
+// node_kinds. nodes.kind is a foreign key onto that table, so an undeclared
+// kind is refused at runtime and only there: a star's own tests mint against a
+// fake graph that accepts anything. Read from the DDL seed through the door.
+//
+// +check
+func (f *Fleet) NodeKindsDeclared(ctx context.Context) (string, error) {
+	return check(ctx, f.Source, "fleet:node-kinds-declared")
+}
+
+// Every event_type this repo consumes has at least one live emitter somewhere
+// in the fleet. A reader of an event nobody writes goes silent without an
+// error; the fleet is scanned through the door only for a type this repo does
+// not itself emit.
+//
+// +check
+func (f *Fleet) ConsumedEventsEmitted(ctx context.Context) (string, error) {
+	return check(ctx, f.Source, "fleet:consumed-events-emitted")
+}
+
 // Every YAML file in the tree parses.
 //
 // +check
