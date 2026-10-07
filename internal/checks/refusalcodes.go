@@ -34,9 +34,10 @@ func FirstRegistryUse(registry string) (repo, path string, found bool) {
 			Source map[string]any `toml:"source"`
 		} `toml:"uses"`
 	}
-	if _, err := toml.Decode(registry, &doc); err != nil {
-		return "", "", false
-	}
+	// A parse error leaves doc empty (the decoder fills nothing before it has
+	// read the whole document), so an unparseable registry has no first use and
+	// the checker is its judge: no branch to take.
+	_, _ = toml.Decode(registry, &doc)
 	for _, u := range doc.Uses {
 		r, rok := u.Source["repo"].(string)
 		p, pok := u.Source["path"].(string)
