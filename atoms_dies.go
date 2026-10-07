@@ -34,6 +34,7 @@ func init() {
 	register("dies:wit-regenerated", diesWitRegenerated)
 	register("dies:schema-rendered", diesSchemaRendered)
 	register("dies:canonical", diesCanonical)
+	register("dies:refusal-codes", diesRefusalCodes)
 }
 
 // diesShape is the condition every dies: atom shares, decided IN GO from the
@@ -781,4 +782,126 @@ func diesCanonical(ctx context.Context, r *run) checks.Verdict {
 		return checks.VerdictOf(a, 1, fmt.Sprintf("%s: FINDINGS - %d of %d record(s) are not their own canonical form:\n%s", a.ID, len(findings), len(records), strings.Join(findings, "\n")))
 	}
 	return checks.VerdictOf(a, 0, fmt.Sprintf("%s: %d record(s) are each their own canonical form.", a.ID, len(records)))
+}
+
+// Every refusal code a world or a star spells is in the fleet registry
+// (stellar-core F17-3b, foundry-dies#14947).
+//
+// WHERE IT RUNS, AND WHY THERE. Two trees, because a code is spelled in one and
+// registered in the other and a pull that edits either has to go red BEFORE it
+// lands, in the repo of the person who made it (check_contracts.py's alarm
+// asymmetry).
+//
+//	foundry-dies    owns the registry and the checker. It grades the WHOLE
+//	                registry against every use, read off the door's main:
+//	                a registry edit that strands a spelled code, a phantom, an
+//	                orphan. A sibling's code that landed unregistered turns this
+//	                red on the next dies pull, which is late and is the net.
+//	stellar-core    owns the tapes and the WIT enums the worlds' codes are
+//	                spelled in. Its pull adds a tape case or an enum member; the
+//	                registry lives in dies, so the checker, its two imports and the
+//	                registry are fetched from the door's main and run with
+//	                `--tree stellar-core=.`, which reads and grades ONLY
+//	                stellar-core's uses. A new code lands here as undeclared,
+//	                and the fix (a [codes.x] row) is a dies pull that lands first.
+//
+// NOT daedalus (go-err-codes) or hermes: their uses are graded from dies,
+// late. Running it there needs the same fetch and an atom shape each; follow-up
+// pinned on foundry-tools, not folded in here.
+//
+// THE CHECKER IS DIES', NOT EMBEDDED, for the dies:contracts reason. In the
+// stellar-core tree it is the door's main: a pull that changes the checker lands
+// in dies first, so the version a stellar-core pull is graded by is one that
+// already landed.
+//
+// A DOOR THAT DOES NOT ANSWER IS A 2. A use that could not be fetched is not a
+// use that agrees; the checker's own ladder (0 holds, 1 defect, 2 could not run)
+// is otherwise the verdict, unmapped.
+func diesRefusalCodes(ctx context.Context, r *run) checks.Verdict {
+	a := checks.AtomByID("dies:refusal-codes")
+	absent := checks.VerdictOf(a, 0, a.ID+": ABSENT - this tree neither owns the refusal registry (foundry-dies) nor spells world codes on tapes (stellar-core: wit/aiws-result.wit with conformance/tapes/*.json), so it has no code to register.")
+
+	stop := diesShape(ctx, r, a)
+	if stop != nil && stop.State != 0 {
+		return *stop
+	}
+	if stop == nil {
+		return diesRefusalOwner(ctx, r, a)
+	}
+	for _, marker := range checks.RefusalCoreMarkers() {
+		ok, err := present(ctx, r, marker)
+		if err != nil {
+			return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - the tree could not be scanned for %s (%v).", a.ID, marker, err))
+		}
+		if !ok {
+			return absent
+		}
+	}
+	return diesRefusalCore(ctx, r, a)
+}
+
+// diesRefusalOwner is the registry owner's half: its own checker, its own
+// registry, every use read off the door.
+func diesRefusalOwner(ctx context.Context, r *run, a checks.AtomDef) checks.Verdict {
+	if stop := requirePaths(ctx, r, a, [][2]string{
+		{checks.RefusalChecker, checks.RefusalChecker + " is absent, so there is no checker to run."},
+		{checks.RefusalRegistry, checks.RefusalRegistry + " is absent, so there is no registry to check."},
+	}); stop != nil {
+		return *stop
+	}
+	registry, err := r.src.File(checks.RefusalRegistry).Contents(ctx)
+	if err != nil {
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the registry would not read: "+err.Error())
+	}
+	if v := refusalDoorProbe(ctx, a, registry); v != nil {
+		return *v
+	}
+	return verdict(ctx, a, r.lane(checks.ImageFleet).
+		WithExec([]string{"uv", "--version"}).
+		WithExec(tomlpy(checks.RefusalChecker), anyExit))
+}
+
+// diesRefusalCore is the tape owner's half: dies' checker and registry from the
+// door, this tree's uses from /src.
+func diesRefusalCore(ctx context.Context, r *run, a checks.AtomDef) checks.Verdict {
+	ctr := r.lane(checks.ImageFleet).WithExec([]string{"uv", "--version"})
+	var registry string
+	for _, path := range checks.RefusalCheckerFiles() {
+		status, body, err := oureaDoor.Get(ctx, checks.RefusalRepo, path)
+		if err != nil {
+			return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - the door's archive read is unreachable (%s:%s): %v. A registry that could not be fetched is not a registry the tapes agree with.", a.ID, checks.RefusalRepo, path, err))
+		}
+		if status != 200 {
+			return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - the door answered HTTP %d for %s:%s, so the checker's inputs are not whole.", a.ID, status, checks.RefusalRepo, path))
+		}
+		if path == checks.RefusalRegistry {
+			registry = string(body)
+		}
+		ctr = ctr.WithNewFile(refusalDir+"/"+path, string(body))
+	}
+	if v := refusalDoorProbe(ctx, a, registry); v != nil {
+		return *v
+	}
+	return verdict(ctx, a, ctr.WithExec(tomlpy(
+		refusalDir+"/"+checks.RefusalChecker,
+		"--tree", checks.RefusalTreeFlag("stellar-core"),
+		"--door", strings.TrimRight(oureaDoor.Base, "/")+"/archive",
+	), anyExit))
+}
+
+// refusalDir is where a tree that is not dies holds dies' checker for the run.
+const refusalDir = "/tmp/dies-refusal"
+
+// refusalDoorProbe answers a could-not-run when the door does not answer for
+// the registry's first remote use, and nil when the checker may run.
+func refusalDoorProbe(ctx context.Context, a checks.AtomDef, registry string) *checks.Verdict {
+	repo, path, found := checks.FirstRegistryUse(registry)
+	if !found {
+		return nil
+	}
+	if _, _, err := oureaDoor.Get(ctx, repo, path); err != nil {
+		v := checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - the door's archive read is unreachable (%s:%s): %v. A use that could not be fetched is not a use that agrees.", a.ID, repo, path, err))
+		return &v
+	}
+	return nil
 }

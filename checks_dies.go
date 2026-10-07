@@ -119,3 +119,12 @@ func (d *Dies) SchemaRendered(ctx context.Context) (string, error) {
 func (d *Dies) Canonical(ctx context.Context) (string, error) {
 	return check(ctx, d.Source, "dies:canonical")
 }
+
+// Every refusal code a world or a star spells is in the fleet registry, and
+// every registered code is still spelled: in foundry-dies the whole registry
+// against every use, in stellar-core its tapes and enums against dies' registry.
+//
+// +check
+func (d *Dies) RefusalCodes(ctx context.Context) (string, error) {
+	return check(ctx, d.Source, "dies:refusal-codes")
+}

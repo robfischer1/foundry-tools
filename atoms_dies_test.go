@@ -1043,3 +1043,229 @@ func TestDiesSchemaRenderedCannotRunWithoutAChecker(t *testing.T) {
 	wantState(t, runAtom(t, "dies:schema-rendered", ""), 2,
 		"tools/check_schema_rendered.py is absent")
 }
+
+// ---- dies:refusal-codes ----
+
+// refusalRegistry is the slice of the registry the atom reads itself: the first
+// use that names another repo, which the door probe asks for.
+const refusalRegistry = `[codes.bad_args]
+owners = ["aiws:claim"]
+
+[[uses]]
+owner = "aiws:claim"
+source = { repo = "rob/stellar-core", path = "conformance/tapes/claim.json" }
+extract = { kind = "tape-err-codes" }
+`
+
+// ownerTree is foundry-dies' shape with the refusal checker and registry added.
+// They are not in everyLaneTree: a .py there widens every python lane's population.
+func ownerTree(drop ...string) map[string]string {
+	tree := diesTree(map[string]string{
+		"tools/check_refusal_codes.py": "",
+		"contracts/refusal-codes.toml": refusalRegistry,
+	})
+	for _, d := range drop {
+		delete(tree, d)
+	}
+	return tree
+}
+
+// coreTree is stellar-core's shape: the vendored result WIT and the tapes, and
+// neither of dies' two markers.
+func coreTree() map[string]string {
+	return diesTree(map[string]string{
+		"wit/aiws-result.wit":          "package aiws:%result@0.1.0;\n",
+		"conformance/tapes/claim.json": "{}",
+	}, "policy", "fleet")
+}
+
+// okDoor answers every archive read with the path asked for.
+func okDoor(t *testing.T) *[]doorAsk {
+	return fakeDoor(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("path") == "contracts/refusal-codes.toml" {
+			_, _ = io.WriteString(w, refusalRegistry)
+			return
+		}
+		_, _ = io.WriteString(w, "# "+r.URL.Query().Get("path")+"\n")
+	})
+}
+
+// IN FOUNDRY-DIES THE TREE'S OWN CHECKER RUNS, UNEMBEDDED, whole registry, no
+// --tree: the owner grades every use off the door.
+func TestDiesRefusalCodesOwnerRunsTheTreesOwnCheckerOverTheWholeRegistry(t *testing.T) {
+	engine.reset()
+	engine.withTree(ownerTree())
+	asks := okDoor(t)
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 0)
+
+	c := engine.chain("tools/check_refusal_codes.py", "exitCode")
+	wantCalls(t, c,
+		[]string{"withExec", `args:["uv","--version"]`},
+		[]string{"withExec", "expect:ANY", `"uv","run","--no-project","--quiet","--with","tomli>=2.0","python3","tools/check_refusal_codes.py"`},
+	)
+	if strings.Contains(c, "withNewFile") || strings.Contains(c, "--tree") {
+		t.Errorf("the registry owner must run its own checker over the whole registry:\n%s", c)
+	}
+	if want := []doorAsk{{"rob/stellar-core", "conformance/tapes/claim.json"}}; !reflect.DeepEqual(*asks, want) {
+		t.Errorf("the owner probes the door for the first remote use only: got %v want %v", *asks, want)
+	}
+}
+
+// 0 holds, 1 an unregistered or phantom code, 2 could not run: the checker's
+// ladder is the verdict, in both trees. This is the red-on-purpose.
+func TestDiesRefusalCodesPassesTheExitCodeStraightThrough(t *testing.T) {
+	for name, tree := range map[string]map[string]string{"owner": ownerTree(), "core": coreTree()} {
+		for code, want := range map[int]int{0: 0, 1: 1, 2: 2} {
+			engine.reset()
+			engine.withTree(tree)
+			okDoor(t)
+			engine.exitCode(`"python3"`, code)
+			if got := runAtom(t, "dies:refusal-codes", "").State; got != want {
+				t.Errorf("%s: exit %d answered state %d, want %d", name, code, got, want)
+			}
+		}
+	}
+}
+
+// IN STELLAR-CORE THE CHECKER AND REGISTRY ARE DIES' MAIN, fetched through the
+// door with the two modules the checker imports, and the run is scoped to this
+// tree: its own tapes, never a sibling's.
+func TestDiesRefusalCodesCoreFetchesDiesCheckerAndScopesToItsOwnTree(t *testing.T) {
+	engine.reset()
+	engine.withTree(coreTree())
+	asks := okDoor(t)
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 0)
+
+	var got []string
+	for _, a := range *asks {
+		if a.Repo != "rob/foundry-dies" {
+			continue
+		}
+		got = append(got, a.Path)
+	}
+	want := []string{"tools/check_refusal_codes.py", "tools/check_contracts.py", "tools/schema_stamp.py", "contracts/refusal-codes.toml"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("fetched from dies: got %v want %v", got, want)
+	}
+	c := engine.chain("dies-refusal/tools/check_refusal_codes.py", "exitCode")
+	for _, p := range want {
+		if !hasCall(c, "withNewFile", "/tmp/dies-refusal/"+p) {
+			t.Errorf("%s was not placed in the container:\n%s", p, c)
+		}
+	}
+	if !hasCall(c, "withExec", "expect:ANY", `"python3","/tmp/dies-refusal/tools/check_refusal_codes.py","--tree","stellar-core=."`) {
+		t.Errorf("the checker did not run scoped to this tree:\n%s", c)
+	}
+}
+
+// A door that does not answer, or answers a file with anything but 200, is a
+// COULD-NOT-RUN naming the file: the registry a tape was never compared with is
+// not a registry it agrees with.
+func TestDiesRefusalCodesCoreCannotRunWithoutTheDoor(t *testing.T) {
+	engine.reset()
+	engine.withTree(coreTree())
+	deadDoor(t)
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 2, "tools/check_refusal_codes.py", "unreachable")
+
+	engine.reset()
+	engine.withTree(coreTree())
+	fakeDoor(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("path") == "tools/schema_stamp.py" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = io.WriteString(w, "x")
+	})
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 2, "HTTP 404", "tools/schema_stamp.py")
+}
+
+func TestDiesRefusalCodesOwnerCannotRunWithoutTheCheckerTheRegistryOrTheDoor(t *testing.T) {
+	engine.reset()
+	engine.withTree(ownerTree("tools/check_refusal_codes.py"))
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 2, "tools/check_refusal_codes.py is absent")
+
+	engine.reset()
+	engine.withTree(ownerTree("contracts/refusal-codes.toml"))
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 2, "contracts/refusal-codes.toml is absent")
+
+	engine.reset()
+	engine.withTree(ownerTree())
+	deadDoor(t)
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 2, "unreachable")
+}
+
+// A tree that is neither dies nor stellar-core says why it has no code to
+// register. The WIT without the tapes is not stellar-core (stellar-core-rust
+// vendors the WIT alone).
+func TestDiesRefusalCodesIsAbsentElsewhere(t *testing.T) {
+	engine.reset()
+	engine.withTree(diesTree(nil, "policy", "fleet"))
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 0, "ABSENT")
+
+	engine.reset()
+	engine.withTree(diesTree(map[string]string{"wit/aiws-result.wit": ""}, "policy", "fleet"))
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 0, "ABSENT")
+}
+
+// THE REGISTRY THE DOOR SERVED IS THE ONE PROBED: stellar-core's run asks the
+// door for the first remote use that registry names, and a door that answers the
+// checker's files but not that use is a COULD-NOT-RUN, not a pass.
+func TestDiesRefusalCodesCoreProbesTheFetchedRegistrysFirstUse(t *testing.T) {
+	engine.reset()
+	engine.withTree(coreTree())
+	asks := okDoor(t)
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 0)
+	if want := (doorAsk{"rob/stellar-core", "conformance/tapes/claim.json"}); (*asks)[len(*asks)-1] != want {
+		t.Errorf("the fetched registry's first use was not probed last: %v", *asks)
+	}
+
+	engine.reset()
+	engine.withTree(coreTree())
+	fakeDoor(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Query().Get("path") {
+		case "conformance/tapes/claim.json":
+			// Drop the connection with no answer: any HTTP status counts as reachable.
+			if c, _, err := w.(http.Hijacker).Hijack(); err == nil {
+				_ = c.Close()
+			}
+		case "contracts/refusal-codes.toml":
+			_, _ = io.WriteString(w, refusalRegistry)
+		default:
+			_, _ = io.WriteString(w, "x")
+		}
+	})
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 2, "conformance/tapes/claim.json", "unreachable")
+}
+
+// A registry that names no remote use has nothing to probe and the checker is the judge.
+func TestDiesRefusalCodesRunsWhenTheRegistryNamesNoRemoteUse(t *testing.T) {
+	engine.reset()
+	engine.withTree(coreTree())
+	asks := fakeDoor(t, func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "[codes.x]\n") })
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 0)
+	if len(*asks) != 4 {
+		t.Errorf("only the four checker files are fetched, got %v", *asks)
+	}
+}
+
+// Every read the atom makes of the tree is its own chance to go wrong, and each
+// is a COULD-NOT-RUN that says what could not be read.
+func TestDiesRefusalCodesCannotRunWhenTheTreeCannotBeRead(t *testing.T) {
+	engine.reset()
+	engine.withTree(ownerTree())
+	okDoor(t)
+	engine.fail("{directory{entries}}", "the directory would not evaluate")
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 2, "the repository root could not be read")
+
+	engine.reset()
+	engine.withTree(coreTree())
+	okDoor(t)
+	engine.fail(`glob(pattern:"wit/aiws-result.wit")`, "scan interrupted")
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 2, "could not be scanned for wit/aiws-result.wit", "scan interrupted")
+
+	engine.reset()
+	engine.withTree(ownerTree())
+	okDoor(t)
+	engine.fail(`file(path:"contracts/refusal-codes.toml"){contents}`, "the blob would not evaluate")
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 2, "the registry would not read", "would not evaluate")
+}
