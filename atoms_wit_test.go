@@ -411,7 +411,12 @@ func TestRustWitComposeIsAbsentWithoutTheComposerOrAWorld(t *testing.T) {
 func TestRustWitComposeBuildsComposesAndReplaysTheWorldsTapes(t *testing.T) {
 	engine.reset()
 	engine.withTree(witComposeTree(nil))
-	wantState(t, runAtom(t, "rust:wit-compose", ""), 0)
+	engine.stdout(composeReplay, "TOTAL 1371 pass, 0 fail")
+	v := runAtom(t, "rust:wit-compose", "")
+	wantState(t, v, 0)
+	if !strings.Contains(strings.Join(v.Logs, "\n"), "TOTAL 1371 pass, 0 fail") {
+		t.Errorf("the replay's own tally is the atom's output, got %q", v.Logs)
+	}
 
 	c := engine.chain(composeReplay, "exitCode")
 	if !strings.Contains(c, checks.ImageRust) {
@@ -478,6 +483,11 @@ func TestRustWitComposeRefusalsAreCouldNotRuns(t *testing.T) {
 	engine.reset()
 	engine.withTree(map[string]string{"Cargo.toml": witTwoWorlds, "tools/compose/compose.sh": "", "tools/replay/Cargo.toml": "", "tests/tapes/promote.json": ""})
 	wantState(t, runAtom(t, "rust:wit-compose", ""), 2, "CANNOT RUN", "answer nothing")
+
+	engine.reset()
+	engine.withTree(witComposeTree(nil))
+	engine.fail(`glob(pattern:"tests/tapes/*.json")`, "the tree went away")
+	wantState(t, runAtom(t, "rust:wit-compose", ""), 2, "the tree would not enumerate")
 
 	engine.reset()
 	engine.withTree(witComposeTree(nil))
