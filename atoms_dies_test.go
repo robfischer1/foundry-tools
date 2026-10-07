@@ -903,9 +903,9 @@ var schemasPaths = map[string]string{
 }
 
 // THE ATOM NAMES NO SCHEMA, and that is the whole point of it. dies:schema
-// names slag and slag-v2, dies:findings names findings' two paths, and both
-// are silent about everything else — which is how slag-v3 went unchecked for
-// well-formedness and operable landed with nineteen negative fixtures no lane
+// names schema/slag-v3.schema.json and the records it validates, dies:findings
+// names findings' two paths, and both are silent about everything else — which
+// is how operable landed with nineteen negative fixtures no lane
 // ran. A list forgets; a discovery step cannot.
 func TestDiesSchemasRequiresOnlyTheChecker(t *testing.T) {
 	engine.reset()

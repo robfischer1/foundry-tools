@@ -632,13 +632,13 @@ func diesFindings(ctx context.Context, r *run) checks.Verdict {
 // EVERY schema in the tree is checked, discovered rather than listed.
 //
 // WHY THIS EXISTS BESIDE dies:schema AND dies:findings. Those two name their
-// files: dies_schema.py names slag and slag-v2, dies:findings names findings'
-// schema and its checker. Both are correct about what they name and silent
-// about everything else — so slag-v3.schema.json was never checked for
-// well-formedness at all, and operable.schema.json landed carrying nineteen
-// negative fixtures that no lane ever ran. Neither gap was decided; each was a
-// list nobody grew. A discovery step cannot forget, which is the whole reason
-// this atom takes no file names.
+// files: dies:schema names schema/slag-v3.schema.json and validates the fleet
+// records against it, dies:findings names findings' schema and its checker.
+// Both are correct about what they name and silent about every other schema,
+// so a schema nobody listed (operable.schema.json once landed carrying nineteen
+// negative fixtures that no lane ever ran) was never checked at all. That gap
+// was not decided; it was a list nobody grew. A discovery step cannot forget,
+// which is the whole reason this atom takes no file names.
 //
 // THE CHECKER IS THE TREE'S, NOT EMBEDDED — the dies:contracts and
 // dies:findings shape, for the alarm-asymmetry reason check_contracts.py's own
