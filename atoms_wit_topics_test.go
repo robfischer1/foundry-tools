@@ -54,3 +54,13 @@ func TestWitTopicsCannotRunOnTheFluxTreeWithoutItsChecker(t *testing.T) {
 	engine.withTree(fleetTree(map[string]string{"prime/ourea-config.yaml": ""}, "tools/wit-topics"))
 	wantState(t, runAtom(t, "fleet:wit-topics", ""), 2, "CANNOT RUN", "tools/wit-topics is absent")
 }
+
+// A tree that will not list is unknown, not absent: "found nothing" and "could
+// not look" must not print the same.
+func TestWitTopicsRefusesATreeItCannotEnumerate(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.fail("{directory{entries}}", "the tree went away")
+	wantState(t, runAtom(t, "fleet:wit-topics", ""), 2,
+		"CANNOT RUN", "would not enumerate", "the tree went away")
+}
