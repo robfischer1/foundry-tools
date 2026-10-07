@@ -369,3 +369,138 @@ func TestRustWitGuestInertWithoutAnyWorld(t *testing.T) {
 	}
 	fleetNoContainer(t, "no worlds")
 }
+
+// ---- rust:wit-compose (stellar-core-rust#15266) ----
+
+func witComposeTree(extra map[string]string) map[string]string {
+	tree := map[string]string{
+		"Cargo.toml":                witTwoWorlds,
+		"tools/compose/compose.sh":  "#!/usr/bin/env bash\n",
+		"tools/replay/Cargo.toml":   "[package]\nname = \"replay\"\n",
+		"tests/tapes/identity.json": "{}",
+		"tests/tapes/reader.json":   "{}",
+		"tests/tapes/promote.json":  "{}",
+	}
+	for k, v := range extra {
+		tree[k] = v
+	}
+	return tree
+}
+
+const composeBuildHost = `"cargo","build","--locked","--release","--manifest-path","tools/replay/Cargo.toml"`
+const composeRun = `"tools/compose/compose.sh","/tmp/fleet.component.wasm"`
+const composeReplay = `"/tmp/replay-target/release/replay"`
+
+func TestRustWitComposeIsAbsentWithoutTheComposerOrAWorld(t *testing.T) {
+	for name, tree := range map[string]map[string]string{
+		"no world":    witComposeTree(map[string]string{"Cargo.toml": "[package]\nname = \"x\"\n\n[features]\ndefault = []\n"}),
+		"no composer": {"Cargo.toml": witTwoWorlds, "tools/replay/Cargo.toml": ""},
+		"no replay":   {"Cargo.toml": witTwoWorlds, "tools/compose/compose.sh": ""},
+	} {
+		engine.reset()
+		engine.withTree(tree)
+		v := runAtom(t, "rust:wit-compose", "")
+		wantState(t, v, 0, "rust:wit-compose: ABSENT")
+		if v.Result != "absent" {
+			t.Errorf("%s: want absent, got %q", name, v.Result)
+		}
+		fleetNoContainer(t, name)
+	}
+}
+
+func TestRustWitComposeBuildsComposesAndReplaysTheWorldsTapes(t *testing.T) {
+	engine.reset()
+	engine.withTree(witComposeTree(nil))
+	engine.stdout(composeReplay, "TOTAL 1371 pass, 0 fail")
+	v := runAtom(t, "rust:wit-compose", "")
+	wantState(t, v, 0)
+	if !strings.Contains(strings.Join(v.Logs, "\n"), "TOTAL 1371 pass, 0 fail") {
+		t.Errorf("the replay's own tally is the atom's output, got %q", v.Logs)
+	}
+
+	c := engine.chain(composeReplay, "exitCode")
+	if !strings.Contains(c, checks.ImageRust) {
+		t.Errorf("rust:wit-compose runs in the rust lane image:\n%s", c)
+	}
+	wantCalls(t, c,
+		[]string{"withExec", `args:["rustup","target","add","` + checks.WitGuestTarget + `"]`},
+		[]string{"withExec", `args:["wasm-tools","--version"]`},
+		[]string{"withExec", `args:["wac","--version"]`},
+		[]string{"withEnvVariable", `name:"CARGO_TARGET_DIR"`, `value:"` + checks.WitGuestTargetDir + `"`},
+		[]string{"withExec", `expect:ANY`, `args:["cargo","build","--locked","--release","--manifest-path","tools/replay/Cargo.toml","--target-dir","` + checks.WitReplayTargetDir + `"]`},
+		[]string{"withExec", `expect:ANY`, `args:["tools/compose/compose.sh","/tmp/fleet.component.wasm"]`},
+		// The tapes are the discovered worlds' own: identity and reader, not promote.
+		[]string{"withExec", `expect:ANY`, `args:["/tmp/replay-target/release/replay","/tmp/fleet.component.wasm","tests/tapes/identity.json","tests/tapes/reader.json"]`},
+	)
+	if strings.Contains(c, "promote.json") {
+		t.Errorf("a tape no world names is not replayed:\n%s", c)
+	}
+	at := func(needle string) int { return strings.Index(c, needle) }
+	for _, p := range [][2]string{{`"wac","--version"`, composeBuildHost}, {composeBuildHost, composeRun}, {composeRun, composeReplay}} {
+		if !(at(p[0]) >= 0 && at(p[0]) < at(p[1])) {
+			t.Errorf("%s must come before %s:\n%s", p[0], p[1], c)
+		}
+	}
+	if strings.Contains(c, "GATE_BASE") {
+		t.Errorf("rule 8: rust:wit-compose must not read GATE_BASE:\n%s", c)
+	}
+	for _, u := range []string{checks.WasmToolsURL, checks.WacURL} {
+		if engine.chain(`http(url:"`+u+`")`, "id") == "" {
+			t.Errorf("the pinned tool %s was not fetched:\n%v", u, engine.chains())
+		}
+	}
+}
+
+func TestRustWitComposeMapsEachStepsExitAndStops(t *testing.T) {
+	steps := []struct{ name, needle, next string }{
+		{"replay host", composeBuildHost, composeRun},
+		{"compose", composeRun, composeReplay},
+		{"replay", composeReplay, ""},
+	}
+	for _, s := range steps {
+		t.Run(s.name, func(t *testing.T) {
+			engine.reset()
+			engine.withTree(witComposeTree(nil))
+			engine.exitCode(s.needle, 1)
+			v := runAtom(t, "rust:wit-compose", "")
+			wantState(t, v, 1, "["+s.name+"]")
+			if len(v.Logs) == 0 || !strings.Contains(v.Logs[0], s.name) {
+				t.Errorf("first log line names the step, got %q", v.Logs)
+			}
+			if s.next != "" && engine.chain(s.next) != "" {
+				t.Errorf("%s failed and %s ran anyway:\n%v", s.name, s.next, engine.chains())
+			}
+
+			engine.reset()
+			engine.withTree(witComposeTree(nil))
+			engine.exitCode(s.needle, 137)
+			wantState(t, runAtom(t, "rust:wit-compose", ""), 2)
+		})
+	}
+}
+
+func TestRustWitComposeRefusalsAreCouldNotRuns(t *testing.T) {
+	engine.reset()
+	engine.withTree(map[string]string{"Cargo.toml": witTwoWorlds, "tools/compose/compose.sh": "", "tools/replay/Cargo.toml": "", "tests/tapes/promote.json": ""})
+	wantState(t, runAtom(t, "rust:wit-compose", ""), 2, "CANNOT RUN", "answer nothing")
+
+	engine.reset()
+	engine.withTree(witComposeTree(nil))
+	engine.fail(`glob(pattern:"tests/tapes/*.json")`, "the tree went away")
+	wantState(t, runAtom(t, "rust:wit-compose", ""), 2, "the tree would not enumerate")
+
+	engine.reset()
+	engine.withTree(witComposeTree(nil))
+	engine.fail("bytecodealliance/wac/releases", "404")
+	wantState(t, runAtom(t, "rust:wit-compose", ""), 2, "CANNOT RUN", "could not fetch", "never built is not one that passed")
+
+	engine.reset()
+	engine.withTree(witComposeTree(nil))
+	engine.fail("bytecodealliance/wasm-tools/releases", "404")
+	wantState(t, runAtom(t, "rust:wit-compose", ""), 2, "CANNOT RUN", "could not fetch")
+
+	engine.reset()
+	engine.withTree(witComposeTree(nil))
+	engine.fail(`file(path:"Cargo.toml")`, "read refused")
+	wantState(t, runAtom(t, "rust:wit-compose", ""), 2, "Cargo.toml would not read", "read refused")
+}

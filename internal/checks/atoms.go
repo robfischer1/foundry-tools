@@ -412,6 +412,11 @@ func atomTable() []AtomDef {
 			Desc:          "Each wit-guest-<world> feature (discovered from Cargo.toml) builds for wasm32-unknown-unknown, lifts to a component that validates, and passes its native cargo test; absent where the manifest declares none.",
 			NeedsManifest: true,
 		},
+		{
+			ID: "rust:wit-compose", Stage: StagePrepush, Lane: LaneRust, Image: ImageRust,
+			Desc:          "Every wit-guest world composes into one valid component through tools/compose/compose.sh, and every tests/tapes/<world>.json replays through it with the native core's answers; absent where the tree carries no composer or replay host.",
+			NeedsManifest: true,
+		},
 
 		// ---- ts ----
 		{

@@ -67,6 +67,23 @@ const (
 	JustURL     = "https://github.com/casey/just/releases/download/1.58.0/just-1.58.0-x86_64-unknown-linux-musl.tar.gz"
 	// JustMember is the binary inside that tarball (it sits at the root).
 	JustMember = "just"
+
+	// WacVersion / WacURL fetch `wac`, the composer tools/compose/compose.sh
+	// drives. The release asset is the bare static binary (no tarball), so the
+	// atom places the file itself. The pin is the one compose.sh's header was
+	// verified against (faraday37-038), with wasm-tools 1.261.0.
+	// renovate: datasource=github-releases depName=bytecodealliance/wac
+	WacVersion = "0.12.0"
+	WacURL     = "https://github.com/bytecodealliance/wac/releases/download/v0.12.0/wac-cli-x86_64-unknown-linux-musl"
+
+	// WitComposeScript / WitReplayManifest are the two files rust:wit-compose
+	// needs the tree to track; WitComposedPath is where the composition lands
+	// and WitReplayTargetDir where the replay host builds, apart from the
+	// guest's own target dir.
+	WitComposeScript   = "tools/compose/compose.sh"
+	WitReplayManifest  = "tools/replay/Cargo.toml"
+	WitComposedPath    = "/tmp/fleet.component.wasm"
+	WitReplayTargetDir = "/tmp/replay-target"
 )
 
 var (
@@ -169,4 +186,22 @@ func WitGuestWorlds(cargoToml string) []string {
 		return []string{WitGuestAlias}
 	}
 	return worlds
+}
+
+// WitComposeTapes answers the tapes rust:wit-compose replays, in world order:
+// tests/tapes/<world>.json for each world the manifest declares that the tree
+// carries one for. The bare alias names a world already named by its own
+// feature, so it is not a tape of its own.
+func WitComposeTapes(cargoToml string, files []string) []string {
+	var tapes []string
+	for _, feature := range WitGuestWorlds(cargoToml) {
+		world := strings.TrimPrefix(feature, WitGuestPrefix)
+		if feature == WitGuestAlias {
+			continue
+		}
+		if tape := "tests/tapes/" + world + ".json"; slices.Contains(files, tape) {
+			tapes = append(tapes, tape)
+		}
+	}
+	return tapes
 }
