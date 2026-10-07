@@ -73,7 +73,7 @@ type RegenProv struct {
 func ParseRegenProv(body string) (RegenProv, error) {
 	var p RegenProv
 	if err := json.Unmarshal([]byte(body), &p); err != nil {
-		return p, fmt.Errorf("provenance.json is not JSON: %v", err)
+		return RegenProv{}, fmt.Errorf("provenance.json is not JSON: %v", err)
 	}
 	for _, f := range []struct{ name, v string }{
 		{"wit.path", p.WIT.Path}, {"wit.sha256", p.WIT.SHA256},
@@ -83,7 +83,7 @@ func ParseRegenProv(body string) (RegenProv, error) {
 		{"guest_wasm.sha256", p.GuestWasm.SHA256}, {"component_wasm.sha256", p.ComponentWasm.SHA256},
 	} {
 		if f.v == "" {
-			return p, fmt.Errorf("provenance.json pins no %s", f.name)
+			return RegenProv{}, fmt.Errorf("provenance.json pins no %s", f.name)
 		}
 	}
 	commits := []struct{ name, v string }{
@@ -92,12 +92,12 @@ func ParseRegenProv(body string) (RegenProv, error) {
 	if p.WITResult != nil {
 		commits = append(commits, struct{ name, v string }{"wit_result.commit", p.WITResult.Commit})
 		if p.WITResult.Path == "" || p.WITResult.SHA256 == "" {
-			return p, fmt.Errorf("provenance.json's wit_result pins no path or sha256")
+			return RegenProv{}, fmt.Errorf("provenance.json's wit_result pins no path or sha256")
 		}
 	}
 	for _, c := range commits {
 		if !regenCommitR.MatchString(c.v) {
-			return p, fmt.Errorf("provenance.json's %s is %q, not a 40-hex commit", c.name, c.v)
+			return RegenProv{}, fmt.Errorf("provenance.json's %s is %q, not a 40-hex commit", c.name, c.v)
 		}
 	}
 	return p, nil

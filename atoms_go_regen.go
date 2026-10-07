@@ -50,11 +50,11 @@ func (r *run) withGravityRegen(ctx context.Context, ctr *dagger.Container) (*dag
 		files[p] = body
 	}
 	if err := errors.Join(perr, terr, rerr); err != nil {
-		return ctr, "", fmt.Errorf("%w: %v", errGravityRead, err)
+		return nil, "", fmt.Errorf("%w: %v", errGravityRead, err)
 	}
 	plan, err := checks.PlanGravity(files, tests)
 	if err != nil {
-		return ctr, "", err
+		return nil, "", err
 	}
 	if len(plan.Regens) == 0 {
 		return ctr, plan.Scope, nil

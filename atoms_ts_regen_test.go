@@ -176,3 +176,50 @@ func TestTSRegenRunsEveryWorldTheRecipeNames(t *testing.T) {
 	v := runAtom(t, "ts:regen", "")
 	wantState(t, v, 1, "regen-check(stamp): ok", "regen-check(fade): FAIL: no src/fadecore-gen/provenance.json")
 }
+
+func TestTSRegenWorldSaysPassOnlyWhenEveryPinAndFileHolds(t *testing.T) {
+	regenFixture("stamp")
+	res := newRun(dag.Directory(), "", "").regenWorld(t.Context(), "stamp")
+	if res.Err != "" || len(res.Problems) != 0 || len(res.Lines) != 11 ||
+		res.Lines[10] != "PASS - 10 pins held and every generated file byte-identical to src/stampcore-gen" {
+		t.Fatalf("%+v", res)
+	}
+
+	// A pin that moved is a failure and says nothing of passing, even though the
+	// bytes on disk match what was regenerated.
+	engine.contents(`rustc.version`, "rustc 1.91.0\n")
+	res = newRun(dag.Directory(), "", "").regenWorld(t.Context(), "stamp")
+	for _, l := range res.Lines {
+		if strings.HasPrefix(l, "PASS") {
+			t.Errorf("a world with a moved pin passed: %+v", res)
+		}
+	}
+	if len(res.Problems) != 1 || !strings.HasPrefix(res.Problems[0], "rustc: got rustc 1.91.0") {
+		t.Fatalf("%+v", res)
+	}
+
+	// And both a moved pin and a differing file are reported, not just one.
+	engine.exitCode(`"diff","-r"`, 1)
+	res = newRun(dag.Directory(), "", "").regenWorld(t.Context(), "stamp")
+	if len(res.Problems) != 2 || !strings.HasPrefix(res.Problems[1], "regenerated output differs") {
+		t.Fatalf("%+v", res)
+	}
+}
+
+func TestTSRegenHoldsTheCoresOwnCopyOfTheWitToThePin(t *testing.T) {
+	regenFixture("stamp")
+	// Only the read of the core's checkout answers differently.
+	engine.contents(`discardGitDir:true){file(path:"wit/aiws-result.wit")`, "a drifted result wit")
+	engine.contents(`discardGitDir:true){file(path:"wit/aiws-stamp.wit")`, "a drifted stamp wit")
+	wantState(t, runAtom(t, "ts:regen", ""), 1,
+		"FAIL: core wit/aiws-result.wit (guest's own copy): got "+checks.SHA256Hex("a drifted result wit"),
+		"FAIL: core wit/aiws-stamp.wit (guest's own copy): got "+checks.SHA256Hex("a drifted stamp wit"),
+		"ok  wit wit/aiws-stamp.wit@"+rgCommit)
+}
+
+func TestTSRegenReportsEveryReadThatFailed(t *testing.T) {
+	regenFixture("stamp")
+	engine.failLeaf(`wasm-tools.version`, "contents", "first gone")
+	engine.failLeaf(`rustc.version`, "contents", "second gone")
+	wantState(t, runAtom(t, "ts:regen", ""), 2, "the build's wasm-tools.version", "the build's rustc.version")
+}

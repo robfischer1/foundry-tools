@@ -68,9 +68,9 @@ func tsRegen(ctx context.Context, r *run) checks.Verdict {
 	return checks.VerdictOf(a, code, out)
 }
 
-// reads collects the first error of a run of reads. Every read below is lazy
+// reads collects the errors of a run of reads. Every read below is lazy
 // until it is made, and none depends on another's answer, so they are all made
-// and the error is looked at once.
+// and the errors are looked at once.
 type reads struct {
 	ctx context.Context
 	err error
@@ -78,8 +78,8 @@ type reads struct {
 
 func (rd *reads) text(f *dagger.File, what string) string {
 	s, err := f.Contents(rd.ctx)
-	if err != nil && rd.err == nil {
-		rd.err = fmt.Errorf("%s: %v", what, err)
+	if err != nil {
+		rd.err = errors.Join(rd.err, fmt.Errorf("%s: %v", what, err))
 	}
 	return s
 }
@@ -168,9 +168,10 @@ func (r *run) regenWorld(ctx context.Context, world string) checks.RegenWorldRes
 		checks.RegenProbe{Label: "rustc", Got: strings.TrimSpace(rustc), Pinned: p.Core.Toolchain},
 		checks.RegenProbe{Label: "jco", Got: strings.TrimSpace(jco), Pinned: p.Tools.JCO})
 	res.Lines, res.Problems = checks.RegenCompare(probes)
-	if code != 0 {
+	switch {
+	case code != 0:
 		res.Problems = append(res.Problems, "regenerated output differs from "+gen+":\n"+diff)
-	} else {
+	case len(res.Problems) == 0:
 		res.Lines = append(res.Lines, fmt.Sprintf("PASS - %d pins held and every generated file byte-identical to %s", len(probes), gen))
 	}
 	return res
@@ -190,8 +191,8 @@ func wasmSums(ctx context.Context, files map[string]*dagger.File) (map[string]st
 		args = append(args, "/f/"+n)
 	}
 	out, code, err := output(ctx, ctr.WithExec(args, anyExit))
-	if err == nil && code != 0 {
-		err = fmt.Errorf("sha256sum exited %d: %s", code, out)
+	if code != 0 {
+		return nil, fmt.Errorf("sha256sum exited %d: %s", code, out)
 	}
 	if err != nil {
 		return nil, err
