@@ -180,9 +180,12 @@ func goTestIn(ctx context.Context, r *run, a checks.AtomDef, dir string, race bo
 	// THE REGEN TESTS RUN INSTEAD OF SKIPPING where the tree has packages
 	// gravity generated (atoms_go_regen.go): a stale regeneration is a finding,
 	// not just a hand edit.
-	mods, regen, bad := r.withGravityRegen(ctx, mods)
-	if bad != "" {
-		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - "+bad)
+	mods, regen, err := r.withGravityRegen(ctx, mods)
+	if errors.Is(err, errGravityRead) {
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+err.Error())
+	}
+	if err != nil {
+		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - "+err.Error())
 	}
 	args := []string{"go", "test"}
 	scope := "unit suite: no race detector and no database — go:test-race runs those at the push"

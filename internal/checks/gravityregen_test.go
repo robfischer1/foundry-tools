@@ -19,6 +19,13 @@ func TestRegenEnvIsTheDirectoryUpperCased(t *testing.T) {
 		"internal/fade": "FADE_REGEN_REQUIRED",
 		"a-b.c9":        "A_B_C9_REGEN_REQUIRED",
 		"Zeta":          "ZETA_REGEN_REQUIRED",
+		"az":            "AZ_REGEN_REQUIRED",
+		"a09z":          "A09Z_REGEN_REQUIRED",
+		"a@a":           "A_A_REGEN_REQUIRED",
+		"a[a":           "A_A_REGEN_REQUIRED",
+		"a:a":           "A_A_REGEN_REQUIRED",
+		"a`a":           "A_A_REGEN_REQUIRED",
+		"a{a":           "A_A_REGEN_REQUIRED",
 	}
 	for dir, want := range cases {
 		if got := RegenEnv(dir); got != want {

@@ -2,7 +2,8 @@ package main
 
 import (
 	"context"
-	"path"
+	"errors"
+	"fmt"
 
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
@@ -31,41 +32,38 @@ import (
 //
 // A tree with no gravity-generated package is returned untouched and the scope
 // line says so, so a Go star outside this pays nothing and changes nothing.
-// A second return is non-empty when the tree's provenance cannot be honoured;
-// the caller files it as a finding.
-func (r *run) withGravityRegen(ctx context.Context, ctr *dagger.Container) (*dagger.Container, string, string) {
-	paths, err := r.src.Glob(ctx, "**/provenance.json")
-	if err != nil {
-		return ctr, "", "the tree's provenance.json files could not be listed: " + err.Error()
-	}
+// The error is either a tree whose provenance cannot be honoured, which the
+// caller files as a finding, or errGravityRead, the engine failing to show the
+// tree, which is a could-not-run.
+// errGravityRead marks a failure to read the tree, as opposed to a tree that
+// reads and says something unusable.
+var errGravityRead = errors.New("the tree's provenance could not be read")
+
+func (r *run) withGravityRegen(ctx context.Context, ctr *dagger.Container) (*dagger.Container, string, error) {
+	paths, perr := r.src.Glob(ctx, "**/provenance.json")
+	tests, terr := r.src.Glob(ctx, "**/"+checks.RegenTestFile)
 	files := map[string]string{}
+	var rerr error
 	for _, p := range paths {
-		body, ok, err := fileIfPresent(ctx, r.src, p)
-		if err != nil || !ok {
-			return ctr, "", "could not read " + p
-		}
-		files[path.Clean(p)] = body
+		body, _, err := fileIfPresent(ctx, r.src, p)
+		rerr = errors.Join(rerr, err)
+		files[p] = body
 	}
-	tests, err := r.src.Glob(ctx, "**/"+checks.RegenTestFile)
+	if err := errors.Join(perr, terr, rerr); err != nil {
+		return ctr, "", fmt.Errorf("%w: %v", errGravityRead, err)
+	}
+	plan, err := checks.PlanGravity(files, tests)
 	if err != nil {
-		return ctr, "", "the tree's regen tests could not be listed: " + err.Error()
+		return ctr, "", err
 	}
-	regens, err := checks.GravityRegens(files, tests)
-	if err != nil {
-		return ctr, "", err.Error()
+	if len(plan.Regens) == 0 {
+		return ctr, plan.Scope, nil
 	}
-	rev, err := checks.GravityRev(regens)
-	if err != nil {
-		return ctr, "", err.Error()
-	}
-	if len(regens) == 0 {
-		return ctr, checks.GravityScope(nil, ""), ""
-	}
-	ctr = ctr.WithFile("/usr/local/bin/gravity", gravityAt(rev), dagger.ContainerWithFileOpts{Permissions: 0o755})
-	for _, g := range regens {
+	ctr = ctr.WithFile("/usr/local/bin/gravity", gravityAt(plan.Rev), dagger.ContainerWithFileOpts{Permissions: 0o755})
+	for _, g := range plan.Regens {
 		ctr = ctr.WithEnvVariable(g.Env, "1")
 	}
-	return ctr, checks.GravityScope(regens, rev), ""
+	return ctr, plan.Scope, nil
 }
 
 // gravityAt builds the gravity binary at one commit of the fleet's fork.

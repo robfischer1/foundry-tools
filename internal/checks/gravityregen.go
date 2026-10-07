@@ -137,3 +137,26 @@ func GravityScope(rs []GravityRegen, rev string) string {
 	}
 	return fmt.Sprintf("regen: gravity %s staged on PATH; %s=1 makes a missing generator a failure, not a skip", rev, strings.Join(envs, "=1, "))
 }
+
+// GravityPlan is the whole decision for a tree: which packages, which one
+// gravity commit, and the scope line. An error is a tree whose provenance
+// cannot be honoured, and the atom files it as a finding.
+type GravityPlan struct {
+	Regens []GravityRegen
+	Rev    string
+	Scope  string
+}
+
+// PlanGravity reads the tree's provenance.json files and regen tests into a
+// plan (GravityRegens, GravityRev, GravityScope).
+func PlanGravity(files map[string]string, regenTests []string) (GravityPlan, error) {
+	regens, err := GravityRegens(files, regenTests)
+	if err != nil {
+		return GravityPlan{}, err
+	}
+	rev, err := GravityRev(regens)
+	if err != nil {
+		return GravityPlan{}, err
+	}
+	return GravityPlan{Regens: regens, Rev: rev, Scope: GravityScope(regens, rev)}, nil
+}
