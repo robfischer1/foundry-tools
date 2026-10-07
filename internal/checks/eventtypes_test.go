@@ -263,3 +263,298 @@ func TestCommentsNeitherConsumeNorEmit(t *testing.T) {
 		t.Errorf("comments were read: consumed %v emitted %v", consumed, emitted)
 	}
 }
+
+func TestEventSourceExtTable(t *testing.T) {
+	for p, want := range map[string]bool{
+		"a.go": true, "a.py": true, "a.ts": true, "a.tsx": true, "a.js": true, "a.mjs": true, "a.sh": true,
+		"a.rs": true, "a.sql": true, "a.json": true, "skills/x/x.md": true,
+		"a.txt": false, "a.yaml": false, "Makefile": false,
+		"vendor/a.go": false, "node_modules/a.js": false, "testdata/a.go": false, "test/a.go": false, "tests/a.py": false,
+		"fixtures/a.json": false, "fixture/a.json": false, "dist/a.js": false, "target/a.rs": false,
+		"__pycache__/a.py": false, "specs/a.md": false, "docs/a.md": false, "Docs/a.md": false,
+		"a_test.go": false, "test_a.py": false, "a.test.ts": false, "a.spec.ts": false, "a.d.ts": false,
+		"internal/latest.go": true, "internal/contest/a.go": true, "src/testing.py": true,
+	} {
+		if got := EventSourceExt(p); got != want {
+			t.Errorf("EventSourceExt(%q) = %v, want %v", p, got, want)
+		}
+	}
+}
+
+func TestStripLineCommentsByLanguage(t *testing.T) {
+	for _, tc := range []struct{ file, body, want string }{
+		{"a.py", "# gone\nkeep\n  # gone too\n", "\nkeep\n\n"},
+		{"a.sh", "# gone\nkeep", "\nkeep"},
+		{"a.sql", "-- gone\nkeep # not a comment here\n", "\nkeep # not a comment here\n"},
+		{"a.json", "# kept\n// kept\n", "# kept\n// kept\n"},
+		{"a.go", "// gone\n/* gone\n * gone\nkeep # x\n", "\n\n\nkeep # x\n"},
+		{"a.ts", "// gone\nkeep\n", "\nkeep\n"},
+		{"a.rs", "// gone\nkeep // trailing stays\n", "\nkeep // trailing stays\n"},
+	} {
+		if got := stripLineComments(tc.file, tc.body); got != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.file, got, tc.want)
+		}
+	}
+}
+
+func TestEventTypeUsesIsDedupedPerFileAndSortedByPath(t *testing.T) {
+	files := map[string]string{
+		"z.py": "emit({'event_type': 'one'})\nemit({'event_type': 'one'})\nif e['event_type'] == 'two': pass\nif e['event_type'] == 'two': pass\n",
+		"a.py": "emit({'event_type': 'one'})\nif e['event_type'] == 'two': pass\n",
+	}
+	consumed, emitted := EventTypeUses(files)
+	wantE := []EventSite{{"one", "a.py"}, {"one", "z.py"}}
+	wantC := []EventSite{{"two", "a.py"}, {"two", "z.py"}}
+	if len(emitted) != 2 || emitted[0] != wantE[0] || emitted[1] != wantE[1] {
+		t.Errorf("emitted %v, want %v", emitted, wantE)
+	}
+	if len(consumed) != 2 || consumed[0] != wantC[0] || consumed[1] != wantC[1] {
+		t.Errorf("consumed %v, want %v", consumed, wantC)
+	}
+}
+
+func TestEventTypeConstantsResolveAcrossFilesAndSkipIgnoredOnes(t *testing.T) {
+	files := map[string]string{
+		"consts.go":   "package c\nconst (\n\tEvCommit = \"via_const\"\n)\nconst evOther string = \"typed_const\"\nvar evVar = \"var_const\"\n",
+		"use.go":      "package u\nvar a = E{EventType: pkg.EvCommit}\nvar b = E{EventType: evOther}\nvar c = E{EventType: evVar}\nvar d = E{EventType: unknownName}\n",
+		"vendor/c.go": "package v\nconst Ghost = \"ghost_const\"\n",
+		"use2.go":     "package u\nvar a = E{EventType: Ghost}\n",
+		"multi.py":    "A = \"first\"\nA = \"second\"\nemit(event_type=A)\n",
+	}
+	_, emitted := EventTypeUses(files)
+	got := types(emitted)
+	want := []string{"first", "second", "typed_const", "var_const", "via_const"}
+	if !same(got, want) {
+		t.Errorf("got %v want %v", got, want)
+	}
+}
+
+func TestEverySQLFilterShapeIsAFilterNotAnEmitter(t *testing.T) {
+	for _, line := range []string{
+		"SELECT * FROM t WHERE event_type: 'x'",
+		"WHERE event_type = 'x'",
+		"  AND event_type = 'x'",
+		"SELECT event_type: 'x'",
+		"  FROM event_type: 'x'",
+	} {
+		files := map[string]string{"q.py": "q = \"\"\"\n" + line + "\n\"\"\"\n"}
+		_, emitted := EventTypeUses(files)
+		for _, e := range emitted {
+			t.Errorf("%q emitted %v", line, e)
+		}
+	}
+	_, emitted := EventTypeUses(map[string]string{"q.py": "where_event = {'event_type': 'plain'}\n"})
+	if len(emitted) != 1 {
+		t.Errorf("a plain dict is an emitter: %v", emitted)
+	}
+}
+
+func TestSetConstantsForms(t *testing.T) {
+	for _, tc := range []struct {
+		body, name string
+		want       []string
+	}{
+		{"SET = {'a', 'b'}", "SET", []string{"a", "b"}},
+		{"SET = ('a', 'b')", "SET", []string{"a", "b"}},
+		{"SET = ['a']", "SET", []string{"a"}},
+		{"SET = frozenset({'a', \"b\"})", "SET", []string{"a", "b"}},
+		{"SET: Set[str] = {'a'}", "SET", []string{"a"}},
+		{"var set = []string{\"x\", \"y\"}", "set", []string{"x", "y"}},
+		{"OTHER = {'a'}", "SET", nil},
+		{"SETS = {'a'}", "SET", nil},
+	} {
+		if got := setConstants(tc.body, tc.name); !same(got, tc.want) {
+			t.Errorf("%q: got %v want %v", tc.body, got, tc.want)
+		}
+	}
+}
+
+func TestMarkdownEmitsOnlyThroughACall(t *testing.T) {
+	files := map[string]string{
+		"skill.md": "A bare event_type=\"prose_only\" is not an emitter. Call fleet_emit(\n  scope=\"x\", event_type: \"multi_line\") and tartarus_emit(event_type=\"another\").\n// event_type == \"consumer_in_md\"\n",
+	}
+	consumed, emitted := EventTypeUses(files)
+	if got := types(emitted); !same(got, []string{"another", "multi_line"}) {
+		t.Errorf("emitted %v", got)
+	}
+	if len(consumed) != 0 {
+		t.Errorf("markdown consumes nothing: %v", consumed)
+	}
+}
+
+func TestEventTypeCaseAndSpellings(t *testing.T) {
+	files := map[string]string{
+		"a.ts":  "if (e.eventType === 'ts_cmp') {}\nif (e.event_type !== \"ts_neq\") {}\nconst x = { event_type: 'ts_emit' }\nconst y = { EventType := 'go_def' }\n",
+		"b.sql": "SELECT 1 WHERE event_type NOT IN ('n1', 'n2') AND event_type <> 'n3' AND event_type != 'n4'\n",
+	}
+	consumed, emitted := EventTypeUses(files)
+	if got := types(consumed); !same(got, []string{"n1", "n2", "n3", "n4", "ts_cmp", "ts_neq"}) {
+		t.Errorf("consumed %v", got)
+	}
+	if got := types(emitted); !same(got, []string{"go_def", "ts_emit"}) {
+		t.Errorf("emitted %v", got)
+	}
+}
+
+func TestDoorGetJSON(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		switch r.URL.Path {
+		case "/ok":
+			_, _ = w.Write([]byte(`{"owner":"rob"}`))
+		case "/bad":
+			_, _ = w.Write([]byte(`not json`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	var out fleetRepos
+	// Client nil: the door builds its own bounded client.
+	d := Door{Base: srv.URL + "/"}
+	if err := d.getJSON(context.Background(), "/ok", nil, &out); err != nil || out.Owner != "rob" || gotQuery != "" {
+		t.Errorf("ok: %v %+v query=%q", err, out, gotQuery)
+	}
+	if err := d.getJSON(context.Background(), "/ok", map[string][]string{"repo": {"a/b"}}, &out); err != nil || gotQuery != "repo=a%2Fb" {
+		t.Errorf("query: %v %q", err, gotQuery)
+	}
+	if err := d.getJSON(context.Background(), "/bad", nil, &out); err == nil {
+		t.Error("a body that is not JSON must be an error")
+	}
+	if err := d.getJSON(context.Background(), "/missing", nil, &out); err == nil || !strings.Contains(err.Error(), "HTTP 404") {
+		t.Errorf("404: %v", err)
+	}
+	if err := (Door{Base: "http://bad host"}).getJSON(context.Background(), "/", nil, &out); err == nil {
+		t.Error("an unparseable address must be an error")
+	}
+	srv.Close()
+	if err := d.getJSON(context.Background(), "/ok", nil, &out); err == nil {
+		t.Error("a dead door must be an error")
+	}
+}
+
+func TestFleetEmittersSkipRulesAndEarlyStop(t *testing.T) {
+	big := strings.Repeat("x", EventScanMaxBytes+1)
+	fleet := map[string]map[string]string{
+		"rob/a-self":  {"e.py": `emit({"event_type": "from_self_like"})`},
+		"rob/self":    {"e.py": `emit({"event_type": "from_self"})`},
+		"other/self":  {"e.py": `emit({"event_type": "from_other_self"})`},
+		"rob/skipped": {"empty.py": "", "big.py": big + `emit({"event_type": "from_big"})`, "doc.txt": `emit({"event_type": "from_txt"})`},
+		"rob/real":    {"e.py": `emit({"event_type": "from_real"})`},
+	}
+	var asked int
+	door := fleetDoor(t, fleet, &asked)
+	found, err := FleetEmitters(context.Background(), door, "self", []string{"from_self_like", "from_self", "from_other_self", "from_big", "from_txt", "from_real"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found["from_self_like"] != "rob/a-self:e.py" || found["from_real"] != "rob/real:e.py" {
+		t.Errorf("a repo whose name merely ends like self is scanned: %v", found)
+	}
+	for _, k := range []string{"from_self", "from_other_self", "from_big", "from_txt"} {
+		if found[k] != "" {
+			t.Errorf("%s must not be found: %v", k, found)
+		}
+	}
+	if asked != 2 {
+		t.Errorf("only the two real files are fetched, asked %d", asked)
+	}
+
+	// Symlinks and submodules are never fetched.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/custody/repos":
+			_, _ = w.Write([]byte(`{"repos":["rob/m"]}`))
+		case "/tree":
+			_, _ = w.Write([]byte(`{"entries":[{"path":"l.py","mode":"0120000","size":10},{"path":"s.py","mode":"0160000","size":10}]}`))
+		default:
+			t.Errorf("fetched %s", r.URL)
+		}
+	}))
+	defer srv.Close()
+	if found, err := FleetEmitters(context.Background(), Door{Base: srv.URL, Client: srv.Client()}, "", []string{"x"}); err != nil || len(found) != 0 {
+		t.Errorf("symlink/submodule: %v %v", found, err)
+	}
+}
+
+func TestFleetEmittersStopsDispatchingOnceSatisfied(t *testing.T) {
+	files := map[string]string{}
+	for i := 0; i < 400; i++ {
+		files["f"+string(rune('a'+i/26/26%26))+string(rune('a'+i/26%26))+string(rune('a'+i%26))+".py"] = `emit({"event_type": "t"})`
+	}
+	var asked int
+	door := fleetDoor(t, map[string]map[string]string{"rob/a": files}, &asked)
+	found, err := FleetEmitters(context.Background(), door, "", []string{"t"})
+	if err != nil || found["t"] == "" {
+		t.Fatalf("%v %v", found, err)
+	}
+	if asked >= 400 {
+		t.Errorf("all %d files were fetched; the scan must stop once every type is found", asked)
+	}
+}
+
+func TestFleetEmittersReportsATreeAndAFileThatWillNotAnswer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/custody/repos":
+			_, _ = w.Write([]byte(`{"repos":["rob/a","rob/b"]}`))
+		case "/tree":
+			if r.URL.Query().Get("repo") == "rob/b" {
+				http.Error(w, "boom", http.StatusInternalServerError)
+				return
+			}
+			_, _ = w.Write([]byte(`{"entries":[{"path":"a.py","mode":"0100644","size":5}]}`))
+		case "/archive":
+			_, _ = w.Write([]byte(`x = 1`))
+		}
+	}))
+	defer srv.Close()
+	_, err := FleetEmitters(context.Background(), Door{Base: srv.URL, Client: srv.Client()}, "", []string{"t"})
+	if err == nil || !strings.Contains(err.Error(), "the tree of rob/b") {
+		t.Errorf("want the tree named, got %v", err)
+	}
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/custody/repos":
+			_, _ = w.Write([]byte(`{"repos":["rob/a"]}`))
+		case "/tree":
+			_, _ = w.Write([]byte(`{"entries":[{"path":"a.py","mode":"0100644","size":5}]}`))
+		default:
+			http.Error(w, "gone", http.StatusServiceUnavailable)
+		}
+	}))
+	srv2.Close()
+	if _, err := FleetEmitters(context.Background(), Door{Base: srv2.URL, Client: srv2.Client()}, "", []string{"t"}); err == nil {
+		t.Error("a dead door is an error")
+	}
+}
+
+func TestConsumedEventsEmittedSortsTypesAndListsThreeSites(t *testing.T) {
+	files := map[string]string{
+		"a.py": "if e['event_type'] == 'zz': pass\nif e['event_type'] == 'aa': pass\n",
+		"b.py": "if e['event_type'] == 'zz': pass\n",
+		"c.py": "if e['event_type'] == 'zz': pass\n",
+		"d.py": "if e['event_type'] == 'zz': pass\n",
+	}
+	var wanted []string
+	state, report := ConsumedEventsEmitted(context.Background(), files, func(_ context.Context, need []string) (map[string]string, error) {
+		wanted = need
+		return map[string]string{}, nil
+	})
+	if state != 1 || !same(wanted, []string{"aa", "zz"}) {
+		t.Fatalf("state %d wanted %v", state, wanted)
+	}
+	if strings.Index(report, "'aa'") > strings.Index(report, "'zz'") {
+		t.Errorf("types are reported in order:\n%s", report)
+	}
+	if !strings.Contains(report, "(a.py, b.py, c.py, +1 more)") {
+		t.Errorf("three sites then a count:\n%s", report)
+	}
+	state, report = ConsumedEventsEmitted(context.Background(), files, func(_ context.Context, need []string) (map[string]string, error) {
+		return map[string]string{"zz": "x"}, nil
+	})
+	if state != 1 || strings.Contains(report, "'zz'") || !strings.Contains(report, "'aa'") {
+		t.Errorf("only the unemitted type is a finding: %d\n%s", state, report)
+	}
+}

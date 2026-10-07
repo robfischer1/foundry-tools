@@ -747,13 +747,7 @@ func fleetNodeKindsDeclared(ctx context.Context, r *run) checks.Verdict {
 	if err != nil {
 		return cannotEnumerate(a, err)
 	}
-	var wanted []string
-	for _, p := range paths {
-		if !strings.HasSuffix(p, "_test.go") {
-			wanted = append(wanted, p)
-		}
-	}
-	files, bad := readOK(readFiles(ctx, r.src, wanted))
+	files, bad := readOK(readFiles(ctx, r.src, paths))
 	if bad != "" {
 		return checks.VerdictOf(a, 2, "fleet:node-kinds-declared: CANNOT RUN - "+bad)
 	}

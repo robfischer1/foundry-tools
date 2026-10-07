@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -327,37 +326,34 @@ func FleetEmitters(ctx context.Context, door Door, self string, wanted []string)
 	}
 	found := map[string]string{}
 	var mu sync.Mutex
-	var left atomic.Int64
-	left.Store(int64(len(want)))
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	satisfied := func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(found) == len(want)
+	}
 
 	var g errgroup.Group
 	g.SetLimit(16)
+repos:
 	for _, repo := range repos.Repos {
-		if strings.HasPrefix(repo, "forge-archives/") || repo == self || strings.HasSuffix(repo, "/"+self) {
+		if strings.HasPrefix(repo, "forge-archives/") || strings.HasSuffix("/"+repo, "/"+self) {
 			continue
 		}
 		var tree treeEntries
 		if err := door.getJSON(ctx, "/tree", url.Values{"repo": {repo}}, &tree); err != nil {
-			if ctx.Err() != nil {
-				break
-			}
-			return nil, fmt.Errorf("the tree of %s: %w", repo, err)
+			_ = g.Wait()
+			return found, fmt.Errorf("the tree of %s: %w", repo, err)
 		}
 		for _, e := range tree.Entries {
+			if satisfied() {
+				break repos
+			}
 			if e.Size == 0 || e.Size > EventScanMaxBytes || !EventSourceExt(e.Path) || e.Mode == "0120000" || e.Mode == "0160000" {
 				continue
 			}
 			g.Go(func() error {
-				if ctx.Err() != nil || left.Load() == 0 {
-					return nil
-				}
 				status, body, err := door.Get(ctx, repo, e.Path)
 				if err != nil {
-					if ctx.Err() != nil {
-						return nil
-					}
 					return fmt.Errorf("%s %s: %w", repo, e.Path, err)
 				}
 				if status != http.StatusOK {
@@ -365,24 +361,17 @@ func FleetEmitters(ctx context.Context, door Door, self string, wanted []string)
 				}
 				_, emitted := EventTypeUses(map[string]string{e.Path: string(body)})
 				mu.Lock()
+				defer mu.Unlock()
 				for _, s := range emitted {
 					if want[s.Type] && found[s.Type] == "" {
 						found[s.Type] = repo + ":" + e.Path
-						if left.Add(-1) == 0 {
-							cancel()
-						}
 					}
 				}
-				mu.Unlock()
 				return nil
 			})
 		}
 	}
-	err := g.Wait()
-	if left.Load() == 0 {
-		return found, nil
-	}
-	return found, err
+	return found, g.Wait()
 }
 
 // ConsumedEventsEmitted judges one tree. consumed and emitted are the tree's

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"sort"
 	"strings"
@@ -1431,4 +1432,76 @@ func TestFleetConsumedEventsEmittedIsQuietOnATreeThatConsumesNothing(t *testing.
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	wantReport(t, runAtom(t, "fleet:consumed-events-emitted", ""), 0, "consumes no literal event_type")
+}
+
+func TestFleetNodeKindsDeclaredCannotRunWhenAFileWillNotRead(t *testing.T) {
+	engine.reset()
+	engine.withTree(fleetTree(map[string]string{
+		"a.go": "package a\n", "b.go": "package b\n",
+	}))
+	engine.failLeaf(`"b.go"`, "contents", "b.go would not read")
+	wantReport(t, runAtom(t, "fleet:node-kinds-declared", ""), 2, "CANNOT RUN", "b.go (", "would not read")
+}
+
+func TestFleetNodeKindsDeclaredIgnoresTestFiles(t *testing.T) {
+	engine.reset()
+	engine.withTree(fleetTree(map[string]string{
+		"a_test.go": "package a\nfunc f() { _ = CreateNode(\"OnlyInATest\", \"l\") }\n",
+	}))
+	asks := fakeDoor(t, serveSchema)
+	wantReport(t, runAtom(t, "fleet:node-kinds-declared", ""), 0, "no node kind is captured")
+	if len(*asks) != 0 {
+		t.Errorf("a test's capture is not the star's: door asked %v", *asks)
+	}
+}
+
+func TestFleetConsumedEventsEmittedCannotRunWhenTheTreeOrAFileWillNotAnswer(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.fail(`glob(pattern:"**")`, "the tree went away")
+	wantReport(t, runAtom(t, "fleet:consumed-events-emitted", ""), 2, "the tree would not enumerate")
+
+	engine.reset()
+	engine.withTree(fleetTree(map[string]string{"a.py": "x = 1\n", "b.py": "y = 2\n"}))
+	engine.failLeaf(`"a.py"`, "contents", "a.py would not read")
+	wantReport(t, runAtom(t, "fleet:consumed-events-emitted", ""), 2, "CANNOT RUN", "a.py (", "would not read")
+}
+
+// scanDoor serves the three door reads a fleet scan makes.
+func scanDoor(t *testing.T, repos map[string]map[string]string) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		repo := r.URL.Query().Get("repo")
+		switch r.URL.Path {
+		case "/custody/repos":
+			names := []string{}
+			for k := range repos {
+				names = append(names, k)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"repos": names})
+		case "/tree":
+			entries := []map[string]any{}
+			for p, b := range repos[repo] {
+				entries = append(entries, map[string]any{"path": p, "mode": "0100644", "size": len(b)})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"entries": entries})
+		case "/archive":
+			_, _ = io.WriteString(w, repos[repo][r.URL.Query().Get("path")])
+		}
+	}))
+	prev := oureaDoor
+	oureaDoor = checks.Door{Base: srv.URL, Client: srv.Client()}
+	t.Cleanup(func() { oureaDoor = prev; srv.Close() })
+}
+
+func TestFleetConsumedEventsEmittedScansTheFleetForATypeItDoesNotEmit(t *testing.T) {
+	engine.reset()
+	engine.withTree(fleetTree(map[string]string{"hook.py": "if ev[\"event_type\"] == \"theirs\":\n    pass\n"}))
+	scanDoor(t, map[string]map[string]string{"rob/producer": {"emit.py": "emit({\"event_type\": \"theirs\"})\n"}})
+	wantReport(t, runAtom(t, "fleet:consumed-events-emitted", ""), 0, "every one has an emitter (1 outside this tree)")
+
+	engine.reset()
+	engine.withTree(fleetTree(map[string]string{"hook.py": "if ev[\"event_type\"] == \"orphan\":\n    pass\n"}))
+	scanDoor(t, map[string]map[string]string{"rob/producer": {"emit.py": "emit({\"event_type\": \"something_else\"})\n"}})
+	wantReport(t, runAtom(t, "fleet:consumed-events-emitted", ""), 1, "'orphan' is consumed (hook.py)", "no source in the fleet emits it")
 }

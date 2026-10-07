@@ -191,3 +191,180 @@ func TestFetchNodeKindsSchemaNamesWhatTheDoorSaid(t *testing.T) {
 		t.Errorf("a dead door must be unreachable, got %v", err)
 	}
 }
+
+func TestDeclaredNodeKindsKeepsADashesInsideAQuotedKind(t *testing.T) {
+	ddl := "INSERT INTO {schema}.node_kinds (kind, canonical_form, note)\n" +
+		"SELECT k, k, 'n' FROM unnest(ARRAY[\n    'a--b', 'c', -- trailing prose 'Ghost'\n    'd'\n]) k\nON CONFLICT (kind) DO NOTHING;\n" +
+		"INSERT INTO {schema}.node_kinds (kind, canonical_form, note)\nVALUES ('Solo', 'Solo', 'x')\nON CONFLICT (kind) DO NOTHING;\n" +
+		"SELECT k FROM unnest(ARRAY['NotAnInsert']) k;\n"
+	got := DeclaredNodeKinds(ddl)
+	for _, k := range []string{"a--b", "c", "d", "Solo"} {
+		if !got[k] {
+			t.Errorf("%q missing from %v", k, got)
+		}
+	}
+	if got["Ghost"] || got["NotAnInsert"] || len(got) != 4 {
+		t.Errorf("only INSERT blocks declare, and a trailing SQL comment does not: %v", got)
+	}
+}
+
+func TestDeclaredNodeKindsStopsAtEachStatement(t *testing.T) {
+	ddl := "INSERT INTO {schema}.node_kinds (kind, canonical_form, note)\nVALUES ('One', 'One', 'x')\nON CONFLICT (kind) DO NOTHING;\n" +
+		"INSERT INTO {schema}.node_kinds (kind, canonical_form, note)\nSELECT k, k, 'n' FROM unnest(ARRAY['Two']) k\nON CONFLICT (kind) DO NOTHING;\n"
+	got := DeclaredNodeKinds(ddl)
+	if !got["One"] || !got["Two"] || len(got) != 2 {
+		t.Errorf("a VALUES row must not borrow the next statement's array: %v", got)
+	}
+}
+
+func TestCapturedKindSkipTable(t *testing.T) {
+	for p, want := range map[string]bool{
+		"internal/x/x.go":           false,
+		"cmd/star/main.go":          false,
+		"x.py":                      true,
+		"internal/x/x_test.go":      true,
+		"vendor/a/a.go":             true,
+		"internal/vendor/a.go":      true,
+		"testdata/a.go":             true,
+		"internal/chaosfake/a.go":   true,
+		"internal/Fake/a.go":        true,
+		"internal/boardtest/a.go":   true,
+		"internal/orbitstest/a.go":  true,
+		"internal/testutil/a.go":    true,
+		"internal/x/fakes.go":       true,
+		"internal/latest/a.go":      false,
+		"internal/contest/a.go":     false,
+		"internal/attestation/a.go": false,
+	} {
+		if got := capturedKindSkip(p); got != want {
+			t.Errorf("capturedKindSkip(%q) = %v, want %v", p, got, want)
+		}
+	}
+}
+
+func TestCapturedKindsEdgeCases(t *testing.T) {
+	src := `package x
+
+type Kind string
+
+const Conv = Kind("ConvKind")
+const (
+	A, B = "KindA", "KindB"
+	Dup1 = "Same"
+	Dup2 = "Same"
+	Num  = 7
+)
+var Pkg = "PkgVar"
+
+type CreateNode struct{ Kind, NodeType string }
+
+func mint(label, kind string) map[string]any {
+	return map[string]any{"op": "createNode", "label": label, "kind": kind}
+}
+
+func use() {
+	_ = CreateNode()
+	_ = CreateNode(Kind("Direct"), "l")
+	_ = CreateNode(Conv, "l")
+	_ = CreateNode(A, "l")
+	_ = CreateNode(B, "l")
+	_ = CreateNode(Dup1, "l")
+	_ = CreateNode(Dup2, "l")
+	_ = CreateNode(Pkg, "l")
+	_ = CreateNode(7, "l")
+	_ = CreateNode(Num, "l")
+	_ = CreateNode(a.b.c, "l")
+	_ = CreateNode{Kind: "Unqualified"}
+	_ = CreateNode{NodeType: "NodeTypeField"}
+	_ = map[string]any{"op": "createNode", "node_type": "UnderscoreField"}
+	_ = map[string]any{"op": "createNode", "label": "nokind"}
+	_ = []int{1, 2}
+	_ = mint("l", "ViaSecondParam")
+	_ = mint("only-one-arg")
+	_ = CreateNode(Unknown, "l")
+}
+`
+	uses, unresolved := CapturedKinds(goFiles(src))
+	count := map[string]int{}
+	for _, u := range uses {
+		count[u.Kind]++
+	}
+	want := map[string]int{"Direct": 1, "ConvKind": 1, "KindA": 1, "KindB": 1, "Same": 2, "PkgVar": 1,
+		"Unqualified": 1, "NodeTypeField": 1, "UnderscoreField": 1, "ViaSecondParam": 1}
+	for k, n := range want {
+		if count[k] != n {
+			t.Errorf("%s captured %d time(s), want %d (%v)", k, count[k], n, uses)
+		}
+	}
+	if len(count) != len(want) {
+		t.Errorf("extra kinds read: %v", count)
+	}
+	// 7, Num, a.b.c and Unknown name no string constant.
+	if unresolved != 4 {
+		t.Errorf("unresolved = %d, want 4", unresolved)
+	}
+}
+
+func TestCapturedKindsKeepsOnePackageQualifierAndLineNumbers(t *testing.T) {
+	files := map[string]string{
+		"internal/a/a.go": "package a\n\nfunc f() {\n\t_ = CreateNode(\"First\", \"l\")\n\n\t_ = CreateNode(\"Second\", \"l\")\n}\n",
+	}
+	uses, _ := CapturedKinds(files)
+	if len(uses) != 2 || uses[0].Line != 4 || uses[1].Line != 6 || uses[0].File != "internal/a/a.go" {
+		t.Errorf("sites carry file and line: %v", uses)
+	}
+}
+
+func TestCapturedKindsOrdersFilesAndSurvivesASyntaxError(t *testing.T) {
+	files := map[string]string{
+		"z/z.go": "package z\nfunc f() { _ = CreateNode(\"ZKind\", \"l\") }\n",
+		"a/a.go": "package a\nfunc f() { _ = CreateNode(\"AKind\", \"l\") }\n",
+		"m/m.go": "package m\nfunc f() { _ = CreateNode(\"MKind\", \"l\") }\n",
+		"b/b.go": "package b\nfunc (((( broken\n",
+	}
+	for i := 0; i < 20; i++ {
+		uses, _ := CapturedKinds(files)
+		if len(uses) != 3 || uses[0].Kind != "AKind" || uses[1].Kind != "MKind" || uses[2].Kind != "ZKind" {
+			t.Fatalf("files are read in path order and a broken one is skipped: %v", uses)
+		}
+	}
+}
+
+func TestCapturedKindsASameNamedConstInAnotherPackageIsTheFallback(t *testing.T) {
+	files := map[string]string{
+		"internal/one/a.go": "package one\nconst K = \"FromOne\"\n",
+		"internal/two/a.go": "package two\nconst K = \"FromTwo\"\n",
+		"internal/s/s.go":   "package s\nfunc f() { _ = CreateNode(nowhere.K, \"l\"); _ = CreateNode(two.K, \"l\"); _ = CreateNode(K, \"l\") }\n",
+	}
+	uses, _ := CapturedKinds(files)
+	var got []string
+	for _, u := range uses {
+		got = append(got, u.Kind)
+	}
+	// nowhere.K and bare K have no qualifying directory: the union, once each.
+	if strings.Join(got, ",") != "FromOne,FromTwo,FromTwo,FromOne,FromTwo" {
+		t.Errorf("got %v", got)
+	}
+}
+
+func TestNodeKindsDeclaredReportsKindsInOrderAndPluralizesSites(t *testing.T) {
+	src := "package x\nfunc f() {\n_ = CreateNode(\"Zed\", \"l\")\n_ = CreateNode(\"Alpha\", \"l\")\n_ = CreateNode(\"Memory\", \"l\")\n}\n"
+	state, report := NodeKindsDeclared(goFiles(src), miniSchema)
+	if state != 1 {
+		t.Fatalf("state %d", state)
+	}
+	if a, z := strings.Index(report, "'Alpha'"), strings.Index(report, "'Zed'"); a == -1 || z == -1 || a > z {
+		t.Errorf("kinds are reported in name order:\n%s", report)
+	}
+	if strings.Contains(report, "'Memory'") {
+		t.Errorf("a declared kind is not reported:\n%s", report)
+	}
+	state, report = NodeKindsDeclared(goFiles("package x\nfunc f() {\n_ = CreateNode(\"Memory\", \"l\")\n_ = CreateNode(\"Memory\", \"l\")\n_ = CreateNode(Mystery(), \"l\")\n}\n"), miniSchema)
+	if state != 0 || !strings.Contains(report, "1 captured kind(s)") || !strings.Contains(report, "2 capture site(s)") || !strings.Contains(report, "1 unresolved") {
+		t.Errorf("counts are kinds, sites, unresolved: %d\n%s", state, report)
+	}
+	_, report = NodeKindsDeclared(goFiles("package x\nfunc f() {\n_ = CreateNode(\"N\", \"l\")\n_ = CreateNode(\"N\", \"l\")\n_ = CreateNode(\"N\", \"l\")\n}\n"), miniSchema)
+	if strings.Contains(report, "more") || !strings.Contains(report, "x.go:3, internal/x/x.go:4, internal/x/x.go:5") && !strings.Contains(report, "internal/x/x.go:3, internal/x/x.go:4, internal/x/x.go:5") {
+		t.Errorf("exactly three sites are listed whole:\n%s", report)
+	}
+}

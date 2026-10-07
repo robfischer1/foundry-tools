@@ -48,20 +48,14 @@ var (
 func DeclaredNodeKinds(schemaGo string) map[string]bool {
 	var code strings.Builder
 	for _, line := range strings.Split(schemaGo, "\n") {
-		if i := strings.Index(line, "--"); i != -1 && !strings.Contains(line[:i], "'") {
-			line = line[:i]
-		}
-		code.WriteString(line)
+		code.WriteString(stripSQLComment(line))
 		code.WriteByte('\n')
 	}
 	text := code.String()
 	out := map[string]bool{}
 	locs := kindInsertRe.FindAllStringIndex(text, -1)
 	for _, loc := range locs {
-		stmt := text[loc[1]:]
-		if i := strings.Index(stmt, "ON CONFLICT"); i != -1 {
-			stmt = stmt[:i]
-		}
+		stmt, _, _ := strings.Cut(text[loc[1]:], "ON CONFLICT")
 		if m := kindArrayRe.FindStringSubmatch(stmt); m != nil {
 			for _, q := range sqlQuotedRe.FindAllStringSubmatch(m[1], -1) {
 				out[strings.ReplaceAll(q[1], "''", "'")] = true
@@ -71,6 +65,21 @@ func DeclaredNodeKinds(schemaGo string) map[string]bool {
 		}
 	}
 	return out
+}
+
+// stripSQLComment drops a `--` comment from one line, but only a `--` outside a
+// quoted string: a kind may spell two dashes.
+func stripSQLComment(line string) string {
+	inQuote := false
+	for i := 0; i+1 < len(line); i++ {
+		switch {
+		case line[i] == '\'':
+			inQuote = !inQuote
+		case !inQuote && line[i] == '-' && line[i+1] == '-':
+			return line[:i]
+		}
+	}
+	return line
 }
 
 // KindUse is one place a Go source captures a node of a kind.
@@ -89,12 +98,20 @@ func capturedKindSkip(p string) bool {
 	}
 	for _, seg := range strings.Split(p, "/") {
 		l := strings.ToLower(seg)
-		if seg == "vendor" || seg == "testdata" || strings.Contains(l, "fake") ||
-			strings.HasSuffix(l, "test") || strings.HasPrefix(l, "test") {
+		if seg == "vendor" || strings.Contains(l, "fake") || testSegment(l) {
 			return true
 		}
 	}
 	return false
+}
+
+// notTestDirs end in "test" and are not test packages.
+var notTestDirs = map[string]bool{"latest": true, "contest": true, "attest": true, "protest": true}
+
+// testSegment reports a directory named for tests: test, testdata, testsupport,
+// and the fleet's boardtest / pgtest / orbitstest family.
+func testSegment(l string) bool {
+	return strings.HasPrefix(l, "test") || (strings.HasSuffix(l, "test") && !notTestDirs[l])
 }
 
 // constSet is the string constants of a tree, by name, each with the directory
@@ -155,6 +172,19 @@ func constValue(e ast.Expr) (string, bool) {
 		return stringLit(call.Args[0])
 	}
 	return "", false
+}
+
+// paramIndex maps a function's parameter names to their position.
+func paramIndex(fd *ast.FuncDecl) map[string]int {
+	params := map[string]int{}
+	i := 0
+	for _, fld := range fd.Type.Params.List {
+		for _, nm := range fld.Names {
+			params[nm.Name] = i
+			i++
+		}
+	}
+	return params
 }
 
 // typeName is the bare name of a composite literal's type (`ops.CreateNode`
@@ -268,48 +298,44 @@ func CapturedKinds(files map[string]string) (uses []KindUse, unresolved int) {
 			continue
 		}
 		all = append(all, parsed{p, f})
-		ast.Inspect(f, func(n ast.Node) bool {
-			vs, ok := n.(*ast.ValueSpec)
+		for _, d := range f.Decls {
+			gd, ok := d.(*ast.GenDecl)
 			if !ok {
-				return true
+				continue
 			}
-			for i, id := range vs.Names {
-				if i < len(vs.Values) {
+			for _, spec := range gd.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for i, id := range vs.Names {
+					if i >= len(vs.Values) {
+						continue
+					}
 					if v, ok := constValue(vs.Values[i]); ok {
 						consts.add(path.Dir(p), id.Name, v)
 					}
 				}
 			}
-			return true
-		})
+		}
 	}
 
 	resolve := func(e ast.Expr) ([]string, bool) {
+		if v, ok := constValue(e); ok {
+			return []string{v}, true
+		}
+		var vals []string
 		switch x := e.(type) {
-		case *ast.BasicLit:
-			if s, ok := stringLit(x); ok {
-				return []string{s}, true
-			}
 		case *ast.Ident:
-			if v := consts.resolve("", x.Name); len(v) > 0 {
-				return v, true
-			}
+			vals = consts.resolve("", x.Name)
 		case *ast.SelectorExpr:
 			q := ""
 			if id, ok := x.X.(*ast.Ident); ok {
 				q = id.Name
 			}
-			if v := consts.resolve(q, x.Sel.Name); len(v) > 0 {
-				return v, true
-			}
-		case *ast.CallExpr:
-			if len(x.Args) == 1 {
-				if s, ok := stringLit(x.Args[0]); ok {
-					return []string{s}, true
-				}
-			}
+			vals = consts.resolve(q, x.Sel.Name)
 		}
-		return nil, false
+		return vals, len(vals) > 0
 	}
 
 	// A HELPER FORWARDS ITS KIND. `func create(kind, label string) Op` names no
@@ -323,20 +349,11 @@ func CapturedKinds(files map[string]string) (uses []KindUse, unresolved int) {
 			if !ok || fd.Body == nil {
 				continue
 			}
-			params := map[string]int{}
-			i := 0
-			for _, fld := range fd.Type.Params.List {
-				for _, nm := range fld.Names {
-					params[nm.Name] = i
-					i++
-				}
-			}
+			params := paramIndex(fd)
 			ast.Inspect(fd.Body, func(n ast.Node) bool {
-				if e := createKindExpr(n, resolve); e != nil {
-					if id, ok := e.(*ast.Ident); ok {
-						if idx, isParam := params[id.Name]; isParam {
-							helpers[fd.Name.Name] = idx
-						}
+				if id, ok := createKindExpr(n, resolve).(*ast.Ident); ok {
+					if idx, isParam := params[id.Name]; isParam {
+						helpers[fd.Name.Name] = idx
 					}
 				}
 				return true
@@ -357,7 +374,10 @@ func CapturedKinds(files map[string]string) (uses []KindUse, unresolved int) {
 			}
 		}
 		for _, d := range pf.f.Decls {
-			fd, isFunc := d.(*ast.FuncDecl)
+			var params map[string]int
+			if fd, ok := d.(*ast.FuncDecl); ok && fd.Body != nil {
+				params = paramIndex(fd)
+			}
 			ast.Inspect(d, func(n ast.Node) bool {
 				if call, ok := n.(*ast.CallExpr); ok {
 					if idx, isHelper := helpers[calleeName(call)]; isHelper && idx < len(call.Args) {
@@ -368,13 +388,9 @@ func CapturedKinds(files map[string]string) (uses []KindUse, unresolved int) {
 				if e == nil {
 					return true
 				}
-				if id, ok := e.(*ast.Ident); ok && isFunc && fd.Type.Params != nil {
-					for _, fld := range fd.Type.Params.List {
-						for _, nm := range fld.Names {
-							if nm.Name == id.Name {
-								return true // forwarded: its callers are the sites
-							}
-						}
+				if id, ok := e.(*ast.Ident); ok {
+					if _, forwarded := params[id.Name]; forwarded {
+						return true // a forwarded kind: its callers are the sites
 					}
 				}
 				note(e)
