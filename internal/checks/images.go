@@ -57,7 +57,16 @@ const (
 	ImageGo     = "docker.io/library/golang:1.26.6-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36"
 	ImagePython = "docker.io/library/python:3.14-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f"
 	ImageRust   = "docker.io/library/rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e75fea57e2a2a5c3073"
-	ImageTS     = "docker.io/oven/bun:1.4-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61"
+	// ImageRustWasm is the toolchain stellar-core-ts's cores were BUILT with
+	// (provenance.json records rustc 1.90.0, and scripts/build-<world>.sh builds in
+	// rust:1.90). It is not ImageRust: the guest's bytes are a function of the
+	// compiler, and ts:regen holds them to the recorded hash, so it needs the
+	// compiler that recorded it. A pin that moves is a new provenance, and the
+	// atom says "rustc: got X, pinned Y" until this follows. The bookworm variant
+	// is the fleet's Debian; the script's own `rust:1.90` is a different Debian,
+	// and MEASURED 2026-10-07 the stamp guest is byte-identical from both.
+	ImageRustWasm = "docker.io/library/rust:1.90.0-bookworm@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f"
+	ImageTS       = "docker.io/oven/bun:1.4-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61"
 	// The fleet atoms run in the python lane: they are python and shell, and
 	// three of them provision with uvx.
 	ImageFleet = ImagePython
@@ -229,7 +238,7 @@ const (
 // rather than derived from Atoms because an image nothing currently references
 // is still an image this module would ship.
 var LaneImages = []string{
-	ImageGo, ImagePython, ImageRust, ImageTS, ImageFleet,
+	ImageGo, ImagePython, ImageRust, ImageRustWasm, ImageTS, ImageFleet,
 	ImageUV, ImageNode,
 	ImageKubeconform, ImageKubeLinter,
 	ImagePgvector, ImagePostgres,

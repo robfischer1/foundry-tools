@@ -35,6 +35,14 @@ func (t *TSLane) BunAudit(ctx context.Context) (string, error) {
 	return check(ctx, t.Source, "ts:bun-audit")
 }
 
+// Each core the justfile's regen-check names regenerates byte-identical from its
+// pins.
+//
+// +check
+func (t *TSLane) Regen(ctx context.Context) (string, error) {
+	return check(ctx, t.Source, "ts:regen")
+}
+
 // This pull's changed critical modules survive no mutant: the mutation gate,
 // diff-scoped against GATE_BASE, run as the door's `mutation` lane beside the
 // gate rather than inside it. Reads critical_modules from .copier-answers.yml
