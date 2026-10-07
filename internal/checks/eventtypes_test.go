@@ -252,3 +252,14 @@ func TestFirstNDeduplicatesAndCounts(t *testing.T) {
 		t.Errorf("got %v", got)
 	}
 }
+
+func TestCommentsNeitherConsumeNorEmit(t *testing.T) {
+	files := map[string]string{
+		"a.go": "package a\n// switch e.EventType {\n// if e.EventType == \"in_comment\"\n/* EventType: \"block\" */\nfunc f() {\n\tswitch seg {\n\tcase \"vendor\", \"docs\":\n\t}\n}\n",
+		"b.py": "# if ev['event_type'] == 'py_comment'\n",
+	}
+	consumed, emitted := EventTypeUses(files)
+	if len(consumed) != 0 || len(emitted) != 0 {
+		t.Errorf("comments were read: consumed %v emitted %v", consumed, emitted)
+	}
+}

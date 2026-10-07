@@ -1381,7 +1381,7 @@ func TestFleetNodeKindsDeclaredLadder(t *testing.T) {
 	}{
 		{"declared", "Memory", serveSchema, false, 0, []string{"1 captured kind(s) are all declared"}},
 		{"undeclared", "Mystery", serveSchema, false, 1, []string{"'Mystery' is captured (main.go:2)", "not in node_kinds"}},
-		{"door error", "Memory", func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "boom", 503) }, false, 2,
+		{"door error", "Memory", func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "boom", http.StatusServiceUnavailable) }, false, 2,
 			[]string{"CANNOT RUN", "HTTP 503", "not a finding about this tree"}},
 		{"door unreachable", "Memory", nil, true, 2, []string{"CANNOT RUN", "unreachable"}},
 	} {

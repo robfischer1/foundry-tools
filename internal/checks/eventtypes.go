@@ -135,6 +135,9 @@ func EventTypeUses(files map[string]string) (consumed, emitted []EventSite) {
 	}
 	for _, p := range paths {
 		body := files[p]
+		if !strings.HasSuffix(p, ".md") {
+			body = stripLineComments(p, body)
+		}
 		if strings.HasSuffix(p, ".md") {
 			for _, m := range emitDocRe.FindAllStringSubmatch(body, -1) {
 				addE(m[1], p)
@@ -213,6 +216,34 @@ func EventTypeUses(files map[string]string) (consumed, emitted []EventSite) {
 		}
 	}
 	return consumed, emitted
+}
+
+// stripLineComments blanks the whole-line comments of a source file, so prose
+// that quotes a pattern (this package's own doc comments do) neither consumes
+// nor emits anything. Blanked, not removed, so offsets and lines keep their place.
+func stripLineComments(p, body string) string {
+	var prefixes []string
+	switch {
+	case strings.HasSuffix(p, ".py"), strings.HasSuffix(p, ".sh"):
+		prefixes = []string{"#"}
+	case strings.HasSuffix(p, ".sql"):
+		prefixes = []string{"--"}
+	case strings.HasSuffix(p, ".json"):
+		return body
+	default:
+		prefixes = []string{"//", "/*", "*"}
+	}
+	lines := strings.Split(body, "\n")
+	for i, l := range lines {
+		t := strings.TrimSpace(l)
+		for _, pre := range prefixes {
+			if strings.HasPrefix(t, pre) {
+				lines[i] = ""
+				break
+			}
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // filterLine reports whether the line holding byte offset at is a SQL filter
