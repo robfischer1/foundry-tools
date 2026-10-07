@@ -500,6 +500,11 @@ func atomTable() []AtomDef {
 			Desc: "Every committed fleet/stars/<star>/slag.json is byte-for-byte its own canonical form (sorted keys, two-space indent, ensure_ascii, trailing LF).",
 		},
 
+		{
+			ID: "dies:refusal-codes", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "Every refusal code the fleet spells - on a world's tape or WIT enum (stellar-core) or in any declared use (foundry-dies) - is in the registry, and every registered code is still spelled by its owner.",
+		},
+
 		// ---- orbit: the orbit lane, asked for by name (StageOrbit) ----
 		{
 			ID: "orbit:contracts", Stage: StageOrbit, Lane: LaneAny, Image: ImageFleet,
