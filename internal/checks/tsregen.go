@@ -142,7 +142,87 @@ func RegenToolVersion(out string) string {
 	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(out), "wasm-tools "))
 }
 
-// RegenWorldEnvelope is the one-line summary a world prints when it holds.
-func RegenWorldEnvelope(world string, checked int) string {
-	return fmt.Sprintf("regen-check(%s): PASS - guest, component, tool versions and generated files byte-identical (%d pins checked)", world, checked)
+// RegenLabeledPin is a stellar-core file pin with the name its line carries.
+type RegenLabeledPin struct {
+	Label string
+	Pin   RegenPin
+}
+
+// Pins are the files read at their commits of stellar-core, in the script's
+// order: the WIT, the result WIT where there is one, then the tape.
+func (p RegenProv) Pins() []RegenLabeledPin {
+	out := []RegenLabeledPin{{"wit", p.WIT}}
+	if p.WITResult != nil {
+		out = append(out, RegenLabeledPin{"wit", *p.WITResult})
+	}
+	return append(out, RegenLabeledPin{"tape", p.Tape})
+}
+
+// CoreCopy is a file the guest's own checkout must carry byte for byte.
+type CoreCopy struct{ Path, SHA256 string }
+
+// CoreCopies are the WIT files the core at its recorded commit carries for the
+// guest to be built against: the guest is built against its own copy, so the
+// copy has to be the pinned file.
+func (p RegenProv) CoreCopies(world string) []CoreCopy {
+	out := []CoreCopy{{"wit/aiws-" + world + ".wit", p.WIT.SHA256}}
+	if p.WITResult != nil {
+		out = append(out, CoreCopy{"wit/aiws-result.wit", p.WITResult.SHA256})
+	}
+	return out
+}
+
+// RegenProbe is one measurement and the pin it is held to.
+type RegenProbe struct{ Label, Got, Pinned string }
+
+// RegenCompare holds every probe to its pin: an "ok" line for each that agrees,
+// a problem line for each that does not. Nothing stops at the first, so one run
+// names every pin that moved.
+func RegenCompare(probes []RegenProbe) (lines, problems []string) {
+	for _, p := range probes {
+		ok, problem := RegenExpect(p.Label, p.Got, p.Pinned)
+		if problem != "" {
+			problems = append(problems, problem)
+			continue
+		}
+		lines = append(lines, ok)
+	}
+	return lines, problems
+}
+
+// RegenWorldResult is what one world's regeneration answered: lines it
+// verified, pins and files that disagree, or an error that kept it from
+// looking at all.
+type RegenWorldResult struct {
+	World    string
+	Lines    []string
+	Problems []string
+	Err      string
+}
+
+// RegenFold settles the worlds into one exit and one output: 2 (could not run)
+// if any world could not look, else 1 (findings) if any pin or file disagrees,
+// else 0. A world that could not run is not a world that passed, and it is not
+// a finding either, so it is the louder code. The lines are the script's own.
+func RegenFold(results []RegenWorldResult) (int, string) {
+	code := 0
+	var out []string
+	for _, r := range results {
+		for _, l := range r.Lines {
+			out = append(out, "regen-check("+r.World+"): "+l)
+		}
+		for _, p := range r.Problems {
+			out = append(out, "regen-check("+r.World+"): FAIL: "+p)
+		}
+		if r.Err != "" {
+			out = append(out, "regen-check("+r.World+"): CANNOT RUN: "+r.Err)
+			code = 2
+		} else if len(r.Problems) > 0 && code == 0 {
+			code = 1
+		}
+	}
+	if code == 1 {
+		out = append([]string{"ts:regen: FINDINGS - a core does not regenerate byte-identical from its pins"}, out...)
+	}
+	return code, strings.Join(out, "\n")
 }
