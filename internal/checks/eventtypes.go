@@ -237,9 +237,6 @@ var cLike = []string{"//", "/*", "*"}
 // nor emits anything. Blanked, not removed, so offsets and lines keep their place.
 func stripLineComments(p, body string) string {
 	prefixes := commentPrefixes[path.Ext(p)]
-	if prefixes == nil {
-		return body
-	}
 	lines := strings.Split(body, "\n")
 	for i, l := range lines {
 		t := strings.TrimSpace(l)

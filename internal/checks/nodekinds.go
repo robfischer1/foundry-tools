@@ -373,7 +373,7 @@ func CapturedKinds(files map[string]string) (uses []KindUse, unresolved int) {
 		}
 		for _, d := range pf.f.Decls {
 			var params map[string]int
-			if fd, ok := d.(*ast.FuncDecl); ok && fd.Body != nil {
+			if fd, ok := d.(*ast.FuncDecl); ok {
 				params = paramIndex(fd)
 			}
 			ast.Inspect(d, func(n ast.Node) bool {
@@ -434,11 +434,7 @@ func NodeKindsDeclared(files map[string]string, schemaGo string) (int, string) {
 	sort.Strings(names)
 	var lines []string
 	for _, k := range names {
-		sites := bad[k]
-		if len(sites) > 3 {
-			sites = append(sites[:3], fmt.Sprintf("+%d more", len(bad[k])-3))
-		}
-		lines = append(lines, fmt.Sprintf("node-kinds: '%s' is captured (%s) but is not in node_kinds", k, strings.Join(sites, ", ")))
+		lines = append(lines, fmt.Sprintf("node-kinds: '%s' is captured (%s) but is not in node_kinds", k, strings.Join(firstN(bad[k], 3), ", ")))
 	}
 	lines = append(lines,
 		"nodes.kind is a foreign key onto node_kinds, so chaos refuses this capture at runtime ('capture_refused: kind(s) [...] not in node_kinds') and a fake graph in the tests never will. "+

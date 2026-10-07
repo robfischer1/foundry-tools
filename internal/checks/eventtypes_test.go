@@ -636,7 +636,7 @@ func TestFleetEmittersTransportFailureAndUnwantedTypes(t *testing.T) {
 	}))
 	defer srv.Close()
 	found, err := FleetEmitters(context.Background(), Door{Base: srv.URL, Client: srv.Client()}, "", []string{"t"})
-	if err == nil || !strings.Contains(err.Error(), "rob/a a.py") || len(found) != 0 {
+	if err == nil || !strings.Contains(err.Error(), "rob/a a.py") || strings.Contains(err.Error(), "HTTP") || len(found) != 0 {
 		t.Errorf("a file that cut the connection is an error naming it: %v %v", found, err)
 	}
 
@@ -647,5 +647,29 @@ func TestFleetEmittersTransportFailureAndUnwantedTypes(t *testing.T) {
 	}
 	if _, err := FleetEmitters(context.Background(), fleetDoor(t, map[string]map[string]string{"rob/a": {"a.py": "x"}}, nil), "", []string{"t"}); err != nil {
 		t.Errorf("scanning without a find is not an error: %v", err)
+	}
+}
+
+func TestMembershipAndAliasAndSwitchEachReadEveryMatch(t *testing.T) {
+	member := "W1 = {'m1'}\nW2 = {'m2'}\nif e['event_type'] in W1: pass\nif d['event_type'] in W2: pass\n"
+	if c, _ := EventTypeUses(map[string]string{"m.py": member}); !same(types(c), []string{"m1", "m2"}) {
+		t.Errorf("membership: %v", types(c))
+	}
+	alias := "W1 = {'a1'}\nW2 = {'a2'}\nx = ev.get('event_type')\ny = ev.get('event_type')\nif x in W1: pass\nif y in W2: pass\n"
+	if c, _ := EventTypeUses(map[string]string{"a.py": alias}); !same(types(c), []string{"a1", "a2"}) {
+		t.Errorf("alias membership: %v", types(c))
+	}
+	pad := strings.Repeat("// padding line to push the next switch out of the first window\n", 40)
+	sw := "package s\nfunc f(e E) {\n\tswitch e.EventType {\n\tcase \"s1\":\n\t}\n" + pad + "\tswitch x.EventType {\n\tcase \"s2\":\n\t}\n}\n"
+	if c, _ := EventTypeUses(map[string]string{"s.go": sw}); !same(types(c), []string{"s1", "s2"}) {
+		t.Errorf("switch: %v", types(c))
+	}
+}
+
+func TestAConstantOnAFilterLineIsNotAnEmitter(t *testing.T) {
+	body := "K = 'where_k'\nq = \"SELECT 1 FROM t WHERE event_type = K\"\nAND_K = 'and_k'\nq2 = \"x AND event_type = AND_K\"\n"
+	_, emitted := EventTypeUses(map[string]string{"q.py": body})
+	if len(emitted) != 0 {
+		t.Errorf("a constant compared in SQL is a filter: %v", emitted)
 	}
 }

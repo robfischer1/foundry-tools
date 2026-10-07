@@ -153,8 +153,9 @@ func TestNodeKindsDeclaredTruncatesLongSiteLists(t *testing.T) {
 	}
 	b.WriteString("}\n")
 	_, report := NodeKindsDeclared(goFiles(b.String()), miniSchema)
-	if !strings.Contains(report, "+2 more") {
-		t.Errorf("five sites should list three and count two:\n%s", report)
+	want := "(internal/x/x.go:3, internal/x/x.go:4, internal/x/x.go:5, +2 more)"
+	if !strings.Contains(report, want) {
+		t.Errorf("five sites should list exactly three and count two, want %s:\n%s", want, report)
 	}
 }
 
