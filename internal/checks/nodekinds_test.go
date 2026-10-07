@@ -445,3 +445,22 @@ func TestCapturedKindsSkipsAFileThatDoesNotParseWholly(t *testing.T) {
 		t.Errorf("a file that does not parse is skipped whole: %v %d", uses, unresolved)
 	}
 }
+
+func TestNodeKindsDeclaredNamesEveryUndeclaredKindInOrder(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package x\nfunc f() {\n")
+	names := []string{"Echo", "Alpha", "Hotel", "Charlie", "Foxtrot", "Bravo", "Golf", "Delta"}
+	for _, n := range names {
+		b.WriteString("_ = CreateNode(\"" + n + "\", \"l\")\n")
+	}
+	b.WriteString("}\n")
+	_, report := NodeKindsDeclared(goFiles(b.String()), miniSchema)
+	last := -1
+	for _, n := range []string{"Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf", "Hotel"} {
+		i := strings.Index(report, "'"+n+"'")
+		if i <= last {
+			t.Fatalf("%s out of order (%d after %d):\n%s", n, i, last, report)
+		}
+		last = i
+	}
+}

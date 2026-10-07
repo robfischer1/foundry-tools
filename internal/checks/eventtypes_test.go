@@ -673,3 +673,14 @@ func TestAConstantOnAFilterLineIsNotAnEmitter(t *testing.T) {
 		t.Errorf("a constant compared in SQL is a filter: %v", emitted)
 	}
 }
+
+func TestOneAliasAndOneSwitchWithManyMatches(t *testing.T) {
+	alias := "W1 = {'a1'}\nW2 = {'a2'}\nx = ev.get('event_type')\nif x in W1: pass\nif x not in W2: pass\nif x == 'c1' or x == 'c2': pass\n"
+	if c, _ := EventTypeUses(map[string]string{"a.py": alias}); !same(types(c), []string{"a1", "a2", "c1", "c2"}) {
+		t.Errorf("alias: %v", types(c))
+	}
+	sw := "package s\nfunc f(e E) {\n\tswitch e.EventType {\n\tcase \"s1\":\n\tcase \"s2\", \"s3\":\n\tcase \"s4\":\n\t}\n}\n"
+	if c, _ := EventTypeUses(map[string]string{"s.go": sw}); !same(types(c), []string{"s1", "s2", "s3", "s4"}) {
+		t.Errorf("switch: %v", types(c))
+	}
+}
