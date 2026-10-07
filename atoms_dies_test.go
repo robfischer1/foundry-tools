@@ -1082,6 +1082,10 @@ func coreTree() map[string]string {
 // okDoor answers every archive read with the path asked for.
 func okDoor(t *testing.T) *[]doorAsk {
 	return fakeDoor(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("path") == "contracts/refusal-codes.toml" {
+			_, _ = io.WriteString(w, refusalRegistry)
+			return
+		}
 		_, _ = io.WriteString(w, "# "+r.URL.Query().Get("path")+"\n")
 	})
 }
@@ -1201,4 +1205,67 @@ func TestDiesRefusalCodesIsAbsentElsewhere(t *testing.T) {
 	engine.reset()
 	engine.withTree(diesTree(map[string]string{"wit/aiws-result.wit": ""}, "policy", "fleet"))
 	wantState(t, runAtom(t, "dies:refusal-codes", ""), 0, "ABSENT")
+}
+
+// THE REGISTRY THE DOOR SERVED IS THE ONE PROBED: stellar-core's run asks the
+// door for the first remote use that registry names, and a door that answers the
+// checker's files but not that use is a COULD-NOT-RUN, not a pass.
+func TestDiesRefusalCodesCoreProbesTheFetchedRegistrysFirstUse(t *testing.T) {
+	engine.reset()
+	engine.withTree(coreTree())
+	asks := okDoor(t)
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 0)
+	if want := (doorAsk{"rob/stellar-core", "conformance/tapes/claim.json"}); (*asks)[len(*asks)-1] != want {
+		t.Errorf("the fetched registry's first use was not probed last: %v", *asks)
+	}
+
+	engine.reset()
+	engine.withTree(coreTree())
+	fakeDoor(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Query().Get("path") {
+		case "conformance/tapes/claim.json":
+			// Drop the connection with no answer: any HTTP status counts as reachable.
+			if c, _, err := w.(http.Hijacker).Hijack(); err == nil {
+				_ = c.Close()
+			}
+		case "contracts/refusal-codes.toml":
+			_, _ = io.WriteString(w, refusalRegistry)
+		default:
+			_, _ = io.WriteString(w, "x")
+		}
+	})
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 2, "conformance/tapes/claim.json", "unreachable")
+}
+
+// A registry that names no remote use has nothing to probe and the checker is the judge.
+func TestDiesRefusalCodesRunsWhenTheRegistryNamesNoRemoteUse(t *testing.T) {
+	engine.reset()
+	engine.withTree(coreTree())
+	asks := fakeDoor(t, func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "[codes.x]\n") })
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 0)
+	if len(*asks) != 4 {
+		t.Errorf("only the four checker files are fetched, got %v", *asks)
+	}
+}
+
+// Every read the atom makes of the tree is its own chance to go wrong, and each
+// is a COULD-NOT-RUN that says what could not be read.
+func TestDiesRefusalCodesCannotRunWhenTheTreeCannotBeRead(t *testing.T) {
+	engine.reset()
+	engine.withTree(ownerTree())
+	okDoor(t)
+	engine.fail("{directory{entries}}", "the directory would not evaluate")
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 2, "the repository root could not be read")
+
+	engine.reset()
+	engine.withTree(coreTree())
+	okDoor(t)
+	engine.fail(`glob(pattern:"wit/aiws-result.wit")`, "scan interrupted")
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 2, "could not be scanned for wit/aiws-result.wit", "scan interrupted")
+
+	engine.reset()
+	engine.withTree(ownerTree())
+	okDoor(t)
+	engine.fail(`file(path:"contracts/refusal-codes.toml"){contents}`, "the blob would not evaluate")
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 2, "the registry would not read", "would not evaluate")
 }

@@ -20,6 +20,14 @@ extract = { kind = "k" }
 	if !ok || repo != "rob/stellar-core" || path != "wit/x.wit" {
 		t.Fatalf("got %q %q %v", repo, path, ok)
 	}
+	half := "[[uses]]\nsource = { repo = \"rob/only-repo\" }\n\n[[uses]]\nsource = { path = \"only/path\" }\n\n[[uses]]\nsource = { repo = \"rob/ok\", path = \"p\" }\n"
+	if repo, path, ok := FirstRegistryUse(half); !ok || repo != "rob/ok" || path != "p" {
+		t.Fatalf("a use needs BOTH a repo and a path: got %q %q %v", repo, path, ok)
+	}
+	broken := "[[uses]]\nsource = { repo = \"rob/a\", path = \"p\" }\n\n[[uses\n"
+	if _, _, ok := FirstRegistryUse(broken); ok {
+		t.Fatal("an unparseable registry has no first use, even after a valid one")
+	}
 	if _, _, ok := FirstRegistryUse("not = [toml"); ok {
 		t.Fatal("an unparseable registry has no first use; the checker is the judge of it")
 	}
