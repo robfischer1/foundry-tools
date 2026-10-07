@@ -1138,7 +1138,7 @@ func TestDiesRefusalCodesCoreFetchesDiesCheckerAndScopesToItsOwnTree(t *testing.
 
 	var got []string
 	for _, a := range *asks {
-		if a.Repo != "rob/foundry-dies" {
+		if a.Repo != "foundry/foundry-dies" {
 			continue
 		}
 		got = append(got, a.Path)

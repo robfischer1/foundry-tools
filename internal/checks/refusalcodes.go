@@ -14,8 +14,10 @@ import (
 const (
 	RefusalRegistry = "contracts/refusal-codes.toml"
 	RefusalChecker  = "tools/check_refusal_codes.py"
-	// RefusalRepo is the door's name for the repo that owns all of them.
-	RefusalRepo = "rob/foundry-dies"
+	// RefusalRepo is the door's name for the repo that owns all of them. The
+	// owner is foundry, not rob: the door answers 404 for rob/foundry-dies, and that
+	// 404 made every stellar-core pull could-not-run (opus-gate faraday37-037).
+	RefusalRepo = "foundry/foundry-dies"
 )
 
 // RefusalCheckerFiles is the checker, the two modules it imports and the
