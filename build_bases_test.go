@@ -131,8 +131,8 @@ func scriptABaseTip() {
 // that exact digest, and asks no permit: a base is not a star.
 func TestATipPublishesUnsignedWithItsSBOMAndMovesStableWithoutAPermit(t *testing.T) {
 	m := basesOn(t, map[string]string{"bases/go/Dockerfile": "FROM scratch\n"})
-	engine.stdout("--name-only", "bases/go/Dockerfile\nbases/rust/Dockerfile\n")
 	engine.stdout("--name-only", "bases/go/Dockerfile\n")
+	engine.script(script{match: trivyReport, leaf: "contents", value: cleanReport})
 	scriptABaseTip()
 	engine.script(script{leaf: "publish", match: "foundry/base-images/go", value: "registry.notusmi.com/foundry/base-images/go@sha256:" + strings.Repeat("d", 64)})
 	tip(t, m)
