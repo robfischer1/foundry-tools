@@ -543,7 +543,7 @@ func TestPythonMutationMeasuresAndMutatesInPlainExecs(t *testing.T) {
 	// NO --index: the cache answers for the fleet's own distributions on the
 	// intercepted pypi.org, so uv's default index reaches forge-testkit and
 	// devpi is never asked about a package it does not have (infra#848).
-	testkit := `"uv","run","--no-project","--isolated","--with","forge-testkit>=2.1.0","forge-testkit-mutation"`
+	testkit := `"uv","run","--no-project","--isolated","--refresh-package","forge-testkit","--with","forge-testkit>=2.1.0","forge-testkit-mutation"`
 	c := engine.chain(pyReportNeedle, "exitCode")
 	if !strings.Contains(c, checks.ImagePython) {
 		t.Errorf("python:mutation must run in the python lane image:\n%s", c)
@@ -671,8 +671,14 @@ func TestPythonMutationStandsDownOrCannotRun(t *testing.T) {
 			[]string{"cosmic-ray init enumerated no mutation sites (exit 1)"}, nil, []string{pyScopeNeedle}},
 		"the diff matches no site": {"abc123", func() {
 			engine.exitCode(pyScopeNeedle, 2)
-			engine.stdout(pyScopeNeedle, "no job's module is in the diff")
-		}, 1, []string{"forge-testkit-mutation scope exited 2", "check critical-modules", "no job's module is in the diff"}, nil, []string{pyPluginNeedle}},
+			engine.stdout(pyScopeNeedle, "ValueError: scope matched none of 260 mutation sites — refusing to run a vacuous gate")
+		}, 1, []string{"forge-testkit-mutation scope exited 2", "check critical-modules", "refusing to run a vacuous gate"}, nil, []string{pyPluginNeedle}},
+		// paneless 2026-10-06T17:35Z: uv could not resolve the testkit floor,
+		// and the scope step was blamed on the star's critical-modules.
+		"the scope step cannot run": {"abc123", func() {
+			engine.exitCode(pyScopeNeedle, 1)
+			engine.stdout(pyScopeNeedle, "Because only forge-testkit<=2.0.1 is available and you require forge-testkit>=2.1.0")
+		}, 2, []string{"forge-testkit-mutation scope did not run (exit 1)", "only forge-testkit<=2.0.1 is available"}, nil, []string{pyPluginNeedle}},
 		"nothing mutable": {"abc123", func() { engine.withTree(map[string]string{"/tmp/mutation/scope.out": "kept=0\nunmutable=true\n"}) }, 0, nil,
 			[]string{pyScopeNeedle}, []string{pyPluginNeedle}},
 		"the plugin cannot be written": {"abc123", func() { engine.exitCode(pyPluginNeedle, 1) }, 2,

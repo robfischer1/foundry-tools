@@ -417,6 +417,7 @@ func pythonMutation(ctx context.Context, r *run) checks.Verdict {
 
 	tk := func(ctr *dagger.Container, args ...string) (ran, error) {
 		return do(ctr, append([]string{"uv", "run", "--no-project", "--isolated",
+			"--refresh-package", checks.PythonMutationTestkitName,
 			"--with", checks.PythonMutationTestkit, "forge-testkit-mutation"}, args...)...)
 	}
 	cannot := func(what string, step ran) checks.Verdict {
@@ -453,7 +454,13 @@ func pythonMutation(ctx context.Context, r *run) checks.Verdict {
 	if scoped.code != 0 {
 		// The diff's paths match no enumerated site: a green over zero mutants
 		// is the failure this gate exists to close, and the declaration is the
-		// star's to fix.
+		// star's to fix. ONLY WHEN THE TESTKIT SAYS SO (checks.PythonScopeVacuous):
+		// any other non-zero is the scope step failing to run — paneless,
+		// 2026-10-06T17:35Z, was uv refusing to resolve the testkit floor, and
+		// this branch told the star its critical-modules were wrong.
+		if !checks.PythonScopeVacuous(scoped.out) {
+			return cannot("forge-testkit-mutation scope did not run", scoped)
+		}
 		return settle(1, fmt.Sprintf("forge-testkit-mutation scope exited %d — the diff's paths match no enumerated mutation site; check critical-modules against the tree\n%s", scoped.code, lastLines(scoped.out, 20)))
 	}
 	stepOutput, _ := scoped.ctr.File(pythonMutationStepOutput).Contents(ctx)
@@ -581,6 +588,7 @@ func pythonMutation(ctx context.Context, r *run) checks.Verdict {
 
 	// SCORE: the honest report, stdout and stderr apart.
 	reported := merged.ctr.WithExec([]string{"uv", "run", "--no-project", "--isolated",
+		"--refresh-package", checks.PythonMutationTestkitName,
 		"--with", checks.PythonMutationTestkit, "forge-testkit-mutation", "report", "session.sqlite", "--fail-under", strconv.Itoa(checks.PythonMutationFailUnder)}, anyExit)
 	rc, err := reported.ExitCode(ctx)
 	if err != nil {
