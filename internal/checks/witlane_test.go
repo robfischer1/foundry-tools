@@ -1,6 +1,7 @@
 package checks
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -109,6 +110,9 @@ func TestWitGuestArtifact(t *testing.T) {
 }
 
 func TestWitPinsAgree(t *testing.T) {
+	if want := "https://github.com/bytecodealliance/wac/releases/download/v" + WacVersion + "/wac-cli-x86_64-unknown-linux-musl"; WacURL != want {
+		t.Errorf("WacURL %q does not follow WacVersion: want %q", WacURL, want)
+	}
 	if want := "https://github.com/bytecodealliance/wasm-tools/releases/download/v" + WasmToolsVersion + "/wasm-tools-" + WasmToolsVersion + "-x86_64-linux.tar.gz"; WasmToolsURL != want {
 		t.Errorf("WasmToolsURL %q does not follow WasmToolsVersion: want %q", WasmToolsURL, want)
 	}
@@ -138,5 +142,17 @@ func TestWitGuestWorlds(t *testing.T) {
 		if strings.Join(got, ",") != strings.Join(c.want, ",") {
 			t.Errorf("%s: WitGuestWorlds = %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+func TestWitComposeTapes(t *testing.T) {
+	manifest := "[features]\nwit-guest = [\"wit-guest-identity\"]\nwit-guest-reader = []\nwit-guest-identity = []\nwit-guest-door = []\n"
+	files := []string{"tests/tapes/identity.json", "tests/tapes/reader.json", "tests/tapes/promote.json", "tests/tapes/wit-guest.json"}
+	got := WitComposeTapes(manifest, files)
+	if want := []string{"tests/tapes/identity.json", "tests/tapes/reader.json"}; !slices.Equal(got, want) {
+		t.Errorf("tapes are the discovered worlds' own, in world order, and only those the tree has: got %v want %v", got, want)
+	}
+	if got := WitComposeTapes("[features]\nwit-guest = []\n", files); len(got) != 0 {
+		t.Errorf("the lone alias names no tape: got %v", got)
 	}
 }

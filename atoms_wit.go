@@ -23,6 +23,7 @@ import (
 func init() {
 	register("wit:validate", witValidate)
 	register("rust:wit-guest", rustWitGuest)
+	register("rust:wit-compose", rustWitCompose)
 }
 
 // withTarballBinary fetches a release tarball and places one member of it at
@@ -189,4 +190,84 @@ func prefixLines(world string, lines []string) []string {
 		out[i] = "[" + world + "] " + l
 	}
 	return out
+}
+
+// Every guest composes into ONE component and every tape the crate carries for
+// a world replays through it with the answers the native core gave.
+//
+// WHY A LANE (stellar-core-rust#15266). rust:wit-guest grades each world alone;
+// the fleet ships them composed, and a composition has failure modes no single
+// guest has (a world that `use`s another's types, two worlds sharing a package).
+// The check was opt-in (COMPOSE_CHECK=1) behind tools the plain test lane does
+// not carry, and the replay host lived in a scratch directory, so nothing ran
+// either. This atom carries them: the wasm32 target, wasm-tools and wac.
+//
+// ABSENT UNLESS THE CRATE OWNS ALL THREE PIECES: a wit-guest world, the
+// composer (tools/compose/compose.sh) and the replay host
+// (tools/replay/Cargo.toml). A repository with a guest and no composer is
+// graded by rust:wit-guest alone.
+//
+// THREE STEPS, EACH ITS OWN VERDICT: build the replay host (its own lockfile,
+// its own target dir), compose every guest through the script, and replay the
+// tapes named for the discovered worlds (tests/tapes/<world>.json, when the
+// tree carries one). A tape the composition answers differently is a finding.
+func rustWitCompose(ctx context.Context, r *run) checks.Verdict {
+	a := checks.AtomByID("rust:wit-compose")
+
+	manifest, err := r.src.File("Cargo.toml").Contents(ctx)
+	if err != nil {
+		return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - Cargo.toml would not read: %v", a.ID, err))
+	}
+	if len(checks.WitGuestWorlds(manifest)) == 0 {
+		return checks.VerdictOf(a, 0, a.ID+": ABSENT - Cargo.toml declares no "+checks.WitGuestPrefix+"<world> feature, so there is nothing to compose")
+	}
+	files, err := r.population(ctx, checks.WitComposeScript, checks.WitReplayManifest, "tests/tapes/*.json")
+	if err != nil {
+		return cannotEnumerate(a, err)
+	}
+	if !slices.Contains(files, checks.WitComposeScript) || !slices.Contains(files, checks.WitReplayManifest) {
+		return checks.VerdictOf(a, 0, a.ID+": ABSENT - the tree carries no "+checks.WitComposeScript+" and "+checks.WitReplayManifest+", so it declares no composition to check")
+	}
+	tapes := checks.WitComposeTapes(manifest, files)
+	if len(tapes) == 0 {
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - no tests/tapes/<world>.json for any wit-guest world, so a composition would be built and answer nothing")
+	}
+
+	base := r.cargoDeps().WithExec([]string{"rustup", "target", "add", checks.WitGuestTarget})
+	base, err = withTarballBinary(ctx, base, checks.WasmToolsURL, checks.WasmToolsMember, "wasm-tools", 1)
+	if err != nil {
+		return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - %v. A composition that was never built is not one that passed.", a.ID, err))
+	}
+	wac, err := fetchTool(ctx, checks.WacURL)
+	if err != nil {
+		return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - %v. A composition that was never built is not one that passed.", a.ID, err))
+	}
+	base = base.
+		WithFile("/usr/local/bin/wac", wac, dagger.ContainerWithFileOpts{Permissions: 0o755}).
+		WithExec([]string{"wac", "--version"}).
+		WithEnvVariable("CARGO_TARGET_DIR", checks.WitGuestTargetDir)
+
+	host := checks.WitReplayTargetDir + "/release/replay"
+	ctr := base
+	for _, step := range []struct {
+		name string
+		args []string
+	}{
+		{"replay host", []string{"cargo", "build", "--locked", "--release", "--manifest-path", checks.WitReplayManifest, "--target-dir", checks.WitReplayTargetDir}},
+		{"compose", []string{checks.WitComposeScript, checks.WitComposedPath}},
+		{"replay", append([]string{host, checks.WitComposedPath}, tapes...)},
+	} {
+		ctr = ctr.WithExec(step.args, anyExit)
+		if v := verdict(ctx, a, ctr); v.State != int(checks.StatePass) {
+			return namedStep(v, a, step.name)
+		}
+	}
+	return verdict(ctx, a, ctr)
+}
+
+// namedStep stamps a failing step's verdict with the step that produced it.
+func namedStep(v checks.Verdict, a checks.AtomDef, step string) checks.Verdict {
+	v.Reason = fmt.Sprintf("%s [%s]%s", a.ID, step, strings.TrimPrefix(v.Reason, a.ID))
+	v.Logs = append([]string{"failed at " + step}, v.Logs...)
+	return v
 }
