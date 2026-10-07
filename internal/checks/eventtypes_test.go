@@ -4,13 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func types(sites []EventSite) []string {
@@ -659,7 +662,7 @@ func TestMembershipAndAliasAndSwitchEachReadEveryMatch(t *testing.T) {
 	if c, _ := EventTypeUses(map[string]string{"a.py": alias}); !same(types(c), []string{"a1", "a2"}) {
 		t.Errorf("alias membership: %v", types(c))
 	}
-	pad := strings.Repeat("// padding line to push the next switch out of the first window\n", 40)
+	pad := strings.Repeat("\t_ = padding_to_push_the_next_switch_out_of_the_first_window()\n", 60)
 	sw := "package s\nfunc f(e E) {\n\tswitch e.EventType {\n\tcase \"s1\":\n\t}\n" + pad + "\tswitch x.EventType {\n\tcase \"s2\":\n\t}\n}\n"
 	if c, _ := EventTypeUses(map[string]string{"s.go": sw}); !same(types(c), []string{"s1", "s2"}) {
 		t.Errorf("switch: %v", types(c))
@@ -682,5 +685,43 @@ func TestOneAliasAndOneSwitchWithManyMatches(t *testing.T) {
 	sw := "package s\nfunc f(e E) {\n\tswitch e.EventType {\n\tcase \"s1\":\n\tcase \"s2\", \"s3\":\n\tcase \"s4\":\n\t}\n}\n"
 	if c, _ := EventTypeUses(map[string]string{"s.go": sw}); !same(types(c), []string{"s1", "s2", "s3", "s4"}) {
 		t.Errorf("switch: %v", types(c))
+	}
+}
+
+func TestFleetEmittersFetchesAtMostSixteenAtOnce(t *testing.T) {
+	var inFlight, peak atomic.Int64
+	files := map[string]string{}
+	for i := 0; i < 80; i++ {
+		files[fmt.Sprintf("f%02d.py", i)] = "x = 1"
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/custody/repos":
+			_, _ = w.Write([]byte(`{"repos":["rob/a"]}`))
+		case "/tree":
+			var entries []string
+			for p := range files {
+				entries = append(entries, fmt.Sprintf(`{"path":%q,"mode":"0100644","size":5}`, p))
+			}
+			_, _ = w.Write([]byte(`{"entries":[` + strings.Join(entries, ",") + `]}`))
+		case "/archive":
+			n := inFlight.Add(1)
+			for {
+				old := peak.Load()
+				if n <= old || peak.CompareAndSwap(old, n) {
+					break
+				}
+			}
+			time.Sleep(30 * time.Millisecond)
+			inFlight.Add(-1)
+			_, _ = w.Write([]byte("x = 1"))
+		}
+	}))
+	defer srv.Close()
+	if _, err := FleetEmitters(context.Background(), Door{Base: srv.URL, Client: srv.Client()}, "", []string{"never"}); err != nil {
+		t.Fatal(err)
+	}
+	if p := peak.Load(); p > 16 || p < 2 {
+		t.Errorf("peak concurrency %d, want 2..16", p)
 	}
 }
