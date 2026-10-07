@@ -177,6 +177,13 @@ func goTestIn(ctx context.Context, r *run, a checks.AtomDef, dir string, race bo
 	if !checks.GoHasTestFiles(counts) {
 		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - no test file in any package; nothing is built without tests")
 	}
+	// THE REGEN TESTS RUN INSTEAD OF SKIPPING where the tree has packages
+	// gravity generated (atoms_go_regen.go): a stale regeneration is a finding,
+	// not just a hand edit.
+	mods, regen, bad := r.withGravityRegen(ctx, mods)
+	if bad != "" {
+		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - "+bad)
+	}
 	args := []string{"go", "test"}
 	scope := "unit suite: no race detector and no database — go:test-race runs those at the push"
 	if race {
@@ -198,7 +205,7 @@ func goTestIn(ctx context.Context, r *run, a checks.AtomDef, dir string, race bo
 	}
 	args = append(args, "./...")
 	v := verdict(ctx, a, mods.WithExec(args, anyExit))
-	v.Reason = scope + "\n" + v.Reason
+	v.Reason = scope + "\n" + regen + "\n" + v.Reason
 	return v
 }
 
