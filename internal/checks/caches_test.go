@@ -113,6 +113,18 @@ func TestCargoTargetIsPerRepoAndLocked(t *testing.T) {
 	if ta.Key != find(CachesForRepo(ImageRust, "https://git.example/org/a.git")).Key {
 		t.Errorf("the key is not stable for one repo")
 	}
+	if !strings.HasPrefix(ta.Key, "foundry-cargo-target-") || len(ta.Key) <= len("foundry-cargo-target-") {
+		t.Errorf("a per-repo key keeps the volume's name and appends the repo digest, got %q", ta.Key)
+	}
+	base := map[string]string{}
+	for _, m := range CachesFor(ImageRust) {
+		base[m.Path] = m.Key
+	}
+	for _, m := range a {
+		if !m.PerRepo && m.Key != base[m.Path] {
+			t.Errorf("%s is shared across repos but its key changed to %q", m.Path, m.Key)
+		}
+	}
 	if ts.Key != "foundry-cargo-target" {
 		t.Errorf("a run naming no repo keeps the shared key, got %q", ts.Key)
 	}
