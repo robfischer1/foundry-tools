@@ -39,7 +39,8 @@ func GoReportBase(listOut, root string) string {
 	type pkg struct{ imp, dir string }
 	var pkgs []pkg
 	for _, ln := range strings.Split(listOut, "\n") {
-		imp, dir, _ := strings.Cut(strings.TrimSpace(ln), "\t")
+		imp, dir, _ := strings.Cut(ln, "\t")
+		imp, dir = strings.TrimSpace(imp), strings.TrimSpace(dir)
 		if imp == "" || dir == "" {
 			continue
 		}
@@ -102,12 +103,14 @@ func RebaseGoReport(report []byte, base string) ([]byte, error) {
 }
 
 // commonImportPrefix trims prefix back to the last "/" until imp starts with
-// it. The cut point only ever moves left, so the loop ends; "" is no common
-// prefix.
+// it, trying each "/" from the right. "" is no common prefix.
 func commonImportPrefix(prefix, imp string) string {
-	for cut := len(prefix); cut >= 0; cut = strings.LastIndex(prefix[:cut], "/") {
-		if strings.HasPrefix(imp, prefix[:cut]) {
-			return prefix[:cut]
+	if strings.HasPrefix(imp, prefix) {
+		return prefix
+	}
+	for i := len(prefix) - 1; i >= 0; i-- {
+		if prefix[i] == '/' && strings.HasPrefix(imp, prefix[:i]) {
+			return prefix[:i]
 		}
 	}
 	return ""
