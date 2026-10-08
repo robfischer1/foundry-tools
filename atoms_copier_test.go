@@ -95,7 +95,7 @@ func TestMissingRulesetStillPassesWhenNoTemplateStampedTheTree(t *testing.T) {
 	for _, id := range []string{"fleet:opengrep-sast", "fleet:sast-ruleset-lanes"} {
 		engine.reset()
 		engine.withTree(fleetTree(nil, "rules/sast/go.yml", ".copier-answers.yml"))
-		wantState(t, runAtom(t, id, ""), 0, "ABSENT", "no fleet template stamped it")
+		wantState(t, runAtom(t, id, ""), 0, "ABSENT", "no SAST-shipping fleet template stamped it")
 		fleetNoContainer(t, "absence decided from the Directory")
 	}
 }
@@ -128,7 +128,7 @@ func TestMissingRulesetIgnoresANonTemplateAnswersFile(t *testing.T) {
 		map[string]string{".copier-answers.yml": "_src_path: https://forgejo.notusmi.com/rob/speckit-overrides.git\n"},
 		"rules/sast/go.yml",
 	))
-	wantState(t, runAtom(t, "fleet:opengrep-sast", ""), 0, "no fleet template stamped it")
+	wantState(t, runAtom(t, "fleet:opengrep-sast", ""), 0, "no SAST-shipping fleet template stamped it")
 }
 
 // config-repo-template ships no ruleset (a config tree has no code language), so
@@ -140,7 +140,7 @@ func TestMissingRulesetPassesForAConfigTemplateStamp(t *testing.T) {
 			map[string]string{".copier-answers.yml": "_src_path: https://git.notusmi.com/config-repo-template.git\n"},
 			"rules/sast/go.yml",
 		))
-		wantState(t, runAtom(t, id, ""), 0, "ABSENT")
+		wantState(t, runAtom(t, id, ""), 0, "ABSENT", "no SAST-shipping fleet template stamped it")
 	}
 }
 
@@ -197,7 +197,7 @@ func TestMissingRulesetPassesWhenTheAnswersFileWillNotRead(t *testing.T) {
 			"rules/sast/go.yml",
 		))
 		engine.fail(`file(path:".copier-answers.yml")`, "i/o error")
-		wantState(t, runAtom(t, id, ""), 0, "no fleet template stamped it")
+		wantState(t, runAtom(t, id, ""), 0, "no SAST-shipping fleet template stamped it")
 	}
 }
 

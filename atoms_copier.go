@@ -184,7 +184,7 @@ func absentRuleset(ctx context.Context, r *run, a checks.AtomDef) checks.Verdict
 	tpl := copierTemplate(ctx, r)
 	if tpl == "" {
 		return checks.VerdictOf(a, 0, string(a.ID)+
-			": ABSENT - no rules/sast in this tree, and no fleet template stamped it")
+			": ABSENT - no rules/sast in this tree, and no SAST-shipping fleet template stamped it")
 	}
 	return checks.VerdictOf(a, 2, fmt.Sprintf(
 		"%s: CANNOT RUN - this tree has no rules/sast, and %s stamped it.\n\n"+
