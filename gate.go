@@ -71,7 +71,9 @@ func (m *FoundryTools) Gate(
 	// +optional
 	stage string,
 ) (string, error) {
-	return m.gateStage(ctx, tree, stage, base).Record()
+	record, err := m.gateStage(ctx, tree, stage, base).Record()
+	m.shadowBeside(ctx, stage, base)
+	return record, err
 }
 
 // GateFile is the same grading, handed over as a FILE instead of printed.
@@ -165,6 +167,9 @@ func (m *FoundryTools) GateFile(
 	// conditional pretending to be reachable.
 	record, _ := result.Record()
 	postRecord(ctx, m.Repo, recordToken, record)
+	// AFTER THE POST: the record is already with the door, so nothing the
+	// shadow does can delay or change it (shadowBeside).
+	m.shadowBeside(ctx, stage, base)
 	return result.RecordFile()
 }
 

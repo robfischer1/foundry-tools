@@ -126,6 +126,47 @@ func TestCheckAddedLargeFilesSaysHowManyWereNotMeasured(t *testing.T) {
 	}
 }
 
+// unmeasured shows the first five and says how many it left out - and says
+// nothing when there is nothing left out (the boundary `len(errs) > shown`).
+func TestUnmeasuredBoundary(t *testing.T) {
+	mk := func(n int) []string {
+		var e []string
+		for i := range n {
+			e = append(e, "e"+strings.Repeat("x", i))
+		}
+		return e
+	}
+	for _, tc := range []struct {
+		n        int
+		wantLine bool
+		wantText string
+	}{
+		{1, false, "e"},
+		{4, false, "exxx"},
+		{5, false, "exxxx"},
+		{6, true, "... and 1 more"},
+		{7, true, "... and 2 more"},
+	} {
+		got := unmeasured(mk(tc.n))
+		if has := strings.Contains(got, "... and"); has != tc.wantLine {
+			t.Errorf("%d errors: %q (more-line present=%v, want %v)", tc.n, got, has, tc.wantLine)
+		}
+		if !strings.Contains(got, tc.wantText) {
+			t.Errorf("%d errors: %q lacks %q", tc.n, got, tc.wantText)
+		}
+		if lines := strings.Count(got, "\n") + 1; lines != min(tc.n, 5)+btoi(tc.wantLine) {
+			t.Errorf("%d errors shown on %d lines", tc.n, lines)
+		}
+	}
+}
+
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 func TestCheckAddedLargeFilesStopsWhenItsContextEnds(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

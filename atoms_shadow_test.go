@@ -1,17 +1,30 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"go/parser"
 	"go/token"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"dagger/foundry-tools/internal/checks"
 )
+
+// NO TEST RUNS THE REAL SHADOW BY ACCIDENT. Gate calls shadowBeside, and the
+// real shadow asks the paper engine for the whole vector and a binary run, which
+// would add queries to every gate test's record and print a report into its
+// stderr. The tests that mean the shadow set their own.
+func init() {
+	shadowRun = func(context.Context, *FoundryTools, string) string { return "" }
+	shadowOut = func() io.Writer { return io.Discard }
+}
 
 // coveredBy says whether the include list reaches dir: by its own entry, or by a
 // directory entry above it.
@@ -117,5 +130,154 @@ func TestRenderShadowNamesTheChainsFirst(t *testing.T) {
 	got := renderShadow(nil, errors.New("a"), "", errors.New("b"))
 	if !strings.Contains(got, "the chains did not answer: a") || strings.Contains(got, "binary") {
 		t.Errorf("report %q", got)
+	}
+}
+
+// THE SHADOW CANNOT VOTE. Whatever it does - hang past its deadline, panic,
+// answer an error line, answer nothing - the record Gate returns is the bytes it
+// returns without a shadow, and the call returns no error.
+func TestAShadowThatMisbehavesChangesNothingTheGateAnswers(t *testing.T) {
+	origRun, origTimeout, origOut := shadowRun, shadowTimeout, shadowOut
+	t.Cleanup(func() { shadowRun, shadowTimeout, shadowOut = origRun, origTimeout, origOut })
+	shadowOut = func() io.Writer { return io.Discard }
+	shadowRun = func(context.Context, *FoundryTools, string) string { return "" }
+	m := gateOn(t, redVector)
+	want := runGate(t, m, "")
+
+	stuck := make(chan struct{})
+	t.Cleanup(func() { close(stuck) })
+	for _, tc := range []struct {
+		name string
+		run  func(context.Context, *FoundryTools, string) string
+		said string
+	}{
+		{"hangs", func(context.Context, *FoundryTools, string) string { <-stuck; return "late" }, "no answer within"},
+		{"panics", func(context.Context, *FoundryTools, string) string { panic("shadow bug") }, "the shadow panicked: shadow bug"},
+		{"errors", func(context.Context, *FoundryTools, string) string { return "shadow atoms: not compared - boom" }, "not compared - boom"},
+		{"says nothing", func(context.Context, *FoundryTools, string) string { return "" }, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			shadowOut = func() io.Writer { return &buf }
+			shadowTimeout = 50 * time.Millisecond
+			shadowRun = tc.run
+			m := gateOn(t, redVector)
+			got, err := m.Gate(context.Background(), fakeTree, gatePin, "base-sha", "")
+			if err != nil {
+				t.Fatalf("a shadow turned the gate into an error: %v", err)
+			}
+			if got != want {
+				t.Errorf("the record moved.\nwith:    %s\nwithout: %s", got, want)
+			}
+			if !strings.Contains(buf.String(), tc.said) {
+				t.Errorf("stderr report %q lacks %q", buf.String(), tc.said)
+			}
+		})
+	}
+}
+
+// The shadow runs for the pull path and only there, and runs exactly once.
+func TestTheShadowRunsOnTheGateLaneOnly(t *testing.T) {
+	origRun, origOut := shadowRun, shadowOut
+	t.Cleanup(func() { shadowRun, shadowOut = origRun, origOut })
+	shadowOut = func() io.Writer { return io.Discard }
+	for stage, want := range map[string]int{"": 1, "prepush": 1, "precommit": 0, "mutation": 0, "orbit": 0, "visual": 0} {
+		calls := 0
+		shadowRun = func(context.Context, *FoundryTools, string) string { calls++; return "r" }
+		(&FoundryTools{}).shadowBeside(context.Background(), stage, "b")
+		if calls != want {
+			t.Errorf("stage %q: shadow ran %d times, want %d", stage, calls, want)
+		}
+	}
+}
+
+// ShadowAtoms asks the chains for exactly the binary's atoms, in its order, and
+// holds the two answers against each other.
+func TestShadowAtomsAsksTheChainsForTheBinarysAtoms(t *testing.T) {
+	origToday, origBinary := shadowToday, shadowBinary
+	t.Cleanup(func() { shadowToday, shadowBinary = origToday, origBinary })
+	yaml := checks.AtomByID("fleet:check-yaml")
+	vec := []checks.Verdict{checks.VerdictOf(yaml, 0, "")}
+	raw, _ := json.Marshal(vec)
+	var gotOnly, gotBase, binBase string
+	shadowToday = func(_ context.Context, _ *FoundryTools, only, base string) ([]checks.Verdict, error) {
+		gotOnly, gotBase = only, base
+		return vec, nil
+	}
+	shadowBinary = func(_ context.Context, _ *FoundryTools, base string) (string, error) {
+		binBase = base
+		return string(raw), nil
+	}
+	report := (&FoundryTools{}).ShadowAtoms(context.Background(), "b4se")
+	if want := "fleet:check-yaml,fleet:check-added-large-files,fleet:check-merge-conflict,fleet:stop-justifications"; gotOnly != want {
+		t.Errorf("chains asked for %q, want %q", gotOnly, want)
+	}
+	if gotBase != "b4se" || binBase != "b4se" {
+		t.Errorf("base reached the chains as %q and the binary as %q", gotBase, binBase)
+	}
+	if !strings.Contains(report, "1 compared, 1 identical") {
+		t.Errorf("report %q", report)
+	}
+}
+
+func TestAtomsBinaryIsBuiltFromTheFilteredSourceInTheGoToolchain(t *testing.T) {
+	engine.reset()
+	if _, err := dag.Container().From("scratch").WithFile("/b", atomsBinary()).Stdout(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	c := engine.chain(`"go","build","-trimpath","-o","/out/atoms","./atoms"`)
+	if c == "" {
+		t.Fatalf("no build chain; the engine saw:\n%s", strings.Join(engine.chains(), "\n"))
+	}
+	for _, want := range []string{`from(address:"` + checks.ImageGo + `")`, `withMountedCache`, `withWorkdir`} {
+		if !strings.Contains(c, want) {
+			t.Errorf("the build lacks %s:\n%s", want, c)
+		}
+	}
+	// The filtered source is an object of its own: the build mounts it by id, so
+	// the include and exclude lists are read off the query that made it.
+	f := engine.chain(`"atoms/**"`, `"**/*_test.go"`)
+	if f == "" {
+		t.Fatalf("no filter query carried the include and exclude lists; the engine saw:\n%s", strings.Join(engine.chains(), "\n"))
+	}
+	for _, want := range []string{`"go.mod"`, `"go.sum"`, `"internal/atoms/**"`, `"internal/checks/**"`} {
+		if !strings.Contains(f, want) {
+			t.Errorf("the filter lacks %s:\n%s", want, f)
+		}
+	}
+}
+
+func TestAtomsVectorRunsTheBinaryInTheFleetLane(t *testing.T) {
+	const argv = `"/usr/local/bin/atoms","-root","/src","-base","abc","-origin","http://door/rob/x.git"`
+	m := &FoundryTools{Source: dag.Directory(), Repo: "http://door/rob/x.git", Sha: buildSha}
+	for _, tc := range []struct {
+		name    string
+		script  func()
+		want    string
+		wantErr string
+	}{
+		{"the vector is its stdout", func() { engine.stdout(`"/usr/local/bin/atoms"`, "[]") }, "[]", ""},
+		{"a non-zero exit is an error, not a vector", func() { engine.exitCode(`"/usr/local/bin/atoms"`, 3) }, "", "exited 3"},
+		{"an engine that would not run it is an error", func() { engine.failLeaf(`"/usr/local/bin/atoms"`, "exitCode", "engine gone") }, "", "engine gone"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			engine.reset()
+			engine.withTree(map[string]string{"go.mod": "module x\n"})
+			tc.script()
+			got, err := m.atomsVector(context.Background(), "abc")
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("error %v, want one containing %q", err, tc.wantErr)
+				}
+			} else if err != nil || got != tc.want {
+				t.Fatalf("got %q, %v; want %q", got, err, tc.want)
+			}
+			c := engine.chain(argv)
+			for _, want := range []string{`expect:ANY`, `from(address:"` + checks.ImageFleet + `")`, `path:"/usr/local/bin/atoms"`} {
+				if !strings.Contains(c, want) {
+					t.Errorf("the run chain lacks %s:\n%s", want, c)
+				}
+			}
+		})
 	}
 }

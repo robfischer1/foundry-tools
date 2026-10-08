@@ -17,24 +17,28 @@ import (
 
 // git runs one git command in root and answers its output and exit code. The
 // output is stdout, plus stderr when git exited non-zero — the module's
-// output() does the same, so an error reads the same in either vector. A git
-// that would not START is the error; a git that ran and said no is a code.
+// output() does the same, so an error reads the same in either vector.
+//
+// A GIT THAT WOULD NOT START IS EXIT -1 with the reason as its output, not a
+// second return value. Every caller already refuses a non-zero code, so "git is
+// not installed" is refused by the same line as "git said no" and there is no
+// error path beside it that no test can reach.
 //
 // safe.directory=* because the tree is owned by whoever cloned it and the
 // process may not be: git refuses such a repository ("dubious ownership"), and
 // the lane image sets the same thing for every chain (gitSystemConfig).
-func git(ctx context.Context, root string, args ...string) (string, int, error) {
+func git(ctx context.Context, root string, args ...string) (string, int) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "safe.directory=*", "-C", root}, args...)...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
+	if err == nil {
+		return stdout.String(), 0
+	}
 	if ee := new(exec.ExitError); errors.As(err, &ee) {
-		return stdout.String() + stderr.String(), ee.ExitCode(), nil
+		return stdout.String() + stderr.String(), ee.ExitCode()
 	}
-	if err != nil {
-		return "", 0, fmt.Errorf("git %s: %w", args[0], err)
-	}
-	return stdout.String(), 0, nil
+	return fmt.Sprintf("git %s: %v", args[0], err), -1
 }
 
 // ChangeSet is the paths a pull added, modified or renamed, computed ONCE from
@@ -54,30 +58,27 @@ func git(ctx context.Context, root string, args ...string) (string, int, error) 
 // change set with no origin is not a change set nothing touched. Paths come
 // back NUL-separated from git, so a name with a space or a quote is intact.
 func ChangeSet(ctx context.Context, root, base string) ([]string, error) {
+	// A LINKED-WORKTREE SNAPSHOT HAS NO CHANGE SET. gitReady rebuilds a worktree
+	// as a throwaway repository and marks it ca.snapshot; its one synthetic
+	// commit is not the pull's commits (fleet:witness stands down the same way).
+	// An error, not an empty set: "nothing changed" would pass a pull nobody read.
+	if snap, code := git(ctx, root, "config", "--get", "ca.snapshot"); code == 0 && strings.TrimSpace(snap) != "" {
+		return nil, fmt.Errorf("no change set to read: the source is a %s snapshot with no real commits", strings.TrimSpace(snap))
+	}
 	var (
 		out  string
 		code int
-		err  error
 	)
 	if base != "" {
-		since, serr := mergeBase(ctx, root, base)
-		if serr != nil {
-			return nil, serr
+		since, err := mergeBase(ctx, root, base)
+		if err != nil {
+			return nil, err
 		}
-		out, code, err = git(ctx, root, "diff", "-z", "--name-only", "--diff-filter=AMR", since+"..HEAD")
+		out, code = git(ctx, root, "diff", "-z", "--name-only", "--diff-filter=AMR", since+"..HEAD")
+	} else if _, parent := git(ctx, root, "rev-parse", "--verify", "--quiet", "HEAD^"); parent == 0 {
+		out, code = git(ctx, root, "diff", "-z", "--name-only", "--diff-filter=AMR", "HEAD^..HEAD")
 	} else {
-		_, parent, perr := git(ctx, root, "rev-parse", "--verify", "--quiet", "HEAD^")
-		if perr != nil {
-			return nil, perr
-		}
-		if parent == 0 {
-			out, code, err = git(ctx, root, "diff", "-z", "--name-only", "--diff-filter=AMR", "HEAD^..HEAD")
-		} else {
-			out, code, err = git(ctx, root, "show", "--pretty=", "-z", "--name-only", "--diff-filter=AMR", "HEAD")
-		}
-	}
-	if err != nil {
-		return nil, err
+		out, code = git(ctx, root, "show", "--pretty=", "-z", "--name-only", "--diff-filter=AMR", "HEAD")
 	}
 	if code != 0 {
 		return nil, fmt.Errorf("git exited %d reading the change set: %s", code, strings.TrimSpace(out))
@@ -90,45 +91,64 @@ func ChangeSet(ctx context.Context, root, base string) ([]string, error) {
 // merge-base, which reads as a crash, and exit 1 from rev-parse, which reads as
 // the answer it is (foundry-tools#63).
 func mergeBase(ctx context.Context, root, base string) (string, error) {
-	_, code, err := git(ctx, root, "rev-parse", "--verify", "--quiet", base+"^{commit}")
-	if err != nil {
-		return "", err
+	out, code := git(ctx, root, "rev-parse", "--verify", "--quiet", base+"^{commit}")
+	if code < 0 {
+		return "", fmt.Errorf("git would not run: %s", out)
 	}
 	if code != 0 {
 		return "", fmt.Errorf("the base %s is not in this history", base)
 	}
-	out, code, err := git(ctx, root, "merge-base", base, "HEAD")
-	if err != nil {
-		return "", err
+	out, code = git(ctx, root, "merge-base", base, "HEAD")
+	if code != 0 {
+		return "", fmt.Errorf("git found no merge base between the base %s and HEAD (exit %d): %s", base, code, strings.TrimSpace(out))
 	}
-	since := strings.TrimSpace(out)
-	if code != 0 || since == "" {
-		return "", fmt.Errorf("git found no merge base between the base %s and HEAD (exit %d): %s", base, code, since)
-	}
-	return since, nil
+	return strings.TrimSpace(out), nil
 }
 
 // Collect reads the tree ONCE and answers the Input every atom shares.
 //
-// THE POPULATION IS `git ls-files --cached --others --exclude-standard`, the
-// committable files, where the chains ask the engine for a gitignore-filtered
-// glob. They agree on a clean checkout; they differ for a file that is tracked
-// AND matches a .gitignore (git lists it, the engine's filter drops it), which
-// a fetched tree has none of by construction and a shadow run will show if one
-// exists.
+// THE POPULATION IS THE CHAINS' OWN, built from git: the committable files
+// (`ls-files --cached --others --exclude-standard`) less two sets the chains
+// never see.
+//
+//   - Tracked files a .gitignore matches (`--cached --ignored`). The engine's
+//     Gitignore filter (run.population) drops them, and so does the `add -A`
+//     that gitReadyOn runs over a worktree snapshot, so every chain atom skips a
+//     file that was force-added and is ignored. A clone DOES contain such files;
+//     the chains skip them anyway, and parity means this does too.
+//   - Tracked files deleted from the working tree (`--deleted`). The chains glob
+//     files that exist; Lstat or ReadFile on a deleted path would settle 2 where
+//     the chain passes.
+//
+// Tracked is untouched: stop-justifications is defined over `git ls-files`.
 func Collect(ctx context.Context, root, base, origin string, now time.Time) Input {
 	in := Input{Root: root, Origin: origin, Now: now}
 
 	in.Tracked, in.TrackedErr = listFiles(ctx, root, "ls-files")
-	files, err := listFiles(ctx, root, "ls-files", "--cached", "--others", "--exclude-standard")
-	in.FilesErr = err
+	// Three listings through ONE error path: the first failing is the tree not
+	// enumerating, whichever of them it was.
+	var sets [3][]string
+	for i, q := range [][]string{
+		{"ls-files", "--cached", "--others", "--exclude-standard"},
+		{"ls-files", "--cached", "--ignored", "--exclude-standard"},
+		{"ls-files", "--deleted"},
+	} {
+		var lerr error
+		if sets[i], lerr = listFiles(ctx, root, q...); lerr != nil {
+			in.FilesErr = lerr
+			break
+		}
+	}
+	files := slices.DeleteFunc(sets[0], func(f string) bool {
+		return slices.Contains(sets[1], f) || slices.Contains(sets[2], f)
+	})
 	in.Files = population(root, files)
 
 	in.Changed, in.ChangedErr = ChangeSet(ctx, root, base)
 
 	if origin == "" {
-		out, code, err := git(ctx, root, "remote", "get-url", "origin")
-		if err == nil && code == 0 {
+		out, code := git(ctx, root, "remote", "get-url", "origin")
+		if code == 0 {
 			in.Origin = strings.TrimSpace(out)
 		}
 	}
@@ -139,10 +159,7 @@ func Collect(ctx context.Context, root, base, origin string, now time.Time) Inpu
 // git C-quotes a path holding a control character or a non-ASCII byte, and the
 // decode is to bytes, not runes).
 func listFiles(ctx context.Context, root string, args ...string) ([]string, error) {
-	out, code, err := git(ctx, root, args...)
-	if err != nil {
-		return nil, err
-	}
+	out, code := git(ctx, root, args...)
 	if code != 0 {
 		return nil, fmt.Errorf("git %s exited %d: %s", strings.Join(args, " "), code, strings.TrimSpace(out))
 	}

@@ -39,7 +39,26 @@ var theFunctionsTheDoorCalls = map[string][]string{
 	// gate is what every lane Job runs (gate_job_call, mutation_job_call);
 	// gate-file is the same grading handed over on the volume. A missing case
 	// for either is every gate run in the fleet settling could-not-run.
-	"FoundryTools": {"Gate", "GateFile", "ShadowAtoms"},
+	"FoundryTools": {"Gate", "GateFile"},
+}
+
+// theFunctionsOnlyPeopleCall are invokable but not the door's: ShadowAtoms is
+// called from CI beside the gate (and from Gate itself, in process), and the
+// door never asks for it.
+var theFunctionsOnlyPeopleCall = map[string][]string{
+	"FoundryTools": {"ShadowAtoms"},
+}
+
+func TestTheGeneratedSwitchKnowsTheShadow(t *testing.T) {
+	gen := readGen(t)
+	for typeName, fns := range theFunctionsOnlyPeopleCall {
+		body := genBlock(gen, fmt.Sprintf("\tcase %q:\n", typeName))
+		for _, fn := range fns {
+			if !strings.Contains(body, fmt.Sprintf("case %q:\n", fn)) {
+				t.Errorf("%s.%s is not invokable; run `dagger develop`", typeName, fn)
+			}
+		}
+	}
 }
 
 func TestTheGeneratedMarshallerNamesEveryFieldThatTravels(t *testing.T) {

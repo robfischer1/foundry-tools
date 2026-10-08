@@ -3,6 +3,7 @@ package atoms
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"dagger/foundry-tools/internal/checks"
 )
@@ -109,6 +110,11 @@ func TestClipBoundsAReasonAndFlattensItsLines(t *testing.T) {
 	long := strings.Repeat("x", 400)
 	if got := clip(long); len(got) != 303 || !strings.HasSuffix(got, "...") {
 		t.Errorf("clip of 400 bytes is %d long", len(got))
+	}
+	// 299 ASCII bytes then a 3-byte rune straddling the cut at 300.
+	multi := strings.Repeat("z", 299) + "\u20ac" + "tail"
+	if got := clip(multi); !utf8.ValidString(got) || got != strings.Repeat("z", 299)+"..." {
+		t.Errorf("clip cut through a rune: %q", got[len(got)-8:])
 	}
 	exactly := strings.Repeat("y", 300)
 	if got := clip(exactly); got != exactly {

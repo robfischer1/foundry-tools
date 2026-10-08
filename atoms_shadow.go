@@ -3,7 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"strings"
+	"time"
 
 	"dagger/foundry-tools/internal/atoms"
 	"dagger/foundry-tools/internal/checks"
@@ -71,14 +74,25 @@ func (m *FoundryTools) ShadowAtoms(
 	// +optional
 	base string,
 ) string {
-	reg, err := atoms.NewRegistry(atoms.Builtin()...)
-	if err != nil {
-		return "shadow atoms: not compared - the binary's registry is invalid: " + err.Error()
+	var ids []string
+	for _, a := range atoms.Builtin() {
+		ids = append(ids, a.ID)
 	}
-	today, todayErr := m.vector(ctx, "", strings.Join(reg.IDs(), ","), base)
-	raw, rawErr := m.atomsVector(ctx, base)
+	today, todayErr := shadowToday(ctx, m, strings.Join(ids, ","), base)
+	raw, rawErr := shadowBinary(ctx, m, base)
 	return renderShadow(today, todayErr, raw, rawErr)
 }
+
+// The two sides of the comparison, as variables so a test names what each
+// answers without an engine.
+var (
+	shadowToday = func(ctx context.Context, m *FoundryTools, only, base string) ([]checks.Verdict, error) {
+		return m.vector(ctx, "", only, base)
+	}
+	shadowBinary = func(ctx context.Context, m *FoundryTools, base string) (string, error) {
+		return m.atomsVector(ctx, base)
+	}
+)
 
 // atomsVector runs the binary in the fleet lane image over the same tree the
 // chains read, and answers its stdout: the vector as JSON.
@@ -116,4 +130,48 @@ func renderShadow(today []checks.Verdict, todayErr error, raw string, rawErr err
 		return "shadow atoms: not compared - " + err.Error()
 	}
 	return atoms.Compare(today, shadow).Render()
+}
+
+// shadowTimeout bounds the shadow run, its own deadline apart from the gate's.
+// A variable so a test can hang the shadow without waiting out five minutes.
+var shadowTimeout = 5 * time.Minute
+
+// shadowRun is the shadow itself, a variable so the tests can make it hang,
+// panic or answer garbage and prove the gate does not notice.
+var shadowRun = func(ctx context.Context, m *FoundryTools, base string) string {
+	return m.ShadowAtoms(ctx, base)
+}
+
+// shadowOut is where the report goes: stderr, read at call time. Never the
+// record and never the exit.
+var shadowOut = func() io.Writer { return os.Stderr }
+
+// shadowBeside runs the shadow after the gate's record is settled, and says
+// what it found on stderr. IT CANNOT VOTE: it returns nothing, runs under its
+// own deadline, recovers a panic into a line of the report, and is called only
+// after the record exists (Gate) or has been posted (GateFile). The pull path
+// only - the mutation, orbit and visual lanes have no atoms in the binary.
+func (m *FoundryTools) shadowBeside(ctx context.Context, stage, base string) {
+	if laneOf(stage) != "gate" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, shadowTimeout)
+	defer cancel()
+	// Buffered: a shadow that answers after its deadline can still return.
+	done := make(chan string, 1)
+	go func() {
+		defer func() {
+			if p := recover(); p != nil {
+				done <- fmt.Sprintf("shadow atoms: not compared - the shadow panicked: %v", p)
+			}
+		}()
+		done <- shadowRun(ctx, m, base)
+	}()
+	var report string
+	select {
+	case report = <-done:
+	case <-ctx.Done():
+		report = fmt.Sprintf("shadow atoms: not compared - no answer within %s (%v)", shadowTimeout, ctx.Err())
+	}
+	fmt.Fprintln(shadowOut(), report)
 }

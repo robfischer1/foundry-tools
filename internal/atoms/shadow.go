@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"unicode/utf8"
 
 	"dagger/foundry-tools/internal/checks"
 )
@@ -128,7 +129,13 @@ func clip(s string) string {
 	const n = 300
 	s = strings.ReplaceAll(s, "\n", " | ")
 	if len(s) > n {
-		return s[:n] + "..."
+		// Back up to a rune boundary: a cut through a multi-byte rune leaves
+		// invalid UTF-8 in a log line.
+		cut := n
+		for cut > 0 && !utf8.RuneStart(s[cut]) {
+			cut--
+		}
+		return s[:cut] + "..."
 	}
 	return s
 }

@@ -105,6 +105,31 @@ func TestCheckYAML(t *testing.T) {
 	}
 }
 
+// KNOWN DRIFT from the chain (see checkYAML): pre-commit --unsafe reads parse
+// events and passes an alias with no anchor; yaml.v3 rejects it while parsing.
+// This pins the BINARY's behaviour so the day the drift is closed - in either
+// direction - a test changes on purpose. A defined, earlier anchor is fine.
+func TestCheckYAMLKnownDriftUndefinedAlias(t *testing.T) {
+	a := checks.AtomByID("fleet:check-yaml")
+	for _, tc := range []struct {
+		name      string
+		body      string
+		wantState int
+	}{
+		{"an alias with no anchor anywhere", "a: *b\n", 1},
+		{"a forward alias: the anchor comes after", "a: *b\nb: &b 1\n", 1},
+		{"an anchor defined earlier is fine", "b: &b 1\na: *b\n", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			put(t, dir, "a.yaml", tc.body)
+			if v := checkYAML(context.Background(), a, Input{Root: dir, Files: []string{"a.yaml"}}); v.State != tc.wantState {
+				t.Errorf("state %d, want %d\n%s", v.State, tc.wantState, v.Reason)
+			}
+		})
+	}
+}
+
 // A pass is silent, as the hook it replaces is: the chain's pass carries no
 // output, so a count printed here would make the two vectors differ in logs.
 func TestCheckYAMLPassesSilently(t *testing.T) {

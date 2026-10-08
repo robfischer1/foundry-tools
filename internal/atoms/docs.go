@@ -64,8 +64,18 @@ func stopJustifications(_ context.Context, a checks.AtomDef, in Input) checks.Ve
 // !include, an ansible vault) is not "could not determine a constructor", and
 // a k3s manifest with a second document is not "expected a single document"
 // (both measured on infra, 2026-09-10 and -11; the atom's chain says how).
-// yaml.v3 gives the same shape: decoding into a yaml.Node walks the parse and
-// builds a tree, never a Go value, so an unknown tag is a node with a tag.
+// yaml.v3 agrees on those two: decoding into a yaml.Node builds a tree, never
+// a Go value, so an unknown tag is a node with a tag.
+//
+// KNOWN DRIFT, TO SETTLE BEFORE THIS ATOM VOTES: THE BINARY IS STRICTER THAN THE
+// CHAIN ON ALIASES. go.yaml.in/yaml/v3 resolves an alias while it parses, so an
+// undefined or forward alias ("a: *b" with no earlier &b) is an error even into
+// a yaml.Node (v3.0.5 decode.go: "unknown anchor 'b' referenced"). pre-commit's
+// --unsafe reads only the parse EVENTS, which carry the alias by name and
+// resolve nothing, so the chain answers 0 where this answers 1: a pass turned
+// red. TestCheckYAMLKnownDriftUndefinedAlias pins the binary's side; the shadow
+// report is where the other side shows. Either this atom pre-scans events (a
+// yaml.Node walk cannot see past the error) or the chain's tool changes.
 //
 // EVERY DOCUMENT of a file is decoded, to io.EOF. The first error in a file is
 // reported with the file and, where the parser has one, the line — "yaml: line
@@ -75,16 +85,16 @@ func checkYAML(ctx context.Context, a checks.AtomDef, in Input) checks.Verdict {
 	if in.FilesErr != nil {
 		return cannotEnumerate(a, in.FilesErr)
 	}
-	var found, unread []string
-	scanned := 0
+	var yamls, found, unread []string
 	for _, f := range in.Files {
-		if !strings.HasSuffix(f, ".yml") && !strings.HasSuffix(f, ".yaml") {
-			continue
+		if strings.HasSuffix(f, ".yml") || strings.HasSuffix(f, ".yaml") {
+			yamls = append(yamls, f)
 		}
+	}
+	for _, f := range yamls {
 		if err := ctx.Err(); err != nil {
 			return interrupted(a, err)
 		}
-		scanned++
 		body, err := os.ReadFile(filepath.Join(in.Root, f))
 		if err != nil {
 			unread = append(unread, err.Error())
@@ -95,7 +105,7 @@ func checkYAML(ctx context.Context, a checks.AtomDef, in Input) checks.Verdict {
 		}
 	}
 	switch {
-	case scanned == 0:
+	case len(yamls) == 0:
 		return checks.VerdictOf(a, int(checks.StatePass), "fleet:check-yaml: no YAML in this repository")
 	case len(found) > 0:
 		return checks.VerdictOf(a, int(checks.StateFindings), strings.Join(found, "\n"))

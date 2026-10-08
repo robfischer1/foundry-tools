@@ -2,6 +2,8 @@ package atoms
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -127,6 +129,16 @@ func TestChangeSetErrors(t *testing.T) {
 			wantErr: "no merge base",
 		},
 		{
+			name: "a linked-worktree snapshot has no change set, even with commits",
+			build: func(t *testing.T, dir string) string {
+				put(t, dir, "a.txt", "1\n")
+				commitAll(t, dir, "synthetic")
+				gitIn(t, dir, "config", "--local", "ca.snapshot", "linked-worktree")
+				return ""
+			},
+			wantErr: "linked-worktree snapshot",
+		},
+		{
 			name: "a repository with no commits has no change set",
 			build: func(t *testing.T, dir string) string {
 				return ""
@@ -156,20 +168,30 @@ func TestChangeSetWithoutGit(t *testing.T) {
 	dir := newRepo(t)
 	t.Setenv("PATH", t.TempDir())
 	for _, base := range []string{"", "abc123"} {
+		want := "git exited -1 reading the change set: git show: "
+		if base != "" {
+			want = "git would not run: git rev-parse: "
+		}
 		_, err := ChangeSet(context.Background(), dir, base)
-		if err == nil || !strings.Contains(err.Error(), "git rev-parse") {
-			t.Errorf("base %q: error %v, want one naming git rev-parse", base, err)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("base %q: error %v, want one containing %q", base, err, want)
 		}
 	}
 }
 
 func TestCollect(t *testing.T) {
 	dir := newRepo(t)
-	put(t, dir, ".gitignore", "ignored.txt\n")
+	put(t, dir, ".gitignore", "ignored.txt\nforced.txt\n")
 	put(t, dir, "tracked.txt", "t\n")
+	put(t, dir, "forced.txt", "tracked and ignored\n")
+	put(t, dir, "deleted.txt", "tracked, then removed from disk\n")
 	put(t, dir, ".claude/x.txt", "excluded by the fleet\n")
 	put(t, dir, "vendor/v.txt", "excluded by the fleet\n")
+	gitIn(t, dir, "add", "-f", "forced.txt")
 	commitAll(t, dir, "c1")
+	if err := os.Remove(filepath.Join(dir, "deleted.txt")); err != nil {
+		t.Fatal(err)
+	}
 	put(t, dir, "untracked.txt", "u\n")
 	put(t, dir, "ignored.txt", "i\n")
 	gitIn(t, dir, "remote", "add", "origin", "http://door/cerberus.git")
@@ -179,13 +201,13 @@ func TestCollect(t *testing.T) {
 	if in.FilesErr != nil || in.TrackedErr != nil || in.ChangedErr != nil {
 		t.Fatalf("errors: %v / %v / %v", in.FilesErr, in.TrackedErr, in.ChangedErr)
 	}
-	if want := []string{".claude/x.txt", ".gitignore", "tracked.txt", "vendor/v.txt"}; !reflect.DeepEqual(in.Tracked, want) {
-		t.Errorf("tracked %q, want %q (git's list, fleet exclude not applied)", in.Tracked, want)
+	if want := []string{".claude/x.txt", ".gitignore", "deleted.txt", "forced.txt", "tracked.txt", "vendor/v.txt"}; !reflect.DeepEqual(in.Tracked, want) {
+		t.Errorf("tracked %q, want %q (git's list: force-added and deleted files stay, fleet exclude not applied)", in.Tracked, want)
 	}
 	if want := []string{".gitignore", "tracked.txt", "untracked.txt"}; !reflect.DeepEqual(in.Files, want) {
-		t.Errorf("population %q, want %q (committable, less ignored and fleet-excluded)", in.Files, want)
+		t.Errorf("population %q, want %q (committable, less ignored, fleet-excluded, force-added-but-ignored and deleted: the chains' engine filter sees none of those)", in.Files, want)
 	}
-	if want := []string{".claude/x.txt", ".gitignore", "tracked.txt", "vendor/v.txt"}; !reflect.DeepEqual(in.Changed, want) {
+	if want := []string{".claude/x.txt", ".gitignore", "deleted.txt", "forced.txt", "tracked.txt", "vendor/v.txt"}; !reflect.DeepEqual(in.Changed, want) {
 		t.Errorf("changed %q, want %q (a root commit)", in.Changed, want)
 	}
 	if in.Origin != "http://door/cerberus.git" {

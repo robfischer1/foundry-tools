@@ -41,7 +41,6 @@ func Execute(ctx context.Context, reg *Registry, in Input, opt Options) []checks
 	if workers <= 0 {
 		workers = runtime.GOMAXPROCS(0)
 	}
-	workers = min(workers, len(reg.entries))
 	timeout := opt.Timeout
 	if timeout <= 0 {
 		timeout = DefaultTimeout
@@ -54,7 +53,7 @@ func Execute(ctx context.Context, reg *Registry, in Input, opt Options) []checks
 	out := make([]checks.Verdict, len(reg.entries))
 	jobs := make(chan int)
 	var wg sync.WaitGroup
-	for range workers {
+	for range min(workers, len(reg.entries)) {
 		wg.Go(func() {
 			for i := range jobs {
 				started := clock()
