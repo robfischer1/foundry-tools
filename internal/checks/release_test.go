@@ -13,14 +13,14 @@ func plannedNames(p ReleasePlan) string {
 	return strings.Join(out, ",")
 }
 
-// THE CONVENTION IS THE STAR'S OWN NAME, which is what 27 of the fleet's 29 Go
-// repos build and all of them build it from ./cmd/<name>.
-func TestGoReleasePlanDerivesTheStarsOwnBinary(t *testing.T) {
-	p, err := GoReleasePlan("hephaestus", nil, false)
+// THE BINARIES ARE THE DOCKERFILE'S COPY LINES: a star whose image carries
+// only its own binary copies only that.
+func TestGoReleasePlanTakesTheDockerfilesCopies(t *testing.T) {
+	p, err := GoReleasePlan("hephaestus", []string{"hephaestus"}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plannedNames(p) != "hephaestus=./cmd/hephaestus" || p.Declared || p.Vendored {
+	if plannedNames(p) != "hephaestus=./cmd/hephaestus" || p.Vendored {
 		t.Errorf("%+v", p)
 	}
 	if got := strings.Join(GoReleaseArgs(p.Binaries[0], p.Vendored), " "); got != "go build -trimpath -ldflags=-s -w -o /out/hephaestus ./cmd/hephaestus" {
@@ -28,9 +28,9 @@ func TestGoReleasePlanDerivesTheStarsOwnBinary(t *testing.T) {
 	}
 }
 
-// A RECORD SPEAKS ONLY WHEN THE REPO SHIPS MORE THAN ITS OWN NAME — measured:
-// blade-runner and clio, and nobody else.
-func TestGoReleasePlanTakesTheRecordsBinariesWhenItNamesThem(t *testing.T) {
+// A Dockerfile that copies more than the star's name builds more: blade-runner
+// and clio, and nobody else.
+func TestGoReleasePlanBuildsEveryCopiedBinary(t *testing.T) {
 	p, err := GoReleasePlan("blade-runner", []string{"blade-runner", "blade-controller"}, false)
 	if err != nil {
 		t.Fatal(err)
@@ -38,18 +38,21 @@ func TestGoReleasePlanTakesTheRecordsBinariesWhenItNamesThem(t *testing.T) {
 	if plannedNames(p) != "blade-controller=./cmd/blade-controller,blade-runner=./cmd/blade-runner" {
 		t.Errorf("sorted by name: %s", plannedNames(p))
 	}
-	if !p.Declared {
-		t.Errorf("the plan says the record spoke: %+v", p)
-	}
-	if !strings.Contains(ReleaseScope(p), "tools.build.binaries in the record") {
+	if !strings.Contains(ReleaseScope(p), "the Dockerfile's COPY lines") {
 		t.Errorf("scope %q", ReleaseScope(p))
+	}
+	// The star's own name is no longer assumed: blade-runner's Dockerfile
+	// copies blade-controller alone, and that is all it builds.
+	q, err := GoReleasePlan("blade-runner", []string{"blade-controller"}, false)
+	if err != nil || plannedNames(q) != "blade-controller=./cmd/blade-controller" {
+		t.Errorf("%v %+v", err, q)
 	}
 }
 
 // VENDOR IS A DIRECTORY, NOT A DECLARATION: the flag was present in exactly the
 // five repos carrying vendor/ and in no others.
 func TestGoReleaseArgsVendorFollowsTheTree(t *testing.T) {
-	p, err := GoReleasePlan("ourea", nil, true)
+	p, err := GoReleasePlan("ourea", []string{"ourea"}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +72,8 @@ func TestGoReleasePlanRefusesWhatItCannotName(t *testing.T) {
 		declared []string
 		why      string
 	}{
-		{"", nil, "no star"},
+		{"", []string{"x"}, "no star"},
+		{"x", nil, "a Dockerfile that copies nothing out of release/"},
 		{"x", []string{"../escape"}, "a path is not a binary name"},
 		{"x", []string{"-flag"}, "a flag is not a binary name"},
 		{"x", []string{"a", "a"}, "the same name twice"},
@@ -80,26 +84,15 @@ func TestGoReleasePlanRefusesWhatItCannotName(t *testing.T) {
 	}
 }
 
-func TestReleaseBinariesReadsOnlyWhatTheRecordDeclares(t *testing.T) {
-	if got := ReleaseBinaries(`{"tools":{"build":{"binaries":["clio","clio-query"]}}}`); strings.Join(got, ",") != "clio,clio-query" {
-		t.Errorf("declared %v", got)
-	}
-	for _, slag := range []string{`{}`, `{"tools":{}}`, `{"tools":{"cast":{"binaries":["x"]}}}`, `not json`} {
-		if got := ReleaseBinaries(slag); got != nil {
-			t.Errorf("%s: the convention answers, not %v", slag, got)
-		}
-	}
-}
-
 // THE RUST CONVENTION IS THE SAME NAME, AS A WORKSPACE PACKAGE: the fleet's
 // Rust star Dockerfiles and the template that pours them run
 // `cargo build --release -p <star>`, and the binary is target/release/<star>.
 func TestRustReleasePlanDerivesTheStarsOwnCrate(t *testing.T) {
-	p, err := RustReleasePlan("tron", nil)
+	p, err := RustReleasePlan("tron", []string{"tron"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plannedNames(p) != "tron=tron" || p.Declared || p.Vendored || p.Lane != LaneRust {
+	if plannedNames(p) != "tron=tron" || p.Vendored || p.Lane != LaneRust {
 		t.Errorf("%+v", p)
 	}
 	if got := strings.Join(RustReleaseArgs(p.Binaries[0]), " "); got != "cargo build --release --locked -p tron" {
@@ -109,14 +102,14 @@ func TestRustReleasePlanDerivesTheStarsOwnCrate(t *testing.T) {
 		t.Errorf("binary at %q", got)
 	}
 	scope := ReleaseScope(p)
-	if !strings.Contains(scope, "release build: tron") || !strings.Contains(scope, "the star's own name") || !strings.Contains(scope, "--locked") {
+	if !strings.Contains(scope, "release build: tron") || !strings.Contains(scope, "the Dockerfile's COPY lines") || !strings.Contains(scope, "--locked") {
 		t.Errorf("scope %q", scope)
 	}
 	if strings.Contains(scope, "vendor") {
 		t.Errorf("a Rust scope does not talk about Go's vendoring: %q", scope)
 	}
 	// The Go plan's lane is Go, and its scope stays Go's.
-	g, err := GoReleasePlan("hades", nil, false)
+	g, err := GoReleasePlan("hades", []string{"hades"}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,25 +118,23 @@ func TestRustReleasePlanDerivesTheStarsOwnCrate(t *testing.T) {
 	}
 }
 
-// A RUST RECORD SPEAKS THE SAME WAY: each declared binary is the workspace
+// A RUST DOCKERFILE SPEAKS THE SAME WAY: each copied binary is the workspace
 // package of that name, sorted, and the same names are refused.
-func TestRustReleasePlanTakesTheRecordsBinariesAndRefusesTheSameNames(t *testing.T) {
+func TestRustReleasePlanTakesTheCopiedBinariesAndRefusesTheSameNames(t *testing.T) {
 	p, err := RustReleasePlan("cerberus", []string{"cerberus", "cerberus-admin"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plannedNames(p) != "cerberus=cerberus,cerberus-admin=cerberus-admin" || !p.Declared {
+	if plannedNames(p) != "cerberus=cerberus,cerberus-admin=cerberus-admin" {
 		t.Errorf("%+v", p)
-	}
-	if !strings.Contains(ReleaseScope(p), "tools.build.binaries in the record") {
-		t.Errorf("scope %q", ReleaseScope(p))
 	}
 	for _, c := range []struct {
 		star     string
 		declared []string
 		why      string
 	}{
-		{"", nil, "no star"},
+		{"", []string{"x"}, "no star"},
+		{"x", nil, "a Dockerfile that copies nothing out of release/"},
 		{"x", []string{"../escape"}, "a path is not a binary name"},
 		{"x", []string{"-flag"}, "a flag is not a binary name"},
 		{"x", []string{".hidden"}, "a dotfile is not a binary name"},
@@ -201,44 +192,14 @@ func TestRecordRepoAndStarOfRecordPath(t *testing.T) {
 	}
 }
 
-// THE RECORD'S BUILD BLOCK, READ THREE WAYS: each reader answers its own key
-// and nothing else, and a record that does not parse, or carries no block, is
-// silence to every one of them.
-func TestTheBuildBlockReadersAnswerTheirOwnKey(t *testing.T) {
-	bun := `{"tools":{"build":{"release":[["bun","run","build"],["bun","x.ts","release"]]}}}`
-	py := `{"tools":{"build":{"extras":["pg","kafka"]}}}`
-	if got := TSReleaseSteps(bun); len(got) != 2 || strings.Join(got[1], " ") != "bun x.ts release" {
-		t.Errorf("TSReleaseSteps = %v", got)
+// The bun release is the repo's own release script; the python release is
+// the lock as a wheel, without dev and with no extras.
+func TestTheReleaseArgvsAreTheScriptAndTheLockAsAWheel(t *testing.T) {
+	if got := strings.Join(TSReleaseArgs, " "); got != "bun run release" {
+		t.Errorf("bun: %q", got)
 	}
-	if got := PythonExtras(py); strings.Join(got, ",") != "pg,kafka" {
-		t.Errorf("PythonExtras = %v", got)
-	}
-	for _, slag := range []string{bun, py, `{"tools":{}}`, `not json`, ``} {
-		if got := ReleaseBinaries(slag); got != nil {
-			t.Errorf("ReleaseBinaries(%q) = %v, want nothing", slag, got)
-		}
-	}
-	for _, slag := range []string{py, `{}`, `not json`} {
-		if got := TSReleaseSteps(slag); got != nil {
-			t.Errorf("TSReleaseSteps(%q) = %v, want nothing", slag, got)
-		}
-	}
-	for _, slag := range []string{bun, `{}`, `not json`} {
-		if got := PythonExtras(slag); got != nil {
-			t.Errorf("PythonExtras(%q) = %v, want nothing", slag, got)
-		}
-	}
-}
-
-// The python release installs the lock as a wheel, without dev, with each
-// extra its own flag — and with none, the bare sync.
-func TestPythonReleaseArgsAreTheLockAsAWheelWithTheExtras(t *testing.T) {
-	bare := "uv sync --locked --no-dev --no-editable"
-	if got := strings.Join(PythonReleaseArgs(nil), " "); got != bare {
-		t.Errorf("no extras: %q", got)
-	}
-	if got := strings.Join(PythonReleaseArgs([]string{"pg", "kafka"}), " "); got != bare+" --extra pg --extra kafka" {
-		t.Errorf("extras: %q", got)
+	if got := strings.Join(PythonReleaseArgs(), " "); got != "uv sync --locked --no-dev --no-editable" {
+		t.Errorf("python: %q", got)
 	}
 }
 

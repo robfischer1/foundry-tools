@@ -1,5 +1,6 @@
 // Package castlane is the cast lane's decisions as pure functions: what a
-// record asks the lane to cast, the staged payload's content pin, and how
+// record asks the lane to cast (its name), the binaries and payload the tree
+// names, the staged payload's content pin, and how
 // hades's answer to the layer_cast mint settles. cast.go is the chain.
 //
 // WHAT IT REPLACES. infra's ca-cast script, which every binary repo reached
@@ -29,11 +30,21 @@ import (
 	"dagger/foundry-tools/internal/buildlane"
 )
 
-// Cast is what one record asks the lane to cast.
+// PayloadDir is the repo's root directory that ships verbatim beside the
+// binaries: payload/x lands as x, payload/d/ as d/. A repo with nothing to
+// ship beside its binaries has none. There is no per-repo list anywhere.
+const PayloadDir = "payload"
+
+// Cast is what one record asks the lane to cast: the star's name. The
+// binaries are the tree's (BinariesFromGoList, BinariesFromCargoMetadata) and
+// the payload is the tree's payload/ directory; neither is declared.
 type Cast struct {
-	Name         string
-	Binaries     []string
-	PayloadExtra []string
+	Name string
+	// LegacyExtras is the record's tools.cast.payload_extra, read only so a
+	// repo that has not yet moved its extras under payload/ still casts what
+	// it always did. It is ignored the moment the tree carries payload/, and
+	// goes with the field.
+	LegacyExtras []string
 }
 
 // Artifact is the bundle channel the cast mints into. It is app/<name>:stable
@@ -45,22 +56,19 @@ func (c Cast) Artifact() string { return "app/" + c.Name + ":stable" }
 // joined so the staging name stays one bare segment.
 func (c Cast) Stage(host, pin string) string { return host + "/staging/app-" + c.Name + ":" + pin }
 
-// Target is where a payload_extra path lands in the payload: under its own
-// basename, so .cerberus/hooks ships as hooks/ beside the binaries.
+// Target is where a legacy payload_extra path lands in the payload: under its
+// own basename, so .cerberus/hooks ships as hooks/ beside the binaries.
 func Target(extra string) string { return path.Base(path.Clean(extra)) }
 
-// FromRecord reads a v3 record's cast arguments. Every refusal is about the
-// record, so the lane settles it as a finding.
+// FromRecord reads a record's cast arguments: the star's name. Every refusal
+// is about the record, so the lane settles it as a finding.
 func FromRecord(slag string) (Cast, error) {
 	var rec struct {
-		Schema string `json:"$schema"`
-		Meta   struct {
-			Name     string   `json:"name"`
-			Produces []string `json:"produces"`
+		Meta struct {
+			Name string `json:"name"`
 		} `json:"meta"`
 		Tools struct {
 			Cast *struct {
-				Binaries     []string `json:"binaries"`
 				PayloadExtra []string `json:"payload_extra"`
 			} `json:"cast"`
 		} `json:"tools"`
@@ -68,24 +76,86 @@ func FromRecord(slag string) (Cast, error) {
 	if err := json.Unmarshal([]byte(slag), &rec); err != nil {
 		return Cast{}, fmt.Errorf("the record does not parse: %v", err)
 	}
-	if !strings.Contains(rec.Schema, "slag-v3") {
-		return Cast{}, errors.New("the record is not v3, and only a v3 record carries tools.cast")
-	}
 	if rec.Meta.Name == "" {
 		return Cast{}, errors.New("the record names no meta.name")
 	}
-	if !slices.Contains(rec.Meta.Produces, "binary") {
-		return Cast{}, fmt.Errorf("the record produces %v, not binary, so there is nothing to cast", rec.Meta.Produces)
+	c := Cast{Name: rec.Meta.Name}
+	if rec.Tools.Cast != nil {
+		c.LegacyExtras = rec.Tools.Cast.PayloadExtra
 	}
-	if rec.Tools.Cast == nil {
-		return Cast{}, errors.New("the record produces binary and carries no tools.cast, so the lane has no binaries to ship")
+	return c, nil
+}
+
+// BinariesFromGoList reads `go list -find -f '{{.Name}} {{.ImportPath}}'
+// ./cmd/...`: every main package directly under cmd/, by directory name. A
+// binary repo's binaries are its product, so every main ships (an image's are
+// its Dockerfile's COPY lines instead, see buildlane.ReleaseCopies). None is a
+// finding, not a silent empty cast.
+func BinariesFromGoList(out string) ([]string, error) {
+	var names []string
+	for _, line := range strings.Split(out, "\n") {
+		pkg, imp, ok := strings.Cut(strings.TrimSpace(line), " ")
+		if !ok || pkg != "main" {
+			continue
+		}
+		_, name, ok := strings.Cut(imp, "/cmd/")
+		if !ok || name == "" || strings.Contains(name, "/") {
+			continue
+		}
+		if !slices.Contains(names, name) {
+			names = append(names, name)
+		}
 	}
-	c := Cast{Name: rec.Meta.Name, Binaries: rec.Tools.Cast.Binaries, PayloadExtra: rec.Tools.Cast.PayloadExtra}
-	if len(c.Binaries) == 0 {
-		return Cast{}, errors.New("tools.cast.binaries is empty")
+	if len(names) == 0 {
+		return nil, errors.New("the tree has no main package under cmd/, so a binary repo has nothing to cast")
 	}
-	// Every binary and every extra lands at the payload's root under one name;
-	// two claims on a name would ship whichever was written last.
+	slices.Sort(names)
+	return names, nil
+}
+
+// BinariesFromCargoMetadata reads `cargo metadata --no-deps --format-version
+// 1`: the bin targets of the workspace's DEFAULT members, which are exactly
+// what `cargo build --release` builds. cargo defines the answer (a [[bin]]
+// named apart from its package, src/bin/*.rs, a workspace of member crates),
+// so nothing here parses a manifest. default-members and not members: gravity's
+// members include wasm-guest examples that its default members leave out.
+func BinariesFromCargoMetadata(out string) ([]string, error) {
+	var meta struct {
+		Packages []struct {
+			ID      string `json:"id"`
+			Targets []struct {
+				Name string   `json:"name"`
+				Kind []string `json:"kind"`
+			} `json:"targets"`
+		} `json:"packages"`
+		Default []string `json:"workspace_default_members"`
+	}
+	if err := json.Unmarshal([]byte(out), &meta); err != nil {
+		return nil, fmt.Errorf("cargo metadata answered something that is not JSON: %v", err)
+	}
+	var names []string
+	for _, p := range meta.Packages {
+		if !slices.Contains(meta.Default, p.ID) {
+			continue
+		}
+		for _, t := range p.Targets {
+			if slices.Contains(t.Kind, "bin") && !slices.Contains(names, t.Name) {
+				names = append(names, t.Name)
+			}
+		}
+	}
+	if len(names) == 0 {
+		return nil, errors.New("the workspace's default members have no bin target, so a binary repo has nothing to cast")
+	}
+	slices.Sort(names)
+	return names, nil
+}
+
+// Claims checks what lands at the payload's root. Every binary and every
+// payload entry lands under one name; two claims on a name would ship
+// whichever was written last. payload holds the top-level names of the
+// payload tree (payload/ or the legacy extras' basenames).
+func Claims(binaries, payload []string) error {
 	lands := map[string]string{}
 	claim := func(name, what string) error {
 		if prior, ok := lands[name]; ok {
@@ -94,27 +164,37 @@ func FromRecord(slag string) (Cast, error) {
 		lands[name] = what
 		return nil
 	}
-	for _, b := range c.Binaries {
+	for _, b := range binaries {
 		if b == "" || strings.ContainsAny(b, `/\`) || strings.HasPrefix(b, ".") || strings.HasPrefix(b, "-") {
-			return Cast{}, fmt.Errorf("tools.cast.binaries: %q is not a file name out of target/release", b)
+			return fmt.Errorf("%q is not a file name out of target/release", b)
 		}
 		if err := claim(b, "binary "+b); err != nil {
-			return Cast{}, err
+			return err
 		}
 	}
-	for _, p := range c.PayloadExtra {
+	for _, p := range payload {
+		if err := claim(p, PayloadDir+"/"+p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// LegacyTargets validates the record's legacy payload_extra paths and answers
+// the names they land under.
+func LegacyTargets(extras []string) ([]string, error) {
+	var out []string
+	for _, p := range extras {
 		if p == "" || strings.HasPrefix(p, "/") || slices.Contains(strings.Split(p, "/"), "..") {
-			return Cast{}, fmt.Errorf("tools.cast.payload_extra: %q is not a path inside the repo", p)
+			return nil, fmt.Errorf("tools.cast.payload_extra: %q is not a path inside the repo", p)
 		}
 		t := Target(p)
 		if t == "." {
-			return Cast{}, fmt.Errorf("tools.cast.payload_extra: %q names the repo itself", p)
+			return nil, fmt.Errorf("tools.cast.payload_extra: %q names the repo itself", p)
 		}
-		if err := claim(t, "payload_extra "+p); err != nil {
-			return Cast{}, err
-		}
+		out = append(out, t)
 	}
-	return c, nil
+	return out, nil
 }
 
 // ContentPin computes the immutable g{sha12} pin of a payload tree, byte for

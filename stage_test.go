@@ -227,9 +227,10 @@ func TestATreeThePlannerCannotReadIsACouldNotRunPerLaneAtom(t *testing.T) {
 // never an empty directory, when there is nothing to hand over.
 func TestReleaseAnswersTheBuiltBinariesOrSaysWhyNot(t *testing.T) {
 	tree := map[string]string{
-		"Dockerfile":          "FROM x\n",
+		"Dockerfile":          copiesHades,
 		".copier-answers.yml": "service_name: hades\n",
 		"go.mod":              "module x\n",
+		"cmd/hades/main.go":   "package main\n",
 	}
 	engine.reset()
 	engine.withTree(tree)
@@ -335,10 +336,10 @@ func TestReleaseBuildsARustStarWithCargoAndHandsOverItsBinaries(t *testing.T) {
 		t.Errorf("the error carries the compiler's own words: %v", err)
 	}
 
-	// A record's binary that is not a name is refused before anything runs.
+	// A COPY that is not a binary name is refused before anything runs.
 	engine.reset()
 	engine.withTree(tree)
-	engine.withTree(map[string]string{"/dies/fleet/stars/tron/slag.json": `{"tools":{"build":{"binaries":["../x"]}}}`})
+	engine.withTree(map[string]string{"Dockerfile": "FROM x\nCOPY release/-x /tron\n"})
 	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err == nil || !strings.Contains(err.Error(), "is not a binary name") {
 		t.Errorf("err %v", err)
 	}

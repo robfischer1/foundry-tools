@@ -20,18 +20,19 @@ import (
 //	target       always -o /out/<X> ./cmd/<X>, never another shape
 //	-mod=vendor  present in exactly the 5 repos carrying vendor/, absent in every
 //	             repo without one — zero disagreements
-//	one binary   27 of 29 build exactly one, named for the star
-//	more         2 do: blade-runner (+blade-controller), clio (+clio-consume, clio-query)
 //
 // So nothing is declared that can be derived: the flags are a constant, vendor
-// is a directory, and the package is ./cmd/<star>. A record says something only
-// when the repo ships MORE than its own name.
+// is a directory, and the binaries are the Dockerfile's own COPY lines — the
+// files the image carries are the ones it copies out of release/ (buildlane.
+// ReleaseCopies), each built from ./cmd/<name>.
 //
 // AND "BUILD EVERY cmd/ DIRECTORY" IS THE TRAP THIS AVOIDS. helios carries
 // cmd/helios-backfill, thalia carries cmd/calibration-fit, cmd/cognition-migrate
 // and cmd/seamprobe, and NONE of those are in their images. A derivation that
 // walked cmd/ would ship four binaries the fleet deliberately does not ship, so
-// the walk is never the rule: the star's own name, plus what the record names.
+// the walk is never the rule: the Dockerfile's COPY lines are. (A binary REPO's
+// cast is the other case — its binaries are its product, so it ships every
+// main; see cast.go.)
 
 // ReleaseFlags are the compile flags every image in the fleet is built with.
 // They are a constant because the measurement says they are one: a repo that
@@ -61,18 +62,15 @@ type ReleasePlan struct {
 	// only build modifier the fleet varies. Go only; cargo resolves from its
 	// lock.
 	Vendored bool
-	// Declared is whether the record named the binaries, rather than the
-	// convention deriving the one.
-	Declared bool
 }
 
-// GoReleasePlan derives a Go repo's release build: the star's own binary, or
-// the ones its record declares, each from ./cmd/<name>.
+// GoReleasePlan derives a Go repo's release build: the binaries the Dockerfile
+// copies out of release/, each from ./cmd/<name>.
 //
-// An empty star is an error rather than a guess — a binary with no name would
-// land in the image as whatever the convention invented.
-func GoReleasePlan(star string, declared []string, vendored bool) (ReleasePlan, error) {
-	p, err := releasePlan(star, declared, LaneGo, func(n string) string { return "./cmd/" + n })
+// No binaries is an error rather than a guess — a Dockerfile that asks for
+// release/ and copies no file from it has nothing for the build to name.
+func GoReleasePlan(star string, copies []string, vendored bool) (ReleasePlan, error) {
+	p, err := releasePlan(star, copies, LaneGo, func(n string) string { return "./cmd/" + n })
 	if err != nil {
 		return ReleasePlan{}, err
 	}
@@ -80,38 +78,37 @@ func GoReleasePlan(star string, declared []string, vendored bool) (ReleasePlan, 
 	return p, nil
 }
 
-// RustReleasePlan derives a Rust repo's release build: the star's own binary,
-// or the ones its record declares, each the workspace package of that name
+// RustReleasePlan derives a Rust repo's release build: the binaries the
+// Dockerfile copies out of release/, each the workspace package of that name
 // (`cargo build -p <name>`).
 //
 // MEASURED BEFORE DECIDING, 2026-09-19, the fleet's Rust star Dockerfiles and
 // the template that pours them: `cargo build --release -p <star>` from a
 // workspace whose binary crate is named for the star, the binary read back
-// from target/release/<star>. One shape, so the package IS the name: a record
-// speaks only when the repo ships more than its own name, exactly as for Go.
-func RustReleasePlan(star string, declared []string) (ReleasePlan, error) {
-	return releasePlan(star, declared, LaneRust, func(n string) string { return n })
+// from target/release/<star>. One shape, so the package IS the name.
+func RustReleasePlan(star string, copies []string) (ReleasePlan, error) {
+	return releasePlan(star, copies, LaneRust, func(n string) string { return n })
 }
 
-// releasePlan is the two plans' shared half: the star's own name or the
-// record's binaries, each name checked, each mapped to the package its lane
-// builds it from, sorted by name.
-func releasePlan(star string, declared []string, lane Lane, pkg func(string) string) (ReleasePlan, error) {
+// releasePlan is the two plans' shared half: the Dockerfile's copied names,
+// each checked, each mapped to the package its lane builds it from, sorted by
+// name.
+func releasePlan(star string, copies []string, lane Lane, pkg func(string) string) (ReleasePlan, error) {
 	if star == "" {
 		return ReleasePlan{}, fmt.Errorf("the repository names no star, so its release build has no binary to name")
 	}
-	names := declared
-	if len(names) == 0 {
-		names = []string{star}
+	if len(copies) == 0 {
+		return ReleasePlan{}, fmt.Errorf("the Dockerfile asks for %s/ and copies no file out of it, so the release build has no binary to name", "release")
 	}
-	p := ReleasePlan{Star: star, Lane: lane, Declared: len(declared) > 0}
+	names := copies
+	p := ReleasePlan{Star: star, Lane: lane}
 	seen := map[string]bool{}
 	for _, n := range names {
 		if n == "" || strings.ContainsAny(n, `/\`) || strings.HasPrefix(n, ".") || strings.HasPrefix(n, "-") {
-			return ReleasePlan{}, fmt.Errorf("tools.build.binaries: %q is not a binary name", n)
+			return ReleasePlan{}, fmt.Errorf("the Dockerfile copies %q out of release/, which is not a binary name", n)
 		}
 		if seen[n] {
-			return ReleasePlan{}, fmt.Errorf("tools.build.binaries names %q twice", n)
+			return ReleasePlan{}, fmt.Errorf("the Dockerfile copies %q out of release/ twice", n)
 		}
 		seen[n] = true
 		p.Binaries = append(p.Binaries, ReleaseBinary{Name: n, Package: pkg(n)})
@@ -125,34 +122,6 @@ func releasePlan(star string, declared []string, lane Lane, pkg func(string) str
 	return p, nil
 }
 
-// buildBlock is a v3 record's tools.build — one key per toolchain, and a
-// record carries at most one (hephaestus slag.BuildV3 refuses two).
-type buildBlock struct {
-	Binaries []string   `json:"binaries"`
-	Release  [][]string `json:"release"`
-	Extras   []string   `json:"extras"`
-}
-
-// buildOf reads tools.build off a v3 record: the zero block for a record
-// that does not parse or carries none, so every reader's absence is the
-// convention's.
-func buildOf(slag string) buildBlock {
-	var rec struct {
-		Tools struct {
-			Build buildBlock `json:"build"`
-		} `json:"tools"`
-	}
-	if err := json.Unmarshal([]byte(slag), &rec); err != nil {
-		return buildBlock{}
-	}
-	return rec.Tools.Build
-}
-
-// ReleaseBinaries reads tools.build.binaries from a v3 record. A record that
-// does not parse, or names none, leaves the convention to answer — the field
-// exists for the two repos that ship more than their own name.
-func ReleaseBinaries(slag string) []string { return buildOf(slag).Binaries }
-
 // THE BUN AND PYTHON RELEASES (CA F17). A compiled star's artifact is a
 // binary; a bun star's is its bundle and a python star's is its venv, and
 // both are BUILT ON THE IMAGE'S OWN BASE — the base the Dockerfile's runtime
@@ -161,11 +130,12 @@ func ReleaseBinaries(slag string) []string { return buildOf(slag).Binaries }
 // venv whose every shebang and symlink points at an interpreter the image
 // does not have.
 //
-// WHAT THE RECORD SAYS, AND ONLY THAT. A bun star's bundle is its own
+// WHAT THE TREE SAYS, AND ONLY THAT. A bun star's bundle is its own
 // (calliope bundles one server.js, demeter builds a SPA beside it), so there
-// is no convention and the record names the steps — tools.build.release, one
-// argv each (Rob, 2026-09-19: "argv fine"). A python star's release derives
-// entirely but for the extras its venv installs — tools.build.extras.
+// is no convention for the steps: the repo's root package.json defines a
+// "release" script, the same interface as its gate, build and test scripts,
+// and the fleet runs it after the frozen install. A python star's release
+// derives entirely: the project and its required dependencies, no extras.
 
 // ReleaseTree is where a bun release's tree sits in its container, and so
 // where the steps run; the steps leave the image's files under
@@ -177,26 +147,18 @@ const ReleaseTree = "/src"
 // console scripts name <PythonReleaseApp>/.venv/bin/python in their shebang.
 const PythonReleaseApp = "/app"
 
-// TSReleaseSteps reads tools.build.release from a v3 record: the bun
-// release's steps, one argv each. None is not a convention — the bun atom
-// says so rather than guessing a bundle.
-func TSReleaseSteps(slag string) [][]string { return buildOf(slag).Release }
-
-// PythonExtras reads tools.build.extras from a v3 record. None is the
-// convention: the venv installs the project and its required dependencies.
-func PythonExtras(slag string) []string { return buildOf(slag).Extras }
+// TSReleaseArgs is the bun release, as an argv: the repo's own release script,
+// which leaves the image's files under ReleaseTree/release. A package.json
+// with no release script fails here, as a finding about the tree.
+var TSReleaseArgs = []string{"bun", "run", "release"}
 
 // PythonReleaseArgs is the python release, as an argv: the star's own lock
 // (--locked, so a uv.lock behind its pyproject is a finding and not a silent
-// re-resolve), no dev group, and the project installed as a WHEEL rather than
-// editable — the image carries the venv alone, never the source tree an
-// editable install would point back into.
-func PythonReleaseArgs(extras []string) []string {
-	args := []string{"uv", "sync", "--locked", "--no-dev", "--no-editable"}
-	for _, e := range extras {
-		args = append(args, "--extra", e)
-	}
-	return args
+// re-resolve), no dev group, no extras, and the project installed as a WHEEL
+// rather than editable — the image carries the venv alone, never the source
+// tree an editable install would point back into.
+func PythonReleaseArgs() []string {
+	return []string{"uv", "sync", "--locked", "--no-dev", "--no-editable"}
 }
 
 // ReleaseStepState classifies one bun or python release step's exit.
@@ -253,15 +215,11 @@ func RustReleaseBinary(b ReleaseBinary) string {
 }
 
 // ReleaseScope is the line the atom prints: what it built and where the names
-// came from, so a reader never has to guess whether a record spoke.
+// came from, so a reader never has to guess.
 func ReleaseScope(p ReleasePlan) string {
 	var names []string
 	for _, b := range p.Binaries {
 		names = append(names, b.Name)
-	}
-	source := "the star's own name (no tools.build.binaries in the record)"
-	if p.Declared {
-		source = "tools.build.binaries in the record"
 	}
 	how := "the module resolves its dependencies"
 	switch {
@@ -270,7 +228,7 @@ func ReleaseScope(p ReleasePlan) string {
 	case p.Vendored:
 		how = "the module vendors (vendor/ is tracked, so -mod=vendor)"
 	}
-	return fmt.Sprintf("release build: %s, from %s; %s", strings.Join(names, ", "), source, how)
+	return fmt.Sprintf("release build: %s, from the Dockerfile's COPY lines; %s", strings.Join(names, ", "), how)
 }
 
 // RepoKey is the custody key a clone URL names — `rob/hephaestus` for

@@ -678,12 +678,12 @@ const copiesTron = "FROM x\nCOPY release/tron /tron\n"
 
 // THE RELEASE BUILD IS THE IMAGE'S COMPILE, derived: the star's own crate under
 // the release profile, --locked, into the container's own target directory —
-// or the binaries the record declares, one exec each.
+// or the binaries the Dockerfile copies, one exec each.
 func TestRustReleaseBuildsWhatTheImageWillCarry(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	engine.withTree(map[string]string{"Dockerfile": copiesTron, ".copier-answers.yml": "service_name: tron\n"})
-	wantState(t, runAtom(t, "rust:release", ""), 0, "release build: tron", "the star's own name", "--locked")
+	wantState(t, runAtom(t, "rust:release", ""), 0, "release build: tron", "the Dockerfile's COPY lines", "--locked")
 	c := engine.chain(`"cargo","build","--release"`, "exitCode")
 	wantCalls(t, c,
 		[]string{"withExec", `args:["cargo","fetch","--locked"]`},
@@ -702,15 +702,14 @@ func TestRustReleaseBuildsWhatTheImageWillCarry(t *testing.T) {
 		t.Errorf("the cache volume's target directory is set after the override:\n%s", c)
 	}
 
-	// The record names more than one, and each gets its own exec.
+	// The Dockerfile copies more than one, and each gets its own exec.
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	engine.withTree(map[string]string{
-		"Dockerfile":                           "FROM x\nCOPY release/cerberus /cerberus\nCOPY release/cerberus-admin /cerberus-admin\n",
-		".copier-answers.yml":                  "service_name: cerberus\n",
-		"/dies/fleet/stars/cerberus/slag.json": `{"tools":{"build":{"binaries":["cerberus","cerberus-admin"]}}}`,
+		"Dockerfile":          "FROM x\nCOPY release/cerberus /cerberus\nCOPY release/cerberus-admin /cerberus-admin\n",
+		".copier-answers.yml": "service_name: cerberus\n",
 	})
-	wantState(t, runAtom(t, "rust:release", ""), 0, "cerberus, cerberus-admin", "tools.build.binaries")
+	wantState(t, runAtom(t, "rust:release", ""), 0, "cerberus, cerberus-admin", "the Dockerfile's COPY lines")
 	for _, b := range []string{"cerberus", "cerberus-admin"} {
 		if engine.chain(`"-p","`+b+`"`) == "" {
 			t.Errorf("no exec builds %s:\n%v", b, engine.chains())
@@ -822,8 +821,7 @@ func TestRustReleaseSaysWhyItCouldNotRun(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	engine.withTree(map[string]string{
-		"Dockerfile": copiesTron, ".copier-answers.yml": "service_name: tron\n",
-		"/dies/fleet/stars/tron/slag.json": `{"tools":{"build":{"binaries":["../escape"]}}}`,
+		"Dockerfile": "FROM x\nCOPY release/-flag /tron\n", ".copier-answers.yml": "service_name: tron\n",
 	})
 	wantState(t, runAtom(t, "rust:release", ""), 2, "is not a binary name")
 }

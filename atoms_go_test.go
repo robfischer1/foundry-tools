@@ -1065,17 +1065,28 @@ func TestGoMutationDoesNotCapTheWorkersWhereItCostsTheMeasurement(t *testing.T) 
 	}
 }
 
+// cmdMain is the main package a COPY release/<name> is built from.
+func cmdMain(names ...string) map[string]string {
+	tree := map[string]string{}
+	for _, n := range names {
+		tree["cmd/"+n+"/main.go"] = "package main\n"
+	}
+	return tree
+}
+
 // copiesHades is the three-line shape: a Dockerfile that asks for the Gate's
 // artifact by copying it from release/ (buildlane.CopiesRelease).
 const copiesHades = "FROM x\nCOPY release/hades /hades\n"
 
-// THE RELEASE BUILD IS THE IMAGE'S COMPILE, derived: the star's own binary from
-// ./cmd/<star> with the fleet's flags, or the binaries the record declares.
+// THE RELEASE BUILD IS THE IMAGE'S COMPILE, derived: the binaries the
+// Dockerfile copies out of release/, each from ./cmd/<name>, with the fleet's
+// flags.
 func TestGoReleaseBuildsWhatTheImageWillCarry(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	engine.withTree(map[string]string{"Dockerfile": copiesHades, ".copier-answers.yml": "service_name: hades\n"})
-	wantState(t, runAtom(t, "go:release", ""), 0, "release build: hades", "the star's own name")
+	engine.withTree(cmdMain("hades"))
+	wantState(t, runAtom(t, "go:release", ""), 0, "release build: hades", "the Dockerfile's COPY lines")
 	wantCalls(t, engine.chain(`"go","build","-trimpath"`, "exitCode"),
 		[]string{"withEnvVariable", `name:"CGO_ENABLED"`, `value:"0"`},
 		[]string{"withExec", `expect:ANY`, `args:["go","build","-trimpath","-ldflags=-s -w","-o","/out/hades","./cmd/hades"]`},
@@ -1089,6 +1100,7 @@ func TestGoReleaseBuildsWhatTheImageWillCarry(t *testing.T) {
 		".copier-answers.yml": "service_name: ourea\n",
 		"vendor/modules.txt":  "# x\n",
 	})
+	engine.withTree(cmdMain("ourea"))
 	wantState(t, runAtom(t, "go:release", ""), 0, "-mod=vendor")
 	wantCalls(t, engine.chain(`"-o","/out/ourea"`, "exitCode"),
 		[]string{"withExec", `args:["go","build","-mod=vendor","-trimpath","-ldflags=-s -w","-o","/out/ourea","./cmd/ourea"]`})
@@ -1103,20 +1115,21 @@ func TestGoReleaseBuildsWhatTheImageWillCarry(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	engine.withTree(map[string]string{"Dockerfile": copiesHades, ".copier-answers.yml": "service_name: hades\n"})
+	engine.withTree(cmdMain("hades"))
 	wantState(t, runAtom(t, "go:release", ""), 0, "release build: hades")
 	if !strings.Contains(engine.chain(`"-o","/out/hades"`, "exitCode"), `"go","mod","download"`) {
 		t.Errorf("an unvendored release build skipped go mod download:\n%s", engine.chain(`"-o","/out/hades"`, "exitCode"))
 	}
 
-	// The record names more than one, and each gets its own exec.
+	// The Dockerfile copies more than one, and each gets its own exec.
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	engine.withTree(map[string]string{
 		"Dockerfile":          "FROM x\nCOPY release/blade-runner /blade-runner\nCOPY release/blade-controller /blade-controller\n",
 		".copier-answers.yml": "service_name: blade-runner\n",
-		"/dies/fleet/stars/blade-runner/slag.json": `{"tools":{"build":{"binaries":["blade-runner","blade-controller"]}}}`,
 	})
-	wantState(t, runAtom(t, "go:release", ""), 0, "blade-controller, blade-runner", "tools.build.binaries")
+	engine.withTree(cmdMain("blade-runner", "blade-controller"))
+	wantState(t, runAtom(t, "go:release", ""), 0, "blade-controller, blade-runner", "the Dockerfile's COPY lines")
 	for _, b := range []string{"blade-controller", "blade-runner"} {
 		if engine.chain(`"-o","/out/`+b+`"`) == "" {
 			t.Errorf("no exec builds %s:\n%v", b, engine.chains())
@@ -1180,6 +1193,7 @@ func TestGoReleaseIsAbsentForADockerfileThatCompilesItself(t *testing.T) {
 		"Dockerfile": self, "docker/Dockerfile.hades": copiesHades,
 		".copier-answers.yml": "service_name: hades\n",
 	})
+	engine.withTree(cmdMain("hades"))
 	wantState(t, runAtom(t, "go:release", ""), 0, "release build: hades")
 	if engine.chain(`"go","build","-trimpath"`) == "" {
 		t.Errorf("a Dockerfile that copies from release/ asked and nothing compiled:\n%v", engine.chains())
@@ -1217,7 +1231,7 @@ func TestGoReleaseIsAbsentWhereThereIsNoImage(t *testing.T) {
 // and none of them is a pass: a tree it cannot read, a module walk it cannot
 // do, a repo with no root module, and a record whose binaries are unusable.
 func TestGoReleaseSaysWhyItCouldNotRun(t *testing.T) {
-	image := map[string]string{"Dockerfile": copiesHades, ".copier-answers.yml": "service_name: hades\n"}
+	image := map[string]string{"Dockerfile": copiesHades, ".copier-answers.yml": "service_name: hades\n", "cmd/hades/main.go": "package main\n"}
 
 	// The tree itself could not be read: the population is the first thing it asks for.
 	engine.reset()
@@ -1237,18 +1251,35 @@ func TestGoReleaseSaysWhyItCouldNotRun(t *testing.T) {
 	engine.reset()
 	engine.withTree(map[string]string{
 		"Dockerfile": copiesHades, ".copier-answers.yml": "service_name: hades\n",
-		"tools/go.mod": "module x\n",
+		"tools/go.mod": "module x\n", "cmd/hades/main.go": "package main\n",
 	})
 	wantState(t, runAtom(t, "go:release", ""), 2, "no go.mod at the repository root")
 
-	// The record names a binary that is not a binary name.
+	// The Dockerfile copies something that is not a binary name.
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	engine.withTree(map[string]string{
-		"Dockerfile": copiesHades, ".copier-answers.yml": "service_name: hades\n",
-		"/dies/fleet/stars/hades/slag.json": `{"tools":{"build":{"binaries":["../escape"]}}}`,
+		"Dockerfile": "FROM x\nCOPY release/-flag /hades\n", ".copier-answers.yml": "service_name: hades\n",
 	})
 	wantState(t, runAtom(t, "go:release", ""), 2, "is not a binary name")
+
+	// A COPY with no main package behind it ships a half image: named, not left
+	// to the compiler.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{
+		"Dockerfile": "FROM x\nCOPY release/hades /hades\nCOPY release/ghost /ghost\n", ".copier-answers.yml": "service_name: hades\n",
+	})
+	engine.withTree(cmdMain("hades"))
+	wantState(t, runAtom(t, "go:release", ""), 2, "copies release/ghost", "no cmd/ghost")
+
+	// A Dockerfile that asks for release/ and copies nothing out of it.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{
+		"Dockerfile": "FROM x\nCOPY release/ /app\n", ".copier-answers.yml": "service_name: hades\n",
+	})
+	wantState(t, runAtom(t, "go:release", ""), 2, "copies no file out of it")
 }
 
 // THE COVER STEP RUNS ONLY THE PACKAGES THE DIFF TOUCHES: one package per
@@ -1290,9 +1321,10 @@ func TestGoReleaseNamesAStarWithNoAnswersFileByItsRecord(t *testing.T) {
 	engine.reset()
 	engine.withTree(noAnswers)
 	engine.withTree(map[string]string{"Dockerfile": "FROM x\nCOPY release/hephaestus /hephaestus\n"})
+	engine.withTree(cmdMain("hephaestus", "base-images"))
 	engine.withTree(dies)
 	v := registry["go:release"](context.Background(), newRun(dag.Directory(), "http://ourea.default.svc.cluster.local:8215/hephaestus.git", ""))
-	wantState(t, v, 0, "release build: hephaestus", "the star's own name")
+	wantState(t, v, 0, "release build: hephaestus", "the Dockerfile's COPY lines")
 	if engine.chain(`"-o","/out/hephaestus"`) == "" {
 		t.Errorf("the record's name did not reach the compile:\n%v", engine.chains())
 	}
@@ -1301,6 +1333,7 @@ func TestGoReleaseNamesAStarWithNoAnswersFileByItsRecord(t *testing.T) {
 	engine.reset()
 	engine.withTree(noAnswers)
 	engine.withTree(map[string]string{"Dockerfile": "FROM x\nCOPY release/hephaestus /hephaestus\n"})
+	engine.withTree(cmdMain("hephaestus"))
 	engine.withTree(dies)
 	r := newRun(dag.Directory(), "", "").fromOrigin("http://ourea.notusmi.com:8215/hephaestus.git")
 	wantState(t, registry["go:release"](context.Background(), r), 0, "release build: hephaestus")
@@ -1309,6 +1342,7 @@ func TestGoReleaseNamesAStarWithNoAnswersFileByItsRecord(t *testing.T) {
 	engine.reset()
 	engine.withTree(noAnswers)
 	engine.withTree(map[string]string{"Dockerfile": "FROM x\nCOPY release/base-images /base-images\n"})
+	engine.withTree(cmdMain("base-images"))
 	engine.withTree(dies)
 	r = newRun(dag.Directory(), "https://git.notusmi.com/foundry/base-images.git", "")
 	wantState(t, registry["go:release"](context.Background(), r), 0, "release build: base-images")

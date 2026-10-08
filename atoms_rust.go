@@ -504,15 +504,17 @@ func rustRelease(ctx context.Context, r *run) checks.Verdict {
 	return v
 }
 
-// rustReleasePlan derives what the star's release build produces: its
-// record's binaries or its own name, each the workspace package of that name.
-// Every refusal is about the repository and settles as a could-not-run.
+// rustReleasePlan derives what the star's release build produces: the
+// binaries its Dockerfile copies out of release/, each the workspace package
+// of that name. A COPY with no workspace package behind it fails `cargo build
+// -p` as a finding about the tree. Every refusal is about the repository and
+// settles as a could-not-run.
 func (r *run) rustReleasePlan(ctx context.Context, star string) (checks.ReleasePlan, string) {
-	var declared []string
-	if slag, err := r.dies.File("fleet/stars/" + star + "/slag.json").Contents(ctx); err == nil {
-		declared = checks.ReleaseBinaries(slag)
+	copies, err := r.releaseCopies(ctx)
+	if err != nil {
+		return checks.ReleasePlan{}, err.Error()
 	}
-	plan, err := checks.RustReleasePlan(star, declared)
+	plan, err := checks.RustReleasePlan(star, copies)
 	if err != nil {
 		return checks.ReleasePlan{}, err.Error()
 	}

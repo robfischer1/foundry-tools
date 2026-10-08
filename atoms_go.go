@@ -578,21 +578,33 @@ func (r *run) starOfRepo(ctx context.Context, key string) (string, error) {
 	return "", nil
 }
 
-// releasePlan derives what the star's release build produces: its record's
-// binaries or its own name, and whether the module vendors. Every refusal is
-// about the repository and settles as a could-not-run.
+// releasePlan derives what the star's release build produces: the binaries
+// its Dockerfile copies out of release/, each from a ./cmd/<name> the tree
+// must carry, and whether the module vendors. Every refusal is about the
+// repository and settles as a could-not-run.
 func (r *run) releasePlan(ctx context.Context, star string) (checks.ReleasePlan, string) {
-	var declared []string
-	if slag, err := r.starRecord(ctx, star); err == nil {
-		declared = checks.ReleaseBinaries(slag)
+	copies, err := r.releaseCopies(ctx)
+	if err != nil {
+		return checks.ReleasePlan{}, err.Error()
 	}
 	vendored := false
 	if entries, err := r.src.Entries(ctx); err == nil {
 		vendored = slices.Contains(entries, "vendor/")
 	}
-	plan, err := checks.GoReleasePlan(star, declared, vendored)
+	plan, err := checks.GoReleasePlan(star, copies, vendored)
 	if err != nil {
 		return checks.ReleasePlan{}, err.Error()
+	}
+	// A COPY with no main package behind it would ship a half image: say so
+	// here, by name, instead of as the compiler's "directory not found".
+	for _, b := range plan.Binaries {
+		ok, err := r.src.Exists(ctx, "cmd/"+b.Name, dagger.DirectoryExistsOpts{ExpectedType: dagger.ExistsTypeDirectoryType})
+		if err != nil {
+			return checks.ReleasePlan{}, fmt.Sprintf("the tree could not be read for cmd/%s: %v", b.Name, err)
+		}
+		if !ok {
+			return checks.ReleasePlan{}, fmt.Sprintf("the Dockerfile copies release/%s and the tree carries no cmd/%s to build it from", b.Name, b.Name)
+		}
 	}
 	return plan, ""
 }
