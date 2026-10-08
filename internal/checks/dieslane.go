@@ -250,6 +250,35 @@ func DiesCanary(dataJSON string) string {
 	return verbs[0]
 }
 
+// ContractFixture is one case of dies:contracts' detection proof: a fixture
+// contract of tests/contracts/fixtures.toml, and whether the checker must reject
+// it (a fixture) or accept it (a control).
+type ContractFixture struct {
+	Name       string
+	ExpectFail bool
+}
+
+// ContractFixtures is the detection proof, as a table: NINE MUST FAIL AND FOUR
+// MUST PASS (ContractFixtureVerdict says why both directions are asserted). The
+// fixtures touch no network, by the fixture manifest's own design, which is what
+// lets the proof stand while the door is down. The module's chain keeps its own
+// copy until it retires; a test holds the two equal.
+var ContractFixtures = []ContractFixture{
+	{"lagging", true},
+	{"undeclared", true},
+	{"bad_pending", true},
+	{"unreadable", true},
+	{"expired_pending", true},
+	{"undated_pending", true},
+	{"old_shape_pending", true},
+	{"bad_retiring", true},
+	{"expired_retiring", true},
+	{"agreeing", false},
+	{"holding_pending", false},
+	{"unmeasurable_pending", false},
+	{"retiring", false},
+}
+
 // ContractFixtureVerdict grades ONE contracts fixture run: the line it prints
 // and whether it is a failure of the gate.
 //

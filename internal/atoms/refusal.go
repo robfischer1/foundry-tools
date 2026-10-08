@@ -13,28 +13,14 @@ import (
 // dies:refusal-codes IS A PYTHON CHECKER, NOT A GO FUNCTION. Every refusal code
 // a world or a star spells is in the fleet registry, and the checker that holds
 // the two together is dies' tools/check_refusal_codes.py, which the chain runs
-// through uv; this port runs the same program the same way (uv is in the fleet
-// lane image the binary runs in) and settles on its exit as the chain does:
-// 0 holds, 1 a defect, 2 could not run, unmapped. What is Go is everything
+// through uv; this port runs the same program on the venv's python3 (python.go
+// says why nothing resolves at run time) and settles on its exit as the chain
+// does: 0 holds, 1 a defect, 2 could not run, unmapped. What is Go is everything
 // around it, which is what decides ABSENT.
-
-// uvPython is `uv run` with tomli, the way dies' checkers resolve it (the
-// chain's tomlpy): through uv unconditionally, since the image's system python
-// is not promised to be new enough for tomllib.
-func uvPython(args ...string) []string {
-	return append([]string{"run", "--no-project", "--quiet", "--with", "tomli>=2.0", "python3"}, args...)
-}
-
-// uvVerdict runs the checker and settles on its exit, stdout then stderr, as the
-// module's verdict() does. `uv --version` first is the provisioning probe: an
-// image without uv is a could-not-run, not a finding.
-func uvVerdict(ctx context.Context, a checks.AtomDef, in Input, args []string) checks.Verdict {
-	if out, code := in.run(ctx, Cmd{Dir: in.Root, Name: "uv", Args: []string{"--version"}}); code != 0 {
-		return checks.VerdictOf(a, int(checks.StateCannotRun), fmt.Sprintf("the atom never ran: uv --version exited %d: %s", code, out))
-	}
-	out, code := in.run(ctx, Cmd{Dir: in.Root, Name: "uv", Args: args, Both: true})
-	return checks.VerdictOf(a, code, out)
-}
+//
+// THE CHAIN'S `--with tomli>=2.0` IS THE VENV: tomli is in the lock, and python
+// 3.14 reads TOML with tomllib besides (check_contracts.py's plain import of it
+// is why the fallback was dead code there).
 
 // refusalDoorProbe answers a could-not-run when the door does not answer for the
 // registry's first remote use, and nil when the checker may run: a checker that
@@ -114,13 +100,13 @@ func refusalOwner(ctx context.Context, a checks.AtomDef, in Input) checks.Verdic
 	if v := refusalDoorProbe(ctx, a, in, registry); v != nil {
 		return *v
 	}
-	return uvVerdict(ctx, a, in, uvPython(checks.RefusalChecker))
+	return pyVerdict(ctx, a, in, checks.RefusalChecker)
 }
 
 // refusalCore is the spelling tree's half: dies' checker and registry from the
 // door, this tree's uses from the root, graded under the tree's own registry name.
 func refusalCore(ctx context.Context, a checks.AtomDef, in Input, tree string) checks.Verdict {
-	dir := filepath.Join(os.TempDir(), fmt.Sprintf("dies-refusal-%d", os.Getpid()))
+	dir := tempPath("dies-refusal", "")
 	defer func() { _ = os.RemoveAll(dir) }()
 	var registry string
 	for _, path := range checks.RefusalCheckerFiles() {
@@ -141,11 +127,11 @@ func refusalCore(ctx context.Context, a checks.AtomDef, in Input, tree string) c
 	if v := refusalDoorProbe(ctx, a, in, registry); v != nil {
 		return *v
 	}
-	return uvVerdict(ctx, a, in, uvPython(
+	return pyVerdict(ctx, a, in,
 		filepath.Join(dir, checks.RefusalChecker),
 		"--tree", checks.RefusalTreeFlag(tree),
 		"--door", strings.TrimRight(in.door().Base, "/")+"/archive",
-	))
+	)
 }
 
 // place writes a fetched file, making its directories.

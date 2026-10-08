@@ -20,15 +20,16 @@ import (
 // the binary runs on the tree itself, where a stub would be a file the
 // developer's next `git status` shows.
 //
+// THE STUBS GO IN AFTER THE FILES, so a stub is written over whatever the copy
+// already holds at its path. A symlink is copied as a symlink (the chain's copy
+// of the tree kept them, and a link that points nowhere is not an error in a
+// tree that never follows it), and a file keeps its permission bits.
+//
 // A STUB'S PATH IS CLEANED AS IF ROOTED, so `../x.env` lands inside the copy as
 // `x.env` and never beside it.
 func privateCopy(dir, root string, tracked, stubs []string) error {
 	for _, f := range tracked {
-		body, err := os.ReadFile(filepath.Join(root, f))
-		if err != nil {
-			return err
-		}
-		if err := place(filepath.Join(dir, f), body); err != nil {
+		if err := copyTracked(filepath.Join(root, f), filepath.Join(dir, f)); err != nil {
 			return err
 		}
 	}
@@ -40,16 +41,67 @@ func privateCopy(dir, root string, tracked, stubs []string) error {
 	return nil
 }
 
+// copyTracked copies one path of the tree to dst: a link as a link, a file with
+// its bytes and its permission bits.
+func copyTracked(src, dst string) error {
+	fi, err := os.Lstat(src)
+	if err != nil {
+		return err
+	}
+	// The directory is made first and its error is not branched on: it fails the
+	// write below with the same cause, and one test reaches that.
+	_ = os.MkdirAll(filepath.Dir(dst), 0o755)
+	if fi.Mode()&os.ModeSymlink != 0 {
+		// A link that vanished since the Lstat reads as an empty target, which
+		// os.Symlink refuses with the same error a failed read would have been.
+		target, _ := os.Readlink(src)
+		return os.Symlink(target, dst)
+	}
+	body, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, body, fi.Mode().Perm())
+}
+
+// privateTree lays every file the repository would commit into a directory of
+// this run's own and makes it a repository (init, then add everything),
+// answering the directory and the call that removes it. It is the chain's tree
+// for an atom that runs a recipe or a tool which may WRITE (a cache, a lock, a
+// rendered file) or which reads the index (`git ls-files`): the chain ran those
+// in the engine's copy of the tree, and the binary must not run them in the tree
+// its other atoms are reading at the same moment. Git ignores the developer's own
+// configuration, so a global ignore file cannot change what the index holds.
+func privateTree(ctx context.Context, in Input, kind string) (string, func(), error) {
+	dir := tempPath(kind, "")
+	cleanup := func() { _ = os.RemoveAll(dir) }
+	if err := privateCopy(dir, in.Root, slices.Compact(slices.Sorted(slices.Values(in.Committable))), nil); err != nil {
+		cleanup()
+		return "", nil, err
+	}
+	env := []string{"GIT_CONFIG_GLOBAL=" + os.DevNull, "GIT_CONFIG_NOSYSTEM=1"}
+	for _, args := range [][]string{{"init", "-q", "."}, {"add", "-A"}} {
+		if out, code := in.run(ctx, Cmd{Dir: dir, Name: "git", Args: args, Env: env, Both: true}); code != 0 {
+			cleanup()
+			return "", nil, fmt.Errorf("git %s exited %d: %s", strings.Join(args, " "), code, strings.TrimSpace(out))
+		}
+	}
+	return dir, cleanup, nil
+}
+
 // composeConfig: every tracked compose spec parses and its schema validates.
 //
 // --no-interpolate IS LOAD-BEARING: the specs use ${VAR:?message} to make a
 // missing variable a DEPLOY-TIME error, which is fatal anywhere no variable is
 // set. THE env_file TARGETS ARE STUBBED FIRST (compose hard-errors on a missing
 // one before it reaches the schema, and nothing here reads a value), and THE
-// STUBS ARE WRITTEN TO A PRIVATE COPY of only what the parse touches: the
-// tracked YAML (the specs and whatever they extend or include) and the env
-// files the repository does track. The compose client is the pinned v2 binary;
-// `config` is a client-side parse and needs no daemon.
+// STUBS ARE WRITTEN TO A PRIVATE COPY OF EVERY TRACKED FILE, the stubs laid over
+// them: an env_file, a label_file, an extends or an include the specs name is
+// resolved against that copy, and which of them the parse will touch is
+// compose's to say, not this atom's to guess (the copy was once only the YAML
+// and the env files it could see named, and a target outside both was a parse
+// the chain would have made and the binary could not). The compose client is the
+// pinned v2 binary; `config` is a client-side parse and needs no daemon.
 func composeConfig(ctx context.Context, a checks.AtomDef, in Input) checks.Verdict {
 	files, stop := composeSurface(a, in)
 	if stop != nil {
@@ -71,20 +123,18 @@ func composeConfig(ctx context.Context, a checks.AtomDef, in Input) checks.Verdi
 	for _, f := range files {
 		tracking[strings.TrimPrefix(f, "./")] = true
 	}
-	stubs, copied := []string{}, slices.Clone(yaml)
+	stubs := []string{}
 	for _, p := range checks.EnvFileRefs(bodies) {
-		if tracking[p] {
-			copied = append(copied, p)
-			continue
+		if !tracking[p] {
+			stubs = append(stubs, p)
 		}
-		stubs = append(stubs, p)
 	}
 	if out, code := in.run(ctx, Cmd{Dir: in.Root, Name: "docker-compose", Args: []string{"version"}}); code != 0 {
 		return checks.VerdictOf(a, int(checks.StateCannotRun), fmt.Sprintf("%s: CANNOT RUN - the pinned docker/compose client (v%s) did not run. Refusing to report a parsed tree that was never parsed.\n%s", a.ID, checks.ComposeVersion, out))
 	}
 	dir := tempPath("copy", "")
 	defer func() { _ = os.RemoveAll(dir) }()
-	if err := privateCopy(dir, in.Root, slices.Compact(slices.Sorted(slices.Values(copied))), stubs); err != nil {
+	if err := privateCopy(dir, in.Root, slices.Compact(slices.Sorted(slices.Values(files))), stubs); err != nil {
 		return checks.VerdictOf(a, int(checks.StateCannotRun), fmt.Sprintf("%s: CANNOT RUN - the private copy the parse runs in could not be made (%v).", a.ID, err))
 	}
 
@@ -117,8 +167,13 @@ func composeConfig(ctx context.Context, a checks.AtomDef, in Input) checks.Verdi
 // resolve; a root justfile defining `validate` says the repository has its own
 // answer for what resolving means. The recipe's own exit is the verdict: 0
 // pass, 1 findings (just passes the failing command's code through), anything
-// else could-not-run. The recipe runs in the tree it is handed; in the tools
-// container that is the engine's copy of it, as the chain's was.
+// else could-not-run.
+//
+// THE RECIPE RUNS IN A PRIVATE TREE, not the shared one. It is the repository's
+// own program, and a recipe that writes (a generated file, a lock, a cache) is
+// allowed to: in the chain that was the engine's copy of the tree, and the binary
+// runs its atoms at once over one tree, so a write there is a file the atoms
+// reading beside it may or may not see.
 func witValidate(ctx context.Context, a checks.AtomDef, in Input) checks.Verdict {
 	if in.FilesErr != nil {
 		return cannotEnumerate(a, in.FilesErr)
@@ -141,7 +196,12 @@ func witValidate(ctx context.Context, a checks.AtomDef, in Input) checks.Verdict
 			return checks.VerdictOf(a, int(checks.StateCannotRun), fmt.Sprintf("%s: CANNOT RUN - %s --version exited %d: %s. WIT that was never resolved is not WIT that passed.", a.ID, tool, code, out))
 		}
 	}
-	out, code := in.run(ctx, Cmd{Dir: in.Root, Name: "just", Args: []string{"validate"}, Both: true})
+	dir, cleanup, err := privateTree(ctx, in, "wit")
+	if err != nil {
+		return checks.VerdictOf(a, int(checks.StateCannotRun), fmt.Sprintf("%s: CANNOT RUN - the private tree the recipe runs in could not be made (%v).", a.ID, err))
+	}
+	defer cleanup()
+	out, code := in.run(ctx, Cmd{Dir: dir, Name: "just", Args: []string{"validate"}, Both: true})
 	if code < 0 {
 		return neverRan(a, out)
 	}

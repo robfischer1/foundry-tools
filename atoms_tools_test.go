@@ -14,20 +14,24 @@ import (
 // THE LAYERS ARE ORDERED BY HOW OFTEN THEY CHANGE, and the atoms binary is the
 // top one: an edit to an atom must rebuild that layer and nothing below it, and
 // a tool's pin moving must not rebuild the OS packages under it. The plan is
-// the data the build follows, so this holds the order the build has.
+// the data the build follows, so this holds the order the build has: the OS,
+// the pinned tools least-moved first, the python layers in dependency order,
+// the binary.
 func TestToolsPlanOrdersLayersByVolatility(t *testing.T) {
 	plan := toolsPlan()
-	if len(plan) != len(pinnedTools)+2 {
-		t.Fatalf("%d layers for %d tools", len(plan), len(pinnedTools))
+	if len(plan) != len(pinnedTools)+len(pythonPlan)+2 {
+		t.Fatalf("%d layers for %d tools and %d python layers", len(plan), len(pinnedTools), len(pythonPlan))
 	}
 	if plan[0].kind != layerOS || plan[len(plan)-1].kind != layerBinary || plan[len(plan)-1].name != "atoms" {
 		t.Errorf("the OS must be first and the atoms binary last: %v", plan)
 	}
 	seen := map[string]bool{}
 	moves := 0
-	for _, l := range plan[1 : len(plan)-1] {
+	middle := plan[1 : len(plan)-1]
+	tools, python := middle[:len(pinnedTools)], middle[len(pinnedTools):]
+	for _, l := range tools {
 		if l.kind != layerTool || l.tool == nil || l.tool.name != l.name {
-			t.Errorf("layer %q between the OS and the binary is not a tool: %+v", l.name, l)
+			t.Errorf("layer %q between the OS and the python layers is not a tool: %+v", l.name, l)
 			continue
 		}
 		if seen[l.name] {
@@ -38,6 +42,16 @@ func TestToolsPlanOrdersLayersByVolatility(t *testing.T) {
 			t.Errorf("%s (pin moved on %d days) sits above a tool that moved on %d: the least-moved layers go first", l.name, l.tool.moves, moves)
 		}
 		moves = l.tool.moves
+	}
+	var names []string
+	for _, l := range python {
+		if l.kind != layerPython || l.tool != nil {
+			t.Errorf("layer %q above the tools is not a python layer: %+v", l.name, l)
+		}
+		names = append(names, l.name)
+	}
+	if want := "uv python python-packages ansible-collections"; strings.Join(names, " ") != want {
+		t.Errorf("the python layers are %v, want %s: each needs the one before it", names, want)
 	}
 }
 
@@ -91,6 +105,9 @@ func TestToolsContainerCarriesEveryProgram(t *testing.T) {
 	layered := map[string]bool{}
 	for _, l := range toolsPlan() {
 		layered[l.name] = true
+		for _, p := range l.provides {
+			layered[p] = true
+		}
 	}
 	for _, p := range atoms.Programs {
 		if p == "git" || p == "tar" {

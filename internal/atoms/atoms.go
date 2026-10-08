@@ -99,9 +99,9 @@ type Atom struct {
 	Scope Scope
 	Run   RunFunc
 	// Tool names the program the atom execs that no container the binary runs
-	// in provisions yet (uv); "" is none. The atoms-tools container carries
-	// opa, orbitparse and the other pinned tools, so an atom that needs only
-	// those has no marker; one with a Tool must be left out of a voting or
+	// in provisions yet; "" is none. The atoms-tools container carries every
+	// program the atoms exec today (the pinned tools, and the python layers'
+	// venv), so no atom has a marker; one that did must be left out of a voting or
 	// local-hook set (WithoutTools) until its tool is provisioned.
 	Tool string
 }
@@ -178,11 +178,10 @@ func lookup(id string) (checks.AtomDef, bool) {
 // about the change set belongs to the atoms that have one.
 func Builtin() []Atom {
 	tree := func(id string, run RunFunc) Atom { return Atom{ID: id, Scope: ScopeTree, Run: run} }
-	tooled := func(id, tool string, run RunFunc) Atom { return Atom{ID: id, Scope: ScopeTree, Run: run, Tool: tool} }
 	// An atom whose tool is a pinned layer of the container the binary runs in
 	// (atoms_tools.go) carries no marker: the tool is on PATH wherever the
-	// binary is meant to run. Only an atom whose tool is not provisioned there
-	// (uv) is tooled.
+	// binary is meant to run. That is every atom today, the python ones included
+	// (python.go): their packages are in the venv, not resolved by the atom.
 	return []Atom{
 		tree("fleet:check-yaml", checkYAML),
 		tree("fleet:check-added-large-files", checkAddedLargeFiles),
@@ -198,15 +197,23 @@ func Builtin() []Atom {
 		tree("fleet:consumed-events-emitted", consumedEventsEmitted),
 		tree("fleet:opengrep-sast", fleetOpengrepSast),
 		tree("fleet:hadolint", fleetHadolint),
+		tree("fleet:wit-topics", fleetWitTopics),
 		tree("compose:no-tracked-secrets", composeNoTrackedSecrets),
 		tree("compose:third-party-pins", composeThirdPartyPins),
 		tree("compose:config", composeConfig),
 		tree("dies:data-keys", diesDataKeys),
 		tree("dies:canonical", diesCanonical),
-		tooled("dies:refusal-codes", "uv", diesRefusalCodes),
+		tree("dies:refusal-codes", diesRefusalCodes),
 		tree("dies:opa-test", diesOpaTest),
 		tree("dies:admission-dogfood", diesAdmissionDogfood),
 		tree("dies:canary-visibility", diesCanaryVisibility),
+		tree("dies:contracts", diesContracts),
+		tree("dies:contract-copies", diesContractCopies),
+		tree("dies:schema", diesSchema),
+		tree("dies:findings", diesFindings),
+		tree("dies:schemas", diesSchemas),
+		tree("dies:wit-regenerated", diesWitRegenerated),
+		tree("dies:schema-rendered", diesSchemaRendered),
 		tree("orbit:contracts", orbitContracts),
 		tree("orbit:sidecars", orbitSidecars),
 		tree("orbit:repo", orbitRepo),
@@ -215,6 +222,11 @@ func Builtin() []Atom {
 		tree("ops:shell", opsShell),
 		tree("ops:chezmoi", opsChezmoi),
 		tree("ops:flux", opsFlux),
+		tree("ops:dup", opsDup),
+		tree("ops:declaration", opsDeclaration),
+		tree("ops:metrics", opsMetrics),
+		tree("ops:ansible", opsAnsible),
+		tree("template:render-matrix", templateRenderMatrix),
 		tree("wit:validate", witValidate),
 	}
 }

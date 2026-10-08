@@ -4,31 +4,31 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strconv"
+	"slices"
 	"strings"
 	"testing"
 
 	"dagger/foundry-tools/internal/checks"
 )
 
-// fakeUV answers for uv: the provisioning probe, then the checker, recording
-// each call.
-type fakeUV struct {
+// fakePy answers for python3: the provisioning probe, then the checker,
+// recording each call.
+type fakePy struct {
 	probeCode   int
 	checkerOut  string
 	checkerCode int
 	calls       []Cmd
 }
 
-func (f *fakeUV) exec(_ context.Context, c Cmd) (string, int) {
+func (f *fakePy) exec(_ context.Context, c Cmd) (string, int) {
 	f.calls = append(f.calls, c)
 	if c.Args[0] == "--version" {
-		return "uv 0.1", f.probeCode
+		return "Python 3.14.0", f.probeCode
 	}
 	return f.checkerOut, f.checkerCode
 }
 
-func (f *fakeUV) checker() Cmd { return f.calls[len(f.calls)-1] }
+func (f *fakePy) checker() Cmd { return f.calls[len(f.calls)-1] }
 
 func ownerTree() map[string]string {
 	return dieTree(map[string]string{
@@ -53,39 +53,39 @@ func TestDiesRefusalCodesAsTheRegistryOwner(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		files   map[string]string
-		uv      fakeUV
+		py      fakePy
 		state   int
 		result  string
 		needles []string
 	}{
-		{"a checker that holds is a pass", ownerTree(), fakeUV{checkerOut: "all codes registered"}, 0, pass, []string{"all codes registered"}},
-		{"a checker that finds a defect is a finding, unmapped", ownerTree(), fakeUV{checkerOut: "code X is undeclared", checkerCode: 1}, 1, findings,
+		{"a checker that holds is a pass", ownerTree(), fakePy{checkerOut: "all codes registered"}, 0, pass, []string{"all codes registered"}},
+		{"a checker that finds a defect is a finding, unmapped", ownerTree(), fakePy{checkerOut: "code X is undeclared", checkerCode: 1}, 1, findings,
 			[]string{"code X is undeclared"}},
-		{"a checker that could not run is a 2", ownerTree(), fakeUV{checkerOut: "no door", checkerCode: 2}, 2, cannot, []string{"no door"}},
-		{"an image without uv never ran the checker", ownerTree(), fakeUV{probeCode: 127}, 2, cannot, []string{"the atom never ran: uv --version exited 127"}},
-		{"no checker beside the die", dieTree(map[string]string{checks.RefusalRegistry: "x"}), fakeUV{}, 2, cannot,
+		{"a checker that could not run is a 2", ownerTree(), fakePy{checkerOut: "no door", checkerCode: 2}, 2, cannot, []string{"no door"}},
+		{"an image without python never ran the checker", ownerTree(), fakePy{probeCode: 127}, 2, cannot, []string{"the atom never ran: python3 --version exited 127"}},
+		{"no checker beside the die", dieTree(map[string]string{checks.RefusalRegistry: "x"}), fakePy{}, 2, cannot,
 			[]string{checks.RefusalChecker + " is absent, so there is no checker to run"}},
-		{"no registry beside the checker", dieTree(map[string]string{checks.RefusalChecker: "x"}), fakeUV{}, 2, cannot,
+		{"no registry beside the checker", dieTree(map[string]string{checks.RefusalChecker: "x"}), fakePy{}, 2, cannot,
 			[]string{checks.RefusalRegistry + " is absent, so there is no registry to check"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			in := treeIn(t, tc.files)
-			uv := tc.uv
-			in.Exec = uv.exec
+			py := tc.py
+			in.Exec = py.exec
 			expect(t, runAtom(t, id, in), stateOf(tc.state), tc.result, tc.needles...)
 		})
 	}
-	t.Run("the checker runs through uv with tomli, from the root, and its output is both streams", func(t *testing.T) {
+	t.Run("the checker runs on the venv's python3, from the root, bytecode off, and its output is both streams", func(t *testing.T) {
 		in := treeIn(t, ownerTree())
-		uv := &fakeUV{}
-		in.Exec = uv.exec
+		py := &fakePy{}
+		in.Exec = py.exec
 		runAtom(t, id, in)
-		c := uv.checker()
-		if want := "run --no-project --quiet --with tomli>=2.0 python3 " + checks.RefusalChecker; strings.Join(c.Args, " ") != want {
-			t.Errorf("uv ran as %q, want %q", strings.Join(c.Args, " "), want)
+		c := py.checker()
+		if want := checks.RefusalChecker; strings.Join(c.Args, " ") != want {
+			t.Errorf("python3 ran as %q, want %q: nothing is resolved with --with", strings.Join(c.Args, " "), want)
 		}
-		if c.Name != "uv" || c.Dir != in.Root || !c.Both {
-			t.Errorf("checker call %+v: want uv in the root with both streams", c)
+		if c.Name != "python3" || c.Dir != in.Root || !c.Both || !slices.Contains(c.Env, "PYTHONDONTWRITEBYTECODE=1") {
+			t.Errorf("checker call %+v: want python3 in the root with both streams and no bytecode", c)
 		}
 	})
 	t.Run("a registry that will not read", func(t *testing.T) {
@@ -95,22 +95,22 @@ func TestDiesRefusalCodesAsTheRegistryOwner(t *testing.T) {
 	t.Run("a registry with no remote use never asks the door", func(t *testing.T) {
 		in := treeIn(t, ownerTree())
 		in.Door = deadDoor(t)
-		in.Exec = (&fakeUV{checkerOut: "graded"}).exec
+		in.Exec = (&fakePy{checkerOut: "graded"}).exec
 		expect(t, runAtom(t, id, in), stateOf(0), pass, "graded")
 	})
 	t.Run("a registry whose first remote use the door answers goes on to the checker", func(t *testing.T) {
 		reg := "[[uses]]\nsource = { repo = \"rob/x\", path = \"a.py\" }\n"
 		in := treeIn(t, dieTree(map[string]string{checks.RefusalChecker: "x", checks.RefusalRegistry: reg}))
 		in.Door = doorOf(t, map[string]string{"rob/x a.py": "x"})
-		uv := &fakeUV{checkerOut: "graded"}
-		in.Exec = uv.exec
+		py := &fakePy{checkerOut: "graded"}
+		in.Exec = py.exec
 		expect(t, runAtom(t, id, in), stateOf(0), pass, "graded")
 	})
 	t.Run("a registry whose first remote use the door cannot answer", func(t *testing.T) {
 		reg := "[[uses]]\nsource = { repo = \"rob/x\", path = \"a.py\" }\n"
 		in := treeIn(t, dieTree(map[string]string{checks.RefusalChecker: "x", checks.RefusalRegistry: reg}))
 		in.Door = deadDoor(t)
-		in.Exec = (&fakeUV{}).exec
+		in.Exec = (&fakePy{}).exec
 		expect(t, runAtom(t, id, in), stateOf(2), cannot, "the door's archive read is unreachable (rob/x:a.py)", "A use that could not be fetched")
 	})
 }
@@ -130,17 +130,19 @@ func TestDiesRefusalCodesAsASpellingTree(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			in := treeIn(t, tc.files)
 			in.Door = doorOf(t, fleetOfFour())
-			uv := &fakeUV{checkerOut: "graded"}
-			in.Exec = uv.exec
+			tmp := t.TempDir()
+			t.Setenv("TMPDIR", tmp)
+			py := &fakePy{checkerOut: "graded"}
+			in.Exec = py.exec
 			expect(t, runAtom(t, id, in), stateOf(0), pass, "graded")
-			args := strings.Join(uv.checker().Args, " ")
+			args := strings.Join(py.checker().Args, " ")
 			for _, want := range []string{"--tree " + tc.tree + "=.", "--door " + in.Door.Base + "/archive", checks.RefusalChecker} {
 				if !strings.Contains(args, want) {
 					t.Errorf("the checker ran as %q, lacking %q", args, want)
 				}
 			}
-			if _, err := os.Stat(filepath.Join(os.TempDir(), "dies-refusal-"+strconv.Itoa(os.Getpid()))); err == nil {
-				t.Error("the fetched checker was left behind in the temp directory")
+			if left, _ := os.ReadDir(tmp); len(left) != 0 {
+				t.Errorf("the fetched checker was left behind in the temp directory: %v", left)
 			}
 		})
 	}
@@ -160,7 +162,7 @@ func TestDiesRefusalCodesAsASpellingTree(t *testing.T) {
 			if tc.dead {
 				in.Door = deadDoor(t)
 			}
-			in.Exec = (&fakeUV{}).exec
+			in.Exec = (&fakePy{}).exec
 			expect(t, runAtom(t, id, in), stateOf(2), cannot, tc.needles...)
 		})
 	}
@@ -170,7 +172,7 @@ func TestDiesRefusalCodesAsASpellingTree(t *testing.T) {
 		answers[checks.RefusalRepo+" "+checks.RefusalRegistry] = reg
 		in := treeIn(t, core)
 		in.Door = doorBreaking(t, answers, "rob/x a.py")
-		in.Exec = (&fakeUV{}).exec
+		in.Exec = (&fakePy{}).exec
 		expect(t, runAtom(t, id, in), stateOf(2), cannot, "the door's archive read is unreachable (rob/x:a.py)")
 	})
 	t.Run("a tree is stellar-core only by BOTH paths", func(t *testing.T) {
@@ -180,10 +182,10 @@ func TestDiesRefusalCodesAsASpellingTree(t *testing.T) {
 		} {
 			in := treeIn(t, files)
 			in.Door = doorOf(t, fleetOfFour())
-			uv := &fakeUV{}
-			in.Exec = uv.exec
+			py := &fakePy{}
+			in.Exec = py.exec
 			runAtom(t, id, in)
-			if args := strings.Join(uv.checker().Args, " "); !strings.Contains(args, "--tree hermes=.") {
+			if args := strings.Join(py.checker().Args, " "); !strings.Contains(args, "--tree hermes=.") {
 				t.Errorf("%s: graded as %q, want hermes", name, args)
 			}
 		}
@@ -196,7 +198,7 @@ func TestDiesRefusalCodesAsASpellingTree(t *testing.T) {
 		t.Setenv("TMPDIR", blocker)
 		in := treeIn(t, core)
 		in.Door = doorOf(t, fleetOfFour())
-		in.Exec = (&fakeUV{}).exec
+		in.Exec = (&fakePy{}).exec
 		expect(t, runAtom(t, id, in), stateOf(2), cannot, "the checker's inputs could not be placed")
 	})
 	t.Run("a go.mod that is nobody's is absent", func(t *testing.T) {

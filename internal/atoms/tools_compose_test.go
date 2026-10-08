@@ -3,6 +3,7 @@ package atoms
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -61,11 +62,14 @@ func TestComposeConfig(t *testing.T) {
 			}
 		})
 	}
-	t.Run("the parse runs in a private copy and the shared tree is not written", func(t *testing.T) {
+	t.Run("the parse runs in a private copy of every tracked file and the shared tree is not written", func(t *testing.T) {
 		files := map[string]string{
 			"compose.yaml": composeSpec + "    # also ../up.env and tracked.env\n",
 			"tracked.env":  "KEY=1\n",
-			"big.bin":      "not part of the parse",
+			// Not YAML and not an env file the spec names: a label_file, an extends
+			// or an include target could look like this, and the copy holds it.
+			"labels/app.labels": "a=b\n",
+			"big.bin":           "not named by the spec",
 		}
 		in, f := toolTree(t, files, nil)
 		before := listTree(t, in.Root)
@@ -87,7 +91,7 @@ func TestComposeConfig(t *testing.T) {
 			return "", 0
 		}
 		expect(t, runAtom(t, id, in), stateOf(0), pass, "2 env_file reference(s) stubbed")
-		if got, want := strings.Join(seen, ","), "compose.yaml,secrets/app.env,tracked.env,up.env"; got != want {
+		if got, want := strings.Join(seen, ","), "big.bin,compose.yaml,labels/app.labels,secrets/app.env,tracked.env,up.env"; got != want {
 			t.Errorf("the private copy held %s, want %s", got, want)
 		}
 		if after := listTree(t, in.Root); strings.Join(after, ",") != strings.Join(before, ",") {
@@ -174,6 +178,56 @@ func TestPrivateCopy(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(filepath.Dir(dir), "up.env")); err == nil {
 		t.Errorf("a stub escaped the copy")
 	}
+	t.Run("a link is copied as a link, a mode is kept and a stub is laid over a file", func(t *testing.T) {
+		src := t.TempDir()
+		put(t, src, "run.sh", "#!/bin/sh\n")
+		put(t, src, "kept.txt", "original\n")
+		if err := os.Chmod(filepath.Join(src, "run.sh"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink("run.sh", filepath.Join(src, "alias.sh")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink("nowhere", filepath.Join(src, "dangling")); err != nil {
+			t.Fatal(err)
+		}
+		dst := filepath.Join(t.TempDir(), "copy")
+		if err := privateCopy(dst, src, []string{"alias.sh", "dangling", "run.sh", "kept.txt"}, []string{"kept.txt"}); err != nil {
+			t.Fatal(err)
+		}
+		if target, err := os.Readlink(filepath.Join(dst, "alias.sh")); err != nil || target != "run.sh" {
+			t.Errorf("the link: %q, %v", target, err)
+		}
+		if target, err := os.Readlink(filepath.Join(dst, "dangling")); err != nil || target != "nowhere" {
+			t.Errorf("a link to nowhere is a link: %q, %v", target, err)
+		}
+		if fi, err := os.Stat(filepath.Join(dst, "run.sh")); err != nil || fi.Mode().Perm() != 0o755 {
+			t.Errorf("the script's mode: %v, %v", fi, err)
+		}
+		if body, _ := os.ReadFile(filepath.Join(dst, "kept.txt")); len(body) != 0 {
+			t.Errorf("the stub did not replace the file: %q", body)
+		}
+		if body, _ := os.ReadFile(filepath.Join(src, "kept.txt")); string(body) != "original\n" {
+			t.Errorf("the stub reached the source: %q", body)
+		}
+	})
+	t.Run("a link that cannot be made, and a path that cannot be read, are errors", func(t *testing.T) {
+		src := t.TempDir()
+		if err := os.Symlink("x", filepath.Join(src, "l")); err != nil {
+			t.Fatal(err)
+		}
+		blocker := filepath.Join(t.TempDir(), "file")
+		if err := os.WriteFile(blocker, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := privateCopy(filepath.Join(blocker, "copy"), src, []string{"l"}, nil); err == nil {
+			t.Error("a link into a place that is not a directory was made")
+		}
+		put(t, src, "dir/f", "x")
+		if err := privateCopy(filepath.Join(t.TempDir(), "copy"), src, []string{"dir"}, nil); err == nil {
+			t.Error("a directory was copied as a file")
+		}
+	})
 	t.Run("a tracked file that is not there is an error", func(t *testing.T) {
 		err := privateCopy(filepath.Join(t.TempDir(), "copy"), root, []string{"gone.yml"}, nil)
 		if err == nil || !strings.Contains(err.Error(), "gone.yml") {
@@ -216,18 +270,27 @@ func TestWitValidate(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			in, f := toolTree(t, files, func(c Cmd) (string, int) {
-				if c.Args[0] == "--version" {
-					return "1.0", 0
+				if c.Name == "just" && c.Args[0] == "validate" {
+					return tc.recipe, tc.code
 				}
-				return tc.recipe, tc.code
+				return "1.0", 0
 			})
 			expect(t, runAtom(t, id, in), stateOf(tc.state), tc.result, tc.needles...)
-			if got := strings.Join(f.ran(), " "); got != "wasm-tools just just" {
+			// The probes, the private tree's repository, and then the recipe.
+			if got := strings.Join(f.ran(), " "); got != "wasm-tools just git git just" {
 				t.Errorf("ran %s", got)
 			}
-			c := f.calls[2]
-			if flagged(c) != "validate" || c.Dir != in.Root || !c.Both {
-				t.Errorf("the recipe ran as %q in %q (both streams %v)", flagged(c), c.Dir, c.Both)
+			c := f.calls[4]
+			if flagged(c) != "validate" || c.Dir == in.Root || !c.Both {
+				t.Errorf("the recipe ran as %q in %q (both streams %v): not the shared tree", flagged(c), c.Dir, c.Both)
+			}
+			if _, err := os.Stat(c.Dir); err == nil {
+				t.Errorf("the private tree %s was left behind", c.Dir)
+			}
+			for _, g := range f.calls[2:4] {
+				if g.Dir != c.Dir || !slices.Contains(g.Env, "GIT_CONFIG_NOSYSTEM=1") {
+					t.Errorf("git %v ran in %q with %v: the private tree's index, off the developer's configuration", g.Args, g.Dir, g.Env)
+				}
 			}
 		})
 	}
@@ -247,6 +310,40 @@ func TestWitValidate(t *testing.T) {
 			}
 		})
 	}
+	t.Run("a recipe that writes leaves the shared tree as it was", func(t *testing.T) {
+		in, _ := toolTree(t, files, func(c Cmd) (string, int) {
+			if c.Name == "just" && c.Args[0] == "validate" {
+				put(t, c.Dir, "wit/generated.wit", "written by the recipe")
+				put(t, c.Dir, ".cache/x", "a cache")
+				if body, err := os.ReadFile(filepath.Join(c.Dir, "wit/a.wit")); err != nil || string(body) != "package a:b;\n" {
+					t.Errorf("the recipe could not read the tree it was handed: %q, %v", body, err)
+				}
+			}
+			return "ok", 0
+		})
+		before := listTree(t, in.Root)
+		expect(t, runAtom(t, id, in), stateOf(0), pass)
+		if after := listTree(t, in.Root); strings.Join(after, ",") != strings.Join(before, ",") {
+			t.Errorf("the shared tree changed: before %v, after %v", before, after)
+		}
+		if body, _ := os.ReadFile(filepath.Join(in.Root, "justfile")); string(body) != files["justfile"] {
+			t.Errorf("a tracked file changed: %q", body)
+		}
+	})
+	t.Run("a private tree that cannot be made is a could-not-run and the recipe does not run", func(t *testing.T) {
+		in, f := toolTree(t, files, func(c Cmd) (string, int) {
+			if c.Name == "git" {
+				return "fatal: no", 128
+			}
+			return "1.0", 0
+		})
+		expect(t, runAtom(t, id, in), stateOf(2), cannot, "the private tree the recipe runs in could not be made", "git init -q . exited 128")
+		for _, c := range f.calls {
+			if c.Name == "just" && c.Args[0] == "validate" {
+				t.Error("the recipe ran without its tree")
+			}
+		}
+	})
 	for name, tc := range map[string]struct {
 		files map[string]string
 		why   string

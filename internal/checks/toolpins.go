@@ -26,6 +26,12 @@ const (
 	ShellcheckURL     = "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz"
 	// ShellcheckMember is the binary inside that tarball.
 	ShellcheckMember = "shellcheck-v0.11.0/shellcheck"
+	// ShellcheckPyVersion is the shellcheck-py wheel that wraps ShellcheckVersion:
+	// the CHAIN of ops:shell still provisions shellcheck through uvx, and an
+	// unpinned `uvx --from shellcheck-py` is a different program the day PyPI
+	// moves. Pinned here so the chain and the binary grade with one shellcheck.
+	// renovate: datasource=pypi depName=shellcheck-py
+	ShellcheckPyVersion = "0.11.0.1"
 )
 
 // ToolSHA256 is the checksum of every URL the tools container fetches, hex.

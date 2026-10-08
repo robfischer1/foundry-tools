@@ -24,13 +24,15 @@ import (
 // Programs is every program name the atoms exec (Cmd.Name), so the container
 // that runs the binary can be held to carrying each one (the module's
 // TestToolsContainerCarriesEveryProgram). git and tar come from the base
-// system; the rest are pinned layers. uv is not here: dies:refusal-codes is
-// the one atom that execs it, and it keeps its Tool marker until uv is
-// provisioned (the next feature's).
+// system; the rest are pinned layers. The python programs are the venv's
+// (PythonBinDir is first on PATH): the atoms exec `python3` and the entry
+// points directly, so no package is resolved when one runs. uv is in the
+// container (the build installs the venv with it) and no atom execs it.
 var Programs = []string{
 	"git", "tar", "opa", "orbitparse",
 	"opengrep", "hadolint", "shellcheck", "chezmoi", "kubectl", "kubeconform",
 	"docker-compose", "wasm-tools", "just",
+	"python3", "python", "copier", "ansible-playbook", "ansible-lint",
 }
 
 // tempSeq numbers the scratch paths of one process. The atoms run at once, so
