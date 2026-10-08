@@ -23,7 +23,7 @@ import (
 // would add queries to every gate test's record and print a report into its
 // stderr. The tests that mean the shadow set their own.
 func init() {
-	shadowRun = func(context.Context, *FoundryTools, string) string { return "" }
+	shadowRun = func(context.Context, *FoundryTools, string, string) string { return "" }
 	shadowOut = func() io.Writer { return io.Discard }
 }
 
@@ -141,7 +141,7 @@ func TestAShadowThatMisbehavesChangesNothingTheGateAnswers(t *testing.T) {
 	origRun, origGrace, origOut := shadowRun, shadowGrace, shadowOut
 	t.Cleanup(func() { shadowRun, shadowGrace, shadowOut = origRun, origGrace, origOut })
 	shadowOut = func() io.Writer { return io.Discard }
-	shadowRun = func(context.Context, *FoundryTools, string) string { return "" }
+	shadowRun = func(context.Context, *FoundryTools, string, string) string { return "" }
 	m := gateOn(t, redVector)
 	want := runGate(t, m, "")
 
@@ -149,13 +149,15 @@ func TestAShadowThatMisbehavesChangesNothingTheGateAnswers(t *testing.T) {
 	t.Cleanup(func() { close(stuck) })
 	for _, tc := range []struct {
 		name string
-		run  func(context.Context, *FoundryTools, string) string
+		run  func(context.Context, *FoundryTools, string, string) string
 		said string
 	}{
-		{"hangs", func(context.Context, *FoundryTools, string) string { <-stuck; return "late" }, "no answer within the 50ms grace"},
-		{"panics", func(context.Context, *FoundryTools, string) string { panic("shadow bug") }, "the shadow panicked: shadow bug"},
-		{"errors", func(context.Context, *FoundryTools, string) string { return "shadow atoms: not compared - boom" }, "not compared - boom"},
-		{"says nothing", func(context.Context, *FoundryTools, string) string { return "" }, ""},
+		{"hangs", func(context.Context, *FoundryTools, string, string) string { <-stuck; return "late" }, "no answer within the 50ms grace"},
+		{"panics", func(context.Context, *FoundryTools, string, string) string { panic("shadow bug") }, "the shadow panicked: shadow bug"},
+		{"errors", func(context.Context, *FoundryTools, string, string) string {
+			return "shadow atoms: not compared - boom"
+		}, "not compared - boom"},
+		{"says nothing", func(context.Context, *FoundryTools, string, string) string { return "" }, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var buf bytes.Buffer
@@ -182,47 +184,82 @@ func TestAShadowThatMisbehavesChangesNothingTheGateAnswers(t *testing.T) {
 	}
 }
 
-// The shadow runs for the pull path and only there, and runs exactly once.
-func TestTheShadowRunsOnTheGateLaneOnly(t *testing.T) {
+// The shadow runs for the gate and the orbit lane and nowhere else, runs exactly
+// once, and is told the stage it compares.
+func TestTheShadowRunsOnTheGateAndOrbitLanesOnly(t *testing.T) {
 	origRun, origOut := shadowRun, shadowOut
 	t.Cleanup(func() { shadowRun, shadowOut = origRun, origOut })
 	shadowOut = func() io.Writer { return io.Discard }
-	for stage, want := range map[string]int{"": 1, "prepush": 1, "precommit": 0, "mutation": 0, "orbit": 0, "visual": 0} {
-		calls := 0
-		shadowRun = func(context.Context, *FoundryTools, string) string { calls++; return "r" }
+	for stage, want := range map[string]int{"": 1, "prepush": 1, "orbit": 1, "precommit": 0, "mutation": 0, "mutation-bg": 0, "visual": 0} {
+		var told []string
+		shadowRun = func(_ context.Context, _ *FoundryTools, stage, _ string) string {
+			told = append(told, stage)
+			return "r"
+		}
 		(&FoundryTools{}).startShadow(context.Background(), stage, "b").finish()
-		if calls != want {
-			t.Errorf("stage %q: shadow ran %d times, want %d", stage, calls, want)
+		if len(told) != want {
+			t.Errorf("stage %q: shadow ran %d times, want %d", stage, len(told), want)
+		}
+		if want == 1 && told[0] != stage {
+			t.Errorf("stage %q: the shadow was told %q", stage, told[0])
 		}
 	}
 }
 
-// ShadowAtoms asks the chains for exactly the binary's atoms, in its order, and
-// holds the two answers against each other.
-func TestShadowAtomsAsksTheChainsForTheBinarysAtoms(t *testing.T) {
+// ShadowAtoms asks the chains for exactly the atoms the stage grades that the
+// binary carries, in its order, at that stage, and holds the two answers against
+// each other. The orbit lane's report compares the orbit lane's atoms and the
+// gate's never carries one.
+func TestShadowAtomsAsksTheChainsForTheStagesAtoms(t *testing.T) {
 	origToday, origBinary := shadowToday, shadowBinary
 	t.Cleanup(func() { shadowToday, shadowBinary = origToday, origBinary })
 	yaml := checks.AtomByID("fleet:check-yaml")
 	vec := []checks.Verdict{checks.VerdictOf(yaml, 0, "")}
 	raw, _ := json.Marshal(vec)
-	var gotOnly, gotBase, binBase string
-	shadowToday = func(_ context.Context, _ *FoundryTools, only, base string) ([]checks.Verdict, error) {
-		gotOnly, gotBase = only, base
-		return vec, nil
-	}
-	shadowBinary = func(_ context.Context, _ *FoundryTools, base string) (string, error) {
-		binBase = base
-		return string(raw), nil
-	}
-	report := (&FoundryTools{}).ShadowAtoms(context.Background(), "b4se")
-	if want := "fleet:check-yaml,fleet:check-added-large-files,fleet:check-merge-conflict,fleet:stop-justifications"; gotOnly != want {
-		t.Errorf("chains asked for %q, want %q", gotOnly, want)
-	}
-	if gotBase != "b4se" || binBase != "b4se" {
-		t.Errorf("base reached the chains as %q and the binary as %q", gotBase, binBase)
-	}
-	if !strings.Contains(report, "1 compared, 1 identical") {
-		t.Errorf("report %q", report)
+	for _, tc := range []struct {
+		stage    string
+		only     string
+		notOnly  string
+		compared bool
+	}{
+		{"prepush", "fleet:orbit-drift,fleet:dagger-lockstep,fleet:node-kinds-declared,fleet:consumed-events-emitted,dies:data-keys,ops:orbit-composed", "fleet:check-yaml", true},
+		{"orbit", "orbit:contracts,orbit:sidecars,orbit:repo", "fleet:", true},
+		{"", "fleet:check-yaml,fleet:check-added-large-files,fleet:check-merge-conflict,fleet:stop-justifications,", "orbit:", true},
+		{"mutation", "", "", false},
+	} {
+		t.Run("stage "+tc.stage, func(t *testing.T) {
+			var gotOnly, gotBase, binBase, todayStage, binStage string
+			shadowToday = func(_ context.Context, _ *FoundryTools, stage, only, base string) ([]checks.Verdict, error) {
+				gotOnly, gotBase, todayStage = only, base, stage
+				return vec, nil
+			}
+			shadowBinary = func(_ context.Context, _ *FoundryTools, stage, base string) (string, error) {
+				binBase, binStage = base, stage
+				return string(raw), nil
+			}
+			report := (&FoundryTools{}).ShadowAtoms(context.Background(), "b4se", tc.stage)
+			if !tc.compared {
+				if !strings.Contains(report, "nothing to compare") || gotOnly != "" || binBase != "" {
+					t.Errorf("a stage with no atom in the binary compared something: %q (%q)", report, gotOnly)
+				}
+				return
+			}
+			if !strings.Contains(gotOnly, tc.only) || (tc.stage != "" && gotOnly != tc.only) {
+				t.Errorf("chains asked for %q, want %q", gotOnly, tc.only)
+			}
+			if tc.notOnly != "" && strings.Contains(gotOnly, tc.notOnly) && tc.stage == "orbit" {
+				t.Errorf("the orbit lane's shadow asked for %q: %q", tc.notOnly, gotOnly)
+			}
+			if tc.stage == "" && strings.Contains(gotOnly, tc.notOnly) {
+				t.Errorf("the gate's shadow asked for an orbit atom: %q", gotOnly)
+			}
+			if gotBase != "b4se" || binBase != "b4se" || todayStage != tc.stage || binStage != tc.stage {
+				t.Errorf("base reached the chains as %q and the binary as %q; stage %q and %q, want %q", gotBase, binBase, todayStage, binStage, tc.stage)
+			}
+			if !strings.Contains(report, "1 compared, 1 identical") {
+				t.Errorf("report %q", report)
+			}
+		})
 	}
 }
 
@@ -246,7 +283,7 @@ func TestAtomsBinaryIsBuiltFromTheFilteredSourceInTheGoToolchain(t *testing.T) {
 	if f == "" {
 		t.Fatalf("no filter query carried the include and exclude lists; the engine saw:\n%s", strings.Join(engine.chains(), "\n"))
 	}
-	for _, want := range []string{`"go.mod"`, `"go.sum"`, `"internal/atoms/**"`, `"internal/checks/**"`} {
+	for _, want := range []string{`"go.mod"`, `"go.sum"`, `"internal/atoms/**"`, `"internal/checks/**"`, `"internal/orbitlane/**"`, `"internal/retiredverbs/**"`} {
 		if !strings.Contains(f, want) {
 			t.Errorf("the filter lacks %s:\n%s", want, f)
 		}
@@ -254,7 +291,7 @@ func TestAtomsBinaryIsBuiltFromTheFilteredSourceInTheGoToolchain(t *testing.T) {
 }
 
 func TestAtomsVectorRunsTheBinaryInTheFleetLane(t *testing.T) {
-	const argv = `"/usr/local/bin/atoms","-root","/src","-base","abc","-origin","http://door/rob/x.git"`
+	const argv = `"/usr/local/bin/atoms","-root","/src","-base","abc","-origin","http://door/rob/x.git","-stage","","-dies","/dies"`
 	m := &FoundryTools{Source: dag.Directory(), Repo: "http://door/rob/x.git", Sha: buildSha}
 	for _, tc := range []struct {
 		name    string
@@ -270,7 +307,7 @@ func TestAtomsVectorRunsTheBinaryInTheFleetLane(t *testing.T) {
 			engine.reset()
 			engine.withTree(map[string]string{"go.mod": "module x\n"})
 			tc.script()
-			got, err := m.atomsVector(context.Background(), "abc")
+			got, err := m.atomsVector(context.Background(), "", "abc")
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 					t.Fatalf("error %v, want one containing %q", err, tc.wantErr)
@@ -288,6 +325,45 @@ func TestAtomsVectorRunsTheBinaryInTheFleetLane(t *testing.T) {
 	}
 }
 
+// THE STAGE REACHES THE BINARY, and with it exactly the tools that stage's atoms
+// use: the orbit lane gets the contracts and the sidecar reader and no opa; the
+// pull path gets the contracts and no sidecar reader.
+func TestAtomsVectorMountsWhatTheStageUses(t *testing.T) {
+	m := &FoundryTools{Source: dag.Directory(), Repo: "http://door/rob/x.git", Sha: buildSha}
+	for _, tc := range []struct {
+		stage   string
+		argv    string
+		mounted []string
+		absent  []string
+	}{
+		{"orbit", `"-stage","orbit","-dies","/dies"`, []string{`path:"/usr/local/bin/orbitparse"`}, []string{`/usr/local/bin/opa`}},
+		{"prepush", `"-stage","prepush","-dies","/dies"`, nil, []string{`/usr/local/bin/orbitparse`}},
+	} {
+		t.Run(tc.stage, func(t *testing.T) {
+			engine.reset()
+			engine.withTree(map[string]string{"go.mod": "module x\n"})
+			engine.stdout(`"/usr/local/bin/atoms"`, "[]")
+			if _, err := m.atomsVector(context.Background(), tc.stage, "abc"); err != nil {
+				t.Fatal(err)
+			}
+			c := engine.chain(tc.argv)
+			if c == "" {
+				t.Fatalf("no run chain carried %s; the engine saw:\n%s", tc.argv, strings.Join(engine.chains(), "\n"))
+			}
+			for _, want := range append(tc.mounted, `/dies`) {
+				if !strings.Contains(c, want) {
+					t.Errorf("the run chain lacks %s:\n%s", want, c)
+				}
+			}
+			for _, no := range tc.absent {
+				if strings.Contains(c, no) {
+					t.Errorf("the run chain carries %s, which no atom of the stage uses:\n%s", no, c)
+				}
+			}
+		})
+	}
+}
+
 // The gate does not wait out a shadow that hangs: its wall time is the vector's
 // plus at most the grace. The vector takes 200ms here; the shadow never answers.
 func TestAHangingShadowCostsTheGateAtMostTheGrace(t *testing.T) {
@@ -295,7 +371,7 @@ func TestAHangingShadowCostsTheGateAtMostTheGrace(t *testing.T) {
 	t.Cleanup(func() { shadowRun, shadowGrace, shadowOut = origRun, origGrace, origOut })
 	stuck := make(chan struct{})
 	t.Cleanup(func() { close(stuck) })
-	shadowRun = func(context.Context, *FoundryTools, string) string { <-stuck; return "late" }
+	shadowRun = func(context.Context, *FoundryTools, string, string) string { <-stuck; return "late" }
 	shadowGrace = 100 * time.Millisecond
 	var buf bytes.Buffer
 	shadowOut = func() io.Writer { return &buf }
@@ -327,7 +403,7 @@ func TestAHangingShadowCostsTheGateAtMostTheGrace(t *testing.T) {
 func TestAShadowThatFinishesFirstIsReportedWithoutWaiting(t *testing.T) {
 	origRun, origGrace, origOut := shadowRun, shadowGrace, shadowOut
 	t.Cleanup(func() { shadowRun, shadowGrace, shadowOut = origRun, origGrace, origOut })
-	shadowRun = func(context.Context, *FoundryTools, string) string { return "report" }
+	shadowRun = func(context.Context, *FoundryTools, string, string) string { return "report" }
 	shadowGrace = time.Hour
 	var buf bytes.Buffer
 	shadowOut = func() io.Writer { return &buf }

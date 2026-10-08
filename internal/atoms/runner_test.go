@@ -61,12 +61,21 @@ func TestRegistryRefusesWhatItCannotRun(t *testing.T) {
 	}
 }
 
-func TestBuiltinIsTheFourPortedAtomsInOrder(t *testing.T) {
+func TestBuiltinIsThePortedAtomsInOrder(t *testing.T) {
 	reg, err := NewRegistry(Builtin()...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"fleet:check-yaml", "fleet:check-added-large-files", "fleet:check-merge-conflict", "fleet:stop-justifications"}
+	// The four of the first cut lead, in their order; the eighteen ported after.
+	want := []string{
+		"fleet:check-yaml", "fleet:check-added-large-files", "fleet:check-merge-conflict", "fleet:stop-justifications",
+		"fleet:sast-ruleset-lanes", "fleet:copier-answers-intact", "fleet:ourea-config-retired-keys", "fleet:retired-verbs",
+		"fleet:orbit-drift", "fleet:dagger-lockstep", "fleet:node-kinds-declared", "fleet:consumed-events-emitted",
+		"compose:no-tracked-secrets", "compose:third-party-pins",
+		"dies:data-keys", "dies:canonical", "dies:refusal-codes",
+		"orbit:contracts", "orbit:sidecars", "orbit:repo",
+		"ops:orbit-composed", "ops:yaml",
+	}
 	if got := reg.IDs(); fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("ids %q, want %q", got, want)
 	}

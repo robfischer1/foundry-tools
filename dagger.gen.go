@@ -1335,7 +1335,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg base", err))
 				}
 			}
-			return (*FoundryTools).ShadowAtoms(&parent, ctx, base), nil
+			var stage string
+			if inputArgs["stage"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["stage"]), &stage)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg stage", err))
+				}
+			}
+			return (*FoundryTools).ShadowAtoms(&parent, ctx, base, stage), nil
 		case "Tree":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)

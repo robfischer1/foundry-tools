@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"dagger/foundry-tools/internal/checks"
 )
 
 // Each case builds a repository in the test and names the change set it must
@@ -218,6 +220,9 @@ func TestCollect(t *testing.T) {
 	if want := []string{".gitignore", "tracked.txt", "untracked.txt"}; !reflect.DeepEqual(in.Files, want) {
 		t.Errorf("population %q, want %q (committable, less ignored, fleet-excluded, force-added-but-ignored and deleted: the chains' engine filter sees none of those)", in.Files, want)
 	}
+	if want := []string{".claude/x.txt", ".gitignore", "tracked.txt", "untracked.txt", "vendor/v.txt"}; !reflect.DeepEqual(in.Committable, want) {
+		t.Errorf("committable %q, want %q (the same population with the fleet exclude NOT applied: the compose atoms and ops:yaml read the raw tree)", in.Committable, want)
+	}
 	if want := []string{".claude/x.txt", ".gitignore", "deleted.txt", "forced.txt", "tracked.txt", "vendor/v.txt"}; !reflect.DeepEqual(in.Changed, want) {
 		t.Errorf("changed %q, want %q (a root commit)", in.Changed, want)
 	}
@@ -260,9 +265,15 @@ func TestPopulation(t *testing.T) {
 	put(t, dir, "a.txt", "a\n")
 	put(t, dir, "submodule/f", "gitlink stand-in\n")
 	listed := []string{"sub/keep.txt", "a.txt", "a.txt", "submodule", ".furnace/x", "node_modules/y", "z.melt"}
-	got := population(dir, listed)
+	raw := committable(dir, listed)
+	// The raw listing keeps what the fleet excludes: the compose atoms and
+	// ops:yaml never applied the exclude, and Files is this list with it.
+	if want := []string{".furnace/x", "a.txt", "node_modules/y", "sub/keep.txt", "z.melt"}; !reflect.DeepEqual(raw, want) {
+		t.Errorf("committable %q, want %q (sorted, deduplicated, no directories, not fleet-excluded)", raw, want)
+	}
+	got := checks.GatePopulation(raw)
 	if want := []string{"a.txt", "sub/keep.txt"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("population %q, want %q (sorted, deduplicated, fleet-excluded, no directories)", got, want)
+		t.Errorf("population %q, want %q (fleet-excluded)", got, want)
 	}
 	if !reflect.DeepEqual(listed[:3], []string{"sub/keep.txt", "a.txt", "a.txt"}) {
 		t.Errorf("the caller's list was reordered: %q", listed)

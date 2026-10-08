@@ -142,7 +142,8 @@ func Collect(ctx context.Context, root, base, origin string, now time.Time) Inpu
 	files := slices.DeleteFunc(sets[0], func(f string) bool {
 		return slices.Contains(sets[1], f) || slices.Contains(sets[2], f)
 	})
-	in.Files = population(root, files)
+	in.Committable = committable(root, files)
+	in.Files = checks.GatePopulation(in.Committable)
 
 	in.Changed, in.ChangedErr = ChangeSet(ctx, root, base)
 
@@ -166,18 +167,17 @@ func listFiles(ctx context.Context, root string, args ...string) ([]string, erro
 	return checks.SplitGitPaths(out)
 }
 
-// population is the gate's population over a git listing: sorted, deduplicated
-// (an unmerged path is listed once per stage), the fleet exclude applied, and a
+// committable is a git listing as the files the repository would commit:
+// sorted, deduplicated (an unmerged path is listed once per stage), and a
 // directory entry — a submodule's gitlink — dropped, because it is not a file
-// any atom can read.
-func population(root string, listed []string) []string {
+// any atom can read. The fleet exclude is NOT applied: the chains that read the
+// raw tree (the compose atoms, ops:yaml) never applied it, and Files is this
+// list with it applied.
+func committable(root string, listed []string) []string {
 	sorted := slices.Clone(listed)
 	slices.Sort(sorted)
-	// Compact is an argument, not a statement of its own: it zeroes the tail it
-	// frees, and GatePopulation drops an empty path, so a bare call whose result
-	// was discarded would leave this function's answer unchanged.
 	var out []string
-	for _, f := range checks.GatePopulation(slices.Compact(sorted)) {
+	for _, f := range slices.Compact(sorted) {
 		if fi, err := os.Lstat(filepath.Join(root, f)); err == nil && fi.IsDir() {
 			continue
 		}
