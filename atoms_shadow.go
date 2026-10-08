@@ -29,15 +29,14 @@ import (
 //     id), so the engine's cache serves them when the gate ran the same tree.
 
 // atomsSourceInclude is the part of this module the atoms binary is built
-// from, and nothing else. The chains' helper binaries mount
-// dag.CurrentModule().Source() whole (moduleBinary: standard library only,
-// GOPROXY=off, cold), which makes the build's cache key a function of every
-// file in the module — an edit to a README rebuilds it. This binary takes a
-// real dependency (the YAML parser), so it is built in goToolchain() with the
-// Go cache volumes mounted, from go.mod, go.sum and the packages it imports.
-// TestAtomsSourceCoversImports holds this list to the import closure: a
-// package the binary imports and this list omits is a build that fails in the
-// engine and nowhere a test can see.
+// from, and nothing else. A build that mounted the module whole would key its
+// cache on every file in it, so an edit to a README would rebuild the binary
+// (the helper CLIs did, until helpers.go filtered them the same way). This
+// binary takes a real dependency (the YAML parser), so it is built in
+// goToolchain() with the Go cache volumes mounted, from go.mod, go.sum and the
+// packages it imports. TestAtomsSourceCoversImports holds this list to the
+// import closure: a package the binary imports and this list omits is a build
+// that fails in the engine and nowhere a test can see.
 var atomsSourceInclude = []string{
 	"go.mod", "go.sum",
 	"atoms/**",
@@ -119,68 +118,51 @@ var atomsNeedingDies = []string{"ops:orbit-composed", "orbit:contracts", "orbit:
 // can read what each call carried.
 var reaskNonce = func() string { return strconv.FormatInt(time.Now().UnixNano(), 10) }
 
-// Where the atoms binary finds what it execs or reads beyond the tree.
-const (
-	atomsDiesPath = "/dies"
-	opaBinPath    = "/usr/local/bin/opa"
-	orbitBinPath  = "/usr/local/bin/orbitparse"
-)
+// atomsDiesPath is where the binary finds foundry-dies when an atom reads it.
+const atomsDiesPath = "/dies"
 
-// withAtomTools mounts, for the atoms of a stage, what they read or exec beyond
-// the tree: foundry-dies at main (the contracts), the pinned opa (dies:data-keys
-// builds the bundle with it) and the sidecar reader (orbit:sidecars). The tools
-// are mounted only for the stages whose atoms use them, so the pull path does
-// not build the reader and the orbit lane does not fetch opa.
+// withAtomDies mounts, for the atoms of a stage, the one input that is not the
+// tree and not a tool: foundry-dies at main (the contracts). The tools the
+// atoms exec are layers of the tools container (atoms_tools.go), so a stage
+// mounts nothing else.
 //
-// A TOOL THAT WILL NOT FETCH IS NOT MOUNTED, and the atom that needs it settles
-// 2 in the binary as its chain does on the same failure: one tool must not take
-// the whole shadow's answer with it. (The reader is built in the engine, so a
-// build failure surfaces as the binary not answering, as the dies mount does.)
-func (r *run) withAtomTools(ctx context.Context, ctr *dagger.Container, stage string) (*dagger.Container, []string) {
+// foundry-dies is mounted only when a selected atom reads it, and only if it
+// fetched: listing the root first forces the clone, so a clone that fails is the
+// dies atoms' 2 and not the whole binary's "not compared". Without the flag the
+// atoms that need it say the checkout was not supplied.
+func (r *run) withAtomDies(ctx context.Context, ctr *dagger.Container, stage string) (*dagger.Container, []string) {
 	has := map[string]bool{}
 	for _, id := range atoms.StageIDs(stage) {
 		has[id] = true
 	}
-	// foundry-dies is mounted only when a selected atom reads it, and only if
-	// it fetched: listing the root first forces the clone, as the opa fetch does, so a clone that fails is
-	// the dies atoms' 2 and not the whole binary's "not compared". Without the
-	// flag the atoms that need it say the checkout was not supplied.
-	var flags []string
 	if slices.ContainsFunc(atomsNeedingDies, func(id string) bool { return has[id] }) {
 		if _, err := r.dies.Entries(ctx); err == nil {
-			ctr = ctr.WithMountedDirectory(atomsDiesPath, r.dies)
-			flags = []string{"-dies", atomsDiesPath}
+			return ctr.WithMountedDirectory(atomsDiesPath, r.dies), []string{"-dies", atomsDiesPath}
 		}
 	}
-	if has["orbit:sidecars"] {
-		ctr = ctr.WithFile(orbitBinPath, orbitParse(), dagger.ContainerWithFileOpts{Permissions: 0o755})
-	}
-	if has["dies:data-keys"] {
-		if f, err := fetchTool(ctx, checks.OpaURL); err == nil {
-			ctr = ctr.WithFile(opaBinPath, f, dagger.ContainerWithFileOpts{Permissions: 0o755})
-		}
-	}
-	return ctr, flags
+	return ctr, nil
 }
 
-// atomsVector runs the binary in the fleet lane image over the same tree the
+// atomsVector runs the binary in the tools container over the same tree the
 // chains read, and answers its stdout: the vector as JSON.
 //
-// THE LANE IS THE CHAINS' OWN (r.lane, r.gitReady, r.withBase), so the binary
-// sees the tree and the history the chains see — including a linked worktree's
-// rebuilt repository and the base fetched by sha. A non-zero exit is an error
-// here, not a vector: the binary exits 0 whatever its atoms found.
+// THE TREE AND THE HISTORY ARE THE CHAINS' OWN (r.gitReady, r.withBase), so the
+// binary sees what the chains see, including a linked worktree's rebuilt
+// repository and the base fetched by sha; only the container differs. A
+// non-zero exit is an error here, not a vector: the binary exits 0 whatever its
+// atoms found.
 func (m *FoundryTools) atomsVector(ctx context.Context, stage, base string) (string, error) {
 	// REASKED, ALWAYS. The binary's exec has identical inputs on every run of the
 	// same tree, so the engine would serve a cached answer, and the atoms here
-	// that read the network (the door, opa's build) would be frozen at the first
-	// read. The chains read the door fresh and re-ask a could-not-run; CA_REASK
-	// keys every lane exec afresh, so the shadow does too.
+	// that read the network (the door, opa's build, kubeconform's schemas) would
+	// be frozen at the first read. The chains read the door fresh and re-ask a
+	// could-not-run; CA_REASK keys every lane exec afresh, so the shadow does too.
 	r := newRun(m.Source, m.Repo, base).fromOrigin(m.Origin).reasked(reaskNonce())
-	ctr := r.gitReady(ctx, r.withBase(r.lane(checks.ImageFleet))).
-		WithFile(atomsBinPath, atomsBinary(), dagger.ContainerWithFileOpts{Permissions: 0o755})
-	ctr, flags := r.withAtomTools(ctx, ctr, stage)
-	args := append([]string{atomsBinPath, "-root", "/src", "-base", base, "-origin", r.repo, "-stage", stage}, flags...)
+	ctr := r.gitReady(ctx, r.withBase(r.onTools(atomsTools(ctx))))
+	ctr, flags := r.withAtomDies(ctx, ctr, stage)
+	// -timeout: the tool atoms scan, build and lint whole trees, which the
+	// default minute (sized for atoms that read a few files) does not allow.
+	args := append([]string{atomsBinPath, "-root", "/src", "-base", base, "-origin", r.repo, "-stage", stage, "-timeout", atomTimeout}, flags...)
 	out, code, err := output(ctx, ctr.WithExec(args, anyExit))
 	if err != nil {
 		return "", err
@@ -190,6 +172,10 @@ func (m *FoundryTools) atomsVector(ctx context.Context, stage, base string) (str
 	}
 	return out, nil
 }
+
+// atomTimeout is each atom's deadline in the shadow, inside the shadow's own
+// five minutes (shadowTimeout).
+const atomTimeout = "4m"
 
 // renderShadow is the report from the two sides' answers. It is pure so the
 // ways either side can fail are tested without an engine.
