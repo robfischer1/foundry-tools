@@ -223,7 +223,7 @@ func TestShadowAtomsAsksTheChainsForTheStagesAtoms(t *testing.T) {
 		notOnly  string
 		compared bool
 	}{
-		{"prepush", "fleet:orbit-drift,fleet:dagger-lockstep,fleet:node-kinds-declared,fleet:consumed-events-emitted,dies:data-keys,ops:orbit-composed", "fleet:check-yaml", true},
+		{"prepush", "fleet:orbit-drift,fleet:dagger-lockstep,fleet:node-kinds-declared,fleet:consumed-events-emitted,dies:data-keys,dies:admission-dogfood,dies:canary-visibility,ops:orbit-composed,wit:validate", "fleet:check-yaml", true},
 		{"orbit", "orbit:contracts,orbit:sidecars,orbit:repo", "fleet:", true},
 		{"", "fleet:check-yaml,fleet:check-added-large-files,fleet:check-merge-conflict,fleet:stop-justifications,", "orbit:", true},
 		{"mutation", "", "", false},

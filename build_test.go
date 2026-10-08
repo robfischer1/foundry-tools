@@ -1145,7 +1145,7 @@ func TestARustDockerfileThatCopiesFromReleaseGetsTheGatesArtifact(t *testing.T) 
 	if engine.chain(`"cargo","build","--release","--locked","-p","ares"`) == "" {
 		t.Fatalf("the rust release build never ran:\n%v", engine.chains())
 	}
-	if engine.chain(`"go","build","-trimpath"`) != "" {
+	if engine.chain(`"go","build","-trimpath","-ldflags=-s -w"`) != "" {
 		t.Errorf("a Rust star got a Go release compile:\n%v", engine.chains())
 	}
 	wantCalls(t, engine.chain("dockerBuild", "sync"),
@@ -1170,8 +1170,8 @@ func TestARustDockerfileThatCopiesFromReleaseGetsTheGatesArtifact(t *testing.T) 
 func TestATipWhoseReleaseDoesNotBuildIsFindingsAndPublishesNothing(t *testing.T) {
 	m := buildOn(t, releaseTree())
 	scriptATip()
-	engine.exitCode(`"go","build","-trimpath"`, 1)
-	engine.stderr(`"go","build","-trimpath"`, "cmd/ares/main.go:2: undefined: x")
+	engine.exitCode(`"go","build","-trimpath","-ldflags=-s -w"`, 1)
+	engine.stderr(`"go","build","-trimpath","-ldflags=-s -w"`, "cmd/ares/main.go:2: undefined: x")
 	tip(t, m)
 	settledOn(t, "1", "findings in the release build")
 	settledOn(t, "1", "undefined: x") // the compiler's words reach the verdict, not only the log
@@ -1184,7 +1184,7 @@ func TestATipWhoseReleaseDoesNotBuildIsFindingsAndPublishesNothing(t *testing.T)
 func TestATipWhoseReleaseHitsAFaultIsCouldNotRun(t *testing.T) {
 	m := buildOn(t, releaseTree())
 	scriptATip()
-	engine.fail(`"go","build","-trimpath"`, "dial tcp: i/o timeout")
+	engine.fail(`"go","build","-trimpath","-ldflags=-s -w"`, "dial tcp: i/o timeout")
 	tip(t, m)
 	settledOn(t, "2", "could not run: the release build failed on a network fault")
 	if engine.chain("publish(") != "" {
