@@ -78,6 +78,17 @@ func TestChangeSet(t *testing.T) {
 			want: []string{"a.txt", "dir/b c.txt"},
 		},
 		{
+			// git config --get exits 0 for a key set to "": that is no marker.
+			name: "an empty ca.snapshot is not a snapshot",
+			build: func(t *testing.T, dir string) string {
+				put(t, dir, "a.txt", "1\n")
+				commitAll(t, dir, "c1")
+				gitIn(t, dir, "config", "--local", "ca.snapshot", "")
+				return ""
+			},
+			want: []string{"a.txt"},
+		},
+		{
 			name: "a base that is HEAD itself is an empty change",
 			build: func(t *testing.T, dir string) string {
 				put(t, dir, "a.txt", "1\n")
@@ -255,5 +266,27 @@ func TestPopulation(t *testing.T) {
 	}
 	if !reflect.DeepEqual(listed[:3], []string{"sub/keep.txt", "a.txt", "a.txt"}) {
 		t.Errorf("the caller's list was reordered: %q", listed)
+	}
+}
+
+// git answers the output AND the exit code of a command that ran and said no,
+// and exit -1 with the reason for one that would not start.
+func TestGit(t *testing.T) {
+	dir := newRepo(t)
+	out, code := git(context.Background(), dir, "rev-parse", "--verify", "--quiet", "nope")
+	if code != 1 || out != "" {
+		t.Errorf("a verify that finds nothing: %q, %d", out, code)
+	}
+	out, code = git(context.Background(), dir, "no-such-subcommand")
+	if code != 1 || !strings.Contains(out, "not a git command") {
+		t.Errorf("an unknown subcommand: %q, %d (stderr rides in the output)", out, code)
+	}
+	out, code = git(context.Background(), dir, "rev-parse", "--git-dir")
+	if code != 0 || strings.TrimSpace(out) != ".git" {
+		t.Errorf("a command that succeeds: %q, %d", out, code)
+	}
+	t.Setenv("PATH", t.TempDir())
+	if out, code = git(context.Background(), dir, "status"); code != -1 || !strings.HasPrefix(out, "git status: ") {
+		t.Errorf("a git that will not start: %q, %d", out, code)
 	}
 }

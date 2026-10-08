@@ -173,9 +173,11 @@ func listFiles(ctx context.Context, root string, args ...string) ([]string, erro
 func population(root string, listed []string) []string {
 	sorted := slices.Clone(listed)
 	slices.Sort(sorted)
-	sorted = slices.Compact(sorted)
+	// Compact is an argument, not a statement of its own: it zeroes the tail it
+	// frees, and GatePopulation drops an empty path, so a bare call whose result
+	// was discarded would leave this function's answer unchanged.
 	var out []string
-	for _, f := range checks.GatePopulation(sorted) {
+	for _, f := range checks.GatePopulation(slices.Compact(sorted)) {
 		if fi, err := os.Lstat(filepath.Join(root, f)); err == nil && fi.IsDir() {
 			continue
 		}

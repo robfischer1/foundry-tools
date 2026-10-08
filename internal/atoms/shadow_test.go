@@ -116,6 +116,11 @@ func TestClipBoundsAReasonAndFlattensItsLines(t *testing.T) {
 	if got := clip(multi); !utf8.ValidString(got) || got != strings.Repeat("z", 299)+"..." {
 		t.Errorf("clip cut through a rune: %q", got[len(got)-8:])
 	}
+	// Nothing but continuation bytes: the walk back stops at 0, it does not
+	// index below it.
+	if got := clip(strings.Repeat("\x80", 400)); got != "..." {
+		t.Errorf("clip of 400 continuation bytes is %q", got)
+	}
 	exactly := strings.Repeat("y", 300)
 	if got := clip(exactly); got != exactly {
 		t.Errorf("a reason of exactly 300 bytes is not cut: %d", len(got))
