@@ -69,14 +69,23 @@ func TestReleaseCopiesNamesWhatTheImageCarries(t *testing.T) {
 		{"a name the star does not share", "FROM x\nCOPY release/blade-controller /blade-controller\n", "blade-controller"},
 		{"flags are skipped", "FROM x\nCOPY --chown=1000:1000 release/server.js ./server.js\n", "server.js"},
 		{"the JSON form", "FROM x\nCOPY [\"release/ares\", \"/ares\"]\n", "ares"},
-		{"a --from copy is another image's", "FROM x\nCOPY --from=build release/ares /ares\n", ""},
+		{"a --from copy is another image's", "FROM x\nCOPY --from=build release/ares /ares\n", "-"},
 		{"the same file twice is one", "FROM x\nCOPY release/ares /a\nCOPY release/ares /b\n", "ares"},
-		{"the directory itself names no binary", "FROM x\nCOPY release/ /app\n", ""},
-		{"a nested path names no binary", "FROM x\nCOPY release/bin/ares /ares\n", ""},
-		{"its own build stage", "FROM golang AS build\nFROM x\nCOPY --from=build /out/ares /ares\n", ""},
-		{"nothing", "", ""},
+		{"the directory itself names no binary", "FROM x\nCOPY release/ /app\n", "-"},
+		{"a source outside release/ names none", "FROM x\nCOPY ares /ares\nCOPY src/ares /x\n", "-"},
+		{"a nested path names no binary", "FROM x\nCOPY release/bin/ares /ares\n", "-"},
+		{"its own build stage", "FROM golang AS build\nFROM x\nCOPY --from=build /out/ares /ares\n", "-"},
+		{"nothing", "", "-"},
 	} {
-		if got := strings.Join(ReleaseCopies(c.dockerfile), ","); got != c.want {
+		// "-" says none, and none means an EMPTY list, not a list holding "".
+		got := ReleaseCopies(c.dockerfile)
+		if c.want == "-" {
+			if len(got) != 0 {
+				t.Errorf("%s: ReleaseCopies = %q, want none", c.name, got)
+			}
+			continue
+		}
+		if strings.Join(got, ",") != c.want {
 			t.Errorf("%s: ReleaseCopies = %q, want %q", c.name, got, c.want)
 		}
 	}

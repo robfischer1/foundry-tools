@@ -677,3 +677,107 @@ func TestACastSaysWhichVerbHadesAnswered(t *testing.T) {
 		t.Errorf("the log does not name the verb hades answered:\n%s", said)
 	}
 }
+
+// THE TREE IS READ, AND EVERY WAY IT CANNOT BE IS A COULD-NOT-RUN OR A FINDING
+// THAT SAYS WHICH. Each case scripts one read of the cast's derivation to fail
+// and asserts the settle's code and words, and that nothing was pinned.
+func TestACastSaysWhichReadOfTheTreeFailed(t *testing.T) {
+	cases := map[string]struct {
+		tree         map[string]string
+		script       func()
+		code, reason string
+	}{
+		"payload/ cannot be probed": {nil, func() {
+			engine.failLeaf("DIRECTORY_TYPE", "exists", "the tree went away")
+		}, "2", "the tree could not be read for payload/"},
+		"payload/ cannot be listed": {map[string]string{"payload/x": "x"}, func() {
+			engine.failLeaf(`directory(path:"payload")`, "entries", "the listing went away")
+		}, "2", "payload/ could not be listed"},
+		"a legacy extra outside the repo": {map[string]string{
+			"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{"payload_extra":["/etc"]}`),
+		}, nil, "1", "is not a path inside the repo"},
+		"a legacy extra that cannot be globbed": {map[string]string{
+			"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{"payload_extra":["docs/tongs.1"]}`),
+		}, func() {
+			engine.failLeaf(`docs/tongs.1/**`, "glob", "the glob went away")
+		}, "2", "the tree could not be read for docs/tongs.1"},
+		"a legacy extra that cannot be read": {map[string]string{
+			"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{"payload_extra":["docs/tongs.1"]}`),
+			"docs/tongs.1":                      "man",
+		}, func() {
+			engine.failLeaf(`file(path:"docs/tongs.1")`, "contents", "the file went away")
+		}, "2", "the tree could not be read for docs/tongs.1"},
+		"cargo metadata cannot run": {nil, func() {
+			engine.failLeaf(`"cargo","metadata"`, "exitCode", "the engine went away")
+		}, "2", "cargo metadata did not run"},
+		"cargo metadata fails": {nil, func() {
+			engine.exitCode(`"cargo","metadata"`, 101)
+			engine.stdout(`"cargo","metadata"`, "error: the lock file needs to be updated")
+		}, "1", "findings in cargo metadata"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			m := castOn(t, c.tree)
+			scriptACast(castPin + "\ntongs\n")
+			if c.script != nil {
+				c.script()
+			}
+			casts(t, m)
+			settledOn(t, c.code, c.reason)
+			if engine.chain(castpinNeedle) != "" || engine.chain(stageNeedle) != "" {
+				t.Fatal("a cast that could not read its tree pinned or staged")
+			}
+		})
+	}
+}
+
+// The Go lane's list of mains is a read like any other.
+func TestAGoCastSaysWhichReadOfTheTreeFailed(t *testing.T) {
+	for name, c := range map[string]struct {
+		script       func()
+		code, reason string
+	}{
+		"go list cannot run": {func() {
+			engine.failLeaf(`"go","list"`, "exitCode", "the engine went away")
+		}, "2", "go list did not run"},
+		"go list fails": {func() {
+			engine.exitCode(`"go","list"`, 1)
+			engine.stdout(`"go","list"`, "go: errors parsing go.mod")
+		}, "1", "findings in go list ./cmd/..."},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := goCastOn(t, nil)
+			scriptACast(castPin + "\ntongs\n")
+			c.script()
+			casts(t, m)
+			settledOn(t, c.code, c.reason)
+			if engine.chain(goNeedle) != "" || engine.chain(castpinNeedle) != "" {
+				t.Fatal("a cast that could not list its mains built or pinned")
+			}
+		})
+	}
+}
+
+// The lane says which binaries the tree gave it, on the pod log and on the
+// settle's payload step, for the payload/ path and the legacy path alike.
+func TestACastSaysWhichBinariesTheTreeGaveIt(t *testing.T) {
+	for name, tree := range map[string]map[string]string{
+		"legacy":  nil,
+		"payload": {"payload/tongs.service": "unit"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := castOn(t, tree)
+			scriptACast(castPin + "\ntongs\n")
+			said := sayings(t, func() { casts(t, m) })
+			if !strings.Contains(said, "binaries from the tree: tongs") {
+				t.Errorf("the log does not name the binaries:\n%s", said)
+			}
+		})
+	}
+	m := goCastOn(t, nil)
+	scriptACast(castPin + "\ntongs\n")
+	said := sayings(t, func() { casts(t, m) })
+	if !strings.Contains(said, "binaries from the tree: tongs") {
+		t.Errorf("the Go lane's log does not name the binaries:\n%s", said)
+	}
+}

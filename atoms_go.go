@@ -460,14 +460,14 @@ func goRelease(ctx context.Context, r *run) checks.Verdict {
 	// binary its image never carries. Keyed on the fact the build lane keys
 	// on, so the two lanes cannot disagree about whose compile it is; and
 	// read AFTER the star's name, so a repo that is not a star still says so.
-	asked, err := r.asksForRelease(ctx, checks.DockerfilePopulation(files))
+	asking, dockerfile, err := r.releaseDockerfile(ctx, checks.DockerfilePopulation(files))
 	if err != nil {
 		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+err.Error())
 	}
-	if !asked {
+	if asking == "" {
 		return checks.VerdictOf(a, 0, a.ID+": ABSENT - no tracked Dockerfile copies from "+buildlane.ReleaseDir+"/, so this image compiles itself: its build is the build lane's, and there is no release build to make here")
 	}
-	plan, why := r.releasePlan(ctx, star)
+	plan, why := r.releasePlan(ctx, star, dockerfile)
 	if why != "" {
 		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+why)
 	}
@@ -480,28 +480,6 @@ func goRelease(ctx context.Context, r *run) checks.Verdict {
 	return v
 }
 
-// asksForRelease answers whether any tracked Dockerfile asks for the Gate's
-// artifact — a COPY from release/, the build lane's own reading
-// (buildlane.CopiesRelease). A Dockerfile that cannot be read is an error,
-// never "does not ask": an absence has to be read off the file, not off a
-// fault.
-func (r *run) asksForRelease(ctx context.Context, dockerfiles []string) (bool, error) {
-	for _, p := range dockerfiles {
-		body, err := r.src.File(p).Contents(ctx)
-		if err != nil {
-			return false, fmt.Errorf("%s could not be read: %w", p, err)
-		}
-		if buildlane.CopiesRelease(body) {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-// releasePlan reads the star's name and its record, and derives what the
-// release build produces. Every refusal is about the repository, so the atom
-// settles it as a could-not-run: an image whose binaries cannot be named is
-// not an image anyone should build.
 // starName is the star this repository is — the key the record and the
 // release convention share. The answers file says it first; a repository
 // with none is named by ITS RECORD, the one in foundry-dies whose meta.repo
@@ -582,11 +560,8 @@ func (r *run) starOfRepo(ctx context.Context, key string) (string, error) {
 // its Dockerfile copies out of release/, each from a ./cmd/<name> the tree
 // must carry, and whether the module vendors. Every refusal is about the
 // repository and settles as a could-not-run.
-func (r *run) releasePlan(ctx context.Context, star string) (checks.ReleasePlan, string) {
-	copies, err := r.releaseCopies(ctx)
-	if err != nil {
-		return checks.ReleasePlan{}, err.Error()
-	}
+func (r *run) releasePlan(ctx context.Context, star, dockerfile string) (checks.ReleasePlan, string) {
+	copies := buildlane.ReleaseCopies(dockerfile)
 	vendored := false
 	if entries, err := r.src.Entries(ctx); err == nil {
 		vendored = slices.Contains(entries, "vendor/")

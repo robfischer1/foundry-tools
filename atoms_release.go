@@ -91,25 +91,6 @@ func (r *run) releaseDockerfile(ctx context.Context, dockerfiles []string) (stri
 	return "", "", nil
 }
 
-// releaseCopies is what the image's Dockerfile copies out of release/ — the
-// binaries the image carries (buildlane.ReleaseCopies), read from the same
-// Dockerfile releaseDockerfile picks. A Dockerfile that does not ask is an
-// error here: the callers have already established that one does.
-func (r *run) releaseCopies(ctx context.Context) ([]string, error) {
-	files, err := r.population(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("the tree could not be read: %w", err)
-	}
-	path, body, err := r.releaseDockerfile(ctx, checks.DockerfilePopulation(files))
-	if err != nil {
-		return nil, err
-	}
-	if path == "" {
-		return nil, fmt.Errorf("no tracked Dockerfile copies from %s/", buildlane.ReleaseDir)
-	}
-	return buildlane.ReleaseCopies(body), nil
-}
-
 // onBase is the lane container for a release: the image's own base, with the
 // lane's environment (laneBase: CI, the cache CA's readers, telemetry off)
 // and the lane cache the toolchain reads.
@@ -173,7 +154,7 @@ func (r *run) tsReleaseBuild(ctx context.Context, a checks.AtomDef, ref string) 
 		WithWorkdir(checks.ReleaseTree)
 	ctr, v := releaseStep(ctx, a, ctr, []string{"bun", "install", "--frozen-lockfile"})
 	if v.State != 0 {
-		return ctr, v
+		return nil, v
 	}
 	return releaseStep(ctx, a, ctr, checks.TSReleaseArgs)
 }
@@ -216,14 +197,16 @@ func (r *run) pythonReleaseBuild(ctx context.Context, a checks.AtomDef, ref stri
 // whether the image is on one of those bases at all. Not on either, the
 // answer is (nil, false, nil) and Release() goes on to the compiled lanes;
 // on one, a release that did not build is an error, never an empty directory.
-func (r *run) releaseOnBase(ctx context.Context) (*dagger.Directory, bool, error) {
+// The third answer is the Dockerfile that asked for release/ ("" when none
+// did), so the compiled lanes read their binaries off the same file.
+func (r *run) releaseOnBase(ctx context.Context) (*dagger.Directory, bool, string, error) {
 	files, err := r.population(ctx)
 	if err != nil {
-		return nil, false, fmt.Errorf("the tree could not be read: %w", err)
+		return nil, false, "", fmt.Errorf("the tree could not be read: %w", err)
 	}
 	path, body, err := r.releaseDockerfile(ctx, checks.DockerfilePopulation(files))
 	if err != nil || path == "" {
-		return nil, false, err
+		return nil, false, "", err
 	}
 	ref, _, _ := buildlane.RuntimeBase(body)
 	var (
@@ -241,13 +224,13 @@ func (r *run) releaseOnBase(ctx context.Context) (*dagger.Directory, bool, error
 			return dag.Directory().WithDirectory("app/.venv", ctr.Directory(checks.PythonReleaseApp+"/.venv"))
 		}
 	default:
-		return nil, false, nil
+		return nil, false, body, nil
 	}
 	switch v.State {
 	case 2:
-		return nil, true, fmt.Errorf("the release build did not run: %s", lastLine(v.Reason))
+		return nil, true, "", fmt.Errorf("the release build did not run: %s", lastLine(v.Reason))
 	case 1:
-		return nil, true, fmt.Errorf("the release build failed: %s", lastLine(v.Reason))
+		return nil, true, "", fmt.Errorf("the release build failed: %s", lastLine(v.Reason))
 	}
-	return out(), true, nil
+	return out(), true, "", nil
 }

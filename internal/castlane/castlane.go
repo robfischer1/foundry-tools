@@ -94,12 +94,13 @@ func FromRecord(slag string) (Cast, error) {
 func BinariesFromGoList(out string) ([]string, error) {
 	var names []string
 	for _, line := range strings.Split(out, "\n") {
-		pkg, imp, ok := strings.Cut(strings.TrimSpace(line), " ")
-		if !ok || pkg != "main" {
+		f := strings.Fields(line)
+		if len(f) != 2 || f[0] != "main" {
 			continue
 		}
-		_, name, ok := strings.Cut(imp, "/cmd/")
-		if !ok || name == "" || strings.Contains(name, "/") {
+		// Cut answers an empty name when the import path has no /cmd/ in it.
+		_, name, _ := strings.Cut(f[1], "/cmd/")
+		if name == "" || strings.Contains(name, "/") {
 			continue
 		}
 		if !slices.Contains(names, name) {

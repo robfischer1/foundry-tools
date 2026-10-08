@@ -1273,6 +1273,14 @@ func TestGoReleaseSaysWhyItCouldNotRun(t *testing.T) {
 	engine.withTree(cmdMain("hades"))
 	wantState(t, runAtom(t, "go:release", ""), 2, "copies release/ghost", "no cmd/ghost")
 
+	// The tree cannot be probed for the main package a COPY names.
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{"Dockerfile": copiesHades, ".copier-answers.yml": "service_name: hades\n"})
+	engine.withTree(cmdMain("hades"))
+	engine.failLeaf("DIRECTORY_TYPE", "exists", "the tree went away")
+	wantState(t, runAtom(t, "go:release", ""), 2, "the tree could not be read for cmd/hades", "the tree went away")
+
 	// A Dockerfile that asks for release/ and copies nothing out of it.
 	engine.reset()
 	engine.withTree(everyLaneTree)

@@ -56,15 +56,16 @@ func TestFromRecordRefusesARecordWithNoName(t *testing.T) {
 	}
 }
 
-// Every main package directly under cmd/ ships, by directory name; anything
-// else go list prints does not.
+// Every main package directly under cmd/ ships, by directory name and
+// sorted; anything else go list prints does not.
 func TestBinariesFromGoList(t *testing.T) {
-	out := "main example.com/argus/cmd/gpx_control\nmain example.com/argus/cmd/argus\nargus example.com/argus/cmd/lib\nmain example.com/argus/cmd/x/nested\n\n"
+	out := "main example.com/argus/cmd/gpx_control\nmain example.com/argus/cmd/argus\nargus example.com/argus/cmd/lib\n" +
+		"main example.com/argus/cmd/x/nested\nmain example.com/argus/cmd/\nmain example.com/argus/other\nmain\nmain a b\n\n"
 	got, err := BinariesFromGoList(out)
 	if err != nil || strings.Join(got, ",") != "argus,gpx_control" {
 		t.Errorf("got %v %v", got, err)
 	}
-	for _, none := range []string{"", "go: warning: \"./cmd/...\" matched no packages\n", "lib example.com/m/cmd/lib\n"} {
+	for _, none := range []string{"", "go: warning: \"./cmd/...\" matched no packages\n", "lib example.com/m/cmd/lib\n", "main\n", "main example.com/m/cmd/\n", "main example.com/m/elsewhere\n"} {
 		if _, err := BinariesFromGoList(none); err == nil {
 			t.Errorf("%q: a binary repo with no main is a finding", none)
 		}
@@ -75,7 +76,7 @@ func TestBinariesFromGoList(t *testing.T) {
 // include wasm-guest examples its default members leave out.
 func TestBinariesFromCargoMetadata(t *testing.T) {
 	meta := `{"packages":[
-		{"id":"p1","targets":[{"name":"cerberus","kind":["bin"]},{"name":"cerberus-gauge","kind":["bin"]},{"name":"cerberus_lib","kind":["lib"]}]},
+		{"id":"p1","targets":[{"name":"cerberus-gauge","kind":["bin"]},{"name":"cerberus","kind":["bin"]},{"name":"cerberus_lib","kind":["lib"]}]},
 		{"id":"p2","targets":[{"name":"guest","kind":["bin"]}]},
 		{"id":"p3","targets":[{"name":"cerberus","kind":["bin"]}]}
 	],"workspace_default_members":["p1","p3"]}`
@@ -83,13 +84,13 @@ func TestBinariesFromCargoMetadata(t *testing.T) {
 	if err != nil || strings.Join(got, ",") != "cerberus,cerberus-gauge" {
 		t.Errorf("got %v %v", got, err)
 	}
-	for name, bad := range map[string]string{
-		"not json":     "warning: not json",
-		"no bins":      `{"packages":[{"id":"p","targets":[{"name":"x","kind":["lib"]}]}],"workspace_default_members":["p"]}`,
-		"none default": `{"packages":[{"id":"p","targets":[{"name":"x","kind":["bin"]}]}],"workspace_default_members":[]}`,
+	for name, c := range map[string]struct{ doc, why string }{
+		"not json":     {"warning: not json", "not JSON"},
+		"no bins":      {`{"packages":[{"id":"p","targets":[{"name":"x","kind":["lib"]}]}],"workspace_default_members":["p"]}`, "no bin target"},
+		"none default": {`{"packages":[{"id":"p","targets":[{"name":"x","kind":["bin"]}]}],"workspace_default_members":[]}`, "no bin target"},
 	} {
-		if _, err := BinariesFromCargoMetadata(bad); err == nil {
-			t.Errorf("%s: want a refusal", name)
+		if _, err := BinariesFromCargoMetadata(c.doc); err == nil || !strings.Contains(err.Error(), c.why) {
+			t.Errorf("%s: want a refusal naming %q, got %v", name, c.why, err)
 		}
 	}
 }
