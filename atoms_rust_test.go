@@ -926,15 +926,15 @@ func TestRustCargoTestStampsBeforeEveryExecThatCompilesDoctests(t *testing.T) {
 	}
 }
 
-// The target volume is mounted PRIVATE; the registry and git caches, which are
+// The target volume is mounted with default (shared) sharing; the registry and git caches, which are
 // content-addressed, are not.
-func TestRustLaneMountsOnlyTheTargetVolumePrivate(t *testing.T) {
+func TestRustLaneTargetVolumeIsShared(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	wantState(t, runAtom(t, "rust:cargo-fmt", ""), 0)
 	c := engine.chain(`"cargo","fmt"`, "exitCode")
-	wantCalls(t, c, []string{"withMountedCache", `path:"/cache/cargo-target"`, `sharing:PRIVATE`})
-	if hasCall(c, "withMountedCache", `path:"/usr/local/cargo/registry"`, `sharing:PRIVATE`) {
-		t.Errorf("the registry cache is content-addressed and must stay shared:\n%s", c)
+	wantCalls(t, c, []string{"withMountedCache", `path:"/cache/cargo-target"`})
+	if hasCall(c, "withMountedCache", `path:"/cache/cargo-target"`, `sharing:`) {
+		t.Errorf("the target volume is shared within a run:\n%s", c)
 	}
 }
