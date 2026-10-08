@@ -108,16 +108,16 @@ func (r *run) eachModule(ctx context.Context, a checks.AtomDef, one func(dir str
 // anyExit, so the shared GOCACHE volume holds every package the tree and its
 // dependencies need before the analysers read them.
 //
-// ONE COMPILE, SHARED BY CONTENT. go:build, go:vet, go:staticcheck and
-// go:govulncheck all branch from this container; the engine keys the exec on
-// its inputs, so the four atoms (and the warm-up they would each have paid
-// for) cost one build, not four concurrent ones racing to fill the same cache.
+// ONE COMPILE, SHARED BY CONTENT. The build, vet, staticcheck and govulncheck
+// atoms all branch from this container; the engine keys the exec on its
+// inputs, so the four atoms (and the warm-up they would each have paid for)
+// cost one build, not four concurrent ones racing to fill the same cache.
 // vet, staticcheck and govulncheck then run side by side against a warm cache.
-// go:test-race stays beside them rather than behind: it compiles with -race,
+// The race suite stays beside them rather than behind: it compiles with -race,
 // which a plain build does not warm.
 //
 // THE WARM-UP CANNOT MOVE A VERDICT. It runs under anyExit, so a build that
-// fails (a compile error, a finding to go:build) lets the chain carry on, and
+// fails (a compile error, a finding for the build atom) lets the chain carry on, and
 // vet still reports the compile error it always did. Only go:build reads this
 // exec's exit code.
 func (r *run) goBuilt(dir string) *dagger.Container {

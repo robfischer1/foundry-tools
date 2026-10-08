@@ -1690,7 +1690,7 @@ func TestGoAnalysersBranchFromOneWarmBuild(t *testing.T) {
 	}
 }
 
-// go:test-race records a coverage profile, atomic mode, outside the tree.
+// The race suite records a coverage profile, atomic mode, outside the tree.
 func TestGoRaceCoverArgsNameTheProfile(t *testing.T) {
 	got := strings.Join(goRaceCoverArgs(), " ")
 	want := "-race -covermode atomic -coverprofile " + goRaceProfile
