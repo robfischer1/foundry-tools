@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -28,6 +29,16 @@ func TestGoReportBase(t *testing.T) {
 		{"a string prefix that is not a whole segment is gomutants' own",
 			mod + "/a/foo\t/src/a/foo\n" + mod + "/a/foobar\t/src/a/foobar\n", baseRoot, "a/foo"},
 		{"nothing listed", "", baseRoot, ""},
+		{"a root with a trailing slash is the same root",
+			mod + "/cmd/fleet-door\t/src/cmd/fleet-door\n", "/src/", "cmd/fleet-door"},
+		{"packages with nothing in common name no base", "a/x\t/src/x\nb/y\t/src/y\n", baseRoot, ""},
+		{"packages whose first segments differ name no base", "a\t/src/a\nb\t/src/b\n", baseRoot, ""},
+		{"a line with no import path is skipped",
+			"\t/src/zzz\n" + mod + "/cmd/fleet-door\t/src/cmd/fleet-door\n", baseRoot, "cmd/fleet-door"},
+		{"a line with no directory is skipped",
+			mod + "/cmd/zzz\t\n" + mod + "/cmd/fleet-door\t/src/cmd/fleet-door\n", baseRoot, "cmd/fleet-door"},
+		{"a line with no tab is skipped",
+			"garbage\n" + mod + "/cmd/fleet-door\t/src/cmd/fleet-door\n", baseRoot, "cmd/fleet-door"},
 		{"a line without a tab is not a package", "garbage\n", baseRoot, ""},
 		{"a directory outside the root cannot be named", mod + "/x\t/elsewhere/x\n", baseRoot, ""},
 		{"a dir that does not end in the import path's tail", mod + "/cmd/x\t/src/other\n" + mod + "/cmd/y\t/src/cmd/y\n", baseRoot, ""},
@@ -104,7 +115,9 @@ func TestRebaseGoReportNamesRealFilesFromTheModuleRoot(t *testing.T) {
 }
 
 func TestRebaseGoReportLeavesAModuleRelativeReportAlone(t *testing.T) {
-	in := []byte(`{"files":[{"file_name":"cmd/x/a.go","mutations":[]}]}`)
+	// Keys out of sorted order: a re-marshal would reorder them, so equal bytes
+	// mean the report was never touched.
+	in := []byte(`{"go_module":"m","files":[{"mutations":[],"file_name":"cmd/x/a.go"}],"elapsed_time":1}`)
 	out, err := RebaseGoReport(in, "")
 	if err != nil || string(out) != string(in) {
 		t.Fatalf("got %s, %v", out, err)
@@ -112,14 +125,14 @@ func TestRebaseGoReportLeavesAModuleRelativeReportAlone(t *testing.T) {
 }
 
 func TestRebaseGoReportRefusesWhatItCannotRead(t *testing.T) {
-	for name, in := range map[string]string{
-		"not json":       `nope`,
-		"no files":       `{"go_module":"m"}`,
-		"files not list": `{"files":5}`,
-		"no file_name":   `{"files":[{"mutations":[]}]}`,
+	for name, c := range map[string]struct{ in, want string }{
+		"not json":       {`nope`, "is not a gomutants report"},
+		"no files":       {`{"go_module":"m"}`, "no readable files"},
+		"files not list": {`{"files":5}`, "no readable files"},
+		"no file_name":   {`{"files":[{"mutations":[]}]}`, "no readable file_name"},
 	} {
-		if _, err := RebaseGoReport([]byte(in), "cmd"); err == nil {
-			t.Errorf("%s: want an error", name)
+		if _, err := RebaseGoReport([]byte(c.in), "cmd"); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: got %v, want an error containing %q", name, err, c.want)
 		}
 	}
 }

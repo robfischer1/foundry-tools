@@ -1050,8 +1050,8 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	classifyOn := mutated
 	if report != "" {
 		listPkgs := []string{"go", "list", "-e", "-f", checks.GoPackagesFormat}
-		if len(dbs) > 0 || len(brokers) > 0 {
-			listPkgs = append(listPkgs, "-tags", checks.BuildTags(dbs, brokers))
+		if tags := checks.BuildTags(dbs, brokers); tags != "" {
+			listPkgs = append(listPkgs, "-tags", tags)
 		}
 		if out, code, err := output(ctx, base.WithExec(append(listPkgs, mutateArgs...), anyExit)); err == nil && code == 0 {
 			if rel := checks.GoReportBase(out, path.Join("/src", dir)); rel != "" {

@@ -331,6 +331,11 @@ func TestGoMutationCompilesTheRecordsDBTags(t *testing.T) {
 	if list := engine.chain(goMainListNeedle, "stdout"); !strings.Contains(list, `"-tags","live_db"`) {
 		t.Errorf("the misgraded-file listing dropped the record's build tags:\n%s", list)
 	}
+	// AND THE PACKAGE LISTING THE REPORT'S BASE COMES FROM: a tagged package is
+	// only in the run's package set under the tags the run used.
+	if list := engine.chain(goPackagesNeedle, "stdout"); !strings.Contains(list, `"-tags","live_db"`) {
+		t.Errorf("the package listing dropped the record's build tags:\n%s", list)
+	}
 	c := engine.chain(goMutantsNeedle, "exitCode")
 	wantCalls(t, c,
 		// ITS OWN SERVER, not the one go:test-race binds. This lane runs BESIDE
@@ -510,6 +515,25 @@ func TestGoMutationNamesFilesFromTheModuleRootBeforeClassifying(t *testing.T) {
 	c := engine.chain(goClassifyNeedle)
 	if !strings.Contains(c, "withNewFile") || !strings.Contains(c, "cmd/x/a.go") {
 		t.Errorf("mutation-gate was handed the report as gomutants wrote it:\n%s", c)
+	}
+
+	// THE LISTING FAILING LEAVES THE REPORT AS GOMUTANTS WROTE IT, whatever it
+	// printed: the classifier's own refusal then speaks. Both the exit code and
+	// the engine are asked.
+	scriptGoMutation(nil)
+	engine.withTree(map[string]string{"/src/mutation-go.json": bare})
+	engine.stdout(goPackagesNeedle, "git.notusmi.com/rob/x/cmd/x\t/src/cmd/x\n")
+	engine.exitCode(goPackagesNeedle, 1)
+	runAtom(t, "go:mutation", "abc123")
+	if c := engine.chain(goClassifyNeedle); strings.Contains(c, "cmd/x/a.go") {
+		t.Errorf("the report was rewritten from a listing that failed:\n%s", c)
+	}
+	scriptGoMutation(nil)
+	engine.withTree(map[string]string{"/src/mutation-go.json": bare})
+	engine.fail(goPackagesNeedle, "engine gone")
+	runAtom(t, "go:mutation", "abc123")
+	if c := engine.chain(goClassifyNeedle); strings.Contains(c, "cmd/x/a.go") {
+		t.Errorf("the report was rewritten from a listing the engine could not run:\n%s", c)
 	}
 
 	// A module-relative report is left exactly as it was written.

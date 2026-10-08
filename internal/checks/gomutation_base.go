@@ -39,8 +39,8 @@ func GoReportBase(listOut, root string) string {
 	type pkg struct{ imp, dir string }
 	var pkgs []pkg
 	for _, ln := range strings.Split(listOut, "\n") {
-		imp, dir, ok := strings.Cut(strings.TrimSpace(ln), "\t")
-		if !ok || imp == "" || dir == "" {
+		imp, dir, _ := strings.Cut(strings.TrimSpace(ln), "\t")
+		if imp == "" || dir == "" {
 			continue
 		}
 		pkgs = append(pkgs, pkg{imp, dir})
@@ -52,12 +52,8 @@ func GoReportBase(listOut, root string) string {
 	// the last "/", not a whole-segment match.
 	prefix := pkgs[0].imp
 	for _, p := range pkgs[1:] {
-		for !strings.HasPrefix(p.imp, prefix) {
-			slash := strings.LastIndex(prefix, "/")
-			if slash == -1 {
-				return ""
-			}
-			prefix = prefix[:slash]
+		if prefix = commonImportPrefix(prefix, p.imp); prefix == "" {
+			return ""
 		}
 	}
 	// The directory the prefix names: any package's dir, less its import path's
@@ -72,7 +68,7 @@ func GoReportBase(listOut, root string) string {
 		base = strings.TrimSuffix(base, "/"+sub)
 	}
 	root = path.Clean(root)
-	if base == root || !strings.HasPrefix(base, root+"/") {
+	if !strings.HasPrefix(base, root+"/") {
 		return ""
 	}
 	return strings.TrimPrefix(base, root+"/")
@@ -103,4 +99,16 @@ func RebaseGoReport(report []byte, base string) ([]byte, error) {
 	}
 	doc["files"], _ = json.Marshal(files)
 	return json.Marshal(doc)
+}
+
+// commonImportPrefix trims prefix back to the last "/" until imp starts with
+// it. The cut point only ever moves left, so the loop ends; "" is no common
+// prefix.
+func commonImportPrefix(prefix, imp string) string {
+	for cut := len(prefix); cut >= 0; cut = strings.LastIndex(prefix[:cut], "/") {
+		if strings.HasPrefix(imp, prefix[:cut]) {
+			return prefix[:cut]
+		}
+	}
+	return ""
 }
