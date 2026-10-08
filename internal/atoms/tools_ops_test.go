@@ -1,11 +1,29 @@
 package atoms
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// openFailsFS is a file system whose files will not open.
+type openFailsFS struct{ fs.FS }
+
+func (openFailsFS) Open(string) (fs.File, error) { return nil, errBoom }
+
+// readFailsFS is a file system whose files open and then fail to read.
+type readFailsFS struct{ fs.FS }
+
+func (f readFailsFS) Open(name string) (fs.File, error) {
+	fh, err := f.FS.Open(name)
+	return readFails{fh}, err
+}
+
+type readFails struct{ fs.File }
+
+func (readFails) Read([]byte) (int, error) { return 0, errBoom }
 
 // shellTree is an ops tree (it carries flux/) with one shebang script, one
 // script found by its interpreter alone, a sourced fragment, a zsh file and a
@@ -81,19 +99,66 @@ func TestOpsShell(t *testing.T) {
 			}
 		})
 	}
-	t.Run("a symlink is not greped for a shebang", func(t *testing.T) {
+	t.Run("a symlink is not read for a shebang, so it is a sourced fragment as git saw it", func(t *testing.T) {
 		in, f := toolTree(t, shellTree(), nil)
-		if err := os.Symlink("run.sh", filepath.Join(in.Root, "link")); err != nil {
+		if err := os.Symlink("run.sh", filepath.Join(in.Root, "link.sh")); err != nil {
 			t.Fatal(err)
 		}
-		in.Committable = append(in.Committable, "link")
-		expect(t, runAtom(t, id, in), stateOf(0), pass)
-		for _, c := range f.calls {
-			if strings.Contains(flagged(c), "link") {
-				t.Errorf("a symlink reached shellcheck: %q", flagged(c))
-			}
+		in.Committable = append(in.Committable, "link.sh")
+		expect(t, runAtom(t, id, in), stateOf(0), pass, "shell: 4 script(s)")
+		var lines []string
+		for _, c := range f.calls[1:] {
+			lines = append(lines, flagged(c))
+		}
+		want := []string{
+			"-S error -f gcc bin/tool run.sh", "-S error -s bash -f gcc lib.sh link.sh",
+			"-S warning -f gcc bin/tool run.sh", "-S warning -s bash -f gcc lib.sh link.sh",
+		}
+		if strings.Join(lines, "|") != strings.Join(want, "|") {
+			t.Errorf("shellcheck ran as\n%s\nwant\n%s", strings.Join(lines, "\n"), strings.Join(want, "\n"))
 		}
 	})
+	t.Run("a template and a zsh file are never opened", func(t *testing.T) {
+		in, _ := toolTree(t, shellTree(), nil)
+		in.Committable = append(in.Committable, "ghost.tmpl", "ghost.zsh")
+		expect(t, runAtom(t, id, in), stateOf(0), pass, "shell: 3 script(s)")
+	})
+	for name, files := range map[string]map[string]string{
+		"shebang scripts alone":   {"flux/x.yaml": "a: 1\n", "run.sh": "#!/bin/bash\n"},
+		"sourced fragments alone": {"flux/x.yaml": "a: 1\n", "lib.sh": "echo sourced\n"},
+	} {
+		t.Run(name+" are enough to run shellcheck", func(t *testing.T) {
+			in, f := toolTree(t, files, nil)
+			expect(t, runAtom(t, id, in), stateOf(0), pass, "shell: 1 script(s)")
+			if len(f.calls) != 3 {
+				t.Errorf("ran %v", f.ran())
+			}
+		})
+	}
+	for name, severity := range map[string]string{"the gating pass": "error", "the report pass": "warning"} {
+		t.Run("a shellcheck that would not start in "+name+" never ran", func(t *testing.T) {
+			in, _ := toolTree(t, shellTree(), func(c Cmd) (string, int) {
+				if c.Args[0] == "-S" && c.Args[1] == severity {
+					return "shellcheck: gone", -1
+				}
+				return "", 0
+			})
+			expect(t, runAtom(t, id, in), stateOf(2), cannot, "the atom never ran: shellcheck: gone")
+		})
+	}
+	for name, fsys := range map[string]func(root string) fs.FS{
+		"opens": func(root string) fs.FS { return openFailsFS{os.DirFS(root)} },
+		"reads": func(root string) fs.FS { return readFailsFS{os.DirFS(root)} },
+	} {
+		t.Run("a script that never "+name+" is a could-not-run before any tool", func(t *testing.T) {
+			in, f := toolTree(t, shellTree(), nil)
+			in.FS = fsys(in.Root)
+			expect(t, runAtom(t, id, in), stateOf(2), cannot, "shell: could not read the scripts' first lines: boom")
+			if len(f.calls) != 0 {
+				t.Errorf("shellcheck ran over a tree it could not read: %v", f.ran())
+			}
+		})
+	}
 	for name, files := range map[string]map[string]string{
 		"a tree that is not an ops tree": {"run.sh": "#!/bin/bash\n"},
 		"an ops tree with no shell":      {"flux/x.yaml": "a: 1\n", "notes.txt": "hello\n"},
@@ -109,7 +174,7 @@ func TestOpsShell(t *testing.T) {
 	t.Run("a script that will not read is a could-not-run before any tool", func(t *testing.T) {
 		in, f := toolTree(t, shellTree(), nil)
 		in.Committable = append(in.Committable, "ghost.sh")
-		expect(t, runAtom(t, id, in), stateOf(2), cannot, "shell: could not read the scripts' first lines")
+		expect(t, runAtom(t, id, in), stateOf(2), cannot, "shell: could not read the scripts' first lines", "ghost.sh")
 		if len(f.calls) != 0 {
 			t.Errorf("shellcheck ran over a tree it could not read: %v", f.ran())
 		}

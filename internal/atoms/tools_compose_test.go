@@ -133,7 +133,7 @@ func TestComposeConfig(t *testing.T) {
 		}
 		t.Setenv("TMPDIR", filepath.Join(blocker, "sub"))
 		in, f := toolTree(t, map[string]string{"compose.yaml": composeSpec}, nil)
-		expect(t, runAtom(t, id, in), stateOf(2), cannot, "the private copy the parse runs in could not be made")
+		expect(t, runAtom(t, id, in), stateOf(2), cannot, "the private copy the parse runs in could not be made", "not a directory")
 		if len(f.calls) != 1 {
 			t.Errorf("a parse ran without its copy: %v", f.ran())
 		}
@@ -161,9 +161,8 @@ func TestPrivateCopy(t *testing.T) {
 	root := t.TempDir()
 	put(t, root, "a.yml", "a")
 	put(t, root, "d/b.yml", "b")
-	dir, err := privateCopy(root, []string{"a.yml", "d/b.yml"}, []string{"./x.env", "../up.env", "s/y.env"})
-	defer func() { _ = os.RemoveAll(dir) }()
-	if err != nil {
+	dir := filepath.Join(t.TempDir(), "copy")
+	if err := privateCopy(dir, root, []string{"a.yml", "d/b.yml"}, []string{"./x.env", "../up.env", "s/y.env"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.Join(listTree(t, dir), ","); got != "a.yml,d/b.yml,s/y.env,up.env,x.env" {
@@ -175,11 +174,28 @@ func TestPrivateCopy(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(filepath.Dir(dir), "up.env")); err == nil {
 		t.Errorf("a stub escaped the copy")
 	}
-	if gone, err := privateCopy(root, []string{"gone.yml"}, nil); err == nil {
-		t.Errorf("a missing tracked file was copied")
-	} else {
-		_ = os.RemoveAll(gone)
+	t.Run("a tracked file that is not there is an error", func(t *testing.T) {
+		err := privateCopy(filepath.Join(t.TempDir(), "copy"), root, []string{"gone.yml"}, nil)
+		if err == nil || !strings.Contains(err.Error(), "gone.yml") {
+			t.Errorf("a missing tracked file was copied: %v", err)
+		}
+	})
+	// A directory that sits under a file can never be made, so every write fails.
+	blocker := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocker, nil, 0o644); err != nil {
+		t.Fatal(err)
 	}
+	under := filepath.Join(blocker, "copy")
+	t.Run("a copy that cannot be written is an error", func(t *testing.T) {
+		if err := privateCopy(under, root, []string{"a.yml"}, nil); err == nil || !strings.Contains(err.Error(), "not a directory") {
+			t.Errorf("a copy into a place that is not a directory: %v", err)
+		}
+	})
+	t.Run("a stub that cannot be written is an error", func(t *testing.T) {
+		if err := privateCopy(under, root, nil, []string{"x.env"}); err == nil || !strings.Contains(err.Error(), "not a directory") {
+			t.Errorf("a stub into a place that is not a directory: %v", err)
+		}
+	})
 }
 
 func TestWitValidate(t *testing.T) {

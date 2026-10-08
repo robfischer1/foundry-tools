@@ -186,3 +186,98 @@ func TestOnToolsMountsTheTreeAndTheReaskAboveTheLayers(t *testing.T) {
 		}
 	}
 }
+
+// toolNamed is a tool of the plan, by name.
+func toolNamed(t *testing.T, name string) pinnedTool {
+	t.Helper()
+	for _, tool := range pinnedTools {
+		if tool.name == name {
+			return tool
+		}
+	}
+	t.Fatalf("no tool %q in the plan", name)
+	return pinnedTool{}
+}
+
+// toolFile checks a download against its pinned checksum in a container of its
+// own and answers the program: a tarball's one member is extracted with its
+// leading directories stripped, and a bare binary is the download itself.
+func TestToolFileVerifiesThenExtractsOnlyWhatTheAssetIs(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		tool    string
+		tar     string
+		noTar   bool
+		path    string
+		sumFrom string
+	}{
+		{"shellcheck", `"tar","xf","/tmp/pkg","-C","/out","--strip-components=1","` + checks.ShellcheckMember + `"`, false, "/out/shellcheck", checks.ShellcheckURL},
+		{"wasm-tools", `"tar","xf","/tmp/pkg","-C","/out","--strip-components=1","` + checks.WasmToolsMember + `"`, false, "/out/wasm-tools", checks.WasmToolsURL},
+		{"just", `"tar","xf","/tmp/pkg","-C","/out","just"]`, false, "/out/just", checks.JustURL},
+		{"hadolint", "", true, "/tmp/pkg", checks.HadolintURL},
+	} {
+		t.Run(tc.tool, func(t *testing.T) {
+			engine.reset()
+			f, err := toolFile(ctx, toolsOS(), toolNamed(t, tc.tool))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := dag.Container().From("scratch").WithFile("/b", f).Stdout(ctx); err != nil {
+				t.Fatal(err)
+			}
+			verify := engine.chain(`"sha256sum","-c","/tmp/pkg.sha256"`, checks.ToolSHA256[tc.sumFrom])
+			if verify == "" {
+				t.Fatalf("the download was not checked against its pinned checksum; the engine saw:\n%s", strings.Join(engine.chains(), "\n"))
+			}
+			if tc.noTar {
+				if strings.Contains(verify, `"tar"`) || strings.Contains(verify, `"mkdir"`) {
+					t.Errorf("a bare binary was unpacked:\n%s", verify)
+				}
+			} else {
+				if !strings.Contains(verify, tc.tar) {
+					t.Errorf("the tarball was not unpacked as %s:\n%s", tc.tar, verify)
+				}
+				if sha, mk, tar := strings.Index(verify, `"sha256sum"`), strings.Index(verify, `"mkdir","-p","/out"`), strings.Index(verify, `"tar","xf"`); !(sha < mk && mk < tar) {
+					t.Errorf("the checksum, the directory and the extraction are out of order (%d, %d, %d):\n%s", sha, mk, tar, verify)
+				}
+				if tc.tool == "just" && strings.Contains(verify, "--strip-components") {
+					t.Errorf("a member at the root was stripped:\n%s", verify)
+				}
+			}
+			if engine.chain(`file(path:"`+tc.path+`")`) == "" {
+				t.Errorf("the program is not read from %s", tc.path)
+			}
+		})
+	}
+}
+
+func TestToolFileRefusesWhatItCannotVerify(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name   string
+		tool   pinnedTool
+		script func()
+		want   string
+	}{
+		{"a release asset with no checksum", pinnedTool{name: "x", url: "https://example.invalid/x"}, func() {}, "has no checksum"},
+		{"an asset that will not fetch", toolNamed(t, "hadolint"), func() { engine.failLeaf(checks.HadolintURL, "sync", "dial tcp: i/o timeout") }, "could not fetch"},
+		{"an asset that fails its checksum", toolNamed(t, "hadolint"), func() { engine.failLeaf(checks.ToolSHA256[checks.HadolintURL], "sync", "sha256sum: FAILED") }, "did not verify against its pinned checksum"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			engine.reset()
+			tc.script()
+			f, err := toolFile(ctx, toolsOS(), tc.tool)
+			if err == nil || f != nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("got %v, %v; want an error containing %q", f, err, tc.want)
+			}
+		})
+	}
+	for _, name := range []string{"kubeconform", "orbitparse"} {
+		t.Run(name+" needs no download", func(t *testing.T) {
+			engine.reset()
+			if f, err := toolFile(ctx, toolsOS(), toolNamed(t, name)); err != nil || f == nil {
+				t.Errorf("got %v, %v", f, err)
+			}
+		})
+	}
+}

@@ -164,10 +164,27 @@ func TestOpsFlux(t *testing.T) {
 		in, _ := toolTree(t, fluxTree(), nil)
 		expect(t, runAtom(t, id, in), stateOf(2), cannot, "the atom never ran")
 	})
-	t.Run("a cluster manifest that will not read never ran", func(t *testing.T) {
-		in, _ := toolTree(t, fluxTree(), nil)
+	t.Run("a cluster manifest that will not read never ran, and says which", func(t *testing.T) {
+		in, f := toolTree(t, fluxTree(), nil)
 		in.Committable = append(in.Committable, "flux/clusters/prod/ghost.yaml")
-		expect(t, runAtom(t, id, in), stateOf(2), cannot, "the atom never ran")
+		expect(t, runAtom(t, id, in), stateOf(2), cannot, "the atom never ran", "ghost.yaml")
+		if len(f.calls) != 0 {
+			t.Errorf("a tool ran over a tree it could not read: %v", f.ran())
+		}
+	})
+	t.Run("a built tree that does not parse is a finding, named", func(t *testing.T) {
+		in, f := toolTree(t, fluxTree(), nil)
+		tools := &fluxTools{build: func(string) (string, int) { return "kind: [\n", 0 }}
+		f.answer = tools.answer(t)
+		expect(t, runAtom(t, id, in), stateOf(1), findings, "a built tree did not parse: flux/apps")
+	})
+	t.Run("kubeconform's own exit code is kept when the namespaces are wrong too", func(t *testing.T) {
+		files := map[string]string{
+			"flux/clusters/prod/apps.yaml": strings.Replace(fluxCR, "  targetNamespace: apps\n", "", 1), "flux/apps/kustomization.yaml": "x"}
+		in, f := toolTree(t, files, nil)
+		tools := &fluxTools{conformRc: 2, conform: "Summary: bad", build: func(string) (string, int) { return "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: a\n", 0 }}
+		f.answer = tools.answer(t)
+		expect(t, runAtom(t, id, in), stateOf(1), findings, "names no namespace", "flux failed (rc=2)")
 	})
 	t.Run("a population that failed", func(t *testing.T) {
 		in, _ := toolTree(t, fluxTree(), nil)

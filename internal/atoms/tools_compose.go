@@ -13,32 +13,31 @@ import (
 )
 
 // privateCopy lays the named tracked files of a tree, and an empty file for each
-// stub, into a directory of its own and answers the directory. It is how an atom
-// that has to WRITE beside what it reads (compose:config stubs the env_file
+// stub, into dir, which the caller made the name of and removes. It is how an
+// atom that has to WRITE beside what it reads (compose:config stubs the env_file
 // targets that are correctly not in the repository) leaves the shared tree
 // alone: in the chain the stubs went into the engine's copy of the tree, and
 // the binary runs on the tree itself, where a stub would be a file the
 // developer's next `git status` shows.
 //
 // A STUB'S PATH IS CLEANED AS IF ROOTED, so `../x.env` lands inside the copy as
-// `x.env` and never beside it. The caller removes the directory.
-func privateCopy(root string, tracked, stubs []string) (string, error) {
-	dir := tempPath("copy", "")
+// `x.env` and never beside it.
+func privateCopy(dir, root string, tracked, stubs []string) error {
 	for _, f := range tracked {
 		body, err := os.ReadFile(filepath.Join(root, f))
 		if err != nil {
-			return dir, err
+			return err
 		}
 		if err := place(filepath.Join(dir, f), body); err != nil {
-			return dir, err
+			return err
 		}
 	}
 	for _, s := range stubs {
 		if err := place(filepath.Join(dir, strings.TrimPrefix(path.Clean("/"+s), "/")), nil); err != nil {
-			return dir, err
+			return err
 		}
 	}
-	return dir, nil
+	return nil
 }
 
 // composeConfig: every tracked compose spec parses and its schema validates.
@@ -83,9 +82,9 @@ func composeConfig(ctx context.Context, a checks.AtomDef, in Input) checks.Verdi
 	if out, code := in.run(ctx, Cmd{Dir: in.Root, Name: "docker-compose", Args: []string{"version"}}); code != 0 {
 		return checks.VerdictOf(a, int(checks.StateCannotRun), fmt.Sprintf("%s: CANNOT RUN - the pinned docker/compose client (v%s) did not run. Refusing to report a parsed tree that was never parsed.\n%s", a.ID, checks.ComposeVersion, out))
 	}
-	dir, err := privateCopy(in.Root, slices.Compact(slices.Sorted(slices.Values(copied))), stubs)
+	dir := tempPath("copy", "")
 	defer func() { _ = os.RemoveAll(dir) }()
-	if err != nil {
+	if err := privateCopy(dir, in.Root, slices.Compact(slices.Sorted(slices.Values(copied))), stubs); err != nil {
 		return checks.VerdictOf(a, int(checks.StateCannotRun), fmt.Sprintf("%s: CANNOT RUN - the private copy the parse runs in could not be made (%v).", a.ID, err))
 	}
 

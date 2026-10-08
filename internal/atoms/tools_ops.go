@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,51 +46,53 @@ const binaryProbe = 8000
 // of the files because the tree the binary reads is not an index, and the
 // answers agree on what matters: a binary file (a NUL in its first 8000 bytes)
 // is skipped as -I skips it, and only line 1 counts. A symlink is skipped: git
-// greps the link's target text, which is not a script.
+// greps the link's target text, which is not a script. The files are opened
+// through Input.FS (the disk when nil), so a test says what a file that will
+// not open does.
 func firstLines(in Input) (map[string]string, error) {
+	fsys := in.FS
+	if fsys == nil {
+		fsys = os.DirFS(in.Root)
+	}
 	out := map[string]string{}
-	buf := make([]byte, binaryProbe)
 	for _, f := range in.Committable {
 		switch filepath.Ext(f) {
 		case ".tmpl", ".zsh":
 			// OpsShellFiles never reads these two kinds' first lines.
 			continue
 		}
-		line, ok, err := shebangOf(filepath.Join(in.Root, f), buf)
+		line, err := shebangOf(fsys, in.Root, f)
 		if err != nil {
 			return nil, err
 		}
-		if ok {
+		if line != "" {
 			out[f] = line
 		}
 	}
 	return out, nil
 }
 
-// shebangOf is a regular file's first line when it starts "#!".
-func shebangOf(path string, buf []byte) (string, bool, error) {
-	fi, err := os.Lstat(path)
-	if err != nil {
-		return "", false, err
+// shebangOf is a regular file's first line when it starts "#!", and "" when it
+// does not (a line that starts "#!" is never empty, so "" says no).
+func shebangOf(fsys fs.FS, root, rel string) (string, error) {
+	fi, err := os.Lstat(filepath.Join(root, rel))
+	if err != nil || !fi.Mode().IsRegular() {
+		return "", err
 	}
-	if !fi.Mode().IsRegular() {
-		return "", false, nil
-	}
-	fh, err := os.Open(path)
+	fh, err := fsys.Open(rel)
 	if err != nil {
-		return "", false, err
+		return "", err
 	}
 	defer func() { _ = fh.Close() }()
-	n, err := io.ReadFull(fh, buf)
-	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-		return "", false, err
+	head, err := io.ReadAll(io.LimitReader(fh, binaryProbe))
+	if err != nil {
+		return "", err
 	}
-	head := buf[:n]
 	if bytes.IndexByte(head, 0) >= 0 || !bytes.HasPrefix(head, []byte("#!")) {
-		return "", false, nil
+		return "", nil
 	}
 	line, _, _ := strings.Cut(string(head), "\n")
-	return line, true, nil
+	return line, nil
 }
 
 // opsShell: shellcheck over every tracked script, at the gating severity, with

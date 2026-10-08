@@ -54,13 +54,8 @@ func diesAdmissionDogfood(ctx context.Context, a checks.AtomDef, in Input) check
 	if stop := diesShape(t, a); stop != nil {
 		return *stop
 	}
-	// policy/ is proved present by diesShape, so its listing is an answer
-	// rather than a risk, and a directory is what has to be there.
-	domains, err := t.entries("policy")
-	if err != nil {
-		return checks.VerdictOf(a, int(checks.StateCannotRun), fmt.Sprintf("%s: CANNOT RUN - policy/ could not be listed (%v).", a.ID, err))
-	}
-	if !checks.HasEntry(domains, "admission") {
+	// policy/ is proved present by diesShape; what has to be in it is the domain.
+	if !present(t, "policy/admission") {
 		return checks.VerdictOf(a, int(checks.StateCannotRun), a.ID+": CANNOT RUN - policy/admission is absent, so there is no admission domain to ask.")
 	}
 	if stop := requirePaths(t, a, [][2]string{

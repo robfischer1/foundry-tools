@@ -59,6 +59,13 @@ func TestFleetOpengrepSast(t *testing.T) {
 			}
 		})
 	}
+	t.Run("the scan's output is trimmed before it is judged and recorded", func(t *testing.T) {
+		const line = "Ran 4 rules on 12 files: 0 findings."
+		in, _ := toolTree(t, ruled, func(Cmd) (string, int) { return "\n  " + line + "  \n\n", 0 })
+		if v := runAtom(t, id, in); v.OriginalBytes != len(line) {
+			t.Errorf("the record holds %d bytes of output, want the trimmed %d", v.OriginalBytes, len(line))
+		}
+	})
 	t.Run("a tree that would not enumerate", func(t *testing.T) {
 		in := missingRoot(t)
 		in.Exec = (&toolFake{t: t}).exec

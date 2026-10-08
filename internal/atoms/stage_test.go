@@ -243,6 +243,11 @@ func TestRunProgram(t *testing.T) {
 		{"both is both streams, untrimmed, on success", Cmd{Name: "sh", Args: []string{"-c", script + "0"}, Both: true}, "out\nerr\n", 0},
 		{"both keeps the exit code of a failure", Cmd{Name: "sh", Args: []string{"-c", script + "3"}, Both: true}, "out\nerr\n", 3},
 		{"a program that will not start is exit -1", Cmd{Name: "no-such-program-here"}, "no-such-program-here: ", -1},
+		{"Env is added to the environment", Cmd{Name: "sh", Args: []string{"-c", "echo $ATOMS_T"}, Env: []string{"ATOMS_T=set"}}, "set", 0},
+		{"without Env the variable is unset", Cmd{Name: "sh", Args: []string{"-c", "echo ${ATOMS_T-unset}"}}, "unset", 0},
+		{"Env leaves the rest of the environment", Cmd{Name: "sh", Args: []string{"-c", "echo ${PATH:+path}"}, Env: []string{"ATOMS_T=set"}}, "path", 0},
+		{"Stdin is what the program reads", Cmd{Name: "cat", Stdin: "hello"}, "hello", 0},
+		{"with no Stdin the program reads nothing", Cmd{Name: "cat"}, "", 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.cmd.Dir = t.TempDir()
