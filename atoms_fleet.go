@@ -520,7 +520,8 @@ func fleetOpengrepSast(ctx context.Context, r *run) checks.Verdict {
 	return checks.VerdictOf(a, code, out)
 }
 
-// Every changed .py/.go file is shown to the code witness (narcissus).
+// Every changed .py/.go source file is shown to the code witness (narcissus);
+// a test file is not (checks.WitnessTest).
 //
 // THE PRE-GATE SOCKET, BACK AS AN ATOM, AND NOW NO SCRIPT. Born as a Tekton
 // Task beside the gate (The Thesis Project F8) that reached narcissus through
@@ -595,9 +596,9 @@ func fleetWitness(ctx context.Context, r *run) checks.Verdict {
 	if code != 0 {
 		return settle(2, "CANNOT RUN - could not read the change set: "+files, nil)
 	}
-	sources, skipped, vendored := checks.WitnessChangeSet(strings.Fields(files))
+	sources, skipped, vendored, tests := checks.WitnessChangeSet(strings.Fields(files))
 	if len(sources) == 0 {
-		state, reason := checks.AggregateWitness(nil, skipped, vendored)
+		state, reason := checks.AggregateWitness(nil, skipped, vendored, tests)
 		return settle(state, reason, nil)
 	}
 
@@ -637,7 +638,7 @@ func fleetWitness(ctx context.Context, r *run) checks.Verdict {
 		})
 	}
 	_ = g.Wait() // every ask files its own row; none returns an error
-	state, reason := checks.AggregateWitness(rows, skipped, vendored)
+	state, reason := checks.AggregateWitness(rows, skipped, vendored, tests)
 	return settle(state, reason+"\n"+via.say(), rows)
 }
 
