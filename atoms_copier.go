@@ -106,8 +106,19 @@ func fleetCopierAnswersIntact(ctx context.Context, r *run) checks.Verdict {
 		answersFile, copierSentinel))
 }
 
-// copierTemplate names the template a tree was stamped from, or "" when the tree
-// is not copier-stamped from one of the fleet's repo templates.
+// sastTemplates is the closed set of fleet repo templates that ship
+// rules/sast/dataflow.yml. A template outside it (config-repo-template carries
+// no code language, so no ruleset) stamps trees for which absence is the
+// correct state. Variation is by template kind, never by repo.
+var sastTemplates = map[string]bool{
+	"python-repo-template":   true,
+	"go-repo-template":       true,
+	"rust-repo-template":     true,
+	"frontend-repo-template": true,
+}
+
+// copierTemplate names the SAST-shipping template a tree was stamped from, or ""
+// when the tree is not copier-stamped from one of them.
 //
 // It reads `_src_path` out of the answers file rather than trusting the file's
 // mere presence: speckit ships its own `.copier-answers.speckit.yml` and a tree
@@ -140,7 +151,7 @@ func copierTemplate(ctx context.Context, r *run) string {
 		}
 		src := strings.Trim(strings.TrimSpace(rest), `"'`)
 		name := strings.TrimSuffix(src[strings.LastIndex(src, "/")+1:], ".git")
-		if strings.HasSuffix(name, "-repo-template") {
+		if sastTemplates[name] {
 			return name
 		}
 		return ""
@@ -173,11 +184,11 @@ func absentRuleset(ctx context.Context, r *run, a checks.AtomDef) checks.Verdict
 	tpl := copierTemplate(ctx, r)
 	if tpl == "" {
 		return checks.VerdictOf(a, 0, string(a.ID)+
-			": ABSENT - no rules/sast in this tree, and no fleet template stamped it")
+			": ABSENT - no rules/sast in this tree, and no SAST-shipping fleet template stamped it")
 	}
 	return checks.VerdictOf(a, 2, fmt.Sprintf(
 		"%s: CANNOT RUN - this tree has no rules/sast, and %s stamped it.\n\n"+
-			"Every fleet repo template ships rules/sast/dataflow.yml, so a stamped repo\n"+
+			"Every SAST-shipping fleet repo template ships rules/sast/dataflow.yml, so a stamped repo\n"+
 			"without one did not decline SAST — it never received the file. `_skip_if_exists`\n"+
 			"only skips a path that ALREADY exists, so a working `copier update` creates it;\n"+
 			"a repo missing it has taken no successful render since the template began\n"+
