@@ -925,3 +925,16 @@ func TestRustCargoTestStampsBeforeEveryExecThatCompilesDoctests(t *testing.T) {
 		}
 	}
 }
+
+// The target volume is mounted LOCKED; the registry and git caches, which are
+// content-addressed, are not.
+func TestRustLaneMountsOnlyTheTargetVolumeLocked(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	wantState(t, runAtom(t, "rust:cargo-fmt", ""), 0)
+	c := engine.chain(`"cargo","fmt"`, "exitCode")
+	wantCalls(t, c, []string{"withMountedCache", `path:"/cache/cargo-target"`, `sharing:LOCKED`})
+	if hasCall(c, "withMountedCache", `path:"/usr/local/cargo/registry"`, `sharing:LOCKED`) {
+		t.Errorf("the registry cache is content-addressed and must stay shared:\n%s", c)
+	}
+}
