@@ -131,6 +131,19 @@ func TestMissingRulesetIgnoresANonTemplateAnswersFile(t *testing.T) {
 	wantState(t, runAtom(t, "fleet:opengrep-sast", ""), 0, "no fleet template stamped it")
 }
 
+// config-repo-template ships no ruleset (a config tree has no code language), so
+// a tree it stamped with no rules/ is ABSENT and passes. Closed set, per kind.
+func TestMissingRulesetPassesForAConfigTemplateStamp(t *testing.T) {
+	for _, id := range []string{"fleet:opengrep-sast", "fleet:sast-ruleset-lanes"} {
+		engine.reset()
+		engine.withTree(fleetTree(
+			map[string]string{".copier-answers.yml": "_src_path: https://git.notusmi.com/config-repo-template.git\n"},
+			"rules/sast/go.yml",
+		))
+		wantState(t, runAtom(t, id, ""), 0, "ABSENT")
+	}
+}
+
 // A ruleset that IS present is unaffected by any of this — the helper is only
 // consulted on absence, so a stamped repo with its ruleset runs the real scan.
 func TestAPresentRulesetIsNotTouchedByTheStampCheck(t *testing.T) {
