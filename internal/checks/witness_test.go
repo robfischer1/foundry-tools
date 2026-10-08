@@ -429,3 +429,15 @@ func TestSleepContext(t *testing.T) {
 		t.Error("an ended context must not wait out the pause")
 	}
 }
+
+func TestAskWitnessRetriedDoesNotRepeatANoAnswer(t *testing.T) {
+	asks := 0
+	ask := func(context.Context, string) (int, string, string, error) {
+		asks++
+		return 0, "", "", ErrWitnessNoAnswer
+	}
+	sleep := func(context.Context, time.Duration) error { return nil }
+	if _, _, _, err := AskWitnessRetried(context.Background(), ask, "B", 3, time.Second, sleep); !errors.Is(err, ErrWitnessNoAnswer) || asks != 1 {
+		t.Errorf("err %v asks %d", err, asks)
+	}
+}

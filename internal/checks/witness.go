@@ -3,6 +3,7 @@ package checks
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -514,6 +515,9 @@ func AskWitnessRetried(ctx context.Context, ask WitnessAsk, body string, attempt
 
 // witnessUnanswered is an ask that reached no witness.
 func witnessUnanswered(status int, err error) bool {
+	if errors.Is(err, ErrWitnessNoAnswer) {
+		return false // slow, not absent: asking again only adds load
+	}
 	if err != nil {
 		return true
 	}
