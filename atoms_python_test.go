@@ -375,6 +375,12 @@ func TestPythonPytestTreatsAnEmptyLaneAsAFinding(t *testing.T) {
 		[]string{"withExec", `args:["uv","--version"]`},
 		[]string{"withExec", `expect:ANY`, `args:["uv","run","--all-extras","pytest","-q"]`},
 	)
+	// jq is laid in at its exact pin and probed, so a suite that shells out
+	// to it (foundry-stocks' bash hooks) runs rather than failing on `which`.
+	if !hasCall(c, "withExec", `args:["apt-get","install","-y","--no-install-recommends","jq=`+checks.JqDebVersion+`"]`) ||
+		!hasCall(c, "withExec", `args:["jq","--version"]`) {
+		t.Errorf("the python lane provisions jq at its pin:\n%s", c)
+	}
 	if hasCall(c, "withExec", `args:["uv","--version"]`, `expect:ANY`) {
 		t.Errorf("the uv probe is provisioning and must run under the default Expect:\n%s", c)
 	}
