@@ -71,6 +71,30 @@ func TestEveryBuiltinAtomIsAtAStageAShadowedLaneGrades(t *testing.T) {
 	}
 }
 
+// Atoms that exec a tool the binary does not carry say so, so a voting or
+// local-hook set can leave them out mechanically.
+func TestToolMarker(t *testing.T) {
+	want := map[string]string{"dies:data-keys": "opa", "dies:refusal-codes": "uv", "orbit:sidecars": "orbitparse"}
+	got := map[string]string{}
+	for _, a := range Builtin() {
+		if a.Tool != "" {
+			got[a.ID] = a.Tool
+		}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("tool atoms %v, want %v", got, want)
+	}
+	free := WithoutTools(Builtin())
+	if len(free) != len(Builtin())-len(want) {
+		t.Errorf("WithoutTools kept %d of %d", len(free), len(Builtin()))
+	}
+	for _, a := range free {
+		if _, tooled := want[a.ID]; tooled {
+			t.Errorf("%s needs a tool and was kept", a.ID)
+		}
+	}
+}
+
 func TestRegistryForStage(t *testing.T) {
 	reg, err := NewRegistry(Builtin()...)
 	if err != nil {

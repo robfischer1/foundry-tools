@@ -98,6 +98,24 @@ type Atom struct {
 	ID    string
 	Scope Scope
 	Run   RunFunc
+	// Tool names the program the atom execs that the binary does not carry
+	// (opa, uv, orbitparse); "" is none. An atom with a Tool needs the tool
+	// provisioned on PATH, which only the shadow's container does today, so a
+	// voting or local-hook set must leave these out (WithoutTools) until the
+	// tools are provisioned there.
+	Tool string
+}
+
+// WithoutTools is the atoms that need no provisioned tool: the set a caller
+// that cannot provision one may run.
+func WithoutTools(atoms []Atom) []Atom {
+	var out []Atom
+	for _, a := range atoms {
+		if a.Tool == "" {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 type entry struct {
@@ -160,6 +178,7 @@ func lookup(id string) (checks.AtomDef, bool) {
 // about the change set belongs to the atoms that have one.
 func Builtin() []Atom {
 	tree := func(id string, run RunFunc) Atom { return Atom{ID: id, Scope: ScopeTree, Run: run} }
+	tooled := func(id, tool string, run RunFunc) Atom { return Atom{ID: id, Scope: ScopeTree, Run: run, Tool: tool} }
 	return []Atom{
 		tree("fleet:check-yaml", checkYAML),
 		tree("fleet:check-added-large-files", checkAddedLargeFiles),
@@ -175,11 +194,11 @@ func Builtin() []Atom {
 		tree("fleet:consumed-events-emitted", consumedEventsEmitted),
 		tree("compose:no-tracked-secrets", composeNoTrackedSecrets),
 		tree("compose:third-party-pins", composeThirdPartyPins),
-		tree("dies:data-keys", diesDataKeys),
+		tooled("dies:data-keys", "opa", diesDataKeys),
 		tree("dies:canonical", diesCanonical),
-		tree("dies:refusal-codes", diesRefusalCodes),
+		tooled("dies:refusal-codes", "uv", diesRefusalCodes),
 		tree("orbit:contracts", orbitContracts),
-		tree("orbit:sidecars", orbitSidecars),
+		tooled("orbit:sidecars", "orbitparse", orbitSidecars),
 		tree("orbit:repo", orbitRepo),
 		tree("ops:orbit-composed", opsOrbitComposed),
 		tree("ops:yaml", opsYAML),

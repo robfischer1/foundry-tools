@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -93,9 +95,10 @@ func (m *FoundryTools) ShadowAtoms(
 	if len(ids) == 0 {
 		return fmt.Sprintf("shadow atoms: nothing to compare - the binary carries no atom of the stage %q", stage)
 	}
+	started := time.Now()
 	today, todayErr := shadowToday(ctx, m, stage, strings.Join(ids, ","), base)
 	raw, rawErr := shadowBinary(ctx, m, stage, base)
-	return renderShadow(today, todayErr, raw, rawErr)
+	return renderShadow(today, todayErr, raw, rawErr, time.Since(started))
 }
 
 // The two sides of the comparison, as variables so a test names what each
@@ -108,6 +111,13 @@ var (
 		return m.atomsVector(ctx, stage, base)
 	}
 )
+
+// atomsNeedingDies are the atoms that grade against foundry-dies main.
+var atomsNeedingDies = []string{"ops:orbit-composed", "orbit:contracts", "orbit:repo", "orbit:sidecars"}
+
+// reaskNonce keys the binary's exec afresh on every call; a variable so a test
+// can read what each call carried.
+var reaskNonce = func() string { return strconv.FormatInt(time.Now().UnixNano(), 10) }
 
 // Where the atoms binary finds what it execs or reads beyond the tree.
 const (
@@ -131,11 +141,17 @@ func (r *run) withAtomTools(ctx context.Context, ctr *dagger.Container, stage st
 	for _, id := range atoms.StageIDs(stage) {
 		has[id] = true
 	}
-	// foundry-dies is always mounted: the engine clones it once and caches it,
-	// and a tree-reading stage may need it for an atom this function does not
-	// name. (The atoms that read it settle 2 when the binary is not handed it.)
-	ctr = ctr.WithMountedDirectory(atomsDiesPath, r.dies)
-	flags := []string{"-dies", atomsDiesPath}
+	// foundry-dies is mounted only when a selected atom reads it, and only if
+	// it fetched: listing the root first forces the clone, as the opa fetch does, so a clone that fails is
+	// the dies atoms' 2 and not the whole binary's "not compared". Without the
+	// flag the atoms that need it say the checkout was not supplied.
+	var flags []string
+	if slices.ContainsFunc(atomsNeedingDies, func(id string) bool { return has[id] }) {
+		if _, err := r.dies.Entries(ctx); err == nil {
+			ctr = ctr.WithMountedDirectory(atomsDiesPath, r.dies)
+			flags = []string{"-dies", atomsDiesPath}
+		}
+	}
 	if has["orbit:sidecars"] {
 		ctr = ctr.WithFile(orbitBinPath, orbitParse(), dagger.ContainerWithFileOpts{Permissions: 0o755})
 	}
@@ -155,7 +171,12 @@ func (r *run) withAtomTools(ctx context.Context, ctr *dagger.Container, stage st
 // rebuilt repository and the base fetched by sha. A non-zero exit is an error
 // here, not a vector: the binary exits 0 whatever its atoms found.
 func (m *FoundryTools) atomsVector(ctx context.Context, stage, base string) (string, error) {
-	r := newRun(m.Source, m.Repo, base).fromOrigin(m.Origin)
+	// REASKED, ALWAYS. The binary's exec has identical inputs on every run of the
+	// same tree, so the engine would serve a cached answer, and the atoms here
+	// that read the network (the door, opa's build) would be frozen at the first
+	// read. The chains read the door fresh and re-ask a could-not-run; CA_REASK
+	// keys every lane exec afresh, so the shadow does too.
+	r := newRun(m.Source, m.Repo, base).fromOrigin(m.Origin).reasked(reaskNonce())
 	ctr := r.gitReady(ctx, r.withBase(r.lane(checks.ImageFleet))).
 		WithFile(atomsBinPath, atomsBinary(), dagger.ContainerWithFileOpts{Permissions: 0o755})
 	ctr, flags := r.withAtomTools(ctx, ctr, stage)
@@ -172,7 +193,7 @@ func (m *FoundryTools) atomsVector(ctx context.Context, stage, base string) (str
 
 // renderShadow is the report from the two sides' answers. It is pure so the
 // ways either side can fail are tested without an engine.
-func renderShadow(today []checks.Verdict, todayErr error, raw string, rawErr error) string {
+func renderShadow(today []checks.Verdict, todayErr error, raw string, rawErr error, elapsed time.Duration) string {
 	if todayErr != nil {
 		return "shadow atoms: not compared - the chains did not answer: " + todayErr.Error()
 	}
@@ -183,7 +204,9 @@ func renderShadow(today []checks.Verdict, todayErr error, raw string, rawErr err
 	if err != nil {
 		return "shadow atoms: not compared - " + err.Error()
 	}
-	return atoms.Compare(today, shadow).Render()
+	rep := atoms.Compare(today, shadow)
+	rep.Elapsed = elapsed
+	return rep.Render()
 }
 
 // THE SHADOW'S PACKAGE STATE. Each variable below is a seam the tests replace

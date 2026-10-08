@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -118,7 +119,7 @@ func TestRenderShadow(t *testing.T) {
 		{"disagreement", today, nil, string(differ), nil, "fleet:check-yaml: STATE DIFFERS"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := renderShadow(tc.today, tc.todayErr, tc.raw, tc.rawErr); !strings.Contains(got, tc.want) {
+			if got := renderShadow(tc.today, tc.todayErr, tc.raw, tc.rawErr, 0); !strings.Contains(got, tc.want) {
 				t.Errorf("report %q lacks %q", got, tc.want)
 			}
 		})
@@ -128,7 +129,7 @@ func TestRenderShadow(t *testing.T) {
 // The chains' error wins when both sides failed: it is the one whose absence
 // makes the comparison meaningless, and the report names one cause.
 func TestRenderShadowNamesTheChainsFirst(t *testing.T) {
-	got := renderShadow(nil, errors.New("a"), "", errors.New("b"))
+	got := renderShadow(nil, errors.New("a"), "", errors.New("b"), 0)
 	if !strings.Contains(got, "the chains did not answer: a") || strings.Contains(got, "binary") {
 		t.Errorf("report %q", got)
 	}
@@ -416,4 +417,58 @@ func TestAShadowThatFinishesFirstIsReportedWithoutWaiting(t *testing.T) {
 	}
 	var nilHandle *shadowHandle
 	nilHandle.finish() // a lane with no shadow
+}
+
+// The shadow's own wall time rides on its headline, and an unmeasured one is not printed.
+func TestRenderShadowReportsItsWallTime(t *testing.T) {
+	yaml := checks.AtomByID("fleet:check-yaml")
+	vec := []checks.Verdict{checks.VerdictOf(yaml, 0, "")}
+	raw, _ := json.Marshal(vec)
+	if got := renderShadow(vec, nil, string(raw), nil, 1234*time.Millisecond+400*time.Microsecond); !strings.Contains(got, "missing from the chains, took 1.234s\n") {
+		t.Errorf("report %q", got)
+	}
+	if got := renderShadow(vec, nil, string(raw), nil, 0); strings.Contains(got, "took") {
+		t.Errorf("an unmeasured run printed a time: %q", got)
+	}
+}
+
+// THE BINARY'S EXEC IS KEYED AFRESH ON EVERY CALL. Its inputs are the same on
+// every run of one tree, so without CA_REASK the engine would serve the first
+// answer for the atoms that read the network. Two calls never share a value.
+func TestAtomsVectorCarriesAPerCallReask(t *testing.T) {
+	m := &FoundryTools{Source: dag.Directory(), Repo: "http://door/rob/x.git", Sha: buildSha}
+	re := regexp.MustCompile(`CA_REASK\D+(\d+)`)
+	var seen []string
+	for range 2 {
+		engine.reset()
+		engine.withTree(map[string]string{"go.mod": "module x\n"})
+		engine.stdout(`"/usr/local/bin/atoms"`, "[]")
+		if _, err := m.atomsVector(context.Background(), "", "abc"); err != nil {
+			t.Fatal(err)
+		}
+		c := engine.chain(`"/usr/local/bin/atoms"`)
+		match := re.FindStringSubmatch(c)
+		if match == nil {
+			t.Fatalf("the binary's exec carries no CA_REASK:\n%s", c)
+		}
+		seen = append(seen, match[1])
+	}
+	if seen[0] == seen[1] {
+		t.Errorf("two calls shared the reask value %s", seen[0])
+	}
+}
+
+// foundry-dies is mounted only for a stage with an atom that reads it.
+func TestAtomsVectorMountsDiesOnlyWhereAnAtomReadsIt(t *testing.T) {
+	m := &FoundryTools{Source: dag.Directory(), Repo: "http://door/rob/x.git", Sha: buildSha}
+	engine.reset()
+	engine.withTree(map[string]string{"go.mod": "module x\n"})
+	engine.stdout(`"/usr/local/bin/atoms"`, "[]")
+	if _, err := m.atomsVector(context.Background(), checks.StagePrecommit, "abc"); err != nil {
+		t.Fatal(err)
+	}
+	c := engine.chain(`"-stage","precommit"`)
+	if c == "" || strings.Contains(c, `path:"/dies"`) || strings.Contains(c, `"-dies"`) {
+		t.Errorf("a stage whose atoms never read foundry-dies mounted it (or ran no chain):\n%s", c)
+	}
 }
