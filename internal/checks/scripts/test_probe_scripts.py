@@ -140,6 +140,7 @@ def schema_tree(tmp_path: Path, **docs: object) -> Path:
 
 
 V3 = "slag-v3.schema.json"
+V1 = "slag.schema.json"
 
 
 def add_record(tree: Path, star: str, text: str) -> None:
@@ -160,15 +161,27 @@ def test_the_schema_check_cannot_run_without_its_schema(tmp_path):
     # this atom could not look; before 2026-09-25 it left by an uncaught
     # raise, whose traceback exits 1 — indistinguishable from having found
     # something wrong with foundry-dies.
-    done = probe(schema_tree(tmp_path))
+    done = probe(schema_tree(tmp_path, **{V1: VALID}))
     assert done.returncode == CANNOT_RUN, done.stdout + done.stderr
     assert "could not read schema/slag-v3.schema.json" in done.stderr
+
+
+def test_the_schema_check_cannot_run_without_the_v1_schema(tmp_path):
+    done = probe(schema_tree(tmp_path, **{V3: VALID}))
+    assert done.returncode == CANNOT_RUN, done.stdout + done.stderr
+    assert "could not read schema/slag.schema.json" in done.stderr
+
+
+def test_v1_required_naming_an_undefined_property_is_a_finding(tmp_path):
+    done = probe(schema_tree(tmp_path, **{V1: {**VALID, "required": ["b"]}, V3: VALID}))
+    assert done.returncode == FINDINGS, done.stdout + done.stderr
+    assert "required names properties that are not defined" in done.stderr
 
 
 def test_a_malformed_schema_is_a_finding_not_a_crash(tmp_path):
     # The other half of the same ladder: a schema that is not a schema IS
     # something wrong with foundry-dies, so 1 — but said, not thrown.
-    done = probe(schema_tree(tmp_path, **{V3: {"type": 17}}))
+    done = probe(schema_tree(tmp_path, **{V1: VALID, V3: {"type": 17}}))
     assert done.returncode == FINDINGS, done.stdout + done.stderr
     assert "not a valid Draft 2020-12 schema" in done.stderr
     assert "Traceback" not in done.stderr
@@ -177,7 +190,7 @@ def test_a_malformed_schema_is_a_finding_not_a_crash(tmp_path):
 def test_required_naming_an_undefined_property_is_a_finding(tmp_path):
     # A schema that requires a key it never describes validates nothing about
     # that key, which is the defect this half exists to catch.
-    done = probe(schema_tree(tmp_path, **{V3: {**VALID, "required": ["b"]}}))
+    done = probe(schema_tree(tmp_path, **{V1: VALID, V3: {**VALID, "required": ["b"]}}))
     assert done.returncode == FINDINGS, done.stdout + done.stderr
     assert "required names properties that are not defined" in done.stderr
 
@@ -186,13 +199,13 @@ def test_a_tree_with_no_records_cannot_run(tmp_path):
     # ZERO RECORDS VALIDATED IS NOT EVERY RECORD VALID. The v2 half of this
     # check globbed *.slag, matched nothing, and passed on it for as long as
     # no one counted.
-    done = probe(schema_tree(tmp_path, **{V3: VALID}))
+    done = probe(schema_tree(tmp_path, **{V1: VALID, V3: VALID}))
     assert done.returncode == CANNOT_RUN, done.stdout + done.stderr
     assert "no record to validate" in done.stderr
 
 
 def test_a_clean_schema_and_record_pass(tmp_path):
-    tree = schema_tree(tmp_path, **{V3: VALID})
+    tree = schema_tree(tmp_path, **{V1: VALID, V3: VALID})
     add_record(tree, "hades", json.dumps({"meta": {"name": "hades"}}))
     done = probe(tree)
     assert done.returncode == PASS, done.stdout + done.stderr
@@ -200,7 +213,7 @@ def test_a_clean_schema_and_record_pass(tmp_path):
 
 
 def test_a_record_that_is_not_json_is_a_finding_about_the_record(tmp_path):
-    tree = schema_tree(tmp_path, **{V3: VALID})
+    tree = schema_tree(tmp_path, **{V1: VALID, V3: VALID})
     add_record(tree, "hades", "not json at all")
     done = probe(tree)
     assert done.returncode == FINDINGS, done.stdout + done.stderr
@@ -209,7 +222,7 @@ def test_a_record_that_is_not_json_is_a_finding_about_the_record(tmp_path):
 
 
 def test_a_record_named_for_another_star_is_a_finding(tmp_path):
-    tree = schema_tree(tmp_path, **{V3: VALID})
+    tree = schema_tree(tmp_path, **{V1: VALID, V3: VALID})
     add_record(tree, "hades", json.dumps({"meta": {"name": "nyx"}}))
     done = probe(tree)
     assert done.returncode == FINDINGS, done.stdout + done.stderr
@@ -217,7 +230,7 @@ def test_a_record_named_for_another_star_is_a_finding(tmp_path):
 
 
 def test_a_record_that_is_not_an_object_is_a_finding_not_a_crash(tmp_path):
-    tree = schema_tree(tmp_path, **{V3: VALID})
+    tree = schema_tree(tmp_path, **{V1: VALID, V3: VALID})
     add_record(tree, "hades", "[]")
     done = probe(tree)
     assert done.returncode == FINDINGS, done.stdout + done.stderr

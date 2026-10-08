@@ -126,7 +126,7 @@ They exist because the **act-runner is being removed**, and what it validated is
 | `dies:data-keys` | ″ | the **built bundle** carries every data root, non-empty | ″ |
 | `dies:canary-visibility` | ″ | the **built bundle** still hides a curated verb from a session principal | ″ |
 | `dies:contracts` | `contracts.yml` | every copy of every shared closed set agrees — after 7 fixtures fail and 3 controls pass | ″ |
-| `dies:schema` | `schema.yml` | the slag v3 schema is valid Draft 2020-12 and every `fleet/stars/*/slag.json` satisfies it | ″ |
+| `dies:schema` | `schema.yml` | the slag v1 (published slag-schema die) and v3 schemas are valid Draft 2020-12 and every `fleet/stars/*/slag.json` satisfies it | ″ |
 
 Three things the ports changed on purpose, each because the workflow's assumption was about its runner rather than about the check:
 

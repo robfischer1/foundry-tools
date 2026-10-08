@@ -1,12 +1,13 @@
 # SPDX-FileCopyrightText: 2026 Rob Fischer
 #
 # SPDX-License-Identifier: Apache-2.0
-"""Validate foundry-dies' slag v3 schema and every fleet record against it.
+"""Validate foundry-dies' slag schemas (v1 and v3) and every fleet record against v3.
 
-Two halves. The v3 schema is checked for being a well-formed Draft 2020-12
-document whose `required` names only properties it defines — a schema that
-requires a key it never describes validates nothing about that key. Then every
-`fleet/stars/*/slag.json` is validated against it, plus the naming invariant
+Two halves. Both the published slag-schema die (schema/slag.schema.json, v1)
+and the v3 schema are checked for being well-formed Draft 2020-12 documents
+whose `required` names only properties they define — a schema that requires a
+key it never describes validates nothing about that key. Then every
+`fleet/stars/*/slag.json` is validated against v3, plus the naming invariant
 the schema itself cannot express: `meta.name` agrees with the record's own
 directory.
 
@@ -73,15 +74,30 @@ def well_formed(schema: dict, path: str) -> None:
         sys.exit(f"::error file={path}::not a valid Draft 2020-12 schema: {exc}")
 
 
+def check_schema_file(path: str) -> dict:
+    """Load one schema, require it well formed, and require `required` within `properties`.
+
+    Args:
+        path: the schema's path, relative to the repository root.
+
+    Returns:
+        The parsed schema document.
+
+    """
+    doc = load_schema(path)
+    well_formed(doc, path)
+    props = set(doc.get("properties", {}))
+    missing = [k for k in doc.get("required", []) if k not in props]
+    if missing:
+        sys.exit(f"::error file={path}::required names properties that are not defined: {missing}")
+    print(f"valid Draft 2020-12 schema - {doc.get('$id')}")
+    print(f"{len(doc.get('required', []))} required keys, all defined in properties")
+    return doc
+
+
 SCHEMA = "schema/slag-v3.schema.json"
-schema = load_schema(SCHEMA)
-well_formed(schema, SCHEMA)
-props = set(schema.get("properties", {}))
-missing = [k for k in schema.get("required", []) if k not in props]
-if missing:
-    sys.exit(f"::error::required names properties that are not defined: {missing}")
-print(f"valid Draft 2020-12 schema - {schema.get('$id')}")
-print(f"{len(schema.get('required', []))} required keys, all defined in properties")
+schemas = {path: check_schema_file(path) for path in ("schema/slag.schema.json", SCHEMA)}
+schema = schemas[SCHEMA]
 
 v = Draft202012Validator(schema)
 bad = 0

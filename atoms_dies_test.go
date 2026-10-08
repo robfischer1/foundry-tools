@@ -780,11 +780,12 @@ func TestDiesSchemaValidatesThroughUvWithTheEmbeddedValidator(t *testing.T) {
 	}
 }
 
-func TestDiesSchemaRefusesWithoutTheV3Schema(t *testing.T) {
+func TestDiesSchemaRefusesWithoutEitherSchema(t *testing.T) {
 	for _, tc := range []struct {
 		path   string
 		needle string
 	}{
+		{"schema/slag.schema.json", "no payload to validate"},
 		{"schema/slag-v3.schema.json", "no schema to validate the records against"},
 	} {
 		engine.reset()
@@ -903,7 +904,7 @@ var schemasPaths = map[string]string{
 }
 
 // THE ATOM NAMES NO SCHEMA, and that is the whole point of it. dies:schema
-// names schema/slag-v3.schema.json and the records it validates, dies:findings
+// names schema/slag.schema.json, schema/slag-v3.schema.json and the records v3 validates, dies:findings
 // names findings' two paths, and both are silent about everything else — which
 // is how operable landed with nineteen negative fixtures no lane
 // ran. A list forgets; a discovery step cannot.

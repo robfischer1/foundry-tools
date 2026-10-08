@@ -738,6 +738,7 @@ var everyLaneTree = map[string]string{
 	"tools/check_contracts.py":         "",
 	"tests/contracts/fixtures.toml":    "",
 	"contracts/contracts.toml":         "",
+	"schema/slag.schema.json":          "{}",
 	"schema/slag-v3.schema.json":       "{}",
 	"compose.yaml":                     "services: {}\n",
 	"Dockerfile":                       "FROM scratch\n",

@@ -541,10 +541,10 @@ func diesContracts(ctx context.Context, r *run) checks.Verdict {
 	return verdict(ctx, a, ctr.WithExec(tomlpy("tools/check_contracts.py"), anyExit))
 }
 
-// The slag v3 schema is a valid Draft 2020-12 document and every
-// fleet/stars/*/slag.json satisfies it.
+// The slag v1 schema (the published slag-schema die) and the v3 schema are
+// valid Draft 2020-12 documents, and every fleet/stars/*/slag.json satisfies v3.
 //
-// TWO ASSERTIONS ABOUT THE SCHEMA, and the second is the one check_schema does
+// TWO ASSERTIONS ABOUT EACH SCHEMA, v1 AND v3, and the second is the one check_schema does
 // not make. `required` naming a property that is not DEFINED is legal to the
 // metaschema and, under additionalProperties false, makes the schema reject
 // EVERY document — so pour would refuse every well-formed melt, and the failure
@@ -572,6 +572,7 @@ func diesSchema(ctx context.Context, r *run) checks.Verdict {
 		return *stop
 	}
 	if stop := requirePaths(ctx, r, a, [][2]string{
+		{"schema/slag.schema.json", "schema/slag.schema.json is absent, so there is no payload to validate."},
 		{"schema/slag-v3.schema.json", "schema/slag-v3.schema.json is absent, so there is no schema to validate the records against."},
 	}); stop != nil {
 		return *stop
@@ -632,8 +633,8 @@ func diesFindings(ctx context.Context, r *run) checks.Verdict {
 // EVERY schema in the tree is checked, discovered rather than listed.
 //
 // WHY THIS EXISTS BESIDE dies:schema AND dies:findings. Those two name their
-// files: dies:schema names schema/slag-v3.schema.json and validates the fleet
-// records against it, dies:findings names findings' schema and its checker.
+// files: dies:schema names schema/slag.schema.json and schema/slag-v3.schema.json and
+// validates the fleet records against v3, dies:findings names findings' schema and its checker.
 // Both are correct about what they name and silent about every other schema,
 // so a schema nobody listed (operable.schema.json once landed carrying nineteen
 // negative fixtures that no lane ever ran) was never checked at all. That gap
