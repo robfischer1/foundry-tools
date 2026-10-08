@@ -361,6 +361,93 @@ func TestADroppedToolIsLoggedWithItsCause(t *testing.T) {
 	})
 }
 
+func TestAtomsToolsBuildsThePythonLayersFromTheLock(t *testing.T) {
+	engine.reset()
+	capturedLog(t)
+	if _, err := atomsTools(context.Background()).Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	stage := engine.chain(`"collection","install"`)
+	if stage == "" {
+		t.Fatalf("no stage installed the collections; the engine saw:\n%s", strings.Join(engine.chains(), "\n"))
+	}
+	wantCalls(t, stage,
+		[]string{"withEnvVariable", `name:"UV_PYTHON_INSTALL_DIR"`, `value:"/opt/uv-python"`},
+		[]string{"withEnvVariable", `name:"UV_NATIVE_TLS"`, `value:"1"`},
+		[]string{"withFile", `path:"/usr/local/bin/uv"`},
+		[]string{"withExec", `args:["uv","python","install","` + checks.FleetPython + `"]`},
+		[]string{"withExec", `"uv","venv","/opt/atoms-py"`, `"--managed-python"`},
+		[]string{"withFile", `path:"/tmp/pytools/requirements.txt"`},
+		// The install is the lock's: hashes required, nothing built, so a wheel
+		// that does not match is a failed build and not a different program.
+		[]string{"withExec", `"uv","pip","install"`, `"--require-hashes"`, `"--no-build"`, `"-r","/tmp/pytools/requirements.txt"`},
+		[]string{"withExec", `"import yaml, jsonschema, tomllib, tomli, ansible, ansiblelint, copier"`},
+		[]string{"withExec", `"/opt/atoms-py/bin/ansible-playbook","--version"`},
+		[]string{"withExec", `"/opt/atoms-py/bin/copier","--version"`},
+		[]string{"withFile", `path:"/tmp/pytools/ansible-collections.yml"`},
+		[]string{"withExec", `"/opt/atoms-py/bin/ansible-galaxy","collection","install","-r","/tmp/pytools/ansible-collections.yml","-p","/opt/ansible-collections"`},
+	)
+	// uv is the pinned image's binary, taken by file.
+	if engine.chain(`from(address:"`+checks.ImageUV+`")`, `file(path:"/uv")`) == "" {
+		t.Errorf("uv is not taken from %s", checks.ImageUV)
+	}
+	// Each step needs the one before it.
+	prev := -1
+	for _, needle := range []string{`"uv","--version"`, `"uv","python","install"`, `"uv","venv"`, `"uv","pip","install"`, `"import yaml`, `"collection","install"`} {
+		at := strings.Index(stage, needle)
+		if at < prev {
+			t.Errorf("%s is applied before the step it depends on:\n%s", needle, stage)
+		}
+		prev = at
+	}
+	if strings.Contains(stage, "--clear-response-cache") {
+		t.Errorf("the first install asked for the retry's flag:\n%s", stage)
+	}
+
+	c := engine.chain(`path:"/usr/local/bin/atoms"`)
+	order := []string{
+		`path:"/usr/local/bin/orbitparse"`, `path:"/usr/local/bin/uv"`, `path:"/opt/uv-python"`,
+		`path:"/opt/atoms-py"`, `path:"/opt/ansible-collections"`, `path:"/usr/local/bin/atoms"`,
+	}
+	prev = -1
+	for _, needle := range order {
+		at := strings.Index(c, needle)
+		if at < 0 || at < prev {
+			t.Errorf("%s is at %d, after %d: the layers are the tools, uv, the interpreter, the packages, the collections, the binary:\n%s", needle, at, prev, c)
+		}
+		prev = at
+	}
+	wantCalls(t, c, []string{"withEnvVariable", `name:"PATH"`, `value:"/opt/atoms-py/bin:${PATH}"`, `expand:true`})
+	if at, bin := strings.Index(c, `name:"PATH"`), strings.Index(c, `path:"/opt/atoms-py"`); at < bin {
+		t.Errorf("the PATH is set before the venv it names is there")
+	}
+	for _, dir := range []string{"/opt/uv-python", "/opt/atoms-py", "/opt/ansible-collections"} {
+		if engine.chain(`directory(path:"`+dir+`")`, "id") == "" {
+			t.Errorf("%s is not taken from its stage", dir)
+		}
+	}
+}
+
+func TestTheCollectionInstallIsRetriedOnceWithClearResponseCache(t *testing.T) {
+	engine.reset()
+	log := capturedLog(t)
+	engine.failLeaf(`"collection","install","-r"`, "sync", "404 Not Found")
+	if _, err := atomsTools(context.Background()).Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	retry := engine.chain(`"--clear-response-cache"`)
+	if retry == "" {
+		t.Fatalf("the install was not retried; the engine saw:\n%s", strings.Join(engine.chains(), "\n"))
+	}
+	wantCalls(t, retry, []string{"withExec", `"collection","install","--clear-response-cache","-r","/tmp/pytools/ansible-collections.yml"`})
+	if !strings.Contains(engine.chain(`path:"/usr/local/bin/atoms"`), `path:"/opt/ansible-collections"`) {
+		t.Error("the collections were left out though the retry installed them")
+	}
+	if got := log(); got != "" {
+		t.Errorf("a retry that worked is not a drop: %q", got)
+	}
+}
+
 func TestThePythonLockIsPinnedAndCoversWhatTheAtomsUse(t *testing.T) {
 	in, err := os.ReadFile("pytools/requirements.in")
 	if err != nil {
