@@ -1,6 +1,7 @@
 package atoms
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
@@ -372,4 +373,73 @@ func TestWitValidate(t *testing.T) {
 		in.FilesErr = errBoom
 		expect(t, runAtom(t, id, in), stateOf(2), cannot, "the tree would not enumerate")
 	})
+}
+
+// privateTree is every committable file in a directory of the run's own, made a
+// repository off the developer's configuration, and removed by what it answers.
+func TestPrivateTree(t *testing.T) {
+	files := map[string]string{"a.yml": "a", "d/b.yml": "b"}
+	t.Run("the files, a repository and a cleanup", func(t *testing.T) {
+		tmp := t.TempDir()
+		t.Setenv("TMPDIR", tmp)
+		in, f := toolTree(t, files, nil)
+		dir, cleanup, err := privateTree(context.Background(), in, "x")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Join(listTree(t, dir), ","); got != "a.yml,d/b.yml" {
+			t.Errorf("the private tree holds %s", got)
+		}
+		if filepath.Dir(dir) != tmp || strings.HasPrefix(dir, in.Root) {
+			t.Errorf("the tree is at %s, want a directory of its own under %s", dir, tmp)
+		}
+		if got := strings.Join(f.ran(), " "); got != "git git" {
+			t.Errorf("ran %s", got)
+		}
+		for i, want := range []string{"init -q .", "add -A"} {
+			c := f.calls[i]
+			if flagged(c) != want || c.Dir != dir || !slices.Contains(c.Env, "GIT_CONFIG_NOSYSTEM=1") || !slices.Contains(c.Env, "GIT_CONFIG_GLOBAL="+os.DevNull) {
+				t.Errorf("git call %d: %+v, want %q in %s off the developer's configuration", i, c, want, dir)
+			}
+		}
+		cleanup()
+		if left, _ := os.ReadDir(tmp); len(left) != 0 {
+			t.Errorf("cleanup left %v", left)
+		}
+	})
+	for _, tc := range []struct {
+		name  string
+		setup func(in *Input)
+		git   func(c Cmd) (string, int)
+		want  string
+		calls int
+	}{
+		{"a file that cannot be copied", func(in *Input) { in.Committable = append(in.Committable, "ghost.yml") }, nil, "ghost.yml", 0},
+		{"a repository that cannot be started", nil, func(Cmd) (string, int) { return "fatal: no", 128 }, "git init -q . exited 128: fatal: no", 1},
+		{"an index that cannot be made", nil, func(c Cmd) (string, int) {
+			if c.Args[0] == "add" {
+				return "fatal: bad", 1
+			}
+			return "", 0
+		}, "git add -A exited 1: fatal: bad", 2},
+	} {
+		t.Run(tc.name+" leaves nothing behind", func(t *testing.T) {
+			tmp := t.TempDir()
+			t.Setenv("TMPDIR", tmp)
+			in, f := toolTree(t, files, tc.git)
+			if tc.setup != nil {
+				tc.setup(&in)
+			}
+			dir, cleanup, err := privateTree(context.Background(), in, "x")
+			if err == nil || !strings.Contains(err.Error(), tc.want) || dir != "" || cleanup != nil {
+				t.Fatalf("got %q, %v, %v; want an error containing %q", dir, cleanup != nil, err, tc.want)
+			}
+			if len(f.calls) != tc.calls {
+				t.Errorf("git ran %d times, want %d", len(f.calls), tc.calls)
+			}
+			if left, _ := os.ReadDir(tmp); len(left) != 0 {
+				t.Errorf("the failed tree was left behind: %v", left)
+			}
+		})
+	}
 }

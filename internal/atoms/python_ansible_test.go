@@ -241,7 +241,12 @@ func TestOpsAnsible(t *testing.T) {
 	t.Run("a requirements file that would not read", func(t *testing.T) {
 		in, _ := toolTree(t, ansibleFiles(), ansibleAnswer(func(Cmd) (string, int) { return "", 0 }))
 		in.Committable = append(in.Committable, "ansible/requirements.yml")
-		expect(t, runAtom(t, id, in), stateOf(2), cannot, "the atom never ran")
+		v := runAtom(t, id, in)
+		expect(t, v, stateOf(2), cannot, "the atom never ran", "ansible/requirements.yml")
+		// It is the read that failed, not the copy of the tree that came after it.
+		if strings.Contains(v.Reason, "private tree") {
+			t.Errorf("the declaration was read after the tree was copied: %s", v.Reason)
+		}
 	})
 
 	t.Run("a private tree that cannot be made is a 2 and no tool ran", func(t *testing.T) {

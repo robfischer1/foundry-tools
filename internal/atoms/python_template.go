@@ -193,7 +193,7 @@ func globMatches(pattern string, all []string) []string {
 	re := globRE(pattern)
 	var hits []string
 	for _, p := range all {
-		if re.MatchString(p) || (strings.HasSuffix(p, "/") && re.MatchString(strings.TrimSuffix(p, "/"))) {
+		if re.MatchString(p) || re.MatchString(strings.TrimSuffix(p, "/")) {
 			hits = append(hits, p)
 		}
 	}
@@ -247,10 +247,8 @@ func suppressionProblems(dest string, files []string) ([]string, error) {
 		}
 		tree[rel] = string(body)
 	}
-	found, err := checks.ScanTree(tree)
-	if err != nil {
-		return nil, err
-	}
+	// The scan reads this map and nothing else, so it has no read to fail.
+	found, _ := checks.ScanTree(tree)
 	problems := make([]string, 0, len(found))
 	for _, f := range found {
 		problems = append(problems, checks.SuppressionProblem(f))

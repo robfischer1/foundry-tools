@@ -67,7 +67,8 @@ func (r *renderer) answer(c Cmd) (string, int) {
 
 func okRender() map[string]map[string]string {
 	return map[string]map[string]string{
-		"star": {"pyproject.toml": "[project]\nname = \"x\"\n", "src/x.py": "x = 1\n", "data.json": "{}"},
+		// dir.toml is a DIRECTORY a `parse` glob names by its suffix: it is not read.
+		"star": {"pyproject.toml": "[project]\nname = \"x\"\n", "src/x.py": "x = 1\n", "data.json": "{}", "dir.toml/readme.txt": "not toml"},
 		"lib":  {"pyproject.toml": "[project]\nname = \"y\"\n"},
 	}
 }
@@ -190,6 +191,20 @@ func TestTemplateRenderMatrix(t *testing.T) {
 			expect(t, runAtom(t, id, in), stateOf(2), cannot, "the atom never ran")
 		})
 	}
+	t.Run("a rendered file that is not source is never read", func(t *testing.T) {
+		r := &renderer{t: t, render: okRender()}
+		in, _ := toolTree(t, templateFiles(matrixTOML), func(c Cmd) (string, int) {
+			out, code := r.answer(c)
+			if dest := c.Args[len(c.Args)-1]; c.Name == "copier" && filepath.Base(dest) == "star" {
+				// A link to nowhere that no `parse` glob and no language names.
+				if err := os.Symlink(filepath.Join(dest, "nowhere"), filepath.Join(dest, "notes.txt")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			return out, code
+		})
+		expect(t, runAtom(t, id, in), stateOf(0), pass, "OK — star")
+	})
 	t.Run("a copier that fails its probe is unprovisioned", func(t *testing.T) {
 		in, f := toolTree(t, templateFiles(matrixTOML), func(Cmd) (string, int) { return "gone", 127 })
 		expect(t, runAtom(t, id, in), stateOf(2), cannot, "the phase's tool could not be provisioned", "copier --version exited 127")
@@ -245,13 +260,18 @@ func TestTemplateRenderMatrix(t *testing.T) {
 }
 
 func TestGlobMatches(t *testing.T) {
-	all := []string{".forgejo/", ".forgejo/workflows/", ".forgejo/workflows/ci.yml", "a.toml", "src/", "src/b.toml", "src/deep/", "src/deep/c.toml", "src/x.py", "x.toml.bak"}
+	all := []string{".forgejo/", ".forgejo/workflows/", ".forgejo/workflows/ci.yml", "a.toml", "ba.toml", "src/", "src/b.toml", "src/deep/", "src/deep/c.toml", "src/x.py", "sub/a.toml", "x.toml.bak"}
 	for _, tc := range []struct {
 		pattern string
 		want    []string
 	}{
+		// A pattern is anchored at both ends: ba.toml and sub/a.toml are not a.toml.
 		{"a.toml", []string{"a.toml"}},
-		{"**/*.toml", []string{"a.toml", "src/b.toml", "src/deep/c.toml"}},
+		{"**/*.toml", []string{"a.toml", "ba.toml", "src/b.toml", "src/deep/c.toml", "sub/a.toml"}},
+		// `**` crosses directories whether or not a slash follows it, and a lone `*`
+		// at the end of a pattern is a star and not the start of one.
+		{"**.toml", []string{"a.toml", "ba.toml", "src/b.toml", "src/deep/c.toml", "sub/a.toml"}},
+		{"x*", []string{"x.toml.bak"}},
 		{"src/*.toml", []string{"src/b.toml"}},
 		{"src/**", []string{"src/", "src/b.toml", "src/deep/", "src/deep/c.toml", "src/x.py"}},
 		{".forgejo", []string{".forgejo/"}},

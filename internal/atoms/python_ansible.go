@@ -82,24 +82,19 @@ func declaredCollections(requirements string) ([]collectionRef, error) {
 }
 
 // provisionedVersion is the version of a collection the container installed, off
-// the MANIFEST.json galaxy writes into it; "" when it is not there.
+// the MANIFEST.json galaxy writes into it; "" when it is not there. A name with no
+// dot, a manifest that is missing and one that is not JSON all leave the version
+// empty (json.Unmarshal checks the whole body before it sets anything), so none
+// of them is a branch of its own.
 func provisionedVersion(dir, name string) string {
-	namespace, collection, ok := strings.Cut(name, ".")
-	if !ok {
-		return ""
-	}
-	body, err := os.ReadFile(filepath.Join(dir, "ansible_collections", namespace, collection, "MANIFEST.json"))
-	if err != nil {
-		return ""
-	}
+	namespace, collection, _ := strings.Cut(name, ".")
+	body, _ := os.ReadFile(filepath.Join(dir, "ansible_collections", namespace, collection, "MANIFEST.json"))
 	var manifest struct {
 		Info struct {
 			Version string `json:"version"`
 		} `json:"collection_info"`
 	}
-	if json.Unmarshal(body, &manifest) != nil {
-		return ""
-	}
+	_ = json.Unmarshal(body, &manifest)
 	return manifest.Info.Version
 }
 

@@ -67,9 +67,10 @@ func logDropped(what string, err error) {
 }
 
 // buildPython builds the python stages on the OS layer. It never fails: a stage
-// that does not build is logged and nil, and so is every stage above it.
-func buildPython(ctx context.Context, base *dagger.Container) pythonLayers {
-	var out pythonLayers
+// that does not build is logged and nil, and so is every stage above it (the
+// named result is what the stages below it built, and each early return hands it
+// back as it stands).
+func buildPython(ctx context.Context, base *dagger.Container) (out pythonLayers) {
 	src := dag.CurrentModule().Source()
 	venv := atoms.PythonVenvDir
 	uv := dag.Container().From(checks.ImageUV).File("/uv")
@@ -87,7 +88,7 @@ func buildPython(ctx context.Context, base *dagger.Container) pythonLayers {
 		WithExec([]string{venv + "/bin/python", "--version"})
 	if _, err := interp.Sync(ctx); err != nil {
 		logDropped("the python interpreter", err)
-		return out
+		return
 	}
 	out.uv = uv
 	out.interpreter = interp.Directory(pythonInstallDir)
@@ -107,17 +108,17 @@ func buildPython(ctx context.Context, base *dagger.Container) pythonLayers {
 		WithExec([]string{venv + "/bin/copier", "--version"})
 	if _, err := pkgs.Sync(ctx); err != nil {
 		logDropped("the python packages", err)
-		return out
+		return
 	}
 	out.venv = pkgs.Directory(venv)
 
 	collections, err := ansibleCollections(ctx, pkgs, src)
 	if err != nil {
 		logDropped("the ansible collections", err)
-		return out
+		return
 	}
 	out.collections = collections
-	return out
+	return
 }
 
 // ansibleCollections installs the declared collections into the stage, and
