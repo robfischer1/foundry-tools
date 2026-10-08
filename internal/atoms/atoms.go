@@ -98,11 +98,11 @@ type Atom struct {
 	ID    string
 	Scope Scope
 	Run   RunFunc
-	// Tool names the program the atom execs that the binary does not carry
-	// (opa, uv, orbitparse); "" is none. An atom with a Tool needs the tool
-	// provisioned on PATH, which only the shadow's container does today, so a
-	// voting or local-hook set must leave these out (WithoutTools) until the
-	// tools are provisioned there.
+	// Tool names the program the atom execs that no container the binary runs
+	// in provisions yet (uv); "" is none. The atoms-tools container carries
+	// opa, orbitparse and the other pinned tools, so an atom that needs only
+	// those has no marker; one with a Tool must be left out of a voting or
+	// local-hook set (WithoutTools) until its tool is provisioned.
 	Tool string
 }
 
@@ -179,6 +179,10 @@ func lookup(id string) (checks.AtomDef, bool) {
 func Builtin() []Atom {
 	tree := func(id string, run RunFunc) Atom { return Atom{ID: id, Scope: ScopeTree, Run: run} }
 	tooled := func(id, tool string, run RunFunc) Atom { return Atom{ID: id, Scope: ScopeTree, Run: run, Tool: tool} }
+	// An atom whose tool is a pinned layer of the container the binary runs in
+	// (atoms_tools.go) carries no marker: the tool is on PATH wherever the
+	// binary is meant to run. Only an atom whose tool is not provisioned there
+	// (uv) is tooled.
 	return []Atom{
 		tree("fleet:check-yaml", checkYAML),
 		tree("fleet:check-added-large-files", checkAddedLargeFiles),
@@ -192,16 +196,26 @@ func Builtin() []Atom {
 		tree("fleet:dagger-lockstep", daggerLockstep),
 		tree("fleet:node-kinds-declared", nodeKindsDeclared),
 		tree("fleet:consumed-events-emitted", consumedEventsEmitted),
+		tree("fleet:opengrep-sast", fleetOpengrepSast),
+		tree("fleet:hadolint", fleetHadolint),
 		tree("compose:no-tracked-secrets", composeNoTrackedSecrets),
 		tree("compose:third-party-pins", composeThirdPartyPins),
-		tooled("dies:data-keys", "opa", diesDataKeys),
+		tree("compose:config", composeConfig),
+		tree("dies:data-keys", diesDataKeys),
 		tree("dies:canonical", diesCanonical),
 		tooled("dies:refusal-codes", "uv", diesRefusalCodes),
+		tree("dies:opa-test", diesOpaTest),
+		tree("dies:admission-dogfood", diesAdmissionDogfood),
+		tree("dies:canary-visibility", diesCanaryVisibility),
 		tree("orbit:contracts", orbitContracts),
-		tooled("orbit:sidecars", "orbitparse", orbitSidecars),
+		tree("orbit:sidecars", orbitSidecars),
 		tree("orbit:repo", orbitRepo),
 		tree("ops:orbit-composed", opsOrbitComposed),
 		tree("ops:yaml", opsYAML),
+		tree("ops:shell", opsShell),
+		tree("ops:chezmoi", opsChezmoi),
+		tree("ops:flux", opsFlux),
+		tree("wit:validate", witValidate),
 	}
 }
 

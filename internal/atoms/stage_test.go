@@ -20,12 +20,14 @@ func TestStageIDs(t *testing.T) {
 	orbit := []string{"orbit:contracts", "orbit:sidecars", "orbit:repo"}
 	prepush := []string{
 		"fleet:orbit-drift", "fleet:dagger-lockstep", "fleet:node-kinds-declared", "fleet:consumed-events-emitted",
-		"dies:data-keys", "ops:orbit-composed",
+		"dies:data-keys", "dies:admission-dogfood", "dies:canary-visibility", "ops:orbit-composed", "wit:validate",
 	}
 	precommit := []string{
 		"fleet:check-yaml", "fleet:check-added-large-files", "fleet:check-merge-conflict", "fleet:stop-justifications",
 		"fleet:sast-ruleset-lanes", "fleet:copier-answers-intact", "fleet:ourea-config-retired-keys", "fleet:retired-verbs",
-		"compose:no-tracked-secrets", "compose:third-party-pins", "dies:canonical", "dies:refusal-codes", "ops:yaml",
+		"fleet:opengrep-sast", "fleet:hadolint",
+		"compose:no-tracked-secrets", "compose:third-party-pins", "compose:config",
+		"dies:canonical", "dies:refusal-codes", "dies:opa-test", "ops:yaml", "ops:shell", "ops:chezmoi", "ops:flux",
 	}
 	for _, tc := range []struct {
 		stage string
@@ -71,10 +73,11 @@ func TestEveryBuiltinAtomIsAtAStageAShadowedLaneGrades(t *testing.T) {
 	}
 }
 
-// Atoms that exec a tool the binary does not carry say so, so a voting or
-// local-hook set can leave them out mechanically.
+// Atoms that exec a tool no container provisions yet say so, so a voting or
+// local-hook set can leave them out mechanically. The tools container carries
+// opa, orbitparse and the rest of the pinned set, so only uv's atom is marked.
 func TestToolMarker(t *testing.T) {
-	want := map[string]string{"dies:data-keys": "opa", "dies:refusal-codes": "uv", "orbit:sidecars": "orbitparse"}
+	want := map[string]string{"dies:refusal-codes": "uv"}
 	got := map[string]string{}
 	for _, a := range Builtin() {
 		if a.Tool != "" {

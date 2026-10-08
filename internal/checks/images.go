@@ -246,7 +246,7 @@ const (
 // is still an image this module would ship.
 var LaneImages = []string{
 	ImageGo, ImagePython, ImageRust, ImageRustWasm, ImageTS, ImageFleet,
-	ImageUV, ImageNode,
+	ImageUV, ImageNode, ImageTools,
 	ImageKubeconform, ImageKubeLinter,
 	ImagePgvector, ImagePostgres,
 }

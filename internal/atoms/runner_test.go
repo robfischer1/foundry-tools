@@ -66,15 +66,18 @@ func TestBuiltinIsThePortedAtomsInOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The four of the first cut lead, in their order; the eighteen ported after.
+	// The four of the first cut lead, in their order; the eighteen ported after,
+	// and the ten that exec a pinned tool among them by family.
 	want := []string{
 		"fleet:check-yaml", "fleet:check-added-large-files", "fleet:check-merge-conflict", "fleet:stop-justifications",
 		"fleet:sast-ruleset-lanes", "fleet:copier-answers-intact", "fleet:ourea-config-retired-keys", "fleet:retired-verbs",
 		"fleet:orbit-drift", "fleet:dagger-lockstep", "fleet:node-kinds-declared", "fleet:consumed-events-emitted",
-		"compose:no-tracked-secrets", "compose:third-party-pins",
-		"dies:data-keys", "dies:canonical", "dies:refusal-codes",
+		"fleet:opengrep-sast", "fleet:hadolint",
+		"compose:no-tracked-secrets", "compose:third-party-pins", "compose:config",
+		"dies:data-keys", "dies:canonical", "dies:refusal-codes", "dies:opa-test", "dies:admission-dogfood", "dies:canary-visibility",
 		"orbit:contracts", "orbit:sidecars", "orbit:repo",
-		"ops:orbit-composed", "ops:yaml",
+		"ops:orbit-composed", "ops:yaml", "ops:shell", "ops:chezmoi", "ops:flux",
+		"wit:validate",
 	}
 	if got := reg.IDs(); fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("ids %q, want %q", got, want)
