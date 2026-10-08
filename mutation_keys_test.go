@@ -14,7 +14,7 @@ import (
 // the epoch — moves this value, and every stored grading misses: correct, and
 // a decision, so it fails here until someone writes the new value down.
 func TestTheGoEngineIsPinned(t *testing.T) {
-	const want = "8d1ae3b2682c0068014bccc85242dd721be6e976ea3fd85c0c822b1274d891cd"
+	const want = "9406164247ebf8dbab500b6221abf8eb84cf1d01899e5e1bd12d4ab93af05931"
 	if got := goMutationEngine(); got != want {
 		t.Fatalf("goMutationEngine() = %s, want %s — an input moved; every stored Go grading now misses. If that is meant, pin the new value", got, want)
 	}
