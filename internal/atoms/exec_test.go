@@ -134,3 +134,33 @@ func TestOnlyTheVenvsProgramsAreResolvedThere(t *testing.T) {
 		t.Errorf("git resolved to %q: a file of that name in the venv is not the venv's program", got)
 	}
 }
+
+func TestAMissingVenvIsNamedNotLeftToThePathError(t *testing.T) {
+	old := pythonBinDir
+	pythonBinDir = filepath.Join(t.TempDir(), "no-venv")
+	t.Cleanup(func() { pythonBinDir = old })
+	t.Setenv("PATH", t.TempDir()) // nothing on it
+	out, code := RunProgram(context.Background(), Cmd{Dir: t.TempDir(), Name: "python3"})
+	if code != -1 || out != errNoVenv {
+		t.Errorf("got %q, %d", out, code)
+	}
+	if !strings.Contains(errNoVenv, "atoms tools:") {
+		t.Errorf("the message does not point at the stderr line: %s", errNoVenv)
+	}
+	t.Run("a program that is not the venv's keeps its own error", func(t *testing.T) {
+		out, code := RunProgram(context.Background(), Cmd{Dir: t.TempDir(), Name: "no-such-program-here"})
+		if code != -1 || out == errNoVenv || !strings.HasPrefix(out, "no-such-program-here: ") {
+			t.Errorf("got %q, %d", out, code)
+		}
+	})
+	t.Run("a python the PATH still finds is run", func(t *testing.T) {
+		bin := t.TempDir()
+		if err := os.WriteFile(filepath.Join(bin, "python3"), []byte("#!/bin/sh\necho local\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", bin)
+		if out, code := RunProgram(context.Background(), Cmd{Dir: t.TempDir(), Name: "python3"}); code != 0 || out != "local" {
+			t.Errorf("got %q, %d", out, code)
+		}
+	})
+}

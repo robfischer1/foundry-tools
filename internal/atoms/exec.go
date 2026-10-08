@@ -82,8 +82,28 @@ func programEnv(extra []string) []string {
 	return append(env, extra...)
 }
 
+// errNoVenv is what a venv program says when the venv is not there and nothing
+// on the PATH stands in for it: the python layer was dropped at build.
+const errNoVenv = "the python venv is not in the container (a dropped layer; see the `atoms tools:` stderr line)"
+
+// venvMissing is errNoVenv for a venv program that cannot be found anywhere, and
+// "" for everything else: a program that is not the venv's, one found in the
+// venv, or one the PATH still finds (a developer's own python3).
+func venvMissing(name string) string {
+	if !slices.Contains(pythonPrograms, name) || programPath(name) != name {
+		return ""
+	}
+	if _, err := exec.LookPath(name); err == nil {
+		return ""
+	}
+	return errNoVenv
+}
+
 // RunProgram is the real Exec.
 func RunProgram(ctx context.Context, c Cmd) (string, int) {
+	if why := venvMissing(c.Name); why != "" {
+		return why, -1
+	}
 	cmd := exec.CommandContext(ctx, programPath(c.Name), c.Args...)
 	cmd.Dir = c.Dir
 	cmd.Env = programEnv(c.Env)
