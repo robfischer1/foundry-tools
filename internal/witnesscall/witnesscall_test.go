@@ -24,6 +24,7 @@ import (
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/spiffe/go-spiffe/v2/svid/x509svid"
 
+	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/hadescall"
 )
 
@@ -180,10 +181,10 @@ type failingReader struct{}
 
 func (*failingReader) Read([]byte) (int, error) { return 0, errors.New("reset") }
 
-func TestAnAnswerCutShortIsCouldNotAsk(t *testing.T) {
+func TestAnAnswerCutShortIsNoAnswer(t *testing.T) {
 	var out, errOut bytes.Buffer
 	code := post(context.Background(), &http.Client{Transport: cutShort{}}, "https://narcissus:8201/mcp", nil, &out, &errOut)
-	if code != CouldNotAsk || out.Len() != 0 || !strings.Contains(errOut.String(), "cut short: reset") {
+	if code != checks.WitnessNoAnswerExit || out.Len() != 0 || !strings.Contains(errOut.String(), "cut short: reset") {
 		t.Errorf("code %d out %q err %q", code, out.String(), errOut.String())
 	}
 }
@@ -298,4 +299,21 @@ func newServer(t *testing.T, p *testPKI, serverID string, handler http.HandlerFu
 	s.StartTLS()
 	t.Cleanup(s.Close)
 	return s
+}
+
+type timesOut struct{}
+
+func (timesOut) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, context.DeadlineExceeded
+}
+
+// A request that went out and drew no answer in time is NoAnswer, not
+// CouldNotAsk: the caller must not repeat it in the clear.
+func TestATimeoutIsNoAnswerNotCouldNotAsk(t *testing.T) {
+	var out, errOut bytes.Buffer
+	c := &http.Client{Transport: timesOut{}, Timeout: time.Second}
+	code := post(context.Background(), c, "https://narcissus:8201/mcp", nil, &out, &errOut)
+	if code != checks.WitnessNoAnswerExit || out.Len() != 0 || !strings.Contains(errOut.String(), "did not answer") {
+		t.Errorf("code %d out %q err %q", code, out.String(), errOut.String())
+	}
 }

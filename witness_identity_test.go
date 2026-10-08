@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -165,5 +166,31 @@ func TestGateFileKeepsTheLanesSocket(t *testing.T) {
 	spire := dag.LoadSocketFromID("spire-agent-socket")
 	if _, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "", nil, false, spire, nil); err != nil || m.spire != spire {
 		t.Fatalf("spire %v err %v", m.spire, err)
+	}
+}
+
+// A timeout over mTLS is the witness being slow. Repeating it in the clear
+// doubles its load and files an `unidentified` record (2465 on 2026-10-07):
+// the ask settles could-not-run, asked once, and the clear port hears nothing.
+func TestAnIdentifiedAskThatTimesOutIsNotRepeatedInTheClear(t *testing.T) {
+	engine.reset()
+	n := clearAsks(t)
+	prev := witnessSleep
+	t.Cleanup(func() { witnessSleep = prev })
+	witnessSleep = func(context.Context, time.Duration) error { return nil }
+	engine.stdout(whoamiNeedle, laneSVID)
+	engine.exitCode(postNeedle, checks.WitnessNoAnswerExit)
+	engine.stderr(postNeedle, "witnesscall: the witness did not answer: context deadline exceeded")
+
+	via := spireRun().witnessAsker(context.Background())
+	_, _, body, err := via.ask(context.Background(), "{}")
+	if !errors.Is(err, checks.ErrWitnessNoAnswer) || body != "" || *n != 0 {
+		t.Errorf("body %q err %v clear asks %d", body, err, *n)
+	}
+	if got := strings.Count(engine.chain(postNeedle), `"post"`); got != 1 {
+		t.Errorf("the timed-out ask was posted %d times, want 1", got)
+	}
+	if got := via.say(); got != checks.WitnessAskedAs(laneSVID, 0, 1) {
+		t.Errorf("%q", got)
 	}
 }
