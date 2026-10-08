@@ -495,7 +495,7 @@ func atomTable() []AtomDef {
 		},
 		{
 			ID: "fleet:witness", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
-			Desc: "Every changed .py/.go file is shown to the code witness (narcissus): a canonical-class or Standard match is a finding, a Convention is advisory, novel is clean.",
+			Desc: "Every changed .py/.go source file is shown to the code witness (narcissus), never a test: a canonical-class or Standard match is a finding, a Convention is advisory, novel is clean.",
 		},
 		{
 			ID: "dies:schema", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,

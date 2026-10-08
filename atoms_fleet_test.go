@@ -934,13 +934,14 @@ func answerWitness(t *testing.T, answers map[string]witnessAnswer) *[]string {
 }
 
 // scriptWitness answers a pull whose change set holds one python source, a
-// TypeScript file, a vendored go file and a README, from a door clone of nereus.
+// TypeScript file, a vendored go file, a go test and a README, from a door
+// clone of nereus.
 func scriptWitness(tree map[string]string) {
 	engine.reset()
 	engine.withTree(fleetTree(map[string]string{"src/x.py": "def f():\n    return 1\n"}))
 	engine.withTree(tree)
 	engine.stdout(wMergeNeedle, sinceSha+"\n")
-	engine.stdout(wDiffNeedle, "src/x.py\nweb/a.ts\nvendor/v/y.go\nREADME.md\n")
+	engine.stdout(wDiffNeedle, "src/x.py\nweb/a.ts\nvendor/v/y.go\nsrc/x_test.go\nREADME.md\n")
 	engine.stdout(wOriginNeedle, "http://ourea:8215/nereus.git\n")
 }
 
@@ -1063,6 +1064,9 @@ func TestFleetWitnessStandsDownOrCannotRun(t *testing.T) {
 			engine.stderr(wDiffNeedle, "fatal: bad object")
 		}, 2, []string{"could not read the change set: ", "fatal: bad object"}, nil, []string{wOriginNeedle}, 0},
 		"nothing the star authored": {"base-sha", func() { engine.stdout(wDiffNeedle, "web/a.ts\nvendor/v/y.go\n") }, 0, nil,
+			[]string{wDiffNeedle}, []string{wOriginNeedle}, 0},
+		// A change set of tests alone asks narcissus nothing (Rob, 2026-10-08).
+		"only tests": {"base-sha", func() { engine.stdout(wDiffNeedle, "cmd/a_test.go\ntests/test_x.py\nsrc/conftest.py\n") }, 0, nil,
 			[]string{wDiffNeedle}, []string{wOriginNeedle}, 0},
 		"the tip against its parent": {"", func() { engine.stdout(wTipNeedle, "src/x.py\n") }, 0, nil,
 			[]string{wParentNeedle, wTipNeedle}, []string{wRootNeedle, wBaseNeedle}, 1},

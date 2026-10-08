@@ -12,23 +12,76 @@ import (
 	"time"
 )
 
-func TestWitnessChangeSetSplitsWhatIsAskedSkippedAndVendored(t *testing.T) {
-	sources, skipped, vendored := WitnessChangeSet([]string{
+func TestWitnessChangeSetSplitsWhatIsAskedSkippedVendoredAndTests(t *testing.T) {
+	sources, skipped, vendored, tests := WitnessChangeSet([]string{
 		"src/x.py", "cmd/main.go", "web/a.ts", "web/b.tsx", "lib.rs", "x.js",
 		"vendor/golang.org/x/y.go", "app/node_modules/p/q.py", "third_party/z.py",
 		"README.md", "Makefile", "vendor.go", "deep/vendored/a.py",
+		"cmd/main_test.go", "tests/test_x.py", "src/conftest.py", "latest.go",
+		"vendor/p/q_test.go", "tests/a.ts",
 	})
-	if strings.Join(sources, ",") != "src/x.py,cmd/main.go,vendor.go,deep/vendored/a.py" {
+	if strings.Join(sources, ",") != "src/x.py,cmd/main.go,vendor.go,deep/vendored/a.py,latest.go" {
 		t.Errorf("sources %v", sources)
 	}
-	if strings.Join(skipped, ",") != "web/a.ts,web/b.tsx,lib.rs,x.js" {
+	// A test is its own fact; a vendored test is vendored, and a test in a
+	// language with no analyzer is skipped for that.
+	if strings.Join(tests, ",") != "cmd/main_test.go,tests/test_x.py,src/conftest.py" {
+		t.Errorf("tests %v", tests)
+	}
+	if strings.Join(skipped, ",") != "web/a.ts,web/b.tsx,lib.rs,x.js,tests/a.ts" {
 		t.Errorf("skipped %v", skipped)
 	}
-	if strings.Join(vendored, ",") != "vendor/golang.org/x/y.go,app/node_modules/p/q.py,third_party/z.py" {
+	if strings.Join(vendored, ",") != "vendor/golang.org/x/y.go,app/node_modules/p/q.py,third_party/z.py,vendor/p/q_test.go" {
 		t.Errorf("vendored %v", vendored)
 	}
 	if WitnessLanguage("a.go") != "go" || WitnessLanguage("a.py") != "python" || WitnessLanguage("a.pyc") != "" {
 		t.Error("WitnessLanguage")
+	}
+}
+
+// A test is decided on whole names and whole segments, in its own language's
+// convention; each near-miss is source and is still asked about.
+func TestWitnessTest(t *testing.T) {
+	for p, want := range map[string]bool{
+		// Go: the toolchain's one rule.
+		"x_test.go":       true,
+		"pkg/a/x_test.go": true,
+		"latest.go":       false,
+		"testing/x.go":    false, // a Go package named testing is source
+		"tests/x.go":      false, // the directory rule is Python's, not Go's
+		"test/x.go":       false,
+		"test_x.go":       false,
+		"x_test.go.orig":  false,
+		// Python: pytest's names, and its directories.
+		"test_x.py":         true,
+		"src/test_x.py":     true,
+		"x_test.py":         true,
+		"src/pkg/x_test.py": true,
+		"conftest.py":       true,
+		"src/conftest.py":   true,
+		"tests/x.py":        true,
+		"test/x.py":         true,
+		"a/tests/b/x.py":    true,
+		"a/test/x.py":       true,
+		"contest.py":        false,
+		"myconftest.py":     false,
+		"attest/x.py":       false,
+		"testing/x.py":      false,
+		"latest.py":         false,
+		"tests.py":          false, // a file named tests, not a tests directory
+		"test.py":           false,
+		"mytest_x.py":       false,
+		"x_tests.py":        false,
+		"src/testx.py":      false,
+		// Neither language.
+		"tests/a.ts":      false,
+		"test_x.pyc":      false,
+		"tests/README.md": false,
+		"x_test.rs":       false,
+	} {
+		if got := WitnessTest(p); got != want {
+			t.Errorf("WitnessTest(%q) = %v, want %v", p, got, want)
+		}
 	}
 }
 
@@ -163,34 +216,40 @@ func rows(classes ...string) []WitnessRow {
 
 func TestAggregateWitness(t *testing.T) {
 	for _, c := range []struct {
-		name              string
-		rows              []WitnessRow
-		skipped, vendored []string
-		state             int
-		reason            string
+		name                     string
+		rows                     []WitnessRow
+		skipped, vendored, tests []string
+		state                    int
+		reason                   string
 	}{
-		{"nothing at all", nil, nil, nil, 0, "nothing to witness — no changed .py or .go file the star authored"},
-		{"only skipped and vendored", nil, []string{"a.ts"}, []string{"vendor/x.go", "vendor/y.go"}, 0,
+		{"nothing at all", nil, nil, nil, nil, 0, "nothing to witness — no changed .py or .go file the star authored"},
+		{"only skipped and vendored", nil, []string{"a.ts"}, []string{"vendor/x.go", "vendor/y.go"}, nil, 0,
 			"nothing to witness — no changed .py or .go file the star authored; skipped 1 file(s) in languages the witness has no analyzer for; skipped 2 vendored file(s)"},
-		{"findings win over could-not-consult", rows("finding", "could-not-consult", "clean"), nil, nil, 1,
+		{"only tests", nil, nil, nil, []string{"a_test.go", "tests/test_b.py"}, 0,
+			"nothing to witness — no changed .py or .go file the star authored; skipped 2 test file(s)"},
+		{"every skipped kind, each counted", nil, []string{"a.ts"}, []string{"vendor/x.go"}, []string{"a_test.go"}, 0,
+			"nothing to witness — no changed .py or .go file the star authored; skipped 1 file(s) in languages the witness has no analyzer for; skipped 1 vendored file(s); skipped 1 test file(s)"},
+		{"tests beside a witnessed file", rows("clean"), nil, nil, []string{"a_test.go", "b_test.go", "conftest.py"}, 0,
+			"clean — 1 file(s) witnessed, novel on both axes; skipped 3 test file(s)"},
+		{"findings win over could-not-consult", rows("finding", "could-not-consult", "clean"), nil, nil, nil, 1,
 			"findings in 1 of 3 file(s): finding.py: because finding — also could not consult 1: could-not-consult.py"},
-		{"findings alone", rows("finding", "finding"), []string{"a.ts"}, nil, 1,
+		{"findings alone", rows("finding", "finding"), []string{"a.ts"}, nil, nil, 1,
 			"findings in 2 of 2 file(s): finding.py: because finding; finding.py: because finding"},
-		{"could-not-consult", rows("could-not-consult", "clean", "could-not-consult"), nil, nil, 2,
+		{"could-not-consult", rows("could-not-consult", "clean", "could-not-consult"), nil, nil, nil, 2,
 			"could not consult 2 of 3 file(s): could-not-consult.py: because could-not-consult; could-not-consult.py: because could-not-consult"},
-		{"advisory", rows("advisory", "clean", "no-unit"), nil, nil, 0,
+		{"advisory", rows("advisory", "clean", "no-unit"), nil, nil, nil, 0,
 			"clean — 2 file(s) witnessed; 1 advisory (reuse, not rewrite): advisory.py: because advisory; 1 file(s) had no unit to witness: no-unit.py"},
-		{"every file had no unit", rows("no-unit", "no-unit"), nil, []string{"vendor/a.go"}, 0,
+		{"every file had no unit", rows("no-unit", "no-unit"), nil, []string{"vendor/a.go"}, nil, 0,
 			"nothing to witness — every changed source file had no unit; skipped 1 vendored file(s); 2 file(s) had no unit to witness: no-unit.py, no-unit.py"},
-		{"canonical exemptions", rows("canonical-source", "canonical-in-test", "canonical-reuse", "clean"), nil, nil, 0,
+		{"canonical exemptions", rows("canonical-source", "canonical-in-test", "canonical-reuse", "clean"), nil, nil, nil, 0,
 			"clean — 4 file(s) witnessed; 1 file(s) are a canonical class's own source: canonical-source.py; 1 test file(s) resemble a canonical class: canonical-in-test.py; 1 file(s) reuse a canonical class: canonical-reuse.py"},
-		{"one exemption is enough to say so", rows("canonical-reuse"), nil, nil, 0,
+		{"one exemption is enough to say so", rows("canonical-reuse"), nil, nil, nil, 0,
 			"clean — 1 file(s) witnessed; 1 file(s) reuse a canonical class: canonical-reuse.py"},
-		{"a canonical test alone", rows("canonical-in-test"), nil, nil, 0, "clean — 1 file(s) witnessed; 1 test file(s)"},
-		{"a canonical source alone", rows("canonical-source"), nil, nil, 0, "clean — 1 file(s) witnessed; 1 file(s) are"},
-		{"novel", rows("clean", "clean"), nil, nil, 0, "clean — 2 file(s) witnessed, novel on both axes"},
+		{"a canonical test alone", rows("canonical-in-test"), nil, nil, nil, 0, "clean — 1 file(s) witnessed; 1 test file(s)"},
+		{"a canonical source alone", rows("canonical-source"), nil, nil, nil, 0, "clean — 1 file(s) witnessed; 1 file(s) are"},
+		{"novel", rows("clean", "clean"), nil, nil, nil, 0, "clean — 2 file(s) witnessed, novel on both axes"},
 	} {
-		state, reason := AggregateWitness(c.rows, c.skipped, c.vendored)
+		state, reason := AggregateWitness(c.rows, c.skipped, c.vendored, c.tests)
 		if state != c.state || !strings.HasPrefix(reason, c.reason) {
 			t.Errorf("%s: (%d, %q), want (%d, %q…)", c.name, state, reason, c.state, c.reason)
 		}

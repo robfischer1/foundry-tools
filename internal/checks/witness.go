@@ -24,6 +24,12 @@ import (
 // has nothing to witness, clean. Could-not-run is reserved for a file the
 // witness could not READ or was never asked about.
 //
+// NOR A TEST FILE (WitnessTest). A suite repeats its helpers and fixtures on
+// purpose, so a verdict on one is noise — and every ask is load on narcissus:
+// on 2026-10-07 the gate-wide witness load saturated narcissus's database and
+// wedged all CI for hours. A test is skipped and counted, as its own fact,
+// beside vendored and no-analyzer (Rob, 2026-10-08).
+//
 // WHAT COUNTS AS A FINDING is narcissus's own vocabulary (standard
 // "block-capable", convention "advise", novel "free"). A canonical-class match
 // or a duplicated Standard is a finding; a Convention is advisory and clean,
@@ -69,15 +75,49 @@ func WitnessVendored(p string) bool {
 	return false
 }
 
+// WitnessTest reports whether a path is test code, in its own language's
+// convention: Go's `*_test.go`, which is the toolchain's rule and the only
+// one — a `testing/` or `test/` directory in Go holds ordinary packages; and
+// Python's `test_*.py`, `*_test.py`, `conftest.py`, or any file under a
+// `tests` or `test` directory, which is where pytest goes looking. The match is
+// on whole names and whole segments: `latest.go`, `contest.py`, `attest/x.py`
+// and `testing/x.py` are source.
+//
+// It is NOT testPath below, though both answer "is this a test". testPath is
+// stop_justifications' glob, read where a canonical-class match is decided, and
+// it misses `x_test.py` and every Go test; this one decides what is never
+// asked at all, and was cut to the patterns the fleet's suites actually use.
+func WitnessTest(p string) bool {
+	parts := strings.Split(p, "/")
+	base := parts[len(parts)-1]
+	switch path.Ext(base) {
+	case ".go":
+		return strings.HasSuffix(base, "_test.go")
+	case ".py":
+		if strings.HasPrefix(base, "test_") || strings.HasSuffix(base, "_test.py") || base == "conftest.py" {
+			return true
+		}
+		for _, part := range parts[:len(parts)-1] {
+			if part == "tests" || part == "test" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // WitnessChangeSet splits a change set's paths into what is witnessed, what
 // is skipped for want of an analyzer (.ts, .tsx, .rs, .js — named, not
-// consulted) and what is vendored.
-func WitnessChangeSet(paths []string) (sources, skipped, vendored []string) {
+// consulted), what is vendored and what is a test. A vendored test is
+// vendored: whose code it is outranks what kind of code it is.
+func WitnessChangeSet(paths []string) (sources, skipped, vendored, tests []string) {
 	for _, p := range paths {
 		switch path.Ext(p) {
 		case ".py", ".go":
 			if WitnessVendored(p) {
 				vendored = append(vendored, p)
+			} else if WitnessTest(p) {
+				tests = append(tests, p)
 			} else {
 				sources = append(sources, p)
 			}
@@ -85,7 +125,7 @@ func WitnessChangeSet(paths []string) (sources, skipped, vendored []string) {
 			skipped = append(skipped, p)
 		}
 	}
-	return sources, skipped, vendored
+	return sources, skipped, vendored, tests
 }
 
 // testPath is the fleet's one definition of a test path: stop_justifications'
@@ -313,8 +353,9 @@ func runeCut(s string, n int) string {
 }
 
 // AggregateWitness folds the rows into the atom's state and reason. Findings
-// win over could-not-consult, which is reported beside them.
-func AggregateWitness(rows []WitnessRow, skipped, vendored []string) (int, string) {
+// win over could-not-consult, which is reported beside them. Each skipped
+// kind — no analyzer, vendored, test — is counted in the tail on its own.
+func AggregateWitness(rows []WitnessRow, skipped, vendored, tests []string) (int, string) {
 	byClass := map[string][]WitnessRow{}
 	for _, r := range rows {
 		byClass[r.Class] = append(byClass[r.Class], r)
@@ -349,6 +390,9 @@ func AggregateWitness(rows []WitnessRow, skipped, vendored []string) (int, strin
 	}
 	if len(vendored) > 0 {
 		tail += fmt.Sprintf("; skipped %d vendored file(s)", len(vendored))
+	}
+	if len(tests) > 0 {
+		tail += fmt.Sprintf("; skipped %d test file(s)", len(tests))
 	}
 	nounit := byClass["no-unit"]
 	if len(nounit) > 0 {
