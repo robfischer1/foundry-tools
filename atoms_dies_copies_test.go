@@ -120,3 +120,49 @@ func TestDiesContractCopiesCannotRunWithoutTheDoor(t *testing.T) {
 	})
 	wantState(t, runAtom(t, "dies:contract-copies", ""), 2, "HTTP 404", "contracts/contracts.toml")
 }
+
+// A tree whose shape could not be read is not an answer about its copies.
+func TestDiesContractCopiesRefusesWhenTheTreeCannotBeRead(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.fail("{directory{entries}}", "the directory would not evaluate")
+	copiesDoor(t)
+	wantState(t, runAtom(t, "dies:contract-copies", ""), 2, "the repository root could not be read")
+}
+
+// A lookup that fails is not a tree with no copies.
+func TestDiesContractCopiesCannotRunWhenTheTreeCannotBeScanned(t *testing.T) {
+	engine.reset()
+	engine.withTree(starTree(nil))
+	copiesDoor(t)
+	engine.failLeaf(`pattern:"vendor/a.json"`, "glob", "engine went away")
+	wantState(t, runAtom(t, "dies:contract-copies", ""), 2, "CANNOT RUN", "engine went away")
+}
+
+// The manifest was served but the first remote copy it names does not answer:
+// the authority cannot be read, so the copy was not compared.
+func TestDiesContractCopiesProbesTheManifestsFirstRemoteCopy(t *testing.T) {
+	engine.reset()
+	engine.withTree(starTree(nil))
+	asks := copiesDoor(t)
+	wantState(t, runAtom(t, "dies:contract-copies", ""), 0)
+	if want := (doorAsk{"rob/star-a", "vendor/a.json"}); (*asks)[len(*asks)-1] != want {
+		t.Errorf("the manifest's first remote copy was not probed last: %v", *asks)
+	}
+
+	engine.reset()
+	engine.withTree(starTree(nil))
+	fakeDoor(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Query().Get("path") {
+		case "vendor/a.json":
+			if c, _, err := w.(http.Hijacker).Hijack(); err == nil {
+				_ = c.Close()
+			}
+		case checks.DoorManifest:
+			_, _ = io.WriteString(w, copiesManifest)
+		default:
+			_, _ = io.WriteString(w, "x")
+		}
+	})
+	wantState(t, runAtom(t, "dies:contract-copies", ""), 2, "vendor/a.json", "unreachable")
+}

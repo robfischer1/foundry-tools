@@ -1257,6 +1257,42 @@ func TestDiesRefusalCodesOtherGoModulesAreAbsent(t *testing.T) {
 	}
 }
 
+// stellar-core is BOTH markers: the tapes alone, or the WIT alone beside a daedalus
+// go.mod, are not it (the last marker must not decide for the pair).
+func TestDiesRefusalCodesCoreNeedsBothMarkers(t *testing.T) {
+	engine.reset()
+	engine.withTree(diesTree(map[string]string{"conformance/tapes/claim.json": "{}"}, "policy", "fleet"))
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 0, "ABSENT")
+
+	engine.reset()
+	tree := goStarTree("git.notusmi.com/rob/daedalus")
+	tree["wit/aiws-result.wit"] = ""
+	engine.withTree(tree)
+	okDoor(t)
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 0)
+	if c := engine.chain("dies-refusal/tools/check_refusal_codes.py", "exitCode"); !hasCall(c, "withExec", "expect:ANY", `"--tree","daedalus=."`) {
+		t.Errorf("a WIT beside a daedalus go.mod is daedalus:\n%s", c)
+	}
+}
+
+// No go.mod and no marker is ABSENT, and a go.mod that cannot be read is a 2,
+// never a guess at the tree.
+func TestDiesRefusalCodesGoModErrorsAreCouldNotRun(t *testing.T) {
+	engine.reset()
+	engine.withTree(diesTree(nil, "policy", "fleet", "go.mod"))
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 0, "ABSENT")
+
+	engine.reset()
+	engine.withTree(goStarTree("git.notusmi.com/rob/daedalus"))
+	engine.failLeaf(`pattern:"go.mod"`, "glob", "engine went away")
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 2, "could not be scanned for go.mod", "engine went away")
+
+	engine.reset()
+	engine.withTree(goStarTree("git.notusmi.com/rob/daedalus"))
+	engine.failLeaf(`"go.mod"`, "contents", "go.mod gone")
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 2, "go.mod would not read", "go.mod gone")
+}
+
 // A tree that is neither dies nor stellar-core says why it has no code to
 // register. The WIT without the tapes is not stellar-core (stellar-core-rust
 // vendors the WIT alone).

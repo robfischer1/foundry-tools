@@ -28,6 +28,27 @@ source = { repo = "rob/core", path = "wit/r.wit" }
 name = "core-rust/r.wit"
 source = { repo = "foundry/core-rust", path = "wit/r.wit" }
 
+[contracts.malformed]
+authority = "dies/m.json"
+[[contracts.malformed.copies]]
+name = "ghost/m.json"
+source = { repo = "rob/ghost" }
+[[contracts.malformed.copies]]
+name = "ghost2/m.json"
+source = { path = "m.json" }
+
+[contracts.disjoint]
+authority = "dies/d.json"
+[[contracts.disjoint.copies]]
+name = "small/d.json"
+source = { repo = "rob/small", path = "d/one.json" }
+[[contracts.disjoint.copies]]
+name = "big/d.json"
+source = { repo = "rob/big", path = "d/two.json" }
+[[contracts.disjoint.copies]]
+name = "big/e.json"
+source = { repo = "rob/big", path = "d/three.json" }
+
 [contracts.rust-only]
 authority = "dies/x.json"
 [[contracts.rust-only.copies]]
@@ -50,6 +71,8 @@ func TestContractTreeNamesReadsTheTreeOffTheCopiesItHolds(t *testing.T) {
 		want []string
 	}{
 		{"a star holding its copy", []string{"vendor/a.json"}, []string{"star-a", "star-b"}},
+		{"a larger set that is NOT a superset does not displace a smaller one", []string{"d/one.json", "d/two.json", "d/three.json"}, []string{"big", "small"}},
+		{"a path-less or repo-less copy names no tree", []string{"", "m.json"}, nil},
 		{"no copy held", []string{"README.md"}, nil},
 		{"a tree missing one of its repo's copies is not that repo", []string{"schema/x.json"}, nil},
 		{"the larger of two nested sets wins", []string{"wit/r.wit", "schema/x.json"}, []string{"core-rust"}},
@@ -62,6 +85,13 @@ func TestContractTreeNamesReadsTheTreeOffTheCopiesItHolds(t *testing.T) {
 		if !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s: got %v want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+func TestContractCopyFilesAreTheCheckerItsImportAndTheManifest(t *testing.T) {
+	want := []string{"tools/check_contracts.py", "tools/schema_stamp.py", "contracts/contracts.toml"}
+	if got := ContractCopyFiles(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
 	}
 }
 

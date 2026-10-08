@@ -71,10 +71,12 @@ func ContractTreeNames(manifest string, has func(path string) (bool, error)) ([]
 		}
 	}
 	var names []string
-	for name, paths := range candidates {
+	for _, name := range slices.Sorted(maps.Keys(candidates)) {
+		paths := candidates[name]
 		dominated := false
-		for other, op := range candidates {
-			if other != name && len(op) > len(paths) && isSubset(paths, sets[other]) {
+		for _, other := range candidates {
+			// A strictly larger candidate that holds all of this one's paths.
+			if len(other) > len(paths) && isSubset(paths, other) {
 				dominated = true
 			}
 		}
@@ -82,15 +84,9 @@ func ContractTreeNames(manifest string, has func(path string) (bool, error)) ([]
 			names = append(names, name)
 		}
 	}
-	slices.Sort(names)
 	return names, nil
 }
 
-func isSubset(paths []string, of map[string]bool) bool {
-	for _, p := range paths {
-		if !of[p] {
-			return false
-		}
-	}
-	return true
+func isSubset(paths, of []string) bool {
+	return !slices.ContainsFunc(paths, func(p string) bool { return !slices.Contains(of, p) })
 }

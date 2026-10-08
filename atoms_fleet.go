@@ -754,14 +754,24 @@ func fleetNodeKindsDeclared(ctx context.Context, r *run) checks.Verdict {
 	}
 	if uses, _ := checks.CapturedKinds(files); len(uses) == 0 {
 		state, report := checks.NodeKindsDeclared(files, "")
-		return checks.VerdictOf(a, state, report)
+		return checks.VerdictOf(a, state, report+nonGoNoteFor(files, state))
 	}
 	schema, err := checks.FetchNodeKindsSchema(ctx, oureaDoor)
 	if err != nil {
 		return checks.VerdictOf(a, 2, "fleet:node-kinds-declared: CANNOT RUN - "+err.Error()+". A vocabulary that was not read declares nothing, and an undeclared kind is not a finding about this tree.")
 	}
 	state, report := checks.NodeKindsDeclared(files, schema)
-	return checks.VerdictOf(a, state, report)
+	return checks.VerdictOf(a, state, report+nonGoNoteFor(files, state))
+}
+
+// nonGoNoteFor is the pass's honesty: this atom reads Go only, so a PASS names
+// the non-Go files that look like captures and were not read. A finding or a
+// could-not-run already says what it says.
+func nonGoNoteFor(files map[string]string, state int) string {
+	if state != 0 {
+		return ""
+	}
+	return checks.NonGoNote(checks.NonGoCaptureFiles(files))
 }
 
 // Every event_type the tree consumes has an emitter somewhere in the fleet.

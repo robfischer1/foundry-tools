@@ -251,12 +251,13 @@ func DynamicEventReaders(files map[string]string, consumed []EventSite) []string
 	}
 	var out []string
 	for p, body := range files {
-		if !EventSourceExt(p) || judged[p] || strings.HasSuffix(p, ".md") || strings.HasSuffix(p, ".json") || strings.HasSuffix(p, ".sql") {
+		_, code := commentPrefixes[path.Ext(p)] // source files; .md and .json have no comment syntax
+		if judged[p] || !code || !EventSourceExt(p) {
 			continue
 		}
-		code := stripLineComments(p, body)
-		for _, m := range dynamicReadRe.FindAllStringIndex(code, -1) {
-			if !assignedRe.MatchString(code[m[1]:]) {
+		text := stripLineComments(p, body)
+		for _, m := range dynamicReadRe.FindAllStringIndex(text, -1) {
+			if !assignedRe.MatchString(text[m[1]:]) {
 				out = append(out, p)
 				break
 			}

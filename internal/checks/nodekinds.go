@@ -430,7 +430,9 @@ func NonGoCaptureFiles(files map[string]string) []string {
 	return out
 }
 
-func nonGoNote(files []string) string {
+// NonGoNote is the sentence that keeps a pass honest: empty when there is nothing
+// unread to name.
+func NonGoNote(files []string) string {
 	if len(files) == 0 {
 		return ""
 	}
@@ -446,9 +448,8 @@ func nonGoNote(files []string) string {
 func NodeKindsDeclared(files map[string]string, schemaGo string) (int, string) {
 	const id = "fleet:node-kinds-declared"
 	uses, unresolved := CapturedKinds(files)
-	note := nonGoNote(NonGoCaptureFiles(files))
 	if len(uses) == 0 {
-		return 0, id + ": no node kind is captured in this tree" + note
+		return 0, id + ": no node kind is captured in this tree"
 	}
 	declared := DeclaredNodeKinds(schemaGo)
 	if len(declared) == 0 {
@@ -463,8 +464,8 @@ func NodeKindsDeclared(files map[string]string, schemaGo string) (int, string) {
 		}
 	}
 	if len(bad) == 0 {
-		return 0, fmt.Sprintf("%s: %d captured kind(s) are all declared in node_kinds (%d capture site(s), %d unresolved)%s",
-			id, len(kinds), len(uses), unresolved, note)
+		return 0, fmt.Sprintf("%s: %d captured kind(s) are all declared in node_kinds (%d capture site(s), %d unresolved)",
+			id, len(kinds), len(uses), unresolved)
 	}
 	names := make([]string, 0, len(bad))
 	for k := range bad {

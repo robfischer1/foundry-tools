@@ -1519,3 +1519,25 @@ func TestFleetNodeKindsDeclaredReadsNonGoSourcesSoItCanNameThem(t *testing.T) {
 	fakeDoor(t, serveSchema)
 	wantReport(t, runAtom(t, "fleet:node-kinds-declared", ""), 0, "no node kind is captured", "NOT JUDGED", "src/client/_client.py")
 }
+
+// The note belongs to a PASS only: a finding already says what it found.
+func TestFleetNodeKindsDeclaredNamesUnreadSourcesOnlyOnAPass(t *testing.T) {
+	engine.reset()
+	engine.withTree(fleetTree(map[string]string{
+		"main.go":               "package main\nfunc f() { _ = CreateNode(\"Undeclared\", \"l\") }\n",
+		"src/client/_client.py": "def go(self):\n    return self.create_node(kind)\n",
+	}))
+	fakeDoor(t, serveSchema)
+	v := runAtom(t, "fleet:node-kinds-declared", "")
+	if v.State != 1 || strings.Contains(v.Reason+strings.Join(v.Logs, "\n"), "NOT JUDGED") {
+		t.Errorf("a finding must not carry the pass's note: %d %s", v.State, v.Reason)
+	}
+
+	engine.reset()
+	engine.withTree(fleetTree(map[string]string{
+		"main.go":               "package main\nfunc f() { _ = CreateNode(\"Memory\", \"l\") }\n",
+		"src/client/_client.py": "def go(self):\n    return self.create_node(kind)\n",
+	}))
+	fakeDoor(t, serveSchema)
+	wantReport(t, runAtom(t, "fleet:node-kinds-declared", ""), 0, "all declared", "NOT JUDGED", "src/client/_client.py")
+}

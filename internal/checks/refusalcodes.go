@@ -1,8 +1,8 @@
 package checks
 
 import (
+	"regexp"
 	"slices"
-	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -62,31 +62,25 @@ var refusalCoreMarkers = []string{"wit/aiws-result.wit", "conformance/tapes/*.js
 // RefusalCoreMarkers returns a copy, so a caller cannot edit the pair.
 func RefusalCoreMarkers() []string { return slices.Clone(refusalCoreMarkers) }
 
-// refusalGoModules are the Go stars whose uses dies grades only after they land
-// (a new unregistered code there landed green): the module line of the go.mod
-// each carries says which star the tree is, and so which `--tree` to grade.
-// The module path is the marker because internal/verbs/verbs.go is spelled by
-// both, so no path alone tells them apart.
-var refusalGoModules = map[string]string{
-	"daedalus": "git.notusmi.com/rob/daedalus",
-	"hermes":   "git.notusmi.com/rob/hermes",
+// refusalGoTrees are the Go stars whose uses dies grades only after they land
+// (a new unregistered code there landed green), by the module path of the
+// go.mod each carries, which says which star the tree is and so which `--tree`
+// to grade. The module path is the marker because internal/verbs/verbs.go is
+// spelled by both, so no path alone tells them apart.
+var refusalGoTrees = map[string]string{
+	"git.notusmi.com/rob/daedalus": "daedalus",
+	"git.notusmi.com/rob/hermes":   "hermes",
 }
+
+var moduleRe = regexp.MustCompile(`(?m)^module[ \t]+["` + "`" + `]?([^\s"` + "`" + `]+)`)
 
 // RefusalGoTree answers which registry star a go.mod belongs to, "" and false
 // when its module is none of them.
 func RefusalGoTree(gomod string) (string, bool) {
-	module := ""
-	for _, line := range strings.Split(gomod, "\n") {
-		line = strings.TrimSpace(line)
-		if rest, ok := strings.CutPrefix(line, "module"); ok && (rest == "" || rest[0] == ' ' || rest[0] == '\t') {
-			module = strings.Trim(strings.TrimSpace(rest), "\"`")
-			break
-		}
+	m := moduleRe.FindStringSubmatch(gomod)
+	if m == nil {
+		return "", false
 	}
-	for name, path := range refusalGoModules {
-		if module == path {
-			return name, true
-		}
-	}
-	return "", false
+	name, ok := refusalGoTrees[m[1]]
+	return name, ok
 }

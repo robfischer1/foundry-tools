@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -773,5 +774,50 @@ func TestConsumedEventsEmittedNamesTheFilesItCouldNotJudge(t *testing.T) {
 	_, report = ConsumedEventsEmitted(context.Background(), map[string]string{"x.go": "package x\n"}, nil)
 	if strings.Contains(report, "NOT JUDGED") {
 		t.Errorf("a tree with nothing to say must not claim an unjudged file: %s", report)
+	}
+}
+
+// Every match counts, not the first: a write before a read, two Set asks in one
+// file, and the listing is ordered.
+func TestDynamicEventReadersJudgesEveryMatchAndOrdersItsAnswer(t *testing.T) {
+	files := map[string]string{
+		"z.ts": "ev.eventType = 'x'\nconst k = row.eventType\n",
+		"y.py": "x = d.get('event_type')\n",
+		"b.rs": "let k = ev.event_type;\n",
+		"a.go": "package a\nvar k = e.EventType\n",
+		"c.sh": "echo $row[\"event_type\"]\n",
+		"d.go": "package d\nfunc f() { e.EventType = \"x\"; e.EventType := 1 }\n",
+		// not listed: a write only, a comment, a test, markdown, json, a judged file.
+		"w.ts":      "ev.eventType = 'x'\n",
+		"cmt.go":    "package c\n// k := e.EventType\n",
+		"a_test.go": "package a\nvar k = e.EventType\n",
+		"doc.md":    "row.event_type\n",
+		"doc.json":  "{\"a\": \"row.event_type\"}\n",
+		"j.go":      "package j\nvar k = e.EventType\n",
+	}
+	got := DynamicEventReaders(files, []EventSite{{"commit", "j.go"}})
+	want := []string{"a.go", "b.rs", "c.sh", "y.py", "z.ts"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+	if note := dynamicNote(nil); note != "" {
+		t.Errorf("nothing unjudged, nothing to say: %q", note)
+	}
+	note := dynamicNote(want)
+	for _, w := range []string{"NOT JUDGED", "5 file(s)", "a.go, b.rs, c.sh", "+2 more"} {
+		if !strings.Contains(note, w) {
+			t.Errorf("note lacks %q: %s", w, note)
+		}
+	}
+}
+
+func TestEventTypeUsesAsksEverySetNotTheFirst(t *testing.T) {
+	files := map[string]string{"lens.ts": `const A = new Set(["a1", "a2"]);
+const B = new Set(["b1"]);
+export const f = (e) => A.has(e.eventType) || B.has(e.eventType) || B.includes(e.event_type);
+`}
+	consumed, _ := EventTypeUses(files)
+	if got, want := types(consumed), []string{"a1", "a2", "b1"}; !same(got, want) {
+		t.Fatalf("got %v want %v", got, want)
 	}
 }

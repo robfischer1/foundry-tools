@@ -64,6 +64,10 @@ func TestRefusalGoTreeNamesTheStarFromItsModuleLine(t *testing.T) {
 		{"module \"git.notusmi.com/rob/hermes\"\n", "hermes", true},
 		{"module git.notusmi.com/rob/daedalus-fork\n", "", false},
 		{"module x\n", "", false},
+		{"module\tgit.notusmi.com/rob/hermes\n", "hermes", true},
+		{"modulegit.notusmi.com/rob/hermes\n", "", false},
+		{"  module git.notusmi.com/rob/hermes\n", "", false},
+		{"require git.notusmi.com/rob/hermes v1\n", "", false},
 		{"", "", false},
 	} {
 		got, ok := RefusalGoTree(tc.gomod)
