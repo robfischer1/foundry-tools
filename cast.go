@@ -26,10 +26,12 @@ import (
 // pip-installed from a hephaestus pin 580 commits behind main. The decisions
 // live in internal/castlane; this file is the chain.
 //
-// THE RECORD NAMES WHAT SHIPS. tools.cast (foundry-dies#226) carries the two
-// facts ci/cast.sh passed as arguments; the channel is app/<meta.name>:stable
-// for every binary repo. A repo whose record has no tools.cast is a finding,
-// not a fall-back to its tree.
+// THE TREE NAMES WHAT SHIPS. The binaries are every bin target the tree
+// builds (cargo metadata's default members, or every main under cmd/), the
+// payload is the tree's payload/ directory, and the channel is
+// app/<meta.name>:stable for every binary repo. The record supplies the name
+// and nothing else; it used to carry the binaries and the extras
+// (tools.cast, foundry-dies#226), a second copy of what the tree says.
 //
 // HEPHAESTUS CASTS AND SIGNS, ON PURPOSE (Scheduler Redistribution Part II,
 // D12). The lane stages the payload unsigned under {registry}/staging/, which
@@ -147,12 +149,12 @@ func (l *castLane) run(ctx context.Context) (int, string) {
 	if err != nil {
 		return l.stop("cast:record", buildlane.Findings, "findings: "+err.Error())
 	}
-	l.seal("cast:record", buildlane.Clean, "foundry-dies says "+star+" ships "+strings.Join(c.Binaries, ", "))
+	l.seal("cast:record", buildlane.Clean, "foundry-dies holds a record for "+star+"; its binaries and payload are the tree's")
 	mode := ""
 	if l.dryRun {
 		mode = " — dry run: the build and the pin run for real; nothing is staged, minted or verified"
 	}
-	castSay("%s at %.12s, binaries %v, payload_extra %v%s", c.Artifact(), m.Sha, c.Binaries, c.PayloadExtra, mode)
+	castSay("%s at %.12s%s", c.Artifact(), m.Sha, mode)
 
 	if _, ok, err := fileIn(ctx, m.Source, "cosign.pub"); err != nil {
 		return l.stop("cast:cosign", buildlane.CouldNotRun, fmt.Sprintf("could not run: the tree could not be read for cosign.pub: %v", err))
@@ -160,11 +162,12 @@ func (l *castLane) run(ctx context.Context) (int, string) {
 		return l.stop("cast:cosign", buildlane.Findings, "findings: this repo carries no cosign.pub, so a landed digest could not be verified — nothing was built")
 	}
 	l.seal("cast:cosign", buildlane.Clean, "the tree carries cosign.pub, so a landed digest can be verified")
-	payload, code, why := l.payload(ctx, c)
+	payload, binaries, code, why := l.payload(ctx, c)
 	if code != buildlane.Clean {
 		return l.stop("cast:payload", code, why)
 	}
-	l.seal("cast:payload", buildlane.Clean, "built and assembled what "+c.Artifact()+" ships")
+	l.say("binaries from the tree: %s", strings.Join(binaries, ", "))
+	l.seal("cast:payload", buildlane.Clean, "built and assembled what "+c.Artifact()+" ships: "+strings.Join(binaries, ", "))
 	pin, files, code, why := l.pin(ctx, payload)
 	if code != buildlane.Clean {
 		return l.stop("cast:pin", code, why)
@@ -234,28 +237,59 @@ func (l *castLane) run(ctx context.Context) (int, string) {
 	return 0, fmt.Sprintf("clean: cast %s at index %d (%s, %s) — staged, minted and signed by hephaestus, verified against cosign.pub%s%s", c.Artifact(), r.Index, r.Pin, r.Digest, noop, bell)
 }
 
-// payload builds the release binaries and assembles what ships: each binary at
-// the payload's root, and each payload_extra under its basename. A binary the
-// build did not leave, or an extra the checkout does not carry, is refused
-// rather than skipped: a bundle missing its hooks verifies clean and fails only
-// at runtime.
-func (l *castLane) payload(ctx context.Context, c castlane.Cast) (*dagger.Directory, int, string) {
-	built, dir, code, why := l.release(ctx, c)
+// payload builds the release binaries and assembles what ships: each binary
+// at the payload's root, and the repo's payload/ directory verbatim beside
+// them. A payload/x lands as x and a payload/d/ as d/. A name claimed twice is
+// refused rather than shipped as whichever was written last.
+//
+// THE TRANSITION: a tree with no payload/ still ships the record's
+// tools.cast.payload_extra, each under its basename, exactly as before. A tree
+// WITH payload/ ignores that field. The fallback goes with the field.
+// 0 is buildlane.Clean, spelled as the literal in the success returns below:
+// the constant's name in a return slot is a RETURN_ZERO mutant that rewrites it
+// to itself.
+func (l *castLane) payload(ctx context.Context, c castlane.Cast) (*dagger.Directory, []string, int, string) {
+	built, code, why := l.release(ctx)
 	if code != buildlane.Clean {
-		return nil, code, why
+		return nil, nil, code, why
+	}
+	havePayload, err := l.m.Source.Exists(ctx, castlane.PayloadDir, dagger.DirectoryExistsOpts{ExpectedType: dagger.ExistsTypeDirectoryType})
+	if err != nil {
+		return nil, nil, buildlane.CouldNotRun, fmt.Sprintf("could not run: the tree could not be read for %s/: %v", castlane.PayloadDir, err)
+	}
+	var top []string
+	if havePayload {
+		entries, err := l.m.Source.Directory(castlane.PayloadDir).Entries(ctx)
+		if err != nil {
+			return nil, nil, buildlane.CouldNotRun, fmt.Sprintf("could not run: %s/ could not be listed: %v", castlane.PayloadDir, err)
+		}
+		for _, e := range entries {
+			top = append(top, strings.TrimSuffix(e, "/"))
+		}
+	} else {
+		top, err = castlane.LegacyTargets(c.LegacyExtras)
+		if err != nil {
+			return nil, nil, buildlane.Findings, "findings: " + err.Error()
+		}
+	}
+	if err := castlane.Claims(built.binaries, top); err != nil {
+		return nil, nil, buildlane.Findings, "findings: " + err.Error()
 	}
 	payload := dag.Directory()
-	for _, b := range c.Binaries {
-		f := built.File(path.Join(dir, b))
+	for _, b := range built.binaries {
+		f := built.ctr.File(path.Join(built.dir, b))
 		if _, err := f.Size(ctx); err != nil {
-			return nil, buildlane.Findings, fmt.Sprintf("findings: the release build left no %q in %s", b, dir)
+			return nil, nil, buildlane.Findings, fmt.Sprintf("findings: the release build left no %q in %s", b, built.dir)
 		}
 		payload = payload.WithFile(b, f)
 	}
-	for _, p := range c.PayloadExtra {
+	if havePayload {
+		return payload.WithDirectory(".", l.m.Source.Directory(castlane.PayloadDir)), built.binaries, 0, ""
+	}
+	for _, p := range c.LegacyExtras {
 		under, err := l.m.Source.Glob(ctx, path.Join(p, "**"))
 		if err != nil {
-			return nil, buildlane.CouldNotRun, fmt.Sprintf("could not run: the tree could not be read for %s: %v", p, err)
+			return nil, nil, buildlane.CouldNotRun, fmt.Sprintf("could not run: the tree could not be read for %s: %v", p, err)
 		}
 		if len(under) > 0 {
 			payload = payload.WithDirectory(castlane.Target(p), l.m.Source.Directory(p))
@@ -263,103 +297,144 @@ func (l *castLane) payload(ctx context.Context, c castlane.Cast) (*dagger.Direct
 		}
 		_, ok, err := fileIn(ctx, l.m.Source, p)
 		if err != nil {
-			return nil, buildlane.CouldNotRun, fmt.Sprintf("could not run: the tree could not be read for %s: %v", p, err)
+			return nil, nil, buildlane.CouldNotRun, fmt.Sprintf("could not run: the tree could not be read for %s: %v", p, err)
 		}
 		if !ok {
-			return nil, buildlane.Findings, fmt.Sprintf("findings: tools.cast.payload_extra names %s, which this checkout does not carry", p)
+			return nil, nil, buildlane.Findings, fmt.Sprintf("findings: tools.cast.payload_extra names %s, which this checkout does not carry", p)
 		}
 		payload = payload.WithFile(castlane.Target(p), l.m.Source.File(p))
 	}
-	return payload, buildlane.Clean, ""
+	return payload, built.binaries, 0, ""
 }
 
-// release compiles tools.cast.binaries in the lane the tree declares and
-// answers the container holding them and the directory they were written to.
+// builtRelease is a cast's compile: the container holding the binaries, the
+// directory they were written to, and their names.
+type builtRelease struct {
+	ctr      *dagger.Container
+	dir      string
+	binaries []string
+}
+
+// release compiles every binary the tree builds in the lane the tree
+// declares and answers them.
+//
+// THE BINARIES ARE THE TREE'S: every bin target cargo says the workspace's
+// default members build, or every main package under cmd/. A binary repo's
+// binaries are its product (an image's are an implementation detail, which is
+// why the build lane reads the Dockerfile instead). Nothing is declared.
 //
 // THE LANE IS A FACT ABOUT THE TREE — never the record, never the copier
 // template — which is the rule every atom in this module already follows
 // (checks/lane.go says why). Rust is a Cargo.toml at the root; Go is a go.mod
-// at the root, read through the same module walk run.plan uses. A record that
-// says binary over a tree that declares neither is refused BY NAME: the lane
-// used to fall through to cargo unconditionally, which is how argus, a Go
-// repo, spent a week settling `could not find Cargo.toml` on every landing
-// (foundry-tools #9839) — a red about a toolchain nobody asked for, hidden
-// under six "automerge on green" landings whose gate was green and whose cast
-// was not. A tree declaring both is refused too: two toolchains that each
-// build a `tongs` would ship whichever ran last.
-func (l *castLane) release(ctx context.Context, c castlane.Cast) (*dagger.Container, string, int, string) {
+// at the root, read through the same module walk run.plan uses. A tree that
+// declares neither is refused BY NAME: the lane used to fall through to cargo
+// unconditionally, which is how argus, a Go repo, spent a week settling `could
+// not find Cargo.toml` on every landing (foundry-tools #9839). A tree declaring
+// both is refused too: two toolchains that each build a `tongs` would ship
+// whichever ran last.
+func (l *castLane) release(ctx context.Context) (builtRelease, int, string) {
 	r := newRun(l.m.Source, l.m.Repo, "")
 	entries, err := l.m.Source.Entries(ctx)
 	if err != nil {
-		return nil, "", buildlane.CouldNotRun, fmt.Sprintf("could not run: the repository root could not be read: %v", err)
+		return builtRelease{}, buildlane.CouldNotRun, fmt.Sprintf("could not run: the repository root could not be read: %v", err)
 	}
 	mods, err := r.goModuleDirs(ctx)
 	if err != nil {
-		return nil, "", buildlane.CouldNotRun, fmt.Sprintf("could not run: the tree's Go modules could not be enumerated: %v", err)
+		return builtRelease{}, buildlane.CouldNotRun, fmt.Sprintf("could not run: the tree's Go modules could not be enumerated: %v", err)
 	}
 	rust := checks.DeclaresLane(entries, checks.LaneRust)
 	goRoot := slices.Contains(mods, ".")
 	switch {
 	case rust && goRoot:
-		return nil, "", buildlane.Findings, "findings: the tree declares both a Cargo.toml and a root go.mod, so the cast cannot tell which toolchain builds tools.cast.binaries"
+		return builtRelease{}, buildlane.Findings, "findings: the tree declares both a Cargo.toml and a root go.mod, so the cast cannot tell which toolchain builds its binaries"
 	case rust:
 		return l.cargoRelease(ctx, r)
 	case goRoot:
-		return l.goRelease(ctx, r, c, slices.Contains(entries, "vendor/"))
+		return l.goRelease(ctx, r, slices.Contains(entries, "vendor/"))
 	}
-	return nil, "", buildlane.Findings, "findings: the record produces binary, but the tree declares no lane that builds one — no Cargo.toml and no go.mod at the root — so nothing can compile tools.cast.binaries"
+	return builtRelease{}, buildlane.Findings, "findings: the tree is cast as a binary repo and declares no lane that builds one — no Cargo.toml and no go.mod at the root — so nothing can compile its binaries"
 }
 
-// cargoRelease is the rust lane's release build: one `cargo build --release`
-// over the workspace, the binaries read back out of target/release.
-func (l *castLane) cargoRelease(ctx context.Context, r *run) (*dagger.Container, string, int, string) {
+// cargoRelease is the rust lane's release build: the binaries are the bin
+// targets cargo metadata names on the workspace's default members, and one
+// `cargo build --release` over the workspace builds them, read back out of
+// target/release.
+func (l *castLane) cargoRelease(ctx context.Context, r *run) (builtRelease, int, string) {
 	// THE TARGET DIRECTORY IS THE CONTAINER'S, NOT THE LANE'S CACHE. The rust
 	// lane points CARGO_TARGET_DIR at a cache volume so the gate's builds stay
 	// warm, and a file in a cache mount is not in the container's filesystem:
 	// the release binaries could never be read back out of it. The registry
 	// cache stays mounted, so a cast re-downloads nothing; it recompiles, as
 	// ca-cast always did.
-	built := r.lane(checks.ImageRust).
-		WithEnvVariable("CARGO_TARGET_DIR", castTarget).
-		WithExec([]string{"cargo", "build", "--release", "--locked"}, anyExit)
-	out, code, err := output(ctx, built)
+	lane := r.lane(checks.ImageRust).WithEnvVariable("CARGO_TARGET_DIR", castTarget)
+	// --no-deps and --locked: the workspace's own members only, against the
+	// committed lock. cargo answers on stdout, so stderr's progress chatter is
+	// kept out of the JSON by reading stdout alone.
+	meta := lane.WithExec([]string{"cargo", "metadata", "--no-deps", "--format-version", "1", "--locked"}, anyExit)
+	out, code, err := output(ctx, meta)
 	if err != nil {
-		return nil, "", buildlane.CouldNotRun, fmt.Sprintf("could not run: the release build did not run: %v", err)
+		return builtRelease{}, buildlane.CouldNotRun, fmt.Sprintf("could not run: cargo metadata did not run: %v", err)
+	}
+	if code != 0 {
+		cls, why := buildlane.ToolFailed("cargo metadata", out)
+		return builtRelease{}, cls, why
+	}
+	binaries, err := castlane.BinariesFromCargoMetadata(out)
+	if err != nil {
+		return builtRelease{}, buildlane.Findings, "findings: " + err.Error()
+	}
+	built := lane.WithExec([]string{"cargo", "build", "--release", "--locked"}, anyExit)
+	out, code, err = output(ctx, built)
+	if err != nil {
+		return builtRelease{}, buildlane.CouldNotRun, fmt.Sprintf("could not run: the release build did not run: %v", err)
 	}
 	if code != 0 {
 		cls, why := buildlane.ToolFailed("cargo build", out)
-		return nil, "", cls, why
+		return builtRelease{}, cls, why
 	}
-	return built, castTarget + "/release", buildlane.Clean, ""
+	return builtRelease{ctr: built, dir: castTarget + "/release", binaries: binaries}, 0, ""
 }
 
-// goRelease is the go lane's release build: one exec per declared binary,
-// each from ./cmd/<name>, with the flag set every Go image in the fleet is
-// built with (checks.ReleaseFlags — measured identical across all 29, no
+// goRelease is the go lane's release build: the binaries are every main
+// package under cmd/ (`go list -find`, which resolves no dependencies), one
+// exec each from ./cmd/<name>, with the flag set every Go image in the fleet
+// is built with (checks.ReleaseFlags — measured identical across all 29, no
 // exceptions) and -mod=vendor exactly when the module vendors, into
-// checks.ReleaseOut. Nothing is derived from cmd/: helios and thalia carry
-// four cmd/ directories between them that ship in no image, so the binaries
-// are the record's and only the record's.
+// checks.ReleaseOut. A binary repo ships all of cmd/: its binaries are its
+// product, where an image's are only what its Dockerfile copies.
 //
 // THE EXIT IS READ AFTER EACH EXEC, not once at the end. The chain runs on
 // under ReturnTypeAny, so with one read a first binary that failed to compile
 // would be reported by a second that did not, and the finding would arrive
 // later as "left no <bin>" with the compiler's own words gone.
-func (l *castLane) goRelease(ctx context.Context, r *run, c castlane.Cast, vendored bool) (*dagger.Container, string, int, string) {
+func (l *castLane) goRelease(ctx context.Context, r *run, vendored bool) (builtRelease, int, string) {
 	ctr := r.goModules(".").WithEnvVariable("CGO_ENABLED", "0")
-	for _, name := range c.Binaries {
+	list := ctr.WithExec([]string{"go", "list", "-find", "-f", "{{.Name}} {{.ImportPath}}", "./cmd/..."}, anyExit)
+	listed, code, err := output(ctx, list)
+	if err != nil {
+		return builtRelease{}, buildlane.CouldNotRun, fmt.Sprintf("could not run: go list did not run: %v", err)
+	}
+	if code != 0 {
+		cls, why := buildlane.ToolFailed("go list ./cmd/...", listed)
+		return builtRelease{}, cls, why
+	}
+	binaries, err := castlane.BinariesFromGoList(listed)
+	if err != nil {
+		return builtRelease{}, buildlane.Findings, "findings: " + err.Error()
+	}
+	for _, name := range binaries {
 		b := checks.ReleaseBinary{Name: name, Package: "./cmd/" + name}
 		ctr = ctr.WithExec(checks.GoReleaseArgs(b, vendored), anyExit)
 		out, code, err := output(ctx, ctr)
 		if err != nil {
-			return nil, "", buildlane.CouldNotRun, fmt.Sprintf("could not run: the release build of %s did not run: %v", b.Package, err)
+			return builtRelease{}, buildlane.CouldNotRun, fmt.Sprintf("could not run: the release build of %s did not run: %v", b.Package, err)
 		}
 		if code != 0 {
 			cls, why := buildlane.ToolFailed("go build "+b.Package, out)
-			return nil, "", cls, why
+			return builtRelease{}, cls, why
 		}
 	}
-	return ctr, checks.ReleaseOut, buildlane.Clean, ""
+	return builtRelease{ctr: ctr, dir: checks.ReleaseOut, binaries: binaries}, 0, ""
 }
 
 // pin runs castpin, built from this module's own source, over the payload:

@@ -9,6 +9,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"dagger/foundry-tools/internal/buildlane"
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
 )
@@ -425,15 +426,22 @@ func (m *FoundryTools) Release(ctx context.Context) (*dagger.Directory, error) {
 	}
 	// An image on the bun or python base is built on that base
 	// (atoms_release.go); the compiled lanes below read the tree.
-	if dir, onBase, err := r.releaseOnBase(ctx); onBase || err != nil {
-		return dir, err
+	dir, dockerfile, err := r.releaseOnBase(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if dir != nil {
+		return dir, nil
+	}
+	if dockerfile == "" {
+		return nil, fmt.Errorf("no tracked Dockerfile copies from %s/, so there is no release build to make", buildlane.ReleaseDir)
 	}
 	lane, err := r.releaseLane(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if lane == checks.LaneRust {
-		plan, why := r.rustReleasePlan(ctx, star)
+		plan, why := rustReleasePlan(star, dockerfile)
 		if why != "" {
 			return nil, errors.New(why)
 		}
@@ -446,7 +454,7 @@ func (m *FoundryTools) Release(ctx context.Context) (*dagger.Directory, error) {
 		}
 		return rustReleaseDir(ctr, plan), nil
 	}
-	plan, why := r.releasePlan(ctx, star)
+	plan, why := r.releasePlan(ctx, star, dockerfile)
 	if why != "" {
 		return nil, errors.New(why)
 	}

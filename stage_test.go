@@ -227,9 +227,10 @@ func TestATreeThePlannerCannotReadIsACouldNotRunPerLaneAtom(t *testing.T) {
 // never an empty directory, when there is nothing to hand over.
 func TestReleaseAnswersTheBuiltBinariesOrSaysWhyNot(t *testing.T) {
 	tree := map[string]string{
-		"Dockerfile":          "FROM x\n",
+		"Dockerfile":          copiesHades,
 		".copier-answers.yml": "service_name: hades\n",
 		"go.mod":              "module x\n",
+		"cmd/hades/main.go":   "package main\n",
 	}
 	engine.reset()
 	engine.withTree(tree)
@@ -252,6 +253,27 @@ func TestReleaseAnswersTheBuiltBinariesOrSaysWhyNot(t *testing.T) {
 		t.Errorf("the error carries the compiler's own words: %v", err)
 	}
 
+	// A Dockerfile that does not ask for release/ has no release build to hand
+	// over, and says so rather than guessing a binary.
+	engine.reset()
+	engine.withTree(map[string]string{
+		"Dockerfile": "FROM x\n", ".copier-answers.yml": "service_name: hades\n", "go.mod": "module x\n", "cmd/hades/main.go": "package main\n",
+	})
+	if dir, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err == nil || dir != nil || !strings.Contains(err.Error(), "no tracked Dockerfile copies from release/") {
+		t.Errorf("dir %v err %v", dir, err)
+	}
+	if engine.chain(`"go","build"`) != "" {
+		t.Errorf("a Dockerfile that does not ask still compiled:\n%v", engine.chains())
+	}
+
+	// A Dockerfile that cannot be read is an error that names it.
+	engine.reset()
+	engine.withTree(tree)
+	engine.failLeaf(`file(path:"Dockerfile")`, "contents", "the file went away")
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err == nil || !strings.Contains(err.Error(), "Dockerfile could not be read") {
+		t.Errorf("err %v", err)
+	}
+
 	// A repo that names no star cannot name a binary either.
 	engine.reset()
 	engine.withTree(map[string]string{"go.mod": "module x\n"})
@@ -264,9 +286,10 @@ func TestReleaseAnswersTheBuiltBinariesOrSaysWhyNot(t *testing.T) {
 	// planner's lane check the way the atom does.
 	engine.reset()
 	engine.withTree(map[string]string{
-		"Dockerfile":          "FROM x\n",
+		"Dockerfile":          copiesHades,
 		".copier-answers.yml": "service_name: hades\n",
 		"tools/go.mod":        "module x\n",
+		"cmd/hades/main.go":   "package main\n",
 	})
 	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err == nil || !strings.Contains(err.Error(), "no go.mod at the repository root") {
 		t.Errorf("err %v", err)
@@ -335,10 +358,10 @@ func TestReleaseBuildsARustStarWithCargoAndHandsOverItsBinaries(t *testing.T) {
 		t.Errorf("the error carries the compiler's own words: %v", err)
 	}
 
-	// A record's binary that is not a name is refused before anything runs.
+	// A COPY that is not a binary name is refused before anything runs.
 	engine.reset()
 	engine.withTree(tree)
-	engine.withTree(map[string]string{"/dies/fleet/stars/tron/slag.json": `{"tools":{"build":{"binaries":["../x"]}}}`})
+	engine.withTree(map[string]string{"Dockerfile": "FROM x\nCOPY release/-x /tron\n"})
 	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err == nil || !strings.Contains(err.Error(), "is not a binary name") {
 		t.Errorf("err %v", err)
 	}

@@ -12,19 +12,19 @@ import (
 	"dagger/foundry-tools/internal/buildlane"
 )
 
-// record is a v3 record around a tools block.
-func record(produces, tools string) string {
-	return `{"$schema":"https://forgejo.notusmi.com/rob/foundry-dies/schema/slag-v3.schema.json","meta":{"name":"cerberus","produces":` + produces + `},"tools":` + tools + `}`
+// record is a record around a tools block.
+func record(tools string) string {
+	return `{"$schema":"https://forgejo.notusmi.com/rob/foundry-dies/schema/slag-v3.schema.json","meta":{"name":"cerberus","produces":["binary"]},"tools":` + tools + `}`
 }
 
-// cerberus's record is the widest the fleet has: two binaries and a directory
-// of hooks beside them.
-func TestFromRecordReadsTheCastArguments(t *testing.T) {
-	c, err := FromRecord(record(`["binary"]`, `{"cast":{"binaries":["cerberus","git-credential-cerberus"],"payload_extra":[".cerberus/hooks"]}}`))
+// The record says the star's name and nothing else: whatever it still carries
+// of binaries, produces or a schema version is not read.
+func TestFromRecordReadsTheName(t *testing.T) {
+	c, err := FromRecord(record(`{"cast":{"binaries":["ignored"],"payload_extra":[".cerberus/hooks"]}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Cast{Name: "cerberus", Binaries: []string{"cerberus", "git-credential-cerberus"}, PayloadExtra: []string{".cerberus/hooks"}}
+	want := Cast{Name: "cerberus", LegacyExtras: []string{".cerberus/hooks"}}
 	if !reflect.DeepEqual(c, want) {
 		t.Fatalf("got %+v, want %+v", c, want)
 	}
@@ -37,41 +37,99 @@ func TestFromRecordReadsTheCastArguments(t *testing.T) {
 	if got := Target(".cerberus/hooks/"); got != "hooks" {
 		t.Errorf("target %q", got)
 	}
+	// No tools block, no produces, another schema: still a record with a name.
+	if c, err := FromRecord(`{"meta":{"name":"naiad"}}`); err != nil || c.Name != "naiad" || c.LegacyExtras != nil {
+		t.Errorf("a bare record: %+v %v", c, err)
+	}
 }
 
-// Every way a record cannot be cast is refused, naming what is wrong.
-func TestFromRecordRefusesARecordThatCannotBeCast(t *testing.T) {
-	cast := func(block string) string { return record(`["binary"]`, `{"cast":`+block+`}`) }
-	cases := map[string]struct{ slag, why string }{
-		"not json":                  {`{`, "does not parse"},
-		"not v3":                    {`{"meta":{"name":"x","produces":["binary"]},"tools":{"cast":{"binaries":["x"]}}}`, "not v3"},
-		"no name":                   {strings.Replace(cast(`{"binaries":["x"]}`), `"name":"cerberus"`, `"name":""`, 1), "no meta.name"},
-		"not a binary":              {record(`["image"]`, `{"cast":{"binaries":["x"]}}`), "produces [image], not binary"},
-		"no cast block":             {record(`["binary"]`, `{}`), "carries no tools.cast"},
-		"no binaries":               {cast(`{"binaries":[]}`), "binaries is empty"},
-		"an empty binary":           {cast(`{"binaries":[""]}`), `"" is not a file name`},
-		"a binary that is a path":   {cast(`{"binaries":["target/release/x"]}`), "is not a file name"},
-		"a windows path":            {cast(`{"binaries":["release\\x"]}`), "is not a file name"},
-		"a hidden binary":           {cast(`{"binaries":[".x"]}`), "is not a file name"},
-		"a flag for a binary":       {cast(`{"binaries":["-rf"]}`), "is not a file name"},
-		"a binary named twice":      {cast(`{"binaries":["x","x"]}`), `both land at "x"`},
-		"an empty extra":            {cast(`{"binaries":["x"],"payload_extra":[""]}`), "is not a path inside the repo"},
-		"an absolute extra":         {cast(`{"binaries":["x"],"payload_extra":["/etc"]}`), "is not a path inside the repo"},
-		"an extra that climbs":      {cast(`{"binaries":["x"],"payload_extra":["hooks/../../etc"]}`), "is not a path inside the repo"},
-		"an extra that is the repo": {cast(`{"binaries":["x"],"payload_extra":["."]}`), "names the repo itself"},
-		"an extra over a binary":    {cast(`{"binaries":["hooks"],"payload_extra":[".cerberus/hooks"]}`), `both land at "hooks"`},
-		"two extras on one name":    {cast(`{"binaries":["x"],"payload_extra":["a/hooks","b/hooks"]}`), `both land at "hooks"`},
-	}
-	for name, c := range cases {
+func TestFromRecordRefusesARecordWithNoName(t *testing.T) {
+	for name, c := range map[string]struct{ slag, why string }{
+		"not json": {`{`, "does not parse"},
+		"no name":  {`{"meta":{}}`, "no meta.name"},
+	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := FromRecord(c.slag)
-			if err == nil || !strings.Contains(err.Error(), c.why) {
+			if _, err := FromRecord(c.slag); err == nil || !strings.Contains(err.Error(), c.why) {
 				t.Fatalf("want a refusal naming %q, got %v", c.why, err)
 			}
 		})
 	}
-	// A segment that only contains dots is still inside the repo.
-	if _, err := FromRecord(cast(`{"binaries":["x"],"payload_extra":["a/b..c"]}`)); err != nil {
+}
+
+// Every main package directly under cmd/ ships, by directory name and
+// sorted; anything else go list prints does not.
+func TestBinariesFromGoList(t *testing.T) {
+	out := "main example.com/argus/cmd/gpx_control\nmain example.com/argus/cmd/argus\nargus example.com/argus/cmd/lib\n" +
+		"main example.com/argus/cmd/x/nested\nmain example.com/argus/cmd/\nmain example.com/argus/other\nmain\nmain a b\n\n"
+	got, err := BinariesFromGoList(out)
+	if err != nil || strings.Join(got, ",") != "argus,gpx_control" {
+		t.Errorf("got %v %v", got, err)
+	}
+	for _, none := range []string{"", "go: warning: \"./cmd/...\" matched no packages\n", "lib example.com/m/cmd/lib\n", "main\n", "main example.com/m/cmd/\n", "main example.com/m/elsewhere\n"} {
+		if _, err := BinariesFromGoList(none); err == nil {
+			t.Errorf("%q: a binary repo with no main is a finding", none)
+		}
+	}
+}
+
+// The bin targets of the DEFAULT members, and only those: gravity's members
+// include wasm-guest examples its default members leave out.
+func TestBinariesFromCargoMetadata(t *testing.T) {
+	meta := `{"packages":[
+		{"id":"p1","targets":[{"name":"cerberus-gauge","kind":["bin"]},{"name":"cerberus","kind":["bin"]},{"name":"cerberus_lib","kind":["lib"]}]},
+		{"id":"p2","targets":[{"name":"guest","kind":["bin"]}]},
+		{"id":"p3","targets":[{"name":"cerberus","kind":["bin"]}]}
+	],"workspace_default_members":["p1","p3"]}`
+	got, err := BinariesFromCargoMetadata(meta)
+	if err != nil || strings.Join(got, ",") != "cerberus,cerberus-gauge" {
+		t.Errorf("got %v %v", got, err)
+	}
+	for name, c := range map[string]struct{ doc, why string }{
+		"not json":     {"warning: not json", "not JSON"},
+		"no bins":      {`{"packages":[{"id":"p","targets":[{"name":"x","kind":["lib"]}]}],"workspace_default_members":["p"]}`, "no bin target"},
+		"none default": {`{"packages":[{"id":"p","targets":[{"name":"x","kind":["bin"]}]}],"workspace_default_members":[]}`, "no bin target"},
+	} {
+		if _, err := BinariesFromCargoMetadata(c.doc); err == nil || !strings.Contains(err.Error(), c.why) {
+			t.Errorf("%s: want a refusal naming %q, got %v", name, c.why, err)
+		}
+	}
+}
+
+// Every binary and every payload entry lands under one name; a second claim
+// is refused, and so is a name that is not a file name.
+func TestClaimsRefuseWhatWouldShipWhicheverWrittenLast(t *testing.T) {
+	if err := Claims([]string{"cerberus", "cerberus-gauge"}, []string{"hooks", "bin"}); err != nil {
+		t.Errorf("a clean payload: %v", err)
+	}
+	for name, c := range map[string]struct {
+		bins, payload []string
+		why           string
+	}{
+		"an empty binary":     {[]string{""}, nil, "is not a file name"},
+		"a path":              {[]string{"target/release/x"}, nil, "is not a file name"},
+		"a windows path":      {[]string{`release\x`}, nil, "is not a file name"},
+		"hidden":              {[]string{".x"}, nil, "is not a file name"},
+		"a flag":              {[]string{"-rf"}, nil, "is not a file name"},
+		"a binary twice":      {[]string{"x", "x"}, nil, `both land at "x"`},
+		"payload over binary": {[]string{"hooks"}, []string{"hooks"}, `both land at "hooks"`},
+	} {
+		if err := Claims(c.bins, c.payload); err == nil || !strings.Contains(err.Error(), c.why) {
+			t.Errorf("%s: want a refusal naming %q, got %v", name, c.why, err)
+		}
+	}
+}
+
+func TestLegacyTargets(t *testing.T) {
+	got, err := LegacyTargets([]string{".cerberus/hooks", "bin"})
+	if err != nil || strings.Join(got, ",") != "hooks,bin" {
+		t.Errorf("got %v %v", got, err)
+	}
+	for name, bad := range map[string]string{"empty": "", "absolute": "/etc", "climbs": "hooks/../../etc", "the repo": "."} {
+		if _, err := LegacyTargets([]string{bad}); err == nil {
+			t.Errorf("%s: want a refusal", name)
+		}
+	}
+	if _, err := LegacyTargets([]string{"a/b..c"}); err != nil {
 		t.Errorf("a/b..c is inside the repo: %v", err)
 	}
 }

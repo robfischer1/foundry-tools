@@ -488,14 +488,14 @@ func rustRelease(ctx context.Context, r *run) checks.Verdict {
 	if err != nil {
 		return checks.VerdictOf(a, 0, a.ID+": ABSENT - "+err.Error()+", so this is not a star image and there is no star release build")
 	}
-	asked, err := r.asksForRelease(ctx, checks.DockerfilePopulation(files))
+	asking, dockerfile, err := r.releaseDockerfile(ctx, checks.DockerfilePopulation(files))
 	if err != nil {
 		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+err.Error())
 	}
-	if !asked {
+	if asking == "" {
 		return checks.VerdictOf(a, 0, a.ID+": ABSENT - no tracked Dockerfile copies from "+buildlane.ReleaseDir+"/, so this image compiles itself: its build is the build lane's, and there is no release build to make here")
 	}
-	plan, why := r.rustReleasePlan(ctx, star)
+	plan, why := rustReleasePlan(star, dockerfile)
 	if why != "" {
 		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+why)
 	}
@@ -504,15 +504,13 @@ func rustRelease(ctx context.Context, r *run) checks.Verdict {
 	return v
 }
 
-// rustReleasePlan derives what the star's release build produces: its
-// record's binaries or its own name, each the workspace package of that name.
-// Every refusal is about the repository and settles as a could-not-run.
-func (r *run) rustReleasePlan(ctx context.Context, star string) (checks.ReleasePlan, string) {
-	var declared []string
-	if slag, err := r.dies.File("fleet/stars/" + star + "/slag.json").Contents(ctx); err == nil {
-		declared = checks.ReleaseBinaries(slag)
-	}
-	plan, err := checks.RustReleasePlan(star, declared)
+// rustReleasePlan derives what the star's release build produces: the
+// binaries its Dockerfile copies out of release/, each the workspace package
+// of that name. A COPY with no workspace package behind it fails `cargo build
+// -p` as a finding about the tree. Every refusal is about the repository and
+// settles as a could-not-run.
+func rustReleasePlan(star, dockerfile string) (checks.ReleasePlan, string) {
+	plan, err := checks.RustReleasePlan(star, buildlane.ReleaseCopies(dockerfile))
 	if err != nil {
 		return checks.ReleasePlan{}, err.Error()
 	}
