@@ -6,9 +6,11 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"net/http"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -409,7 +411,7 @@ var nonGoCaptureRe = regexp.MustCompile(`(?i)\b(?:graph_capture|create_?node)\b|
 // pass that does not say so reads as "no undeclared kind in this tree".
 func NonGoCaptureFiles(files map[string]string) []string {
 	var out []string
-	for p, body := range files {
+	for _, p := range slices.Sorted(maps.Keys(files)) {
 		switch path.Ext(p) {
 		case ".py", ".ts", ".tsx", ".rs":
 		default:
@@ -422,11 +424,10 @@ func NonGoCaptureFiles(files map[string]string) []string {
 				skip = true
 			}
 		}
-		if !skip && nonGoCaptureRe.MatchString(body) {
+		if !skip && nonGoCaptureRe.MatchString(files[p]) {
 			out = append(out, p)
 		}
 	}
-	sort.Strings(out)
 	return out
 }
 
