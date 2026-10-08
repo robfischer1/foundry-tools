@@ -118,9 +118,9 @@ const (
 
 // withAtomTools mounts, for the atoms of a stage, what they read or exec beyond
 // the tree: foundry-dies at main (the contracts), the pinned opa (dies:data-keys
-// builds the bundle with it) and the sidecar reader (orbit:sidecars). Only what
-// the stage's atoms use is mounted, so the pull path does not build the reader
-// and the orbit lane does not fetch opa.
+// builds the bundle with it) and the sidecar reader (orbit:sidecars). The tools
+// are mounted only for the stages whose atoms use them, so the pull path does
+// not build the reader and the orbit lane does not fetch opa.
 //
 // A TOOL THAT WILL NOT FETCH IS NOT MOUNTED, and the atom that needs it settles
 // 2 in the binary as its chain does on the same failure: one tool must not take
@@ -131,11 +131,11 @@ func (r *run) withAtomTools(ctx context.Context, ctr *dagger.Container, stage st
 	for _, id := range atoms.StageIDs(stage) {
 		has[id] = true
 	}
-	var flags []string
-	if has["ops:orbit-composed"] || has["orbit:contracts"] || has["orbit:repo"] || has["orbit:sidecars"] {
-		ctr = ctr.WithMountedDirectory(atomsDiesPath, r.dies)
-		flags = append(flags, "-dies", atomsDiesPath)
-	}
+	// foundry-dies is always mounted: the engine clones it once and caches it,
+	// and a tree-reading stage may need it for an atom this function does not
+	// name. (The atoms that read it settle 2 when the binary is not handed it.)
+	ctr = ctr.WithMountedDirectory(atomsDiesPath, r.dies)
+	flags := []string{"-dies", atomsDiesPath}
 	if has["orbit:sidecars"] {
 		ctr = ctr.WithFile(orbitBinPath, orbitParse(), dagger.ContainerWithFileOpts{Permissions: 0o755})
 	}

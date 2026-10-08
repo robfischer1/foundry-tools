@@ -12,9 +12,13 @@ import (
 // names them), a file's contents, a glob. Several atoms are written against
 // exactly those three questions, so their port keeps the questions and changes
 // only who answers: the disk, not the Dagger API.
-type tree struct{ root string }
+type tree struct {
+	root string
+	// fsys is the root as a file system for the walk; nil is the disk.
+	fsys fs.FS
+}
 
-func (in Input) tree() tree { return tree{root: in.Root} }
+func (in Input) tree() tree { return tree{root: in.Root, fsys: in.FS} }
 
 // entries lists dir's immediate children. The error is the directory's own:
 // it is not there or would not list.
@@ -62,7 +66,11 @@ func (t tree) glob(pattern string) []string {
 // any other.
 func (t tree) files() ([]string, error) {
 	var out []string
-	err := fs.WalkDir(os.DirFS(t.root), ".", func(p string, d fs.DirEntry, err error) error {
+	fsys := t.fsys
+	if fsys == nil {
+		fsys = os.DirFS(t.root)
+	}
+	err := fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
 		switch {
 		case err != nil:
 			return err

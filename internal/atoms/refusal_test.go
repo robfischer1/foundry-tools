@@ -92,6 +92,14 @@ func TestDiesRefusalCodesAsTheRegistryOwner(t *testing.T) {
 		in := treeIn(t, dieTree(map[string]string{checks.RefusalChecker: "x", checks.RefusalRegistry + "/x": "x"}))
 		expect(t, runAtom(t, id, in), stateOf(2), cannot, "the registry would not read")
 	})
+	t.Run("a registry whose first remote use the door answers goes on to the checker", func(t *testing.T) {
+		reg := "[[uses]]\nsource = { repo = \"rob/x\", path = \"a.py\" }\n"
+		in := treeIn(t, dieTree(map[string]string{checks.RefusalChecker: "x", checks.RefusalRegistry: reg}))
+		in.Door = doorOf(t, map[string]string{"rob/x a.py": "x"})
+		uv := &fakeUV{checkerOut: "graded"}
+		in.Exec = uv.exec
+		expect(t, runAtom(t, id, in), stateOf(0), pass, "graded")
+	})
 	t.Run("a registry whose first remote use the door cannot answer", func(t *testing.T) {
 		reg := "[[uses]]\nsource = { repo = \"rob/x\", path = \"a.py\" }\n"
 		in := treeIn(t, dieTree(map[string]string{checks.RefusalChecker: "x", checks.RefusalRegistry: reg}))
@@ -150,6 +158,30 @@ func TestDiesRefusalCodesAsASpellingTree(t *testing.T) {
 			expect(t, runAtom(t, id, in), stateOf(2), cannot, tc.needles...)
 		})
 	}
+	t.Run("the registry fetched from the door is probed against the door", func(t *testing.T) {
+		reg := "[[uses]]\nsource = { repo = \"rob/x\", path = \"a.py\" }\n"
+		answers := fleetOfFour()
+		answers[checks.RefusalRepo+" "+checks.RefusalRegistry] = reg
+		in := treeIn(t, core)
+		in.Door = doorBreaking(t, answers, "rob/x a.py")
+		in.Exec = (&fakeUV{}).exec
+		expect(t, runAtom(t, id, in), stateOf(2), cannot, "the door's archive read is unreachable (rob/x:a.py)")
+	})
+	t.Run("a tree is stellar-core only by BOTH paths", func(t *testing.T) {
+		for name, files := range map[string]map[string]string{
+			"the WIT alone":   {"wit/aiws-result.wit": "x", "go.mod": "module git.notusmi.com/rob/hermes\n"},
+			"the tapes alone": {"conformance/tapes/a.json": "{}", "go.mod": "module git.notusmi.com/rob/hermes\n"},
+		} {
+			in := treeIn(t, files)
+			in.Door = doorOf(t, fleetOfFour())
+			uv := &fakeUV{}
+			in.Exec = uv.exec
+			runAtom(t, id, in)
+			if args := strings.Join(uv.checker().Args, " "); !strings.Contains(args, "--tree hermes=.") {
+				t.Errorf("%s: graded as %q, want hermes", name, args)
+			}
+		}
+	})
 	t.Run("the fetched files cannot be placed", func(t *testing.T) {
 		blocker := filepath.Join(t.TempDir(), "not-a-dir")
 		if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {

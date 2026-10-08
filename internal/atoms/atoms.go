@@ -17,6 +17,7 @@ package atoms
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"time"
 
 	"dagger/foundry-tools/internal/checks"
@@ -79,6 +80,9 @@ type Input struct {
 	// other atoms that ask what the fleet holds). The zero value is the
 	// production door.
 	Door checks.Door
+	// FS is the root as a file system, for the whole-tree walk (the retired-verbs
+	// scan). Nil is the disk; a test says what a tree that will not walk does.
+	FS fs.FS
 	// Exec runs a program for the atoms whose tool is a program (opa, uv,
 	// orbitparse). Nil is the real thing (RunProgram).
 	Exec Exec

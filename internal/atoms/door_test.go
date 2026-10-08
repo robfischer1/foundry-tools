@@ -3,6 +3,7 @@ package atoms
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"strings"
 	"testing"
 )
 
@@ -85,6 +86,25 @@ func TestDaggerLockstep(t *testing.T) {
 			expect(t, runAtom(t, id, in), stateOf(tc.state), tc.result, tc.needles...)
 		})
 	}
+	t.Run("the pin files outside dagger.json are read, and the CLI follows the engine", func(t *testing.T) {
+		engine := map[string]string{"forge/dagger-engine-helm.yaml": "image: " + engineRef + "\n"}
+		for name, tc := range map[string]struct {
+			cli    string
+			state  int
+			result string
+		}{
+			"a CLI at the engine's version agrees": {"v0.20.0", 0, pass},
+			"a CLI behind the engine is a finding": {"v0.19.0", 1, findings},
+		} {
+			in := treeIn(t, map[string]string{
+				"forge/dagger-engine-helm.yaml":     engine["forge/dagger-engine-helm.yaml"],
+				"bases/layer-dagger-cli/Dockerfile": "FROM x\nARG DAGGER_VERSION=" + tc.cli + "\n",
+			})
+			in.Door = deadDoor(t) // the tree holds the engine itself; the door is not asked
+			expect(t, runAtom(t, id, in), stateOf(tc.state), tc.result)
+			_ = name
+		}
+	})
 	t.Run("a pin file that will not read is a 2", func(t *testing.T) {
 		in := treeIn(t, map[string]string{"a": "x"})
 		in.Files = append(in.Files, "dagger.json") // listed, and not on disk
@@ -127,6 +147,19 @@ func TestNodeKindsDeclared(t *testing.T) {
 			expect(t, runAtom(t, id, in), stateOf(tc.state), tc.result, tc.needles...)
 		})
 	}
+	t.Run("a pass names the non-Go files it did not read, a finding does not", func(t *testing.T) {
+		py := map[string]string{"client/chaos.py": "graph_capture(kind)\n"}
+		in := treeIn(t, py)
+		in.Door = deadDoor(t)
+		expect(t, runAtom(t, id, in), stateOf(0), pass, "NOT JUDGED: this check reads Go only, and 1 non-Go file(s) look like captures (client/chaos.py)")
+		files := capture("ChronicleChapterX")
+		files["client/chaos.py"] = py["client/chaos.py"]
+		in = treeIn(t, files)
+		in.Door = doorOf(t, door)
+		if v := runAtom(t, id, in); v.State != 1 || strings.Contains(v.Reason+strings.Join(v.Logs, "\n"), "NOT JUDGED") {
+			t.Errorf("a finding carries no note: state %d\n%s", v.State, v.Reason)
+		}
+	})
 	t.Run("a source file that will not read is a 2", func(t *testing.T) {
 		in := treeIn(t, map[string]string{"a": "x"})
 		in.Files = append(in.Files, "gone.go")

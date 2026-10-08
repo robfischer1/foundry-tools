@@ -28,7 +28,9 @@ func diesShape(t tree, a checks.AtomDef) *checks.Verdict {
 		v := checks.VerdictOf(a, int(checks.StateCannotRun), fmt.Sprintf("%s: CANNOT RUN - the repository root could not be read (%v), so this tree's shape is unknown rather than wrong.", a.ID, err))
 		return &v
 	}
-	if !checks.HasEntry(roots, "policy") || !checks.HasEntry(roots, "fleet") {
+	// policy/ is not asked of the listing: the manifest read below says it, and
+	// a policy/ without the manifest is the same absence.
+	if !checks.HasEntry(roots, "fleet") {
 		return &absent
 	}
 	if _, err := t.read("policy/.manifest"); err != nil {

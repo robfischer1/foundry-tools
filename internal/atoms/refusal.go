@@ -150,8 +150,8 @@ func refusalCore(ctx context.Context, a checks.AtomDef, in Input, tree string) c
 
 // place writes a fetched file, making its directories.
 func place(dest string, body []byte) error {
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return err
-	}
+	// The MkdirAll error is not branched on: a directory that could not be made
+	// fails the write below, with the same cause.
+	_ = os.MkdirAll(filepath.Dir(dest), 0o755)
 	return os.WriteFile(dest, body, 0o644)
 }

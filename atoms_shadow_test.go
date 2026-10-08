@@ -336,8 +336,8 @@ func TestAtomsVectorMountsWhatTheStageUses(t *testing.T) {
 		mounted []string
 		absent  []string
 	}{
-		{"orbit", `"-stage","orbit","-dies","/dies"`, []string{`path:"/usr/local/bin/orbitparse"`}, []string{`/usr/local/bin/opa`}},
-		{"prepush", `"-stage","prepush","-dies","/dies"`, nil, []string{`/usr/local/bin/orbitparse`}},
+		{"orbit", `"-stage","orbit","-dies","/dies"`, []string{`path:"/usr/local/bin/orbitparse"`}, []string{`path:"/usr/local/bin/opa"`}},
+		{"prepush", `"-stage","prepush","-dies","/dies"`, []string{`path:"/usr/local/bin/opa"`}, []string{`path:"/usr/local/bin/orbitparse"`}},
 	} {
 		t.Run(tc.stage, func(t *testing.T) {
 			engine.reset()
@@ -350,7 +350,8 @@ func TestAtomsVectorMountsWhatTheStageUses(t *testing.T) {
 			if c == "" {
 				t.Fatalf("no run chain carried %s; the engine saw:\n%s", tc.argv, strings.Join(engine.chains(), "\n"))
 			}
-			for _, want := range append(tc.mounted, `/dies`) {
+			// The mount, not the flag that names it.
+			for _, want := range append(tc.mounted, `path:"/dies"`) {
 				if !strings.Contains(c, want) {
 					t.Errorf("the run chain lacks %s:\n%s", want, c)
 				}

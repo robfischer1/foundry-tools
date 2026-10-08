@@ -3,8 +3,11 @@ package atoms
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -104,3 +107,53 @@ func missingRoot(t *testing.T) Input {
 func stateOf(n int) checks.State { return checks.State(n) }
 
 var errBoom = errors.New("boom")
+
+// failingFS is the disk, except that listing the named directory fails.
+type failingFS struct {
+	fs.FS
+	dir string
+}
+
+func (f failingFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	if name == f.dir {
+		return nil, errBoom
+	}
+	return fs.ReadDir(f.FS, name)
+}
+
+// brokenLink makes a file the glob lists and nothing can read: a symlink to
+// nowhere.
+func brokenLink(t *testing.T, root, rel string) {
+	t.Helper()
+	p := filepath.Join(root, rel)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "nowhere"), p); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// doorBreaking answers like doorOf, except that the connection for one file is
+// dropped mid-request: the door as a network that failed for that read alone.
+func doorBreaking(t *testing.T, answers map[string]string, breakOn string) checks.Door {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := r.URL.Query().Get("repo") + " " + r.URL.Query().Get("path")
+		if key == breakOn {
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err == nil {
+				_ = conn.Close()
+			}
+			return
+		}
+		body, ok := answers[key]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	return checks.Door{Base: srv.URL}
+}

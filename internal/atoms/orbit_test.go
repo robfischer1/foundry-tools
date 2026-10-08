@@ -2,6 +2,8 @@ package atoms
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -40,10 +42,27 @@ func TestOrbitContracts(t *testing.T) {
 		expect(t, runAtom(t, id, treeIn(t, map[string]string{"orbits/a-b.toml": "x"})), stateOf(0), absent, "not the contracts' repository")
 	})
 	t.Run("a directory of notes is not a contract", func(t *testing.T) {
-		expect(t, runAtom(t, id, treeIn(t, map[string]string{"orbits/README.md": "x"})), stateOf(0), absent, "not the contracts' repository")
+		notes := map[string]string{"orbits/README.md": "x", "fleet/stars/a/data.json": starData("a")}
+		expect(t, runAtom(t, id, treeIn(t, notes)), stateOf(0), absent, "not the contracts' repository")
 	})
 	t.Run("foundry-dies main not supplied is a 2", func(t *testing.T) {
-		expect(t, runAtom(t, id, treeIn(t, own)), stateOf(2), cannot, "foundry-dies main: ", "-dies")
+		expect(t, runAtom(t, id, treeIn(t, own)), stateOf(2), cannot, "foundry-dies main: ", "(-dies)")
+	})
+	t.Run("a contract of this tree that will not read is a 2", func(t *testing.T) {
+		in := treeIn(t, own)
+		brokenLink(t, in.Root, "orbits/z.toml")
+		expect(t, runAtom(t, id, in), stateOf(2), cannot, "orbits/* could not be read")
+	})
+	t.Run("a roster shard that will not read is a 2", func(t *testing.T) {
+		in := treeIn(t, own)
+		brokenLink(t, in.Root, "fleet/stars/z/data.json")
+		expect(t, runAtom(t, id, in), stateOf(2), cannot, "fleet/stars/z/data.json could not be read")
+	})
+	t.Run("foundry-dies' contracts that will not read are a 2", func(t *testing.T) {
+		in := treeIn(t, own)
+		in.Dies = diesAt(t, nil)
+		brokenLink(t, in.Dies, "orbits/z.toml")
+		expect(t, runAtom(t, id, in), stateOf(2), cannot, "foundry-dies main: orbits/*.toml could not be read")
 	})
 	t.Run("a contract that does not parse is recorded, report-only, and the atom stays 0", func(t *testing.T) {
 		in := treeIn(t, own)
@@ -73,11 +92,35 @@ func TestOrbitRepo(t *testing.T) {
 	t.Run("foundry-dies main not supplied is a 2", func(t *testing.T) {
 		in := treeIn(t, map[string]string{"orbit.toml": laid})
 		in.Origin = "http://door/rob/a.git"
-		expect(t, runAtom(t, id, in), stateOf(2), cannot, "-dies")
+		expect(t, runAtom(t, id, in), stateOf(2), cannot, "(-dies)")
 	})
 	t.Run("an orbit.toml that will not read is a 2", func(t *testing.T) {
-		expect(t, runAtom(t, id, treeIn(t, map[string]string{"orbit.toml/x": "x"})), stateOf(2), cannot, "orbit:repo: CANNOT RUN")
+		in := treeIn(t, map[string]string{"orbit.toml/x": "x"})
+		in.Dies = diesAt(t, nil)
+		expect(t, runAtom(t, id, in), stateOf(2), cannot, "orbit:repo: CANNOT RUN")
 	})
+	t.Run("a tree that would not enumerate", func(t *testing.T) {
+		expect(t, runAtom(t, id, missingRoot(t)), stateOf(2), cannot, "orbit:repo: CANNOT RUN")
+	})
+	for name, tc := range map[string]struct {
+		prepare func(t *testing.T, dies string)
+		needle  string
+	}{
+		"contracts that will not read":      {func(t *testing.T, d string) { brokenLink(t, d, "orbits/z.toml") }, "foundry-dies: orbits/*.toml could not be read"},
+		"a roster shard that will not read": {func(t *testing.T, d string) { brokenLink(t, d, "fleet/stars/z/data.json") }, "foundry-dies: fleet/stars/z/data.json could not be read"},
+		"a directory of orbits with no contract": {func(t *testing.T, d string) {
+			if err := os.Remove(filepath.Join(d, "orbits", "a-b.toml")); err != nil {
+				t.Fatal(err)
+			}
+		}, "foundry-dies/orbits does not compose"},
+	} {
+		t.Run("foundry-dies with "+name+" is a 2", func(t *testing.T) {
+			in := treeIn(t, map[string]string{"orbit.toml": laid})
+			in.Dies = diesAt(t, nil)
+			tc.prepare(t, in.Dies)
+			expect(t, runAtom(t, id, in), stateOf(2), cannot, tc.needle)
+		})
+	}
 	t.Run("a laid edge no contract composes to is recorded against this star", func(t *testing.T) {
 		in := treeIn(t, map[string]string{"orbit.toml": laid})
 		in.Origin = "http://door/rob/a.git"
@@ -118,6 +161,33 @@ func TestOrbitSidecarsAndOrbitComposed(t *testing.T) {
 		v := runAtom(t, "ops:orbit-composed", in)
 		expect(t, v, stateOf(1), findings, "prime/orbits against foundry-dies main: ")
 	})
+	for name, tc := range map[string]struct {
+		in     func(t *testing.T) Input
+		needle string
+	}{
+		"a rendered sidecar that will not read": {func(t *testing.T) Input {
+			in := treeIn(t, sidecar)
+			brokenLink(t, in.Root, "prime/orbits/z.orbit.toml")
+			in.Dies = diesAt(t, nil)
+			return in
+		}, "the rendered sidecars could not be read"},
+		"foundry-dies' contracts that will not read": {func(t *testing.T) Input {
+			in := treeIn(t, sidecar)
+			in.Dies = diesAt(t, nil)
+			brokenLink(t, in.Dies, "orbits/z.toml")
+			return in
+		}, "foundry-dies' contracts could not be read"},
+		"foundry-dies' roster that will not read": {func(t *testing.T) Input {
+			in := treeIn(t, sidecar)
+			in.Dies = diesAt(t, nil)
+			brokenLink(t, in.Dies, "fleet/stars/z/data.json")
+			return in
+		}, "foundry-dies' roster could not be read"},
+	} {
+		t.Run("ops:orbit-composed: "+name+" is a 2", func(t *testing.T) {
+			expect(t, runAtom(t, "ops:orbit-composed", tc.in(t)), stateOf(2), cannot, tc.needle)
+		})
+	}
 	t.Run("a sidecar that cannot be read is named, not read", func(t *testing.T) {
 		in := treeIn(t, map[string]string{"prime/orbits/sub/x": "x"})
 		in.Dies = diesAt(t, nil)

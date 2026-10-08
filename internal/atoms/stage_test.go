@@ -191,6 +191,12 @@ func TestEntriesGlobAndFiles(t *testing.T) {
 	if want := []string{"a.txt", "d/.git/inner", "d/b.txt", "d/e/c.txt"}; err != nil || !reflect.DeepEqual(files, want) {
 		t.Errorf("files %v, %v; want %v", files, err, want)
 	}
+	// A .git that is a FILE (a linked worktree's) is a file like any other.
+	linked := treeIn(t, map[string]string{".git": "gitdir: /elsewhere", "a.txt": "a"}).tree()
+	files, err = linked.files()
+	if want := []string{".git", "a.txt"}; err != nil || !reflect.DeepEqual(files, want) {
+		t.Errorf("files with a .git file %v, %v; want %v", files, err, want)
+	}
 	if _, err := (tree{root: filepath.Join(in.Root, "nope")}).files(); err == nil {
 		t.Error("a root that is not there walked")
 	}
@@ -208,6 +214,7 @@ func TestRunProgram(t *testing.T) {
 		{"success keeps stdout only, trimmed", Cmd{Name: "sh", Args: []string{"-c", script + "0"}}, "out", 0},
 		{"failure adds stderr", Cmd{Name: "sh", Args: []string{"-c", script + "3"}}, "out\nerr", 3},
 		{"both is both streams, untrimmed, on success", Cmd{Name: "sh", Args: []string{"-c", script + "0"}, Both: true}, "out\nerr\n", 0},
+		{"both keeps the exit code of a failure", Cmd{Name: "sh", Args: []string{"-c", script + "3"}, Both: true}, "out\nerr\n", 3},
 		{"a program that will not start is exit -1", Cmd{Name: "no-such-program-here"}, "no-such-program-here: ", -1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

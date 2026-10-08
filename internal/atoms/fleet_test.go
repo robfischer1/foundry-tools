@@ -3,6 +3,7 @@ package atoms
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -35,6 +36,7 @@ func TestSastRulesetLanes(t *testing.T) {
 		{"every lane declared passes",
 			map[string]string{"rules/sast/a.yml": "languages: [\"go\", rust]\n", "go.mod": "module x\n", "Cargo.toml": "x"}, 0, pass,
 			[]string{"ruleset declares every lane this repo builds"}},
+		{"a rules that is not a directory will not list", map[string]string{"rules": "x"}, 2, cannot, []string{"the tree would not enumerate"}},
 		{"a ruleset file that will not read is a ruleset not examined",
 			map[string]string{"rules/sast/a.yml/inner.txt": "x"}, 2, cannot, []string{"rules/sast/a.yml/ would not read"}},
 	} {
@@ -113,7 +115,11 @@ func TestOureaConfigRetiredKeys(t *testing.T) {
 			if tc.dead {
 				in.Door = deadDoor(t)
 			}
-			expect(t, runAtom(t, id, in), stateOf(tc.state), tc.result, tc.needles...)
+			v := runAtom(t, id, in)
+			expect(t, v, stateOf(tc.state), tc.result, tc.needles...)
+			if tc.dead && strings.Contains(v.Reason, "HTTP 0") {
+				t.Errorf("a door nothing answered at is an error, not a status of 0:\n%s", v.Reason)
+			}
 		})
 	}
 	t.Run("a prime that will not list", func(t *testing.T) {
@@ -162,6 +168,11 @@ func TestRetiredVerbs(t *testing.T) {
 			expect(t, runAtom(t, id, treeIn(t, tc.files)), stateOf(tc.state), tc.result, tc.needles...)
 		})
 	}
+	t.Run("a composition surface that will not walk", func(t *testing.T) {
+		in := treeIn(t, map[string]string{"retired-verbs.toml": ledger, "skills/ok.md": "x"})
+		in.FS = failingFS{FS: os.DirFS(in.Root), dir: "skills"}
+		expect(t, runAtom(t, id, in), stateOf(2), cannot, "the composition surface would not enumerate: boom")
+	})
 	t.Run("a unit that will not read", func(t *testing.T) {
 		in := treeIn(t, map[string]string{"retired-verbs.toml": ledger, "skills/ok.md": "x"})
 		if err := os.Symlink(filepath.Join(in.Root, "nowhere"), filepath.Join(in.Root, "skills", "broken.md")); err != nil {

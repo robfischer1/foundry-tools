@@ -142,24 +142,29 @@ func TestDiesDataKeys(t *testing.T) {
 			t.Errorf("opa ran in %q, not the repository root %q", build.Dir, in.Root)
 		}
 	})
-	t.Run("a tree git cannot resolve a HEAD in builds as unknown", func(t *testing.T) {
-		in := treeIn(t, dieTree(nil))
-		var rev string
-		in.Exec = func(_ context.Context, c Cmd) (string, int) {
-			switch {
-			case c.Name == "git":
-				return "fatal: bad revision", 128
-			case c.Name == "opa" && c.Args[0] == "version":
-				return pinned, 0
-			case c.Name == "opa":
-				rev = strings.Join(c.Args, " ")
-				return "", 0
+	for name, git := range map[string]func() (string, int){
+		"a tree git cannot resolve a HEAD in":  func() (string, int) { return "fatal: bad revision", 128 },
+		"a git that succeeds and says nothing": func() (string, int) { return "", 0 },
+	} {
+		t.Run(name+" builds as unknown", func(t *testing.T) {
+			in := treeIn(t, dieTree(nil))
+			var rev string
+			in.Exec = func(_ context.Context, c Cmd) (string, int) {
+				switch {
+				case c.Name == "git":
+					return git()
+				case c.Name == "opa" && c.Args[0] == "version":
+					return pinned, 0
+				case c.Name == "opa":
+					rev = strings.Join(c.Args, " ")
+					return "", 0
+				}
+				return goodData, 0
 			}
-			return goodData, 0
-		}
-		expect(t, runAtom(t, id, in), stateOf(0), pass)
-		if !strings.Contains(rev, "--revision unknown") {
-			t.Errorf("the build ran as %q", rev)
-		}
-	})
+			expect(t, runAtom(t, id, in), stateOf(0), pass)
+			if !strings.Contains(rev, "--revision unknown") {
+				t.Errorf("the build ran as %q", rev)
+			}
+		})
+	}
 }
