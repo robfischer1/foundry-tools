@@ -257,8 +257,18 @@ func (m *FoundryTools) Catalogue(ctx context.Context) (string, error) {
 // atom's chain as its own DAG, so independent atoms overlap by default once
 // they are asked for concurrently; the bound keeps a lane's heaviest atoms
 // (`go test -race`, `cargo test`, a mutation run) from stacking their memory
-// on one 8Gi engine.
-const atomsInFlight = 4
+// on one engine.
+//
+// TWELVE, NOT FOUR. Four was sized for one 8Gi engine: two gigabytes an atom.
+// The fleet runs two engines with a 56Gi limit each, and the F0 baseline found
+// the gate's wall time past its longest atom by 20s to 94s — atoms waiting
+// for a slot behind four others, not work. Twelve keeps the same two gigabytes
+// an atom with a slot or two to spare for a second gate on the engine. It is
+// sized from those limits, not measured under load: the gate lane's peak
+// memory is not in the CI record. A gate that fits in twelve (a Go star's is
+// about twenty atoms, most of them seconds long) loses its queue; one that
+// does not still has a bound.
+const atomsInFlight = 12
 
 // Verdicts runs every atom that has a surface here and answers the VECTOR —
 // one element per atom, each preserving its own 0/1/2. The door reads the join,

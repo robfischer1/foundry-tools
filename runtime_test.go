@@ -295,6 +295,33 @@ func TestLanesProvisionTheirToolsPinnedAndInVolatilityOrder(t *testing.T) {
 	noShell(t, c)
 }
 
+// opengrep is checked against its pinned sha256 on every lane before anything
+// runs it, in the lane's chain and ahead of the version probe.
+func TestEveryLaneVerifiesOpengrepAgainstItsPin(t *testing.T) {
+	for _, tc := range []struct{ atom, needle string }{
+		{"go:vet", `"go","vet"`},
+		{"python:ruff-check", `"uvx","ruff@`},
+		{"rust:cargo-fmt", `"cargo","fmt"`},
+		{"ts:bun-audit", `"bun","audit"`},
+	} {
+		engine.reset()
+		engine.withTree(everyLaneTree)
+		runAtom(t, tc.atom, "")
+		c := engine.chain(tc.needle, "exitCode")
+		sum := checks.ToolSHA256[checks.OpengrepURL]
+		wantCalls(t, c,
+			[]string{"withExec", `args:["/usr/bin/sha256sum","-c","-"]`, `stdin:"` + sum + `  /usr/local/bin/opengrep`},
+		)
+		// The rust lane has no probe of its own; where one exists it follows.
+		if probe := lastCall(c, "withExec", `args:["opengrep","--version"]`); probe >= 0 && lastCall(c, "withExec", `"/usr/bin/sha256sum","-c"`) > probe {
+			t.Errorf("%s: opengrep is probed before it is verified:\n%s", tc.atom, c)
+		}
+		if hasCall(c, "withExec", `"/usr/bin/sha256sum"`, `expect:ANY`) {
+			t.Errorf("%s: the checksum is provisioning and must run under the default Expect:\n%s", tc.atom, c)
+		}
+	}
+}
+
 // THE NARROWING (CA F12). A compile, a vet, a lint or a test suite mounts the
 // tree less checks.InertPaths — the README, the changelog, the hooks, the
 // justfiles, pre-commit's and copier's files — so its exec is keyed on the

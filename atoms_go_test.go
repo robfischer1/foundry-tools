@@ -126,7 +126,7 @@ func TestGoTestRaceCountsTestFilesBeforeRunning(t *testing.T) {
 	wantCalls(t, c,
 		[]string{"withMountedDirectory", `path:"/dies"`},
 		[]string{"withEnvVariable", `name:"FOUNDRY_DIES"`, `value:"/dies"`},
-		[]string{"withExec", `expect:ANY`, `args:["go","test","-race","./..."]`},
+		[]string{"withExec", `expect:ANY`, `args:["go","test","-race","-covermode","atomic","-coverprofile","/tmp/race-cover.out","./..."]`},
 	)
 
 	engine.stdout(`"go","list"`, "00\n00\n")
@@ -190,7 +190,7 @@ func TestGoTestRaceBringsTheRecordsPostgres(t *testing.T) {
 		[]string{"withEnvVariable", `name:"TEST_DATABASE_URL"`, `value:"` + checks.TestDBs[0].DSN() + `"`},
 		[]string{"withEnvVariable", `name:"TEST_NOVECTOR_DATABASE_URL"`, `value:"` + checks.TestDBs[1].DSN() + `"`},
 		// The vocabulary's two tags, in its order, and one database at a time.
-		[]string{"withExec", `expect:ANY`, `args:["go","test","-race","-tags","live_db,live_db_novector","-p","1","./..."]`},
+		[]string{"withExec", `expect:ANY`, `args:["go","test","-race","-covermode","atomic","-coverprofile","/tmp/race-cover.out","-tags","live_db,live_db_novector","-p","1","./..."]`},
 	)
 	// The servers are the pinned images, run as services on their port.
 	for _, img := range []string{checks.ImagePgvector, checks.ImagePostgres} {
@@ -218,7 +218,7 @@ func TestGoTestRaceBringsTheRecordsPostgres(t *testing.T) {
 	engine.withTree(map[string]string{"/dies/fleet/stars/x/slag.json": `{"backends":{}}`})
 	wantState(t, runAtom(t, "go:test-race", ""), 0, "test databases: none", "no postgres backend")
 	c = engine.chain(`"go","test","-race"`, "exitCode")
-	if hasCall(c, "withServiceBinding") || !hasCall(c, "withExec", `args:["go","test","-race","./..."]`) {
+	if hasCall(c, "withServiceBinding") || !hasCall(c, "withExec", `args:["go","test","-race","-covermode","atomic","-coverprofile","/tmp/race-cover.out","./..."]`) {
 		t.Errorf("a record without postgres binds nothing and compiles no tag:\n%s", c)
 	}
 
@@ -1659,5 +1659,45 @@ func TestTheStatementOperatorIsNotDisabledByAccident(t *testing.T) {
 	}
 	if strings.Contains(goMutationDisable, "INCREMENT_DECREMENT") {
 		t.Errorf("goMutationDisable %q contains INCREMENT_DECREMENT as a substring of some other entry", goMutationDisable)
+	}
+}
+
+// The go lane compiles once and the analysers branch from that build: vet,
+// staticcheck and govulncheck each carry the same `go build ./...` — under
+// anyExit, so a compile error stays vet's to report (the fake engine matches a
+// script by substring of the whole chain, so that cannot be shown by scripting
+// the build's exit here) — between the download and
+// their own tool, and go:build is the one atom whose verdict reads it.
+func TestGoAnalysersBranchFromOneWarmBuild(t *testing.T) {
+	for _, tc := range []struct{ id, exec string }{
+		{"go:vet", `"go","vet"`},
+		{"go:staticcheck", `"staticcheck","-checks"`},
+		{"go:govulncheck", `"govulncheck","./..."`},
+	} {
+		engine.reset()
+		engine.withTree(everyLaneTree)
+		wantState(t, runAtom(t, tc.id, ""), 0)
+		c := engine.chain(tc.exec, "exitCode")
+		download := lastCall(c, "withExec", `args:["go","mod","download"]`)
+		build := lastCall(c, "withExec", `expect:ANY`, `args:["go","build","./..."]`)
+		tool := lastCall(c, "withExec", tc.exec)
+		if download < 0 || build < 0 || tool < 0 || download >= build || build >= tool {
+			t.Errorf("%s: want download, then the warm build, then the tool (got %d, %d, %d):\n%s", tc.id, download, build, tool, c)
+		}
+		if n := strings.Count(c, `"go","build"`); n != 1 {
+			t.Errorf("%s: the chain builds %d times, want once:\n%s", tc.id, n, c)
+		}
+	}
+}
+
+// go:test-race records a coverage profile, atomic mode, outside the tree.
+func TestGoRaceCoverArgsNameTheProfile(t *testing.T) {
+	got := strings.Join(goRaceCoverArgs(), " ")
+	want := "-race -covermode atomic -coverprofile " + goRaceProfile
+	if got != want {
+		t.Errorf("goRaceCoverArgs = %q, want %q", got, want)
+	}
+	if !strings.HasPrefix(goRaceProfile, "/tmp/") {
+		t.Errorf("the profile must sit outside the tree, got %s", goRaceProfile)
 	}
 }
