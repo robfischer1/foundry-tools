@@ -132,46 +132,82 @@ func renderShadow(today []checks.Verdict, todayErr error, raw string, rawErr err
 	return atoms.Compare(today, shadow).Render()
 }
 
-// shadowTimeout bounds the shadow run, its own deadline apart from the gate's.
-// A variable so a test can hang the shadow without waiting out five minutes.
+// THE SHADOW'S PACKAGE STATE. Each variable below is a seam the tests replace
+// (atoms_shadow_test.go's init sets shadowRun and shadowOut to inert values so
+// no gate test runs the real shadow by accident; the shadow tests set their
+// own and restore them). startShadow COPIES every one of them before it starts
+// a goroutine, because an abandoned shadow outlives the call that started it
+// and must never read a variable the next call, or the next test, is writing.
+
+// shadowTimeout bounds the shadow run's own context, apart from the gate's.
 var shadowTimeout = 5 * time.Minute
 
-// shadowRun is the shadow itself, a variable so the tests can make it hang,
-// panic or answer garbage and prove the gate does not notice.
+// shadowGrace is how long the gate waits for the shadow AFTER its own record is
+// settled (and posted). The shadow starts BEFORE the gate grades, so on a
+// normal run it has had the gate's whole duration; the grace is only the tail.
+// Past it the shadow is abandoned and the gate returns. Latency is a vote: a
+// gate that waits for a non-voting check has let it decide when the record
+// lands, and GateFile's volume fallback for a failed post must not sit behind it.
+var shadowGrace = 30 * time.Second
+
+// shadowRun is the shadow itself, so the tests can make it hang, panic or
+// answer garbage and prove the gate does not notice.
 var shadowRun = func(ctx context.Context, m *FoundryTools, base string) string {
 	return m.ShadowAtoms(ctx, base)
 }
 
-// shadowOut is where the report goes: stderr, read at call time. Never the
-// record and never the exit.
+// shadowOut is where the report goes: stderr. Never the record, never the exit.
 var shadowOut = func() io.Writer { return os.Stderr }
 
-// shadowBeside runs the shadow after the gate's record is settled, and says
-// what it found on stderr. IT CANNOT VOTE: it returns nothing, runs under its
-// own deadline, recovers a panic into a line of the report, and is called only
-// after the record exists (Gate) or has been posted (GateFile). The pull path
-// only - the mutation, orbit and visual lanes have no atoms in the binary.
-func (m *FoundryTools) shadowBeside(ctx context.Context, stage, base string) {
+// shadowHandle is a started shadow. A nil handle (a lane with no shadow) is
+// valid and finish on it does nothing.
+type shadowHandle struct {
+	done   chan string
+	cancel context.CancelFunc
+	grace  time.Duration
+	out    io.Writer
+}
+
+// startShadow starts the shadow in a goroutine and answers at once. IT CANNOT
+// VOTE: it returns no state, runs under its own deadline, recovers a panic into
+// a line of the report, and only the pull path has one (the mutation, orbit and
+// visual lanes have no atoms in the binary). Call it before grading, so the
+// shadow overlaps the gate instead of following it, and call finish after the
+// record is settled.
+func (m *FoundryTools) startShadow(ctx context.Context, stage, base string) *shadowHandle {
 	if laneOf(stage) != "gate" {
-		return
+		return nil
 	}
-	ctx, cancel := context.WithTimeout(ctx, shadowTimeout)
-	defer cancel()
-	// Buffered: a shadow that answers after its deadline can still return.
-	done := make(chan string, 1)
+	// Every package variable the goroutine would read, copied HERE.
+	run, timeout := shadowRun, shadowTimeout
+	h := &shadowHandle{done: make(chan string, 1), grace: shadowGrace, out: shadowOut()}
+	ctx, h.cancel = context.WithTimeout(ctx, timeout)
+	// Buffered: an abandoned shadow can still return and its goroutine end.
 	go func() {
 		defer func() {
 			if p := recover(); p != nil {
-				done <- fmt.Sprintf("shadow atoms: not compared - the shadow panicked: %v", p)
+				h.done <- fmt.Sprintf("shadow atoms: not compared - the shadow panicked: %v", p)
 			}
 		}()
-		done <- shadowRun(ctx, m, base)
+		h.done <- run(ctx, m, base)
 	}()
-	var report string
-	select {
-	case report = <-done:
-	case <-ctx.Done():
-		report = fmt.Sprintf("shadow atoms: not compared - no answer within %s (%v)", shadowTimeout, ctx.Err())
+	return h
+}
+
+// finish waits at most the grace for the report, prints it to stderr, and
+// abandons the shadow if it has not answered. The goroutine never writes to
+// out: only the caller does, so an abandoned shadow cannot print later.
+func (h *shadowHandle) finish() {
+	if h == nil {
+		return
 	}
-	fmt.Fprintln(shadowOut(), report)
+	defer h.cancel()
+	timer := time.NewTimer(h.grace)
+	defer timer.Stop()
+	select {
+	case report := <-h.done:
+		fmt.Fprintln(h.out, report)
+	case <-timer.C:
+		fmt.Fprintf(h.out, "shadow atoms: not compared - no answer within the %s grace after the gate settled\n", h.grace)
+	}
 }

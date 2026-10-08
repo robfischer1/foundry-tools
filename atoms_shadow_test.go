@@ -17,8 +17,9 @@ import (
 	"dagger/foundry-tools/internal/checks"
 )
 
-// NO TEST RUNS THE REAL SHADOW BY ACCIDENT. Gate calls shadowBeside, and the
-// real shadow asks the paper engine for the whole vector and a binary run, which
+// NO TEST RUNS THE REAL SHADOW BY ACCIDENT. This init is the seam's other half:
+// the variables it overrides are documented in atoms_shadow.go (shadowRun and
+// shadowOut). Gate calls startShadow, and the real shadow asks the paper engine for the whole vector and a binary run, which
 // would add queries to every gate test's record and print a report into its
 // stderr. The tests that mean the shadow set their own.
 func init() {
@@ -137,8 +138,8 @@ func TestRenderShadowNamesTheChainsFirst(t *testing.T) {
 // answer an error line, answer nothing - the record Gate returns is the bytes it
 // returns without a shadow, and the call returns no error.
 func TestAShadowThatMisbehavesChangesNothingTheGateAnswers(t *testing.T) {
-	origRun, origTimeout, origOut := shadowRun, shadowTimeout, shadowOut
-	t.Cleanup(func() { shadowRun, shadowTimeout, shadowOut = origRun, origTimeout, origOut })
+	origRun, origGrace, origOut := shadowRun, shadowGrace, shadowOut
+	t.Cleanup(func() { shadowRun, shadowGrace, shadowOut = origRun, origGrace, origOut })
 	shadowOut = func() io.Writer { return io.Discard }
 	shadowRun = func(context.Context, *FoundryTools, string) string { return "" }
 	m := gateOn(t, redVector)
@@ -151,7 +152,7 @@ func TestAShadowThatMisbehavesChangesNothingTheGateAnswers(t *testing.T) {
 		run  func(context.Context, *FoundryTools, string) string
 		said string
 	}{
-		{"hangs", func(context.Context, *FoundryTools, string) string { <-stuck; return "late" }, "no answer within"},
+		{"hangs", func(context.Context, *FoundryTools, string) string { <-stuck; return "late" }, "no answer within the 50ms grace"},
 		{"panics", func(context.Context, *FoundryTools, string) string { panic("shadow bug") }, "the shadow panicked: shadow bug"},
 		{"errors", func(context.Context, *FoundryTools, string) string { return "shadow atoms: not compared - boom" }, "not compared - boom"},
 		{"says nothing", func(context.Context, *FoundryTools, string) string { return "" }, ""},
@@ -159,7 +160,12 @@ func TestAShadowThatMisbehavesChangesNothingTheGateAnswers(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var buf bytes.Buffer
 			shadowOut = func() io.Writer { return &buf }
-			shadowTimeout = 50 * time.Millisecond
+			// Only the hang needs a short grace; the others answer at once and a
+			// short one would let a stalled node abandon them.
+			shadowGrace = 10 * time.Second
+			if tc.name == "hangs" {
+				shadowGrace = 50 * time.Millisecond
+			}
 			shadowRun = tc.run
 			m := gateOn(t, redVector)
 			got, err := m.Gate(context.Background(), fakeTree, gatePin, "base-sha", "")
@@ -184,7 +190,7 @@ func TestTheShadowRunsOnTheGateLaneOnly(t *testing.T) {
 	for stage, want := range map[string]int{"": 1, "prepush": 1, "precommit": 0, "mutation": 0, "orbit": 0, "visual": 0} {
 		calls := 0
 		shadowRun = func(context.Context, *FoundryTools, string) string { calls++; return "r" }
-		(&FoundryTools{}).shadowBeside(context.Background(), stage, "b")
+		(&FoundryTools{}).startShadow(context.Background(), stage, "b").finish()
 		if calls != want {
 			t.Errorf("stage %q: shadow ran %d times, want %d", stage, calls, want)
 		}
@@ -280,4 +286,57 @@ func TestAtomsVectorRunsTheBinaryInTheFleetLane(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The gate does not wait out a shadow that hangs: its wall time is the vector's
+// plus at most the grace. The vector takes 200ms here; the shadow never answers.
+func TestAHangingShadowCostsTheGateAtMostTheGrace(t *testing.T) {
+	origRun, origGrace, origOut := shadowRun, shadowGrace, shadowOut
+	t.Cleanup(func() { shadowRun, shadowGrace, shadowOut = origRun, origGrace, origOut })
+	stuck := make(chan struct{})
+	t.Cleanup(func() { close(stuck) })
+	shadowRun = func(context.Context, *FoundryTools, string) string { <-stuck; return "late" }
+	shadowGrace = 100 * time.Millisecond
+	var buf bytes.Buffer
+	shadowOut = func() io.Writer { return &buf }
+
+	const vectorTime = 200 * time.Millisecond
+	m := gateOn(t, cleanVector)
+	slow := gateVector
+	gateVector = func(ctx context.Context, m *FoundryTools, s, b string) (string, error) {
+		time.Sleep(vectorTime)
+		return slow(ctx, m, s, b)
+	}
+	start := time.Now()
+	if _, err := m.Gate(context.Background(), fakeTree, gatePin, "base-sha", ""); err != nil {
+		t.Fatal(err)
+	}
+	elapsed := time.Since(start)
+	if elapsed < vectorTime {
+		t.Fatalf("the gate returned in %v, before its own vector (%v)", elapsed, vectorTime)
+	}
+	if limit := vectorTime + shadowGrace + 2*time.Second; elapsed > limit {
+		t.Errorf("the gate took %v with a hung shadow; vector %v + grace %v allows %v", elapsed, vectorTime, shadowGrace, limit)
+	}
+	if !strings.Contains(buf.String(), "no answer within") {
+		t.Errorf("stderr %q", buf.String())
+	}
+}
+
+// A shadow that answers before the gate settles costs the gate nothing.
+func TestAShadowThatFinishesFirstIsReportedWithoutWaiting(t *testing.T) {
+	origRun, origGrace, origOut := shadowRun, shadowGrace, shadowOut
+	t.Cleanup(func() { shadowRun, shadowGrace, shadowOut = origRun, origGrace, origOut })
+	shadowRun = func(context.Context, *FoundryTools, string) string { return "report" }
+	shadowGrace = time.Hour
+	var buf bytes.Buffer
+	shadowOut = func() io.Writer { return &buf }
+	h := (&FoundryTools{}).startShadow(context.Background(), "", "b")
+	start := time.Now()
+	h.finish()
+	if time.Since(start) > 30*time.Second || buf.String() != "report\n" {
+		t.Errorf("waited %v, stderr %q", time.Since(start), buf.String())
+	}
+	var nilHandle *shadowHandle
+	nilHandle.finish() // a lane with no shadow
 }

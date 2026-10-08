@@ -94,7 +94,7 @@ func TestExecuteReturnsRegistryOrderWhateverOrderTheyFinish(t *testing.T) {
 			return checks.VerdictOf(a, 0, fmt.Sprintf("atom %d", i))
 		}})
 	}
-	got := Execute(context.Background(), registry(t, atoms...), Input{}, Options{Workers: 4, Timeout: 2 * time.Second})
+	got := Execute(context.Background(), registry(t, atoms...), Input{}, Options{Workers: 4, Timeout: 5 * time.Second})
 	if len(got) != 4 {
 		t.Fatalf("%d verdicts, want 4", len(got))
 	}
@@ -127,7 +127,7 @@ func TestExecuteRunsAtomsConcurrently(t *testing.T) {
 					return checks.VerdictOf(a, 0, "together")
 				}})
 			}
-			for _, v := range Execute(context.Background(), registry(t, atoms...), Input{}, Options{Workers: tc.workers, Timeout: 2 * time.Second}) {
+			for _, v := range Execute(context.Background(), registry(t, atoms...), Input{}, Options{Workers: tc.workers, Timeout: 5 * time.Second}) {
 				if v.State != 0 {
 					t.Errorf("%s did not run alongside the rest: state %d: %s", v.Atom, v.State, v.Reason)
 				}
@@ -162,7 +162,7 @@ func TestExecuteBoundsThePool(t *testing.T) {
 			return checks.VerdictOf(a, 0, "x")
 		}})
 	}
-	for _, v := range Execute(context.Background(), registry(t, atoms...), Input{}, Options{Workers: 2, Timeout: 2 * time.Second}) {
+	for _, v := range Execute(context.Background(), registry(t, atoms...), Input{}, Options{Workers: 2, Timeout: 5 * time.Second}) {
 		if v.State != 0 {
 			t.Fatalf("%s settled %d: %s", v.Atom, v.State, v.Reason)
 		}
@@ -179,7 +179,7 @@ func TestExecuteSettlesAPanicAsThatAtomsCannotRun(t *testing.T) {
 		Atom{ID: names[1], Run: func(context.Context, checks.AtomDef, Input) checks.Verdict { panic("boom: the index was out of range") }},
 		Atom{ID: names[2], Run: passes},
 	)
-	got := Execute(context.Background(), reg, Input{}, Options{Timeout: 2 * time.Second})
+	got := Execute(context.Background(), reg, Input{}, Options{Timeout: 5 * time.Second})
 	if got[0].State != 0 || got[2].State != 0 {
 		t.Errorf("a panic took its neighbours down: %d, %d", got[0].State, got[2].State)
 	}

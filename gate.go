@@ -71,8 +71,10 @@ func (m *FoundryTools) Gate(
 	// +optional
 	stage string,
 ) (string, error) {
+	// STARTED BEFORE GRADING, waited on for at most shadowGrace after (see there).
+	shadow := m.startShadow(ctx, stage, base)
 	record, err := m.gateStage(ctx, tree, stage, base).Record()
-	m.shadowBeside(ctx, stage, base)
+	shadow.finish()
 	return record, err
 }
 
@@ -145,6 +147,9 @@ func (m *FoundryTools) GateFile(
 	}
 	m.spire = spire
 	m.artifactAuth = artifactAuth
+	// The shadow overlaps the grading (startShadow); every field it reads off m
+	// is set above.
+	shadow := m.startShadow(ctx, stage, base)
 	result := m.gateStage(ctx, tree, stage, base)
 	// POST FIRST, THEN HAND BACK THE FILE. Both transports carry the same bytes
 	// — Record()'s whole output, sentinel included — because ourea reads
@@ -167,9 +172,9 @@ func (m *FoundryTools) GateFile(
 	// conditional pretending to be reachable.
 	record, _ := result.Record()
 	postRecord(ctx, m.Repo, recordToken, record)
-	// AFTER THE POST: the record is already with the door, so nothing the
-	// shadow does can delay or change it (shadowBeside).
-	m.shadowBeside(ctx, stage, base)
+	// AFTER THE POST, and for at most shadowGrace: the record is already with
+	// the door, and the file below is the fallback the Job returns.
+	shadow.finish()
 	return result.RecordFile()
 }
 
