@@ -99,7 +99,7 @@ func fleetCheckYAML(ctx context.Context, r *run) checks.Verdict {
 // largeFileLimitKB is the fleet's ceiling, and it is measured against the one
 // file that ever crossed it — see checks.FilesOver for the cert-manager
 // measurement.
-const largeFileLimitKB = 2048
+const largeFileLimitKB = checks.LargeFileLimitKB
 
 // No file in the tree exceeds 2048 KB.
 //
@@ -148,11 +148,9 @@ func fleetCheckAddedLargeFiles(ctx context.Context, r *run) checks.Verdict {
 	return checks.VerdictOf(a, 0, fmt.Sprintf("fleet:check-added-large-files: nothing over %d KB", largeFileLimitKB))
 }
 
-// conflictMarkers matches ONLY THE TWO ANCHORED MARKERS, not the bare row of
-// equals signs: that is a setext heading in Markdown and a table rule in
-// reStructuredText, and matching it turns every docs repo red for a reason
-// nobody can act on.
-const conflictMarkers = `^(<<<<<<< |>>>>>>> )`
+// conflictMarkers is checks.ConflictMarkers, which says why it matches only the
+// two anchored markers.
+const conflictMarkers = checks.ConflictMarkers
 
 // No conflict markers were committed.
 //

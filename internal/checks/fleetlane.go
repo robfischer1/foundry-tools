@@ -16,6 +16,20 @@ import (
 // is unchanged; what changed is that a mutant in any of it is now a mutant the
 // suite sees.
 
+// LargeFileLimitKB is the fleet's file-size ceiling, in KB, measured against
+// the one file that ever crossed it (FilesOver has the measurement). It lives
+// here, not in package main, so the in-process atoms (internal/atoms) and the
+// Dagger-chain atom grade against ONE number: a shadow comparison between the
+// two is meaningless if they can disagree about the limit.
+const LargeFileLimitKB = 2048
+
+// ConflictMarkers matches ONLY THE TWO ANCHORED MARKERS, not the bare row of
+// equals signs: that is a setext heading in Markdown and a table rule in
+// reStructuredText, and matching it turns every docs repo red for a reason
+// nobody can act on. Shared with internal/atoms for the same reason as
+// LargeFileLimitKB.
+const ConflictMarkers = `^(<<<<<<< |>>>>>>> )`
+
 // FilesOver reads `stat -c '%s %n'` output — one `<size> <path>` line per file
 // — and answers the paths larger than the limit.
 //
