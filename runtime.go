@@ -201,9 +201,6 @@ func (r *run) laneBase(image string) *dagger.Container {
 		if c.Seed {
 			opts.Source = dag.Container().From(image).Directory(c.Path)
 		}
-		if c.Private {
-			opts.Sharing = dagger.CacheSharingModePrivate
-		}
 		ctr = ctr.WithMountedCache(c.Path, dag.CacheVolume(c.Key), opts)
 		if c.EnvVar != "" {
 			ctr = ctr.WithEnvVariable(c.EnvVar, c.Path)

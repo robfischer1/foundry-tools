@@ -93,7 +93,7 @@ func TestNeedsArgFileTurnsAtTheBudgetExactly(t *testing.T) {
 // The cargo target dir is a build OF A TREE: two trees of one repo mounting it
 // at once write over each other (foundry-tools#15765). It is keyed per repo and
 // locked, and no other cache is.
-func TestCargoTargetIsPerRepoAndPrivate(t *testing.T) {
+func TestCargoTargetIsKeyedPerRepo(t *testing.T) {
 	a := CachesForRepo(ImageRust, "https://git.example/org/a.git")
 	b := CachesForRepo(ImageRust, "https://git.example/org/b.git")
 	shared := CachesForRepo(ImageRust, "")
@@ -128,13 +128,8 @@ func TestCargoTargetIsPerRepoAndPrivate(t *testing.T) {
 	if ts.Key != "foundry-cargo-target" {
 		t.Errorf("a run naming no repo keeps the shared key, got %q", ts.Key)
 	}
-	for _, m := range []CacheMount{ta, tb, ts} {
-		if !m.Private {
-			t.Errorf("target volume %q is not private", m.Key)
-		}
-	}
 	for _, m := range a {
-		if m.EnvVar != "CARGO_TARGET_DIR" && (m.Private || m.PerRepo) {
+		if m.EnvVar != "CARGO_TARGET_DIR" && m.PerRepo {
 			t.Errorf("only the target dir is per-repo and private: %+v", m)
 		}
 	}

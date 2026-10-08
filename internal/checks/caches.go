@@ -47,22 +47,20 @@ type CacheMount struct {
 	// cache whose location the toolchain does not derive from anything else
 	// (cargo's target dir).
 	EnvVar string
-	// PerRepo keys the volume by the repository under check (CachesForRepo);
-	// Private gives each CONCURRENT mount its own instance of the volume (an
-	// idle one is reused, a busy one is not waited for). Both are for the cargo
-	// target dir only: its CONTENTS are a build of a particular tree, so two
-	// trees mounting one instance write over each other (foundry-tools#15765: a
-	// doctest collected with a feature on, linked against a sibling tree's
-	// library built with it off). Not LOCKED: a locked mount parks the second
-	// lane silently and the 5m silence watchdog kills it (#308, run 499).
-	// Private costs the contended run a cold build, never a wait.
+	// PerRepo keys the volume by the repository under check (CachesForRepo).
+	// Cargo target dir only. It stays SHARED (default sharing) within a repo:
+	// the atoms of ONE gate run build into it concurrently and must share
+	// artifacts. LOCKED parked them silently and PRIVATE gave each a cold
+	// instance; either way the gate's wit-guest step went silent past the 5m
+	// watchdog (foundry-tools#308/#309, stellar-core-rust runs 499, cffc2e0).
+	// Concurrent TREES of one repo are NOT isolated by this: that needs a
+	// tree-keyed volume (cold per commit) and is left open on #15765.
 	PerRepo bool
-	Private bool
 }
 
 // CachesForRepo is CachesFor with the per-repo mounts keyed to repo (an opaque
 // digest, as SourceCacheKey). An empty repo (a local run that names none) keeps
-// the shared key, still private.
+// the shared key, shared.
 func CachesForRepo(image, repo string) []CacheMount {
 	mounts := CachesFor(image)
 	for i := range mounts {
@@ -98,7 +96,7 @@ func CachesFor(image string) []CacheMount {
 		return []CacheMount{
 			{Path: "/usr/local/cargo/registry", Key: "foundry-cargo-registry"},
 			{Path: "/usr/local/cargo/git", Key: "foundry-cargo-git"},
-			{Path: "/cache/cargo-target", Key: "foundry-cargo-target", EnvVar: "CARGO_TARGET_DIR", PerRepo: true, Private: true},
+			{Path: "/cache/cargo-target", Key: "foundry-cargo-target", EnvVar: "CARGO_TARGET_DIR", PerRepo: true},
 		}
 	case ImageTS:
 		return []CacheMount{
