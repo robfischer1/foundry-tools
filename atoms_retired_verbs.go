@@ -8,7 +8,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/retiredverbs"
@@ -93,16 +92,5 @@ func fleetRetiredVerbs(ctx context.Context, r *run) checks.Verdict {
 			"%s: %d unit(s) name none of the %d retired verbs", a.ID, len(units), len(ledger)))
 	}
 
-	var b strings.Builder
-	fmt.Fprintf(&b, "%s: FINDINGS - %d line(s) still name a verb the gateway no longer serves.\n\n", a.ID, len(hits))
-	for _, h := range hits {
-		fmt.Fprintf(&b, "  %s:%d  %s\n    call instead: %s\n\n", h.Path, h.Line, h.Verb, ledger[h.Verb].Successor)
-	}
-	b.WriteString(
-		"A retired verb does not fail its caller loudly. An allowed-tools row that grants\n" +
-			"it grants nothing, a hook that matches it never fires, and a skill that tells a\n" +
-			"session to call it sends the session to a name that does not resolve.\n\n" +
-			"FIX: write the successor in each line above. If the name is prose ABOUT the\n" +
-			"retirement and must stay, it does not belong in a unit a session loads.")
-	return checks.VerdictOf(a, 1, b.String())
+	return checks.VerdictOf(a, 1, retiredverbs.Report(a.ID, hits, ledger))
 }

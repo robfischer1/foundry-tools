@@ -19,7 +19,7 @@ func init() {
 // answersFile is copier's record of which template a repo was stamped from and
 // at what version. Renovate's copier manager edits it, so it is also where that
 // manager leaves evidence when it fails.
-const answersFile = ".copier-answers.yml"
+const answersFile = checks.CopierAnswersFile
 
 // copierSentinel is the line renovate's copier manager appends to the answers
 // file. It is NOT a record that anything was updated, despite what it says.
@@ -30,7 +30,7 @@ const answersFile = ".copier-answers.yml"
 // render rewrites the whole file and the line goes with it. The line survives
 // exactly when copier CRASHED (renovatebot/renovate#36147, answered there by
 // the manager's own author).
-const copierSentinel = "#copier updated"
+const copierSentinel = checks.CopierSentinel
 
 // THE MARKER IS A CRASH RECEIPT, AND IT LATCHES — which is why it is worth a
 // gate atom rather than a lint.
@@ -88,22 +88,7 @@ func fleetCopierAnswersIntact(ctx context.Context, r *run) checks.Verdict {
 			"fleet:copier-answers-intact: no crash receipt in "+answersFile)
 	}
 
-	return checks.VerdictOf(a, 1, fmt.Sprintf(
-		"%s carries renovate's %q marker.\n\n"+
-			"That line is not a record of a template update. Renovate appends it to make\n"+
-			"the file look modified so `updateArtifacts` fires, and `updateArtifacts` is\n"+
-			"what actually runs copier; a successful render rewrites the file and the line\n"+
-			"goes with it. Its survival means COPIER CRASHED, and the render this repo's\n"+
-			"last copier PR claimed to perform did not happen.\n\n"+
-			"It also LATCHES: re-adding an identical line is not a change renovate can\n"+
-			"detect, so the artifact step never fires again and this repo takes no further\n"+
-			"template update at all until the line is removed (renovatebot/renovate#36147,\n"+
-			"no upstream fix; removing it by hand is the sanctioned remedy).\n\n"+
-			"FIX: delete the marker line and any blank lines above it, and make sure the\n"+
-			"file ends in a newline — the marker is appended without one, which separately\n"+
-			"reds end-of-file-fixer for the next PR here. `_commit` and every answer value\n"+
-			"stay as they are; copier itself moves the pin on the next real render.",
-		answersFile, copierSentinel))
+	return checks.VerdictOf(a, 1, checks.CopierMarkerReport())
 }
 
 // copierTemplate names the template a tree was stamped from, or "" when the tree
@@ -133,19 +118,7 @@ func fleetCopierAnswersIntact(ctx context.Context, r *run) checks.Verdict {
 // `.copier-answers.yml` with `answers, _ := ...Contents(ctx)`.
 func copierTemplate(ctx context.Context, r *run) string {
 	body, _, _ := fileIfPresent(ctx, r.src, answersFile)
-	for _, line := range strings.Split(body, "\n") {
-		rest, ok := strings.CutPrefix(strings.TrimSpace(line), "_src_path:")
-		if !ok {
-			continue
-		}
-		src := strings.Trim(strings.TrimSpace(rest), `"'`)
-		name := strings.TrimSuffix(src[strings.LastIndex(src, "/")+1:], ".git")
-		if strings.HasSuffix(name, "-repo-template") {
-			return name
-		}
-		return ""
-	}
-	return ""
+	return checks.CopierTemplate(body)
 }
 
 // absentRuleset answers for a tree with no rules/sast, and it is the whole fix
@@ -175,16 +148,5 @@ func absentRuleset(ctx context.Context, r *run, a checks.AtomDef) checks.Verdict
 		return checks.VerdictOf(a, 0, string(a.ID)+
 			": ABSENT - no rules/sast in this tree, and no fleet template stamped it")
 	}
-	return checks.VerdictOf(a, 2, fmt.Sprintf(
-		"%s: CANNOT RUN - this tree has no rules/sast, and %s stamped it.\n\n"+
-			"Every fleet repo template ships rules/sast/dataflow.yml, so a stamped repo\n"+
-			"without one did not decline SAST — it never received the file. `_skip_if_exists`\n"+
-			"only skips a path that ALREADY exists, so a working `copier update` creates it;\n"+
-			"a repo missing it has taken no successful render since the template began\n"+
-			"shipping it. Check fleet:copier-answers-intact on this same tree.\n\n"+
-			"NOTHING SCANNED THIS REPO. A pass here would mean 0 findings from 0 files, which\n"+
-			"is not a clean scan — it is an unexamined repo, and it is why this is exit 2 and\n"+
-			"not exit 0 (foundry-stocks#4415).\n\n"+
-			"FIX: copy %s's template/rules/sast/dataflow.yml to rules/sast/dataflow.yml.",
-		a.ID, tpl, tpl))
+	return checks.VerdictOf(a, 2, checks.SastAbsentStamped(a.ID, tpl))
 }

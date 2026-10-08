@@ -148,3 +148,21 @@ func leftOpen(line string, start int) bool {
 func identByte(b byte) bool {
 	return b == '_' || (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
+
+// Report is the finding for units that still name a retired verb: each hit with
+// the call the ledger gives instead. It is the one sentence both readers of the
+// tree (the Dagger chain and the in-process atom) print.
+func Report(id string, hits []Hit, l Ledger) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s: FINDINGS - %d line(s) still name a verb the gateway no longer serves.\n\n", id, len(hits))
+	for _, h := range hits {
+		fmt.Fprintf(&b, "  %s:%d  %s\n    call instead: %s\n\n", h.Path, h.Line, h.Verb, l[h.Verb].Successor)
+	}
+	b.WriteString(
+		"A retired verb does not fail its caller loudly. An allowed-tools row that grants\n" +
+			"it grants nothing, a hook that matches it never fires, and a skill that tells a\n" +
+			"session to call it sends the session to a name that does not resolve.\n\n" +
+			"FIX: write the successor in each line above. If the name is prose ABOUT the\n" +
+			"retirement and must stay, it does not belong in a unit a session loads.")
+	return b.String()
+}
