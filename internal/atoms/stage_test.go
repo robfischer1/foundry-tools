@@ -335,3 +335,23 @@ func TestOrbitHelpers(t *testing.T) {
 		t.Errorf("a file that will not read names its pattern: %v", err)
 	}
 }
+
+// -spire and -narc-err reach the atoms that read them.
+func TestRunHandsTheSocketAndTheNarcReasonToTheAtoms(t *testing.T) {
+	dir := newRepo(t)
+	put(t, dir, "a.txt", "a\n")
+	commitAll(t, dir, "c1")
+	build := func() (*Registry, error) {
+		return NewRegistry(Atom{ID: "fleet:check-yaml", Run: func(_ context.Context, a checks.AtomDef, in Input) checks.Verdict {
+			return checks.VerdictOf(a, 0, "seen "+in.Spire+"|"+in.NarcErr)
+		}})
+	}
+	var out, errb bytes.Buffer
+	args := []string{"-root", dir, "-spire", "/run/spire/agent.sock", "-narc-err", "the pin"}
+	if code := run(context.Background(), args, &out, &errb, time.Now, build); code != 0 {
+		t.Fatalf("exit %d: %s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "seen /run/spire/agent.sock|the pin") {
+		t.Errorf("the atom did not see the flags:\n%s", out.String())
+	}
+}

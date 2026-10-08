@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -289,7 +290,15 @@ func TestFleetWitnessAsksFourAtOnceAtMost(t *testing.T) {
 		changed = append(changed, name)
 	}
 	in, _ := witnessIn(t, n, tree, changed...)
-	expect(t, runAtom(t, "fleet:witness", in), stateOf(0), pass, "12 file(s) witnessed")
+	// A slot never given back would block the twelve for good; say so, do not hang.
+	done := make(chan checks.Verdict, 1)
+	go func() { done <- runAtom(t, "fleet:witness", in) }()
+	select {
+	case v := <-done:
+		expect(t, v, stateOf(0), pass, "12 file(s) witnessed")
+	case <-time.After(20 * time.Second):
+		t.Fatal("twelve asks did not finish: a slot was not given back")
+	}
 	if peak := n.peak.Load(); peak > int64(checks.WitnessWorkers) || peak < 2 {
 		t.Errorf("%d asks in flight at once, want 2..%d", peak, checks.WitnessWorkers)
 	}
@@ -387,6 +396,8 @@ func TestFleetWitnessAsksAsTheLanesIdentityWhenTheSocketIsForwarded(t *testing.T
 			[]string{"identity: none — asked " + checks.WitnessURL + " in the clear: witnesscall: no identity"}},
 		{"a helper that never ran is said", func() (string, int) { return "witnesscall: gone", -1 }, okPost, 0, pass, 1, 0,
 			[]string{"in the clear: witnesscall never ran: witnesscall: gone"}},
+		{"an answer on a failed exit is not an answer", func() (string, int) { return svid, 0 },
+			func(Cmd, string) (string, int) { return "HTTP 200\napplication/json\n" + said("novel", ""), 2 }, 0, pass, 1, 3, []string{"fell back"}},
 		{"a helper that prints no status line is an error, then the clear port", func() (string, int) { return svid, 0 },
 			func(Cmd, string) (string, int) { return "garbage", 0 }, 0, pass, 1, 3, []string{"fell back"}},
 	} {
@@ -431,4 +442,31 @@ func TestFleetWitnessAsksAsTheLanesIdentityWhenTheSocketIsForwarded(t *testing.T
 			t.Errorf("the helper read\n%s\nwant\n%s", got, want)
 		}
 	})
+}
+
+func TestWitnessDefaults(t *testing.T) {
+	if got := (Witness{}).url(); got != checks.WitnessURL {
+		t.Errorf("the default port is %s", got)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := (Witness{}).sleep()(ctx, time.Hour); err != context.Canceled {
+		t.Errorf("the default sleep answered %v for a cancelled context", err)
+	}
+}
+
+func TestFleetWitnessAnIdentifiedRequestThatCannotBeWrittenFallsBackToTheClear(t *testing.T) {
+	n := newNarcissus(t, reply("novel"))
+	in, _ := witnessIn(t, n, map[string]string{"a.go": "package a\n"}, "a.go")
+	in.Spire = "/run/spire/agent.sock"
+	h := &witnessHelper{t: t, whoami: func() (string, int) { return "spiffe://x", 0 }, post: func(Cmd, string) (string, int) {
+		t.Error("the helper was handed a request that was never written")
+		return "", 0
+	}}
+	in.Exec = h.exec
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "not-there"))
+	expect(t, runAtom(t, "fleet:witness", in), stateOf(0), pass, "fell back")
+	if n.total() != 1 || h.posts() != 0 {
+		t.Errorf("%d clear request(s), %d helper post(s)", n.total(), h.posts())
+	}
 }

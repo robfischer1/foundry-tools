@@ -39,6 +39,8 @@ type kubectlFake struct {
 	mu     sync.Mutex
 	calls  []Cmd
 	refuse []string
+	// silent are directories kubectl accepts and writes nothing for.
+	silent []string
 	probe  int
 	start  bool // the program would not start
 }
@@ -61,6 +63,11 @@ func (k *kubectlFake) exec(_ context.Context, c Cmd) (string, int) {
 	for _, r := range k.refuse {
 		if strings.Contains(dir, r) {
 			return "error: no kustomization", 1
+		}
+	}
+	for _, r := range k.silent {
+		if strings.Contains(dir, r) {
+			return "", 0
 		}
 	}
 	if !filepath.IsAbs(dir) {
@@ -253,4 +260,71 @@ func TestOpsImmutableHoldsTheWorktreesItMakesToOne(t *testing.T) {
 	if len(got) != 1 {
 		t.Errorf("worktrees after two runs: %v", got)
 	}
+}
+
+// The failures of the pieces the atom leans on, each in the step that meets it.
+func TestOpsImmutableNamesWhereItStopped(t *testing.T) {
+	const id = "ops:immutable"
+	raised := func(t *testing.T) (dir, base string) {
+		dir, base = fluxRepo(t)
+		put(t, dir, "flux/app/job.yaml", job("1"))
+		commitAll(t, dir, "raise")
+		return dir, base
+	}
+	// dropObject removes one loose object, as a repository that lost it would.
+	dropObject := func(t *testing.T, dir, sha string) {
+		t.Helper()
+		if err := os.Remove(filepath.Join(dir, ".git", "objects", sha[:2], sha[2:])); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Run("a tree git cannot read makes the change list a 2", func(t *testing.T) {
+		dir, base := raised(t)
+		in := immutableIn(t, dir, base, &kubectlFake{t: t})
+		dropObject(t, dir, gitIn(t, dir, "rev-parse", "HEAD^{tree}"))
+		expect(t, runAtom(t, id, in), stateOf(2), cannot, "the changed files against "+base+" would not list (exit ")
+	})
+	t.Run("a base that cannot be checked out is a 2", func(t *testing.T) {
+		dir, base := raised(t)
+		in := immutableIn(t, dir, base, &kubectlFake{t: t})
+		dropObject(t, dir, gitIn(t, dir, "rev-parse", base+":flux/app/job.yaml"))
+		expect(t, runAtom(t, id, in), stateOf(2), cannot, "the base "+base+" could not be checked out (exit ")
+		if got := worktrees(t, dir); len(got) != 1 {
+			t.Errorf("a failed checkout left worktrees: %v", got)
+		}
+	})
+	t.Run("a head kubectl accepted and wrote nothing for is a 2, not a pass", func(t *testing.T) {
+		dir, base := raised(t)
+		in := immutableIn(t, dir, base, &kubectlFake{t: t, silent: []string{"flux/app"}})
+		expect(t, runAtom(t, id, in), stateOf(2), cannot, "CANNOT RUN - open ")
+	})
+	t.Run("a base kubectl accepted and wrote nothing for is a 2, not a pass", func(t *testing.T) {
+		dir, base := raised(t)
+		// Only the absolute path is the base's.
+		k := &kubectlFake{t: t, silent: []string{string(filepath.Separator) + "flux/app"}}
+		expect(t, runAtom(t, id, immutableIn(t, dir, base, k)), stateOf(2), cannot, "CANNOT RUN - open ")
+	})
+	t.Run("a stream that is not YAML names the path", func(t *testing.T) {
+		dir, base := fluxRepo(t)
+		put(t, dir, "flux/app/job.yaml", "a: [\n")
+		commitAll(t, dir, "broken")
+		expect(t, runAtom(t, id, immutableIn(t, dir, base, &kubectlFake{t: t})), stateOf(2), cannot, "CANNOT RUN - flux/app: ")
+	})
+	t.Run("the paths come from the Kustomization CRs when the tree has them", func(t *testing.T) {
+		dir, _ := fluxRepo(t)
+		put(t, dir, "flux/clusters/c/ks.yaml", "apiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nspec:\n  path: ./flux/app\n")
+		base := commitAll(t, dir, "a CR")
+		put(t, dir, "README.md", "two\n")
+		commitAll(t, dir, "docs")
+		expect(t, runAtom(t, id, immutableIn(t, dir, base, &kubectlFake{t: t})), stateOf(0), pass, "1 path(s), nothing to compare")
+	})
+	t.Run("a directory a kustomization reaches into that has none of its own is still an input", func(t *testing.T) {
+		dir, _ := fluxRepo(t)
+		put(t, dir, "flux/app/kustomization.yaml", "resources: [job.yaml, ../shared]\n")
+		put(t, dir, "flux/shared/x.yaml", "a: 1\n")
+		base := commitAll(t, dir, "shared")
+		put(t, dir, "flux/shared/x.yaml", "a: 2\n")
+		commitAll(t, dir, "edit shared")
+		expect(t, runAtom(t, id, immutableIn(t, dir, base, &kubectlFake{t: t})), stateOf(0), pass, "PASS - 1 path(s) compared against "+base)
+	})
 }

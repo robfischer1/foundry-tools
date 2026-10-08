@@ -35,20 +35,12 @@ func orbitSurface(ctx context.Context, a checks.AtomDef, in Input) checks.Verdic
 		return orbitAbsent(a, "the contracts' repository: each contract is checked against the code in its producer's and consumer's own orbit lane, where the checkout is the code")
 	}
 	star := starOf(in.Origin)
-	cs, bad, err := fleetContracts(in)
+	cs, bad, prefixes, err := fleetContractsAndRoster(in)
 	if err != nil {
 		return orbitCannot(a, err)
 	}
 	if !party(star, cs) {
 		return orbitAbsent(a, star+" takes part in no contracted seam in foundry-dies/orbits")
-	}
-	dies, err := in.dies()
-	if err != nil {
-		return orbitCannot(a, err)
-	}
-	prefixes, err := roster(dies)
-	if err != nil {
-		return orbitCannot(a, fmt.Errorf("foundry-dies: %v", err))
 	}
 	if in.NarcErr != "" {
 		return orbitCannot(a, errors.New(in.NarcErr))

@@ -127,23 +127,30 @@ func starOf(repo string) string { return path.Base(strings.TrimSuffix(repo, ".gi
 // finding for each that does not: one bad file is a finding about that file,
 // never the directory's could-not-run.
 func fleetContracts(in Input) ([]orbitcompose.Contract, []checks.Finding, error) {
+	cs, bad, _, err := fleetContractsAndRoster(in)
+	return cs, bad, err
+}
+
+// fleetContractsAndRoster is fleetContracts with the roster's verb prefixes it
+// read on the way, for the atom that attributes a verb through them.
+func fleetContractsAndRoster(in Input) ([]orbitcompose.Contract, []checks.Finding, map[string]string, error) {
 	dies, err := in.dies()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	files, err := filesIn(dies, "orbits/*.toml")
 	if err != nil {
-		return nil, nil, fmt.Errorf("foundry-dies: %v", err)
+		return nil, nil, nil, fmt.Errorf("foundry-dies: %v", err)
 	}
 	prefixes, err := roster(dies)
 	if err != nil {
-		return nil, nil, fmt.Errorf("foundry-dies: %v", err)
+		return nil, nil, nil, fmt.Errorf("foundry-dies: %v", err)
 	}
 	cs, bad, err := orbitcompose.ParseAll(files, starSet(prefixes))
 	if err != nil {
-		return nil, nil, fmt.Errorf("foundry-dies/orbits does not compose: %v", err)
+		return nil, nil, nil, fmt.Errorf("foundry-dies/orbits does not compose: %v", err)
 	}
-	return cs, orbitlane.Unreadable(bad), nil
+	return cs, orbitlane.Unreadable(bad), prefixes, nil
 }
 
 // orbitContracts: every contract parses, names two stars on the roster, carries

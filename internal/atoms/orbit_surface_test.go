@@ -127,4 +127,23 @@ func TestOrbitSurface(t *testing.T) {
 			t.Errorf("findings %+v: the bad contract is not named", v.Findings)
 		}
 	})
+	t.Run("a star that only consumes is graded too, on what it dials", func(t *testing.T) {
+		in, f := surfaceIn(t, answering(none, narcReport("unanalyzable|/src/x.go:1|loose-verb|a_verb — dial")))
+		in.Origin = "http://door/rob/b.git"
+		v := runAtom(t, id, in)
+		expect(t, v, stateOf(0), pass, "orbit:surface: ")
+		if len(f.calls) != 2 || len(v.Findings) == 0 || v.Findings[0].Cause != "dials-contracted" {
+			t.Errorf("ran %v, findings %+v: want the consumer's dial held", f.ran(), v.Findings)
+		}
+	})
+	t.Run("a contract of this tree that will not read is a 2", func(t *testing.T) {
+		in, _ := surfaceIn(t, answering(holds, none))
+		brokenLink(t, in.Root, "orbits/z.toml")
+		expect(t, runAtom(t, id, in), stateOf(2), cannot, "orbits/* could not be read")
+	})
+	t.Run("a roster shard of foundry-dies that will not read is a 2", func(t *testing.T) {
+		in, _ := surfaceIn(t, answering(holds, none))
+		brokenLink(t, in.Dies, "fleet/stars/z/data.json")
+		expect(t, runAtom(t, id, in), stateOf(2), cannot, "foundry-dies: fleet/stars/z/data.json could not be read")
+	})
 }
