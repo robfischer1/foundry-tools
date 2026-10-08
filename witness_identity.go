@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -25,9 +26,12 @@ import (
 // into its own memory and asks narcissus's mTLS door with it — the key is
 // never a file, a secret or a layer.
 //
-// NEVER A VERDICT ABOUT IDENTITY. While stars witness, no socket, no SVID or
-// any failure of the identified ask is the same ask in the clear, as before,
-// and the atom's output says which way it asked.
+// NEVER A VERDICT ABOUT IDENTITY. While stars witness, no socket or no SVID
+// is the same ask in the clear, and the atom's output says which way it asked.
+// An identified ask that could not be made (connect, TLS) also falls back. One
+// that WAS sent and drew no answer in time (witnesscall exit 4) does not: the
+// witness is slow, the clear retry doubled its load and filed 2465 anonymous
+// `unidentified` records on 2026-10-07. That ask settles could-not-consult.
 
 // withSpire hands the run the lane pod's forwarded SPIRE socket (nil: none).
 func (r *run) withSpire(s *dagger.Socket) *run {
@@ -90,6 +94,12 @@ func (r *run) witnessAsker(ctx context.Context) witnessAsk {
 		if err == nil {
 			return status, ctype, answer, nil
 		}
+		if errors.Is(err, checks.ErrWitnessNoAnswer) {
+			// The identified request went out and the witness is slow. The
+			// clear port would repeat it, double the load and file an
+			// `unidentified` caller; the atom settles could-not-consult.
+			return 0, "", "", err
+		}
 		fell.Add(1)
 		return askWitness(ctx, body)
 	}
@@ -107,6 +117,9 @@ func identifiedPost(ctr *dagger.Container) func(context.Context, string) (int, s
 			WithExec([]string{"/usr/local/bin/witnesscall", "post", checks.WitnessMTLSURL, "/tmp/witness-request.json"}, anyExit))
 		if err != nil {
 			return 0, "", "", err
+		}
+		if code == checks.WitnessNoAnswerExit {
+			return 0, "", "", fmt.Errorf("%w: %s", checks.ErrWitnessNoAnswer, out)
 		}
 		if code != 0 {
 			return 0, "", "", errors.New(out)

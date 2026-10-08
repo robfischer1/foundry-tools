@@ -1,14 +1,22 @@
 # SPDX-FileCopyrightText: 2026 Rob Fischer
 #
 # SPDX-License-Identifier: Apache-2.0
-"""Validate foundry-dies' slag schemas and every v2 record against them.
+"""Validate foundry-dies' slag schemas (v1 and v3) and every fleet record against v3.
 
-Two halves. The v1 schema is checked for being a well-formed Draft 2020-12
-document whose `required` names only properties it defines — a schema that
-requires a key it never describes validates nothing about that key. Then every
-`fleet/stars/*/*.slag` is validated against the v2 schema, plus the two naming
-invariants the schema itself cannot express: the record is named after its own
-directory, and `meta.name` agrees with it.
+Two halves. Both the published slag-schema die (schema/slag.schema.json, v1)
+and the v3 schema are checked for being well-formed Draft 2020-12 documents
+whose `required` names only properties they define — a schema that requires a
+key it never describes validates nothing about that key. Then every
+`fleet/stars/*/slag.json` is validated against v3, plus the naming invariant
+the schema itself cannot express: `meta.name` agrees with the record's own
+directory.
+
+THE RECORDS ARE slag.json, NOT <name>.slag. This used to glob
+`fleet/stars/*/*.slag` against the v2 schema; no such file exists (v3 replaced
+v1 in place at slag.json), so the half matched zero records and passed on
+nothing. The record count is now part of the contract: a tree with schema/ but
+no records to validate is CANNOT RUN, because zero records validated is not the
+same fact as every record valid.
 
 THE EXIT LADDER IS THREE-STATE, AND IT WAS TWO. 0 is clean, 1 is a finding, 2
 is CANNOT RUN. Every fault used to leave by `sys.exit("...")` — which is exit
@@ -20,7 +28,7 @@ script that should know better. Noticed by Fox32, 2026-09-25, and verified
 before it was changed.
 
 The instrument's own faults — a schema file missing, unreadable or not JSON —
-are 2. Everything the schemas and records are found to be wrong about is 1.
+are 2. Everything the schema and records are found to be wrong about is 1.
 """
 
 import json
@@ -66,20 +74,37 @@ def well_formed(schema: dict, path: str) -> None:
         sys.exit(f"::error file={path}::not a valid Draft 2020-12 schema: {exc}")
 
 
-schema = load_schema("schema/slag.schema.json")
-well_formed(schema, "schema/slag.schema.json")
-props = set(schema.get("properties", {}))
-missing = [k for k in schema.get("required", []) if k not in props]
-if missing:
-    sys.exit(f"::error::required names properties that are not defined: {missing}")
-print(f"valid Draft 2020-12 schema - {schema.get('$id')}")
-print(f"{len(schema.get('required', []))} required keys, all defined in properties")
+def check_schema_file(path: str) -> dict:
+    """Load one schema, require it well formed, and require `required` within `properties`.
 
-v2 = load_schema("schema/slag-v2.schema.json")
-well_formed(v2, "schema/slag-v2.schema.json")
-v = Draft202012Validator(v2)
+    Args:
+        path: the schema's path, relative to the repository root.
+
+    Returns:
+        The parsed schema document.
+
+    """
+    doc = load_schema(path)
+    well_formed(doc, path)
+    props = set(doc.get("properties", {}))
+    missing = [k for k in doc.get("required", []) if k not in props]
+    if missing:
+        sys.exit(f"::error file={path}::required names properties that are not defined: {missing}")
+    print(f"valid Draft 2020-12 schema - {doc.get('$id')}")
+    print(f"{len(doc.get('required', []))} required keys, all defined in properties")
+    return doc
+
+
+SCHEMA = "schema/slag-v3.schema.json"
+schemas = {path: check_schema_file(path) for path in ("schema/slag.schema.json", SCHEMA)}
+schema = schemas[SCHEMA]
+
+v = Draft202012Validator(schema)
 bad = 0
-records = sorted(str(p) for p in Path("fleet/stars").glob("*/*.slag"))
+records = sorted(str(p) for p in Path("fleet/stars").glob("*/slag.json"))
+if not records:
+    print("::error::fleet/stars/ carries no slag.json, so there is no record to validate", file=sys.stderr)
+    sys.exit(2)
 for rec in records:
     name = rec.split("/")[2]
     try:
@@ -92,18 +117,14 @@ for rec in records:
         continue
     findings = [
         f"{'/'.join(str(x) for x in e.path) or '<root>'}: {e.message}"
-        for e in sorted(v.iter_errors(doc), key=lambda e: list(e.path))
+        for e in sorted(v.iter_errors(doc), key=lambda e: [str(x) for x in e.path])
     ]
-    if rec != f"fleet/stars/{name}/{name}.slag":
-        findings.append(
-            f"<root>: a v2 record is named <name>.slag beside its own "
-            f"directory, not {rec}"
-        )
-    if doc.get("meta", {}).get("name") != name:
+    meta = doc.get("meta") if isinstance(doc, dict) else None
+    if not isinstance(meta, dict) or meta.get("name") != name:
         findings.append(f"meta/name: meta.name must equal the directory name {name!r}")
     for f in findings:
         bad += 1
         print(f"::error file={rec}::{f}", file=sys.stderr)
-print(f"{len(records)} v2 record(s) validated against {v2.get('$id')}")
+print(f"{len(records)} record(s) validated against {schema.get('$id')}")
 if bad:
-    sys.exit(f"::error::{bad} v2 record finding(s)")
+    sys.exit(f"::error::{bad} record finding(s)")

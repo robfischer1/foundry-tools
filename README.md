@@ -127,7 +127,7 @@ They exist because the **act-runner is being removed**, and what it validated is
 | `dies:canary-visibility` | ″ | the **built bundle** still hides a curated verb from a session principal | ″ |
 | `dies:contracts` | `contracts.yml` | every copy of every shared closed set agrees — after 7 fixtures fail and 3 controls pass | ″ |
 | `dies:contract-copies` | foundry-tools#15237 | every vendored copy **this tree holds** matches foundry-dies' authority (closed set and bytes), graded here instead of on the next dies pull | a tree that holds no copy `contracts.toml` declares; foundry-dies itself |
-| `dies:schema` | `schema.yml` | the slag schema is valid Draft 2020-12 and every v2 record satisfies it | ″ |
+| `dies:schema` | `schema.yml` | the slag v1 (published slag-schema die) and v3 schemas are valid Draft 2020-12 and every `fleet/stars/*/slag.json` satisfies it | ″ |
 
 Three things the ports changed on purpose, each because the workflow's assumption was about its runner rather than about the check:
 

@@ -14,6 +14,17 @@ import (
 // WitnessURL gives.
 const WitnessMTLSURL = "https://narcissus:8201/mcp"
 
+// WitnessNoAnswerExit is witnesscall's exit when the identified request WENT
+// OUT and the witness gave no answer in time (deadline, or an answer cut
+// short). Unlike a failure to ask, repeating it in the clear cannot help: the
+// witness is slow, and the retry only doubles its load and files an anonymous
+// record. The atom settles it could-not-consult instead.
+const WitnessNoAnswerExit = 4
+
+// ErrWitnessNoAnswer marks an identified ask the witness left unanswered. It
+// is never retried and never repeated in the clear.
+var ErrWitnessNoAnswer = errors.New("the witness did not answer the identified ask in time")
+
 // ParseWitnessCall reads witnesscall post's stdout: "HTTP <status>", the
 // content type, then the body, one per line. output() trims the end, so an
 // answer with neither content type nor body is the status line alone.

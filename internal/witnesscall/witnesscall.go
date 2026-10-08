@@ -15,21 +15,27 @@
 // exported or passed as a secret.
 //
 // Exit codes: 0 narcissus answered (whatever it said), 2 could not ask,
-// 3 no identity — the caller asks in the clear on anything but 0. The 0 is
-// spelled as a literal: a named zero is a RETURN_ZERO mutant no test can kill.
+// 3 no identity, 4 the request went out and drew no answer in time (deadline,
+// or an answer cut short). The caller asks in the clear on 2 and 3 only: on 4
+// the witness is slow, and a clear retry doubles its load and records an
+// anonymous caller (2465 on 2026-10-07). The 0 is spelled as a literal: a
+// named zero is a RETURN_ZERO mutant no test can kill.
 package witnesscall
 
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"time"
 
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/spiffe/go-spiffe/v2/spiffetls/tlsconfig"
 
+	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/hadescall"
 )
 
@@ -44,6 +50,7 @@ WITNESSCALL_IDENTITY_WAIT (20s).`
 const (
 	CouldNotAsk = 2
 	NoIdentity  = 3
+	NoAnswer    = checks.WitnessNoAnswerExit
 )
 
 // config is what a call reads from its environment, with the fleet's defaults.
@@ -139,14 +146,24 @@ func post(ctx context.Context, client *http.Client, url string, body []byte, std
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Fprintf(stderr, "witnesscall: the witness did not answer: %v\n", err)
+		if timedOut(err) {
+			return NoAnswer
+		}
 		return CouldNotAsk
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		fmt.Fprintf(stderr, "witnesscall: the answer was cut short: %v\n", err)
-		return CouldNotAsk
+		return NoAnswer
 	}
 	fmt.Fprintf(stdout, "HTTP %d\n%s\n%s", resp.StatusCode, resp.Header.Get("Content-Type"), raw)
 	return 0
+}
+
+// timedOut is a deadline failure, which context.DeadlineExceeded and the
+// client timeout both report through net.Error.Timeout.
+func timedOut(err error) bool {
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
 }
