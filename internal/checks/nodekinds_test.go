@@ -464,3 +464,43 @@ func TestNodeKindsDeclaredNamesEveryUndeclaredKindInOrder(t *testing.T) {
 		last = i
 	}
 }
+
+// The atom is Go-only (foundry-tools#15344): a non-Go file that looks like a
+// capture is named, not silently passed over.
+func TestNonGoCaptureFilesNamesWhatTheGoReaderCannotSee(t *testing.T) {
+	files := map[string]string{
+		"apps/calliope/src/hades-capture.ts": "export const go = () => gateway.call('graph_capture', {});\n",
+		"src/chaos/client/_client.py":        "def capture(self):\n    return self.create_node(kind)\n",
+		"crates/anvil/src/ouroboros.rs":      "let op = json!({\"op\": \"createNode\"});\n",
+		"web/app.tsx":                        "createNode(kind)\n",
+		"src/chaos/client/_fake.py":          "def create_node(self): pass\n",
+		"tests/test_x.py":                    "create_node()\n",
+		"src/test_y.py":                      "create_node()\n",
+		"src/a.test.ts":                      "graph_capture\n",
+		"src/a.spec.ts":                      "graph_capture\n",
+		"types/a.d.ts":                       "graph_capture\n",
+		"src/gen/generated/x.ts":             "graph_capture\n",
+		"node_modules/p/i.ts":                "graph_capture\n",
+		"vendor/p/i.py":                      "graph_capture\n",
+		"src/plain.py":                       "x = 1\n",
+		"main.go":                            "package main\nvar _ = CreateNode\n",
+		"README.md":                          "graph_capture\n",
+	}
+	got := NonGoCaptureFiles(files)
+	want := []string{"apps/calliope/src/hades-capture.ts", "crates/anvil/src/ouroboros.rs", "src/chaos/client/_client.py", "web/app.tsx"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("got %v want %v", got, want)
+	}
+}
+
+func TestNonGoNoteIsSilentWithNothingUnread(t *testing.T) {
+	if got := NonGoNote(nil); got != "" {
+		t.Errorf("nothing unread, nothing to say: %q", got)
+	}
+	got := NonGoNote([]string{"a.py", "b.py", "c.py", "d.py"})
+	for _, want := range []string{"NOT JUDGED", "4 non-Go file(s)", "a.py, b.py, c.py", "+1 more"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("note lacks %q: %s", want, got)
+		}
+	}
+}

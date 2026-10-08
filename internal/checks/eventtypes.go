@@ -50,8 +50,17 @@ var (
 
 	sqlEqRe  = regexp.MustCompile(`(?i)event_?type\s*(?:=|<>|!=)\s*'([A-Za-z0-9_.:-]+)'`)
 	sqlInRe  = regexp.MustCompile(`(?i)event_?type\s+(?:NOT\s+)?IN\s*\(([^)]*)\)`)
-	cmpRe    = regexp.MustCompile(`(?i)event_?type["'` + "`" + `]?[\])]*\s*(?:===|!==|==|!=)\s*["'` + "`" + `]([A-Za-z0-9_.:-]+)["'` + "`" + `]`)
+	cmpRe    = regexp.MustCompile(`(?i)event_?type["'` + "`" + `]?[\])]*(?:\.\w+\(\))*\s*(?:===|!==|==|!=)\s*["'` + "`" + `]([A-Za-z0-9_.:-]+)["'` + "`" + `]`)
 	memberRe = regexp.MustCompile(`(?i)event_?type["'` + "`" + `]?[\])]*\s+(?:not\s+)?in\s+([A-Za-z_][A-Za-z0-9_]*)\b`)
+	// hasRe is a constant set asked about an event type: `LINEAGE_EVENTS.has(e.eventType)`,
+	// `KINDS.includes(ev.event_type)`, `SET.contains(...)` (measured in theia/lineage).
+	hasRe = regexp.MustCompile(`(?i)\b([A-Za-z_][A-Za-z0-9_]*)\.(?:has|includes|contains)\(\s*[A-Za-z_][A-Za-z0-9_.?!\[\]"']*event_?type["']?\]?\s*\)`)
+	// dynamicReadRe is an event type READ into a variable, an index or an
+	// aggregation with no literal beside it: `row["event_type"]`,
+	// `e.get("event_type")`, `ev.event_type`, `e.EventType`. A write (`x.event_type = ...`) is not a read.
+	dynamicReadRe = regexp.MustCompile(`(?i)(?:\[\s*["']event_?type["']\s*\]|\.get\(\s*["']event_?type["']|[A-Za-z0-9_)\]]\.event_?type\b)`)
+	// assignedRe follows a match that is a write, not a read.
+	assignedRe = regexp.MustCompile(`^\s*(?::=|=[^=])`)
 	// readCallRe is a read verb followed, in the same call, by an event_type
 	// literal: tartarus_session_events_read, get_session_events, and so on.
 	readCallRe = regexp.MustCompile(`(?is)(?:session_?events_?read|get_?session_?events|read_?session_?events)\b.{0,240}?event_?type["'` + "`" + `]?\s*(?::=|[:=,])\s*(?:["'` + "`" + `]([A-Za-z0-9_.:-]+)["'` + "`" + `]|([A-Za-z_][A-Za-z0-9_.]*))`)
@@ -175,6 +184,11 @@ func EventTypeUses(files map[string]string) (consumed, emitted []EventSite) {
 				addC(t, p)
 			}
 		}
+		for _, m := range hasRe.FindAllStringSubmatch(body, -1) {
+			for _, t := range setConstants(body, m[1]) {
+				addC(t, p)
+			}
+		}
 		for _, m := range aliasRe.FindAllStringSubmatch(body, -1) {
 			re := regexp.MustCompile(`\b` + regexp.QuoteMeta(m[1]) + `\s*(?:===|!==|==|!=)\s*["']([A-Za-z0-9_.:-]+)["']`)
 			for _, c := range re.FindAllStringSubmatch(body, -1) {
@@ -223,6 +237,44 @@ func EventTypeUses(files map[string]string) (consumed, emitted []EventSite) {
 	return consumed, emitted
 }
 
+// DynamicEventReaders answers the code files that read an event type into a
+// variable, an index or an aggregation and that EventTypeUses could not judge: no
+// literal consumption was found in them. A green verdict is "no dark LITERAL
+// consumer", and these are the files it says nothing about (measured over the
+// fleet: tartarus and terpsichore pass the type through as a parameter and
+// aggregate by it; tron reads it off a raw event). A file with a judged
+// consumption is not listed; it is already graded.
+func DynamicEventReaders(files map[string]string, consumed []EventSite) []string {
+	judged := map[string]bool{}
+	for _, c := range consumed {
+		judged[c.File] = true
+	}
+	var out []string
+	for p, body := range files {
+		_, code := commentPrefixes[path.Ext(p)] // source files; .md and .json have no comment syntax
+		if judged[p] || !code || !EventSourceExt(p) {
+			continue
+		}
+		text := stripLineComments(p, body)
+		for _, m := range dynamicReadRe.FindAllStringIndex(text, -1) {
+			if !assignedRe.MatchString(text[m[1]:]) {
+				out = append(out, p)
+				break
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// dynamicNote is the sentence that keeps a green honest.
+func dynamicNote(files []string) string {
+	if len(files) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("; NOT JUDGED: %d file(s) read event_type without a literal (%s), so a consumer there that builds the type at run time is invisible to this check", len(files), strings.Join(firstN(files, 3), ", "))
+}
+
 // commentPrefixes is, per extension, what opens a whole-line comment. JSON and
 // markdown have none, so they are read whole.
 var commentPrefixes = map[string][]string{
@@ -262,7 +314,7 @@ func filterLine(body string, at int) bool {
 // setConstants answers the quoted literals of `NAME = {...}`, `(...)`, `[...]`
 // or `frozenset({...})` in body.
 func setConstants(body, name string) []string {
-	re := regexp.MustCompile(`(?s)\b` + regexp.QuoteMeta(name) + `\b\s*(?::[^=\n]+)?=\s*(?:frozenset\(|set\(|tuple\(|\[\]string)?\s*[\(\[{]([^)\]}]*)[\)\]}]`)
+	re := regexp.MustCompile(`(?s)\b` + regexp.QuoteMeta(name) + `\b\s*(?::[^=\n]+)?=\s*(?:new\s+Set\(|frozenset\(|set\(|tuple\(|\[\]string)?\s*[\(\[{]([^)\]}]*)[\)\]}]`)
 	m := re.FindStringSubmatch(body)
 	if m == nil {
 		return nil
@@ -386,8 +438,9 @@ repos:
 func ConsumedEventsEmitted(ctx context.Context, files map[string]string, scan func(ctx context.Context, wanted []string) (map[string]string, error)) (int, string) {
 	const id = "fleet:consumed-events-emitted"
 	consumed, emitted := EventTypeUses(files)
+	note := dynamicNote(DynamicEventReaders(files, consumed))
 	if len(consumed) == 0 {
-		return 0, id + ": this tree consumes no literal event_type"
+		return 0, id + ": this tree consumes no literal event_type" + note
 	}
 	local := map[string]bool{}
 	for _, e := range emitted {
@@ -409,7 +462,7 @@ func ConsumedEventsEmitted(ctx context.Context, files map[string]string, scan fu
 		}
 	}
 	if len(need) == 0 {
-		return 0, fmt.Sprintf("%s: %d consumed event type(s), all emitted by this tree", id, len(types))
+		return 0, fmt.Sprintf("%s: %d consumed event type(s), all emitted by this tree%s", id, len(types), note)
 	}
 	found, err := scan(ctx, need)
 	if err != nil {
@@ -422,7 +475,7 @@ func ConsumedEventsEmitted(ctx context.Context, files map[string]string, scan fu
 		}
 	}
 	if len(lines) == 0 {
-		return 0, fmt.Sprintf("%s: %d consumed event type(s); every one has an emitter (%d outside this tree)", id, len(types), len(need))
+		return 0, fmt.Sprintf("%s: %d consumed event type(s); every one has an emitter (%d outside this tree)%s", id, len(types), len(need), note)
 	}
 	lines = append(lines,
 		"A consumer of an event type nothing emits goes silent without an error: an empty read is a correct answer to a question no producer is left to satisfy (the commit hook retired with no replacement; consumers dark for a month). "+

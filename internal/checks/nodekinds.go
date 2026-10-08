@@ -6,9 +6,11 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"net/http"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -397,6 +399,45 @@ func CapturedKinds(files map[string]string) (uses []KindUse, unresolved int) {
 		}
 	}
 	return uses, unresolved
+}
+
+// nonGoCaptureRe is a capture spelled in a language the AST reader does not
+// parse: chaos's own python client, calliope and theia in TypeScript, anvil in
+// Rust (measured over the fleet's checkouts, foundry-tools#15344).
+var nonGoCaptureRe = regexp.MustCompile(`(?i)\b(?:graph_capture|create_?node)\b|\bop["']?\s*[:=]\s*["']createNode["']`)
+
+// NonGoCaptureFiles answers the non-Go source files that look like they capture
+// a node: the kinds a green verdict did not read. The atom is Go-only, and a
+// pass that does not say so reads as "no undeclared kind in this tree".
+func NonGoCaptureFiles(files map[string]string) []string {
+	var out []string
+	for _, p := range slices.Sorted(maps.Keys(files)) {
+		switch path.Ext(p) {
+		case ".py", ".ts", ".tsx", ".rs":
+		default:
+			continue
+		}
+		skip := strings.HasSuffix(p, ".d.ts") || strings.Contains(p, ".test.") || strings.Contains(p, ".spec.")
+		for _, seg := range strings.Split(p, "/") {
+			l := strings.ToLower(seg)
+			if seg == "vendor" || seg == "node_modules" || seg == "generated" || strings.Contains(l, "fake") || testSegment(l) { // test_x.py and tests/ are test segments too
+				skip = true
+			}
+		}
+		if !skip && nonGoCaptureRe.MatchString(files[p]) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// NonGoNote is the sentence that keeps a pass honest: empty when there is nothing
+// unread to name.
+func NonGoNote(files []string) string {
+	if len(files) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("; NOT JUDGED: this check reads Go only, and %d non-Go file(s) look like captures (%s)", len(files), strings.Join(firstN(files, 3), ", "))
 }
 
 // NodeKindsDeclared judges one tree's captures against the vocabulary.

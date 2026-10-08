@@ -129,3 +129,12 @@ func (d *Dies) Canonical(ctx context.Context) (string, error) {
 func (d *Dies) RefusalCodes(ctx context.Context) (string, error) {
 	return check(ctx, d.Source, "dies:refusal-codes")
 }
+
+// Every vendored copy this tree holds agrees with its authority in
+// foundry-dies: the closed set and, for a copy marked digest, the bytes. A
+// drifted copy goes red in the repo that holds it, before it lands.
+//
+// +check
+func (d *Dies) ContractCopies(ctx context.Context) (string, error) {
+	return check(ctx, d.Source, "dies:contract-copies")
+}

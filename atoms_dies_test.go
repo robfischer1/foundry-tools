@@ -1194,6 +1194,105 @@ func TestDiesRefusalCodesOwnerCannotRunWithoutTheCheckerTheRegistryOrTheDoor(t *
 	wantState(t, runAtom(t, "dies:refusal-codes", ""), 2, "unreachable")
 }
 
+// goStarTree is a Go star's shape: its go.mod module line and the use the
+// registry grades, and neither of dies' two markers.
+func goStarTree(module string) map[string]string {
+	return diesTree(map[string]string{
+		"go.mod":                  "module " + module + "\n\ngo 1.26\n",
+		"internal/verbs/verbs.go": "package verbs\n",
+	}, "policy", "fleet")
+}
+
+// DAEDALUS AND HERMES SPELL CODES TOO (foundry-tools#15237): their uses were
+// graded only from dies, after they landed, so an unregistered code landed
+// green. Each now runs dies' checker scoped to its own tree.
+func TestDiesRefusalCodesGoStarsAreGradedScopedToTheirOwnTree(t *testing.T) {
+	for module, star := range map[string]string{
+		"git.notusmi.com/rob/daedalus": "daedalus",
+		"git.notusmi.com/rob/hermes":   "hermes",
+	} {
+		engine.reset()
+		engine.withTree(goStarTree(module))
+		asks := okDoor(t)
+		wantState(t, runAtom(t, "dies:refusal-codes", ""), 0)
+
+		var got []string
+		for _, a := range *asks {
+			if a.Repo == "foundry/foundry-dies" {
+				got = append(got, a.Path)
+			}
+		}
+		want := []string{"tools/check_refusal_codes.py", "tools/check_contracts.py", "tools/schema_stamp.py", "contracts/refusal-codes.toml"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: fetched from dies: got %v want %v", star, got, want)
+		}
+		c := engine.chain("dies-refusal/tools/check_refusal_codes.py", "exitCode")
+		if !hasCall(c, "withExec", "expect:ANY", `"python3","/tmp/dies-refusal/tools/check_refusal_codes.py","--tree","`+star+`=."`) {
+			t.Errorf("%s: the checker did not run scoped to this tree:\n%s", star, c)
+		}
+	}
+}
+
+// The checker's exit is the verdict in a Go star too: an unregistered code (1)
+// is red here, in the repo that spelled it, before it lands.
+func TestDiesRefusalCodesGoStarPassesTheExitCodeStraightThrough(t *testing.T) {
+	for code, want := range map[int]int{0: 0, 1: 1, 2: 2} {
+		engine.reset()
+		engine.withTree(goStarTree("git.notusmi.com/rob/daedalus"))
+		okDoor(t)
+		engine.exitCode(`"python3"`, code)
+		if got := runAtom(t, "dies:refusal-codes", "").State; got != want {
+			t.Errorf("exit %d answered state %d, want %d", code, got, want)
+		}
+	}
+}
+
+// A Go star the registry has no use for stays ABSENT, and so does one whose
+// module merely ends in the same word.
+func TestDiesRefusalCodesOtherGoModulesAreAbsent(t *testing.T) {
+	for _, module := range []string{"x", "git.notusmi.com/rob/daedalus-fork", "git.notusmi.com/rob/nyx"} {
+		engine.reset()
+		engine.withTree(goStarTree(module))
+		wantState(t, runAtom(t, "dies:refusal-codes", ""), 0, "ABSENT")
+	}
+}
+
+// stellar-core is BOTH markers: the tapes alone, or the WIT alone beside a daedalus
+// go.mod, are not it (the last marker must not decide for the pair).
+func TestDiesRefusalCodesCoreNeedsBothMarkers(t *testing.T) {
+	engine.reset()
+	engine.withTree(diesTree(map[string]string{"conformance/tapes/claim.json": "{}"}, "policy", "fleet"))
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 0, "ABSENT")
+
+	engine.reset()
+	tree := goStarTree("git.notusmi.com/rob/daedalus")
+	tree["wit/aiws-result.wit"] = ""
+	engine.withTree(tree)
+	okDoor(t)
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 0)
+	if c := engine.chain("dies-refusal/tools/check_refusal_codes.py", "exitCode"); !hasCall(c, "withExec", "expect:ANY", `"--tree","daedalus=."`) {
+		t.Errorf("a WIT beside a daedalus go.mod is daedalus:\n%s", c)
+	}
+}
+
+// No go.mod and no marker is ABSENT, and a go.mod that cannot be read is a 2,
+// never a guess at the tree.
+func TestDiesRefusalCodesGoModErrorsAreCouldNotRun(t *testing.T) {
+	engine.reset()
+	engine.withTree(diesTree(nil, "policy", "fleet", "go.mod"))
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 0, "ABSENT")
+
+	engine.reset()
+	engine.withTree(goStarTree("git.notusmi.com/rob/daedalus"))
+	engine.failLeaf(`pattern:"go.mod"`, "glob", "engine went away")
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 2, "could not be scanned for go.mod", "engine went away")
+
+	engine.reset()
+	engine.withTree(goStarTree("git.notusmi.com/rob/daedalus"))
+	engine.failLeaf(`"go.mod"`, "contents", "go.mod gone")
+	wantState(t, runAtom(t, "dies:refusal-codes", ""), 2, "go.mod would not read", "go.mod gone")
+}
+
 // A tree that is neither dies nor stellar-core says why it has no code to
 // register. The WIT without the tapes is not stellar-core (stellar-core-rust
 // vendors the WIT alone).

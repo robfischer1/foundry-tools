@@ -1,6 +1,7 @@
 package checks
 
 import (
+	"regexp"
 	"slices"
 
 	"github.com/BurntSushi/toml"
@@ -60,3 +61,26 @@ var refusalCoreMarkers = []string{"wit/aiws-result.wit", "conformance/tapes/*.js
 
 // RefusalCoreMarkers returns a copy, so a caller cannot edit the pair.
 func RefusalCoreMarkers() []string { return slices.Clone(refusalCoreMarkers) }
+
+// refusalGoTrees are the Go stars whose uses dies grades only after they land
+// (a new unregistered code there landed green), by the module path of the
+// go.mod each carries, which says which star the tree is and so which `--tree`
+// to grade. The module path is the marker because internal/verbs/verbs.go is
+// spelled by both, so no path alone tells them apart.
+var refusalGoTrees = map[string]string{
+	"git.notusmi.com/rob/daedalus": "daedalus",
+	"git.notusmi.com/rob/hermes":   "hermes",
+}
+
+var moduleRe = regexp.MustCompile(`(?m)^module[ \t]+["` + "`" + `]?([^\s"` + "`" + `]+)`)
+
+// RefusalGoTree answers which registry star a go.mod belongs to, "" and false
+// when its module is none of them.
+func RefusalGoTree(gomod string) (string, bool) {
+	m := moduleRe.FindStringSubmatch(gomod)
+	if m == nil {
+		return "", false
+	}
+	name, ok := refusalGoTrees[m[1]]
+	return name, ok
+}

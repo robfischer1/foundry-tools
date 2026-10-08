@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -723,5 +724,100 @@ func TestFleetEmittersFetchesAtMostSixteenAtOnce(t *testing.T) {
 	}
 	if p := peak.Load(); p > 16 || p < 2 {
 		t.Errorf("peak concurrency %d, want 2..16", p)
+	}
+}
+
+// MEASURED over the fleet's checkouts (foundry-tools#15344): 81 of 86 trees read
+// as "consumes no literal event_type". Most mention the key not at all; these
+// are the consumer shapes the others use that the regexes did not know.
+func TestEventTypeUsesReadsSetHasAndAccessorComparisons(t *testing.T) {
+	files := map[string]string{
+		// theia/lineage: a constant Set asked about the event's type.
+		"lens.ts": `const LINEAGE_EVENTS = new Set(["commit", "predict", "outcome"]);
+export const isLineage = (node) => LINEAGE_EVENTS.has(node.data.event.eventType);
+`,
+		// a Rust comparison through an accessor call.
+		"n.rs": `fn f(ev: &Ev) -> bool { ev.event_type.as_str() == "mistrial" }
+`,
+	}
+	consumed, _ := EventTypeUses(files)
+	want := []string{"commit", "mistrial", "outcome", "predict"}
+	if got := types(consumed); !same(got, want) {
+		t.Fatalf("consumed %v want %v", got, want)
+	}
+}
+
+// A green is "no dark LITERAL consumer": the files that read the type without a
+// literal are named, so the sentence cannot be read as "no dark consumer".
+func TestConsumedEventsEmittedNamesTheFilesItCouldNotJudge(t *testing.T) {
+	files := map[string]string{
+		"internal/store/events.go": "package store\nfunc f(e Row) { counts[e.EventType]++ }\n",
+		"internal/p/emit.go":       "package p\nvar x = Event{EventType: \"commit\"}\nfunc g(e *Row) { e.EventType = strings.TrimSpace(e.Other) }\n",
+		"tron/normalize.rs":        "fn f(raw: &V) { let kind = raw.get(\"event_type\"); }\n",
+		"app/lens.ts":              "const isX = (e) => e.eventType === 'x';\n",
+	}
+	state, report := ConsumedEventsEmitted(context.Background(), files, func(context.Context, []string) (map[string]string, error) {
+		return map[string]string{"x": "r:f"}, nil
+	})
+	if state != 0 {
+		t.Fatalf("state %d: %s", state, report)
+	}
+	for _, want := range []string{"NOT JUDGED", "internal/store/events.go", "tron/normalize.rs"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("report lacks %q: %s", want, report)
+		}
+	}
+	if strings.Contains(report, "emit.go") || strings.Contains(report, "lens.ts") {
+		t.Errorf("a write, or a file that was judged, must not be listed: %s", report)
+	}
+
+	_, report = ConsumedEventsEmitted(context.Background(), map[string]string{"x.go": "package x\n"}, nil)
+	if strings.Contains(report, "NOT JUDGED") {
+		t.Errorf("a tree with nothing to say must not claim an unjudged file: %s", report)
+	}
+}
+
+// Every match counts, not the first: a write before a read, two Set asks in one
+// file, and the listing is ordered.
+func TestDynamicEventReadersJudgesEveryMatchAndOrdersItsAnswer(t *testing.T) {
+	files := map[string]string{
+		"z.ts": "ev.eventType = 'x'\nconst k = row.eventType\n",
+		"y.py": "x = d.get('event_type')\n",
+		"b.rs": "let k = ev.event_type;\n",
+		"a.go": "package a\nvar k = e.EventType\n",
+		"c.sh": "echo $row[\"event_type\"]\n",
+		"d.go": "package d\nfunc f() { e.EventType = \"x\"; e.EventType := 1 }\n",
+		// not listed: a write only, a comment, a test, markdown, json, a judged file.
+		"w.ts":      "ev.eventType = 'x'\n",
+		"cmt.go":    "package c\n// k := e.EventType\n",
+		"a_test.go": "package a\nvar k = e.EventType\n",
+		"doc.md":    "row.event_type\n",
+		"doc.json":  "{\"a\": \"row.event_type\"}\n",
+		"j.go":      "package j\nvar k = e.EventType\n",
+	}
+	got := DynamicEventReaders(files, []EventSite{{"commit", "j.go"}})
+	want := []string{"a.go", "b.rs", "c.sh", "y.py", "z.ts"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+	if note := dynamicNote(nil); note != "" {
+		t.Errorf("nothing unjudged, nothing to say: %q", note)
+	}
+	note := dynamicNote(want)
+	for _, w := range []string{"NOT JUDGED", "5 file(s)", "a.go, b.rs, c.sh", "+2 more"} {
+		if !strings.Contains(note, w) {
+			t.Errorf("note lacks %q: %s", w, note)
+		}
+	}
+}
+
+func TestEventTypeUsesAsksEverySetNotTheFirst(t *testing.T) {
+	files := map[string]string{"lens.ts": `const A = new Set(["a1", "a2"]);
+const B = new Set(["b1"]);
+export const f = (e) => A.has(e.eventType) || B.has(e.eventType) || B.includes(e.event_type);
+`}
+	consumed, _ := EventTypeUses(files)
+	if got, want := types(consumed), []string{"a1", "a2", "b1"}; !same(got, want) {
+		t.Fatalf("got %v want %v", got, want)
 	}
 }
