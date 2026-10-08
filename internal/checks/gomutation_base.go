@@ -108,9 +108,10 @@ func commonImportPrefix(prefix, imp string) string {
 	if strings.HasPrefix(imp, prefix) {
 		return prefix
 	}
-	for i := len(prefix) - 1; i >= 0; i-- {
-		if prefix[i] == '/' && strings.HasPrefix(imp, prefix[:i]) {
-			return prefix[:i]
+	for back := range len(prefix) {
+		cut := len(prefix) - 1 - back
+		if prefix[cut] == '/' && strings.HasPrefix(imp, prefix[:cut]) {
+			return prefix[:cut]
 		}
 	}
 	return ""

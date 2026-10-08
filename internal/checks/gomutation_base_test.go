@@ -29,6 +29,8 @@ func TestGoReportBase(t *testing.T) {
 		{"a string prefix that is not a whole segment is gomutants' own",
 			mod + "/a/foo\t/src/a/foo\n" + mod + "/a/foobar\t/src/a/foobar\n", baseRoot, "a/foo"},
 		{"nothing listed", "", baseRoot, ""},
+		{"the prefix is cut at a slash, not at the first byte they share",
+			mod + "/cmd/ab\t/src/cmd/ab\n" + mod + "/cmd/ac\t/src/cmd/ac\n", baseRoot, "cmd"},
 		{"no common prefix means gomutants names files from the module root",
 			"x/y\t/src/sub/x/y\nz\t/src/z\n", baseRoot, ""},
 		{"a Windows line ending is not part of the directory",
