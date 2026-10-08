@@ -513,19 +513,27 @@ func TestTheChainsContractFixturesAreTheBinarys(t *testing.T) {
 // above it; the ones below still are. The atoms that need what is missing settle
 // 2 on their own probe.
 func TestAPythonStageThatFailsIsLeftOutWithTheOnesAboveIt(t *testing.T) {
+	// applied says whether the final container lays something at a path: a file
+	// or a directory it is given, which is not the same as the path being named
+	// anywhere in the query (the directory a stage OFFERS is named by its own
+	// selection).
+	applied := func(c, path string) bool {
+		return hasCall(c, "withDirectory", `path:"`+path+`"`) || hasCall(c, "withFile", `path:"`+path+`"`)
+	}
 	for _, tc := range []struct {
 		name    string
 		fail    func()
 		cause   string
 		present []string
 		absent  []string
+		path    bool
 	}{
 		{"the interpreter", func() { engine.failLeaf(`"uv","python","install"`, "sync", "download failed") },
-			"the python interpreter", nil, []string{`path:"/usr/local/bin/uv"`, `path:"/opt/uv-python"`, `path:"/opt/atoms-py"`, `path:"/opt/ansible-collections"`, `name:"PATH"`}},
+			"the python interpreter", nil, []string{"/usr/local/bin/uv", "/opt/uv-python", "/opt/atoms-py", "/opt/ansible-collections"}, false},
 		{"the packages", func() { engine.failLeaf(`"--require-hashes"`, "sync", "hash mismatch") },
-			"the python packages", []string{`path:"/usr/local/bin/uv"`, `path:"/opt/uv-python"`}, []string{`path:"/opt/atoms-py"`, `path:"/opt/ansible-collections"`, `name:"PATH"`}},
+			"the python packages", []string{"/usr/local/bin/uv", "/opt/uv-python"}, []string{"/opt/atoms-py", "/opt/ansible-collections"}, false},
 		{"the collections, after the retry", func() { engine.failLeaf(`"collection","install"`, "sync", "404 Not Found") },
-			"the ansible collections", []string{`path:"/usr/local/bin/uv"`, `path:"/opt/uv-python"`, `path:"/opt/atoms-py"`, `name:"PATH"`}, nil},
+			"the ansible collections", []string{"/usr/local/bin/uv", "/opt/uv-python", "/opt/atoms-py"}, []string{"/opt/ansible-collections"}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			engine.reset()
@@ -536,16 +544,19 @@ func TestAPythonStageThatFailsIsLeftOutWithTheOnesAboveIt(t *testing.T) {
 			}
 			c := engine.chain(`path:"/usr/local/bin/atoms"`)
 			for _, want := range tc.present {
-				if !strings.Contains(c, want) {
+				if !applied(c, want) {
 					t.Errorf("%s was dropped with the stage above it", want)
 				}
 			}
 			for _, not := range tc.absent {
-				if strings.Contains(c, not) {
+				if applied(c, not) {
 					t.Errorf("%s was applied though its stage did not build", not)
 				}
 			}
-			if !strings.Contains(c, `path:"/usr/local/bin/hadolint"`) {
+			if got := hasCall(c, "withEnvVariable", `name:"PATH"`); got != tc.path {
+				t.Errorf("the venv's PATH is set: %v, want %v", got, tc.path)
+			}
+			if !applied(c, "/usr/local/bin/hadolint") {
 				t.Error("a python stage took the tools with it")
 			}
 			if line := log(); !strings.Contains(line, "atoms tools: "+tc.cause+" left out of the container: ") {
