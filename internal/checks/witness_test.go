@@ -465,3 +465,42 @@ func TestWitnessSummaryAndDryTextReadBack(t *testing.T) {
 		t.Errorf("dry text %q", dry)
 	}
 }
+
+func TestWitnessSkipTailNamesEachKindAlone(t *testing.T) {
+	one := []string{"x"}
+	for _, tc := range []struct {
+		name                     string
+		skipped, vendored, tests []string
+		want                     string
+	}{
+		{"none", nil, nil, nil, ""},
+		{"no analyzer", one, nil, nil, "; skipped 1 file(s) in languages the witness has no analyzer for"},
+		{"vendored", nil, one, nil, "; skipped 1 vendored file(s)"},
+		{"tests", nil, nil, one, "; skipped 1 test file(s)"},
+		{"all three, in that order", one, one, []string{"a", "b"}, "; skipped 1 file(s) in languages the witness has no analyzer for; skipped 1 vendored file(s); skipped 2 test file(s)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := WitnessSkipTail(tc.skipped, tc.vendored, tc.tests); got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestWitnessedPathsReadsTheTableAndNothingAroundIt(t *testing.T) {
+	for _, tc := range []struct {
+		name, text, want string
+	}{
+		{"rows after the header and its rule", "| file | verdict | class | reason |\n|---|---|---|---|\n| a.go | x | y | z |\n| b.go | x | y | z |\n", "a.go,b.go"},
+		{"a header with no rows", "| file | verdict | class | reason |\n|---|---|---|---|\n", ""},
+		{"a row-shaped line after the table is prose", "| file | verdict | class | reason |\n|---|---|---|---|\n| a.go | x | y | z |\n- bullet\n| c.go | x | y | z |\n", "a.go"},
+		{"a row-shaped line before the table is prose", "| c.go | x | y | z |\n| file | verdict | class | reason |\n|---|---|---|---|\n| a.go | x | y | z |\n", "a.go"},
+		{"a second table is read too", "| file | verdict | class | reason |\n|---|---|---|---|\n| a.go | x | y | z |\n\n| file | verdict | class | reason |\n|---|---|---|---|\n| b.go | x | y | z |\n", "a.go,b.go"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := strings.Join(WitnessedPaths(tc.text), ","); got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

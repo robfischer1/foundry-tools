@@ -521,11 +521,16 @@ func TestAtomsVectorAlwaysRunsTheWitnessDryAndMountsNoSocket(t *testing.T) {
 	}
 	t.Run("the voter's socket helper still forwards one", func(t *testing.T) {
 		r := newRun(dag.Directory(), "http://door/rob/x.git", "abc").withSpire(dag.LoadSocketFromID("spire-agent-socket"))
-		if _, flags := r.withAtomSpire(dag.Container(), "prepush"); len(flags) != 2 || flags[0] != "-spire" {
-			t.Errorf("flags %v", flags)
+		ctr, flags := r.withAtomSpire(dag.Container(), "prepush")
+		if ctr == nil || len(flags) != 2 || flags[0] != "-spire" || flags[1] != atomsSpirePath {
+			t.Errorf("container %v, flags %v", ctr, flags)
 		}
-		if _, flags := r.withAtomSpire(dag.Container(), "precommit"); len(flags) != 0 {
+		if ctr, flags := r.withAtomSpire(dag.Container(), "precommit"); ctr == nil || len(flags) != 0 {
 			t.Errorf("a stage without the witness got %v", flags)
+		}
+		bare := newRun(dag.Directory(), "http://door/rob/x.git", "abc")
+		if ctr, flags := bare.withAtomSpire(dag.Container(), "prepush"); ctr == nil || len(flags) != 0 {
+			t.Errorf("a run with no socket got %v", flags)
 		}
 	})
 }

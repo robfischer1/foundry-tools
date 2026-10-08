@@ -199,3 +199,23 @@ func TestCompareHoldsADryWitnessApartFromTheCounts(t *testing.T) {
 		}
 	})
 }
+
+func TestDryWitnessIsRecognisedByAtomAndMarkTogether(t *testing.T) {
+	dryText := checks.WitnessDryText([]string{"a.go"}, "c", nil, nil, nil)
+	if !isDryWitness(checks.Verdict{Atom: "fleet:witness", Reason: dryText}) {
+		t.Error("a dry witness with its words in the reason alone (no logs) was not recognised")
+	}
+	if got := witnessText(checks.Verdict{Reason: "only the reason"}); got != "only the reason" {
+		t.Errorf("text %q", got)
+	}
+	if isDryWitness(checks.Verdict{Atom: "fleet:check-yaml", Reason: dryText, Logs: []string{dryText}}) {
+		t.Error("another atom that quotes the mark was taken for the dry witness")
+	}
+	if isDryWitness(checks.Verdict{Atom: "fleet:witness", Reason: "clean"}) {
+		t.Error("a witness that asked was taken for a dry one")
+	}
+	rep := Compare([]checks.Verdict{verdict("fleet:check-yaml", 0, "")}, []checks.Verdict{verdict("fleet:check-yaml", 0, dryText)})
+	if rep.Dry != nil {
+		t.Errorf("a quoted mark made a dry comparison: %+v", rep.Dry)
+	}
+}

@@ -121,3 +121,16 @@ func TestEveryPythonExecNameIsAVenvProgram(t *testing.T) {
 		}
 	}
 }
+
+func TestOnlyTheVenvsProgramsAreResolvedThere(t *testing.T) {
+	venv := t.TempDir()
+	if err := os.WriteFile(filepath.Join(venv, "git"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := pythonBinDir
+	pythonBinDir = venv
+	t.Cleanup(func() { pythonBinDir = old })
+	if got := programPath("git"); got != "git" {
+		t.Errorf("git resolved to %q: a file of that name in the venv is not the venv's program", got)
+	}
+}
