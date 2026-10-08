@@ -503,7 +503,7 @@ func atomTable() []AtomDef {
 		},
 		{
 			ID: "dies:schema", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "The slag v1 (published slag-schema die) and v3 schemas are valid Draft 2020-12 documents and every fleet/stars/*/slag.json satisfies slag-v3.",
+			Desc: "The slag v1 (published slag-schema die) and v3 schemas are valid Draft 2020-12 documents and every fleet/stars/*/slag.json satisfies the schema its own $schema names (slag-v3 or slag-v4).",
 		},
 		{
 			ID: "dies:findings", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,

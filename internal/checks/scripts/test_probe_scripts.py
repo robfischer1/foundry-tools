@@ -140,6 +140,8 @@ def schema_tree(tmp_path: Path, **docs: object) -> Path:
 
 
 V3 = "slag-v3.schema.json"
+V4 = "slag-v4.schema.json"
+V4_URL = "https://forgejo.notusmi.com/rob/foundry-dies/schema/slag-v4.schema.json"
 V1 = "slag.schema.json"
 
 
@@ -210,6 +212,31 @@ def test_a_clean_schema_and_record_pass(tmp_path):
     done = probe(tree)
     assert done.returncode == PASS, done.stdout + done.stderr
     assert "1 record(s) validated" in done.stdout
+
+
+def test_each_record_is_held_to_the_schema_it_names(tmp_path):
+    tree = schema_tree(tmp_path, **{V1: VALID, V3: VALID, V4: VALID})
+    add_record(tree, "hades", json.dumps({"meta": {"name": "hades"}}))
+    add_record(tree, "nyx", json.dumps({"$schema": V4_URL, "meta": {"name": "nyx"}}))
+    done = probe(tree)
+    assert done.returncode == PASS, done.stdout + done.stderr
+    assert "2 record(s) validated" in done.stdout
+    assert "1 against schema/slag-v3.schema.json" in done.stdout
+    assert "1 against schema/slag-v4.schema.json" in done.stdout
+
+
+def test_a_record_naming_a_schema_the_tree_lacks_cannot_be_judged(tmp_path):
+    tree = schema_tree(tmp_path, **{V1: VALID, V3: VALID})
+    add_record(tree, "nyx", json.dumps({"$schema": V4_URL, "meta": {"name": "nyx"}}))
+    done = probe(tree)
+    assert done.returncode == CANNOT_RUN, done.stdout + done.stderr
+    assert "could not read schema/slag-v4.schema.json" in done.stderr
+
+
+def test_a_malformed_v4_schema_is_a_finding(tmp_path):
+    done = probe(schema_tree(tmp_path, **{V1: VALID, V3: VALID, V4: {"type": 17}}))
+    assert done.returncode == FINDINGS, done.stdout + done.stderr
+    assert "schema/slag-v4.schema.json" in done.stderr
 
 
 def test_a_record_that_is_not_json_is_a_finding_about_the_record(tmp_path):
