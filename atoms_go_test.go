@@ -331,6 +331,11 @@ func TestGoMutationCompilesTheRecordsDBTags(t *testing.T) {
 	if list := engine.chain(goMainListNeedle, "stdout"); !strings.Contains(list, `"-tags","live_db"`) {
 		t.Errorf("the misgraded-file listing dropped the record's build tags:\n%s", list)
 	}
+	// AND THE PACKAGE LISTING THE REPORT'S BASE COMES FROM: a tagged package is
+	// only in the run's package set under the tags the run used.
+	if list := engine.chain(goPackagesNeedle, "stdout"); !strings.Contains(list, `"-tags","live_db"`) {
+		t.Errorf("the package listing dropped the record's build tags:\n%s", list)
+	}
 	c := engine.chain(goMutantsNeedle, "exitCode")
 	wantCalls(t, c,
 		// ITS OWN SERVER, not the one go:test-race binds. This lane runs BESIDE
@@ -489,6 +494,55 @@ func TestGoMutationMeasuresTheDiffAndSettlesInGo(t *testing.T) {
 	// an empty `-tags ""` would place a build-tagged main file wrongly.
 	if strings.Contains(list, `"-tags"`) {
 		t.Errorf("a repo with no test databases tagged its go list:\n%s", list)
+	}
+}
+
+// goPackagesNeedle is the `go list` that names each package's import path and
+// directory, from which the report's file base is worked out.
+const goPackagesNeedle = `{{.ImportPath}}`
+
+// A MODULE WHOSE ONLY PACKAGE IS cmd/<name> (paneless's layout) gets a report
+// naming "a.go", relative to the package and not the module root. The lane
+// renames the files from the root before the classifier or the scorer reads
+// them: measured on paneless@1630cf5, where 37 survivors read "the classifier
+// did not answer" because mutation-gate looked for ./answer.go.
+func TestGoMutationNamesFilesFromTheModuleRootBeforeClassifying(t *testing.T) {
+	bare := `{"files":[{"file_name":"a.go","mutations":[{"type":"T","status":"KILLED","line":1,"column":1},{"type":"T","status":"LIVED","line":2,"column":3}]}]}`
+	scriptGoMutation(nil)
+	engine.withTree(map[string]string{"/src/mutation-go.json": bare})
+	engine.stdout(goPackagesNeedle, "git.notusmi.com/rob/x/cmd/x\t/src/cmd/x\n")
+	wantState(t, runAtom(t, "go:mutation", "abc123"), 1, "1 mutant(s) survived", "cmd/x/a.go:2:3  LIVED")
+	c := engine.chain(goClassifyNeedle)
+	if !strings.Contains(c, "withNewFile") || !strings.Contains(c, "cmd/x/a.go") {
+		t.Errorf("mutation-gate was handed the report as gomutants wrote it:\n%s", c)
+	}
+
+	// THE LISTING FAILING LEAVES THE REPORT AS GOMUTANTS WROTE IT, whatever it
+	// printed: the classifier's own refusal then speaks. Both the exit code and
+	// the engine are asked.
+	scriptGoMutation(nil)
+	engine.withTree(map[string]string{"/src/mutation-go.json": bare})
+	engine.stdout(goPackagesNeedle, "git.notusmi.com/rob/x/cmd/x\t/src/cmd/x\n")
+	engine.exitCode(goPackagesNeedle, 1)
+	runAtom(t, "go:mutation", "abc123")
+	if c := engine.chain(goClassifyNeedle); strings.Contains(c, "cmd/x/a.go") {
+		t.Errorf("the report was rewritten from a listing that failed:\n%s", c)
+	}
+	scriptGoMutation(nil)
+	engine.withTree(map[string]string{"/src/mutation-go.json": bare})
+	engine.fail(goPackagesNeedle, "engine gone")
+	runAtom(t, "go:mutation", "abc123")
+	if c := engine.chain(goClassifyNeedle); strings.Contains(c, "cmd/x/a.go") {
+		t.Errorf("the report was rewritten from a listing the engine could not run:\n%s", c)
+	}
+
+	// A module-relative report is left exactly as it was written.
+	scriptGoMutation(nil)
+	engine.withTree(map[string]string{"/src/mutation-go.json": bare})
+	engine.stdout(goPackagesNeedle, "git.notusmi.com/rob/x\t/src\ngit.notusmi.com/rob/x/cmd/x\t/src/cmd/x\n")
+	wantState(t, runAtom(t, "go:mutation", "abc123"), 1, "a.go:2:3  LIVED")
+	if c := engine.chain(goClassifyNeedle); strings.Contains(c, "cmd/x/a.go") {
+		t.Errorf("a module-relative report was rewritten:\n%s", c)
 	}
 }
 
