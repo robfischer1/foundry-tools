@@ -787,7 +787,7 @@ func diesCanonical(ctx context.Context, r *run) checks.Verdict {
 // Every refusal code a world or a star spells is in the fleet registry
 // (stellar-core F17-3b, foundry-dies#14947).
 //
-// WHERE IT RUNS, AND WHY THERE. Two trees, because a code is spelled in one and
+// WHERE IT RUNS, AND WHY THERE. Registry owner and spelling trees, because a code is spelled in one and
 // registered in the other and a pull that edits either has to go red BEFORE it
 // lands, in the repo of the person who made it (check_contracts.py's alarm
 // asymmetry).
@@ -805,9 +805,13 @@ func diesCanonical(ctx context.Context, r *run) checks.Verdict {
 //	                stellar-core's uses. A new code lands here as undeclared,
 //	                and the fix (a [codes.x] row) is a dies pull that lands first.
 //
-// NOT daedalus (go-err-codes) or hermes: their uses are graded from dies,
-// late. Running it there needs the same fetch and an atom shape each; follow-up
-// pinned on foundry-tools, not folded in here.
+//	daedalus, hermes
+//	                Go stars whose go-err-codes uses (daedalus internal/cilogs/*,
+//	                internal/ciawait/*; hermes internal/verbs/verbs.go) were graded
+//	                only from dies, after they landed: a new unregistered code
+//	                landed green (foundry-tools#15237). Same fetch-and-scope with
+//	                `--tree daedalus=.` or `--tree hermes=.`, keyed on the module
+//	                line of the go.mod at the tree's root.
 //
 // THE CHECKER IS DIES', NOT EMBEDDED, for the dies:contracts reason. In the
 // stellar-core tree it is the door's main: a pull that changes the checker lands
@@ -819,7 +823,7 @@ func diesCanonical(ctx context.Context, r *run) checks.Verdict {
 // is otherwise the verdict, unmapped.
 func diesRefusalCodes(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("dies:refusal-codes")
-	absent := checks.VerdictOf(a, 0, a.ID+": ABSENT - this tree neither owns the refusal registry (foundry-dies) nor spells world codes on tapes (stellar-core: wit/aiws-result.wit with conformance/tapes/*.json), so it has no code to register.")
+	absent := checks.VerdictOf(a, 0, a.ID+": ABSENT - this tree neither owns the refusal registry (foundry-dies), nor spells world codes on tapes (stellar-core: wit/aiws-result.wit with conformance/tapes/*.json), nor is daedalus or hermes (go.mod module), so it has no code to register.")
 
 	stop := diesShape(ctx, r, a)
 	if stop != nil && stop.State != 0 {
@@ -828,16 +832,47 @@ func diesRefusalCodes(ctx context.Context, r *run) checks.Verdict {
 	if stop == nil {
 		return diesRefusalOwner(ctx, r, a)
 	}
+	name, bad := refusalTreeName(ctx, r, a)
+	if bad != nil {
+		return *bad
+	}
+	if name == "" {
+		return absent
+	}
+	return diesRefusalCore(ctx, r, a, name)
+}
+
+// refusalTreeName says which registry tree this checkout is: stellar-core by
+// the two paths it spells its codes on, daedalus or hermes by the module line of
+// the go.mod at its root. "" is none of them.
+func refusalTreeName(ctx context.Context, r *run, a checks.AtomDef) (string, *checks.Verdict) {
+	core := true
 	for _, marker := range checks.RefusalCoreMarkers() {
 		ok, err := present(ctx, r, marker)
 		if err != nil {
-			return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - the tree could not be scanned for %s (%v).", a.ID, marker, err))
+			v := checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - the tree could not be scanned for %s (%v).", a.ID, marker, err))
+			return "", &v
 		}
-		if !ok {
-			return absent
-		}
+		core = core && ok
 	}
-	return diesRefusalCore(ctx, r, a)
+	if core {
+		return "stellar-core", nil
+	}
+	ok, err := present(ctx, r, "go.mod")
+	if err != nil {
+		v := checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - the tree could not be scanned for go.mod (%v).", a.ID, err))
+		return "", &v
+	}
+	if !ok {
+		return "", nil
+	}
+	gomod, err := r.src.File("go.mod").Contents(ctx)
+	if err != nil {
+		v := checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - go.mod would not read (%v).", a.ID, err))
+		return "", &v
+	}
+	name, _ := checks.RefusalGoTree(gomod)
+	return name, nil
 }
 
 // diesRefusalOwner is the registry owner's half: its own checker, its own
@@ -861,9 +896,10 @@ func diesRefusalOwner(ctx context.Context, r *run, a checks.AtomDef) checks.Verd
 		WithExec(tomlpy(checks.RefusalChecker), anyExit))
 }
 
-// diesRefusalCore is the tape owner's half: dies' checker and registry from the
-// door, this tree's uses from /src.
-func diesRefusalCore(ctx context.Context, r *run, a checks.AtomDef) checks.Verdict {
+// diesRefusalCore is the spelling tree's half (stellar-core, daedalus, hermes):
+// dies' checker and registry from the door, this tree's uses from /src, graded
+// under the tree's own registry name.
+func diesRefusalCore(ctx context.Context, r *run, a checks.AtomDef, tree string) checks.Verdict {
 	ctr := r.lane(checks.ImageFleet).WithExec([]string{"uv", "--version"})
 	var registry string
 	for _, path := range checks.RefusalCheckerFiles() {
@@ -884,7 +920,7 @@ func diesRefusalCore(ctx context.Context, r *run, a checks.AtomDef) checks.Verdi
 	}
 	return verdict(ctx, a, ctr.WithExec(tomlpy(
 		refusalDir+"/"+checks.RefusalChecker,
-		"--tree", checks.RefusalTreeFlag("stellar-core"),
+		"--tree", checks.RefusalTreeFlag(tree),
 		"--door", strings.TrimRight(oureaDoor.Base, "/")+"/archive",
 	), anyExit))
 }

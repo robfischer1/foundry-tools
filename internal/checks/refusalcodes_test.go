@@ -52,3 +52,23 @@ func TestRefusalCheckerFilesCarryTheCheckersImports(t *testing.T) {
 		t.Fatal("the marker pair must not be editable by a caller")
 	}
 }
+
+func TestRefusalGoTreeNamesTheStarFromItsModuleLine(t *testing.T) {
+	for _, tc := range []struct {
+		gomod string
+		want  string
+		ok    bool
+	}{
+		{"module git.notusmi.com/rob/daedalus\n\ngo 1.26\n", "daedalus", true},
+		{"// header\nmodule git.notusmi.com/rob/hermes\n", "hermes", true},
+		{"module \"git.notusmi.com/rob/hermes\"\n", "hermes", true},
+		{"module git.notusmi.com/rob/daedalus-fork\n", "", false},
+		{"module x\n", "", false},
+		{"", "", false},
+	} {
+		got, ok := RefusalGoTree(tc.gomod)
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("RefusalGoTree(%q) = %q, %v; want %q, %v", tc.gomod, got, ok, tc.want, tc.ok)
+		}
+	}
+}
