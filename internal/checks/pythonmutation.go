@@ -221,3 +221,62 @@ func firstMatch(s string, re *regexp.Regexp) string {
 	}
 	return ""
 }
+
+// PythonDiffFor narrows a whole-tree `git diff -M --unified=0` to the files
+// the gate mutates: those whose NEW path is a kept module, or lies under a kept
+// directory, and that carry at least one hunk. The atom used to hand git the
+// kept paths as a pathspec, and a pathspec that omits a file's old path cannot
+// pair the rename: a module moved whole (cerberus .cerberus/hooks -> payload/hooks,
+// content byte-identical) read as every line added, and the gate scored 632
+// mutants of code the pull never changed. A pure rename carries no hunk and
+// drops out; a rename with edits keeps its hunks against the OLD content.
+func PythonDiffFor(diff string, kept []string) string {
+	var out []string
+	var section []string
+	flush := func() {
+		if len(section) == 0 {
+			return
+		}
+		if diffSectionKept(section[0], kept) && diffSectionHasHunk(section) {
+			out = append(out, section...)
+		}
+		section = nil
+	}
+	for _, ln := range strings.Split(strings.TrimSuffix(diff, "\n"), "\n") {
+		if strings.HasPrefix(ln, "diff --git ") {
+			flush()
+		}
+		section = append(section, ln)
+	}
+	flush()
+	if len(out) == 0 {
+		return ""
+	}
+	return strings.Join(out, "\n") + "\n"
+}
+
+// diffSectionKept reads the new path off a `diff --git a/X b/Y` header: what
+// follows its last " b/".
+func diffSectionKept(header string, kept []string) bool {
+	i := strings.LastIndex(header, " b/")
+	if i < 0 {
+		return false
+	}
+	path := header[i+len(" b/"):]
+	for _, k := range kept {
+		k = strings.TrimSuffix(k, "/")
+		if path == k || strings.HasPrefix(path, k+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func diffSectionHasHunk(section []string) bool {
+	for _, ln := range section {
+		if strings.HasPrefix(ln, "@@ ") {
+			return true
+		}
+	}
+	return false
+}
