@@ -42,6 +42,25 @@ var theFunctionsTheDoorCalls = map[string][]string{
 	"FoundryTools": {"Gate", "GateFile"},
 }
 
+// theFunctionsOnlyPeopleCall are invokable but not the door's: ShadowAtoms is
+// called from CI beside the gate (and from Gate itself, in process), and the
+// door never asks for it.
+var theFunctionsOnlyPeopleCall = map[string][]string{
+	"FoundryTools": {"ShadowAtoms"},
+}
+
+func TestTheGeneratedSwitchKnowsTheShadow(t *testing.T) {
+	gen := readGen(t)
+	for typeName, fns := range theFunctionsOnlyPeopleCall {
+		body := genBlock(gen, fmt.Sprintf("\tcase %q:\n", typeName))
+		for _, fn := range fns {
+			if !strings.Contains(body, fmt.Sprintf("case %q:\n", fn)) {
+				t.Errorf("%s.%s is not invokable; run `dagger develop`", typeName, fn)
+			}
+		}
+	}
+}
+
 func TestTheGeneratedMarshallerNamesEveryFieldThatTravels(t *testing.T) {
 	gen := readGen(t)
 	for _, v := range theTypesThatTravel() {

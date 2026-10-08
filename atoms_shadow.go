@@ -1,0 +1,213 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"strings"
+	"time"
+
+	"dagger/foundry-tools/internal/atoms"
+	"dagger/foundry-tools/internal/checks"
+	"dagger/foundry-tools/internal/dagger"
+)
+
+// THE SHADOW OF THE ATOMS BINARY. internal/atoms runs the cheap fleet atoms
+// in one process; before any repository's verdict is allowed to come from it,
+// CI runs it BESIDE the chains over the same tree and reads whether the two
+// agree. This file is that run, and it is built so that it CANNOT vote:
+//
+//   - It is its own function, not a stage. gate, gate-file, Verdicts and Push
+//     never call it, so no record, vector or exit a door reads contains it.
+//   - It RETURNS A STRING, with no error: a chain that would not evaluate, a
+//     binary that would not build, an output that will not parse are all lines
+//     of the report, and the function still answers. The caller prints it.
+//   - It reuses the lane's chains for the "today" side (m.vector, selected by
+//     id), so the engine's cache serves them when the gate ran the same tree.
+
+// atomsSourceInclude is the part of this module the atoms binary is built
+// from, and nothing else. The chains' helper binaries mount
+// dag.CurrentModule().Source() whole (moduleBinary: standard library only,
+// GOPROXY=off, cold), which makes the build's cache key a function of every
+// file in the module — an edit to a README rebuilds it. This binary takes a
+// real dependency (the YAML parser), so it is built in goToolchain() with the
+// Go cache volumes mounted, from go.mod, go.sum and the packages it imports.
+// TestAtomsSourceCoversImports holds this list to the import closure: a
+// package the binary imports and this list omits is a build that fails in the
+// engine and nowhere a test can see.
+var atomsSourceInclude = []string{
+	"go.mod", "go.sum",
+	"atoms/**",
+	"internal/atoms/**",
+	"internal/checks/**",
+	"internal/execmem/**",
+	"internal/unitkey/**",
+}
+
+// atomsBinPath is where the binary sits in the fleet lane's container.
+const atomsBinPath = "/usr/local/bin/atoms"
+
+// atomsBinary builds ./atoms from the filtered source. Tests are excluded: they
+// are not compiled into the binary, and a test edit must not rebuild it.
+func atomsBinary() *dagger.File {
+	src := dag.CurrentModule().Source().Filter(dagger.DirectoryFilterOpts{
+		Include: atomsSourceInclude,
+		Exclude: []string{"**/*_test.go"},
+	})
+	return goToolchain().
+		WithMountedDirectory("/src", src).
+		WithWorkdir("/src").
+		WithExec([]string{"go", "build", "-trimpath", "-o", "/out/atoms", "./atoms"}).
+		File("/out/atoms")
+}
+
+// ShadowAtoms runs the in-process atoms beside the same atoms as Dagger chains
+// and reports whether they agree. NON-VOTING: it returns text and nothing that
+// a gate reads, and it answers even when either side could not run.
+//
+// +cache="never"
+func (m *FoundryTools) ShadowAtoms(
+	ctx context.Context,
+	// The change set's base, as Verdicts takes it. Empty reads HEAD against
+	// its parent.
+	// +optional
+	base string,
+) string {
+	var ids []string
+	for _, a := range atoms.Builtin() {
+		ids = append(ids, a.ID)
+	}
+	today, todayErr := shadowToday(ctx, m, strings.Join(ids, ","), base)
+	raw, rawErr := shadowBinary(ctx, m, base)
+	return renderShadow(today, todayErr, raw, rawErr)
+}
+
+// The two sides of the comparison, as variables so a test names what each
+// answers without an engine.
+var (
+	shadowToday = func(ctx context.Context, m *FoundryTools, only, base string) ([]checks.Verdict, error) {
+		return m.vector(ctx, "", only, base)
+	}
+	shadowBinary = func(ctx context.Context, m *FoundryTools, base string) (string, error) {
+		return m.atomsVector(ctx, base)
+	}
+)
+
+// atomsVector runs the binary in the fleet lane image over the same tree the
+// chains read, and answers its stdout: the vector as JSON.
+//
+// THE LANE IS THE CHAINS' OWN (r.lane, r.gitReady, r.withBase), so the binary
+// sees the tree and the history the chains see — including a linked worktree's
+// rebuilt repository and the base fetched by sha. A non-zero exit is an error
+// here, not a vector: the binary exits 0 whatever its atoms found.
+func (m *FoundryTools) atomsVector(ctx context.Context, base string) (string, error) {
+	r := newRun(m.Source, m.Repo, base).fromOrigin(m.Origin)
+	ctr := r.gitReady(ctx, r.withBase(r.lane(checks.ImageFleet))).
+		WithFile(atomsBinPath, atomsBinary(), dagger.ContainerWithFileOpts{Permissions: 0o755}).
+		WithExec([]string{atomsBinPath, "-root", "/src", "-base", base, "-origin", r.repo}, anyExit)
+	out, code, err := output(ctx, ctr)
+	if err != nil {
+		return "", err
+	}
+	if code != 0 {
+		return "", fmt.Errorf("the atoms binary exited %d: %.300s", code, out)
+	}
+	return out, nil
+}
+
+// renderShadow is the report from the two sides' answers. It is pure so the
+// ways either side can fail are tested without an engine.
+func renderShadow(today []checks.Verdict, todayErr error, raw string, rawErr error) string {
+	if todayErr != nil {
+		return "shadow atoms: not compared - the chains did not answer: " + todayErr.Error()
+	}
+	if rawErr != nil {
+		return "shadow atoms: not compared - the binary did not answer: " + rawErr.Error()
+	}
+	shadow, err := checks.ParseVector(raw)
+	if err != nil {
+		return "shadow atoms: not compared - " + err.Error()
+	}
+	return atoms.Compare(today, shadow).Render()
+}
+
+// THE SHADOW'S PACKAGE STATE. Each variable below is a seam the tests replace
+// (atoms_shadow_test.go's init sets shadowRun and shadowOut to inert values so
+// no gate test runs the real shadow by accident; the shadow tests set their
+// own and restore them). startShadow COPIES every one of them before it starts
+// a goroutine, because an abandoned shadow outlives the call that started it
+// and must never read a variable the next call, or the next test, is writing.
+
+// shadowTimeout bounds the shadow run's own context, apart from the gate's.
+var shadowTimeout = 5 * time.Minute
+
+// shadowGrace is how long the gate waits for the shadow AFTER its own record is
+// settled (and posted). The shadow starts BEFORE the gate grades, so on a
+// normal run it has had the gate's whole duration; the grace is only the tail.
+// Past it the shadow is abandoned and the gate returns. Latency is a vote: a
+// gate that waits for a non-voting check has let it decide when the record
+// lands, and GateFile's volume fallback for a failed post must not sit behind it.
+var shadowGrace = 30 * time.Second
+
+// shadowRun is the shadow itself, so the tests can make it hang, panic or
+// answer garbage and prove the gate does not notice.
+var shadowRun = func(ctx context.Context, m *FoundryTools, base string) string {
+	return m.ShadowAtoms(ctx, base)
+}
+
+// shadowOut is where the report goes: stderr. Never the record, never the exit.
+var shadowOut = func() io.Writer { return os.Stderr }
+
+// shadowHandle is a started shadow. A nil handle (a lane with no shadow) is
+// valid and finish on it does nothing.
+type shadowHandle struct {
+	done   chan string
+	cancel context.CancelFunc
+	grace  time.Duration
+	out    io.Writer
+}
+
+// startShadow starts the shadow in a goroutine and answers at once. IT CANNOT
+// VOTE: it returns no state, runs under its own deadline, recovers a panic into
+// a line of the report, and only the pull path has one (the mutation, orbit and
+// visual lanes have no atoms in the binary). Call it before grading, so the
+// shadow overlaps the gate instead of following it, and call finish after the
+// record is settled.
+func (m *FoundryTools) startShadow(ctx context.Context, stage, base string) *shadowHandle {
+	if laneOf(stage) != "gate" {
+		return nil
+	}
+	// Every package variable the goroutine would read, copied HERE.
+	run, timeout := shadowRun, shadowTimeout
+	h := &shadowHandle{done: make(chan string, 1), grace: shadowGrace, out: shadowOut()}
+	ctx, h.cancel = context.WithTimeout(ctx, timeout)
+	// Buffered: an abandoned shadow can still return and its goroutine end.
+	go func() {
+		defer func() {
+			if p := recover(); p != nil {
+				h.done <- fmt.Sprintf("shadow atoms: not compared - the shadow panicked: %v", p)
+			}
+		}()
+		h.done <- run(ctx, m, base)
+	}()
+	return h
+}
+
+// finish waits at most the grace for the report, prints it to stderr, and
+// abandons the shadow if it has not answered. The goroutine never writes to
+// out: only the caller does, so an abandoned shadow cannot print later.
+func (h *shadowHandle) finish() {
+	if h == nil {
+		return
+	}
+	defer h.cancel()
+	timer := time.NewTimer(h.grace)
+	defer timer.Stop()
+	select {
+	case report := <-h.done:
+		fmt.Fprintln(h.out, report)
+	case <-timer.C:
+		fmt.Fprintf(h.out, "shadow atoms: not compared - no answer within the %s grace after the gate settled\n", h.grace)
+	}
+}
