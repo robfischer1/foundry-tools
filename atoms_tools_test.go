@@ -525,7 +525,7 @@ func TestAPythonStageThatFailsIsLeftOutWithTheOnesAboveIt(t *testing.T) {
 		{"the packages", func() { engine.failLeaf(`"--require-hashes"`, "sync", "hash mismatch") },
 			"the python packages", []string{`path:"/usr/local/bin/uv"`, `path:"/opt/uv-python"`}, []string{`path:"/opt/atoms-py"`, `path:"/opt/ansible-collections"`, `name:"PATH"`}},
 		{"the collections, after the retry", func() { engine.failLeaf(`"collection","install"`, "sync", "404 Not Found") },
-			"the ansible collections", nil, nil},
+			"the ansible collections", []string{`path:"/usr/local/bin/uv"`, `path:"/opt/uv-python"`, `path:"/opt/atoms-py"`, `name:"PATH"`}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			engine.reset()
