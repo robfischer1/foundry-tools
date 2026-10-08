@@ -1039,6 +1039,30 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	// fails is that absence, and the verdict decides what it means.
 	report, _ := mutated.File(path.Join("/src", dir, goMutationReport)).Contents(ctx)
 
+	// NAME THE FILES FROM THE MODULE ROOT before anything reads them. gomutants
+	// writes file_name relative to the common import-path prefix of the packages
+	// it ran, so a module whose packages all live below cmd/<name> reports
+	// "answer.go" and the classifier, looking in the module root, refuses the
+	// whole report (checks.GoReportBase). The packages are listed with the
+	// patterns and tags the run itself was given, so the base is the run's own.
+	// A listing that fails leaves the report as it was: the classifier's own
+	// refusal then speaks.
+	classifyOn := mutated
+	if report != "" {
+		listPkgs := []string{"go", "list", "-e", "-f", checks.GoPackagesFormat}
+		if len(dbs) > 0 || len(brokers) > 0 {
+			listPkgs = append(listPkgs, "-tags", checks.BuildTags(dbs, brokers))
+		}
+		if out, code, err := output(ctx, base.WithExec(append(listPkgs, mutateArgs...), anyExit)); err == nil && code == 0 {
+			if rel := checks.GoReportBase(out, path.Join("/src", dir)); rel != "" {
+				if rebased, err := checks.RebaseGoReport([]byte(report), rel); err == nil {
+					report = string(rebased)
+					classifyOn = mutated.WithNewFile(path.Join("/src", dir, goMutationReport), report)
+				}
+			}
+		}
+	}
+
 	// CLASSIFY, IN THE LANE, WHERE THE SOURCE IS. forge-testkit-go's gate
 	// parses the tree to say which survivors no test could ever kill — a
 	// mutant in a top-level const or var has no coverage block — and answers
@@ -1047,7 +1071,7 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	// budget); its stdout is. Nothing to write is nothing to classify.
 	var classified, classifyErr string
 	if report != "" {
-		classified, classifyErr, _ = classify(ctx, mutated.WithExec([]string{"mutation-gate", "-report", goMutationReport, "-C", ".", "-json"}, anyExit))
+		classified, classifyErr, _ = classify(ctx, classifyOn.WithExec([]string{"mutation-gate", "-report", goMutationReport, "-C", ".", "-json"}, anyExit))
 	}
 
 	return goFolded(settle, checks.GoMutationRun{

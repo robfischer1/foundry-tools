@@ -492,6 +492,36 @@ func TestGoMutationMeasuresTheDiffAndSettlesInGo(t *testing.T) {
 	}
 }
 
+// goPackagesNeedle is the `go list` that names each package's import path and
+// directory, from which the report's file base is worked out.
+const goPackagesNeedle = `{{.ImportPath}}`
+
+// A MODULE WHOSE ONLY PACKAGE IS cmd/<name> (paneless's layout) gets a report
+// naming "a.go", relative to the package and not the module root. The lane
+// renames the files from the root before the classifier or the scorer reads
+// them: measured on paneless@1630cf5, where 37 survivors read "the classifier
+// did not answer" because mutation-gate looked for ./answer.go.
+func TestGoMutationNamesFilesFromTheModuleRootBeforeClassifying(t *testing.T) {
+	bare := `{"files":[{"file_name":"a.go","mutations":[{"type":"T","status":"KILLED","line":1,"column":1},{"type":"T","status":"LIVED","line":2,"column":3}]}]}`
+	scriptGoMutation(nil)
+	engine.withTree(map[string]string{"/src/mutation-go.json": bare})
+	engine.stdout(goPackagesNeedle, "git.notusmi.com/rob/x/cmd/x\t/src/cmd/x\n")
+	wantState(t, runAtom(t, "go:mutation", "abc123"), 1, "1 mutant(s) survived", "cmd/x/a.go:2:3  LIVED")
+	c := engine.chain(goClassifyNeedle)
+	if !strings.Contains(c, "withNewFile") || !strings.Contains(c, "cmd/x/a.go") {
+		t.Errorf("mutation-gate was handed the report as gomutants wrote it:\n%s", c)
+	}
+
+	// A module-relative report is left exactly as it was written.
+	scriptGoMutation(nil)
+	engine.withTree(map[string]string{"/src/mutation-go.json": bare})
+	engine.stdout(goPackagesNeedle, "git.notusmi.com/rob/x\t/src\ngit.notusmi.com/rob/x/cmd/x\t/src/cmd/x\n")
+	wantState(t, runAtom(t, "go:mutation", "abc123"), 1, "a.go:2:3  LIVED")
+	if c := engine.chain(goClassifyNeedle); strings.Contains(c, "cmd/x/a.go") {
+		t.Errorf("a module-relative report was rewritten:\n%s", c)
+	}
+}
+
 // What the run measured decides the verdict, through checks.GoMutationVerdict.
 func TestGoMutationSettlesWhatItMeasured(t *testing.T) {
 	survivors := `{"files":[{"file_name":"a.go","mutations":[{"type":"T","status":"KILLED","line":1,"column":1},{"type":"T","status":"LIVED","line":2,"column":3}]}]}`
