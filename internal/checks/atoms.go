@@ -499,7 +499,7 @@ func atomTable() []AtomDef {
 		},
 		{
 			ID: "dies:schema", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "The slag schema is a valid Draft 2020-12 document and every v2 record satisfies it.",
+			Desc: "The slag v1 (published slag-schema die) and v3 schemas are valid Draft 2020-12 documents and every fleet/stars/*/slag.json satisfies slag-v3.",
 		},
 		{
 			ID: "dies:findings", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,

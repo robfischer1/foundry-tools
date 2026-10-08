@@ -541,19 +541,22 @@ func diesContracts(ctx context.Context, r *run) checks.Verdict {
 	return verdict(ctx, a, ctr.WithExec(tomlpy("tools/check_contracts.py"), anyExit))
 }
 
-// The slag schema is a valid Draft 2020-12 document and every v2 record
-// satisfies it.
+// The slag v1 schema (the published slag-schema die) and the v3 schema are
+// valid Draft 2020-12 documents, and every fleet/stars/*/slag.json satisfies v3.
 //
-// TWO ASSERTIONS ABOUT THE SCHEMA, and the second is the one check_schema does
+// TWO ASSERTIONS ABOUT EACH SCHEMA, v1 AND v3, and the second is the one check_schema does
 // not make. `required` naming a property that is not DEFINED is legal to the
 // metaschema and, under additionalProperties false, makes the schema reject
 // EVERY document — so pour would refuse every well-formed melt, and the failure
 // would surface at a pour rather than here.
 //
-// AND THE v2 RECORDS ARE VALIDATED, which v1's never were: nothing in CI ever
-// checked a slag record against the schema, so the schema drifted silently. The
-// filename and meta.name rules ride along because a record named anything other
-// than <name>.slag beside its own directory is one the loader will not find.
+// AND THE RECORDS ARE VALIDATED. This atom globbed fleet/stars/*/*.slag against
+// the v2 schema, and no such file exists (v3 replaced v1 in place at
+// slag.json), so it matched zero records and passed on nothing: nothing in CI
+// checked a record against any schema. It now validates every slag.json against
+// slag-v3, and zero records is a could-not-run, not a pass. The meta.name rule
+// rides along because a record whose name is not its directory is one the
+// loader will not find.
 //
 // THE PROVISION IS PROBED BEFORE THE GATE RUNS — `uv --version`, then an
 // `import jsonschema` under the same resolver, each its own exec under the
@@ -562,7 +565,7 @@ func diesContracts(ctx context.Context, r *run) checks.Verdict {
 // was never validated is the whole of that probe.
 //
 // The validator itself is internal/checks/scripts/dies_schema.py, embedded,
-// byte for byte the PYSCHEMA heredoc it replaces.
+// a stdlib-plus-jsonschema script run through uv.
 func diesSchema(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("dies:schema")
 	if stop := diesShape(ctx, r, a); stop != nil {
@@ -570,7 +573,7 @@ func diesSchema(ctx context.Context, r *run) checks.Verdict {
 	}
 	if stop := requirePaths(ctx, r, a, [][2]string{
 		{"schema/slag.schema.json", "schema/slag.schema.json is absent, so there is no payload to validate."},
-		{"schema/slag-v2.schema.json", "schema/slag-v2.schema.json is absent, so the v2 records cannot be discriminated."},
+		{"schema/slag-v3.schema.json", "schema/slag-v3.schema.json is absent, so there is no schema to validate the records against."},
 	}); stop != nil {
 		return *stop
 	}
@@ -630,13 +633,13 @@ func diesFindings(ctx context.Context, r *run) checks.Verdict {
 // EVERY schema in the tree is checked, discovered rather than listed.
 //
 // WHY THIS EXISTS BESIDE dies:schema AND dies:findings. Those two name their
-// files: dies_schema.py names slag and slag-v2, dies:findings names findings'
-// schema and its checker. Both are correct about what they name and silent
-// about everything else — so slag-v3.schema.json was never checked for
-// well-formedness at all, and operable.schema.json landed carrying nineteen
-// negative fixtures that no lane ever ran. Neither gap was decided; each was a
-// list nobody grew. A discovery step cannot forget, which is the whole reason
-// this atom takes no file names.
+// files: dies:schema names schema/slag.schema.json and schema/slag-v3.schema.json and
+// validates the fleet records against v3, dies:findings names findings' schema and its checker.
+// Both are correct about what they name and silent about every other schema,
+// so a schema nobody listed (operable.schema.json once landed carrying nineteen
+// negative fixtures that no lane ever ran) was never checked at all. That gap
+// was not decided; it was a list nobody grew. A discovery step cannot forget,
+// which is the whole reason this atom takes no file names.
 //
 // THE CHECKER IS THE TREE'S, NOT EMBEDDED — the dies:contracts and
 // dies:findings shape, for the alarm-asymmetry reason check_contracts.py's own
