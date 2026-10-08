@@ -76,7 +76,7 @@ func TestARunWithTheSocketAsksAsTheLanesSVID(t *testing.T) {
 	if !hasCall(c, "withExec", "expect:ANY") {
 		t.Errorf("the post does not run under anyExit:\n%s", c)
 	}
-	if engine.chain(`"go","build","-o","/out/witnesscall","./witnesscall"`) == "" {
+	if engine.chain(`"go","build","-trimpath","-o","/out/witnesscall","./witnesscall"`) == "" {
 		t.Error("witnesscall is not built from the module's own source")
 	}
 }

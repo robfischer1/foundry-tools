@@ -782,13 +782,8 @@ func orVerify(ctx context.Context, step string, act, check *dagger.Container) (i
 // at once either as root or with the socket owned by 65532. F0's probe had
 // passed only because spire-agent ran as root in its own image.
 func hadesCaller(spire *dagger.Socket, hades, hadesID, stamp string) *dagger.Container {
-	bin := goToolchain().
-		WithMountedDirectory("/src", dag.CurrentModule().Source()).
-		WithWorkdir("/src").
-		WithExec([]string{"go", "build", "-o", "/out/hadescall", "./hadescall"}).
-		File("/out/hadescall")
 	return dag.Container().From(checks.ImageStatic).
-		WithFile("/usr/local/bin/hadescall", bin).
+		WithFile("/usr/local/bin/hadescall", helperBinary("hadescall")).
 		WithUnixSocket("/run/spire/agent.sock", spire, dagger.ContainerWithUnixSocketOpts{Owner: "65532:65532"}).
 		WithEnvVariable("HADESCALL_SOCKET", "unix:///run/spire/agent.sock").
 		WithEnvVariable("HADESCALL_HADES", hades).
@@ -822,16 +817,8 @@ func goToolchain() *dagger.Container {
 // library only and is built with GOPROXY=off: it has to run when nothing else
 // could be fetched (internal/verdict has the measurement).
 func settle(ctx context.Context, code int, reason string) error {
-	bin := dag.Container().From(checks.ImageGo).
-		WithEnvVariable("CGO_ENABLED", "0").
-		WithEnvVariable("GOTOOLCHAIN", "local").
-		WithEnvVariable("GOPROXY", "off").
-		WithMountedDirectory("/src", dag.CurrentModule().Source()).
-		WithWorkdir("/src").
-		WithExec([]string{"go", "build", "-o", "/out/verdict", "./verdict"}).
-		File("/out/verdict")
 	_, err := dag.Container().From(checks.ImageStatic).
-		WithFile("/usr/local/bin/verdict", bin).
+		WithFile("/usr/local/bin/verdict", helperBinary("verdict")).
 		WithEnvVariable("LANE_SETTLED_AT", strconv.FormatInt(time.Now().UnixNano(), 10)).
 		WithExec([]string{"/usr/local/bin/verdict", strconv.Itoa(code), reason}).
 		Sync(ctx)

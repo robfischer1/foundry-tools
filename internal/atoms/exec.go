@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -20,6 +21,12 @@ type Cmd struct {
 	Dir  string
 	Name string
 	Args []string
+	// Env is added to the process environment, as the chains' WithEnvVariable
+	// was added to the container's (opengrep decodes source by the locale).
+	Env []string
+	// Stdin is what the program reads, as the chains' ContainerWithExecOpts
+	// Stdin was; empty reads nothing.
+	Stdin string
 	// Both answers stdout and stderr on EVERY exit, as the module's
 	// outputBoth and verdict() do. Without it the output is the module's
 	// output(): stdout, plus stderr only when the program exited non-zero,
@@ -37,6 +44,12 @@ type Exec func(ctx context.Context, c Cmd) (out string, code int)
 func RunProgram(ctx context.Context, c Cmd) (string, int) {
 	cmd := exec.CommandContext(ctx, c.Name, c.Args...)
 	cmd.Dir = c.Dir
+	if len(c.Env) > 0 {
+		cmd.Env = append(os.Environ(), c.Env...)
+	}
+	if c.Stdin != "" {
+		cmd.Stdin = strings.NewReader(c.Stdin)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()

@@ -1030,7 +1030,7 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	// down at its 16 GiB cgroup instead (internal/pgroupps has the
 	// measurement). Prepended to PATH for this exec only.
 	mutated := covered.
-		WithFile(pgroupPSDir+"/ps", moduleBinary("pgroupps")).
+		WithFile(pgroupPSDir+"/ps", helperBinary("pgroupps")).
 		WithEnvVariable("PATH", pgroupPSDir+":${PATH}", dagger.ContainerWithEnvVariableOpts{Expand: true}).
 		WithEnvVariable("GOMAXPROCS", "1").
 		WithEnvVariable("GOFLAGS", goMutationGoflags).

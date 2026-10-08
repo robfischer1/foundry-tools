@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -78,18 +77,32 @@ func opaVersion(ctx context.Context, in Input) error {
 	return nil
 }
 
+// opaProvisioned is opaVersion with the atom's own refusal attached: nil when
+// the opa on PATH is the pinned one.
+func opaProvisioned(ctx context.Context, a checks.AtomDef, in Input) *checks.Verdict {
+	err := opaVersion(ctx, in)
+	if err == nil {
+		return nil
+	}
+	v := checks.VerdictOf(a, int(checks.StateCannotRun), fmt.Sprintf("%s: CANNOT RUN - %v. A policy suite that never ran is not a policy suite that passed.", a.ID, err))
+	return &v
+}
+
 // diesBundle builds the artifact and takes its data document out, because THE
 // SOURCE TREE IS NOT A PROXY FOR THE ARTIFACT: `opa test policy/` passes on a
 // tree whose BUILT BUNDLE is empty. A build that did not complete is a 2; a
 // bundle with no data.json is a 1 (the defect arriving as described). The
 // revision is best-effort, stamped into the manifest and graded by nothing.
-func diesBundle(ctx context.Context, a checks.AtomDef, in Input) (string, *checks.Verdict) {
+//
+// THE BUNDLE IS WHERE THE CALLER SAYS and the caller removes it: the canary
+// atom interrogates the same file again, and two atoms run at once in one
+// process, so a name shared between them (the pid alone was one) is a bundle
+// one atom reads while the other rewrites it.
+func diesBundle(ctx context.Context, a checks.AtomDef, in Input, bundle string) (string, *checks.Verdict) {
 	rev := "unknown"
 	if out, code := in.run(ctx, Cmd{Dir: in.Root, Name: "git", Args: []string{"-c", "safe.directory=*", "rev-parse", "HEAD"}}); code == 0 && out != "" {
 		rev = out
 	}
-	bundle := filepath.Join(os.TempDir(), fmt.Sprintf("dies-bundle-%d.tar.gz", os.Getpid()))
-	defer func() { _ = os.Remove(bundle) }()
 	if out, code := in.run(ctx, Cmd{Dir: in.Root, Name: "opa", Args: []string{
 		"build", "-b", "policy/", "-o", bundle, "--revision", rev, "--ignore", "*_test.rego"}}); code != 0 {
 		v := checks.VerdictOf(a, int(checks.StateCannotRun), fmt.Sprintf("%s: CANNOT RUN - opa build did not produce a bundle, so there is no artifact to interrogate.\nopa build exited %d: %s", a.ID, code, out))
@@ -110,10 +123,12 @@ func diesDataKeys(ctx context.Context, a checks.AtomDef, in Input) checks.Verdic
 	if stop := diesShape(in.tree(), a); stop != nil {
 		return *stop
 	}
-	if err := opaVersion(ctx, in); err != nil {
-		return checks.VerdictOf(a, int(checks.StateCannotRun), fmt.Sprintf("%s: CANNOT RUN - %v. A policy suite that never ran is not a policy suite that passed.", a.ID, err))
+	if stop := opaProvisioned(ctx, a, in); stop != nil {
+		return *stop
 	}
-	data, stop := diesBundle(ctx, a, in)
+	bundle := tempPath("dies-bundle", ".tar.gz")
+	defer func() { _ = os.Remove(bundle) }()
+	data, stop := diesBundle(ctx, a, in, bundle)
 	if stop != nil {
 		return *stop
 	}

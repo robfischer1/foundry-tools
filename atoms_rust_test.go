@@ -388,7 +388,7 @@ func TestRustMutationMeasuresTheDiffFromTheFetchedLayer(t *testing.T) {
 	// execmem rides into the exec as a file built from this module's own
 	// source: offline and static, as verdict is.
 	wantCalls(t, c, []string{"withFile", `path:"/usr/local/bin/execmem"`})
-	b := engine.chain(`"go","build","-o","/out/execmem","./execmem"`)
+	b := engine.chain(`"go","build","-trimpath","-o","/out/execmem","./execmem"`)
 	wantCalls(t, b,
 		[]string{"withEnvVariable", `name:"CGO_ENABLED"`, `value:"0"`},
 		[]string{"withEnvVariable", `name:"GOPROXY"`, `value:"off"`},

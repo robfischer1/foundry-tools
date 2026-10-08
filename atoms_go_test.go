@@ -440,7 +440,7 @@ func TestGoMutationMeasuresTheDiffAndSettlesInGo(t *testing.T) {
 		[]string{"withEnvVariable", `name:"GOFLAGS"`, `value:"-p=1 -count=1"`},
 		[]string{"withExec", `expect:ANY`, `"gomutants","-output","mutation-go.json","-config","/dev/null","-workers","4","-disable","` + goMutationDisable + `","-exclude-files","` + strings.ReplaceAll(goMutationExclude, `\`, `\\`) + `","-changed-since","since0","./..."`},
 	)
-	if b := engine.chain(`"go","build","-o","/out/pgroupps","./pgroupps"`); !strings.Contains(b, `from(address:"`+checks.ImageGo+`")`) {
+	if b := engine.chain(`"go","build","-trimpath","-o","/out/pgroupps","./pgroupps"`); !strings.Contains(b, `from(address:"`+checks.ImageGo+`")`) {
 		t.Errorf("pgroupps is built from this module in the Go image:\n%s", b)
 	}
 	// NO CONFIG FILE IS WRITTEN OR FETCHED, which is the other half of the argv

@@ -412,10 +412,10 @@ func TestACastOfAnUnchangedPayloadSaysSo(t *testing.T) {
 	settledOn(t, "0", "already carried this pin")
 }
 
-// goNeedle is the go lane's release exec, in one chain and no other: the
-// settle builds /out/verdict with `go build` too, so the needle is a release
-// flag rather than the verb.
-const goNeedle = `"-trimpath"`
+// goNeedle is the go lane's release exec, in one chain and no other: every
+// helper the module builds (verdict, castpin) goes through `go build -trimpath`
+// too, so the needle is the release link flag the helpers do not pass.
+const goNeedle = `"-ldflags=-s -w"`
 
 // goCastOn is castOn over a Go binary repo: the rust workspace gone, a root
 // go.mod and the star's main package in its place.

@@ -44,13 +44,8 @@ func (r *run) withSpire(s *dagger.Socket) *run {
 // by the base's nonroot user (build.go hadesCaller says why). stamp keys every
 // exec to this run, so no cached exec answers a later one.
 func witnessCaller(spire *dagger.Socket, stamp string) *dagger.Container {
-	bin := goToolchain().
-		WithMountedDirectory("/src", dag.CurrentModule().Source()).
-		WithWorkdir("/src").
-		WithExec([]string{"go", "build", "-o", "/out/witnesscall", "./witnesscall"}).
-		File("/out/witnesscall")
 	return dag.Container().From(checks.ImageStatic).
-		WithFile("/usr/local/bin/witnesscall", bin).
+		WithFile("/usr/local/bin/witnesscall", helperBinary("witnesscall")).
 		WithUnixSocket("/run/spire/agent.sock", spire, dagger.ContainerWithUnixSocketOpts{Owner: "65532:65532"}).
 		WithEnvVariable("WITNESSCALL_SOCKET", "unix:///run/spire/agent.sock").
 		WithEnvVariable("WITNESS_RUN", stamp)

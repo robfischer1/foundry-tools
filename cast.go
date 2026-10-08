@@ -366,13 +366,8 @@ func (l *castLane) goRelease(ctx context.Context, r *run, c castlane.Cast, vendo
 // the content pin mold re-derives, and the files in the order they are pushed.
 // It runs in a container so the binaries' bytes never cross the engine's API.
 func (l *castLane) pin(ctx context.Context, payload *dagger.Directory) (string, []string, int, string) {
-	bin := goToolchain().
-		WithMountedDirectory("/src", dag.CurrentModule().Source()).
-		WithWorkdir("/src").
-		WithExec([]string{"go", "build", "-o", "/out/castpin", "./castpin"}).
-		File("/out/castpin")
 	out, code, err := output(ctx, dag.Container().From(checks.ImageStatic).
-		WithFile("/usr/local/bin/castpin", bin).
+		WithFile("/usr/local/bin/castpin", helperBinary("castpin")).
 		WithMountedDirectory("/payload", payload).
 		WithExec([]string{"/usr/local/bin/castpin", "/payload"}, anyExit))
 	if err != nil {

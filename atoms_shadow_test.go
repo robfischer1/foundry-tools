@@ -223,7 +223,7 @@ func TestShadowAtomsAsksTheChainsForTheStagesAtoms(t *testing.T) {
 		notOnly  string
 		compared bool
 	}{
-		{"prepush", "fleet:orbit-drift,fleet:dagger-lockstep,fleet:node-kinds-declared,fleet:consumed-events-emitted,dies:data-keys,ops:orbit-composed", "fleet:check-yaml", true},
+		{"prepush", "fleet:orbit-drift,fleet:dagger-lockstep,fleet:node-kinds-declared,fleet:consumed-events-emitted,dies:data-keys,dies:admission-dogfood,dies:canary-visibility,ops:orbit-composed,wit:validate", "fleet:check-yaml", true},
 		{"orbit", "orbit:contracts,orbit:sidecars,orbit:repo", "fleet:", true},
 		{"", "fleet:check-yaml,fleet:check-added-large-files,fleet:check-merge-conflict,fleet:stop-justifications,", "orbit:", true},
 		{"mutation", "", "", false},
@@ -291,8 +291,8 @@ func TestAtomsBinaryIsBuiltFromTheFilteredSourceInTheGoToolchain(t *testing.T) {
 	}
 }
 
-func TestAtomsVectorRunsTheBinaryInTheFleetLane(t *testing.T) {
-	const argv = `"/usr/local/bin/atoms","-root","/src","-base","abc","-origin","http://door/rob/x.git","-stage","","-dies","/dies"`
+func TestAtomsVectorRunsTheBinaryInTheToolsContainer(t *testing.T) {
+	const argv = `"/usr/local/bin/atoms","-root","/src","-base","abc","-origin","http://door/rob/x.git","-stage","","-timeout","4m","-dies","/dies"`
 	m := &FoundryTools{Source: dag.Directory(), Repo: "http://door/rob/x.git", Sha: buildSha}
 	for _, tc := range []struct {
 		name    string
@@ -317,7 +317,7 @@ func TestAtomsVectorRunsTheBinaryInTheFleetLane(t *testing.T) {
 				t.Fatalf("got %q, %v; want %q", got, err, tc.want)
 			}
 			c := engine.chain(argv)
-			for _, want := range []string{`expect:ANY`, `from(address:"` + checks.ImageFleet + `")`, `path:"/usr/local/bin/atoms"`} {
+			for _, want := range []string{`expect:ANY`, `from(address:"` + checks.ImageTools + `")`, `path:"/usr/local/bin/atoms"`} {
 				if !strings.Contains(c, want) {
 					t.Errorf("the run chain lacks %s:\n%s", want, c)
 				}
@@ -326,19 +326,21 @@ func TestAtomsVectorRunsTheBinaryInTheFleetLane(t *testing.T) {
 	}
 }
 
-// THE STAGE REACHES THE BINARY, and with it exactly the tools that stage's atoms
-// use: the orbit lane gets the contracts and the sidecar reader and no opa; the
-// pull path gets the contracts and no sidecar reader.
-func TestAtomsVectorMountsWhatTheStageUses(t *testing.T) {
+// THE STAGE REACHES THE BINARY, and the tools are the container's, the same for
+// every stage: each pinned tool is a layer whatever the stage (a layer nobody
+// execs costs nothing once cached, and a stage-shaped container would be a
+// second container to build). What a stage changes is the one input that is not
+// a tool: foundry-dies is mounted for the stages with an atom that reads it.
+func TestAtomsVectorCarriesTheToolsForEveryStage(t *testing.T) {
 	m := &FoundryTools{Source: dag.Directory(), Repo: "http://door/rob/x.git", Sha: buildSha}
 	for _, tc := range []struct {
-		stage   string
-		argv    string
-		mounted []string
-		absent  []string
+		stage string
+		argv  string
+		dies  bool
 	}{
-		{"orbit", `"-stage","orbit","-dies","/dies"`, []string{`path:"/usr/local/bin/orbitparse"`}, []string{`path:"/usr/local/bin/opa"`}},
-		{"prepush", `"-stage","prepush","-dies","/dies"`, []string{`path:"/usr/local/bin/opa"`}, []string{`path:"/usr/local/bin/orbitparse"`}},
+		{"orbit", `"-stage","orbit","-timeout","4m","-dies","/dies"`, true},
+		{"prepush", `"-stage","prepush","-timeout","4m","-dies","/dies"`, true},
+		{"precommit", `"-stage","precommit","-timeout","4m"`, false},
 	} {
 		t.Run(tc.stage, func(t *testing.T) {
 			engine.reset()
@@ -351,16 +353,20 @@ func TestAtomsVectorMountsWhatTheStageUses(t *testing.T) {
 			if c == "" {
 				t.Fatalf("no run chain carried %s; the engine saw:\n%s", tc.argv, strings.Join(engine.chains(), "\n"))
 			}
-			// The mount, not the flag that names it.
-			for _, want := range append(tc.mounted, `path:"/dies"`) {
-				if !strings.Contains(c, want) {
-					t.Errorf("the run chain lacks %s:\n%s", want, c)
+			// The mounts, not the flags that name them.
+			for _, l := range toolsPlan() {
+				if l.kind != layerTool {
+					continue
+				}
+				if want := `path:"/usr/local/bin/` + l.name + `"`; !strings.Contains(c, want) {
+					t.Errorf("the run chain lacks the %s layer (%s):\n%s", l.name, want, c)
 				}
 			}
-			for _, no := range tc.absent {
-				if strings.Contains(c, no) {
-					t.Errorf("the run chain carries %s, which no atom of the stage uses:\n%s", no, c)
-				}
+			if got := strings.Contains(c, `path:"/dies"`); got != tc.dies {
+				t.Errorf("foundry-dies mounted: %v, want %v", got, tc.dies)
+			}
+			if strings.Contains(c, checks.ImageFleet) {
+				t.Errorf("the binary ran on the python fleet image:\n%s", c)
 			}
 		})
 	}
