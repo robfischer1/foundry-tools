@@ -196,10 +196,13 @@ func (r *run) laneBase(image string) *dagger.Container {
 		WithEnvVariable("REQUESTS_CA_BUNDLE", "/etc/ssl/certs/ca-certificates.crt").
 		WithEnvVariable("PIP_CERT", "/etc/ssl/certs/ca-certificates.crt")
 	ctr = provision(ctr, image)
-	for _, c := range checks.CachesFor(image) {
+	for _, c := range checks.CachesForRepo(image, r.repo) {
 		opts := dagger.ContainerWithMountedCacheOpts{}
 		if c.Seed {
 			opts.Source = dag.Container().From(image).Directory(c.Path)
+		}
+		if c.Locked {
+			opts.Sharing = dagger.CacheSharingModeLocked
 		}
 		ctr = ctr.WithMountedCache(c.Path, dag.CacheVolume(c.Key), opts)
 		if c.EnvVar != "" {

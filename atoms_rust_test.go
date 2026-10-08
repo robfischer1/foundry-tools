@@ -905,3 +905,36 @@ func rustExcludes() string {
 	}
 	return b.String()
 }
+
+// Every exec that builds the suite -- the listing and the run, doctests
+// included, since `cargo test --workspace` compiles and runs them -- comes
+// after the Unstale stamp (foundry-tools#15765: a doctest linked a library
+// another tree left in the shared target dir).
+func TestRustCargoTestStampsBeforeEveryExecThatCompilesDoctests(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.stdout(`"--list"`, "a::b: test\n")
+	wantState(t, runAtom(t, "rust:cargo-test", ""), 0)
+
+	stamp := `"find","."`
+	for _, probe := range []string{`"cargo","test","--workspace","--","--list"]`, `args:["cargo","test","--workspace"]`} {
+		chain := engine.chain(probe, "exitCode")
+		i, j := strings.Index(chain, stamp), strings.Index(chain, probe)
+		if i < 0 || j < 0 || i > j {
+			t.Errorf("%s must run after the Unstale stamp (stamp %d, exec %d):\n%s", probe, i, j, chain)
+		}
+	}
+}
+
+// The target volume is mounted LOCKED; the registry and git caches, which are
+// content-addressed, are not.
+func TestRustLaneMountsOnlyTheTargetVolumeLocked(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	wantState(t, runAtom(t, "rust:cargo-fmt", ""), 0)
+	c := engine.chain(`"cargo","fmt"`, "exitCode")
+	wantCalls(t, c, []string{"withMountedCache", `path:"/cache/cargo-target"`, `sharing:LOCKED`})
+	if hasCall(c, "withMountedCache", `path:"/usr/local/cargo/registry"`, `sharing:LOCKED`) {
+		t.Errorf("the registry cache is content-addressed and must stay shared:\n%s", c)
+	}
+}
