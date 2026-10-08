@@ -41,8 +41,11 @@ type kubectlFake struct {
 	refuse []string
 	// silent are directories kubectl accepts and writes nothing for.
 	silent []string
-	probe  int
-	start  bool // the program would not start
+	// silentHead is the same for every directory named relative to the root: the
+	// head's, where the base's is an absolute path in the worktree.
+	silentHead bool
+	probe      int
+	start      bool // the program would not start
 }
 
 func (k *kubectlFake) exec(_ context.Context, c Cmd) (string, int) {
@@ -64,6 +67,9 @@ func (k *kubectlFake) exec(_ context.Context, c Cmd) (string, int) {
 		if strings.Contains(dir, r) {
 			return "error: no kustomization", 1
 		}
+	}
+	if k.silentHead && !filepath.IsAbs(dir) {
+		return "", 0
 	}
 	for _, r := range k.silent {
 		if strings.Contains(dir, r) {
@@ -295,7 +301,7 @@ func TestOpsImmutableNamesWhereItStopped(t *testing.T) {
 	})
 	t.Run("a head kubectl accepted and wrote nothing for is a 2, not a pass", func(t *testing.T) {
 		dir, base := raised(t)
-		in := immutableIn(t, dir, base, &kubectlFake{t: t, silent: []string{"flux/app"}})
+		in := immutableIn(t, dir, base, &kubectlFake{t: t, silentHead: true})
 		expect(t, runAtom(t, id, in), stateOf(2), cannot, "CANNOT RUN - open ")
 	})
 	t.Run("a base kubectl accepted and wrote nothing for is a 2, not a pass", func(t *testing.T) {

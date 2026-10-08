@@ -136,6 +136,14 @@ func TestOrbitSurface(t *testing.T) {
 			t.Errorf("ran %v, findings %+v: want the consumer's dial held", f.ran(), v.Findings)
 		}
 	})
+	t.Run("a verb dialled through the gateway is attributed by the roster's prefix", func(t *testing.T) {
+		in, _ := surfaceIn(t, answering(none, narcReport("unanalyzable|/src/x.go:1|loose-verb|a_a_verb — via the gateway")))
+		in.Origin = "http://door/rob/b.git"
+		v := runAtom(t, id, in)
+		if len(v.Findings) == 0 || v.Findings[0].Cause != "dials-contracted" {
+			t.Errorf("findings %+v: want the prefixed dial held", v.Findings)
+		}
+	})
 	t.Run("a contract of this tree that will not read is a 2", func(t *testing.T) {
 		in, _ := surfaceIn(t, answering(holds, none))
 		brokenLink(t, in.Root, "orbits/z.toml")
