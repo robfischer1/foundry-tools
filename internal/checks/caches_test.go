@@ -89,3 +89,41 @@ func TestNeedsArgFileTurnsAtTheBudgetExactly(t *testing.T) {
 		t.Errorf("no files need no file")
 	}
 }
+
+// The cargo target dir is a build OF A TREE: two trees of one repo mounting it
+// at once write over each other (foundry-tools#15765). It is keyed per repo and
+// locked, and no other cache is.
+func TestCargoTargetIsPerRepoAndLocked(t *testing.T) {
+	a := CachesForRepo(ImageRust, "https://git.example/org/a.git")
+	b := CachesForRepo(ImageRust, "https://git.example/org/b.git")
+	shared := CachesForRepo(ImageRust, "")
+	find := func(ms []CacheMount) CacheMount {
+		for _, m := range ms {
+			if m.EnvVar == "CARGO_TARGET_DIR" {
+				return m
+			}
+		}
+		t.Fatalf("no cargo target mount in %+v", ms)
+		return CacheMount{}
+	}
+	ta, tb, ts := find(a), find(b), find(shared)
+	if ta.Key == tb.Key {
+		t.Errorf("two repos share one target volume %q", ta.Key)
+	}
+	if ta.Key != find(CachesForRepo(ImageRust, "https://git.example/org/a.git")).Key {
+		t.Errorf("the key is not stable for one repo")
+	}
+	if ts.Key != "foundry-cargo-target" {
+		t.Errorf("a run naming no repo keeps the shared key, got %q", ts.Key)
+	}
+	for _, m := range []CacheMount{ta, tb, ts} {
+		if !m.Locked {
+			t.Errorf("target volume %q is not locked", m.Key)
+		}
+	}
+	for _, m := range a {
+		if m.EnvVar != "CARGO_TARGET_DIR" && (m.Locked || m.PerRepo) {
+			t.Errorf("only the target dir is per-repo and locked: %+v", m)
+		}
+	}
+}

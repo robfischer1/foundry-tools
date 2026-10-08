@@ -47,6 +47,30 @@ type CacheMount struct {
 	// cache whose location the toolchain does not derive from anything else
 	// (cargo's target dir).
 	EnvVar string
+	// PerRepo keys the volume by the repository under check (CachesForRepo),
+	// and Locked makes the engine serialise the execs that mount it. Both are
+	// for the cargo target dir only: it is the one cache whose CONTENTS are a
+	// build of a particular tree, so two trees mounting it at once write over
+	// each other (foundry-tools#15765: a doctest collected with a feature on
+	// and linked against the sibling tree's library built with it off). Per
+	// repo, so the lock serialises only trees of one repository, not the fleet's
+	// rust lanes; locked, because the engine holds the lock for ONE EXEC at a
+	// time, and a cargo build+test is one exec.
+	PerRepo bool
+	Locked  bool
+}
+
+// CachesForRepo is CachesFor with the per-repo mounts keyed to repo (an opaque
+// digest, as SourceCacheKey). An empty repo (a local run that names none) keeps
+// the shared key, still locked.
+func CachesForRepo(image, repo string) []CacheMount {
+	mounts := CachesFor(image)
+	for i := range mounts {
+		if mounts[i].PerRepo && repo != "" {
+			mounts[i].Key += "-" + repoDigest(repo)
+		}
+	}
+	return mounts
 }
 
 // CachesFor names the caches for a lane image. An image nothing here knows
@@ -74,7 +98,7 @@ func CachesFor(image string) []CacheMount {
 		return []CacheMount{
 			{Path: "/usr/local/cargo/registry", Key: "foundry-cargo-registry"},
 			{Path: "/usr/local/cargo/git", Key: "foundry-cargo-git"},
-			{Path: "/cache/cargo-target", Key: "foundry-cargo-target", EnvVar: "CARGO_TARGET_DIR"},
+			{Path: "/cache/cargo-target", Key: "foundry-cargo-target", EnvVar: "CARGO_TARGET_DIR", PerRepo: true, Locked: true},
 		}
 	case ImageTS:
 		return []CacheMount{

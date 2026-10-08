@@ -14,8 +14,13 @@ import (
 // anything listing the engine's volumes; the digest is stable, fixed-width and
 // says nothing a reader could mistake. The prefix says whose it is.
 func SourceCacheKey(repo string) string {
+	return "foundry-source-" + repoDigest(repo)
+}
+
+// repoDigest is the fixed-width, opaque spelling of a repository in a cache key.
+func repoDigest(repo string) string {
 	sum := sha256.Sum256([]byte(repo))
-	return "foundry-source-" + hex.EncodeToString(sum[:8])
+	return hex.EncodeToString(sum[:8])
 }
 
 // SourceFetchRef is the one ref the warm history keeps: the commit the last
