@@ -508,3 +508,45 @@ func TestTheChainsContractFixturesAreTheBinarys(t *testing.T) {
 		}
 	}
 }
+
+// A STAGE THAT DOES NOT BUILD IS LEFT OUT WITH ITS CAUSE, and so is every stage
+// above it; the ones below still are. The atoms that need what is missing settle
+// 2 on their own probe.
+func TestAPythonStageThatFailsIsLeftOutWithTheOnesAboveIt(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		fail    func()
+		cause   string
+		present []string
+		absent  []string
+	}{
+		{"the interpreter", func() { engine.failLeaf(`"uv","python","install"`, "sync", "download failed") },
+			"the python interpreter", nil, []string{`path:"/usr/local/bin/uv"`, `path:"/opt/uv-python"`, `path:"/opt/atoms-py"`, `path:"/opt/ansible-collections"`, `name:"PATH"`}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			engine.reset()
+			log := capturedLog(t)
+			tc.fail()
+			if _, err := atomsTools(context.Background()).Sync(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			c := engine.chain(`path:"/usr/local/bin/atoms"`)
+			for _, want := range tc.present {
+				if !strings.Contains(c, want) {
+					t.Errorf("%s was dropped with the stage above it", want)
+				}
+			}
+			for _, not := range tc.absent {
+				if strings.Contains(c, not) {
+					t.Errorf("%s was applied though its stage did not build", not)
+				}
+			}
+			if !strings.Contains(c, `path:"/usr/local/bin/hadolint"`) {
+				t.Error("a python stage took the tools with it")
+			}
+			if line := log(); !strings.Contains(line, "atoms tools: "+tc.cause+" left out of the container: ") {
+				t.Errorf("the log lacks the cause for %s: %q", tc.cause, line)
+			}
+		})
+	}
+}
