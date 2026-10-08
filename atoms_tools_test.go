@@ -1,11 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"os"
 	"path"
+	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 
 	"dagger/foundry-tools/internal/atoms"
 	"dagger/foundry-tools/internal/checks"
@@ -296,5 +302,122 @@ func TestToolFileRefusesWhatItCannotVerify(t *testing.T) {
 				t.Errorf("got %v, %v", f, err)
 			}
 		})
+	}
+}
+
+func capturedLog(t *testing.T) func() string {
+	t.Helper()
+	var buf bytes.Buffer
+	old := toolsLog
+	toolsLog = &buf
+	t.Cleanup(func() { toolsLog = old })
+	return func() string {
+		toolsLogMu.Lock()
+		defer toolsLogMu.Unlock()
+		return buf.String()
+	}
+}
+
+func TestADroppedToolIsLoggedWithItsCause(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		tool  string
+		fail  func()
+		cause string
+	}{
+		{"a checksum that does not match", "opa", func() { engine.failLeaf(checks.ToolSHA256[checks.OpaURL], "sync", "sha256sum: FAILED") }, "did not verify against its pinned checksum"},
+		{"an asset that will not fetch", "hadolint", func() { engine.failLeaf(checks.HadolintURL, "sync", "dial tcp: i/o timeout") }, "could not fetch"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			engine.reset()
+			log := capturedLog(t)
+			tc.fail()
+			if _, err := atomsTools(context.Background()).Sync(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			var lines []string
+			for _, l := range strings.Split(strings.TrimSpace(log()), "\n") {
+				if strings.Contains(l, " "+tc.tool+" ") {
+					lines = append(lines, l)
+				}
+			}
+			if len(lines) != 1 || !strings.HasPrefix(lines[0], "atoms tools: "+tc.tool+" left out of the container: ") || !strings.Contains(lines[0], tc.cause) {
+				t.Errorf("the log for %s is %q, want one line naming %q", tc.tool, lines, tc.cause)
+			}
+			if got := strings.Count(log(), "left out of the container"); got != 1 {
+				t.Errorf("%d lines, want one: a tool that is there is not logged\n%s", got, log())
+			}
+		})
+	}
+	t.Run("a container with every layer logs nothing", func(t *testing.T) {
+		engine.reset()
+		log := capturedLog(t)
+		if _, err := atomsTools(context.Background()).Sync(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if got := log(); got != "" {
+			t.Errorf("nothing was left out and the log says %q", got)
+		}
+	})
+}
+
+func TestThePythonLockIsPinnedAndCoversWhatTheAtomsUse(t *testing.T) {
+	in, err := os.ReadFile("pytools/requirements.in")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := os.ReadFile("pytools/requirements.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(in), "\ncopier=="+checks.CopierVersion+"\n") || !strings.Contains(string(lock), "\ncopier=="+checks.CopierVersion+" \\\n") {
+		t.Errorf("copier is not pinned to checks.CopierVersion (%s) in both the requirement and the lock", checks.CopierVersion)
+	}
+	for _, name := range []string{"pyyaml", "tomli", "jsonschema", "ansible-core", "ansible-lint", "copier"} {
+		if !regexp.MustCompile(`(?m)^` + name + `==\S+ \\$`).Match(lock) {
+			t.Errorf("%s is not pinned in the lock", name)
+		}
+	}
+	pinned := regexp.MustCompile(`(?m)^[A-Za-z0-9._-]+==[^ ]+ \\$`).FindAll(lock, -1)
+	hashes := regexp.MustCompile(`(?m)^    --hash=sha256:[0-9a-f]{64}( \\)?$`).FindAll(lock, -1)
+	if len(pinned) < 30 || len(hashes) < len(pinned) {
+		t.Errorf("%d packages pinned with %d hashes: every package needs at least one", len(pinned), len(hashes))
+	}
+	for _, line := range strings.Split(string(lock), "\n") {
+		if strings.Contains(line, "==") && !strings.HasSuffix(line, " \\") && !strings.HasPrefix(line, "#") && !strings.HasPrefix(line, " ") {
+			t.Errorf("a pin with no hash after it: %q", line)
+		}
+	}
+}
+
+func TestTheCollectionsAreExactReleases(t *testing.T) {
+	body, err := os.ReadFile("pytools/ansible-collections.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Collections []struct{ Name, Version string }
+	}
+	if err := yaml.Unmarshal(body, &doc); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, c := range doc.Collections {
+		got[c.Name] = c.Version
+	}
+	want := map[string]string{"community.routeros": "3.22.0", "vyos.vyos": "6.0.0", "ansible.netcommon": "8.6.2", "ansible.utils": "6.1.0"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("collections %v, want %v", got, want)
+	}
+}
+
+func TestTheChainsContractFixturesAreTheBinarys(t *testing.T) {
+	if len(diesContractFixtures) != len(checks.ContractFixtures) {
+		t.Fatalf("%d fixtures in the chain, %d in the binary", len(diesContractFixtures), len(checks.ContractFixtures))
+	}
+	for i, f := range diesContractFixtures {
+		if g := checks.ContractFixtures[i]; f.name != g.Name || f.expectFail != g.ExpectFail {
+			t.Errorf("fixture %d: chain %+v, binary %+v", i, f, g)
+		}
 	}
 }
