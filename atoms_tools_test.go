@@ -116,7 +116,7 @@ func TestToolsContainerCarriesEveryProgram(t *testing.T) {
 		}
 	}
 	for _, p := range atoms.Programs {
-		if p == "git" || p == "tar" {
+		if p == "git" || p == "tar" || slices.Contains(atoms.MountedPerRun, p) {
 			continue
 		}
 		if !layered[p] {

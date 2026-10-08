@@ -33,7 +33,14 @@ var Programs = []string{
 	"opengrep", "hadolint", "shellcheck", "chezmoi", "kubectl", "kubeconform",
 	"docker-compose", "wasm-tools", "just",
 	"python3", "python", "copier", "ansible-playbook", "ansible-lint",
+	"witnesscall", "narc",
 }
+
+// MountedPerRun is the programs in Programs that no layer carries: narc is the
+// image flux pins live for narcissus, resolved when the call runs and mounted on
+// top of the layers (the module's withAtomNarc), so a bump of that pin rebuilds
+// nothing under it.
+var MountedPerRun = []string{"narc"}
 
 // tempSeq numbers the scratch paths of one process. The atoms run at once, so
 // a name made from the pid alone is shared between two of them.

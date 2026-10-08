@@ -13,8 +13,8 @@ import (
 	"dagger/foundry-tools/internal/orbitlane"
 )
 
-// THE ORBIT LANE'S ATOMS that read trees and not a code analyzer (orbit:surface
-// runs narcissus's `narc` and stays a chain). The judgements are
+// THE ORBIT LANE'S ATOMS that read trees and not a code analyzer (orbit:surface, in
+// orbit_surface.go, runs narcissus's `narc`). The judgements are
 // internal/orbitlane's; this file reads the two trees (the repo under test, and
 // foundry-dies at main, Input.Dies) and hands them over. REPORT-ONLY until
 // orbitlane.Enforce flips, exactly as the chains are.
@@ -226,4 +226,14 @@ func orbitSidecars(ctx context.Context, a checks.AtomDef, in Input) checks.Verdi
 		}
 	}
 	return orbitVerdict(a, found)
+}
+
+// party reports whether star is either side of any contract.
+func party(star string, cs []orbitcompose.Contract) bool {
+	for _, c := range cs {
+		if c.Producer == star || c.Consumer == star {
+			return true
+		}
+	}
+	return false
 }

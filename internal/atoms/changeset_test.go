@@ -2,6 +2,7 @@ package atoms
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -299,5 +300,36 @@ func TestGit(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	if out, code = git(context.Background(), dir, "status"); code != -1 || !strings.HasPrefix(out, "git status: ") {
 		t.Errorf("a git that will not start: %q, %d", out, code)
+	}
+}
+
+// A snapshot is a typed error, so an atom that says so (fleet:witness) can tell
+// it from a change set that would not compute; its words are unchanged.
+func TestChangeSetOfASnapshotIsTyped(t *testing.T) {
+	dir := newRepo(t)
+	put(t, dir, "a.txt", "a\n")
+	commitAll(t, dir, "c1")
+	gitIn(t, dir, "config", "--local", "ca.snapshot", "linked-worktree")
+	_, err := ChangeSet(context.Background(), dir, "")
+	var snap SnapshotError
+	if !errors.As(err, &snap) || snap.Kind != "linked-worktree" {
+		t.Fatalf("error %v, want a SnapshotError of linked-worktree", err)
+	}
+	if want := "no change set to read: the source is a linked-worktree snapshot with no real commits"; err.Error() != want {
+		t.Errorf("error %q, want %q", err, want)
+	}
+	if in := Collect(context.Background(), dir, "", "", time.Now()); !errors.As(in.ChangedErr, &snap) {
+		t.Errorf("Collect kept %v, which is not the typed error", in.ChangedErr)
+	}
+}
+
+func TestCollectKeepsTheBase(t *testing.T) {
+	dir := newRepo(t)
+	put(t, dir, "a.txt", "a\n")
+	base := commitAll(t, dir, "c1")
+	put(t, dir, "b.txt", "b\n")
+	commitAll(t, dir, "c2")
+	if in := Collect(context.Background(), dir, base, "", time.Now()); in.Base != base || !reflect.DeepEqual(in.Changed, []string{"b.txt"}) {
+		t.Errorf("base %q changed %v", in.Base, in.Changed)
 	}
 }

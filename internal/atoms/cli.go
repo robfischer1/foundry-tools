@@ -31,6 +31,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, now func(
 	origin := fs.String("origin", "", "where the repository was fetched from; empty asks git for origin")
 	stage := fs.String("stage", "", "the stage whose atoms to run (precommit, prepush, orbit); empty is the pull path, precommit and prepush")
 	dies := fs.String("dies", "", "a checkout of foundry-dies at main, for the atoms that grade against the fleet's contracts")
+	spire := fs.String("spire", "", "the SPIRE agent socket the lane pod forwarded, for fleet:witness's identified ask; empty asks in the clear")
+	narcErr := fs.String("narc-err", "", "why narc was not provisioned; empty means it was")
 	timeout := fs.Duration("timeout", DefaultTimeout, "each atom's deadline")
 	workers := fs.Int("workers", 0, "worker pool size; 0 is GOMAXPROCS")
 	if err := fs.Parse(args); err != nil {
@@ -51,6 +53,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, now func(
 	}
 	in := Collect(ctx, *root, *base, *origin, now())
 	in.Dies = *dies
+	in.Spire = *spire
+	in.NarcErr = *narcErr
 	vector := Execute(ctx, reg, in, Options{Workers: *workers, Timeout: *timeout, Clock: now})
 
 	// THE MARSHAL ERROR IS DROPPED, not branched on (gate.go says why): Verdict

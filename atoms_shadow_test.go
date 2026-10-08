@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"dagger/foundry-tools/internal/checks"
+	"dagger/foundry-tools/internal/fluxpin"
 )
 
 // NO TEST RUNS THE REAL SHADOW BY ACCIDENT. This init is the seam's other half:
@@ -223,8 +224,8 @@ func TestShadowAtomsAsksTheChainsForTheStagesAtoms(t *testing.T) {
 		notOnly  string
 		compared bool
 	}{
-		{"prepush", "fleet:orbit-drift,fleet:dagger-lockstep,fleet:node-kinds-declared,fleet:consumed-events-emitted,dies:data-keys,dies:admission-dogfood,dies:canary-visibility,ops:orbit-composed,template:render-matrix,wit:validate", "fleet:check-yaml", true},
-		{"orbit", "orbit:contracts,orbit:sidecars,orbit:repo", "fleet:", true},
+		{"prepush", "fleet:orbit-drift,fleet:dagger-lockstep,fleet:node-kinds-declared,fleet:consumed-events-emitted,fleet:witness,dies:data-keys,dies:admission-dogfood,dies:canary-visibility,ops:orbit-composed,ops:orbit-sidecars,ops:immutable,template:render-matrix,wit:validate", "fleet:check-yaml", true},
+		{"orbit", "orbit:contracts,orbit:surface,orbit:sidecars,orbit:repo", "fleet:", true},
 		{"", "fleet:check-yaml,fleet:check-added-large-files,fleet:check-merge-conflict,fleet:stop-justifications,", "orbit:", true},
 		{"mutation", "", "", false},
 	} {
@@ -476,5 +477,99 @@ func TestAtomsVectorMountsDiesOnlyWhereAnAtomReadsIt(t *testing.T) {
 	c := engine.chain(`"-stage","precommit"`)
 	if c == "" || strings.Contains(c, `path:"/dies"`) || strings.Contains(c, `"-dies"`) {
 		t.Errorf("a stage whose atoms never read foundry-dies mounted it (or ran no chain):\n%s", c)
+	}
+}
+
+// THE SOCKET AND THE ANALYZER ARE PER-CALL INPUTS, mounted on top of the layers
+// for the stage with an atom that reads them: fleet:witness asks as the lane's
+// SVID through the witnesscall layer, and orbit:surface execs the narc the pin
+// flux holds live names.
+func TestAtomsVectorForwardsTheSpireSocketToTheWitnessStageOnly(t *testing.T) {
+	for _, tc := range []struct {
+		stage string
+		spire bool
+		want  bool
+	}{
+		{"prepush", true, true},
+		{"", true, true},
+		{"prepush", false, false},
+		{"precommit", true, false},
+		{"orbit", true, false},
+	} {
+		t.Run(tc.stage+map[bool]string{true: " with a socket", false: " without"}[tc.spire], func(t *testing.T) {
+			m := &FoundryTools{Source: dag.Directory(), Repo: "http://door/rob/x.git", Sha: buildSha}
+			if tc.spire {
+				m.spire = dag.LoadSocketFromID("spire-agent-socket")
+			}
+			engine.reset()
+			engine.withTree(map[string]string{"go.mod": "module x\n"})
+			engine.stdout(`"/usr/local/bin/atoms"`, "[]")
+			if _, err := m.atomsVector(context.Background(), tc.stage, "abc"); err != nil {
+				t.Fatal(err)
+			}
+			c := engine.chain(`"/usr/local/bin/atoms"`)
+			if got := strings.Contains(c, `"-spire","`+atomsSpirePath+`"`); got != tc.want {
+				t.Errorf("-spire passed: %v, want %v\n%s", got, tc.want, c)
+			}
+			if got := strings.Contains(c, "withUnixSocket"); got != tc.want {
+				t.Errorf("socket mounted: %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAtomsVectorMountsNarcForTheOrbitStageFromTheLivePin(t *testing.T) {
+	m := &FoundryTools{Source: dag.Directory(), Repo: "http://door/rob/x.git", Sha: buildSha}
+	t.Run("a readable pin is mounted", func(t *testing.T) {
+		engine.reset()
+		engine.withTree(laneDies(map[string]string{"go.mod": "module x\n"}))
+		engine.stdout(`"/usr/local/bin/atoms"`, "[]")
+		if _, err := m.atomsVector(context.Background(), "orbit", "abc"); err != nil {
+			t.Fatal(err)
+		}
+		c := engine.chain(`"/usr/local/bin/atoms"`)
+		if !strings.Contains(c, `path:"/usr/local/bin/narc"`) || strings.Contains(c, "-narc-err") {
+			t.Errorf("the run chain lacks narc, or names an error:\n%s", c)
+		}
+	})
+	t.Run("a pin that cannot be read is passed on as the reason", func(t *testing.T) {
+		engine.reset()
+		engine.withTree(laneDies(map[string]string{"go.mod": "module x\n", "/flux/" + fluxpin.File: "images: []\n"}))
+		engine.stdout(`"/usr/local/bin/atoms"`, "[]")
+		if _, err := m.atomsVector(context.Background(), "orbit", "abc"); err != nil {
+			t.Fatal(err)
+		}
+		c := engine.chain(`"/usr/local/bin/atoms"`)
+		if !strings.Contains(c, `"-narc-err"`) || strings.Contains(c, `path:"/usr/local/bin/narc"`) {
+			t.Errorf("the pin could not be read and the chain says otherwise:\n%s", c)
+		}
+	})
+	t.Run("no other stage resolves the pin", func(t *testing.T) {
+		engine.reset()
+		engine.withTree(laneDies(map[string]string{"go.mod": "module x\n"}))
+		engine.stdout(`"/usr/local/bin/atoms"`, "[]")
+		if _, err := m.atomsVector(context.Background(), "prepush", "abc"); err != nil {
+			t.Fatal(err)
+		}
+		if c := engine.chain(`"/usr/local/bin/atoms"`); strings.Contains(c, "narc") {
+			t.Errorf("the prepush stage mounted narc:\n%s", c)
+		}
+	})
+}
+
+// THE BASE IS FETCHED ONCE PER RUN, by the module, for the binary's one change
+// set: not once per change-reading atom. fleet:witness and ops:immutable read
+// Input.Changed and Input.Base and fetch nothing themselves.
+func TestAtomsVectorFetchesTheBaseOnce(t *testing.T) {
+	m := &FoundryTools{Source: dag.Directory(), Repo: "http://door/rob/x.git", Sha: buildSha}
+	engine.reset()
+	engine.withTree(map[string]string{"go.mod": "module x\n"})
+	engine.stdout(`"/usr/local/bin/atoms"`, "[]")
+	if _, err := m.atomsVector(context.Background(), "prepush", "abc"); err != nil {
+		t.Fatal(err)
+	}
+	c := engine.chain(`"/usr/local/bin/atoms"`)
+	if n := strings.Count(c, `"fetch","--quiet","--no-tags","http://door/rob/x.git","abc"`); n != 1 {
+		t.Errorf("the base was fetched %d times in the run's chain, want once:\n%s", n, c)
 	}
 }

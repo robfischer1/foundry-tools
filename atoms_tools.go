@@ -23,7 +23,7 @@ import (
 //
 //	the OS packages (a base digest bump)
 //	each pinned third-party tool, the least-moved pin first
-//	the sidecar reader, built from source (it follows stellar-core-go)
+//	the sidecar reader and the witness helper, built from source
 //	uv, then the python interpreter, the python packages, the ansible collections
 //	the atoms binary (every atom edit)
 //
@@ -82,6 +82,10 @@ var pinnedTools = []pinnedTool{
 	{name: "kubeconform", moves: 3, image: checks.ImageKubeconform, imagePath: "/kubeconform"},
 	{name: "opengrep", moves: 3, url: checks.OpengrepURL},
 	{name: "orbitparse", moves: 4, build: orbitParse},
+	// witnesscall is built from source like orbitparse, so its count is the days
+	// with commits under witnesscall/, internal/witnesscall and internal/hadescall
+	// in the same window, not a pin line.
+	{name: "witnesscall", moves: 4, build: func() *dagger.File { return helperBinary("witnesscall") }},
 }
 
 // layer is one step of the container, in the order it is applied.

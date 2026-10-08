@@ -112,7 +112,7 @@ var (
 )
 
 // atomsNeedingDies are the atoms that grade against foundry-dies main.
-var atomsNeedingDies = []string{"ops:orbit-composed", "orbit:contracts", "orbit:repo", "orbit:sidecars"}
+var atomsNeedingDies = []string{"ops:orbit-composed", "orbit:contracts", "orbit:repo", "orbit:sidecars", "orbit:surface"}
 
 // reaskNonce keys the binary's exec afresh on every call; a variable so a test
 // can read what each call carried.
@@ -143,6 +143,43 @@ func (r *run) withAtomDies(ctx context.Context, ctr *dagger.Container, stage str
 	return ctr, nil
 }
 
+// atomsSpirePath is where the lane pod's SPIRE socket sits in the binary's
+// container when the call forwarded one.
+const atomsSpirePath = "/run/spire/agent.sock"
+
+// stageHas reports whether the binary grades an atom at the stage.
+func stageHas(stage, id string) bool { return slices.Contains(atoms.StageIDs(stage), id) }
+
+// withAtomSpire forwards the lane pod's SPIRE socket into the binary's
+// container for the stage that carries fleet:witness, so the binary asks
+// narcissus as the same SVID the chain does (through the witnesscall layer).
+// Without a socket (a local run, a lane that forwarded none) nothing is mounted,
+// the flag is not passed and the atom asks in the clear and says so. The owner is
+// root, the tools container's user: the chain's nonroot owner belonged to the
+// static base its helper ran on.
+func (r *run) withAtomSpire(ctr *dagger.Container, stage string) (*dagger.Container, []string) {
+	if r.spire == nil || !stageHas(stage, "fleet:witness") {
+		return ctr, nil
+	}
+	return ctr.WithUnixSocket(atomsSpirePath, r.spire), []string{"-spire", atomsSpirePath}
+}
+
+// withAtomNarc mounts narcissus's analyzer for the stage that carries
+// orbit:surface: the image flux pins live (narcissusRef), resolved per call and
+// mounted on top of the layers, so a bump of that pin rebuilds nothing under it.
+// A pin that cannot be read is passed to the binary as the reason (-narc-err),
+// so the atom settles 2 in the chain's words.
+func (r *run) withAtomNarc(ctx context.Context, ctr *dagger.Container, stage string) (*dagger.Container, []string) {
+	if !stageHas(stage, "orbit:surface") {
+		return ctr, nil
+	}
+	ref, err := narcissusRef(ctx, r)
+	if err != nil {
+		return ctr, []string{"-narc-err", err.Error()}
+	}
+	return ctr.WithFile("/usr/local/bin/narc", dag.Container().From(ref).File("/narc"), dagger.ContainerWithFileOpts{Permissions: 0o755}), nil
+}
+
 // atomsVector runs the binary in the tools container over the same tree the
 // chains read, and answers its stdout: the vector as JSON.
 //
@@ -157,9 +194,16 @@ func (m *FoundryTools) atomsVector(ctx context.Context, stage, base string) (str
 	// that read the network (the door, opa's build, kubeconform's schemas) would
 	// be frozen at the first read. The chains read the door fresh and re-ask a
 	// could-not-run; CA_REASK keys every lane exec afresh, so the shadow does too.
-	r := newRun(m.Source, m.Repo, base).fromOrigin(m.Origin).reasked(reaskNonce())
+	r := newRun(m.Source, m.Repo, base).fromOrigin(m.Origin).withSpire(m.spire).reasked(reaskNonce())
+	// THE BASE IS FETCHED ONCE HERE (withBase), for the whole run: the binary's
+	// change set (Collect) is computed from it once and feeds every atom that
+	// judges the change, fleet:witness and ops:immutable among them. Neither
+	// fetches it again; TestAtomsVectorFetchesTheBaseOnce holds the count.
 	ctr := r.gitReady(ctx, r.withBase(r.onTools(atomsTools(ctx))))
 	ctr, flags := r.withAtomDies(ctx, ctr, stage)
+	ctr, spireFlags := r.withAtomSpire(ctr, stage)
+	ctr, narcFlags := r.withAtomNarc(ctx, ctr, stage)
+	flags = append(append(flags, spireFlags...), narcFlags...)
 	// -timeout: the tool atoms scan, build and lint whole trees, which the
 	// default minute (sized for atoms that read a few files) does not allow.
 	args := append([]string{atomsBinPath, "-root", "/src", "-base", base, "-origin", r.repo, "-stage", stage, "-timeout", atomTimeout}, flags...)

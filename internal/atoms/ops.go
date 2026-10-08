@@ -107,8 +107,8 @@ func opsOrbitComposed(_ context.Context, a checks.AtomDef, in Input) checks.Verd
 // the reader the star itself runs. The reader is a ten-line main over
 // policy.ParseACL (internal/checks/scripts/_orbitparse) built by the module and
 // mounted on PATH as orbitparse: IMPORTED, NOT RE-IMPLEMENTED, because a port of
-// the parser agrees with the star's only until one of them changes. Not a
-// registered atom of its own here; orbit:sidecars runs it as a finding.
+// the parser agrees with the star's only until one of them changes. It is a registered atom, and orbit:sidecars
+// also runs it as a finding.
 func opsOrbitSidecars(ctx context.Context, a checks.AtomDef, in Input) checks.Verdict {
 	if stop := opsSurface(a, in); stop != nil {
 		return *stop
