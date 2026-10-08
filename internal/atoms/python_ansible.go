@@ -72,7 +72,12 @@ func declaredCollections(requirements string) ([]collectionRef, error) {
 			return nil, fmt.Errorf("a collection entry is neither a name nor a mapping: %v", entry)
 		}
 		name, _ := e["name"].(string)
-		version, _ := e["version"].(string)
+		// Sprint, not a string assertion: an unquoted `version: 6` is an int, and
+		// dropping it would read as "any version" and pass.
+		var version string
+		if v := e["version"]; v != nil {
+			version = fmt.Sprint(v)
+		}
 		if name == "" {
 			return nil, fmt.Errorf("a collection entry names none: %v", e)
 		}
@@ -111,11 +116,13 @@ func collectionGaps(declared []collectionRef, dir string) []string {
 			gaps = append(gaps, fmt.Sprintf("%s %s (the container carries none)", c.Name, c.Version))
 			continue
 		}
-		if c.Version == "" || c.Version == "*" || c.Version == have {
+		// A leading == pins one release, as galaxy reads it: not a range.
+		want := strings.TrimPrefix(c.Version, "==")
+		if want == "" || want == "*" || want == have {
 			continue
 		}
-		if strings.ContainsAny(c.Version, "<>=!~,") {
-			gaps = append(gaps, fmt.Sprintf("%s %s (a range; the container carries %s)", c.Name, c.Version, have))
+		if strings.ContainsAny(want, "<>=!~,") {
+			gaps = append(gaps, fmt.Sprintf("%s %s (unsupported version range; the container carries %s)", c.Name, c.Version, have))
 			continue
 		}
 		gaps = append(gaps, fmt.Sprintf("%s %s (the container carries %s)", c.Name, c.Version, have))
