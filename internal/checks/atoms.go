@@ -494,6 +494,10 @@ func atomTable() []AtomDef {
 			Desc: "Every copy of every shared closed set agrees — and the checker is proved to detect first.",
 		},
 		{
+			ID: "dies:contract-copies", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "Every vendored copy this tree holds (a WIT, a schema, a verb's output schema) is the closed set and the bytes foundry-dies' authority declares — graded here, in the repo that holds it, instead of on the next dies pull.",
+		},
+		{
 			ID: "fleet:witness", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every changed .py/.go source file is shown to the code witness (narcissus), never a test: a canonical-class or Standard match is a finding, a Convention is advisory, novel is clean.",
 		},
