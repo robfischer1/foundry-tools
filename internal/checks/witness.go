@@ -448,17 +448,17 @@ func WitnessSummary(rows []WitnessRow) string {
 // WitnessSkipTail is the clauses a reason carries for what the witness was never
 // shown: files in a language it has no analyzer for, vendored files and tests.
 func WitnessSkipTail(skipped, vendored, tests []string) string {
-	tail := ""
+	var clauses []string
 	if len(skipped) > 0 {
-		tail += fmt.Sprintf("; skipped %d file(s) in languages the witness has no analyzer for", len(skipped))
+		clauses = append(clauses, fmt.Sprintf("; skipped %d file(s) in languages the witness has no analyzer for", len(skipped)))
 	}
 	if len(vendored) > 0 {
-		tail += fmt.Sprintf("; skipped %d vendored file(s)", len(vendored))
+		clauses = append(clauses, fmt.Sprintf("; skipped %d vendored file(s)", len(vendored)))
 	}
 	if len(tests) > 0 {
-		tail += fmt.Sprintf("; skipped %d test file(s)", len(tests))
+		clauses = append(clauses, fmt.Sprintf("; skipped %d test file(s)", len(tests)))
 	}
-	return tail
+	return strings.Join(clauses, "")
 }
 
 var (
@@ -491,7 +491,8 @@ func WitnessedPaths(text string) []string {
 		switch {
 		case strings.HasPrefix(ln, "| file | verdict"):
 			rows = true
-		case rows && strings.HasPrefix(ln, "|---"):
+		case strings.HasPrefix(ln, "|---"):
+			// The rule under the header; outside a table it ends nothing.
 		case rows && strings.HasPrefix(ln, "| "):
 			cell, _, _ := strings.Cut(strings.TrimPrefix(ln, "| "), " | ")
 			out = append(out, cell)
