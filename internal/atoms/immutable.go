@@ -68,6 +68,9 @@ func opsImmutable(ctx context.Context, a checks.AtomDef, in Input) checks.Verdic
 	if err != nil {
 		return settle(2, "CANNOT RUN - "+err.Error())
 	}
+	// The diff is listed here again and not read from Input.Changed: the change set
+	// keeps only added, modified and renamed paths, and a deleted file is a change
+	// to a path's inputs (the chain listed it unfiltered, and so does this).
 	diff, rc := git(ctx, in.Root, "diff", "-z", "--name-only", since, "HEAD")
 	if rc != 0 {
 		return settle(2, fmt.Sprintf("CANNOT RUN - the changed files against %s would not list (exit %d): %.200s", since, rc, diff))

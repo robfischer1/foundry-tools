@@ -150,7 +150,7 @@ const atomsSpirePath = "/run/spire/agent.sock"
 // stageHas reports whether the binary grades an atom at the stage.
 func stageHas(stage, id string) bool { return slices.Contains(atoms.StageIDs(stage), id) }
 
-// withAtomSpire forwards the lane pod's SPIRE socket into the binary's
+// withAtomSpire (not used by the shadow, which is dry; the voter will) forwards the lane pod's SPIRE socket into the binary's
 // container for the stage that carries fleet:witness, so the binary asks
 // narcissus as the same SVID the chain does (through the witnesscall layer).
 // Without a socket (a local run, a lane that forwarded none) nothing is mounted,
@@ -201,9 +201,15 @@ func (m *FoundryTools) atomsVector(ctx context.Context, stage, base string) (str
 	// fetches it again; TestAtomsVectorFetchesTheBaseOnce holds the count.
 	ctr := r.gitReady(ctx, r.withBase(r.onTools(atomsTools(ctx))))
 	ctr, flags := r.withAtomDies(ctx, ctr, stage)
-	ctr, spireFlags := r.withAtomSpire(ctr, stage)
+	// THE SHADOW'S WITNESS IS DRY, always: it lists what it would ask and asks
+	// nothing, so no socket is mounted for it either. A real ask would double the
+	// load on narcissus for every pull that touches .go/.py, and narcissus
+	// saturated on 2026-10-07. withAtomSpire stays for the voter (F5).
+	if stageHas(stage, "fleet:witness") {
+		flags = append(flags, "-witness-dry")
+	}
 	ctr, narcFlags := r.withAtomNarc(ctx, ctr, stage)
-	flags = append(append(flags, spireFlags...), narcFlags...)
+	flags = append(flags, narcFlags...)
 	// -timeout: the tool atoms scan, build and lint whole trees, which the
 	// default minute (sized for atoms that read a few files) does not allow.
 	args := append([]string{atomsBinPath, "-root", "/src", "-base", base, "-origin", r.repo, "-stage", stage, "-timeout", atomTimeout}, flags...)

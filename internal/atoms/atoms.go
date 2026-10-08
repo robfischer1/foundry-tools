@@ -90,6 +90,9 @@ type Input struct {
 	// Spire is the path of the SPIRE agent socket the lane pod forwarded, for
 	// fleet:witness's identified ask; "" names none and it asks in the clear.
 	Spire string
+	// WitnessDry makes fleet:witness ask nothing: it lists what it would ask
+	// and settles 2 (the shadow's mode; the default asks for real).
+	WitnessDry bool
 	// Witness is how fleet:witness reaches narcissus; the zero value is the
 	// production port.
 	Witness Witness
@@ -191,7 +194,9 @@ func lookup(id string) (checks.AtomDef, bool) {
 // Every one is registered ScopeTree, the change-reading atoms (fleet:witness,
 // ops:immutable) included: the runner's change-scope would settle an empty change
 // set with its own absent text, and these two word that case themselves, as the
-// chains did. They read the ONE change set Collect computed (Input.Changed).
+// chains did. They read the change set Collect computed ONCE (Input.Changed); ops:immutable
+// also re-lists the diff locally, unfiltered and with deletions, which the change
+// set (added, modified, renamed) leaves out.
 func Builtin() []Atom {
 	tree := func(id string, run RunFunc) Atom { return Atom{ID: id, Scope: ScopeTree, Run: run} }
 	// An atom whose tool is a pinned layer of the container the binary runs in

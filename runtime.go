@@ -361,7 +361,8 @@ func (r *run) withDies(ctr *dagger.Container) *dagger.Container {
 }
 
 // withBase hands an atom the change set's base. ONLY the atoms that judge the
-// change (fleet:witness, the mutation lane) call this — on every other atom
+// change (fleet:witness, the mutation lane) and the atoms binary's run
+// (atomsVector, once for every atom in it) call this — on every other atom
 // it would make the cache key a function of the pull rather than of the tree.
 func (r *run) withBase(ctr *dagger.Container) *dagger.Container {
 	ctr = ctr.WithEnvVariable("GATE_BASE", r.base)

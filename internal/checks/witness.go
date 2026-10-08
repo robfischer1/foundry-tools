@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -386,15 +387,7 @@ func AggregateWitness(rows []WitnessRow, skipped, vendored, tests []string) (int
 	if rs := byClass["canonical-reuse"]; len(rs) > 0 {
 		tail += fmt.Sprintf("; %d file(s) reuse a canonical class: %s", len(rs), paths(rs, ", "))
 	}
-	if len(skipped) > 0 {
-		tail += fmt.Sprintf("; skipped %d file(s) in languages the witness has no analyzer for", len(skipped))
-	}
-	if len(vendored) > 0 {
-		tail += fmt.Sprintf("; skipped %d vendored file(s)", len(vendored))
-	}
-	if len(tests) > 0 {
-		tail += fmt.Sprintf("; skipped %d test file(s)", len(tests))
-	}
+	tail += WitnessSkipTail(skipped, vendored, tests)
 	nounit := byClass["no-unit"]
 	if len(nounit) > 0 {
 		tail += fmt.Sprintf("; %d file(s) had no unit to witness: %s", len(nounit), paths(nounit, ", "))
@@ -450,6 +443,93 @@ func WitnessSummary(rows []WitnessRow) string {
 		}
 	}
 	return b.String()
+}
+
+// WitnessSkipTail is the clauses a reason carries for what the witness was never
+// shown: files in a language it has no analyzer for, vendored files and tests.
+func WitnessSkipTail(skipped, vendored, tests []string) string {
+	tail := ""
+	if len(skipped) > 0 {
+		tail += fmt.Sprintf("; skipped %d file(s) in languages the witness has no analyzer for", len(skipped))
+	}
+	if len(vendored) > 0 {
+		tail += fmt.Sprintf("; skipped %d vendored file(s)", len(vendored))
+	}
+	if len(tests) > 0 {
+		tail += fmt.Sprintf("; skipped %d test file(s)", len(tests))
+	}
+	return tail
+}
+
+var (
+	skippedRE  = regexp.MustCompile(`skipped (\d+) file\(s\) in languages`)
+	vendoredRE = regexp.MustCompile(`skipped (\d+) vendored file\(s\)`)
+	testsRE    = regexp.MustCompile(`skipped (\d+) test file\(s\)`)
+)
+
+// WitnessSkipCounts reads the counts WitnessSkipTail wrote into a reason; a
+// clause that is not there is 0.
+func WitnessSkipCounts(reason string) (skipped, vendored, tests int) {
+	count := func(re *regexp.Regexp) int {
+		m := re.FindStringSubmatch(reason)
+		if m == nil {
+			return 0
+		}
+		n, _ := strconv.Atoi(m[1])
+		return n
+	}
+	return count(skippedRE), count(vendoredRE), count(testsRE)
+}
+
+// WitnessedPaths reads the files a WitnessSummary table names, in its order: the
+// first cell of each row after the header. Text the table does not hold (the
+// reason line above it, the footgun bullets below) is not a row.
+func WitnessedPaths(text string) []string {
+	var out []string
+	rows := false
+	for _, ln := range strings.Split(text, "\n") {
+		switch {
+		case strings.HasPrefix(ln, "| file | verdict"):
+			rows = true
+		case rows && strings.HasPrefix(ln, "|---"):
+		case rows && strings.HasPrefix(ln, "| "):
+			cell, _, _ := strings.Cut(strings.TrimPrefix(ln, "| "), " | ")
+			out = append(out, cell)
+		default:
+			rows = false
+		}
+	}
+	return out
+}
+
+// WitnessDryMark opens the reason of a dry run, which asked nothing.
+const WitnessDryMark = "DRY - not asked:"
+
+// witnessWouldAsk prefixes each line of a dry run's list.
+const witnessWouldAsk = "would ask: "
+
+// WitnessDryText is a dry run's reason: what it would have asked, in order, each
+// file with the language and the caller the request would carry, then the
+// skipped clauses (WitnessSkipTail). Asking is the only thing it leaves out.
+func WitnessDryText(sources []string, caller string, skipped, vendored, tests []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s would ask the witness about %d file(s)%s", WitnessDryMark, len(sources), WitnessSkipTail(skipped, vendored, tests))
+	for _, p := range sources {
+		fmt.Fprintf(&b, "\n%s%s | %s | %s", witnessWouldAsk, p, WitnessLanguage(p), caller)
+	}
+	return b.String()
+}
+
+// WitnessDryPaths reads the files a WitnessDryText names, in its order.
+func WitnessDryPaths(text string) []string {
+	var out []string
+	for _, ln := range strings.Split(text, "\n") {
+		if rest, ok := strings.CutPrefix(ln, witnessWouldAsk); ok {
+			p, _, _ := strings.Cut(rest, " | ")
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // StarName is the star a checkout's origin URL names: its last path segment,

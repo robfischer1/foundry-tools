@@ -470,3 +470,73 @@ func TestFleetWitnessAnIdentifiedRequestThatCannotBeWrittenFallsBackToTheClear(t
 		t.Errorf("%d clear request(s), %d helper post(s)", n.total(), h.posts())
 	}
 }
+
+// THE SHADOW'S WITNESS IS DRY: it lists what it would ask and asks nothing.
+func TestFleetWitnessDryAsksNothing(t *testing.T) {
+	const id = "fleet:witness"
+	tree := map[string]string{"a.go": "package a\n", "b.py": "x = 1\n"}
+	t.Run("it lists the files in git's order and never settles 0", func(t *testing.T) {
+		n := newNarcissus(t, reply("novel"))
+		in, pauses := witnessIn(t, n, tree, "b.py", "a.go", "t_test.go", "vendor/x.go", "lib.rs", "README.md")
+		in.WitnessDry = true
+		in.Spire = "/run/spire/agent.sock"
+		in.Exec = func(_ context.Context, c Cmd) (string, int) {
+			t.Errorf("a dry run exec'd %s %v", c.Name, c.Args)
+			return "", 0
+		}
+		v := runAtom(t, id, in)
+		expect(t, v, stateOf(2), cannot, checks.WitnessDryMark+" would ask the witness about 2 file(s)",
+			"skipped 1 file(s) in languages the witness has no analyzer for", "skipped 1 vendored file(s)", "skipped 1 test file(s)")
+		if got := checks.WitnessDryPaths(strings.Join(v.Logs, "\n")); strings.Join(got, ",") != "b.py,a.go" {
+			t.Errorf("would ask %v, want b.py,a.go in the change set's order", got)
+		}
+		if !strings.Contains(v.Reason, "b.py | python | ci:gate:some-star@HEAD") {
+			t.Errorf("the list does not carry the language and caller:\n%s", v.Reason)
+		}
+		if n.total() != 0 || len(*pauses) != 0 {
+			t.Errorf("%d request(s) and %d pause(s) from a dry run", n.total(), len(*pauses))
+		}
+	})
+	t.Run("with nothing to ask it still is not a pass", func(t *testing.T) {
+		in, _ := witnessIn(t, nil, tree, "README.md")
+		in.WitnessDry = true
+		expect(t, runAtom(t, id, in), stateOf(2), cannot, "would ask the witness about 0 file(s)")
+	})
+	for _, tc := range []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"a snapshot", SnapshotError{Kind: "worktree"}, "no change set to read: the source is a worktree snapshot"},
+		{"a change set that would not compute", errBoom, "no change set to read: boom"},
+	} {
+		t.Run(tc.name+" is dry and not a pass", func(t *testing.T) {
+			in, _ := witnessIn(t, nil, tree, "a.go")
+			in.WitnessDry = true
+			in.ChangedErr = tc.err
+			expect(t, runAtom(t, id, in), stateOf(2), cannot, checks.WitnessDryMark, tc.want)
+		})
+	}
+}
+
+func TestWitnessDryIsOffByDefault(t *testing.T) {
+	dir := newRepo(t)
+	put(t, dir, "a.txt", "a\n")
+	commitAll(t, dir, "c1")
+	var got []bool
+	build := func() (*Registry, error) {
+		return NewRegistry(Atom{ID: "fleet:check-yaml", Run: func(_ context.Context, a checks.AtomDef, in Input) checks.Verdict {
+			got = append(got, in.WitnessDry)
+			return checks.VerdictOf(a, 0, "")
+		}})
+	}
+	var out, errb strings.Builder
+	for _, args := range [][]string{{"-root", dir}, {"-root", dir, "-witness-dry"}} {
+		if code := run(context.Background(), args, &out, &errb, time.Now, build); code != 0 {
+			t.Fatalf("exit %d: %s", code, errb.String())
+		}
+	}
+	if len(got) != 2 || got[0] || !got[1] {
+		t.Errorf("dry was %v for no flag and the flag; want false then true (the voter asks for real)", got)
+	}
+}

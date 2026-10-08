@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -480,19 +482,20 @@ func TestAtomsVectorMountsDiesOnlyWhereAnAtomReadsIt(t *testing.T) {
 	}
 }
 
-// THE SOCKET AND THE ANALYZER ARE PER-CALL INPUTS, mounted on top of the layers
-// for the stage with an atom that reads them: fleet:witness asks as the lane's
-// SVID through the witnesscall layer, and orbit:surface execs the narc the pin
-// flux holds live names.
-func TestAtomsVectorForwardsTheSpireSocketToTheWitnessStageOnly(t *testing.T) {
+// THE SHADOW'S WITNESS IS DRY, ALWAYS, and mounts no socket: a real ask doubles
+// the load on narcissus for every pull that touches .go/.py. The flag rides on
+// exactly the stages with fleet:witness, whether or not the lane forwarded a
+// socket.
+func TestAtomsVectorAlwaysRunsTheWitnessDryAndMountsNoSocket(t *testing.T) {
 	for _, tc := range []struct {
 		stage string
 		spire bool
-		want  bool
+		dry   bool
 	}{
 		{"prepush", true, true},
+		{"prepush", false, true},
 		{"", true, true},
-		{"prepush", false, false},
+		{"", false, true},
 		{"precommit", true, false},
 		{"orbit", true, false},
 	} {
@@ -508,14 +511,23 @@ func TestAtomsVectorForwardsTheSpireSocketToTheWitnessStageOnly(t *testing.T) {
 				t.Fatal(err)
 			}
 			c := engine.chain(`"/usr/local/bin/atoms"`)
-			if got := strings.Contains(c, `"-spire","`+atomsSpirePath+`"`); got != tc.want {
-				t.Errorf("-spire passed: %v, want %v\n%s", got, tc.want, c)
+			if got := strings.Contains(c, `"-witness-dry"`); got != tc.dry {
+				t.Errorf("-witness-dry passed: %v, want %v\n%s", got, tc.dry, c)
 			}
-			if got := strings.Contains(c, "withUnixSocket"); got != tc.want {
-				t.Errorf("socket mounted: %v, want %v", got, tc.want)
+			if strings.Contains(c, `"-spire"`) || strings.Contains(c, "withUnixSocket") {
+				t.Errorf("the dry shadow was given a socket:\n%s", c)
 			}
 		})
 	}
+	t.Run("the voter's socket helper still forwards one", func(t *testing.T) {
+		r := newRun(dag.Directory(), "http://door/rob/x.git", "abc").withSpire(dag.LoadSocketFromID("spire-agent-socket"))
+		if _, flags := r.withAtomSpire(dag.Container(), "prepush"); len(flags) != 2 || flags[0] != "-spire" {
+			t.Errorf("flags %v", flags)
+		}
+		if _, flags := r.withAtomSpire(dag.Container(), "precommit"); len(flags) != 0 {
+			t.Errorf("a stage without the witness got %v", flags)
+		}
+	})
 }
 
 func TestAtomsVectorMountsNarcForTheOrbitStageFromTheLivePin(t *testing.T) {
@@ -569,7 +581,36 @@ func TestAtomsVectorFetchesTheBaseOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := engine.chain(`"/usr/local/bin/atoms"`)
-	if n := strings.Count(c, `"fetch","--quiet","--no-tags","http://door/rob/x.git","abc"`); n != 1 {
-		t.Errorf("the base was fetched %d times in the run's chain, want once:\n%s", n, c)
+	// Every fetch exec, whatever its argv: a second spelling of the fetch is
+	// still a second fetch.
+	if n := strings.Count(c, `"fetch"`); n != 1 {
+		t.Errorf("%d fetch exec(s) in the run's chain, want one:\n%s", n, c)
+	}
+}
+
+// No atom fetches: the binary's source never execs `git fetch`, so the base the
+// change set is measured from can only have come from the module's one fetch.
+func TestNoAtomExecsGitFetch(t *testing.T) {
+	files, err := filepath.Glob("internal/atoms/*.go")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no sources: %v", err)
+	}
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, f, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				if v, _ := strconv.Unquote(lit.Value); v == "fetch" || v == "pull" {
+					t.Errorf("%s: %s names git %s, which only the module may run", f, fset.Position(lit.Pos()), v)
+				}
+			}
+			return true
+		})
 	}
 }

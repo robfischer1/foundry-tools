@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
 
 	"dagger/foundry-tools/internal/checks"
@@ -45,13 +47,46 @@ type Cmd struct {
 // sits beside it that a test cannot reach.
 type Exec func(ctx context.Context, c Cmd) (out string, code int)
 
+// pythonBinDir is the venv's bin as RunProgram looks for it; a variable so a
+// test can say where the venv is.
+var pythonBinDir = PythonBinDir
+
+// pythonPrograms are the programs the venv provides. They are found there by
+// path and not by the container's PATH: a shadow measured on cerberus
+// (gate-cerberus-038a512-tth5v) reported `exec: "python3": executable file not
+// found in $PATH` while the venv was installed, so nothing here depends on the
+// PATH the container was left with.
+var pythonPrograms = []string{"python3", "python", "copier", "ansible-playbook", "ansible-lint", "ansible-galaxy"}
+
+// programPath is the file a program runs from: the venv's own for the venv's
+// programs when it is there, and the name left to the PATH otherwise.
+func programPath(name string) string {
+	if !slices.Contains(pythonPrograms, name) {
+		return name
+	}
+	p := filepath.Join(pythonBinDir, name)
+	if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+		return p
+	}
+	return name
+}
+
+// programEnv is the environment a program runs in: the process's, with the
+// venv's bin first on PATH when the venv is there (so ansible and copier find
+// `python3` the way they were installed to), and the Cmd's own on top.
+func programEnv(extra []string) []string {
+	env := os.Environ()
+	if fi, err := os.Stat(pythonBinDir); err == nil && fi.IsDir() {
+		env = append(env, "PATH="+pythonBinDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	}
+	return append(env, extra...)
+}
+
 // RunProgram is the real Exec.
 func RunProgram(ctx context.Context, c Cmd) (string, int) {
-	cmd := exec.CommandContext(ctx, c.Name, c.Args...)
+	cmd := exec.CommandContext(ctx, programPath(c.Name), c.Args...)
 	cmd.Dir = c.Dir
-	if len(c.Env) > 0 {
-		cmd.Env = append(os.Environ(), c.Env...)
-	}
+	cmd.Env = programEnv(c.Env)
 	if c.Stdin != "" {
 		cmd.Stdin = strings.NewReader(c.Stdin)
 	}

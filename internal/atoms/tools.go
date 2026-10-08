@@ -32,7 +32,7 @@ var Programs = []string{
 	"git", "tar", "opa", "orbitparse",
 	"opengrep", "hadolint", "shellcheck", "chezmoi", "kubectl", "kubeconform",
 	"docker-compose", "wasm-tools", "just",
-	"python3", "python", "copier", "ansible-playbook", "ansible-lint",
+	"python3", "python", "copier", "ansible-playbook", "ansible-lint", "ansible-galaxy",
 	"witnesscall", "narc",
 }
 

@@ -104,7 +104,7 @@ type layer struct {
 var pythonPlan = []layer{
 	{name: "uv", kind: layerPython},
 	{name: "python", kind: layerPython, provides: []string{"python3", "python"}},
-	{name: "python-packages", kind: layerPython, provides: []string{"copier", "ansible-playbook", "ansible-lint"}},
+	{name: "python-packages", kind: layerPython, provides: []string{"copier", "ansible-playbook", "ansible-lint", "ansible-galaxy"}},
 	{name: "ansible-collections", kind: layerPython},
 }
 

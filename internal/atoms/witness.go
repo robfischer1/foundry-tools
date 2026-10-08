@@ -145,13 +145,20 @@ func (in Input) identifiedPost(env []string) checks.WitnessAsk {
 	}
 }
 
-// fleetWitness: see the header. A source snapshot has no change set to read and
+// fleetWitness: see the header. A DRY run (Input.WitnessDry, the shadow's) asks
+// nothing: it classifies the change set, lists what it would have asked and
+// settles 2, never 0, so that no reader takes it for a verdict. It exists
+// because the shadow doubles every ask on a pull that touches .go/.py, and
+// narcissus saturated on 2026-10-07. A source snapshot has no change set to read and
 // the verdict says so; any other change set that would not compute is a 2.
 func fleetWitness(ctx context.Context, a checks.AtomDef, in Input) checks.Verdict {
 	settle := func(state int, reason string, rows []checks.WitnessRow) checks.Verdict {
 		return checks.VerdictOf(a, state, "narcissus — fleet:witness: "+reason+"\n\n"+checks.WitnessSummary(rows))
 	}
 	if in.ChangedErr != nil {
+		if in.WitnessDry {
+			return settle(int(checks.StateCannotRun), checks.WitnessDryMark+" no change set to read: "+in.ChangedErr.Error(), nil)
+		}
 		var snap SnapshotError
 		if errors.As(in.ChangedErr, &snap) {
 			return settle(0, "no change set to witness at pre-push: the source is a "+snap.Kind+
@@ -160,6 +167,9 @@ func fleetWitness(ctx context.Context, a checks.AtomDef, in Input) checks.Verdic
 		return settle(2, "CANNOT RUN - could not read the change set: "+in.ChangedErr.Error(), nil)
 	}
 	sources, skipped, vendored, tests := checks.WitnessChangeSet(in.Changed)
+	if in.WitnessDry {
+		return settle(int(checks.StateCannotRun), checks.WitnessDryText(sources, "ci:gate:"+checks.StarName(in.Origin)+"@HEAD", skipped, vendored, tests), nil)
+	}
 	if len(sources) == 0 {
 		state, reason := checks.AggregateWitness(nil, skipped, vendored, tests)
 		return settle(state, reason, nil)
