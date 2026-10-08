@@ -92,6 +92,12 @@ func TestDiesRefusalCodesAsTheRegistryOwner(t *testing.T) {
 		in := treeIn(t, dieTree(map[string]string{checks.RefusalChecker: "x", checks.RefusalRegistry + "/x": "x"}))
 		expect(t, runAtom(t, id, in), stateOf(2), cannot, "the registry would not read")
 	})
+	t.Run("a registry with no remote use never asks the door", func(t *testing.T) {
+		in := treeIn(t, ownerTree())
+		in.Door = deadDoor(t)
+		in.Exec = (&fakeUV{checkerOut: "graded"}).exec
+		expect(t, runAtom(t, id, in), stateOf(0), pass, "graded")
+	})
 	t.Run("a registry whose first remote use the door answers goes on to the checker", func(t *testing.T) {
 		reg := "[[uses]]\nsource = { repo = \"rob/x\", path = \"a.py\" }\n"
 		in := treeIn(t, dieTree(map[string]string{checks.RefusalChecker: "x", checks.RefusalRegistry: reg}))
