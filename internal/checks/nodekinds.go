@@ -415,10 +415,10 @@ func NonGoCaptureFiles(files map[string]string) []string {
 		default:
 			continue
 		}
-		skip := strings.HasSuffix(p, ".d.ts") || strings.Contains(p, ".test.") || strings.Contains(p, ".spec.") || strings.HasPrefix(path.Base(p), "test_")
+		skip := strings.HasSuffix(p, ".d.ts") || strings.Contains(p, ".test.") || strings.Contains(p, ".spec.")
 		for _, seg := range strings.Split(p, "/") {
 			l := strings.ToLower(seg)
-			if seg == "vendor" || seg == "node_modules" || seg == "generated" || strings.Contains(l, "fake") || testSegment(l) || l == "tests" {
+			if seg == "vendor" || seg == "node_modules" || seg == "generated" || strings.Contains(l, "fake") || testSegment(l) { // test_x.py and tests/ are test segments too
 				skip = true
 			}
 		}
