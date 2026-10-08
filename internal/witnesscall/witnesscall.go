@@ -161,8 +161,9 @@ func post(ctx context.Context, client *http.Client, url string, body []byte, std
 	return 0
 }
 
-// timedOut is a failure after the request went out, not before it.
+// timedOut is a deadline failure, which context.DeadlineExceeded and the
+// client timeout both report through net.Error.Timeout.
 func timedOut(err error) bool {
 	var ne net.Error
-	return errors.Is(err, context.DeadlineExceeded) || errors.As(err, &ne) && ne.Timeout()
+	return errors.As(err, &ne) && ne.Timeout()
 }
