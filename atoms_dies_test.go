@@ -226,10 +226,13 @@ func TestDiesAdmissionDogfoodAsksTheDomainAboutOurOwnStar(t *testing.T) {
 	c := engine.chain(`"opa","eval"`, "exitCode")
 	wantCalls(t, c, []string{"withExec", "expect:ANY",
 		`args:["opa","eval","-d","policy/admission","-i","tests/fixtures/ouranos-self.json","data.admission.deny","--format","json"]`})
-	// GO READS THE RESULT, NOT jq AND NOT python3: the lane images are not
-	// promised to carry either.
+	// GO READS THE RESULT, NOT jq AND NOT python3: only the python lane
+	// image carries jq (provisioned for suites, probed with `jq --version`),
+	// and an atom must not depend on which lane it lands in. The provision
+	// probe is the one jq exec allowed.
 	for _, q := range engine.chains() {
-		if strings.Contains(q, `"jq"`) || strings.Contains(q, `"python3","-c"`) {
+		if strings.Contains(strings.ReplaceAll(q, `args:["jq","--version"]`, ""), `"jq"`) ||
+			strings.Contains(q, `"python3","-c"`) {
 			t.Errorf("the deny set is read by encoding/json, not a tool:\n%s", q)
 		}
 	}

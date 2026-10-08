@@ -105,7 +105,7 @@ var SurfaceNamespaces = map[string]string{
 	// source, a compose spec, a rego policy, or one of infra's own tools —
 	// IsOpsTree, the shape ops.sh gated and never a star.
 	"ops": "an ops tree — flux/, ansible/playbooks, a chezmoi source, a compose spec, a rego policy or an infra tool (IsOpsTree)",
-	// template: a ci-matrix.toml at the root — the four copier templates, and
+	// template: a ci-matrix.toml at the root — the five copier templates, and
 	// nothing else. Added 2026-09-23 (CA F18) when sweep:template-render-matrix
 	// came home: four repos of eighty carry the surface, which is exactly the
 	// argument above for why it is NOT `fleet:`.

@@ -272,11 +272,18 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 		// exec: git and curl come from apt, uv/uvx out of their own image,
 		// opengrep from its release URL. opa and oras the dies and sweep
 		// atoms fetch themselves.
+		//
+		// jq, PINNED (checks.JqDebVersion), for the suites rather than the
+		// atoms: foundry-stocks' bash hooks parse their payload with jq, so
+		// their pytest suite cannot exercise a hook in a lane without it —
+		// measured 2026-10-08, every hook behaviour test red on `which jq`.
 		uv := dag.Container().From(checks.ImageUV)
 		return ctr.
 			WithExec([]string{"apt-get", "update"}).
 			WithExec([]string{"apt-get", "install", "-y", "--no-install-recommends", "git", "curl", "ca-certificates"}).
+			WithExec([]string{"apt-get", "install", "-y", "--no-install-recommends", "jq=" + checks.JqDebVersion}).
 			WithExec([]string{"rm", "-rf", "/var/lib/apt/lists"}).
+			WithExec([]string{"jq", "--version"}).
 			WithFile("/usr/local/bin/uv", uv.File("/uv")).
 			WithFile("/usr/local/bin/uvx", uv.File("/uvx")).
 			WithFile("/usr/local/bin/opengrep", dag.HTTP(checks.OpengrepURL), dagger.ContainerWithFileOpts{Permissions: 0o755}).

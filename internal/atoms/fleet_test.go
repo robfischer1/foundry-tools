@@ -18,7 +18,9 @@ func TestSastRulesetLanes(t *testing.T) {
 		needles []string
 	}{
 		{"no rules at all is absent when nobody stamped it", map[string]string{"main.go": "x"}, 0, absent,
-			[]string{"no rules/sast in this tree, and no fleet template stamped it"}},
+			[]string{"no rules/sast in this tree, and no SAST-shipping fleet template stamped it"}},
+		{"a template that ships no ruleset leaves absence the correct state",
+			map[string]string{".copier-answers.yml": "_src_path: https://git.notusmi.com/rob/config-repo-template.git\n"}, 0, absent, nil},
 		{"a rules directory without sast is absent too", map[string]string{"rules/other.txt": "x"}, 0, absent,
 			[]string{"no rules/sast in this tree"}},
 		{"a stamped tree without the ruleset never received it", map[string]string{".copier-answers.yml": stamped}, 2, cannot,

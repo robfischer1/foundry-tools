@@ -52,8 +52,19 @@ func CopierMarkerReport() string {
 		CopierAnswersFile, CopierSentinel)
 }
 
-// CopierTemplate names the template an answers file's body was stamped from, or
-// "" when it is not stamped from one of the fleet's repo templates. It reads
+// SastTemplates is the closed set of fleet repo templates that ship
+// rules/sast/dataflow.yml. A template outside it (config-repo-template carries
+// no code language, so no ruleset) stamps trees for which absence is the
+// correct state. Variation is by template kind, never by repo.
+var SastTemplates = map[string]bool{
+	"python-repo-template":   true,
+	"go-repo-template":       true,
+	"rust-repo-template":     true,
+	"frontend-repo-template": true,
+}
+
+// CopierTemplate names the SAST-shipping template an answers file's body was
+// stamped from, or "" when it is not stamped from one of them. It reads
 // `_src_path` rather than trusting the file's presence: speckit ships its own
 // answers file and a tree can carry one pointing anywhere. An empty body (an
 // absent or unreadable file) answers "" — this decides whether to make another
@@ -66,7 +77,7 @@ func CopierTemplate(answers string) string {
 		}
 		src := strings.Trim(strings.TrimSpace(rest), `"'`)
 		name := strings.TrimSuffix(src[strings.LastIndex(src, "/")+1:], ".git")
-		if strings.HasSuffix(name, "-repo-template") {
+		if SastTemplates[name] {
 			return name
 		}
 		return ""
@@ -81,7 +92,7 @@ func CopierTemplate(answers string) string {
 func SastAbsentStamped(id, tpl string) string {
 	return fmt.Sprintf(
 		"%s: CANNOT RUN - this tree has no rules/sast, and %s stamped it.\n\n"+
-			"Every fleet repo template ships rules/sast/dataflow.yml, so a stamped repo\n"+
+			"Every SAST-shipping fleet repo template ships rules/sast/dataflow.yml, so a stamped repo\n"+
 			"without one did not decline SAST — it never received the file. `_skip_if_exists`\n"+
 			"only skips a path that ALREADY exists, so a working `copier update` creates it;\n"+
 			"a repo missing it has taken no successful render since the template began\n"+

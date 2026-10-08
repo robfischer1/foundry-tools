@@ -91,8 +91,8 @@ func fleetCopierAnswersIntact(ctx context.Context, r *run) checks.Verdict {
 	return checks.VerdictOf(a, 1, checks.CopierMarkerReport())
 }
 
-// copierTemplate names the template a tree was stamped from, or "" when the tree
-// is not copier-stamped from one of the fleet's repo templates.
+// copierTemplate names the SAST-shipping template a tree was stamped from, or ""
+// when the tree is not copier-stamped from one of them.
 //
 // It reads `_src_path` out of the answers file rather than trusting the file's
 // mere presence: speckit ships its own `.copier-answers.speckit.yml` and a tree
@@ -146,7 +146,7 @@ func absentRuleset(ctx context.Context, r *run, a checks.AtomDef) checks.Verdict
 	tpl := copierTemplate(ctx, r)
 	if tpl == "" {
 		return checks.VerdictOf(a, 0, string(a.ID)+
-			": ABSENT - no rules/sast in this tree, and no fleet template stamped it")
+			": ABSENT - no rules/sast in this tree, and no SAST-shipping fleet template stamped it")
 	}
 	return checks.VerdictOf(a, 2, checks.SastAbsentStamped(a.ID, tpl))
 }

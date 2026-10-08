@@ -26,7 +26,7 @@ func absentRuleset(t tree, a checks.AtomDef) checks.Verdict {
 	tpl := checks.CopierTemplate(answers)
 	if tpl == "" {
 		return checks.VerdictOf(a, int(checks.StatePass), a.ID+
-			": ABSENT - no rules/sast in this tree, and no fleet template stamped it")
+			": ABSENT - no rules/sast in this tree, and no SAST-shipping fleet template stamped it")
 	}
 	return checks.VerdictOf(a, int(checks.StateCannotRun), checks.SastAbsentStamped(a.ID, tpl))
 }

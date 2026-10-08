@@ -181,6 +181,13 @@ const (
 	OpengrepVersion = "v1.30.2"
 	OpengrepURL     = "https://github.com/opengrep/opengrep/releases/download/" + OpengrepVersion + "/opengrep_manylinux_x86"
 
+	// JqDebVersion is bookworm's jq, pinned to the exact Debian revision the
+	// python lane image's suite resolves (ImagePython is slim-bookworm).
+	// An apt pin is exact, so a Debian point release that supersedes it
+	// fails the provision loudly rather than drifting the lane silently.
+	// renovate: datasource=deb depName=jq registryUrl=https://deb.debian.org/debian?suite=bookworm&components=main&binaryArch=amd64
+	JqDebVersion = "1.6-2.1+deb12u2"
+
 	StaticcheckModule = "honnef.co/go/tools/cmd/staticcheck@2025.1.1"
 	GovulncheckModule = "golang.org/x/vuln/cmd/govulncheck@v1.1.4"
 	// GomutantsModule is the Go mutation runner. It replaced gremlins v0.6.0 on

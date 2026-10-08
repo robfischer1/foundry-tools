@@ -12,6 +12,7 @@ func TestCopierTemplate(t *testing.T) {
 		{"a fleet template", "_commit: v1\n_src_path: https://git.notusmi.com/rob/go-repo-template.git\n", "go-repo-template"},
 		{"quoted, with no .git", "_src_path: 'git@h:rob/rust-repo-template'\n", "rust-repo-template"},
 		{"double-quoted", `_src_path: "https://h/x/frontend-repo-template.git"` + "\n", "frontend-repo-template"},
+		{"a template that ships no ruleset", "_src_path: https://h/x/config-repo-template.git\n", ""},
 		{"speckit's is not ours", "_src_path: https://h/x/speckit.git\n", ""},
 		{"the first _src_path decides", "_src_path: https://h/x/other.git\n_src_path: https://h/x/go-repo-template.git\n", ""},
 		{"indented key is read", "  _src_path: https://h/x/go-repo-template.git\n", "go-repo-template"},
