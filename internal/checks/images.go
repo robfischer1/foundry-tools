@@ -178,7 +178,7 @@ const (
 // fetches it, and inside the cluster the asset host is the fleet's cache.
 const (
 	// renovate: datasource=github-releases depName=opengrep/opengrep
-	OpengrepVersion = "v1.30.1"
+	OpengrepVersion = "v1.30.2"
 	OpengrepURL     = "https://github.com/opengrep/opengrep/releases/download/" + OpengrepVersion + "/opengrep_manylinux_x86"
 
 	StaticcheckModule = "honnef.co/go/tools/cmd/staticcheck@2025.1.1"
