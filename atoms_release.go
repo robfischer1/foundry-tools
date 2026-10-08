@@ -91,20 +91,6 @@ func (r *run) releaseDockerfile(ctx context.Context, dockerfiles []string) (stri
 	return "", "", nil
 }
 
-// releaseRecord is the star's record, or "" when it has none or it cannot be
-// read — the readers treat both as silence (checks.buildOf).
-func (r *run) releaseRecord(ctx context.Context) string {
-	star, err := r.starName(ctx)
-	if err != nil {
-		return ""
-	}
-	slag, err := r.dies.File("fleet/stars/" + star + "/slag.json").Contents(ctx)
-	if err != nil {
-		return ""
-	}
-	return slag
-}
-
 // onBase is the lane container for a release: the image's own base, with the
 // lane's environment (laneBase: CI, the cache CA's readers, telemetry off)
 // and the lane cache the toolchain reads.
@@ -136,19 +122,15 @@ func releaseStep(ctx context.Context, a checks.AtomDef, ctr *dagger.Container, a
 
 // ---- ts:release ----
 
-// The record's release steps leave the image's files under release/, run on
-// the image's own bun base.
+// The repo's own `release` script leaves the image's files under release/,
+// run on the image's own bun base.
 func tsRelease(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("ts:release")
 	ref, stood := r.releaseBase(ctx, a, "bun")
 	if stood != nil {
 		return *stood
 	}
-	steps := checks.TSReleaseSteps(r.releaseRecord(ctx))
-	if len(steps) == 0 {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the Dockerfile copies from "+buildlane.ReleaseDir+"/ on the bun base, and the star's record names no tools.build.release — a bun release has no convention, so the record has to say how its bundle is made")
-	}
-	ctr, v := r.tsReleaseBuild(ctx, a, ref, steps)
+	ctr, v := r.tsReleaseBuild(ctx, a, ref)
 	if v.State != 0 {
 		return v
 	}
@@ -156,28 +138,25 @@ func tsRelease(ctx context.Context, r *run) checks.Verdict {
 	if err != nil || len(made) == 0 {
 		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - the release steps ran clean and left nothing under "+buildlane.ReleaseDir+"/ — the Dockerfile's COPY would have nothing to copy")
 	}
-	v.Reason = fmt.Sprintf("release build: %d step(s) from tools.build.release on %s; release/ holds %s\n%s", len(steps), ref, strings.Join(made, ", "), v.Reason)
+	v.Reason = fmt.Sprintf("release build: `bun run release` on %s; release/ holds %s\n%s", ref, strings.Join(made, ", "), v.Reason)
 	return v
 }
 
 // tsReleaseBuild is the bun release: the tree COPIED into the container (not
 // mounted — what the steps write has to be in the container to be read
 // back), without a release/ a local `just image` left behind and without
-// node_modules, then the frozen install, then each step in order. The first
-// failure stops the chain, so its verdict names the step that failed.
-func (r *run) tsReleaseBuild(ctx context.Context, a checks.AtomDef, ref string, steps [][]string) (*dagger.Container, checks.Verdict) {
+// node_modules, then the frozen install, then the repo's release script. The
+// first failure stops the chain, so its verdict names the step that failed.
+func (r *run) tsReleaseBuild(ctx context.Context, a checks.AtomDef, ref string) (*dagger.Container, checks.Verdict) {
 	tree := r.src.Filter(dagger.DirectoryFilterOpts{Exclude: []string{buildlane.ReleaseDir, "**/node_modules"}})
 	ctr := r.onBase(ref, "/root/.bun/install/cache", "foundry-bun", "").
 		WithDirectory(checks.ReleaseTree, tree).
 		WithWorkdir(checks.ReleaseTree)
 	ctr, v := releaseStep(ctx, a, ctr, []string{"bun", "install", "--frozen-lockfile"})
-	for _, s := range steps {
-		if v.State != 0 {
-			return ctr, v
-		}
-		ctr, v = releaseStep(ctx, a, ctr, s)
+	if v.State != 0 {
+		return nil, v
 	}
-	return ctr, v
+	return releaseStep(ctx, a, ctr, checks.TSReleaseArgs)
 }
 
 // ---- python:release ----
@@ -190,47 +169,44 @@ func pythonRelease(ctx context.Context, r *run) checks.Verdict {
 	if stood != nil {
 		return *stood
 	}
-	extras := checks.PythonExtras(r.releaseRecord(ctx))
-	ctr, v := r.pythonReleaseBuild(ctx, a, ref, extras)
+	ctr, v := r.pythonReleaseBuild(ctx, a, ref)
 	if v.State != 0 {
 		return v
 	}
 	if made, err := ctr.Directory(checks.PythonReleaseApp + "/.venv/bin").Entries(ctx); err != nil || len(made) == 0 {
 		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - uv sync ran clean and left no "+checks.PythonReleaseApp+"/.venv — the Dockerfile's COPY would have no venv to copy")
 	}
-	with := "no extras"
-	if len(extras) > 0 {
-		with = "extras " + strings.Join(extras, ", ") + " from tools.build.extras"
-	}
-	v.Reason = fmt.Sprintf("release build: the venv, with %s, on %s\n%s", with, ref, v.Reason)
+	v.Reason = fmt.Sprintf("release build: the venv, with no extras, on %s\n%s", ref, v.Reason)
 	return v
 }
 
 // pythonReleaseBuild is the python release: the tree copied to /app on the
 // image's base, without a local .venv or release/, then the sync that builds
 // /app/.venv from the star's lock (checks.PythonReleaseArgs).
-func (r *run) pythonReleaseBuild(ctx context.Context, a checks.AtomDef, ref string, extras []string) (*dagger.Container, checks.Verdict) {
+func (r *run) pythonReleaseBuild(ctx context.Context, a checks.AtomDef, ref string) (*dagger.Container, checks.Verdict) {
 	tree := r.src.Filter(dagger.DirectoryFilterOpts{Exclude: []string{".venv", buildlane.ReleaseDir, "**/__pycache__"}})
 	ctr := r.onBase(ref, "/opt/uv-cache", "foundry-uv", "UV_CACHE_DIR").
 		WithDirectory(checks.PythonReleaseApp, tree).
 		WithWorkdir(checks.PythonReleaseApp)
-	return releaseStep(ctx, a, ctr, checks.PythonReleaseArgs(extras))
+	return releaseStep(ctx, a, ctr, checks.PythonReleaseArgs())
 }
 
 // releaseOnBase is Release()'s half for the two base-built releases: the
 // directory the build lane stages at release/ — the bun steps' release/ as
 // they left it, or the venv under app/.venv for `COPY release/app /app` — and
 // whether the image is on one of those bases at all. Not on either, the
-// answer is (nil, false, nil) and Release() goes on to the compiled lanes;
-// on one, a release that did not build is an error, never an empty directory.
-func (r *run) releaseOnBase(ctx context.Context) (*dagger.Directory, bool, error) {
+// directory is nil and Release() goes on to the compiled lanes; on one, a
+// release that did not build is an error, never an empty directory. The
+// second answer is the Dockerfile that asked for release/ ("" when none did),
+// so the compiled lanes read their binaries off the same file.
+func (r *run) releaseOnBase(ctx context.Context) (*dagger.Directory, string, error) {
 	files, err := r.population(ctx)
 	if err != nil {
-		return nil, false, fmt.Errorf("the tree could not be read: %w", err)
+		return nil, "", fmt.Errorf("the tree could not be read: %w", err)
 	}
 	path, body, err := r.releaseDockerfile(ctx, checks.DockerfilePopulation(files))
 	if err != nil || path == "" {
-		return nil, false, err
+		return nil, "", err
 	}
 	ref, _, _ := buildlane.RuntimeBase(body)
 	var (
@@ -240,25 +216,21 @@ func (r *run) releaseOnBase(ctx context.Context) (*dagger.Directory, bool, error
 	)
 	switch buildlane.BaseToolchain(ref) {
 	case "bun":
-		steps := checks.TSReleaseSteps(r.releaseRecord(ctx))
-		if len(steps) == 0 {
-			return nil, true, fmt.Errorf("the star's record names no tools.build.release, so its bun release has no steps")
-		}
-		ctr, v = r.tsReleaseBuild(ctx, checks.AtomByID("ts:release"), ref, steps)
+		ctr, v = r.tsReleaseBuild(ctx, checks.AtomByID("ts:release"), ref)
 		out = func() *dagger.Directory { return ctr.Directory(checks.ReleaseTree + "/" + buildlane.ReleaseDir) }
 	case "python":
-		ctr, v = r.pythonReleaseBuild(ctx, checks.AtomByID("python:release"), ref, checks.PythonExtras(r.releaseRecord(ctx)))
+		ctr, v = r.pythonReleaseBuild(ctx, checks.AtomByID("python:release"), ref)
 		out = func() *dagger.Directory {
 			return dag.Directory().WithDirectory("app/.venv", ctr.Directory(checks.PythonReleaseApp+"/.venv"))
 		}
 	default:
-		return nil, false, nil
+		return nil, body, nil
 	}
 	switch v.State {
 	case 2:
-		return nil, true, fmt.Errorf("the release build did not run: %s", lastLine(v.Reason))
+		return nil, "", fmt.Errorf("the release build did not run: %s", lastLine(v.Reason))
 	case 1:
-		return nil, true, fmt.Errorf("the release build failed: %s", lastLine(v.Reason))
+		return nil, "", fmt.Errorf("the release build failed: %s", lastLine(v.Reason))
 	}
-	return out(), true, nil
+	return out(), "", nil
 }

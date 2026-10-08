@@ -1,6 +1,9 @@
 package buildlane
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // THE IMAGE IS THE BASE PLUS THE ARTIFACT (CA master-plan F14/F17; Rob:
 // "Build - Copy the binary from the previous complex run"; "FROM base +
@@ -26,12 +29,15 @@ import "strings"
 // Gate's release artifact — the directory a Dockerfile COPYs from.
 const ReleaseDir = "release"
 
-// CopiesRelease answers whether a Dockerfile copies from ReleaseDir — whether
-// it is asking for the Gate's artifact. A COPY's sources are the tokens after
-// its flags (`COPY --chown=… release/ares /ares`, or the JSON form
-// `COPY ["release/ares", "/ares"]`); a `--from=` copy takes its sources from
-// another image or stage, never from the context, so it never asks.
-func CopiesRelease(dockerfile string) bool {
+// releaseSources walks a Dockerfile's COPY lines the way the lane stages them
+// and answers, per line, the FIRST source that reads from the build context:
+// the tokens after the flags (`COPY --chown=… release/ares /ares`, or the JSON
+// form `COPY ["release/ares", "/ares"]`). A `--from=` copy takes its sources
+// from another image or stage, never from the context, so it contributes
+// nothing. One reading, two questions: CopiesRelease asks whether any of them
+// is under ReleaseDir, ReleaseCopies asks which.
+func releaseSources(dockerfile string) []string {
+	var out []string
 	for _, line := range strings.Split(dockerfile, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) == 0 || !strings.EqualFold(fields[0], "COPY") {
@@ -49,13 +55,42 @@ func CopiesRelease(dockerfile string) bool {
 		if !fromContext || len(args) == 0 {
 			continue
 		}
-		// The JSON form's first source: strip the bracket and the quote.
-		src := strings.TrimLeft(args[0], "[\"")
+		// The JSON form's first source: strip the bracket, the quote and the
+		// comma that separates it from the destination.
+		out = append(out, strings.TrimRight(strings.TrimLeft(args[0], "[\""), "\","))
+	}
+	return out
+}
+
+// CopiesRelease answers whether a Dockerfile copies from ReleaseDir — whether
+// it is asking for the Gate's artifact.
+func CopiesRelease(dockerfile string) bool {
+	for _, src := range releaseSources(dockerfile) {
 		if strings.HasPrefix(src, ReleaseDir+"/") {
 			return true
 		}
 	}
 	return false
+}
+
+// ReleaseCopies names what a Dockerfile copies out of ReleaseDir, in file
+// order, each once: `COPY release/clio-consume /clio-consume` names
+// clio-consume. These ARE the image's binaries: the Dockerfile says which
+// files the image carries, so the release build derives its list from it and
+// nothing is declared twice. Read with exactly CopiesRelease's rules (flags
+// skipped, `--from=` copies ignored, only a line's first source). A source
+// that is the directory itself or reaches below a file name (release/a/b)
+// names no binary and is left out — a Go or Rust star's COPY is one file.
+func ReleaseCopies(dockerfile string) []string {
+	var out []string
+	for _, src := range releaseSources(dockerfile) {
+		name, ok := strings.CutPrefix(src, ReleaseDir+"/")
+		if !ok || name == "" || strings.Contains(name, "/") || slices.Contains(out, name) {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
 }
 
 // FleetBases is where the fleet's runtime bases live: one repository per

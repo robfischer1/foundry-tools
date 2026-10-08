@@ -26,9 +26,23 @@ const (
 	bellNeedle    = `"curl"`
 )
 
-// tongsRecord is a binary repo's v3 record around its cast block.
+// tongsRecord is a binary repo's record around its cast block. The cast reads
+// only the name off it, and the legacy payload_extra a repo has not yet moved
+// under payload/ (any "binaries" in the block is ignored: the tree names them).
 func tongsRecord(cast string) string {
 	return `{"$schema":"https://forgejo.notusmi.com/rob/foundry-dies/schema/slag-v3.schema.json","meta":{"name":"tongs","produces":["binary"]},"tools":{"cast":` + cast + `}}`
+}
+
+// tongsMetadata is cargo metadata for a workspace whose one default member
+// builds the tongs bin.
+const tongsMetadata = `{"packages":[{"id":"tongs 0.1.0 (path+file:///src/crates/tongs)","targets":[{"name":"tongs","kind":["bin"]}]}],"workspace_default_members":["tongs 0.1.0 (path+file:///src/crates/tongs)"]}`
+
+// scriptTheBinaries answers the question the lane asks of the tree before it
+// builds: which binaries. The last script wins, so a test that wants others
+// calls this again.
+func scriptTheBinaries(metadata, goList string) {
+	engine.stdout(`"cargo","metadata"`, metadata)
+	engine.stdout(`"go","list"`, goList)
 }
 
 // castOn is the module constructed on a binary repo at a commit the engine
@@ -41,7 +55,7 @@ func castOn(t *testing.T, tree map[string]string) *FoundryTools {
 		"Cargo.toml":                        "[workspace]\n",
 		"crates/tongs/src/main.rs":          "fn main() {}\n",
 		"cosign.pub":                        "-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----\n",
-		"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{"binaries":["tongs"]}`),
+		"/dies/fleet/stars/tongs/slag.json": tongsRecord(`null`),
 	}
 	for k, v := range tree {
 		if v == "" {
@@ -51,6 +65,7 @@ func castOn(t *testing.T, tree map[string]string) *FoundryTools {
 		base[k] = v
 	}
 	engine.withTree(base)
+	scriptTheBinaries(tongsMetadata, "main forgejo.notusmi.com/rob/tongs/cmd/tongs\n")
 	return &FoundryTools{Source: dag.Directory(), Repo: "http://door:8215/rob/tongs.git", Sha: buildSha}
 }
 
@@ -94,6 +109,10 @@ func TestACastStagesMintsVerifiesAndRings(t *testing.T) {
 	settledOn(t, "0", "clean: cast app/tongs:stable at index 7 ("+castPin+", "+castLanded+")")
 	settledOn(t, "0", "verified against cosign.pub; the doorbell rang")
 
+	wantCalls(t, engine.chain(`"cargo","metadata"`),
+		[]string{"withEnvVariable", `"CARGO_TARGET_DIR"`, `"/work/target"`},
+		[]string{"withExec", `["cargo","metadata","--no-deps","--format-version","1","--locked"]`},
+	)
 	wantCalls(t, engine.chain(cargoNeedle),
 		[]string{"from", "rust:1.97.0"},
 		[]string{"withEnvVariable", `"CARGO_TARGET_DIR"`, `"/work/target"`},
@@ -173,14 +192,16 @@ func TestAFailedCastIsAskedOnceAndNamesLayerCast(t *testing.T) {
 	}
 }
 
-// A directory in payload_extra ships under its basename beside the binaries,
-// and every file the pin lists is pushed.
+// A tree with no payload/ still ships the record's legacy payload_extra: a
+// directory ships under its basename beside the binaries, and every file the
+// pin lists is pushed.
 func TestAPayloadExtraDirectoryShipsUnderItsBasename(t *testing.T) {
 	m := castOn(t, map[string]string{
-		"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{"binaries":["tongs","git-credential-tongs"],"payload_extra":[".tongs/hooks"]}`),
+		"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{"payload_extra":[".tongs/hooks"]}`),
 		".tongs/hooks/a.py":                 "a",
 		".tongs/hooks/sub/b.py":             "b",
 	})
+	scriptTheBinaries(`{"packages":[{"id":"p","targets":[{"name":"tongs","kind":["bin"]},{"name":"git-credential-tongs","kind":["bin"]}]}],"workspace_default_members":["p"]}`, "")
 	scriptACast(castPin + "\ngit-credential-tongs\nhooks/a.py\nhooks/sub/b.py\ntongs\n")
 	casts(t, m)
 	settledOn(t, "0", "clean: cast app/tongs:stable")
@@ -198,7 +219,7 @@ func TestAPayloadExtraDirectoryShipsUnderItsBasename(t *testing.T) {
 // A single file in payload_extra ships under its basename.
 func TestAPayloadExtraFileShipsUnderItsBasename(t *testing.T) {
 	m := castOn(t, map[string]string{
-		"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{"binaries":["tongs"],"payload_extra":["docs/tongs.1"]}`),
+		"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{"payload_extra":["docs/tongs.1"]}`),
 		"docs/tongs.1":                      "man",
 	})
 	scriptACast(castPin + "\ntongs\ntongs.1\n")
@@ -208,6 +229,63 @@ func TestAPayloadExtraFileShipsUnderItsBasename(t *testing.T) {
 	if engine.chain(`file(path:"docs/tongs.1"){id}`) == "" {
 		t.Error("the file was not taken from the checkout")
 	}
+}
+
+// THE PAYLOAD IS THE TREE'S payload/ DIRECTORY, verbatim: payload/x lands as x
+// and payload/d/ as d/, beside every binary the workspace builds. The record's
+// legacy payload_extra is ignored the moment payload/ exists.
+func TestThePayloadDirectoryShipsVerbatimBesideEveryBinary(t *testing.T) {
+	m := castOn(t, map[string]string{
+		"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{"payload_extra":["gone/away"]}`),
+		"payload/hooks/a.py":                "a",
+		"payload/tongs.service":             "unit",
+	})
+	scriptACast(castPin + "\nhooks/a.py\ntongs\ntongs-gauge\ntongs.service\n")
+	scriptTheBinaries(`{"packages":[{"id":"p","targets":[{"name":"tongs","kind":["bin"]},{"name":"tongs-gauge","kind":["bin"]},{"name":"lib","kind":["lib"]}]}],"workspace_default_members":["p"]}`, "")
+	casts(t, m)
+	settledOn(t, "0", "clean: cast app/tongs:stable")
+	wantCalls(t, engine.chain(`directory{withFile`),
+		[]string{"withFile", `path:"tongs"`},
+		[]string{"withFile", `path:"tongs-gauge"`},
+		[]string{"withDirectory", `path:"."`},
+	)
+	if engine.chain(`directory(path:"payload")`) == "" {
+		t.Error("payload/ was not taken from the checkout")
+	}
+	if engine.chain(`path:"gone/away"`) != "" || engine.chain(`"gone"`) != "" {
+		t.Error("the legacy payload_extra was read beside a payload/ directory")
+	}
+}
+
+// A payload/ entry named like a binary is two claims on one name: refused,
+// nothing built into a bundle.
+func TestAPayloadEntryOverABinaryIsRefused(t *testing.T) {
+	m := castOn(t, map[string]string{"payload/tongs": "not the binary"})
+	scriptACast(castPin + "\ntongs\n")
+	casts(t, m)
+	settledOn(t, "1", "binary tongs and payload/tongs both land at")
+	if engine.chain(castpinNeedle) != "" || engine.chain(stageNeedle) != "" {
+		t.Error("a payload with a collision was pinned or staged")
+	}
+}
+
+// A binary repo whose workspace builds no bin, or whose cmd/ holds no main,
+// is a finding: a silently empty cast would verify and ship nothing.
+func TestABinaryRepoThatBuildsNoBinaryIsAFinding(t *testing.T) {
+	m := castOn(t, nil)
+	scriptTheBinaries(`{"packages":[{"id":"p","targets":[{"name":"x","kind":["lib"]}]}],"workspace_default_members":["p"]}`, "")
+	scriptACast(castPin + "\ntongs\n")
+	casts(t, m)
+	settledOn(t, "1", "no bin target")
+	if engine.chain(cargoNeedle) != "" {
+		t.Error("a workspace with no bin target was built")
+	}
+
+	m = goCastOn(t, nil)
+	scriptTheBinaries("", "go: warning: \"./cmd/...\" matched no packages\n")
+	scriptACast(castPin + "\ntongs\n")
+	casts(t, m)
+	settledOn(t, "1", "no main package under cmd/")
 }
 
 // Everything the lane refuses before it builds is refused with nothing built.
@@ -222,10 +300,8 @@ func TestACastThatCannotStartBuildsNothing(t *testing.T) {
 		"no record": {nil, func() {
 			engine.fail(`file(path:"fleet/stars/tongs/slag.json"){contents}`, "no such file or directory")
 		}, "2", "no record for tongs could be read at foundry-dies fleet/stars/tongs/slag.json, so nothing says what it ships"},
-		"a record with no cast block": {map[string]string{"/dies/fleet/stars/tongs/slag.json": `{"$schema":"slag-v3.schema.json","meta":{"name":"tongs","produces":["binary"]},"tools":{}}`}, nil, "1",
-			"carries no tools.cast"},
-		"a record that is not a binary": {map[string]string{"/dies/fleet/stars/tongs/slag.json": `{"$schema":"slag-v3.schema.json","meta":{"name":"tongs","produces":["image"]},"tools":{"cast":{"binaries":["tongs"]}}}`}, nil, "1",
-			"not binary"},
+		"a record with no name": {map[string]string{"/dies/fleet/stars/tongs/slag.json": `{"meta":{}}`}, nil, "1",
+			"no meta.name"},
 		"no cosign.pub": {map[string]string{"cosign.pub": ""}, nil, "1", "carries no cosign.pub"},
 	}
 	for name, c := range cases {
@@ -299,7 +375,7 @@ func TestACastThatFailsStopsWhereItFailed(t *testing.T) {
 			engine.failLeaf(`"/work/target/release/tongs"`, "size", "no such file")
 		}, "1", "the release build left no", []string{cargoNeedle}, []string{castpinNeedle}},
 		"an extra the checkout does not carry": {map[string]string{
-			"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{"binaries":["tongs"],"payload_extra":[".tongs/hooks"]}`),
+			"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{"payload_extra":[".tongs/hooks"]}`),
 		}, nil, "1", "names .tongs/hooks, which this checkout does not carry", []string{cargoNeedle}, []string{castpinNeedle}},
 		"castpin fails": {nil, func() {
 			engine.exitCode(castpinNeedle, 2)
@@ -433,7 +509,7 @@ func goCastOn(t *testing.T, tree map[string]string) *FoundryTools {
 	return castOn(t, base)
 }
 
-// A Go binary repo casts through the go lane: each declared binary is built
+// A Go binary repo casts through the go lane: every main under cmd/ is built
 // from ./cmd/<name> with the fleet's release flags into /out, CGO off, and
 // read back out of /out — cargo is never asked.
 func TestAGoBinaryRepoCastsThroughTheGoLane(t *testing.T) {
@@ -456,9 +532,9 @@ func TestAGoBinaryRepoCastsThroughTheGoLane(t *testing.T) {
 	wantCalls(t, engine.chain(mintNeedle), []string{"withExec", `app/tongs:stable`, castRef + "@" + castStaged, buildSha})
 }
 
-// A module that vendors builds with -mod=vendor; one that declares several
-// binaries builds each from its own ./cmd/<name>, in the record's order.
-func TestTheGoLaneBuildsWhatTheRecordDeclaresTheWayTheModuleResolves(t *testing.T) {
+// A module that vendors builds with -mod=vendor; one whose cmd/ holds several
+// mains builds each from its own ./cmd/<name>, sorted.
+func TestTheGoLaneBuildsEveryMainTheWayTheModuleResolves(t *testing.T) {
 	cases := map[string]struct {
 		tree  map[string]string
 		execs []string
@@ -469,8 +545,7 @@ func TestTheGoLaneBuildsWhatTheRecordDeclaresTheWayTheModuleResolves(t *testing.
 		},
 		"two binaries": {
 			map[string]string{
-				"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{"binaries":["tongs","tongs-agent"]}`),
-				"cmd/tongs-agent/main.go":           "package main\n\nfunc main() {}\n",
+				"cmd/tongs-agent/main.go": "package main\n\nfunc main() {}\n",
 			},
 			[]string{
 				`["go","build","-trimpath","-ldflags=-s -w","-o","/out/tongs","./cmd/tongs"]`,
@@ -481,6 +556,9 @@ func TestTheGoLaneBuildsWhatTheRecordDeclaresTheWayTheModuleResolves(t *testing.
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			m := goCastOn(t, c.tree)
+			if name == "two binaries" {
+				scriptTheBinaries("", "main forgejo.notusmi.com/rob/tongs/cmd/tongs-agent\nmain forgejo.notusmi.com/rob/tongs/cmd/tongs\nlib forgejo.notusmi.com/rob/tongs/cmd/lib\n")
+			}
 			scriptACast(castPin + "\ntongs\n")
 			casts(t, m)
 			settledOn(t, "0", "clean: cast app/tongs:stable")
@@ -499,9 +577,9 @@ func TestTheGoLaneBuildsWhatTheRecordDeclaresTheWayTheModuleResolves(t *testing.
 // so a later binary that compiles cannot report for it.
 func TestAGoBinaryThatDoesNotCompileIsAFindingByName(t *testing.T) {
 	m := goCastOn(t, map[string]string{
-		"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{"binaries":["tongs","tongs-agent"]}`),
-		"cmd/tongs-agent/main.go":           "package main\n\nfunc main() {}\n",
+		"cmd/tongs-agent/main.go": "package main\n\nfunc main() {}\n",
 	})
+	scriptTheBinaries("", "main forgejo.notusmi.com/rob/tongs/cmd/tongs\nmain forgejo.notusmi.com/rob/tongs/cmd/tongs-agent\n")
 	scriptACast(castPin + "\ntongs\n")
 	engine.exitCode(`"/out/tongs","./cmd/tongs"]`, 1)
 	engine.stdout(`"/out/tongs","./cmd/tongs"]`, "./cmd/tongs/main.go:3:2: undefined: x")
@@ -597,5 +675,109 @@ func TestACastSaysWhichVerbHadesAnswered(t *testing.T) {
 	}
 	if !strings.Contains(said, "hades answered layer_cast HTTP 200") || strings.Contains(said, "forge_layer_cast") {
 		t.Errorf("the log does not name the verb hades answered:\n%s", said)
+	}
+}
+
+// THE TREE IS READ, AND EVERY WAY IT CANNOT BE IS A COULD-NOT-RUN OR A FINDING
+// THAT SAYS WHICH. Each case scripts one read of the cast's derivation to fail
+// and asserts the settle's code and words, and that nothing was pinned.
+func TestACastSaysWhichReadOfTheTreeFailed(t *testing.T) {
+	cases := map[string]struct {
+		tree         map[string]string
+		script       func()
+		code, reason string
+	}{
+		"payload/ cannot be probed": {nil, func() {
+			engine.failLeaf("DIRECTORY_TYPE", "exists", "the tree went away")
+		}, "2", "the tree could not be read for payload/"},
+		"payload/ cannot be listed": {map[string]string{"payload/x": "x"}, func() {
+			engine.failLeaf(`directory(path:"payload")`, "entries", "the listing went away")
+		}, "2", "payload/ could not be listed"},
+		"a legacy extra outside the repo": {map[string]string{
+			"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{"payload_extra":["/etc"]}`),
+		}, nil, "1", "is not a path inside the repo"},
+		"a legacy extra that cannot be globbed": {map[string]string{
+			"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{"payload_extra":["docs/tongs.1"]}`),
+		}, func() {
+			engine.failLeaf(`docs/tongs.1/**`, "glob", "the glob went away")
+		}, "2", "the tree could not be read for docs/tongs.1"},
+		"a legacy extra that cannot be read": {map[string]string{
+			"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{"payload_extra":["docs/tongs.1"]}`),
+			"docs/tongs.1":                      "man",
+		}, func() {
+			engine.failLeaf(`file(path:"docs/tongs.1")`, "contents", "the file went away")
+		}, "2", "the tree could not be read for docs/tongs.1"},
+		"cargo metadata cannot run": {nil, func() {
+			engine.failLeaf(`"cargo","metadata"`, "exitCode", "the engine went away")
+		}, "2", "cargo metadata did not run"},
+		"cargo metadata fails": {nil, func() {
+			engine.exitCode(`"cargo","metadata"`, 101)
+			engine.stdout(`"cargo","metadata"`, "error: the lock file needs to be updated")
+		}, "1", "findings in cargo metadata"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			m := castOn(t, c.tree)
+			scriptACast(castPin + "\ntongs\n")
+			if c.script != nil {
+				c.script()
+			}
+			casts(t, m)
+			settledOn(t, c.code, c.reason)
+			if engine.chain(castpinNeedle) != "" || engine.chain(stageNeedle) != "" {
+				t.Fatal("a cast that could not read its tree pinned or staged")
+			}
+		})
+	}
+}
+
+// The Go lane's list of mains is a read like any other.
+func TestAGoCastSaysWhichReadOfTheTreeFailed(t *testing.T) {
+	for name, c := range map[string]struct {
+		script       func()
+		code, reason string
+	}{
+		"go list cannot run": {func() {
+			engine.failLeaf(`"go","list"`, "exitCode", "the engine went away")
+		}, "2", "go list did not run"},
+		"go list fails": {func() {
+			engine.exitCode(`"go","list"`, 1)
+			engine.stdout(`"go","list"`, "go: errors parsing go.mod")
+		}, "1", "findings in go list ./cmd/..."},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := goCastOn(t, nil)
+			scriptACast(castPin + "\ntongs\n")
+			c.script()
+			casts(t, m)
+			settledOn(t, c.code, c.reason)
+			if engine.chain(goNeedle) != "" || engine.chain(castpinNeedle) != "" {
+				t.Fatal("a cast that could not list its mains built or pinned")
+			}
+		})
+	}
+}
+
+// The lane says which binaries the tree gave it, on the pod log and on the
+// settle's payload step, for the payload/ path and the legacy path alike.
+func TestACastSaysWhichBinariesTheTreeGaveIt(t *testing.T) {
+	for name, tree := range map[string]map[string]string{
+		"legacy":  nil,
+		"payload": {"payload/tongs.service": "unit"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := castOn(t, tree)
+			scriptACast(castPin + "\ntongs\n")
+			said := sayings(t, func() { casts(t, m) })
+			if !strings.Contains(said, "binaries from the tree: tongs") {
+				t.Errorf("the log does not name the binaries:\n%s", said)
+			}
+		})
+	}
+	m := goCastOn(t, nil)
+	scriptACast(castPin + "\ntongs\n")
+	said := sayings(t, func() { casts(t, m) })
+	if !strings.Contains(said, "binaries from the tree: tongs") {
+		t.Errorf("the Go lane's log does not name the binaries:\n%s", said)
 	}
 }
