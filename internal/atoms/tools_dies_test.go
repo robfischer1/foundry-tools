@@ -284,7 +284,7 @@ func TestDiesCanaryVisibility(t *testing.T) {
 			}
 			return opaScript{version: pinned}.answer(c)
 		})
-		expect(t, runAtom(t, id, in), stateOf(2), cannot, "the session-principal probe against the built bundle did not evaluate")
+		expect(t, runAtom(t, id, in), stateOf(2), cannot, "the session-principal probe against the built bundle did not evaluate", "not a directory")
 	})
 	for name, c := range map[string]struct {
 		session string
