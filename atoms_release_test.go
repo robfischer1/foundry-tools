@@ -314,6 +314,22 @@ func TestReleaseFollowsTheImagesBase(t *testing.T) {
 		t.Errorf("a bun star with no release script: err %v", err)
 	}
 
+	// A tree that cannot be read, and a release that could not run at all
+	// (as against one that ran and failed), are errors that say which.
+	engine.reset()
+	engine.withTree(pythonStar())
+	engine.fail("glob", "the tree went away")
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(ctx); err == nil || !strings.Contains(err.Error(), "the tree could not be read") {
+		t.Errorf("err %v", err)
+	}
+	engine.reset()
+	engine.withTree(bunStar())
+	engine.exitCode(`"bun","install","--frozen-lockfile"`, 127)
+	engine.stderr(`"bun","install","--frozen-lockfile"`, "bun: not found")
+	if dir, err := (&FoundryTools{Source: dag.Directory()}).Release(ctx); err == nil || dir != nil || !strings.Contains(err.Error(), "the release build did not run") {
+		t.Errorf("dir %v err %v", dir, err)
+	}
+
 	// A Go star on the fleet's go base is the compiled lane's, as before.
 	engine.reset()
 	engine.withTree(map[string]string{

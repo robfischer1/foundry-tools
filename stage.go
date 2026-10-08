@@ -426,9 +426,12 @@ func (m *FoundryTools) Release(ctx context.Context) (*dagger.Directory, error) {
 	}
 	// An image on the bun or python base is built on that base
 	// (atoms_release.go); the compiled lanes below read the tree.
-	dir, onBase, dockerfile, err := r.releaseOnBase(ctx)
-	if onBase || err != nil {
-		return dir, err
+	dir, dockerfile, err := r.releaseOnBase(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if dir != nil {
+		return dir, nil
 	}
 	if dockerfile == "" {
 		return nil, fmt.Errorf("no tracked Dockerfile copies from %s/, so there is no release build to make", buildlane.ReleaseDir)

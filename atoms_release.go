@@ -195,18 +195,18 @@ func (r *run) pythonReleaseBuild(ctx context.Context, a checks.AtomDef, ref stri
 // directory the build lane stages at release/ — the bun steps' release/ as
 // they left it, or the venv under app/.venv for `COPY release/app /app` — and
 // whether the image is on one of those bases at all. Not on either, the
-// answer is (nil, false, nil) and Release() goes on to the compiled lanes;
-// on one, a release that did not build is an error, never an empty directory.
-// The third answer is the Dockerfile that asked for release/ ("" when none
-// did), so the compiled lanes read their binaries off the same file.
-func (r *run) releaseOnBase(ctx context.Context) (*dagger.Directory, bool, string, error) {
+// directory is nil and Release() goes on to the compiled lanes; on one, a
+// release that did not build is an error, never an empty directory. The
+// second answer is the Dockerfile that asked for release/ ("" when none did),
+// so the compiled lanes read their binaries off the same file.
+func (r *run) releaseOnBase(ctx context.Context) (*dagger.Directory, string, error) {
 	files, err := r.population(ctx)
 	if err != nil {
-		return nil, false, "", fmt.Errorf("the tree could not be read: %w", err)
+		return nil, "", fmt.Errorf("the tree could not be read: %w", err)
 	}
 	path, body, err := r.releaseDockerfile(ctx, checks.DockerfilePopulation(files))
 	if err != nil || path == "" {
-		return nil, false, "", err
+		return nil, "", err
 	}
 	ref, _, _ := buildlane.RuntimeBase(body)
 	var (
@@ -224,13 +224,13 @@ func (r *run) releaseOnBase(ctx context.Context) (*dagger.Directory, bool, strin
 			return dag.Directory().WithDirectory("app/.venv", ctr.Directory(checks.PythonReleaseApp+"/.venv"))
 		}
 	default:
-		return nil, false, body, nil
+		return nil, body, nil
 	}
 	switch v.State {
 	case 2:
-		return nil, true, "", fmt.Errorf("the release build did not run: %s", lastLine(v.Reason))
+		return nil, "", fmt.Errorf("the release build did not run: %s", lastLine(v.Reason))
 	case 1:
-		return nil, true, "", fmt.Errorf("the release build failed: %s", lastLine(v.Reason))
+		return nil, "", fmt.Errorf("the release build failed: %s", lastLine(v.Reason))
 	}
-	return out(), true, "", nil
+	return out(), "", nil
 }

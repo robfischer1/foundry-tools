@@ -245,6 +245,9 @@ func (l *castLane) run(ctx context.Context) (int, string) {
 // THE TRANSITION: a tree with no payload/ still ships the record's
 // tools.cast.payload_extra, each under its basename, exactly as before. A tree
 // WITH payload/ ignores that field. The fallback goes with the field.
+// 0 is buildlane.Clean, spelled as the literal in the success returns below:
+// the constant's name in a return slot is a RETURN_ZERO mutant that rewrites it
+// to itself.
 func (l *castLane) payload(ctx context.Context, c castlane.Cast) (*dagger.Directory, []string, int, string) {
 	built, code, why := l.release(ctx)
 	if code != buildlane.Clean {
@@ -281,7 +284,7 @@ func (l *castLane) payload(ctx context.Context, c castlane.Cast) (*dagger.Direct
 		payload = payload.WithFile(b, f)
 	}
 	if havePayload {
-		return payload.WithDirectory(".", l.m.Source.Directory(castlane.PayloadDir)), built.binaries, buildlane.Clean, ""
+		return payload.WithDirectory(".", l.m.Source.Directory(castlane.PayloadDir)), built.binaries, 0, ""
 	}
 	for _, p := range c.LegacyExtras {
 		under, err := l.m.Source.Glob(ctx, path.Join(p, "**"))
@@ -301,7 +304,7 @@ func (l *castLane) payload(ctx context.Context, c castlane.Cast) (*dagger.Direct
 		}
 		payload = payload.WithFile(castlane.Target(p), l.m.Source.File(p))
 	}
-	return payload, built.binaries, buildlane.Clean, ""
+	return payload, built.binaries, 0, ""
 }
 
 // builtRelease is a cast's compile: the container holding the binaries, the
@@ -389,7 +392,7 @@ func (l *castLane) cargoRelease(ctx context.Context, r *run) (builtRelease, int,
 		cls, why := buildlane.ToolFailed("cargo build", out)
 		return builtRelease{}, cls, why
 	}
-	return builtRelease{ctr: built, dir: castTarget + "/release", binaries: binaries}, buildlane.Clean, ""
+	return builtRelease{ctr: built, dir: castTarget + "/release", binaries: binaries}, 0, ""
 }
 
 // goRelease is the go lane's release build: the binaries are every main
@@ -431,7 +434,7 @@ func (l *castLane) goRelease(ctx context.Context, r *run, vendored bool) (builtR
 			return builtRelease{}, cls, why
 		}
 	}
-	return builtRelease{ctr: ctr, dir: checks.ReleaseOut, binaries: binaries}, buildlane.Clean, ""
+	return builtRelease{ctr: ctr, dir: checks.ReleaseOut, binaries: binaries}, 0, ""
 }
 
 // pin runs castpin, built from this module's own source, over the payload:
