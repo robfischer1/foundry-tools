@@ -196,7 +196,7 @@ func TestOpsAnsible(t *testing.T) {
 	t.Run("the collections a tree declares, at the versions the container carries, are on the tools' path", func(t *testing.T) {
 		provision(t, map[string]string{"community.routeros": "3.22.0", "vyos.vyos": "6.0.0", "ansible.utils": "6.1.0"})
 		files := ansibleFiles()
-		files["ansible/requirements.yml"] = "collections:\n  - name: community.routeros\n    version: \"3.22.0\"\n  - name: vyos.vyos\n    version: 6.0.0\n  - ansible.utils\n  - name: vyos.vyos\n    version: \"*\"\n"
+		files["ansible/requirements.yml"] = "collections:\n  - name: community.routeros\n    version: \"3.22.0\"\n  - name: vyos.vyos\n    version: 6.0.0\n  - ansible.utils\n  - name: vyos.vyos\n    version: \"*\"\n  - name: vyos.vyos\n    version: \"==6.0.0\"\n"
 		in, f := toolTree(t, files, ansibleAnswer(func(Cmd) (string, int) { return "", 0 }))
 		expect(t, runAtom(t, id, in), stateOf(0), pass)
 		for _, c := range f.calls[4:] {
@@ -216,7 +216,13 @@ func TestOpsAnsible(t *testing.T) {
 		{"a collection at another version", map[string]string{"vyos.vyos": "5.0.0"},
 			"collections:\n  - name: vyos.vyos\n    version: \"6.0.0\"\n", []string{"vyos.vyos 6.0.0 (the container carries 5.0.0)"}},
 		{"a range the container cannot be held to", map[string]string{"vyos.vyos": "6.0.0"},
-			"collections:\n  - name: vyos.vyos\n    version: \">=5.0.0\"\n", []string{"vyos.vyos >=5.0.0 (a range; the container carries 6.0.0)"}},
+			"collections:\n  - name: vyos.vyos\n    version: \">=5.0.0\"\n", []string{"vyos.vyos >=5.0.0 (unsupported version range; the container carries 6.0.0)"}},
+		{"an unquoted numeric version is compared, not dropped", map[string]string{"vyos.vyos": "5.0.0"},
+			"collections:\n  - name: vyos.vyos\n    version: 6\n", []string{"vyos.vyos 6 (the container carries 5.0.0)"}},
+		{"an == pin is a release, compared as one", map[string]string{"vyos.vyos": "6.0.0"},
+			"collections:\n  - name: vyos.vyos\n    version: \"==5.0.0\"\n", []string{"vyos.vyos ==5.0.0 (the container carries 6.0.0)"}},
+		{"a range that starts with == is still a range", map[string]string{"vyos.vyos": "6.0.0"},
+			"collections:\n  - name: vyos.vyos\n    version: \"==5.0.0,<7\"\n", []string{"unsupported version range"}},
 		{"several, all named", map[string]string{},
 			"collections:\n  - name: a.b\n    version: \"1\"\n  - c.d\n", []string{"a.b 1 (the container carries none); c.d  (the container carries none)"}},
 	} {
@@ -303,6 +309,8 @@ func TestDeclaredCollections(t *testing.T) {
 		err  string
 	}{
 		{"names and versions", "collections:\n  - name: a.b\n    version: \"1.2.3\"\n  - name: c.d\n", []collectionRef{{"a.b", "1.2.3"}, {"c.d", ""}}, ""},
+		{"an unquoted numeric version is kept", "collections:\n  - name: a.b\n    version: 6\n  - name: c.d\n    version: 6.1\n", []collectionRef{{"a.b", "6"}, {"c.d", "6.1"}}, ""},
+		{"a null version is none", "collections:\n  - name: a.b\n    version:\n", []collectionRef{{"a.b", ""}}, ""},
 		{"a bare name", "collections:\n  - a.b\n", []collectionRef{{"a.b", ""}}, ""},
 		{"roles are not read", "roles:\n  - name: x\ncollections: []\n", nil, ""},
 		{"an empty file", "", nil, ""},

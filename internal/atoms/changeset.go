@@ -41,6 +41,16 @@ func git(ctx context.Context, root string, args ...string) (string, int) {
 	return fmt.Sprintf("git %s: %v", args[0], err), -1
 }
 
+// SnapshotError is the change set's answer for a source that is a throwaway
+// snapshot of a linked worktree. It is typed so an atom that SAYS so (fleet:witness
+// settles it pass, as the chain did) can tell it from a change set that would
+// not compute.
+type SnapshotError struct{ Kind string }
+
+func (e SnapshotError) Error() string {
+	return fmt.Sprintf("no change set to read: the source is a %s snapshot with no real commits", e.Kind)
+}
+
 // ChangeSet is the paths a pull added, modified or renamed, computed ONCE from
 // git. It mirrors the module's fleet:witness (atoms_fleet.go) and changeBase
 // (runtime.go), whose comments record real failures:
@@ -63,7 +73,7 @@ func ChangeSet(ctx context.Context, root, base string) ([]string, error) {
 	// commit is not the pull's commits (fleet:witness stands down the same way).
 	// An error, not an empty set: "nothing changed" would pass a pull nobody read.
 	if snap, code := git(ctx, root, "config", "--get", "ca.snapshot"); code == 0 && strings.TrimSpace(snap) != "" {
-		return nil, fmt.Errorf("no change set to read: the source is a %s snapshot with no real commits", strings.TrimSpace(snap))
+		return nil, SnapshotError{Kind: strings.TrimSpace(snap)}
 	}
 	var (
 		out  string
@@ -122,7 +132,7 @@ func mergeBase(ctx context.Context, root, base string) (string, error) {
 //
 // Tracked is untouched: stop-justifications is defined over `git ls-files`.
 func Collect(ctx context.Context, root, base, origin string, now time.Time) Input {
-	in := Input{Root: root, Origin: origin, Now: now}
+	in := Input{Root: root, Base: base, Origin: origin, Now: now}
 
 	in.Tracked, in.TrackedErr = listFiles(ctx, root, "ls-files")
 	// Three listings through ONE error path: the first failing is the tree not

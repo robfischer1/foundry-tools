@@ -42,6 +42,7 @@ func TestOpsPythonCheckers(t *testing.T) {
 		{"ops:dup", "dup-check", "python3", []string{"--blocking"}, true},
 		{"ops:declaration", "declaration-integrity", "python", nil, false},
 		{"ops:metrics", "metric-allowlist", "python", nil, false},
+		{"ops:specs", "console-specs", "python", []string{"--check"}, false},
 	} {
 		t.Run(tc.id, func(t *testing.T) {
 			phase := strings.TrimPrefix(tc.id, "ops:")
@@ -142,5 +143,23 @@ func TestOpsPythonCheckers(t *testing.T) {
 	t.Run("ops:declaration has no exit-2 case: any other exit is a finding, as the chain settled it", func(t *testing.T) {
 		in, _ := checkerTree(t, "declaration-integrity", 0o755, func(Cmd) (string, int) { return "a payload is undeclared", 2 })
 		expect(t, runAtom(t, "ops:declaration", in), stateOf(1), findings, "a payload is undeclared", "declaration failed (rc=2) — findings")
+	})
+}
+
+// ops:specs' tool compares the tree's copy to nas01-stacks, cloned live when
+// nothing names a source; the atom names none, so the tool's own fallback is what
+// runs. Its 2 is a could-not-run whatever its words were.
+func TestOpsSpecsLeavesTheSourceToTheTool(t *testing.T) {
+	t.Run("an unreachable source is the tool's exit 2", func(t *testing.T) {
+		in, f := checkerTree(t, "console-specs", 0o755, func(Cmd) (string, int) { return "could not clone http://ourea:8215/nas01-stacks.git", 2 })
+		expect(t, runAtom(t, "ops:specs", in), stateOf(2), cannot, "could not clone", "specs: could not read the source — did not look")
+		run := f.lastCall(t)
+		if strings.Contains(flagged(run), "--source") || strings.Contains(strings.Join(run.Env, " "), "CONSOLE_SPECS_SOURCE") {
+			t.Errorf("the atom named a source, which would pin the live clone: %+v", run)
+		}
+	})
+	t.Run("drift is a finding", func(t *testing.T) {
+		in, _ := checkerTree(t, "console-specs", 0o755, func(Cmd) (string, int) { return "drift: repo-console.readmodel.spec", 1 })
+		expect(t, runAtom(t, "ops:specs", in), stateOf(1), findings, "drift: repo-console.readmodel.spec", "specs failed (rc=1) — findings")
 	})
 }

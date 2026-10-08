@@ -3,6 +3,7 @@ package atoms
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -34,9 +35,98 @@ type Report struct {
 	Differ        []Diff
 	MissingShadow []string
 	MissingToday  []string
+	// Dry is the DRY fleet:witness comparison, kept out of every count above: the
+	// binary asked nothing, so it has no verdict to agree or differ with. Nil when
+	// the binary's witness was not dry or the chain did not run it.
+	Dry *DryWitness
 	// Elapsed is the shadow's own wall time, both sides included; zero is
 	// unmeasured and is not printed.
 	Elapsed time.Duration
+}
+
+// DryWitness is the dry witness held against the chain's real one: the files the
+// binary would have asked about, the files the chain did ask about, and the
+// counts of what neither was shown.
+type DryWitness struct {
+	Would, Asked []string
+	// Missing are asked by the chain and not listed by the binary; Extra the
+	// other way round.
+	Missing, Extra []string
+	// SkipsComparable is false when the chain's reason carries no skipped
+	// clauses (a finding or a could-not-consult reason does not), so equal
+	// counts cannot be claimed.
+	SkipsComparable bool
+	SkipsAgree      bool
+	// Truncated says the chain's table did not fit its log, so its paths are a
+	// prefix and no agreement is claimed.
+	Truncated bool
+}
+
+// witnessText is what a verdict said. A passing atom's words ride in the logs
+// and its reason is "<id>: PASS"; any other state carries them in both, so the
+// logs are read when there are any and never added to the reason.
+func witnessText(v checks.Verdict) string {
+	if len(v.Logs) > 0 {
+		return strings.Join(v.Logs, "\n")
+	}
+	return v.Reason
+}
+
+// isDryWitness reports whether v is the binary's dry fleet:witness.
+func isDryWitness(v checks.Verdict) bool {
+	return v.Atom == "fleet:witness" && strings.Contains(witnessText(v), checks.WitnessDryMark)
+}
+
+// dryWitness holds a dry verdict against the chain's.
+func dryWitness(chain, dry checks.Verdict) *DryWitness {
+	d := &DryWitness{
+		Would:     checks.WitnessDryPaths(witnessText(dry)),
+		Asked:     checks.WitnessedPaths(witnessText(chain)),
+		Truncated: chain.Truncated,
+	}
+	d.Missing = minus(d.Asked, d.Would)
+	d.Extra = minus(d.Would, d.Asked)
+	cs, cv, ct := checks.WitnessSkipCounts(witnessText(chain))
+	ds, dv, dt := checks.WitnessSkipCounts(witnessText(dry))
+	d.SkipsComparable = chain.State == int(checks.StatePass)
+	d.SkipsAgree = cs == ds && cv == dv && ct == dt
+	return d
+}
+
+// minus is the strings of a that b lacks, in a's order.
+func minus(a, b []string) []string {
+	var out []string
+	for _, s := range a {
+		if !slices.Contains(b, s) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// line is the one line the report carries.
+func (d DryWitness) line() string {
+	paths := "paths agree"
+	switch {
+	case d.Truncated:
+		paths = "paths not comparable (the chain's table was truncated)"
+	case len(d.Missing)+len(d.Extra) > 0:
+		paths = fmt.Sprintf("paths differ: +%d -%d", len(d.Extra), len(d.Missing))
+		if len(d.Extra) > 0 {
+			paths += " (+ " + strings.Join(d.Extra, ", ") + ")"
+		}
+		if len(d.Missing) > 0 {
+			paths += " (- " + strings.Join(d.Missing, ", ") + ")"
+		}
+	}
+	skips := "skipped/vendored/tests agree"
+	switch {
+	case !d.SkipsComparable:
+		skips = "skipped/vendored/tests not comparable (the chain's reason carries none)"
+	case !d.SkipsAgree:
+		skips = "skipped/vendored/tests differ"
+	}
+	return fmt.Sprintf("fleet:witness (dry): would ask %d, chain asked %d; %s | %s", len(d.Would), len(d.Asked), paths, skips)
 }
 
 // Compare holds two vectors against each other, atom by atom, on every field
@@ -55,6 +145,10 @@ func Compare(today, shadow []checks.Verdict) Report {
 		s, ok := byID[t.Atom]
 		if !ok {
 			rep.MissingShadow = append(rep.MissingShadow, t.Atom)
+			continue
+		}
+		if isDryWitness(s) {
+			rep.Dry = dryWitness(t, s)
 			continue
 		}
 		if fields := differing(t, s); len(fields) > 0 {
@@ -113,6 +207,9 @@ func (r Report) Render() string {
 	}
 	fmt.Fprintf(&b, "shadow atoms: %d compared, %d identical, %d same state, %d state differs, %d missing from the binary, %d missing from the chains%s\n",
 		compared, len(r.Agree), r.StatesAgree()-len(r.Agree), compared-r.StatesAgree(), len(r.MissingShadow), len(r.MissingToday), took)
+	if r.Dry != nil {
+		b.WriteString(r.Dry.line() + "\n")
+	}
 	for _, d := range r.Differ {
 		kind := "text differs"
 		if d.StateDiffers {

@@ -66,6 +66,10 @@ type Input struct {
 	// Changed is the change set (ChangeSet).
 	Changed    []string
 	ChangedErr error
+	// Base is the change set's base sha as the caller named it ("" reads the tip
+	// against its parent). The atoms that compare against the base's tree
+	// (ops:immutable) need the sha, not only the paths Changed holds.
+	Base string
 	// Origin is the URL the repository was fetched from; "" names no
 	// exemption (checks.RepoFromOrigin).
 	Origin string
@@ -83,6 +87,19 @@ type Input struct {
 	// FS is the root as a file system, for the whole-tree walk (the retired-verbs
 	// scan). Nil is the disk; a test says what a tree that will not walk does.
 	FS fs.FS
+	// Spire is the path of the SPIRE agent socket the lane pod forwarded, for
+	// fleet:witness's identified ask; "" names none and it asks in the clear.
+	Spire string
+	// WitnessDry makes fleet:witness ask nothing: it lists what it would ask
+	// and settles 2 (the shadow's mode; the default asks for real).
+	WitnessDry bool
+	// Witness is how fleet:witness reaches narcissus; the zero value is the
+	// production port.
+	Witness Witness
+	// NarcErr is why narc (narcissus's analyzer, mounted per run from the pin
+	// flux holds live) was not provisioned; "" means it was. orbit:surface
+	// settles 2 with it.
+	NarcErr string
 	// Exec runs a program for the atoms whose tool is a program (opa, uv,
 	// orbitparse). Nil is the real thing (RunProgram).
 	Exec Exec
@@ -174,8 +191,12 @@ func lookup(id string) (checks.AtomDef, bool) {
 // Builtin is the atoms this package carries, in the order the vector lists
 // them. Registration is explicit rather than init()-time so the set a binary
 // runs is visible in one place and a test can build a registry of its own.
-// Every one reads the whole tree: they are cheap in process, and a question
-// about the change set belongs to the atoms that have one.
+// Every one is registered ScopeTree, the change-reading atoms (fleet:witness,
+// ops:immutable) included: the runner's change-scope would settle an empty change
+// set with its own absent text, and these two word that case themselves, as the
+// chains did. They read the change set Collect computed ONCE (Input.Changed); ops:immutable
+// also re-lists the diff locally, unfiltered and with deletions, which the change
+// set (added, modified, renamed) leaves out.
 func Builtin() []Atom {
 	tree := func(id string, run RunFunc) Atom { return Atom{ID: id, Scope: ScopeTree, Run: run} }
 	// An atom whose tool is a pinned layer of the container the binary runs in
@@ -198,6 +219,7 @@ func Builtin() []Atom {
 		tree("fleet:opengrep-sast", fleetOpengrepSast),
 		tree("fleet:hadolint", fleetHadolint),
 		tree("fleet:wit-topics", fleetWitTopics),
+		tree("fleet:witness", fleetWitness),
 		tree("compose:no-tracked-secrets", composeNoTrackedSecrets),
 		tree("compose:third-party-pins", composeThirdPartyPins),
 		tree("compose:config", composeConfig),
@@ -215,15 +237,19 @@ func Builtin() []Atom {
 		tree("dies:wit-regenerated", diesWitRegenerated),
 		tree("dies:schema-rendered", diesSchemaRendered),
 		tree("orbit:contracts", orbitContracts),
+		tree("orbit:surface", orbitSurface),
 		tree("orbit:sidecars", orbitSidecars),
 		tree("orbit:repo", orbitRepo),
 		tree("ops:orbit-composed", opsOrbitComposed),
+		tree("ops:orbit-sidecars", opsOrbitSidecars),
+		tree("ops:immutable", opsImmutable),
 		tree("ops:yaml", opsYAML),
 		tree("ops:shell", opsShell),
 		tree("ops:chezmoi", opsChezmoi),
 		tree("ops:flux", opsFlux),
 		tree("ops:dup", opsDup),
 		tree("ops:declaration", opsDeclaration),
+		tree("ops:specs", opsSpecs),
 		tree("ops:metrics", opsMetrics),
 		tree("ops:ansible", opsAnsible),
 		tree("template:render-matrix", templateRenderMatrix),
