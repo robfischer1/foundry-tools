@@ -6,13 +6,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"sort"
-	"strings"
-
-	"github.com/BurntSushi/toml"
-	"go.yaml.in/yaml/v3"
 
 	"dagger/foundry-tools/internal/checks"
 )
@@ -33,10 +27,10 @@ const (
 	// nothing — including the one that added and the one that removed
 	// cast_on_build. The directory is now prime/, which only the fleet's flux
 	// tree has, and a prime/ without the ConfigMap is no longer absence.
-	oureaConfigPath = "prime/ourea-config.yaml"
+	oureaConfigPath = checks.OureaConfigPath
 
 	// oureaConfigKey is the ConfigMap data key holding the door's TOML.
-	oureaConfigKey = "config.toml"
+	oureaConfigKey = checks.OureaConfigKey
 
 	// OureaRepo / OureaRef / OureaRetiredKeys locate the list this atom grades
 	// against. It is generated from ourea's own `retiredKeys` map and pinned to
@@ -49,10 +43,10 @@ const (
 	// pinned sha would be graded by nothing — the silent skip again, wearing a
 	// version number.
 	OureaRepo        = "https://git.notusmi.com/rob/ourea.git"
-	OureaRef         = "main"
-	OureaRetiredKeys = "internal/config/retired-keys.json"
-	oureaConfigDir   = "prime"
-	oureaConfigInDir = "ourea-config.yaml"
+	OureaRef         = checks.OureaRef
+	OureaRetiredKeys = checks.OureaRetiredKeysFile
+	oureaConfigDir   = checks.OureaConfigDir
+	oureaConfigInDir = checks.OureaConfigFile
 )
 
 // The ourea ConfigMap names no key the door has stopped reading.
@@ -132,34 +126,12 @@ func fleetOureaConfigRetiredKeys(ctx context.Context, r *run) checks.Verdict {
 			a.ID, OureaRetiredKeys, err))
 	}
 
-	var named []string
-	for k := range cfg {
-		if _, ok := retired[k]; ok {
-			named = append(named, k)
-		}
-	}
+	named := checks.OureaRetiredNamed(cfg, retired)
 	if len(named) == 0 {
 		return checks.VerdictOf(a, 0, string(a.ID)+
 			fmt.Sprintf(": %s names none of ourea's %d retired keys", oureaConfigKey, len(retired)))
 	}
-	sort.Strings(named)
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "%s carries %d key(s) the door no longer reads.\n\n",
-		oureaConfigPath, len(named))
-	for _, k := range named {
-		fmt.Fprintf(&b, "  %s\n    %s\n\n", k, retired[k])
-	}
-	b.WriteString(
-		"Each line is INERT, not dangerous — the code that read it is gone, so it cannot\n" +
-			"restore the old behaviour. The door boots on it and says so in a WARN. This is\n" +
-			"the same fact read a second time, at the moment the fix is one deleted line.\n\n" +
-			"FIX: delete the named key(s) from the `" + oureaConfigKey + "` block. Every other key,\n" +
-			"and every comment around them, stays.\n\n" +
-			"The list comes from ourea's own " + OureaRetiredKeys + " at " + OureaRef + ", which is\n" +
-			"generated from its `retiredKeys` map and pinned to it by a test there. If a key\n" +
-			"here looks live, that map is what disagrees with you.")
-	return checks.VerdictOf(a, 1, b.String())
+	return checks.VerdictOf(a, 1, checks.OureaRetiredReport(named, retired))
 }
 
 // oureaRetiredKeys reads the door's published list of keys it stopped reading.
@@ -181,14 +153,7 @@ func oureaRetiredKeys(ctx context.Context) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	var keys map[string]string
-	if err := json.Unmarshal([]byte(body), &keys); err != nil {
-		return nil, fmt.Errorf("it did not decode as an object of key -> reason: %v", err)
-	}
-	if len(keys) == 0 {
-		return nil, fmt.Errorf("it decoded empty, and grading a ConfigMap against no keys is not a check")
-	}
-	return keys, nil
+	return checks.OureaRetiredList(body)
 }
 
 // oureaConfigTOML pulls the door's TOML out of the ConfigMap and decodes it to
@@ -212,19 +177,5 @@ func oureaRetiredKeys(ctx context.Context) (map[string]string, error) {
 // all top-level scalars, and a `pin_hook_url` under some future `[hooks]` table
 // is a different key that this atom must not claim to have found.
 func oureaConfigTOML(configMap string) (map[string]any, error) {
-	var cm struct {
-		Data map[string]string `yaml:"data"`
-	}
-	if err := yaml.Unmarshal([]byte(configMap), &cm); err != nil {
-		return nil, fmt.Errorf("the ConfigMap is not YAML: %v", err)
-	}
-	body, ok := cm.Data[oureaConfigKey]
-	if !ok {
-		return nil, fmt.Errorf("it carries no data[%q], so it sets no door config", oureaConfigKey)
-	}
-	var cfg map[string]any
-	if _, err := toml.Decode(body, &cfg); err != nil {
-		return nil, fmt.Errorf("data[%q] is not TOML: %v", oureaConfigKey, err)
-	}
-	return cfg, nil
+	return checks.OureaConfigKeys(configMap)
 }

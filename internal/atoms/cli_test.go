@@ -29,14 +29,17 @@ func TestRunPrintsTheVectorAndExitsZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"fleet:check-yaml", "fleet:check-added-large-files", "fleet:check-merge-conflict", "fleet:stop-justifications"}
-	wantState := []int{0, 0, 1, 0}
-	if len(vector) != len(want) {
-		t.Fatalf("%d verdicts, want %d", len(vector), len(want))
+	// The pull path: the 19 atoms of precommit and prepush, none of the orbit
+	// lane's. The first four are the first cut, and the only one with a finding;
+	// a tree with no surface for the rest is absent or clean in all of them.
+	want := StageIDs("")
+	wantState := map[string]int{"fleet:check-merge-conflict": 1}
+	if len(vector) != 19 || len(vector) != len(want) {
+		t.Fatalf("%d verdicts, want 19", len(vector))
 	}
 	for i, v := range vector {
-		if v.Atom != want[i] || v.State != wantState[i] {
-			t.Errorf("slot %d: %s state %d, want %s state %d\n%s", i, v.Atom, v.State, want[i], wantState[i], v.Reason)
+		if v.Atom != want[i] || v.State != wantState[v.Atom] {
+			t.Errorf("slot %d: %s state %d, want %s state %d\n%s", i, v.Atom, v.State, want[i], wantState[v.Atom], v.Reason)
 		}
 		if v.StartedAt == "" || v.Logs == nil {
 			t.Errorf("%s: started %q, logs %v", v.Atom, v.StartedAt, v.Logs)
@@ -56,8 +59,17 @@ func TestRunOutsideARepositoryStillAnswersAVector(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The atoms defined over git's answers (the population, the tracked list)
+	// cannot say anything about a tree git would not read, and only could-not-run
+	// is honest. The ones that read the directory itself have a directory to read.
+	gitBound := map[string]bool{
+		"fleet:check-yaml": true, "fleet:check-added-large-files": true, "fleet:check-merge-conflict": true,
+		"fleet:stop-justifications": true, "fleet:dagger-lockstep": true, "fleet:node-kinds-declared": true,
+		"fleet:consumed-events-emitted": true, "compose:no-tracked-secrets": true, "compose:third-party-pins": true,
+		"ops:yaml": true,
+	}
 	for _, v := range vector {
-		if v.State != 2 {
+		if gitBound[v.Atom] && v.State != 2 {
 			t.Errorf("%s answered %d about a tree git would not read; only could-not-run is honest", v.Atom, v.State)
 		}
 	}

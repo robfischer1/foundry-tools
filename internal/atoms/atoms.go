@@ -17,6 +17,7 @@ package atoms
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"time"
 
 	"dagger/foundry-tools/internal/checks"
@@ -52,6 +53,11 @@ type Input struct {
 	// relative to Root.
 	Files    []string
 	FilesErr error
+	// Committable is Files WITHOUT the fleet exclude: what the repository would
+	// commit, sorted, with no directories. The atoms whose chains read the raw
+	// tree (compose:*, ops:yaml) never applied the exclude, and a vendored
+	// compose spec is still a compose spec.
+	Committable []string
 	// Tracked is `git ls-files`, in git's order — a narrower set than Files
 	// (it omits untracked, unignored files) and the one stop-justifications
 	// is defined over.
@@ -65,6 +71,21 @@ type Input struct {
 	Origin string
 	// Now is the clock the atoms read, so a test says what day it is.
 	Now time.Time
+	// Dies is a checkout of foundry-dies at main, for the atoms that grade a
+	// tree against the fleet's contracts (orbit:*, ops:orbit-composed). Empty
+	// names none, and those atoms settle 2: a contract that was not read
+	// agrees with nothing.
+	Dies string
+	// Door reads single files from the git door (fleet:orbit-drift and the
+	// other atoms that ask what the fleet holds). The zero value is the
+	// production door.
+	Door checks.Door
+	// FS is the root as a file system, for the whole-tree walk (the retired-verbs
+	// scan). Nil is the disk; a test says what a tree that will not walk does.
+	FS fs.FS
+	// Exec runs a program for the atoms whose tool is a program (opa, uv,
+	// orbitparse). Nil is the real thing (RunProgram).
+	Exec Exec
 }
 
 // RunFunc answers one atom's verdict. The AtomDef is resolved by the registry
@@ -77,6 +98,24 @@ type Atom struct {
 	ID    string
 	Scope Scope
 	Run   RunFunc
+	// Tool names the program the atom execs that the binary does not carry
+	// (opa, uv, orbitparse); "" is none. An atom with a Tool needs the tool
+	// provisioned on PATH, which only the shadow's container does today, so a
+	// voting or local-hook set must leave these out (WithoutTools) until the
+	// tools are provisioned there.
+	Tool string
+}
+
+// WithoutTools is the atoms that need no provisioned tool: the set a caller
+// that cannot provision one may run.
+func WithoutTools(atoms []Atom) []Atom {
+	var out []Atom
+	for _, a := range atoms {
+		if a.Tool == "" {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 type entry struct {
@@ -135,11 +174,76 @@ func lookup(id string) (checks.AtomDef, bool) {
 // Builtin is the atoms this package carries, in the order the vector lists
 // them. Registration is explicit rather than init()-time so the set a binary
 // runs is visible in one place and a test can build a registry of its own.
+// Every one reads the whole tree: they are cheap in process, and a question
+// about the change set belongs to the atoms that have one.
 func Builtin() []Atom {
+	tree := func(id string, run RunFunc) Atom { return Atom{ID: id, Scope: ScopeTree, Run: run} }
+	tooled := func(id, tool string, run RunFunc) Atom { return Atom{ID: id, Scope: ScopeTree, Run: run, Tool: tool} }
 	return []Atom{
-		{ID: "fleet:check-yaml", Scope: ScopeTree, Run: checkYAML},
-		{ID: "fleet:check-added-large-files", Scope: ScopeTree, Run: checkAddedLargeFiles},
-		{ID: "fleet:check-merge-conflict", Scope: ScopeTree, Run: checkMergeConflict},
-		{ID: "fleet:stop-justifications", Scope: ScopeTree, Run: stopJustifications},
+		tree("fleet:check-yaml", checkYAML),
+		tree("fleet:check-added-large-files", checkAddedLargeFiles),
+		tree("fleet:check-merge-conflict", checkMergeConflict),
+		tree("fleet:stop-justifications", stopJustifications),
+		tree("fleet:sast-ruleset-lanes", sastRulesetLanes),
+		tree("fleet:copier-answers-intact", copierAnswersIntact),
+		tree("fleet:ourea-config-retired-keys", oureaConfigRetiredKeys),
+		tree("fleet:retired-verbs", retiredVerbs),
+		tree("fleet:orbit-drift", orbitDrift),
+		tree("fleet:dagger-lockstep", daggerLockstep),
+		tree("fleet:node-kinds-declared", nodeKindsDeclared),
+		tree("fleet:consumed-events-emitted", consumedEventsEmitted),
+		tree("compose:no-tracked-secrets", composeNoTrackedSecrets),
+		tree("compose:third-party-pins", composeThirdPartyPins),
+		tooled("dies:data-keys", "opa", diesDataKeys),
+		tree("dies:canonical", diesCanonical),
+		tooled("dies:refusal-codes", "uv", diesRefusalCodes),
+		tree("orbit:contracts", orbitContracts),
+		tooled("orbit:sidecars", "orbitparse", orbitSidecars),
+		tree("orbit:repo", orbitRepo),
+		tree("ops:orbit-composed", opsOrbitComposed),
+		tree("ops:yaml", opsYAML),
 	}
+}
+
+// admittedBy is the set of catalogue ids a stage grades.
+func admittedBy(stage string) map[string]bool {
+	admitted := map[string]bool{}
+	for _, a := range checks.AtomsForStage(stage) {
+		admitted[a.ID] = true
+	}
+	return admitted
+}
+
+// StageIDs answers, in registry order, the ids of the built-in atoms a stage
+// grades: the catalogue's own answer (checks.AtomsForStage, where "" is the
+// pull path, precommit and prepush) narrowed to what this binary carries. It
+// is the one definition of "the atoms of a stage", shared by the binary, which
+// runs them, and the shadow, which asks the chains for exactly those.
+func StageIDs(stage string) []string {
+	admitted := admittedBy(stage)
+	var ids []string
+	for _, a := range Builtin() {
+		if admitted[a.ID] {
+			ids = append(ids, a.ID)
+		}
+	}
+	return ids
+}
+
+// ForStage narrows the registry to the atoms a stage grades (StageIDs). A stage
+// none of them belongs to is an ERROR, not an empty vector: a mistyped stage
+// that ran nothing would report nothing, and nothing reported reads exactly
+// like nothing wrong.
+func (r *Registry) ForStage(stage string) (*Registry, error) {
+	admitted := admittedBy(stage)
+	out := &Registry{}
+	for _, e := range r.entries {
+		if admitted[e.atom.ID] {
+			out.entries = append(out.entries, e)
+		}
+	}
+	if len(out.entries) == 0 {
+		return nil, fmt.Errorf("no registered atom belongs to the stage %q", stage)
+	}
+	return out, nil
 }

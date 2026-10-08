@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"dagger/foundry-tools/internal/checks"
@@ -33,6 +34,9 @@ type Report struct {
 	Differ        []Diff
 	MissingShadow []string
 	MissingToday  []string
+	// Elapsed is the shadow's own wall time, both sides included; zero is
+	// unmeasured and is not printed.
+	Elapsed time.Duration
 }
 
 // Compare holds two vectors against each other, atom by atom, on every field
@@ -103,8 +107,12 @@ func (r Report) StatesAgree() int {
 func (r Report) Render() string {
 	compared := len(r.Agree) + len(r.Differ)
 	var b strings.Builder
-	fmt.Fprintf(&b, "shadow atoms: %d compared, %d identical, %d same state, %d state differs, %d missing from the binary, %d missing from the chains\n",
-		compared, len(r.Agree), r.StatesAgree()-len(r.Agree), compared-r.StatesAgree(), len(r.MissingShadow), len(r.MissingToday))
+	took := ""
+	if r.Elapsed > 0 {
+		took = ", took " + r.Elapsed.Round(time.Millisecond).String()
+	}
+	fmt.Fprintf(&b, "shadow atoms: %d compared, %d identical, %d same state, %d state differs, %d missing from the binary, %d missing from the chains%s\n",
+		compared, len(r.Agree), r.StatesAgree()-len(r.Agree), compared-r.StatesAgree(), len(r.MissingShadow), len(r.MissingToday), took)
 	for _, d := range r.Differ {
 		kind := "text differs"
 		if d.StateDiffers {

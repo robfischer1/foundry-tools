@@ -15,8 +15,8 @@ import (
 // IT EXITS 0 WHATEVER THE VECTOR SAYS. The vector is the result, and a verdict
 // of 2 inside it is a result; a non-zero exit would mean "the program broke",
 // which the consumer must be able to tell apart from "an atom found something".
-// The only non-zero exit is 2, for a bad flag or an invalid registry — the
-// consumer then gets no JSON to mistake for a vector.
+// The only non-zero exit is 2, for a bad flag, an invalid registry or a stage
+// no atom belongs to — the consumer then gets no JSON to mistake for a vector.
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer, now func() time.Time) int {
 	return run(ctx, args, stdout, stderr, now, func() (*Registry, error) { return NewRegistry(Builtin()...) })
 }
@@ -29,6 +29,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, now func(
 	root := fs.String("root", ".", "the repository root")
 	base := fs.String("base", "", "the change set's base sha; empty reads HEAD against its parent")
 	origin := fs.String("origin", "", "where the repository was fetched from; empty asks git for origin")
+	stage := fs.String("stage", "", "the stage whose atoms to run (precommit, prepush, orbit); empty is the pull path, precommit and prepush")
+	dies := fs.String("dies", "", "a checkout of foundry-dies at main, for the atoms that grade against the fleet's contracts")
 	timeout := fs.Duration("timeout", DefaultTimeout, "each atom's deadline")
 	workers := fs.Int("workers", 0, "worker pool size; 0 is GOMAXPROCS")
 	if err := fs.Parse(args); err != nil {
@@ -40,7 +42,15 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, now func(
 		fmt.Fprintln(stderr, "atoms: the registry is invalid:", err)
 		return 2
 	}
+	// THE STAGE SELECTS WHAT RUNS, the way the module's AtomsForStage selects
+	// what a lane grades, so a lane's shadow compares exactly its own atoms.
+	reg, err = reg.ForStage(*stage)
+	if err != nil {
+		fmt.Fprintln(stderr, "atoms:", err)
+		return 2
+	}
 	in := Collect(ctx, *root, *base, *origin, now())
+	in.Dies = *dies
 	vector := Execute(ctx, reg, in, Options{Workers: *workers, Timeout: *timeout, Clock: now})
 
 	// THE MARSHAL ERROR IS DROPPED, not branched on (gate.go says why): Verdict

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,6 +45,9 @@ var atomsSourceInclude = []string{
 	"internal/checks/**",
 	"internal/execmem/**",
 	"internal/unitkey/**",
+	"internal/orbitcompose/**",
+	"internal/orbitlane/**",
+	"internal/retiredverbs/**",
 }
 
 // atomsBinPath is where the binary sits in the fleet lane's container.
@@ -62,9 +67,17 @@ func atomsBinary() *dagger.File {
 		File("/out/atoms")
 }
 
-// ShadowAtoms runs the in-process atoms beside the same atoms as Dagger chains
-// and reports whether they agree. NON-VOTING: it returns text and nothing that
-// a gate reads, and it answers even when either side could not run.
+// ShadowAtoms runs the in-process atoms of a stage beside the same atoms as
+// Dagger chains and reports whether they agree. NON-VOTING: it returns text and
+// nothing that a gate reads, and it answers even when either side could not run.
+//
+// THE STAGE SELECTS BOTH SIDES. The atoms of a stage are the catalogue's own
+// answer (atoms.StageIDs, checks.AtomsForStage): the pull path's gate grades
+// precommit and prepush together, the orbit lane grades the orbit atoms and
+// nothing else. The chains are asked for exactly those ids at that stage, and
+// the binary is run with the same -stage, so an orbit lane's report compares the
+// orbit lane's atoms, and the gate's never carries an atom a lane of its own
+// grades.
 //
 // +cache="never"
 func (m *FoundryTools) ShadowAtoms(
@@ -73,26 +86,82 @@ func (m *FoundryTools) ShadowAtoms(
 	// its parent.
 	// +optional
 	base string,
+	// The stage whose atoms are compared, as Verdicts takes it. Empty is the
+	// pull path.
+	// +optional
+	stage string,
 ) string {
-	var ids []string
-	for _, a := range atoms.Builtin() {
-		ids = append(ids, a.ID)
+	ids := atoms.StageIDs(stage)
+	if len(ids) == 0 {
+		return fmt.Sprintf("shadow atoms: nothing to compare - the binary carries no atom of the stage %q", stage)
 	}
-	today, todayErr := shadowToday(ctx, m, strings.Join(ids, ","), base)
-	raw, rawErr := shadowBinary(ctx, m, base)
-	return renderShadow(today, todayErr, raw, rawErr)
+	started := time.Now()
+	today, todayErr := shadowToday(ctx, m, stage, strings.Join(ids, ","), base)
+	raw, rawErr := shadowBinary(ctx, m, stage, base)
+	return renderShadow(today, todayErr, raw, rawErr, time.Since(started))
 }
 
 // The two sides of the comparison, as variables so a test names what each
 // answers without an engine.
 var (
-	shadowToday = func(ctx context.Context, m *FoundryTools, only, base string) ([]checks.Verdict, error) {
-		return m.vector(ctx, "", only, base)
+	shadowToday = func(ctx context.Context, m *FoundryTools, stage, only, base string) ([]checks.Verdict, error) {
+		return m.vector(ctx, stage, only, base)
 	}
-	shadowBinary = func(ctx context.Context, m *FoundryTools, base string) (string, error) {
-		return m.atomsVector(ctx, base)
+	shadowBinary = func(ctx context.Context, m *FoundryTools, stage, base string) (string, error) {
+		return m.atomsVector(ctx, stage, base)
 	}
 )
+
+// atomsNeedingDies are the atoms that grade against foundry-dies main.
+var atomsNeedingDies = []string{"ops:orbit-composed", "orbit:contracts", "orbit:repo", "orbit:sidecars"}
+
+// reaskNonce keys the binary's exec afresh on every call; a variable so a test
+// can read what each call carried.
+var reaskNonce = func() string { return strconv.FormatInt(time.Now().UnixNano(), 10) }
+
+// Where the atoms binary finds what it execs or reads beyond the tree.
+const (
+	atomsDiesPath = "/dies"
+	opaBinPath    = "/usr/local/bin/opa"
+	orbitBinPath  = "/usr/local/bin/orbitparse"
+)
+
+// withAtomTools mounts, for the atoms of a stage, what they read or exec beyond
+// the tree: foundry-dies at main (the contracts), the pinned opa (dies:data-keys
+// builds the bundle with it) and the sidecar reader (orbit:sidecars). The tools
+// are mounted only for the stages whose atoms use them, so the pull path does
+// not build the reader and the orbit lane does not fetch opa.
+//
+// A TOOL THAT WILL NOT FETCH IS NOT MOUNTED, and the atom that needs it settles
+// 2 in the binary as its chain does on the same failure: one tool must not take
+// the whole shadow's answer with it. (The reader is built in the engine, so a
+// build failure surfaces as the binary not answering, as the dies mount does.)
+func (r *run) withAtomTools(ctx context.Context, ctr *dagger.Container, stage string) (*dagger.Container, []string) {
+	has := map[string]bool{}
+	for _, id := range atoms.StageIDs(stage) {
+		has[id] = true
+	}
+	// foundry-dies is mounted only when a selected atom reads it, and only if
+	// it fetched: listing the root first forces the clone, as the opa fetch does, so a clone that fails is
+	// the dies atoms' 2 and not the whole binary's "not compared". Without the
+	// flag the atoms that need it say the checkout was not supplied.
+	var flags []string
+	if slices.ContainsFunc(atomsNeedingDies, func(id string) bool { return has[id] }) {
+		if _, err := r.dies.Entries(ctx); err == nil {
+			ctr = ctr.WithMountedDirectory(atomsDiesPath, r.dies)
+			flags = []string{"-dies", atomsDiesPath}
+		}
+	}
+	if has["orbit:sidecars"] {
+		ctr = ctr.WithFile(orbitBinPath, orbitParse(), dagger.ContainerWithFileOpts{Permissions: 0o755})
+	}
+	if has["dies:data-keys"] {
+		if f, err := fetchTool(ctx, checks.OpaURL); err == nil {
+			ctr = ctr.WithFile(opaBinPath, f, dagger.ContainerWithFileOpts{Permissions: 0o755})
+		}
+	}
+	return ctr, flags
+}
 
 // atomsVector runs the binary in the fleet lane image over the same tree the
 // chains read, and answers its stdout: the vector as JSON.
@@ -101,12 +170,18 @@ var (
 // sees the tree and the history the chains see — including a linked worktree's
 // rebuilt repository and the base fetched by sha. A non-zero exit is an error
 // here, not a vector: the binary exits 0 whatever its atoms found.
-func (m *FoundryTools) atomsVector(ctx context.Context, base string) (string, error) {
-	r := newRun(m.Source, m.Repo, base).fromOrigin(m.Origin)
+func (m *FoundryTools) atomsVector(ctx context.Context, stage, base string) (string, error) {
+	// REASKED, ALWAYS. The binary's exec has identical inputs on every run of the
+	// same tree, so the engine would serve a cached answer, and the atoms here
+	// that read the network (the door, opa's build) would be frozen at the first
+	// read. The chains read the door fresh and re-ask a could-not-run; CA_REASK
+	// keys every lane exec afresh, so the shadow does too.
+	r := newRun(m.Source, m.Repo, base).fromOrigin(m.Origin).reasked(reaskNonce())
 	ctr := r.gitReady(ctx, r.withBase(r.lane(checks.ImageFleet))).
-		WithFile(atomsBinPath, atomsBinary(), dagger.ContainerWithFileOpts{Permissions: 0o755}).
-		WithExec([]string{atomsBinPath, "-root", "/src", "-base", base, "-origin", r.repo}, anyExit)
-	out, code, err := output(ctx, ctr)
+		WithFile(atomsBinPath, atomsBinary(), dagger.ContainerWithFileOpts{Permissions: 0o755})
+	ctr, flags := r.withAtomTools(ctx, ctr, stage)
+	args := append([]string{atomsBinPath, "-root", "/src", "-base", base, "-origin", r.repo, "-stage", stage}, flags...)
+	out, code, err := output(ctx, ctr.WithExec(args, anyExit))
 	if err != nil {
 		return "", err
 	}
@@ -118,7 +193,7 @@ func (m *FoundryTools) atomsVector(ctx context.Context, base string) (string, er
 
 // renderShadow is the report from the two sides' answers. It is pure so the
 // ways either side can fail are tested without an engine.
-func renderShadow(today []checks.Verdict, todayErr error, raw string, rawErr error) string {
+func renderShadow(today []checks.Verdict, todayErr error, raw string, rawErr error, elapsed time.Duration) string {
 	if todayErr != nil {
 		return "shadow atoms: not compared - the chains did not answer: " + todayErr.Error()
 	}
@@ -129,7 +204,9 @@ func renderShadow(today []checks.Verdict, todayErr error, raw string, rawErr err
 	if err != nil {
 		return "shadow atoms: not compared - " + err.Error()
 	}
-	return atoms.Compare(today, shadow).Render()
+	rep := atoms.Compare(today, shadow)
+	rep.Elapsed = elapsed
+	return rep.Render()
 }
 
 // THE SHADOW'S PACKAGE STATE. Each variable below is a seam the tests replace
@@ -138,6 +215,11 @@ func renderShadow(today []checks.Verdict, todayErr error, raw string, rawErr err
 // own and restore them). startShadow COPIES every one of them before it starts
 // a goroutine, because an abandoned shadow outlives the call that started it
 // and must never read a variable the next call, or the next test, is writing.
+
+// shadowLanes are the lanes that start a shadow, by laneOf. Each compares the
+// atoms of the stage it grades (ShadowAtoms), and an orbit lane's gate-file run
+// goes through the same startShadow as the gate's, non-voting in the same way.
+var shadowLanes = map[string]bool{"gate": true, "orbit": true}
 
 // shadowTimeout bounds the shadow run's own context, apart from the gate's.
 var shadowTimeout = 5 * time.Minute
@@ -152,8 +234,8 @@ var shadowGrace = 30 * time.Second
 
 // shadowRun is the shadow itself, so the tests can make it hang, panic or
 // answer garbage and prove the gate does not notice.
-var shadowRun = func(ctx context.Context, m *FoundryTools, base string) string {
-	return m.ShadowAtoms(ctx, base)
+var shadowRun = func(ctx context.Context, m *FoundryTools, stage, base string) string {
+	return m.ShadowAtoms(ctx, base, stage)
 }
 
 // shadowOut is where the report goes: stderr. Never the record, never the exit.
@@ -175,7 +257,7 @@ type shadowHandle struct {
 // shadow overlaps the gate instead of following it, and call finish after the
 // record is settled.
 func (m *FoundryTools) startShadow(ctx context.Context, stage, base string) *shadowHandle {
-	if laneOf(stage) != "gate" {
+	if !shadowLanes[laneOf(stage)] {
 		return nil
 	}
 	// Every package variable the goroutine would read, copied HERE.
@@ -189,7 +271,7 @@ func (m *FoundryTools) startShadow(ctx context.Context, stage, base string) *sha
 				h.done <- fmt.Sprintf("shadow atoms: not compared - the shadow panicked: %v", p)
 			}
 		}()
-		h.done <- run(ctx, m, base)
+		h.done <- run(ctx, m, stage, base)
 	}()
 	return h
 }

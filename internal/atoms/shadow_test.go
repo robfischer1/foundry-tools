@@ -3,6 +3,7 @@ package atoms
 import (
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"dagger/foundry-tools/internal/checks"
@@ -10,6 +11,15 @@ import (
 
 func verdict(id string, state int, out string) checks.Verdict {
 	return checks.VerdictOf(checks.AtomByID(id), state, out)
+}
+
+func TestRenderCarriesTheShadowsWallTime(t *testing.T) {
+	if got := (Report{Elapsed: 2500 * time.Millisecond}).Render(); !strings.Contains(got, "missing from the chains, took 2.5s\n") {
+		t.Errorf("report %q", got)
+	}
+	if got := (Report{}).Render(); strings.Contains(got, "took") {
+		t.Errorf("an unmeasured report printed a time: %q", got)
+	}
 }
 
 func TestCompare(t *testing.T) {
