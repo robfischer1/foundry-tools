@@ -1509,3 +1509,13 @@ func TestFleetConsumedEventsEmittedScansTheFleetForATypeItDoesNotEmit(t *testing
 	scanDoor(t, map[string]map[string]string{"rob/producer": {"emit.py": "emit({\"event_type\": \"something_else\"})\n"}})
 	wantReport(t, runAtom(t, "fleet:consumed-events-emitted", ""), 1, "'orphan' is consumed (hook.py)", "no source in the fleet emits it")
 }
+
+func TestFleetNodeKindsDeclaredReadsNonGoSourcesSoItCanNameThem(t *testing.T) {
+	engine.reset()
+	engine.withTree(fleetTree(map[string]string{
+		"main.go":               "package main\nfunc main() {}\n",
+		"src/client/_client.py": "def go(self):\n    return self.create_node(kind)\n",
+	}))
+	fakeDoor(t, serveSchema)
+	wantReport(t, runAtom(t, "fleet:node-kinds-declared", ""), 0, "no node kind is captured", "NOT JUDGED", "src/client/_client.py")
+}

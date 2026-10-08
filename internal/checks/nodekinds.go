@@ -399,6 +399,44 @@ func CapturedKinds(files map[string]string) (uses []KindUse, unresolved int) {
 	return uses, unresolved
 }
 
+// nonGoCaptureRe is a capture spelled in a language the AST reader does not
+// parse: chaos's own python client, calliope and theia in TypeScript, anvil in
+// Rust (measured over the fleet's checkouts, foundry-tools#15344).
+var nonGoCaptureRe = regexp.MustCompile(`(?i)\b(?:graph_capture|create_?node)\b|\bop["']?\s*[:=]\s*["']createNode["']`)
+
+// NonGoCaptureFiles answers the non-Go source files that look like they capture
+// a node: the kinds a green verdict did not read. The atom is Go-only, and a
+// pass that does not say so reads as "no undeclared kind in this tree".
+func NonGoCaptureFiles(files map[string]string) []string {
+	var out []string
+	for p, body := range files {
+		switch path.Ext(p) {
+		case ".py", ".ts", ".tsx", ".rs":
+		default:
+			continue
+		}
+		skip := strings.HasSuffix(p, ".d.ts") || strings.Contains(p, ".test.") || strings.Contains(p, ".spec.") || strings.HasPrefix(path.Base(p), "test_")
+		for _, seg := range strings.Split(p, "/") {
+			l := strings.ToLower(seg)
+			if seg == "vendor" || seg == "node_modules" || seg == "generated" || strings.Contains(l, "fake") || testSegment(l) || l == "tests" {
+				skip = true
+			}
+		}
+		if !skip && nonGoCaptureRe.MatchString(body) {
+			out = append(out, p)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func nonGoNote(files []string) string {
+	if len(files) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("; NOT JUDGED: this check reads Go only, and %d non-Go file(s) look like captures (%s)", len(files), strings.Join(firstN(files, 3), ", "))
+}
+
 // NodeKindsDeclared judges one tree's captures against the vocabulary.
 //
 // schemaGo is chaos's schema.go; files is the tree's Go source. A tree that
@@ -408,8 +446,9 @@ func CapturedKinds(files map[string]string) (uses []KindUse, unresolved int) {
 func NodeKindsDeclared(files map[string]string, schemaGo string) (int, string) {
 	const id = "fleet:node-kinds-declared"
 	uses, unresolved := CapturedKinds(files)
+	note := nonGoNote(NonGoCaptureFiles(files))
 	if len(uses) == 0 {
-		return 0, id + ": no node kind is captured in this tree"
+		return 0, id + ": no node kind is captured in this tree" + note
 	}
 	declared := DeclaredNodeKinds(schemaGo)
 	if len(declared) == 0 {
@@ -424,8 +463,8 @@ func NodeKindsDeclared(files map[string]string, schemaGo string) (int, string) {
 		}
 	}
 	if len(bad) == 0 {
-		return 0, fmt.Sprintf("%s: %d captured kind(s) are all declared in node_kinds (%d capture site(s), %d unresolved)",
-			id, len(kinds), len(uses), unresolved)
+		return 0, fmt.Sprintf("%s: %d captured kind(s) are all declared in node_kinds (%d capture site(s), %d unresolved)%s",
+			id, len(kinds), len(uses), unresolved, note)
 	}
 	names := make([]string, 0, len(bad))
 	for k := range bad {

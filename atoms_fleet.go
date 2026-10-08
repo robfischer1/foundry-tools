@@ -744,7 +744,7 @@ func fleetHadolint(ctx context.Context, r *run) checks.Verdict {
 func fleetNodeKindsDeclared(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("fleet:node-kinds-declared")
 
-	paths, err := r.population(ctx, "**/*.go")
+	paths, err := r.population(ctx, "**/*.go", "**/*.py", "**/*.ts", "**/*.tsx", "**/*.rs")
 	if err != nil {
 		return cannotEnumerate(a, err)
 	}

@@ -725,3 +725,53 @@ func TestFleetEmittersFetchesAtMostSixteenAtOnce(t *testing.T) {
 		t.Errorf("peak concurrency %d, want 2..16", p)
 	}
 }
+
+// MEASURED over the fleet's checkouts (foundry-tools#15344): 81 of 86 trees read
+// as "consumes no literal event_type". Most mention the key not at all; these
+// are the consumer shapes the others use that the regexes did not know.
+func TestEventTypeUsesReadsSetHasAndAccessorComparisons(t *testing.T) {
+	files := map[string]string{
+		// theia/lineage: a constant Set asked about the event's type.
+		"lens.ts": `const LINEAGE_EVENTS = new Set(["commit", "predict", "outcome"]);
+export const isLineage = (node) => LINEAGE_EVENTS.has(node.data.event.eventType);
+`,
+		// a Rust comparison through an accessor call.
+		"n.rs": `fn f(ev: &Ev) -> bool { ev.event_type.as_str() == "mistrial" }
+`,
+	}
+	consumed, _ := EventTypeUses(files)
+	want := []string{"commit", "mistrial", "outcome", "predict"}
+	if got := types(consumed); !same(got, want) {
+		t.Fatalf("consumed %v want %v", got, want)
+	}
+}
+
+// A green is "no dark LITERAL consumer": the files that read the type without a
+// literal are named, so the sentence cannot be read as "no dark consumer".
+func TestConsumedEventsEmittedNamesTheFilesItCouldNotJudge(t *testing.T) {
+	files := map[string]string{
+		"internal/store/events.go": "package store\nfunc f(e Row) { counts[e.EventType]++ }\n",
+		"internal/p/emit.go":       "package p\nvar x = Event{EventType: \"commit\"}\nfunc g(e *Row) { e.EventType = strings.TrimSpace(e.Other) }\n",
+		"tron/normalize.rs":        "fn f(raw: &V) { let kind = raw.get(\"event_type\"); }\n",
+		"app/lens.ts":              "const isX = (e) => e.eventType === 'x';\n",
+	}
+	state, report := ConsumedEventsEmitted(context.Background(), files, func(context.Context, []string) (map[string]string, error) {
+		return map[string]string{"x": "r:f"}, nil
+	})
+	if state != 0 {
+		t.Fatalf("state %d: %s", state, report)
+	}
+	for _, want := range []string{"NOT JUDGED", "internal/store/events.go", "tron/normalize.rs"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("report lacks %q: %s", want, report)
+		}
+	}
+	if strings.Contains(report, "emit.go") || strings.Contains(report, "lens.ts") {
+		t.Errorf("a write, or a file that was judged, must not be listed: %s", report)
+	}
+
+	_, report = ConsumedEventsEmitted(context.Background(), map[string]string{"x.go": "package x\n"}, nil)
+	if strings.Contains(report, "NOT JUDGED") {
+		t.Errorf("a tree with nothing to say must not claim an unjudged file: %s", report)
+	}
+}

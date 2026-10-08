@@ -464,3 +464,33 @@ func TestNodeKindsDeclaredNamesEveryUndeclaredKindInOrder(t *testing.T) {
 		last = i
 	}
 }
+
+// The atom is Go-only (foundry-tools#15344): a non-Go file that looks like a
+// capture is named in the verdict, not silently passed over.
+func TestNodeKindsDeclaredNamesTheNonGoCapturesItDidNotRead(t *testing.T) {
+	files := map[string]string{
+		"apps/calliope/src/hades-capture.ts": "export const go = () => gateway.call('graph_capture', {});\n",
+		"src/chaos/client/_client.py":        "def capture(self):\n    return self.create_node(kind)\n",
+		"crates/anvil/src/ouroboros.rs":      "let op = \"op\": \"createNode\";\n",
+		"src/chaos/client/_fake.py":          "def create_node(self): pass\n",
+		"tests/test_x.py":                    "create_node()\n",
+		"src/gen/generated/x.ts":             "graph_capture\n",
+	}
+	_, report := NodeKindsDeclared(files, "")
+	for _, want := range []string{"NOT JUDGED", "hades-capture.ts", "_client.py", "ouroboros.rs"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("report lacks %q: %s", want, report)
+		}
+	}
+	for _, not := range []string{"_fake.py", "test_x.py"} {
+		if strings.Contains(report, not) {
+			t.Errorf("%s must not be listed: %s", not, report)
+		}
+	}
+	if strings.Contains(report, "generated/x.ts") {
+		t.Errorf("generated code must not be listed: %s", report)
+	}
+	if _, report := NodeKindsDeclared(map[string]string{"a.go": "package a\n"}, ""); strings.Contains(report, "NOT JUDGED") {
+		t.Errorf("nothing unread, nothing to say: %s", report)
+	}
+}
