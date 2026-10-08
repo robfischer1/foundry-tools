@@ -27,6 +27,11 @@ type Cmd struct {
 	// Stdin is what the program reads, as the chains' ContainerWithExecOpts
 	// Stdin was; empty reads nothing.
 	Stdin string
+	// StdoutOnly answers stdout alone, untrimmed, on every exit: the module's
+	// Container.Stdout, which a failing program's stderr is never part of. The
+	// one reader is ansible-lint's debt count, which the chain took off stdout
+	// and which a stderr folded in would change. It outranks Both.
+	StdoutOnly bool
 	// Both answers stdout and stderr on EVERY exit, as the module's
 	// outputBoth and verdict() do. Without it the output is the module's
 	// output(): stdout, plus stderr only when the program exited non-zero,
@@ -60,6 +65,9 @@ func RunProgram(ctx context.Context, c Cmd) (string, int) {
 			return fmt.Sprintf("%s: %v", c.Name, err), -1
 		}
 		code = ee.ExitCode()
+	}
+	if c.StdoutOnly {
+		return stdout.String(), code
 	}
 	if c.Both {
 		return stdout.String() + stderr.String(), code

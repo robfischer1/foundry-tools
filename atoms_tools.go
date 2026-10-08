@@ -24,13 +24,22 @@ import (
 //	the OS packages (a base digest bump)
 //	each pinned third-party tool, the least-moved pin first
 //	the sidecar reader, built from source (it follows stellar-core-go)
+//	uv, then the python interpreter, the python packages, the ansible collections
 //	the atoms binary (every atom edit)
 //
-// "Least-moved" is counted, not guessed: the number of days on which each
-// tool's pin line changed in internal/checks, over the 31 days with commits
-// between 2026-09-08 and 2026-10-08 (git log -G on the pin's line; creation
-// counts as a change). The counts are in pinnedTools; a tool with the same
-// count keeps the order it was written in.
+// THE TOOLS' ORDER IS A DATED SNAPSHOT of how often each pin moved: the number
+// of days on which the tool's pin line changed in internal/checks over the 31
+// days with commits between 2026-09-08 and 2026-10-08 (git log -G on the pin's
+// line; creation counts as a change). It is not a forecast: a tool with the
+// same count keeps the order it was written in, and a count taken at another
+// date may order them differently. The counts are in pinnedTools.
+//
+// THE PYTHON LAYERS HAVE NO PIN HISTORY YET: the lock is new. They sit above the
+// tools because a lock that renovate bumps is expected to move more than a
+// release asset's pin does; that is an expectation, to be replaced by a count
+// once the lock has a month of history. Within them the order is dependency
+// order (uv, interpreter, packages, collections), which is also least-moved
+// first.
 
 // layerKind says what a step of the container is.
 type layerKind int
@@ -38,6 +47,7 @@ type layerKind int
 const (
 	layerOS layerKind = iota
 	layerTool
+	layerPython
 	layerBinary
 )
 
@@ -79,16 +89,30 @@ type layer struct {
 	name string
 	kind layerKind
 	tool *pinnedTool
+	// provides are the programs on PATH a python layer is the reason for, when
+	// they are not its name (the interpreter, the venv's entry points).
+	provides []string
+}
+
+// pythonPlan is the python layers, in the order they are applied (see
+// pythonLayers.apply). The programs they put on PATH are named in provides, and
+// TestToolsContainerCarriesEveryProgram holds them to atoms.Programs.
+var pythonPlan = []layer{
+	{name: "uv", kind: layerPython},
+	{name: "python", kind: layerPython, provides: []string{"python3", "python"}},
+	{name: "python-packages", kind: layerPython, provides: []string{"copier", "ansible-playbook", "ansible-lint"}},
+	{name: "ansible-collections", kind: layerPython},
 }
 
 // toolsPlan is the container's layers, bottom to top. It is data so the order
 // is held by a test and followed by the build: the OS first, the tools in
-// pinnedTools' order, the atoms binary LAST.
+// pinnedTools' order, the python layers, the atoms binary LAST.
 func toolsPlan() []layer {
 	plan := []layer{{name: "os", kind: layerOS}}
 	for i := range pinnedTools {
 		plan = append(plan, layer{name: pinnedTools[i].name, kind: layerTool, tool: &pinnedTools[i]})
 	}
+	plan = append(plan, pythonPlan...)
 	return append(plan, layer{name: "atoms", kind: layerBinary})
 }
 
@@ -147,16 +171,21 @@ func toolFile(ctx context.Context, base *dagger.Container, t pinnedTool) (*dagge
 
 // toolFiles fetches and verifies every tool at once, in the plan's order. A
 // tool that is not available is nil: one tool that will not fetch must not take
-// the whole shadow's answer with it.
+// the whole shadow's answer with it. Its absence is not silent: one stderr line
+// per dropped tool carries the fetch or verify error, because the atom that
+// needed it only says "executable file not found".
 func toolFiles(ctx context.Context, base *dagger.Container) map[string]*dagger.File {
 	files := make([]*dagger.File, len(pinnedTools))
 	var g errgroup.Group
 	for i := range pinnedTools {
 		g.Go(func() error {
 			// Each tool's failure is that tool's absence, never the group's.
-			if f, err := toolFile(ctx, base, pinnedTools[i]); err == nil {
-				files[i] = f
+			f, err := toolFile(ctx, base, pinnedTools[i])
+			if err != nil {
+				logDropped(pinnedTools[i].name, err)
+				return nil
 			}
+			files[i] = f
 			return nil
 		})
 	}
@@ -177,13 +206,23 @@ const toolsBinDir = "/usr/local/bin/"
 // order, the binary on top. The tree is not mounted here; see run.onTools.
 func atomsTools(ctx context.Context) *dagger.Container {
 	ctr := toolsOS()
+	// The python stages build beside the tool downloads, not after them.
+	var py pythonLayers
+	built := make(chan struct{})
+	go func() {
+		defer close(built)
+		py = buildPython(ctx, ctr)
+	}()
 	files := toolFiles(ctx, ctr)
+	<-built
 	for _, l := range toolsPlan() {
 		switch l.kind {
 		case layerTool:
 			if f, ok := files[l.name]; ok {
 				ctr = ctr.WithFile(toolsBinDir+l.name, f, dagger.ContainerWithFileOpts{Permissions: 0o755})
 			}
+		case layerPython:
+			ctr = py.apply(ctr, l.name)
 		case layerBinary:
 			ctr = ctr.WithFile(atomsBinPath, atomsBinary(), dagger.ContainerWithFileOpts{Permissions: 0o755})
 		}

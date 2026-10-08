@@ -1,0 +1,26 @@
+# THE PYTHON PACKAGES THE ATOMS BINARY'S TOOLS CONTAINER CARRIES (atoms_tools_python.go).
+# Every package an atom's script imports, or an atom execs, is in this venv at
+# BUILD time; nothing resolves a package when an atom runs. The chains named the
+# same sets through `uv run --with` / `uvx --from` and resolved them live,
+# unpinned, on every cold cache.
+#
+# requirements.txt is the lock: exact versions and hashes for the whole closure,
+# the install is --require-hashes, and a wheel that does not match is a build
+# that fails rather than a different program. Regenerate it from this directory:
+#
+#   uv pip compile requirements.in --generate-hashes --python-version 3.14 \
+#     --python-platform x86_64-manylinux_2_28 -o requirements.txt
+#
+# WHO NEEDS WHAT
+#   pyyaml          ops:declaration, ops:metrics (infra's and flux's own tools)
+#   tomli           the dies checkers' `--with tomli>=2.0` (3.14 has tomllib; kept so the set is the chains')
+#   jsonschema      dies:schema, dies:findings, dies:schemas
+#   ansible-core    ops:ansible (ansible-playbook --syntax-check)
+#   ansible-lint    ops:ansible
+#   copier          template:render-matrix (checks.CopierVersion; a test holds the two equal)
+pyyaml
+tomli>=2.0
+jsonschema>=4.20
+ansible-core
+ansible-lint
+copier==9.18.2

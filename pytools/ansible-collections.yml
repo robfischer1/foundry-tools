@@ -1,0 +1,21 @@
+---
+# THE ANSIBLE COLLECTIONS THE TOOLS CONTAINER CARRIES (atoms_tools_python.go).
+# ops:ansible syntax-checks a tree whose playbooks name modules from these, and
+# a module ansible-core cannot find is a load-time failure, so the collections
+# are installed into the image at BUILD time (with a retry for galaxy's cold-miss
+# 404s, which the chain paid on a run that changed nothing about them) instead
+# of per atom run.
+#
+# THIS MIRRORS THE GRADED TREE'S DECLARATION: infra's ansible/requirements.yml.
+# ops:ansible compares what the tree declares with what this layer provisioned
+# and settles could-not-run, naming the difference, when they part; bump the two
+# together.
+collections:
+  - name: community.routeros
+    version: "3.22.0"
+  - name: vyos.vyos
+    version: "6.0.0"
+  - name: ansible.netcommon
+    version: "8.6.2"
+  - name: ansible.utils
+    version: "6.1.0"

@@ -188,7 +188,9 @@ func uvPython(tool string, args ...string) []string {
 // scripts that are BROKEN. The report severity counts the rest.
 //
 // shellcheck comes from the shellcheck-py wheel through uvx, the one
-// distribution of the binary the fleet's index carries; the --version probe
+// distribution of the binary the fleet's index carries, PINNED to the wheel that
+// wraps the shellcheck the atoms binary runs (checks.ShellcheckPyVersion), so
+// the chain and the binary cannot grade with two versions; the --version probe
 // under the default Expect is the provisioning step.
 func opsShell(ctx context.Context, r *run) checks.Verdict {
 	return opsAtom(ctx, r, "ops:shell", opsShellPhase, func(ctr *dagger.Container) (*dagger.Container, error) {
@@ -196,7 +198,7 @@ func opsShell(ctx context.Context, r *run) checks.Verdict {
 	})
 }
 
-var shellcheck = []string{"uvx", "--from", "shellcheck-py", "shellcheck"}
+var shellcheck = []string{"uvx", "--from", "shellcheck-py==" + checks.ShellcheckPyVersion, "shellcheck"}
 
 func opsShellPhase(ctx context.Context, ctr *dagger.Container, files []checks.OpsFile) (opsResult, error) {
 	_, grep, code, err := opsRun(ctx, ctr, []string{"git", "grep", "-I", "-n", "-z", "-E", "^#!"})

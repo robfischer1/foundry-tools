@@ -29,6 +29,14 @@ func TestShellcheckPinAgrees(t *testing.T) {
 	}
 }
 
+// The chain's shellcheck-py wheel wraps the shellcheck the binary runs: the wheel's
+// version is the program's version with a packaging revision after it.
+func TestShellcheckPyWrapsThePinnedShellcheck(t *testing.T) {
+	if !strings.HasPrefix(ShellcheckPyVersion, ShellcheckVersion+".") {
+		t.Errorf("shellcheck-py %s does not wrap shellcheck %s", ShellcheckPyVersion, ShellcheckVersion)
+	}
+}
+
 // The tools container's base is a Debian slim image pinned by digest.
 func TestToolsImageIsDebianSlimByDigest(t *testing.T) {
 	if !regexp.MustCompile(`^docker\.io/library/debian:bookworm-slim@sha256:[0-9a-f]{64}$`).MatchString(ImageTools) {

@@ -67,8 +67,8 @@ func TestOpsAtomsRunOnTheTrackedTree(t *testing.T) {
 		[]string{"withExec", `args:["git","config","--local","ca.snapshot","ops-tracked"]`},
 		[]string{"withExec", `args:["git","add","-A"]`},
 		[]string{"withEnvVariable", `name:"UV_INDEX_URL"`, `value:"` + checks.OpsUVIndex + `"`},
-		[]string{"withExec", `args:["uvx","--from","shellcheck-py","shellcheck","--version"]`},
-		[]string{"withExec", "expect:ANY", `args:["uvx","--from","shellcheck-py","shellcheck","-S","error","-f","gcc","ci/run.sh"]`},
+		[]string{"withExec", `args:["uvx","--from","shellcheck-py==` + checks.ShellcheckPyVersion + `","shellcheck","--version"]`},
+		[]string{"withExec", "expect:ANY", `args:["uvx","--from","shellcheck-py==` + checks.ShellcheckPyVersion + `","shellcheck","-S","error","-f","gcc","ci/run.sh"]`},
 	)
 	if engine.chain(`filter(`, `gitignore:true`, `exclude:[".git"]`, "id") == "" {
 		t.Errorf("ops:shell must mount the gitignore-filtered tree:\n%s", strings.Join(engine.chains(), "\n"))

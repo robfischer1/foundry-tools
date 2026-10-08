@@ -67,17 +67,20 @@ func TestBuiltinIsThePortedAtomsInOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The four of the first cut lead, in their order; the eighteen ported after,
-	// and the ten that exec a pinned tool among them by family.
+	// the ten that exec a pinned tool among them by family, and the thirteen that
+	// run python among those, by family.
 	want := []string{
 		"fleet:check-yaml", "fleet:check-added-large-files", "fleet:check-merge-conflict", "fleet:stop-justifications",
 		"fleet:sast-ruleset-lanes", "fleet:copier-answers-intact", "fleet:ourea-config-retired-keys", "fleet:retired-verbs",
 		"fleet:orbit-drift", "fleet:dagger-lockstep", "fleet:node-kinds-declared", "fleet:consumed-events-emitted",
-		"fleet:opengrep-sast", "fleet:hadolint",
+		"fleet:opengrep-sast", "fleet:hadolint", "fleet:wit-topics",
 		"compose:no-tracked-secrets", "compose:third-party-pins", "compose:config",
 		"dies:data-keys", "dies:canonical", "dies:refusal-codes", "dies:opa-test", "dies:admission-dogfood", "dies:canary-visibility",
+		"dies:contracts", "dies:contract-copies", "dies:schema", "dies:findings", "dies:schemas",
+		"dies:wit-regenerated", "dies:schema-rendered",
 		"orbit:contracts", "orbit:sidecars", "orbit:repo",
-		"ops:orbit-composed", "ops:yaml", "ops:shell", "ops:chezmoi", "ops:flux",
-		"wit:validate",
+		"ops:orbit-composed", "ops:yaml", "ops:shell", "ops:chezmoi", "ops:flux", "ops:dup", "ops:declaration", "ops:metrics", "ops:ansible",
+		"template:render-matrix", "wit:validate",
 	}
 	if got := reg.IDs(); fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("ids %q, want %q", got, want)

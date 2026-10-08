@@ -9,8 +9,7 @@ import (
 
 // toolFake stands in for the programs on PATH through Input.Exec: it answers
 // each call from a script, records it, and fails the test for a program the
-// tools container does not carry (Programs, plus uv, whose atom is not in this
-// feature).
+// tools container does not carry (Programs).
 type toolFake struct {
 	t      *testing.T
 	calls  []Cmd
@@ -19,7 +18,7 @@ type toolFake struct {
 
 func (f *toolFake) exec(_ context.Context, c Cmd) (string, int) {
 	f.t.Helper()
-	if !slices.Contains(Programs, c.Name) && c.Name != "uv" {
+	if !slices.Contains(Programs, c.Name) {
 		f.t.Errorf("exec of %q: no layer of the tools container carries it", c.Name)
 	}
 	f.calls = append(f.calls, c)

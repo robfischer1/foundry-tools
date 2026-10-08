@@ -20,14 +20,18 @@ func TestStageIDs(t *testing.T) {
 	orbit := []string{"orbit:contracts", "orbit:sidecars", "orbit:repo"}
 	prepush := []string{
 		"fleet:orbit-drift", "fleet:dagger-lockstep", "fleet:node-kinds-declared", "fleet:consumed-events-emitted",
-		"dies:data-keys", "dies:admission-dogfood", "dies:canary-visibility", "ops:orbit-composed", "wit:validate",
+		"dies:data-keys", "dies:admission-dogfood", "dies:canary-visibility", "ops:orbit-composed",
+		"template:render-matrix", "wit:validate",
 	}
 	precommit := []string{
 		"fleet:check-yaml", "fleet:check-added-large-files", "fleet:check-merge-conflict", "fleet:stop-justifications",
 		"fleet:sast-ruleset-lanes", "fleet:copier-answers-intact", "fleet:ourea-config-retired-keys", "fleet:retired-verbs",
-		"fleet:opengrep-sast", "fleet:hadolint",
+		"fleet:opengrep-sast", "fleet:hadolint", "fleet:wit-topics",
 		"compose:no-tracked-secrets", "compose:third-party-pins", "compose:config",
-		"dies:canonical", "dies:refusal-codes", "dies:opa-test", "ops:yaml", "ops:shell", "ops:chezmoi", "ops:flux",
+		"dies:canonical", "dies:refusal-codes", "dies:opa-test",
+		"dies:contracts", "dies:contract-copies", "dies:schema", "dies:findings", "dies:schemas",
+		"dies:wit-regenerated", "dies:schema-rendered",
+		"ops:yaml", "ops:shell", "ops:chezmoi", "ops:flux", "ops:dup", "ops:declaration", "ops:metrics", "ops:ansible",
 	}
 	for _, tc := range []struct {
 		stage string
@@ -73,28 +77,22 @@ func TestEveryBuiltinAtomIsAtAStageAShadowedLaneGrades(t *testing.T) {
 	}
 }
 
-// Atoms that exec a tool no container provisions yet say so, so a voting or
+// Atoms that exec a tool no container provisions say so, so a voting or
 // local-hook set can leave them out mechanically. The tools container carries
-// opa, orbitparse and the rest of the pinned set, so only uv's atom is marked.
+// every program the atoms exec (the pinned tools, and the python layers' venv),
+// so no atom is marked, and the mechanism keeps all of them.
 func TestToolMarker(t *testing.T) {
-	want := map[string]string{"dies:refusal-codes": "uv"}
-	got := map[string]string{}
 	for _, a := range Builtin() {
 		if a.Tool != "" {
-			got[a.ID] = a.Tool
+			t.Errorf("%s is marked as needing %s, which the tools container provisions", a.ID, a.Tool)
 		}
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("tool atoms %v, want %v", got, want)
-	}
-	free := WithoutTools(Builtin())
-	if len(free) != len(Builtin())-len(want) {
+	if free := WithoutTools(Builtin()); len(free) != len(Builtin()) {
 		t.Errorf("WithoutTools kept %d of %d", len(free), len(Builtin()))
 	}
-	for _, a := range free {
-		if _, tooled := want[a.ID]; tooled {
-			t.Errorf("%s needs a tool and was kept", a.ID)
-		}
+	marked := []Atom{{ID: "a", Tool: "x"}, {ID: "b"}}
+	if got := WithoutTools(marked); len(got) != 1 || got[0].ID != "b" {
+		t.Errorf("WithoutTools kept %v, want only the atom with no tool", got)
 	}
 }
 
@@ -242,6 +240,9 @@ func TestRunProgram(t *testing.T) {
 		{"failure adds stderr", Cmd{Name: "sh", Args: []string{"-c", script + "3"}}, "out\nerr", 3},
 		{"both is both streams, untrimmed, on success", Cmd{Name: "sh", Args: []string{"-c", script + "0"}, Both: true}, "out\nerr\n", 0},
 		{"both keeps the exit code of a failure", Cmd{Name: "sh", Args: []string{"-c", script + "3"}, Both: true}, "out\nerr\n", 3},
+		{"stdout only is stdout alone, untrimmed, on success", Cmd{Name: "sh", Args: []string{"-c", script + "0"}, StdoutOnly: true}, "out\n", 0},
+		{"stdout only leaves stderr out of a failure", Cmd{Name: "sh", Args: []string{"-c", script + "3"}, StdoutOnly: true}, "out\n", 3},
+		{"stdout only outranks both", Cmd{Name: "sh", Args: []string{"-c", script + "0"}, StdoutOnly: true, Both: true}, "out\n", 0},
 		{"a program that will not start is exit -1", Cmd{Name: "no-such-program-here"}, "no-such-program-here: ", -1},
 		{"Env is added to the environment", Cmd{Name: "sh", Args: []string{"-c", "echo $ATOMS_T"}, Env: []string{"ATOMS_T=set"}}, "set", 0},
 		{"without Env the variable is unset", Cmd{Name: "sh", Args: []string{"-c", "echo ${ATOMS_T-unset}"}}, "unset", 0},
