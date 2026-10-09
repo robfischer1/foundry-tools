@@ -377,3 +377,31 @@ func TestTheScopeLineNeverCallsABoundTagUncompiled(t *testing.T) {
 		t.Errorf("UncompiledTags = %v, want only the tag no vocabulary names", uncompiled)
 	}
 }
+
+// THE TEST SERVER RUNS NON-DURABLE, and through the image's own entrypoint:
+// the first word is `postgres` (docker-entrypoint.sh initialises the cluster,
+// then execs it), and every durability switch the throwaway does not need is
+// off. A flag dropped here does not fail any suite — it silently brings back
+// the fsync and checkpoint I/O every mutant paid for (ServerArgs' doc).
+func TestTheTestServerRunsNonDurable(t *testing.T) {
+	for _, d := range TestDBs {
+		args := d.ServerArgs()
+		if len(args) == 0 || args[0] != "postgres" {
+			t.Fatalf("%s: ServerArgs must start the image's postgres through the entrypoint: %q", d.Tag, args)
+		}
+		got := map[string]bool{}
+		for i := 1; i < len(args); i++ {
+			if args[i-1] == "-c" {
+				got[args[i]] = true
+			}
+		}
+		for _, want := range []string{
+			"fsync=off", "synchronous_commit=off", "full_page_writes=off",
+			"checkpoint_timeout=1d", "max_wal_size=2GB",
+		} {
+			if !got[want] {
+				t.Errorf("%s: ServerArgs lacks -c %s: %q", d.Tag, want, args)
+			}
+		}
+	}
+}

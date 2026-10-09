@@ -289,7 +289,11 @@ func (r *run) withTestDatabases(ctx context.Context, ctr *dagger.Container, scop
 			// this env var is what makes it a second server.
 			base = base.WithEnvVariable("FOUNDRY_TEST_DB_LANE", scope)
 		}
+		// NON-DURABLE, through the entrypoint: checks.TestDB.ServerArgs carries
+		// the flags and the measurements. WithDefaultArgs, never WithExec — a
+		// service built on a WithExec never reads ready (TestBroker.StartArgs).
 		svc := base.WithExposedPort(5432).
+			WithDefaultArgs(d.ServerArgs()).
 			AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true})
 		ctr = ctr.WithServiceBinding(d.AliasFor(scope), svc).WithEnvVariable(d.Env, d.DSNFor(scope))
 	}
