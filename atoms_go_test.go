@@ -1661,3 +1661,42 @@ func TestTheStatementOperatorIsNotDisabledByAccident(t *testing.T) {
 		t.Errorf("goMutationDisable %q contains INCREMENT_DECREMENT as a substring of some other entry", goMutationDisable)
 	}
 }
+
+// The go lane compiles once and the compiling analysers branch from that build:
+// vet and staticcheck each carry the same `go build ./...` — under anyExit, so
+// a compile error stays vet's to report (the fake engine matches a script by
+// substring of the whole chain, so that cannot be shown by scripting the
+// build's exit here) — between the download and their own tool, and go:build is
+// the one atom whose verdict reads it. govulncheck gains nothing from the warm
+// build (measured 8.4s alone, 13.2s behind it), so it branches from the
+// download.
+func TestGoAnalysersBranchFromOneWarmBuild(t *testing.T) {
+	for _, tc := range []struct{ id, exec string }{
+		{"go:vet", `"go","vet"`},
+		{"go:staticcheck", `"staticcheck","-checks"`},
+	} {
+		engine.reset()
+		engine.withTree(everyLaneTree)
+		wantState(t, runAtom(t, tc.id, ""), 0)
+		c := engine.chain(tc.exec, "exitCode")
+		download := lastCall(c, "withExec", `args:["go","mod","download"]`)
+		build := lastCall(c, "withExec", `expect:ANY`, `args:["go","build","./..."]`)
+		tool := lastCall(c, "withExec", tc.exec)
+		if download < 0 || build < 0 || tool < 0 || download >= build || build >= tool {
+			t.Errorf("%s: want download, then the warm build, then the tool (got %d, %d, %d):\n%s", tc.id, download, build, tool, c)
+		}
+		if n := strings.Count(c, `"go","build"`); n != 1 {
+			t.Errorf("%s: the chain builds %d times, want once:\n%s", tc.id, n, c)
+		}
+	}
+}
+
+// govulncheck does not wait on the warm build.
+func TestGoGovulncheckDoesNotBranchFromTheWarmBuild(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	wantState(t, runAtom(t, "go:govulncheck", ""), 0)
+	if c := engine.chain(`"govulncheck","./..."`, "exitCode"); strings.Contains(c, `"go","build"`) {
+		t.Errorf("govulncheck carries the warm build:\n%s", c)
+	}
+}

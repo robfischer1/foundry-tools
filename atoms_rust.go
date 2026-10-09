@@ -170,12 +170,13 @@ func rustCargoTest(ctx context.Context, r *run) checks.Verdict {
 
 // cargo audit reports no known vulnerability.
 //
-// CARGO-AUDIT IS BAKED INTO rust-ci. The body this ports ran `cargo install
-// cargo-audit --locked` first — a no-op for the binary, which the image
-// already carries, that still resolved the whole registry index before
-// deciding so. The provisioning step is now the PROBE: `cargo audit --version`
-// under the default Expect, so an image that lost the binary is state 2 with
-// the exec's own error rather than a green from a tool that never ran.
+// CARGO-AUDIT IS A LAYER OF THE LANE (provision: `cargo install --locked` at
+// its pin). The body this ports ran `cargo install cargo-audit --locked`
+// first — a no-op for an installed binary that still resolved the whole
+// registry index before deciding so. The check is now the PROBE:
+// `cargo audit --version` under the default Expect, so a lane that lost the
+// binary is state 2 with the exec's own error rather than a green from a tool
+// that never ran.
 //
 // The tool's exit code reaches the verdict unmapped, unlike the three cargo
 // subcommands above: `cargo audit` is an external subcommand cargo execs and

@@ -104,11 +104,31 @@ func (r *run) eachModule(ctx context.Context, a checks.AtomDef, one func(dir str
 	return checks.FoldModules(a, mods)
 }
 
+// goBuilt is goModules with the module compiled once: `go build ./...` under
+// anyExit, so the shared GOCACHE volume holds every package the tree and its
+// dependencies need before the analysers read them.
+//
+// ONE COMPILE, SHARED BY CONTENT. The build, vet, staticcheck and govulncheck
+// atoms all branch from this container; the engine keys the exec on its
+// inputs, so the four atoms (and the warm-up they would each have paid for)
+// cost one build, not four concurrent ones racing to fill the same cache.
+// vet, staticcheck and govulncheck then run side by side against a warm cache.
+// The race suite stays beside them rather than behind: it compiles with -race,
+// which a plain build does not warm.
+//
+// THE WARM-UP CANNOT MOVE A VERDICT. It runs under anyExit, so a build that
+// fails (a compile error, a finding for the build atom) lets the chain carry on, and
+// vet still reports the compile error it always did. Only go:build reads this
+// exec's exit code.
+func (r *run) goBuilt(dir string) *dagger.Container {
+	return r.goModules(dir).WithExec([]string{"go", "build", "./..."}, anyExit)
+}
+
 // go vet ./... reports nothing.
 func goVet(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("go:vet")
 	return r.eachModule(ctx, a, func(dir string) checks.Verdict {
-		return verdict(ctx, a, r.goModules(dir).WithExec([]string{"go", "vet", "./..."}, anyExit))
+		return verdict(ctx, a, r.goBuilt(dir).WithExec([]string{"go", "vet", "./..."}, anyExit))
 	})
 }
 
@@ -399,7 +419,7 @@ const gofmtArgFile = "/tmp/gofmt-files0"
 func goBuild(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("go:build")
 	return r.eachModule(ctx, a, func(dir string) checks.Verdict {
-		return verdict(ctx, a, r.goModules(dir).WithExec([]string{"go", "build", "./..."}, anyExit))
+		return verdict(ctx, a, r.goBuilt(dir))
 	})
 }
 
@@ -621,14 +641,13 @@ func (r *run) releaseBuild(ctx context.Context, plan checks.ReleasePlan) (*dagge
 
 // staticcheck ./... reports nothing.
 //
-// THE BINARY IS BAKED INTO go-ci, at /go/bin and on PATH (measured inside the
-// engine 2026-09-09, with opengrep and govulncheck beside it). The old script
-// ran `go install honnef.co/go/tools/cmd/staticcheck@latest` first — a compile
-// of the whole analysis suite, on every atom, on every gate, for a binary the
-// image already carries — and `@latest` meant the gate's check set was whatever
-// honnef published that morning rather than what the pin declared. The version
-// probe below replaces it: its own exec under the DEFAULT Expect, so an image
-// that lost the binary is state 2. The engine ends the "CANNOT RUN when not
+// THE BINARY IS A LAYER OF THE LANE (provision: `go install` at the pin, then
+// on PATH). The old script ran `go install honnef.co/go/tools/cmd/staticcheck@latest`
+// first — a compile of the whole analysis suite, on every atom, on every
+// gate — and `@latest` meant the gate's check set was whatever honnef
+// published that morning rather than what the pin declared. The version
+// probe below checks the layer: its own exec under the DEFAULT Expect, so a
+// lane that lost the binary is state 2. The engine ends the "CANNOT RUN when not
 // installed locally" branch this check has carried since it was a pre-push
 // hook — the toolchain is the module's now — but it does not end it by letting
 // an absent tool answer "fine".
@@ -647,7 +666,7 @@ func (r *run) releaseBuild(ctx context.Context, plan checks.ReleasePlan) (*dagge
 func goStaticcheck(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("go:staticcheck")
 	return r.eachModule(ctx, a, func(dir string) checks.Verdict {
-		return verdict(ctx, a, r.goModules(dir).
+		return verdict(ctx, a, r.goBuilt(dir).
 			WithExec([]string{"staticcheck", "-version"}).
 			WithExec([]string{"staticcheck", "-checks", staticcheckChecks, "./..."}, anyExit))
 	})
@@ -660,10 +679,10 @@ const staticcheckChecks = "all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-
 
 // govulncheck ./... reports no known vulnerability.
 //
-// BAKED, LIKE staticcheck. The old script `go install`ed
-// golang.org/x/vuln/cmd/govulncheck@latest on every run for a binary go-ci
-// already carries in /go/bin; the version probe is the provisioning step in its
-// place, its own exec under the default Expect.
+// A LAYER, LIKE staticcheck. The old script `go install`ed
+// golang.org/x/vuln/cmd/govulncheck@latest on every run; the lane now installs
+// it once at its pin, and the version probe is the check in its place, its own
+// exec under the default Expect.
 //
 // THE MODULES ARE DOWNLOADED FIRST, which the old script did NOT do — it
 // guarded the install and nothing else. govulncheck loads the package graph
