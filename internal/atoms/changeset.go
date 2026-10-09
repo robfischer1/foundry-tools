@@ -32,6 +32,7 @@ func git(ctx context.Context, root string, args ...string) (string, int) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
+	chargeChild(ctx, cmd.ProcessState)
 	if err == nil {
 		return stdout.String(), 0
 	}

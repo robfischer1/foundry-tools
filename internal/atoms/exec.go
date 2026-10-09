@@ -113,6 +113,7 @@ func RunProgram(ctx context.Context, c Cmd) (string, int) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
+	chargeChild(ctx, cmd.ProcessState)
 	code := 0
 	if err != nil {
 		ee := new(exec.ExitError)

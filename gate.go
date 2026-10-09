@@ -208,8 +208,13 @@ func (m *FoundryTools) GateFile(
 // the exit code was computed from.
 func (m *FoundryTools) gateStage(ctx context.Context, tree, stage, base string) *StageResult {
 	lane := laneOf(stage)
-	vector, _ := m.gradeTree(ctx, lane, tree, gradedStage(stage), base)
-	return stageResult(checks.SettleStage(lane, vector))
+	// The binary's own CPU is tallied over every run of it this stage casts
+	// (atoms_cpu.go): the pull path runs it once per stage it grades.
+	tally := new(cpuTally)
+	vector, _ := m.gradeTree(withTally(ctx, tally), lane, tree, gradedStage(stage), base)
+	result := stageResult(checks.SettleStage(lane, vector))
+	result.stageCPU = tally.total()
+	return result
 }
 
 // StageMutationBg is the background mutation lane's stage (hook-check

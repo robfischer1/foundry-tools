@@ -96,6 +96,11 @@ type Verdict struct {
 	// Audit is a mutation atom's soundness audit (audit.go): "match", or
 	// "mismatch: <units>", on a sampled reuse run; empty on every other.
 	Audit string `json:"audit,omitempty"`
+	// CPUMs is the CPU the atom spent, in milliseconds: its share of the atoms
+	// binary's process (a CPU profile, by the atom's goroutine label) plus the
+	// programs it ran. NIL IS NOT KNOWN, never zero: a chain's atom, one that
+	// never started, one whose profile would not start and that ran no program.
+	CPUMs *int64 `json:"cpu_ms,omitempty"`
 }
 
 // VerdictOf builds one element of the vector from a raw exit code.

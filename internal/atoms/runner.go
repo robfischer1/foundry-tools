@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"runtime/pprof"
 	"sync"
 	"time"
 
@@ -24,6 +25,9 @@ type Options struct {
 	Timeout time.Duration
 	// Clock stamps StartedAt and FinishedAt; nil is time.Now.
 	Clock func() time.Time
+	// CPU is charged with what each atom's programs cost (cpu.go); nil
+	// charges nothing.
+	CPU *Meter
 }
 
 // Execute answers the registry's vector: one verdict per atom, IN REGISTRY ORDER
@@ -57,7 +61,7 @@ func Execute(ctx context.Context, reg *Registry, in Input, opt Options) []checks
 		wg.Go(func() {
 			for i := range jobs {
 				started := clock()
-				v, ran := settle(ctx, reg.entries[i], in, timeout)
+				v, ran := settle(ctx, reg.entries[i], in, timeout, opt.CPU)
 				if ran {
 					v = checks.Timed(v, started, clock())
 				}
@@ -74,7 +78,7 @@ func Execute(ctx context.Context, reg *Registry, in Input, opt Options) []checks
 }
 
 // settle answers one atom's verdict, and whether the atom was actually started.
-func settle(ctx context.Context, e entry, in Input, timeout time.Duration) (checks.Verdict, bool) {
+func settle(ctx context.Context, e entry, in Input, timeout time.Duration, cpu *Meter) (checks.Verdict, bool) {
 	id := e.def.ID
 	if e.atom.Scope == ScopeChanged {
 		if in.ChangedErr != nil {
@@ -102,7 +106,12 @@ func settle(ctx context.Context, e entry, in Input, timeout time.Duration) (chec
 					"%s: CANNOT RUN - the atom panicked: %v", id, p))
 			}
 		}()
-		done <- e.atom.Run(ctx, e.def, in)
+		// THE ATOM'S GOROUTINE CARRIES ITS ID as a profile label, and every
+		// goroutine it starts inherits it (cpu.go); its context carries the
+		// meter its programs are charged to.
+		pprof.Do(withMeter(ctx, cpu, id), pprof.Labels(cpuLabel, id), func(ctx context.Context) {
+			done <- e.atom.Run(ctx, e.def, in)
+		})
 	}()
 	select {
 	case v := <-done:

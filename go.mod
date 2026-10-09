@@ -7,6 +7,7 @@ require (
 	github.com/Khan/genqlient v0.8.1
 	github.com/dagger/otel-go v1.43.0
 	github.com/dagger/querybuilder v0.0.0-20260402040506-574a5e81cb59
+	github.com/google/pprof v0.0.0-20260115054156-294ebfa9ad83
 	github.com/vektah/gqlparser/v2 v2.5.62
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/trace v1.46.0

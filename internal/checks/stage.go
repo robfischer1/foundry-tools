@@ -52,6 +52,9 @@ type StageAtom struct {
 	// reason.
 	Gradings []Grading
 	Audit    string
+	// The atom's CPU in milliseconds, carried through for the same reason;
+	// nil is not known.
+	CPUMs *int64
 }
 
 // Stage is a stage's settled answer.
@@ -108,7 +111,7 @@ func SettleStage(name string, vs []Verdict, unreached ...string) Stage {
 			}
 			a := StageAtom{Atom: v.Atom, Group: group, State: v.State, Result: v.Result, Reason: v.Reason,
 				Logs: v.Logs, Truncated: v.Truncated, OriginalBytes: v.OriginalBytes,
-				Findings: v.Findings, StartedAt: v.StartedAt, FinishedAt: v.FinishedAt, Gradings: v.Gradings, Audit: v.Audit}
+				Findings: v.Findings, StartedAt: v.StartedAt, FinishedAt: v.FinishedAt, Gradings: v.Gradings, Audit: v.Audit, CPUMs: v.CPUMs}
 			if v.Result == "absent" {
 				st.Omitted = append(st.Omitted, a)
 				continue
