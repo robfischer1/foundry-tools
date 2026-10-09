@@ -144,3 +144,55 @@ func TestRustMutationWithNothingToMutateSettlesBeforeProvisioning(t *testing.T) 
 		})
 	}
 }
+
+// EACH SCOPE LINE IS ITS OWN, on every branch of the reads: the database line
+// and the broker line both say why, and a reason one of them carries must not
+// pass for the other's. Held on go:test-race (withTestDatabases and
+// withTestBrokers, bound) and on go:mutation's early exit (the reads alone).
+func TestTheTestServerScopeLinesSayWhyOnEveryBranch(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		tree  map[string]string
+		grep  func()
+		lines []string
+	}{
+		{"no service name", map[string]string{".copier-answers.yml": "critical_modules: \n"}, nil, []string{
+			"test databases: none — no service_name in .copier-answers.yml",
+			"test brokers: none — no service_name in .copier-answers.yml",
+		}},
+		{"no record", map[string]string{
+			".copier-answers.yml":           "service_name: nobody\n",
+			"/dies/fleet/stars/x/slag.json": `{"backends":{"postgres":{}}}`, // someone else's
+		}, nil, []string{
+			"test databases: none — no record at fleet/stars/nobody/slag.json",
+			"test brokers: none",
+		}},
+		{"tags unreadable", map[string]string{
+			".copier-answers.yml":           "service_name: x\n",
+			"/dies/fleet/stars/x/slag.json": `{"backends":{"postgres":{}}}`,
+		}, func() { engine.exitCode(`"grep","-rhoE"`, 2) }, []string{
+			"test databases: none — the tree's build tags could not be read",
+			"test brokers: none",
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, atom := range []string{"go:test-race", "go:mutation"} {
+				engine.reset()
+				engine.withTree(everyLaneTree)
+				engine.withTree(tc.tree)
+				engine.stdout(`"go","list"`, "11\n")
+				engine.stdout(mergeBaseNeedle, sinceSha+"\n")
+				engine.stdout(goDiffNeedle, "")
+				if tc.grep != nil {
+					tc.grep()
+				}
+				v := runAtom(t, atom, "abc123")
+				for _, want := range tc.lines {
+					if !strings.Contains(v.Reason, want) {
+						t.Errorf("%s: reason lacks %q:\n%s", atom, want, v.Reason)
+					}
+				}
+			}
+		})
+	}
+}

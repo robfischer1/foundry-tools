@@ -98,29 +98,17 @@ func Run(pairs []Pair, cmd []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// copyFile copies src to dst with src's mode, making dst's directory.
+// copyFile copies src to dst as an executable (0755: every output carried is
+// a binary or a module a later exec reads), making dst's directory.
 func copyFile(src, dst string) error {
-	in, err := os.Open(src)
+	data, err := os.ReadFile(src)
 	if err != nil {
 		return err
 	}
-	defer in.Close()
-	info, err := in.Stat()
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, info.Mode().Perm())
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		return err
-	}
-	return out.Close()
+	// A directory that cannot be made fails the write below with its own
+	// error, so this one is not checked twice.
+	_ = os.MkdirAll(filepath.Dir(dst), 0o755)
+	return os.WriteFile(dst, data, 0o755)
 }
 
 // exitCode is a waited command's code as a shell would report it.
