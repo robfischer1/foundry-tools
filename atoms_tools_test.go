@@ -91,8 +91,9 @@ func TestEveryPinnedToolHasOneVerifiedSource(t *testing.T) {
 			t.Errorf("%s: the tarball member %q is a different program", tool.name, tool.member)
 		}
 	}
-	// The set of checksummed URLs is exactly the set of release assets fetched.
-	var fetched []string
+	// The set of checksummed URLs is exactly the set of release assets fetched:
+	// the tools, and the python layer's interpreter.
+	fetched := []string{checks.PythonStandaloneURL}
 	for _, tool := range pinnedTools {
 		if tool.url != "" {
 			fetched = append(fetched, tool.url)
@@ -372,11 +373,14 @@ func TestAtomsToolsBuildsThePythonLayersFromTheLock(t *testing.T) {
 		t.Fatalf("no stage installed the collections; the engine saw:\n%s", strings.Join(engine.chains(), "\n"))
 	}
 	wantCalls(t, stage,
-		[]string{"withEnvVariable", `name:"UV_PYTHON_INSTALL_DIR"`, `value:"/opt/uv-python"`},
+		// The interpreter is the pinned release, fetched by the engine and checked
+		// before it is unpacked; uv is told never to fetch one.
+		[]string{"withExec", `"sha256sum","-c","/tmp/python.sha256"`},
+		[]string{"withExec", `"tar","xzf","/tmp/python.tar.gz","-C","/opt/python","--strip-components=1"`},
 		[]string{"withEnvVariable", `name:"UV_NATIVE_TLS"`, `value:"1"`},
+		[]string{"withEnvVariable", `name:"UV_PYTHON_DOWNLOADS"`, `value:"never"`},
 		[]string{"withFile", `path:"/usr/local/bin/uv"`},
-		[]string{"withExec", `args:["uv","python","install","` + checks.FleetPython + `"]`},
-		[]string{"withExec", `"uv","venv","/opt/atoms-py"`, `"--managed-python"`},
+		[]string{"withExec", `"uv","venv","/opt/atoms-py","--python","/opt/python/bin/python3"`},
 		[]string{"withFile", `path:"/tmp/pytools/requirements.txt"`},
 		// The install is the lock's: hashes required, nothing built, so a wheel
 		// that does not match is a failed build and not a different program.
@@ -393,7 +397,7 @@ func TestAtomsToolsBuildsThePythonLayersFromTheLock(t *testing.T) {
 	}
 	// Each step needs the one before it.
 	prev := -1
-	for _, needle := range []string{`"uv","--version"`, `"uv","python","install"`, `"uv","venv"`, `"uv","pip","install"`, `"import yaml`, `"collection","install"`} {
+	for _, needle := range []string{`"/tmp/python.sha256"`, `"uv","--version"`, `"uv","venv"`, `"uv","pip","install"`, `"import yaml`, `"collection","install"`} {
 		at := strings.Index(stage, needle)
 		if at < prev {
 			t.Errorf("%s is applied before the step it depends on:\n%s", needle, stage)
@@ -406,7 +410,7 @@ func TestAtomsToolsBuildsThePythonLayersFromTheLock(t *testing.T) {
 
 	c := engine.chain(`path:"/usr/local/bin/atoms"`)
 	order := []string{
-		`path:"/usr/local/bin/orbitparse"`, `path:"/usr/local/bin/uv"`, `path:"/opt/uv-python"`,
+		`path:"/usr/local/bin/orbitparse"`, `path:"/usr/local/bin/uv"`, `path:"/opt/python"`,
 		`path:"/opt/atoms-py"`, `path:"/opt/ansible-collections"`, `path:"/usr/local/bin/atoms"`,
 	}
 	prev = -1
@@ -421,7 +425,7 @@ func TestAtomsToolsBuildsThePythonLayersFromTheLock(t *testing.T) {
 	if at, bin := strings.Index(c, `name:"PATH"`), strings.Index(c, `path:"/opt/atoms-py"`); at < bin {
 		t.Errorf("the PATH is set before the venv it names is there")
 	}
-	for _, dir := range []string{"/opt/uv-python", "/opt/atoms-py", "/opt/ansible-collections"} {
+	for _, dir := range []string{"/opt/python", "/opt/atoms-py", "/opt/ansible-collections"} {
 		if engine.chain(`directory(path:"`+dir+`")`, "id") == "" {
 			t.Errorf("%s is not taken from its stage", dir)
 		}
@@ -528,12 +532,14 @@ func TestAPythonStageThatFailsIsLeftOutWithTheOnesAboveIt(t *testing.T) {
 		absent  []string
 		path    bool
 	}{
-		{"the interpreter", func() { engine.failLeaf(`"uv","python","install"`, "sync", "download failed") },
-			"the python interpreter", nil, []string{"/usr/local/bin/uv", "/opt/uv-python", "/opt/atoms-py", "/opt/ansible-collections"}, false},
+		{"the interpreter", func() { engine.failLeaf(`"/opt/python/bin/python3","--version"`, "sync", "download failed") },
+			"the python interpreter", nil, []string{"/usr/local/bin/uv", "/opt/python", "/opt/atoms-py", "/opt/ansible-collections"}, false},
+		{"the venv", func() { engine.failLeaf(`"uv","venv"`, "sync", "no interpreter") },
+			"the python interpreter", nil, []string{"/usr/local/bin/uv", "/opt/python", "/opt/atoms-py", "/opt/ansible-collections"}, false},
 		{"the packages", func() { engine.failLeaf(`"--require-hashes"`, "sync", "hash mismatch") },
-			"the python packages", []string{"/usr/local/bin/uv", "/opt/uv-python"}, []string{"/opt/atoms-py", "/opt/ansible-collections"}, false},
+			"the python packages", []string{"/usr/local/bin/uv", "/opt/python"}, []string{"/opt/atoms-py", "/opt/ansible-collections"}, false},
 		{"the collections, after the retry", func() { engine.failLeaf(`"collection","install"`, "sync", "404 Not Found") },
-			"the ansible collections", []string{"/usr/local/bin/uv", "/opt/uv-python", "/opt/atoms-py"}, []string{"/opt/ansible-collections"}, true},
+			"the ansible collections", []string{"/usr/local/bin/uv", "/opt/python", "/opt/atoms-py"}, []string{"/opt/ansible-collections"}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			engine.reset()

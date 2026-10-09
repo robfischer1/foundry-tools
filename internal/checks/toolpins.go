@@ -34,6 +34,14 @@ const (
 	ShellcheckPyVersion = "0.11.0.1"
 )
 
+// PythonStandaloneURL is the CPython the tools container's python layer unpacks:
+// a python-build-standalone install_only_stripped release, the same build
+// `uv python install 3.14` resolves, fetched by the engine like every tool here
+// and checked against ToolSHA256 (the publisher's own SHA256SUMS line, equal to
+// the asset's sum read 2026-10-08). The tools container's uv is told never to
+// download an interpreter of its own.
+const PythonStandaloneURL = "https://github.com/astral-sh/python-build-standalone/releases/download/20260623/cpython-3.14.6%2B20260623-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+
 // ToolSHA256 is the checksum of every URL the tools container fetches, hex.
 // A pin is a version AND a checksum: the engine's HTTP fetch is addressed by
 // URL, so without this a release asset replaced upstream would be installed
@@ -52,4 +60,6 @@ var ToolSHA256 = map[string]string{
 	WasmToolsURL:  "ad62b2176037e93e1348cb65d6212d128ca9f097b63d155569f25215818ff7b1",
 	JustURL:       "4a5cc2f53e6f0f8c59092a6cc38291eb729d46a7dd95d3ae582008881b84931d",
 	ShellcheckURL: "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198",
+
+	PythonStandaloneURL: "c172314f4a8ec137a8f605289010c3d19c8b56867d968f0095074cc68efa1d29",
 }
