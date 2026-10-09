@@ -258,8 +258,7 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 		// golang:bookworm carries git and curl, which is all the go atoms exec
 		// besides the tools below; the mutation gate scores in Go now, so the
 		// python3 go_score.py needed is not installed.
-		return ctr.
-			WithFile("/usr/local/bin/opengrep", dag.HTTP(checks.OpengrepURL), dagger.ContainerWithFileOpts{Permissions: 0o755}).
+		return withOpengrep(ctr).
 			WithExec([]string{"opengrep", "--version"}).
 			WithExec([]string{"go", "install", checks.GomutantsModule}).
 			WithExec([]string{"go", "install", checks.MutationGateModule}).
@@ -278,15 +277,15 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 		// their pytest suite cannot exercise a hook in a lane without it —
 		// measured 2026-10-08, every hook behaviour test red on `which jq`.
 		uv := dag.Container().From(checks.ImageUV)
-		return ctr.
+		ctr = ctr.
 			WithExec([]string{"apt-get", "update"}).
 			WithExec([]string{"apt-get", "install", "-y", "--no-install-recommends", "git", "curl", "ca-certificates"}).
 			WithExec([]string{"apt-get", "install", "-y", "--no-install-recommends", "jq=" + checks.JqDebVersion}).
 			WithExec([]string{"rm", "-rf", "/var/lib/apt/lists"}).
 			WithExec([]string{"jq", "--version"}).
 			WithFile("/usr/local/bin/uv", uv.File("/uv")).
-			WithFile("/usr/local/bin/uvx", uv.File("/uvx")).
-			WithFile("/usr/local/bin/opengrep", dag.HTTP(checks.OpengrepURL), dagger.ContainerWithFileOpts{Permissions: 0o755}).
+			WithFile("/usr/local/bin/uvx", uv.File("/uvx"))
+		return withOpengrep(ctr).
 			WithExec([]string{"uv", "--version"}).
 			WithExec([]string{"opengrep", "--version"})
 	case checks.ImageRust:
@@ -307,7 +306,7 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 		// through it (`mold -run`), and linking was the larger half of a
 		// mutant's build.
 		rustUV := dag.Container().From(checks.ImageUV)
-		return ctr.
+		ctr = ctr.
 			WithExec([]string{"apt-get", "update"}).
 			WithExec([]string{"apt-get", "install", "-y", "--no-install-recommends", "mold"}).
 			WithExec([]string{"rm", "-rf", "/var/lib/apt/lists"}).
@@ -319,8 +318,8 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 			WithEnvVariable("UV_PYTHON_BIN_DIR", "/usr/local/bin").
 			WithExec([]string{"uv", "python", "install", "--default", checks.FleetPython}).
 			WithExec([]string{"python3", "--version"}).
-			WithExec([]string{"rustup", "component", "add", "rustfmt", "clippy"}).
-			WithFile("/usr/local/bin/opengrep", dag.HTTP(checks.OpengrepURL), dagger.ContainerWithFileOpts{Permissions: 0o755}).
+			WithExec([]string{"rustup", "component", "add", "rustfmt", "clippy"})
+		return withOpengrep(ctr).
 			WithExec([]string{"cargo", "install", "cargo-audit", "--locked", "--version", checks.CargoAuditVersion}).
 			WithExec([]string{"cargo", "install", "cargo-mutants", "--locked", "--version", checks.CargoMutantsVersion}).
 			WithExec([]string{"cargo", "install", "cargo-nextest", "--locked", "--version", checks.CargoNextestVersion}).
@@ -338,17 +337,42 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 		// dry run, so every ts:mutation run read CANNOT RUN with no report
 		// (theia #57, 2026-09-13).
 		node := dag.Container().From(checks.ImageNode)
-		return ctr.
+		ctr = ctr.
 			WithUser("root").
 			WithExec([]string{"apt-get", "update"}).
 			WithExec([]string{"apt-get", "install", "-y", "--no-install-recommends", "git", "curl", "ca-certificates", "procps"}).
 			WithExec([]string{"rm", "-rf", "/var/lib/apt/lists"}).
-			WithFile("/usr/local/bin/node", node.File("/usr/local/bin/node")).
-			WithFile("/usr/local/bin/opengrep", dag.HTTP(checks.OpengrepURL), dagger.ContainerWithFileOpts{Permissions: 0o755}).
+			WithFile("/usr/local/bin/node", node.File("/usr/local/bin/node"))
+		return withOpengrep(ctr).
 			WithExec([]string{"node", "--version"}).
 			WithExec([]string{"opengrep", "--version"})
 	}
 	return ctr
+}
+
+// withOpengrep puts opengrep on PATH from its pinned release asset, VERIFIED
+// BY THE ENGINE AT FETCH TIME: the HTTP fetch is addressed by URL alone, so
+// without a checksum an asset replaced upstream would be installed silently.
+// The sum is checks.ToolSHA256's, the one the tools container verifies its copy
+// against. No exec carries it.
+//
+// IT FAILS CLOSED. A mismatch fails the fetch, which verdict() files as state 2
+// for every atom on the lane; a pin with no sum fails the same way, through an
+// exec that cannot succeed, rather than fetching unverified.
+func withOpengrep(ctr *dagger.Container) *dagger.Container {
+	return withOpengrepSums(ctr, checks.ToolSHA256)
+}
+
+// withOpengrepSums is withOpengrep over a named set of pinned sums, so the
+// fail-closed branch can be held by a test with a set that lacks the pin.
+func withOpengrepSums(ctr *dagger.Container, sums map[string]string) *dagger.Container {
+	sum, ok := sums[checks.OpengrepURL]
+	if !ok {
+		return ctr.WithExec([]string{"/bin/false"}) // no checksum pinned: the lane must not provision it
+	}
+	return ctr.WithFile("/usr/local/bin/opengrep",
+		dag.HTTP(checks.OpengrepURL, dagger.HTTPOpts{Checksum: "sha256:" + sum}),
+		dagger.ContainerWithFileOpts{Permissions: 0o755})
 }
 
 // withDies mounts foundry-dies at /dies and names it in the environment: the
@@ -361,7 +385,8 @@ func (r *run) withDies(ctr *dagger.Container) *dagger.Container {
 }
 
 // withBase hands an atom the change set's base. ONLY the atoms that judge the
-// change (fleet:witness, the mutation lane) call this — on every other atom
+// change (fleet:witness, the mutation lane) and the atoms binary's run
+// (atomsVector, once for every atom in it) call this — on every other atom
 // it would make the cache key a function of the pull rather than of the tree.
 func (r *run) withBase(ctr *dagger.Container) *dagger.Container {
 	ctr = ctr.WithEnvVariable("GATE_BASE", r.base)

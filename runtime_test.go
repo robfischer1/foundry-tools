@@ -258,7 +258,7 @@ func TestLanesProvisionTheirToolsPinnedAndInVolatilityOrder(t *testing.T) {
 	c := engine.chain(`"go","vet"`, "exitCode")
 	order(t, c, `from(address:"`+checks.ImageGo+`")`, `path:"/usr/local/bin/opengrep"`,
 		`"go","install","`+checks.GomutantsModule+`"`, `"go","install","`+checks.MutationGateModule+`"`, `"go","install","`+checks.StaticcheckModule+`"`, `"go","install","`+checks.GovulncheckModule+`"`, `withMountedCache`)
-	fetched(t, `http(url:"`+checks.OpengrepURL+`")`)
+	fetched(t, `url:"`+checks.OpengrepURL+`"`)
 	noShell(t, c)
 	// The go lane scores mutation in Go: nothing it runs needs python3, and it
 	// installs no distro package.
@@ -293,6 +293,51 @@ func TestLanesProvisionTheirToolsPinnedAndInVolatilityOrder(t *testing.T) {
 		`path:"/usr/local/bin/opengrep"`, `withMountedCache`)
 	fetched(t, `from(address:"`+checks.ImageNode+`")`)
 	noShell(t, c)
+}
+
+// opengrep is fetched with the engine's own checksum on every lane, from the
+// pinned sum, and no exec carries a verification.
+func TestEveryLaneVerifiesOpengrepAgainstItsPin(t *testing.T) {
+	sum := checks.ToolSHA256[checks.OpengrepURL]
+	if sum == "" {
+		t.Fatal("opengrep has no pinned sha256")
+	}
+	for _, tc := range []struct{ atom, needle string }{
+		{"go:vet", `"go","vet"`},
+		{"python:ruff-check", `"uvx","ruff@`},
+		{"rust:cargo-fmt", `"cargo","fmt"`},
+		{"ts:bun-audit", `"bun","audit"`},
+	} {
+		engine.reset()
+		engine.withTree(everyLaneTree)
+		runAtom(t, tc.atom, "")
+		c := engine.chain(tc.needle, "exitCode")
+		// The fetch is its own query, referred to by id from the lane's chain.
+		if engine.chain(`http(`, `url:"`+checks.OpengrepURL+`"`, `checksum:"sha256:`+sum+`"`) == "" {
+			t.Errorf("%s: the engine was not asked to verify opengrep against %s", tc.atom, sum)
+		}
+		wantCalls(t, c, []string{"withFile", `path:"/usr/local/bin/opengrep"`})
+		if strings.Contains(c, "sha256sum") {
+			t.Errorf("%s: the checksum is the engine's, not an exec:\n%s", tc.atom, c)
+		}
+	}
+}
+
+// A pin with no sum is not fetched unverified: the lane gets an exec that
+// cannot succeed, so every atom on it settles 2.
+func TestOpengrepWithoutAPinnedSumFailsTheLaneClosed(t *testing.T) {
+	engine.reset()
+	engine.fail(`"/bin/false"`, "exit code: 1")
+	c := withOpengrepSums(dag.Container().From("x"), map[string]string{})
+	if _, err := c.Sync(t.Context()); err == nil {
+		t.Error("a lane with no pinned opengrep sum provisioned anyway")
+	}
+	if engine.chain(`http(`, checks.OpengrepURL) != "" {
+		t.Error("opengrep was fetched with nothing to verify it against")
+	}
+	if got := engine.chain(`"/bin/false"`); got == "" {
+		t.Error("the closing exec never reached the engine")
+	}
 }
 
 // THE NARROWING (CA F12). A compile, a vet, a lint or a test suite mounts the

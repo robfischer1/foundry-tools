@@ -391,13 +391,16 @@ func pythonMutation(ctx context.Context, r *run) checks.Verdict {
 	if len(kept) == 0 {
 		return settle(0, "no hand-written python in scope — nothing to mutate")
 	}
-	diff, code, err := output(ctx, ctr.WithExec(append([]string{"git", "diff", "--unified=0", since, "HEAD", "--"}, kept...), anyExit))
+	// The whole tree, with renames paired, narrowed to the kept modules in Go:
+	// a pathspec of the kept modules alone cannot see a file's old path.
+	whole, code, err := output(ctx, ctr.WithExec([]string{"git", "diff", "-M", "--unified=0", since, "HEAD"}, anyExit))
 	if err != nil {
 		return neverRan(err)
 	}
 	if code != 0 {
-		return settle(2, "CANNOT RUN - git could not diff the pull against its base "+since+": "+diff)
+		return settle(2, "CANNOT RUN - git could not diff the pull against its base "+since+": "+whole)
 	}
+	diff := checks.PythonDiffFor(whole, kept)
 	// A PURE-DELETION PULL touches the module and adds no mutable line, and
 	// scope leaves the session intact for it: exec would run every site init
 	// enumerated (oceanus: a two-line deletion became a 43-minute gate).

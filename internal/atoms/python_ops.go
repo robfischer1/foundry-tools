@@ -93,3 +93,23 @@ func opsMetrics(ctx context.Context, a checks.AtomDef, in Input) checks.Verdict 
 		two: "\nmetrics: could not read a keep-list or a source — did not look",
 	})
 }
+
+// opsSpecs: the console read-model specs follow nas01-stacks' emits
+// (tools/console-specs --check, run through the venv's python where the chain
+// ran it under uv with pyyaml). The tool grades itself: 2 is "could not read the
+// source", could-not-run whatever its words were.
+//
+// ITS VERDICT CAN CHANGE WITH NO CHANGE TO THE TREE. With no sibling checkout and
+// no CONSOLE_SPECS_SOURCE, the tool falls back to a LIVE
+// `git clone --depth 1 http://ourea:8215/nas01-stacks.git` and compares the
+// tree's copy to whatever that door holds now. The clone is the tool's own, left
+// explicit rather than moved here: the argv is the chain's, nothing pins or
+// caches a source, and the binary's exec is keyed afresh on every shadow call
+// (CA_REASK), so no earlier answer stands in for this one. An unreachable door is
+// the tool's exit 2: a source nobody read agrees with nothing.
+func opsSpecs(ctx context.Context, a checks.AtomDef, in Input) checks.Verdict {
+	return opsRunChecker(ctx, a, in, opsChecker{
+		phase: "specs", tool: "console-specs", python: "python", args: []string{"--check"},
+		two: "\nspecs: could not read the source — did not look",
+	})
+}

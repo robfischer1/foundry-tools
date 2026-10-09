@@ -17,10 +17,10 @@ import (
 // THE STAGE SELECTS WHAT RUNS. The atoms of a stage are the catalogue's answer
 // (checks.AtomsForStage), narrowed to what the binary carries.
 func TestStageIDs(t *testing.T) {
-	orbit := []string{"orbit:contracts", "orbit:sidecars", "orbit:repo"}
+	orbit := []string{"orbit:contracts", "orbit:surface", "orbit:sidecars", "orbit:repo"}
 	prepush := []string{
-		"fleet:orbit-drift", "fleet:dagger-lockstep", "fleet:node-kinds-declared", "fleet:consumed-events-emitted",
-		"dies:data-keys", "dies:admission-dogfood", "dies:canary-visibility", "ops:orbit-composed",
+		"fleet:orbit-drift", "fleet:dagger-lockstep", "fleet:node-kinds-declared", "fleet:consumed-events-emitted", "fleet:witness",
+		"dies:data-keys", "dies:admission-dogfood", "dies:canary-visibility", "ops:orbit-composed", "ops:orbit-sidecars", "ops:immutable",
 		"template:render-matrix", "wit:validate",
 	}
 	precommit := []string{
@@ -31,7 +31,7 @@ func TestStageIDs(t *testing.T) {
 		"dies:canonical", "dies:refusal-codes", "dies:opa-test",
 		"dies:contracts", "dies:contract-copies", "dies:schema", "dies:findings", "dies:schemas",
 		"dies:wit-regenerated", "dies:schema-rendered",
-		"ops:yaml", "ops:shell", "ops:chezmoi", "ops:flux", "ops:dup", "ops:declaration", "ops:metrics", "ops:ansible",
+		"ops:yaml", "ops:shell", "ops:chezmoi", "ops:flux", "ops:dup", "ops:declaration", "ops:specs", "ops:metrics", "ops:ansible",
 	}
 	for _, tc := range []struct {
 		stage string
@@ -106,7 +106,7 @@ func TestRegistryForStage(t *testing.T) {
 		want    []string
 		wantErr string
 	}{
-		{checks.StageOrbit, []string{"orbit:contracts", "orbit:sidecars", "orbit:repo"}, ""},
+		{checks.StageOrbit, []string{"orbit:contracts", "orbit:surface", "orbit:sidecars", "orbit:repo"}, ""},
 		{checks.StageMutation, nil, `no registered atom belongs to the stage "mutation"`},
 		{"typo", nil, `no registered atom belongs to the stage "typo"`},
 	} {
@@ -155,11 +155,17 @@ func TestRunTakesAStage(t *testing.T) {
 	var ids []string
 	for _, v := range vector {
 		ids = append(ids, v.Atom)
-		if v.Stage != checks.StageOrbit || v.Result != absent {
+		// orbit:surface is the exception: a star's code is graded against the
+		// contracts, and with no foundry-dies handed over there are none to read.
+		if want := absent; v.Atom == "orbit:surface" {
+			if v.State != int(checks.StateCannotRun) || !strings.Contains(v.Reason, "(-dies)") {
+				t.Errorf("orbit:surface with no foundry-dies: state %d: %s", v.State, v.Reason)
+			}
+		} else if v.Stage != checks.StageOrbit || v.Result != want {
 			t.Errorf("%s: stage %s result %s; a tree with no orbit surface is absent in every orbit atom", v.Atom, v.Stage, v.Result)
 		}
 	}
-	if want := []string{"orbit:contracts", "orbit:sidecars", "orbit:repo"}; !reflect.DeepEqual(ids, want) {
+	if want := []string{"orbit:contracts", "orbit:surface", "orbit:sidecars", "orbit:repo"}; !reflect.DeepEqual(ids, want) {
 		t.Errorf("ran %v, want %v", ids, want)
 	}
 
@@ -327,5 +333,25 @@ func TestOrbitHelpers(t *testing.T) {
 	}
 	if _, err := filesIn(tree{root: tmp}, "orbits/*.toml"); err == nil || !strings.Contains(err.Error(), "orbits/*.toml could not be read") {
 		t.Errorf("a file that will not read names its pattern: %v", err)
+	}
+}
+
+// -spire and -narc-err reach the atoms that read them.
+func TestRunHandsTheSocketAndTheNarcReasonToTheAtoms(t *testing.T) {
+	dir := newRepo(t)
+	put(t, dir, "a.txt", "a\n")
+	commitAll(t, dir, "c1")
+	build := func() (*Registry, error) {
+		return NewRegistry(Atom{ID: "fleet:check-yaml", Run: func(_ context.Context, a checks.AtomDef, in Input) checks.Verdict {
+			return checks.VerdictOf(a, 0, "seen "+in.Spire+"|"+in.NarcErr)
+		}})
+	}
+	var out, errb bytes.Buffer
+	args := []string{"-root", dir, "-spire", "/run/spire/agent.sock", "-narc-err", "the pin"}
+	if code := run(context.Background(), args, &out, &errb, time.Now, build); code != 0 {
+		t.Fatalf("exit %d: %s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "seen /run/spire/agent.sock|the pin") {
+		t.Errorf("the atom did not see the flags:\n%s", out.String())
 	}
 }

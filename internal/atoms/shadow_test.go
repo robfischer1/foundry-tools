@@ -139,3 +139,83 @@ func TestClipBoundsAReasonAndFlattensItsLines(t *testing.T) {
 		t.Errorf("clip(a\\nb) = %q", got)
 	}
 }
+
+func witnessTable(rows ...string) string {
+	s := "narcissus — fleet:witness: clean — 2 file(s) witnessed, novel on both axes; skipped 1 test file(s)\n\n| file | verdict | class | reason |\n|---|---|---|---|\n"
+	for _, r := range rows {
+		s += "| " + r + " | novel | clean | novel on both axes |\n"
+	}
+	return s
+}
+
+func dryWitnessVerdict(skippedTests int, paths ...string) checks.Verdict {
+	tests := make([]string, skippedTests)
+	return verdict("fleet:witness", 2, checks.WitnessDryText(paths, "ci:gate:x@HEAD", nil, nil, tests))
+}
+
+func TestCompareHoldsADryWitnessApartFromTheCounts(t *testing.T) {
+	const y = "fleet:check-yaml"
+	chain := verdict("fleet:witness", 0, witnessTable("a.go", "b.py"))
+	t.Run("agreement is one line and no count", func(t *testing.T) {
+		rep := Compare([]checks.Verdict{verdict(y, 0, ""), chain}, []checks.Verdict{verdict(y, 0, ""), dryWitnessVerdict(1, "a.go", "b.py")})
+		if len(rep.Agree) != 1 || len(rep.Differ) != 0 || len(rep.MissingShadow)+len(rep.MissingToday) != 0 || rep.Dry == nil {
+			t.Fatalf("%+v", rep)
+		}
+		want := "fleet:witness (dry): would ask 2, chain asked 2; paths agree | skipped/vendored/tests agree\n"
+		if out := rep.Render(); !strings.Contains(out, want) || !strings.Contains(out, "1 compared, 1 identical") {
+			t.Errorf("render:\n%s", out)
+		}
+	})
+	t.Run("a path the binary would not ask is flagged", func(t *testing.T) {
+		rep := Compare([]checks.Verdict{chain}, []checks.Verdict{dryWitnessVerdict(1, "a.go", "c.go")})
+		if got := rep.Render(); !strings.Contains(got, "paths differ: +1 -1 (+ c.go) (- b.py)") || strings.Contains(got, "paths agree") {
+			t.Errorf("render:\n%s", got)
+		}
+	})
+	t.Run("counts that differ are named", func(t *testing.T) {
+		rep := Compare([]checks.Verdict{chain}, []checks.Verdict{dryWitnessVerdict(3, "a.go", "b.py")})
+		if got := rep.Render(); !strings.Contains(got, "paths agree | skipped/vendored/tests differ") {
+			t.Errorf("render:\n%s", got)
+		}
+	})
+	t.Run("a chain that found something carries no counts to compare", func(t *testing.T) {
+		found := verdict("fleet:witness", 1, "findings in 1 of 2 file(s): a.go: dup\n\n| file | verdict | class | reason |\n|---|---|---|---|\n| a.go | standard | finding | dup |\n| b.py | novel | clean | x |\n")
+		rep := Compare([]checks.Verdict{found}, []checks.Verdict{dryWitnessVerdict(0, "a.go", "b.py")})
+		if got := rep.Render(); !strings.Contains(got, "paths agree | skipped/vendored/tests not comparable") {
+			t.Errorf("render:\n%s", got)
+		}
+	})
+	t.Run("a truncated table claims no agreement", func(t *testing.T) {
+		cut := chain
+		cut.Truncated = true
+		if got := Compare([]checks.Verdict{cut}, []checks.Verdict{dryWitnessVerdict(1, "a.go", "b.py")}).Render(); !strings.Contains(got, "not comparable (the chain's table was truncated)") {
+			t.Errorf("render:\n%s", got)
+		}
+	})
+	t.Run("a dry witness the chain did not run is the binary answering alone", func(t *testing.T) {
+		rep := Compare([]checks.Verdict{verdict(y, 0, "")}, []checks.Verdict{verdict(y, 0, ""), dryWitnessVerdict(0, "a.go")})
+		if rep.Dry != nil || len(rep.MissingToday) != 1 {
+			t.Errorf("%+v", rep)
+		}
+	})
+}
+
+func TestDryWitnessIsRecognisedByAtomAndMarkTogether(t *testing.T) {
+	dryText := checks.WitnessDryText([]string{"a.go"}, "c", nil, nil, nil)
+	if !isDryWitness(checks.Verdict{Atom: "fleet:witness", Reason: dryText}) {
+		t.Error("a dry witness with its words in the reason alone (no logs) was not recognised")
+	}
+	if got := witnessText(checks.Verdict{Reason: "only the reason"}); got != "only the reason" {
+		t.Errorf("text %q", got)
+	}
+	if isDryWitness(checks.Verdict{Atom: "fleet:check-yaml", Reason: dryText, Logs: []string{dryText}}) {
+		t.Error("another atom that quotes the mark was taken for the dry witness")
+	}
+	if isDryWitness(checks.Verdict{Atom: "fleet:witness", Reason: "clean"}) {
+		t.Error("a witness that asked was taken for a dry one")
+	}
+	rep := Compare([]checks.Verdict{verdict("fleet:check-yaml", 0, "")}, []checks.Verdict{verdict("fleet:check-yaml", 0, dryText)})
+	if rep.Dry != nil {
+		t.Errorf("a quoted mark made a dry comparison: %+v", rep.Dry)
+	}
+}

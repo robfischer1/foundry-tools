@@ -138,3 +138,32 @@ func TestPythonReportVerdict(t *testing.T) {
 		}
 	}
 }
+
+func TestPythonDiffForPairsRenamesAndKeepsOnlyKeptHunks(t *testing.T) {
+	const hunk = "--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n-a\n+b\n"
+	section := func(newPath, body string) string {
+		return "diff --git a/old/" + newPath + " b/" + newPath + "\n" + body
+	}
+	pureMove := "diff --git a/.cerberus/hooks/reaper.py b/payload/hooks/reaper.py\nsimilarity index 100%\nrename from .cerberus/hooks/reaper.py\nrename to payload/hooks/reaper.py\n"
+	edited := "diff --git a/old.py b/new.py\nsimilarity index 90%\nrename from old.py\nrename to new.py\nindex 1..2 100644\n" + hunk
+	other := section("other.py", hunk)
+	for name, tc := range map[string]struct {
+		diff string
+		kept []string
+		want string
+	}{
+		"a pure move carries no hunk and drops out": {pureMove, []string{"payload/hooks/reaper.py"}, ""},
+		"a move with edits keeps its hunks":         {edited, []string{"new.py"}, edited},
+		"a file that is not kept drops out":         {other, []string{"x.py"}, ""},
+		"a kept file is kept":                       {other, []string{"other.py"}, other},
+		"a kept directory keeps what lies under it": {section("pkg/mod.py", hunk), []string{"pkg/"}, section("pkg/mod.py", hunk)},
+		"a sibling sharing the prefix is not under": {section("pkgx/mod.py", hunk), []string{"pkg"}, ""},
+		"only kept sections survive in order":       {other + pureMove + edited, []string{"other.py", "new.py"}, other + edited},
+		"no diff, no sections":                      {"", []string{"x.py"}, ""},
+		"a header with no new path is not kept":     {"diff --git broken\n@@ -1 +1 @@\n", []string{"x.py"}, ""},
+	} {
+		if got := PythonDiffFor(tc.diff, tc.kept); got != tc.want {
+			t.Errorf("%s: PythonDiffFor =\n%q\nwant\n%q", name, got, tc.want)
+		}
+	}
+}

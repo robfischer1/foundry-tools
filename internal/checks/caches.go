@@ -4,17 +4,16 @@ package checks
 // volume, persisted on the engine across runs, at the path the image's
 // toolchain already writes to.
 //
-// THE PATHS ARE THE IMAGES' OWN, MEASURED 2026-09-12 from each image's config
-// blob at registry.notusmi.com (zot serves them anonymously):
+// THE PATHS ARE THE UPSTREAM TOOLCHAINS' OWN. The fleet's go-ci, python-ci,
+// rust-ci and frontend-ci images are retired; each lane is the upstream image
+// (images.go) plus the layers provision() installs, and these volumes sit at
+// the directories its toolchain already writes to:
 //
-//	go-ci        GOPATH=/go  GOCACHE=/opt/go-build-cache (warm race stdlib);
-//	             /go/pkg/mod does NOT exist in the image (measured 2026-09-12:
-//	             "stat /go/pkg/mod: no such file" seeding it) — no seed there
-//	python-ci    UV_CACHE_DIR=/opt/uv-cache (warm: ruff/mypy/pytest/pip-audit/cosmic-ray)
-//	rust-ci      CARGO_HOME=/usr/local/cargo (registry/ and git/ beside a
-//	             config.toml routing crates through Nexus — the config is NOT
-//	             covered by a mount, so the route survives)
-//	frontend-ci  bun's default /root/.bun/install/cache, warmed
+//	go      GOPATH=/go (module cache at /go/pkg/mod); GOCACHE is exported
+//	python  UV_CACHE_DIR is exported
+//	rust    CARGO_HOME=/usr/local/cargo (registry/ and git/); CARGO_TARGET_DIR
+//	        is exported
+//	ts      bun's default /root/.bun/install/cache
 //
 // Mounting at the toolchain's own path rather than redirecting it with an
 // environment variable means a Seed can copy the image's warm layer into the
