@@ -87,6 +87,9 @@ func settle(ctx context.Context, e entry, in Input, timeout time.Duration) (chec
 		}
 	}
 
+	if e.atom.Deadline != nil {
+		timeout = max(timeout, e.atom.Deadline(in))
+	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	// BUFFERED, so an atom that answers after its deadline can still return and

@@ -115,6 +115,12 @@ type Atom struct {
 	ID    string
 	Scope Scope
 	Run   RunFunc
+	// Deadline, when set, is how long this atom may take over this input. The
+	// runner gives the atom the longer of it and the run's per-atom timeout, so
+	// an atom whose honest worst case scales with the change (fleet:witness
+	// asks about every changed source) is not cut off by a deadline sized for
+	// the atoms that read a few files.
+	Deadline func(in Input) time.Duration
 	// Tool names the program the atom execs that no container the binary runs
 	// in provisions yet; "" is none. The atoms-tools container carries every
 	// program the atoms exec today (the pinned tools, and the python layers'
@@ -219,7 +225,7 @@ func Builtin() []Atom {
 		tree("fleet:opengrep-sast", fleetOpengrepSast),
 		tree("fleet:hadolint", fleetHadolint),
 		tree("fleet:wit-topics", fleetWitTopics),
-		tree("fleet:witness", fleetWitness),
+		{ID: "fleet:witness", Scope: ScopeTree, Run: fleetWitness, Deadline: witnessDeadline},
 		tree("compose:no-tracked-secrets", composeNoTrackedSecrets),
 		tree("compose:third-party-pins", composeThirdPartyPins),
 		tree("compose:config", composeConfig),

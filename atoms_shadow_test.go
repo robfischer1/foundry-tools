@@ -27,6 +27,9 @@ import (
 // would add queries to every gate test's record and print a report into its
 // stderr. The tests that mean the shadow set their own.
 func init() {
+	// The legacy tests grade through the chains; the ones that mean the vote flip it
+	// back (vote_test.go) and restore it.
+	atomsVoter = voterChains
 	shadowRun = func(context.Context, *FoundryTools, string, string) string { return "" }
 	shadowOut = func() io.Writer { return io.Discard }
 }

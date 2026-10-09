@@ -65,6 +65,9 @@ type FoundryTools struct {
 	// under --artifact-auth, nil otherwise; ts:visual pushes its artifact
 	// with it.
 	artifactAuth *dagger.Secret
+	// box carries the binary's votes to the lane's reverse shadow — set by
+	// startShadow when the binary votes, nil otherwise (atoms_vote.go).
+	box *ballotBox
 }
 
 // New binds the module to the caller's repository — the tree it is standing
@@ -325,8 +328,25 @@ func (m *FoundryTools) Verdicts(
 }
 
 // vector runs the atoms a stage (and an `only` list) selects, concurrently and
-// bounded, and answers their verdicts in selection order.
+// bounded, and answers their verdicts in selection order. It is the vector the
+// door, the orbit lane and the local hook read, so the atoms the binary carries
+// take their verdicts from the binary (atoms_vote.go) and the rest from their
+// chains.
 func (m *FoundryTools) vector(ctx context.Context, stage, only, base string) ([]checks.Verdict, error) {
+	return m.graded(ctx, stage, only, base, atomsVoter)
+}
+
+// chainVector is vector with every atom answered by its chain, whoever votes:
+// the comparator the reverse shadow runs, and the old shadow's "today".
+func (m *FoundryTools) chainVector(ctx context.Context, stage, only, base string) ([]checks.Verdict, error) {
+	return m.graded(ctx, stage, only, base, voterChains)
+}
+
+// graded is the vector with the named side voting for the atoms the binary
+// carries. THE ORDER IS THE SELECTION'S either way: a binary atom's verdict is
+// slotted where its chain's would have stood, so SettleStage folds the same
+// vector shape.
+func (m *FoundryTools) graded(ctx context.Context, stage, only, base string, side voter) ([]checks.Verdict, error) {
 	selected := checks.AtomsForStage(stage)
 	if only != "" {
 		var err error
@@ -343,10 +363,16 @@ func (m *FoundryTools) vector(ctx context.Context, stage, only, base string) ([]
 	if err != nil {
 		return nil, err
 	}
+	// THE BINARY RUNS ONCE FOR THE LANE, beside the chains, not after them.
+	ballot := m.pollFor(side, stage, base, plan.Run)
+	ballot.start(ctx)
 	out := make([]checks.Verdict, len(plan.Run))
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(atomsInFlight)
 	for i, a := range plan.Run {
+		if ballot.carries(a.ID) {
+			continue
+		}
 		g.Go(func() error {
 			v, err := verdictFor(gctx, r, a.ID)
 			if err != nil {
@@ -358,6 +384,11 @@ func (m *FoundryTools) vector(ctx context.Context, stage, only, base string) ([]
 	}
 	if err := g.Wait(); err != nil {
 		return nil, err
+	}
+	for i, a := range plan.Run {
+		if v, ok := ballot.vote(ctx, a.ID); ok {
+			out[i] = v
+		}
 	}
 	out = append(out, absent...)
 	for _, a := range covered {

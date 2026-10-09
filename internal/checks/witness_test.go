@@ -504,3 +504,14 @@ func TestWitnessedPathsReadsTheTableAndNothingAroundIt(t *testing.T) {
 		})
 	}
 }
+
+// The worst case of a witness run is the rounds of four, times the attempts,
+// times a request's timeout and the pause after it.
+func TestWitnessWorstCase(t *testing.T) {
+	const one = 3 * (120*time.Second + 2*time.Second)
+	for sources, want := range map[int]time.Duration{0: 0, 1: one, 3: one, 4: one, 5: 2 * one, 8: 2 * one, 9: 3 * one} {
+		if got := WitnessWorstCase(sources); got != want {
+			t.Errorf("%d sources: %v, want %v", sources, got, want)
+		}
+	}
+}

@@ -12,7 +12,7 @@ So: **a check that could not run is never a pass.** That discipline already exis
 | **One repository** | The tree under check is bound once, in `New`, from the caller's own context directory (`+defaultPath="/"`). |
 | **Three states** | `0` pass · `1` findings · `2` could not run. Every exit that is not 0 or 1 — a 127 missing binary, a 137 OOM kill, a 143 cancellation — maps to **2**, because reading any of those as findings is wrong and reading them as a pass is the failure this module deletes. |
 | **Absent says so** | A lane with no surface in the tree — no `go.mod`, no `pyproject.toml` — reports `ABSENT`, exits 0, and **prints why**. Silence would be indistinguishable from a clean scan. An atom that finds its own absence *inside* the tree says so on stdout, and the vector renders that as `absent` rather than `pass` — "nothing to check" is not "checked and clean". |
-| **Namespaced** | `fleet:` · `go:` · `python:` · `rust:` · `ts:` on a pull's path; `sweep:` on the clock. `dagger check -l` lists all of them with descriptions. |
+| **Namespaced** | `fleet:` · `go:` · `python:` · `rust:` · `ts:` on a pull's path, beside `compose:` · `dies:` · `ops:` · `orbit:` · `template:` · `wit:`. `dagger check -l` lists all of them with descriptions. |
 | **One definition** | The atom table in `internal/checks/atoms.go` drives both the check functions and the verdict vector, so `dagger check -l` and the catalogue cannot drift apart. The census counted that drift 31 times across two independently-maintained surfaces; there is one surface here. |
 
 ## Using it
@@ -31,7 +31,7 @@ dagger check go:staticcheck      # one atom
 # Standing in ANOTHER repo with the module resolved remotely, name the tree —
 # see "A remotely-resolved module binds its own tree" below. --source is the
 # constructor's parameter; nothing below New takes a directory.
-dagger call -m git.notusmi.com/rob/foundry-tools@<sha> --source=. verdicts --stage=sweep
+dagger call -m git.notusmi.com/rob/foundry-tools@<sha> --source=. verdicts
 
 dagger call check                    # the commit stage: basic + language fanouts, one settled answer
 dagger call check exit               # …exiting 0, 1 or 2 with the stage's log
@@ -40,7 +40,7 @@ dagger call release                  # the binaries the image will carry, compil
 dagger call push --base=<sha> exit   # …exiting on the worst of the two
 dagger call verdicts                 # every PULL stage — precommit and prepush
 dagger call verdicts --stage=prepush
-dagger call verdicts --stage=sweep   # the clock's vector, asked for by name
+dagger call verdicts --stage=orbit   # the orbit lane's vector, asked for by name
 dagger call catalogue            # the atom table as catalogue rows
 dagger call lanes                # which lanes this repository actually builds
 ```
@@ -63,21 +63,23 @@ dagger call -m git.notusmi.com/rob/foundry-tools@<sha> \
   verdicts --base=<merge-base>
 ```
 
-**A remotely-resolved module binds ITS OWN tree, not yours — name the source.** Measured 2026-09-08 against the in-cluster engine: standing in `infra` and running `dagger call -m git.notusmi.com/rob/foundry-tools@<sha> lanes` answers `go (go.mod)`. `infra` has no `go.mod`; foundry-tools does. `+defaultPath="/"` resolves against the module's context, and for a module fetched from git that context is the module's git tree. `dagger check -m <remote>` behaves the same way — `sweep:kube-linter` returned OK in 0.4s against a tree that yields 371 findings in nine seconds.
+**A remotely-resolved module binds ITS OWN tree, not yours — name the source.** Measured 2026-09-08 against the in-cluster engine: standing in `infra` and running `dagger call -m git.notusmi.com/rob/foundry-tools@<sha> lanes` answers `go (go.mod)`. `infra` has no `go.mod`; foundry-tools does. `+defaultPath="/"` resolves against the module's context, and for a module fetched from git that context is the module's git tree. `dagger check -m <remote>` behaves the same way — `ops:kube-linter` (then `sweep:kube-linter`) returned OK in 0.4s against a tree that yields 371 findings in nine seconds.
 
-That failure is silent and it is green, which makes it the exact shape this repository exists to delete: a sweep over sixty repos would have returned sixty identical passes, every one of them a true statement about the wrong repository. So a caller that is not standing inside a repo whose own `dagger.json` declares the dependency **must name the tree**:
+That failure is silent and it is green, which makes it the exact shape this repository exists to delete: a fleet-wide run over sixty repos would have returned sixty identical passes, every one of them a true statement about the wrong repository. So a caller that is not standing inside a repo whose own `dagger.json` declares the dependency **must name the tree**:
 
 ```sh
-dagger call -m git.notusmi.com/rob/foundry-tools@<sha> --source=. verdicts --stage=sweep
+dagger call -m git.notusmi.com/rob/foundry-tools@<sha> --source=. verdicts
 ```
 
-`--source` is the constructor's parameter and the ONLY place a directory may be named — the charter is that nothing *below* `New` takes one, so no atom can be pointed somewhere else once the tree is bound. `ca-sweep` invokes exactly the line above, once per repo. A repo that carries the toolchain declaration above binds its own workspace from `dagger check` and needs neither flag.
+`--source` is the constructor's parameter and the ONLY place a directory may be named — the charter is that nothing *below* `New` takes one, so no atom can be pointed somewhere else once the tree is bound. A repo that carries the toolchain declaration above binds its own workspace from `dagger check` and needs neither flag.
 
 ## The atoms
 
+**Who votes (F5a, the cutover).** Fifty of the cheap atoms (every `fleet:` `compose:` `dies:` `orbit:` `ops:` `template:` and `wit:` atom except `ops:kube-linter`) are also compiled into one binary, `internal/atoms`, built in the Dagger pipeline into a **tools container**: a pinned `debian:bookworm-slim` with each third-party tool as a checksum-verified layer, the python interpreter and venv, and the binary on top. The vector the door reads (the gate stage, the prepush stage, the orbit lane, and the local hook's `dagger call check`) takes the verdict of each of those atoms from that binary, run **once per lane** in that container, and slots it into the vector in catalogue order; the record's shape is untouched. The toolchain tier (`go:` `python:` `rust:` `ts:`, `ops:kube-linter`, mutation) keeps its chains. The chains of the fifty run beside the vote as a **non-voting comparator** (the reverse shadow, `atoms_vote.go`): it starts before grading, writes stderr only, is abandoned at most 30 seconds after the record settles, and its report line says which side voted. `fleet:witness` asks narcissus for real as the voter, with the lane's SPIRE socket mounted; the comparator does not run its chain, so narcissus is asked once. **Rollback is one constant**: set `defaultVoter` in `atoms_vote.go` to `voterChains` and the chains vote again, with the binary a dry shadow beside them as before.
+
 **An unrelated edit re-runs nothing (CA F12).** The atoms that compile, vet, lint or test mount the tree less `checks.InertPaths` — the root prose by name (README, CHANGELOG, CONTRIBUTING, SECURITY, CODE_OF_CONDUCT, the governance furnace pours), licences, `docs/`, `specs/`, the CI directories, the hooks, the justfiles, pre-commit's and copier's files — so their execs are keyed on the code. A commit that touches only those hits the engine's cache for every language atom; the basic fanout (secrets, large files) still reads the whole tree, because a secret in a README is exactly what it is for. The set is an exclude measured against what the fleet's tests actually open (a Dockerfile, a `.melt`, `migrations/`, `plugins/`, `CLAUDE-INIT.md`), never an include derived from `go list`; every pattern is root-anchored so nothing reaches a package's fixtures, and **no prose is excluded by glob** — the first cut shipped `*.md` and hephaestus went red on the one `.md` its module-map test reads (`open /src/CLAUDE-INIT.md: no such file`). A glob excludes what nobody enumerated; a name goes on the list only after the grep finds nothing opening it. The mutation lane and the witness keep the whole tree — they run git against it.
 
-**The hooks are two calls (CA F15).** `just hooks` points this clone's `core.hooksPath` at the tracked `hooks/` directory: the commit hook is `just check` (`dagger call check exit`), the push hook is `just gate` (`dagger call push --base=<merge-base> exit`). The hooks are one line each and never change; the two recipes in the justfile are what a commit and a push must pass, and a session runs the same recipes by hand. They are the same stages the door runs, so a commit that passes here passes there. The engine is a dependency on purpose — it is where the git origin already lives — and an engine that cannot be reached refuses the commit rather than waving it through. `just unhooks` puts a clone back on the pre-commit framework while the fleet is mid-flip. In foundry-tools itself the recipes call `-m .`, because a module whose job is gating must gate its own changes with the code being changed, not with main; the fleet's copy (foundry-stocks `speckit/stages.just`, imported by each star's justfile) calls the module at main.
+**The hooks are two calls (CA F15).** `just hooks` points this clone's `core.hooksPath` at the tracked `hooks/` directory: the commit hook is `just check` (`dagger call check exit`), the push hook runs nothing since 2026-10-02 (the door asks a pushed branch's lanes on the cluster), and `just gate` only says so. The hooks are one line each and never change; the recipes in the justfile are what a commit must pass, and a session runs the same recipes by hand. They are the same stages the door runs, so a commit that passes here passes there. The engine is a dependency on purpose — it is where the git origin already lives — and an engine that cannot be reached refuses the commit rather than waving it through. `just unhooks` puts a clone back on the pre-commit framework while the fleet is mid-flip. In foundry-tools itself the recipes call `-m .`, because a module whose job is gating must gate its own changes with the code being changed, not with main; the fleet's copy (foundry-stocks `speckit/stages.just`, imported by each star's justfile) calls the module at main.
 
 **Stages (CA F12, 2026-09-17).** `precommit` is the **commit** stage — `dagger call check` — and holds the basic checks every tree gets (the `fleet:` namespace) beside the language checks for what the tree contains: format, lint and tests. `prepush` is the **push** stage — `dagger call push` — and holds the complex checks — deep lint, vulnerability audits, the build, the race + live-database suite, the bundle probes, the witness and orbit drift — run **in sequence, cheapest first, stopping at the first one that finds something**, beside the mutation lane, which runs concurrently and is allowed to finish. A stopped sequence names the atoms it never reached. `internal/checks/stage_test.go` pins both lists.
 
@@ -112,7 +114,7 @@ No atom reads a configuration the repository authored — not `pyproject.toml`'s
 
 ### Two namespaces that are neither a lane nor a clock
 
-`compose:` and `dies:` are cross-lane like `fleet:`, run on a pull's path like `fleet:`, and are **not** `fleet:` — because `fleet:` is the namespace whose atoms have something to say about *every* repository, which is what makes `dagger check fleet:` worth typing. These have something to say about six of the eighty-six. Their condition is a **surface** the atom finds inside the tree rather than a root manifest a `Lane` can name, so the namespace names the surface and everywhere else they report `ABSENT` and say why. The set of surface namespaces is **closed** (`checks.SurfaceNamespaces`), none may carry `stage: sweep`, and `TestEveryAtomIsWellFormed` refuses an id in an undeclared one.
+`compose:` and `dies:` are cross-lane like `fleet:`, run on a pull's path like `fleet:`, and are **not** `fleet:` — because `fleet:` is the namespace whose atoms have something to say about *every* repository, which is what makes `dagger check fleet:` worth typing. These have something to say about six of the eighty-six. Their condition is a **surface** the atom finds inside the tree rather than a root manifest a `Lane` can name, so the namespace names the surface and everywhere else they report `ABSENT` and say why. The set of surface namespaces is **closed** (`checks.SurfaceNamespaces`), and `TestEveryAtomIsWellFormed` refuses an id in an undeclared one.
 
 They exist because the **act-runner is being removed**, and what it validated is validated by the gate or not at all:
 
@@ -137,22 +139,9 @@ Three things the ports changed on purpose, each because the workflow's assumptio
 
 `dies:data-keys` and `dies:canary-visibility` interrogate the **artifact, never the source tree**, and that distinction is measured: rename every `policy/*/data.json` to `values.json` and `opa test` still passes 312 assertions while the built bundle ships `data.json == {}` — `star_only` undefined, the visibility comprehension collecting nothing, **every verb visible to every principal**. Fail-open, silent, and green the whole way down.
 
-**`sweep:`** — repo cadence, on a clock, **never in a pull's path**.
-`template-render-matrix` · `kubeconform` · `kube-linter` (weekly)
-
-These describe a **repository** rather than a change, so their answer cannot differ between two pulls against the same repo — and running them per pull leaves every repository nobody opened a PR against unevaluated indefinitely.
-
-| atom | what it asks | ABSENT when |
-| :-- | :-- | :-- |
-| `sweep:template-render-matrix` | every case in this template's `ci-matrix.toml` still renders | no `ci-matrix.toml` |
-| `sweep:kubeconform` | every manifest under `flux/` validates against its Kubernetes schema | no `flux/` |
-| `sweep:kube-linter` | every workload under `flux/` passes kube-linter's default checks | no `flux/` |
-
-**The absence is the acceptance.** CA F9's success criterion is that no `stage: sweep` atom ever appears in a pull's path, and that is structural here rather than conventional: `dagger call verdicts` with **no stage** answers the *pull-path* vector — precommit and prepush — so a door that asks for "the vector" cannot be handed a sweep atom by omission. You get the sweep by naming it (`--stage=sweep`, or `dagger check sweep:`) and no other way. `TestNoSweepAtomOnThePullPath` asserts it.
+**There is no `sweep` stage (deleted 2026-09-23, CA F18).** It was repo cadence on `ca-sweep`'s clock, and the walk cloned eighty repos to ask six questions of the five that have the surface. `sweep:kubeconform` was already subsumed by `ops:flux`, which runs kubeconform with the same flags over the built kustomize output; the other two came home into the pull path as `ops:kube-linter` (commit) and `template:render-matrix` (push), and answer `ABSENT` in a repo that has no `flux/` or no `ci-matrix.toml`. `dagger call verdicts` with no stage answers the pull-path vector, precommit and prepush; `TestTheCommitAndPushStagesHoldTheirAtoms` pins what the two pull stages hold. The stages that are not on the pull path are asked for by name: `mutation`, `orbit`, `visual`.
 
 **`sweep:portfolio-sbom` retired 2026-09-16.** It asked whether a repo's image was built through a foundry-stocks workflow that attests its SBOM — a question about `.forgejo/workflows`, which the fleet largely no longer carries: measured at retirement, **37 of the 39 repos with a root `Dockerfile` had no workflow tree at all**, so the atom answered CANNOT RUN for all but two. More decisively, the question moved. Since the build lane attaches the SBOM as a plain OCI referrer and attests an `sbom-ref/v1` pointer itself, attestation is a property of building through the door, not of a workflow file existing. The weekly `portfolio-weekly` CronJob and `ci-portfolio-pipeline` are untouched and still re-score what the registry holds.
-
-The one caller that runs any of this is the `ca-sweep` CronJob (`infra/flux/apps/ca-sweep.yaml`).
 
 ### What is deliberately NOT here
 
@@ -162,7 +151,7 @@ The one caller that runs any of this is the `ca-sweep` CronJob (`infra/flux/apps
 - **`lint-staged`** — defined over the git **index**. The engine receives a directory, not an index; an atom claiming to be lint-staged would be checking a different population than the hook it replaced, which is the silent-drift failure this module exists to end.
 - **`fetch-origin`** — a background convenience with no verdict. It was never a check.
 
-Sweep-cadence checks live in the `sweep:` namespace above, not on a pull's path. The one that is deliberately **absent entirely** is the **mutation nightly full-run**: the machinery exists in `foundry-stocks` and stays unwired and unscheduled (decided, Rob). Mutation gates PR-time on the diff; there are no nightlies until further notice.
+The one check that is deliberately **absent entirely** is the **mutation nightly full-run**: the machinery exists in `foundry-stocks` and stays unwired and unscheduled (decided, Rob). Mutation gates PR-time on the diff; there are no nightlies until further notice.
 
 ## Working on it
 
@@ -180,12 +169,11 @@ The generated bindings (`dagger.gen.go`, `internal/dagger/`) are **committed**, 
 ```
 main.go             the module root: the source binding, the lane namespaces, the vector
 checks_*.go         the // +check functions — one per atom, each a call into the table
-                    (checks_sweep.go is the clock's namespace)
 internal/checks/    the pure core, engine-free and unit-tested
   atoms.go          THE TABLE: id, stage, lane, image, description, body
   lane.go           lane detection from root manifests
   verdict.go        the three states and the exit-code mapping
-  images.go         the lane AND sweep images, in one place
+  images.go         the lane images, in one place
 ```
 
 `internal/checks` imports nothing from the Dagger SDK, which is why `go test ./...` runs without an engine.

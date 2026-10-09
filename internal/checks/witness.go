@@ -570,6 +570,16 @@ const (
 	WitnessRetryPause = time.Duration(2e9) // 2 s, spelled with no operator a mutant could flip
 )
 
+// WitnessWorstCase is the longest fleet:witness may take over this many source
+// files and still be doing what it was built to do: the asks go WitnessWorkers
+// at a time, and each file's ask is tried WitnessAttempts times, each try as long
+// as the request timeout and then the retry pause. A deadline shorter than this
+// settles a slow narcissus as "no answer" for a change set that was only large.
+func WitnessWorstCase(sources int) time.Duration {
+	rounds := (sources + WitnessWorkers - 1) / WitnessWorkers
+	return time.Duration(rounds*WitnessAttempts) * (witnessTimeout + WitnessRetryPause)
+}
+
 // WitnessAsk is one POST to the witness: status, content type, body, or the
 // error that kept it from asking.
 type WitnessAsk func(ctx context.Context, body string) (int, string, string, error)

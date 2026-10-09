@@ -39,6 +39,9 @@ type Report struct {
 	// binary asked nothing, so it has no verdict to agree or differ with. Nil when
 	// the binary's witness was not dry or the chain did not run it.
 	Dry *DryWitness
+	// Voter says which side's verdicts the lane graded on: "binary" or "chains".
+	// The other side is the non-voting comparator. Empty is not printed.
+	Voter string
 	// Elapsed is the shadow's own wall time, both sides included; zero is
 	// unmeasured and is not printed.
 	Elapsed time.Duration
@@ -205,8 +208,12 @@ func (r Report) Render() string {
 	if r.Elapsed > 0 {
 		took = ", took " + r.Elapsed.Round(time.Millisecond).String()
 	}
-	fmt.Fprintf(&b, "shadow atoms: %d compared, %d identical, %d same state, %d state differs, %d missing from the binary, %d missing from the chains%s\n",
-		compared, len(r.Agree), r.StatesAgree()-len(r.Agree), compared-r.StatesAgree(), len(r.MissingShadow), len(r.MissingToday), took)
+	who := ""
+	if r.Voter != "" {
+		who = " (" + r.Voter + " voted)"
+	}
+	fmt.Fprintf(&b, "shadow atoms%s: %d compared, %d identical, %d same state, %d state differs, %d missing from the binary, %d missing from the chains%s\n",
+		who, compared, len(r.Agree), r.StatesAgree()-len(r.Agree), compared-r.StatesAgree(), len(r.MissingShadow), len(r.MissingToday), took)
 	if r.Dry != nil {
 		b.WriteString(r.Dry.line() + "\n")
 	}

@@ -145,6 +145,18 @@ func (in Input) identifiedPost(env []string) checks.WitnessAsk {
 	}
 }
 
+// witnessDeadline is fleet:witness's own deadline: its worst case over the
+// sources this change set would ask about (checks.WitnessWorstCase). A dry run
+// asks nothing and a change set that would not compute has nothing to ask, so
+// neither raises the run's per-atom timeout.
+func witnessDeadline(in Input) time.Duration {
+	if in.WitnessDry || in.ChangedErr != nil {
+		return 0
+	}
+	sources, _, _, _ := checks.WitnessChangeSet(in.Changed)
+	return checks.WitnessWorstCase(len(sources))
+}
+
 // fleetWitness: see the header. A DRY run (Input.WitnessDry, the shadow's) asks
 // nothing: it classifies the change set, lists what it would have asked and
 // settles 2, never 0, so that no reader takes it for a verdict. It exists
