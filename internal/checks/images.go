@@ -54,7 +54,7 @@ package checks
 // vendor registry) is a pull the fleet does not mirror, and the test says so.
 // The digests are content-addressed and did not move with the names.
 const (
-	ImageGo     = "docker.io/library/golang:1.26.6-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36"
+	ImageGo     = "docker.io/library/golang:1.26.9-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c"
 	ImagePython = "docker.io/library/python:3.14-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f"
 	ImageRust   = "docker.io/library/rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e75fea57e2a2a5c3073"
 	// ImageRustWasm is the toolchain stellar-core-ts's cores were BUILT with

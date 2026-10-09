@@ -13,8 +13,8 @@ import (
 	"dagger/foundry-tools/internal/orbitlane"
 )
 
-// THE ORBIT LANE'S ATOMS that read trees and not a code analyzer (orbit:surface
-// runs narcissus's `narc` and stays a chain). The judgements are
+// THE ORBIT LANE'S ATOMS that read trees and not a code analyzer (orbit:surface, in
+// orbit_surface.go, runs narcissus's `narc`). The judgements are
 // internal/orbitlane's; this file reads the two trees (the repo under test, and
 // foundry-dies at main, Input.Dies) and hands them over. REPORT-ONLY until
 // orbitlane.Enforce flips, exactly as the chains are.
@@ -127,23 +127,30 @@ func starOf(repo string) string { return path.Base(strings.TrimSuffix(repo, ".gi
 // finding for each that does not: one bad file is a finding about that file,
 // never the directory's could-not-run.
 func fleetContracts(in Input) ([]orbitcompose.Contract, []checks.Finding, error) {
+	cs, bad, _, err := fleetContractsAndRoster(in)
+	return cs, bad, err
+}
+
+// fleetContractsAndRoster is fleetContracts with the roster's verb prefixes it
+// read on the way, for the atom that attributes a verb through them.
+func fleetContractsAndRoster(in Input) ([]orbitcompose.Contract, []checks.Finding, map[string]string, error) {
 	dies, err := in.dies()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	files, err := filesIn(dies, "orbits/*.toml")
 	if err != nil {
-		return nil, nil, fmt.Errorf("foundry-dies: %v", err)
+		return nil, nil, nil, fmt.Errorf("foundry-dies: %v", err)
 	}
 	prefixes, err := roster(dies)
 	if err != nil {
-		return nil, nil, fmt.Errorf("foundry-dies: %v", err)
+		return nil, nil, nil, fmt.Errorf("foundry-dies: %v", err)
 	}
 	cs, bad, err := orbitcompose.ParseAll(files, starSet(prefixes))
 	if err != nil {
-		return nil, nil, fmt.Errorf("foundry-dies/orbits does not compose: %v", err)
+		return nil, nil, nil, fmt.Errorf("foundry-dies/orbits does not compose: %v", err)
 	}
-	return cs, orbitlane.Unreadable(bad), nil
+	return cs, orbitlane.Unreadable(bad), prefixes, nil
 }
 
 // orbitContracts: every contract parses, names two stars on the roster, carries
@@ -226,4 +233,14 @@ func orbitSidecars(ctx context.Context, a checks.AtomDef, in Input) checks.Verdi
 		}
 	}
 	return orbitVerdict(a, found)
+}
+
+// party reports whether star is either side of any contract.
+func party(star string, cs []orbitcompose.Contract) bool {
+	for _, c := range cs {
+		if c.Producer == star || c.Consumer == star {
+			return true
+		}
+	}
+	return false
 }

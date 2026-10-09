@@ -303,3 +303,34 @@ func TestOpsYAML(t *testing.T) {
 		expect(t, runAtom(t, id, in), stateOf(2), cannot, "the tree would not enumerate")
 	})
 }
+
+// ops:orbit-sidecars is an atom of its own as well as a finding of
+// orbit:sidecars: pass, findings, absent and could-not-run, through the exec seam.
+func TestOpsOrbitSidecarsIsRegistered(t *testing.T) {
+	const id = "ops:orbit-sidecars"
+	opsTree := map[string]string{"prime/orbits/a.orbit.toml": "x", "flux/k.yaml": "a: 1\n"}
+	for _, tc := range []struct {
+		name    string
+		tree    map[string]string
+		code    int
+		out     string
+		state   int
+		result  string
+		needles []string
+	}{
+		{"every sidecar parses", opsTree, 0, "parsed 1", 0, pass, []string{"parsed 1"}},
+		{"a sidecar its star would refuse to boot on", opsTree, 1, "a.orbit.toml: bad acl", 1, findings, []string{"a.orbit.toml: bad acl"}},
+		{"a reader that would not start never ran", opsTree, -1, "orbitparse: not found", 2, cannot, []string{"the atom never ran: orbitparse: not found"}},
+		{"a reader that fails above 2 is still a 2", opsTree, 7, "boom", 2, cannot, []string{"boom"}},
+		{"a tree that renders none is absent", map[string]string{"flux/k.yaml": "a: 1\n"}, 0, "", 0, absent, []string{"tracks no composed orbit sidecar"}},
+		{"a tree that is not an ops tree is absent", map[string]string{"main.go": "x"}, 0, "", 0, absent, []string{"has no ops shape"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in, f := toolTree(t, tc.tree, func(Cmd) (string, int) { return tc.out, tc.code })
+			expect(t, runAtom(t, id, in), stateOf(tc.state), tc.result, tc.needles...)
+			if tc.result == absent && len(f.calls) != 0 {
+				t.Errorf("an absent atom ran %v", f.ran())
+			}
+		})
+	}
+}
