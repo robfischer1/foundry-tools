@@ -451,14 +451,17 @@ func TestAtomsVectorCarriesAPerCallReask(t *testing.T) {
 	m := &FoundryTools{Source: dag.Directory(), Repo: "http://door/rob/x.git", Sha: buildSha}
 	re := regexp.MustCompile(`CA_REASK\D+(\d+)`)
 	var seen []string
-	for range 2 {
+	for i := range 2 {
 		engine.reset()
 		engine.withTree(map[string]string{"go.mod": "module x\n"})
 		engine.stdout(`"/usr/local/bin/atoms"`, "[]")
-		if _, err := m.atomsVector(context.Background(), "", "abc"); err != nil {
+		// Each call has a base of its own, and the chain is matched on it: the fake
+		// engine is shared, and another goroutine's binary query must not be read.
+		base := "abc-" + strconv.Itoa(i)
+		if _, err := m.atomsVector(context.Background(), "", base); err != nil {
 			t.Fatal(err)
 		}
-		c := engine.chain(`"/usr/local/bin/atoms"`)
+		c := engine.chain(`"/usr/local/bin/atoms"`, `"-base","`+base+`"`)
 		match := re.FindStringSubmatch(c)
 		if match == nil {
 			t.Fatalf("the binary's exec carries no CA_REASK:\n%s", c)

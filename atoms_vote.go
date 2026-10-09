@@ -126,10 +126,30 @@ func (p *poll) start(ctx context.Context) {
 	p.begin.Do(func() {
 		go func() {
 			defer close(p.done)
+			// A PANIC IN THE BINARY'S RUN OR ITS PARSING IS AN ERROR for every atom,
+			// which vote then sends to the chains: it must never kill the lane.
+			defer func() {
+				if r := recover(); r != nil {
+					p.votes = failedVotes(p.want, fmt.Errorf("the atoms binary's run panicked: %v", r))
+					p.m.box.put(p.votes)
+				}
+			}()
 			p.votes = p.m.cast(ctx, p.run, p.stage, p.base, p.want)
 		}()
 	})
 }
+
+// failedVotes is a could-not-run for every atom of want, naming why.
+func failedVotes(want []checks.AtomDef, err error) map[string]checks.Verdict {
+	votes := make(map[string]checks.Verdict, len(want))
+	for _, a := range want {
+		votes[a.ID] = checks.VerdictOf(a, int(checks.StateCannotRun), a.ID+": CANNOT RUN - the atoms binary did not answer: "+err.Error())
+	}
+	return votes
+}
+
+// fallbackWithin bounds a chain ask made after the lane's own context ended.
+const fallbackWithin = 5 * time.Minute
 
 // vote is the lane's vote for id: the binary's verdict, waiting for the run if it
 // is still going, or, when the binary could not run the atom, the chain's. False
@@ -153,8 +173,17 @@ func (p *poll) vote(ctx context.Context, id string) (checks.Verdict, bool) {
 		return v, true
 	}
 	// ANY OTHER STATE IS A COULD-NOT-RUN (checks.Worst reads it so): one ask of
-	// the old chain, whose answer is the vote. A chain that cannot answer either
-	// (no runner, a lane already over) leaves the binary's 2 standing.
+	// the old chain, whose answer is the vote. A chain that cannot be asked at all
+	// (verdictFor errors only for an atom with no runner) leaves the binary's 2
+	// standing. A lane whose context is already over would hand the chain a
+	// cancelled context, and verdictFor does not error on that: it returns the
+	// chain's own 2, and that 2 would be the vote. So the ask runs on a context
+	// detached from the lane's cancellation and bounded by fallbackWithin.
+	if ctx.Err() != nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), fallbackWithin)
+		defer cancel()
+	}
 	cv, err := p.chain(ctx, id)
 	if err != nil {
 		return v, true
@@ -178,12 +207,15 @@ func (m *FoundryTools) cast(ctx context.Context, run castFunc, stage, base strin
 		byID[v.Atom] = v
 	}
 	votes := make(map[string]checks.Verdict, len(want))
+	if err != nil {
+		votes = failedVotes(want, err)
+	}
 	for _, a := range want {
+		if _, set := votes[a.ID]; set {
+			continue
+		}
 		v, ok := byID[a.ID]
-		switch {
-		case err != nil:
-			v = checks.VerdictOf(a, int(checks.StateCannotRun), a.ID+": CANNOT RUN - the atoms binary did not answer: "+err.Error())
-		case !ok:
+		if !ok {
 			v = checks.VerdictOf(a, int(checks.StateCannotRun), a.ID+": CANNOT RUN - the atoms binary returned no verdict for this atom")
 		}
 		votes[a.ID] = v

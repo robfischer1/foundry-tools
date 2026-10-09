@@ -202,8 +202,10 @@ func TestALaneThatEndsBeforeTheBinaryFallsBackToTheChain(t *testing.T) {
 	t.Cleanup(func() { close(release) })
 	castBinary = func(context.Context, *FoundryTools, string, string) (string, error) { <-release; return "[]", nil }
 	var asked []string
-	chain := func(_ context.Context, id string) (checks.Verdict, error) {
+	var chainCtxErr error
+	chain := func(c context.Context, id string) (checks.Verdict, error) {
 		asked = append(asked, id)
+		chainCtxErr = c.Err()
 		return checks.VerdictOf(checks.AtomByID(id), 0, ""), nil
 	}
 	m := bareModule()
@@ -212,6 +214,9 @@ func TestALaneThatEndsBeforeTheBinaryFallsBackToTheChain(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
 	v, ok := p.vote(ctx, "fleet:check-yaml")
+	if chainCtxErr != nil {
+		t.Errorf("the chain was handed a context that had ended: %v", chainCtxErr)
+	}
 	if !ok || v.State != 0 || len(asked) != 1 || !strings.Contains(box.fell["fleet:check-yaml"], "the lane ended before the atoms binary answered") {
 		t.Errorf("verdict %+v (%v), asked %v, fallbacks %v", v, ok, asked, box.fell)
 	}
@@ -319,5 +324,27 @@ func TestAGateWhoseBinaryFailsRecordsTheChainsAnswerAndReportsTheFallbacks(t *te
 	recordedOn(t, rec, "0", chainMark+"orbit:contracts")
 	if want := "4 of 4 fell back to the chain"; !strings.Contains(report.String(), want) || !strings.Contains(report.String(), "OOM") {
 		t.Errorf("report %q lacks %q and the binary's reason", report.String(), want)
+	}
+}
+
+// A PANIC IN THE BINARY'S RUN, or in reading what it printed, is an error for
+// every atom and each goes to its chain: the lane is not killed.
+func TestAPanickingBinaryRunFallsEveryAtomBackToItsChain(t *testing.T) {
+	casting(t, voterBinary)
+	castBinary = func(context.Context, *FoundryTools, string, string) (string, error) { panic("index out of range") }
+	calls := stubChains(t)
+	engine.reset()
+	engine.withTree(bareTree)
+	m := bareModule()
+	box := votingBox(m)
+	vs, err := m.vector(soon(t), checks.StageOrbit, "", "")
+	ids := atoms.StageIDs(checks.StageOrbit)
+	if err != nil || len(vs) != len(ids) {
+		t.Fatalf("vector %v, err %v", vs, err)
+	}
+	for _, v := range vs {
+		if !strings.HasPrefix(v.Reason, chainMark) || calls.of(v.Atom) != 1 || !strings.Contains(box.fell[v.Atom], "the atoms binary's run panicked: index out of range") {
+			t.Errorf("%s: %+v, chain asked %d times, fallback %q", v.Atom, v, calls.of(v.Atom), box.fell[v.Atom])
+		}
 	}
 }

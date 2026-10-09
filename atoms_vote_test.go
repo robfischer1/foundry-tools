@@ -158,14 +158,18 @@ func TestTheRollbackSwitchRestoresTheChainsAsVoters(t *testing.T) {
 		}
 	}
 	m := &FoundryTools{}
-	if h := m.startShadow(soon(t), "", "b"); h == nil || h.box != nil || m.box != nil {
+	h := m.startShadow(soon(t), "", "b")
+	if h == nil || h.box != nil || m.box != nil {
 		t.Errorf("a chain-voted lane was given a ballot box: %+v", h)
 	}
+	h.finish()
 	casting(t, voterBinary)
 	m = &FoundryTools{}
-	if h := m.startShadow(soon(t), "", "b"); h == nil || h.box == nil || m.box != h.box {
+	h = m.startShadow(soon(t), "", "b")
+	if h == nil || h.box == nil || m.box != h.box {
 		t.Errorf("a binary-voted lane has no ballot box: %+v", h)
 	}
+	h.finish()
 }
 
 // The push sequence asks the binary once, when it reaches the first of its
