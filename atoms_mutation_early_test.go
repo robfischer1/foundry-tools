@@ -196,3 +196,22 @@ func TestTheTestServerScopeLinesSayWhyOnEveryBranch(t *testing.T) {
 		})
 	}
 }
+
+// A BROKER ALONE STILL TAGS AND SERIALISES go:test-race: withTestBrokers hands
+// the brokers it bound back, and the run compiles their tag under -p 1.
+func TestGoTestRaceCompilesABrokerOnlyRecordsTag(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.withTree(map[string]string{
+		".copier-answers.yml":           "service_name: x\n",
+		"/dies/fleet/stars/x/slag.json": `{"backends":{"kafka":["x.events"]}}`,
+	})
+	engine.stdout(`"go","list"`, "11\n")
+	engine.stdout(`"grep","-rhoE"`, "//go:build live_kafka\n")
+	wantState(t, runAtom(t, "go:test-race", ""), 0, "test brokers: live_kafka")
+	c := engine.chain(`"go","test","-race"`, "exitCode")
+	wantCalls(t, c,
+		[]string{"withServiceBinding", `alias:"broker"`},
+		[]string{"withExec", `args:["go","test","-race","-tags","live_kafka","-p","1","./..."]`},
+	)
+}
