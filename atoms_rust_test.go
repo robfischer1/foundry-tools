@@ -297,7 +297,10 @@ func TestRustCargoAuditPassesItsOwnExitCodeThroughRaw(t *testing.T) {
 // cache mount does not cover, so two containers resolving the registry
 // concurrently do not see each other's lock (measured 2026-09-12 on tongs).
 // Every atom that compiles branches from the fetched layer; the one that does
-// not compile must not pay for it.
+// not compile must not pay for it. rust:mutation fetches only once it knows it
+// will mutate something (TestRustMutationMeasuresTheDiffFromTheFetchedLayer
+// holds the fetch, TestRustMutationWithNothingToMutateSettlesBeforeProvisioning
+// its absence).
 func TestCargoDepsIsTheBaseOfEveryCompilingAtom(t *testing.T) {
 	for _, tc := range []struct {
 		id      string
@@ -307,7 +310,6 @@ func TestCargoDepsIsTheBaseOfEveryCompilingAtom(t *testing.T) {
 		{"rust:cargo-clippy", true},
 		{"rust:cargo-test", true},
 		{"rust:cargo-audit", true},
-		{"rust:mutation", true},
 	} {
 		engine.reset()
 		engine.withTree(rustTSTree(map[string]string{

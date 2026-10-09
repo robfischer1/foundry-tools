@@ -247,17 +247,18 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 	if r.base == "" {
 		return settle(0, noBase)
 	}
-	ctr := r.gitReady(ctx, r.withBase(r.rustMutationLane().
-		WithExec([]string{"cargo", "fetch", "--locked"}).
-		WithoutEnvVariable("CARGO_TARGET_DIR").
-		WithoutMount("/cache/cargo-target"))).
-		// Provisioning, under the default Expect: an image without cargo-mutants
-		// is a Dagger error, and the first exec read below files it as never ran.
-		WithExec([]string{"cargo", "mutants", "--version"})
+	// THE CHANGE SET IS KNOWN BEFORE ANYTHING IS PROVISIONED. The merge base
+	// and the diff are git questions, asked of the gate's own rust lane — the
+	// layers every rust atom already shares — with the base fetched in. Only a
+	// pull that adds lines to a critical module gets the mutation tools and the
+	// dependency fetch. MEASURED 2026-10-09: of 107 mutation runs, 20 graded
+	// nothing and paid ~110 CPU-s each provisioning for it, and a cerberus run
+	// spent 995 CPU-s building cargo-mutants and cargo-nextest to mutate nothing.
+	pre := r.gitReady(ctx, r.withBase(r.lane(checks.ImageRust)))
 
 	// The change set starts at the merge base, not at the base the door named
 	// (run.changeBase): main's tip moves under an open pull.
-	since, err := r.changeBase(ctx, ctr)
+	since, err := r.changeBase(ctx, pre)
 	if err != nil {
 		return settle(2, "CANNOT RUN - "+err.Error())
 	}
@@ -270,7 +271,7 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 	// safe head side is the tree this run holds. --relative, because the paths
 	// are matched against the tree cargo runs in.
 	specs := append([]string{"--"}, checks.RustMutationSpecs(mods)...)
-	diff, code, err := output(ctx, ctr.WithExec(append([]string{"git", "diff", "--relative", since, "HEAD"}, specs...), anyExit))
+	diff, code, err := output(ctx, pre.WithExec(append([]string{"git", "diff", "--relative", since, "HEAD"}, specs...), anyExit))
 	if err != nil {
 		return neverRan(err)
 	}
@@ -283,6 +284,15 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 	if !checks.DiffAddsLines(diff) {
 		return settle(0, "this pull only REMOVED lines from the critical modules — nothing to mutate")
 	}
+
+	// SOMETHING WILL BE MUTATED: the mutation lane, its dependencies fetched.
+	ctr := r.gitReady(ctx, r.withBase(r.rustMutationLane().
+		WithExec([]string{"cargo", "fetch", "--locked"}).
+		WithoutEnvVariable("CARGO_TARGET_DIR").
+		WithoutMount("/cache/cargo-target"))).
+		// Provisioning, under the default Expect: an image without cargo-mutants
+		// is a Dagger error, and the first exec read below files it as never ran.
+		WithExec([]string{"cargo", "mutants", "--version"})
 
 	// EVERY WORKSPACE MEMBER THE PULL TOUCHED, each passed as -p
 	// (checks.RustTouchedMembers). A metadata read that fails is could-not-run,
