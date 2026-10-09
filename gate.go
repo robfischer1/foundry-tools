@@ -140,6 +140,20 @@ func (m *FoundryTools) GateFile(
 	// absent, that lane grades exactly the same and says it pushed nothing.
 	// +optional
 	artifactAuth *dagger.Secret,
+	// A second lane to grade in this same call and engine session, on the same
+	// tree and base (ride.go): "orbit" is the only lane that rides, and only the
+	// gate Job carries one. Its record is posted under --ride-token AFTER the
+	// gate's, for at most rideGrace. Anything else, or a ride without a token,
+	// is one stderr line and rides nothing; no ride ever changes the gate's own
+	// record, file or exit. Empty rides nothing, exactly as before.
+	// +optional
+	ride string,
+	// The rider's own record token (its CA_RECORD_TOKEN). Daedalus binds one
+	// token to one record and overwrites on a second post under it, so the
+	// rider never posts under --record-token. A Secret for the same reason
+	// that one is.
+	// +optional
+	rideToken *dagger.Secret,
 ) (*dagger.File, error) {
 	if reuse && recordToken != nil {
 		m.lookup = lookupVia(m.Repo, recordToken)
@@ -147,6 +161,9 @@ func (m *FoundryTools) GateFile(
 	}
 	m.spire = spire
 	m.artifactAuth = artifactAuth
+	// The rider starts before the gate grades, on its own copy of m (startRide),
+	// so it overlaps the gate; with no ride this is nothing.
+	rider := m.startRide(ctx, tree, stage, ride, base, rideToken)
 	// The shadow overlaps the grading (startShadow); every field it reads off m
 	// is set above.
 	shadow := m.startShadow(ctx, stage, base)
@@ -175,6 +192,9 @@ func (m *FoundryTools) GateFile(
 	// AFTER THE POST, and for at most shadowGrace: the record is already with
 	// the door, and the file below is the fallback the Job returns.
 	shadow.finish()
+	// THE RIDER LAST, after every line the gate prints, for at most rideGrace.
+	// It answers nothing to this function: the file below is the gate's alone.
+	rider.finish(ctx)
 	return result.RecordFile()
 }
 

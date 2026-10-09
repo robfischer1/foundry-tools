@@ -668,6 +668,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Dies).Canonical(&parent, ctx)
+		case "ContractCopies":
+			var parent Dies
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Dies).ContractCopies(&parent, ctx)
 		case "Contracts":
 			var parent Dies
 			err = json.Unmarshal(parentJSON, &parent)
@@ -696,6 +703,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Dies).OpaTest(&parent, ctx)
+		case "RefusalCodes":
+			var parent Dies
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Dies).RefusalCodes(&parent, ctx)
 		case "Schema":
 			var parent Dies
 			err = json.Unmarshal(parentJSON, &parent)
@@ -703,6 +717,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Dies).Schema(&parent, ctx)
+		case "SchemaRendered":
+			var parent Dies
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Dies).SchemaRendered(&parent, ctx)
+		case "WitRegenerated":
+			var parent Dies
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Dies).WitRegenerated(&parent, ctx)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
@@ -729,6 +757,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Fleet).CheckYaml(&parent, ctx)
+		case "ConsumedEventsEmitted":
+			var parent Fleet
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Fleet).ConsumedEventsEmitted(&parent, ctx)
 		case "DaggerLockstep":
 			var parent Fleet
 			err = json.Unmarshal(parentJSON, &parent)
@@ -743,6 +778,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Fleet).Hadolint(&parent, ctx)
+		case "NodeKindsDeclared":
+			var parent Fleet
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Fleet).NodeKindsDeclared(&parent, ctx)
 		case "OpengrepSast":
 			var parent Fleet
 			err = json.Unmarshal(parentJSON, &parent)
@@ -1160,7 +1202,21 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg artifactAuth", err))
 				}
 			}
-			return (*FoundryTools).GateFile(&parent, ctx, tree, pin, base, stage, recordToken, reuse, spire, artifactAuth)
+			var ride string
+			if inputArgs["ride"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["ride"]), &ride)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg ride", err))
+				}
+			}
+			var rideToken *dagger.Secret
+			if inputArgs["rideToken"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["rideToken"]), &rideToken)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg rideToken", err))
+				}
+			}
+			return (*FoundryTools).GateFile(&parent, ctx, tree, pin, base, stage, recordToken, reuse, spire, artifactAuth, ride, rideToken)
 		case "Go":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
@@ -1681,6 +1737,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*TSLane).Mutation(&parent, ctx)
+		case "Regen":
+			var parent TSLane
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*TSLane).Regen(&parent, ctx)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
