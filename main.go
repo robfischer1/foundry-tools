@@ -364,31 +364,40 @@ func (m *FoundryTools) graded(ctx context.Context, stage, only, base string, sid
 		return nil, err
 	}
 	// THE BINARY RUNS ONCE FOR THE LANE, beside the chains, not after them.
-	ballot := m.pollFor(side, stage, base, plan.Run)
+	ballot := m.pollFor(side, stage, base, plan.Run, func(ctx context.Context, id string) (checks.Verdict, error) {
+		return verdictFor(ctx, r, id)
+	})
 	ballot.start(ctx)
 	out := make([]checks.Verdict, len(plan.Run))
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(atomsInFlight)
+	ask := func(i int, a checks.AtomDef) {
+		g.Go(func() error {
+			// The binary's atoms are asked for their vote, which is a chain run
+			// for one the binary could not answer; the rest are chain runs.
+			if v, ok := ballot.vote(gctx, a.ID); ok {
+				out[i] = v
+				return nil
+			}
+			v, err := verdictFor(gctx, r, a.ID)
+			out[i] = v
+			return err
+		})
+	}
+	// The chain atoms are submitted first, so the pool is not held by atoms
+	// waiting on a binary that is still running while the chains have work.
+	for i, a := range plan.Run {
+		if !ballot.carries(a.ID) {
+			ask(i, a)
+		}
+	}
 	for i, a := range plan.Run {
 		if ballot.carries(a.ID) {
-			continue
+			ask(i, a)
 		}
-		g.Go(func() error {
-			v, err := verdictFor(gctx, r, a.ID)
-			if err != nil {
-				return err
-			}
-			out[i] = v
-			return nil
-		})
 	}
 	if err := g.Wait(); err != nil {
 		return nil, err
-	}
-	for i, a := range plan.Run {
-		if v, ok := ballot.vote(ctx, a.ID); ok {
-			out[i] = v
-		}
 	}
 	out = append(out, absent...)
 	for _, a := range covered {

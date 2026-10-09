@@ -366,9 +366,9 @@ func (h *shadowHandle) finish() {
 		return
 	}
 	defer h.cancel()
-	// The record is settled: a vote that has not been cast now never will be, and
-	// the shadow stops waiting for it instead of sitting out the grace.
-	h.box.put(nil)
+	// The record is settled: no vote and no fallback is coming, and the shadow,
+	// which reads the box after this, reports instead of sitting out the grace.
+	h.box.seal()
 	timer := time.NewTimer(h.grace)
 	defer timer.Stop()
 	select {

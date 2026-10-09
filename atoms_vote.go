@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -56,9 +57,18 @@ type castFunc func(ctx context.Context, m *FoundryTools, stage, base string) (st
 // poll is the binary's vote for one lane: which of the lane's atoms it answers,
 // started once, read by id. A nil poll answers nothing, so a lane the binary
 // has no atom in (mutation, visual) and a chain-voted lane read the same.
+//
+// THE CHAINS KEEP THEIR RESILIENCE. An atom the binary settles as could-not-run
+// (a network error, a tool layer that did not build, a crash, an OOM, a lane
+// deadline: the reason does not matter) is asked ONCE more through its old chain,
+// and the chain's answer is the vote. That restores the chains' per-atom blast
+// radius and their re-ask: a broken binary or tools layer cannot turn all 50
+// atoms red, because each of them goes back to the path that answered before.
+// A finding (state 1) is a verdict and is never re-asked.
 type poll struct {
 	m           *FoundryTools
 	run         castFunc
+	chain       chainFunc
 	stage, base string
 	want        []checks.AtomDef
 	begin       sync.Once
@@ -66,9 +76,14 @@ type poll struct {
 	votes       map[string]checks.Verdict
 }
 
+// chainFunc is one atom's old chain, the lane's own (verdictFor on its run),
+// which asks the atom a second time past the cache when it could not run.
+type chainFunc func(ctx context.Context, id string) (checks.Verdict, error)
+
 // pollFor answers the lane's poll: the atoms of run that the binary registers at
 // this stage, when the binary votes. Nil when it does not, or has none here.
-func (m *FoundryTools) pollFor(side voter, stage, base string, run []checks.AtomDef) *poll {
+// chain is how a could-not-run atom is asked again.
+func (m *FoundryTools) pollFor(side voter, stage, base string, run []checks.AtomDef, chain chainFunc) *poll {
 	if side != voterBinary {
 		return nil
 	}
@@ -82,7 +97,7 @@ func (m *FoundryTools) pollFor(side voter, stage, base string, run []checks.Atom
 	if len(want) == 0 {
 		return nil
 	}
-	return &poll{m: m, run: castBinary, stage: stage, base: base, want: want, done: make(chan struct{})}
+	return &poll{m: m, run: castBinary, chain: chain, stage: stage, base: base, want: want, done: make(chan struct{})}
 }
 
 // atom is the catalogue row of an atom the binary answers in this lane.
@@ -116,28 +131,42 @@ func (p *poll) start(ctx context.Context) {
 	})
 }
 
-// vote is the binary's verdict for id, waiting for the run if it is still going.
-// False says the chain answers this atom. A lane that ends first (its context is
-// done) does not wait on the binary for ever: the atom is a could-not-run.
+// vote is the lane's vote for id: the binary's verdict, waiting for the run if it
+// is still going, or, when the binary could not run the atom, the chain's. False
+// says the chain answers this atom anyway (the binary does not carry it). A lane
+// that ends first (its context is done) does not wait on the binary for ever.
 func (p *poll) vote(ctx context.Context, id string) (checks.Verdict, bool) {
 	a, ok := p.atom(id)
 	if !ok {
 		return checks.Verdict{}, false
 	}
 	p.start(ctx)
+	var v checks.Verdict
 	select {
 	case <-p.done:
-		return p.votes[id], true
+		v = p.votes[id]
 	case <-ctx.Done():
-		return checks.VerdictOf(a, int(checks.StateCannotRun),
-			a.ID+": CANNOT RUN - the lane ended before the atoms binary answered: "+ctx.Err().Error()), true
+		v = checks.VerdictOf(a, int(checks.StateCannotRun),
+			a.ID+": CANNOT RUN - the lane ended before the atoms binary answered: "+ctx.Err().Error())
 	}
+	if v.State == int(checks.StatePass) || v.State == int(checks.StateFindings) || p.chain == nil {
+		return v, true
+	}
+	// ANY OTHER STATE IS A COULD-NOT-RUN (checks.Worst reads it so): one ask of
+	// the old chain, whose answer is the vote. A chain that cannot answer either
+	// (no runner, a lane already over) leaves the binary's 2 standing.
+	cv, err := p.chain(ctx, id)
+	if err != nil {
+		return v, true
+	}
+	p.m.box.fall(id, v.Reason)
+	return cv, true
 }
 
 // cast runs the binary once and answers a verdict for every atom in want. A
 // binary that would not run, an output that is not a vector and an atom it left
 // out are each that atom's could-not-run, never a pass and never a fallback to
-// the chain: the verdict is the binary's or it is a 2 that says why.
+// the chain here: vote asks the chain once for each of them.
 func (m *FoundryTools) cast(ctx context.Context, run castFunc, stage, base string, want []checks.AtomDef) map[string]checks.Verdict {
 	raw, err := run(ctx, m, stage, base)
 	var vector []checks.Verdict
@@ -164,8 +193,10 @@ func (m *FoundryTools) cast(ctx context.Context, run castFunc, stage, base strin
 }
 
 // ballotBox hands the voter's verdicts to the reverse shadow. The shadow starts
-// before grading and the vote arrives during it, so they meet here: put once by
-// the lane that voted, closed by the lane when it settles without one.
+// before grading and the vote arrives during it, so they meet here: the binary's
+// raw votes are put once, each atom that fell back to its chain is noted with the
+// binary's reason, and the lane seals the box when its record is settled. The
+// shadow reads the box only after the seal, so its report counts every fallback.
 //
 // IT ALSO CARRIES THE SHADOW'S OWN INPUTS, copied when the lane starts: the
 // chain side and the witness switch. An abandoned shadow outlives the call that
@@ -173,9 +204,11 @@ func (m *FoundryTools) cast(ctx context.Context, run castFunc, stage, base strin
 // the next call (or test) writes there; startShadow's rule is that the
 // goroutine reads copies, and these are the copies.
 type ballotBox struct {
-	once  sync.Once
-	done  chan struct{}
-	votes map[string]checks.Verdict
+	mu       sync.Mutex
+	votes    map[string]checks.Verdict
+	fell     map[string]string
+	sealOnce sync.Once
+	sealed   chan struct{}
 	// chains answers the comparator's vector: every atom of `only` by its chain.
 	chains chainSide
 	// witness says whether the chain's fleet:witness runs in the comparator.
@@ -186,35 +219,58 @@ type ballotBox struct {
 type chainSide func(ctx context.Context, m *FoundryTools, stage, only, base string) ([]checks.Verdict, error)
 
 func newBallotBox(chains chainSide, witness bool) *ballotBox {
-	return &ballotBox{done: make(chan struct{}), chains: chains, witness: witness}
+	return &ballotBox{sealed: make(chan struct{}), fell: map[string]string{}, chains: chains, witness: witness}
 }
 
-// put files the votes; the first filing stands. A nil box files nothing.
+// put files the binary's raw votes; the first filing stands. A nil box files nothing.
 func (b *ballotBox) put(votes map[string]checks.Verdict) {
 	if b == nil {
 		return
 	}
-	b.once.Do(func() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.votes == nil {
 		b.votes = votes
-		close(b.done)
-	})
+	}
 }
 
-// wait answers the votes, or why there are none: the context ended, or the lane
-// settled without casting any.
-func (b *ballotBox) wait(ctx context.Context) (map[string]checks.Verdict, error) {
+// fall notes an atom the binary could not run and its chain answered, with the
+// binary's reason. A nil box notes nothing.
+func (b *ballotBox) fall(id, reason string) {
 	if b == nil {
-		return nil, fmt.Errorf("no ballot box: the lane is not voting with the binary")
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.fell[id] = reason
+}
+
+// seal says the lane's record is settled: no vote and no fallback is coming. A
+// nil box seals nothing.
+func (b *ballotBox) seal() {
+	if b == nil {
+		return
+	}
+	b.sealOnce.Do(func() { close(b.sealed) })
+}
+
+// wait answers the raw votes and the fallbacks once the lane has sealed the box,
+// or why there are none: the context ended, or the lane settled without casting.
+func (b *ballotBox) wait(ctx context.Context) (map[string]checks.Verdict, map[string]string, error) {
+	if b == nil {
+		return nil, nil, fmt.Errorf("no ballot box: the lane is not voting with the binary")
 	}
 	select {
-	case <-b.done:
+	case <-b.sealed:
 	case <-ctx.Done():
-		return nil, fmt.Errorf("no vote was cast before the shadow's deadline: %w", ctx.Err())
+		return nil, nil, fmt.Errorf("the lane had not settled before the shadow's deadline: %w", ctx.Err())
 	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if b.votes == nil {
-		return nil, fmt.Errorf("the lane settled without casting a vote")
+		return nil, nil, fmt.Errorf("the lane settled without casting a vote")
 	}
-	return b.votes, nil
+	return b.votes, maps.Clone(b.fell), nil
 }
 
 // THE REVERSE SHADOW: the chains of the atoms the binary registers, run beside
@@ -256,13 +312,13 @@ func (m *FoundryTools) reverseShadow(ctx context.Context, stage, base string) st
 	}
 	started := time.Now()
 	chains, chainsErr := m.box.chains(ctx, m, stage, strings.Join(ids, ","), base)
-	votes, votesErr := m.box.wait(ctx)
-	return renderReverse(ids, skipped, chains, chainsErr, votes, votesErr, time.Since(started))
+	votes, fell, votesErr := m.box.wait(ctx)
+	return renderReverse(ids, skipped, chains, chainsErr, votes, fell, votesErr, time.Since(started))
 }
 
 // renderReverse is the report from the two sides' answers. It is pure so the
 // ways either side can fail are tested without an engine.
-func renderReverse(ids []string, skipped bool, chains []checks.Verdict, chainsErr error, votes map[string]checks.Verdict, votesErr error, elapsed time.Duration) string {
+func renderReverse(ids []string, skipped bool, chains []checks.Verdict, chainsErr error, votes map[string]checks.Verdict, fell map[string]string, votesErr error, elapsed time.Duration) string {
 	const head = "shadow atoms (binary voted): not compared - "
 	if chainsErr != nil {
 		return head + "the chains did not answer: " + chainsErr.Error()
@@ -270,19 +326,47 @@ func renderReverse(ids []string, skipped bool, chains []checks.Verdict, chainsEr
 	if votesErr != nil {
 		return head + "the binary's vote is missing: " + votesErr.Error()
 	}
-	var voted []checks.Verdict
+	// An atom that fell back has no binary verdict to hold against its chain: its
+	// vote IS the chain's, so comparing them would be an agreement of a thing with
+	// itself. It is counted below instead.
+	var voted, chained []checks.Verdict
 	for _, id := range ids {
+		if _, fellBack := fell[id]; fellBack {
+			continue
+		}
 		if v, ok := votes[id]; ok {
 			voted = append(voted, v)
 		}
 	}
-	rep := atoms.Compare(chains, voted)
+	for _, c := range chains {
+		if _, fellBack := fell[c.Atom]; !fellBack {
+			chained = append(chained, c)
+		}
+	}
+	rep := atoms.Compare(chained, voted)
 	rep.Voter, rep.Elapsed = string(voterBinary), elapsed
-	out := rep.Render()
+	out := rep.Render() + renderFallbacks(ids, fell)
 	if skipped {
 		out += "\nfleet:witness: not compared - the binary asked narcissus for real and the chain was not run, so it is asked once\n"
 	}
 	return out
+}
+
+// renderFallbacks is the line per atom whose vote is its chain's because the
+// binary could not run it, with the binary's reason, in the stage's order, and a
+// count on top. Empty when none fell back.
+func renderFallbacks(ids []string, fell map[string]string) string {
+	if len(fell) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "\n%d of %d fell back to the chain (the binary settled could-not-run; the chain's answer is the vote):\n", len(fell), len(ids))
+	for _, id := range ids {
+		if reason, ok := fell[id]; ok {
+			fmt.Fprintf(&b, "  %s: %s\n", id, atoms.Clip(reason))
+		}
+	}
+	return b.String()
 }
 
 // defaultShadow is the shadow a gate or orbit lane starts, by who votes: the

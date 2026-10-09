@@ -104,17 +104,18 @@ func TestAFailingHangingOrPanickingReverseShadowChangesNothing(t *testing.T) {
 // out the grace for one: it says so.
 func TestAReverseShadowDoesNotWaitForAVoteThatCannotCome(t *testing.T) {
 	m := &FoundryTools{box: newBallotBox(nil, false)}
-	m.box.put(nil)
-	got := renderReverse([]string{"fleet:check-yaml"}, false, nil, nil, nil, func() error { _, err := m.box.wait(soon(t)); return err }(), 0)
+	m.box.seal()
+	_, _, waitErr := m.box.wait(soon(t))
+	got := renderReverse([]string{"fleet:check-yaml"}, false, nil, nil, nil, nil, waitErr, 0)
 	if !strings.Contains(got, "the binary's vote is missing: the lane settled without casting a vote") {
 		t.Errorf("report %q", got)
 	}
-	if _, err := (*ballotBox)(nil).wait(soon(t)); err == nil {
+	if _, _, err := (*ballotBox)(nil).wait(soon(t)); err == nil {
 		t.Error("a lane with no box was given votes")
 	}
 	ctx, cancel := context.WithCancel(soon(t))
 	cancel()
-	if _, err := newBallotBox(nil, false).wait(ctx); err == nil || !errors.Is(err, context.Canceled) {
+	if _, _, err := newBallotBox(nil, false).wait(ctx); err == nil || !errors.Is(err, context.Canceled) {
 		t.Errorf("a box nobody filled answered %v", err)
 	}
 }
@@ -139,6 +140,7 @@ func TestTheReverseShadowLeavesTheWitnessChainOut(t *testing.T) {
 			return nil, nil
 		}, with)}
 		m.box.put(map[string]checks.Verdict{})
+		m.box.seal()
 		m.reverseShadow(soon(t), checks.StagePrepush, "")
 		if strings.Contains(only, "fleet:witness") != with {
 			t.Errorf("witness switch %v: the chains were asked for %q", with, only)
@@ -149,7 +151,7 @@ func TestTheReverseShadowLeavesTheWitnessChainOut(t *testing.T) {
 			t.Errorf("a shadow with no chain side answered %q", got)
 		}
 	}
-	out := renderReverse([]string{"fleet:check-yaml"}, true, nil, nil, map[string]checks.Verdict{}, nil, 0)
+	out := renderReverse([]string{"fleet:check-yaml"}, true, nil, nil, map[string]checks.Verdict{}, nil, nil, 0)
 	if !strings.Contains(out, "fleet:witness: not compared") || !strings.HasPrefix(out, "shadow atoms (binary voted): 0 compared") {
 		t.Errorf("report %q", out)
 	}

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -140,37 +139,6 @@ func TestEveryAtomTheBinaryRegistersVotesFromTheBinary(t *testing.T) {
 	}
 }
 
-// A binary that would not answer, or answered garbage, or left an atom out, is
-// that atom's could-not-run - and never its chain's pass.
-func TestABinaryThatDoesNotAnswerIsAFailureForEachOfItsAtoms(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		out  string
-		err  error
-		want string
-	}{
-		{"the run failed", "", errors.New("the engine went away"), "the atoms binary did not answer: the engine went away"},
-		{"the output is not a vector", "panic: oops", nil, "the atoms binary did not answer: the module's output is not a verdict vector"},
-		{"an atom is left out", "[]", nil, "the atoms binary returned no verdict for this atom"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			casting(t, voterBinary)
-			castBinary = func(context.Context, *FoundryTools, string, string) (string, error) { return tc.out, tc.err }
-			engine.reset()
-			engine.withTree(bareTree)
-			vs, err := bareModule().vector(soon(t), checks.StageOrbit, "", "")
-			if err != nil || len(vs) != len(atoms.StageIDs(checks.StageOrbit)) {
-				t.Fatalf("vector %v, err %v", vs, err)
-			}
-			for _, v := range vs {
-				if v.State != 2 || v.Result != "cannot-run" || !strings.Contains(v.Reason, tc.want) {
-					t.Errorf("%s: %+v", v.Atom, v)
-				}
-			}
-		})
-	}
-}
-
 // (c) THE ROLLBACK: with the chains voting the binary is not run for a vote, no
 // verdict is the binary's, and the shadow is the dry one (no ballot box).
 func TestTheRollbackSwitchRestoresTheChainsAsVoters(t *testing.T) {
@@ -255,7 +223,7 @@ func TestAPollAnswersOnlyForTheAtomsItCarries(t *testing.T) {
 	}
 	none.start(soon(t))
 	ran := casting(t, voterBinary)
-	p := bareModule().pollFor(voterBinary, checks.StagePrecommit, "", checks.AtomsForStage(checks.StagePrecommit))
+	p := bareModule().pollFor(voterBinary, checks.StagePrecommit, "", checks.AtomsForStage(checks.StagePrecommit), nil)
 	if _, ok := p.vote(soon(t), "go:vet"); ok {
 		t.Error("the poll answered for a toolchain atom")
 	}
@@ -270,10 +238,10 @@ func TestAPollAnswersOnlyForTheAtomsItCarries(t *testing.T) {
 	if len(*ran) != 1 {
 		t.Errorf("two atoms ran the binary %d times", len(*ran))
 	}
-	if p := bareModule().pollFor(voterBinary, checks.StageMutation, "", checks.AtomsForStage(checks.StageMutation)); p != nil {
+	if p := bareModule().pollFor(voterBinary, checks.StageMutation, "", checks.AtomsForStage(checks.StageMutation), nil); p != nil {
 		t.Error("the mutation lane has a poll")
 	}
-	if p := bareModule().pollFor(voterChains, "", "", checks.AtomsForStage("")); p != nil {
+	if p := bareModule().pollFor(voterChains, "", "", checks.AtomsForStage(""), nil); p != nil {
 		t.Error("the chains' vote has a poll")
 	}
 }
@@ -354,7 +322,9 @@ func TestTheRecordFromTheBinaryIsTheRecordFromTheChain(t *testing.T) {
 			v = checks.VerdictOf(a, 1, "bad.yml: broken\nsecond")
 			v.Findings = []checks.Finding{{Verdict: "fail", Subject: "bad.yml", Cause: "broken", Detail: "d", Probe: "p"}}
 		case 2:
-			v = checks.VerdictOf(a, 2, id+": CANNOT RUN - no tool")
+			// A 2 is not here: the binary's could-not-run goes to its chain
+			// (atoms_fallback_test.go), so it is not a verdict the record carries as is.
+			v = checks.VerdictOf(a, 1, id+": FINDINGS\nthird")
 		default:
 			v = checks.AbsentVerdict(a)
 			v.Logs, v.Truncated, v.OriginalBytes = []string{}, true, 12345

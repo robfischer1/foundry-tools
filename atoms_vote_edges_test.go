@@ -55,7 +55,7 @@ func TestAVoteTheLaneCannotWaitForIsACouldNotRun(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	p := bareModule().pollFor(voterBinary, checks.StagePrecommit, "", checks.AtomsForStage(checks.StagePrecommit))
+	p := bareModule().pollFor(voterBinary, checks.StagePrecommit, "", checks.AtomsForStage(checks.StagePrecommit), nil)
 	v, ok := p.vote(ctx, "fleet:check-yaml")
 	if !ok || v.State != 2 || v.Atom != "fleet:check-yaml" || !strings.Contains(v.Reason, "the lane ended before the atoms binary answered") {
 		t.Errorf("verdict %+v (%v)", v, ok)
@@ -69,7 +69,7 @@ func TestFinishTellsTheShadowNoVoteIsComing(t *testing.T) {
 	t.Cleanup(func() { shadowRun, shadowGrace, shadowOut = origRun, origGrace, origOut })
 	casting(t, voterBinary)
 	shadowRun = func(ctx context.Context, m *FoundryTools, _, _ string) string {
-		_, err := m.box.wait(ctx)
+		_, _, err := m.box.wait(ctx)
 		if err == nil {
 			return "a vote came"
 		}

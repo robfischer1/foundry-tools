@@ -251,3 +251,6 @@ func clip(s string) string {
 	}
 	return s
 }
+
+// Clip is clip for the reports other packages write beside this one's.
+func Clip(s string) string { return clip(s) }
