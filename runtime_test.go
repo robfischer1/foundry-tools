@@ -323,6 +323,23 @@ func TestEveryLaneVerifiesOpengrepAgainstItsPin(t *testing.T) {
 	}
 }
 
+// A pin with no sum is not fetched unverified: the lane gets an exec that
+// cannot succeed, so every atom on it settles 2.
+func TestOpengrepWithoutAPinnedSumFailsTheLaneClosed(t *testing.T) {
+	engine.reset()
+	engine.fail(`"/bin/false"`, "exit code: 1")
+	c := withOpengrepSums(dag.Container().From("x"), map[string]string{})
+	if _, err := c.Sync(t.Context()); err == nil {
+		t.Error("a lane with no pinned opengrep sum provisioned anyway")
+	}
+	if engine.chain(`http(`, checks.OpengrepURL) != "" {
+		t.Error("opengrep was fetched with nothing to verify it against")
+	}
+	if got := engine.chain(`"/bin/false"`); got == "" {
+		t.Error("the closing exec never reached the engine")
+	}
+}
+
 // THE NARROWING (CA F12). A compile, a vet, a lint or a test suite mounts the
 // tree less checks.InertPaths — the README, the changelog, the hooks, the
 // justfiles, pre-commit's and copier's files — so its exec is keyed on the

@@ -360,7 +360,13 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 // for every atom on the lane; a pin with no sum fails the same way, through an
 // exec that cannot succeed, rather than fetching unverified.
 func withOpengrep(ctr *dagger.Container) *dagger.Container {
-	sum, ok := checks.ToolSHA256[checks.OpengrepURL]
+	return withOpengrepSums(ctr, checks.ToolSHA256)
+}
+
+// withOpengrepSums is withOpengrep over a named set of pinned sums, so the
+// fail-closed branch can be held by a test with a set that lacks the pin.
+func withOpengrepSums(ctr *dagger.Container, sums map[string]string) *dagger.Container {
+	sum, ok := sums[checks.OpengrepURL]
 	if !ok {
 		return ctr.WithExec([]string{"/bin/false"}) // no checksum pinned: the lane must not provision it
 	}
