@@ -232,3 +232,13 @@ func diesWitRegenerated(ctx context.Context, a checks.AtomDef, in Input) checks.
 func diesSchemaRendered(ctx context.Context, a checks.AtomDef, in Input) checks.Verdict {
 	return pyChecker(ctx, a, in, "tools/check_schema_rendered.py")
 }
+
+// diesWireGrammar: the wire grammar's two rules about answers (stellar-core
+// F17): every string enum in a tool-output schema folds onto the six findings
+// words or is declared kept, and a required non-null measure is attested or
+// fixed. THE CHECKER AND ITS MODES ARE THE TREE'S: each section of
+// contracts/wire-grammar.toml says warn or fail, so the flip from reporting to
+// gating is a dies edit, and this atom passes the exit code straight through.
+func diesWireGrammar(ctx context.Context, a checks.AtomDef, in Input) checks.Verdict {
+	return pyChecker(ctx, a, in, "tools/check_wire_grammar.py")
+}
