@@ -49,6 +49,30 @@ func casting(t *testing.T, side voter) *[]string {
 	return &ran
 }
 
+// soon is a context that ends: a lane whose binary never answers fails a test
+// in seconds instead of hanging it.
+func soon(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	return ctx
+}
+
+// chainsAreOff makes the chain of every atom the binary registers a test
+// failure: a binary-voted lane must not run them, whatever it does with the
+// answers.
+func chainsAreOff(t *testing.T) {
+	t.Helper()
+	for _, a := range atoms.Builtin() {
+		orig := registry[a.ID]
+		registry[a.ID] = func(ctx context.Context, r *run) checks.Verdict {
+			t.Errorf("the chain of %s ran though the binary votes", a.ID)
+			return orig(ctx, r)
+		}
+		t.Cleanup(func() { registry[a.ID] = orig })
+	}
+}
+
 // A tree with no language in it: the lane atoms stand down and the run-anywhere
 // atoms are the whole of the vector.
 var bareTree = map[string]string{"README.md": "hello\n"}
@@ -72,13 +96,14 @@ func TestEveryAtomTheBinaryRegistersVotesFromTheBinary(t *testing.T) {
 	for _, a := range atoms.Builtin() {
 		registered[a.ID] = true
 	}
+	chainsAreOff(t)
 	seen := map[string]bool{}
 	for _, stage := range []string{"", checks.StagePrecommit, checks.StagePrepush, checks.StageOrbit} {
 		t.Run("stage "+stage, func(t *testing.T) {
 			*ran = nil
 			engine.reset()
 			engine.withTree(bareTree)
-			vs, err := bareModule().vector(context.Background(), stage, "", "")
+			vs, err := bareModule().vector(soon(t), stage, "", "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -87,6 +112,9 @@ func TestEveryAtomTheBinaryRegistersVotesFromTheBinary(t *testing.T) {
 			}
 			var order []string
 			for _, v := range vs {
+				if v.Atom == "" {
+					t.Errorf("an atom of the vector was never answered: %+v", v)
+				}
 				fromBinary := strings.HasPrefix(v.Reason, votedMark)
 				if fromBinary != registered[v.Atom] {
 					t.Errorf("%s: voted by the binary is %v, registered is %v (%q)", v.Atom, fromBinary, registered[v.Atom], v.Reason)
@@ -130,7 +158,7 @@ func TestABinaryThatDoesNotAnswerIsAFailureForEachOfItsAtoms(t *testing.T) {
 			castBinary = func(context.Context, *FoundryTools, string, string) (string, error) { return tc.out, tc.err }
 			engine.reset()
 			engine.withTree(bareTree)
-			vs, err := bareModule().vector(context.Background(), checks.StageOrbit, "", "")
+			vs, err := bareModule().vector(soon(t), checks.StageOrbit, "", "")
 			if err != nil || len(vs) != len(atoms.StageIDs(checks.StageOrbit)) {
 				t.Fatalf("vector %v, err %v", vs, err)
 			}
@@ -149,7 +177,7 @@ func TestTheRollbackSwitchRestoresTheChainsAsVoters(t *testing.T) {
 	ran := casting(t, voterChains)
 	engine.reset()
 	engine.withTree(bareTree)
-	vs, err := bareModule().vector(context.Background(), checks.StagePrecommit, "", "")
+	vs, err := bareModule().vector(soon(t), checks.StagePrecommit, "", "")
 	if err != nil || len(vs) == 0 {
 		t.Fatalf("vector %v, err %v", vs, err)
 	}
@@ -162,12 +190,12 @@ func TestTheRollbackSwitchRestoresTheChainsAsVoters(t *testing.T) {
 		}
 	}
 	m := &FoundryTools{}
-	if h := m.startShadow(context.Background(), "", "b"); h == nil || h.box != nil || m.box != nil {
+	if h := m.startShadow(soon(t), "", "b"); h == nil || h.box != nil || m.box != nil {
 		t.Errorf("a chain-voted lane was given a ballot box: %+v", h)
 	}
 	casting(t, voterBinary)
 	m = &FoundryTools{}
-	if h := m.startShadow(context.Background(), "", "b"); h == nil || h.box == nil || m.box != h.box {
+	if h := m.startShadow(soon(t), "", "b"); h == nil || h.box == nil || m.box != h.box {
 		t.Errorf("a binary-voted lane has no ballot box: %+v", h)
 	}
 }
@@ -185,7 +213,7 @@ func TestThePushSequenceVotesFromTheBinaryOnce(t *testing.T) {
 	}
 	engine.reset()
 	engine.withTree(bareTree)
-	vs, unreached, err := bareModule().sequence(context.Background(), checks.StagePrepush, "")
+	vs, unreached, err := bareModule().sequence(soon(t), checks.StagePrepush, "")
 	if err != nil || len(unreached) != 0 {
 		t.Fatalf("unreached %v, err %v", unreached, err)
 	}
@@ -211,7 +239,7 @@ func TestThePushSequenceVotesFromTheBinaryOnce(t *testing.T) {
 		raw, _ := json.Marshal(out)
 		return string(raw), nil
 	}
-	vs, unreached, err = bareModule().sequence(context.Background(), checks.StagePrepush, "")
+	vs, unreached, err = bareModule().sequence(soon(t), checks.StagePrepush, "")
 	stopped := slices.IndexFunc(vs, func(v checks.Verdict) bool { return v.Atom == ids[2] })
 	reached := slices.IndexFunc(vs, func(v checks.Verdict) bool { return v.Atom == ids[3] })
 	if err != nil || !slices.Equal(unreached, ids[3:]) || stopped < 0 || vs[stopped].State != 1 || reached >= 0 {
@@ -222,20 +250,20 @@ func TestThePushSequenceVotesFromTheBinaryOnce(t *testing.T) {
 // poll answers nothing for what it does not carry, and nothing at all when nil.
 func TestAPollAnswersOnlyForTheAtomsItCarries(t *testing.T) {
 	var none *poll
-	if _, ok := none.vote(context.Background(), "fleet:check-yaml"); ok || none.carries("fleet:check-yaml") {
+	if _, ok := none.vote(soon(t), "fleet:check-yaml"); ok || none.carries("fleet:check-yaml") {
 		t.Error("a nil poll answered")
 	}
-	none.start(context.Background())
+	none.start(soon(t))
 	ran := casting(t, voterBinary)
 	p := bareModule().pollFor(voterBinary, checks.StagePrecommit, "", checks.AtomsForStage(checks.StagePrecommit))
-	if _, ok := p.vote(context.Background(), "go:vet"); ok {
+	if _, ok := p.vote(soon(t), "go:vet"); ok {
 		t.Error("the poll answered for a toolchain atom")
 	}
 	if len(*ran) != 0 {
 		t.Error("asking after an atom the binary lacks ran the binary")
 	}
 	for _, id := range []string{"fleet:check-yaml", "fleet:check-merge-conflict"} {
-		if v, ok := p.vote(context.Background(), id); !ok || v.Atom != id {
+		if v, ok := p.vote(soon(t), id); !ok || v.Atom != id {
 			t.Errorf("%s: %+v %v", id, v, ok)
 		}
 	}
@@ -272,7 +300,7 @@ func TestTheVoterAsksTheWitnessForRealAndMountsTheSocket(t *testing.T) {
 			engine.reset()
 			engine.withTree(laneDies(map[string]string{"go.mod": "module x\n"}))
 			engine.stdout(`"/usr/local/bin/atoms"`, "[]")
-			if _, err := m.atomsBallot(context.Background(), tc.stage, "abc"); err != nil {
+			if _, err := m.atomsBallot(soon(t), tc.stage, "abc"); err != nil {
 				t.Fatal(err)
 			}
 			c := engine.chain(`"/usr/local/bin/atoms"`)
@@ -300,7 +328,7 @@ func TestTheLanesVoteRunsTheVotingBinary(t *testing.T) {
 	engine.reset()
 	engine.withTree(laneDies(bareTree))
 	engine.stdout(`"/usr/local/bin/atoms"`, binaryVector(t, checks.StagePrepush))
-	vs, err := m.vector(context.Background(), checks.StagePrepush, "fleet:witness", "abc")
+	vs, err := m.vector(soon(t), checks.StagePrepush, "fleet:witness", "abc")
 	if err != nil || len(vs) != 1 || !strings.HasPrefix(vs[0].Reason, votedMark) {
 		t.Fatalf("vector %+v, err %v", vs, err)
 	}
@@ -345,7 +373,7 @@ func TestTheRecordFromTheBinaryIsTheRecordFromTheChain(t *testing.T) {
 	castBinary = func(context.Context, *FoundryTools, string, string) (string, error) { return string(raw), nil }
 	engine.reset()
 	engine.withTree(bareTree)
-	voted, err := bareModule().vector(context.Background(), checks.StagePrecommit, strings.Join(ids, ","), "")
+	voted, err := bareModule().vector(soon(t), checks.StagePrecommit, strings.Join(ids, ","), "")
 	if err != nil {
 		t.Fatal(err)
 	}

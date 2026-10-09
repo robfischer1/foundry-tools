@@ -126,37 +126,36 @@ func checkYAML(ctx context.Context, a checks.AtomDef, in Input) checks.Verdict {
 // A DOCUMENT THAT NAMES AN ANCHOR NOBODY DEFINED parses as if the alias were a
 // null: each undefined anchor the parser names is rewritten out of the text
 // (undefineAlias) and the file is parsed again, so a real syntax error beside
-// the alias is still the error reported. Every pass removes at least one alias
-// token or stops, so the loop ends.
+// the alias is still the error reported. EVERY PASS REMOVES AT LEAST ONE '*', so
+// one pass per '*' in the file, and one more to read the result, is the most it
+// can take; the bound is what keeps a rewrite that stopped working from hanging
+// a gate.
 func syntaxError(body []byte) error {
-	for {
-		err := parseAll(body)
-		if err == nil {
+	var err error
+	for range bytes.Count(body, []byte("*")) + 1 {
+		if err = parseAll(body); err == nil {
 			return nil
 		}
 		m := unknownAnchor.FindStringSubmatch(err.Error())
 		if m == nil {
 			return err
 		}
-		next := undefineAlias(body, m[1])
-		if bytes.Equal(next, body) {
-			return err
-		}
-		body = next
+		body = undefineAlias(body, m[1])
 	}
+	return err
 }
 
 // unknownAnchor is the parser's complaint about an alias with no anchor.
 var unknownAnchor = regexp.MustCompile(`unknown anchor '([^']*)' referenced`)
 
-// undefineAlias replaces the alias tokens "*name" with a null scalar. An alias
-// starts at the line's start, after whitespace or after a flow indicator, and
-// the scanner ends its name at the first character that is not a letter, digit,
-// '_' or '-' (yaml_parser_scan_anchor), so a '*' inside a plain scalar ("a*b")
-// is not one.
+// undefineAlias replaces the alias tokens "*name" with a null scalar. The
+// scanner ends an alias's name at the first character that is not a letter,
+// digit, '_' or '-' (yaml_parser_scan_anchor), so that is where the token ends;
+// a "*name" inside a quoted string is rewritten too, which changes a string's
+// text and nothing about whether the file parses.
 func undefineAlias(body []byte, name string) []byte {
-	re := regexp.MustCompile(`(?m)(^|[\s\[{,])\*` + regexp.QuoteMeta(name) + `($|[^0-9A-Za-z_-])`)
-	return re.ReplaceAll(body, []byte("${1}null${2}"))
+	re := regexp.MustCompile(`(?m)\*` + regexp.QuoteMeta(name) + `($|[^0-9A-Za-z_-])`)
+	return re.ReplaceAll(body, []byte("null${1}"))
 }
 
 // parseAll decodes every document of body into a yaml.Node, to io.EOF.

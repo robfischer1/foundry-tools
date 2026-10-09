@@ -79,12 +79,22 @@ func (m *FoundryTools) pollFor(side voter, stage, base string, run []checks.Atom
 	return &poll{m: m, stage: stage, base: base, want: want, done: make(chan struct{})}
 }
 
+// atom is the catalogue row of an atom the binary answers in this lane.
+func (p *poll) atom(id string) (checks.AtomDef, bool) {
+	if p == nil {
+		return checks.AtomDef{}, false
+	}
+	i := slices.IndexFunc(p.want, func(a checks.AtomDef) bool { return a.ID == id })
+	if i < 0 {
+		return checks.AtomDef{}, false
+	}
+	return p.want[i], true
+}
+
 // carries reports whether the binary answers this atom in the lane.
 func (p *poll) carries(id string) bool {
-	if p == nil {
-		return false
-	}
-	return slices.ContainsFunc(p.want, func(a checks.AtomDef) bool { return a.ID == id })
+	_, ok := p.atom(id)
+	return ok
 }
 
 // start runs the binary in the background, once.
@@ -101,14 +111,21 @@ func (p *poll) start(ctx context.Context) {
 }
 
 // vote is the binary's verdict for id, waiting for the run if it is still going.
-// False says the chain answers this atom.
+// False says the chain answers this atom. A lane that ends first (its context is
+// done) does not wait on the binary for ever: the atom is a could-not-run.
 func (p *poll) vote(ctx context.Context, id string) (checks.Verdict, bool) {
-	if !p.carries(id) {
+	a, ok := p.atom(id)
+	if !ok {
 		return checks.Verdict{}, false
 	}
 	p.start(ctx)
-	<-p.done
-	return p.votes[id], true
+	select {
+	case <-p.done:
+		return p.votes[id], true
+	case <-ctx.Done():
+		return checks.VerdictOf(a, int(checks.StateCannotRun),
+			a.ID+": CANNOT RUN - the lane ended before the atoms binary answered: "+ctx.Err().Error()), true
+	}
 }
 
 // cast runs the binary once and answers a verdict for every atom in want. A
