@@ -29,13 +29,13 @@ func TestRunPrintsTheVectorAndExitsZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The pull path: the 46 atoms of precommit and prepush, none of the orbit
+	// The pull path: the 47 atoms of precommit and prepush, none of the orbit
 	// lane's. The first four are the first cut, and the only one with a finding;
 	// a tree with no surface for the rest is absent or clean in all of them.
 	want := StageIDs("")
 	wantState := map[string]int{"fleet:check-merge-conflict": 1}
-	if len(vector) != 46 || len(vector) != len(want) {
-		t.Fatalf("%d verdicts, want 46", len(vector))
+	if len(vector) != 47 || len(vector) != len(want) {
+		t.Fatalf("%d verdicts, want 47", len(vector))
 	}
 	for i, v := range vector {
 		if v.Atom != want[i] || v.State != wantState[v.Atom] {

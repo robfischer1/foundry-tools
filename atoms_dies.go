@@ -35,6 +35,7 @@ func init() {
 	register("dies:schema-rendered", diesSchemaRendered)
 	register("dies:canonical", diesCanonical)
 	register("dies:refusal-codes", diesRefusalCodes)
+	register("dies:wire-grammar", diesWireGrammar)
 }
 
 // diesShape is the condition every dies: atom shares, decided IN GO from the
@@ -737,6 +738,32 @@ func diesSchemaRendered(ctx context.Context, r *run) checks.Verdict {
 	return verdict(ctx, a, r.lane(checks.ImageFleet).
 		WithExec([]string{"uv", "--version"}).
 		WithExec(stdlibpy("tools/check_schema_rendered.py"), anyExit))
+}
+
+// The wire grammar's two rules about answers (stellar-core F17): every string
+// enum in a tool-output schema folds onto the six findings words or is declared
+// kept, and a required non-null measure is attested or fixed.
+//
+// THE CHECKER AND ITS MODES ARE THE TREE'S, for the dies:schema-rendered
+// reason. Each section of contracts/wire-grammar.toml says warn or fail: a warn
+// section prints its violations and leaves the exit at 0, so the flip from
+// reporting to gating is a dies edit and nothing here changes with it.
+//
+// THE EXIT CODE IS THE VERDICT, unmapped: 0 holds (or warn only), 1 a
+// fail-mode violation or a malformed registry, 2 the check could not run.
+func diesWireGrammar(ctx context.Context, r *run) checks.Verdict {
+	a := checks.AtomByID("dies:wire-grammar")
+	if stop := diesShape(ctx, r, a); stop != nil {
+		return *stop
+	}
+	if stop := requirePaths(ctx, r, a, [][2]string{
+		{"tools/check_wire_grammar.py", "tools/check_wire_grammar.py is absent, so there is no checker to run."},
+	}); stop != nil {
+		return *stop
+	}
+	return verdict(ctx, a, r.lane(checks.ImageFleet).
+		WithExec([]string{"uv", "--version"}).
+		WithExec(stdlibpy("tools/check_wire_grammar.py"), anyExit))
 }
 
 // diesCanonical grades the FORM of every committed record, in Go, with no

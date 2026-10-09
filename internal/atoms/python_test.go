@@ -105,7 +105,8 @@ func TestEveryPythonAtomExecsAListedProgram(t *testing.T) {
 	checkers := dieTree(map[string]string{
 		"tools/check_findings.py": "x", "schema/findings.schema.json": "{}", "tools/check_schemas.py": "x",
 		"tools/check_wit_regenerated.py": "x", "tools/check_schema_rendered.py": "x",
-		"schema/slag.schema.json": "{}", "schema/slag-v3.schema.json": "{}",
+		"tools/check_wire_grammar.py": "x",
+		"schema/slag.schema.json":     "{}", "schema/slag-v3.schema.json": "{}",
 	})
 	for _, tc := range []struct {
 		id     string
@@ -121,6 +122,7 @@ func TestEveryPythonAtomExecsAListedProgram(t *testing.T) {
 		{"dies:schemas", checkers, false, nil},
 		{"dies:wit-regenerated", checkers, false, nil},
 		{"dies:schema-rendered", checkers, false, nil},
+		{"dies:wire-grammar", checkers, false, nil},
 		{"dies:refusal-codes", ownerTree(), false, nil},
 		{"ops:dup", map[string]string{"flux/x.yaml": "a: 1\n", "tools/dup-check": "x"}, false, nil},
 		{"ops:declaration", map[string]string{"flux/x.yaml": "a: 1\n", "tools/declaration-integrity": "x"}, false, nil},

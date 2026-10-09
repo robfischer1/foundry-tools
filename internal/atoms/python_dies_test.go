@@ -399,6 +399,7 @@ func TestDiesCheckers(t *testing.T) {
 		{"dies:schemas", "tools/check_schemas.py", nil},
 		{"dies:wit-regenerated", "tools/check_wit_regenerated.py", nil},
 		{"dies:schema-rendered", "tools/check_schema_rendered.py", nil},
+		{"dies:wire-grammar", "tools/check_wire_grammar.py", nil},
 	} {
 		t.Run(tc.id, func(t *testing.T) {
 			files := dieTree(tc.extra)

@@ -242,6 +242,7 @@ func Builtin() []Atom {
 		tree("dies:schemas", diesSchemas),
 		tree("dies:wit-regenerated", diesWitRegenerated),
 		tree("dies:schema-rendered", diesSchemaRendered),
+		tree("dies:wire-grammar", diesWireGrammar),
 		tree("orbit:contracts", orbitContracts),
 		tree("orbit:surface", orbitSurface),
 		tree("orbit:sidecars", orbitSidecars),

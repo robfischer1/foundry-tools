@@ -23,6 +23,7 @@ var diesAtoms = []string{
 	"dies:opa-test", "dies:admission-dogfood", "dies:data-keys",
 	"dies:canary-visibility", "dies:contracts", "dies:schema", "dies:findings",
 	"dies:schemas", "dies:wit-regenerated", "dies:schema-rendered", "dies:canonical",
+	"dies:wire-grammar",
 }
 
 // diesBuiltAContainer reports whether anything pulled an image. Named for this
@@ -1045,6 +1046,50 @@ func TestDiesSchemaRenderedCannotRunWithoutAChecker(t *testing.T) {
 	engine.withTree(diesTree(map[string]string{}, "tools/check_schema_rendered.py"))
 	wantState(t, runAtom(t, "dies:schema-rendered", ""), 2,
 		"tools/check_schema_rendered.py is absent")
+}
+
+// ---- dies:wire-grammar ----
+
+var wireGrammarPaths = map[string]string{
+	"tools/check_wire_grammar.py": "",
+}
+
+// THE TREE'S CHECKER RUNS, UNEMBEDDED, AND NEEDS NO PACKAGE: it reads JSON and
+// TOML with the standard library, and its modes live in the tree it reads.
+func TestDiesWireGrammarRunsTheTreesOwnCheckerWithNoPackages(t *testing.T) {
+	engine.reset()
+	engine.withTree(diesTree(wireGrammarPaths))
+	wantState(t, runAtom(t, "dies:wire-grammar", ""), 0)
+
+	c := engine.chain("tools/check_wire_grammar.py", "exitCode")
+	wantCalls(t, c,
+		[]string{"withExec", `args:["uv","--version"]`},
+		[]string{"withExec", "expect:ANY", `"uv","run","--no-project","--quiet","python3","tools/check_wire_grammar.py"`},
+	)
+	if strings.Contains(c, "withNewFile") {
+		t.Errorf("dies:wire-grammar wrote a script into the container; the tree's own checker is the tool:\n%s", c)
+	}
+	if strings.Contains(c, "--with") {
+		t.Errorf("dies:wire-grammar asked uv for a package; the checker is stdlib only:\n%s", c)
+	}
+}
+
+// 0 holds or warns, 1 a fail-mode violation, 2 could not run: the ladder is the verdict.
+func TestDiesWireGrammarPassesTheExitCodeStraightThrough(t *testing.T) {
+	for code, want := range map[int]int{0: 0, 1: 1, 2: 2} {
+		engine.reset()
+		engine.withTree(diesTree(wireGrammarPaths))
+		engine.exitCode(`"python3","tools/check_wire_grammar.py"`, code)
+		wantState(t, runAtom(t, "dies:wire-grammar", ""), want)
+	}
+}
+
+// No checker is a COULD-NOT-RUN naming it.
+func TestDiesWireGrammarCannotRunWithoutAChecker(t *testing.T) {
+	engine.reset()
+	engine.withTree(diesTree(map[string]string{}, "tools/check_wire_grammar.py"))
+	wantState(t, runAtom(t, "dies:wire-grammar", ""), 2,
+		"tools/check_wire_grammar.py is absent")
 }
 
 // ---- dies:refusal-codes ----

@@ -530,6 +530,10 @@ func atomTable() []AtomDef {
 			ID: "dies:refusal-codes", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every refusal code the fleet spells - on a world's tape or WIT enum (stellar-core) or in any declared use (foundry-dies) - is in the registry, and every registered code is still spelled by its owner.",
 		},
+		{
+			ID: "dies:wire-grammar", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "Every string enum in an answer schema folds onto the six findings words or is declared kept, and no required measure can only say 'not measured' as 0 - each section warns until its count is 0, then fails.",
+		},
 
 		// ---- orbit: the orbit lane, asked for by name (StageOrbit) ----
 		{
