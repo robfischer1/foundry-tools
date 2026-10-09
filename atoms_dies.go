@@ -554,7 +554,8 @@ func diesContracts(ctx context.Context, r *run) checks.Verdict {
 // the v2 schema, and no such file exists (v3 replaced v1 in place at
 // slag.json), so it matched zero records and passed on nothing: nothing in CI
 // checked a record against any schema. It now validates every slag.json against
-// slag-v3, and zero records is a could-not-run, not a pass. The meta.name rule
+// the schema each names (slag-v3 or slag-v4), and zero records is a
+// could-not-run, not a pass. The meta.name rule
 // rides along because a record whose name is not its directory is one the
 // loader will not find.
 //

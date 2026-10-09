@@ -1,14 +1,14 @@
 # SPDX-FileCopyrightText: 2026 Rob Fischer
 #
 # SPDX-License-Identifier: Apache-2.0
-"""Validate foundry-dies' slag schemas (v1 and v3) and every fleet record against v3.
+"""Validate foundry-dies' slag schemas (v1, v3 and later) and every fleet record against its own.
 
 Two halves. Both the published slag-schema die (schema/slag.schema.json, v1)
 and the v3 schema are checked for being well-formed Draft 2020-12 documents
 whose `required` names only properties they define — a schema that requires a
 key it never describes validates nothing about that key. Then every
-`fleet/stars/*/slag.json` is validated against v3, plus the naming invariant
-the schema itself cannot express: `meta.name` agrees with the record's own
+`fleet/stars/*/slag.json` is validated against the schema its own `$schema`
+names (v3 or v4), plus the naming invariant the schema itself cannot express: `meta.name` agrees with the record's own
 directory.
 
 THE RECORDS ARE slag.json, NOT <name>.slag. This used to glob
@@ -96,11 +96,36 @@ def check_schema_file(path: str) -> dict:
 
 
 SCHEMA = "schema/slag-v3.schema.json"
+# THE SCHEMA A RECORD IS HELD TO IS THE ONE IT NAMES. A record carries `$schema`, and its suffix
+# (/slag-v3.schema.json or /slag-v4.schema.json) says which file of schema/ is its law; v3 is
+# required (it is the one every record carried until the flip), a later version is checked when its
+# file exists, and a record that names a version whose file is absent cannot be judged: 2.
 schemas = {path: check_schema_file(path) for path in ("schema/slag.schema.json", SCHEMA)}
-schema = schemas[SCHEMA]
+for later in sorted(Path("schema").glob("slag-v[0-9]*.schema.json")):
+    schemas.setdefault(str(later), check_schema_file(str(later)))
+validators = {path: Draft202012Validator(doc) for path, doc in schemas.items()}
 
-v = Draft202012Validator(schema)
+
+def schema_path_for(doc: object) -> str:
+    """Name the schema file a record is held to, by the suffix of its own `$schema`.
+
+    Args:
+        doc: the parsed record.
+
+    Returns:
+        The schema's path; v3 for a record that names none (the v3 schema then reports the gap).
+
+    """
+    named = doc.get("$schema") if isinstance(doc, dict) else None
+    if isinstance(named, str):
+        tail = named.rsplit("/", 1)[-1]
+        if tail.startswith("slag-v") and tail.endswith(".schema.json"):
+            return "schema/" + tail
+    return SCHEMA
+
+
 bad = 0
+used: dict[str, int] = {}
 records = sorted(str(p) for p in Path("fleet/stars").glob("*/slag.json"))
 if not records:
     print("::error::fleet/stars/ carries no slag.json, so there is no record to validate", file=sys.stderr)
@@ -115,9 +140,14 @@ for rec in records:
         bad += 1
         print(f"::error file={rec}::not readable as JSON: {exc}", file=sys.stderr)
         continue
+    law = schema_path_for(doc)
+    if law not in validators:
+        print(f"::error::{rec} names {law}, which is not in schema/: could not read {law}", file=sys.stderr)
+        sys.exit(2)
+    used[law] = used.get(law, 0) + 1
     findings = [
         f"{'/'.join(str(x) for x in e.path) or '<root>'}: {e.message}"
-        for e in sorted(v.iter_errors(doc), key=lambda e: [str(x) for x in e.path])
+        for e in sorted(validators[law].iter_errors(doc), key=lambda e: [str(x) for x in e.path])
     ]
     meta = doc.get("meta") if isinstance(doc, dict) else None
     if not isinstance(meta, dict) or meta.get("name") != name:
@@ -125,6 +155,7 @@ for rec in records:
     for f in findings:
         bad += 1
         print(f"::error file={rec}::{f}", file=sys.stderr)
-print(f"{len(records)} record(s) validated against {schema.get('$id')}")
+held = ", ".join(f"{n} against {path}" for path, n in sorted(used.items()))
+print(f"{len(records)} record(s) validated: {held}")
 if bad:
     sys.exit(f"::error::{bad} record finding(s)")
