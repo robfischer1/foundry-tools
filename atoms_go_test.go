@@ -207,6 +207,23 @@ func TestGoTestRaceBringsTheRecordsPostgres(t *testing.T) {
 	if !hasCall(engine.chain(checks.ImagePgvector, "asService"), "withExposedPort", "5432") {
 		t.Errorf("the pgvector service must expose 5432:\n%v", engine.chains())
 	}
+	// AND RUNS NON-DURABLE, BUILT THE WAY A SERVICE BECOMES READY: the server
+	// flags as the container's default args, started through the entrypoint.
+	// A WithExec service never reads ready (checks.TestBroker.StartArgs), so
+	// the args must ride withDefaultArgs and asService must carry useEntrypoint.
+	for _, d := range checks.TestDBs {
+		svc := engine.chain(d.Image, "asService")
+		args := `args:["` + strings.Join(d.ServerArgs(), `","`) + `"]`
+		if !hasCall(svc, "withDefaultArgs", args) {
+			t.Errorf("the %s service is not started with ServerArgs:\n%s", d.Tag, svc)
+		}
+		if !hasCall(svc, "asService", "useEntrypoint:true") {
+			t.Errorf("the %s service must start through the image's entrypoint:\n%s", d.Tag, svc)
+		}
+		if strings.Contains(svc, "withExec") {
+			t.Errorf("the %s service carries a withExec and will never read ready:\n%s", d.Tag, svc)
+		}
+	}
 	// The tag enumeration is one grep, in the lane, off the tree — not a
 	// judgement: the exec runs under ANY because "no match" is exit 1.
 	if !hasCall(engine.chain(`"grep","-rhoE"`, "exitCode"), "withExec", "expect:ANY", `--include=*_test.go`) {
@@ -370,6 +387,11 @@ func TestGoMutationCompilesTheRecordsDBTags(t *testing.T) {
 	svc := engine.chain(checks.ImagePgvector, "asService")
 	if !hasCall(svc, "withEnvVariable", `name:"FOUNDRY_TEST_DB_LANE"`, `value:"mutation"`) {
 		t.Errorf("the mutation lane's server is defined identically to the shared one:\n%s", svc)
+	}
+	// The lane's own server is non-durable too: the lane word perturbs the
+	// definition, it does not replace the server flags.
+	if !hasCall(svc, "withDefaultArgs", `args:["`+strings.Join(checks.TestDBs[0].ServerArgs(), `","`)+`"]`) {
+		t.Errorf("the mutation lane's server lost its non-durable flags:\n%s", svc)
 	}
 
 	// NO BACKEND, NO TAGS AT ALL — not an empty one: an empty -tags word is

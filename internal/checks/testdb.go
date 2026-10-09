@@ -91,6 +91,41 @@ func (d TestDB) DSNFor(scope string) string {
 	return "postgres://" + TestDBRole + ":" + TestDBRole + "@" + d.AliasFor(scope) + ":5432/" + TestDBName + "?sslmode=disable"
 }
 
+// ServerArgs is the test server's start command: the image's own `postgres`,
+// through its entrypoint, with durability switched off.
+//
+// DURABILITY BUYS A THROWAWAY DATABASE NOTHING. The server lives for one lane,
+// holds nothing anyone reads afterwards, and a crash loses a run that is re-run
+// anyway. Stock settings still paid for it on every commit and every mutant: a
+// WAL fsync per commit, full-page images after each checkpoint, and timed
+// checkpoints fsyncing the cluster's files. Measured on chaos's mutation lane
+// (forge/mutation-chaos-dd40855-rp2fb): a timed checkpoint of 269.7s writing
+// 13,254 buffers and fsyncing 51,057 files, others of 26-40s, under a lane that
+// runs against a 75-minute deadline and a 10% mutant-timeout budget.
+//
+//	fsync=off                 no fsync of WAL or data files at all
+//	synchronous_commit=off    a commit does not wait on its WAL flush
+//	full_page_writes=off      no torn-page insurance after a checkpoint
+//	checkpoint_timeout=1d     no timed checkpoint inside any run
+//	max_wal_size=2GB          the size trigger, bounded: WAL is disk the lane holds
+//
+// IT GOES THROUGH THE ENTRYPOINT, on TestBroker.StartArgs' rule: the caller sets
+// these with WithDefaultArgs and AsService(UseEntrypoint), never WithExec — a
+// WithExec service never reads ready. docker-entrypoint.sh initialises the
+// cluster (POSTGRES_USER/PASSWORD/DB) and then execs exactly this command, so
+// the leading word is `postgres` and the settings are server flags, not
+// postgresql.conf edits the initdb would overwrite.
+func (d TestDB) ServerArgs() []string {
+	return []string{
+		"postgres",
+		"-c", "fsync=off",
+		"-c", "synchronous_commit=off",
+		"-c", "full_page_writes=off",
+		"-c", "checkpoint_timeout=1d",
+		"-c", "max_wal_size=2GB",
+	}
+}
+
 var serviceNameLine = regexp.MustCompile(`^service_name:\s*`)
 
 // ServiceName is the star's name as the answers file declares it — the
