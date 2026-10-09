@@ -276,7 +276,7 @@ func TestTheReverseShadowReportCountsFallbacks(t *testing.T) {
 	fell := map[string]string{ids[1]: "orbit:surface: CANNOT RUN - narc did not build\nsecond line"}
 	got := renderReverse(ids, false, chains, nil, voted, fell, nil, 0)
 	for _, want := range []string{
-		"shadow atoms (binary voted): 3 compared, 3 identical",
+		"shadow atoms (binary voted): 3 compared, 3 identical, 0 same state, 0 state differs, 0 missing from the binary, 0 missing from the chains",
 		"1 of 4 fell back to the chain",
 		"  " + ids[1] + ": " + ids[1] + ": CANNOT RUN - narc did not build | second line",
 	} {

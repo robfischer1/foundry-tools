@@ -82,3 +82,13 @@ func TestRenderSaysWhichSideVoted(t *testing.T) {
 		}
 	}
 }
+
+// Clip is the report's clip for the lines other packages write beside it.
+func TestExportedClipIsTheReportsClip(t *testing.T) {
+	if got := Clip("a\nb"); got != "a | b" {
+		t.Errorf("clip %q", got)
+	}
+	if got := Clip(strings.Repeat("x", 400)); len(got) != 303 || !strings.HasSuffix(got, "...") {
+		t.Errorf("a long reason clipped to %d bytes: %q", len(got), got[len(got)-5:])
+	}
+}
