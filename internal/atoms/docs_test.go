@@ -153,6 +153,10 @@ func TestSyntaxErrorRewritesAreBounded(t *testing.T) {
 	if err := syntaxErrorWithin(body, 1); err != nil {
 		t.Errorf("one rewrite allowed: %v", err)
 	}
+	// One rewrite clears the first alias and no more: the budget counts down.
+	if err := syntaxErrorWithin([]byte("a: *b\nc: *d\n"), 1); err == nil || !strings.Contains(err.Error(), "unknown anchor 'd'") {
+		t.Errorf("two aliases, one rewrite: %v", err)
+	}
 	if err := syntaxError([]byte("a: *b\nc: *d\ne: *f\n")); err != nil {
 		t.Errorf("three aliases, three rewrites: %v", err)
 	}
