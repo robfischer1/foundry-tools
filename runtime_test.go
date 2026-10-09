@@ -406,6 +406,29 @@ func TestCargoTarballWithoutAPinnedSumFailsClosed(t *testing.T) {
 	}
 }
 
+// The release volume is the repository's own — keyed by it, not the gate's
+// debug target's key — mounted PRIVATE, with copyout beside it.
+func TestTheReleaseCacheIsPerRepoAndPrivate(t *testing.T) {
+	engine.reset()
+	const repo = "http://ourea:8215/tron.git"
+	r := newRun(dag.Directory(), repo, "")
+	if _, err := r.withReleaseCache(dag.Container().From("x")).Sync(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	key := checks.ReleaseCacheFor(repo).Key
+	if engine.chain(`cacheVolume(`, `key:"`+key+`"`) == "" {
+		t.Errorf("no volume keyed %s was asked for:\n%v", key, engine.chains())
+	}
+	c := engine.chain(`path:"/cache/cargo-release"`)
+	wantCalls(t, c,
+		[]string{"withMountedCache", `path:"/cache/cargo-release"`, `sharing:PRIVATE`},
+		[]string{"withFile", `path:"/usr/local/bin/copyout"`},
+	)
+	if got := copiedOut([]string{"cargo", "build"}, "a=b", "c=d"); strings.Join(got, " ") != "/usr/local/bin/copyout a=b c=d -- cargo build" {
+		t.Errorf("copiedOut %q", got)
+	}
+}
+
 // THE NARROWING (CA F12). A compile, a vet, a lint or a test suite mounts the
 // tree less checks.InertPaths — the README, the changelog, the hooks, the
 // justfiles, pre-commit's and copier's files — so its exec is keyed on the

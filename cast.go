@@ -119,10 +119,6 @@ type castLane struct {
 	stamp string
 }
 
-// castTarget is where the cast's release build writes: in the container's own
-// filesystem, so the binaries can be read back out.
-const castTarget = "/work/target"
-
 func castSay(format string, args ...any) { castSayLine(sprintf(format, args...)) }
 
 // castSayLine is the cast lane's one writer to stderr, for the reason build's
@@ -360,13 +356,22 @@ func (l *castLane) release(ctx context.Context) (builtRelease, int, string) {
 // `cargo build --release` over the workspace builds them, read back out of
 // target/release.
 func (l *castLane) cargoRelease(ctx context.Context, r *run) (builtRelease, int, string) {
-	// THE TARGET DIRECTORY IS THE CONTAINER'S, NOT THE LANE'S CACHE. The rust
-	// lane points CARGO_TARGET_DIR at a cache volume so the gate's builds stay
-	// warm, and a file in a cache mount is not in the container's filesystem:
-	// the release binaries could never be read back out of it. The registry
-	// cache stays mounted, so a cast re-downloads nothing; it recompiles, as
-	// ca-cast always did.
-	lane := r.lane(checks.ImageRust).WithEnvVariable("CARGO_TARGET_DIR", castTarget)
+	// THE TARGET DIRECTORY IS THE REPOSITORY'S RELEASE VOLUME, not the gate's
+	// debug cargo-target and not the container's filesystem. It was the
+	// container's, because a file in a cache mount is not in the container and
+	// the binaries could never be read back out of it — and so every cast
+	// compiled every crate (cerberus: 234 crates, 0 Fresh, 470-560 CPU-s, ~8
+	// casts a day; checks.ReleaseCacheFor). Now the build copies its binaries to
+	// checks.ReleaseOut IN THE SAME EXEC (internal/copyout says why it cannot be
+	// a second one) and the cast reads them there.
+	//
+	// UNDER THE UNSTALE STAMP, as the gate's cached target is: every tree of
+	// the repo mounts at /src, so without it cargo would call the workspace's
+	// crates Fresh and link what an older commit built. The stamp rebuilds them;
+	// the registry crates stay built.
+	lane := r.withReleaseCache(r.lane(checks.ImageRust)).
+		WithEnvVariable("CARGO_TARGET_DIR", checks.RustReleaseTarget).
+		WithExec(checks.Unstale())
 	// --no-deps and --locked: the workspace's own members only, against the
 	// committed lock. cargo answers on stdout, so stderr's progress chatter is
 	// kept out of the JSON by reading stdout alone.
@@ -383,7 +388,11 @@ func (l *castLane) cargoRelease(ctx context.Context, r *run) (builtRelease, int,
 	if err != nil {
 		return builtRelease{}, buildlane.Findings, "findings: " + err.Error()
 	}
-	built := lane.WithExec([]string{"cargo", "build", "--release", "--locked"}, anyExit)
+	var carried []string
+	for _, b := range binaries {
+		carried = append(carried, path.Join(checks.RustReleaseTarget, "release", b)+"="+path.Join(checks.ReleaseOut, b))
+	}
+	built := lane.WithExec(copiedOut([]string{"cargo", "build", "--release", "--locked"}, carried...), anyExit)
 	out, code, err = output(ctx, built)
 	if err != nil {
 		return builtRelease{}, buildlane.CouldNotRun, fmt.Sprintf("could not run: the release build did not run: %v", err)
@@ -392,7 +401,7 @@ func (l *castLane) cargoRelease(ctx context.Context, r *run) (builtRelease, int,
 		cls, why := buildlane.ToolFailed("cargo build", out)
 		return builtRelease{}, cls, why
 	}
-	return builtRelease{ctr: built, dir: castTarget + "/release", binaries: binaries}, 0, ""
+	return builtRelease{ctr: built, dir: checks.ReleaseOut, binaries: binaries}, 0, ""
 }
 
 // goRelease is the go lane's release build: the binaries are every main

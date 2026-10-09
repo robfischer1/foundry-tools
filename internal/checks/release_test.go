@@ -98,7 +98,11 @@ func TestRustReleasePlanDerivesTheStarsOwnCrate(t *testing.T) {
 	if got := strings.Join(RustReleaseArgs(p.Binaries[0]), " "); got != "cargo build --release --locked -p tron" {
 		t.Errorf("argv %q", got)
 	}
-	if got := RustReleaseBinary(p.Binaries[0]); got != "/work/target/release/tron" {
+	// Built in the release volume, read from the copy the build made of it.
+	if got := RustReleaseBuilt(p.Binaries[0]); got != "/cache/cargo-release/release/tron" {
+		t.Errorf("built at %q", got)
+	}
+	if got := RustReleaseBinary(p.Binaries[0]); got != "/out/tron" {
 		t.Errorf("binary at %q", got)
 	}
 	scope := ReleaseScope(p)

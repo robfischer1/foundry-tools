@@ -110,16 +110,24 @@ func TestACastStagesMintsVerifiesAndRings(t *testing.T) {
 	settledOn(t, "0", "verified against cosign.pub; the doorbell rang")
 
 	wantCalls(t, engine.chain(`"cargo","metadata"`),
-		[]string{"withEnvVariable", `"CARGO_TARGET_DIR"`, `"/work/target"`},
+		[]string{"withEnvVariable", `"CARGO_TARGET_DIR"`, `"/cache/cargo-release"`},
 		[]string{"withExec", `["cargo","metadata","--no-deps","--format-version","1","--locked"]`},
 	)
+	// THE RELEASE VOLUME, under the stamp, and the binaries copied out of it
+	// by the build's own exec: the cast reads the copy, never the volume.
 	wantCalls(t, engine.chain(cargoNeedle),
 		[]string{"from", "rust:1.97.0"},
-		[]string{"withEnvVariable", `"CARGO_TARGET_DIR"`, `"/work/target"`},
-		[]string{"withExec", `["cargo","build","--release","--locked"]`},
+		[]string{"withMountedCache", `path:"/cache/cargo-release"`, `sharing:PRIVATE`},
+		[]string{"withFile", `path:"/usr/local/bin/copyout"`},
+		[]string{"withEnvVariable", `"CARGO_TARGET_DIR"`, `"/cache/cargo-release"`},
+		[]string{"withExec", `"touch","-c","-d","@4102444800"`},
+		[]string{"withExec", `["/usr/local/bin/copyout","/cache/cargo-release/release/tongs=/out/tongs","--","cargo","build","--release","--locked"]`},
 	)
-	if engine.chain(cargoNeedle, `file(path:"/work/target/release/tongs")`) == "" {
-		t.Error("the binary was not read out of the build's own target directory")
+	if engine.chain(cargoNeedle, `file(path:"/out/tongs")`) == "" {
+		t.Error("the binary was not read from the copy the build made of it")
+	}
+	if engine.chain(cargoNeedle, `file(path:"/cache/cargo-release`) != "" {
+		t.Error("a binary was read out of the cache volume, which holds no output")
 	}
 	wantCalls(t, engine.chain(`directory{withFile`), []string{"withFile", `path:"tongs"`})
 	wantCalls(t, engine.chain(castpinNeedle),
@@ -372,7 +380,7 @@ func TestACastThatFailsStopsWhereItFailed(t *testing.T) {
 			engine.failLeaf(cargoNeedle, "exitCode", "the engine went away")
 		}, "2", "the release build did not run", nil, []string{castpinNeedle}},
 		"a binary the build did not leave": {nil, func() {
-			engine.failLeaf(`"/work/target/release/tongs"`, "size", "no such file")
+			engine.failLeaf(`"/out/tongs"`, "size", "no such file")
 		}, "1", "the release build left no", []string{cargoNeedle}, []string{castpinNeedle}},
 		"an extra the checkout does not carry": {map[string]string{
 			"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{"payload_extra":[".tongs/hooks"]}`),

@@ -4,9 +4,9 @@ import (
 	"dagger/foundry-tools/internal/dagger"
 )
 
-// THE HELPER CLIs. Six small programs in this module's own directories run in
+// THE HELPER CLIs. Seven small programs in this module's own directories run in
 // the lanes' containers (castpin, hadescall, verdict, witnesscall, pgroupps,
-// execmem). Each used to be built from dag.CurrentModule().Source() WHOLE, so
+// execmem, copyout). Each used to be built from dag.CurrentModule().Source() WHOLE, so
 // the build's cache key was a function of every file in the module and an
 // edit to a README rebuilt all six; moduleBinary also built with no cache
 // volumes and GOPROXY=off. Now every helper builds the way the atoms binary
@@ -22,7 +22,7 @@ type helperSource struct {
 	// omits is a `go build` that fails in the engine where no test can see it,
 	// and a stale entry rebuilds the helper for edits it does not read.
 	internal []string
-	// offline builds with the network refused. verdict, execmem and pgroupps
+	// offline builds with the network refused. verdict, execmem, pgroupps and copyout
 	// import the standard library only and have to build when nothing could be
 	// fetched (internal/verdict has the measurement); the others import
 	// third-party modules the cache volume or the proxy supplies.
@@ -37,6 +37,7 @@ var helperSources = map[string]helperSource{
 	"witnesscall": {internal: []string{"internal/checks", "internal/execmem", "internal/hadescall", "internal/unitkey", "internal/witnesscall"}},
 	"pgroupps":    {internal: []string{"internal/pgroupps"}, offline: true},
 	"execmem":     {internal: []string{"internal/execmem"}, offline: true},
+	"copyout":     {internal: []string{"internal/copyout"}, offline: true},
 }
 
 // helperInclude is the filtered source of a helper: the module files, the

@@ -104,3 +104,50 @@ func CachesFor(image string) []CacheMount {
 	}
 	return nil
 }
+
+// ReleaseCachePath is where every Rust RELEASE build keeps its target
+// directory — the cast, rust:release, the wit guest and the replay host — on a
+// cache volume of its own, per repository (ReleaseCacheFor).
+//
+// WHY A VOLUME. These builds wrote to the container's filesystem, so each one
+// compiled its whole dependency graph from nothing: MEASURED 2026-10-09, a
+// cerberus cast built 234 crates with 0 Fresh (470-560 CPU-s, ~8 casts a day),
+// tron's rust:release 357-391 CPU-s every gate, stellar-core-rust's wit guest
+// and replay host 652 s and 333 s wall at p50.
+//
+// NOT THE GATE'S foundry-cargo-target. A release profile shares no artifact
+// with the debug builds there, and that volume's sharing is tuned for the
+// gate's atoms building one tree together (CacheMount.PerRepo).
+//
+// A FILE IN A VOLUME CANNOT BE READ BACK AS AN OUTPUT, so each build copies
+// its outputs out in the same exec (internal/copyout), and every reader reads
+// the copy. The workspace's own crates are rebuilt every time under the
+// Unstale stamp, exactly as the gate's cached target does; only the registry
+// crates are served from the volume.
+const ReleaseCachePath = "/cache/cargo-release"
+
+// ReleaseCacheFor is the release target volume for a repository: one key per
+// repo (as CachesForRepo keys the gate's target), shared by every release
+// build of that repo. An empty repo — a local run that names none — keeps the
+// bare key.
+//
+// MOUNTED PRIVATE (runtime.go withReleaseCache), not SHARED or LOCKED. Two
+// builds of one repo can run at once: a cast beside the next pull's gate, or
+// rust:release beside rust:wit-guest in one gate. SHARED would let one build
+// relink a binary between another's cargo exit and its copy, and let a stamp
+// from one tree meet another's artifacts mid-build. LOCKED parks the second
+// build silently behind the first, the shape that tripped the gate's 5m
+// silence watchdog when the debug target tried it (foundry-tools#308/#309).
+// PRIVATE gives a concurrent build its own instance and never shares one in
+// flight. Its cost is the one that made it wrong for the debug target — a
+// contended build starts cold — but there the atoms NEEDED each other's
+// artifacts, and a cold release build is only what every release build was
+// before this volume. The engine keeps the extra instance and hands it to a
+// later build, so each warms in turn.
+func ReleaseCacheFor(repo string) CacheMount {
+	m := CacheMount{Path: ReleaseCachePath, Key: "foundry-cargo-release", PerRepo: true}
+	if repo != "" {
+		m.Key += "-" + repoDigest(repo)
+	}
+	return m
+}

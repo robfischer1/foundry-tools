@@ -528,17 +528,23 @@ func rustReleasePlan(star, dockerfile string) (checks.ReleasePlan, string) {
 	return plan, ""
 }
 
-// rustReleaseBuild is the compile itself: the provisioned lane (cargoDeps),
-// the target directory in the container rather than the lane's cache volume
-// (checks.RustReleaseTarget says why), one exec per binary. It answers the
-// container the binaries are in and the verdict of the last exec that ran —
-// the first failure stops the chain, so the verdict names the binary that
-// did not build.
+// rustReleaseBuild is the compile itself: the provisioned lane under the
+// Unstale stamp (cargoFresh), the target directory on the repository's release
+// cache volume (checks.RustReleaseTarget says why), one exec per binary that
+// copies the binary out of the volume as it finishes. It answers the container
+// the binaries are in and the verdict of the last exec that ran — the first
+// failure stops the chain, so the verdict names the binary that did not build.
+//
+// THE STAMP IS WHAT MAKES THE VOLUME SAFE. Every tree of a repo mounts at
+// /src, so the workspace's crates have one artifact each in the volume, and
+// cargo judges them by mtime: without Unstale a later tree links what an
+// earlier one built (checks.Unstale has the measurement). Under it the
+// workspace rebuilds and only the registry crates come back Fresh.
 func (r *run) rustReleaseBuild(ctx context.Context, a checks.AtomDef, plan checks.ReleasePlan) (*dagger.Container, checks.Verdict) {
-	ctr := r.cargoDeps().WithEnvVariable("CARGO_TARGET_DIR", checks.RustReleaseTarget)
+	ctr := r.withReleaseCache(r.cargoFresh()).WithEnvVariable("CARGO_TARGET_DIR", checks.RustReleaseTarget)
 	v := checks.VerdictOf(a, 0, "")
 	for _, b := range plan.Binaries {
-		ctr = ctr.WithExec(checks.RustReleaseArgs(b), anyExit)
+		ctr = ctr.WithExec(copiedOut(checks.RustReleaseArgs(b), checks.RustReleaseBuilt(b)+"="+checks.RustReleaseBinary(b)), anyExit)
 		if v = cargoVerdict(ctx, a, ctr); v.State != 0 {
 			return ctr, v
 		}
@@ -547,8 +553,9 @@ func (r *run) rustReleaseBuild(ctx context.Context, a checks.AtomDef, plan check
 }
 
 // rustReleaseDir is the release build's binaries as a directory — what F14
-// copies onto the base image: each binary read from where cargo left it
-// (checks.RustReleaseBinary), under its own name at the root. Lazy, as the
+// copies onto the base image: each binary read from where its build copied
+// it out of the volume (checks.RustReleaseBinary), under its own name at the
+// root. Lazy, as the
 // Go path's ctr.Directory(ReleaseOut) is: a binary the build did not leave
 // (a record naming a package that builds no [[bin]]) surfaces where the
 // directory is first used — the image build's context — as the engine's own

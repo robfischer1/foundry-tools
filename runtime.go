@@ -432,6 +432,28 @@ func withOpengrepSums(ctr *dagger.Container, sums map[string]string) *dagger.Con
 		dagger.ContainerWithFileOpts{Permissions: 0o755})
 }
 
+// withReleaseCache mounts the repository's release target volume
+// (checks.ReleaseCacheFor), PRIVATE for the reason that function gives, and
+// puts copyout on PATH: a release build in the volume copies its outputs out
+// in the same exec (copiedOut).
+func (r *run) withReleaseCache(ctr *dagger.Container) *dagger.Container {
+	c := checks.ReleaseCacheFor(r.repo)
+	return ctr.
+		WithMountedCache(c.Path, dag.CacheVolume(c.Key), dagger.ContainerWithMountedCacheOpts{Sharing: dagger.CacheSharingModePrivate}).
+		WithFile(copyOutPath, helperBinary("copyout"))
+}
+
+// copyOutPath is where copyout sits in a lane's container.
+const copyOutPath = "/usr/local/bin/copyout"
+
+// copiedOut is cmd run under copyout, carrying each "SRC=DST" pair out of the
+// cache once cmd exits 0 (internal/copyout says why the build and the copy are
+// one exec).
+func copiedOut(cmd []string, pairs ...string) []string {
+	args := append([]string{copyOutPath}, pairs...)
+	return append(append(args, "--"), cmd...)
+}
+
 // withDies mounts foundry-dies at /dies and names it in the environment: the
 // tests that read it live in other repositories, and two spellings of one
 // path is the shape this helper exists to end.

@@ -194,12 +194,13 @@ func GoReleaseArgs(b ReleaseBinary, vendored bool) []string {
 	return append(args, "-o", path.Join(ReleaseOut, b.Name), b.Package)
 }
 
-// RustReleaseTarget is where a Rust release build writes, inside the lane:
-// the container's own filesystem, not the lane's cargo-target cache volume,
-// because a binary in a cache mount is not in the container and could never
-// be read back out (the cast lane measured it first). Cargo puts the binary
-// at <target>/release/<name>; RustReleaseBinary names it.
-const RustReleaseTarget = "/work/target"
+// RustReleaseTarget is where a Rust release build writes: the repository's
+// release cache volume (ReleaseCacheFor has the measurement), not the gate's
+// debug cargo-target. A binary in a cache mount is not in the container and
+// could never be read back out (the cast lane measured it first), so the build
+// copies each binary to ReleaseOut in the same exec (RustReleaseBuilt is the
+// source, RustReleaseBinary the copy every reader reads).
+const RustReleaseTarget = ReleaseCachePath
 
 // RustReleaseArgs is one binary's compile, as an argv: the release profile,
 // the package of that name, and --locked so a Cargo.lock behind its manifest
@@ -209,9 +210,15 @@ func RustReleaseArgs(b ReleaseBinary) []string {
 	return []string{"cargo", "build", "--release", "--locked", "-p", b.Package}
 }
 
-// RustReleaseBinary is where cargo left one built binary.
-func RustReleaseBinary(b ReleaseBinary) string {
+// RustReleaseBuilt is where cargo leaves one built binary, in the volume.
+func RustReleaseBuilt(b ReleaseBinary) string {
 	return path.Join(RustReleaseTarget, "release", b.Name)
+}
+
+// RustReleaseBinary is where the build's own exec copied that binary, in the
+// container: the path every reader of the release build reads.
+func RustReleaseBinary(b ReleaseBinary) string {
+	return path.Join(ReleaseOut, b.Name)
 }
 
 // ReleaseScope is the line the atom prints: what it built and where the names

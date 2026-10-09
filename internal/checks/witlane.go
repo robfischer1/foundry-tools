@@ -29,11 +29,14 @@ const (
 	// target: wit-bindgen embeds the component type in the module and
 	// `wasm-tools component new` lifts it.
 	WitGuestTarget = "wasm32-unknown-unknown"
-	// WitGuestTargetDir is where the guest build writes, OUTSIDE the lane's
-	// shared cargo-target volume: a wasm32 build in the volume the native
-	// atoms use would only add artifacts to it, and the path is a fact the
-	// atom needs to name the artifact.
-	WitGuestTargetDir = "/tmp/wit-guest-target"
+	// WitGuestTargetDir is where the guest build writes: the repository's
+	// release cache volume (ReleaseCacheFor), OUTSIDE the gate's debug
+	// cargo-target — a wasm32 release build there would only add artifacts the
+	// native atoms never read. cargo lays the guest under
+	// <dir>/wasm32-unknown-unknown/release/, apart from the host's release/.
+	// The build copies the module out in the same exec, and wasm-tools reads
+	// the copy.
+	WitGuestTargetDir = ReleaseCachePath
 )
 
 // WasmToolsVersion / WasmToolsURL fetch the Bytecode Alliance's wasm-tools
@@ -78,12 +81,14 @@ const (
 
 	// WitComposeScript / WitReplayManifest are the two files rust:wit-compose
 	// needs the tree to track; WitComposedPath is where the composition lands
-	// and WitReplayTargetDir where the replay host builds, apart from the
-	// guest's own target dir.
+	// and WitReplayTargetDir where the replay host builds, in the release
+	// volume but apart from the guest's target dir (the host is a workspace of
+	// its own). WitReplayHost is where that build copies the host out to.
 	WitComposeScript   = "tools/compose/compose.sh"
 	WitReplayManifest  = "tools/replay/Cargo.toml"
 	WitComposedPath    = "/tmp/fleet.component.wasm"
-	WitReplayTargetDir = "/tmp/replay-target"
+	WitReplayTargetDir = "/cache/cargo-release/replay-host"
+	WitReplayHost      = "/tmp/replay-host/replay"
 )
 
 var (
