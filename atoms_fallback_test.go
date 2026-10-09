@@ -297,9 +297,13 @@ func TestTheReverseShadowReportCountsFallbacks(t *testing.T) {
 // End to end through the gate: a binary that answers nothing leaves the record
 // the chains' record, and the line on stderr counts the fallbacks.
 func TestAGateWhoseBinaryFailsRecordsTheChainsAnswerAndReportsTheFallbacks(t *testing.T) {
-	origRun, origToday, origGrace, origOut := shadowRun, shadowToday, shadowGrace, shadowOut
-	t.Cleanup(func() { shadowRun, shadowToday, shadowGrace, shadowOut = origRun, origToday, origGrace, origOut })
-	shadowRun, shadowGrace = defaultShadow, time.Minute
+	origRun, origToday, origGrace, origOut, origLimit := shadowRun, shadowToday, shadowGrace, shadowOut, shadowTimeout
+	t.Cleanup(func() {
+		shadowRun, shadowToday, shadowGrace, shadowOut, shadowTimeout = origRun, origToday, origGrace, origOut, origLimit
+	})
+	// A shadow that waits for a seal that never comes gives up in seconds, so a
+	// lane that forgot to seal fails this test instead of hanging it.
+	shadowRun, shadowGrace, shadowTimeout = defaultShadow, 20*time.Second, 5*time.Second
 	ids := atoms.StageIDs(checks.StageOrbit)
 	shadowToday = func(context.Context, *FoundryTools, string, string, string) ([]checks.Verdict, error) {
 		var vs []checks.Verdict
@@ -346,5 +350,11 @@ func TestAPanickingBinaryRunFallsEveryAtomBackToItsChain(t *testing.T) {
 		if !strings.HasPrefix(v.Reason, chainMark) || calls.of(v.Atom) != 1 || !strings.Contains(box.fell[v.Atom], "the atoms binary's run panicked: index out of range") {
 			t.Errorf("%s: %+v, chain asked %d times, fallback %q", v.Atom, v, calls.of(v.Atom), box.fell[v.Atom])
 		}
+	}
+	// The shadow is told too, or it would report "no vote was cast".
+	box.mu.Lock()
+	defer box.mu.Unlock()
+	if len(box.votes) != len(ids) {
+		t.Errorf("the box holds %d of the %d failed votes", len(box.votes), len(ids))
 	}
 }

@@ -20,8 +20,11 @@ import (
 // goes to the buffer.
 func reverseRun(t *testing.T, chainSide func(ctx context.Context) ([]checks.Verdict, error), grace time.Duration) (record string, report *bytes.Buffer, took time.Duration) {
 	t.Helper()
-	origRun, origToday, origGrace, origOut := shadowRun, shadowToday, shadowGrace, shadowOut
-	t.Cleanup(func() { shadowRun, shadowToday, shadowGrace, shadowOut = origRun, origToday, origGrace, origOut })
+	origRun, origToday, origGrace, origOut, origLimit := shadowRun, shadowToday, shadowGrace, shadowOut, shadowTimeout
+	t.Cleanup(func() {
+		shadowRun, shadowToday, shadowGrace, shadowOut, shadowTimeout = origRun, origToday, origGrace, origOut, origLimit
+	})
+	shadowTimeout = 5 * time.Second
 	shadowRun = defaultShadow
 	shadowGrace = grace
 	shadowToday = func(ctx context.Context, _ *FoundryTools, _, _, _ string) ([]checks.Verdict, error) {
