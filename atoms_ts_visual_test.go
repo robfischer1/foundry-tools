@@ -273,7 +273,7 @@ func TestTSVisualFoldsEverySuite(t *testing.T) {
 func TestGateFileKeepsTheArtifactCredential(t *testing.T) {
 	m := gateOn(t, cleanVector)
 	auth := dag.SetSecret("visual-artifact-auth", visualAuth)
-	if _, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "visual", nil, false, nil, auth); err != nil || m.artifactAuth != auth {
+	if _, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "visual", nil, false, nil, auth, "", nil); err != nil || m.artifactAuth != auth {
 		t.Fatalf("artifactAuth %v err %v", m.artifactAuth, err)
 	}
 	r := newRun(dag.Directory(), "", "").withArtifacts(auth, visualSha)

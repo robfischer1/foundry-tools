@@ -201,7 +201,7 @@ func TestTheFileAndTheLineAreTheSameRecord(t *testing.T) {
 		engine.stdout(`"rev-parse","HEAD^{tree}"`, fakeTree+"\n")
 		// No record token: this case proves the FILE, and a nil token is also
 		// the shape every lane has until its Call declares one.
-		f, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "", nil, false, nil, nil)
+		f, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "", nil, false, nil, nil, "", nil)
 		if err != nil {
 			t.Fatalf("gate-file: %v", err)
 		}
@@ -239,7 +239,7 @@ func quotedInto(line string) string {
 // fold would attribute the verdict to the wrong lane.
 func TestGateFileCarriesTheStageItWasAsked(t *testing.T) {
 	m := gateOn(t, cleanVector)
-	f, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "mutation", nil, false, nil, nil)
+	f, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "mutation", nil, false, nil, nil, "", nil)
 	if err != nil {
 		t.Fatalf("gate-file: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestGateFileAtPrecommitIsTheCheckLane(t *testing.T) {
 		stage = s
 		return cleanVector, nil
 	}
-	f, err := m.GateFile(context.Background(), fakeTree, gatePin, "", "precommit", nil, false, nil, nil)
+	f, err := m.GateFile(context.Background(), fakeTree, gatePin, "", "precommit", nil, false, nil, nil, "", nil)
 	if err != nil {
 		t.Fatalf("gate-file: %v", err)
 	}
