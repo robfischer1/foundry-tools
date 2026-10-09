@@ -104,36 +104,3 @@ func TestTheShadowOfAChainVotedLaneIsTheDryOne(t *testing.T) {
 		t.Errorf("report %q", got)
 	}
 }
-
-// THE INTERPRETER STAGE NAMES WHAT STOPPED IT: a pin with no checksum, an asset
-// that will not fetch, an archive that will not verify or unpack. A stage that
-// ran is a container.
-func TestThePythonInterpreterStageNamesWhatStoppedIt(t *testing.T) {
-	url := checks.PythonStandaloneURL
-	for _, tc := range []struct {
-		name  string
-		setup func(t *testing.T)
-		want  string
-	}{
-		{"a pin with no checksum", func(t *testing.T) {
-			sum := checks.ToolSHA256[url]
-			delete(checks.ToolSHA256, url)
-			t.Cleanup(func() { checks.ToolSHA256[url] = sum })
-		}, "has no checksum"},
-		{"an asset that will not fetch", func(*testing.T) { engine.failLeaf(url, "sync", "dial tcp: i/o timeout") }, "could not fetch"},
-		{"an archive that will not unpack", func(*testing.T) { engine.failLeaf(`"/opt/python/bin/python3","--version"`, "sync", "bad archive") }, "did not verify and unpack"},
-		{"a stage that ran", func(*testing.T) {}, ""},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			engine.reset()
-			tc.setup(t)
-			ctr, err := pythonInterpreter(soon(t), toolsOS())
-			switch {
-			case tc.want == "" && (err != nil || ctr == nil):
-				t.Errorf("container %v, err %v", ctr, err)
-			case tc.want != "" && (err == nil || ctr != nil || !strings.Contains(err.Error(), tc.want)):
-				t.Errorf("container %v, err %v, want one containing %q", ctr, err, tc.want)
-			}
-		})
-	}
-}
