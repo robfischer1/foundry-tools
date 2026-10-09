@@ -257,15 +257,17 @@ func TestMillisRoundsToTheNearest(t *testing.T) {
 }
 
 func TestProcessCPUCountsTheProcessAndItsChildren(t *testing.T) {
+	// BOTH HALVES, SUMMED: the kernel's accounting is exact, so the move is at
+	// least the spin plus the child, and either half alone falls short.
 	before := ProcessCPU()
-	spin(50 * time.Millisecond)
+	spin(300 * time.Millisecond)
 	cmd := exec.Command("sh", spinScript...)
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
 	child := cmd.ProcessState.UserTime() + cmd.ProcessState.SystemTime()
-	if moved := ProcessCPU() - before; moved < 50*time.Millisecond+child/2 {
-		t.Errorf("the process's CPU moved %v over a 50ms spin and a child's %v", moved, child)
+	if moved := ProcessCPU() - before; moved < 250*time.Millisecond+child {
+		t.Errorf("the process's CPU moved %v over a 300ms spin and a child's %v", moved, child)
 	}
 }
 
