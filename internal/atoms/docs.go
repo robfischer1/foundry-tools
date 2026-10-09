@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -67,15 +68,15 @@ func stopJustifications(_ context.Context, a checks.AtomDef, in Input) checks.Ve
 // yaml.v3 agrees on those two: decoding into a yaml.Node builds a tree, never
 // a Go value, so an unknown tag is a node with a tag.
 //
-// KNOWN DRIFT, TO SETTLE BEFORE THIS ATOM VOTES: THE BINARY IS STRICTER THAN THE
-// CHAIN ON ALIASES. go.yaml.in/yaml/v3 resolves an alias while it parses, so an
-// undefined or forward alias ("a: *b" with no earlier &b) is an error even into
-// a yaml.Node (v3.0.5 decode.go: "unknown anchor 'b' referenced"). pre-commit's
-// --unsafe reads only the parse EVENTS, which carry the alias by name and
-// resolve nothing, so the chain answers 0 where this answers 1: a pass turned
-// red. TestCheckYAMLKnownDriftUndefinedAlias pins the binary's side; the shadow
-// report is where the other side shows. Either this atom pre-scans events (a
-// yaml.Node walk cannot see past the error) or the chain's tool changes.
+// ALIASES ARE NOT RESOLVED, AS THE CHAIN DID NOT RESOLVE THEM. go.yaml.in/yaml/v3
+// resolves an alias while it parses, so an undefined or forward alias ("a: *b"
+// with no earlier &b) is an error even into a yaml.Node (v3.0.5 decode.go:
+// "unknown anchor 'b' referenced"). pre-commit's --unsafe reads only the parse
+// EVENTS, which carry the alias by name and resolve nothing, so the chain passes
+// that file. The binary now passes it too (syntaxError undefines the alias and
+// parses again), because a verdict that turned a pass red on the day the binary
+// began to vote would be a change in what the fleet accepts, not a finding.
+// Anything else the parser rejects is still a finding.
 //
 // EVERY DOCUMENT of a file is decoded, to io.EOF. The first error in a file is
 // reported with the file and, where the parser has one, the line — "yaml: line
@@ -121,7 +122,45 @@ func checkYAML(ctx context.Context, a checks.AtomDef, in Input) checks.Verdict {
 
 // syntaxError is the first parse error in any document of body, or nil. An
 // empty file has no documents and parses.
+//
+// A DOCUMENT THAT NAMES AN ANCHOR NOBODY DEFINED parses as if the alias were a
+// null: each undefined anchor the parser names is rewritten out of the text
+// (undefineAlias) and the file is parsed again, so a real syntax error beside
+// the alias is still the error reported. EVERY PASS REMOVES AT LEAST ONE '*', so
+// one pass per '*' in the file is the most it can take; the bound is what keeps a
+// rewrite that stopped working from hanging a gate.
 func syntaxError(body []byte) error {
+	return syntaxErrorWithin(body, bytes.Count(body, []byte("*")))
+}
+
+// syntaxErrorWithin is syntaxError allowed this many rewrites.
+func syntaxErrorWithin(body []byte, passes int) error {
+	err := parseAll(body)
+	if err == nil {
+		return nil
+	}
+	m := unknownAnchor.FindStringSubmatch(err.Error())
+	if m == nil || passes == 0 {
+		return err
+	}
+	return syntaxErrorWithin(undefineAlias(body, m[1]), passes-1)
+}
+
+// unknownAnchor is the parser's complaint about an alias with no anchor.
+var unknownAnchor = regexp.MustCompile(`unknown anchor '([^']*)' referenced`)
+
+// undefineAlias replaces the alias tokens "*name" with a null scalar. The
+// scanner ends an alias's name at the first character that is not a letter,
+// digit, '_' or '-' (yaml_parser_scan_anchor), so that is where the token ends;
+// a "*name" inside a quoted string is rewritten too, which changes a string's
+// text and nothing about whether the file parses.
+func undefineAlias(body []byte, name string) []byte {
+	re := regexp.MustCompile(`(?m)\*` + regexp.QuoteMeta(name) + `($|[^0-9A-Za-z_-])`)
+	return re.ReplaceAll(body, []byte("null${1}"))
+}
+
+// parseAll decodes every document of body into a yaml.Node, to io.EOF.
+func parseAll(body []byte) error {
 	dec := yaml.NewDecoder(bytes.NewReader(body))
 	for {
 		var doc yaml.Node

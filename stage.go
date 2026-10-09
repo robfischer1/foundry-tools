@@ -286,10 +286,17 @@ func (m *FoundryTools) sequence(ctx context.Context, stage, base string) ([]chec
 	selected = plan.Run
 	out := absent
 	var unreached []string
+	// The binary is asked for its atoms the first time the sequence reaches one,
+	// and once: a sequence that stops before them never runs it.
+	ballot := m.pollFor(atomsVoter, stage, base, selected, func(ctx context.Context, id string) (checks.Verdict, error) {
+		return verdictFor(ctx, r, id)
+	})
 	for i, a := range selected {
-		v, err := verdictFor(ctx, r, a.ID)
-		if err != nil {
-			return nil, nil, err
+		v, ok := ballot.vote(ctx, a.ID)
+		if !ok {
+			if v, err = verdictFor(ctx, r, a.ID); err != nil {
+				return nil, nil, err
+			}
 		}
 		out = append(out, v)
 		if checks.Stops(v) {

@@ -105,28 +105,69 @@ func TestCheckYAML(t *testing.T) {
 	}
 }
 
-// KNOWN DRIFT from the chain (see checkYAML): pre-commit --unsafe reads parse
-// events and passes an alias with no anchor; yaml.v3 rejects it while parsing.
-// This pins the BINARY's behaviour so the day the drift is closed - in either
-// direction - a test changes on purpose. A defined, earlier anchor is fine.
-func TestCheckYAMLKnownDriftUndefinedAlias(t *testing.T) {
+// PARITY WITH THE CHAIN. pre-commit --unsafe reads parse events and passes an
+// alias with no anchor; yaml.v3 rejects it while parsing, so the atom undefines
+// the alias and parses again. A real syntax error is still a finding, with or
+// without an undefined alias beside it.
+func TestCheckYAMLAcceptsWhatTheChainAccepts(t *testing.T) {
 	a := checks.AtomByID("fleet:check-yaml")
 	for _, tc := range []struct {
 		name      string
 		body      string
 		wantState int
+		wantLog   string
 	}{
-		{"an alias with no anchor anywhere", "a: *b\n", 1},
-		{"a forward alias: the anchor comes after", "a: *b\nb: &b 1\n", 1},
-		{"an anchor defined earlier is fine", "b: &b 1\na: *b\n", 0},
+		{"an alias with no anchor anywhere", "a: *b\n", 0, ""},
+		{"a forward alias: the anchor comes after", "a: *b\nb: &b 1\n", 0, ""},
+		{"an anchor defined earlier is fine", "b: &b 1\na: *b\n", 0, ""},
+		{"an undefined alias in a flow sequence, twice", "a: [*b, *b]\n", 0, ""},
+		{"an undefined alias as a merge key's value", "a:\n  <<: *base\n  c: 1\n", 0, ""},
+		{"two different undefined aliases", "a: *x\nb: *y-1\n", 0, ""},
+		{"an undefined alias in the second document", "---\na: 1\n---\nb: *c\n", 0, ""},
+		{"a star inside a plain scalar is not an alias", "a: x*b\n", 0, ""},
+		{"an undefined alias beside a real syntax error", "a: *b\nc: [1, 2\n", 1, "a.yaml: yaml: "},
+		{"a syntax error alone", "a: [1, 2\n", 1, "a.yaml: yaml: "},
+		{"an undefined alias after a tab indent", "a:\n\tb: *c\n", 1, "a.yaml: yaml: "},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			put(t, dir, "a.yaml", tc.body)
-			if v := checkYAML(context.Background(), a, Input{Root: dir, Files: []string{"a.yaml"}}); v.State != tc.wantState {
-				t.Errorf("state %d, want %d\n%s", v.State, tc.wantState, v.Reason)
+			v := checkYAML(context.Background(), a, Input{Root: dir, Files: []string{"a.yaml"}})
+			if v.State != tc.wantState {
+				t.Fatalf("state %d, want %d\n%s", v.State, tc.wantState, v.Reason)
+			}
+			if logs := strings.Join(v.Logs, "\n"); !strings.Contains(logs, tc.wantLog) {
+				t.Errorf("logs lack %q:\n%s", tc.wantLog, logs)
 			}
 		})
+	}
+}
+
+// The rewrites are bounded: with none allowed, the parser's own complaint about
+// the alias is the answer; with one, the alias is gone and the file parses.
+func TestSyntaxErrorRewritesAreBounded(t *testing.T) {
+	body := []byte("a: *b\n")
+	if err := syntaxErrorWithin(body, 0); err == nil || !strings.Contains(err.Error(), "unknown anchor 'b'") {
+		t.Errorf("no rewrite allowed: %v", err)
+	}
+	if err := syntaxErrorWithin(body, 1); err != nil {
+		t.Errorf("one rewrite allowed: %v", err)
+	}
+	// One rewrite clears the first alias and no more: the budget counts down.
+	if err := syntaxErrorWithin([]byte("a: *b\nc: *d\n"), 1); err == nil || !strings.Contains(err.Error(), "unknown anchor 'd'") {
+		t.Errorf("two aliases, one rewrite: %v", err)
+	}
+	if err := syntaxError([]byte("a: *b\nc: *d\ne: *f\n")); err != nil {
+		t.Errorf("three aliases, three rewrites: %v", err)
+	}
+}
+
+// A finding never names the null the alias was rewritten to: the error is the
+// file's own text.
+func TestCheckYAMLFindingKeepsTheFilesOwnLine(t *testing.T) {
+	err := syntaxError([]byte("a: *b\nc: d: e\n"))
+	if err == nil || !strings.Contains(err.Error(), "line 2") {
+		t.Errorf("error %v, want one on line 2", err)
 	}
 }
 
