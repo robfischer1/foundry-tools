@@ -449,7 +449,13 @@ func TestRenderShadowReportsItsWallTime(t *testing.T) {
 // answer for the atoms that read the network. Two calls never share a value.
 func TestAtomsVectorCarriesAPerCallReask(t *testing.T) {
 	m := &FoundryTools{Source: dag.Directory(), Repo: "http://door/rob/x.git", Sha: buildSha}
-	re := regexp.MustCompile(`CA_REASK\D+(\d+)`)
+	// THE CALL'S OWN VALUE, in either argument order. The fake engine renders a
+	// call's arguments in map order, so CA_REASK's withEnvVariable reads
+	// (name, value) on one run and (value, name) on the next. The old
+	// `CA_REASK\D+(\d+)` read past the name to the first digit after it — under
+	// (value, name) that was the 6 in the next call's "id-e6d88a18", the same on
+	// both calls, and the gate went red on foundry-tools#332.
+	re := regexp.MustCompile(`withEnvVariable\((?:name:"CA_REASK", value:"(\d+)"|value:"(\d+)", name:"CA_REASK")\)`)
 	var seen []string
 	for i := range 2 {
 		engine.reset()
@@ -466,7 +472,7 @@ func TestAtomsVectorCarriesAPerCallReask(t *testing.T) {
 		if match == nil {
 			t.Fatalf("the binary's exec carries no CA_REASK:\n%s", c)
 		}
-		seen = append(seen, match[1])
+		seen = append(seen, match[1]+match[2])
 	}
 	if seen[0] == seen[1] {
 		t.Errorf("two calls shared the reask value %s", seen[0])
