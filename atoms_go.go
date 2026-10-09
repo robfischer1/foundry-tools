@@ -814,7 +814,11 @@ func goGovulncheck(ctx context.Context, r *run) checks.Verdict {
 // read.
 func goMutation(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("go:mutation")
-	return r.eachModule(ctx, a, func(dir string) checks.Verdict { return goMutationIn(ctx, r, a, dir) })
+	return r.eachModule(ctx, a, func(dir string) checks.Verdict {
+		return reasked(goMutationIn(ctx, r, a, dir), func() checks.Verdict {
+			return goMutationIn(ctx, r.reaskedAgain(reaskNonce()), a, dir)
+		})
+	})
 }
 
 // goMutationIn is go:mutation in one module.
@@ -919,32 +923,17 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 		return goFolded(settle, checks.GoMutationRun{Canary: checks.CanaryOK, MainCanary: checks.CanaryOK, Workers: goMutationWorkers},
 			dir, reused, reuseNote, misses, owner, nil)
 	}
-	scopeArgs := goMutationCoverPackages(changed)
-	mutateArgs := []string{"./..."}
-	if len(reused) > 0 {
-		scopeArgs = checks.MissPatterns(dir, misses)
-		mutateArgs = scopeArgs
-	}
-
-	// COVER: the profile the scorer reads to tell a misjudged NOT COVERED from
-	// a real one. Never fatal — gremlins gathers its own; this one only corrects
-	// the switch-case misread.
-	//
-	// SCOPED TO THE PACKAGES THE DIFF TOUCHES. The profile only ever answers
-	// for a mutated line, and every mutant is in a changed file, so covering
-	// the whole module was a full suite run bought for nothing: MEASURED
-	// 2026-09-18 on ourea aeb9cd9, `go test -cover ./...` with -p 1 took
-	// 4m44s of an 11m44s lane for a pull that touched one package whose
-	// suite runs in ~100s. goMutationCoverPackages names the packages.
-	coverArgs := []string{"go", "test", "-cover", "-coverprofile", goMutationProfile}
+	// THE SCOPE IS THE UNITS IT GRADES, on every run (checks.GoMutationScope
+	// says why that loses no kill): the changed packages, less any a stored
+	// grading answered, as the module's own `go list` names them — never a
+	// nested module's directory or a package with no source, which `go test`
+	// would refuse and the whole run with it.
+	pkgArgs := []string{"go", "list", "-e", "-f", checks.GoSourcePackagesFormat}
 	if len(dbs) > 0 || len(brokers) > 0 {
-		coverArgs = append(coverArgs, "-tags", checks.BuildTags(dbs, brokers), "-p", "1")
+		pkgArgs = append(pkgArgs, "-tags", checks.BuildTags(dbs, brokers))
 	}
-	covered := base.WithExec(append(coverArgs, scopeArgs...), anyExit)
-	if _, err := covered.ExitCode(ctx); err != nil {
-		return neverRan(err)
-	}
-	profile, _ := covered.File(path.Join("/src", dir, goMutationProfile)).Contents(ctx)
+	listed, _, _ := output(ctx, base.WithExec(append(pkgArgs, "./..."), anyExit))
+	mutateArgs := checks.GoMutationScope(dir, misses, listed, "/src")
 
 	// THE CANARY, in a module of its own.
 	canary := checks.CanaryUnknown
@@ -1007,6 +996,7 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 		"-workers", strconv.Itoa(goMutationWorkers),
 		"-disable", goMutationDisable,
 		"-exclude-files", goMutationExclude,
+		"-cache", goMutationCache,
 		"-changed-since", since}, tags...)
 	args = append(args, mutateArgs...)
 	// THE SCOPE IS THE CHANGED LINES, and gomutants reads them itself off
@@ -1039,7 +1029,7 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	// the cap read 0 and never fired, and a runaway mutant took the whole exec
 	// down at its 16 GiB cgroup instead (internal/pgroupps has the
 	// measurement). Prepended to PATH for this exec only.
-	mutated := covered.
+	mutated := base.
 		WithFile(pgroupPSDir+"/ps", helperBinary("pgroupps")).
 		WithEnvVariable("PATH", pgroupPSDir+":${PATH}", dagger.ContainerWithEnvVariableOpts{Expand: true}).
 		WithEnvVariable("GOMAXPROCS", "1").
@@ -1061,6 +1051,11 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	// gremlins writes no report when it has nothing to report; a read that
 	// fails is that absence, and the verdict decides what it means.
 	report, _ := mutated.File(path.Join("/src", dir, goMutationReport)).Contents(ctx)
+	// THE PROFILE gomutants MEASURED, off its cache file (checks.GoCachedProfile):
+	// the lane's own cover step ran the same `go test -coverprofile` over the
+	// same packages first, and is gone.
+	cached, _ := mutated.File(goMutationCache).Contents(ctx)
+	profile := checks.GoCachedProfile(cached)
 
 	// NAME THE FILES FROM THE MODULE ROOT before anything reads them. gomutants
 	// writes file_name relative to the common import-path prefix of the packages
@@ -1135,36 +1130,6 @@ func goFolded(settle func(int, string) checks.Verdict, run checks.GoMutationRun,
 	return v
 }
 
-// goMutationCoverPackages names the packages the COVER step runs, from the
-// diff's changed Go files: one `./<dir>` per directory that holds one, the
-// module root as ".", in path order and without repeats. An empty diff is
-// the whole module — the caller has already stood down on that case, so this
-// is only the shape the fallback takes.
-func goMutationCoverPackages(changed string) []string {
-	seen := map[string]bool{}
-	var pkgs []string
-	for _, f := range strings.Split(changed, "\n") {
-		f = strings.TrimSpace(f)
-		if f == "" || !strings.HasSuffix(f, ".go") {
-			continue
-		}
-		dir := path.Dir(f)
-		pkg := "."
-		if dir != "." && dir != "" {
-			pkg = "./" + dir
-		}
-		if !seen[pkg] {
-			seen[pkg] = true
-			pkgs = append(pkgs, pkg)
-		}
-	}
-	if len(pkgs) == 0 {
-		return []string{"./..."}
-	}
-	slices.Sort(pkgs)
-	return pkgs
-}
-
 // classify answers mutation-gate's stdout and stderr separately: the JSON is
 // the answer, and what it said when it had none is the reason the verdict
 // carries. An engine error is a reason too, never a silent empty answer.
@@ -1198,6 +1163,14 @@ const (
 	// goMutationReport and goMutationProfile are what the run leaves in /src.
 	goMutationReport  = "mutation-go.json"
 	goMutationProfile = "mutation-cover.out"
+	// goMutationCache is gomutants' -cache file, and it is OUTSIDE THE TREE on
+	// purpose. Left to its default it is `.gomutants-cache.json` in the workdir
+	// — the tree under check — and gomutants answers any mutant whose package
+	// and covering tests hash the same as that file says from the file, not
+	// from a run: a repository that committed one would grade its own mutants.
+	// Here it starts empty on every run, so it answers nothing, and what it is
+	// for is the coverage profile gomutants writes into it (GoCachedProfile).
+	goMutationCache = "/tmp/gomutants-cache.json"
 	// pgroupPSDir holds the ps the mutation exec finds first (pgroupps).
 	pgroupPSDir = "/opt/pgroupps"
 	// goMutationWorkers is gomutants' -workers, and it is a CORRECTNESS knob,

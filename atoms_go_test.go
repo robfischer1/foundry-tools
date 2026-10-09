@@ -353,6 +353,11 @@ func TestGoMutationCompilesTheRecordsDBTags(t *testing.T) {
 	if list := engine.chain(goPackagesNeedle, "stdout"); !strings.Contains(list, `"-tags","live_db"`) {
 		t.Errorf("the package listing dropped the record's build tags:\n%s", list)
 	}
+	// AND THE SOURCE-PACKAGE LISTING THE SCOPE IS CHECKED AGAINST: a package
+	// whose only files are tagged has source only under the run's tags.
+	if list := engine.chain(goSourceNeedle, "stdout"); !strings.Contains(list, `"-tags","live_db"`) {
+		t.Errorf("the source-package listing dropped the record's build tags:\n%s", list)
+	}
 	c := engine.chain(goMutantsNeedle, "exitCode")
 	wantCalls(t, c,
 		// ITS OWN SERVER, not the one go:test-race binds. This lane runs BESIDE
@@ -362,12 +367,9 @@ func TestGoMutationCompilesTheRecordsDBTags(t *testing.T) {
 		// failures over three runs of one unchanged suite).
 		[]string{"withServiceBinding", `alias:"db-mutation"`},
 		[]string{"withEnvVariable", `name:"TEST_DATABASE_URL"`, `value:"` + checks.TestDBs[0].DSNFor("mutation") + `"`},
-		// the coverage run compiles the tag and serialises on the one database
-		// the coverage run covers the diff's package (a.go: the root) and no other
-		[]string{"withExec", `"-coverprofile","mutation-cover.out","-tags","live_db","-p","1","."`},
-		// AND SO DOES THE MUTATION RUN, after -changed-since and before the
-		// package. An untagged run compiles a different population than the
-		// coverage profile beside it was gathered from.
+		// THE MUTATION RUN COMPILES THE TAG, after -changed-since and before the
+		// package: gomutants' own coverage, baseline and per-test map all run
+		// under it, and GOFLAGS' -p=1 serialises them on the one database.
 		[]string{"withExec", `"-changed-since","since0","-tags","live_db","./..."`},
 	)
 	if hasCall(c, "withServiceBinding", `alias:"db-novector"`) {
@@ -455,7 +457,6 @@ func TestGoMutationMeasuresTheDiffAndSettlesInGo(t *testing.T) {
 	wantCalls(t, c,
 		[]string{"withEnvVariable", `name:"GATE_BASE"`, `value:"abc123"`},
 		[]string{"withMountedDirectory", `path:"/dies"`},
-		[]string{"withExec", `"go","test","-cover","-coverprofile","mutation-cover.out","."`},
 		// gomutants' 2 GiB cap reads `ps -g`, which procps answers by session:
 		// the module's own pgroupps is the ps this exec finds first.
 		[]string{"withFile", `path:"/opt/pgroupps/ps"`},
@@ -465,7 +466,7 @@ func TestGoMutationMeasuresTheDiffAndSettlesInGo(t *testing.T) {
 		// derived from, and a CACHED baseline is ~1s for a module that tests in
 		// minutes (ourea aeb9cd9 under gremlins: killed 72, TIMED OUT 79).
 		[]string{"withEnvVariable", `name:"GOFLAGS"`, `value:"-p=1 -count=1"`},
-		[]string{"withExec", `expect:ANY`, `"gomutants","-output","mutation-go.json","-config","/dev/null","-workers","4","-disable","` + goMutationDisable + `","-exclude-files","` + strings.ReplaceAll(goMutationExclude, `\`, `\\`) + `","-changed-since","since0","./..."`},
+		[]string{"withExec", `expect:ANY`, `"gomutants","-output","mutation-go.json","-config","/dev/null","-workers","4","-disable","` + goMutationDisable + `","-exclude-files","` + strings.ReplaceAll(goMutationExclude, `\`, `\\`) + `","-cache","/tmp/gomutants-cache.json","-changed-since","since0","./..."`},
 	)
 	if b := engine.chain(`"go","build","-trimpath","-o","/out/pgroupps","./pgroupps"`); !strings.Contains(b, `from(address:"`+checks.ImageGo+`")`) {
 		t.Errorf("pgroupps is built from this module in the Go image:\n%s", b)
@@ -736,16 +737,13 @@ func TestGoMutationStandsDownOrCannotRun(t *testing.T) {
 		"no merge base": {"abc123", func() { engine.exitCode(mergeBaseNeedle, 1) }, 2,
 			"no merge base between the base abc123 and HEAD (exit 1)", []string{mergeBaseNeedle}, []string{goDiffNeedle}},
 		"no Go changed": {"abc123", func() { engine.stdout(goDiffNeedle, "") }, 0, "",
-			[]string{goDiffNeedle}, []string{`"-coverprofile"`}},
+			[]string{goDiffNeedle}, []string{goMutantsNeedle}},
 		"git cannot diff": {"abc123", func() { engine.exitCode(goDiffNeedle, 1) }, 2,
-			"git could not diff the pull against its base since0", []string{goDiffNeedle}, []string{`"-coverprofile"`}},
+			"git could not diff the pull against its base since0", []string{goDiffNeedle}, []string{goMutantsNeedle}},
 		"the base check never ran": {"abc123", func() { engine.fail(baseNeedle, "engine gone") }, 2, "never ran", nil, []string{mergeBaseNeedle}},
 		"the merge base never ran": {"abc123", func() { engine.fail(mergeBaseNeedle, "engine gone") }, 2, "never ran", nil, []string{goDiffNeedle}},
-		"the diff never ran":       {"abc123", func() { engine.fail(goDiffNeedle, "engine gone") }, 2, "never ran", nil, []string{`"-coverprofile"`}},
-		"coverage never ran": {"abc123", func() {
-			engine.failLeaf(`"-coverprofile","mutation-cover.out","."`, "exitCode", "engine gone")
-		}, 2, "never ran", nil, nil},
-		"gremlins never ran": {"abc123", func() { engine.failLeaf(goMutantsNeedle, "exitCode", "engine gone") }, 2, "never ran", nil, nil},
+		"the diff never ran":       {"abc123", func() { engine.fail(goDiffNeedle, "engine gone") }, 2, "never ran", nil, []string{goMutantsNeedle}},
+		"gremlins never ran":       {"abc123", func() { engine.failLeaf(goMutantsNeedle, "exitCode", "engine gone") }, 2, "never ran", nil, nil},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -976,8 +974,8 @@ func TestGoMutationInANestedModuleDiffsRelativeToIt(t *testing.T) {
 	if !strings.Contains(strings.Join(engine.chains(), "\n"), `/src/tools/forge/mutation-go.json`) {
 		t.Error("the report must be read from the module's directory")
 	}
-	if !strings.Contains(strings.Join(engine.chains(), "\n"), `/src/tools/forge/mutation-cover.out`) {
-		t.Error("the coverage profile must be read from the module's directory")
+	if !strings.Contains(strings.Join(engine.chains(), "\n"), `file(path:"/tmp/gomutants-cache.json"){contents}`) {
+		t.Error("the coverage profile must be read off the cache file gomutants wrote")
 	}
 
 	// The report is what decides: a survivor in the module's report reds it.
@@ -1364,20 +1362,6 @@ func TestGoReleaseSaysWhyItCouldNotRun(t *testing.T) {
 		"Dockerfile": "FROM x\nCOPY release/ /app\n", ".copier-answers.yml": "service_name: hades\n",
 	})
 	wantState(t, runAtom(t, "go:release", ""), 2, "copies no file out of it")
-}
-
-// THE COVER STEP RUNS ONLY THE PACKAGES THE DIFF TOUCHES: one package per
-// directory holding a changed Go file, the root as ".", sorted, no repeats;
-// an empty list is the whole module.
-func TestGoMutationCoverPackagesAreTheDiffs(t *testing.T) {
-	got := goMutationCoverPackages("internal/gatejob/engines.go\ninternal/gatejob/gatejob.go\ncmd/ourea/main.go\nmain.go\ndocs/x.md\n\n")
-	want := []string{".", "./cmd/ourea", "./internal/gatejob"}
-	if strings.Join(got, " ") != strings.Join(want, " ") {
-		t.Fatalf("packages %v, want %v", got, want)
-	}
-	if got := goMutationCoverPackages("docs/only.md\n"); len(got) != 1 || got[0] != "./..." {
-		t.Fatalf("no Go file: the whole module, got %v", got)
-	}
 }
 
 // A REPOSITORY WITH NO ANSWERS FILE IS NAMED BY ITS RECORD (CA F17, Rob

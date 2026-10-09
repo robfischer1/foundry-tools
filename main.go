@@ -461,7 +461,12 @@ func verdictFor(ctx context.Context, r *run, id string) (checks.Verdict, error) 
 		return checks.Verdict{}, fmt.Errorf("%s has no runner registered", id)
 	}
 	started := atomClock()
-	v := askedTwice(ctx, r, fn)
+	var v checks.Verdict
+	if reasksItsOwnModules[id] {
+		v = fn(ctx, r)
+	} else {
+		v = askedTwice(ctx, r, fn)
+	}
 	return checks.Timed(v, started, atomClock()), nil
 }
 
@@ -485,13 +490,38 @@ func askedTwice(ctx context.Context, r *run, fn atomFn) checks.Verdict {
 	// from cache on every re-ask of the same tree. The second run keys every
 	// lane exec afresh, so it looks again. MEASURED on the gate receipts
 	// 2026-09-09 -> 17: 759 could-not-run rows against 1,362 findings.
-	again := fn(ctx, newRun(r.src, r.repo, r.base).fromOrigin(r.origin).reasked(strconv.FormatInt(time.Now().UnixNano(), 10)))
-	if again.State != int(checks.StateCannotRun) {
-		return again
-	}
-	again.Reason += "\n(asked twice, the second time past the engine's cache: it could not run both times)"
-	return again
+	return reasked(v, func() checks.Verdict {
+		return fn(ctx, newRun(r.src, r.repo, r.base).fromOrigin(r.origin).reasked(strconv.FormatInt(time.Now().UnixNano(), 10)))
+	})
 }
+
+// reasked settles a could-not-run's second ask: the second answer is the one
+// reported, and a second could-not-run says it was asked twice.
+func reasked(first checks.Verdict, again func() checks.Verdict) checks.Verdict {
+	if first.State != int(checks.StateCannotRun) {
+		return first
+	}
+	v := again()
+	if v.State != int(checks.StateCannotRun) {
+		return v
+	}
+	v.Reason += "\n(asked twice, the second time past the engine's cache: it could not run both times)"
+	return v
+}
+
+// reasksItsOwnModules are the atoms verdictFor does not ask twice WHOLE,
+// because each re-asks only the module that could not run, itself.
+//
+// THE WHOLE-ATOM RE-ASK IS THE WRONG GRAIN FOR A MUTATION RUN. askedTwice
+// exists for a transient failure the engine would otherwise serve from cache
+// (94235de: a proxy's 404, a dropped connection), and it re-runs the atom from
+// nothing — every module, the ones that graded included, on a run that had
+// also forgotten its reuse lookup, so the units a stored grading answered were
+// graded cold as well. A mutation module that graded is the costliest answer
+// in the fleet to throw away: could-not-run runs were 44% of the mutation
+// lane's wall time (tesla38-011). go:mutation re-asks per module, past the
+// cache exactly as askedTwice does, with the lookup it was given.
+var reasksItsOwnModules = map[string]bool{"go:mutation": true}
 
 // check is what every `+check` function calls: one atom, one verdict, answered the
 // way `dagger check` reads it.

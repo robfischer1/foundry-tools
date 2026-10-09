@@ -119,7 +119,12 @@ func scriptTwoUnits() {
 	engine.stdout(lsTreeNeedle, twoUnitTree)
 	engine.stdout(keyDiff, "+++ b/a.go\n@@ -1 +1 @@\n+x\n+++ b/internal/x/x.go\n@@ -1 +1 @@\n+y\n")
 	engine.stdout(depsNeedle, "m\t/src\t\nm/internal/x\t/src/internal/x\t")
+	engine.stdout(goSourceNeedle, "/src\n/src/internal/x\n")
 }
+
+// goSourceNeedle is the listing of the module's packages with source, which
+// the mutation run's scope is intersected with (checks.GoMutationScope).
+const goSourceNeedle = `.CgoFiles`
 
 // runWithLookup runs go:mutation with a lookup that answers what reuse holds
 // for the units it is asked about.
@@ -147,15 +152,14 @@ func hitFor(unit string, g checks.ReusedGrading) func([]checks.UnitKey) (map[str
 	}
 }
 
-// A unit a stored grading answers is not graded again: the cover step and
-// gomutants are handed only the misses, the verdict folds the reused unit in,
+// A unit a stored grading answers is not graded again: gomutants is handed
+// only the misses, the verdict folds the reused unit in,
 // and the run stores gradings only for what it graded.
 func TestAReuseRunGradesOnlyItsMisses(t *testing.T) {
 	scriptTwoUnits()
 	v := runWithLookup(t, hitFor("internal/x", checks.ReusedGrading{Lane: "mutation", RunNumber: 9, Counts: checks.GradingCounts{Generated: 3, Killed: 3}}))
 	wantState(t, v, 0, "go:mutation: reused 1 of 2 unit(s), graded earlier at the same content, scope and engine: internal/x (mutation #9 @)")
 	wantCalls(t, engine.chain(goMutantsNeedle, "exitCode"), []string{"withExec", `"-changed-since","since0","."]`})
-	wantCalls(t, engine.chain(goMutantsNeedle, "exitCode"), []string{"withExec", `"-coverprofile","mutation-cover.out","."]`})
 	if len(v.Gradings) != 1 || v.Gradings[0].Unit != "." || v.Audit != "" {
 		t.Fatalf("the run stores only what it graded, and audits nothing unsampled: %+v %q", v.Gradings, v.Audit)
 	}
@@ -186,7 +190,7 @@ func TestAStoreThatDoesNotAnswerGradesCold(t *testing.T) {
 		return nil, errors.New("POST → 502")
 	})
 	wantState(t, v, 0, "reuse: the store did not answer, so every unit was graded cold — POST → 502")
-	wantCalls(t, engine.chain(goMutantsNeedle, "exitCode"), []string{"withExec", `"-changed-since","since0","./..."]`})
+	wantCalls(t, engine.chain(goMutantsNeedle, "exitCode"), []string{"withExec", `"-changed-since","since0",".","./internal/x"]`})
 	if len(v.Gradings) != 2 {
 		t.Fatalf("a cold run stores every unit it graded: %+v", v.Gradings)
 	}
@@ -206,7 +210,7 @@ func TestASampledReuseRunGradesColdAndAudits(t *testing.T) {
 	})
 	v := registry["go:mutation"](context.Background(), r)
 	wantState(t, v, 0, "go:mutation: audit — the 1 unit(s) a lookup answered were graded cold again: mismatch: internal/x")
-	wantCalls(t, engine.chain(goMutantsNeedle, "exitCode"), []string{"withExec", `"-changed-since","since0","./..."]`})
+	wantCalls(t, engine.chain(goMutantsNeedle, "exitCode"), []string{"withExec", `"-changed-since","since0",".","./internal/x"]`})
 	if v.Audit != "mismatch: internal/x" || len(v.Gradings) != 2 {
 		t.Fatalf("audit %q gradings %+v", v.Audit, v.Gradings)
 	}
@@ -218,5 +222,55 @@ func TestASampledReuseRunGradesColdAndAudits(t *testing.T) {
 	res := stageResult(checks.Stage{Name: "mutation", Ran: []checks.StageAtom{{Atom: "go:mutation", Result: "pass", Audit: v.Audit}}})
 	if rec, _ := res.Record(); !strings.Contains(rec, `"audit":"mismatch: internal/x"`) {
 		t.Fatalf("the audit did not ride the record: %s", rec)
+	}
+}
+
+// EVERY RUN IS SCOPED TO THE UNITS IT GRADES, not only a reuse run: with no
+// lookup at all gomutants is handed the changed packages and never ./..., so
+// its coverage, baseline and per-test map run their suites and no other.
+func TestAColdRunIsHandedTheChangedPackages(t *testing.T) {
+	scriptTwoUnits()
+	wantState(t, runAtom(t, "go:mutation", "abc123"), 0)
+	wantCalls(t, engine.chain(goMutantsNeedle, "exitCode"), []string{"withExec", `"-changed-since","since0",".","./internal/x"]`})
+	// The listing that scope is checked against carries the run's own tags,
+	// and is asked of the whole module.
+	if l := engine.chain(goSourceNeedle, "stdout"); !strings.Contains(l, `"./..."]`) {
+		t.Errorf("the source listing must ask the whole module:\n%s", l)
+	}
+}
+
+// A changed unit the module's `go list` does not name as a package with source
+// — a test-only package, a nested module's directory — is not handed over,
+// because `go test` would refuse the pattern and the run with it. Nothing left
+// at all is ./..., the shape every run had before scoping.
+func TestTheScopeIsWhatTheModuleCanMutate(t *testing.T) {
+	scriptTwoUnits()
+	engine.stdout(goSourceNeedle, "/src\n")
+	wantState(t, runAtom(t, "go:mutation", "abc123"), 0)
+	wantCalls(t, engine.chain(goMutantsNeedle, "exitCode"), []string{"withExec", `"-changed-since","since0","."]`})
+
+	scriptTwoUnits()
+	engine.stdout(goSourceNeedle, "")
+	wantState(t, runAtom(t, "go:mutation", "abc123"), 0)
+	wantCalls(t, engine.chain(goMutantsNeedle, "exitCode"), []string{"withExec", `"-changed-since","since0","./..."]`})
+
+	scriptTwoUnits()
+	engine.fail(goSourceNeedle, "engine gone")
+	wantState(t, runAtom(t, "go:mutation", "abc123"), 0)
+	wantCalls(t, engine.chain(goMutantsNeedle, "exitCode"), []string{"withExec", `"-changed-since","since0","./..."]`})
+}
+
+// THE PROFILE IS gomutants' OWN, read off the cache file it wrote outside the
+// tree: the lane runs no `go test -coverprofile` of its own over the pull.
+func TestTheProfileIsReadOffGomutantsCache(t *testing.T) {
+	scriptTwoUnits()
+	wantState(t, runAtom(t, "go:mutation", "abc123"), 0)
+	for _, c := range engine.chains() {
+		if strings.Contains(c, `"-coverprofile","mutation-cover.out"`) && !strings.Contains(c, "/tmp/mutation/") {
+			t.Fatalf("the lane covered the pull itself:\n%s", c)
+		}
+	}
+	if engine.chain(goMutantsNeedle, `file(path:"/tmp/gomutants-cache.json"){contents}`) == "" {
+		t.Fatal("the profile was not read off gomutants' cache file")
 	}
 }
