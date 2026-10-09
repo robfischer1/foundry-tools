@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"time"
+
+	"dagger/foundry-tools/internal/checks"
 )
 
 // Run is the atoms binary's process: parse the flags, read the tree once, run
@@ -57,12 +59,30 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, now func(
 	in.Spire = *spire
 	in.WitnessDry = *witnessDry
 	in.NarcErr = *narcErr
-	vector := Execute(ctx, reg, in, Options{Workers: *workers, Timeout: *timeout, Clock: now})
+	// THE PROFILE SPANS THE ATOMS AND NOTHING ELSE (cpu.go): what each atom
+	// spent is read off it, and a profile that will not start is a CPU not
+	// known, never a verdict changed.
+	meter, prof := NewMeter(), startProfile()
+	vector := Execute(ctx, reg, in, Options{Workers: *workers, Timeout: *timeout, Clock: now, CPU: meter})
+	inproc, profiled := prof.Stop()
+	meter.Stamp(vector, inproc, profiled)
 
 	// THE MARSHAL ERROR IS DROPPED, not branched on (gate.go says why): Verdict
 	// is strings, ints, bools and slices of the same, so json cannot fail on it,
 	// and a branch no test can take is a branch that should not exist.
 	b, _ := json.MarshalIndent(vector, "", "  ")
 	fmt.Fprintln(stdout, string(b))
+	// THE TRAILER, after the vector (checks.ParseRun): the whole process's CPU,
+	// taken last so it covers everything the run spent, the atoms included.
+	ms := millis(processCPU())
+	t, _ := json.Marshal(checks.RunTrailer{StageCPUMs: &ms})
+	fmt.Fprintln(stdout, string(t))
 	return 0
 }
+
+// The process's meters, as variables so a test can say a profile would not
+// start and what the kernel answered.
+var (
+	startProfile = StartProfile
+	processCPU   = ProcessCPU
+)

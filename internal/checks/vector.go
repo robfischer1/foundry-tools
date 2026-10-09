@@ -29,13 +29,43 @@ func CannotRunVector(lane, stage, reason string) []Verdict {
 		Reason: truncate(reason, 1200), Logs: logs, Truncated: truncated, OriginalBytes: originalBytes}}
 }
 
-// ParseVector reads the module's vector.
+// ParseVector reads the module's vector, or the atoms binary's with its
+// trailer, which it drops (ParseRun).
 func ParseVector(raw string) ([]Verdict, error) {
+	v, _, err := ParseRun(raw)
+	return v, err
+}
+
+// RunTrailer is what the atoms binary prints after its vector: what the run
+// cost that no single atom is answerable for.
+type RunTrailer struct {
+	// StageCPUMs is the binary's whole CPU — its own and every program it
+	// reaped — in milliseconds; nil when the kernel would not say.
+	StageCPUMs *int64 `json:"stage_cpu_ms,omitempty"`
+}
+
+// ParseRun reads a vector and, after it, at most one trailer object.
+//
+// THE VECTOR STAYS THE FIRST VALUE, a bare array, so the module's own vector
+// (Verdicts prints none) reads the same as before. Anything after the trailer,
+// a trailer with a key it does not know, or a second value that is not an
+// object is a refusal: the output is the binary's or it is not a vector.
+func ParseRun(raw string) ([]Verdict, RunTrailer, error) {
+	refuse := fmt.Errorf("the module's output is not a verdict vector: %s", truncate(raw, 300))
+	dec := json.NewDecoder(strings.NewReader(raw))
 	var v []Verdict
-	if err := json.Unmarshal([]byte(raw), &v); err != nil {
-		return nil, fmt.Errorf("the module's output is not a verdict vector: %s", truncate(raw, 300))
+	if dec.Decode(&v) != nil {
+		return nil, RunTrailer{}, refuse
 	}
-	return v, nil
+	var tr RunTrailer
+	if rest := strings.TrimSpace(raw[dec.InputOffset():]); rest != "" {
+		td := json.NewDecoder(strings.NewReader(rest))
+		td.DisallowUnknownFields()
+		if td.Decode(&tr) != nil || td.InputOffset() != int64(len(rest)) {
+			return nil, RunTrailer{}, refuse
+		}
+	}
+	return v, tr, nil
 }
 
 // Worst is the vector's exit: its highest state, where any state other than

@@ -28,6 +28,45 @@ func TestTheVectorParsesOrIsRefused(t *testing.T) {
 	}
 }
 
+// THE BINARY'S TRAILER: one object after the vector, and nothing else.
+func TestARunIsAVectorAndAtMostOneTrailer(t *testing.T) {
+	const vec = `[{"atom":"go:vet","state":0,"cpu_ms":7}]`
+	for _, tc := range []struct {
+		name, raw string
+		stage     int64 // -1: no stage CPU
+		refused   bool
+	}{
+		{"a bare vector", vec, -1, false},
+		{"a vector and its trailer", vec + "\n{\"stage_cpu_ms\":42}\n", 42, false},
+		{"an empty trailer", vec + "\n{}", -1, false},
+		{"a trailer key it does not know", vec + `{"stage_cpu":42}`, -1, true},
+		{"something after the trailer", vec + `{"stage_cpu_ms":42} x`, -1, true},
+		{"two trailers", vec + `{"stage_cpu_ms":1}{"stage_cpu_ms":2}`, -1, true},
+		{"a second vector", vec + vec, -1, true},
+		{"a stray bracket", vec + "]", -1, true},
+		{"nothing", "", -1, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			v, tr, err := ParseRun(tc.raw)
+			if tc.refused {
+				if err == nil || v != nil || tr.StageCPUMs != nil {
+					t.Fatalf("accepted: %v %+v %v", v, tr, err)
+				}
+				return
+			}
+			if err != nil || len(v) != 1 || v[0].CPUMs == nil || *v[0].CPUMs != 7 {
+				t.Fatalf("%+v %v", v, err)
+			}
+			if got := tr.StageCPUMs; (got == nil) != (tc.stage < 0) || (got != nil && *got != tc.stage) {
+				t.Errorf("stage CPU %v, want %d", got, tc.stage)
+			}
+			if pv, err := ParseVector(tc.raw); err != nil || len(pv) != 1 {
+				t.Errorf("ParseVector did not read the same vector: %v %v", pv, err)
+			}
+		})
+	}
+}
+
 // The worst state wins, and a state the door cannot read counts as 2.
 func TestTheWorstStateIsTheExit(t *testing.T) {
 	for _, c := range []struct {

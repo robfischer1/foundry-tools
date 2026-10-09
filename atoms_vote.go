@@ -200,7 +200,9 @@ func (m *FoundryTools) cast(ctx context.Context, run castFunc, stage, base strin
 	raw, err := run(ctx, m, stage, base)
 	var vector []checks.Verdict
 	if err == nil {
-		vector, err = checks.ParseVector(raw)
+		var tr checks.RunTrailer
+		vector, tr, err = checks.ParseRun(raw)
+		tallyOf(ctx).add(tr.StageCPUMs)
 	}
 	byID := map[string]checks.Verdict{}
 	for _, v := range vector {

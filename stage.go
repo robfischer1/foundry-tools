@@ -49,6 +49,13 @@ type StageResult struct {
 	// audits are each mutation atom's soundness audit, by atom id, for the
 	// record alone, for the same reason.
 	audits map[string]string
+	// cpu is each atom's CPU in milliseconds, by atom id, for the record
+	// alone, for the same reason; an atom with no entry has no CPU known.
+	cpu map[string]*int64
+	// stageCPU is the atoms binary's whole CPU over this stage's runs, in
+	// milliseconds (atoms_cpu.go); nil when the binary did not run or did not
+	// say.
+	stageCPU *int64
 }
 
 // AtomResult is one atom's line in a stage.
@@ -99,6 +106,10 @@ type recordAtom struct {
 	// Audit is the atom's soundness audit (checks.AuditGradings), absent for
 	// every atom but a sampled reuse run's mutation atom.
 	Audit string `json:"audit,omitempty"`
+	// CPUMs is the CPU the atom spent, in milliseconds (internal/atoms
+	// cpu.go): only the binary's atoms measure it, so a chain's atom and one
+	// whose CPU is not known carry no key, which Daedalus stores as NULL.
+	CPUMs *int64 `json:"cpu_ms,omitempty"`
 }
 
 // atomWire is AtomResult's fields as the record spells them.
@@ -125,6 +136,10 @@ type recordStage struct {
 	Omitted   []recordAtom
 	Unreached []string
 	Log       string
+	// StageCPUMs is the atoms binary's whole CPU, its children included, so
+	// the CPU no atom is answerable for is the difference from the atoms' sum.
+	// Absent when the binary did not run in this stage.
+	StageCPUMs *int64 `json:"stage_cpu_ms,omitempty"`
 }
 
 // wire is the stage in the shape Record marshals.
@@ -135,12 +150,12 @@ func (s *StageResult) wire() recordStage {
 		}
 		out := make([]recordAtom, len(as))
 		for i, a := range as {
-			out[i] = recordAtom{atomWire: atomWire(a), Gradings: s.gradings[a.Atom], Audit: s.audits[a.Atom]}
+			out[i] = recordAtom{atomWire: atomWire(a), Gradings: s.gradings[a.Atom], Audit: s.audits[a.Atom], CPUMs: s.cpu[a.Atom]}
 		}
 		return out
 	}
 	return recordStage{Stage: s.Stage, State: s.State, Lanes: s.Lanes, Atoms: atoms(s.Atoms),
-		Omitted: atoms(s.Omitted), Unreached: s.Unreached, Log: s.Log}
+		Omitted: atoms(s.Omitted), Unreached: s.Unreached, Log: s.Log, StageCPUMs: s.stageCPU}
 }
 
 // Finding is one of an atom's findings on the module's PUBLIC surface.
@@ -397,15 +412,16 @@ func stageResult(st checks.Stage) *StageResult {
 		}
 		return out
 	}
-	gradings, audits := map[string][]checks.Grading{}, map[string]string{}
+	gradings, audits, cpu := map[string][]checks.Grading{}, map[string]string{}, map[string]*int64{}
 	for _, a := range st.Ran {
-		gradings[a.Atom], audits[a.Atom] = a.Gradings, a.Audit
+		gradings[a.Atom], audits[a.Atom], cpu[a.Atom] = a.Gradings, a.Audit, a.CPUMs
 	}
 	return &StageResult{
 		Stage: st.Name, State: st.State, Lanes: st.Lanes,
 		Atoms: rows(st.Ran), Omitted: rows(st.Omitted), Unreached: st.Unreached, Log: st.Log,
 		gradings: gradings,
 		audits:   audits,
+		cpu:      cpu,
 	}
 }
 

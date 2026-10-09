@@ -134,8 +134,9 @@ func (d DryWitness) line() string {
 
 // Compare holds two vectors against each other, atom by atom, on every field
 // the record carries EXCEPT the clock and the lane's own bookkeeping
-// (StartedAt, FinishedAt, Gradings, Audit): two runs never start at the same
-// instant and the others belong to atoms this package does not port.
+// (StartedAt, FinishedAt, Gradings, Audit, CPUMs): two runs never start at the
+// same instant nor spend the same CPU, and the others belong to atoms this
+// package does not port.
 func Compare(today, shadow []checks.Verdict) Report {
 	var rep Report
 	byID := map[string]checks.Verdict{}

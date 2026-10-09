@@ -3,7 +3,6 @@ package atoms
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -148,8 +147,8 @@ func TestRunTakesAStage(t *testing.T) {
 	if code := Run(context.Background(), []string{"-root", dir, "-stage", "orbit"}, &out, &errb, now); code != 0 {
 		t.Fatalf("exit %d: %s", code, errb.String())
 	}
-	var vector []checks.Verdict
-	if err := json.Unmarshal(out.Bytes(), &vector); err != nil {
+	vector, err := checks.ParseVector(out.String())
+	if err != nil {
 		t.Fatal(err)
 	}
 	var ids []string
@@ -187,8 +186,8 @@ func TestRunHandsTheDiesCheckoutToTheAtoms(t *testing.T) {
 	if code := Run(context.Background(), args, &out, &errb, time.Now); code != 0 {
 		t.Fatalf("exit %d: %s", code, errb.String())
 	}
-	var vector []checks.Verdict
-	if err := json.Unmarshal(out.Bytes(), &vector); err != nil {
+	vector, err := checks.ParseVector(out.String())
+	if err != nil {
 		t.Fatal(err)
 	}
 	for _, v := range vector {
