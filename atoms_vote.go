@@ -44,15 +44,21 @@ var atomsVoter = defaultVoter
 
 // castBinary is the binary's one run for a lane: its vector as JSON. A variable
 // so a test names what the binary answers without an engine.
-var castBinary = func(ctx context.Context, m *FoundryTools, stage, base string) (string, error) {
+var castBinary castFunc = func(ctx context.Context, m *FoundryTools, stage, base string) (string, error) {
 	return m.atomsBallot(ctx, stage, base)
 }
+
+// castFunc is the binary's run for a lane. A poll COPIES it when the lane
+// starts: the run can outlive the lane (its context ended first), and a package
+// variable read from there would race with whatever writes it next.
+type castFunc func(ctx context.Context, m *FoundryTools, stage, base string) (string, error)
 
 // poll is the binary's vote for one lane: which of the lane's atoms it answers,
 // started once, read by id. A nil poll answers nothing, so a lane the binary
 // has no atom in (mutation, visual) and a chain-voted lane read the same.
 type poll struct {
 	m           *FoundryTools
+	run         castFunc
 	stage, base string
 	want        []checks.AtomDef
 	begin       sync.Once
@@ -76,7 +82,7 @@ func (m *FoundryTools) pollFor(side voter, stage, base string, run []checks.Atom
 	if len(want) == 0 {
 		return nil
 	}
-	return &poll{m: m, stage: stage, base: base, want: want, done: make(chan struct{})}
+	return &poll{m: m, run: castBinary, stage: stage, base: base, want: want, done: make(chan struct{})}
 }
 
 // atom is the catalogue row of an atom the binary answers in this lane.
@@ -105,7 +111,7 @@ func (p *poll) start(ctx context.Context) {
 	p.begin.Do(func() {
 		go func() {
 			defer close(p.done)
-			p.votes = p.m.cast(ctx, p.stage, p.base, p.want)
+			p.votes = p.m.cast(ctx, p.run, p.stage, p.base, p.want)
 		}()
 	})
 }
@@ -132,8 +138,8 @@ func (p *poll) vote(ctx context.Context, id string) (checks.Verdict, bool) {
 // binary that would not run, an output that is not a vector and an atom it left
 // out are each that atom's could-not-run, never a pass and never a fallback to
 // the chain: the verdict is the binary's or it is a 2 that says why.
-func (m *FoundryTools) cast(ctx context.Context, stage, base string, want []checks.AtomDef) map[string]checks.Verdict {
-	raw, err := castBinary(ctx, m, stage, base)
+func (m *FoundryTools) cast(ctx context.Context, run castFunc, stage, base string, want []checks.AtomDef) map[string]checks.Verdict {
+	raw, err := run(ctx, m, stage, base)
 	var vector []checks.Verdict
 	if err == nil {
 		vector, err = checks.ParseVector(raw)
