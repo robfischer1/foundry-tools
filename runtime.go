@@ -350,25 +350,23 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 	return ctr
 }
 
-// sha256sumBin is coreutils' checksum program by its absolute path, which
-// every lane image (Debian bookworm) carries. Absolute because the paper
-// engine in the tests scripts other atoms' sha256sum reads by substring, and a
-// bare name here would answer for them.
-const sha256sumBin = "/usr/bin/sha256sum"
-
-// withOpengrep puts opengrep on PATH from its pinned release asset and
-// VERIFIES it: the engine's HTTP fetch is addressed by URL alone, so without
-// the check an asset replaced upstream would be installed silently. The sum is
-// checks.ToolSHA256's, the one the tools container verifies its copy against.
-// A mismatch is a failed provisioning exec, which verdict() files as state 2
-// for every atom on the lane — a lane whose scanner cannot be trusted is not
-// graded by it — and the probe after it (`opengrep --version`) is the caller's.
+// withOpengrep puts opengrep on PATH from its pinned release asset, VERIFIED
+// BY THE ENGINE AT FETCH TIME: the HTTP fetch is addressed by URL alone, so
+// without a checksum an asset replaced upstream would be installed silently.
+// The sum is checks.ToolSHA256's, the one the tools container verifies its copy
+// against. No exec carries it.
+//
+// IT FAILS CLOSED. A mismatch fails the fetch, which verdict() files as state 2
+// for every atom on the lane; a pin with no sum fails the same way, through an
+// exec that cannot succeed, rather than fetching unverified.
 func withOpengrep(ctr *dagger.Container) *dagger.Container {
-	return ctr.
-		WithFile("/usr/local/bin/opengrep", dag.HTTP(checks.OpengrepURL), dagger.ContainerWithFileOpts{Permissions: 0o755}).
-		WithExec([]string{sha256sumBin, "-c", "-"}, dagger.ContainerWithExecOpts{
-			Stdin: checks.ToolSHA256[checks.OpengrepURL] + "  /usr/local/bin/opengrep\n",
-		})
+	sum, ok := checks.ToolSHA256[checks.OpengrepURL]
+	if !ok {
+		return ctr.WithExec([]string{"/bin/false"}) // no checksum pinned: the lane must not provision it
+	}
+	return ctr.WithFile("/usr/local/bin/opengrep",
+		dag.HTTP(checks.OpengrepURL, dagger.HTTPOpts{Checksum: "sha256:" + sum}),
+		dagger.ContainerWithFileOpts{Permissions: 0o755})
 }
 
 // withDies mounts foundry-dies at /dies and names it in the environment: the

@@ -258,7 +258,7 @@ func TestLanesProvisionTheirToolsPinnedAndInVolatilityOrder(t *testing.T) {
 	c := engine.chain(`"go","vet"`, "exitCode")
 	order(t, c, `from(address:"`+checks.ImageGo+`")`, `path:"/usr/local/bin/opengrep"`,
 		`"go","install","`+checks.GomutantsModule+`"`, `"go","install","`+checks.MutationGateModule+`"`, `"go","install","`+checks.StaticcheckModule+`"`, `"go","install","`+checks.GovulncheckModule+`"`, `withMountedCache`)
-	fetched(t, `http(url:"`+checks.OpengrepURL+`")`)
+	fetched(t, `url:"`+checks.OpengrepURL+`"`)
 	noShell(t, c)
 	// The go lane scores mutation in Go: nothing it runs needs python3, and it
 	// installs no distro package.
@@ -295,9 +295,13 @@ func TestLanesProvisionTheirToolsPinnedAndInVolatilityOrder(t *testing.T) {
 	noShell(t, c)
 }
 
-// opengrep is checked against its pinned sha256 on every lane before anything
-// runs it, in the lane's chain and ahead of the version probe.
+// opengrep is fetched with the engine's own checksum on every lane, from the
+// pinned sum, and no exec carries a verification.
 func TestEveryLaneVerifiesOpengrepAgainstItsPin(t *testing.T) {
+	sum := checks.ToolSHA256[checks.OpengrepURL]
+	if sum == "" {
+		t.Fatal("opengrep has no pinned sha256")
+	}
 	for _, tc := range []struct{ atom, needle string }{
 		{"go:vet", `"go","vet"`},
 		{"python:ruff-check", `"uvx","ruff@`},
@@ -308,16 +312,13 @@ func TestEveryLaneVerifiesOpengrepAgainstItsPin(t *testing.T) {
 		engine.withTree(everyLaneTree)
 		runAtom(t, tc.atom, "")
 		c := engine.chain(tc.needle, "exitCode")
-		sum := checks.ToolSHA256[checks.OpengrepURL]
-		wantCalls(t, c,
-			[]string{"withExec", `args:["/usr/bin/sha256sum","-c","-"]`, `stdin:"` + sum + `  /usr/local/bin/opengrep`},
-		)
-		// The rust lane has no probe of its own; where one exists it follows.
-		if probe := lastCall(c, "withExec", `args:["opengrep","--version"]`); probe >= 0 && lastCall(c, "withExec", `"/usr/bin/sha256sum","-c"`) > probe {
-			t.Errorf("%s: opengrep is probed before it is verified:\n%s", tc.atom, c)
+		// The fetch is its own query, referred to by id from the lane's chain.
+		if engine.chain(`http(`, `url:"`+checks.OpengrepURL+`"`, `checksum:"sha256:`+sum+`"`) == "" {
+			t.Errorf("%s: the engine was not asked to verify opengrep against %s", tc.atom, sum)
 		}
-		if hasCall(c, "withExec", `"/usr/bin/sha256sum"`, `expect:ANY`) {
-			t.Errorf("%s: the checksum is provisioning and must run under the default Expect:\n%s", tc.atom, c)
+		wantCalls(t, c, []string{"withFile", `path:"/usr/local/bin/opengrep"`})
+		if strings.Contains(c, "sha256sum") {
+			t.Errorf("%s: the checksum is the engine's, not an exec:\n%s", tc.atom, c)
 		}
 	}
 }

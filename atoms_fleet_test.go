@@ -815,7 +815,7 @@ func TestFleetOpengrepProbesTheBakedBinaryAndSetsTheLocale(t *testing.T) {
 	}
 	// opengrep is provisioned ONCE by the lane, from the mirror at its pin,
 	// as a file — never fetched by the atom, never through curl.
-	if !hasCall(c, "withFile", `path:"/usr/local/bin/opengrep"`) || engine.chain(`http(url:"`+checks.OpengrepURL+`")`) == "" {
+	if !hasCall(c, "withFile", `path:"/usr/local/bin/opengrep"`) || engine.chain(`http(`, `url:"`+checks.OpengrepURL+`"`) == "" {
 		t.Errorf("the lane provisions opengrep from the mirror at its pin:\n%s", c)
 	}
 	if strings.Contains(c, `"curl","-`) || strings.Count(c, `path:"/usr/local/bin/opengrep"`) != 1 {

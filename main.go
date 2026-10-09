@@ -259,16 +259,14 @@ func (m *FoundryTools) Catalogue(ctx context.Context) (string, error) {
 // (`go test -race`, `cargo test`, a mutation run) from stacking their memory
 // on one engine.
 //
-// TWELVE, NOT FOUR. Four was sized for one 8Gi engine: two gigabytes an atom.
-// The fleet runs two engines with a 56Gi limit each, and the F0 baseline found
-// the gate's wall time past its longest atom by 20s to 94s — atoms waiting
-// for a slot behind four others, not work. Twelve keeps the same two gigabytes
-// an atom with a slot or two to spare for a second gate on the engine. It is
-// sized from those limits, not measured under load: the gate lane's peak
-// memory is not in the CI record. A gate that fits in twelve (a Go star's is
-// about twenty atoms, most of them seconds long) loses its queue; one that
-// does not still has a bound.
-const atomsInFlight = 12
+// FOUR, AND IT STAYS. Measured over seven days of engine metrics, the engines
+// are CPU-bound rather than slot-bound: node CPU peaks at 98-99%, dev01's
+// CPU-pressure reaches 1.0, the engine's use plateaus at 12-14 cores from about
+// twelve lanes up, and dev01's MemAvailable fell to 2.8GiB. Daedalus prices a
+// gate lane at 1 against a ceiling of 16, so a per-gate bound of 12 would admit
+// up to 192 atoms an engine. A raise has to re-price the gate in daedalus in
+// the same change, after a load measurement; neither exists yet.
+const atomsInFlight = 4
 
 // Verdicts runs every atom that has a surface here and answers the VECTOR —
 // one element per atom, each preserving its own 0/1/2. The door reads the join,

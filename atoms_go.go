@@ -218,7 +218,7 @@ func goTestIn(ctx context.Context, r *run, a checks.AtomDef, dir string, race bo
 		mods, dbs, scope = r.withTestDatabases(ctx, mods, "")
 		mods, brokers, bscope = r.withTestBrokers(ctx, mods, "")
 		scope = scope + "\n" + bscope
-		args = append(args, goRaceCoverArgs()...)
+		args = append(args, "-race")
 		// `-p 1` for EITHER kind. The databases share one server and the suites
 		// reset its schema; one broker serves every package and its isolation
 		// unit is the topic. Parallel packages break both the same way.
@@ -230,21 +230,6 @@ func goTestIn(ctx context.Context, r *run, a checks.AtomDef, dir string, race bo
 	v := verdict(ctx, a, mods.WithExec(args, anyExit))
 	v.Reason = scope + "\n" + regen + "\n" + v.Reason
 	return v
-}
-
-// goRaceProfile is where go:test-race leaves its coverage profile: outside the
-// tree, so the run writes nothing a later atom could read as a change.
-const goRaceProfile = "/tmp/race-cover.out"
-
-// goRaceCoverArgs is what turns the push's suite into a race run that also
-// records which blocks it executed. -race implies atomic mode already; naming
-// it keeps the profile's mode a decision here rather than a default.
-//
-// NOTHING READS THE PROFILE YET. gomutants (v0.6.1) takes no profile — it
-// builds its own per-test map — and go:mutation's cover step is scoped to the
-// packages the diff touches, on a database of its own; see goMutationIn.
-func goRaceCoverArgs() []string {
-	return []string{"-race", "-covermode", "atomic", "-coverprofile", goRaceProfile}
 }
 
 // withTestDatabases binds the fleet's test servers to a lane container for
@@ -709,7 +694,7 @@ const staticcheckChecks = "all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-
 func goGovulncheck(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("go:govulncheck")
 	return r.eachModule(ctx, a, func(dir string) checks.Verdict {
-		out, code, err := output(ctx, r.goBuilt(dir).
+		out, code, err := output(ctx, r.goModules(dir).
 			WithExec([]string{"govulncheck", "-version"}).
 			WithExec([]string{"govulncheck", "./..."}, anyExit))
 		if err != nil {
