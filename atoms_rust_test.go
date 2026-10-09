@@ -268,9 +268,9 @@ func TestRustCargoAuditPassesItsOwnExitCodeThroughRaw(t *testing.T) {
 		t.Errorf("the version probe is provisioning and must run under the default Expect:\n%s", c)
 	}
 	// cargo-audit is provisioned ONCE, pinned, by the lane — never by the
-	// atom.
-	if !strings.Contains(c, `"cargo","install","cargo-audit","--locked","--version","`+checks.CargoAuditVersion+`"`) || strings.Count(c, `"cargo","install","cargo-audit"`) != 1 {
-		t.Errorf("the lane provisions cargo-audit at its pin, once:\n%s", c)
+	// atom, and never built from source.
+	if strings.Count(c, `"tar","xzf","/tmp/cargo-audit.tar.gz"`) != 1 || strings.Contains(c, `"cargo","install"`) {
+		t.Errorf("the lane provisions cargo-audit from its pinned tarball, once:\n%s", c)
 	}
 
 	engine.exitCode(`args:["cargo","audit"]`, 1)

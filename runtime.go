@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 	"sync"
@@ -148,6 +149,13 @@ func newRun(src *dagger.Directory, repo, base string) *run {
 // image's own warm layer. A gate's second run downloads nothing it downloaded
 // on its first.
 func (r *run) laneBase(image string) *dagger.Container {
+	return r.laneBaseWith(image, nil)
+}
+
+// laneBaseWith is laneBase with extra layers applied right after provision and
+// before the cache volumes mount, for the one atom whose tools no other atom
+// on its lane runs (provisionRustMutation). nil adds nothing.
+func (r *run) laneBaseWith(image string, extra func(*dagger.Container) *dagger.Container) *dagger.Container {
 	ctr := dag.Container().From(image).
 		// worktree-guard and every other hook that stands down under CI reads
 		// this. The engine IS the CI boundary; saying so beats each atom
@@ -208,6 +216,9 @@ func (r *run) laneBase(image string) *dagger.Container {
 		WithEnvVariable("REQUESTS_CA_BUNDLE", "/etc/ssl/certs/ca-certificates.crt").
 		WithEnvVariable("PIP_CERT", "/etc/ssl/certs/ca-certificates.crt")
 	ctr = provision(ctr, image)
+	if extra != nil {
+		ctr = extra(ctr)
+	}
 	for _, c := range checks.CachesForRepo(image, r.repo) {
 		opts := dagger.ContainerWithMountedCacheOpts{}
 		if c.Seed {
@@ -311,9 +322,11 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 		// checks.FleetPython for the measurement.
 		//
 		// rust:bookworm carries cargo, git, curl and bash. rustfmt and
-		// clippy are rustup components; cargo-audit, cargo-mutants and
-		// cargo-nextest are built from source at their pins — minutes on the
-		// first run, a cached layer on every later one. mold is bookworm's
+		// clippy are rustup components; cargo-audit is upstream's release
+		// binary at its pin, verified by the engine (withCargoTarball).
+		// cargo-mutants and cargo-nextest are NOT here: only rust:mutation
+		// runs them, so they are provisionRustMutation's, and no other rust
+		// atom waits behind them. mold is bookworm's
 		// package: the mutation atom links every mutant's test binaries
 		// through it (`mold -run`), and linking was the larger half of a
 		// mutant's build.
@@ -331,14 +344,9 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 			WithExec([]string{"uv", "python", "install", "--default", checks.FleetPython}).
 			WithExec([]string{"python3", "--version"}).
 			WithExec([]string{"rustup", "component", "add", "rustfmt", "clippy"})
-		return withOpengrep(ctr).
-			WithExec([]string{"cargo", "install", "cargo-audit", "--locked", "--version", checks.CargoAuditVersion}).
-			WithExec([]string{"cargo", "install", "cargo-mutants", "--locked", "--version", checks.CargoMutantsVersion}).
-			WithExec([]string{"cargo", "install", "cargo-nextest", "--locked", "--version", checks.CargoNextestVersion}).
+		return withCargoTarball(withOpengrep(ctr), checks.ToolSHA256, checks.CargoAuditURL, checks.CargoAuditMember).
 			WithExec([]string{"cargo", "fmt", "--version"}).
 			WithExec([]string{"cargo", "clippy", "--version"}).
-			WithExec([]string{"cargo", "mutants", "--version"}).
-			WithExec([]string{"cargo", "nextest", "--version"}).
 			WithExec([]string{"mold", "--version"})
 	case checks.ImageTS:
 		// bun:slim runs as the bun user and carries neither git nor node;
@@ -360,6 +368,43 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 			WithExec([]string{"opengrep", "--version"})
 	}
 	return ctr
+}
+
+// provisionRustMutation is the rust lane's extra layers for rust:mutation
+// alone: cargo-nextest from its release tarball, and cargo-mutants built from
+// source because upstream ships no build that runs on bookworm's glibc
+// (checks.CargoAuditURL has the measurement). Applied where provision is —
+// before the cache volumes mount — so the build never reads a volume.
+func provisionRustMutation(ctr *dagger.Container) *dagger.Container {
+	return withCargoTarball(ctr, checks.ToolSHA256, checks.CargoNextestURL, checks.CargoNextestMember).
+		WithExec([]string{"cargo", "install", "cargo-mutants", "--locked", "--version", checks.CargoMutantsVersion}).
+		WithExec([]string{"cargo", "nextest", "--version"})
+}
+
+// cargoBin is where cargo installs a subcommand in ImageRust, and on its PATH.
+const cargoBin = "/usr/local/cargo/bin"
+
+// withCargoTarball puts one member of a pinned release tarball into cargoBin,
+// VERIFIED BY THE ENGINE AT FETCH TIME against its pinned sum, exactly as
+// withOpengrep fetches. The extraction is provisioning under the default
+// Expect, and the tarball leaves the layer once the member is out.
+//
+// IT FAILS CLOSED, as withOpengrepSums does: a URL with no pinned sum gets an
+// exec that cannot succeed, never an unverified fetch.
+func withCargoTarball(ctr *dagger.Container, sums map[string]string, url, member string) *dagger.Container {
+	sum, ok := sums[url]
+	if !ok {
+		return ctr.WithExec([]string{"/bin/false"}) // no checksum pinned: the lane must not provision it
+	}
+	tgz := "/tmp/" + path.Base(member) + ".tar.gz"
+	args := []string{"tar", "xzf", tgz, "-C", cargoBin}
+	if strip := strings.Count(member, "/"); strip > 0 {
+		args = append(args, fmt.Sprintf("--strip-components=%d", strip))
+	}
+	return ctr.
+		WithFile(tgz, dag.HTTP(url, dagger.HTTPOpts{Checksum: "sha256:" + sum})).
+		WithExec(append(args, member)).
+		WithoutFile(tgz)
 }
 
 // withOpengrep puts opengrep on PATH from its pinned release asset, VERIFIED

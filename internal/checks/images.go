@@ -166,7 +166,9 @@ const (
 // The tools the lanes install, pinned. Binaries come from their own release
 // URLs, fetched by the engine (fetchTool in runtime.go has the caching
 // argument); the go tools are built by `go install pkg@version` through
-// GoProxy; the cargo tools by `cargo install --locked --version`.
+// GoProxy; cargo-audit and cargo-nextest from their release tarballs, and
+// cargo-mutants by `cargo install --locked --version` (it has no build that
+// runs in ImageRust; see CargoAuditURL).
 //
 // opa is NOT here: the dies atoms fetch it themselves at checks.OpaVersion
 // (below) and verify the version they got.
@@ -238,6 +240,34 @@ const (
 	// what lets the lane say which tests the per-mutant cost is made of.
 	// renovate: datasource=crate depName=cargo-nextest
 	CargoNextestVersion = "0.9.145"
+
+	// THE CARGO TOOLS COME AS UPSTREAM'S RELEASE BINARIES WHERE ONE RUNS IN
+	// ImageRust, not as `cargo install` builds. MEASURED 2026-10-09: the three
+	// source builds cost ~415 (audit) + 174 (mutants) + 609 (nextest) CPU-s each
+	// time the engine's pruner evicted the provision layer, which it did 11
+	// times in 26 h, and every rust atom waited behind them.
+	//
+	// ImageRust is bookworm, glibc 2.36, so the libc of each asset decides:
+	//
+	//	cargo-audit    the gnu asset needs GLIBC_2.39 (refused on bookworm);
+	//	               the musl asset is static-pie and runs. MUSL.
+	//	cargo-nextest  the gnu asset needs GLIBC_2.27 and runs. GNU.
+	//	cargo-mutants  upstream publishes ONLY a gnu asset, and it needs
+	//	               GLIBC_2.39: no build runs here, so it stays a
+	//	               `cargo install` (on the mutation path alone).
+	//
+	// Each was run in debian:bookworm-slim (the same glibc) before it was
+	// pinned. The URLs are GitHub's release assets as the releases API lists
+	// them (rustsec/rustsec tag cargo-audit/v0.22.2, nextest-rs/nextest tag
+	// cargo-nextest-0.9.145); the checksums in ToolSHA256 were computed from
+	// the downloaded assets and equal the API's own `digest` for each.
+	// LITERALS, not joins, for OpengrepURL's reason; a test holds each to its
+	// version.
+	CargoAuditURL    = "https://github.com/rustsec/rustsec/releases/download/cargo-audit/v0.22.2/cargo-audit-x86_64-unknown-linux-musl-v0.22.2.tgz"
+	CargoAuditMember = "cargo-audit-x86_64-unknown-linux-musl-v0.22.2/cargo-audit"
+	// cargo-nextest's tarball carries the binary at its root.
+	CargoNextestURL    = "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.145/cargo-nextest-0.9.145-x86_64-unknown-linux-gnu.tar.gz"
+	CargoNextestMember = "cargo-nextest"
 )
 
 // LaneImages is every image an atom may run in, so a test can assert the ONE

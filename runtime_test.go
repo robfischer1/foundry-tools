@@ -217,6 +217,23 @@ func TestCheckAnswersTheWayDaggerCheckReads(t *testing.T) {
 	}
 }
 
+// order fails unless every mark is in chain, each after the one before it.
+func order(t *testing.T, chain string, marks ...string) {
+	t.Helper()
+	last := -1
+	for _, m := range marks {
+		i := strings.Index(chain, m)
+		if i < 0 {
+			t.Errorf("chain lacks %s:\n%s", m, chain)
+			return
+		}
+		if i < last {
+			t.Errorf("%s is out of volatility order:\n%s", m, chain)
+		}
+		last = i
+	}
+}
+
 // The lanes provision what their atoms exec, in the chain, pinned, in
 // volatility order — the distro packages first, the copied binaries next,
 // the scanner, the source-built tools last — and before any cache volume is
@@ -224,21 +241,6 @@ func TestCheckAnswersTheWayDaggerCheckReads(t *testing.T) {
 // another image or fetched from the mirror is its own query; the lane's chain
 // carries it by id at the path it lands on.
 func TestLanesProvisionTheirToolsPinnedAndInVolatilityOrder(t *testing.T) {
-	order := func(t *testing.T, chain string, marks ...string) {
-		t.Helper()
-		last := -1
-		for _, m := range marks {
-			i := strings.Index(chain, m)
-			if i < 0 {
-				t.Errorf("chain lacks %s:\n%s", m, chain)
-				return
-			}
-			if i < last {
-				t.Errorf("%s is out of volatility order:\n%s", m, chain)
-			}
-			last = i
-		}
-	}
 	fetched := func(t *testing.T, needle string) {
 		t.Helper()
 		if engine.chain(needle) == "" {
@@ -281,9 +283,16 @@ func TestLanesProvisionTheirToolsPinnedAndInVolatilityOrder(t *testing.T) {
 	runAtom(t, "rust:cargo-fmt", "")
 	c = engine.chain(`"cargo","fmt"`, "exitCode")
 	order(t, c, `from(address:"`+checks.ImageRust+`")`, `"rustup","component","add","rustfmt","clippy"`, `path:"/usr/local/bin/opengrep"`,
-		`"cargo","install","cargo-audit","--locked","--version","`+checks.CargoAuditVersion+`"`,
-		`"cargo","install","cargo-mutants","--locked","--version","`+checks.CargoMutantsVersion+`"`, `withMountedCache`)
+		`path:"/tmp/cargo-audit.tar.gz"`, `"tar","xzf","/tmp/cargo-audit.tar.gz","-C","/usr/local/cargo/bin","--strip-components=1","`+checks.CargoAuditMember+`"`,
+		`withMountedCache`)
 	noShell(t, c)
+	// NOTHING IS BUILT FROM SOURCE ON THE GATE'S PATH, and the mutation-only
+	// tools are not on it at all.
+	for _, absent := range []string{`"cargo","install"`, `cargo-mutants`, `cargo-nextest`, `"nextest"`} {
+		if strings.Contains(c, absent) {
+			t.Errorf("the rust gate's lane carries %s:\n%s", absent, c)
+		}
+	}
 
 	engine.reset()
 	engine.withTree(everyLaneTree)
@@ -337,6 +346,63 @@ func TestOpengrepWithoutAPinnedSumFailsTheLaneClosed(t *testing.T) {
 	}
 	if got := engine.chain(`"/bin/false"`); got == "" {
 		t.Error("the closing exec never reached the engine")
+	}
+}
+
+// THE CARGO TOOLS ARE RELEASE BINARIES, VERIFIED BY THE ENGINE. cargo-audit is
+// the gate's (every rust atom's lane), cargo-nextest the mutation atom's alone,
+// each fetched with its pinned sum; cargo-mutants, which has no build that runs
+// on bookworm, is the one `cargo install` left, and only rust:mutation's lane
+// runs it — before the cache volumes mount.
+func TestRustLaneInstallsCargoToolsFromPinnedTarballs(t *testing.T) {
+	for _, tc := range []struct{ url, member string }{
+		{checks.CargoAuditURL, checks.CargoAuditMember},
+		{checks.CargoNextestURL, checks.CargoNextestMember},
+	} {
+		if sum := checks.ToolSHA256[tc.url]; len(sum) != 64 {
+			t.Fatalf("%s has no pinned sha256 (got %q)", tc.url, sum)
+		}
+	}
+
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	runAtom(t, "rust:cargo-audit", "")
+	if engine.chain(`http(`, `url:"`+checks.CargoAuditURL+`"`, `checksum:"sha256:`+checks.ToolSHA256[checks.CargoAuditURL]+`"`) == "" {
+		t.Error("the engine was not asked to verify cargo-audit against its pin")
+	}
+	if engine.chain(`http(`, checks.CargoNextestURL) != "" {
+		t.Error("the gate's path fetched cargo-nextest, which only rust:mutation runs")
+	}
+
+	scriptRustMutation(map[string]string{".copier-answers.yml": "critical_modules: src/lib.rs\n"})
+	wantState(t, runAtom(t, "rust:mutation", "abc123"), 0)
+	c := engine.chain(rustMutantsNeedle, "exitCode")
+	if engine.chain(`http(`, `url:"`+checks.CargoNextestURL+`"`, `checksum:"sha256:`+checks.ToolSHA256[checks.CargoNextestURL]+`"`) == "" {
+		t.Error("the engine was not asked to verify cargo-nextest against its pin")
+	}
+	order(t, c, `from(address:"`+checks.ImageRust+`")`,
+		`path:"/tmp/cargo-audit.tar.gz"`,
+		`"tar","xzf","/tmp/cargo-nextest.tar.gz","-C","/usr/local/cargo/bin","cargo-nextest"`,
+		`"cargo","install","cargo-mutants","--locked","--version","`+checks.CargoMutantsVersion+`"`,
+		`"cargo","nextest","--version"`,
+		`withMountedCache`)
+	for _, gone := range []string{`"cargo","install","cargo-audit"`, `"cargo","install","cargo-nextest"`} {
+		if strings.Contains(c, gone) {
+			t.Errorf("the mutation lane still builds %s from source:\n%s", gone, c)
+		}
+	}
+}
+
+// A cargo tool with no pinned sum is not fetched unverified.
+func TestCargoTarballWithoutAPinnedSumFailsClosed(t *testing.T) {
+	engine.reset()
+	engine.fail(`"/bin/false"`, "exit code: 1")
+	c := withCargoTarball(dag.Container().From("x"), map[string]string{}, checks.CargoNextestURL, checks.CargoNextestMember)
+	if _, err := c.Sync(t.Context()); err == nil {
+		t.Error("a lane with no pinned cargo-nextest sum provisioned anyway")
+	}
+	if engine.chain(`http(`, checks.CargoNextestURL) != "" {
+		t.Error("cargo-nextest was fetched with nothing to verify it against")
 	}
 }
 

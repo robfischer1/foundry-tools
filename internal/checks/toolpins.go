@@ -42,7 +42,8 @@ const (
 // download an interpreter of its own.
 const PythonStandaloneURL = "https://github.com/astral-sh/python-build-standalone/releases/download/20260623/cpython-3.14.6%2B20260623-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
 
-// ToolSHA256 is the checksum of every URL the tools container fetches, hex.
+// ToolSHA256 is the checksum of every URL the tools container fetches, and of
+// the rust lane's two cargo tool tarballs, hex.
 // A pin is a version AND a checksum: the engine's HTTP fetch is addressed by
 // URL, so without this a release asset replaced upstream would be installed
 // silently. Where the publisher states a checksum (kubectl, opa, compose,
@@ -62,4 +63,9 @@ var ToolSHA256 = map[string]string{
 	ShellcheckURL: "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198",
 
 	PythonStandaloneURL: "c172314f4a8ec137a8f605289010c3d19c8b56867d968f0095074cc68efa1d29",
+
+	// The rust lane's release binaries (images.go has why these two and not
+	// cargo-mutants), computed from the assets 2026-10-09.
+	CargoAuditURL:   "7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428",
+	CargoNextestURL: "32aa82416099eb12fffae9cf1a279ad201fecbd3f74826c613e32e9006b29867",
 }

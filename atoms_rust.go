@@ -170,8 +170,8 @@ func rustCargoTest(ctx context.Context, r *run) checks.Verdict {
 
 // cargo audit reports no known vulnerability.
 //
-// CARGO-AUDIT IS A LAYER OF THE LANE (provision: `cargo install --locked` at
-// its pin). The body this ports ran `cargo install cargo-audit --locked`
+// CARGO-AUDIT IS A LAYER OF THE LANE (provision: upstream's release binary at
+// its pin, checks.CargoAuditURL). The body this ports ran `cargo install cargo-audit --locked`
 // first — a no-op for an installed binary that still resolved the whole
 // registry index before deciding so. The check is now the PROBE:
 // `cargo audit --version` under the default Expect, so a lane that lost the
@@ -247,7 +247,8 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 	if r.base == "" {
 		return settle(0, noBase)
 	}
-	ctr := r.gitReady(ctx, r.withBase(r.cargoDeps().
+	ctr := r.gitReady(ctx, r.withBase(r.rustMutationLane().
+		WithExec([]string{"cargo", "fetch", "--locked"}).
 		WithoutEnvVariable("CARGO_TARGET_DIR").
 		WithoutMount("/cache/cargo-target"))).
 		// Provisioning, under the default Expect: an image without cargo-mutants
@@ -421,6 +422,15 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 	// suppression (findings.schema.json).
 	v.Findings = found
 	return v
+}
+
+// rustMutationLane is the rust lane with the tree mounted, plus the two tools
+// only this atom runs (provisionRustMutation): the gate's other rust atoms
+// never wait on, or pay for, cargo-mutants and cargo-nextest.
+func (r *run) rustMutationLane() *dagger.Container {
+	return r.laneBaseWith(checks.ImageRust, provisionRustMutation).
+		WithMountedDirectory("/src", r.src).
+		WithWorkdir("/src")
 }
 
 // execMemPath is where execmem sits in the lane's container.
