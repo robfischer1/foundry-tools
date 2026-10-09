@@ -143,6 +143,21 @@ func TestCheckYAMLAcceptsWhatTheChainAccepts(t *testing.T) {
 	}
 }
 
+// The rewrites are bounded: with none allowed, the parser's own complaint about
+// the alias is the answer; with one, the alias is gone and the file parses.
+func TestSyntaxErrorRewritesAreBounded(t *testing.T) {
+	body := []byte("a: *b\n")
+	if err := syntaxErrorWithin(body, 0); err == nil || !strings.Contains(err.Error(), "unknown anchor 'b'") {
+		t.Errorf("no rewrite allowed: %v", err)
+	}
+	if err := syntaxErrorWithin(body, 1); err != nil {
+		t.Errorf("one rewrite allowed: %v", err)
+	}
+	if err := syntaxError([]byte("a: *b\nc: *d\ne: *f\n")); err != nil {
+		t.Errorf("three aliases, three rewrites: %v", err)
+	}
+}
+
 // A finding never names the null the alias was rewritten to: the error is the
 // file's own text.
 func TestCheckYAMLFindingKeepsTheFilesOwnLine(t *testing.T) {

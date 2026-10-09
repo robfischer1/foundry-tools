@@ -144,8 +144,10 @@ func TestTheReverseShadowLeavesTheWitnessChainOut(t *testing.T) {
 			t.Errorf("witness switch %v: the chains were asked for %q", with, only)
 		}
 	}
-	if got := (&FoundryTools{}).reverseShadow(soon(t), checks.StagePrepush, ""); !strings.Contains(got, "no chain side") {
-		t.Errorf("a shadow with no chain side answered %q", got)
+	for _, m := range []*FoundryTools{{}, {box: newBallotBox(nil, false)}} {
+		if got := m.reverseShadow(soon(t), checks.StagePrepush, ""); !strings.Contains(got, "no chain side") {
+			t.Errorf("a shadow with no chain side answered %q", got)
+		}
 	}
 	out := renderReverse([]string{"fleet:check-yaml"}, true, nil, nil, map[string]checks.Verdict{}, nil, 0)
 	if !strings.Contains(out, "fleet:witness: not compared") || !strings.HasPrefix(out, "shadow atoms (binary voted): 0 compared") {

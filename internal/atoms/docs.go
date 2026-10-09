@@ -127,22 +127,23 @@ func checkYAML(ctx context.Context, a checks.AtomDef, in Input) checks.Verdict {
 // null: each undefined anchor the parser names is rewritten out of the text
 // (undefineAlias) and the file is parsed again, so a real syntax error beside
 // the alias is still the error reported. EVERY PASS REMOVES AT LEAST ONE '*', so
-// one pass per '*' in the file, and one more to read the result, is the most it
-// can take; the bound is what keeps a rewrite that stopped working from hanging
-// a gate.
+// one pass per '*' in the file is the most it can take; the bound is what keeps a
+// rewrite that stopped working from hanging a gate.
 func syntaxError(body []byte) error {
-	var err error
-	for range bytes.Count(body, []byte("*")) + 1 {
-		if err = parseAll(body); err == nil {
-			return nil
-		}
-		m := unknownAnchor.FindStringSubmatch(err.Error())
-		if m == nil {
-			return err
-		}
-		body = undefineAlias(body, m[1])
+	return syntaxErrorWithin(body, bytes.Count(body, []byte("*")))
+}
+
+// syntaxErrorWithin is syntaxError allowed this many rewrites.
+func syntaxErrorWithin(body []byte, passes int) error {
+	err := parseAll(body)
+	if err == nil {
+		return nil
 	}
-	return err
+	m := unknownAnchor.FindStringSubmatch(err.Error())
+	if m == nil || passes == 0 {
+		return err
+	}
+	return syntaxErrorWithin(undefineAlias(body, m[1]), passes-1)
 }
 
 // unknownAnchor is the parser's complaint about an alias with no anchor.
