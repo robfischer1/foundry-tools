@@ -112,6 +112,18 @@ func (r *run) reasked(nonce string) *run {
 	return r
 }
 
+// reaskedAgain is a fresh run over the same tree, keyed afresh, that keeps
+// what the caller armed it with — the reuse lookup and its audit, the SPIRE
+// socket, the artifact credential and the commit — for an atom that re-asks
+// one module of itself (reasksItsOwnModules). askedTwice's re-ask starts from
+// newRun and drops them; that is the gate's behaviour and stays it.
+func (r *run) reaskedAgain(nonce string) *run {
+	again := newRun(r.src, r.repo, r.base).fromOrigin(r.origin).reasked(nonce)
+	again.lookup, again.audit, again.spire = r.lookup, r.audit, r.spire
+	again.artifactAuth, again.sha = r.artifactAuth, r.sha
+	return again
+}
+
 func newRun(src *dagger.Directory, repo, base string) *run {
 	return &run{
 		src:  src,

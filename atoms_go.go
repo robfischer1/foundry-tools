@@ -814,7 +814,11 @@ func goGovulncheck(ctx context.Context, r *run) checks.Verdict {
 // read.
 func goMutation(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("go:mutation")
-	return r.eachModule(ctx, a, func(dir string) checks.Verdict { return goMutationIn(ctx, r, a, dir) })
+	return r.eachModule(ctx, a, func(dir string) checks.Verdict {
+		return reasked(goMutationIn(ctx, r, a, dir), func() checks.Verdict {
+			return goMutationIn(ctx, r.reaskedAgain(reaskNonce()), a, dir)
+		})
+	})
 }
 
 // goMutationIn is go:mutation in one module.
