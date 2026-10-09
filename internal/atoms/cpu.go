@@ -161,15 +161,15 @@ func millis(d time.Duration) int64 { return d.Round(time.Millisecond).Millisecon
 
 // ProcessCPU is the process's own CPU and its reaped children's, the whole run's
 // cost as the kernel counts it — what the atoms' figures are held against.
-// False when the kernel would not say.
-func ProcessCPU() (time.Duration, bool) {
+func ProcessCPU() time.Duration {
 	var total time.Duration
 	for _, who := range []int{syscall.RUSAGE_SELF, syscall.RUSAGE_CHILDREN} {
 		var ru syscall.Rusage
-		if syscall.Getrusage(who, &ru) != nil {
-			return 0, false
-		}
+		// THE ERROR IS DROPPED: getrusage fails only for a `who` it does not
+		// know or a bad pointer (EINVAL, EFAULT), and these are neither, so a
+		// branch for it is one no test can take.
+		_ = syscall.Getrusage(who, &ru)
 		total += time.Duration(ru.Utime.Nano() + ru.Stime.Nano())
 	}
-	return total, true
+	return total
 }

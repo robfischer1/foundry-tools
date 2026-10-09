@@ -8,6 +8,7 @@ import (
 	"runtime/pprof"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -24,10 +25,17 @@ import (
 // spin burns about d of CPU on the calling goroutine: CPU, not wall time, read
 // off the process's rusage, so a loaded host that starves the test makes it
 // slower and not wrong.
+// It reads the kernel itself rather than ProcessCPU, so a mutant of that
+// cannot turn it into a loop that never ends; a minute of wall time caps it.
 func spin(d time.Duration) {
-	from, _ := ProcessCPU()
+	cpu := func() time.Duration {
+		var ru syscall.Rusage
+		_ = syscall.Getrusage(syscall.RUSAGE_SELF, &ru)
+		return time.Duration(ru.Utime.Nano() + ru.Stime.Nano())
+	}
+	from, deadline := cpu(), time.Now().Add(time.Minute)
 	x := 0
-	for now := from; now-from < d; now, _ = ProcessCPU() {
+	for cpu()-from < d && time.Now().Before(deadline) {
 		for range 100000 {
 			x++
 		}
@@ -112,6 +120,10 @@ func TestCPUByLabelSumsTheCPUColumnByAtom(t *testing.T) {
 			SampleType: []*profile.ValueType{{Type: "alloc_space", Unit: "bytes"}},
 			Sample:     []*profile.Sample{{Value: []int64{7}, Label: map[string][]string{cpuLabel: {"a"}}}},
 		}), nil, false},
+		{"another type in nanoseconds", profileBytes(t, &profile.Profile{
+			SampleType: []*profile.ValueType{{Type: "wall", Unit: "nanoseconds"}},
+			Sample:     []*profile.Sample{{Value: []int64{7}, Label: map[string][]string{cpuLabel: {"a"}}}},
+		}), nil, false},
 		{"cpu in another unit", profileBytes(t, &profile.Profile{
 			SampleType: []*profile.ValueType{{Type: "cpu", Unit: "count"}},
 			Sample:     []*profile.Sample{{Value: []int64{7}, Label: map[string][]string{cpuLabel: {"a"}}}},
@@ -146,11 +158,15 @@ func TestAProgramIsChargedToTheAtomThatRanIt(t *testing.T) {
 	if _, code := RunProgram(ctx, Cmd{Name: "sh", Args: spinScript}); code != 0 {
 		t.Fatalf("sh exited %d", code)
 	}
-	if out, code := git(ctx, t.TempDir(), "version"); code != 0 {
-		t.Fatalf("git exited %d: %s", code, out)
-	}
 	if d, ran := m.children("a"); !ran || d < 10*time.Millisecond {
 		t.Errorf("a's programs cost %v (ran %v), want the shell's spin", d, ran)
+	}
+	// git is the other choke point: the change set's reads go through it.
+	if out, code := git(withMeter(context.Background(), m, "g"), t.TempDir(), "version"); code != 0 {
+		t.Fatalf("git exited %d: %s", code, out)
+	}
+	if _, ran := m.children("g"); !ran {
+		t.Error("the git an atom ran was charged to nobody")
 	}
 	// A program that never started has no state to charge; a context that names
 	// no atom charges nobody; a nil meter takes the charge and keeps nothing.
@@ -160,8 +176,8 @@ func TestAProgramIsChargedToTheAtomThatRanIt(t *testing.T) {
 	if _, ran := m.children("b"); ran {
 		t.Error("b was charged on a meter it was not given")
 	}
-	if len(m.child) != 1 {
-		t.Errorf("charged %v, want a alone", m.child)
+	if len(m.child) != 2 {
+		t.Errorf("charged %v, want a and g alone", m.child)
 	}
 }
 
@@ -241,17 +257,15 @@ func TestMillisRoundsToTheNearest(t *testing.T) {
 }
 
 func TestProcessCPUCountsTheProcessAndItsChildren(t *testing.T) {
-	before, ok := ProcessCPU()
-	if !ok {
-		t.Fatal("the kernel would not say")
-	}
+	before := ProcessCPU()
 	spin(50 * time.Millisecond)
-	if err := exec.Command("sh", spinScript...).Run(); err != nil {
+	cmd := exec.Command("sh", spinScript...)
+	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
-	after, _ := ProcessCPU()
-	if after-before < 50*time.Millisecond {
-		t.Errorf("the process's CPU moved %v over a 50ms spin and a child's", after-before)
+	child := cmd.ProcessState.UserTime() + cmd.ProcessState.SystemTime()
+	if moved := ProcessCPU() - before; moved < 50*time.Millisecond+child/2 {
+		t.Errorf("the process's CPU moved %v over a 50ms spin and a child's %v", moved, child)
 	}
 }
 
@@ -330,22 +344,22 @@ func TestRunPrintsTheStageCPUAfterTheVector(t *testing.T) {
 			known++
 		}
 	}
-	if known == 0 && StartProfile() != nil {
-		t.Error("no atom's CPU is known, though a profile could start")
+	if known == 0 {
+		t.Error("no atom's CPU is known: the profile did not start, or nothing ran")
 	}
 
 	origStart, origCPU := startProfile, processCPU
 	t.Cleanup(func() { startProfile, processCPU = origStart, origCPU })
 	startProfile = func() *Profile { return nil }
-	processCPU = func() (time.Duration, bool) { return 0, false }
+	processCPU = func() time.Duration { return 1499 * time.Microsecond }
 	if code := Run(context.Background(), []string{"-root", dir, "-stage", "precommit"}, &blind, &bytes.Buffer{}, fixedNow); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
 	v2, tr2 := parse(blind.String())
-	if tr2.StageCPUMs != nil {
-		t.Errorf("stage CPU %d from a kernel that would not say", *tr2.StageCPUMs)
+	if tr2.StageCPUMs == nil || *tr2.StageCPUMs != 1 {
+		t.Errorf("stage CPU %v, want the kernel's 1.499ms as 1", tr2.StageCPUMs)
 	}
-	if !strings.HasSuffix(strings.TrimSpace(blind.String()), "\n{}") {
+	if !strings.HasSuffix(strings.TrimSpace(blind.String()), "\n{\"stage_cpu_ms\":1}") {
 		t.Errorf("the trailer is not the last line: %q", blind.String()[max(0, blind.Len()-80):])
 	}
 	if len(v1) != len(v2) {

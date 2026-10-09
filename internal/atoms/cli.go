@@ -74,18 +74,14 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, now func(
 	fmt.Fprintln(stdout, string(b))
 	// THE TRAILER, after the vector (checks.ParseRun): the whole process's CPU,
 	// taken last so it covers everything the run spent, the atoms included.
-	var tr checks.RunTrailer
-	if cpu, ok := processCPU(); ok {
-		ms := millis(cpu)
-		tr.StageCPUMs = &ms
-	}
-	t, _ := json.Marshal(tr)
+	ms := millis(processCPU())
+	t, _ := json.Marshal(checks.RunTrailer{StageCPUMs: &ms})
 	fmt.Fprintln(stdout, string(t))
 	return 0
 }
 
 // The process's meters, as variables so a test can say a profile would not
-// start and the kernel would not answer.
+// start and what the kernel answered.
 var (
 	startProfile = StartProfile
 	processCPU   = ProcessCPU
