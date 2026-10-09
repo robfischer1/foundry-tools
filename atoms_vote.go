@@ -143,13 +143,28 @@ func (m *FoundryTools) cast(ctx context.Context, stage, base string, want []chec
 // ballotBox hands the voter's verdicts to the reverse shadow. The shadow starts
 // before grading and the vote arrives during it, so they meet here: put once by
 // the lane that voted, closed by the lane when it settles without one.
+//
+// IT ALSO CARRIES THE SHADOW'S OWN INPUTS, copied when the lane starts: the
+// chain side and the witness switch. An abandoned shadow outlives the call that
+// started it, and reading a package variable from it would race with whatever
+// the next call (or test) writes there; startShadow's rule is that the
+// goroutine reads copies, and these are the copies.
 type ballotBox struct {
 	once  sync.Once
 	done  chan struct{}
 	votes map[string]checks.Verdict
+	// chains answers the comparator's vector: every atom of `only` by its chain.
+	chains chainSide
+	// witness says whether the chain's fleet:witness runs in the comparator.
+	witness bool
 }
 
-func newBallotBox() *ballotBox { return &ballotBox{done: make(chan struct{})} }
+// chainSide is how the comparator asks the chains for a vector (shadowToday).
+type chainSide func(ctx context.Context, m *FoundryTools, stage, only, base string) ([]checks.Verdict, error)
+
+func newBallotBox(chains chainSide, witness bool) *ballotBox {
+	return &ballotBox{done: make(chan struct{}), chains: chains, witness: witness}
+}
 
 // put files the votes; the first filing stands. A nil box files nothing.
 func (b *ballotBox) put(votes map[string]checks.Verdict) {
@@ -187,17 +202,17 @@ func (b *ballotBox) wait(ctx context.Context) (map[string]checks.Verdict, error)
 // settles. Nothing in this file is read by a gate except the votes themselves.
 
 // reverseShadowWitness says whether the chain's fleet:witness runs in the
-// reverse shadow. It does not: the voter asks narcissus for real, and the
+// reverse shadow (copied into the lane's ballot box when it starts). It does not: the voter asks narcissus for real, and the
 // chain's witness asks for real too, so running both doubles the load on a
 // service that saturated on 2026-10-07. The report names the atom as not compared.
 var reverseShadowWitness = false
 
 // reverseIDs are the atoms the reverse shadow runs the chains of: the stage's
-// binary atoms, less fleet:witness unless reverseShadowWitness. skipped says
-// whether the witness was left out.
-func reverseIDs(stage string) (ids []string, skipped bool) {
+// binary atoms, less fleet:witness unless withWitness. skipped says whether the
+// witness was left out.
+func reverseIDs(stage string, withWitness bool) (ids []string, skipped bool) {
 	for _, id := range atoms.StageIDs(stage) {
-		if id == "fleet:witness" && !reverseShadowWitness {
+		if id == "fleet:witness" && !withWitness {
 			skipped = true
 			continue
 		}
@@ -209,12 +224,15 @@ func reverseIDs(stage string) (ids []string, skipped bool) {
 // reverseShadow runs the chains of the stage's binary atoms and holds them
 // against the verdicts the lane voted. NON-VOTING: it returns text.
 func (m *FoundryTools) reverseShadow(ctx context.Context, stage, base string) string {
-	ids, skipped := reverseIDs(stage)
+	if m.box == nil || m.box.chains == nil {
+		return "shadow atoms (binary voted): not compared - the lane gave the shadow no chain side to ask"
+	}
+	ids, skipped := reverseIDs(stage, m.box.witness)
 	if len(ids) == 0 {
 		return fmt.Sprintf("shadow atoms (binary voted): nothing to compare - the binary carries no atom of the stage %q", stage)
 	}
 	started := time.Now()
-	chains, chainsErr := shadowToday(ctx, m, stage, strings.Join(ids, ","), base)
+	chains, chainsErr := m.box.chains(ctx, m, stage, strings.Join(ids, ","), base)
 	votes, votesErr := m.box.wait(ctx)
 	return renderReverse(ids, skipped, chains, chainsErr, votes, votesErr, time.Since(started))
 }

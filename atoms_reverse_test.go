@@ -103,7 +103,7 @@ func TestAFailingHangingOrPanickingReverseShadowChangesNothing(t *testing.T) {
 // A lane that settles without ever casting a vote (a refused tree) does not wait
 // out the grace for one: it says so.
 func TestAReverseShadowDoesNotWaitForAVoteThatCannotCome(t *testing.T) {
-	m := &FoundryTools{box: newBallotBox()}
+	m := &FoundryTools{box: newBallotBox(nil, false)}
 	m.box.put(nil)
 	got := renderReverse([]string{"fleet:check-yaml"}, false, nil, nil, nil, func() error { _, err := m.box.wait(context.Background()); return err }(), 0)
 	if !strings.Contains(got, "the binary's vote is missing: the lane settled without casting a vote") {
@@ -114,7 +114,7 @@ func TestAReverseShadowDoesNotWaitForAVoteThatCannotCome(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := newBallotBox().wait(ctx); err == nil || !errors.Is(err, context.Canceled) {
+	if _, err := newBallotBox(nil, false).wait(ctx); err == nil || !errors.Is(err, context.Canceled) {
 		t.Errorf("a box nobody filled answered %v", err)
 	}
 }
@@ -122,24 +122,39 @@ func TestAReverseShadowDoesNotWaitForAVoteThatCannotCome(t *testing.T) {
 // The chain's fleet:witness is not run beside the voter's real asks, and the
 // report says it was left out; a switch brings it back.
 func TestTheReverseShadowLeavesTheWitnessChainOut(t *testing.T) {
-	ids, skipped := reverseIDs(checks.StagePrepush)
+	ids, skipped := reverseIDs(checks.StagePrepush, false)
 	if !skipped || slices.Contains(ids, "fleet:witness") || len(ids) != len(atoms.StageIDs(checks.StagePrepush))-1 {
 		t.Errorf("ids %v skipped %v", ids, skipped)
 	}
-	if ids, skipped := reverseIDs(checks.StageOrbit); skipped || len(ids) != 4 {
+	if ids, skipped := reverseIDs(checks.StageOrbit, false); skipped || len(ids) != 4 {
 		t.Errorf("orbit: ids %v skipped %v", ids, skipped)
 	}
-	reverseShadowWitness = true
-	t.Cleanup(func() { reverseShadowWitness = false })
-	if ids, skipped := reverseIDs(checks.StagePrepush); skipped || !slices.Contains(ids, "fleet:witness") {
+	if ids, skipped := reverseIDs(checks.StagePrepush, true); skipped || !slices.Contains(ids, "fleet:witness") {
 		t.Errorf("with the switch on: ids %v skipped %v", ids, skipped)
 	}
-	reverseShadowWitness = false
+	for _, with := range []bool{false, true} {
+		var only string
+		m := &FoundryTools{box: newBallotBox(func(_ context.Context, _ *FoundryTools, _, o, _ string) ([]checks.Verdict, error) {
+			only = o
+			return nil, nil
+		}, with)}
+		m.box.put(map[string]checks.Verdict{})
+		m.reverseShadow(context.Background(), checks.StagePrepush, "")
+		if strings.Contains(only, "fleet:witness") != with {
+			t.Errorf("witness switch %v: the chains were asked for %q", with, only)
+		}
+	}
+	if got := (&FoundryTools{}).reverseShadow(context.Background(), checks.StagePrepush, ""); !strings.Contains(got, "no chain side") {
+		t.Errorf("a shadow with no chain side answered %q", got)
+	}
 	out := renderReverse([]string{"fleet:check-yaml"}, true, nil, nil, map[string]checks.Verdict{}, nil, 0)
 	if !strings.Contains(out, "fleet:witness: not compared") || !strings.HasPrefix(out, "shadow atoms (binary voted): 0 compared") {
 		t.Errorf("report %q", out)
 	}
-	if got := (&FoundryTools{box: newBallotBox()}).reverseShadow(context.Background(), checks.StageMutation, ""); !strings.Contains(got, "nothing to compare") {
+	noChains := func(context.Context, *FoundryTools, string, string, string) ([]checks.Verdict, error) {
+		return nil, nil
+	}
+	if got := (&FoundryTools{box: newBallotBox(noChains, false)}).reverseShadow(context.Background(), checks.StageMutation, ""); !strings.Contains(got, "nothing to compare") {
 		t.Errorf("a stage with no binary atom compared something: %q", got)
 	}
 }
