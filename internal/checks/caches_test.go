@@ -134,3 +134,22 @@ func TestCargoTargetIsKeyedPerRepo(t *testing.T) {
 		}
 	}
 }
+
+// The release volume is per repository, and never the gate's debug target.
+func TestReleaseCacheForKeysByRepoApartFromTheGatesTarget(t *testing.T) {
+	a, b, bare := ReleaseCacheFor("http://x/a.git"), ReleaseCacheFor("http://x/b.git"), ReleaseCacheFor("")
+	if a.Key == b.Key || a.Key != "foundry-cargo-release-"+repoDigest("http://x/a.git") || bare.Key != "foundry-cargo-release" {
+		t.Errorf("keys %q %q %q", a.Key, b.Key, bare.Key)
+	}
+	if a.Path != ReleaseCachePath || !a.PerRepo || a.EnvVar != "" {
+		t.Errorf("%+v", a)
+	}
+	for _, m := range CachesForRepo(ImageRust, "http://x/a.git") {
+		if m.Path == a.Path || strings.HasPrefix(a.Key, m.Key+"-") || m.Key == a.Key {
+			t.Errorf("the release volume collides with the lane's %+v", m)
+		}
+	}
+	if RustReleaseTarget != ReleaseCachePath || WitGuestTargetDir != ReleaseCachePath || !strings.HasPrefix(WitReplayTargetDir, ReleaseCachePath+"/") {
+		t.Errorf("a release build writes outside the release volume: %s %s %s", RustReleaseTarget, WitGuestTargetDir, WitReplayTargetDir)
+	}
+}

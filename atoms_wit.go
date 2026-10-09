@@ -123,21 +123,35 @@ func rustWitGuest(ctx context.Context, r *run) checks.Verdict {
 		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - Cargo.toml declares wit-guest features but names no [package] or [lib] name, so the guest's file name is unknown")
 	}
 
-	base := r.cargoDeps().WithExec([]string{"rustup", "target", "add", checks.WitGuestTarget})
+	// UNDER THE UNSTALE STAMP (cargoFresh), for both halves. The guest builds
+	// into the repository's release volume, where every tree of the repo
+	// leaves its artifacts at one path: unstamped, cargo would call the crate
+	// Fresh and hand back a guest an older tree built. The native test builds
+	// into the gate's shared foundry-cargo-target and needed the stamp first —
+	// WITHOUT IT cargo ran the test binary an older tree had left in the
+	// volume: a test module added since (a new file, which the old dep-info
+	// never listed) was neither compiled nor run, and a compile_error! under
+	// cfg(test) read green. MEASURED on stellar-core-rust#14205: the identity
+	// world stayed at 197 tests with 26 round-trip tests in the tree.
+	base := r.withReleaseCache(r.cargoFresh()).WithExec([]string{"rustup", "target", "add", checks.WitGuestTarget})
 	base, err = withTarballBinary(ctx, base, checks.WasmToolsURL, checks.WasmToolsMember, "wasm-tools", 1)
 	if err != nil {
 		return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - %v. A guest that was never validated is not a guest that passed.", a.ID, err))
 	}
 
-	module := checks.WitGuestTargetDir + "/" + checks.WitGuestTarget + "/release/" + artifact
+	inVolume := checks.WitGuestTargetDir + "/" + checks.WitGuestTarget + "/release/" + artifact
 	var logs []string
 	for _, world := range worlds {
+		// The module as this world's build left it, copied out of the volume
+		// by the build's own exec: the next world's build overwrites the one in
+		// the volume.
+		module := "/tmp/" + world + ".wasm"
 		component := "/tmp/" + world + ".component.wasm"
-		built := base.WithExec([]string{
+		built := base.WithExec(copiedOut([]string{
 			"cargo", "build", "--locked", "--release",
 			"--no-default-features", "--features", world,
 			"--target", checks.WitGuestTarget, "--target-dir", checks.WitGuestTargetDir,
-		}, anyExit)
+		}, inVolume+"="+module), anyExit)
 		v := cargoVerdict(ctx, a, built)
 		if v.State != int(checks.StatePass) {
 			return namedWorld(v, a, world, "build")
@@ -157,16 +171,8 @@ func rustWitGuest(ctx context.Context, r *run) checks.Verdict {
 			}
 		}
 		logs = append(logs, prefixLines(world, v.Logs)...)
-		// The native test builds into the shared foundry-cargo-target, so it
-		// runs under the Unstale stamp like cargo-test and clippy. WITHOUT IT
-		// cargo called the crate Fresh and ran the test binary an older tree
-		// had left in the volume: a test module added since (a new file, which
-		// the old dep-info never listed) was neither compiled nor run, and a
-		// compile_error! under cfg(test) read green. MEASURED on
-		// stellar-core-rust#14205: the identity world stayed at 197 tests with
-		// 26 round-trip tests in the tree. The wasm32 build above has a target
-		// dir of its own and needs no stamp.
-		tested := base.WithExec(checks.Unstale()).WithExec([]string{
+		// The native test, on base's stamp (see above).
+		tested := base.WithExec([]string{
 			"cargo", "test", "--locked", "--no-default-features", "--features", world,
 		}, anyExit)
 		if v = cargoVerdict(ctx, a, tested); v.State != int(checks.StatePass) {
@@ -233,7 +239,10 @@ func rustWitCompose(ctx context.Context, r *run) checks.Verdict {
 		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - no tests/tapes/<world>.json for any wit-guest world, so a composition would be built and answer nothing")
 	}
 
-	base := r.cargoDeps().WithExec([]string{"rustup", "target", "add", checks.WitGuestTarget})
+	// THE RELEASE VOLUME, UNDER THE STAMP, as rust:wit-guest builds: the
+	// script builds every guest into CARGO_TARGET_DIR and reads them in its own
+	// exec, and the replay host copies itself out of the volume as it builds.
+	base := r.withReleaseCache(r.cargoFresh()).WithExec([]string{"rustup", "target", "add", checks.WitGuestTarget})
 	base, err = withTarballBinary(ctx, base, checks.WasmToolsURL, checks.WasmToolsMember, "wasm-tools", 1)
 	if err != nil {
 		return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - %v. A composition that was never built is not one that passed.", a.ID, err))
@@ -247,15 +256,15 @@ func rustWitCompose(ctx context.Context, r *run) checks.Verdict {
 		WithExec([]string{"wac", "--version"}).
 		WithEnvVariable("CARGO_TARGET_DIR", checks.WitGuestTargetDir)
 
-	host := checks.WitReplayTargetDir + "/release/replay"
 	ctr := base
 	for _, step := range []struct {
 		name string
 		args []string
 	}{
-		{"replay host", []string{"cargo", "build", "--locked", "--release", "--manifest-path", checks.WitReplayManifest, "--target-dir", checks.WitReplayTargetDir}},
+		{"replay host", copiedOut([]string{"cargo", "build", "--locked", "--release", "--manifest-path", checks.WitReplayManifest, "--target-dir", checks.WitReplayTargetDir},
+			checks.WitReplayTargetDir+"/release/replay="+checks.WitReplayHost)},
 		{"compose", []string{checks.WitComposeScript, checks.WitComposedPath}},
-		{"replay", append([]string{host, checks.WitComposedPath}, tapes...)},
+		{"replay", append([]string{checks.WitReplayHost, checks.WitComposedPath}, tapes...)},
 	} {
 		ctr = ctr.WithExec(step.args, anyExit)
 		if v := verdict(ctx, a, ctr); v.State != int(checks.StatePass) {

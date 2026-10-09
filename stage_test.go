@@ -326,8 +326,12 @@ func TestReleaseBuildsARustStarWithCargoAndHandsOverItsBinaries(t *testing.T) {
 	if build == "" {
 		t.Fatalf("the rust release build never ran:\n%v", engine.chains())
 	}
-	if engine.chain(`"go","build"`) != "" {
-		t.Errorf("a Rust star got a Go compile:\n%v", engine.chains())
+	// (copyout, the helper that carries the binary out of the release volume,
+	// is this module's own Go program and is not the star's compile.)
+	for _, q := range engine.chains() {
+		if strings.Contains(q, `"go","build"`) && !strings.Contains(q, `"./copyout"`) {
+			t.Errorf("a Rust star got a Go compile:\n%s", q)
+		}
 	}
 	// The directory is built from the binary, by name: the file is read off
 	// the build container where cargo left it, and a fresh directory takes
@@ -336,14 +340,14 @@ func TestReleaseBuildsARustStarWithCargoAndHandsOverItsBinaries(t *testing.T) {
 	if _, err := dag.Directory().WithDirectory("release", dir).Entries(context.Background()); err != nil {
 		t.Fatalf("the release directory could not be used: %v", err)
 	}
-	bin := engine.chain(`file(path:"/work/target/release/tron")`, "{id}")
+	bin := engine.chain(`file(path:"/out/tron")`, "{id}")
 	if bin == "" {
 		t.Fatalf("the binary is not read back out of cargo's target directory:\n%v", engine.chains())
 	}
 	if c := engine.chain(`directory{withFile(`, `path:"tron"`); c == "" || !strings.Contains(c, fakeID(bin)) {
 		t.Errorf("the release directory does not carry the built binary under its name:\n%s\n%v", c, engine.chains())
 	}
-	if strings.Contains(engine.chain(`directory{withFile(`), "/work/target") {
+	if strings.Contains(engine.chain(`directory{withFile(`), "/cache/cargo-release") {
 		t.Errorf("the whole target tree was handed over, not the binary")
 	}
 

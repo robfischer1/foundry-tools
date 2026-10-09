@@ -268,9 +268,9 @@ func TestRustCargoAuditPassesItsOwnExitCodeThroughRaw(t *testing.T) {
 		t.Errorf("the version probe is provisioning and must run under the default Expect:\n%s", c)
 	}
 	// cargo-audit is provisioned ONCE, pinned, by the lane — never by the
-	// atom.
-	if !strings.Contains(c, `"cargo","install","cargo-audit","--locked","--version","`+checks.CargoAuditVersion+`"`) || strings.Count(c, `"cargo","install","cargo-audit"`) != 1 {
-		t.Errorf("the lane provisions cargo-audit at its pin, once:\n%s", c)
+	// atom, and never built from source.
+	if strings.Count(c, `"tar","xzf","/tmp/cargo-audit.tar.gz"`) != 1 || strings.Contains(c, `"cargo","install"`) {
+		t.Errorf("the lane provisions cargo-audit from its pinned tarball, once:\n%s", c)
 	}
 
 	engine.exitCode(`args:["cargo","audit"]`, 1)
@@ -297,7 +297,10 @@ func TestRustCargoAuditPassesItsOwnExitCodeThroughRaw(t *testing.T) {
 // cache mount does not cover, so two containers resolving the registry
 // concurrently do not see each other's lock (measured 2026-09-12 on tongs).
 // Every atom that compiles branches from the fetched layer; the one that does
-// not compile must not pay for it.
+// not compile must not pay for it. rust:mutation fetches only once it knows it
+// will mutate something (TestRustMutationMeasuresTheDiffFromTheFetchedLayer
+// holds the fetch, TestRustMutationWithNothingToMutateSettlesBeforeProvisioning
+// its absence).
 func TestCargoDepsIsTheBaseOfEveryCompilingAtom(t *testing.T) {
 	for _, tc := range []struct {
 		id      string
@@ -307,7 +310,6 @@ func TestCargoDepsIsTheBaseOfEveryCompilingAtom(t *testing.T) {
 		{"rust:cargo-clippy", true},
 		{"rust:cargo-test", true},
 		{"rust:cargo-audit", true},
-		{"rust:mutation", true},
 	} {
 		engine.reset()
 		engine.withTree(rustTSTree(map[string]string{
@@ -677,8 +679,9 @@ func TestTheRustLaneIsAbsentWithoutACargoToml(t *testing.T) {
 const copiesTron = "FROM x\nCOPY release/tron /tron\n"
 
 // THE RELEASE BUILD IS THE IMAGE'S COMPILE, derived: the star's own crate under
-// the release profile, --locked, into the container's own target directory —
-// or the binaries the Dockerfile copies, one exec each.
+// the release profile, --locked, into the repository's release volume and
+// copied out of it by the same exec — or the binaries the Dockerfile copies,
+// one exec each.
 func TestRustReleaseBuildsWhatTheImageWillCarry(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
@@ -687,16 +690,20 @@ func TestRustReleaseBuildsWhatTheImageWillCarry(t *testing.T) {
 	c := engine.chain(`"cargo","build","--release"`, "exitCode")
 	wantCalls(t, c,
 		[]string{"withExec", `args:["cargo","fetch","--locked"]`},
-		[]string{"withEnvVariable", `name:"CARGO_TARGET_DIR"`, `value:"/work/target"`},
-		[]string{"withExec", `expect:ANY`, `args:["cargo","build","--release","--locked","-p","tron"]`},
+		[]string{"withMountedCache", `path:"/cache/cargo-release"`, `sharing:PRIVATE`},
+		[]string{"withFile", `path:"/usr/local/bin/copyout"`},
+		[]string{"withEnvVariable", `name:"CARGO_TARGET_DIR"`, `value:"/cache/cargo-release"`},
+		[]string{"withExec", `expect:ANY`, `args:["/usr/local/bin/copyout","/cache/cargo-release/release/tron=/out/tron","--","cargo","build","--release","--locked","-p","tron"]`},
 	)
 	// The dependencies are provisioned before the compile (the lane's own
-	// rule: one fetch, then the build reads), and the target directory is
-	// the container's — set AFTER the lane's cache mounts named the cache
-	// volume's, so the override is the one cargo sees.
-	fetch, target, build := strings.Index(c, `"cargo","fetch","--locked"`), strings.LastIndex(c, `name:"CARGO_TARGET_DIR"`), strings.Index(c, `"cargo","build","--release"`)
-	if !(fetch < target && target < build) {
-		t.Errorf("fetch, then the target override, then the build — got %d %d %d:\n%s", fetch, target, build, c)
+	// rule: one fetch, then the build reads), the tree is stamped so the
+	// volume's artifacts of an older tree are rebuilt, and the target
+	// directory is the release volume — set AFTER the lane's cache mounts
+	// named the debug volume's, so the override is the one cargo sees.
+	fetch, stamp := strings.Index(c, `"cargo","fetch","--locked"`), strings.Index(c, `"touch","-c","-d"`)
+	target, build := strings.LastIndex(c, `name:"CARGO_TARGET_DIR"`), strings.Index(c, `"cargo","build","--release"`)
+	if !(fetch < stamp && stamp < target && target < build) {
+		t.Errorf("fetch, stamp, the target override, then the build — got %d %d %d %d:\n%s", fetch, stamp, target, build, c)
 	}
 	if strings.Contains(c[target:build], `value:"/cache/cargo-target"`) {
 		t.Errorf("the cache volume's target directory is set after the override:\n%s", c)

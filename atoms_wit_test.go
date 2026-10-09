@@ -155,7 +155,8 @@ func TestRustWitGuestBuildsLiftsAndValidates(t *testing.T) {
 		t.Errorf("the read-back world is the atom's output, got %q", v.Logs)
 	}
 
-	module := checks.WitGuestTargetDir + "/" + checks.WitGuestTarget + "/release/stellar_core.wasm"
+	inVolume := checks.WitGuestTargetDir + "/" + checks.WitGuestTarget + "/release/stellar_core.wasm"
+	const module = "/tmp/wit-guest.wasm"
 	const component = "/tmp/wit-guest.component.wasm"
 	c := engine.chain(`"component","wit"`, "exitCode")
 	if !strings.Contains(c, checks.ImageRust) {
@@ -163,10 +164,16 @@ func TestRustWitGuestBuildsLiftsAndValidates(t *testing.T) {
 	}
 	wantCalls(t, c,
 		[]string{"withExec", `args:["cargo","fetch","--locked"]`},
+		// The release volume, under the stamp: the guest's crate is rebuilt
+		// from THIS tree, and only the registry crates come back Fresh.
+		[]string{"withExec", `"touch","-c","-d","@4102444800"`},
+		[]string{"withMountedCache", `path:"/cache/cargo-release"`, `sharing:PRIVATE`},
 		[]string{"withExec", `args:["rustup","target","add","` + checks.WitGuestTarget + `"]`},
 		[]string{"withExec", `args:["tar","xzf","/tmp/wasm-tools.tar.gz","-C","/usr/local/bin","--strip-components=1","` + checks.WasmToolsMember + `"]`},
 		[]string{"withExec", `args:["wasm-tools","--version"]`},
-		[]string{"withExec", `expect:ANY`, `args:["cargo","build","--locked","--release","--no-default-features","--features","wit-guest","--target","wasm32-unknown-unknown","--target-dir","` + checks.WitGuestTargetDir + `"]`},
+		// The module is copied out of the volume BY THE BUILD'S OWN EXEC, and
+		// wasm-tools reads the copy.
+		[]string{"withExec", `expect:ANY`, `args:["/usr/local/bin/copyout","` + inVolume + `=` + module + `","--","cargo","build","--locked","--release","--no-default-features","--features","wit-guest","--target","wasm32-unknown-unknown","--target-dir","` + checks.WitGuestTargetDir + `"]`},
 		[]string{"withExec", `expect:ANY`, `args:["wasm-tools","component","new","` + module + `","-o","` + component + `"]`},
 		[]string{"withExec", `expect:ANY`, `args:["wasm-tools","validate","` + component + `"]`},
 		[]string{"withExec", `expect:ANY`, `args:["wasm-tools","component","wit","` + component + `"]`},
@@ -389,7 +396,7 @@ func witComposeTree(extra map[string]string) map[string]string {
 
 const composeBuildHost = `"cargo","build","--locked","--release","--manifest-path","tools/replay/Cargo.toml"`
 const composeRun = `"tools/compose/compose.sh","/tmp/fleet.component.wasm"`
-const composeReplay = `"/tmp/replay-target/release/replay"`
+const composeReplay = `"/tmp/replay-host/replay"`
 
 func TestRustWitComposeIsAbsentWithoutTheComposerOrAWorld(t *testing.T) {
 	for name, tree := range map[string]map[string]string{
@@ -427,10 +434,14 @@ func TestRustWitComposeBuildsComposesAndReplaysTheWorldsTapes(t *testing.T) {
 		[]string{"withExec", `args:["wasm-tools","--version"]`},
 		[]string{"withExec", `args:["wac","--version"]`},
 		[]string{"withEnvVariable", `name:"CARGO_TARGET_DIR"`, `value:"` + checks.WitGuestTargetDir + `"`},
-		[]string{"withExec", `expect:ANY`, `args:["cargo","build","--locked","--release","--manifest-path","tools/replay/Cargo.toml","--target-dir","` + checks.WitReplayTargetDir + `"]`},
+		// The release volume, under the stamp, and the host copied out of it
+		// by the build's own exec.
+		[]string{"withExec", `"touch","-c","-d","@4102444800"`},
+		[]string{"withMountedCache", `path:"/cache/cargo-release"`, `sharing:PRIVATE`},
+		[]string{"withExec", `expect:ANY`, `args:["/usr/local/bin/copyout","` + checks.WitReplayTargetDir + `/release/replay=/tmp/replay-host/replay","--","cargo","build","--locked","--release","--manifest-path","tools/replay/Cargo.toml","--target-dir","` + checks.WitReplayTargetDir + `"]`},
 		[]string{"withExec", `expect:ANY`, `args:["tools/compose/compose.sh","/tmp/fleet.component.wasm"]`},
 		// The tapes are the discovered worlds' own: identity and reader, not promote.
-		[]string{"withExec", `expect:ANY`, `args:["/tmp/replay-target/release/replay","/tmp/fleet.component.wasm","tests/tapes/identity.json","tests/tapes/reader.json"]`},
+		[]string{"withExec", `expect:ANY`, `args:["/tmp/replay-host/replay","/tmp/fleet.component.wasm","tests/tapes/identity.json","tests/tapes/reader.json"]`},
 	)
 	if strings.Contains(c, "promote.json") {
 		t.Errorf("a tape no world names is not replayed:\n%s", c)

@@ -250,30 +250,44 @@ func goTestIn(ctx context.Context, r *run, a checks.AtomDef, dir string, race bo
 // stops it when nothing needs it — the fixture the retired star.toml
 // provisioned through the Docker Engine API, without the socket.
 func (r *run) withTestDatabases(ctx context.Context, ctr *dagger.Container, scope string) (*dagger.Container, []checks.TestDB, string) {
+	dbs, line := r.testDatabases(ctx, ctr)
+	return bindTestDatabases(ctr, dbs, scope), dbs, line
+}
+
+// testDatabases is withTestDatabases' three reads and nothing else: which
+// databases the suites need, and the scope line. It binds no service, so a
+// caller can ask BEFORE it knows whether anything will run (go:mutation asks
+// before its change set is known to be empty).
+func (r *run) testDatabases(ctx context.Context, ctr *dagger.Container) ([]checks.TestDB, string) {
 	answers, _, _ := fileIfPresent(ctx, r.src, ".copier-answers.yml")
 	star := checks.ServiceName(answers)
 	if star == "" {
-		return ctr, nil, checks.TestDBScope(nil, nil, "no service_name in .copier-answers.yml, so no record to read")
+		return nil, checks.TestDBScope(nil, nil, "no service_name in .copier-answers.yml, so no record to read")
 	}
 	slag, err := r.starRecord(ctx, star)
 	if err != nil {
-		return ctr, nil, checks.TestDBScope(nil, nil, "no record at fleet/stars/"+star+"/slag.json")
+		return nil, checks.TestDBScope(nil, nil, "no record at fleet/stars/"+star+"/slag.json")
 	}
 	if !checks.PostgresBackend(slag) {
-		return ctr, nil, checks.TestDBScope(nil, nil, "the record declares no postgres backend")
+		return nil, checks.TestDBScope(nil, nil, "the record declares no postgres backend")
 	}
 	// grep exits 1 for no match, which is an answer; 2 and up is grep failing.
 	out, code, err := output(ctx, ctr.WithExec([]string{
 		"grep", "-rhoE", `^//go:build [A-Za-z0-9_]+$`, "--include=*_test.go", ".",
 	}, anyExit))
 	if err != nil || code > 1 {
-		return ctr, nil, checks.TestDBScope(nil, nil, "the tree's build tags could not be read")
+		return nil, checks.TestDBScope(nil, nil, "the tree's build tags could not be read")
 	}
 	tags := checks.GoBuildTags(out)
 	dbs := checks.TestDBsFor(tags)
 	if len(dbs) == 0 {
-		return ctr, nil, checks.TestDBScope(nil, nil, "the record declares postgres but no test file sits behind a tag the fleet names")
+		return nil, checks.TestDBScope(nil, nil, "the record declares postgres but no test file sits behind a tag the fleet names")
 	}
+	return dbs, checks.TestDBScope(dbs, checks.UncompiledTags(tags, dbs, checks.TestBrokers), "")
+}
+
+// bindTestDatabases binds each database's server to ctr under scope's alias.
+func bindTestDatabases(ctr *dagger.Container, dbs []checks.TestDB, scope string) *dagger.Container {
 	for _, d := range dbs {
 		base := dag.Container().From(d.Image).
 			WithEnvVariable("POSTGRES_USER", checks.TestDBRole).
@@ -297,7 +311,7 @@ func (r *run) withTestDatabases(ctx context.Context, ctr *dagger.Container, scop
 			AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true})
 		ctr = ctr.WithServiceBinding(d.AliasFor(scope), svc).WithEnvVariable(d.Env, d.DSNFor(scope))
 	}
-	return ctr, dbs, checks.TestDBScope(dbs, checks.UncompiledTags(tags, dbs, checks.TestBrokers), "")
+	return ctr
 }
 
 // withTestBrokers binds the fleet's test broker to a lane container for the
@@ -316,6 +330,13 @@ func (r *run) withTestDatabases(ctx context.Context, ctr *dagger.Container, scop
 // names — a suite that hardcodes a topic reads another package's records, which
 // is why TestBrokerScope prints the caveat on every run.
 func (r *run) withTestBrokers(ctx context.Context, ctr *dagger.Container, scope string) (*dagger.Container, []checks.TestBroker, string) {
+	brokers, line := r.testBrokers(ctx, ctr)
+	return bindTestBrokers(ctr, brokers, scope), brokers, line
+}
+
+// testBrokers is withTestBrokers' three reads, binding nothing (testDatabases
+// says why the two halves are apart).
+func (r *run) testBrokers(ctx context.Context, ctr *dagger.Container) ([]checks.TestBroker, string) {
 	// NO BRANCH LIVES HERE. This makes the three reads and hands them over as
 	// facts; every decision is checks.SelectBrokers', where a unit test can reach
 	// it. The first cut guarded in place and the mutation lane graded those guards
@@ -326,11 +347,15 @@ func (r *run) withTestBrokers(ctx context.Context, ctr *dagger.Container, scope 
 	out, code, tagsErr := output(ctx, ctr.WithExec([]string{
 		"grep", "-rhoE", `^//go:build [A-Za-z0-9_]+$`, "--include=*_test.go", ".",
 	}, anyExit))
-	brokers, scopeLine := checks.SelectBrokers(checks.BrokerReads{
+	return checks.SelectBrokers(checks.BrokerReads{
 		Answers: answers,
 		Slag:    slag, SlagErr: slagErr,
 		Tags: out, TagsErr: tagsErr, TagsCode: code,
 	})
+}
+
+// bindTestBrokers binds each broker to ctr under scope's alias.
+func bindTestBrokers(ctr *dagger.Container, brokers []checks.TestBroker, scope string) *dagger.Container {
 	for _, b := range brokers {
 		// THE ADVERTISED ADDRESS IS THE ALIAS, and it is what makes this work
 		// through a binding at all. It also makes the service DEFINITION differ
@@ -350,7 +375,7 @@ func (r *run) withTestBrokers(ctx context.Context, ctr *dagger.Container, scope 
 			AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true})
 		ctr = ctr.WithServiceBinding(b.AliasFor(scope), svc).WithEnvVariable(b.Env, b.AddrFor(scope))
 	}
-	return ctr, brokers, scopeLine
+	return ctr
 }
 
 // Every Go file is gofmt-clean.
@@ -838,15 +863,24 @@ func goMutation(ctx context.Context, r *run) checks.Verdict {
 const mutationDBLane = "mutation"
 
 func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) checks.Verdict {
-	ctr := goDownload(r.gitReady(ctx, r.withBase(r.withDies(r.lane(checks.ImageGo)))), dir)
+	// THE CHANGE SET IS KNOWN BEFORE ANYTHING IS PROVISIONED. The base, the
+	// merge base and the diff are git questions about the tree; the module
+	// download and the test servers are only for a run that will mutate
+	// something. MEASURED 2026-10-09: 20 of 107 mutation runs graded nothing
+	// and still paid ~110 CPU-s each for a Postgres, a broker and a `go mod
+	// download` they never used — every exec below ran on the bound container,
+	// so the first git question started the servers.
+	pre := inModule(r.gitReady(ctx, r.withBase(r.withDies(r.lane(checks.ImageGo)))), dir)
 	// THE RECORD'S DATABASE, as go:test-race brings it: the DB-gated suites are
 	// compiled for the coverage run and gremlins' (and serialised on the one
 	// database), and the servers are bound. Without this every DB-touching line
 	// read NOT COVERED by construction (foundry-tools#8608).
 	// ITS OWN SERVER, because this lane runs BESIDE the complex checks rather
 	// than after them, and go:test-race resets the same schema per test.
-	ctr, dbs, scope := r.withTestDatabases(ctx, ctr, mutationDBLane)
-	ctr, brokers, bscope := r.withTestBrokers(ctx, ctr, mutationDBLane)
+	// READ HERE, BOUND BELOW: the scope line rides every verdict, an empty
+	// change set's included, and the reads start nothing.
+	dbs, scope := r.testDatabases(ctx, pre)
+	brokers, bscope := r.testBrokers(ctx, pre)
 	scope = scope + "\n" + bscope
 	// The scope line is set on the verdict, not folded into the output: a pass
 	// keeps no output (checks.VerdictOf), and the line is printed either way.
@@ -878,7 +912,7 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	// The change set starts at the merge base, not at the base the door named
 	// (run.changeBase): main's tip moves under an open pull. This lane asked
 	// git for --merge-base already; gremlins' own --diff below did not.
-	since, err := r.changeBase(ctx, ctr)
+	since, err := r.changeBase(ctx, pre)
 	if err != nil {
 		return settle(2, "CANNOT RUN - "+err.Error())
 	}
@@ -888,7 +922,7 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	// AN EMPTY DIFF MEANS "MUTATE EVERYTHING" TO GREMLINS, written for "no
 	// --diff was given". A pull that changes no Go produces exactly that, so it
 	// stands down here instead of mutating the whole module.
-	changed, code, err := output(ctx, ctr.WithExec([]string{"git", "diff", "--relative", since, "--name-only", "--", "*.go"}, anyExit))
+	changed, code, err := output(ctx, pre.WithExec([]string{"git", "diff", "--relative", since, "--name-only", "--", "*.go"}, anyExit))
 	if err != nil {
 		return neverRan(err)
 	}
@@ -898,6 +932,9 @@ func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) che
 	if strings.TrimSpace(changed) == "" {
 		return settle(0, "this pull changes no Go file — nothing to mutate")
 	}
+
+	// SOMETHING WILL BE MUTATED: download the module, then bind the servers.
+	ctr := bindTestBrokers(bindTestDatabases(pre.WithExec([]string{"go", "mod", "download"}), dbs, mutationDBLane), brokers, mutationDBLane)
 
 	var tags []string
 	if len(dbs) > 0 || len(brokers) > 0 {

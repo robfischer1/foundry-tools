@@ -92,8 +92,9 @@ func TestEveryPinnedToolHasOneVerifiedSource(t *testing.T) {
 		}
 	}
 	// The set of checksummed URLs is exactly the set of release assets fetched:
-	// the tools, and the python layer's interpreter.
-	fetched := []string{checks.PythonStandaloneURL}
+	// the tools, the python layer's interpreter, and the rust lane's two cargo
+	// tool tarballs (runtime.go withCargoTarball).
+	fetched := []string{checks.PythonStandaloneURL, checks.CargoAuditURL, checks.CargoNextestURL}
 	for _, tool := range pinnedTools {
 		if tool.url != "" {
 			fetched = append(fetched, tool.url)
