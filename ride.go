@@ -21,7 +21,16 @@ import (
 // goroutine that recovers a panic, and it is waited on only after the gate's
 // record is posted and its shadow reported, for at most rideGrace. Nothing it
 // does reaches the gate's record, file, error or exit; it adds lines of its own,
-// each prefixed `ride <lane>:`, after the gate's.
+// each prefixed `ride <lane>:`, after the gate's. What it CAN add is time: at
+// worst shadowGrace (30s) + rideGrace (60s) + the rider's post (sendRecord's
+// 15s), about 105s, on a gate whose record is already posted — and the gate's
+// settle waits on the Job's exit.
+//
+// A RIDING ORBIT RUNS NO SHADOW. A standalone orbit gate-file runs the F5a
+// reverse shadow (shadowLanes); the rider does not, because the shadow's box is
+// the gate's. So once orbit rides, its chain-vs-binary comparison is no longer
+// reported. Accepted: orbit's four atoms are report-only (orbit is in no ask's
+// expected set) and the gate's own shadow still covers every footgun atom. When F5b deletes the chains this note goes with them.
 
 // rideLanes are the lanes allowed to ride, by laneOf. Orbit only, for now:
 // mutation runs under a different service account and a far longer deadline,
