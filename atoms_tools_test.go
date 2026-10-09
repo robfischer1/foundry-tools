@@ -379,6 +379,10 @@ func TestAtomsToolsBuildsThePythonLayersFromTheLock(t *testing.T) {
 		[]string{"withExec", `"tar","xzf","/tmp/python.tar.gz","-C","/opt/python","--strip-components=1"`},
 		[]string{"withEnvVariable", `name:"UV_NATIVE_TLS"`, `value:"1"`},
 		[]string{"withEnvVariable", `name:"UV_PYTHON_DOWNLOADS"`, `value:"never"`},
+		// The pinned interpreter's OpenSSL reads the system bundle only when told
+		// to: without it galaxy refuses the engine's CA and the collections drop.
+		[]string{"withEnvVariable", `name:"SSL_CERT_FILE"`, `value:"/etc/ssl/certs/ca-certificates.crt"`},
+		[]string{"withEnvVariable", `name:"REQUESTS_CA_BUNDLE"`, `value:"/etc/ssl/certs/ca-certificates.crt"`},
 		[]string{"withFile", `path:"/usr/local/bin/uv"`},
 		[]string{"withExec", `"uv","venv","/opt/atoms-py","--python","/opt/python/bin/python3"`},
 		[]string{"withFile", `path:"/tmp/pytools/requirements.txt"`},
