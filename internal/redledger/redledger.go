@@ -21,7 +21,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
+	"os"
 	"path"
 	"regexp"
 	"slices"
@@ -490,4 +492,27 @@ func HadesAsk(run func(ctx context.Context, args []string, stdout, stderr *strin
 // Render writes a Result as the report: the reason, then one line a finding.
 func Render(r Result) string {
 	return strings.Join(append([]string{r.Reason}, r.Lines...), "\n") + "\n"
+}
+
+// Runner is hadescall.Run's shape: ask one verb, print "HTTP <status>" and the
+// body, answer 0 once hades answered and 2 when it could not ask.
+type Runner func(ctx context.Context, args []string, env func(string) string, stdout, stderr io.Writer) int
+
+// Main is the binary: redledger [tree], the tree defaulting to the working
+// directory, hades asked through run. It answers the Result's state.
+func Main(ctx context.Context, args []string, run Runner, env func(string) string, stdout, stderr io.Writer) int {
+	if len(args) > 1 {
+		fmt.Fprintln(stderr, "usage: redledger [tree]")
+		return CannotRun
+	}
+	tree := "."
+	if len(args) == 1 {
+		tree = args[0]
+	}
+	ask := HadesAsk(func(ctx context.Context, a []string, out, errs *strings.Builder) int {
+		return run(ctx, a, env, out, errs)
+	})
+	r := Check(ctx, os.DirFS(tree), ask)
+	fmt.Fprint(stdout, Render(r))
+	return r.State
 }

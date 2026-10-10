@@ -5,6 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -537,5 +541,119 @@ func TestNodeClosed(t *testing.T) {
 		if (Node{Status: st}).Closed() != want {
 			t.Errorf("%q closed = %v", st, !want)
 		}
+	}
+}
+
+// ---- the order of the report ----
+
+// A report is read by a person and diffed between runs: the same ledger
+// disagreement has to come out in the same order however hades lists it.
+func TestFindingsComeOutInKeyOrder(t *testing.T) {
+	h := &hades{nodes: []node{open(a), open(b), open("z.gone/three"), open("m.gone/two"), open("c.gone/one")}}
+	r := Check(context.Background(), twoCases(), h.ask)
+	has(t, r, Findings)
+	var got []string
+	for _, l := range r.Lines {
+		got = append(got, strings.SplitN(l, ":", 2)[0])
+	}
+	if strings.Join(got, ",") != "c.gone/one,m.gone/two,z.gone/three" {
+		t.Errorf("order %v", got)
+	}
+}
+
+func TestCasesWithNoNodeComeOutInIdOrder(t *testing.T) {
+	fs := tree(map[string]string{"stamp.json": tapeJSON(ledger,
+		caseJSON("stamp.z-class/one", "z-class/one", ""), caseJSON("stamp.m-class/one", "m-class/one", ""),
+		caseJSON("stamp.c-class/one", "c-class/one", ""))})
+	r := Check(context.Background(), fs, (&hades{}).ask)
+	want := []string{
+		"stamp.c-class/one: red case has no ledger node",
+		"stamp.m-class/one: red case has no ledger node",
+		"stamp.z-class/one: red case has no ledger node",
+	}
+	if strings.Join(r.Lines, "\n") != strings.Join(want, "\n") {
+		t.Errorf("lines %v", r.Lines)
+	}
+}
+
+// reversed is a tree whose Glob answers newest-first, as a GlobFS may.
+type reversed struct{ fstest.MapFS }
+
+func (r reversed) Glob(p string) ([]string, error) {
+	m, err := fs.Glob(r.MapFS, p)
+	slices.Reverse(m)
+	return m, err
+}
+
+func TestTapesAreReadInNameOrder(t *testing.T) {
+	other := strings.Repeat("b", 64)
+	tr := reversed{tree(map[string]string{
+		"alarm.json": tapeJSON(ledger, caseJSON(a, "cas-register/one", "")),
+		"tail.json":  tapeJSON(other, caseJSON(b, "casefold-match/two", "")),
+	})}
+	h := &hades{nodes: []node{open(a), open(b)}}
+	r := Check(context.Background(), tr, h.ask)
+	has(t, r, Findings, "conformance/red/tail.json: names ledger "+other+", but conformance/red/alarm.json names "+ledger)
+	if f := h.args[0]["filter"].(map[string]any); f["parent"] != ledger {
+		t.Errorf("read the ledger %v, want the first tape's", f["parent"])
+	}
+}
+
+// A finding names its node by the id's first twelve hex, as the handoff does.
+func TestAFindingNamesItsNodeShort(t *testing.T) {
+	n := open("x.y/z")
+	n.id = strings.Repeat("0123456789ab", 5) + "cdef"
+	r := Check(context.Background(), twoCases(), (&hades{nodes: []node{open(a), open(b), n}}).ask)
+	has(t, r, Findings, "(node 0123456789ab is backlog, no red case)")
+	if strings.Contains(strings.Join(r.Lines, ""), "0123456789ab0") {
+		t.Errorf("the id was not shortened: %v", r.Lines)
+	}
+}
+
+// ---- the binary ----
+
+func TestMainRefusesTwoTrees(t *testing.T) {
+	var out, errs strings.Builder
+	run := func(context.Context, []string, func(string) string, io.Writer, io.Writer) int {
+		t.Error("hades was asked")
+		return 0
+	}
+	if got := Main(context.Background(), []string{"a", "b"}, run, os.Getenv, &out, &errs); got != CannotRun {
+		t.Errorf("exit %d", got)
+	}
+	if !strings.Contains(errs.String(), "usage: redledger [tree]") || out.Len() != 0 {
+		t.Errorf("out %q errs %q", out.String(), errs.String())
+	}
+}
+
+func TestMainChecksTheNamedTreeThroughTheRunner(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(dir+"/conformance/red", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir+"/conformance/red/stamp.json", []byte(tapeJSON(ledger, caseJSON(a, "cas-register/one", ""))), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := &hades{nodes: []node{open(a)}}
+	env := func(k string) string { return "env:" + k }
+	run := func(ctx context.Context, args []string, e func(string) string, o, _ io.Writer) int {
+		if e("X") != "env:X" {
+			t.Errorf("the runner was not handed the environment")
+		}
+		s, body, _ := h.ask(ctx, args[0], args[1])
+		fmt.Fprintf(o, "HTTP %d\n%s", s, body)
+		return 0
+	}
+	var out, errs strings.Builder
+	if got := Main(context.Background(), []string{dir}, run, env, &out, &errs); got != Pass {
+		t.Errorf("exit %d: %s %s", got, out.String(), errs.String())
+	}
+	if out.String() != ID+": 1 open ledger node(s) = 1 red case(s)\n" {
+		t.Errorf("out %q", out.String())
+	}
+	// the working directory is the default tree: this package's has no red tapes.
+	out.Reset()
+	if got := Main(context.Background(), nil, run, env, &out, &errs); got != Pass || !strings.Contains(out.String(), "ABSENT") {
+		t.Errorf("default tree: exit %d %q", got, out.String())
 	}
 }

@@ -1,36 +1,24 @@
 // redledger is conformance:red-ledger as a standalone check: it runs as its
-// own Job under a fixed identity (not in the gate lane, whose per-run
-// job/gate/<name> identity hades refuses). The logic is internal/redledger.
+// own CronJob under the fixed identity spiffe://notusmi.com/ci/prime/red-ledger
+// (not in the gate lane, whose per-run job/gate/<name> identity hades
+// refuses), granted plan_task_list and plan_task_read and nothing else. The
+// logic is internal/redledger; this is only its process.
 //
 //	redledger [tree]      exit 0 pass or ABSENT, 1 findings, 2 could not run
 package main
 
 import (
 	"context"
-	"fmt"
-	"io"
 	"os"
-	"strings"
 
 	"dagger/foundry-tools/internal/hadescall"
 	"dagger/foundry-tools/internal/redledger"
 )
 
-func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
+// exit is os.Exit, and a variable so main_test.go can run main: go:mutation
+// grades a line no test executes as NOT COVERED.
+var exit = os.Exit
 
-func run(args []string, stdout, stderr io.Writer) int {
-	tree := "."
-	if len(args) > 1 {
-		fmt.Fprintln(stderr, "usage: redledger [tree]")
-		return 2
-	}
-	if len(args) == 1 {
-		tree = args[0]
-	}
-	ask := redledger.HadesAsk(func(ctx context.Context, a []string, out, errs *strings.Builder) int {
-		return hadescall.Run(ctx, a, os.Getenv, out, errs)
-	})
-	r := redledger.Check(context.Background(), os.DirFS(tree), ask)
-	fmt.Fprint(stdout, redledger.Render(r))
-	return r.State
+func main() {
+	exit(redledger.Main(context.Background(), os.Args[1:], hadescall.Run, os.Getenv, os.Stdout, os.Stderr))
 }
