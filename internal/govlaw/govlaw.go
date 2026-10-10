@@ -36,7 +36,7 @@ const (
 	bundlesFile     = "bundles.toml"
 	blocksDir       = "governance/blocks/"
 	rendersDir      = "renders/"
-	budgetFile      = "renders/.budget.toml"
+	budgetFile      = "budget.toml"
 	surfaceFile     = "verb-surface.toml"
 	contextDocName  = "AGENTS.md"
 	appendDocName   = "APPEND_SYSTEM.md"

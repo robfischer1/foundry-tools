@@ -548,7 +548,7 @@ func atomTable() []AtomDef {
 		},
 		{
 			ID: "law:budget", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "No render's always-on context document grows past its ceiling in renders/.budget.toml; raising a ceiling is a line in the same commit.",
+			Desc: "No render's always-on context document grows past its ceiling in budget.toml; raising a ceiling is a line in the same commit.",
 		},
 
 		// ---- orbit: the orbit lane, asked for by name (StageOrbit) ----

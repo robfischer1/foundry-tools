@@ -17,7 +17,7 @@ func budgetTree(budget string, extra map[string]string) Tree {
 		"renders/vault/pi/APPEND_SYSTEM.md":   strings.Repeat("b", 40),
 	}
 	if budget != "" {
-		files["renders/.budget.toml"] = budget
+		files["budget.toml"] = budget
 	}
 	for k, v := range extra {
 		files[k] = v
@@ -44,11 +44,11 @@ func TestBudgetCountsContextAndAppendDocumentsButNotTheShim(t *testing.T) {
 
 func TestBudgetANewRenderNeedsACeilingAndAHeldCeilingNeedsARender(t *testing.T) {
 	r := Budget(budgetTree(exactBudget, map[string]string{"renders/new/claude/AGENTS.md": "12345"}))
-	want(t, r, StateFindings, "renders/new/claude: 5 bytes of always-on context and no ceiling in renders/.budget.toml")
+	want(t, r, StateFindings, "renders/new/claude: 5 bytes of always-on context and no ceiling in budget.toml")
 	wantNot(t, r, "forge-root", "vault")
 
 	r = Budget(budgetTree(exactBudget+"[budget.gone]\nclaude = 10\n", nil))
-	want(t, r, StatePass, "WARNINGS (1, not gating)", "renders/.budget.toml: a ceiling for gone/claude, which has no render")
+	want(t, r, StatePass, "WARNINGS (1, not gating)", "budget.toml: a ceiling for gone/claude, which has no render")
 }
 
 func TestBudgetSlackIsAWarningNotAStop(t *testing.T) {
@@ -65,7 +65,7 @@ func TestBudgetWithoutAFileHoldsNothing(t *testing.T) {
 }
 
 func TestBudgetIsAbsentWithNoRender(t *testing.T) {
-	want(t, Budget(stocks(map[string]string{"renders/.budget.toml": exactBudget})), StatePass, "ABSENT", "nothing to hold to a budget")
+	want(t, Budget(stocks(map[string]string{"budget.toml": exactBudget})), StatePass, "ABSENT", "nothing to hold to a budget")
 	// A render of nothing but a shim has no always-on context of its own.
 	want(t, Budget(stocks(map[string]string{"renders/c/claude/CLAUDE.md": "shim"})), StatePass, "ABSENT")
 }
@@ -77,7 +77,7 @@ func TestBudgetCannotRunOnABudgetItCannotRead(t *testing.T) {
 		budget string
 		want   string
 	}{
-		{"not toml", "[budget.a\n", "renders/.budget.toml is not a budget this lane can read"},
+		{"not toml", "[budget.a\n", "budget.toml is not a budget this lane can read"},
 		{"not a number", "[budget.a]\nclaude = \"big\"\n", "is not a budget this lane can read"},
 		{"zero", "[budget.a]\nclaude = 0\n", "[budget.a] claude = 0 is not a ceiling"},
 		{"negative", "[budget.a]\nclaude = -5\n", "[budget.a] claude = -5 is not a ceiling"},
@@ -88,7 +88,7 @@ func TestBudgetCannotRunOnABudgetItCannotRead(t *testing.T) {
 		})
 	}
 	// Reads that fail.
-	for _, p := range []string{"renders/.budget.toml", "renders/forge-root/claude/AGENTS.md"} {
+	for _, p := range []string{"budget.toml", "renders/forge-root/claude/AGENTS.md"} {
 		tr := good
 		base := tr.Read
 		tr.Read = func(q string) (string, error) {

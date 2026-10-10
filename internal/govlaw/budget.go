@@ -14,7 +14,8 @@ import (
 const BudgetID = "law:budget"
 
 // Budget holds the always-on context of every render to a ceiling kept in
-// renders/.budget.toml:
+// the root budget.toml (beside kits.toml, not under renders/: a render replaces
+// renders/ wholesale, and the ceilings are authored law, not rendered output):
 //
 //	[budget.<consumer>]
 //	<provider> = <bytes>

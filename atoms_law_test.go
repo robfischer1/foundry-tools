@@ -62,7 +62,7 @@ func TestLawLanesFindWhatEachOwns(t *testing.T) {
 	engine.withTree(lawStocks(map[string]string{
 		"governance/blocks/empty.md": "",
 		"renders/c/claude/AGENTS.md": "text of the render\n",
-		"renders/.budget.toml":       "[budget.c]\nclaude = 5\n",
+		"budget.toml":                "[budget.c]\nclaude = 5\n",
 	}))
 	wantState(t, runAtom(t, "law:lint", ""), 1, "governance/blocks/empty.md: the block is empty")
 	wantState(t, runAtom(t, "law:budget", ""), 1, "renders/c/claude: 19 bytes of always-on context is 14 over its ceiling of 5")

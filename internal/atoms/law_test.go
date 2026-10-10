@@ -40,7 +40,7 @@ func TestLawLanesPassCurrentLaw(t *testing.T) {
 	in := treeIn(t, stocksFiles(map[string]string{
 		"renders/forge-root/claude/AGENTS.md":           "CI logs through `repo_ci_logs`.\n",
 		"renders/forge-root/claude/.furnace/spans.json": spans,
-		"renders/.budget.toml":                          "[budget.forge-root]\nclaude = 40\n",
+		"budget.toml": "[budget.forge-root]\nclaude = 40\n",
 	}))
 	for _, id := range lawIDs {
 		expect(t, runAtom(t, id, in), stateOf(0), pass)
@@ -59,7 +59,7 @@ func TestLawLanesFindWhatEachOwns(t *testing.T) {
 	in := treeIn(t, stocksFiles(map[string]string{
 		"governance/blocks/empty.md": "",
 		"renders/c/claude/AGENTS.md": "text of the render\n",
-		"renders/.budget.toml":       "[budget.c]\nclaude = 5\n",
+		"budget.toml":                "[budget.c]\nclaude = 5\n",
 	}))
 	expect(t, runAtom(t, "law:lint", in), stateOf(1), findings, "governance/blocks/empty.md: the block is empty", "has text and no")
 	expect(t, runAtom(t, "law:budget", in), stateOf(1), findings, "renders/c/claude: 19 bytes of always-on context is 14 over its ceiling of 5")
