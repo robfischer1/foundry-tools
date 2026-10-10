@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// go:diff-coverage's chain. The judgement — which lines are uncovered — is
+// The chain of the go:diff-coverage atom. The judgement — which lines are uncovered — is
 // internal/checks' (godiffcoverage_test.go); these pin what the atom asks, in
 // what order, and what it does with each answer.
 
@@ -90,8 +90,8 @@ func TestGoDiffCoverageAndTheRaceSuiteShareOneRun(t *testing.T) {
 		t.Errorf("the suite was evaluated %d times for two atoms, want 1", runs)
 	}
 	// Per module: a second module's suite is its own.
-	if r.raceSuite(context.Background(), ".") != r.raceSuite(context.Background(), ".") ||
-		r.raceSuite(context.Background(), ".") == r.raceSuite(context.Background(), "tools/forge") {
+	root, again := r.raceSuite(context.Background(), "."), r.raceSuite(context.Background(), ".")
+	if root != again || root == r.raceSuite(context.Background(), "tools/forge") {
 		t.Error("the run keeps one suite per module")
 	}
 }

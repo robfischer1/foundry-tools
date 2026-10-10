@@ -10,7 +10,7 @@ import (
 	"dagger/foundry-tools/internal/dagger"
 )
 
-// go:diff-coverage — EVERY LINE THIS PULL CHANGED RAN UNDER THE SUITE.
+// THE go:diff-coverage ATOM — EVERY LINE THIS PULL CHANGED RAN UNDER THE SUITE.
 // checks/godiffcoverage.go carries why it exists and what "uncovered" means;
 // this file is the chain.
 //
