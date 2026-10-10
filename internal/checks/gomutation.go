@@ -532,6 +532,19 @@ var goOutcomes = map[string]string{
 // did not measure the suite.
 const GoMutationTimeoutBudget = 10.0
 
+// GoMutationOverBudgetCause is the phrase an over-budget run's reason carries
+// between the percentage and the budget. It is how a caller tells this
+// could-not-run — a deterministic result of the tree and the lane's config —
+// from a transient one (verdictFor's memo of it, foundry-tools#16081).
+const GoMutationOverBudgetCause = "of mutants TIMED OUT, over the"
+
+// GoMutationOverBudget reports whether a go:mutation verdict is the
+// over-budget timeout could-not-run: the same tree under the same config times
+// out the same way, so asking again can only repeat it.
+func GoMutationOverBudget(state int, reason string) bool {
+	return state == int(StateCannotRun) && strings.Contains(reason, GoMutationOverBudgetCause)
+}
+
 // GoMutationNothingGraded opens the reason of a run that produced verdicts and
 // could trust NONE of them. It settles 0 — there is no test gap to point at and
 // no committer who can fix gremlins#268 — so this is the one green whose reason
@@ -698,7 +711,7 @@ func goScoredVerdict(run GoMutationRun, s GoMutationScore, noise GoMutationNoise
 		return 2, with(fmt.Sprintf("gomutants exited %d — a broken run, not a survivor report", run.Status)), nil
 	}
 	if s.TimedOutPct > GoMutationTimeoutBudget {
-		return 2, with(fmt.Sprintf("%s%% of mutants TIMED OUT, over the %.0f%% budget — the suite was not measured", strconv.FormatFloat(s.TimedOutPct, 'f', -1, 64), GoMutationTimeoutBudget)), nil
+		return 2, with(fmt.Sprintf("%s%% "+GoMutationOverBudgetCause+" %.0f%% budget — the suite was not measured", strconv.FormatFloat(s.TimedOutPct, 'f', -1, 64), GoMutationTimeoutBudget)), nil
 	}
 	if run.Canary == CanaryBroken {
 		// Fatal like a timeout-heavy run: neither measured anything.

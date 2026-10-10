@@ -157,3 +157,90 @@ func reaskNonces() map[string]bool {
 	}
 	return out
 }
+
+// goAllTimedOutReport is a report whose only mutant TIMED OUT: 100% over the
+// 10% budget, which GoMutationVerdict settles as could-not-run.
+const goAllTimedOutReport = `{"elapsed_time":1,"files":[{"file_name":"a.go","mutations":[{"type":"T","status":"TIMED OUT","line":1,"column":1}]}]}`
+
+func goMutationAt(t *testing.T, sha string) checks.Verdict {
+	t.Helper()
+	v, err := verdictFor(t.Context(), newRun(dag.Directory(), "", "abc123").withArtifacts(nil, sha), "go:mutation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+// AN OVER-BUDGET TIMEOUT IS DETERMINISTIC (foundry-tools#16081, Rob's ruling):
+// the same tree times out the same way, so the second ask for the same commit
+// sha neither re-asks inside the run nor runs again on the next ask — it
+// returns the cached verdict. A new sha is a new tree and runs.
+func TestAnOverBudgetTimeoutIsNotRerunForTheSameSha(t *testing.T) {
+	scriptGoMutation(map[string]string{"/src/mutation-go.json": goAllTimedOutReport})
+	first := goMutationAt(t, "sha-overbudget-1")
+	if first.State != 2 || !strings.Contains(first.Reason, "over the 10% budget") {
+		t.Fatalf("want the over-budget could-not-run: %+v", first)
+	}
+	if n := len(reaskNonces()); n != 0 {
+		t.Errorf("a deterministic over-budget result was re-asked %d times, want 0", n)
+	}
+	if strings.Contains(first.Reason, "asked twice") {
+		t.Errorf("it was not asked twice: %+v", first)
+	}
+	ran := gradingChains()
+	if ran == 0 {
+		t.Fatal("the first ask never reached gomutants")
+	}
+
+	again := goMutationAt(t, "sha-overbudget-1")
+	if again.State != first.State || again.Reason != first.Reason {
+		t.Errorf("the same sha must return the cached verdict:\nfirst: %+v\nagain: %+v", first, again)
+	}
+	if got := gradingChains(); got != ran {
+		t.Errorf("the same sha ran gomutants %d more times, want none", got-ran)
+	}
+}
+
+// A NEW COMMIT RE-RUNS.
+func TestANewShaRerunsAnOverBudgetTimeout(t *testing.T) {
+	scriptGoMutation(map[string]string{"/src/mutation-go.json": goAllTimedOutReport})
+	goMutationAt(t, "sha-overbudget-2a")
+	ran := gradingChains()
+	v := goMutationAt(t, "sha-overbudget-2b")
+	if got := gradingChains(); got <= ran {
+		t.Errorf("a new sha must run gomutants, runs %d -> %d", ran, got)
+	}
+	if v.State != 2 {
+		t.Errorf("state %d, want 2", v.State)
+	}
+}
+
+// A NON-DETERMINISTIC could-not-run (a transient engine failure) is neither
+// skipped nor cached: it is still re-asked, and asking again re-runs.
+func TestATransientCouldNotRunIsStillReaskedAndNeverCached(t *testing.T) {
+	scriptGoMutation(nil)
+	engine.exitCode(goDiffNeedle, 1)
+	v := goMutationAt(t, "sha-flaky")
+	if v.State != 2 || strings.Count(v.Reason, "asked twice") != 1 {
+		t.Fatalf("a flaky could-not-run is re-asked: %+v", v)
+	}
+	if n := len(reaskNonces()); n != 1 {
+		t.Errorf("re-asked %d times, want once", n)
+	}
+	ran := len(engine.chains())
+	goMutationAt(t, "sha-flaky")
+	if got := len(engine.chains()); got <= ran {
+		t.Errorf("a non-deterministic result must not be served from the cache, chains %d -> %d", ran, got)
+	}
+}
+
+// gradingChains counts the recorded chains that run gomutants.
+func gradingChains() int {
+	n := 0
+	for _, c := range engine.chains() {
+		if strings.Contains(c, goMutantsNeedle) {
+			n++
+		}
+	}
+	return n
+}
