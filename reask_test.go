@@ -244,3 +244,18 @@ func gradingChains() int {
 	}
 	return n
 }
+
+// WITHOUT A SHA THERE IS NO KEY, and nothing is stored or served.
+func TestTheOverBudgetMemoNeedsASha(t *testing.T) {
+	if k := overBudgetKey("", "."); k != "" {
+		t.Fatalf("a run with no sha keys %q, want none", k)
+	}
+	var m verdictMemo
+	m.put("", checks.Verdict{State: 2})
+	if _, ok := m.get(""); ok {
+		t.Error("an empty key must never hit")
+	}
+	if len(m.m) != 0 {
+		t.Error("an empty key must store nothing")
+	}
+}
