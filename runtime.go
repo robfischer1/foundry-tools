@@ -64,6 +64,11 @@ type run struct {
 	// "" for the door's Jobs (their tree is fetched whole, with repo above)
 	// and for a hook that named none.
 	origin string
+	// dev, when set, is the interactive Dev surface's run: its cargo target is
+	// keyed on repo and tree and mounted LOCKED (checks.CachesForDev). tree is
+	// the caller's worktree path, hashed into the key.
+	dev  bool
+	tree string
 	// reask, when set, is written into every lane container past its toolchain
 	// layers, so every exec after it is keyed afresh and nothing the engine
 	// cached answers it (verdictFor's re-ask of a could-not-run).
@@ -228,8 +233,15 @@ func (r *run) laneBaseWith(image string, extra func(*dagger.Container) *dagger.C
 	if extra != nil {
 		ctr = extra(ctr)
 	}
-	for _, c := range checks.CachesForRepo(image, r.repo) {
+	mounts := checks.CachesForRepo(image, r.repo)
+	if r.dev {
+		mounts = checks.CachesForDev(image, r.repo, r.tree)
+	}
+	for _, c := range mounts {
 		opts := dagger.ContainerWithMountedCacheOpts{}
+		if c.Locked {
+			opts.Sharing = dagger.CacheSharingModeLocked
+		}
 		if c.Seed {
 			opts.Source = dag.Container().From(image).Directory(c.Path)
 		}

@@ -421,7 +421,7 @@ func atomTable() []AtomDef {
 		},
 		{
 			ID: "rust:wit-compose", Stage: StagePrepush, Lane: LaneRust, Image: ImageRust,
-			Desc:          "Every wit-guest world composes into one valid component through tools/compose/compose.sh, and every tests/tapes/<world>.json replays through it with the native core's answers; absent where the tree carries no composer or replay host.",
+			Desc:          "Every wit-guest world composes into one valid component through tools/compose/compose.sh, and every tests/tapes/<world>.json replays through it with the native core's answers, and every tests/red/*.json replays as red (the answer is its `today`, never its prior-art response); absent where the tree carries no composer or replay host.",
 			NeedsManifest: true,
 		},
 

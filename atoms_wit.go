@@ -216,7 +216,8 @@ func prefixLines(world string, lines []string) []string {
 // THREE STEPS, EACH ITS OWN VERDICT: build the replay host (its own lockfile,
 // its own target dir), compose every guest through the script, and replay the
 // tapes named for the discovered worlds (tests/tapes/<world>.json, when the
-// tree carries one). A tape the composition answers differently is a finding.
+// tree carries one), then every red tape (tests/red/*.json, judged as red). A
+// tape the composition answers differently is a finding.
 func rustWitCompose(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("rust:wit-compose")
 
@@ -227,7 +228,7 @@ func rustWitCompose(ctx context.Context, r *run) checks.Verdict {
 	if len(checks.WitGuestWorlds(manifest)) == 0 {
 		return checks.VerdictOf(a, 0, a.ID+": ABSENT - Cargo.toml declares no "+checks.WitGuestPrefix+"<world> feature, so there is nothing to compose")
 	}
-	files, err := r.population(ctx, checks.WitComposeScript, checks.WitReplayManifest, "tests/tapes/*.json")
+	files, err := r.population(ctx, checks.WitComposeScript, checks.WitReplayManifest, "tests/tapes/*.json", checks.WitRedGlob)
 	if err != nil {
 		return cannotEnumerate(a, err)
 	}
@@ -238,6 +239,10 @@ func rustWitCompose(ctx context.Context, r *run) checks.Verdict {
 	if len(tapes) == 0 {
 		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - no tests/tapes/<world>.json for any wit-guest world, so a composition would be built and answer nothing")
 	}
+
+	// THE RED TAPES RIDE LAST (F18): the replay host holds each violated case to
+	// its `today` and fails one that answers its prior-art response.
+	tapes = append(tapes, checks.WitComposeRed(files)...)
 
 	// THE RELEASE VOLUME, UNDER THE STAMP, as rust:wit-guest builds: the
 	// script builds every guest into CARGO_TARGET_DIR and reads them in its own

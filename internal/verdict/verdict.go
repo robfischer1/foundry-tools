@@ -22,6 +22,7 @@ package verdict
 import (
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 )
@@ -38,8 +39,24 @@ func Run(args []string, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "verdict: %q is not a verdict (0, 1 or 2)\n", args[0])
 		return 2
 	}
-	if reason := strings.Join(args[1:], " "); reason != "" {
+	reason := strings.Join(args[1:], " ")
+	// `verdict 1 @/reason` reads the reason from a file: a long reason as an
+	// argument is echoed by the engine into the exec's span title, so the same
+	// text is printed twice. A file it cannot read is a could-not-run.
+	if path, ok := strings.CutPrefix(reason, "@"); ok && len(args) == 2 {
+		b, err := readFile(path)
+		if err != nil {
+			fmt.Fprintf(stderr, "verdict: cannot read the reason: %v\n", err)
+			return 2
+		}
+		reason = strings.TrimRight(string(b), "\n")
+	}
+	if reason != "" {
 		fmt.Fprintln(stderr, reason)
 	}
 	return code
 }
+
+// readFile is how the @file form reads, and a variable so a test can say what
+// the file holds.
+var readFile = os.ReadFile
