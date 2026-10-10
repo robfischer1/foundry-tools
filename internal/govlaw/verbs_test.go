@@ -114,7 +114,7 @@ func TestParseSurfaceRefusesWhatItCannotGradeAgainst(t *testing.T) {
 }
 
 func TestTheEmbeddedSnapshotParsesAndKnowsTheSurface(t *testing.T) {
-	s, err := Embedded()
+	s, err := ParseSurface(embeddedSurface)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,6 +205,15 @@ func TestVerbLivenessPrefersTheTreesOwnSurface(t *testing.T) {
 		"governance/blocks/forge.md": "`brand_other_verb`\n",
 	}))
 	want(t, r, StateFindings, "brand_other_verb is not a verb on hades's surface (verb-surface.toml)")
+}
+
+func TestOnlyWireNamesLendTheirPrefix(t *testing.T) {
+	// A server-qualified ledger name has no wire prefix; it must not teach `mcp`.
+	r := VerbLiveness(stocks(map[string]string{
+		"retired-verbs.toml":         ledger + "\n[retired.mcp__old-db__find]\nstar = \"x\"\nsuccessor = \"y\"\n",
+		"governance/blocks/forge.md": "`mcp_something` is a word\n",
+	}))
+	want(t, r, StatePass, "0 verb mention(s)")
 }
 
 func TestRetiredPrefixesMakeBareNamesVerbs(t *testing.T) {

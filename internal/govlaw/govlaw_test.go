@@ -124,12 +124,18 @@ func TestVerdictFoldsFindingsAndWarnings(t *testing.T) {
 		t.Errorf("not sorted:\n%s", r.Report)
 	}
 	wantNot(t, r, "all well")
+	if strings.HasSuffix(r.Report, "\n") {
+		t.Errorf("the report ends in a newline: %q", r.Report)
+	}
 	r = verdict("x:y", "all well", nil, nil)
 	if r.State != StatePass || r.Report != "x:y: all well" {
 		t.Errorf("clean: %+v", r)
 	}
 	r = verdict("x:y", "all well", nil, []string{"w"})
 	want(t, r, StatePass, "x:y: all well", "WARNINGS (1, not gating)", "  w")
+	if strings.HasSuffix(r.Report, "\n") {
+		t.Errorf("the report ends in a newline: %q", r.Report)
+	}
 }
 
 // ---- law:lint ----

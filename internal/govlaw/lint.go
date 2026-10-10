@@ -139,7 +139,7 @@ func (t Tree) bundleNames() ([]string, *Result) {
 
 // includeCycles returns each cycle in the include graph once, as the path that
 // closes it (a -> b -> a). A name that is not a key (a bundle, an unknown
-// include) is a leaf. Roots and edges are walked in sorted order so a report is
+// include) has no edges, so it is a leaf. Roots and edges are walked in sorted order so a report is
 // the same on every run.
 func includeCycles(graph map[string][]string) [][]string {
 	const (
@@ -155,9 +155,6 @@ func includeCycles(graph map[string][]string) [][]string {
 		state[n] = walking
 		stack = append(stack, n)
 		for _, next := range graph[n] {
-			if _, isKit := graph[next]; !isKit {
-				continue
-			}
 			switch state[next] {
 			case walking:
 				at := slices.Index(stack, next)
@@ -249,9 +246,7 @@ func spanFindings(path, body string, docLen int, stems []string) []string {
 		case *r.Start < prevEnd:
 			out = append(out, fmt.Sprintf("%s (%s) starts at byte %d, inside the span before it (ends at %d)", at, *r.Slug, *r.Start, prevEnd))
 		}
-		if *r.End > prevEnd {
-			prevEnd = *r.End
-		}
+		prevEnd = max(prevEnd, *r.End)
 		if !slices.Contains(stems, *r.Slug) {
 			out = append(out, fmt.Sprintf("%s names block %q, which is not in %s", at, *r.Slug, blocksDir))
 		}

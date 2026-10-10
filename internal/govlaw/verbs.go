@@ -68,10 +68,6 @@ func ParseSurface(body string) (Surface, error) {
 	return s, nil
 }
 
-// Embedded is the snapshot that ships with the lane. It parses by construction;
-// a test holds that.
-func Embedded() (Surface, error) { return ParseSurface(embeddedSurface) }
-
 // addPrefixes teaches the surface the prefixes of the retired wire names, so a
 // bare `fleet_get_checkpoint` is read as a verb mention after the star left.
 func (s Surface) addPrefixes(l retiredverbs.Ledger) {
