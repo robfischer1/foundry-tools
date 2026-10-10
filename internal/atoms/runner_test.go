@@ -77,7 +77,7 @@ func TestBuiltinIsThePortedAtomsInOrder(t *testing.T) {
 		"compose:no-tracked-secrets", "compose:third-party-pins", "compose:config",
 		"dies:data-keys", "dies:canonical", "dies:refusal-codes", "dies:opa-test", "dies:admission-dogfood", "dies:canary-visibility",
 		"dies:contracts", "dies:contract-copies", "dies:schema", "dies:findings", "dies:schemas",
-		"dies:wit-regenerated", "dies:schema-rendered", "dies:wire-grammar",
+		"dies:wit-regenerated", "dies:schema-rendered", "dies:wire-grammar", "law:lint", "law:verb-liveness", "law:budget",
 		"orbit:contracts", "orbit:surface", "orbit:sidecars", "orbit:repo",
 		"ops:orbit-composed", "ops:orbit-sidecars", "ops:immutable", "ops:yaml", "ops:shell", "ops:chezmoi", "ops:flux", "ops:dup", "ops:declaration", "ops:specs", "ops:metrics", "ops:ansible",
 		"template:render-matrix", "wit:validate",

@@ -158,7 +158,7 @@ func TestTheCommitAndPushStagesHoldTheirAtoms(t *testing.T) {
 		"rust:cargo-fmt,rust:cargo-clippy,rust:cargo-test," +
 		"ts:bun-gate," +
 		"compose:config,compose:no-tracked-secrets,compose:third-party-pins," +
-		"dies:opa-test,dies:contracts,dies:contract-copies,dies:schema,dies:findings,dies:schemas,dies:wit-regenerated,dies:schema-rendered,dies:canonical,dies:refusal-codes,dies:wire-grammar"
+		"dies:opa-test,dies:contracts,dies:contract-copies,dies:schema,dies:findings,dies:schemas,dies:wit-regenerated,dies:schema-rendered,dies:canonical,dies:refusal-codes,dies:wire-grammar,law:lint,law:verb-liveness,law:budget"
 	push := "fleet:orbit-drift,fleet:dagger-lockstep,fleet:node-kinds-declared,fleet:consumed-events-emitted,ops:immutable,ops:orbit-sidecars,ops:orbit-composed,template:render-matrix,wit:validate,go:staticcheck,go:govulncheck,go:build,go:release,go:test-race,go:diff-coverage,python:pip-audit,python:release,rust:release,rust:cargo-audit,rust:wit-guest,rust:wit-compose,ts:bun-audit,ts:regen,ts:release," +
 		"dies:admission-dogfood,dies:data-keys,dies:canary-visibility,fleet:witness"
 	if got := ids(StagePrecommit); got != commit {
