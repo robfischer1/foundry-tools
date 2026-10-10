@@ -193,11 +193,13 @@ func (r Dev) MarshalJSON() ([]byte, error) {
 		Lang    string
 		Repo    string
 		Entries []string
+		Tree    string
 	}
 	concrete.Source = r.Source
 	concrete.Lang = r.Lang
 	concrete.Repo = r.Repo
 	concrete.Entries = r.Entries
+	concrete.Tree = r.Tree
 	return json.Marshal(&concrete)
 }
 
@@ -207,6 +209,7 @@ func (r *Dev) UnmarshalJSON(bs []byte) error {
 		Lang    string
 		Repo    string
 		Entries []string
+		Tree    string
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -216,6 +219,7 @@ func (r *Dev) UnmarshalJSON(bs []byte) error {
 	r.Lang = concrete.Lang
 	r.Repo = concrete.Repo
 	r.Entries = concrete.Entries
+	r.Tree = concrete.Tree
 	return nil
 }
 
@@ -819,6 +823,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Dev).Update(&parent, ctx, args)
+		case "Vendor":
+			var parent Dev
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Dev).Vendor(&parent, ctx)
 		case "Vet":
 			var parent Dev
 			err = json.Unmarshal(parentJSON, &parent)
@@ -1316,7 +1327,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg repo", err))
 				}
 			}
-			return (*FoundryTools).Dev(&parent, ctx, source, lang, repo)
+			var tree string
+			if inputArgs["tree"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["tree"]), &tree)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg tree", err))
+				}
+			}
+			return (*FoundryTools).Dev(&parent, ctx, source, lang, repo, tree)
 		case "Dies":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)

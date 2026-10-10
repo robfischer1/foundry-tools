@@ -17,6 +17,8 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"dagger/foundry-tools/internal/checks"
 )
 
 // Languages a Dev surface can drive.
@@ -96,9 +98,8 @@ func localCrates(lock string) []string {
 	var l struct {
 		Package []struct{ Name, Source string }
 	}
-	if _, err := toml.Decode(lock, &l); err != nil {
-		return nil
-	}
+	// A lock that will not parse names no crates; the error adds nothing.
+	_, _ = toml.Decode(lock, &l)
 	var names []string
 	for _, p := range l.Package {
 		if p.Source == "" && p.Name != "" {
@@ -173,14 +174,18 @@ func goArgsEnd(args []string) int {
 }
 
 // hasPackage says whether the go command's own arguments already name a package.
+// One pass with a flag saying "the previous argument was a flag that takes a
+// value", so the loop ends with the arguments and nothing moves its index.
 func hasPackage(args []string) bool {
-	end := goArgsEnd(args)
-	for i := 0; i < end; i++ {
-		a := args[i]
+	skip := false
+	for _, a := range args[:goArgsEnd(args)] {
+		if skip {
+			skip = false
+			continue
+		}
 		if strings.HasPrefix(a, "-") {
-			if goValueFlags[strings.SplitN(a, "=", 2)[0]] && !strings.Contains(a, "=") {
-				i++
-			}
+			name, _, hasValue := strings.Cut(a, "=")
+			skip = goValueFlags[name] && !hasValue
 			continue
 		}
 		if packageLike(a) {
@@ -297,7 +302,7 @@ func RustArgv(verb string, args []string) ([]string, error) {
 
 // verbs are the verbs each language answers to.
 var verbs = map[string][]string{
-	Go:   {"build", "vet", "test", "fmt", "tidy"},
+	Go:   {"build", "vet", "test", "fmt", "tidy", "vendor"},
 	Rust: {"check", "build", "test", "clippy", "fmt", "lock", "update"},
 }
 
@@ -324,18 +329,29 @@ func SettleCode(code int) int {
 	return 1
 }
 
-// LogLimit bounds the failure text carried as the settle exec's argument.
-const LogLimit = 64 << 10
+// StreamLimit bounds each of a failed tool's streams in the reason. Stdout and
+// stderr are tailed separately: one 64KB window over both let a large stderr
+// push cargo's failing-test names, which are on stdout, out of the reason.
+const StreamLimit = 32 << 10
 
-// GoFiles is the files gofmt acts on: the .go files of the population.
-func GoFiles(population []string) []string {
-	var out []string
-	for _, f := range population {
-		if strings.HasSuffix(f, ".go") {
-			out = append(out, f)
-		}
+// Reason is a failed tool's text as the settle exec prints it: the tail of
+// stdout, then the tail of stderr, each bounded on its own.
+func Reason(stdout, stderr string) string {
+	out, errs := checks.LogTail(stdout, StreamLimit), checks.LogTail(stderr, StreamLimit)
+	if out != "" && errs != "" && !strings.HasSuffix(out, "\n") {
+		out += "\n"
 	}
-	return out
+	return out + errs
+}
+
+// Refuse is the sentence for a source whose repository identity cannot be
+// found: the cargo target is never keyed on nothing (which would be the
+// fleet-shared volume), so the caller names one.
+func Refuse(repo string) error {
+	if repo != "" {
+		return nil
+	}
+	return errors.New("cannot tell which repository this is (no Go module path or Cargo package name): pass --repo=<name>, so the build cache is not shared with another repository's")
 }
 
 // Nonce makes a verb's exec fresh: the env value that keys it afresh. "" is no

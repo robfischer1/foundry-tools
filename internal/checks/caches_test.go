@@ -153,3 +153,33 @@ func TestReleaseCacheForKeysByRepoApartFromTheGatesTarget(t *testing.T) {
 		t.Errorf("a release build writes outside the release volume: %s %s %s", RustReleaseTarget, WitGuestTargetDir, WitReplayTargetDir)
 	}
 }
+
+// The Dev surface's cargo target is keyed on repo and tree and LOCKED; nothing
+// else about the lane's volumes moves, and the gate's own are never locked.
+func TestCachesForDevKeysTheTargetOnRepoAndTreeAndLocksIt(t *testing.T) {
+	dev := CachesForDev(ImageRust, "r", "/w/one")
+	gate := CachesForRepo(ImageRust, "r")
+	if len(dev) != len(gate) {
+		t.Fatalf("same volumes, %d vs %d", len(dev), len(gate))
+	}
+	for i, c := range dev {
+		if !gate[i].PerRepo {
+			if c != gate[i] || c.Locked {
+				t.Errorf("%s is shared and unchanged, got %+v", c.Path, c)
+			}
+			continue
+		}
+		if !c.Locked || gate[i].Locked {
+			t.Errorf("%s: dev LOCKED, gate not: %+v / %+v", c.Path, c, gate[i])
+		}
+		if c.Key != gate[i].Key+"-"+repoDigest("/w/one") {
+			t.Errorf("key %s is repo then tree", c.Key)
+		}
+	}
+	if k := CachesForDev(ImageRust, "r", "")[2].Key; k != "foundry-cargo-target-"+repoDigest("r") {
+		t.Errorf("no tree: the repo's alone, got %s", k)
+	}
+	if k := CachesForDev(ImageGo, "r", "/w")[0]; k.Locked || k.Key != "foundry-go-mod" {
+		t.Errorf("go caches are the fleet's, shared: %+v", k)
+	}
+}

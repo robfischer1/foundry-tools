@@ -1,7 +1,6 @@
 package devlane
 
 import (
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -101,6 +100,11 @@ func TestGoArgv(t *testing.T) {
 		{"--args also ends the go command's own", "test", []string{"--args", "x"}, false, "go test ./... --args x", false},
 		{"an = flag does not eat the next argument", "test", []string{"-count=1", "./x"}, false, "go test -count=1 ./x", false},
 		{"a trailing-dots pattern is a package", "test", []string{"cmd/..."}, false, "go test cmd/...", false},
+		{"-o consumes its value, a path", "build", []string{"-o", "./bin/x"}, false, "go build -o ./bin/x ./...", false},
+		{"-coverpkg consumes its package-shaped value", "test", []string{"-coverpkg", "./internal/..."}, false, "go test -coverpkg ./internal/... ./...", false},
+		{"a package after a value flag is seen", "test", []string{"-coverpkg", "./a/...", "./b"}, false, "go test -coverpkg ./a/... ./b", false},
+		{"a boolean flag consumes nothing", "test", []string{"-v", "./x"}, false, "go test -v ./x", false},
+		{"a trailing value flag has no value to eat", "test", []string{"-run"}, false, "go test -run ./...", false},
 		{"a value flag consumes its value", "test", []string{"-timeout", "30s", "-count=1"}, false, "go test -timeout 30s -count=1 ./...", false},
 		{"fmt is not an argv verb", "fmt", nil, false, "", true},
 		{"cargo verbs are not go", "clippy", nil, false, "", true},
@@ -132,6 +136,9 @@ func TestRustArgv(t *testing.T) {
 		{"-p narrows", "test", []string{"-p", "cerberus", "uuid_shape"}, "cargo test -p cerberus uuid_shape", false},
 		{"-pcrate narrows", "test", []string{"-pcerberus"}, "cargo test -pcerberus", false},
 		{"--profile is not -p", "build", []string{"--profile", "release"}, "cargo build --workspace --profile release", false},
+		{"bare --package narrows", "build", []string{"--package", "x"}, "cargo build --package x", false},
+		{"bare --manifest-path narrows", "check", []string{"--manifest-path", "a/Cargo.toml"}, "cargo check --manifest-path a/Cargo.toml", false},
+		{"-p before the separator, a scope-word after it", "test", []string{"-p", "x", "--", "--workspace"}, "cargo test -p x -- --workspace", false},
 		{"--package= narrows", "build", []string{"--package=x"}, "cargo build --package=x", false},
 		{"--manifest-path narrows", "check", []string{"--manifest-path=a/Cargo.toml"}, "cargo check --manifest-path=a/Cargo.toml", false},
 		{"--workspace is not doubled", "test", []string{"--workspace"}, "cargo test --workspace", false},
@@ -163,7 +170,7 @@ func TestAppliesNamesWhatTheLanguageHas(t *testing.T) {
 		lang, verb string
 		ok         bool
 	}{
-		{Go, "vet", true}, {Go, "tidy", true}, {Go, "fmt", true}, {Go, "clippy", false}, {Go, "lock", false},
+		{Go, "vet", true}, {Go, "tidy", true}, {Go, "vendor", true}, {Rust, "vendor", false}, {Go, "fmt", true}, {Go, "clippy", false}, {Go, "lock", false},
 		{Rust, "clippy", true}, {Rust, "update", true}, {Rust, "check", true}, {Rust, "vet", false}, {Rust, "tidy", false},
 		{Rust, "test", true}, {Go, "build", true},
 	} {
@@ -187,16 +194,6 @@ func TestSettleCode(t *testing.T) {
 	}
 }
 
-func TestGoFilesKeepsOnlyGo(t *testing.T) {
-	got := GoFiles([]string{"a.go", "b.txt", "x/y_test.go", "go.mod", "c.gox"})
-	if !reflect.DeepEqual(got, []string{"a.go", "x/y_test.go"}) {
-		t.Errorf("GoFiles = %v", got)
-	}
-	if GoFiles(nil) != nil {
-		t.Error("no files, no list")
-	}
-}
-
 func TestNonce(t *testing.T) {
 	if Nonce(false, 12345) != "" {
 		t.Error("an unforced run carries no nonce")
@@ -216,5 +213,90 @@ func TestIgnoreKeepsTheBigThingsHome(t *testing.T) {
 		if !found {
 			t.Errorf("Ignore lacks %s", want)
 		}
+	}
+}
+
+func TestPackageLike(t *testing.T) {
+	for arg, want := range map[string]bool{
+		".": true, "..": true, "./a": true, "../a": true, "a/...": true, "...": true,
+		"example.com/x": true, "a.b/c": true,
+		"": false, "foo": false, "x.y": false, "cmd/x": false, "TestX": false, "Test/sub": false, "-v": false,
+	} {
+		if got := packageLike(arg); got != want {
+			t.Errorf("packageLike(%q) = %v, want %v", arg, got, want)
+		}
+	}
+}
+
+func TestCargoOwnStopsAtTheSeparator(t *testing.T) {
+	for _, c := range []struct {
+		in   []string
+		want string
+	}{
+		{nil, ""}, {[]string{"-p", "x"}, "-p x"}, {[]string{"-p", "x", "--", "name"}, "-p x"}, {[]string{"--", "a"}, ""},
+	} {
+		if got := strings.Join(cargoOwn(c.in), " "); got != c.want {
+			t.Errorf("cargoOwn(%v) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestCargoScoped(t *testing.T) {
+	for _, c := range []struct {
+		args []string
+		want bool
+	}{
+		{nil, false}, {[]string{"-p"}, true}, {[]string{"-pfoo"}, true}, {[]string{"--profile"}, false},
+		{[]string{"--package"}, true}, {[]string{"--package=x"}, true}, {[]string{"--workspace"}, true}, {[]string{"--all"}, true},
+		{[]string{"--manifest-path"}, true}, {[]string{"--manifest-path=a"}, true}, {[]string{"name"}, false},
+		{[]string{"--", "-p"}, false}, {[]string{"-q", "-p", "x"}, true},
+	} {
+		if got := cargoScoped(c.args); got != c.want {
+			t.Errorf("cargoScoped(%v) = %v, want %v", c.args, got, c.want)
+		}
+	}
+}
+
+// Each stream is tailed on its own: a huge stderr must not push stdout's failing
+// test names out of the reason.
+func TestReasonTailsEachStreamOnItsOwn(t *testing.T) {
+	if got := Reason("", ""); got != "" {
+		t.Errorf("nothing printed, nothing said: %q", got)
+	}
+	if got := Reason("out\n", "err\n"); got != "out\nerr\n" {
+		t.Errorf("both streams, in order: %q", got)
+	}
+	if got := Reason("out", "err"); got != "out\nerr" {
+		t.Errorf("a stream without a final newline is separated: %q", got)
+	}
+	if got := Reason("out\n", ""); got != "out\n" {
+		t.Errorf("stdout alone: %q", got)
+	}
+	if got := Reason("", "err"); got != "err" {
+		t.Errorf("stderr alone: %q", got)
+	}
+	big := strings.Repeat("e", 3*StreamLimit)
+	got := Reason("test t::bad ... FAILED\n", big)
+	if !strings.Contains(got, "test t::bad ... FAILED") {
+		t.Error("stdout's failing test was pushed out by stderr")
+	}
+	if want := StreamLimit + len("test t::bad ... FAILED\n") + len("… 65536 earlier byte(s) of the log dropped …\n"); len(got) != want {
+		t.Errorf("stderr is cut to the limit (plus the note): len %d, want %d", len(got), want)
+	}
+	exact := strings.Repeat("x", StreamLimit)
+	if got := Reason(exact, ""); got != exact {
+		t.Error("a stream exactly at the limit is kept whole")
+	}
+	if got := Reason(exact+"y", ""); !strings.HasSuffix(got, exact[1:]+"y") || !strings.HasPrefix(got, "… 1 earlier byte(s)") {
+		t.Errorf("one byte over is cut by one: %.60q", got)
+	}
+}
+
+func TestRefuseAnUnidentifiedRepo(t *testing.T) {
+	if Refuse("x") != nil {
+		t.Error("a named repo is fine")
+	}
+	if err := Refuse(""); err == nil || !strings.Contains(err.Error(), "--repo") {
+		t.Errorf("no identity must be refused: %v", err)
 	}
 }

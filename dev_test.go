@@ -34,11 +34,39 @@ func devOver(t *testing.T, tree map[string]string, lang, repo string) *Dev {
 	t.Helper()
 	engine.reset()
 	engine.withTree(tree)
-	d, err := (&FoundryTools{}).Dev(context.Background(), dag.Directory(), lang, repo)
+	d, err := (&FoundryTools{}).Dev(context.Background(), dag.Directory(), lang, repo, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	return d
+}
+
+// settledWith asserts the call ended on the verdict exec carrying the reason as
+// a FILE (so the engine does not echo it into the exec's title a second time),
+// and answers the file's text. The code is the verdict exec's first argument.
+func settledWith(t *testing.T, code string) string {
+	t.Helper()
+	chain := engine.chain(`"/usr/local/bin/verdict"`)
+	if chain == "" {
+		t.Fatal("the call never settled: no verdict exec reached the engine")
+	}
+	wantCalls(t, chain, []string{"withExec", `args:["/usr/local/bin/verdict","` + code + `","@/reason"]`})
+	m := regexp.MustCompile(`withNewFile\(([^)]*path:"/reason"[^)]*)\)`).FindStringSubmatch(chain)
+	if m == nil {
+		t.Fatalf("the reason was not written to /reason:\n%s", chain)
+	}
+	body := regexp.MustCompile(`contents:"((?:[^"\\]|\\.)*)"`).FindStringSubmatch(m[1])
+	if body == nil {
+		t.Fatalf("no contents in %s", m[1])
+	}
+	var out string
+	if err := json.Unmarshal([]byte(`"`+body[1]+`"`), &out); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(chain, `"verdict","`+code+`","`) {
+		t.Error("the reason must not ride the argument list")
+	}
+	return out
 }
 
 // A failing tool reaches the verdict exec with its output, and a passing one
@@ -59,17 +87,25 @@ func TestDevTestEndsOnTheToolsOwnExit(t *testing.T) {
 	engine.exitCode(`"go","test"`, 1)
 	engine.stdout(`"go","test"`, "--- FAIL: TestX\n")
 	engine.stderr(`"go","test"`, "FAIL\n")
-	// The paper engine answers the verdict exec with success; the exec is the proof.
-	_, _ = d.Test(t.Context(), nil, true, false)
-	settledOn(t, "1", "--- FAIL: TestX")
-	settledOn(t, "1", "FAIL")
+	// The real engine fails the verdict exec with the tool's code; say so.
+	engine.fail(`"/usr/local/bin/verdict"`, "exit code: 1")
+	if _, err := d.Test(t.Context(), nil, true, false); err == nil || !strings.Contains(err.Error(), "exit code: 1") {
+		t.Fatalf("a failing suite must fail the call: %v", err)
+	}
+	// stdout first, then stderr, once each.
+	if got := settledWith(t, "1"); got != "--- FAIL: TestX\nFAIL\n" {
+		t.Errorf("reason %q", got)
+	}
 
 	// A kill or a missing binary is not a finding.
 	engine.reset()
 	engine.withTree(devGoTree)
 	engine.exitCode(`"go","test"`, 127)
-	_, _ = d.Test(t.Context(), nil, true, false)
-	settledOn(t, "2", "")
+	engine.fail(`"/usr/local/bin/verdict"`, "exit code: 2")
+	if _, err := d.Test(t.Context(), nil, true, false); err == nil {
+		t.Error("a missing binary must fail the call")
+	}
+	settledWith(t, "2")
 }
 
 func TestDevGoTestRunsRacedInTheGoLaneWithGitAndTheDies(t *testing.T) {
@@ -185,25 +221,77 @@ func TestDevRustVerbsRunTheGatesCargoLane(t *testing.T) {
 	wantCalls(t, engine.chain(`"cargo","test"`, "exitCode"), []string{"withExec", `args:["git","init","-q","."]`})
 }
 
-// The cargo target is the repository's: the volume is keyed on the identity, so
-// every worktree of the repo lands on it; --repo overrides.
-func TestDevCargoTargetIsKeyedOnTheRepoNotTheWorktree(t *testing.T) {
-	for _, c := range []struct{ repo, want string }{{"", "devcrate"}, {"cerberus", "cerberus"}} {
-		d := devOver(t, devRustTree, "", c.repo)
+// THE CARGO TARGET IS THE REPOSITORY'S AND THE TREE'S, AND LOCKED. Two trees of
+// one crate name share /src-relative artifact paths, so a shared mount let tree
+// A's test run tree B's binary (reproduced, exit 0). The key composes repo and
+// tree; LOCKED holds the volume across the test binaries; and the gate's own
+// mounts are left as they were.
+func TestDevCargoTargetIsKeyedOnRepoAndTreeAndLocked(t *testing.T) {
+	for _, c := range []struct{ repo, tree, wantRepo string }{
+		{"", "/w/one", "devcrate"},
+		{"", "/w/two", "devcrate"},
+		{"cerberus", "", "cerberus"},
+		{"cerberus", "/w/one", "cerberus"},
+	} {
+		engine.reset()
+		engine.withTree(devRustTree)
+		d, err := (&FoundryTools{}).Dev(t.Context(), dag.Directory(), "", c.repo, c.tree)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if _, err := d.Check(t.Context(), nil, false); err != nil {
 			t.Fatal(err)
 		}
-		key := checks.CachesForRepo(checks.ImageRust, c.want)[2].Key
+		key := checks.CachesForDev(checks.ImageRust, c.wantRepo, c.tree)[2].Key
 		if engine.chain(`cacheVolume(`, `key:"`+key+`"`) == "" {
-			t.Errorf("repo %q: no volume keyed %s:\n%v", c.repo, key, engine.chains())
+			t.Fatalf("repo %q tree %q: no volume keyed %s:\n%v", c.repo, c.tree, key, engine.chains())
+		}
+		chain := engine.chain(`"cargo","check"`, "exitCode")
+		wantCalls(t, chain, []string{"withMountedCache", `path:"/cache/cargo-target"`, `sharing:LOCKED`})
+		// The registry volumes are the gate's: shared, content-addressed.
+		for _, p := range []string{"/usr/local/cargo/registry", "/usr/local/cargo/git"} {
+			if hasCall(chain, "withMountedCache", `path:"`+p+`"`, `sharing:LOCKED`) {
+				t.Errorf("%s must stay shared", p)
+			}
 		}
 	}
-	// And the registry volumes are the gate's, shared.
-	d := devOver(t, devRustTree, "", "")
-	_, _ = d.Check(t.Context(), nil, false)
-	for _, k := range []string{"foundry-cargo-registry", "foundry-cargo-git"} {
-		if engine.chain(`cacheVolume(`, `key:"`+k+`"`) == "" {
-			t.Errorf("no shared volume %s", k)
+	// Different trees, different volumes; the same tree, the same one; and never
+	// the fleet-shared or the gate's per-repo key.
+	one := checks.CachesForDev(checks.ImageRust, "r", "/w/one")[2].Key
+	two := checks.CachesForDev(checks.ImageRust, "r", "/w/two")[2].Key
+	if one == two || one == checks.CachesForDev(checks.ImageRust, "r", "")[2].Key {
+		t.Errorf("trees must key apart: %s %s", one, two)
+	}
+	if one == checks.CachesForRepo(checks.ImageRust, "r")[2].Key || one == "foundry-cargo-target" {
+		t.Errorf("dev must not reuse the gate's or the fleet's target: %s", one)
+	}
+}
+
+// The gate's mounts are not locked.
+func TestTheGatesCargoTargetIsStillShared(t *testing.T) {
+	engine.reset()
+	if _, err := newRun(dag.Directory(), "http://door/x.git", "").cargoDeps().Sync(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	chain := engine.chain(`"cargo","fetch"`)
+	if chain == "" || hasCall(chain, "withMountedCache", `path:"/cache/cargo-target"`, `sharing:LOCKED`) {
+		t.Errorf("the gate's target must not be LOCKED:\n%s", chain)
+	}
+}
+
+// With no identity there is no safe key: refuse, do not share the fleet's.
+func TestDevRefusesASourceItCannotIdentify(t *testing.T) {
+	for _, tree := range []map[string]string{
+		{"Cargo.toml": "[workspace]\n"},
+		{"go.mod": "go 1.26\n"},
+	} {
+		engine.reset()
+		engine.withTree(tree)
+		if _, err := (&FoundryTools{}).Dev(t.Context(), dag.Directory(), "", "", ""); err == nil || !strings.Contains(err.Error(), "--repo") {
+			t.Errorf("%v: %v", tree, err)
+		}
+		if _, err := (&FoundryTools{}).Dev(t.Context(), dag.Directory(), "", "named", ""); err != nil {
+			t.Errorf("--repo names it: %v", err)
 		}
 	}
 }
@@ -233,15 +321,15 @@ func TestDevRefusesAVerbTheLanguageLacks(t *testing.T) {
 func TestDevConstructorReadsTheTree(t *testing.T) {
 	engine.reset()
 	engine.withTree(map[string]string{"README.md": ""})
-	if _, err := (&FoundryTools{}).Dev(t.Context(), dag.Directory(), "", ""); err == nil || !strings.Contains(err.Error(), "no go.mod or Cargo.toml") {
+	if _, err := (&FoundryTools{}).Dev(t.Context(), dag.Directory(), "", "", ""); err == nil || !strings.Contains(err.Error(), "no go.mod or Cargo.toml") {
 		t.Errorf("an empty tree: %v", err)
 	}
 	engine.reset()
 	engine.withTree(map[string]string{"go.mod": "module a\n", "Cargo.toml": "[package]\nname=\"b\"\n"})
-	if _, err := (&FoundryTools{}).Dev(t.Context(), dag.Directory(), "", ""); err == nil || !strings.Contains(err.Error(), "--lang") {
+	if _, err := (&FoundryTools{}).Dev(t.Context(), dag.Directory(), "", "", ""); err == nil || !strings.Contains(err.Error(), "--lang") {
 		t.Errorf("an ambiguous tree: %v", err)
 	}
-	d, err := (&FoundryTools{}).Dev(t.Context(), dag.Directory(), "rust", "")
+	d, err := (&FoundryTools{}).Dev(t.Context(), dag.Directory(), "rust", "", "")
 	if err != nil || d.Lang != devlane.Rust || d.Repo != "b" {
 		t.Errorf("--lang=rust picks the rust identity: %+v, %v", d, err)
 	}
@@ -251,13 +339,13 @@ func TestDevConstructorReadsTheTree(t *testing.T) {
 		"Cargo.toml": "[workspace]\nmembers = [\"crates/*\"]\n",
 		"Cargo.lock": "[[package]]\nname = \"one\"\n[[package]]\nname = \"two\"\n",
 	})
-	if d, err = (&FoundryTools{}).Dev(t.Context(), dag.Directory(), "", ""); err != nil || d.Repo != "workspace:one,two" {
+	if d, err = (&FoundryTools{}).Dev(t.Context(), dag.Directory(), "", "", ""); err != nil || d.Repo != "workspace:one,two" {
 		t.Errorf("virtual workspace: %+v, %v", d, err)
 	}
 	// An explicit --repo reads no manifest.
 	engine.reset()
 	engine.withTree(devGoTree)
-	if d, err = (&FoundryTools{}).Dev(t.Context(), dag.Directory(), "", "mine"); err != nil || d.Repo != "mine" {
+	if d, err = (&FoundryTools{}).Dev(t.Context(), dag.Directory(), "", "mine", ""); err != nil || d.Repo != "mine" {
 		t.Errorf("--repo: %+v, %v", d, err)
 	}
 	if engine.chain(`path:"go.mod"`, "contents") != "" {
@@ -303,45 +391,106 @@ func TestDevFmtRewritesInPlaceAndAnswersOnlyTheDifference(t *testing.T) {
 	engine.withTree(tree)
 	engine.exitCode(`"gofmt"`, 123)
 	engine.stderr(`"gofmt"`, "a.go:1:1: expected 'package'\n")
-	_, _ = d.Fmt(t.Context(), nil)
-	settledOn(t, "1", "expected 'package'")
+	engine.fail(`"/usr/local/bin/verdict"`, "exit code: 1")
+	if _, err := d.Fmt(t.Context(), nil); err == nil {
+		t.Error("gofmt failing is the call failing")
+	}
+	if got := settledWith(t, "1"); !strings.Contains(got, "expected 'package'") {
+		t.Errorf("reason %q", got)
+	}
 }
 
-func TestDevTidyVendorsOnlyWhereThereIsAVendorDirectory(t *testing.T) {
-	d := devOver(t, devGoTree, "", "")
-	if _, err := d.Tidy(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if engine.chain(`"go","mod","tidy"`, "exitCode") == "" {
-		t.Fatal("go mod tidy never ran")
-	}
-	if engine.chain(`"go","mod","vendor"`) != "" {
-		t.Error("no vendor/, no go mod vendor")
+func TestDevTidyRunsOnlyGoModTidyAndLeavesVendorAlone(t *testing.T) {
+	vendored := map[string]string{"go.mod": "module m\n", "vendor/modules.txt": "# x\n"}
+	for _, tree := range []map[string]string{devGoTree, vendored} {
+		d := devOver(t, tree, "", "")
+		if _, err := d.Tidy(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		if engine.chain(`"go","mod","tidy"`, "exitCode") == "" {
+			t.Fatal("go mod tidy never ran")
+		}
+		if engine.chain(`"go","mod","vendor"`) != "" {
+			t.Error("tidy must not re-vendor: vendor/ is exported by its own verb")
+		}
 	}
 
+	d := devOver(t, vendored, "", "")
+	engine.exitCode(`"go","mod","tidy"`, 1)
+	engine.stderr(`"go","mod","tidy"`, "go: example.com/x: reading go.sum\n")
+	engine.fail(`"/usr/local/bin/verdict"`, "exit code: 1")
+	if _, err := d.Tidy(t.Context()); err == nil {
+		t.Error("a failed tidy fails the call")
+	}
+	if got := settledWith(t, "1"); !strings.Contains(got, "reading go.sum") {
+		t.Errorf("reason %q", got)
+	}
+}
+
+// vendor answers the whole vendor directory, or an empty one when the tool
+// removed it, so that `export --wipe` leaves vendor/ matching the tool.
+func TestDevVendorAnswersTheVendorDirectory(t *testing.T) {
 	vendored := map[string]string{"go.mod": "module m\n", "vendor/modules.txt": "# x\n"}
-	d = devOver(t, vendored, "", "")
-	if _, err := d.Tidy(t.Context()); err != nil {
+	d := devOver(t, vendored, "", "")
+	engine.withTree(map[string]string{"/src/vendor/modules.txt": ""})
+	dir, err := d.Vendor(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dir.Sync(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	c := engine.chain(`"go","mod","vendor"`, "exitCode")
-	if c == "" {
-		t.Fatal("a vendored tree is re-vendored")
+	wantCalls(t, c,
+		[]string{"withEnvVariable", `name:"GOFLAGS"`, `value:"-mod=mod"`},
+		[]string{"withExec", `expect:ANY`, `args:["go","mod","vendor"]`},
+	)
+	if !strings.Contains(c, checks.ImageGo) {
+		t.Error("go mod vendor runs in the go lane image")
 	}
-	if tidy, vendor := strings.Index(c, `"go","mod","tidy"`), strings.Index(c, `"go","mod","vendor"`); tidy < 0 || tidy > vendor {
-		t.Errorf("tidy runs before vendor:\n%s", c)
+	if engine.chain(`"go","mod","vendor"`, `directory(path:"/src/vendor")`) == "" {
+		t.Errorf("the vendor directory itself is the answer:\n%v", engine.chains())
 	}
 
-	// A tidy that fails stops the sequence: vendor never runs on a broken graph.
-	engine.reset()
-	engine.withTree(vendored)
-	engine.exitCode(`"go","mod","tidy"`, 1)
-	engine.stderr(`"go","mod","tidy"`, "go: example.com/x: reading go.sum\n")
-	_, _ = d.Tidy(t.Context())
-	if engine.chain(`"go","mod","vendor"`) != "" {
-		t.Error("vendor ran after a failed tidy")
+	// The tool removed vendor/ (no dependencies left): the answer is empty.
+	d = devOver(t, vendored, "", "")
+	dir, err = d.Vendor(t.Context())
+	if err != nil {
+		t.Fatal(err)
 	}
-	settledOn(t, "1", "reading go.sum")
+	if _, err := dir.Sync(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if engine.chain(`directory(path:"/src/vendor")`) != "" {
+		t.Error("no vendor/ after the tool: the answer must not name it")
+	}
+
+	// Not a vendored tree, and not a Go tree.
+	d = devOver(t, devGoTree, "", "")
+	if _, err := d.Vendor(t.Context()); err == nil || !strings.Contains(err.Error(), "no vendor/") {
+		t.Errorf("an unvendored tree: %v", err)
+	}
+	d = devOver(t, devRustTree, "", "")
+	if _, err := d.Vendor(t.Context()); err == nil || !strings.Contains(err.Error(), "does not exist for a rust source") {
+		t.Errorf("a rust tree: %v", err)
+	}
+
+	// A failed go mod vendor fails the call and answers no directory.
+	d = devOver(t, vendored, "", "")
+	engine.exitCode(`"go","mod","vendor"`, 1)
+	engine.stderr(`"go","mod","vendor"`, "go: cannot find module\n")
+	engine.fail(`"/usr/local/bin/verdict"`, "exit code: 1")
+	if _, err := d.Vendor(t.Context()); err == nil {
+		t.Error("a failed vendor fails the call")
+	}
+	settledWith(t, "1")
+
+	// The engine cannot read the tree back.
+	d = devOver(t, vendored, "", "")
+	engine.failLeaf(`"go","mod","vendor"`, "entries", "engine gone")
+	if _, err := d.Vendor(t.Context()); err == nil || !strings.Contains(err.Error(), "could not read the tree back") {
+		t.Errorf("unreadable tree: %v", err)
+	}
 }
 
 func TestDevRustRewritersTakeNoLockedFetch(t *testing.T) {
@@ -421,7 +570,7 @@ func TestDevUploadsWhatJustCheckUploadsLessGit(t *testing.T) {
 func TestDevSaysWhenTheEngineCannotReadTheTree(t *testing.T) {
 	engine.reset()
 	engine.fail(`entries`, "engine gone")
-	if _, err := (&FoundryTools{}).Dev(t.Context(), dag.Directory(), "", ""); err == nil || !strings.Contains(err.Error(), "could not read the source root") {
+	if _, err := (&FoundryTools{}).Dev(t.Context(), dag.Directory(), "", "", ""); err == nil || !strings.Contains(err.Error(), "could not read the source root") {
 		t.Errorf("root unreadable: %v", err)
 	}
 
