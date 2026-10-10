@@ -614,3 +614,23 @@ func TestGoMutationVerdictDoesNotFireWhenSomethingWasKilled(t *testing.T) {
 		t.Errorf("a run that killed something measured something: state=%d %s", state, reason)
 	}
 }
+
+// Only the over-budget could-not-run is deterministic: a pass, a finding or a
+// could-not-run for any other cause is not.
+func TestGoMutationOverBudgetNamesOnlyTheTimeoutCouldNotRun(t *testing.T) {
+	over := "go:mutation: 100% " + GoMutationOverBudgetCause + " 10% budget — the suite was not measured"
+	for _, c := range []struct {
+		state  int
+		reason string
+		want   bool
+	}{
+		{int(StateCannotRun), over, true},
+		{int(StateCannotRun), "go:mutation: CANNOT RUN - proxy said 404", false},
+		{0, over, false},
+		{1, over, false},
+	} {
+		if got := GoMutationOverBudget(c.state, c.reason); got != c.want {
+			t.Errorf("state %d %q: got %v, want %v", c.state, c.reason, got, c.want)
+		}
+	}
+}

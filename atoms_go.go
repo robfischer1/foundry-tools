@@ -855,7 +855,20 @@ func goGovulncheck(ctx context.Context, r *run) checks.Verdict {
 func goMutation(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("go:mutation")
 	return r.eachModule(ctx, a, func(dir string) checks.Verdict {
-		return reasked(goMutationIn(ctx, r, a, dir), func() checks.Verdict {
+		// AN OVER-BUDGET TIMEOUT IS ASKED ONCE PER COMMIT (foundry-tools#16081,
+		// Rob's ruling). It is a deterministic result of the tree and the lane's
+		// config, so a second ask for the same sha is answered from the memo
+		// and the re-ask below is skipped; a new sha is a new tree and runs.
+		key := overBudgetKey(r.sha, dir)
+		if v, ok := overBudgetMemo.get(key); ok {
+			return v
+		}
+		first := goMutationIn(ctx, r, a, dir)
+		if checks.GoMutationOverBudget(first.State, first.Reason) {
+			overBudgetMemo.put(key, first)
+			return first
+		}
+		return reasked(first, func() checks.Verdict {
 			return goMutationIn(ctx, r.reaskedAgain(reaskNonce()), a, dir)
 		})
 	})
