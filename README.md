@@ -116,6 +116,8 @@ No atom reads a configuration the repository authored — not `pyproject.toml`'s
 
 `compose:` and `dies:` are cross-lane like `fleet:`, run on a pull's path like `fleet:`, and are **not** `fleet:` — because `fleet:` is the namespace whose atoms have something to say about *every* repository, which is what makes `dagger check fleet:` worth typing. These have something to say about six of the eighty-six. Their condition is a **surface** the atom finds inside the tree rather than a root manifest a `Lane` can name, so the namespace names the surface and everywhere else they report `ABSENT` and say why. The set of surface namespaces is **closed** (`checks.SurfaceNamespaces`), and `TestEveryAtomIsWellFormed` refuses an id in an undeclared one.
 
+`law:` (Nomos F5b) is the same kind of namespace for foundry-stocks' governance law: `law:lint`, `law:verb-liveness` and `law:budget` run on every law commit and report `ABSENT` on any tree that lacks a root `kits.toml` beside a `retired-verbs.toml`. Verb liveness grades the blocks and rendered context documents against `retired-verbs.toml` and a snapshot of hades's wire surface (`internal/govlaw/verb-surface.toml`; a foundry-stocks checkout's own `verb-surface.toml` overrides it) because a gate atom cannot list the live gateway.
+
 They exist because the **act-runner is being removed**, and what it validated is validated by the gate or not at all:
 
 | atom | ported from | what it asks | ABSENT when |

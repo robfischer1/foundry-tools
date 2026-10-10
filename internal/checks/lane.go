@@ -120,6 +120,10 @@ var SurfaceNamespaces = map[string]string{
 	// One repository of the fleet carries it; the atom answers ABSENT
 	// everywhere else, which is the argument above for why it is NOT `fleet:`.
 	"wit": "tracked wit/**/*.wit beside a root justfile that defines validate — an interface repository",
+	// law: foundry-stocks, the tablet the fleet's governance is inscribed on —
+	// a root kits.toml beside a retired-verbs.toml (Nomos F5b). One repository
+	// of the fleet carries it; the atoms answer ABSENT everywhere else.
+	"law": "foundry-stocks — a root kits.toml beside a retired-verbs.toml, the governance law tree",
 }
 
 // IsSurfaceNamespace reports whether an atom id sits in a declared surface

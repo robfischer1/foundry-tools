@@ -535,6 +535,22 @@ func atomTable() []AtomDef {
 			Desc: "Every string enum in an answer schema folds onto the six findings words or is declared kept, and no required measure can only say 'not measured' as 0 - each section warns until its count is 0, then fails.",
 		},
 
+		// ---- law: the governance CI lanes on foundry-stocks law commits ----
+		// Nomos F5b. Each is ABSENT on a tree that is not foundry-stocks (a
+		// kits.toml beside a retired-verbs.toml); the judgement is internal/govlaw.
+		{
+			ID: "law:lint", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "foundry-stocks' blocks are non-empty with slug stems, every kit names only blocks that exist (an unknown include warns, a cycle fails), and every render's span map parses and covers its context document.",
+		},
+		{
+			ID: "law:verb-liveness", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "Every MCP verb a governance block or rendered context document names is on hades's wire surface and none is in retired-verbs.toml.",
+		},
+		{
+			ID: "law:budget", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "No render's always-on context document grows past its ceiling in renders/.budget.toml; raising a ceiling is a line in the same commit.",
+		},
+
 		// ---- orbit: the orbit lane, asked for by name (StageOrbit) ----
 		{
 			ID: "orbit:contracts", Stage: StageOrbit, Lane: LaneAny, Image: ImageFleet,

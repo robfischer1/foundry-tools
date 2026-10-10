@@ -29,7 +29,7 @@ func TestStageIDs(t *testing.T) {
 		"compose:no-tracked-secrets", "compose:third-party-pins", "compose:config",
 		"dies:canonical", "dies:refusal-codes", "dies:opa-test",
 		"dies:contracts", "dies:contract-copies", "dies:schema", "dies:findings", "dies:schemas",
-		"dies:wit-regenerated", "dies:schema-rendered", "dies:wire-grammar",
+		"dies:wit-regenerated", "dies:schema-rendered", "dies:wire-grammar", "law:lint", "law:verb-liveness", "law:budget",
 		"ops:yaml", "ops:shell", "ops:chezmoi", "ops:flux", "ops:dup", "ops:declaration", "ops:specs", "ops:metrics", "ops:ansible",
 	}
 	for _, tc := range []struct {
