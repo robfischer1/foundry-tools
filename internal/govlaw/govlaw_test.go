@@ -44,10 +44,14 @@ func mapTree(files map[string]string, fail map[string]bool) Tree {
 	}
 	sort.Strings(paths)
 	return Tree{Paths: paths, Read: func(p string) (string, error) {
-		if fail[p] {
+		body, ok := files[p]
+		switch {
+		case fail[p]:
 			return "", errors.New("i/o error")
+		case !ok:
+			return "", errors.New("no such file: " + p)
 		}
-		return files[p], nil
+		return body, nil
 	}}
 }
 
@@ -229,6 +233,12 @@ func TestIncludeCyclesWalksSharedDescendantsOnce(t *testing.T) {
 	// A cycle that does not pass through the root is reported from where it closes.
 	g = map[string][]string{"a": {"b"}, "b": {"c"}, "c": {"b"}}
 	got := includeCycles(g)
+	if len(got) != 1 || strings.Join(got[0], ",") != "b,c,b" {
+		t.Errorf("got %v, want [b c b]", got)
+	}
+	// A finished sibling must not sit in the path of a cycle found after it.
+	g = map[string][]string{"a": {"b"}, "b": {"x", "c"}, "x": nil, "c": {"b"}}
+	got = includeCycles(g)
 	if len(got) != 1 || strings.Join(got[0], ",") != "b,c,b" {
 		t.Errorf("got %v, want [b c b]", got)
 	}

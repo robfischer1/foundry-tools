@@ -110,8 +110,8 @@ func verdict(id, passed string, findings, warnings []string) Result {
 	return Result{state, strings.TrimRight(b.String(), "\n")}
 }
 
-// matching returns the tree's paths that match re, sorted, with the submatches
-// of each.
+// matching returns the tree's paths that match re, in the tree's order, with
+// the submatches of each.
 func (t Tree) matching(re *regexp.Regexp) (paths []string, groups map[string][]string) {
 	groups = map[string][]string{}
 	for _, p := range t.Paths {
@@ -120,7 +120,6 @@ func (t Tree) matching(re *regexp.Regexp) (paths []string, groups map[string][]s
 			groups[p] = m[1:]
 		}
 	}
-	sort.Strings(paths)
 	return paths, groups
 }
 

@@ -20,7 +20,7 @@ const forgeBlock = "## GitOps\n\n" +
 
 func TestVerbLivenessIsGreenOnTheCurrentBlocks(t *testing.T) {
 	r := VerbLiveness(stocks(map[string]string{"governance/blocks/forge.md": forgeBlock}))
-	want(t, r, StatePass, "9 verb mention(s) in 2 unit(s) are all served by hades (the snapshot embedded in foundry-tools) and none is retired")
+	want(t, r, StatePass, ": 9 verb mention(s) in 2 unit(s) are all served by hades (the snapshot embedded in foundry-tools) and none is retired")
 }
 
 func TestVerbLivenessIsRedOnTheAugustText(t *testing.T) {
@@ -30,6 +30,12 @@ func TestVerbLivenessIsRedOnTheAugustText(t *testing.T) {
 		"governance/blocks/forge.md:7  athena_quick_add is not a verb on hades's surface",
 		"governance/blocks/forge.md:7  athena_task_update is not a verb on hades's surface")
 	wantNot(t, r, "repo_ci_logs", "git_guard", "rhyme_recall")
+}
+
+func TestAGlobThatMatchesNothingIsReportedAsAGlob(t *testing.T) {
+	r := VerbLiveness(stocks(map[string]string{"governance/blocks/forge.md": "all of mcp__hades__athena* and mcp__hades__plan* and `athena_x`\n"}))
+	want(t, r, StateFindings, "forge.md:1  athena* is not a verb on hades's surface", "forge.md:1  athena_x is not a verb")
+	wantNot(t, r, "plan*", "athena_x*")
 }
 
 func TestMentionsReadsQualifiedAndBareNames(t *testing.T) {
