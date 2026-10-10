@@ -591,3 +591,21 @@ func TestDevPlanRefusesAnUnknownVerb(t *testing.T) {
 		}
 	}
 }
+
+// A tool that ran but whose output cannot be read is an error naming which half,
+// and a vendor whose tool never ran is the same.
+func TestDevSaysWhenTheOutputOrTheRunIsLost(t *testing.T) {
+	for _, leaf := range []string{"stdout", "stderr"} {
+		d := devOver(t, devGoTree, "", "")
+		engine.failLeaf(`"go","build"`, leaf, "engine gone")
+		out, err := d.Build(t.Context(), nil, false)
+		if err == nil || !strings.Contains(err.Error(), "its output could not be read") || out != "" {
+			t.Errorf("%s: %q, %v", leaf, out, err)
+		}
+	}
+	d := devOver(t, map[string]string{"go.mod": "module m\n", "vendor/modules.txt": "# x\n"}, "", "")
+	engine.failLeaf(`"go","mod","vendor"`, "exitCode", "failed to pull golang: 404")
+	if _, err := d.Vendor(t.Context()); err == nil || !strings.Contains(err.Error(), "vendor could not run") {
+		t.Errorf("vendor that never ran: %v", err)
+	}
+}
