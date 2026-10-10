@@ -39,6 +39,9 @@ const PayloadDir = "payload"
 // binaries are the tree's (BinariesFromGoList, BinariesFromCargoMetadata) and
 // the payload is the tree's payload/ directory; neither is declared.
 type Cast struct {
+	// Kind is the bundle kind the channel rides: app for every binary repo (the
+	// zero value), runtime-gov for a governance render.
+	Kind string
 	Name string
 	// LegacyExtras is the record's tools.cast.payload_extra, read only so a
 	// repo that has not yet moved its extras under payload/ still casts what
@@ -47,14 +50,30 @@ type Cast struct {
 	LegacyExtras []string
 }
 
+// KindApp is the bundle kind a binary repo's channel rides.
+const KindApp = "app"
+
+// kind is the channel's kind, app unless the cast names another.
+func (c Cast) kind() string {
+	if c.Kind == "" {
+		return KindApp
+	}
+	return c.Kind
+}
+
 // Artifact is the bundle channel the cast mints into. It is app/<name>:stable
 // for every binary repo, which is why the record carries no artifact field.
-func (c Cast) Artifact() string { return "app/" + c.Name + ":stable" }
+func (c Cast) Artifact() string { return c.kind() + "/" + c.Name + ":stable" }
+
+// Repo is the channel's repository on host, without a tag or digest.
+func (c Cast) Repo(host string) string { return host + "/" + c.kind() + "/" + c.Name }
 
 // Stage is the reference the payload is pushed to before mold consumes it:
 // furnace stage's {host}/staging/{name}:{pin}, the channel's kind and name
 // joined so the staging name stays one bare segment.
-func (c Cast) Stage(host, pin string) string { return host + "/staging/app-" + c.Name + ":" + pin }
+func (c Cast) Stage(host, pin string) string {
+	return host + "/staging/" + c.kind() + "-" + c.Name + ":" + pin
+}
 
 // Target is where a legacy payload_extra path lands in the payload: under its
 // own basename, so .cerberus/hooks ships as hooks/ beside the binaries.
@@ -355,7 +374,7 @@ func Minted(status int, raw, staged string) (Result, int, string) {
 // fields, so a rung bell only makes a deploy faster.
 func Doorbell(c Cast, r Result) string {
 	b, _ := json.Marshal(map[string]any{"records": []map[string]any{{"value": map[string]any{
-		"kind": "app", "name": c.Name, "channel": r.Channel, "index": r.Index, "pin": r.Pin, "digest": r.Digest,
+		"kind": c.kind(), "name": c.Name, "channel": r.Channel, "index": r.Index, "pin": r.Pin, "digest": r.Digest,
 	}}}})
 	return string(b)
 }
