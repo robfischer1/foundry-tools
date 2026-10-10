@@ -85,8 +85,14 @@ func governWith(t *testing.T, m *FoundryTools, spire *dagger.Socket, token *dagg
 func TestAGovernCastEachRenderAsASignedRuntimeGovBundle(t *testing.T) {
 	m := governOn(t, nil)
 	scriptAGovern()
-	governs(t, m)
+	said := sayings(t, func() { governs(t, m) })
 	settledOn(t, "0", "govern: governance/forge-root: clean: cast runtime-gov/governance.forge-root:stable at index 7 ("+castPin+", "+castLanded+")")
+	// Each minted head is declared, so the door counts it in use.
+	for _, consumer := range []string{"forge-root", "vault"} {
+		if !strings.Contains(said, `"artifact":"`+governChannel+consumer+`"`) {
+			t.Errorf("%s: the minted head was not declared:\n%s", consumer, said)
+		}
+	}
 	settledOn(t, "0", "governance/vault: clean: cast runtime-gov/governance.vault:stable at index 7")
 
 	for _, consumer := range []string{"forge-root", "vault"} {
