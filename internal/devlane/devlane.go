@@ -242,8 +242,8 @@ func cargoScoped(args []string) bool {
 			return true
 		case strings.HasPrefix(a, "--package="), strings.HasPrefix(a, "--manifest-path="):
 			return true
-		case strings.HasPrefix(a, "-p") && !strings.HasPrefix(a, "--"):
-			// -p crate and -pcrate, but not --profile.
+		case strings.HasPrefix(a, "-p"):
+			// -p crate and -pcrate; --profile starts "--", not "-p".
 			return true
 		}
 	}
