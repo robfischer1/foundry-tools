@@ -32,7 +32,7 @@ func RenderReference(s Sidecar) []byte {
 	fmt.Fprintf(&b, "# [[produces]] is who breaks if %s changes what it SERVES; [[consumes]] is\n", s.Star)
 	fmt.Fprintf(&b, "# what %s breaks if it changes how it CALLS. To change a seam, edit the\n", s.Star)
 	b.WriteString("# contract in a foundry-dies pull (orbits/README.md says how), then re-lay\n")
-	b.WriteString("# from the repo root: furnace die --for . --dest DIR && gavel order . --from DIR\n")
+	b.WriteString("# from the repo root: gavel orbit .\n")
 	for _, c := range s.Produces {
 		reference(&b, "produces", "to", c.Consumer, c)
 	}

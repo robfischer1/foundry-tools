@@ -31,7 +31,7 @@ func TestRenderReferencePinsEachEdgeAndCarriesNoVerbs(t *testing.T) {
 		"# [[produces]] is who breaks if urania changes what it SERVES; [[consumes]] is\n" +
 		"# what urania breaks if it changes how it CALLS. To change a seam, edit the\n" +
 		"# contract in a foundry-dies pull (orbits/README.md says how), then re-lay\n" +
-		"# from the repo root: furnace die --for . --dest DIR && gavel order . --from DIR\n"
+		"# from the repo root: gavel orbit .\n"
 	if raw != header+want {
 		t.Errorf("got:\n%s\nwant:\n%s", raw, header+want)
 	}
