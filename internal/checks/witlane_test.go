@@ -156,3 +156,14 @@ func TestWitComposeTapes(t *testing.T) {
 		t.Errorf("the lone alias names no tape: got %v", got)
 	}
 }
+
+func TestWitComposeRed(t *testing.T) {
+	files := []string{"tests/tapes/identity.json", "tests/red/tail.json", "tests/red/PROVENANCE", "tests/red/alarm.json", "tests/red/sub/x.json", "src/tests/red/y.json", "tests/red/claim.json"}
+	got := WitComposeRed(files)
+	if want := []string{"tests/red/alarm.json", "tests/red/claim.json", "tests/red/tail.json"}; !slices.Equal(got, want) {
+		t.Errorf("red tapes are tests/red/*.json only, sorted: got %v want %v", got, want)
+	}
+	if got := WitComposeRed([]string{"tests/tapes/identity.json"}); len(got) != 0 {
+		t.Errorf("no red tape: got %v", got)
+	}
+}
