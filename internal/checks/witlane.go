@@ -1,6 +1,7 @@
 package checks
 
 import (
+	"path"
 	"regexp"
 	"slices"
 	"strings"
@@ -89,6 +90,11 @@ const (
 	WitComposedPath    = "/tmp/fleet.component.wasm"
 	WitReplayTargetDir = "/cache/cargo-release/replay-host"
 	WitReplayHost      = "/tmp/replay-host/replay"
+	// WitRedGlob is where a tree's red tapes live (F18): cases marked
+	// "expect": "red", replayed through the same composition. tools/replay
+	// judges them as red - a violated case passes only while the component
+	// answers its `today` - so they are handed to it beside the world tapes.
+	WitRedGlob = "tests/red/*.json"
 )
 
 var (
@@ -209,4 +215,19 @@ func WitComposeTapes(cargoToml string, files []string) []string {
 		}
 	}
 	return tapes
+}
+
+// WitComposeRed answers the red tapes rust:wit-compose replays after the world
+// tapes: every tests/red/*.json the tree tracks, sorted. They are named by
+// package, not by world, so none is filtered by the manifest: tools/replay
+// calls only a red tape's violated cases and holds each to its `today`.
+func WitComposeRed(files []string) []string {
+	var red []string
+	for _, f := range files {
+		if dir, name := path.Split(f); dir == "tests/red/" && strings.HasSuffix(name, ".json") {
+			red = append(red, f)
+		}
+	}
+	slices.Sort(red)
+	return red
 }

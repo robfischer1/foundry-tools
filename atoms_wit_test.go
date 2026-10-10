@@ -515,3 +515,37 @@ func TestRustWitComposeRefusalsAreCouldNotRuns(t *testing.T) {
 	engine.fail(`file(path:"Cargo.toml")`, "read refused")
 	wantState(t, runAtom(t, "rust:wit-compose", ""), 2, "Cargo.toml would not read", "read refused")
 }
+
+// THE RED TAPES RIDE AFTER THE WORLDS' (F18): sorted, named by package, and not
+// filtered by the manifest, so the replay host judges each as red.
+func TestRustWitComposeReplaysTheRedTapesAfterTheWorldTapes(t *testing.T) {
+	engine.reset()
+	engine.withTree(witComposeTree(map[string]string{
+		"tests/red/tail.json": "{}", "tests/red/alarm.json": "{}", "tests/red/PROVENANCE": "x",
+	}))
+	wantState(t, runAtom(t, "rust:wit-compose", ""), 0)
+	c := engine.chain(composeReplay, "exitCode")
+	wantCalls(t, c,
+		[]string{"withExec", `expect:ANY`, `args:["/tmp/replay-host/replay","/tmp/fleet.component.wasm","tests/tapes/identity.json","tests/tapes/reader.json","tests/red/alarm.json","tests/red/tail.json"]`},
+	)
+	if strings.Contains(c, "PROVENANCE") {
+		t.Errorf("a non-tape is not replayed:\n%s", c)
+	}
+
+	// A failing red replay is the replay step's finding.
+	engine.reset()
+	engine.withTree(witComposeTree(map[string]string{"tests/red/tail.json": "{}"}))
+	engine.exitCode(composeReplay, 1)
+	wantState(t, runAtom(t, "rust:wit-compose", ""), 1, "[replay]")
+
+	// The red glob is read with the tape glob: a tree that will not enumerate it cannot run.
+	engine.reset()
+	engine.withTree(witComposeTree(map[string]string{"tests/red/tail.json": "{}"}))
+	engine.fail(`glob(pattern:"tests/red/*.json")`, "the tree went away")
+	wantState(t, runAtom(t, "rust:wit-compose", ""), 2, "the tree would not enumerate")
+
+	// Red tapes alone do not stand in for a world's tape.
+	engine.reset()
+	engine.withTree(map[string]string{"Cargo.toml": witTwoWorlds, "tools/compose/compose.sh": "", "tools/replay/Cargo.toml": "", "tests/red/tail.json": "{}"})
+	wantState(t, runAtom(t, "rust:wit-compose", ""), 2, "CANNOT RUN", "answer nothing")
+}
