@@ -55,6 +55,41 @@ type CacheMount struct {
 	// Concurrent TREES of one repo are NOT isolated by this: that needs a
 	// tree-keyed volume (cold per commit) and is left open on #15765.
 	PerRepo bool
+	// Locked mounts the volume LOCKED: a second mount of the same key waits for
+	// the first to finish. Set only by CachesForDev (see there); the gate's
+	// mounts are never locked.
+	Locked bool
+}
+
+// CachesForDev is CachesFor for the interactive Dev surface, whose cargo target
+// is private to one repo AND one tree, and LOCKED.
+//
+// WHY LOCKED HERE AND NOT IN THE GATE. Every tree mounts at /src, so two trees
+// of one crate name have identical artifact paths in a shared target, and cargo
+// releases its own lock before the test binaries run: a second tree's build can
+// replace the binary the first is about to execute (reproduced: tree A's test
+// printed RAN-WHO=B and exited 0). LOCKED holds the volume for the whole exec,
+// binaries included. The gate's regression with LOCKED (#308/#309) was several
+// atoms of ONE run queueing on one volume; a Dev call is one cargo exec, so it
+// does not apply, and CachesForRepo's mounts are left exactly as they were.
+//
+// The key carries the repo and the tree (a digest of the caller's --tree, the
+// worktree path), so different worktrees do not queue on each other; LOCKED
+// covers the same-key case. An empty repo is the caller's refusal to make: this
+// never falls back to the fleet-shared key.
+func CachesForDev(image, repo, tree string) []CacheMount {
+	mounts := CachesFor(image)
+	for i := range mounts {
+		if !mounts[i].PerRepo {
+			continue
+		}
+		mounts[i].Key += "-" + repoDigest(repo)
+		if tree != "" {
+			mounts[i].Key += "-" + repoDigest(tree)
+		}
+		mounts[i].Locked = true
+	}
+	return mounts
 }
 
 // CachesForRepo is CachesFor with the per-repo mounts keyed to repo (an opaque
