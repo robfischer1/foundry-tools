@@ -55,12 +55,12 @@ func TestThePlanIsTheAskedConsumersInTheOrderAsked(t *testing.T) {
 	}
 }
 
-func TestTheDefaultConsumersAreForgeRootAndVault(t *testing.T) {
+func TestTheDefaultConsumersAreForgeRootVaultAndHome(t *testing.T) {
 	got, err := Plan(diesToml, DefaultConsumers, stocks)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || got[0].Consumer != "forge-root" || got[1].Consumer != "vault" {
+	if len(got) != 3 || got[0].Consumer != "forge-root" || got[1].Consumer != "vault" || got[2].Consumer != "home" {
 		t.Fatalf("got %+v", got)
 	}
 }
@@ -83,9 +83,35 @@ func TestADieNamesItsChannel(t *testing.T) {
 	}
 }
 
-// The hold is in the code: home is refused by name, whether or not dies.toml
-// holds a perfectly good stanza for it, and whatever else is asked beside it.
-func TestHomeIsHeldWhateverTheRequestSays(t *testing.T) {
+// Nothing is held now: home was released, so the registry's hold list is empty
+// and home plans like any other consumer, alone or beside others.
+func TestNothingIsHeld(t *testing.T) {
+	if len(Held) != 0 {
+		t.Fatalf("Held = %v, want empty", Held)
+	}
+}
+
+func TestHomePlansLikeAnyConsumer(t *testing.T) {
+	got, err := Plan(diesToml, []string{"vault", "home"}, stocks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Die{
+		{Consumer: "vault", Path: "renders/vault/claude"},
+		{Consumer: "home", Path: "renders/home/claude"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+// The hold mechanism survives the release: a consumer put in Held is refused by
+// name, whether or not dies.toml holds a good stanza for it, and whatever else
+// is asked beside it.
+func TestAHeldConsumerIsRefusedWhateverTheRequestSays(t *testing.T) {
+	old := Held
+	Held = map[string]string{"home": "its render carries personal data and has not been approved to enter the registry"}
+	t.Cleanup(func() { Held = old })
 	for _, ask := range [][]string{{"home"}, {"vault", "home"}, {"home", "vault"}} {
 		got, err := Plan(diesToml, ask, stocks)
 		if err == nil || got != nil {

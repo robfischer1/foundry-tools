@@ -43,16 +43,16 @@ const (
 )
 
 // DefaultConsumers are the consumers whose governance is cast when the caller
-// names none. home is not among them and cannot be added: see Held.
-var DefaultConsumers = []string{"forge-root", "vault"}
+// names none: every governance die the registry carries. A consumer listed in
+// Held is refused whether it is named here or by the caller.
+var DefaultConsumers = []string{"forge-root", "vault", "home"}
 
-// Held are the consumers whose render may not enter the registry, and why. The
-// refusal is in the code and not in the default list alone, so a caller that
-// names the consumer is refused too: lifting a hold is an edit to this map,
-// reviewed, and nothing else.
-var Held = map[string]string{
-	"home": "its render carries personal data and has not been approved to enter the registry",
-}
+// Held are the consumers whose render may not enter the registry, and why. It is
+// empty: home was released once its render was approved to enter the registry.
+// The mechanism stays so a future hold is an edit to this map, reviewed, and
+// nothing else: the refusal is in Plan and not in the default list alone, so a
+// caller that names a held consumer is refused too.
+var Held = map[string]string{}
 
 // consumerRE is a consumer's name: one lowercase segment, no dots, so a name can
 // never collide with a dotted channel name or leave its directory.

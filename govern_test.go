@@ -7,6 +7,7 @@ import (
 
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
+	"dagger/foundry-tools/internal/governlane"
 	"dagger/foundry-tools/internal/pins"
 )
 
@@ -78,7 +79,7 @@ func governWith(t *testing.T, m *FoundryTools, spire *dagger.Socket, token *dagg
 	}
 }
 
-// With no consumer named, the cast takes forge-root and vault: each render is
+// With no consumer named, the cast takes forge-root, vault and home: each render is
 // taken from the tree at the landing, pinned, staged under its own name, minted
 // SIGNED as a runtime-gov bundle against the landing's sha and verified at the
 // channel the mint answered.
@@ -88,14 +89,15 @@ func TestAGovernCastEachRenderAsASignedRuntimeGovBundle(t *testing.T) {
 	said := sayings(t, func() { governs(t, m) })
 	settledOn(t, "0", "govern: governance/forge-root: clean: cast runtime-gov/governance.forge-root:stable at index 7 ("+castPin+", "+castLanded+")")
 	// Each minted head is declared, so the door counts it in use.
-	for _, consumer := range []string{"forge-root", "vault"} {
+	for _, consumer := range []string{"forge-root", "vault", "home"} {
 		if !strings.Contains(said, `"artifact":"`+governChannel+consumer+`"`) {
 			t.Errorf("%s: the minted head was not declared:\n%s", consumer, said)
 		}
 	}
 	settledOn(t, "0", "governance/vault: clean: cast runtime-gov/governance.vault:stable at index 7")
+	settledOn(t, "0", "governance/home: clean: cast runtime-gov/governance.home:stable at index 7")
 
-	for _, consumer := range []string{"forge-root", "vault"} {
+	for _, consumer := range []string{"forge-root", "vault", "home"} {
 		if engine.chain(`directory(path:"renders/`+consumer+`/claude")`) == "" {
 			t.Errorf("%s: its render was not taken from the tree", consumer)
 		}
@@ -130,9 +132,33 @@ func TestAGovernCastsOnlyTheConsumersAsked(t *testing.T) {
 	}
 }
 
-// THE HOLD. home is refused by name, alone or among others, and nothing is
-// pinned, staged or minted for any consumer of a request that names it.
-func TestAGovernNeverCastsTheHeldConsumer(t *testing.T) {
+// HOME CASTS. Naming it casts it: its render is taken from the tree, pinned,
+// staged, minted signed and verified like any other consumer's.
+func TestAGovernCastsHome(t *testing.T) {
+	m := governOn(t, nil)
+	scriptAGovern()
+	governs(t, m, "home")
+	settledOn(t, "0", "governance/home: clean: cast runtime-gov/governance.home:stable at index 7")
+	for _, needle := range []string{
+		`directory(path:"renders/home/claude")`,
+		stageNeedle, mintNeedle, verifyNeedle,
+	} {
+		if engine.chain(needle) == "" {
+			t.Errorf("home did not reach %s", needle)
+		}
+	}
+	if engine.chain(mintNeedle, "runtime-gov/governance.home:stable") == "" {
+		t.Error("home was not minted at runtime-gov/governance.home:stable")
+	}
+}
+
+// THE HOLD MECHANISM. A consumer in governlane.Held is refused by name, alone or
+// among others, and nothing is pinned, staged or minted for any consumer of a
+// request that names it.
+func TestAGovernNeverCastsAHeldConsumer(t *testing.T) {
+	old := governlane.Held
+	governlane.Held = map[string]string{"home": "held for the test"}
+	t.Cleanup(func() { governlane.Held = old })
 	for _, ask := range [][]string{{"home"}, {"vault", "home"}, {"home", "forge-root"}} {
 		m := governOn(t, nil)
 		scriptAGovern()

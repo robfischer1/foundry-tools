@@ -35,9 +35,8 @@ import (
 // version index and answers noop: unchanged renders keep their digest, and a
 // host's tongs has nothing to do.
 //
-// THE HOLD. governance/home carries personal data and is not approved to enter
-// the registry. It is refused by name in governlane, not left out of a default,
-// so no argument to this function casts it.
+// THE HOLD. governlane.Held names any consumer refused by name, whatever the
+// caller asks; it is empty now that governance/home is released.
 
 // Govern casts each consumer's governance render at the commit the module was
 // constructed on as the runtime-gov bundle governance.<consumer>.
@@ -52,7 +51,7 @@ func (m *FoundryTools) Govern(
 	// +optional
 	registryToken *dagger.Secret,
 	// The consumers whose governance is cast, one die each. Empty casts
-	// forge-root and vault. A held consumer (home) is refused.
+	// forge-root, vault and home. A consumer in governlane.Held is refused.
 	// +optional
 	consumers []string,
 	// hades' mTLS address. BARE NAME, as the cast lane's is.
