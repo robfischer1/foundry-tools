@@ -74,8 +74,6 @@ func (m *FoundryTools) Govern(
 	return settle(ctx, code, "govern: "+reason)
 }
 
-func governSay(format string, args ...any) { castSayLine("govern: " + sprintf(format, args...)) }
-
 // govern is the lane: preflight, the plan, then one die at a time.
 func (l *castLane) govern(ctx context.Context, consumers []string) (int, string) {
 	m := l.m
@@ -111,11 +109,9 @@ func (l *castLane) govern(ctx context.Context, consumers []string) (int, string)
 		}
 		l.registryConfig = dag.SetSecret("govern-registry-config", bundlelane.DockerConfig(bundlelane.RegistryHost, bundlelane.RegistryUser, strings.TrimSpace(token)))
 	}
-	governSay("%d governance die(s) at %.12s", len(dies), m.Sha)
 	outs := make([]governlane.Outcome, 0, len(dies))
 	for _, d := range dies {
 		code, why := l.governOne(ctx, d)
-		governSay("%s: %s", d.Name(), why)
 		outs = append(outs, governlane.Outcome{Die: d.Name(), Code: code, Reason: why})
 	}
 	return governlane.Fold(outs)
@@ -152,7 +148,7 @@ func (l *castLane) governOne(ctx context.Context, d governlane.Die) (int, string
 	if code, why := l.verify(ctx, c, r); code != 0 {
 		return code, why
 	}
-	declare(governSay, pins.Bundle(c.Repo(bundlelane.RegistryHost)+":"+r.Pin, r.Digest))
+	declare(castSay, pins.Bundle(c.Repo(bundlelane.RegistryHost)+":"+r.Pin, r.Digest))
 	noop := ""
 	if r.NoOp {
 		noop = " (the channel's head already carried this pin; hephaestus re-signed it and allocated no index)"
