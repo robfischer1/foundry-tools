@@ -185,6 +185,9 @@ func (r *run) laneBaseWith(image string, extra func(*dagger.Container) *dagger.C
 		WithEnvVariable("GOPROXY", checks.GoProxy).
 		WithEnvVariable("GONOSUMDB", checks.GoNoSumDB).
 		WithEnvVariable("GOPRIVATE", checks.GoPrivate).
+		// NO STAT-KEYED PACKAGE INDEX in the shared GOCACHE volume
+		// (checks.GoDebug has the mechanism and the measurement).
+		WithEnvVariable("GODEBUG", checks.GoDebug).
 		// THE CLIENTS THAT DO NOT READ THE SYSTEM POOL. The engine installs
 		// its custom CA — cache-ca, the fleet's transparent cache's signer
 		// (infra cache-ca.yaml) — into every container's system store, which

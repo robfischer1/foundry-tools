@@ -342,6 +342,23 @@ const (
 	// correctly set. The upstream image bakes nothing; setting it empty keeps
 	// the invariant explicit rather than inherited.
 	GoPrivate = ""
+	// GoDebug turns off the go command's package index (cmd/go modindex) for
+	// every lane. THE INDEX IS KEYED ON STAT, NOT CONTENT: for a package dir
+	// outside the module cache, its key in the shared GOCACHE volume is
+	// (modroot, go version, pkgdir, and each file's NAME, MTIME and SIZE) —
+	// cmd/go/internal/modindex dirHash — and a hit serves the parsed imports
+	// of the file that was indexed, not the file on disk. Every lane mounts its
+	// tree at /src, and sourceAt stamps every file at one second past the epoch
+	// (source.go), so two trees with a same-named, same-sized file in the same
+	// directory share a key. MEASURED 2026-10-10 on foundry-tools#16289: nomos'
+	// internal/admin/door.go (8397 bytes) and midas' differ only in the
+	// five-letter star name; nomos' build lane ran `go get
+	// git.notusmi.com/rob/midas/internal/verbs`, and its gate lane on another
+	// sha got the same answer. Equal-length names are the common case for
+	// template-born stars, and one repo's own edit that keeps a file's size
+	// hits the same key. The stamp stays (go test's result cache keys on
+	// mtimes); the index goes. Cost: go list parses the package dir itself.
+	GoDebug = "goindex=0"
 )
 
 // THE foundry-stocks MOUNT WENT 2026-09-23 (CA F18). StocksRepo/StocksRef

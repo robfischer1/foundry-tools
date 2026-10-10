@@ -63,6 +63,11 @@ func TestEveryLaneDisablesTheOTelSDKAndTrustsTheEnginesCA(t *testing.T) {
 		if !hasCall(c, "withEnvVariable", `name:"OTEL_SDK_DISABLED"`, `value:"true"`) {
 			t.Errorf("%s runs without OTEL_SDK_DISABLED=true — a star its tests boot will push metrics at the engine:\n%s", atom, c)
 		}
+		// The go command's stat-keyed package index serves one star's
+		// imports to another's same-sized file (foundry-tools#16289).
+		if !hasCall(c, "withEnvVariable", `name:"GODEBUG"`, `value:"`+checks.GoDebug+`"`) {
+			t.Errorf("%s runs without GODEBUG=%s — a shared GOCACHE can serve another star's package index:\n%s", atom, checks.GoDebug, c)
+		}
 		// The clients that do not read the system pool trust the engine's CA
 		// — the transparent cache's signer — by name, on every lane, before
 		// the engine names the intercept face (the F4 incident's fix, not
