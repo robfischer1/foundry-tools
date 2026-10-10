@@ -212,6 +212,6 @@ func TestGoTestRaceCompilesABrokerOnlyRecordsTag(t *testing.T) {
 	c := engine.chain(`"go","test","-race"`, "exitCode")
 	wantCalls(t, c,
 		[]string{"withServiceBinding", `alias:"broker"`},
-		[]string{"withExec", `args:["go","test","-race","-tags","live_kafka","-p","1","./..."]`},
+		[]string{"withExec", `args:["go","test","-race","-tags","live_kafka","-p","1","-coverprofile","/tmp/go-test-race.cover","./..."]`},
 	)
 }

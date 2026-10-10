@@ -153,7 +153,7 @@ func goVet(ctx context.Context, r *run) checks.Verdict {
 // test (chaos's own README says so of its lane).
 func goTestRace(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("go:test-race")
-	return r.eachModule(ctx, a, func(dir string) checks.Verdict { return goTestIn(ctx, r, a, dir, true) })
+	return r.eachModule(ctx, a, func(dir string) checks.Verdict { return r.raceSuite(ctx, dir).v })
 }
 
 // go test ./... passes: the SAME packages, at the commit's cadence — no race
@@ -167,12 +167,25 @@ func goTestRace(ctx context.Context, r *run) checks.Verdict {
 // so, never the suite twice.
 func goTest(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("go:test")
-	return r.eachModule(ctx, a, func(dir string) checks.Verdict { return goTestIn(ctx, r, a, dir, false) })
+	return r.eachModule(ctx, a, func(dir string) checks.Verdict {
+		v, _ := goTestIn(ctx, r, a, dir, false)
+		return v
+	})
 }
 
 // goTestIn runs one module's suite: race + the record's live databases when
-// race is set (the push), the plain unit run when it is not (the commit).
-func goTestIn(ctx context.Context, r *run, a checks.AtomDef, dir string, race bool) checks.Verdict {
+// race is set (the push), the plain unit run when it is not (the commit). It
+// answers the verdict and, when the suite itself ran, the container it ran in —
+// nil for a module whose tests could not be counted or were never reached.
+//
+// THE PUSH'S RUN WRITES A COVERAGE PROFILE (checks.GoCoverProfile), and that is
+// the only difference the flag makes: -race already forces -covermode=atomic, the
+// exit code and the output's FAIL lines are go test's either way, and the file
+// sits outside the tree. go:diff-coverage reads it off the same container
+// (raceSuite), so the suite runs once for both atoms. NO -coverpkg, so each
+// package's coverage is its own tests' — exactly the profile gomutants gathers,
+// which is what keeps the two NOT COVERED signals agreeing.
+func goTestIn(ctx context.Context, r *run, a checks.AtomDef, dir string, race bool) (checks.Verdict, *dagger.Container) {
 	// THE SUITE RUNS IN A REPOSITORY git CAN READ. A test that shells out to
 	// git — hephaestus's TestRealResolveHistory runs `git ls-remote` against a
 	// fixture — fails on a linked worktree's dangling `.git` file with
@@ -186,26 +199,26 @@ func goTestIn(ctx context.Context, r *run, a checks.AtomDef, dir string, race bo
 		"go", "list", "-f", "{{len .TestGoFiles}}{{len .XTestGoFiles}}", "./...",
 	}, anyExit))
 	if err != nil {
-		return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
+		return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error()), nil
 	}
 	if code != 0 {
 		// A module that will not even list is a red about the module, and
 		// the old atom filed it as FINDINGS on purpose: the tests cannot be
 		// counted, so they cannot be shown to exist.
-		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - go list ./... failed, so the tests cannot be counted: "+lastLine(counts))
+		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - go list ./... failed, so the tests cannot be counted: "+lastLine(counts)), nil
 	}
 	if !checks.GoHasTestFiles(counts) {
-		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - no test file in any package; nothing is built without tests")
+		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - no test file in any package; nothing is built without tests"), nil
 	}
 	// THE REGEN TESTS RUN INSTEAD OF SKIPPING where the tree has packages
 	// gravity generated (atoms_go_regen.go): a stale regeneration is a finding,
 	// not just a hand edit.
 	mods, regen, err := r.withGravityRegen(ctx, mods)
 	if errors.Is(err, errGravityRead) {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+err.Error())
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+err.Error()), nil
 	}
 	if err != nil {
-		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - "+err.Error())
+		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - "+err.Error()), nil
 	}
 	args := []string{"go", "test"}
 	scope := "unit suite: no race detector and no database — go:test-race runs those at the push"
@@ -225,11 +238,13 @@ func goTestIn(ctx context.Context, r *run, a checks.AtomDef, dir string, race bo
 		if len(dbs) > 0 || len(brokers) > 0 {
 			args = append(args, "-tags", checks.BuildTags(dbs, brokers), "-p", "1")
 		}
+		args = append(args, "-coverprofile", checks.GoCoverProfile)
 	}
 	args = append(args, "./...")
-	v := verdict(ctx, a, mods.WithExec(args, anyExit))
+	ran := mods.WithExec(args, anyExit)
+	v := verdict(ctx, a, ran)
 	v.Reason = scope + "\n" + regen + "\n" + v.Reason
-	return v
+	return v, ran
 }
 
 // withTestDatabases binds the fleet's test servers to a lane container for

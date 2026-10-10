@@ -126,7 +126,7 @@ func TestGoTestRaceCountsTestFilesBeforeRunning(t *testing.T) {
 	wantCalls(t, c,
 		[]string{"withMountedDirectory", `path:"/dies"`},
 		[]string{"withEnvVariable", `name:"FOUNDRY_DIES"`, `value:"/dies"`},
-		[]string{"withExec", `expect:ANY`, `args:["go","test","-race","./..."]`},
+		[]string{"withExec", `expect:ANY`, `args:["go","test","-race","-coverprofile","/tmp/go-test-race.cover","./..."]`},
 	)
 
 	engine.stdout(`"go","list"`, "00\n00\n")
@@ -190,7 +190,7 @@ func TestGoTestRaceBringsTheRecordsPostgres(t *testing.T) {
 		[]string{"withEnvVariable", `name:"TEST_DATABASE_URL"`, `value:"` + checks.TestDBs[0].DSN() + `"`},
 		[]string{"withEnvVariable", `name:"TEST_NOVECTOR_DATABASE_URL"`, `value:"` + checks.TestDBs[1].DSN() + `"`},
 		// The vocabulary's two tags, in its order, and one database at a time.
-		[]string{"withExec", `expect:ANY`, `args:["go","test","-race","-tags","live_db,live_db_novector","-p","1","./..."]`},
+		[]string{"withExec", `expect:ANY`, `args:["go","test","-race","-tags","live_db,live_db_novector","-p","1","-coverprofile","/tmp/go-test-race.cover","./..."]`},
 	)
 	// The servers are the pinned images, run as services on their port.
 	for _, img := range []string{checks.ImagePgvector, checks.ImagePostgres} {
@@ -235,7 +235,7 @@ func TestGoTestRaceBringsTheRecordsPostgres(t *testing.T) {
 	engine.withTree(map[string]string{"/dies/fleet/stars/x/slag.json": `{"backends":{}}`})
 	wantState(t, runAtom(t, "go:test-race", ""), 0, "test databases: none", "no postgres backend")
 	c = engine.chain(`"go","test","-race"`, "exitCode")
-	if hasCall(c, "withServiceBinding") || !hasCall(c, "withExec", `args:["go","test","-race","./..."]`) {
+	if hasCall(c, "withServiceBinding") || !hasCall(c, "withExec", `args:["go","test","-race","-coverprofile","/tmp/go-test-race.cover","./..."]`) {
 		t.Errorf("a record without postgres binds nothing and compiles no tag:\n%s", c)
 	}
 
@@ -773,8 +773,10 @@ func TestGoMutationStandsDownOrCannotRun(t *testing.T) {
 	}
 }
 
-// Rule 8: GATE_BASE reaches only the atoms that judge the change. Every other
-// atom's cache key is a function of the tree alone.
+// Rule 8: GATE_BASE reaches only the atoms that judge the change — the
+// witness, the mutation lane and go:diff-coverage, whose diff is asked on a
+// container of its own. Every other atom's cache key is a function of the tree
+// alone.
 func TestOnlyWitnessAndMutationReadGateBase(t *testing.T) {
 	for _, a := range checks.Atoms {
 		engine.reset()
@@ -786,7 +788,7 @@ func TestOnlyWitnessAndMutationReadGateBase(t *testing.T) {
 				reads = true
 			}
 		}
-		want := a.ID == "fleet:witness" || a.Stage == checks.StageMutation
+		want := a.ID == "fleet:witness" || a.ID == "go:diff-coverage" || a.Stage == checks.StageMutation
 		if reads != want {
 			t.Errorf("%s reads GATE_BASE=%v, want %v", a.ID, reads, want)
 		}
