@@ -93,6 +93,12 @@ type run struct {
 	goMods     []string
 	goModsErr  error
 
+	// races is each module's go:test-race suite, run once per run: go:test-race
+	// reports its verdict and go:diff-coverage reads its profile off the same
+	// container (raceSuite).
+	racesMu sync.Mutex
+	races   map[string]*raceRun
+
 	// pyFiles is the tree's own .py files, read once per run for the same
 	// reason and by the same discipline — the planner asks, and asking the
 	// engine for a glob over the whole tree is not free.

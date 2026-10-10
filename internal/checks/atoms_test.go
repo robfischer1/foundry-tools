@@ -58,6 +58,9 @@ func TestTheGoTestAtomsCarryTheFleetRecordTree(t *testing.T) {
 	// tree the armed goldens read. go:test joined them when F13 split the
 	// suite by cadence — the commit's unit run is the same `go test` over the
 	// same packages, so the same goldens refuse without the mount.
+	// go:diff-coverage makes four: it runs that same go:test-race suite when
+	// no go:test-race shares its run, and in the gate it reads the one suite
+	// both atoms share — the same /dies, so no second clone.
 	var asked []string
 	for _, a := range Atoms {
 		if a.NeedsDies {
@@ -65,9 +68,9 @@ func TestTheGoTestAtomsCarryTheFleetRecordTree(t *testing.T) {
 		}
 	}
 	sort.Strings(asked)
-	if strings.Join(asked, ",") != "go:mutation,go:test,go:test-race" {
-		t.Errorf("NeedsDies is declared by %v; go:test, go:test-race and go:mutation are expected — "+
-			"the three atoms that run a repo's `go test`. Adding one is fine — say why "+
+	if strings.Join(asked, ",") != "go:diff-coverage,go:mutation,go:test,go:test-race" {
+		t.Errorf("NeedsDies is declared by %v; go:test, go:test-race, go:diff-coverage and go:mutation are expected — "+
+			"the four atoms that run a repo's `go test`. Adding one is fine — say why "+
 			"here, because each one is another clone of foundry-dies on every gate "+
 			"run in the fleet.", asked)
 	}
