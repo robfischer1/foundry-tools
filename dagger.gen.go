@@ -187,6 +187,38 @@ func (r *Compose) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+func (r Dev) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Source  *dagger.Directory
+		Lang    string
+		Repo    string
+		Entries []string
+	}
+	concrete.Source = r.Source
+	concrete.Lang = r.Lang
+	concrete.Repo = r.Repo
+	concrete.Entries = r.Entries
+	return json.Marshal(&concrete)
+}
+
+func (r *Dev) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Source  *dagger.Directory
+		Lang    string
+		Repo    string
+		Entries []string
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Source = concrete.Source
+	r.Lang = concrete.Lang
+	r.Repo = concrete.Repo
+	r.Entries = concrete.Entries
+	return nil
+}
+
 func (r Dies) MarshalJSON() ([]byte, error) {
 	var concrete struct {
 		Source *dagger.Directory
@@ -645,6 +677,172 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "Dev":
+		switch fnName {
+		case "Build":
+			var parent Dev
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var args []string
+			if inputArgs["args"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["args"]), &args)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg args", err))
+				}
+			}
+			var fresh bool
+			if inputArgs["fresh"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["fresh"]), &fresh)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg fresh", err))
+				}
+			}
+			return (*Dev).Build(&parent, ctx, args, fresh)
+		case "Check":
+			var parent Dev
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var args []string
+			if inputArgs["args"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["args"]), &args)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg args", err))
+				}
+			}
+			var fresh bool
+			if inputArgs["fresh"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["fresh"]), &fresh)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg fresh", err))
+				}
+			}
+			return (*Dev).Check(&parent, ctx, args, fresh)
+		case "Clippy":
+			var parent Dev
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var args []string
+			if inputArgs["args"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["args"]), &args)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg args", err))
+				}
+			}
+			var fresh bool
+			if inputArgs["fresh"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["fresh"]), &fresh)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg fresh", err))
+				}
+			}
+			return (*Dev).Clippy(&parent, ctx, args, fresh)
+		case "Fmt":
+			var parent Dev
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var args []string
+			if inputArgs["args"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["args"]), &args)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg args", err))
+				}
+			}
+			return (*Dev).Fmt(&parent, ctx, args)
+		case "Lock":
+			var parent Dev
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var args []string
+			if inputArgs["args"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["args"]), &args)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg args", err))
+				}
+			}
+			return (*Dev).Lock(&parent, ctx, args)
+		case "Test":
+			var parent Dev
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var args []string
+			if inputArgs["args"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["args"]), &args)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg args", err))
+				}
+			}
+			var race bool
+			if inputArgs["race"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["race"]), &race)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg race", err))
+				}
+			}
+			var fresh bool
+			if inputArgs["fresh"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["fresh"]), &fresh)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg fresh", err))
+				}
+			}
+			return (*Dev).Test(&parent, ctx, args, race, fresh)
+		case "Tidy":
+			var parent Dev
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Dev).Tidy(&parent, ctx)
+		case "Update":
+			var parent Dev
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var args []string
+			if inputArgs["args"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["args"]), &args)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg args", err))
+				}
+			}
+			return (*Dev).Update(&parent, ctx, args)
+		case "Vet":
+			var parent Dev
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var args []string
+			if inputArgs["args"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["args"]), &args)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg args", err))
+				}
+			}
+			var fresh bool
+			if inputArgs["fresh"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["fresh"]), &fresh)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg fresh", err))
+				}
+			}
+			return (*Dev).Vet(&parent, ctx, args, fresh)
+		default:
+			return nil, fmt.Errorf("unknown function %s", fnName)
+		}
 	case "Dies":
 		switch fnName {
 		case "AdmissionDogfood":
@@ -1091,6 +1289,34 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*FoundryTools).Compose(&parent), nil
+		case "Dev":
+			var parent FoundryTools
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var source *dagger.Directory
+			if inputArgs["source"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["source"]), &source)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg source", err))
+				}
+			}
+			var lang string
+			if inputArgs["lang"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["lang"]), &lang)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg lang", err))
+				}
+			}
+			var repo string
+			if inputArgs["repo"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["repo"]), &repo)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg repo", err))
+				}
+			}
+			return (*FoundryTools).Dev(&parent, ctx, source, lang, repo)
 		case "Dies":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
@@ -1224,6 +1450,55 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*FoundryTools).Go(&parent), nil
+		case "Govern":
+			var parent FoundryTools
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var spire *dagger.Socket
+			if inputArgs["spire"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["spire"]), &spire)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg spire", err))
+				}
+			}
+			var registryToken *dagger.Secret
+			if inputArgs["registryToken"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["registryToken"]), &registryToken)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registryToken", err))
+				}
+			}
+			var consumers []string
+			if inputArgs["consumers"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["consumers"]), &consumers)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg consumers", err))
+				}
+			}
+			var hades string
+			if inputArgs["hades"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["hades"]), &hades)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg hades", err))
+				}
+			}
+			var hadesId string
+			if inputArgs["hadesID"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["hadesID"]), &hadesId)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg hadesID", err))
+				}
+			}
+			var dryRun bool
+			if inputArgs["dryRun"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["dryRun"]), &dryRun)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg dryRun", err))
+				}
+			}
+			return nil, (*FoundryTools).Govern(&parent, ctx, spire, registryToken, consumers, hades, hadesId, dryRun)
 		case "Image":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
