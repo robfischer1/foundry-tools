@@ -415,3 +415,30 @@ func TestDevUploadsWhatJustCheckUploadsLessGit(t *testing.T) {
 		t.Error("the gate keeps .git (fleet:witness reads history); Dev is the one that drops it")
 	}
 }
+
+// The engine failing to read the tree is said, not swallowed - at the root, and
+// when fmt enumerates its files.
+func TestDevSaysWhenTheEngineCannotReadTheTree(t *testing.T) {
+	engine.reset()
+	engine.fail(`entries`, "engine gone")
+	if _, err := (&FoundryTools{}).Dev(t.Context(), dag.Directory(), "", ""); err == nil || !strings.Contains(err.Error(), "could not read the source root") {
+		t.Errorf("root unreadable: %v", err)
+	}
+
+	d := devOver(t, map[string]string{"go.mod": "module m\n", "a.go": "package a\n"}, "", "")
+	engine.fail(`glob(pattern:"**/*.go")`, "engine gone")
+	if _, err := d.Fmt(t.Context(), nil); err == nil || !strings.Contains(err.Error(), "could not enumerate") {
+		t.Errorf("population unreadable: %v", err)
+	}
+}
+
+// plan refuses a verb the argv builders do not know, even if Applies were
+// bypassed: nothing reaches an exec with no command.
+func TestDevPlanRefusesAnUnknownVerb(t *testing.T) {
+	for _, tree := range []map[string]string{devGoTree, devRustTree} {
+		d := devOver(t, tree, "", "")
+		if _, _, err := d.plan(t.Context(), newRun(d.Source, d.Repo, ""), "nonesuch", nil, true); err == nil {
+			t.Errorf("%s: an unknown verb planned", d.Lang)
+		}
+	}
+}
