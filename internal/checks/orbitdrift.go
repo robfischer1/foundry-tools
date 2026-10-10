@@ -99,7 +99,7 @@ func OrbitDrift(ctx context.Context, orbitToml string, door Door) (int, string) 
 	if len(drift) > 0 {
 		lines = append(lines, "The canonical contract moved and this repo's declaration did not. "+
 			"Re-lay orbit.toml from the die, in a worktree at the repo root: "+
-			"furnace die --for . --dest DIR && gavel order . --from DIR, then commit orbit.toml.")
+			"gavel orbit . (it fetches and verifies the signed die), then commit orbit.toml.")
 	}
 	if len(unpinned) > 0 {
 		lines = append(lines, "An edge with no digest pins nothing, so this atom compared nothing "+

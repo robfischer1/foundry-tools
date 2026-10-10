@@ -22,10 +22,10 @@ import (
 // and the extra keys are not graded.
 
 // RelayHint is how a star brings its orbit.toml back to the die: the
-// governance rail lays it (furnace renders it from the signed data/orbits die,
-// gavel lays it and records it), and the result is committed through the
-// repo's normal landing.
-const RelayHint = "re-lay it from the die, in a worktree at the repo root: furnace die --for . --dest DIR && gavel order . --from DIR, then commit orbit.toml"
+// governance rail lays it (`gavel orbit` resolves the star from the repo's
+// origin, verifies the signed data/orbits die and lays the file), and the
+// result is committed through the repo's normal landing.
+const RelayHint = "re-lay it from the die, in a worktree at the repo root: gavel orbit ., then commit orbit.toml"
 
 type laidEdge struct {
 	To       string `toml:"to"`
