@@ -168,3 +168,28 @@ func Fold(outs []Outcome) (int, string) {
 	}
 	return code, strings.Join(parts, "; ")
 }
+
+// digestRE is one manifest digest, whole.
+var digestRE = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+
+// Current answers the digest a channel's head carries when that head IS the
+// render's own manifest, and "" otherwise. resolved is what the registry said
+// for the channel tag and then for the render's pin tag, one digest a line:
+// the two agree only when the head was minted from this very render.
+//
+// WHY THE LANE ASKS BEFORE IT MINTS. hephaestus answers a mint of the head's
+// own pin as a no-op, but it re-signs that digest on the way (it heals a head a
+// crashed cast left unsigned), and a cosign v3 signature is a new referrer
+// every time: app/gavel's one digest carried six on 2026-10-10. The trigger
+// polls every ten minutes, so minting an unchanged render would add two
+// referrers per channel per period, forever, for tongs to wade through on each
+// verify. A head that is current and verifies is left alone; anything else —
+// a tag that does not resolve, a head on another pin, a registry that did not
+// answer — answers "" and the cast runs in full, which says why if it fails.
+func Current(resolved string) string {
+	lines := strings.Fields(resolved)
+	if len(lines) != 2 || lines[0] != lines[1] || !digestRE.MatchString(lines[0]) {
+		return ""
+	}
+	return lines[0]
+}

@@ -199,3 +199,25 @@ func TestACastOfNothingIsNotClean(t *testing.T) {
 		t.Errorf("%d %q", code, why)
 	}
 }
+
+func TestAHeadIsCurrentOnlyWhenTheChannelAndThePinResolveToOneDigest(t *testing.T) {
+	d := "sha256:" + strings.Repeat("7", 64)
+	other := "sha256:" + strings.Repeat("5", 64)
+	if got := Current(d + "\n" + d + "\n"); got != d {
+		t.Errorf("a head on the render's own pin: got %q, want %q", got, d)
+	}
+	for name, resolved := range map[string]string{
+		"nothing resolved":        "",
+		"only the channel":        d,
+		"the head is another pin": d + "\n" + other,
+		"three answers":           d + "\n" + d + "\n" + d,
+		"not a digest":            "sha256:abc\nsha256:abc",
+		"a digest inside text":    "x" + d + "\n" + "x" + d,
+		"a digest with a tail":    d + "x\n" + d + "x",
+		"an error, twice":         "Error: not-found\nError: not-found",
+	} {
+		if got := Current(resolved); got != "" {
+			t.Errorf("%s: got %q, want no current head", name, got)
+		}
+	}
+}

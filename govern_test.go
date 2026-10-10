@@ -5,7 +5,9 @@ import (
 	"strings"
 	"testing"
 
+	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
+	"dagger/foundry-tools/internal/pins"
 )
 
 const (
@@ -292,4 +294,85 @@ func TestAGovernOfAnUnchangedRenderSaysSo(t *testing.T) {
 	engine.stdout(mintNeedle, "HTTP 200\n"+toolAnswer(false, strings.Replace(castResult(castPin, true), `"noop":false`, `"noop":true`, 1)))
 	governs(t, m, "vault")
 	settledOn(t, "0", "already carried this pin")
+}
+
+// resolveNeedle is the head check: the channel tag and the render's pin tag
+// resolved in one exec.
+const resolveNeedle = `oras resolve`
+
+// THE POLL COSTS NOTHING. A channel whose head is already this render's own
+// manifest, and verifies, is left alone: nothing is staged, nothing is minted,
+// so hephaestus never re-signs the digest and adds a referrer every period.
+func TestAGovernOfARenderTheHeadAlreadyCarriesStagesAndMintsNothing(t *testing.T) {
+	m := governOn(t, nil)
+	scriptAGovern()
+	engine.stdout(resolveNeedle, castLanded+"\n"+castLanded+"\n")
+	said := sayings(t, func() { governs(t, m, "vault") })
+	// The head is still declared, so the door keeps counting it in use.
+	if !strings.Contains(said, pins.MarkerPrefix) || !strings.Contains(said, `"artifact":"`+strings.TrimSuffix(governChannel, ".")+`.vault"`) || !strings.Contains(said, castLanded) {
+		t.Errorf("the current head was not declared:\n%s", said)
+	}
+	settledOn(t, "0", "governance/vault: clean: runtime-gov/governance.vault:stable already carries "+castPin+" ("+castLanded+"), signed")
+	wantCalls(t, engine.chain(resolveNeedle),
+		[]string{"withMountedSecret", `"/run/docker/config.json"`},
+		[]string{"withExec", `"` + governChannel + `vault:stable"`, `"` + governChannel + `vault:` + castPin + `"`},
+	)
+	if engine.chain(verifyNeedle, governChannel+"vault@"+castLanded) == "" {
+		t.Error("the current head was not verified before it was trusted")
+	}
+	for _, needle := range []string{stageNeedle, mintNeedle} {
+		if engine.chain(needle) != "" {
+			t.Errorf("a current head still reached %s", needle)
+		}
+	}
+}
+
+// A head that is not this render, or that does not verify, or a registry that
+// could not be asked, is cast in full: the check only ever saves a cast.
+func TestAGovernCastsInFullWhenTheHeadIsNotKnownCurrent(t *testing.T) {
+	other := "sha256:" + strings.Repeat("9", 64)
+	cases := map[string]struct {
+		script       func()
+		code, reason string
+	}{
+		"the head is another render": {func() {
+			engine.stdout(resolveNeedle, other+"\n"+castLanded+"\n")
+		}, "0", "clean: cast runtime-gov/governance.vault:stable at index 7"},
+		"the pin tag does not resolve": {func() {
+			engine.exitCode(resolveNeedle, 1)
+			engine.stdout(resolveNeedle, castLanded+"\n")
+		}, "0", "clean: cast runtime-gov/governance.vault:stable at index 7"},
+		"the current head does not verify": {func() {
+			engine.stdout(resolveNeedle, castLanded+"\n"+castLanded+"\n")
+			engine.exitCode(verifyNeedle, 10)
+		}, "1", "findings in cosign verify " + governChannel + "vault@" + castLanded},
+		"the head check cannot run": {func() {
+			engine.failLeaf(resolveNeedle, "exitCode", "the engine went away")
+		}, "0", "clean: cast runtime-gov/governance.vault:stable at index 7"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			m := governOn(t, nil)
+			scriptAGovern()
+			c.script()
+			governs(t, m, "vault")
+			settledOn(t, c.code, c.reason)
+			if engine.chain(stageNeedle) == "" || engine.chain(mintNeedle) == "" {
+				t.Error("a head not known current was not cast in full")
+			}
+		})
+	}
+}
+
+// With no oras to ask with, the head check answers nothing and the cast runs,
+// to fail where it pushes and say so.
+func TestAGovernWithNoOrasStillReachesTheStagingPush(t *testing.T) {
+	m := governOn(t, nil)
+	scriptAGovern()
+	engine.fail(`http(url:"`+checks.OrasURL+`")`, "502 from upstream")
+	governs(t, m, "vault")
+	settledOn(t, "2", "oras could not be provisioned")
+	if engine.chain(mintNeedle) != "" {
+		t.Error("minted without a staged payload")
+	}
 }

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"dagger/foundry-tools/internal/bundlelane"
+	"dagger/foundry-tools/internal/castlane"
+	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
 	"dagger/foundry-tools/internal/governlane"
 	"dagger/foundry-tools/internal/pins"
@@ -136,6 +138,12 @@ func (l *castLane) governOne(ctx context.Context, d governlane.Die) (int, string
 	if l.dryRun {
 		return 0, fmt.Sprintf("clean: dry run — %d file(s) pin to %s for %s; nothing was staged, minted or verified", len(files), pin, c.Artifact())
 	}
+	if head := l.current(ctx, c, pin); head != "" {
+		if code, _ := l.verify(ctx, c, castlane.Result{Digest: head}); code == 0 {
+			declare(castSay, pins.Bundle(c.Repo(bundlelane.RegistryHost)+":"+pin, head))
+			return 0, fmt.Sprintf("clean: %s already carries %s (%s), signed — nothing was staged, minted or re-signed", c.Artifact(), pin, head)
+		}
+	}
 	ref := c.Stage(bundlelane.RegistryHost, pin)
 	digest, code, why := l.stage(ctx, payload, ref, files)
 	if code != 0 {
@@ -154,4 +162,24 @@ func (l *castLane) governOne(ctx context.Context, d governlane.Die) (int, string
 		noop = " (the channel's head already carried this pin; hephaestus re-signed it and allocated no index)"
 	}
 	return 0, fmt.Sprintf("clean: cast %s at index %d (%s, %s)%s", c.Artifact(), r.Index, r.Pin, r.Digest, noop)
+}
+
+// current answers the channel head's digest when the head is this render's own
+// manifest (governlane.Current): the channel tag and the pin tag resolved in one
+// go. Every failure answers "" — the full cast then runs and reports it.
+func (l *castLane) current(ctx context.Context, c castlane.Cast, pin string) string {
+	tarball, err := fetchTool(ctx, checks.OrasURL)
+	if err != nil {
+		return ""
+	}
+	repo := c.Repo(bundlelane.RegistryHost)
+	out, _, _ := output(ctx, dag.Container().From(checks.ImageFleet).
+		WithFile("/tmp/oras.tgz", tarball).
+		WithExec([]string{"tar", "-xzf", "/tmp/oras.tgz", "-C", "/usr/local/bin", "oras"}).
+		WithMountedSecret("/run/docker/config.json", l.registryConfig).
+		WithEnvVariable("CAST_RUN", l.stamp).
+		WithExec([]string{"sh", "-c",
+			`oras resolve --registry-config /run/docker/config.json "$1" && oras resolve --registry-config /run/docker/config.json "$2"`,
+			"resolve", repo + ":stable", repo + ":" + pin}, anyExit))
+	return governlane.Current(out)
 }
