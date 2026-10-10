@@ -537,7 +537,7 @@ func (l *castLane) ask(ctx context.Context, verb, args string) (int, string, err
 // Key only: hephaestus's signature carries no transparency-log entry (foundry-tools
 // #61 chose key-only verification), so the check is told not to demand one.
 func (l *castLane) verify(ctx context.Context, c castlane.Cast, r castlane.Result) (int, string) {
-	ref := bundlelane.RegistryHost + "/app/" + c.Name + "@" + r.Digest
+	ref := c.Repo(bundlelane.RegistryHost) + "@" + r.Digest
 	nonroot := dagger.ContainerWithMountedSecretOpts{Owner: "65532:65532"}
 	out, code, err := output(ctx, cosignIn().
 		WithMountedTemp("/tmp").

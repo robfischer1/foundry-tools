@@ -341,3 +341,26 @@ func TestMintedNamesLayerCast(t *testing.T) {
 		t.Errorf("not a result: %q", why)
 	}
 }
+
+// A cast that names a kind rides that kind's channel: the artifact, the
+// repository a digest is verified at, the staging name and the doorbell's kind
+// all follow it, and a cast that names none is an app.
+func TestACastNamesItsKind(t *testing.T) {
+	gov := Cast{Kind: "runtime-gov", Name: "governance.vault"}
+	if got := gov.Artifact(); got != "runtime-gov/governance.vault:stable" {
+		t.Errorf("artifact %q", got)
+	}
+	if got := gov.Repo("foundry.notusmi.com"); got != "foundry.notusmi.com/runtime-gov/governance.vault" {
+		t.Errorf("repo %q", got)
+	}
+	if got := gov.Stage("foundry.notusmi.com", "g0123456789ab"); got != "foundry.notusmi.com/staging/runtime-gov-governance.vault:g0123456789ab" {
+		t.Errorf("stage %q", got)
+	}
+	app := Cast{Name: "tongs"}
+	if got := app.Repo("foundry.notusmi.com"); got != "foundry.notusmi.com/app/tongs" {
+		t.Errorf("an app's repo %q", got)
+	}
+	if !strings.Contains(Doorbell(gov, Result{}), `"kind":"runtime-gov"`) {
+		t.Errorf("the doorbell announced another kind: %s", Doorbell(gov, Result{}))
+	}
+}
