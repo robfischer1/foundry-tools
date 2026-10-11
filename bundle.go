@@ -208,16 +208,34 @@ func (l *bundleLane) run(ctx context.Context) (int, string) {
 	}
 	l.built = fleet
 
+	// THE FLEET DIE IS A FUNCTION OF TWO COMMITS, so its pin names both and a
+	// pin that does not stand yet is owed a publish whatever this landing
+	// touched: a flux landing (prime/, data/) leaves foundry-dies untouched, and
+	// is asked here, at foundry-dies main, by the door (ourea askFluxDownstream).
+	fleetPin, err := bundlelane.FleetPin(m.Sha, l.fluxSHA)
+	if err != nil {
+		return buildlane.CouldNotRun, err.Error()
+	}
+	if !publishFleet && !l.dryRun {
+		stands, g := l.pinStands(ctx, fleet, bundlelane.FleetDie, fleetPin)
+		if g.code != buildlane.Clean {
+			return g.code, g.reason
+		}
+		if !stands {
+			bundleSay("fleet: %s:%s is not published — flux moved under an unchanged roster; publishing it", bundlelane.FleetDie, fleetPin)
+			publishFleet = true
+		}
+	}
 	if !publishPolicy && !publishFleet {
 		return buildlane.Clean, "clean: both dies gated clean and neither has anything to publish for this landing (nothing outside **.md, .forgejo/ and schema/ moved, and nothing under fleet/)"
 	}
 	if l.dryRun {
-		return buildlane.Clean, fmt.Sprintf("clean: both dies gated clean — dry run, nothing pushed, tagged or signed (a landing would publish policy=%v fleet=%v at %s)", publishPolicy, publishFleet, pin)
+		return buildlane.Clean, fmt.Sprintf("clean: both dies gated clean — dry run, nothing pushed, tagged or signed (a landing would publish policy=%v fleet=%v at %s, the fleet die as %s)", publishPolicy, publishFleet, pin, fleetPin)
 	}
 
 	var published []string
 	if publishPolicy {
-		refs, g := l.publishDie(ctx, fleet, bundlelane.PolicyDie, pin, "bundle.tar.gz", "bundle-signed.tar.gz")
+		refs, g := l.publishDie(ctx, fleet, bundlelane.PolicyDie, pin, l.m.Sha, "bundle.tar.gz", "bundle-signed.tar.gz")
 		if g.code != buildlane.Clean {
 			return g.code, g.reason
 		}
@@ -226,7 +244,7 @@ func (l *bundleLane) run(ctx context.Context) (int, string) {
 		bundleSay("policy: nothing outside **.md, .forgejo/ and schema/ changed — :stable stays where it is")
 	}
 	if publishFleet {
-		refs, g := l.publishDie(ctx, fleet, bundlelane.FleetDie, pin, "fleet-bundle.tar.gz", "fleet-bundle-signed.tar.gz")
+		refs, g := l.publishDie(ctx, fleet, bundlelane.FleetDie, fleetPin, bundlelane.FleetRevision(m.Sha, l.fluxSHA), "fleet-bundle.tar.gz", "fleet-bundle-signed.tar.gz")
 		if g.code != buildlane.Clean {
 			return g.code, g.reason
 		}
@@ -455,8 +473,8 @@ func (l *bundleLane) fleet(ctx context.Context, built *dagger.Container) (*dagge
 		WithNewFile(".manifest", bundlelane.FleetManifest)
 	built = built.WithDirectory(workDir+"/stage", stage)
 	for _, b := range [][]string{
-		{"opa", "build", "-b", workDir + "/stage", "-o", workDir + "/fleet-bundle.tar.gz", "--revision", l.m.Sha},
-		{"opa", "build", "-b", workDir + "/stage", "-o", workDir + "/fleet-bundle-signed.tar.gz", "--revision", l.m.Sha, "--signing-key", "/run/opa/sign.key", "--signing-alg", "ES256"},
+		{"opa", "build", "-b", workDir + "/stage", "-o", workDir + "/fleet-bundle.tar.gz", "--revision", bundlelane.FleetRevision(l.m.Sha, l.fluxSHA)},
+		{"opa", "build", "-b", workDir + "/stage", "-o", workDir + "/fleet-bundle-signed.tar.gz", "--revision", bundlelane.FleetRevision(l.m.Sha, l.fluxSHA), "--signing-key", "/run/opa/sign.key", "--signing-alg", "ES256"},
 	} {
 		built = built.WithExec(b, anyExit)
 		out, code, err := output(ctx, built)
@@ -525,17 +543,17 @@ func (l *bundleLane) fleet(ctx context.Context, built *dagger.Container) (*dagge
 
 // publishDie pushes one die's two artifacts — the immutable pin, then its
 // channel — and signs both by digest.
-func (l *bundleLane) publishDie(ctx context.Context, built *dagger.Container, die, pin, plain, signed string) ([]string, gateResult) {
+func (l *bundleLane) publishDie(ctx context.Context, built *dagger.Container, die, pin, revision, plain, signed string) ([]string, gateResult) {
 	bundleSay("── %s: publish — immutable pin first, then move the channel ──", die)
 	oras, g := l.oras(ctx, built)
 	if g.code != buildlane.Clean {
 		return nil, g
 	}
-	digest, g := l.pushPin(ctx, oras, die, pin, plain, "stable")
+	digest, g := l.pushPin(ctx, oras, die, pin, revision, plain, "stable")
 	if g.code != buildlane.Clean {
 		return nil, g
 	}
-	signedDigest, g := l.pushPin(ctx, oras, die, pin+"-signed", signed, "signed")
+	signedDigest, g := l.pushPin(ctx, oras, die, pin+"-signed", revision, signed, "signed")
 	if g.code != buildlane.Clean {
 		return nil, g
 	}
@@ -579,9 +597,23 @@ func (l *bundleLane) oras(ctx context.Context, built *dagger.Container) (*dagger
 		WithWorkdir(workDir), clean()
 }
 
+// pinStands answers whether die:pin already resolves in the registry.
+func (l *bundleLane) pinStands(ctx context.Context, built *dagger.Container, die, pin string) (bool, gateResult) {
+	oras, g := l.oras(ctx, built)
+	if g.code != buildlane.Clean {
+		return false, g
+	}
+	ref := die + ":" + pin
+	_, code, g := exec(ctx, oras, "oras manifest fetch "+ref, "oras", "manifest", "fetch", "--registry-config", "/run/docker/config.json", ref)
+	if g.code != buildlane.Clean {
+		return false, g
+	}
+	return code == 0, clean()
+}
+
 // pushPin pushes file under die:tag unless that pin already resolves, points
 // channel at the pin, and answers die@digest.
-func (l *bundleLane) pushPin(ctx context.Context, oras *dagger.Container, die, tag, file, channel string) (string, gateResult) {
+func (l *bundleLane) pushPin(ctx context.Context, oras *dagger.Container, die, tag, revision, file, channel string) (string, gateResult) {
 	ref := die + ":" + tag
 	cfg := []string{"--registry-config", "/run/docker/config.json"}
 	sum, code, g := exec(ctx, oras, "sha256sum "+file, "sha256sum", file)
@@ -599,7 +631,7 @@ func (l *bundleLane) pushPin(ctx context.Context, oras *dagger.Container, die, t
 	if remote := bundlelane.PublishedLayer(manifest); code != 0 || remote == "" {
 		out, code, g := exec(ctx, oras, "oras push "+ref, append([]string{"oras", "push"}, append(cfg,
 			ref, "--artifact-type", bundlelane.BundleMediaType,
-			"--annotation", "org.opencontainers.image.revision="+l.m.Sha,
+			"--annotation", "org.opencontainers.image.revision="+revision,
 			file+":"+bundlelane.LayerMediaType)...)...)
 		if g.code != buildlane.Clean {
 			return "", g

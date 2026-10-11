@@ -86,6 +86,35 @@ func Pin(sha string) (string, error) {
 	return "g" + sha[:7], nil
 }
 
+// FleetPin is the fleet die's immutable tag: Pin's g<dies7> and then
+// -f<flux7>, the foundry/flux commit its facts were read from. The die is a
+// function of BOTH commits (data.fleet.flux comes from flux, the roster from
+// foundry-dies), so a flux landing at an unchanged foundry-dies commit is a
+// new pin, and a pin that stands is a die that is current. Readers: nyx
+// reads :signed and the image.revision, never the pin's shape; the registry
+// keeps the pin as an opaque tag (-signed appended for the twin).
+func FleetPin(sha, fluxSHA string) (string, error) {
+	pin, err := Pin(sha)
+	if err != nil {
+		return "", err
+	}
+	if len(fluxSHA) < 7 {
+		return "", fmt.Errorf("the flux commit %q is too short for a pin", fluxSHA)
+	}
+	return pin + "-f" + fluxSHA[:7], nil
+}
+
+// FleetRevision is the fleet die's bundle revision (opa build --revision and
+// the image.revision annotation, which nyx's die-lag compares): the dies
+// commit and the flux commit, so a flux-only republish reads as a new
+// revision instead of the same one.
+func FleetRevision(sha, fluxSHA string) string {
+	if len(fluxSHA) < 7 {
+		return sha
+	}
+	return sha + "-f" + fluxSHA[:7]
+}
+
 // Orphans answers the stars with a slag shard (fleet/stars/<star>/slag.json)
 // that fleet/data.json's map does not carry, sorted, and the map's size. A
 // shard with no map entry is a star the fleet demonstrably has and the roster

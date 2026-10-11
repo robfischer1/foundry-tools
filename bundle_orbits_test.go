@@ -23,6 +23,7 @@ func orbitLanding(t *testing.T, changed string, script func()) string {
 	m := bundleOn(t, nil)
 	scriptAGreenBundle()
 	engine.stdout(`"--name-only"`, changed)
+	fleetPinStands(t)
 	if script != nil {
 		script()
 	}
@@ -99,7 +100,7 @@ func TestAnOrbitsReadmeLandingPublishesOnlyTheOrbitDies(t *testing.T) {
 	orbitLanding(t, "orbits/README.md\n", nil)
 	settledOn(t, "0", "neither has anything to publish")
 	settledOn(t, "0", "; published and signed "+bundlelane.ContractsDie)
-	if pushed(bundlelane.PolicyDie, pinOf(t)) != "" || pushed(bundlelane.FleetDie, pinOf(t)) != "" {
+	if pushed(bundlelane.PolicyDie, pinOf(t)) != "" || pushed(bundlelane.FleetDie, fleetPinOf(t)) != "" {
 		t.Error("a README landing republished the policy or the roster")
 	}
 }
