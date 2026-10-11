@@ -4,9 +4,9 @@ import (
 	"dagger/foundry-tools/internal/dagger"
 )
 
-// THE HELPER CLIs. Seven small programs in this module's own directories run in
+// THE HELPER CLIs. Eight small programs in this module's own directories run in
 // the lanes' containers (castpin, hadescall, verdict, witnesscall, pgroupps,
-// execmem, copyout). Each used to be built from dag.CurrentModule().Source() WHOLE, so
+// execmem, copyout, casttarget). Each used to be built from dag.CurrentModule().Source() WHOLE, so
 // the build's cache key was a function of every file in the module and an
 // edit to a README rebuilt all six; moduleBinary also built with no cache
 // volumes and GOPROXY=off. Now every helper builds the way the atoms binary
@@ -38,6 +38,7 @@ var helperSources = map[string]helperSource{
 	"pgroupps":    {internal: []string{"internal/pgroupps"}, offline: true},
 	"execmem":     {internal: []string{"internal/execmem"}, offline: true},
 	"copyout":     {internal: []string{"internal/copyout"}, offline: true},
+	"casttarget":  {internal: []string{"internal/castcache", "internal/casttarget"}},
 }
 
 // helperInclude is the filtered source of a helper: the module files, the

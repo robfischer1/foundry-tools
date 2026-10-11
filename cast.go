@@ -92,6 +92,12 @@ func (m *FoundryTools) Cast(
 		phases: phases{group: castGroup, order: castPhases},
 	}
 	code, reason := l.run(ctx)
+	if code == 0 {
+		// AFTER A CAST THAT HELD, never one that did not: the archive is what
+		// the next cast starts from, and a failed cast's target is not known
+		// good. A save cannot change the verdict (castcache.go).
+		l.saveTarget(ctx)
+	}
 	// THE RECORD EXPLAINS THE VERDICT; IT DOES NOT DECIDE IT. settle() is
 	// unchanged and the exit code is still what the door settles this lane on.
 	//
@@ -114,6 +120,9 @@ type castLane struct {
 	hades, hadesID string
 	dryRun         bool
 	registryConfig *dagger.Secret
+	// cache is this cast's target archive (castcache.go): nil until a cargo
+	// release asks for it, so a Go cast restores and saves nothing.
+	cache *targetArchive
 	// stamp is this run's, on every act — the push, the mint, the verify and
 	// the bell — and never on the build, which is a result.
 	stamp string
@@ -367,6 +376,9 @@ func (l *castLane) cargoRelease(ctx context.Context, r *run) (builtRelease, int,
 	for _, b := range binaries {
 		carried = append(carried, path.Join(checks.RustReleaseTarget, "release", b)+"="+path.Join(checks.ReleaseOut, b))
 	}
+	// THE TARGET IS FILLED FROM THE ARCHIVE BEFORE THE BUILD, in a container of
+	// its own: this one runs the tree's build scripts and holds no credentials.
+	l.restoreTarget(ctx, r)
 	built := lane.WithExec(copiedOut([]string{"cargo", "build", "--release", "--locked"}, carried...), anyExit)
 	out, code, err = output(ctx, built)
 	if err != nil {
