@@ -126,13 +126,16 @@ func rustWitGuest(ctx context.Context, r *run) checks.Verdict {
 	// UNDER THE UNSTALE STAMP (cargoFresh), for both halves. The guest builds
 	// into the repository's release volume, where every tree of the repo
 	// leaves its artifacts at one path: unstamped, cargo would call the crate
-	// Fresh and hand back a guest an older tree built. The native test builds
-	// into the gate's shared foundry-cargo-target and needed the stamp first —
+	// Fresh and hand back a guest an older tree built. The native test (which
+	// then built into the gate's shared foundry-cargo-target) needed the stamp
+	// first —
 	// WITHOUT IT cargo ran the test binary an older tree had left in the
 	// volume: a test module added since (a new file, which the old dep-info
 	// never listed) was neither compiled nor run, and a compile_error! under
 	// cfg(test) read green. MEASURED on stellar-core-rust#14205: the identity
-	// world stayed at 197 tests with 26 round-trip tests in the tree.
+	// world stayed at 197 tests with 26 round-trip tests in the tree. It now
+	// builds into checks.WitGuestTestTargetDir, which the stamp covers the same
+	// way.
 	base := r.withReleaseCache(r.cargoFresh()).WithExec([]string{"rustup", "target", "add", checks.WitGuestTarget})
 	base, err = withTarballBinary(ctx, base, checks.WasmToolsURL, checks.WasmToolsMember, "wasm-tools", 1)
 	if err != nil {
@@ -171,9 +174,11 @@ func rustWitGuest(ctx context.Context, r *run) checks.Verdict {
 			}
 		}
 		logs = append(logs, prefixLines(world, v.Logs)...)
-		// The native test, on base's stamp (see above).
+		// The native test, on base's stamp (see above), in a target dir of its
+		// own (checks.WitGuestTestTargetDir says why: foundry-tools#16916).
 		tested := base.WithExec([]string{
 			"cargo", "test", "--locked", "--no-default-features", "--features", world,
+			"--target-dir", checks.WitGuestTestTargetDir,
 		}, anyExit)
 		if v = cargoVerdict(ctx, a, tested); v.State != int(checks.StatePass) {
 			return namedWorld(v, a, world, "test")
