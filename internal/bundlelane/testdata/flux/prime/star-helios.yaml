@@ -1,0 +1,104 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: helios-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: helios
+  namespace: prime
+  labels: {owner: rob, app: helios, pistis.star: helios}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: helios}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: helios, pistis.star: helios}
+    spec:
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: helios-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: helios
+          livenessProbe:
+            tcpSocket: {port: 8210}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: registry.notusmi.com/rob/helios
+          resources:
+            requests: {cpu: 10m, memory: 128Mi}
+            limits:   {memory: 256Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            exec:
+              command: ['/helios', 'readycheck']
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 8
+            failureThreshold: 6
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: HADES_URL, value: "https://hades:8102/mcp/"}
+            - {name: HELIOS_EMBED_MODEL, value: "bge-m3-FP16.gguf"}
+            - {name: HELIOS_HOST, value: "0.0.0.0"}
+            - {name: HELIOS_PORT, value: "8210"}
+            - {name: OTEL_SERVICE_NAME, value: "helios"}
+            - {name: PORT, value: "8210"}
+            - {name: STELLAR_DB_AUTH, value: "svid"}
+            - {name: HELIOS_DATABASE_URL, value: "postgresql://helios_svid@aether:5432/helios?sslmode=verify-full&sslrootcert=/etc/stellar/aether-db-ca/ca.crt"}
+            - {name: STELLAR_PEP_MODE, value: "witness"}
+          ports:
+            - {name: mcp,  containerPort: 8210}
+            - {name: mtls, containerPort: 8211}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+            - {name: orbit, mountPath: /etc/stellar/orbit.toml, subPath: orbit.toml, readOnly: true}
+            - {name: aether-db-ca, mountPath: /etc/stellar/aether-db-ca, readOnly: true}
+      volumes:
+        - name: orbit
+          configMap: {name: orbit-helios}
+        - {name: tmp, emptyDir: {}}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+        - name: aether-db-ca
+          secret: {secretName: aether-db-server-ca, items: [{key: ca.crt, path: ca.crt}]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: helios
+  namespace: prime
+spec:
+  selector: {app: helios}
+  ports:
+    - {name: mcp,  port: 8210, targetPort: 8210, protocol: TCP}
+    - {name: mtls, port: 8211, targetPort: 8211, protocol: TCP}

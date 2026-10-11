@@ -116,6 +116,11 @@ type bundleLane struct {
 	// the dies were built in, and the paths the landing touched (touched).
 	built   *dagger.Container
 	touched []string
+	// flux is foundry/flux at fluxSHA, the commit main resolved to when the
+	// lane began: every flux fact in the die is read from that one commit,
+	// and the die names it (data.fleet.flux_source).
+	flux    *dagger.Directory
+	fluxSHA string
 }
 
 // workDir is where the bundles are built, outside the mounted tree.
@@ -432,12 +437,21 @@ func (l *bundleLane) fleet(ctx context.Context, built *dagger.Container) (*dagge
 	}
 	bundleSay("fleet: tier gate — %d shards, all present in a %d-star map", len(shards), mapped)
 
+	inj, g := l.inject(ctx, data, shards)
+	if g.code != buildlane.Clean {
+		return nil, g
+	}
+
 	bundleSay("── fleet: build the roster and its SIGNED twin from a staged tree ──")
 	// The v2 records (fleet/stars/<n>/<n>.slag) are not bundle data: opa build
 	// reads data.json, and a stray file in the stage is one more thing a future
-	// builder could trip on.
+	// builder could trip on. The catalog entries (fleet/stars/<n>.json) reach
+	// the die through the staged declared/data.json, not as themselves.
 	stage := dag.Directory().
-		WithDirectory("fleet", src.Directory("fleet"), dagger.DirectoryWithDirectoryOpts{Exclude: []string{"**/*.slag"}}).
+		WithDirectory("fleet", src.Directory("fleet"), dagger.DirectoryWithDirectoryOpts{Exclude: []string{"**/*.slag", "stars/*.json"}}).
+		WithNewFile(bundlelane.DeclaredPath, inj.Declared).
+		WithNewFile(bundlelane.FluxPath, inj.Flux).
+		WithNewFile(bundlelane.FluxSourcePath, inj.Source).
 		WithNewFile(".manifest", bundlelane.FleetManifest)
 	built = built.WithDirectory(workDir+"/stage", stage)
 	for _, b := range [][]string{
@@ -477,6 +491,10 @@ func (l *bundleLane) fleet(ctx context.Context, built *dagger.Container) (*dagge
 		return nil, findings(problem)
 	}
 	bundleSay("fleet: roster — %d stars mapped, %d lean rows, %d topics", rows, stars, topics)
+	if problem := bundlelane.Injected(roster, inj.DeclaredRows, inj.FluxRows, l.fluxSHA); problem != "" {
+		return nil, findings(problem)
+	}
+	bundleSay("fleet: injected — %d declared rows, %d flux rows", inj.DeclaredRows, inj.FluxRows)
 
 	bundleSay("── fleet GATE: it composes with the policy bundle, and the guards FIRE ──")
 	composed := built.WithExec([]string{"opa", "build", "-b", "policy/", "-o", workDir + "/policy.tar.gz", "--revision", "gate", "--ignore", "*_test.rego"}, anyExit)

@@ -1,0 +1,115 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hades-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: hades
+  namespace: prime
+  labels: {owner: rob, app: hades, pistis.star: hades}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: hades}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: hades, pistis.star: hades}
+    spec:
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: hades-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: hades
+          livenessProbe:
+            tcpSocket: {port: 8101}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: registry.notusmi.com/rob/hades
+          resources:
+            requests: {cpu: 10m, memory: 256Mi}
+            limits:   {memory: 640Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            exec:
+              command: ['/hades', 'readycheck']
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 8
+            failureThreshold: 6
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: HADES_DAEMONS, value: "{}"}
+            - {name: HADES_DAEMON_SVIDS, value: "{\"spiffe://notusmi.com/host/rob02/bellows\":\"bellows\",\"spiffe://notusmi.com/host/rob02/fleet-door\":\"fleet-door\",\"spiffe://notusmi.com/host/rob02/foundry-toolbox\":\"host-report\"}"}
+            - {name: HADES_HOST, value: "0.0.0.0"}
+            - name: HADES_KAFKA_BOOTSTRAP
+              valueFrom:
+                configMapKeyRef: {name: fleet-env, key: KAFKA_BOOTSTRAP}
+            - {name: HADES_MTLS_PORT, value: "8102"}
+            - {name: HADES_STAR_LIMITS, value: "{\"athena\":8}"}
+            - {name: HADES_OTEL_ENABLED, value: "true"}
+            - {name: HADES_PDP_FAIL_OPEN, value: "false"}
+            - {name: HADES_PDP_URL, value: "http://ouranos-opa:8181/v1/data/authz/decision"}
+            - {name: HADES_PORT, value: "8101"}
+            - {name: HADES_ROSTER_URL, value: "http://ouranos-opa:8181/v1/data/fleet"}
+            - {name: HADES_TRUSTED_FORWARDER_SVID, value: "spiffe://notusmi.com/star/charon"}
+            - {name: HADES_SESSION_PROOF, value: "witness"}
+            - {name: HADES_SESSION_PROOF_JWKS_URL, value: "http://kairos:8200/jwks"}
+            - {name: HADES_TRUSTED_SESSION_FORWARDER_SVID, value: "spiffe://notusmi.com/host/rob02/cerberus,spiffe://notusmi.com/host/llm01/cerberus,spiffe://notusmi.com/realm/prime/chairman/casper,spiffe://notusmi.com/realm/prime/razor"}
+            - {name: OTEL_SERVICE_NAME, value: "hades"}
+            - {name: PORT, value: "8101"}
+            - {name: SPIFFE_ENDPOINT_SOCKET, value: "unix:///run/spire/agent/public/api.sock"}
+          ports:
+            - {name: mcp,  containerPort: 8101}
+            - {name: mtls, containerPort: 8102}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hades
+  annotations:
+    lbipam.cilium.io/ips: "192.168.100.30"
+  labels: {bgp: lan}
+  namespace: prime
+spec:
+  type: LoadBalancer
+  allocateLoadBalancerNodePorts: false
+  selector: {app: hades}
+  ports:
+    - {name: mcp,  port: 8101, targetPort: 8101, protocol: TCP}
+    - {name: mtls, port: 8102, targetPort: 8102, protocol: TCP}
+

@@ -1,0 +1,96 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: eros
+  namespace: prime
+  labels: {owner: rob, app: eros, pistis.star: eros}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: eros}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: eros, pistis.star: eros}
+    spec:
+      serviceAccountName: eros
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: eros
+          livenessProbe:
+            tcpSocket: {port: 8200}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: registry.notusmi.com/rob/eros
+          resources:
+            requests: {cpu: 10m, memory: 128Mi}
+            limits:   {memory: 256Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            exec:
+              command: ['/eros', 'readycheck']
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 8
+            failureThreshold: 6
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: EROS_EMBED_DIM, value: "1024"}
+            - {name: EROS_EMBED_MODEL, value: "bge-m3-FP16.gguf"}
+            - {name: EROS_PREFERRED_EMBED_ENDPOINT, value: "http://192.168.1.185:11434/v1"}
+            - {name: EROS_PREFERRED_EMBED_MODEL, value: "bge-m3"}
+            - {name: EROS_HOST, value: "0.0.0.0"}
+            - {name: EROS_OTEL_ENABLED, value: "true"}
+            - {name: EROS_PORT, value: "8200"}
+            - {name: OTEL_SERVICE_NAME, value: "eros"}
+            - {name: STELLAR_DB_AUTH, value: "svid"}
+            - {name: EROS_DATABASE_URL, value: "postgresql://eros_svid@eros-db-rw:5432/eros?sslmode=verify-full&sslrootcert=/etc/stellar/eros-db-ca/ca.crt"}
+            - {name: STELLAR_PEP_MODE, value: "witness"}
+          ports:
+            - {name: mcp,  containerPort: 8200}
+            - {name: mtls, containerPort: 8201}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+            - {name: orbit, mountPath: /etc/stellar/orbit.toml, subPath: orbit.toml, readOnly: true}
+            - {name: eros-db-ca, mountPath: /etc/stellar/eros-db-ca, readOnly: true}
+      volumes:
+        - name: orbit
+          configMap: {name: orbit-eros}
+        - {name: tmp, emptyDir: {}}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+        - name: eros-db-ca
+          secret: {secretName: eros-db-server-ca, items: [{key: ca.crt, path: ca.crt}]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: eros
+  namespace: prime
+spec:
+  selector: {app: eros}
+  ports:
+    - {name: mcp,  port: 8200, targetPort: 8200, protocol: TCP}
+    - {name: mtls, port: 8201, targetPort: 8201, protocol: TCP}

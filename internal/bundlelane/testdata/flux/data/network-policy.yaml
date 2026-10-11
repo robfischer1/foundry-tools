@@ -1,0 +1,43 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: cnpg-instances-ingress
+spec:
+  endpointSelector:
+    matchLabels:
+      cnpg.io/podRole: instance
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: prime
+      toPorts:
+        - ports:
+            - {port: "5432", protocol: TCP}
+            - {port: "9187", protocol: TCP}
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: data
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: cnpg-system
+    - fromEntities: [host]
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: aether-external-ingress
+spec:
+  endpointSelector:
+    matchLabels:
+      cnpg.io/cluster: aether-db
+      cnpg.io/podRole: instance
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: tailscale
+      toPorts:
+        - ports:
+            - {port: "5432", protocol: TCP}
+    - fromEntities: [world, host, remote-node]
+      toPorts:
+        - ports:
+            - {port: "5432", protocol: TCP}

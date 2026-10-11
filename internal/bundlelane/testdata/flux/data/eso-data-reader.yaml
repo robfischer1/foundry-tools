@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: eso-data-reader
+  namespace: data
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: eso-data-reader
+  namespace: data
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [cnpg-replication-ca, fleet-root-ca-2-public]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [aether-db-ca-public, chaos-db-ca-public, eros-db-ca-public, ourea-db-ca-public, erebus-db-ca-public, narcissus-db-ca-public]
+    verbs: [get, update, patch]
+  - apiGroups: [authorization.k8s.io]
+    resources: [selfsubjectrulesreviews]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  annotations:
+  name: eso-data-reader
+  namespace: data
+subjects:
+  - kind: ServiceAccount
+    name: eso-data-reader
+    namespace: data
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: eso-data-reader

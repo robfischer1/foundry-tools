@@ -1,0 +1,153 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tron-redis-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: tron-redis
+  namespace: prime
+  labels: {owner: rob, app: tron-redis}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: tron-redis}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: tron-redis}
+    spec:
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: tron-redis-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: redis
+          livenessProbe:
+            tcpSocket: {port: 6379}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: docker.io/library/redis@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
+          resources:
+            requests: {cpu: 10m, memory: 64Mi}
+            limits:   {memory: 256Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            tcpSocket: {port: 6379}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          ports:
+            - {name: redis, containerPort: 6379}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tron-redis
+  namespace: prime
+spec:
+  selector: {app: tron-redis}
+  ports:
+    - {name: redis, port: 6379, targetPort: 6379, protocol: TCP}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tron-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: tron
+  namespace: prime
+  labels: {owner: rob, app: tron, pistis.star: tron}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: tron}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: tron, pistis.star: tron}
+    spec:
+      enableServiceLinks: false
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: tron-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: tron
+          image: registry.notusmi.com/rob/tron
+          resources:
+            requests: {cpu: 10m, memory: 128Mi}
+            limits:   {memory: 256Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: LOUTRON_REDIS_URL, value: "redis://tron-redis:6379"}
+            - {name: OTEL_SERVICE_NAME, value: "tron"}
+            - name: TRON_BROKER
+              valueFrom:
+                configMapKeyRef: {name: fleet-env, key: KAFKA_BOOTSTRAP}
+            - {name: TRON_NAIVE_SCORER, value: "on"}
+            - {name: TRON_TICK_FLOOR_S, value: "5"}
+            - {name: TRON_TOPOLOGY_EDGES, value: "repo:aletheia>code=0.5,repo:ananke>code=0.5,repo:anvil>code=0.5,repo:arachne>code=0.5,repo:ares>code=0.5,repo:argus>code=0.5,repo:argus-renewer>code=0.5,repo:asteria>code=0.5,repo:athena>code=0.5,repo:athlos>code=0.5,repo:base-images>code=0.5,repo:bellows>code=0.5,repo:blade-runner>code=0.5,repo:calliope>code=0.5,repo:casper-stacks>code=0.5,repo:cerberus>code=0.5,repo:chaos>code=0.5,repo:charon>code=0.5,repo:clio>code=0.5,repo:constellation>code=0.5,repo:cql>code=0.5,repo:daedalus>code=0.5,repo:demeter>code=0.5,repo:dotfiles>code=0.5,repo:ergo-recorder>code=0.5,repo:eris>code=0.5,repo:eros>code=0.5,repo:excellent-adventure>code=0.5,repo:f3-demo>code=0.5,repo:fleet-crew>code=0.5,repo:flux>code=0.5,repo:forge>code=0.5,repo:forge-testkit>code=0.5,repo:forge-testkit-go>code=0.5,repo:foundry>code=0.5,repo:foundry-dies>code=0.5,repo:foundry-stocks>code=0.5,repo:foundry-toolbox>code=0.5,repo:foundry-tools>code=0.5,repo:frontend-ci-image>code=0.5,repo:frontend-repo-template>code=0.5,repo:furnace>code=0.5,repo:gavel>code=0.5,repo:gijmo-ui>code=0.5,repo:glaucus>code=0.5,repo:go-base-image>code=0.5,repo:go-ci-image>code=0.5,repo:go-repo-template>code=0.5,repo:grace>code=0.5,repo:ha-config>code=0.5,repo:hades>code=0.5,repo:harmonia>code=0.5,repo:helios>code=0.5,repo:hemera>code=0.5,repo:hephaestus>code=0.5,repo:hermes>code=0.5,repo:infra>code=0.5,repo:iris>code=0.5,repo:kairos>code=0.5,repo:llm01-stacks>code=0.5,repo:meta>code=0.5,repo:mnemosyne>code=0.5,repo:narcissus>code=0.5,repo:nas01-stacks>code=0.5,repo:nereus>code=0.5,repo:nyx>code=0.5,repo:oceanus>code=0.5,repo:ouranos>code=0.5,repo:ourea>code=0.5,repo:pan>code=0.5,repo:pandora>code=0.5,repo:paneless>code=0.5,repo:personal-history-db>code=0.5,repo:poseidon>code=0.5,repo:prometheus>code=0.5,repo:proteus>code=0.5,repo:python-base-image>code=0.5,repo:python-ci-image>code=0.5,repo:python-repo-template>code=0.5,repo:renovate-config>code=0.5,repo:rob02-stacks>code=0.5,repo:rust-ci-image>code=0.5,repo:rust-repo-template>code=0.5,repo:stellar-core>code=0.5,repo:stellar-core-go>code=0.5,repo:stellar-core-rust>code=0.5,repo:stellar-core-ts>code=0.5,repo:swag-monkey>code=0.5,repo:tartarus>code=0.5,repo:techne>code=0.5,repo:telescope>code=0.5,repo:terpsichore>code=0.5,repo:tethys>code=0.5,repo:thalassa>code=0.5,repo:thalia>code=0.5,repo:theia>code=0.5,repo:themis>code=0.5,repo:tofu-repo-template>code=0.5,repo:tongs>code=0.5,repo:tron>code=0.5,repo:urania>code=0.5,repo:vault-mcp>code=0.5,repo:voicebox>code=0.5,repo:wrecksys>code=0.5,repo:helios>repo:themis=0.3,repo:helios>repo:narcissus=0.3,repo:themis>repo:helios=0.3,repo:themis>repo:narcissus=0.3,repo:narcissus>repo:helios=0.3,repo:narcissus>repo:themis=0.3,repo:chaos>repo:urania=0.3,repo:urania>repo:chaos=0.3"}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}

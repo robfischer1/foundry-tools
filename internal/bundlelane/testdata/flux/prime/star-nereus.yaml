@@ -1,0 +1,106 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nereus-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: nereus
+  namespace: prime
+  labels: {owner: rob, app: nereus, pistis.star: nereus}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: nereus}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: nereus, pistis.star: nereus}
+    spec:
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: nereus-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: nereus
+          livenessProbe:
+            tcpSocket: {port: 8200}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: registry.notusmi.com/rob/nereus
+          resources:
+            requests: {cpu: 10m, memory: 256Mi}
+            limits:   {memory: 1024Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            exec:
+              command: ["/nereus", "readycheck"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 8
+            failureThreshold: 6
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: NEREUS_EMBED_BASE_URL, value: "http://192.168.1.185:11434/v1"}
+            - {name: NEREUS_HOST, value: "0.0.0.0"}
+            - {name: NEREUS_OTEL_ENABLED, value: "true"}
+            - {name: NEREUS_PORT, value: "8200"}
+            - {name: NEREUS_MTLS_ADDR, value: ":8201"}
+            - {name: NEREUS_AUDIT_PATH, value: "chairman"}
+            - {name: NEREUS_PROMOTE_ENABLED, value: "true"}
+            - {name: OTEL_SERVICE_NAME, value: "nereus"}
+            - {name: STELLAR_DB_AUTH, value: "svid"}
+            - {name: NEREUS_DATABASE_URL, value: "postgresql://nereus_svid@aether:5432/nereus?sslmode=verify-full&sslrootcert=/etc/stellar/aether-db-ca/ca.crt"}
+            - {name: STELLAR_PEP_MODE, value: "witness"}
+          ports:
+            - {name: mcp,  containerPort: 8200}
+            - {name: mtls, containerPort: 8201}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+            - {name: orbit, mountPath: /etc/stellar/orbit.toml, subPath: orbit.toml, readOnly: true}
+            - {name: aether-db-ca, mountPath: /etc/stellar/aether-db-ca, readOnly: true}
+      volumes:
+        - name: orbit
+          configMap: {name: orbit-nereus}
+        - {name: tmp, emptyDir: {}}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+        - name: aether-db-ca
+          secret: {secretName: aether-db-server-ca, items: [{key: ca.crt, path: ca.crt}]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nereus
+  namespace: prime
+spec:
+  selector: {app: nereus}
+  ports:
+    - {name: mcp,  port: 8200, targetPort: 8200, protocol: TCP}
+    - {name: mtls, port: 8201, targetPort: 8201, protocol: TCP}

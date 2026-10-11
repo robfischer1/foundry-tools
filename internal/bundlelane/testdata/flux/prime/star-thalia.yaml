@@ -1,0 +1,105 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: thalia-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: thalia
+  namespace: prime
+  labels: {owner: rob, app: thalia, pistis.star: thalia}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: thalia}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: thalia, pistis.star: thalia}
+    spec:
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: thalia-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: thalia
+          livenessProbe:
+            tcpSocket: {port: 8216}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: registry.notusmi.com/rob/thalia
+          resources:
+            requests: {cpu: 10m, memory: 128Mi}
+            limits:   {memory: 256Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            exec:
+              command: ['/thalia', 'readycheck']
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 8
+            failureThreshold: 6
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: OTEL_SERVICE_NAME, value: "thalia"}
+            - {name: PORT, value: "8216"}
+            - {name: STELLAR_DB_AUTH, value: "svid"}
+            - {name: THALIA_DATABASE_URL, value: "postgresql://thalia_svid@aether:5432/thalia?sslmode=verify-full&sslrootcert=/etc/stellar/aether-db-ca/ca.crt"}
+            - {name: THALIA_DELTAS_TOPIC, value: "aglaia.writing.deltas.v1"}
+            - {name: THALIA_HOST, value: "0.0.0.0"}
+            - {name: THALIA_MCP_ADDR, value: ":8216"}
+            - {name: THALIA_OTEL_ENABLED, value: "true"}
+            - {name: THALIA_PORT, value: "8216"}
+            - {name: STELLAR_PEP_MODE, value: "witness"}
+          ports:
+            - {name: mcp,  containerPort: 8216}
+            - {name: mtls, containerPort: 8217}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+            - {name: orbit, mountPath: /etc/stellar/orbit.toml, subPath: orbit.toml, readOnly: true}
+            - {name: aether-db-ca, mountPath: /etc/stellar/aether-db-ca, readOnly: true}
+      volumes:
+        - name: orbit
+          configMap: {name: orbit-thalia}
+        - {name: tmp, emptyDir: {}}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+        - name: aether-db-ca
+          secret: {secretName: aether-db-server-ca, items: [{key: ca.crt, path: ca.crt}]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: thalia
+  namespace: prime
+spec:
+  selector: {app: thalia}
+  ports:
+    - {name: mcp,  port: 8216, targetPort: 8216, protocol: TCP}
+    - {name: mtls, port: 8217, targetPort: 8217, protocol: TCP}

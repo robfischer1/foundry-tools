@@ -16,7 +16,13 @@ const (
 	// policyData is a built policy bundle's data.json: chaos curates a verb.
 	policyData = `{"authz_audience":{"star_only":{"chaos":["graph_commit_graph"],"athena":["task_create"]}}}`
 	// rosterData is a built roster's data.json.
-	rosterData = `{"fleet":{"map":{"athena":{},"ares":{}},"topics":["athena._ops.calls"],"stars":{"athena":{"name":"athena"},"ares":{"name":"ares"}}}}`
+	rosterData = `{"fleet":{"map":{"athena":{},"ares":{}},"topics":["athena._ops.calls"],"stars":{"athena":{"name":"athena"},"ares":{"name":"ares"}},"declared":{},"flux":{"athena":{}},"flux_source":{"repo":"foundry/flux","sha":"` + fakeFluxSHA + `"}}}`
+	// athenaManifest is foundry/flux's prime/star-athena.yaml, down to its
+	// Service and its DSN.
+	athenaManifest = "kind: Deployment\nmetadata: {name: athena}\nspec:\n  template:\n    spec:\n      containers:\n        - env:\n            - {name: DATABASE_URL, value: \"postgresql://athena_svid@aether:5432/athena?sslrootcert=/etc/stellar/aether-db-ca/ca.crt\"}\n" +
+		"---\nkind: Service\nmetadata: {name: athena}\nspec:\n  ports:\n    - {name: mcp, port: 8200}\n    - {name: mtls, port: 8201}\n"
+	// aetherCluster is foundry/flux's data/aether-db.yaml, down to the Cluster.
+	aetherCluster = "apiVersion: postgresql.cnpg.io/v1\nkind: Cluster\nmetadata: {name: aether-db}\n"
 	// plantedDenied is the composition probe's answer when both guards fire.
 	// orbitContract is one seam contract in foundry-dies/orbits.
 	orbitContract = "version = \"1\"\nstatus = \"generated\"\nverbs = [\"neighbors\"]\n"
@@ -30,14 +36,17 @@ func bundleOn(t *testing.T, tree map[string]string) *FoundryTools {
 	t.Helper()
 	engine.reset()
 	base := map[string]string{
-		"policy/authz/visible.rego":        "package authz.visible",
-		"tests/fixtures/ouranos-self.json": `{"name":"ouranos"}`,
-		"fleet/data.json":                  `{"map":{"athena":{},"ares":{}}}`,
-		"fleet/stars/athena/slag.json":     "{}",
-		"fleet/stars/ares/slag.json":       "{}",
-		"cosign.pub":                       "-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----\n",
-		"orbits/urania-themis.toml":        orbitContract,
-		"orbits/README.md":                 "the contracts",
+		"policy/authz/visible.rego":          "package authz.visible",
+		"tests/fixtures/ouranos-self.json":   `{"name":"ouranos"}`,
+		"fleet/data.json":                    `{"map":{"athena":{},"ares":{}}}`,
+		"fleet/stars/athena/slag.json":       "{}",
+		"fleet/stars/ares/slag.json":         "{}",
+		"cosign.pub":                         "-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----\n",
+		"orbits/urania-themis.toml":          orbitContract,
+		"orbits/README.md":                   "the contracts",
+		"/flux/prime/star-athena.yaml":       athenaManifest,
+		"/flux/prime/star-svid-sidecar.yaml": "kind: Service\nmetadata: {name: svid-sidecar}\n",
+		"/flux/data/aether-db.yaml":          aetherCluster,
 	}
 	for k, v := range tree {
 		if v == "" {
@@ -69,8 +78,11 @@ func scriptAGreenBundle() {
 
 // scriptTheFleet answers the fleet's stages and the registry's. A case that
 // re-scripts a policy needle every later chain carries calls it again.
-func scriptTheFleet() {
-	engine.stdout(`"/work/stage"`, rosterData)
+func scriptTheFleet() { scriptTheFleetWith(rosterData) }
+
+// scriptTheFleetWith is scriptTheFleet over the roster data.json given.
+func scriptTheFleetWith(roster string) {
+	engine.stdout(`"/work/stage"`, roster)
 	engine.stdout(`"/.manifest"`, bundlelane.FleetManifest)
 	engine.stdout(`"/work/planted-seams.json"`, plantedDenied)
 	engine.stdout(`"tzf"`, "/data.json\n/.manifest\n/.signatures.json\n")

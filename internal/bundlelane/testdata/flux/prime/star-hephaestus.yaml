@@ -1,0 +1,149 @@
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: hephaestus-cosign-pub
+  namespace: prime
+spec:
+  refreshInterval: 1h
+  secretStoreRef: {name: calypso, kind: ClusterSecretStore}
+  target:
+    name: hephaestus-cosign-pub
+    creationPolicy: Owner
+  data:
+    - secretKey: fleet.cosign.pub
+      remoteRef: {key: /fleet/hephaestus/HEPHAESTUS_IMAGE_COSIGN_PUB}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hephaestus-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: hephaestus
+  namespace: prime
+  labels: {owner: rob, app: hephaestus, pistis.star: hephaestus}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: hephaestus}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: hephaestus, pistis.star: hephaestus}
+    spec:
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: hephaestus-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: hephaestus
+          livenessProbe:
+            tcpSocket: {port: 8213}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: registry.notusmi.com/rob/hephaestus@sha256:d7085af3989837408fd4e2ead94df77ebb74a63c1dda6594d5d87aeb4a85a7a9
+          resources:
+            requests: {cpu: 10m, memory: 512Mi}
+            limits:   {memory: 1664Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            exec:
+              command: ['/app/hephaestus', 'readycheck']
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 8
+            failureThreshold: 6
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+            - secretRef: {name: hephaestus-calypso-env}
+          env:
+            - {name: HEPHAESTUS_IMAGE_COSIGN_PUB, value: "/etc/hephaestus/fleet.cosign.pub"}
+            - {name: HEPHAESTUS_OCI_LIVE, value: "1"}
+            - {name: HEPHAESTUS_S3_ENDPOINT, value: "http://seaweedfs:8333"}
+            - {name: HEPHAESTUS_S3_ROLE_ARN, value: "arn:aws:iam::role/Hephaestus"}
+            - {name: HEPHAESTUS_REGISTRY_BASE, value: "registry.notusmi.com/rob"}
+            - {name: HEPHAESTUS_REGISTRY_USER, value: "rob"}
+            - {name: OTEL_SERVICE_NAME, value: "hephaestus"}
+            - {name: STELLAR_PEP_MODE, value: "witness"}
+            - {name: HEPHAESTUS_IMAGE_KMS_KEY, value: "infisical://fleet-cosign-1"}
+            - {name: INFISICAL_SITE_URL, value: "https://calypso.notusmi.com"}
+            - {name: INFISICAL_AUTH_METHOD, value: "kubernetes"}
+            - {name: INFISICAL_MACHINE_IDENTITY_ID, value: "f98cf66c-e3ba-46ba-a9a6-aaf709dad585"}
+            - {name: INFISICAL_PROJECT_ID, value: "e4815550-9c4f-4e9b-91a9-4b65d4acc9df"}
+            - {name: INFISICAL_KUBERNETES_SERVICE_ACCOUNT_TOKEN_PATH, value: "/var/run/secrets/infisical/token"}
+            - {name: HEPHAESTUS_PROMOTION_KMS_KEY, value: "infisical://hephaestus-promotion-1"}
+            - {name: HEPHAESTUS_PROMOTION_KMS_KEY_PROJECT, value: "6b29aea1-3246-43d5-bb18-6615cbca4fae"}
+            - {name: HEPHAESTUS_PROMOTION_KMS_KEY_IDENTITY, value: "58064487-433e-408b-9d4b-c813ad62c41c"}
+          ports:
+            - {name: mcp,  containerPort: 8213}
+            - {name: mtls, containerPort: 8214}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: cosign-pub, mountPath: /etc/hephaestus, readOnly: true}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+            - {name: infisical-token, mountPath: /var/run/secrets/infisical, readOnly: true}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+        - name: cosign-pub
+          secret: {secretName: hephaestus-cosign-pub}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+        - name: infisical-token
+          projected:
+            sources:
+              - serviceAccountToken: {path: token, audience: infisical, expirationSeconds: 3600}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hephaestus
+  namespace: prime
+spec:
+  selector: {app: hephaestus}
+  ports:
+    - {name: mcp,  port: 8213, targetPort: 8213, protocol: TCP}
+    - {name: mtls, port: 8214, targetPort: 8214, protocol: TCP}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: hephaestus-calypso-env
+  namespace: prime
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: calypso
+    kind: ClusterSecretStore
+  target:
+    name: hephaestus-calypso-env
+    creationPolicy: Owner
+  dataFrom:
+    - find:
+        path: /fleet/hephaestus
+        name:
+          regexp: ^HEPHAESTUS_REGISTRY_TOKEN$

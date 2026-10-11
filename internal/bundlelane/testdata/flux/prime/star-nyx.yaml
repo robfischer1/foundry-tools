@@ -1,0 +1,117 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nyx-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: nyx
+  namespace: prime
+  labels: {owner: rob, app: nyx, pistis.star: nyx}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: nyx}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: nyx, pistis.star: nyx}
+    spec:
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: nyx-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: nyx
+          livenessProbe:
+            tcpSocket: {port: 8000}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: registry.notusmi.com/rob/nyx@sha256:b9b4b1c0b1f71d2eb27404c195ced910e4a4d983e35029de29da62d7958b7318
+          resources:
+            requests: {cpu: 10m, memory: 128Mi}
+            limits:   {memory: 256Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            exec:
+              command: ['/nyx', 'readycheck']
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 8
+            failureThreshold: 6
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: NYX_CALYPSO_IDENTITY_ID, value: "ba279076-aa2f-4483-bb71-f369caee20d3"}
+            - {name: NYX_HEARTBEAT_PUBLISH_ENABLED, value: "true"}
+            - {name: NYX_HOST, value: "0.0.0.0"}
+            - {name: NYX_MOROS_ENABLED, value: "true"}
+            - {name: NYX_OIZYS_ENABLED, value: "true"}
+            - {name: NYX_PORT, value: "8000"}
+            - {name: NYX_PROJECTOR_ENABLED, value: "true"}
+            - {name: NYX_RED_AFTER, value: "300"}
+            - {name: NYX_TRIPWIRE_RULES, value: '[{"id":"finding","kind":"alert","threshold":1,"match":{"severity":"critical","alertname":"AletheiaFinding"}}]'}
+            - {name: NYX_TRIPWIRE_ARMED, value: "false"}
+            - {name: NYX_YELLOW_AFTER, value: "90"}
+            - {name: NYX_DOOR_URL,       value: "http://ourea:8215"}
+            - {name: NYX_DAEDALUS_URL,   value: "https://daedalus:8224/mcp"}
+            - {name: NYX_SPIRE_ADDR,     value: "spire-server.spire.svc.cluster.local:8281"}
+            - {name: NYX_MEMORY_LANES, value: "forge,obsidian"}
+            - {name: OTEL_SERVICE_NAME, value: "nyx"}
+            - {name: PORT, value: "8000"}
+            - {name: NYX_GRAFANA_URL, value: "http://grafana:3000"}
+            - {name: STELLAR_PEP_MODE, value: "witness"}
+          ports:
+            - {name: mcp,  containerPort: 8000}
+            - {name: mtls, containerPort: 8001}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+            - {name: orbit, mountPath: /etc/stellar/orbit.toml, subPath: orbit.toml, readOnly: true}
+      volumes:
+        - name: orbit
+          configMap: {name: orbit-nyx}
+        - {name: tmp, emptyDir: {}}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nyx
+  annotations:
+    lbipam.cilium.io/ips: "192.168.100.31"
+  labels: {bgp: lan}
+  namespace: prime
+spec:
+  type: LoadBalancer
+  allocateLoadBalancerNodePorts: false
+  selector: {app: nyx}
+  ports:
+    - {name: mcp,  port: 8000, targetPort: 8000, protocol: TCP}
+    - {name: mtls, port: 8001, targetPort: 8001, protocol: TCP}
+

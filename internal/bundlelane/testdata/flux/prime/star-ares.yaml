@@ -1,0 +1,125 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ares-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: ares
+  namespace: prime
+  labels: {owner: rob, app: ares, pistis.star: ares}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: ares}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: ares, pistis.star: ares}
+    spec:
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: ares-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: ares
+          livenessProbe:
+            tcpSocket: {port: 8219}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: registry.notusmi.com/rob/ares
+          resources:
+            requests: {cpu: 10m, memory: 128Mi}
+            limits:   {memory: 256Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            tcpSocket: {port: 8219}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: ARES_ADDR, value: ":8219"}
+            - {name: ARES_MTLS_ADDR, value: ":8220"}
+            - {name: ARES_REALM, value: "prime"}
+            - {name: ARES_TEE_URL, value: "https://aletheia:8221/v1/exchange"}
+            - {name: ARES_FIELD_TRIP_SUBJECTS, value: "spiffe://notusmi.com/star/nyx"}
+            - {name: ARES_FIELD_DRILL_INTERVAL, value: "24h"}
+            - {name: ARES_RUN_GATE_RAZORS, value: "armed"}
+            - {name: ARES_CALYPSO_IDENTITY_ID, value: "d6707016-d8e6-451f-b704-cc8e12e57b4c"}
+            - {name: ARES_CALYPSO_WORKSPACE_ID, value: "7e3cd573-787c-4d6b-8be1-7dc0c37ea16a"}
+            - {name: OTEL_SERVICE_NAME, value: "ares"}
+            - {name: ARES_MODEL_UPSTREAMS, value: "qwen"}
+            - {name: ARES_MODEL_UPSTREAM_QWEN_BASE_URL, value: "http://qwen:8080/v1"}
+            - {name: ARES_MODEL_UPSTREAM_QWEN_MODELS, value: "qwen3.6-35b-a3b,qwen*"}
+            - {name: ARES_PROVIDERS, value: "openrouter,google-ai-studio,nvidia-nim"}
+            - {name: ARES_PROVIDER_OPENROUTER_BASE_URL, value: "https://openrouter.ai/api"}
+            - {name: ARES_PROVIDER_OPENROUTER_PROTOCOLS, value: "anthropic,openai"}
+            - {name: ARES_PROVIDER_GOOGLE_AI_STUDIO_BASE_URL, value: "https://generativelanguage.googleapis.com"}
+            - {name: ARES_PROVIDER_GOOGLE_AI_STUDIO_PROTOCOLS, value: "openai"}
+            - {name: ARES_PROVIDER_GOOGLE_AI_STUDIO_OPENAI_PATH, value: "/v1beta/openai"}
+            - {name: ARES_PROVIDER_NVIDIA_NIM_BASE_URL, value: "https://integrate.api.nvidia.com"}
+            - {name: ARES_PROVIDER_NVIDIA_NIM_PROTOCOLS, value: "openai"}
+          ports:
+            - {name: mcp,  containerPort: 8219}
+            - {name: mtls, containerPort: 8220}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ares
+  namespace: prime
+spec:
+  selector: {app: ares}
+  ports:
+    - {name: mcp,  port: 8219, targetPort: 8219, protocol: TCP}
+    - {name: mtls, port: 8220, targetPort: 8220, protocol: TCP}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ares-mtls-lb
+  namespace: prime
+  annotations:
+    email: owner@example.invalid
+    lbipam.cilium.io/ips: "192.168.100.33"
+  labels: {owner: rob, bgp: lan}
+spec:
+  type: LoadBalancer
+  allocateLoadBalancerNodePorts: false
+  selector: {app: ares}
+  ports:
+    - {name: mtls, port: 8220, targetPort: 8220, protocol: TCP}

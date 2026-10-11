@@ -264,6 +264,64 @@ def test_a_record_that_is_not_an_object_is_a_finding_not_a_crash(tmp_path):
     assert "Traceback" not in done.stderr
 
 
+CATALOG = "fleet-star.schema.json"
+
+
+def add_entry(tree: Path, star: str, text: str) -> None:
+    """Write one catalog entry, fleet/stars/<star>.json.
+
+    Args:
+        tree: the temporary repository.
+        star: the entry's file stem.
+        text: the entry's bytes.
+    """
+    stars = tree / "fleet" / "stars"
+    stars.mkdir(parents=True, exist_ok=True)
+    (stars / f"{star}.json").write_text(text, encoding="utf-8")
+
+
+def test_a_tree_with_no_catalog_entries_still_passes(tmp_path):
+    # The migration starts from zero entries: that is not a could-not-run.
+    tree = schema_tree(tmp_path, **{V1: VALID, V3: VALID})
+    add_record(tree, "hades", json.dumps({"meta": {"name": "hades"}}))
+    done = probe(tree)
+    assert done.returncode == PASS, done.stdout + done.stderr
+    assert "0 catalog entries validated" in done.stdout
+
+
+def test_a_catalog_entry_is_held_to_the_fleet_star_schema(tmp_path):
+    tree = schema_tree(tmp_path, **{V1: VALID, V3: VALID, CATALOG: VALID})
+    add_record(tree, "hades", json.dumps({"meta": {"name": "hades"}}))
+    add_entry(tree, "hades", json.dumps({"name": "hades"}))
+    done = probe(tree)
+    assert done.returncode == PASS, done.stdout + done.stderr
+    assert "1 record(s) validated" in done.stdout
+    assert "1 catalog entry validated against schema/fleet-star.schema.json" in done.stdout
+
+
+def test_catalog_entries_with_no_schema_cannot_be_judged(tmp_path):
+    tree = schema_tree(tmp_path, **{V1: VALID, V3: VALID})
+    add_record(tree, "hades", json.dumps({"meta": {"name": "hades"}}))
+    add_entry(tree, "hades", json.dumps({"name": "hades"}))
+    done = probe(tree)
+    assert done.returncode == CANNOT_RUN, done.stdout + done.stderr
+    assert "could not read schema/fleet-star.schema.json" in done.stderr
+
+
+def test_a_catalog_entry_named_for_another_star_is_a_finding(tmp_path):
+    tree = schema_tree(tmp_path, **{V1: VALID, V3: VALID, CATALOG: VALID})
+    add_record(tree, "hades", json.dumps({"meta": {"name": "hades"}}))
+    add_entry(tree, "hades", json.dumps({"name": "nyx"}))
+    add_entry(tree, "nyx", "[]")
+    add_entry(tree, "chaos", "not json")
+    done = probe(tree)
+    assert done.returncode == FINDINGS, done.stdout + done.stderr
+    assert "fleet/stars/hades.json::name: name must equal the filename 'hades'" in done.stderr
+    assert "fleet/stars/nyx.json::name: name must equal the filename 'nyx'" in done.stderr
+    assert "fleet/stars/chaos.json::not readable as JSON" in done.stderr
+    assert "Traceback" not in done.stderr
+
+
 def test_the_probe_carries_the_fleet_copyright():
     # CPY001 is in the fleet ruleset with a notice-rgx, and this file predates
     # the lane reaching it. The lint atom enforces it; this says so in the

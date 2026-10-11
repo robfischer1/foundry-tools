@@ -1,0 +1,411 @@
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: argus-fleet-login
+spec:
+  refreshInterval: 1h
+  secretStoreRef: {name: cluster-default, kind: ClusterSecretStore}
+  target:
+    name: argus-fleet-login
+    creationPolicy: Owner
+    template:
+      type: kubernetes.io/basic-auth
+  dataFrom:
+    - extract:
+        key: argus-fleet-login
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: argus-ledgers-login
+spec:
+  refreshInterval: 1h
+  secretStoreRef: {name: cluster-default, kind: ClusterSecretStore}
+  target:
+    name: argus-ledgers-login
+    creationPolicy: Owner
+    template:
+      type: kubernetes.io/basic-auth
+  dataFrom:
+    - extract:
+        key: argus-ledgers-login
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: aether-db-store
+spec:
+  configuration:
+    destinationPath: s3://cnpg/aether-db
+    endpointURL: http://seaweedfs.objects.svc.cluster.local:8333
+    s3Credentials:
+      accessKeyId: {name: fleet-s3-credentials, key: access_key_id}
+      secretAccessKey: {name: fleet-s3-credentials, key: secret_access_key}
+    data:
+      compression: lz4
+    wal:
+      compression: gzip
+      maxParallel: 4
+  retentionPolicy: 30d
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: aether-db
+spec:
+  instances: 1
+  enablePDB: false
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.4-standard-bookworm
+  primaryUpdateStrategy: unsupervised
+  affinity:
+    enablePodAntiAffinity: true
+    podAntiAffinityType: preferred
+    topologyKey: kubernetes.io/hostname
+  postgresUID: 26
+  postgresGID: 26
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+    limits:
+      memory: 4Gi
+  postgresql:
+    parameters:
+      pg_stat_statements.max: "5000"
+      pg_stat_statements.track: "top"
+      shared_buffers: "1GB"
+      effective_cache_size: "3GB"
+      work_mem: "8MB"
+      maintenance_work_mem: "128MB"
+      max_connections: "200"
+      max_locks_per_transaction: "64"
+      max_prepared_transactions: "0"
+      max_wal_senders: "32"
+      checkpoint_completion_target: "0.9"
+      wal_compression: "pglz"
+    pg_hba:
+      - hostssl glaucus glaucus_svid all cert map=svid
+      - hostssl cql cql_svid all cert map=svid
+      - hostssl eris eris_svid all cert map=svid
+      - hostssl tethys oceanus_svid all cert map=svid
+      - hostssl ananke ananke_svid all cert map=svid
+      - hostssl terpsichore ananke_svid all cert map=svid
+      - hostssl nereus nereus_svid all cert map=svid
+      - hostssl thalia thalia_svid all cert map=svid
+      - hostssl terpsichore terpsichore_svid all cert map=svid
+      - hostssl clio clio_svid all cert map=svid
+      - hostssl harmonia harmonia_svid all cert map=svid
+      - hostssl helios helios_svid all cert map=svid
+      - hostssl prometheus prometheus_svid all cert map=svid
+      - hostssl iris iris_svid all cert map=svid
+      - hostssl tartarus tartarus_svid all cert map=svid
+      - hostssl calliope calliope_svid all cert map=svid
+    pg_ident:
+      - svid glaucus.star.notusmi.com glaucus_svid
+      - svid cql.star.notusmi.com cql_svid
+      - svid eris.star.notusmi.com eris_svid
+      - svid oceanus.star.notusmi.com oceanus_svid
+      - svid ananke.star.notusmi.com ananke_svid
+      - svid nereus.star.notusmi.com nereus_svid
+      - svid thalia.star.notusmi.com thalia_svid
+      - svid terpsichore.star.notusmi.com terpsichore_svid
+      - svid clio.star.notusmi.com clio_svid
+      - svid harmonia.star.notusmi.com harmonia_svid
+      - svid helios.star.notusmi.com helios_svid
+      - svid prometheus.star.notusmi.com prometheus_svid
+      - svid iris.star.notusmi.com iris_svid
+      - svid tartarus.star.notusmi.com tartarus_svid
+      - svid calliope.star.notusmi.com calliope_svid
+  certificates:
+    clientCASecret: aether-db-client-ca
+    replicationTLSSecret: aether-db-streaming-replica
+    serverAltDNSNames: [aether]
+  managed:
+    roles:
+      - name: glaucus_svid
+        ensure: present
+        comment: "F7 - glaucus SVID cert login (CN glaucus.star.notusmi.com)"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: true
+        disablePassword: true
+        inRoles: [kairos_tmpl_glaucus]
+      - name: cql_svid
+        ensure: present
+        comment: "F7 - cql SVID cert login (CN cql.star.notusmi.com)"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: true
+        disablePassword: true
+        inRoles: [kairos_tmpl_cql]
+      - name: eris_svid
+        ensure: present
+        comment: "F7 - eris SVID cert login (CN eris.star.notusmi.com)"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: true
+        disablePassword: true
+        inRoles: [kairos_tmpl_eris]
+      - name: oceanus_svid
+        ensure: present
+        comment: "F7 - oceanus SVID cert login (CN oceanus.star.notusmi.com)"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: true
+        disablePassword: true
+        inRoles: [kairos_tmpl_tethys]
+      - name: ananke_svid
+        ensure: present
+        comment: "F7 - ananke SVID cert login (CN ananke.star.notusmi.com)"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: true
+        disablePassword: true
+        inRoles: [kairos_tmpl_ananke]
+      - name: nereus_svid
+        ensure: present
+        comment: "F7 - nereus SVID cert login (CN nereus.star.notusmi.com)"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: true
+        disablePassword: true
+        inRoles: [kairos_tmpl_nereus]
+      - name: thalia_svid
+        ensure: present
+        comment: "F7 - thalia SVID cert login (CN thalia.star.notusmi.com)"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: true
+        disablePassword: true
+        inRoles: [kairos_tmpl_thalia]
+      - name: terpsichore_svid
+        ensure: present
+        comment: "F7 - terpsichore SVID cert login (CN terpsichore.star.notusmi.com)"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: true
+        disablePassword: true
+        inRoles: [kairos_tmpl_terpsichore]
+      - name: clio_svid
+        ensure: present
+        comment: "F7 - clio SVID cert login (CN clio.star.notusmi.com)"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: true
+        disablePassword: true
+        inRoles: [kairos_tmpl_clio]
+      - name: harmonia_svid
+        ensure: present
+        comment: "F7 - harmonia SVID cert login (CN harmonia.star.notusmi.com)"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: true
+        disablePassword: true
+        inRoles: [kairos_tmpl_harmonia]
+      - name: helios_svid
+        ensure: present
+        comment: "F7 - helios SVID cert login (CN helios.star.notusmi.com)"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: true
+        disablePassword: true
+        inRoles: [kairos_tmpl_helios]
+      - name: narcissus_svid
+        ensure: absent
+      - name: prometheus_svid
+        ensure: present
+        comment: "F7 - prometheus SVID cert login (CN prometheus.star.notusmi.com)"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: true
+        disablePassword: true
+        inRoles: [kairos_tmpl_prometheus]
+      - name: iris_svid
+        ensure: present
+        comment: "F7 - iris SVID cert login (CN iris.star.notusmi.com)"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: true
+        disablePassword: true
+        inRoles: [kairos_tmpl_iris]
+      - name: tartarus_svid
+        ensure: present
+        comment: "F7 - tartarus SVID cert login (CN tartarus.star.notusmi.com)"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: true
+        disablePassword: true
+        inRoles: [kairos_tmpl_tartarus]
+      - name: calliope_svid
+        ensure: present
+        comment: "F7 - calliope SVID cert login (CN calliope.star.notusmi.com)"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: true
+        disablePassword: true
+        inRoles: [kairos_tmpl_calliope]
+      - name: argus_fleet
+        ensure: present
+        comment: "Grafana eye-terpsichore and eye-iris - login member of argus_fleet_ro"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: true
+        inRoles: [argus_fleet_ro]
+        passwordSecret: {name: argus-fleet-login}
+      - name: argus_ledgers
+        ensure: present
+        comment: "Grafana eye-tethys/thalia/ananke - login member of argus_ledgers_ro"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: true
+        inRoles: [argus_ledgers_ro]
+        passwordSecret: {name: argus-ledgers-login}
+  bootstrap:
+    pg_basebackup:
+      source: aether-db-prime
+      database: app
+      owner: app
+      secret:
+        name: aether-db-app
+  replica:
+    enabled: false
+    source: aether-db-prime
+  externalClusters:
+    - name: aether-db-prime
+      connectionParameters:
+        host: aether-db-rw.prime.svc.cluster.local
+        user: streaming_replica
+        dbname: postgres
+        sslmode: verify-ca
+  storage:
+    size: 150Gi
+    storageClass: gaia
+    resizeInUseVolumes: true
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      enabled: true
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: aether-db-store
+        serverName: aether-db-data
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: aether-db-daily
+spec:
+  schedule: "0 0 4 * * *"
+  immediate: false
+  backupOwnerReference: self
+  cluster:
+    name: aether-db
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+---
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    tailscale.com/expose: 'true'
+    tailscale.com/hostname: aether-db
+  name: aether-ts
+spec:
+  ports:
+  - name: pg
+    port: 5432
+    protocol: TCP
+    targetPort: 5432
+  selector:
+    cnpg.io/cluster: aether-db
+    cnpg.io/instanceRole: primary
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aether-lb
+  labels: {bgp: lan}
+  annotations:
+    lbipam.cilium.io/ips: "192.168.100.40"
+spec:
+  externalTrafficPolicy: Cluster
+  ports:
+  - name: pg
+    port: 5432
+    protocol: TCP
+    targetPort: 5432
+  selector:
+    cnpg.io/cluster: aether-db
+    cnpg.io/instanceRole: primary
+  type: LoadBalancer
+  allocateLoadBalancerNodePorts: false

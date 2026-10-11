@@ -1,0 +1,112 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: daedalus-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: daedalus
+  namespace: prime
+  labels: {owner: rob, app: daedalus, pistis.star: daedalus}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: daedalus}
+  strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}
+  template:
+    metadata:
+      labels: {app: daedalus, pistis.star: daedalus}
+    spec:
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: daedalus-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: daedalus
+          livenessProbe:
+            tcpSocket: {port: 8223}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: registry.notusmi.com/rob/daedalus
+          resources:
+            requests: {cpu: 10m, memory: 128Mi}
+            limits:   {memory: 512Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            exec:
+              command: ['/daedalus', 'readycheck']
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 8
+            failureThreshold: 6
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+            - configMapRef: {name: daedalus-jobs}
+          env:
+            - {name: DAEDALUS_DOOR_URL,    value: "http://ourea:8215"}
+            - {name: DAEDALUS_OUREA_URL,   value: "https://ourea:8216/mcp"}
+            - {name: DAEDALUS_DOOR_MINT_SVID, value: "true"}
+            - {name: GIT_AUTHOR_NAME,      value: "daedalus"}
+            - {name: GIT_AUTHOR_EMAIL,     value: "foundry@notusmi.com"}
+            - {name: GIT_COMMITTER_NAME,   value: "daedalus"}
+            - {name: GIT_COMMITTER_EMAIL,  value: "foundry@notusmi.com"}
+            - {name: DAEDALUS_JOBS,        value: "on"}
+            - {name: STELLAR_DB_AUTH, value: "svid"}
+            - {name: EREBUS_DB_DSN, value: "postgresql://daedalus_svid@erebus-timescaledb:5432/erebus?sslmode=verify-full&sslrootcert=/etc/stellar/erebus-db-ca/ca.crt"}
+            - {name: GOMEMLIMIT,           value: "384MiB"}
+            - {name: DAEDALUS_HOST,       value: "0.0.0.0"}
+            - {name: DAEDALUS_PORT,       value: "8223"}
+            - {name: DAEDALUS_MTLS_ADDR,  value: "0.0.0.0:8224"}
+            - {name: OTEL_SERVICE_NAME,   value: "daedalus"}
+            - {name: STELLAR_PEP_MODE, value: "witness"}
+          ports:
+            - {name: mcp,  containerPort: 8223}
+            - {name: mtls, containerPort: 8224}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+            - {name: orbit, mountPath: /etc/stellar/orbit.toml, subPath: orbit.toml, readOnly: true}
+            - {name: erebus-db-ca, mountPath: /etc/stellar/erebus-db-ca, readOnly: true}
+      volumes:
+        - name: orbit
+          configMap: {name: orbit-daedalus}
+        - {name: tmp, emptyDir: {}}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+        - name: erebus-db-ca
+          secret: {secretName: erebus-db-server-ca, items: [{key: ca.crt, path: ca.crt}]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: daedalus
+  namespace: prime
+spec:
+  selector: {app: daedalus}
+  ports:
+    - {name: mcp,  port: 8223, targetPort: 8223, protocol: TCP}
+    - {name: mtls, port: 8224, targetPort: 8224, protocol: TCP}

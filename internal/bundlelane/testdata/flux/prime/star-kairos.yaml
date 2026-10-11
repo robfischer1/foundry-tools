@@ -1,0 +1,150 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kairos-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: kairos
+  namespace: prime
+  labels: {owner: rob, app: kairos, pistis.star: kairos}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: kairos}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: kairos, pistis.star: kairos}
+    spec:
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: kairos-sa
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels: {app: kairos}
+                topologyKey: kubernetes.io/hostname
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: kairos
+          livenessProbe:
+            tcpSocket: {port: 8200}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: registry.notusmi.com/rob/kairos
+          resources:
+            requests: {cpu: 10m, memory: 128Mi}
+            limits:   {memory: 256Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            exec:
+              command: ['/kairos', 'readycheck']
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 8
+            failureThreshold: 6
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+            - secretRef: {name: kairos-calypso-env}
+          env:
+            - {name: KAIROS_HOST, value: "0.0.0.0"}
+            - {name: KAIROS_OTEL_ENABLED, value: "true"}
+            - {name: KAIROS_POLICY_MAP, value: "{}"}
+            - {name: KAIROS_PORT, value: "8200"}
+            - {name: KAIROS_SESSION_BINDING, value: "witness"}
+            - {name: KAIROS_SSHCA_IDENTITY_ID, value: "28d99e81-245c-43f2-aa2b-fb1e2f8c283e"}
+            - {name: KAIROS_SSHCA_KMS_KEY_ID, value: "c47c55f3-0dc5-4c46-96cf-b9743f1683d0"}
+            - {name: KAIROS_CLOUDFLARE_ACCOUNT_ID, value: "d262d22e71e679ab36622961b9c3d45a"}
+            - name: KAIROS_MINT_PROFILES
+              value: >-
+                {"cloudflare-dns":{"adapter":"cloudflare","ttl_seconds":7200,
+                "policies":[{"effect":"allow",
+                "resources":{"com.cloudflare.api.account.zone.d8882a156b95009adcd42dbfbf7aba40":"*"},
+                "permission_groups":[{"id":"4755a26eedb94da69e1066d98aa820be"},{"id":"c8fed203ed3043cba015a93ad1616f1f"}]}]},
+                "r2-cnpg-mirror":{"adapter":"r2","ttl_seconds":21600,"bucket":"phdb-backup",
+                "parent_access_key_id":"6d1b56a3830a0cee0456cff8874f543b",
+                "permission":"object-read-write","prefixes":["cnpg-mirror/"]}}
+            - name: KAIROS_MINT_ALLOWLIST
+              value: >-
+                {"traefik/kairos-client":{"profiles":["cloudflare-dns"],"legacy_token":true},
+                "data/kairos-client":{"profiles":["r2-cnpg-mirror"],"legacy_token":true}}
+            - {name: OTEL_SERVICE_NAME, value: "kairos"}
+          ports:
+            - {name: mcp,  containerPort: 8200}
+            - {name: mtls, containerPort: 8201}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kairos
+  namespace: prime
+spec:
+  selector: {app: kairos}
+  ports:
+    - {name: mcp,  port: 8200, targetPort: 8200, protocol: TCP}
+    - {name: mtls, port: 8201, targetPort: 8201, protocol: TCP}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kairos
+  namespace: prime
+  labels: {owner: rob, app: kairos}
+spec:
+  minAvailable: 1
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels: {app: kairos}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: kairos-calypso-env
+  namespace: prime
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: calypso
+    kind: ClusterSecretStore
+  target:
+    name: kairos-calypso-env
+    creationPolicy: Owner
+  dataFrom:
+    - find:
+        path: /fleet/kairos
+        name:
+          regexp: ^KAIROS_.+$

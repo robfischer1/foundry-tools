@@ -550,6 +550,13 @@ func (e *fakeEngine) answer(q string) (data any, errMsg string) {
 		default:
 			val = isFile || isDir
 		}
+	case "commit":
+		// A git ref resolved to its commit: what the test scripted, or the
+		// paper engine's flux head.
+		val = fakeFluxSHA
+		if v, ok := scripted("commit"); ok {
+			val = v
+		}
 	case "label":
 		// An image label: what the test scripted for this chain, or none.
 		val = ""
@@ -622,6 +629,10 @@ func (e *fakeEngine) execError(q string) map[string]any {
 	ext["exitCode"] = code
 	return ext
 }
+
+// fakeFluxSHA is the commit every git ref resolves to unless a test scripts
+// another.
+const fakeFluxSHA = "f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1"
 
 // fakeID is the id this engine answers for a query, and it is A FUNCTION OF
 // THE QUERY — which is what lets a test follow an object from the chain that

@@ -1,0 +1,105 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: demeter-data
+  namespace: prime
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: gaia
+  resources: {requests: {storage: 1Gi}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: demeter-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: demeter
+  namespace: prime
+  labels: {owner: rob, app: demeter, pistis.star: demeter}
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 0, maxUnavailable: 1}
+  selector:
+    matchLabels: {app: demeter}
+  template:
+    metadata:
+      labels: {app: demeter, pistis.star: demeter}
+    spec:
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: demeter-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: demeter
+          livenessProbe:
+            tcpSocket: {port: 3003}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: registry.notusmi.com/rob/demeter
+          resources:
+            requests: {cpu: 10m, memory: 128Mi}
+            limits:   {memory: 256Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            tcpSocket: {port: 3003}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: OTEL_SERVICE_NAME, value: "demeter"}
+            - {name: HOME, value: /tmp}
+            - {name: DATABASE_URL, value: "hades:"}
+            - {name: DEMETER_HADES_STAGING_PATH, value: "/data/demeter-hades-staging.db"}
+          ports:
+            - {name: mcp,  containerPort: 3003}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: demeter-demeter-data, mountPath: /data}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+        - name: demeter-demeter-data
+          persistentVolumeClaim: {claimName: demeter-data}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demeter
+  namespace: prime
+spec:
+  selector: {app: demeter}
+  ports:
+    - {name: mcp,  port: 3003, targetPort: 3003, protocol: TCP}

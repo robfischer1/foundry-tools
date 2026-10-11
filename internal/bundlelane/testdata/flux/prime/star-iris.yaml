@@ -1,0 +1,128 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: iris-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: iris
+  namespace: prime
+  labels: {owner: rob, app: iris, pistis.star: iris}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: iris}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: iris, pistis.star: iris}
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/hostname, operator: NotIn, values: [dev01]}
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - {key: kubernetes.io/hostname, operator: NotIn, values: [llm01]}
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: iris-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: iris
+          livenessProbe:
+            tcpSocket: {port: 8200}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: registry.notusmi.com/rob/iris
+          resources:
+            requests: {cpu: 10m, memory: 128Mi}
+            limits:   {memory: 384Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            tcpSocket: {port: 8200}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: IRIS_IDENTITY_MODE, value: "enforce"}
+            - {name: IRIS_HOST, value: "0.0.0.0"}
+            - {name: IRIS_VOICE_MAC_KEY_FILE, value: "/etc/iris/voice/mac-key"}
+            - {name: IRIS_OTEL_ENABLED, value: "true"}
+            - {name: IRIS_PORT, value: "8200"}
+            - {name: IRIS_POSEIDON_URL, value: "https://poseidon:8201/mcp"}
+            - {name: OTEL_SERVICE_NAME, value: "iris"}
+            - {name: STELLAR_DB_AUTH, value: "svid"}
+            - {name: IRIS_DATABASE_URL, value: "postgresql://iris_svid@aether:5432/iris?sslmode=verify-full&sslrootcert=/etc/stellar/aether-db-ca/ca.crt"}
+            - {name: STELLAR_PEP_MODE, value: "witness"}
+            - {name: STELLAR_PDP_URL, value: "http://ouranos-opa:8181/v1/data/authz/decision"}
+          ports:
+            - {name: mcp,  containerPort: 8200}
+            - {name: mtls, containerPort: 8201}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+            - {name: orbit, mountPath: /etc/stellar/orbit.toml, subPath: orbit.toml, readOnly: true}
+            - {name: aether-db-ca, mountPath: /etc/stellar/aether-db-ca, readOnly: true}
+            - {name: voice-mac, mountPath: /etc/iris/voice, readOnly: true}
+      volumes:
+        - name: voice-mac
+          secret: {secretName: iris-voice, optional: true, items: [{key: mac-key, path: mac-key}]}
+        - name: orbit
+          configMap: {name: orbit-iris}
+        - {name: tmp, emptyDir: {}}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+        - name: aether-db-ca
+          secret: {secretName: aether-db-server-ca, items: [{key: ca.crt, path: ca.crt}]}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: iris-voice
+  namespace: prime
+spec:
+  refreshInterval: 1h
+  secretStoreRef: {name: calypso, kind: ClusterSecretStore}
+  target:
+    name: iris-voice
+    creationPolicy: Owner
+  data:
+    - secretKey: mac-key
+      remoteRef: {key: /services/iris/IRIS_VOICE_MAC_KEY}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iris
+  namespace: prime
+spec:
+  selector: {app: iris}
+  ports:
+    - {name: mcp,  port: 8200, targetPort: 8200, protocol: TCP}
+    - {name: mtls, port: 8201, targetPort: 8201, protocol: TCP}

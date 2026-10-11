@@ -1,0 +1,100 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: calliope-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: calliope
+  namespace: prime
+  labels: {owner: rob, app: calliope, pistis.star: calliope}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: calliope}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: calliope, pistis.star: calliope}
+    spec:
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: calliope-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: calliope
+          livenessProbe:
+            tcpSocket: {port: 8204}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: registry.notusmi.com/rob/calliope
+          resources:
+            requests: {cpu: 10m, memory: 128Mi}
+            limits:   {memory: 384Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            tcpSocket: {port: 8204}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: HOME, value: /tmp}
+            - {name: CALLIOPE_PORT, value: "8204"}
+            - {name: OTEL_SERVICE_NAME, value: "calliope"}
+            - {name: STELLAR_DB_AUTH, value: "svid"}
+            - {name: DATABASE_URL, value: "postgresql://calliope_svid@aether:5432/calliope?sslmode=verify-full&sslrootcert=/etc/stellar/aether-db-ca/ca.crt"}
+            - {name: STELLAR_PEP_MODE, value: "witness"}
+          ports:
+            - {name: mcp,  containerPort: 8204}
+            - {name: mtls, containerPort: 8205}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+            - {name: aether-db-ca, mountPath: /etc/stellar/aether-db-ca, readOnly: true}
+            - {name: orbit, mountPath: /etc/stellar/orbit.toml, subPath: orbit.toml, readOnly: true}
+      volumes:
+        - name: orbit
+          configMap: {name: orbit-calliope}
+        - {name: tmp, emptyDir: {}}
+        - name: aether-db-ca
+          secret: {secretName: aether-db-server-ca, items: [{key: ca.crt, path: ca.crt}]}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: calliope
+  namespace: prime
+spec:
+  selector: {app: calliope}
+  ports:
+    - {name: mcp,  port: 8204, targetPort: 8204, protocol: TCP}
+    - {name: mtls, port: 8205, targetPort: 8205, protocol: TCP}

@@ -1,0 +1,116 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hermes-state
+  namespace: prime
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: gaia
+  resources: {requests: {storage: 1Gi}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hermes-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: hermes
+  namespace: prime
+  labels: {owner: rob, app: hermes, pistis.star: hermes}
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 0, maxUnavailable: 1}
+  selector:
+    matchLabels: {app: hermes}
+  template:
+    metadata:
+      labels: {app: hermes, pistis.star: hermes}
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/hostname, operator: In, values: [llm01]}
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: hermes-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: hermes
+          livenessProbe:
+            tcpSocket: {port: 8200}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: registry.notusmi.com/rob/hermes
+          resources:
+            requests: {cpu: 10m, memory: 128Mi}
+            limits:   {memory: 256Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            exec:
+              command: ['/hermes', 'readycheck']
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 8
+            failureThreshold: 6
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: HERMES_HOST,      value: "0.0.0.0"}
+            - {name: HERMES_PORT,      value: "8200"}
+            - {name: PORT,             value: "8200"}
+            - {name: HERMES_MCP_MTLS_ADDR, value: "0.0.0.0:8201"}
+            - {name: HERMES_DEMETER_URL, value: "http://demeter:3003"}
+            - {name: HERMES_STATE_DIR,   value: "/var/lib/hermes"}
+            - {name: HERMES_CALYPSO_IDENTITY_ID,  value: "b179d49c-ce3d-4ba5-8c3d-e2325ebd1ce3"}
+            - {name: HERMES_CALYPSO_WORKSPACE_ID, value: "86c1d679-c9df-44f3-96b8-d446db7e5470"}
+            - {name: OTEL_SERVICE_NAME,  value: "hermes"}
+          ports:
+            - {name: mcp,   containerPort: 8200}
+            - {name: mtls,  containerPort: 8201}
+            - {name: hooks, containerPort: 8210}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+            - {name: state,        mountPath: /var/lib/hermes}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+        - name: state
+          persistentVolumeClaim: {claimName: hermes-state}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes
+  namespace: prime
+spec:
+  selector: {app: hermes}
+  ports:
+    - {name: mcp,  port: 8200, targetPort: 8200, protocol: TCP}
+    - {name: mtls, port: 8201, targetPort: 8201, protocol: TCP}

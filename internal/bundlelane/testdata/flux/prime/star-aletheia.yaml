@@ -1,0 +1,100 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aletheia-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: aletheia
+  namespace: prime
+  labels: {owner: rob, app: aletheia, pistis.star: aletheia}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: aletheia}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: aletheia, pistis.star: aletheia}
+    spec:
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: aletheia-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: aletheia
+          livenessProbe:
+            tcpSocket: {port: 8220}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: registry.notusmi.com/rob/aletheia
+          resources:
+            requests: {cpu: 10m, memory: 128Mi}
+            limits:   {memory: 256Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            tcpSocket: {port: 8220}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: ALETHEIA_ADDR, value: ":8220"}
+            - {name: ALETHEIA_MTLS_ADDR, value: ":8221"}
+            - {name: ALETHEIA_TOPIC, value: "model-exchanges"}
+            - {name: ALETHEIA_OCEANUS_URL, value: "https://oceanus:8210/mcp"}
+            - {name: ALETHEIA_HARMONIA_URL, value: "https://harmonia:8212/mcp"}
+            - {name: ALETHEIA_NEREUS_URL, value: "https://nereus:8201/mcp"}
+            - {name: ALETHEIA_URANIA_URL, value: "https://urania:8203/mcp"}
+            - {name: ALETHEIA_ALERTMANAGER_URL, value: "http://hemera-alertmanager:9093"}
+            - {name: OTEL_SERVICE_NAME, value: "aletheia"}
+            - {name: STELLAR_PEP_MODE, value: "witness"}
+          ports:
+            - {name: mcp,  containerPort: 8220}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+            - {name: orbit, mountPath: /etc/stellar/orbit.toml, subPath: orbit.toml, readOnly: true}
+      volumes:
+        - name: orbit
+          configMap: {name: orbit-aletheia}
+        - {name: tmp, emptyDir: {}}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aletheia
+  namespace: prime
+spec:
+  selector: {app: aletheia}
+  ports:
+    - {name: mcp,  port: 8220, targetPort: 8220, protocol: TCP}
+    - {name: mtls, port: 8221, targetPort: 8221, protocol: TCP}

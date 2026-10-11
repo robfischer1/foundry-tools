@@ -1,0 +1,50 @@
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: homeassistant-db-creds
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: calypso
+    kind: ClusterSecretStore
+  target:
+    name: homeassistant-db-creds
+    creationPolicy: Owner
+    template:
+      type: kubernetes.io/basic-auth
+      engineVersion: v2
+      data:
+        username: homeassistant
+        password: "{{ .password }}"
+  data:
+    - secretKey: password
+      remoteRef:
+        key: /services/homeassistant/HA_RECORDER_DB_PASSWORD
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: homeassistant
+spec:
+  cluster:
+    name: aether-db
+  name: homeassistant
+  ensure: present
+  databaseRoleReclaimPolicy: retain
+  login: true
+  comment: "Home Assistant recorder — statistics + states, DSN in HA's recorder.db_url"
+  passwordSecret:
+    name: homeassistant-db-creds
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: homeassistant
+spec:
+  cluster:
+    name: aether-db
+  name: homeassistant
+  owner: homeassistant
+  ensure: present
+  databaseReclaimPolicy: retain

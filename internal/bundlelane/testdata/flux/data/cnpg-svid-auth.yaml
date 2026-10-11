@@ -1,0 +1,296 @@
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: cnpg-replication-ca
+spec:
+  isCA: true
+  commonName: notusmi.com CNPG replication CA
+  secretName: cnpg-replication-ca  # the Secret's NAME, not a value
+  duration: 87600h
+  renewBefore: 8760h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Never
+  usages:
+    - cert sign
+    - crl sign
+  issuerRef:
+    name: selfsigned-root
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: cnpg-replication
+spec:
+  ca:
+    secretName: cnpg-replication-ca  # the signer Secret, by NAME
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: aether-db-replication
+spec:
+  secretName: aether-db-streaming-replica  # the Secret's NAME, not a value
+  commonName: streaming_replica
+  duration: 2160h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - client auth
+  issuerRef:
+    name: cnpg-replication
+    kind: Issuer
+    group: cert-manager.io
+---
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: aether-db-client-ca
+spec:
+  refreshInterval: 15m
+  secretStoreRef: {name: cluster-cert-manager, kind: ClusterSecretStore}
+  target:
+    name: aether-db-client-ca
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      metadata:
+        labels:
+          cnpg.io/reload: "true"
+      data:
+        ca.crt: |
+          {{ .spire_root | trim }}
+          {{ .replication_ca | trim }}
+  data:
+    - secretKey: spire_root
+      sourceRef:
+        storeRef: {name: cluster-data, kind: ClusterSecretStore}
+      remoteRef: {key: fleet-root-ca-2-public, property: ca.crt}
+    - secretKey: replication_ca
+      sourceRef:
+        storeRef: {name: cluster-data, kind: ClusterSecretStore}
+      remoteRef: {key: cnpg-replication-ca, property: ca.crt}
+
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: chaos-db-replication
+spec:
+  secretName: chaos-db-streaming-replica  # the Secret's NAME, not a value
+  commonName: streaming_replica
+  duration: 2160h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - client auth
+  issuerRef:
+    name: cnpg-replication
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: chaos-db-client-ca
+spec:
+  refreshInterval: 15m
+  secretStoreRef: {name: cluster-cert-manager, kind: ClusterSecretStore}
+  target:
+    name: chaos-db-client-ca
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      metadata:
+        labels:
+          cnpg.io/reload: "true"
+      data:
+        ca.crt: |
+          {{ .spire_root | trim }}
+          {{ .replication_ca | trim }}
+  data:
+    - secretKey: spire_root
+      sourceRef:
+        storeRef: {name: cluster-data, kind: ClusterSecretStore}
+      remoteRef: {key: fleet-root-ca-2-public, property: ca.crt}
+    - secretKey: replication_ca
+      sourceRef:
+        storeRef: {name: cluster-data, kind: ClusterSecretStore}
+      remoteRef: {key: cnpg-replication-ca, property: ca.crt}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: eros-db-replication
+spec:
+  secretName: eros-db-streaming-replica  # the Secret's NAME, not a value
+  commonName: streaming_replica
+  duration: 2160h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - client auth
+  issuerRef:
+    name: cnpg-replication
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: eros-db-client-ca
+spec:
+  refreshInterval: 15m
+  secretStoreRef: {name: cluster-cert-manager, kind: ClusterSecretStore}
+  target:
+    name: eros-db-client-ca
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      metadata:
+        labels:
+          cnpg.io/reload: "true"
+      data:
+        ca.crt: |
+          {{ .spire_root | trim }}
+          {{ .replication_ca | trim }}
+  data:
+    - secretKey: spire_root
+      sourceRef:
+        storeRef: {name: cluster-data, kind: ClusterSecretStore}
+      remoteRef: {key: fleet-root-ca-2-public, property: ca.crt}
+    - secretKey: replication_ca
+      sourceRef:
+        storeRef: {name: cluster-data, kind: ClusterSecretStore}
+      remoteRef: {key: cnpg-replication-ca, property: ca.crt}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ourea-db-replication
+spec:
+  secretName: ourea-db-streaming-replica  # the Secret's NAME, not a value
+  commonName: streaming_replica
+  duration: 2160h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - client auth
+  issuerRef:
+    name: cnpg-replication
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: ourea-db-client-ca
+spec:
+  refreshInterval: 15m
+  secretStoreRef: {name: cluster-cert-manager, kind: ClusterSecretStore}
+  target:
+    name: ourea-db-client-ca
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      metadata:
+        labels:
+          cnpg.io/reload: "true"
+      data:
+        ca.crt: |
+          {{ .spire_root | trim }}
+          {{ .replication_ca | trim }}
+  data:
+    - secretKey: spire_root
+      sourceRef:
+        storeRef: {name: cluster-data, kind: ClusterSecretStore}
+      remoteRef: {key: fleet-root-ca-2-public, property: ca.crt}
+    - secretKey: replication_ca
+      sourceRef:
+        storeRef: {name: cluster-data, kind: ClusterSecretStore}
+      remoteRef: {key: cnpg-replication-ca, property: ca.crt}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: erebus-db-replication
+spec:
+  secretName: erebus-db-streaming-replica  # the Secret's NAME, not a value
+  commonName: streaming_replica
+  duration: 2160h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - client auth
+  issuerRef:
+    name: cnpg-replication
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: erebus-db-client-ca
+spec:
+  refreshInterval: 15m
+  secretStoreRef: {name: cluster-cert-manager, kind: ClusterSecretStore}
+  target:
+    name: erebus-db-client-ca
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      metadata:
+        labels:
+          cnpg.io/reload: "true"
+      data:
+        ca.crt: |
+          {{ .spire_root | trim }}
+          {{ .replication_ca | trim }}
+  data:
+    - secretKey: spire_root
+      sourceRef:
+        storeRef: {name: cluster-data, kind: ClusterSecretStore}
+      remoteRef: {key: fleet-root-ca-2-public, property: ca.crt}
+    - secretKey: replication_ca
+      sourceRef:
+        storeRef: {name: cluster-data, kind: ClusterSecretStore}
+      remoteRef: {key: cnpg-replication-ca, property: ca.crt}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: fleet-root-ca-2-public
+type: Opaque
+stringData:
+  ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    MIIBkTCCATagAwIBAgIUUkRaWmVSvBO4KXp6bAvv+mhFpFEwCgYIKoZIzj0EAwIw
+    JjEkMCIGA1UEAxMbbm90dXNtaS5jb20gZmxlZXQgcm9vdCBDQSAyMB4XDTI2MTAw
+    NDIzMDMzOVoXDTM2MTAwMTIzMDMzOVowJjEkMCIGA1UEAxMbbm90dXNtaS5jb20g
+    ZmxlZXQgcm9vdCBDQSAyMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEbAGwpO8p
+    /hpJhgetbYwnHm86zNJgR7G+2+weiXKrDQWoRiD4TNF869+vscbmViWNBU0M8UP+
+    Yv7SB5bPCbqZQqNCMEAwDgYDVR0PAQH/BAQDAgEGMA8GA1UdEwEB/wQFMAMBAf8w
+    HQYDVR0OBBYEFFsJXg/jJFKIK9Sg2ZXn213AZI9EMAoGCCqGSM49BAMCA0kAMEYC
+    IQCD0iikoGbydtoTTYaKg5U+/M62nzJo9XNpEN9YI0swqgIhAOLffo0b/6Cc8vGI
+    jlw6BJFzDG+6p2AbEkPBxds5k4WN
+    -----END CERTIFICATE-----

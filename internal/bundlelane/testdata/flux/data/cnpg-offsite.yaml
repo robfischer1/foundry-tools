@@ -1,0 +1,147 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cnpg-offsite-sa
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  annotations:
+    email: owner@example.invalid
+  labels:
+    owner: rob
+  name: cnpg-offsite
+spec:
+  schedule: "30 4 * * *"
+  timeZone: America/New_York
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 10800
+      template:
+        metadata:
+          labels: {app: cnpg-offsite}
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile: {type: RuntimeDefault}
+          dnsConfig:
+            options: [{name: ndots, value: "2"}]
+          serviceAccountName: cnpg-offsite-sa
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+          containers:
+            - name: rclone
+              image: docker.io/rclone/rclone:1.75.1
+              args:
+                - sync
+                - seaweed:cnpg
+                - r2:phdb-backup/cnpg-mirror
+                - --fast-list
+                - --checksum
+                - --transfers=8
+                - --checkers=16
+                - --s3-chunk-size=5Mi
+                - --stats=5m
+                - --stats-one-line
+                - -v
+              env:
+                - {name: RCLONE_CONFIG_SEAWEED_TYPE, value: s3}
+                - {name: RCLONE_CONFIG_SEAWEED_PROVIDER, value: Other}
+                - {name: RCLONE_CONFIG_SEAWEED_ENDPOINT, value: http://seaweedfs.objects.svc.cluster.local:8333}
+                - {name: RCLONE_CONFIG_SEAWEED_FORCE_PATH_STYLE, value: "true"}
+                - {name: RCLONE_CONFIG_SEAWEED_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: fleet-s3-credentials, key: access_key_id}}}
+                - {name: RCLONE_CONFIG_SEAWEED_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: fleet-s3-credentials, key: secret_access_key}}}
+                - {name: RCLONE_CONFIG_R2_TYPE, value: s3}
+                - {name: RCLONE_CONFIG_R2_PROVIDER, value: Cloudflare}
+                - {name: RCLONE_CONFIG_R2_ENDPOINT, value: https://d262d22e71e679ab36622961b9c3d45a.r2.cloudflarestorage.com}
+                - {name: RCLONE_CONFIG_R2_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: r2-backup-creds, key: ACCESS_KEY_ID}}}
+                - {name: RCLONE_CONFIG_R2_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: r2-backup-creds, key: ACCESS_SECRET_KEY}}}
+                - {name: RCLONE_CONFIG_R2_SESSION_TOKEN, valueFrom: {secretKeyRef: {name: r2-backup-creds, key: SESSION_TOKEN}}}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: {drop: ["ALL"]}
+                readOnlyRootFilesystem: true
+              resources:
+                requests: {cpu: 100m, memory: 128Mi}
+                limits: {memory: 1Gi}
+              volumeMounts:
+                - {name: tmp, mountPath: /tmp}
+                - {name: cfg, mountPath: /config/rclone}
+          volumes:
+            - {name: tmp, emptyDir: {}}
+            - {name: cfg, emptyDir: {}}
+---
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kairos-client
+  labels: {owner: rob}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kairos-client-token
+  labels:
+    owner: rob
+    external-secrets.io/type: webhook
+  annotations:
+    kubernetes.io/service-account.name: kairos-client
+type: kubernetes.io/service-account-token
+---
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Webhook
+metadata:
+  name: kairos-r2-cnpg-mirror
+spec:
+  url: http://kairos.prime.svc.cluster.local:8200/mint/r2-cnpg-mirror
+  method: POST
+  timeout: 30s
+  headers:
+    Content-Type: application/json
+    Authorization: "Bearer {{ .sa.token }}"
+  body: "{}"
+  result:
+    jsonPath: "$.credential"
+  secrets:
+    - name: sa
+      secretRef: {name: kairos-client-token, key: token}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: r2-backup-creds
+spec:
+  refreshInterval: 1h
+  target:
+    name: r2-backup-creds
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      data:
+        ACCESS_KEY_ID: "{{ .access_key_id }}"
+        ACCESS_SECRET_KEY: "{{ .secret_access_key }}"
+        SESSION_TOKEN: "{{ .session_token }}"
+        ENDPOINT_URL: "{{ .endpoint }}"
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Webhook
+          name: kairos-r2-cnpg-mirror

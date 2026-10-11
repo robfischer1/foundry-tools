@@ -1,0 +1,104 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: poseidon
+  namespace: prime
+  labels: {owner: rob, app: poseidon, pistis.star: poseidon}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: poseidon}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: poseidon, pistis.star: poseidon}
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/hostname, operator: NotIn, values: [dev01]}
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - {key: kubernetes.io/hostname, operator: NotIn, values: [llm01]}
+      serviceAccountName: poseidon
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: poseidon
+          livenessProbe:
+            tcpSocket: {port: 8200}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: registry.notusmi.com/rob/poseidon
+          resources:
+            requests: {cpu: 10m, memory: 640Mi}
+            limits:   {memory: 2304Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            exec:
+              command: ['/poseidon', 'readycheck']
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 8
+            failureThreshold: 6
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: OTEL_SERVICE_NAME, value: "poseidon"}
+            - {name: POSEIDON_OTEL_ENABLED, value: "true"}
+            - {name: POSEIDON_ATHENA_URL, value: "https://athena:8201/mcp"}
+            - {name: POSEIDON_CHAOS_URL, value: "https://chaos:8207/mcp"}
+            - {name: POSEIDON_HOST, value: "0.0.0.0"}
+            - {name: POSEIDON_OCEANUS_URL, value: "https://oceanus:8210/mcp"}
+            - {name: POSEIDON_OURANOS_URL, value: "http://ouranos-opa:8181"}
+            - {name: POSEIDON_PORT, value: "8200"}
+            - {name: POSEIDON_RAZOR_NAMESPACE, value: "razors"}
+            - {name: POSEIDON_RAZOR_SEAT, value: "casper"}
+            - {name: POSEIDON_RAZOR_RECIPES, value: "eris:mine-batch,nereus:review-batch,nereus:promote-batch,mnemosyne:chronicle-audit"}
+            - {name: POSEIDON_RAZOR_INTERVAL_S, value: "30"}
+            - {name: POSEIDON_RAZOR_IDLE_S, value: "120"}
+            - {name: POSEIDON_RAZOR_UPSTREAMS, value: "one,web"}
+            - {name: POSEIDON_RAZOR_UPSTREAM_ALIASES, value: "claude_web=web,cw=web,claude-web=web"}
+            - {name: POSEIDON_THEMIS_URL, value: "https://themis:8201/mcp"}
+            - {name: STELLAR_PEP_MODE, value: "witness"}
+          ports:
+            - {name: mcp,  containerPort: 8200}
+            - {name: mtls, containerPort: 8201}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+            - {name: orbit, mountPath: /etc/stellar/orbit.toml, subPath: orbit.toml, readOnly: true}
+      volumes:
+        - name: orbit
+          configMap: {name: orbit-poseidon}
+        - {name: tmp, emptyDir: {}}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: poseidon
+  namespace: prime
+spec:
+  selector: {app: poseidon}
+  ports:
+    - {name: mcp,  port: 8200, targetPort: 8200, protocol: TCP}
+    - {name: mtls, port: 8201, targetPort: 8201, protocol: TCP}

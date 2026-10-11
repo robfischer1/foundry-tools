@@ -1,0 +1,143 @@
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ImageCatalog
+metadata:
+  name: timescale
+spec:
+  images:
+    - major: 17
+      image: docker.io/timescale/timescaledb-ha:pg17@sha256:a693dd7fbb75b51c3d717507a9956501686edb123b48dd90b094fd5612d53abe
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: erebus-db-store
+spec:
+  configuration:
+    destinationPath: s3://cnpg/erebus-db
+    endpointURL: http://seaweedfs.objects.svc.cluster.local:8333
+    s3Credentials:
+      accessKeyId: {name: fleet-s3-credentials, key: access_key_id}
+      secretAccessKey: {name: fleet-s3-credentials, key: secret_access_key}
+    data:
+      compression: lz4
+    wal:
+      compression: gzip
+      maxParallel: 4
+  retentionPolicy: 30d
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: erebus-db
+spec:
+  instances: 1
+  enablePDB: false
+  imageCatalogRef:
+    apiGroup: postgresql.cnpg.io
+    kind: ImageCatalog
+    name: timescale
+    major: 17
+  primaryUpdateStrategy: unsupervised
+  affinity:
+    enablePodAntiAffinity: true
+    podAntiAffinityType: preferred
+    topologyKey: kubernetes.io/hostname
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - {key: kubernetes.io/hostname, operator: In, values: [llm01]}
+  postgresUID: 1000
+  postgresGID: 1000
+  postgresql:
+    parameters:
+      pg_stat_statements.max: "5000"
+      pg_stat_statements.track: "top"
+    shared_preload_libraries:
+      - timescaledb
+    pg_hba:
+      - hostssl erebus ourea_svid all cert map=svid
+      - hostssl erebus daedalus_svid all cert map=svid
+    pg_ident:
+      - svid ourea.star.notusmi.com ourea_svid
+      - svid daedalus.star.notusmi.com daedalus_svid
+  resources:
+    requests:
+      cpu: 100m
+      memory: 192Mi
+    limits:
+      memory: 512Mi
+  certificates:
+    clientCASecret: erebus-db-client-ca
+    replicationTLSSecret: erebus-db-streaming-replica
+    serverAltDNSNames: [erebus-timescaledb]
+  managed:
+    roles:
+      - name: ourea_svid
+        ensure: present
+        comment: "F7 - ourea SVID cert login (CN ourea.star.notusmi.com)"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: true
+        disablePassword: true
+        inRoles: [kairos_tmpl_ourea]
+      - name: daedalus_svid
+        ensure: present
+        comment: "F7 - daedalus SVID cert login (CN daedalus.star.notusmi.com)"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: true
+        disablePassword: true
+        inRoles: [kairos_tmpl_daedalus]
+  bootstrap:
+    pg_basebackup:
+      source: erebus-db-prime
+      database: erebus
+      owner: erebus
+      secret:
+        name: erebus-db-app
+  replica:
+    enabled: false
+    source: erebus-db-prime
+  externalClusters:
+    - name: erebus-db-prime
+      connectionParameters:
+        host: erebus-db-rw.prime.svc.cluster.local
+        user: streaming_replica
+        dbname: postgres
+        sslmode: verify-ca
+  storage:
+    size: 10Gi
+    storageClass: gaia
+    resizeInUseVolumes: true
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      enabled: true
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: erebus-db-store
+        serverName: erebus-db-data
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: erebus-db-daily
+spec:
+  schedule: "0 0 2 * * *"
+  immediate: true
+  backupOwnerReference: self
+  cluster:
+    name: erebus-db
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io

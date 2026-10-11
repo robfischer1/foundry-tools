@@ -1,0 +1,105 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tartarus-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: tartarus
+  namespace: prime
+  labels: {owner: rob, app: tartarus, pistis.star: tartarus}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: tartarus}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: tartarus, pistis.star: tartarus}
+    spec:
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: tartarus-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: tartarus
+          livenessProbe:
+            tcpSocket: {port: 8221}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: registry.notusmi.com/rob/tartarus
+          resources:
+            requests: {cpu: 10m, memory: 128Mi}
+            limits:   {memory: 256Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            exec:
+              command: ['/tartarus', 'readycheck']
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 8
+            failureThreshold: 6
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: TARTARUS_HOST,            value: "0.0.0.0"}
+            - {name: TARTARUS_PORT,            value: "8221"}
+            - {name: TARTARUS_MTLS_ADDR,       value: "0.0.0.0:8222"}
+            - {name: TARTARUS_ACTS_TOPIC,      value: "tartarus.acts"}
+            - {name: TARTARUS_ATTEST_TOPIC,    value: "ci-attest"}
+            - {name: TARTARUS_STYX_BAND_START, value: "3221225472"}
+            - {name: OTEL_SERVICE_NAME,        value: "tartarus"}
+            - {name: STELLAR_DB_AUTH, value: "svid"}
+            - {name: TARTARUS_DATABASE_URL, value: "postgresql://tartarus_svid@aether:5432/tartarus?sslmode=verify-full&sslrootcert=/etc/stellar/aether-db-ca/ca.crt"}
+            - {name: STELLAR_PEP_MODE, value: "witness"}
+          ports:
+            - {name: mcp,  containerPort: 8221}
+            - {name: mtls, containerPort: 8222}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+            - {name: orbit, mountPath: /etc/stellar/orbit.toml, subPath: orbit.toml, readOnly: true}
+            - {name: aether-db-ca, mountPath: /etc/stellar/aether-db-ca, readOnly: true}
+      volumes:
+        - name: orbit
+          configMap: {name: orbit-tartarus}
+        - {name: tmp, emptyDir: {}}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+        - name: aether-db-ca
+          secret: {secretName: aether-db-server-ca, items: [{key: ca.crt, path: ca.crt}]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tartarus
+  namespace: prime
+spec:
+  selector: {app: tartarus}
+  ports:
+    - {name: mcp,  port: 8221, targetPort: 8221, protocol: TCP}
+    - {name: mtls, port: 8222, targetPort: 8222, protocol: TCP}
