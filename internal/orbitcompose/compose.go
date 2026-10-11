@@ -52,7 +52,7 @@ func Compose(contracts []Contract) []Sidecar {
 
 // Render is the sidecar's bytes in the composed-sidecar dialect
 // (stellar-core-go policy/acl.go): [[produces]] to/contract/version/status/
-// wire_form/verbs, then [[consumes]] from/... the same. No clock, no map
+// verbs, then [[consumes]] from/... the same. No clock, no map
 // order: the same contracts render the same bytes.
 func Render(s Sidecar) []byte {
 	var b strings.Builder
@@ -76,7 +76,6 @@ func block(b *strings.Builder, table, key, peer string, c Contract) {
 	fmt.Fprintf(b, "contract = %q\n", c.Name)
 	fmt.Fprintf(b, "version = %q\n", c.Version)
 	fmt.Fprintf(b, "status = %q\n", c.Status)
-	fmt.Fprintf(b, "wire_form = %q\n", c.WireForm)
 	quoted := make([]string, len(c.Verbs))
 	for i, v := range c.Verbs {
 		quoted[i] = fmt.Sprintf("%q", v)

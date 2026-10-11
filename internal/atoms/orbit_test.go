@@ -16,7 +16,7 @@ func starData(prefix string) string { return `{"verb_prefix":"` + prefix + `"}` 
 
 // contract is the smallest contract orbitcompose parses: it names its producer
 // and consumer by its file name, and a draft one is not yet approved.
-const contract = "version = \"v1\"\nstatus = \"draft\"\nwire_form = \"json\"\nverbs = [\"a_verb\"]\n"
+const contract = "version = \"v1\"\nstatus = \"draft\"\nverbs = [\"a_verb\"]\n"
 
 // diesAt is a foundry-dies checkout holding a roster, one contract between its
 // two stars, and the named files. (A directory of orbits that holds no contract

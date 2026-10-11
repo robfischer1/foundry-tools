@@ -8,7 +8,7 @@ import (
 func contract(producer, consumer string, verbs ...string) Contract {
 	return Contract{
 		Name: producer + "-" + consumer, Producer: producer, Consumer: consumer,
-		Version: "1", Status: "generated", WireForm: "native", Verbs: verbs,
+		Version: "1", Status: "generated", Verbs: verbs,
 	}
 }
 
@@ -54,7 +54,6 @@ to = "athena"
 contract = "urania-athena"
 version = "1"
 status = "generated"
-wire_form = "native"
 verbs = ["get_litigant"]
 
 [[produces]]
@@ -62,7 +61,6 @@ to = "themis"
 contract = "urania-themis"
 version = "1"
 status = "generated"
-wire_form = "native"
 verbs = ["neighbors", "shape_for"]
 
 [[consumes]]
@@ -70,7 +68,6 @@ from = "chaos"
 contract = "chaos-urania"
 version = "2"
 status = "approved"
-wire_form = "native"
 verbs = ["shapes"]
 `
 
