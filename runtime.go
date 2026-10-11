@@ -282,6 +282,25 @@ func (r *run) laneCode(image string) *dagger.Container {
 		WithWorkdir("/src")
 }
 
+// releaseCode is the tree the release compile reads: the code, and not the
+// history. IT IS THE RELEASE EXEC'S WHOLE KEY, so it must be the same bytes
+// for the gate's pull head and the build lane's merge commit whenever the
+// TREE is the same. /src carries the commit's full .git (sourceAt), which
+// differs per commit even when the files do not, and go build stamps
+// vcs.revision from it by default: the engine keyed the two execs apart and
+// the build lane compiled a second binary (measured 2026-10-09: 0 of 105
+// build Jobs reused the gate's compile). Neither compile reads git.
+func (r *run) releaseCode() *dagger.Directory {
+	return r.src.Filter(dagger.DirectoryFilterOpts{Exclude: append([]string{".git"}, checks.InertPaths...)})
+}
+
+// laneRelease is laneCode for the release compile: releaseCode at /src.
+func (r *run) laneRelease(image string) *dagger.Container {
+	return r.laneBase(image).
+		WithMountedDirectory("/src", r.releaseCode()).
+		WithWorkdir("/src")
+}
+
 // provision installs what a lane's atoms exec that the upstream toolchain
 // image does not carry — the work the fleet's own CI images used to bake
 // (Rob, 2026-09-12: "We're going to stop maintaining CI images. We'll

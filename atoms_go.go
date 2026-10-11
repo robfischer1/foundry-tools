@@ -670,7 +670,12 @@ func (r *run) releaseBuild(ctx context.Context, plan checks.ReleasePlan) (*dagge
 	// guard that used to read this off the Dockerfile's build stage and now
 	// reads it off the release path). The compile is the image's; the gate's
 	// other atoms keep their download, which is F16's to move.
-	base := r.laneCode(checks.ImageGo)
+	// THE TREE ONLY, NO .git (laneRelease): the gate's go:release and the build
+	// lane's Release() both land here, and the engine answers the second from
+	// the first only if their mounts are the same bytes. A first-ask gate run
+	// carries no CA_REASK; a re-ask after a could-not-run does, on purpose,
+	// and that keyed-afresh compile is the one the build lane must not reuse.
+	base := r.laneRelease(checks.ImageGo)
 	if plan.Vendored {
 		base = inModule(base, ".")
 	} else {
