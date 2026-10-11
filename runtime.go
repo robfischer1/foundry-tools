@@ -473,13 +473,13 @@ func withOpengrepSums(ctr *dagger.Container, sums map[string]string) *dagger.Con
 }
 
 // withReleaseCache mounts the repository's release target volume
-// (checks.ReleaseCacheFor), PRIVATE for the reason that function gives, and
+// (checks.ReleaseCacheFor), SHARED for the reason that function gives, and
 // puts copyout on PATH: a release build in the volume copies its outputs out
 // in the same exec (copiedOut).
 func (r *run) withReleaseCache(ctr *dagger.Container) *dagger.Container {
 	c := checks.ReleaseCacheFor(r.repo)
 	return ctr.
-		WithMountedCache(c.Path, dag.CacheVolume(c.Key), dagger.ContainerWithMountedCacheOpts{Sharing: dagger.CacheSharingModePrivate}).
+		WithMountedCache(c.Path, dag.CacheVolume(c.Key), dagger.ContainerWithMountedCacheOpts{Sharing: dagger.CacheSharingModeShared}).
 		WithFile(copyOutPath, helperBinary("copyout"))
 }
 

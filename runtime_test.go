@@ -426,7 +426,7 @@ func TestTheReleaseCacheIsPerRepoAndPrivate(t *testing.T) {
 	}
 	c := engine.chain(`path:"/cache/cargo-release"`)
 	wantCalls(t, c,
-		[]string{"withMountedCache", `path:"/cache/cargo-release"`, `sharing:PRIVATE`},
+		[]string{"withMountedCache", `path:"/cache/cargo-release"`, `sharing:SHARED`},
 		[]string{"withFile", `path:"/usr/local/bin/copyout"`},
 	)
 	if got := copiedOut([]string{"cargo", "build"}, "a=b", "c=d"); strings.Join(got, " ") != "/usr/local/bin/copyout a=b c=d -- cargo build" {

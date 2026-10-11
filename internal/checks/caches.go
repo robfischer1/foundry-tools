@@ -166,19 +166,26 @@ const ReleaseCachePath = "/cache/cargo-release"
 // build of that repo. An empty repo — a local run that names none — keeps the
 // bare key.
 //
-// MOUNTED PRIVATE (runtime.go withReleaseCache), not SHARED or LOCKED. Two
-// builds of one repo can run at once: a cast beside the next pull's gate, or
-// rust:release beside rust:wit-guest in one gate. SHARED would let one build
-// relink a binary between another's cargo exit and its copy, and let a stamp
-// from one tree meet another's artifacts mid-build. LOCKED parks the second
-// build silently behind the first, the shape that tripped the gate's 5m
-// silence watchdog when the debug target tried it (foundry-tools#308/#309).
-// PRIVATE gives a concurrent build its own instance and never shares one in
-// flight. Its cost is the one that made it wrong for the debug target — a
-// contended build starts cold — but there the atoms NEEDED each other's
-// artifacts, and a cold release build is only what every release build was
-// before this volume. The engine keeps the extra instance and hands it to a
-// later build, so each warms in turn.
+// MOUNTED SHARED (runtime.go withReleaseCache), not PRIVATE or LOCKED.
+//
+// PRIVATE NEVER WARMS. MEASURED 2026-10-11 on engine v0.21.10, cerberus cast
+// --dry-run through this module, two different commits back to back against
+// one volume key: PRIVATE built 234 crates, then 234 again (3m40s, 3m12s;
+// the two cluster casts that night logged 234 Compiling, 0 Fresh each).
+// SHARED built 234, then 2 - the star's own two crates (6m03s, 1m14s). The
+// engine hands a PRIVATE mount a fresh empty instance on every use, so the
+// volume was never read back, whatever the comment that stood here said about
+// the engine keeping the extra instance.
+//
+// WHY SHARED IS SAFE ENOUGH. Two builds of one repo can run at once (a cast
+// beside the next pull's gate, rust:release beside rust:wit-guest). Cargo
+// takes its own lock on the target directory, so two builds in it queue
+// rather than corrupt it (the output says "Blocking waiting for file lock").
+// The remaining window is a build relinking a binary between another's cargo
+// exit and its copyout, which share one exec to keep that gap to the copy
+// itself. LOCKED would park the second build silently behind the first, the
+// shape that tripped the gate's 5m silence watchdog on the debug target
+// (foundry-tools#308/#309).
 func ReleaseCacheFor(repo string) CacheMount {
 	m := CacheMount{Path: ReleaseCachePath, Key: "foundry-cargo-release", PerRepo: true}
 	if repo != "" {
