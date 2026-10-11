@@ -21,7 +21,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -43,11 +42,6 @@ type Cast struct {
 	// zero value), runtime-gov for a governance render.
 	Kind string
 	Name string
-	// LegacyExtras is the record's tools.cast.payload_extra, read only so a
-	// repo that has not yet moved its extras under payload/ still casts what
-	// it always did. It is ignored the moment the tree carries payload/, and
-	// goes with the field.
-	LegacyExtras []string
 }
 
 // KindApp is the bundle kind a binary repo's channel rides.
@@ -75,10 +69,6 @@ func (c Cast) Stage(host, pin string) string {
 	return host + "/staging/" + c.kind() + "-" + c.Name + ":" + pin
 }
 
-// Target is where a legacy payload_extra path lands in the payload: under its
-// own basename, so .cerberus/hooks ships as hooks/ beside the binaries.
-func Target(extra string) string { return path.Base(path.Clean(extra)) }
-
 // FromRecord reads a record's cast arguments: the star's name. Every refusal
 // is about the record, so the lane settles it as a finding.
 func FromRecord(slag string) (Cast, error) {
@@ -86,11 +76,6 @@ func FromRecord(slag string) (Cast, error) {
 		Meta struct {
 			Name string `json:"name"`
 		} `json:"meta"`
-		Tools struct {
-			Cast *struct {
-				PayloadExtra []string `json:"payload_extra"`
-			} `json:"cast"`
-		} `json:"tools"`
 	}
 	if err := json.Unmarshal([]byte(slag), &rec); err != nil {
 		return Cast{}, fmt.Errorf("the record does not parse: %v", err)
@@ -98,11 +83,7 @@ func FromRecord(slag string) (Cast, error) {
 	if rec.Meta.Name == "" {
 		return Cast{}, errors.New("the record names no meta.name")
 	}
-	c := Cast{Name: rec.Meta.Name}
-	if rec.Tools.Cast != nil {
-		c.LegacyExtras = rec.Tools.Cast.PayloadExtra
-	}
-	return c, nil
+	return Cast{Name: rec.Meta.Name}, nil
 }
 
 // BinariesFromGoList reads `go list -find -f '{{.Name}} {{.ImportPath}}'
@@ -198,23 +179,6 @@ func Claims(binaries, payload []string) error {
 		}
 	}
 	return nil
-}
-
-// LegacyTargets validates the record's legacy payload_extra paths and answers
-// the names they land under.
-func LegacyTargets(extras []string) ([]string, error) {
-	var out []string
-	for _, p := range extras {
-		if p == "" || strings.HasPrefix(p, "/") || slices.Contains(strings.Split(p, "/"), "..") {
-			return nil, fmt.Errorf("tools.cast.payload_extra: %q is not a path inside the repo", p)
-		}
-		t := Target(p)
-		if t == "." {
-			return nil, fmt.Errorf("tools.cast.payload_extra: %q names the repo itself", p)
-		}
-		out = append(out, t)
-	}
-	return out, nil
 }
 
 // ContentPin computes the immutable g{sha12} pin of a payload tree, byte for
