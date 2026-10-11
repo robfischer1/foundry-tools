@@ -27,13 +27,19 @@ func newTransport() http.RoundTripper {
 	}
 }
 
+// endpointOf is the configured endpoint, or SeaweedFS' in-cluster address.
+func endpointOf(e string) string {
+	if e == "" {
+		return castcache.DefaultEndpoint
+	}
+	return e
+}
+
 // store is the cast-cache bucket as minio-go sees it. PATH-STYLE: SeaweedFS is
 // reached by a service name, which has no wildcard DNS for <bucket>.<host>.
 // The region is fixed so no GetBucketLocation call is made.
 func store(endpoint string, c castcache.Creds, tr http.RoundTripper) (*minio.Client, error) {
-	if endpoint == "" {
-		endpoint = castcache.DefaultEndpoint
-	}
+	endpoint = endpointOf(endpoint)
 	u, err := url.Parse(endpoint)
 	if err != nil || u.Host == "" {
 		return nil, fmt.Errorf("the endpoint %q is not a URL", endpoint)

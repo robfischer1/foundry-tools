@@ -25,17 +25,31 @@ func skipped(rel string, dir bool) bool {
 	return !dir && base == ".cargo-lock"
 }
 
+// fsOps are the calls Pack makes on entries it has already listed. They fail
+// only when a file changes under the walk (the target is locked against cargo,
+// not against the filesystem), which a test can only stage by replacing the
+// call.
+var fsOps = struct {
+	info     func(fs.DirEntry) (fs.FileInfo, error)
+	readlink func(string) (string, error)
+	header   func(fs.FileInfo, string) (*tar.Header, error)
+	open     func(string) (*os.File, error)
+}{
+	info:     func(d fs.DirEntry) (fs.FileInfo, error) { return d.Info() },
+	readlink: os.Readlink,
+	header:   tar.FileInfoHeader,
+	open:     os.Open,
+}
+
 // Pack writes dir as a gzipped tar (fastest level: the archive is rebuilt every
 // cast) and answers how many regular files it carried. Names are relative to
 // dir. Only directories, regular files and symlinks are carried.
 func Pack(dir string, w io.Writer) (int, error) {
-	gz, err := gzip.NewWriterLevel(w, gzip.BestSpeed)
-	if err != nil {
-		return 0, err
-	}
+	// BestSpeed is a valid level, so NewWriterLevel cannot fail.
+	gz, _ := gzip.NewWriterLevel(w, gzip.BestSpeed)
 	tw := tar.NewWriter(gz)
 	files := 0
-	err = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -50,7 +64,7 @@ func Pack(dir string, w io.Writer) (int, error) {
 			}
 			return nil
 		}
-		info, err := d.Info()
+		info, err := fsOps.info(d)
 		if err != nil {
 			return err
 		}
@@ -60,11 +74,11 @@ func Pack(dir string, w io.Writer) (int, error) {
 		}
 		link := ""
 		if mode&fs.ModeSymlink != 0 {
-			if link, err = os.Readlink(p); err != nil {
+			if link, err = fsOps.readlink(p); err != nil {
 				return err
 			}
 		}
-		h, err := tar.FileInfoHeader(info, link)
+		h, err := fsOps.header(info, link)
 		if err != nil {
 			return err
 		}
@@ -79,7 +93,7 @@ func Pack(dir string, w io.Writer) (int, error) {
 		if !mode.IsRegular() {
 			return nil
 		}
-		f, err := os.Open(p)
+		f, err := fsOps.open(p)
 		if err != nil {
 			return err
 		}

@@ -35,11 +35,20 @@ type Config struct {
 	Transport http.RoundTripper // nil: dial and header timeouts
 }
 
+// goarch, packTarget, createTemp and flock are seams: the calls whose failure
+// no unit test can cause on a healthy machine.
+var (
+	goarch     = runtime.GOARCH
+	packTarget = Pack
+	createTemp = os.CreateTemp
+	flock      = syscall.Flock
+)
+
 func (c Config) key() (string, error) {
 	triple := c.Triple
 	if triple == "" {
 		var err error
-		if triple, err = castcache.Triple(runtime.GOARCH); err != nil {
+		if triple, err = castcache.Triple(goarch); err != nil {
 			return "", err
 		}
 	}
@@ -110,14 +119,15 @@ func Save(ctx context.Context, c Config) string {
 	defer unlock()
 	ctx, cancel := c.deadline(ctx)
 	defer cancel()
-	tmp, err := os.CreateTemp("", "castcache-*.tar.gz")
+	tmp, err := createTemp("", "castcache-*.tar.gz")
 	if err != nil {
 		return skip("save", err.Error())
 	}
 	defer os.Remove(tmp.Name())
 	defer tmp.Close()
 	start := time.Now()
-	files, err := Pack(c.Dir, tmp)
+	var packed countWriter
+	files, err := packTarget(c.Dir, io.MultiWriter(tmp, &packed))
 	unlock() // the upload reads the archive, not the target
 	if err != nil {
 		return skip("save", "packing the target: "+err.Error())
@@ -125,14 +135,11 @@ func Save(ctx context.Context, c Config) string {
 	if files < castcache.MinFiles {
 		return skip("save", fmt.Sprintf("the target holds %d file(s), too few to be a build worth shipping", files))
 	}
-	n, err := tmp.Seek(0, io.SeekCurrent)
-	if err != nil {
-		return skip("save", err.Error())
-	}
+	n := packed.n
 	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
 		return skip("save", err.Error())
 	}
-	packed := time.Since(start)
+	took := time.Since(start)
 	cl, err := store(c.Endpoint, c.Creds, c.Transport)
 	if err != nil {
 		return skip("save", err.Error())
@@ -141,7 +148,7 @@ func Save(ctx context.Context, c Config) string {
 	if _, err := cl.PutObject(ctx, castcache.Bucket, key, tmp, n, minio.PutObjectOptions{ContentType: "application/gzip"}); err != nil {
 		return skip("save", "the upload: "+errText(err).Error())
 	}
-	return fmt.Sprintf("cast-cache: saved %s: %d files, %s archive (packed in %s, uploaded in %s)", castcache.URI(key), files, size(n), packed.Round(100*time.Millisecond), (time.Since(start) - packed).Round(100*time.Millisecond))
+	return fmt.Sprintf("cast-cache: saved %s: %d files, %s archive (packed in %s, uploaded in %s)", castcache.URI(key), files, size(n), took.Round(100*time.Millisecond), (time.Since(start) - took).Round(100*time.Millisecond))
 }
 
 func skip(verb, why string) string { return "cast-cache: " + verb + " skipped: " + why }
@@ -189,7 +196,7 @@ func lockTarget(dir string) (func(), error) {
 			return nil, err
 		}
 		held = append(held, f)
-		if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		if err := flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 			release()
 			if errors.Is(err, syscall.EWOULDBLOCK) {
 				return nil, errors.New("another build holds the target's lock, so it is not archived mid-write")
@@ -198,6 +205,14 @@ func lockTarget(dir string) (func(), error) {
 		}
 	}
 	return release, nil
+}
+
+// countWriter counts the bytes written through it.
+type countWriter struct{ n int64 }
+
+func (c *countWriter) Write(p []byte) (int, error) {
+	c.n += int64(len(p))
+	return len(p), nil
 }
 
 type counter struct {

@@ -29,6 +29,10 @@ var FetchJWT = func(ctx context.Context, socket, audience string) (string, strin
 	return svid.Marshal(), svid.ID.String(), nil
 }
 
+// newProvider is minio-go's web-identity provider; a seam, because its only
+// error (a nil token getter) cannot be provoked from here.
+var newProvider = credentials.NewSTSWebIdentity
+
 // CredsConfig is one credential fetch.
 type CredsConfig struct {
 	Socket   string // the SPIRE agent's workload socket
@@ -54,10 +58,7 @@ func FetchCreds(ctx context.Context, c CredsConfig) (castcache.Creds, string, er
 		}
 		conn.Close()
 	}
-	endpoint := c.Endpoint
-	if endpoint == "" {
-		endpoint = castcache.DefaultEndpoint
-	}
+	endpoint := endpointOf(c.Endpoint)
 	client := c.HTTP
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
@@ -73,7 +74,7 @@ func FetchCreds(ctx context.Context, c CredsConfig) (castcache.Creds, string, er
 		id = sub
 		return &credentials.WebIdentityToken{Token: token, Expiry: 3600}, nil
 	}
-	provider, err := credentials.NewSTSWebIdentity(endpoint, getter, func(i *credentials.STSWebIdentity) {
+	provider, err := newProvider(endpoint, getter, func(i *credentials.STSWebIdentity) {
 		i.RoleARN = castcache.RoleARN
 		i.Client = client
 	})
@@ -110,29 +111,24 @@ func stsError(err error) error {
 // WriteCreds leaves the credentials at path as JSON, for the module to read as
 // a file (never stdout, which dagger logs) and hand on as secrets.
 func WriteCreds(path string, c castcache.Creds) error {
-	raw, err := json.Marshal(c)
-	if err != nil {
-		return err
-	}
+	// A struct of three strings always marshals.
+	raw, _ := json.Marshal(c)
 	return os.WriteFile(path, raw, 0o600)
 }
 
+// secretFiles are the three files the archive container mounts, in the order
+// ReadCreds reads them. A variable so a test can point at its own.
+var secretFiles = [3]string{castcache.AccessKeyFile, castcache.SecretKeyFile, castcache.TokenFile}
+
 // ReadCreds loads the three secret files the archive container mounts.
 func ReadCreds() (castcache.Creds, error) {
-	read := func(p string) (string, error) {
+	var v [3]string
+	for i, p := range secretFiles {
 		b, err := os.ReadFile(p)
-		return strings.TrimSpace(string(b)), err
+		if err != nil {
+			return castcache.Creds{}, fmt.Errorf("credentials: %v", err)
+		}
+		v[i] = strings.TrimSpace(string(b))
 	}
-	var c castcache.Creds
-	var err error
-	if c.AccessKeyID, err = read(castcache.AccessKeyFile); err != nil {
-		return c, fmt.Errorf("credentials: %v", err)
-	}
-	if c.SecretAccessKey, err = read(castcache.SecretKeyFile); err != nil {
-		return c, fmt.Errorf("credentials: %v", err)
-	}
-	if c.SessionToken, err = read(castcache.TokenFile); err != nil {
-		return c, fmt.Errorf("credentials: %v", err)
-	}
-	return c, nil
+	return castcache.Creds{AccessKeyID: v[0], SecretAccessKey: v[1], SessionToken: v[2]}, nil
 }

@@ -34,6 +34,12 @@ func Main(ctx context.Context, args []string, env func(string) string, stdout io
 	return 2
 }
 
+// defaultSocket is the SPIRE agent's socket in the lane's creds container.
+var defaultSocket = "unix:///run/spire/agent.sock"
+
+// credsOut is where creds leaves its answer; a variable so a test can aim it.
+var credsOut = castcache.CredsOut
+
 func or(v, fallback string) string {
 	if v == "" {
 		return fallback
@@ -43,14 +49,14 @@ func or(v, fallback string) string {
 
 func mainCreds(ctx context.Context, env func(string) string, stdout io.Writer) int {
 	creds, id, err := FetchCreds(ctx, CredsConfig{
-		Socket:   or(env("CASTCACHE_SOCKET"), "unix:///run/spire/agent.sock"),
+		Socket:   or(env("CASTCACHE_SOCKET"), defaultSocket),
 		Endpoint: env("CASTCACHE_ENDPOINT"),
 	})
 	if err != nil {
 		fmt.Fprintf(stdout, "credentials unavailable: %v\n", err)
 		return 1
 	}
-	if err := WriteCreds(castcache.CredsOut, creds); err != nil {
+	if err := WriteCreds(credsOut, creds); err != nil {
 		fmt.Fprintf(stdout, "credentials unavailable: they could not be left for the lane: %v\n", err)
 		return 1
 	}

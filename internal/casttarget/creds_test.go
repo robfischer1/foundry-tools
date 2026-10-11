@@ -146,26 +146,20 @@ func TestMainCredsReportsWithoutPrintingCredentials(t *testing.T) {
 		t.Errorf("exit %d, %q", code, out.String())
 	}
 
+	seams(t)
+	credsOut = filepath.Join(t.TempDir(), "creds.json")
 	withJWT(t, testJWT, nil)
 	srv, _ := sts(t, 200, stsSuccess)
 	out.Reset()
 	code = Main(context.Background(), []string{"creds"}, func(k string) string {
 		return map[string]string{"CASTCACHE_ENDPOINT": srv.URL, "CASTCACHE_STAMP": "9", "CASTCACHE_SOCKET": "x"}[k]
 	}, &out)
-	// The credentials file lands at its fixed path; where /tmp is not
-	// writable the fetch degrades, which is also an answer.
-	switch code {
-	case 0:
-		defer os.Remove(castcache.CredsOut)
-		if want := "credentials issued to " + testSVID + " by role arn:aws:iam::role/CastCache\n"; out.String() != want {
-			t.Errorf("answer %q", out.String())
-		}
-	case 1:
-		if !strings.HasPrefix(out.String(), "credentials unavailable:") {
-			t.Errorf("answer %q", out.String())
-		}
-	default:
-		t.Errorf("exit %d", code)
+	want := "credentials issued to " + testSVID + " by role arn:aws:iam::role/CastCache\n"
+	if code != 0 || out.String() != want {
+		t.Errorf("exit %d, answer %q", code, out.String())
+	}
+	if raw, err := os.ReadFile(credsOut); err != nil || !strings.Contains(string(raw), `"access_key_id":"ASIAEXAMPLE"`) {
+		t.Errorf("the credentials were not left for the lane: %s, %v", raw, err)
 	}
 	if strings.Contains(out.String(), "secretEXAMPLE") || strings.Contains(out.String(), testJWT) {
 		t.Errorf("a credential reached stdout: %q", out.String())
