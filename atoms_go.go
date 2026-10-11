@@ -362,11 +362,25 @@ func (r *run) testBrokers(ctx context.Context, ctr *dagger.Container) ([]checks.
 	out, code, tagsErr := output(ctx, ctr.WithExec([]string{
 		"grep", "-rhoE", `^//go:build [A-Za-z0-9_]+$`, "--include=*_test.go", ".",
 	}, anyExit))
+	flows, flowsErr := r.treeFlows(ctx)
 	return checks.SelectBrokers(checks.BrokerReads{
 		Answers: answers,
 		Slag:    slag, SlagErr: slagErr,
 		Tags: out, TagsErr: tagsErr, TagsCode: code,
+		Flows: flows, FlowsErr: flowsErr,
 	})
+}
+
+// treeFlows counts the non-family Kafka flows the tree's own code states. No
+// constant table is fetched: an unresolved name is still a flow, and the
+// count is all the broker decision reads.
+func (r *run) treeFlows(ctx context.Context) (int, error) {
+	files, err := r.kafkaSources(ctx)
+	if err != nil {
+		return 0, err
+	}
+	flows, _ := checks.KafkaFlows(files, nil)
+	return checks.NonFamilyFlows(flows), nil
 }
 
 // bindTestBrokers binds each broker to ctr under scope's alias.

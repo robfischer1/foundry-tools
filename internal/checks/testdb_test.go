@@ -405,3 +405,30 @@ func TestTheTestServerRunsNonDurable(t *testing.T) {
 		}
 	}
 }
+
+func TestSelectBrokersAsksTheTreesFlowsFirst(t *testing.T) {
+	answers := "service_name: tartarus\n"
+	tagged := "//go:build live_kafka\n"
+	for _, tc := range []struct {
+		name   string
+		reads  BrokerReads
+		want   int
+		needle string
+	}{
+		{"flows in the tree bind a broker with no record at all",
+			BrokerReads{Flows: 2, Tags: tagged}, 1, "live_kafka → KAFKA_BOOTSTRAP"},
+		{"no flow falls back to the record",
+			BrokerReads{Answers: answers, Slag: `{"backends":{"kafka":["t"]}}`, Tags: tagged}, 1, "live_kafka"},
+		{"no flow and no record names both",
+			BrokerReads{Answers: answers, Slag: `{}`, Tags: tagged}, 0, "the tree states no kafka flow, and the record names no kafka topics"},
+		{"an unread tree says why before falling back",
+			BrokerReads{FlowsErr: errStub, Tags: tagged}, 0, "the tree's kafka flows could not be read"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, line := SelectBrokers(tc.reads)
+			if len(got) != tc.want || !strings.Contains(line, tc.needle) {
+				t.Errorf("got %d broker(s), %q; want %d and %q", len(got), line, tc.want, tc.needle)
+			}
+		})
+	}
+}

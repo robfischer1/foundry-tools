@@ -470,28 +470,50 @@ type BrokerReads struct {
 	Tags     string
 	TagsErr  error
 	TagsCode int
+	// Flows is how many non-family Kafka flows the tree's own code states
+	// (KafkaFlows, NonFamilyFlows); FlowsErr is why the tree could not be read
+	// for them. THE TREE IS ASKED FIRST (slag-by-kind F13): a suite exercises
+	// the seams the code has, and the code is where they are stated. The
+	// record's backends.kafka is the fallback until F14 retires it.
+	Flows    int
+	FlowsErr error
+}
+
+// recordKafka is the record's fallback answer when the tree states no flow:
+// "" when backends.kafka names a topic, else why no broker is bound. The why
+// names the tree first, since that is where a flow would have been read.
+func recordKafka(r BrokerReads) string {
+	tree := "the tree states no kafka flow"
+	if r.FlowsErr != nil {
+		tree = "the tree's kafka flows could not be read (" + r.FlowsErr.Error() + ")"
+	}
+	star := ServiceName(r.Answers)
+	switch {
+	case star == "":
+		return tree + ", and there is no service_name in .copier-answers.yml, so no record to read"
+	case r.SlagErr != nil:
+		return tree + ", and there is no record at fleet/stars/" + star + "/slag.json"
+	case !KafkaBackend(r.Slag):
+		return tree + ", and the record names no kafka topics"
+	}
+	return ""
 }
 
 // SelectBrokers answers which brokers the lane binds and the scope line to print,
 // from the three reads. The empty slice is a decision, never an oversight — the
 // line always says which read refused.
 func SelectBrokers(r BrokerReads) ([]TestBroker, string) {
-	star := ServiceName(r.Answers)
-	if star == "" {
-		return nil, TestBrokerScope(nil, "no service_name in .copier-answers.yml, so no record to read")
-	}
-	if r.SlagErr != nil {
-		return nil, TestBrokerScope(nil, "no record at fleet/stars/"+star+"/slag.json")
-	}
-	if !KafkaBackend(r.Slag) {
-		return nil, TestBrokerScope(nil, "the record names no kafka topics")
+	if r.FlowsErr != nil || r.Flows == 0 {
+		if refused := recordKafka(r); refused != "" {
+			return nil, TestBrokerScope(nil, refused)
+		}
 	}
 	if r.TagsErr != nil || r.TagsCode > 1 {
 		return nil, TestBrokerScope(nil, "the tree's build tags could not be read")
 	}
 	brokers := TestBrokersFor(GoBuildTags(r.Tags))
 	if len(brokers) == 0 {
-		return nil, TestBrokerScope(nil, "the record names kafka topics but no test file sits behind a tag the fleet names")
+		return nil, TestBrokerScope(nil, "the tree or its record names kafka topics but no test file sits behind a tag the fleet names")
 	}
 	return brokers, TestBrokerScope(brokers, "")
 }
