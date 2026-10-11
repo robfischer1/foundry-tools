@@ -276,8 +276,9 @@ func TestLanesProvisionTheirToolsPinnedAndInVolatilityOrder(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	runAtom(t, "python:ruff-check", "")
-	c = engine.chain(`"uvx","ruff@`, "exitCode")
+	c = engine.chain(`"ruff","check"`, "exitCode")
 	order(t, c, `from(address:"`+checks.ImagePython+`")`, `"apt-get","install"`, `"git"`, `path:"/usr/local/bin/uv"`, `path:"/usr/local/bin/uvx"`,
+		`"uv","tool","install","ruff==`+checks.RuffVersion+`"`, `"uv","tool","install","cosmic-ray==`+checks.CosmicRayVersion+`"`,
 		`path:"/usr/local/bin/opengrep"`, `withMountedCache`)
 	wantCalls(t, c, []string{"withEnvVariable", `name:"UV_CACHE_DIR"`, `value:"/opt/uv-cache"`})
 	fetched(t, `from(address:"`+checks.ImageUV+`")`)
@@ -318,7 +319,7 @@ func TestEveryLaneVerifiesOpengrepAgainstItsPin(t *testing.T) {
 	}
 	for _, tc := range []struct{ atom, needle string }{
 		{"go:vet", `"go","vet"`},
-		{"python:ruff-check", `"uvx","ruff@`},
+		{"python:ruff-check", `"ruff","check"`},
 		{"rust:cargo-fmt", `"cargo","fmt"`},
 		{"ts:bun-audit", `"bun","audit"`},
 	} {

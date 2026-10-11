@@ -329,7 +329,7 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 			WithExec([]string{"jq", "--version"}).
 			WithFile("/usr/local/bin/uv", uv.File("/uv")).
 			WithFile("/usr/local/bin/uvx", uv.File("/uvx"))
-		return withOpengrep(ctr).
+		return withOpengrep(withUVTools(ctr)).
 			WithExec([]string{"uv", "--version"}).
 			WithExec([]string{"opengrep", "--version"})
 	case checks.ImageRust:
@@ -362,7 +362,7 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 			// TestNoAtomExecsAShell is right to refuse the alternative, and
 			// this repo spent a lot of effort getting off `sh -c`.
 			WithEnvVariable("UV_PYTHON_BIN_DIR", "/usr/local/bin").
-			WithExec([]string{"uv", "python", "install", "--default", checks.FleetPython}).
+			WithExec([]string{"uv", "python", "install", "--default", checks.FleetPythonVersion}).
 			WithExec([]string{"python3", "--version"}).
 			WithExec([]string{"rustup", "component", "add", "rustfmt", "clippy"})
 		return withCargoTarball(withOpengrep(ctr), checks.ToolSHA256, checks.CargoAuditURL, checks.CargoAuditMember).

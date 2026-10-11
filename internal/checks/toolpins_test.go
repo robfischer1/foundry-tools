@@ -86,3 +86,49 @@ func TestPythonInterpreterIsPinnedAndVerified(t *testing.T) {
 		t.Errorf("PythonStandaloneURL has no SHA-256 in ToolSHA256")
 	}
 }
+
+// A lane-installed python tool is an EXACT version, never a floor or a range:
+// `==` is what the install is handed, and the probe is the tool's own name.
+func TestPythonLaneToolsArePinnedExactly(t *testing.T) {
+	exact := regexp.MustCompile(`^[0-9]+(\.[0-9]+)*$`)
+	if len(PythonLaneTools) == 0 {
+		t.Fatal("the python lane installs no tools")
+	}
+	for _, tool := range PythonLaneTools {
+		if !exact.MatchString(tool.Version) {
+			t.Errorf("%s version %q is not exact", tool.Name, tool.Version)
+		}
+		if tool.Spec() != tool.Name+"=="+tool.Version {
+			t.Errorf("%s spec %q is not name==version", tool.Name, tool.Spec())
+		}
+		if len(tool.Probe) == 0 || tool.Probe[0] != tool.Name {
+			t.Errorf("%s probe %v does not exec the tool by name", tool.Name, tool.Probe)
+		}
+	}
+}
+
+// The `uv run --with` tools that must resolve into the repository's own
+// environment carry an exact pin, and an unknown name passes through unchanged.
+func TestPythonWithPinsTheEnvironmentTools(t *testing.T) {
+	for name, want := range map[string]string{
+		"pip-audit": "pip-audit==" + PipAuditVersion,
+		"coverage":  "coverage==" + CoverageVersion,
+		"mypy":      "mypy==" + MypyVersion,
+		"pytest":    "pytest==" + PytestVersion,
+		"other":     "other",
+	} {
+		if got := PythonWith(name); got != want {
+			t.Errorf("PythonWith(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+// The rust lane's uv install names the fleet's python to the PATCH.
+func TestFleetPythonVersionIsAPatchOfTheFleetsPython(t *testing.T) {
+	if !strings.HasPrefix(FleetPythonVersion, FleetPython+".") {
+		t.Errorf("FleetPythonVersion %q is not a patch of FleetPython %s", FleetPythonVersion, FleetPython)
+	}
+	if !regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`).MatchString(FleetPythonVersion) {
+		t.Errorf("FleetPythonVersion %q is not major.minor.patch", FleetPythonVersion)
+	}
+}

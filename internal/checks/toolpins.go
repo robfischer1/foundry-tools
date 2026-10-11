@@ -69,3 +69,73 @@ var ToolSHA256 = map[string]string{
 	CargoAuditURL:   "7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428",
 	CargoNextestURL: "32aa82416099eb12fffae9cf1a279ad201fecbd3f74826c613e32e9006b29867",
 }
+
+// THE PYTHON AND RUST LANES' RUN-TIME INSTALLS, PINNED. These resolved at run
+// time (`uv run --with pip-audit`, `uvx ruff@...`, `uv python install 3.14`):
+// whatever PyPI or uv's list held that minute, fetched again every run. Each is
+// now an exact version with a Renovate marker, so the bump is a reviewed pull
+// and the verdict is a function of the pin.
+//
+// Spelled as bare `<Name>Version` strings in a file renovate-config's
+// foundry-tools manager reads (internal/checks/[a-z]+.go), and held by
+// TestEveryPinnedVersionNamesItsRenovateSource.
+const (
+	// RuffVersion stays at 0.16.3, the pin the ruff atoms already held: a newer
+	// ruff re-judges the same tree, which is a decision, not a pin.
+	// renovate: datasource=pypi depName=ruff
+	RuffVersion = "0.16.3"
+	// renovate: datasource=pypi depName=cosmic-ray
+	CosmicRayVersion = "8.7.0"
+	// renovate: datasource=pypi depName=pip-audit
+	PipAuditVersion = "2.10.1"
+	// renovate: datasource=pypi depName=coverage
+	CoverageVersion = "7.16.2"
+	// MypyVersion and PytestVersion pin the tree with no pyproject only: a
+	// project's own mypy and pytest are the lock's.
+	// renovate: datasource=pypi depName=mypy
+	MypyVersion = "2.4.0"
+	// renovate: datasource=pypi depName=pytest
+	PytestVersion = "9.1.1"
+	// FleetPythonVersion is the exact interpreter the rust lane installs with uv
+	// (FleetPython is its minor line); `uv python install 3.14` took whatever
+	// patch uv's list held when the layer was built.
+	// renovate: datasource=python-version depName=python versioning=pep440
+	FleetPythonVersion = "3.14.6"
+)
+
+// UVTool is a python program the lane installs ONCE, into its own venv, in a
+// provision layer the engine caches by content: a `uv tool install` at an exact
+// version, then a probe that proves it runs.
+type UVTool struct {
+	Name, Version string
+	Probe         []string
+}
+
+// Spec is the requirement uv is handed: always `name==version`.
+func (t UVTool) Spec() string { return t.Name + "==" + t.Version }
+
+// PythonLaneTools are the programs the python lane installs as tools, in layer
+// order. ONLY programs that do not need the repository's environment belong
+// here: pip-audit audits the environment it runs in and coverage is imported by
+// the suite's own interpreter, so those stay `uv run --with <name>==<pin>`
+// (PythonWith), where the project is the environment.
+var PythonLaneTools = []UVTool{
+	{Name: "ruff", Version: RuffVersion, Probe: []string{"ruff", "--version"}},
+	{Name: "cosmic-ray", Version: CosmicRayVersion, Probe: []string{"cosmic-ray", "--version"}},
+}
+
+// PythonWith is the exact requirement for a `uv run --with` that has to resolve
+// into the repository's environment, for the tools named here.
+func PythonWith(name string) string {
+	switch name {
+	case "pip-audit":
+		return "pip-audit==" + PipAuditVersion
+	case "coverage":
+		return "coverage==" + CoverageVersion
+	case "mypy":
+		return "mypy==" + MypyVersion
+	case "pytest":
+		return "pytest==" + PytestVersion
+	}
+	return name
+}

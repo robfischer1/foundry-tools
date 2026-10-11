@@ -24,8 +24,8 @@ var rulesetPathRE = regexp.MustCompile(
 // One distinct path per chain IS the pairing. Two means the halves diverged.
 func TestEachRulesetAtomReadsTheFileItWrote(t *testing.T) {
 	for _, tc := range []struct{ id, run, want string }{
-		{"python:ruff-check", `"ruff@0.16.3","check"`, checks.RulesetsDir + "/ruff.toml"},
-		{"python:ruff-format", `"ruff@0.16.3","format"`, checks.RulesetsDir + "/ruff.toml"},
+		{"python:ruff-check", `"ruff","check"`, checks.RulesetsDir + "/ruff.toml"},
+		{"python:ruff-format", `"ruff","format"`, checks.RulesetsDir + "/ruff.toml"},
 		{"python:mypy", `"mypy","--config-file"`, checks.RulesetsDir + "/mypy.ini"},
 	} {
 		engine.reset()
