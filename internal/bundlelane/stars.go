@@ -23,10 +23,12 @@ import (
 //	fleet/stars/<name>.json      -> data.fleet.declared.<name>
 //	foundry/flux prime/star-*    -> data.fleet.flux.<name>
 //
-// declared IS A PARALLEL KEY, NOT data.fleet.stars. data.fleet.stars is still
-// the lean fleet/stars/<name>/data.json hades and nyx route by (address,
-// conform, db, topics), and none of that is in the declared document; the
-// swap waits on the Rego that derives those fields (F9).
+// declared IS A PARALLEL KEY, NOT data.fleet.stars. Before F9 data.fleet.stars
+// is the lean fleet/stars/<name>/data.json hades and nyx route by. Once the
+// tree carries fleet/derive.rego (F9), data.fleet.stars is that Rego's rule,
+// and the lean rows move aside to data.fleet.lean.<name> (Lean), where the
+// rule reads them as its fallback: OPA refuses a rule and a data document at
+// the same path ("conflicting rule for data path fleet/stars").
 //
 // opa build -b reads only files named data.json, so neither source reaches
 // the bundle by itself: the lane stages one data.json per key.
@@ -36,8 +38,13 @@ const (
 	DeclaredKey   = "declared"
 	FluxKey       = "flux"
 	FluxSourceKey = "flux_source"
-	DeclaredPath  = "fleet/" + DeclaredKey + "/data.json"
-	FluxPath      = "fleet/" + FluxKey + "/data.json"
+	// LeanKey is where the lean rows are served once data.fleet.stars is
+	// derived: data.fleet.lean.<name>.
+	LeanKey = "lean"
+	// LeanGlob finds the committed lean rows.
+	LeanGlob     = "fleet/stars/*/data.json"
+	DeclaredPath = "fleet/" + DeclaredKey + "/data.json"
+	FluxPath     = "fleet/" + FluxKey + "/data.json"
 	// FluxSourcePath stamps the flux commit the facts were read at:
 	// data.fleet.flux_source = {repo, sha}.
 	FluxSourcePath = "fleet/" + FluxSourceKey + "/data.json"
@@ -248,12 +255,24 @@ func Collides(dataJSON string) []string {
 		return nil
 	}
 	var hit []string
-	for _, k := range []string{DeclaredKey, FluxKey, FluxSourceKey} {
+	for _, k := range []string{DeclaredKey, FluxKey, FluxSourceKey, LeanKey} {
 		if _, ok := d[k]; ok {
 			hit = append(hit, k)
 		}
 	}
 	return hit
+}
+
+// Lean answers where each committed lean row is staged once data.fleet.stars
+// is derived: fleet/stars/<name>/data.json -> fleet/lean/<name>/data.json,
+// served as data.fleet.lean.<name>. The committed path stays put: the orbit
+// atoms and nyx's contracts report read verb_prefix off it in git.
+func Lean(paths []string) map[string]string {
+	out := make(map[string]string, len(paths))
+	for _, p := range paths {
+		out[p] = "fleet/" + LeanKey + "/" + path.Base(path.Dir(p)) + "/data.json"
+	}
+	return out
 }
 
 // Inputs is what the lane read for the injection: fleet/data.json, the slag

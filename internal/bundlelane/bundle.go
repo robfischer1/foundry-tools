@@ -169,8 +169,11 @@ func RootsAreFleet(manifest string) bool {
 	return len(m.Roots) == 1 && m.Roots[0] == "fleet"
 }
 
-// Roster grades the built roster's data.json: map, topics and stars all
-// non-empty, and no star row carrying a charter. An empty data.fleet makes
+// Roster grades the built roster's data.fleet AS OPA EVALUATES IT (opa eval
+// -b <die> data, which is {"fleet": …}): map, topics and stars all non-empty,
+// and no star row carrying a charter. Evaluated, not read out of the tarball's
+// data.json, because once fleet/derive.rego ships data.fleet.stars is a rule
+// and the tarball's data.json has no stars at all. An empty data.fleet makes
 // admission's seam and topic guards evaluate to nothing, and a charter in the
 // bundle means slag.json — the full declaration — leaked into the PDP
 // (bundle.sh fleet_roster_gate). problem is "" when the roster is sound.
@@ -180,6 +183,10 @@ func Roster(dataJSON string) (mapped, stars, topics int, problem string, err err
 			Map    json.RawMessage `json:"map"`
 			Topics json.RawMessage `json:"topics"`
 			Stars  json.RawMessage `json:"stars"`
+			// Declared and Lean are the documents fleet/derive.rego derives
+			// stars from: one star per key of their union.
+			Declared map[string]json.RawMessage `json:"declared"`
+			Lean     map[string]json.RawMessage `json:"lean"`
 		} `json:"fleet"`
 	}
 	if err := json.Unmarshal([]byte(dataJSON), &d); err != nil {
@@ -190,6 +197,20 @@ func Roster(dataJSON string) (mapped, stars, topics int, problem string, err err
 	stars = len(rows)
 	if mapped == 0 || topics == 0 || stars == 0 {
 		return mapped, stars, topics, "the built bundle has an empty data.fleet — admission's seam and topic guards would evaluate to nothing, so cross-star checks stop denying instead of failing", nil
+	}
+	// A declared entry without a kind makes its derived row undefined, and the
+	// star drops out of data.fleet.stars with nothing failing. When the roster
+	// carries the documents the rule derives from, every key of their union
+	// must be a star.
+	want := map[string]struct{}{}
+	for k := range d.Fleet.Declared {
+		want[k] = struct{}{}
+	}
+	for k := range d.Fleet.Lean {
+		want[k] = struct{}{}
+	}
+	if len(want) > 0 && stars != len(want) {
+		return mapped, stars, topics, fmt.Sprintf("the built roster derives %d stars from %d declared/lean keys — a declared entry without a kind drops its star silently", stars, len(want)), nil
 	}
 	for _, row := range rows {
 		var fields map[string]json.RawMessage

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"dagger/foundry-tools/internal/bundlelane"
+	"dagger/foundry-tools/internal/checks"
 )
 
 // athenaEntry is a catalog entry, fleet/stars/athena.json.
@@ -15,7 +16,7 @@ const athenaEntry = `{"description":"Plans.","kind":"go","lifecycle":"production
 func TestTheRosterServesTheCatalogEntriesAndTheFluxFacts(t *testing.T) {
 	m := bundleOn(t, map[string]string{"fleet/stars/athena.json": athenaEntry})
 	scriptAGreenBundle()
-	scriptTheFleetWith(strings.Replace(rosterData, `"declared":{}`, `"declared":{"athena":{}}`, 1))
+	scriptTheFleetWith(strings.Replace(rosterData, `"declared":{}`, `"declared":{"athena":{}},"lean":{"ares":{}}`, 1))
 	bundles(t, m)
 	settledOn(t, "0", "published and signed")
 
@@ -111,5 +112,83 @@ func TestAnInjectionReadTheEngineLostCouldNotRun(t *testing.T) {
 func TestTheInjectedPathsAreDataFleetDeclaredAndFlux(t *testing.T) {
 	if bundlelane.DeclaredPath != "fleet/declared/data.json" || bundlelane.FluxPath != "fleet/flux/data.json" {
 		t.Fatalf("staged at %s and %s", bundlelane.DeclaredPath, bundlelane.FluxPath)
+	}
+}
+
+// A tree that carries fleet/derive.rego (slag-by-kind F9) gets its lean rows
+// staged at data.fleet.lean, out of the rule's path, and its derivation suite
+// run beside the policy's.
+func TestADerivingTreeStagesTheLeanRowsAsideAndTestsTheDerivation(t *testing.T) {
+	m := bundleOn(t, map[string]string{
+		checks.FleetDerive:             "package fleet",
+		"fleet/stars/athena/data.json": `{"name":"athena"}`,
+	})
+	scriptAGreenBundle()
+	said := sayings(t, func() { bundles(t, m) })
+	settledOn(t, "0", "published and signed")
+
+	stage := engine.chain(`"fleet/lean/athena/data.json"`, `path:".manifest"`)
+	if stage == "" {
+		t.Fatal("the lean row was not staged at fleet/lean/athena/data.json")
+	}
+	if !strings.Contains(stage, `stars/*/data.json`) {
+		t.Errorf("the lean rows still reach fleet/stars in the stage:\n%s", stage)
+	}
+	if engine.chain(`"opa","test","policy/","fleet/derive.rego","tests/fleet-derive/","-v"`) == "" {
+		t.Error("the policy re-gate did not test the derivation")
+	}
+	if engine.chain(`"opa","eval","-b","/work/fleet-bundle.tar.gz","--format","raw","data"`) == "" {
+		t.Error("the roster was not graded as opa evaluates it")
+	}
+	if !strings.Contains(said, "1 lean rows staged at data.fleet.lean") {
+		t.Errorf("the lane did not say where the lean rows went:\n%s", said)
+	}
+}
+
+// Without the file the stage keeps the lean rows where they were.
+func TestATreeWithoutTheDerivationKeepsItsLeanRowsInPlace(t *testing.T) {
+	m := bundleOn(t, map[string]string{"fleet/stars/athena/data.json": `{"name":"athena"}`})
+	scriptAGreenBundle()
+	bundles(t, m)
+	settledOn(t, "0", "published and signed")
+	if engine.chain(`"fleet/lean/`) != "" {
+		t.Error("a tree that does not derive had its lean rows moved")
+	}
+	if engine.chain(`"opa","test","policy/","-v"`) == "" {
+		t.Error("the policy suite did not run as before")
+	}
+}
+
+func TestADerivingTreeRefusesWhatWouldHideTheRoster(t *testing.T) {
+	derive := map[string]string{checks.FleetDerive: "package fleet"}
+	t.Run("a committed fleet/lean", func(t *testing.T) {
+		m := bundleOn(t, map[string]string{checks.FleetDerive: "package fleet", "fleet/lean/athena/data.json": "{}"})
+		scriptAGreenBundle()
+		bundles(t, m)
+		settledOn(t, "1", "fleet/lean/ is committed")
+		nothingPushed(t)
+	})
+	t.Run("a roster that does not evaluate", func(t *testing.T) {
+		m := bundleOn(t, derive)
+		scriptAGreenBundle()
+		engine.exitCode(`"--format","raw","data"`, 1)
+		bundles(t, m)
+		settledOn(t, "1", "the built roster does not evaluate")
+		nothingPushed(t)
+	})
+	for name, c := range map[string]struct{ needle, reason string }{
+		"the derivation probe":  {`glob(pattern:"fleet/derive.rego")`, "fleet/derive.rego could not be probed"},
+		"the fleet/lean probe":  {`glob(pattern:"fleet/lean/**")`, "fleet/lean/ could not be probed"},
+		"the lean rows listing": {`glob(pattern:"fleet/stars/*/data.json")`, "the lean rows could not be listed"},
+		"the roster evaluation": {`"--format","raw","data"`, "evaluating the built roster never ran"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := bundleOn(t, derive)
+			scriptAGreenBundle()
+			engine.fail(c.needle, "the engine lost it")
+			bundles(t, m)
+			settledOn(t, "2", c.reason)
+			nothingPushed(t)
+		})
 	}
 }

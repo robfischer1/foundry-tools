@@ -316,6 +316,9 @@ func TestCollidesNamesTheInjectedKeysTheTierAlreadySets(t *testing.T) {
 	if hit := Collides(`{"map":{},"flux":{},"declared":{}}`); !reflect.DeepEqual(hit, []string{"declared", "flux"}) {
 		t.Fatalf("Collides = %q", hit)
 	}
+	if hit := Collides(`{"map":{},"lean":{}}`); !reflect.DeepEqual(hit, []string{"lean"}) {
+		t.Fatalf("the lean rows' key is the lane's too: Collides = %q", hit)
+	}
 	if hit := Collides(`{"map":{},"topics":[]}`); hit != nil {
 		t.Fatalf("a tier without them collides with nothing, got %q", hit)
 	}
@@ -399,5 +402,16 @@ func TestInjectRefusesWhatWouldServeTheWrongFacts(t *testing.T) {
 		if _, err := Inject(in); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: err = %v, want %q", name, err, c.want)
 		}
+	}
+}
+
+func TestLeanStagesEachCommittedRowUnderTheLeanKey(t *testing.T) {
+	got := Lean([]string{"fleet/stars/hades/data.json", "fleet/stars/blade-runner/data.json"})
+	want := map[string]string{
+		"fleet/stars/hades/data.json":        "fleet/lean/hades/data.json",
+		"fleet/stars/blade-runner/data.json": "fleet/lean/blade-runner/data.json",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Lean = %v, want %v", got, want)
 	}
 }
