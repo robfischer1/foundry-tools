@@ -117,7 +117,7 @@ func TestACastStagesMintsVerifiesAndRings(t *testing.T) {
 	// by the build's own exec: the cast reads the copy, never the volume.
 	wantCalls(t, engine.chain(cargoNeedle),
 		[]string{"from", "rust:1.97.0"},
-		[]string{"withMountedCache", `path:"/cache/cargo-release"`, `sharing:PRIVATE`},
+		[]string{"withMountedCache", `path:"/cache/cargo-release"`, `sharing:SHARED`},
 		[]string{"withFile", `path:"/usr/local/bin/copyout"`},
 		[]string{"withEnvVariable", `"CARGO_TARGET_DIR"`, `"/cache/cargo-release"`},
 		[]string{"withExec", `"touch","-c","-d","@4102444800"`},

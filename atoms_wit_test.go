@@ -167,7 +167,7 @@ func TestRustWitGuestBuildsLiftsAndValidates(t *testing.T) {
 		// The release volume, under the stamp: the guest's crate is rebuilt
 		// from THIS tree, and only the registry crates come back Fresh.
 		[]string{"withExec", `"touch","-c","-d","@4102444800"`},
-		[]string{"withMountedCache", `path:"/cache/cargo-release"`, `sharing:PRIVATE`},
+		[]string{"withMountedCache", `path:"/cache/cargo-release"`, `sharing:SHARED`},
 		[]string{"withExec", `args:["rustup","target","add","` + checks.WitGuestTarget + `"]`},
 		[]string{"withExec", `args:["tar","xzf","/tmp/wasm-tools.tar.gz","-C","/usr/local/bin","--strip-components=1","` + checks.WasmToolsMember + `"]`},
 		[]string{"withExec", `args:["wasm-tools","--version"]`},
@@ -437,7 +437,7 @@ func TestRustWitComposeBuildsComposesAndReplaysTheWorldsTapes(t *testing.T) {
 		// The release volume, under the stamp, and the host copied out of it
 		// by the build's own exec.
 		[]string{"withExec", `"touch","-c","-d","@4102444800"`},
-		[]string{"withMountedCache", `path:"/cache/cargo-release"`, `sharing:PRIVATE`},
+		[]string{"withMountedCache", `path:"/cache/cargo-release"`, `sharing:SHARED`},
 		[]string{"withExec", `expect:ANY`, `args:["/usr/local/bin/copyout","` + checks.WitReplayTargetDir + `/release/replay=/tmp/replay-host/replay","--","cargo","build","--locked","--release","--manifest-path","tools/replay/Cargo.toml","--target-dir","` + checks.WitReplayTargetDir + `"]`},
 		[]string{"withExec", `expect:ANY`, `args:["tools/compose/compose.sh","/tmp/fleet.component.wasm"]`},
 		// The tapes are the discovered worlds' own: identity and reader, not promote.

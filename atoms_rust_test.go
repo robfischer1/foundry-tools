@@ -690,7 +690,7 @@ func TestRustReleaseBuildsWhatTheImageWillCarry(t *testing.T) {
 	c := engine.chain(`"cargo","build","--release"`, "exitCode")
 	wantCalls(t, c,
 		[]string{"withExec", `args:["cargo","fetch","--locked"]`},
-		[]string{"withMountedCache", `path:"/cache/cargo-release"`, `sharing:PRIVATE`},
+		[]string{"withMountedCache", `path:"/cache/cargo-release"`, `sharing:SHARED`},
 		[]string{"withFile", `path:"/usr/local/bin/copyout"`},
 		[]string{"withEnvVariable", `name:"CARGO_TARGET_DIR"`, `value:"/cache/cargo-release"`},
 		[]string{"withExec", `expect:ANY`, `args:["/usr/local/bin/copyout","/cache/cargo-release/release/tron=/out/tron","--","cargo","build","--release","--locked","-p","tron"]`},
