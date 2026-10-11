@@ -448,13 +448,13 @@ func documents(body string) ([]manifest, error) {
 		case h.Kind == "Service":
 			var svc serviceDoc
 			if err := node.Decode(&svc); err != nil {
-				return nil, fmt.Errorf("Service %s: %w", h.Metadata.Name, err)
+				return nil, fmt.Errorf("the Service %s: %w", h.Metadata.Name, err)
 			}
 			m.Ports = svc.Spec.Ports
 		case workloads[h.Kind]:
 			var w workloadDoc
 			if err := node.Decode(&w); err != nil {
-				return nil, fmt.Errorf("%s %s: %w", h.Kind, h.Metadata.Name, err)
+				return nil, fmt.Errorf("the %s %s: %w", h.Kind, h.Metadata.Name, err)
 			}
 			m.Pods = []podTemplate{w.Spec.Template, w.Spec.JobTemplate.Spec.Template}
 		}
