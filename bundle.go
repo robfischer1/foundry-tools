@@ -212,10 +212,9 @@ func (l *bundleLane) run(ctx context.Context) (int, string) {
 	// pin that does not stand yet is owed a publish whatever this landing
 	// touched: a flux landing (prime/, data/) leaves foundry-dies untouched, and
 	// is asked here, at foundry-dies main, by the door (ourea askFluxDownstream).
-	fleetPin, err := bundlelane.FleetPin(m.Sha, l.fluxSHA)
-	if err != nil {
-		return buildlane.CouldNotRun, err.Error()
-	}
+	// Both commits are whole shas by here (Pin refused m.Sha above, and the
+	// flux ref resolved to a commit before the roster was built).
+	fleetPin, _ := bundlelane.FleetPin(m.Sha, l.fluxSHA)
 	if !publishFleet && !l.dryRun {
 		stands, g := l.pinStands(ctx, fleet, bundlelane.FleetDie, fleetPin)
 		if g.code != buildlane.Clean {
