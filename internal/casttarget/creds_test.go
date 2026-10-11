@@ -13,6 +13,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -192,5 +196,60 @@ func TestOneLineCapsAndCollapses(t *testing.T) {
 	}
 	if got := oneLine(strings.Repeat("x", 300), 10); got != strings.Repeat("x", 10)+"…" {
 		t.Errorf("%q", got)
+	}
+}
+
+// seq stands in for an agent that answers errs in turn, then a token.
+func seq(t *testing.T, errs ...error) *int {
+	t.Helper()
+	calls := 0
+	old, oldEvery := FetchJWT, retryEvery
+	retryEvery = time.Millisecond
+	FetchJWT = func(context.Context, string, string) (string, string, error) {
+		calls++
+		if calls <= len(errs) {
+			return "", "", errs[calls-1]
+		}
+		return "tok", testSVID, nil
+	}
+	t.Cleanup(func() { FetchJWT, retryEvery = old, oldEvery })
+	return &calls
+}
+
+func TestAnIdentityNotYetIssuedIsAskedAgainUntilItIs(t *testing.T) {
+	notYet := status.Error(codes.PermissionDenied, "no identity issued")
+	down := status.Error(codes.Unavailable, "agent restarting")
+	calls := seq(t, notYet, down, notYet)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	tok, id, err := fetchJWTWaiting(ctx, "unix:///nowhere")
+	if err != nil || tok != "tok" || id != testSVID {
+		t.Fatalf("got %q %q %v", tok, id, err)
+	}
+	if *calls != 4 {
+		t.Fatalf("asked %d times, want 4", *calls)
+	}
+}
+
+func TestAnIdentityNeverIssuedGivesUpAtTheDeadlineWithTheAgentsWord(t *testing.T) {
+	notYet := status.Error(codes.PermissionDenied, "no identity issued")
+	calls := seq(t, notYet, notYet, notYet, notYet, notYet, notYet, notYet, notYet, notYet, notYet,
+		notYet, notYet, notYet, notYet, notYet, notYet, notYet, notYet, notYet, notYet)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+	defer cancel()
+	tok, _, err := fetchJWTWaiting(ctx, "unix:///nowhere")
+	if err == nil || tok != "" || !strings.Contains(err.Error(), "no identity issued") {
+		t.Fatalf("got %q %v", tok, err)
+	}
+	if *calls < 2 {
+		t.Fatalf("asked %d times, want a retry before the deadline", *calls)
+	}
+}
+
+func TestAnyOtherAgentErrorIsFinalAtOnce(t *testing.T) {
+	calls := seq(t, status.Error(codes.InvalidArgument, "bad audience"), errors.New("never reached"))
+	_, _, err := fetchJWTWaiting(context.Background(), "unix:///nowhere")
+	if err == nil || !strings.Contains(err.Error(), "bad audience") || *calls != 1 {
+		t.Fatalf("calls %d err %v", *calls, err)
 	}
 }
