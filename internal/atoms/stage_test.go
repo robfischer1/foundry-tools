@@ -25,7 +25,7 @@ func TestStageIDs(t *testing.T) {
 	precommit := []string{
 		"fleet:check-yaml", "fleet:check-added-large-files", "fleet:check-merge-conflict", "fleet:stop-justifications",
 		"fleet:sast-ruleset-lanes", "fleet:copier-answers-intact", "fleet:ourea-config-retired-keys", "fleet:retired-verbs",
-		"fleet:opengrep-sast", "fleet:hadolint", "fleet:wit-topics",
+		"fleet:opengrep-sast", "fleet:hadolint", "fleet:wit-topics", "fleet:kafka-flows",
 		"compose:no-tracked-secrets", "compose:third-party-pins", "compose:config",
 		"dies:canonical", "dies:refusal-codes", "dies:opa-test",
 		"dies:contracts", "dies:contract-copies", "dies:schema", "dies:findings", "dies:schemas",
