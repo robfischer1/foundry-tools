@@ -1416,3 +1416,22 @@ func TestDiesRefusalCodesCannotRunWhenTheTreeCannotBeRead(t *testing.T) {
 	engine.fail(`file(path:"contracts/refusal-codes.toml"){contents}`, "the blob would not evaluate")
 	wantState(t, runAtom(t, "dies:refusal-codes", ""), 2, "the registry would not read", "would not evaluate")
 }
+
+// A tree carrying the fleet derivation (slag-by-kind F9) has it tested with
+// the policy suite: fleet/derive.rego is not under policy/.
+func TestDiesOpaTestRunsTheFleetDerivationWhereTheTreeCarriesIt(t *testing.T) {
+	engine.reset()
+	engine.withTree(diesTree(map[string]string{checks.FleetDerive: "package fleet"}))
+	withOpa()
+	engine.stdout(`"opa","test"`, "PASS: 12/12\n")
+	wantState(t, runAtom(t, "dies:opa-test", ""), 0)
+	if engine.chain(`args:["opa","test","policy/","fleet/derive.rego","tests/fleet-derive/","-v"]`) == "" {
+		t.Errorf("the derivation was not tested:\n%v", engine.chains())
+	}
+
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	withOpa()
+	engine.fail(`glob(pattern:"fleet/derive.rego")`, "gone")
+	wantState(t, runAtom(t, "dies:opa-test", ""), 2, "fleet/derive.rego could not be probed", "gone")
+}
