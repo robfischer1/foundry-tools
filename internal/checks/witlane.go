@@ -38,6 +38,17 @@ const (
 	// The build copies the module out in the same exec, and wasm-tools reads
 	// the copy.
 	WitGuestTargetDir = ReleaseCachePath
+	// WitGuestTestTargetDir is where each world's NATIVE `cargo test
+	// --no-default-features --features <world>` builds: a debug target dir of
+	// its own in the release volume, NOT the gate's foundry-cargo-target.
+	// MEASURED (foundry-tools#16916, stellar-core-rust 9d4091e, e2b2f33,
+	// fde28a3): run in the shared target, the no-default-features build
+	// rewrote the crate's rlib while rust:cargo-test sat between its compile
+	// and its doctests, and the doctests linked an rlib without the default
+	// features (E0432 on the kafka-topics items, then "Blocking waiting for
+	// file lock on build directory"). Three of five gate runs went red on a
+	// tree that passes. A feature set of its own needs a target of its own.
+	WitGuestTestTargetDir = ReleaseCachePath + "/wit-guest-test"
 )
 
 // WasmToolsVersion / WasmToolsURL fetch the Bytecode Alliance's wasm-tools

@@ -298,8 +298,8 @@ func TestRustWitGuestGradesEveryWorldAndNotTheAlias(t *testing.T) {
 	}
 }
 
-// The native test builds into the shared foundry-cargo-target, so it runs under
-// the Unstale stamp, after the fetch and before cargo. Without the stamp cargo
+// The native test builds into a cached target dir, so it runs under the
+// Unstale stamp, after the fetch and before cargo. Without the stamp cargo
 // reuses the test binary an older tree left behind and a module added since is
 // never compiled (stellar-core-rust#14205: 26 round-trip tests absent, a
 // compile_error! under cfg(test) green).
@@ -314,6 +314,14 @@ func TestRustWitGuestNativeTestRunsUnderTheStamp(t *testing.T) {
 		c := engine.chain(`"cargo","test"`, `"--no-default-features"`, feat(w), "exitCode")
 		if c == "" {
 			t.Fatalf("%s: no native cargo test:\n%v", w, engine.chains())
+		}
+		// Its own target dir, never the gate's foundry-cargo-target that
+		// rust:cargo-test's doctests link from (foundry-tools#16916).
+		if !strings.Contains(c, `"--target-dir","`+checks.WitGuestTestTargetDir+`"`) {
+			t.Errorf("%s: the native test must build in %s:\n%s", w, checks.WitGuestTestTargetDir, c)
+		}
+		if checks.WitGuestTestTargetDir == "/cache/cargo-target" || !strings.HasPrefix(checks.WitGuestTestTargetDir, checks.ReleaseCachePath+"/") {
+			t.Errorf("WitGuestTestTargetDir %q must sit apart from the gate's target, inside the release volume", checks.WitGuestTestTargetDir)
 		}
 		fetch, find, test := strings.Index(c, `"cargo","fetch","--locked"`), strings.Index(c, stamp), strings.Index(c, `"cargo","test"`)
 		if fetch < 0 || find < 0 || !(fetch < find && find < test) {
