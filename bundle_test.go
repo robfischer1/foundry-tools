@@ -121,6 +121,39 @@ func pinOf(t *testing.T) string {
 	return pin
 }
 
+// fleetPinOf is the fleet die's pin: the dies commit and the flux commit.
+func fleetPinOf(t *testing.T) string {
+	t.Helper()
+	pin, err := bundlelane.FleetPin(buildSha, fakeFluxSHA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pin
+}
+
+// pinOfDie is the pin a die is published under.
+func pinOfDie(t *testing.T, die string) string {
+	if die == bundlelane.FleetDie {
+		return fleetPinOf(t)
+	}
+	return pinOf(t)
+}
+
+// revisionOfDie is the revision a die's bundle and annotation carry.
+func revisionOfDie(die string) string {
+	if die == bundlelane.FleetDie {
+		return bundlelane.FleetRevision(buildSha, fakeFluxSHA)
+	}
+	return buildSha
+}
+
+// fleetPinStands scripts the registry so the fleet die's pin resolves and the
+// policy's does not (the last matching script wins).
+func fleetPinStands(t *testing.T) {
+	t.Helper()
+	engine.exitCode(`"`+bundlelane.FleetDie+":"+fleetPinOf(t)+`"`, 0)
+}
+
 // pushed answers the push chain for die:tag, or "".
 func pushed(die, tag string) string {
 	return engine.chain(`"push"`, `"`+die+":"+tag+`"`)
@@ -161,15 +194,15 @@ func TestALandingThatTouchedBothDiesPublishesAndSignsBoth(t *testing.T) {
 	scriptAGreenBundle()
 	bundles(t, m)
 	settledOn(t, "0", "published and signed")
-	pin := pinOf(t)
 	for _, die := range []string{bundlelane.PolicyDie, bundlelane.FleetDie} {
+		pin := pinOfDie(t, die)
 		for _, tag := range []string{pin, pin + "-signed"} {
 			chain := pushed(die, tag)
 			if chain == "" {
 				t.Fatalf("%s:%s was not pushed", die, tag)
 			}
 			wantCalls(t, chain,
-				[]string{"withExec", `"--artifact-type"`, `"` + bundlelane.BundleMediaType + `"`, `"org.opencontainers.image.revision=` + buildSha + `"`},
+				[]string{"withExec", `"--artifact-type"`, `"` + bundlelane.BundleMediaType + `"`, `"org.opencontainers.image.revision=` + revisionOfDie(die) + `"`},
 				[]string{"withMountedSecret", `"/run/docker/config.json"`},
 				[]string{"withWorkdir", `"/work"`},
 			)
@@ -199,6 +232,7 @@ func TestADocsOnlyLandingGatesEverythingAndPublishesNothing(t *testing.T) {
 	m := bundleOn(t, nil)
 	scriptAGreenBundle()
 	engine.stdout(`"--name-only"`, "README.md\nschema/slag-v3.schema.json\n")
+	fleetPinStands(t)
 	bundles(t, m)
 	settledOn(t, "0", "neither has anything to publish")
 	nothingPushed(t)
@@ -211,13 +245,31 @@ func TestAPolicyOnlyLandingLeavesTheRosterAlone(t *testing.T) {
 	m := bundleOn(t, nil)
 	scriptAGreenBundle()
 	engine.stdout(`"--name-only"`, "policy/authz/visible.rego\n")
+	fleetPinStands(t)
 	bundles(t, m)
 	settledOn(t, "0", "published and signed")
 	if pushed(bundlelane.PolicyDie, pinOf(t)) == "" {
 		t.Error("the policy was not published")
 	}
-	if pushed(bundlelane.FleetDie, pinOf(t)) != "" {
+	if pushed(bundlelane.FleetDie, fleetPinOf(t)) != "" {
 		t.Error("the roster was republished on a landing that did not touch it")
+	}
+}
+
+// A flux landing leaves foundry-dies as it was: the roster's pin names the
+// flux commit, so a pin that does not stand is published although nothing
+// under fleet/ moved (the "later" that left flux facts stale).
+func TestAFluxOnlyMoveRepublishesTheRosterUnderANewPin(t *testing.T) {
+	m := bundleOn(t, nil)
+	scriptAGreenBundle()
+	engine.stdout(`"--name-only"`, "README.md\n")
+	bundles(t, m)
+	settledOn(t, "0", "published and signed")
+	if pushed(bundlelane.FleetDie, fleetPinOf(t)) == "" {
+		t.Error("the roster was not republished under its flux-carrying pin")
+	}
+	if pushed(bundlelane.PolicyDie, pinOf(t)) != "" {
+		t.Error("the policy was republished by a landing that touched nothing of it")
 	}
 }
 
@@ -228,7 +280,7 @@ func TestARosterOnlyLandingPublishesTheRosterAndThePolicy(t *testing.T) {
 	bundles(t, m)
 	settledOn(t, "0", "published and signed")
 	for _, die := range []string{bundlelane.PolicyDie, bundlelane.FleetDie} {
-		if pushed(die, pinOf(t)) == "" {
+		if pushed(die, pinOfDie(t, die)) == "" {
 			t.Errorf("%s was not published", die)
 		}
 	}
@@ -242,7 +294,7 @@ func TestALandingWhoseParentCannotBeReadPublishesBoth(t *testing.T) {
 	bundles(t, m)
 	settledOn(t, "0", "published and signed")
 	for _, die := range []string{bundlelane.PolicyDie, bundlelane.FleetDie} {
-		if pushed(die, pinOf(t)) == "" {
+		if pushed(die, pinOfDie(t, die)) == "" {
 			t.Errorf("%s was not published", die)
 		}
 	}

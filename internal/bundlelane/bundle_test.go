@@ -56,6 +56,31 @@ func TestPinIsGAndTheFirstSeven(t *testing.T) {
 	}
 }
 
+func TestFleetPinNamesBothCommits(t *testing.T) {
+	const dies, flux = "ceb0c1cc3adea1eac88f1b87385fb20a18b1e016", "76f2729aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	if p, err := FleetPin(dies, flux); err != nil || p != "gceb0c1c-f76f2729" {
+		t.Fatalf("FleetPin = %q, %v; want gceb0c1c-f76f2729", p, err)
+	}
+	if a, _ := FleetPin(dies, flux); a == "gceb0c1c" {
+		t.Error("the fleet pin must differ from the policy pin at the same dies commit")
+	}
+	if b, _ := FleetPin(dies, "1111111"+flux[7:]); b == "gceb0c1c-f76f2729" {
+		t.Error("a new flux commit at the same dies commit must be a new pin")
+	}
+	if _, err := FleetPin(dies, "abc"); err == nil {
+		t.Error("a short flux commit makes no pin")
+	}
+	if _, err := FleetPin("abc", flux); err == nil {
+		t.Error("a short dies commit makes no pin")
+	}
+	if r := FleetRevision(dies, flux); r != dies+"-f76f2729" {
+		t.Errorf("FleetRevision = %q", r)
+	}
+	if r := FleetRevision(dies, ""); r != dies {
+		t.Errorf("no flux commit keeps the plain revision, got %q", r)
+	}
+}
+
 func TestOrphansAreShardsTheMapLacks(t *testing.T) {
 	shards := []string{"fleet/stars/zeus/slag.json", "fleet/stars/athena/slag.json", "fleet/stars/argus/slag.json"}
 	orphans, mapped, err := Orphans(shards, `{"map":{"athena":{},"ares":{}}}`)
