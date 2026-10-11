@@ -27,8 +27,8 @@ const (
 )
 
 // tongsRecord is a binary repo's record around its cast block. The cast reads
-// only the name off it, and the legacy payload_extra a repo has not yet moved
-// under payload/ (any "binaries" in the block is ignored: the tree names them).
+// only the name off it (any "binaries" in the block is ignored: the tree names
+// them).
 func tongsRecord(cast string) string {
 	return `{"$schema":"https://forgejo.notusmi.com/rob/foundry-dies/schema/slag-v3.schema.json","meta":{"name":"tongs","produces":["binary"]},"tools":{"cast":` + cast + `}}`
 }
@@ -200,51 +200,11 @@ func TestAFailedCastIsAskedOnceAndNamesLayerCast(t *testing.T) {
 	}
 }
 
-// A tree with no payload/ still ships the record's legacy payload_extra: a
-// directory ships under its basename beside the binaries, and every file the
-// pin lists is pushed.
-func TestAPayloadExtraDirectoryShipsUnderItsBasename(t *testing.T) {
-	m := castOn(t, map[string]string{
-		"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{"payload_extra":[".tongs/hooks"]}`),
-		".tongs/hooks/a.py":                 "a",
-		".tongs/hooks/sub/b.py":             "b",
-	})
-	scriptTheBinaries(`{"packages":[{"id":"p","targets":[{"name":"tongs","kind":["bin"]},{"name":"git-credential-tongs","kind":["bin"]}]}],"workspace_default_members":["p"]}`, "")
-	scriptACast(castPin + "\ngit-credential-tongs\nhooks/a.py\nhooks/sub/b.py\ntongs\n")
-	casts(t, m)
-	settledOn(t, "0", "clean: cast app/tongs:stable")
-	wantCalls(t, engine.chain(`directory{withFile`),
-		[]string{"withFile", `path:"tongs"`},
-		[]string{"withFile", `path:"git-credential-tongs"`},
-		[]string{"withDirectory", `path:"hooks"`},
-	)
-	if engine.chain(`directory(path:".tongs/hooks")`) == "" {
-		t.Error("the hooks directory was not taken from the checkout")
-	}
-	wantCalls(t, engine.chain(stageNeedle), []string{"withExec", `"git-credential-tongs","hooks/a.py","hooks/sub/b.py","tongs"]`})
-}
-
-// A single file in payload_extra ships under its basename.
-func TestAPayloadExtraFileShipsUnderItsBasename(t *testing.T) {
-	m := castOn(t, map[string]string{
-		"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{"payload_extra":["docs/tongs.1"]}`),
-		"docs/tongs.1":                      "man",
-	})
-	scriptACast(castPin + "\ntongs\ntongs.1\n")
-	casts(t, m)
-	settledOn(t, "0", "clean: cast app/tongs:stable")
-	wantCalls(t, engine.chain(`directory{withFile`), []string{"withFile", `path:"tongs.1"`})
-	if engine.chain(`file(path:"docs/tongs.1"){id}`) == "" {
-		t.Error("the file was not taken from the checkout")
-	}
-}
-
 // THE PAYLOAD IS THE TREE'S payload/ DIRECTORY, verbatim: payload/x lands as x
-// and payload/d/ as d/, beside every binary the workspace builds. The record's
-// legacy payload_extra is ignored the moment payload/ exists.
+// and payload/d/ as d/, beside every binary the workspace builds.
 func TestThePayloadDirectoryShipsVerbatimBesideEveryBinary(t *testing.T) {
 	m := castOn(t, map[string]string{
-		"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{"payload_extra":["gone/away"]}`),
+		"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{}`),
 		"payload/hooks/a.py":                "a",
 		"payload/tongs.service":             "unit",
 	})
@@ -259,9 +219,6 @@ func TestThePayloadDirectoryShipsVerbatimBesideEveryBinary(t *testing.T) {
 	)
 	if engine.chain(`directory(path:"payload")`) == "" {
 		t.Error("payload/ was not taken from the checkout")
-	}
-	if engine.chain(`path:"gone/away"`) != "" || engine.chain(`"gone"`) != "" {
-		t.Error("the legacy payload_extra was read beside a payload/ directory")
 	}
 }
 
@@ -382,9 +339,6 @@ func TestACastThatFailsStopsWhereItFailed(t *testing.T) {
 		"a binary the build did not leave": {nil, func() {
 			engine.failLeaf(`"/out/tongs"`, "size", "no such file")
 		}, "1", "the release build left no", []string{cargoNeedle}, []string{castpinNeedle}},
-		"an extra the checkout does not carry": {map[string]string{
-			"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{"payload_extra":[".tongs/hooks"]}`),
-		}, nil, "1", "names .tongs/hooks, which this checkout does not carry", []string{cargoNeedle}, []string{castpinNeedle}},
 		"castpin fails": {nil, func() {
 			engine.exitCode(castpinNeedle, 2)
 		}, "2", "castpin exited 2", nil, []string{stageNeedle}},
@@ -701,20 +655,6 @@ func TestACastSaysWhichReadOfTheTreeFailed(t *testing.T) {
 		"payload/ cannot be listed": {map[string]string{"payload/x": "x"}, func() {
 			engine.failLeaf(`directory(path:"payload")`, "entries", "the listing went away")
 		}, "2", "payload/ could not be listed"},
-		"a legacy extra outside the repo": {map[string]string{
-			"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{"payload_extra":["/etc"]}`),
-		}, nil, "1", "is not a path inside the repo"},
-		"a legacy extra that cannot be globbed": {map[string]string{
-			"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{"payload_extra":["docs/tongs.1"]}`),
-		}, func() {
-			engine.failLeaf(`docs/tongs.1/**`, "glob", "the glob went away")
-		}, "2", "the tree could not be read for docs/tongs.1"},
-		"a legacy extra that cannot be read": {map[string]string{
-			"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{"payload_extra":["docs/tongs.1"]}`),
-			"docs/tongs.1":                      "man",
-		}, func() {
-			engine.failLeaf(`file(path:"docs/tongs.1")`, "contents", "the file went away")
-		}, "2", "the tree could not be read for docs/tongs.1"},
 		"cargo metadata cannot run": {nil, func() {
 			engine.failLeaf(`"cargo","metadata"`, "exitCode", "the engine went away")
 		}, "2", "cargo metadata did not run"},

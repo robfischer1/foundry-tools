@@ -20,11 +20,11 @@ func record(tools string) string {
 // The record says the star's name and nothing else: whatever it still carries
 // of binaries, produces or a schema version is not read.
 func TestFromRecordReadsTheName(t *testing.T) {
-	c, err := FromRecord(record(`{"cast":{"binaries":["ignored"],"payload_extra":[".cerberus/hooks"]}}`))
+	c, err := FromRecord(record(`{"cast":{"binaries":["ignored"]}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Cast{Name: "cerberus", LegacyExtras: []string{".cerberus/hooks"}}
+	want := Cast{Name: "cerberus"}
 	if !reflect.DeepEqual(c, want) {
 		t.Fatalf("got %+v, want %+v", c, want)
 	}
@@ -34,11 +34,8 @@ func TestFromRecordReadsTheName(t *testing.T) {
 	if got := c.Stage("foundry.notusmi.com", "g0123456789ab"); got != "foundry.notusmi.com/staging/app-cerberus:g0123456789ab" {
 		t.Errorf("stage %q", got)
 	}
-	if got := Target(".cerberus/hooks/"); got != "hooks" {
-		t.Errorf("target %q", got)
-	}
 	// No tools block, no produces, another schema: still a record with a name.
-	if c, err := FromRecord(`{"meta":{"name":"naiad"}}`); err != nil || c.Name != "naiad" || c.LegacyExtras != nil {
+	if c, err := FromRecord(`{"meta":{"name":"naiad"}}`); err != nil || c.Name != "naiad" {
 		t.Errorf("a bare record: %+v %v", c, err)
 	}
 }
@@ -116,21 +113,6 @@ func TestClaimsRefuseWhatWouldShipWhicheverWrittenLast(t *testing.T) {
 		if err := Claims(c.bins, c.payload); err == nil || !strings.Contains(err.Error(), c.why) {
 			t.Errorf("%s: want a refusal naming %q, got %v", name, c.why, err)
 		}
-	}
-}
-
-func TestLegacyTargets(t *testing.T) {
-	got, err := LegacyTargets([]string{".cerberus/hooks", "bin"})
-	if err != nil || strings.Join(got, ",") != "hooks,bin" {
-		t.Errorf("got %v %v", got, err)
-	}
-	for name, bad := range map[string]string{"empty": "", "absolute": "/etc", "climbs": "hooks/../../etc", "the repo": "."} {
-		if _, err := LegacyTargets([]string{bad}); err == nil {
-			t.Errorf("%s: want a refusal", name)
-		}
-	}
-	if _, err := LegacyTargets([]string{"a/b..c"}); err != nil {
-		t.Errorf("a/b..c is inside the repo: %v", err)
 	}
 }
 

@@ -238,9 +238,7 @@ func (l *castLane) run(ctx context.Context) (int, string) {
 // them. A payload/x lands as x and a payload/d/ as d/. A name claimed twice is
 // refused rather than shipped as whichever was written last.
 //
-// THE TRANSITION: a tree with no payload/ still ships the record's
-// tools.cast.payload_extra, each under its basename, exactly as before. A tree
-// WITH payload/ ignores that field. The fallback goes with the field.
+// A tree with no payload/ ships its binaries alone.
 // 0 is buildlane.Clean, spelled as the literal in the success returns below:
 // the constant's name in a return slot is a RETURN_ZERO mutant that rewrites it
 // to itself.
@@ -262,11 +260,6 @@ func (l *castLane) payload(ctx context.Context, c castlane.Cast) (*dagger.Direct
 		for _, e := range entries {
 			top = append(top, strings.TrimSuffix(e, "/"))
 		}
-	} else {
-		top, err = castlane.LegacyTargets(c.LegacyExtras)
-		if err != nil {
-			return nil, nil, buildlane.Findings, "findings: " + err.Error()
-		}
 	}
 	if err := castlane.Claims(built.binaries, top); err != nil {
 		return nil, nil, buildlane.Findings, "findings: " + err.Error()
@@ -281,24 +274,6 @@ func (l *castLane) payload(ctx context.Context, c castlane.Cast) (*dagger.Direct
 	}
 	if havePayload {
 		return payload.WithDirectory(".", l.m.Source.Directory(castlane.PayloadDir)), built.binaries, 0, ""
-	}
-	for _, p := range c.LegacyExtras {
-		under, err := l.m.Source.Glob(ctx, path.Join(p, "**"))
-		if err != nil {
-			return nil, nil, buildlane.CouldNotRun, fmt.Sprintf("could not run: the tree could not be read for %s: %v", p, err)
-		}
-		if len(under) > 0 {
-			payload = payload.WithDirectory(castlane.Target(p), l.m.Source.Directory(p))
-			continue
-		}
-		_, ok, err := fileIn(ctx, l.m.Source, p)
-		if err != nil {
-			return nil, nil, buildlane.CouldNotRun, fmt.Sprintf("could not run: the tree could not be read for %s: %v", p, err)
-		}
-		if !ok {
-			return nil, nil, buildlane.Findings, fmt.Sprintf("findings: tools.cast.payload_extra names %s, which this checkout does not carry", p)
-		}
-		payload = payload.WithFile(castlane.Target(p), l.m.Source.File(p))
 	}
 	return payload, built.binaries, 0, ""
 }
