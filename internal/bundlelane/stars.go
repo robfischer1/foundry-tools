@@ -87,8 +87,12 @@ type Ports struct {
 
 // FluxFact is what flux says about one star.
 type FluxFact struct {
-	Ports *Ports   `json:"ports,omitempty"`
-	DB    []string `json:"db,omitempty"`
+	Ports *Ports `json:"ports,omitempty"`
+	// Interface is the protocols the star's Service port names imply, sorted:
+	// a port named mcp is "mcp", a port named http is "http". Absent when no
+	// Service port carries either name.
+	Interface []string `json:"interface,omitempty"`
+	DB        []string `json:"db,omitempty"`
 }
 
 // sslRootCert is the CA directory a star's DSN pins: the CNPG cluster's
@@ -130,6 +134,10 @@ func Clusters(manifests map[string]string) (map[string]bool, error) {
 // the first named mtls. A redis or git port is not the star's address
 // (mnemosyne-redis, tron-redis, ourea's git).
 //
+// INTERFACE is the set of protocols those names imply: mcp -> "mcp", http ->
+// "http", over every Service of the star (the same selection as PORTS). The
+// name is the declaration: a star that serves plain HTTP names its port http.
+//
 // DB is every CNPG cluster a container's Postgres DSN names, sorted: by the
 // CA directory its sslrootcert pins, else by its host with a -rw/-ro/-r
 // suffix taken off. Only a name in clusters counts.
@@ -152,6 +160,7 @@ func FluxFacts(manifests map[string]string, stars, clusters map[string]bool) (ma
 		if ports := servicePorts(star, docs); ports != (Ports{}) {
 			fact.Ports = &ports
 		}
+		fact.Interface = interfaces(star, docs)
 		fact.DB = databases(docs, clusters)
 		if fact.Ports != nil || len(fact.DB) > 0 {
 			out[star] = fact
@@ -160,8 +169,8 @@ func FluxFacts(manifests map[string]string, stars, clusters map[string]bool) (ma
 	return out, nil
 }
 
-// servicePorts reads the star's ports off its Services (FluxFacts).
-func servicePorts(star string, docs []manifest) Ports {
+// starServices is the star's Services, the one named for it first (FluxFacts).
+func starServices(star string, docs []manifest) []manifest {
 	var svcs []manifest
 	for _, d := range docs {
 		if d.Kind == "Service" && (d.Name == star || strings.HasPrefix(d.Name, star+"-")) {
@@ -175,8 +184,30 @@ func servicePorts(star string, docs []manifest) Ports {
 		}
 		return a < b
 	})
+	return svcs
+}
+
+// interfaces reads the protocols the star's Service port names imply
+// (FluxFacts), sorted.
+func interfaces(star string, docs []manifest) []string {
+	seen := map[string]bool{}
+	for _, s := range starServices(star, docs) {
+		for _, port := range s.Ports {
+			if port.Name == "mcp" || port.Name == "http" {
+				seen[port.Name] = true
+			}
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	return sortedKeys(seen)
+}
+
+// servicePorts reads the star's ports off its Services (FluxFacts).
+func servicePorts(star string, docs []manifest) Ports {
 	var p Ports
-	for _, s := range svcs {
+	for _, s := range starServices(star, docs) {
 		for _, port := range s.Ports {
 			switch port.Name {
 			case "mcp", "http":

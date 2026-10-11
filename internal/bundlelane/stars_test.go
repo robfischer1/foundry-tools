@@ -218,12 +218,12 @@ func TestFluxFactsReadPortsAndDatabasesTheWayFluxStatesThem(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]FluxFact{
-		"chaos":     {Ports: &Ports{Listen: 8206, MTLS: 8207}, DB: []string{"chaos-db"}},
-		"ananke":    {Ports: &Ports{Listen: 8200, MTLS: 8201}, DB: []string{"aether-db"}},
-		"ourea":     {Ports: &Ports{Listen: 8214, MTLS: 8216}, DB: []string{"erebus-db", "ourea-db"}},
-		"ouranos":   {Ports: &Ports{Listen: 8181}},
-		"mnemosyne": {Ports: &Ports{Listen: 8212, MTLS: 8213}},
-		"kairos":    {Ports: &Ports{Listen: 8200, MTLS: 8201}},
+		"chaos":     {Ports: &Ports{Listen: 8206, MTLS: 8207}, Interface: []string{"mcp"}, DB: []string{"chaos-db"}},
+		"ananke":    {Ports: &Ports{Listen: 8200, MTLS: 8201}, Interface: []string{"mcp"}, DB: []string{"aether-db"}},
+		"ourea":     {Ports: &Ports{Listen: 8214, MTLS: 8216}, Interface: []string{"mcp"}, DB: []string{"erebus-db", "ourea-db"}},
+		"ouranos":   {Ports: &Ports{Listen: 8181}, Interface: []string{"http"}},
+		"mnemosyne": {Ports: &Ports{Listen: 8212, MTLS: 8213}, Interface: []string{"mcp"}},
+		"kairos":    {Ports: &Ports{Listen: 8200, MTLS: 8201}, Interface: []string{"mcp"}},
 		"eros":      {DB: []string{"eros-db"}},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -413,5 +413,109 @@ func TestLeanStagesEachCommittedRowUnderTheLeanKey(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Lean = %v, want %v", got, want)
+	}
+}
+
+// aletheia as flux will carry it once its Service port is named for what it
+// serves: plain http on the listen port, the mTLS door beside it.
+const httpStarManifest = `kind: Service
+metadata: {name: aletheia}
+spec:
+  ports:
+    - {name: http, port: 8220}
+    - {name: mtls, port: 8221}
+`
+
+func TestFluxFactsNameTheInterfaceThePortNamesImply(t *testing.T) {
+	got, err := FluxFacts(map[string]string{
+		"prime/star-aletheia.yaml": httpStarManifest,
+		"prime/star-chaos.yaml":    chaosManifest,
+		"prime/star-tron.yaml":     tronManifest,
+	}, map[string]bool{"aletheia": true, "chaos": true, "tron": true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]FluxFact{
+		"aletheia": {Ports: &Ports{Listen: 8220, MTLS: 8221}, Interface: []string{"http"}},
+		"chaos":    {Ports: &Ports{Listen: 8206, MTLS: 8207}, Interface: []string{"mcp"}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		a, _ := json.Marshal(got)
+		b, _ := json.Marshal(want)
+		t.Fatalf("FluxFacts =\n%s\nwant\n%s", a, b)
+	}
+}
+
+// A star naming both an mcp and an http port lists both, sorted, once each; a
+// port named for anything else (redis, git, metrics) implies nothing.
+func TestInterfaceIsTheSortedSetOverTheStarsServices(t *testing.T) {
+	doc := `kind: Service
+metadata: {name: x}
+spec:
+  ports:
+    - {name: mcp, port: 1}
+    - {name: git, port: 2}
+---
+kind: Service
+metadata: {name: x-web}
+spec:
+  ports:
+    - {name: http, port: 3}
+    - {name: mcp, port: 4}
+---
+kind: Service
+metadata: {name: x-redis}
+spec:
+  ports:
+    - {name: redis, port: 6379}
+`
+	got, err := FluxFacts(map[string]string{"prime/star-x.yaml": doc}, map[string]bool{"x": true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"http", "mcp"}; !reflect.DeepEqual(got["x"].Interface, want) {
+		t.Fatalf("Interface = %q, want %q", got["x"].Interface, want)
+	}
+	if got["x"].Ports.Listen != 1 {
+		t.Fatalf("Listen = %d: the interface must not move the listen port", got["x"].Ports.Listen)
+	}
+}
+
+// BACKWARD COMPATIBLE: the served document is today's plus the interface key.
+// Drop that key and every row is byte-for-byte the row the lane served before.
+func TestStageIsTodaysBytesPlusTheInterfaceKey(t *testing.T) {
+	facts, err := FluxFacts(fluxTree(), knownStars(), clustersOrDie(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rows map[string]map[string]any
+	if err := json.Unmarshal([]byte(Stage(facts)), &rows); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		delete(r, "interface")
+	}
+	old := map[string]map[string]any{}
+	for star, f := range facts {
+		row := map[string]any{}
+		if f.Ports != nil {
+			p := map[string]any{"listen": f.Ports.Listen}
+			if f.Ports.MTLS != 0 {
+				p["mtls"] = f.Ports.MTLS
+			}
+			if f.Ports.Listen == 0 {
+				delete(p, "listen")
+			}
+			row["ports"] = p
+		}
+		if len(f.DB) > 0 {
+			row["db"] = f.DB
+		}
+		old[star] = row
+	}
+	a, _ := json.Marshal(rows)
+	b, _ := json.Marshal(old)
+	if string(a) != string(b) {
+		t.Fatalf("minus interface, Stage =\n%s\nwant\n%s", a, b)
 	}
 }

@@ -62,11 +62,11 @@ func TestInjectReadsTheRealFluxTree(t *testing.T) {
 		t.Fatalf("only %d of %d stars got a flux row", inj.FluxRows, inj.Known)
 	}
 	for star, want := range map[string]FluxFact{
-		"hades":     {Ports: &Ports{Listen: 8101, MTLS: 8102}},
-		"chaos":     {Ports: &Ports{Listen: 8206, MTLS: 8207}, DB: []string{"chaos-db"}},
-		"ourea":     {Ports: &Ports{Listen: 8214, MTLS: 8216}, DB: []string{"erebus-db", "ourea-db"}},
-		"ouranos":   {Ports: &Ports{Listen: 8181}},
-		"narcissus": {Ports: &Ports{Listen: 8200, MTLS: 8201}, DB: []string{"narcissus-db"}},
+		"hades":     {Ports: &Ports{Listen: 8101, MTLS: 8102}, Interface: []string{"mcp"}},
+		"chaos":     {Ports: &Ports{Listen: 8206, MTLS: 8207}, Interface: []string{"mcp"}, DB: []string{"chaos-db"}},
+		"ourea":     {Ports: &Ports{Listen: 8214, MTLS: 8216}, Interface: []string{"mcp"}, DB: []string{"erebus-db", "ourea-db"}},
+		"ouranos":   {Ports: &Ports{Listen: 8181}, Interface: []string{"http"}},
+		"narcissus": {Ports: &Ports{Listen: 8200, MTLS: 8201}, Interface: []string{"mcp"}, DB: []string{"narcissus-db"}},
 	} {
 		if got := flux[star]; !reflect.DeepEqual(got, want) {
 			a, _ := json.Marshal(got)
@@ -106,7 +106,7 @@ func TestAKindWhoseSpecIsNotAServicesIsNeverDecodedAsOne(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a World's map-shaped ports or a CR's spec failed the read: %v", err)
 	}
-	want := FluxFact{Ports: &Ports{Listen: 8200}, DB: []string{"narcissus-db"}}
+	want := FluxFact{Ports: &Ports{Listen: 8200}, Interface: []string{"mcp"}, DB: []string{"narcissus-db"}}
 	if !reflect.DeepEqual(got["narcissus"], want) {
 		t.Fatalf("narcissus = %+v", got["narcissus"])
 	}
@@ -121,6 +121,53 @@ func TestAServiceOrWorkloadOfTheWrongShapeIsNamed(t *testing.T) {
 		_, err := FluxFacts(map[string]string{"prime/star-chaos.yaml": c.doc}, map[string]bool{"chaos": true}, nil)
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: err = %v, want %q", name, err, c.want)
+		}
+	}
+}
+
+// The five stars that name their flux Service port mcp and serve plain HTTP.
+var httpStars = []string{"ares", "aletheia", "charon", "demeter", "theia"}
+
+// Both spellings of the five stars' port are read, so the lane lands before
+// and after flux renames it: today's tree says mcp, the renamed one http, and
+// every port number is the same either way.
+func TestTheHTTPStarsDeriveTheSamePortsUnderEitherName(t *testing.T) {
+	in := snapshot(t)
+	before, err := Inject(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renamed := Inputs{FluxSHA: in.FluxSHA, Tier: in.Tier, Shards: in.Shards, ClusterManifest: in.ClusterManifest, StarManifests: map[string]string{}}
+	for p, body := range in.StarManifests {
+		renamed.StarManifests[p] = body
+		for _, s := range httpStars {
+			if strings.HasSuffix(p, "/star-"+s+".yaml") {
+				renamed.StarManifests[p] = strings.Replace(body, "{name: mcp,", "{name: http,", -1)
+			}
+		}
+	}
+	after, err := Inject(renamed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b, a map[string]FluxFact
+	if json.Unmarshal([]byte(before.Flux), &b) != nil || json.Unmarshal([]byte(after.Flux), &a) != nil {
+		t.Fatal("staged flux is not JSON")
+	}
+	for _, s := range httpStars {
+		if !reflect.DeepEqual(b[s].Interface, []string{"mcp"}) || !reflect.DeepEqual(a[s].Interface, []string{"http"}) {
+			t.Errorf("%s interface before %q after %q, want mcp then http", s, b[s].Interface, a[s].Interface)
+		}
+		if !reflect.DeepEqual(b[s].Ports, a[s].Ports) || b[s].Ports == nil {
+			t.Errorf("%s ports moved with the rename: %+v -> %+v", s, b[s].Ports, a[s].Ports)
+		}
+	}
+	for s, f := range b {
+		if _, isHTTP := map[string]bool{"ares": true, "aletheia": true, "charon": true, "demeter": true, "theia": true}[s]; isHTTP {
+			continue
+		}
+		if !reflect.DeepEqual(f, a[s]) {
+			t.Errorf("%s changed under the rename of other stars: %+v -> %+v", s, f, a[s])
 		}
 	}
 }
