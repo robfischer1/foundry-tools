@@ -188,7 +188,7 @@ const (
 	// An apt pin is exact, so a Debian point release that supersedes it
 	// fails the provision loudly rather than drifting the lane silently.
 	// renovate: datasource=deb depName=jq registryUrl=https://deb.debian.org/debian?suite=bookworm&components=main&binaryArch=amd64
-	JqDebVersion = "1.6-2.1+deb12u2"
+	JqDebVersion = "1.7.1-6+deb13u3"
 
 	StaticcheckModule = "honnef.co/go/tools/cmd/staticcheck@2025.1.1"
 	GovulncheckModule = "golang.org/x/vuln/cmd/govulncheck@v1.1.4"

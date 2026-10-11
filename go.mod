@@ -7,7 +7,7 @@ require (
 	github.com/Khan/genqlient v0.8.1
 	github.com/dagger/otel-go v1.43.0
 	github.com/dagger/querybuilder v0.0.0-20260402040506-574a5e81cb59
-	github.com/google/pprof v0.0.0-20260115054156-294ebfa9ad83
+	github.com/google/pprof v0.0.0-20261008003335-7bae8d8c4c9e
 	github.com/vektah/gqlparser/v2 v2.5.62
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/trace v1.46.0
@@ -17,7 +17,7 @@ require (
 require github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 
 require (
-	github.com/Microsoft/go-winio v0.6.2 // indirect
+	github.com/Microsoft/go-winio v0.6.3 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.5 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.9.0
 )
@@ -44,10 +44,10 @@ require (
 	go.opentelemetry.io/otel/sdk/log v0.20.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.46.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.1 // indirect
-	golang.org/x/net v0.60.0 // indirect
-	golang.org/x/sync v0.23.0
-	golang.org/x/sys v0.48.0 // indirect
-	golang.org/x/text v0.42.0 // indirect
+	golang.org/x/net v0.61.0 // indirect
+	golang.org/x/sync v0.24.0
+	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260928230214-8a89bd6388cc // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260928230214-8a89bd6388cc // indirect
 	google.golang.org/grpc v1.84.0 // indirect
