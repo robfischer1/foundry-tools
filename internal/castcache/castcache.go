@@ -1,6 +1,7 @@
-// Package castcache archives a Rust release build's target directory in
-// SeaweedFS so a cast starts warm even when the engine's own cache volume did
-// not survive the hours between casts.
+// Package castcache names the cast's Rust target archive in SeaweedFS: the
+// bucket, the role, the object key and the credential files. It imports the
+// standard library only, so the Dagger module can use the names without
+// compiling the S3 client (internal/casttarget, which does the work).
 //
 // WHY AN ARCHIVE. The cast lane builds into an engine-local cache volume
 // (checks.ReleaseCacheFor). It is warm only while the engine pod that holds it
@@ -9,10 +10,6 @@
 // production cast. The archive is one object per repo, toolchain and target
 // triple, overwritten by each successful cast, so storage is bounded and the
 // object outlives every engine.
-//
-// THE CACHE NEVER DECIDES A VERDICT. Restore and Save answer one log line and
-// no error: a missing object, refused credentials, a timeout or a failed
-// upload is a line saying so and a cold build or a skipped save.
 package castcache
 
 import (
@@ -51,8 +48,6 @@ const (
 	// ran against a volume the build never wrote (an engine-cached build exec
 	// does not touch it) and must not overwrite a good archive with nothing.
 	MinFiles = 20
-	// MaxArchive is S3's single-PUT limit; multipart is not implemented.
-	MaxArchive = 5 << 30
 )
 
 // Triple is the Rust target triple of the platform the helper runs on, which
@@ -109,3 +104,11 @@ func segment(s string) string {
 
 // URI is the object's address, for the log.
 func URI(key string) string { return "s3://" + Bucket + "/" + key }
+
+// Creds are the temporary credentials STS issued. They are held in memory and
+// in mounted secret files, and are never part of an error or a log line.
+type Creds struct {
+	AccessKeyID     string `json:"access_key_id"`
+	SecretAccessKey string `json:"secret_access_key"`
+	SessionToken    string `json:"session_token"`
+}

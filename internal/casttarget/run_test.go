@@ -1,20 +1,25 @@
-package castcache
+package casttarget
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"dagger/foundry-tools/internal/castcache"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
 
-// fakeS3 is an in-memory bucket that checks every request carries a signature
-// and the session token, as SeaweedFS would.
+// fakeS3 is an in-memory bucket that speaks the S3 subset minio-go uses, and
+// checks every request carries a signature and the session token, as SeaweedFS
+// would.
 type fakeS3 struct {
 	mu      sync.Mutex
 	objects map[string][]byte
@@ -22,6 +27,38 @@ type fakeS3 struct {
 	status  int           // when non-zero, every request answers it
 	hang    chan struct{} // when set, every request blocks until closed
 	puts    int
+}
+
+func s3Error(w http.ResponseWriter, status int, code, msg string) {
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(status)
+	io.WriteString(w, `<?xml version="1.0" encoding="UTF-8"?><Error><Code>`+code+`</Code><Message>`+msg+`</Message></Error>`)
+}
+
+// unchunk decodes the aws-chunked body minio-go sends over plain HTTP.
+func unchunk(r io.Reader) ([]byte, error) {
+	br := bufio.NewReader(r)
+	var out []byte
+	for {
+		line, err := br.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		size, _, _ := strings.Cut(strings.TrimSpace(line), ";")
+		n, err := strconv.ParseInt(size, 16, 64)
+		if err != nil {
+			return nil, err
+		}
+		if n == 0 {
+			return out, nil
+		}
+		buf := make([]byte, n)
+		if _, err := io.ReadFull(br, buf); err != nil {
+			return nil, err
+		}
+		out = append(out, buf...)
+		br.Discard(2)
+	}
 }
 
 func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -36,27 +73,34 @@ func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer f.mu.Unlock()
 	f.auths = append(f.auths, r.Header.Get("Authorization")+"|"+r.Header.Get("X-Amz-Security-Token"))
 	if f.status != 0 {
-		w.WriteHeader(f.status)
-		io.WriteString(w, `<Error><Code>AccessDenied</Code><Message>Access Denied.</Message></Error>`)
+		s3Error(w, f.status, "AccessDenied", "Access Denied.")
 		return
 	}
-	key := strings.TrimPrefix(r.URL.Path, "/"+Bucket+"/")
+	key := strings.TrimPrefix(r.URL.Path, "/"+castcache.Bucket+"/")
 	switch r.Method {
-	case http.MethodGet:
+	case http.MethodGet, http.MethodHead:
 		b, ok := f.objects[key]
 		if !ok {
-			w.WriteHeader(http.StatusNotFound)
+			s3Error(w, http.StatusNotFound, "NoSuchKey", "The specified key does not exist.")
 			return
 		}
-		w.Write(b)
+		w.Header().Set("ETag", `"abc123"`)
+		http.ServeContent(w, r, "", time.Now(), bytes.NewReader(b))
 	case http.MethodPut:
-		b, _ := io.ReadAll(r.Body)
-		if int64(len(b)) != r.ContentLength || r.Header.Get("X-Amz-Content-Sha256") == "" {
-			w.WriteHeader(http.StatusBadRequest)
+		var b []byte
+		var err error
+		if strings.HasPrefix(r.Header.Get("X-Amz-Content-Sha256"), "STREAMING-") {
+			b, err = unchunk(r.Body)
+		} else {
+			b, err = io.ReadAll(r.Body)
+		}
+		if err != nil || r.Header.Get("X-Amz-Content-Sha256") == "" {
+			s3Error(w, http.StatusBadRequest, "BadRequest", "bad body")
 			return
 		}
 		f.objects[key] = b
 		f.puts++
+		w.Header().Set("ETag", `"abc123"`)
 	}
 }
 
@@ -67,7 +111,7 @@ func newS3(t *testing.T) (*fakeS3, Config) {
 	return f, Config{
 		Repo: "http://door/rob/tongs.git", Toolchain: "rust-1.97.0", Triple: "x86_64-unknown-linux-gnu",
 		Dir: t.TempDir(), Endpoint: srv.URL,
-		Creds:   Creds{AccessKeyID: "AK", SecretAccessKey: "SK", SessionToken: "ST"},
+		Creds:   castcache.Creds{AccessKeyID: "AK", SecretAccessKey: "SK", SessionToken: "ST"},
 		Timeout: 5 * time.Second,
 	}
 }
@@ -127,8 +171,8 @@ func TestRestoreDegradesToAColdBuild(t *testing.T) {
 	cases := map[string]tc{
 		"no object yet": {func(*fakeS3, *Config) {}, "cast-cache: restore skipped: no archive at s3://cast-cache/" + tongsKey},
 		"credentials refused": {func(f *fakeS3, _ *Config) { f.status = 403 },
-			"cast-cache: restore skipped: GET answered HTTP 403: <Error><Code>AccessDenied</Code>"},
-		"the store is down": {func(f *fakeS3, _ *Config) { f.status = 503 }, "cast-cache: restore skipped: GET answered HTTP 503"},
+			"cast-cache: restore skipped: AccessDenied: Access Denied. (HTTP 403)"},
+		"the store is down": {func(f *fakeS3, c *Config) { f.status = 503; c.Timeout = 1500 * time.Millisecond }, "cast-cache: restore skipped:"},
 		"nothing listens":   {func(_ *fakeS3, c *Config) { c.Endpoint = "http://127.0.0.1:1" }, "cast-cache: restore skipped:"},
 		"a hung store": {func(f *fakeS3, c *Config) {
 			f.hang = make(chan struct{})
@@ -189,8 +233,8 @@ func TestSaveDegradesAndNeverFails(t *testing.T) {
 		prep func(f *fakeS3, c *Config)
 		want string
 	}{
-		"credentials refused": {func(f *fakeS3, _ *Config) { f.status = 403 }, "cast-cache: save skipped: the upload: PUT answered HTTP 403"},
-		"the store is down":   {func(f *fakeS3, _ *Config) { f.status = 500 }, "cast-cache: save skipped: the upload: PUT answered HTTP 500"},
+		"credentials refused": {func(f *fakeS3, _ *Config) { f.status = 403 }, "cast-cache: save skipped: the upload: AccessDenied: Access Denied. (HTTP 403)"},
+		"the store is down":   {func(f *fakeS3, c *Config) { f.status = 500; c.Timeout = 1500 * time.Millisecond }, "cast-cache: save skipped: the upload:"},
 		"nothing listens":     {func(_ *fakeS3, c *Config) { c.Endpoint = "http://127.0.0.1:1" }, "cast-cache: save skipped: the upload:"},
 		"a hung store": {func(f *fakeS3, c *Config) {
 			f.hang = make(chan struct{})
@@ -253,8 +297,11 @@ func TestConfigDefaults(t *testing.T) {
 	if key, err := c.key(); err != nil || !strings.HasPrefix(key, "a/t/") || !strings.HasSuffix(key, "-unknown-linux-gnu.tar.gz") {
 		t.Errorf("key %q, %v", key, err)
 	}
-	if s := c.s3(); s.Endpoint != DefaultEndpoint || s.HTTP == nil {
-		t.Errorf("s3 %+v", s)
+	if _, err := store("", castcache.Creds{}, nil); err != nil {
+		t.Errorf("the default endpoint does not build a client: %v", err)
+	}
+	if _, err := store("not a url", castcache.Creds{}, nil); err == nil {
+		t.Error("a malformed endpoint built a client")
 	}
 	ctx, cancel := c.deadline(context.Background())
 	defer cancel()

@@ -1,4 +1,4 @@
-package castcache
+package casttarget
 
 import (
 	"archive/tar"

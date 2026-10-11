@@ -38,7 +38,7 @@ var helperSources = map[string]helperSource{
 	"pgroupps":    {internal: []string{"internal/pgroupps"}, offline: true},
 	"execmem":     {internal: []string{"internal/execmem"}, offline: true},
 	"copyout":     {internal: []string{"internal/copyout"}, offline: true},
-	"casttarget":  {internal: []string{"internal/castcache"}},
+	"casttarget":  {internal: []string{"internal/castcache", "internal/casttarget"}},
 }
 
 // helperInclude is the filtered source of a helper: the module files, the

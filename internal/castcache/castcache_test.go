@@ -1,11 +1,6 @@
 package castcache
 
-import (
-	"net/http"
-	"strings"
-	"testing"
-	"time"
-)
+import "testing"
 
 func TestKeyIsRepoToolchainAndTriple(t *testing.T) {
 	const image = "docker.io/library/rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e75fea57e2a2a5c3073"
@@ -71,36 +66,5 @@ func TestTripleByArchitecture(t *testing.T) {
 func TestURINamesTheBucket(t *testing.T) {
 	if got := URI("a/b.tar.gz"); got != "s3://cast-cache/a/b.tar.gz" {
 		t.Errorf("URI = %q", got)
-	}
-}
-
-// The AWS documentation's "GET Object" example, byte for byte: the signature
-// pins the canonical request, the scope and the key derivation.
-func TestSignMatchesTheAWSDocumentationVector(t *testing.T) {
-	req, _ := http.NewRequest(http.MethodGet, "https://examplebucket.s3.amazonaws.com/test.txt", nil)
-	req.Header.Set("Range", "bytes=0-9")
-	Sign(req, Creds{AccessKeyID: "AKIAIOSFODNN7EXAMPLE", SecretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"},
-		emptyHash, time.Date(2013, 5, 24, 0, 0, 0, 0, time.UTC))
-	want := "AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request, " +
-		"SignedHeaders=host;range;x-amz-content-sha256;x-amz-date, " +
-		"Signature=f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41"
-	if got := req.Header.Get("Authorization"); got != want {
-		t.Errorf("Authorization\n got %s\nwant %s", got, want)
-	}
-}
-
-func TestSignCoversTheSessionTokenAndEncodesThePath(t *testing.T) {
-	req, _ := http.NewRequest(http.MethodPut, "http://seaweedfs:8333/cast-cache/a/b c+d.tar.gz", nil)
-	req.Header.Set("Content-Type", "application/gzip")
-	Sign(req, Creds{AccessKeyID: "K", SecretAccessKey: "S", SessionToken: "TOK"}, "abc", time.Unix(0, 0))
-	if req.Header.Get("X-Amz-Security-Token") != "TOK" {
-		t.Error("the session token was not sent")
-	}
-	auth := req.Header.Get("Authorization")
-	if !strings.Contains(auth, "SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date;x-amz-security-token,") {
-		t.Errorf("signed headers: %s", auth)
-	}
-	if got := uriEncode("/cast-cache/a/b c+d~.tar.gz"); got != "/cast-cache/a/b%20c%2Bd~.tar.gz" {
-		t.Errorf("uriEncode = %q", got)
 	}
 }

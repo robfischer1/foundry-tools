@@ -1,19 +1,26 @@
-package castcache
+// Package casttarget restores and saves the cast lane's Rust release target
+// in SeaweedFS (names and key layout: internal/castcache), with minio-go for
+// S3 and for STS AssumeRoleWithWebIdentity.
+//
+// THE CACHE NEVER DECIDES A VERDICT. Restore and Save answer one log line and
+// no error: a missing object, refused credentials, a timeout or a failed
+// upload is a line saying so and a cold build or a skipped save.
+package casttarget
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"syscall"
 	"time"
+
+	"dagger/foundry-tools/internal/castcache"
+	"github.com/minio/minio-go/v7"
 )
 
 // Config is one restore or save.
@@ -22,37 +29,21 @@ type Config struct {
 	Toolchain string // ToolchainKey of the lane's image
 	Dir       string // the release target directory
 	Endpoint  string
-	Creds     Creds
-	Triple    string        // empty: this platform's
-	Timeout   time.Duration // empty: 10 minutes
-	HTTP      *http.Client  // nil: a client with dial and header timeouts
-	Now       func() time.Time
+	Creds     castcache.Creds
+	Triple    string            // empty: this platform's
+	Timeout   time.Duration     // empty: 10 minutes
+	Transport http.RoundTripper // nil: dial and header timeouts
 }
 
 func (c Config) key() (string, error) {
 	triple := c.Triple
 	if triple == "" {
 		var err error
-		if triple, err = Triple(runtime.GOARCH); err != nil {
+		if triple, err = castcache.Triple(runtime.GOARCH); err != nil {
 			return "", err
 		}
 	}
-	return Key(c.Repo, c.Toolchain, triple)
-}
-
-func (c Config) s3() S3 {
-	client := c.HTTP
-	if client == nil {
-		client = &http.Client{Transport: &http.Transport{
-			DialContext:           (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
-			ResponseHeaderTimeout: 2 * time.Minute,
-		}}
-	}
-	endpoint := c.Endpoint
-	if endpoint == "" {
-		endpoint = DefaultEndpoint
-	}
-	return S3{Endpoint: endpoint, Creds: c.Creds, HTTP: client, Now: c.Now}
+	return castcache.Key(c.Repo, c.Toolchain, triple)
 }
 
 func (c Config) deadline(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -83,21 +74,25 @@ func Restore(ctx context.Context, c Config) string {
 	start := time.Now()
 	ctx, cancel := c.deadline(ctx)
 	defer cancel()
-	resp, err := c.s3().Get(ctx, key)
+	cl, err := store(c.Endpoint, c.Creds, c.Transport)
+	if err != nil {
+		return skip("restore", err.Error())
+	}
+	obj, err := fetch(ctx, cl, key)
 	if errors.Is(err, ErrNotFound) {
-		return skip("restore", "no archive at "+URI(key)+" yet; building cold")
+		return skip("restore", "no archive at "+castcache.URI(key)+" yet; building cold")
 	}
 	if err != nil {
 		return skip("restore", err.Error())
 	}
-	defer resp.Body.Close()
-	body := &counter{r: resp.Body}
+	defer obj.Close()
+	body := &counter{r: obj}
 	files, err := Unpack(body, c.Dir)
 	if err != nil {
 		wipe(c.Dir)
-		return skip("restore", fmt.Sprintf("%s was unreadable after %d file(s) (%v); the target was cleared, building cold", URI(key), files, err))
+		return skip("restore", fmt.Sprintf("%s was unreadable after %d file(s) (%v); the target was cleared, building cold", castcache.URI(key), files, err))
 	}
-	return fmt.Sprintf("cast-cache: restored %s: %d files from a %s archive in %s", URI(key), files, size(body.n), time.Since(start).Round(100*time.Millisecond))
+	return fmt.Sprintf("cast-cache: restored %s: %d files from a %s archive in %s", castcache.URI(key), files, size(body.n), time.Since(start).Round(100*time.Millisecond))
 }
 
 // Save archives Dir to the repo's key, overwriting the last, and answers the
@@ -122,30 +117,31 @@ func Save(ctx context.Context, c Config) string {
 	defer os.Remove(tmp.Name())
 	defer tmp.Close()
 	start := time.Now()
-	sum := sha256.New()
-	files, err := Pack(c.Dir, io.MultiWriter(tmp, sum))
+	files, err := Pack(c.Dir, tmp)
 	unlock() // the upload reads the archive, not the target
 	if err != nil {
 		return skip("save", "packing the target: "+err.Error())
 	}
-	if files < MinFiles {
+	if files < castcache.MinFiles {
 		return skip("save", fmt.Sprintf("the target holds %d file(s), too few to be a build worth shipping", files))
 	}
 	n, err := tmp.Seek(0, io.SeekCurrent)
 	if err != nil {
 		return skip("save", err.Error())
 	}
-	if n > MaxArchive {
-		return skip("save", fmt.Sprintf("the archive is %s, past the single-upload limit", size(n)))
-	}
 	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
 		return skip("save", err.Error())
 	}
 	packed := time.Since(start)
-	if err := c.s3().Put(ctx, key, tmp, n, hex.EncodeToString(sum.Sum(nil))); err != nil {
-		return skip("save", "the upload: "+err.Error())
+	cl, err := store(c.Endpoint, c.Creds, c.Transport)
+	if err != nil {
+		return skip("save", err.Error())
 	}
-	return fmt.Sprintf("cast-cache: saved %s: %d files, %s archive (packed in %s, uploaded in %s)", URI(key), files, size(n), packed.Round(100*time.Millisecond), (time.Since(start) - packed).Round(100*time.Millisecond))
+	// PutObject goes multipart past its part size, so the archive has no cap.
+	if _, err := cl.PutObject(ctx, castcache.Bucket, key, tmp, n, minio.PutObjectOptions{ContentType: "application/gzip"}); err != nil {
+		return skip("save", "the upload: "+errText(err).Error())
+	}
+	return fmt.Sprintf("cast-cache: saved %s: %d files, %s archive (packed in %s, uploaded in %s)", castcache.URI(key), files, size(n), packed.Round(100*time.Millisecond), (time.Since(start) - packed).Round(100*time.Millisecond))
 }
 
 func skip(verb, why string) string { return "cast-cache: " + verb + " skipped: " + why }

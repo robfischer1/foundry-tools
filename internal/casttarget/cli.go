@@ -1,7 +1,8 @@
-package castcache
+package casttarget
 
 import (
 	"context"
+	"dagger/foundry-tools/internal/castcache"
 	"flag"
 	"fmt"
 	"io"
@@ -11,8 +12,8 @@ const usage = `usage: casttarget creds
        casttarget restore|save --repo URL --toolchain KEY --dir DIR
 
 creds reads CASTCACHE_SOCKET (unix:///run/spire/agent.sock), CASTCACHE_ENDPOINT
-and CASTCACHE_STAMP, and leaves STS credentials at ` + CredsOut + `.
-restore and save read the credentials from ` + SecretDir + `.`
+and CASTCACHE_STAMP (which only keys the engine's exec cache), and leaves STS credentials at ` + castcache.CredsOut + `.
+restore and save read the credentials from ` + castcache.SecretDir + `.`
 
 // Main is the casttarget process. creds exits 1 when it holds no credentials,
 // which the lane reads as "no cache this cast". restore and save exit 0
@@ -44,17 +45,16 @@ func mainCreds(ctx context.Context, env func(string) string, stdout io.Writer) i
 	creds, id, err := FetchCreds(ctx, CredsConfig{
 		Socket:   or(env("CASTCACHE_SOCKET"), "unix:///run/spire/agent.sock"),
 		Endpoint: env("CASTCACHE_ENDPOINT"),
-		Session:  "ca-cast-" + or(env("CASTCACHE_STAMP"), "unstamped"),
 	})
 	if err != nil {
 		fmt.Fprintf(stdout, "credentials unavailable: %v\n", err)
 		return 1
 	}
-	if err := WriteCreds(CredsOut, creds); err != nil {
+	if err := WriteCreds(castcache.CredsOut, creds); err != nil {
 		fmt.Fprintf(stdout, "credentials unavailable: they could not be left for the lane: %v\n", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "credentials issued to %s by role %s\n", id, RoleARN)
+	fmt.Fprintf(stdout, "credentials issued to %s by role %s\n", id, castcache.RoleARN)
 	return 0
 }
 

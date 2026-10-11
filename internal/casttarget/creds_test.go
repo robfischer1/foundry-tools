@@ -1,8 +1,9 @@
-package castcache
+package casttarget
 
 import (
 	"bytes"
 	"context"
+	"dagger/foundry-tools/internal/castcache"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -53,11 +54,11 @@ func sts(t *testing.T, status int, body string) (*httptest.Server, *url.Values) 
 func TestFetchCredsAssumesTheCastCacheRoleWithAJWTSVID(t *testing.T) {
 	audiences := withJWT(t, testJWT, nil)
 	srv, form := sts(t, 200, stsSuccess)
-	creds, id, err := FetchCreds(context.Background(), CredsConfig{Endpoint: srv.URL, Session: "ca-cast-42"})
+	creds, id, err := FetchCreds(context.Background(), CredsConfig{Endpoint: srv.URL})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if creds != (Creds{AccessKeyID: "ASIAEXAMPLE", SecretAccessKey: "secretEXAMPLE", SessionToken: "tokenEXAMPLE"}) || id != testSVID {
+	if creds != (castcache.Creds{AccessKeyID: "ASIAEXAMPLE", SecretAccessKey: "secretEXAMPLE", SessionToken: "tokenEXAMPLE"}) || id != testSVID {
 		t.Errorf("creds %+v for %s", creds, id)
 	}
 	if len(*audiences) != 1 || (*audiences)[0] != "seaweedfs" {
@@ -65,7 +66,7 @@ func TestFetchCredsAssumesTheCastCacheRoleWithAJWTSVID(t *testing.T) {
 	}
 	for k, want := range map[string]string{
 		"Action": "AssumeRoleWithWebIdentity", "RoleArn": "arn:aws:iam::role/CastCache",
-		"RoleSessionName": "ca-cast-42", "WebIdentityToken": testJWT, "Version": "2011-06-15",
+		"WebIdentityToken": testJWT, "Version": "2011-06-15", "DurationSeconds": "3600",
 	} {
 		if got := form.Get(k); got != want {
 			t.Errorf("STS form %s = %q, want %q", k, got, want)
@@ -74,23 +75,24 @@ func TestFetchCredsAssumesTheCastCacheRoleWithAJWTSVID(t *testing.T) {
 }
 
 func TestFetchCredsFailuresNameTheCauseAndLeakNothing(t *testing.T) {
-	denied := `<ErrorResponse><Error><Type>Sender</Type><Code>AccessDenied</Code><Message>Not authorized to perform sts:AssumeRoleWithWebIdentity</Message></Error></ErrorResponse>`
+	denied := `<ErrorResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/"><Error><Type>Sender</Type><Code>AccessDenied</Code><Message>Not authorized to perform sts:AssumeRoleWithWebIdentity</Message></Error></ErrorResponse>`
 	cases := map[string]struct {
 		jwtErr  error
 		status  int
 		body    string
 		wantErr string
 	}{
-		"the role is not loaded": {nil, 403, denied, "STS AssumeRoleWithWebIdentity on arn:aws:iam::role/CastCache answered HTTP 403 AccessDenied: Not authorized"},
-		"STS is down":            {nil, 503, "upstream", "answered HTTP 503"},
-		"no credentials in 200":  {nil, 200, "<x/>", "STS answered HTTP 200 with no credentials"},
+		"the role is not loaded": {nil, 403, denied, "STS AssumeRoleWithWebIdentity on arn:aws:iam::role/CastCache refused: AccessDenied: Not authorized"},
+		"STS is down":            {nil, 503, "upstream", "STS AssumeRoleWithWebIdentity on arn:aws:iam::role/CastCache failed"},
+		"not an STS answer":      {nil, 200, "<x/>", "STS AssumeRoleWithWebIdentity on arn:aws:iam::role/CastCache failed"},
+		"no credentials in 200":  {nil, 200, `<AssumeRoleWithWebIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/"><AssumeRoleWithWebIdentityResult/></AssumeRoleWithWebIdentityResponse>`, "STS answered with no credentials"},
 		"no identity":            {errors.New("no identity issued"), 200, stsSuccess, "no JWT-SVID for audience seaweedfs within 30s: no identity issued"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			withJWT(t, testJWT, c.jwtErr)
 			srv, _ := sts(t, c.status, c.body)
-			_, _, err := FetchCreds(context.Background(), CredsConfig{Endpoint: srv.URL, Session: "s"})
+			_, _, err := FetchCreds(context.Background(), CredsConfig{Endpoint: srv.URL})
 			if err == nil || !strings.Contains(err.Error(), c.wantErr) {
 				t.Fatalf("error %v, want %q", err, c.wantErr)
 			}
@@ -100,11 +102,11 @@ func TestFetchCredsFailuresNameTheCauseAndLeakNothing(t *testing.T) {
 		})
 	}
 	withJWT(t, testJWT, nil)
-	_, _, err := FetchCreds(context.Background(), CredsConfig{Endpoint: "http://127.0.0.1:1", Session: "s"})
-	if err == nil || !strings.Contains(err.Error(), "STS at http://127.0.0.1:1 did not answer") || strings.Contains(err.Error(), testJWT) {
+	_, _, err := FetchCreds(context.Background(), CredsConfig{Endpoint: "http://127.0.0.1:1"})
+	if err == nil || !strings.Contains(err.Error(), "STS AssumeRoleWithWebIdentity on arn:aws:iam::role/CastCache failed") || strings.Contains(err.Error(), testJWT) {
 		t.Errorf("unreachable STS: %v", err)
 	}
-	_, _, err = FetchCreds(context.Background(), CredsConfig{Socket: "unix:///nonexistent/agent.sock", Session: "s"})
+	_, _, err = FetchCreds(context.Background(), CredsConfig{Socket: "unix:///nonexistent/agent.sock"})
 	if err == nil || !strings.Contains(err.Error(), "the SPIRE socket cannot be opened") {
 		t.Errorf("unreachable socket: %v", err)
 	}
@@ -112,11 +114,11 @@ func TestFetchCredsFailuresNameTheCauseAndLeakNothing(t *testing.T) {
 
 func TestCredsFileRoundTripsAndIsPrivate(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "creds.json")
-	want := Creds{AccessKeyID: "A", SecretAccessKey: "S", SessionToken: "T"}
+	want := castcache.Creds{AccessKeyID: "A", SecretAccessKey: "S", SessionToken: "T"}
 	if err := WriteCreds(p, want); err != nil {
 		t.Fatal(err)
 	}
-	var got Creds
+	var got castcache.Creds
 	raw, _ := os.ReadFile(p)
 	if err := json.Unmarshal(raw, &got); err != nil || got != want {
 		t.Errorf("round trip %+v, %v", got, err)
@@ -154,7 +156,7 @@ func TestMainCredsReportsWithoutPrintingCredentials(t *testing.T) {
 	// writable the fetch degrades, which is also an answer.
 	switch code {
 	case 0:
-		defer os.Remove(CredsOut)
+		defer os.Remove(castcache.CredsOut)
 		if want := "credentials issued to " + testSVID + " by role arn:aws:iam::role/CastCache\n"; out.String() != want {
 			t.Errorf("answer %q", out.String())
 		}
