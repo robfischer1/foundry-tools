@@ -78,6 +78,27 @@ func TestTheInjectionRefusesWhatWouldServeTheWrongFacts(t *testing.T) {
 	}
 }
 
+// A read the engine could not answer is could-not-run, naming what it was
+// reading — never an empty key.
+func TestAnInjectionReadTheEngineLostCouldNotRun(t *testing.T) {
+	for name, c := range map[string]struct{ needle, reason string }{
+		"the committed-file probe": {`glob(pattern:"fleet/declared/data.json")`, "fleet/declared/data.json could not be probed"},
+		"the catalog entries":      {`glob(pattern:"fleet/stars/*.json")`, "fleet/stars/*.json could not be listed"},
+		"flux's star manifests":    {`glob(pattern:"prime/star-*.yaml")`, "prime/star-*.yaml could not be listed"},
+		"flux's data/":             {`glob(pattern:"data/*.yaml")`, "data/*.yaml could not be listed"},
+		"one manifest's contents":  {`file(path:"prime/star-athena.yaml"){contents}`, "prime/star-athena.yaml could not be read"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := bundleOn(t, nil)
+			scriptAGreenBundle()
+			engine.fail(c.needle, "the engine lost it")
+			bundles(t, m)
+			settledOn(t, "2", c.reason)
+			nothingPushed(t)
+		})
+	}
+}
+
 // The injected paths are the data roots the decision names.
 func TestTheInjectedPathsAreDataFleetDeclaredAndFlux(t *testing.T) {
 	if bundlelane.DeclaredPath != "fleet/declared/data.json" || bundlelane.FluxPath != "fleet/flux/data.json" {

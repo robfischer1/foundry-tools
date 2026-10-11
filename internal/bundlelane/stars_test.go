@@ -85,6 +85,12 @@ spec:
 `
 	// mnemosyne's redis sorts before it by name and is not its address.
 	mnemosyneManifest = `kind: Service
+metadata: {name: mnemosyne-sync}
+spec:
+  ports:
+    - {name: metrics, port: 9100}
+---
+kind: Service
 metadata: {name: mnemosyne-redis}
 spec:
   ports:
@@ -285,13 +291,10 @@ func TestStageIsTheSameBytesWhateverOrderTheFactsArrivedIn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := Stage(facts)
-	if err != nil {
-		t.Fatal(err)
-	}
+	first := Stage(facts)
 	for range 20 {
 		again, _ := FluxFacts(fluxTree(), knownStars(), clustersOrDie(t))
-		if b, _ := Stage(again); b != first {
+		if b := Stage(again); b != first {
 			t.Fatalf("Stage moved between two runs over one input:\n%s\n---\n%s", first, b)
 		}
 	}
@@ -299,33 +302,32 @@ func TestStageIsTheSameBytesWhateverOrderTheFactsArrivedIn(t *testing.T) {
 		t.Fatalf("Stage = %q, want sorted keys, two-space indent, one trailing LF", first)
 	}
 	// a declared document's own layout does not reach the die
-	a, _ := Stage(map[string]json.RawMessage{"hades": json.RawMessage(`{"name":"hades"}`)})
-	b, _ := Stage(map[string]json.RawMessage{"hades": json.RawMessage("{\n    \"name\":   \"hades\"\n}\n")})
-	if a != b {
-		t.Fatalf("two layouts of one document staged differently:\n%s\n%s", a, b)
+	a, _ := Declared(map[string]string{"fleet/stars/hades.json": `{"name":"hades","kind":"go"}`})
+	b, _ := Declared(map[string]string{"fleet/stars/hades.json": "{\n    \"kind\": \"go\",   \"name\":   \"hades\"\n}\n"})
+	if Stage(a) != Stage(b) {
+		t.Fatalf("two layouts of one document staged differently:\n%s\n%s", Stage(a), Stage(b))
 	}
-	if empty, _ := Stage[FluxFact](nil); empty != "{}\n" {
+	if empty := Stage[FluxFact](nil); empty != "{}\n" {
 		t.Fatalf("no rows stage as %q, want an empty object", empty)
 	}
 }
 
 func TestCollidesNamesTheInjectedKeysTheTierAlreadySets(t *testing.T) {
-	hit, err := Collides(`{"map":{},"flux":{},"declared":{}}`)
-	if err != nil || !reflect.DeepEqual(hit, []string{"declared", "flux"}) {
-		t.Fatalf("Collides = %q, %v", hit, err)
+	if hit := Collides(`{"map":{},"flux":{},"declared":{}}`); !reflect.DeepEqual(hit, []string{"declared", "flux"}) {
+		t.Fatalf("Collides = %q", hit)
 	}
-	if hit, _ := Collides(`{"map":{},"topics":[]}`); hit != nil {
+	if hit := Collides(`{"map":{},"topics":[]}`); hit != nil {
 		t.Fatalf("a tier without them collides with nothing, got %q", hit)
 	}
-	if _, err := Collides(`{`); err == nil {
-		t.Fatal("a tier that is not JSON must be an error")
+	if hit := Collides(`{`); hit != nil {
+		t.Fatalf("a tier that is not JSON is Orphans' refusal, not a collision: %q", hit)
 	}
 }
 
 func TestInjectedWantsBothKeysWithTheStagedRows(t *testing.T) {
 	built := `{"fleet":{"declared":{"hades":{}},"flux":{"hades":{},"chaos":{}}}}`
-	if p, err := Injected(built, 1, 2); err != nil || p != "" {
-		t.Fatalf("a roster carrying what was staged: %q %v", p, err)
+	if p := Injected(built, 1, 2); p != "" {
+		t.Fatalf("a roster carrying what was staged: %q", p)
 	}
 	for name, c := range map[string]struct {
 		data           string
@@ -335,12 +337,57 @@ func TestInjectedWantsBothKeysWithTheStagedRows(t *testing.T) {
 		"no declared key":    {`{"fleet":{"flux":{}}}`, 0, 0, "no data.fleet.declared"},
 		"no flux key":        {`{"fleet":{"declared":{}}}`, 0, 0, "no data.fleet.flux"},
 		"a row went missing": {built, 1, 3, "data.fleet.flux has 2 rows, the lane staged 3"},
+		"not JSON":           {"{", 0, 0, "not JSON"},
 	} {
-		if p, _ := Injected(c.data, c.declared, c.flux); !strings.Contains(p, c.want) {
+		if p := Injected(c.data, c.declared, c.flux); !strings.Contains(p, c.want) {
 			t.Errorf("%s: problem = %q, want %q", name, p, c.want)
 		}
 	}
-	if _, err := Injected("{", 0, 0); err == nil {
-		t.Fatal("a roster that is not JSON must be an error")
+}
+
+func injectInputs() Inputs {
+	return Inputs{
+		Tier:            `{"map":{}}`,
+		Shards:          []string{"fleet/stars/chaos/slag.json", "fleet/stars/tron/slag.json"},
+		Entries:         map[string]string{"fleet/stars/ourea.json": `{"name":"ourea","kind":"go"}`},
+		StarManifests:   fluxTree(),
+		ClusterManifest: map[string]string{"data/dbs.yaml": clusterManifests},
+	}
+}
+
+func TestInjectReadsFluxForTheStarsTheTreeKnows(t *testing.T) {
+	inj, err := Inject(injectInputs())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// chaos and tron by shard, ourea by its catalog entry; tron states nothing.
+	if inj.DeclaredRows != 1 || inj.FluxRows != 2 || inj.Known != 3 || inj.Clusters != 5 {
+		t.Fatalf("Inject = %+v", inj)
+	}
+	var flux map[string]FluxFact
+	if err := json.Unmarshal([]byte(inj.Flux), &flux); err != nil || flux["ourea"].Ports.Listen != 8214 || flux["chaos"].DB[0] != "chaos-db" {
+		t.Fatalf("flux = %s (%v)", inj.Flux, err)
+	}
+	if !strings.Contains(inj.Declared, `"ourea": {`) {
+		t.Fatalf("declared = %s", inj.Declared)
+	}
+}
+
+func TestInjectRefusesWhatWouldServeTheWrongFacts(t *testing.T) {
+	for name, c := range map[string]struct {
+		edit func(*Inputs)
+		want string
+	}{
+		"the tier sets an injected key":          {func(in *Inputs) { in.Tier = `{"flux":{}}` }, "fleet/data.json already sets data.fleet.flux"},
+		"an entry named for another":             {func(in *Inputs) { in.Entries["fleet/stars/ourea.json"] = `{"name":"nyx"}` }, `fleet/stars/ourea.json: name must be "ourea"`},
+		"no star manifest":                       {func(in *Inputs) { in.StarManifests = nil }, "foundry/flux answered no prime/star-*.yaml"},
+		"a cluster manifest that does not parse": {func(in *Inputs) { in.ClusterManifest = map[string]string{"data/x.yaml": "kind: [unclosed"} }, "foundry/flux data/x.yaml"},
+		"a star manifest that does not parse":    {func(in *Inputs) { in.StarManifests["prime/star-chaos.yaml"] = "kind: [unclosed" }, "foundry/flux prime/star-chaos.yaml"},
+	} {
+		in := injectInputs()
+		c.edit(&in)
+		if _, err := Inject(in); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: err = %v, want %q", name, err, c.want)
+		}
 	}
 }

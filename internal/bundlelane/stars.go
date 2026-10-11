@@ -50,19 +50,18 @@ const (
 // is an error naming the file, because a document served under the wrong key
 // is a star routed as another. The schema is foundry-dies' gate (dies:schema);
 // this is only what the lane needs to key the row.
-func Declared(files map[string]string) (map[string]json.RawMessage, error) {
-	out := map[string]json.RawMessage{}
+func Declared(files map[string]string) (map[string]map[string]any, error) {
+	out := map[string]map[string]any{}
 	for _, p := range sortedKeys(files) {
 		stem := strings.TrimSuffix(path.Base(p), ".json")
-		var doc map[string]json.RawMessage
+		var doc map[string]any
 		if err := json.Unmarshal([]byte(files[p]), &doc); err != nil {
 			return nil, fmt.Errorf("%s is not one JSON object: %w", p, err)
 		}
-		var name string
-		if err := json.Unmarshal(doc["name"], &name); err != nil || name != stem {
+		if name, _ := doc["name"].(string); name != stem {
 			return nil, fmt.Errorf("%s: name must be %q, its filename", p, stem)
 		}
-		out[stem] = json.RawMessage(files[p])
+		out[stem] = doc
 	}
 	return out, nil
 }
@@ -217,26 +216,26 @@ func cluster(value string) string {
 // Stage renders one injected key's data.json: the rows keyed by star, sorted,
 // two-space indented, one trailing LF — the same bytes for the same inputs,
 // so the die's data.json moves only when a fact did.
-func Stage[T any](rows map[string]T) (string, error) {
+func Stage[T any](rows map[string]T) string {
 	if rows == nil {
 		rows = map[string]T{}
 	}
-	b, err := json.MarshalIndent(rows, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	// MarshalIndent re-indents a RawMessage too, so a declared document's own
-	// layout does not reach the die; encoding/json sorts the map keys.
-	return string(b) + "\n", nil
+	// The rows are decoded JSON objects (Declared) or FluxFacts: neither holds
+	// a value encoding/json cannot marshal, so there is no error to carry.
+	b, _ := json.MarshalIndent(rows, "", "  ")
+	// encoding/json sorts the map keys, and a document decoded and re-encoded
+	// keeps none of its file's own layout.
+	return string(b) + "\n"
 }
 
 // Collides answers the injected keys fleet/data.json already carries. OPA
 // refuses a bundle whose data.json and fleet/<key>/data.json both set
-// data.fleet.<key>, so the lane names the collision before it builds.
-func Collides(dataJSON string) ([]string, error) {
+// data.fleet.<key>, so the lane names the collision before it builds. A tier
+// that is not JSON collides with nothing here: Orphans has already refused it.
+func Collides(dataJSON string) []string {
 	var d map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(dataJSON), &d); err != nil {
-		return nil, fmt.Errorf("fleet/data.json is not JSON: %w", err)
+	if json.Unmarshal([]byte(dataJSON), &d) != nil {
+		return nil
 	}
 	var hit []string
 	for _, k := range []string{DeclaredKey, FluxKey} {
@@ -244,18 +243,69 @@ func Collides(dataJSON string) ([]string, error) {
 			hit = append(hit, k)
 		}
 	}
-	return hit, nil
+	return hit
+}
+
+// Inputs is what the lane read for the injection: fleet/data.json, the slag
+// shard paths, and three path -> body maps — the catalog entries, flux's star
+// manifests and flux's data/ manifests.
+type Inputs struct {
+	Tier            string
+	Shards          []string
+	Entries         map[string]string
+	StarManifests   map[string]string
+	ClusterManifest map[string]string
+}
+
+// Injection is the two staged data.json bodies and the rows each holds.
+type Injection struct {
+	Declared, Flux         string
+	DeclaredRows, FluxRows int
+	Known, Clusters        int
+}
+
+// Inject decides the whole injection from what the lane read. The stars flux
+// is read for are the ones the tree knows: a slag shard or a catalog entry. A
+// flux tree that answers no star manifest is an error, not an empty key: an
+// empty data.fleet.flux would derive every address away.
+func Inject(in Inputs) (Injection, error) {
+	if hit := Collides(in.Tier); len(hit) > 0 {
+		return Injection{}, fmt.Errorf("fleet/data.json already sets data.fleet.%s, which the lane injects — OPA would refuse the bundle", strings.Join(hit, ", data.fleet."))
+	}
+	docs, err := Declared(in.Entries)
+	if err != nil {
+		return Injection{}, err
+	}
+	if len(in.StarManifests) == 0 {
+		return Injection{}, errors.New("foundry/flux answered no " + StarManifestGlob + " — an empty data.fleet.flux would derive every star's address away")
+	}
+	stars := map[string]bool{}
+	for _, s := range in.Shards {
+		stars[path.Base(path.Dir(s))] = true
+	}
+	for name := range docs {
+		stars[name] = true
+	}
+	clusters, err := Clusters(in.ClusterManifest)
+	if err != nil {
+		return Injection{}, fmt.Errorf("foundry/flux %w", err)
+	}
+	facts, err := FluxFacts(in.StarManifests, stars, clusters)
+	if err != nil {
+		return Injection{}, fmt.Errorf("foundry/flux %w", err)
+	}
+	return Injection{Declared: Stage(docs), Flux: Stage(facts), DeclaredRows: len(docs), FluxRows: len(facts), Known: len(stars), Clusters: len(clusters)}, nil
 }
 
 // Injected grades the built roster's data.json: it carries data.fleet.declared
 // and data.fleet.flux with exactly the rows the lane staged. problem is ""
 // when it does.
-func Injected(dataJSON string, declared, flux int) (string, error) {
+func Injected(dataJSON string, declared, flux int) string {
 	var d struct {
 		Fleet map[string]json.RawMessage `json:"fleet"`
 	}
 	if err := json.Unmarshal([]byte(dataJSON), &d); err != nil {
-		return "", fmt.Errorf("the built roster's data.json is not JSON: %w", err)
+		return "the built roster's data.json is not JSON: " + err.Error()
 	}
 	for _, k := range []struct {
 		key  string
@@ -263,13 +313,13 @@ func Injected(dataJSON string, declared, flux int) (string, error) {
 	}{{DeclaredKey, declared}, {FluxKey, flux}} {
 		raw, ok := d.Fleet[k.key]
 		if !ok {
-			return fmt.Sprintf("the built roster carries no data.fleet.%s — the staged %s did not reach the die", k.key, "fleet/"+k.key+"/data.json"), nil
+			return fmt.Sprintf("the built roster carries no data.fleet.%s — the staged %s did not reach the die", k.key, "fleet/"+k.key+"/data.json")
 		}
 		if got := size(raw); got != k.want {
-			return fmt.Sprintf("the built roster's data.fleet.%s has %d rows, the lane staged %d", k.key, got, k.want), nil
+			return fmt.Sprintf("the built roster's data.fleet.%s has %d rows, the lane staged %d", k.key, got, k.want)
 		}
 	}
-	return "", nil
+	return ""
 }
 
 // manifest is the part of a Kubernetes object these readers need.

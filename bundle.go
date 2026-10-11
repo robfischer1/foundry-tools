@@ -436,7 +436,7 @@ func (l *bundleLane) fleet(ctx context.Context, built *dagger.Container) (*dagge
 	}
 	bundleSay("fleet: tier gate — %d shards, all present in a %d-star map", len(shards), mapped)
 
-	declared, flux, g := l.inject(ctx, data, shards)
+	inj, g := l.inject(ctx, data, shards)
 	if g.code != buildlane.Clean {
 		return nil, g
 	}
@@ -448,8 +448,8 @@ func (l *bundleLane) fleet(ctx context.Context, built *dagger.Container) (*dagge
 	// the die through the staged declared/data.json, not as themselves.
 	stage := dag.Directory().
 		WithDirectory("fleet", src.Directory("fleet"), dagger.DirectoryWithDirectoryOpts{Exclude: []string{"**/*.slag", "stars/*.json"}}).
-		WithNewFile(bundlelane.DeclaredPath, declared.body).
-		WithNewFile(bundlelane.FluxPath, flux.body).
+		WithNewFile(bundlelane.DeclaredPath, inj.Declared).
+		WithNewFile(bundlelane.FluxPath, inj.Flux).
 		WithNewFile(".manifest", bundlelane.FleetManifest)
 	built = built.WithDirectory(workDir+"/stage", stage)
 	for _, b := range [][]string{
@@ -489,14 +489,10 @@ func (l *bundleLane) fleet(ctx context.Context, built *dagger.Container) (*dagge
 		return nil, findings(problem)
 	}
 	bundleSay("fleet: roster — %d stars mapped, %d lean rows, %d topics", rows, stars, topics)
-	problem, err = bundlelane.Injected(roster, declared.rows, flux.rows)
-	if err != nil {
-		return nil, findings(err.Error())
-	}
-	if problem != "" {
+	if problem := bundlelane.Injected(roster, inj.DeclaredRows, inj.FluxRows); problem != "" {
 		return nil, findings(problem)
 	}
-	bundleSay("fleet: injected — %d declared rows, %d flux rows", declared.rows, flux.rows)
+	bundleSay("fleet: injected — %d declared rows, %d flux rows", inj.DeclaredRows, inj.FluxRows)
 
 	bundleSay("── fleet GATE: it composes with the policy bundle, and the guards FIRE ──")
 	composed := built.WithExec([]string{"opa", "build", "-b", "policy/", "-o", workDir + "/policy.tar.gz", "--revision", "gate", "--ignore", "*_test.rego"}, anyExit)
