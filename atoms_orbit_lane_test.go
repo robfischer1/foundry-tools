@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	laneContract    = "version = \"1\"\nstatus = \"generated\"\nwire_form = \"native\"\nverbs = [\"neighbors\"]\n"
+	laneContract    = "version = \"1\"\nstatus = \"generated\"\nverbs = [\"neighbors\"]\n"
 	themisRoster    = `{"name":"themis","verb_prefix":"themis"}`
 	uraniaRoster    = `{"name":"urania","verb_prefix":"urania"}`
 	narcSurfaceNone = `{"version":1,"findings":[]}`

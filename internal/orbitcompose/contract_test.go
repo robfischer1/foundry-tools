@@ -12,7 +12,6 @@ import (
 const contractBody = `# a comment the composer drops
 version = "1"
 status = "generated"
-wire_form = "native"
 verbs = ["shape_for", "neighbors", "shape_for"]
 
 [witness]
@@ -145,11 +144,11 @@ func TestParseContractReadsTheTopLevelVerbsSortedOnce(t *testing.T) {
 	}
 	want := Contract{
 		Name: "urania-themis", Producer: "urania", Consumer: "themis",
-		Version: "1", Status: "generated", WireForm: "native",
+		Version: "1", Status: "generated",
 		Verbs: []string{"neighbors", "shape_for"},
 	}
 	if c.Name != want.Name || c.Producer != want.Producer || c.Consumer != want.Consumer ||
-		c.Version != want.Version || c.Status != want.Status || c.WireForm != want.WireForm ||
+		c.Version != want.Version || c.Status != want.Status ||
 		!slices.Equal(c.Verbs, want.Verbs) {
 		t.Errorf("got %+v\nwant %+v", c, want)
 	}
@@ -160,7 +159,6 @@ func TestParseContractRefusesWhatTheReaderWouldTripOn(t *testing.T) {
 		"integer version": {strings.Replace(contractBody, `version = "1"`, "version = 1", 1), "does not parse"},
 		"no version":      {strings.Replace(contractBody, `version = "1"`, "", 1), "version"},
 		"blank status":    {strings.Replace(contractBody, `status = "generated"`, `status = ""`, 1), "status"},
-		"no wire form":    {strings.Replace(contractBody, `wire_form = "native"`, "", 1), "wire_form"},
 		"quoted status":   {strings.Replace(contractBody, `status = "generated"`, `status = "gen\"x"`, 1), "status"},
 		"no verbs":        {strings.Replace(contractBody, `verbs = ["shape_for", "neighbors", "shape_for"]`, "verbs = []", 1), "no verbs"},
 		"odd verb":        {strings.Replace(contractBody, `"neighbors"`, `"two words"`, 1), `verb "two words"`},
@@ -186,5 +184,21 @@ func TestSortedSetLeavesItsInputAlone(t *testing.T) {
 	}
 	if !slices.Equal(in, []string{"b", "a", "b"}) {
 		t.Errorf("input changed to %v", in)
+	}
+}
+
+// A contract still carrying the retired wire_form key (foundry-dies orbits/*.toml
+// until nyx re-renders them) parses like one without it, and the composed
+// sidecar and die index say nothing of it.
+func TestAContractStillCarryingTheRetiredWireFormParsesAndIsNotEmitted(t *testing.T) {
+	legacy := strings.Replace(contractBody, `status = "generated"`, "status = \"generated\"\nwire_form = \"native\"", 1)
+	c, err := ParseContract("urania-themis.toml", []byte(legacy), nil)
+	if err != nil {
+		t.Fatalf("a legacy contract must parse: %v", err)
+	}
+	for _, out := range []string{string(Render(Sidecar{Star: "urania", Produces: []Contract{c}})), string(Index([]Contract{c}))} {
+		if strings.Contains(out, "wire_form") {
+			t.Errorf("output still names wire_form:\n%s", out)
+		}
 	}
 }

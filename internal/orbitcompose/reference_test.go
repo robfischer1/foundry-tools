@@ -35,7 +35,7 @@ func TestRenderReferencePinsEachEdgeAndCarriesNoVerbs(t *testing.T) {
 	if raw != header+want {
 		t.Errorf("got:\n%s\nwant:\n%s", raw, header+want)
 	}
-	if strings.Contains(raw, "\nverbs =") || strings.Contains(raw, "\nstatus =") || strings.Contains(raw, "\nwire_form =") {
+	if strings.Contains(raw, "\nverbs =") || strings.Contains(raw, "\nstatus =") {
 		t.Errorf("a reference restates the contract's body:\n%s", raw)
 	}
 	var doc struct {

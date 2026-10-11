@@ -36,7 +36,6 @@ type Contract struct {
 	Consumer string
 	Version  string
 	Status   string
-	WireForm string
 	Verbs    []string
 	// Via is the transport: "mcp" when the file names none, which is every
 	// contract today. Carried into the die's index, not into a sidecar.
@@ -49,15 +48,14 @@ type Contract struct {
 // contractDoc is the on-disk contract. Typed fields make an integer version
 // a decode error rather than a silently empty string.
 type contractDoc struct {
-	Version  string   `toml:"version"`
-	Status   string   `toml:"status"`
-	WireForm string   `toml:"wire_form"`
-	Verbs    []string `toml:"verbs"`
-	Via      string   `toml:"via"`
+	Version string   `toml:"version"`
+	Status  string   `toml:"status"`
+	Verbs   []string `toml:"verbs"`
+	Via     string   `toml:"via"`
 }
 
 // ident is what may appear between the quotes this package writes: every
-// star, verb, status, version and wire form in the fleet is one. Holding
+// star, verb, status and version in the fleet is one. Holding
 // values to it is what lets render quote without escaping.
 var ident = regexp.MustCompile(`^[A-Za-z0-9_.]+$`)
 
@@ -156,7 +154,7 @@ func ParseContract(file string, raw []byte, stars map[string]bool) (Contract, er
 	}
 	c := Contract{
 		Name: producer + "-" + consumer, Producer: producer, Consumer: consumer,
-		Version: doc.Version, Status: doc.Status, WireForm: doc.WireForm,
+		Version: doc.Version, Status: doc.Status,
 		Verbs: sortedSet(doc.Verbs), Via: cmp.Or(doc.Via, ViaMCP), Digest: Digest(raw),
 	}
 	return c, validate(file, c)
@@ -164,11 +162,11 @@ func ParseContract(file string, raw []byte, stars map[string]bool) (Contract, er
 
 // validate refuses what the reader would refuse or misread: a blank version
 // or status (a block with no status is never approved, so emitting one would
-// state a grant nobody can climb), a blank wire form, no verbs, or a value
+// state a grant nobody can climb), no verbs, or a value
 // render cannot quote verbatim.
 func validate(file string, c Contract) error {
 	for _, f := range []struct{ key, val string }{
-		{"version", c.Version}, {"status", c.Status}, {"wire_form", c.WireForm}, {"via", c.Via},
+		{"version", c.Version}, {"status", c.Status}, {"via", c.Via},
 	} {
 		if !ident.MatchString(f.val) {
 			return fmt.Errorf("%s: %s %q is blank or not a plain identifier", file, f.key, f.val)

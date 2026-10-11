@@ -79,7 +79,7 @@ func TestIndexIsTheFrozenShapePlusViaDigestAndStars(t *testing.T) {
 	e := doc.Edges[2]
 	for k, want := range map[string]string{
 		"producer": "urania", "consumer": "themis", "contract": "urania-themis", "via": "mcp",
-		"version": "1", "status": "generated", "wire_form": "native", "digest": ut.Digest,
+		"version": "1", "status": "generated", "digest": ut.Digest,
 	} {
 		if e[k] != want {
 			t.Errorf("edge %s = %v, want %q", k, e[k], want)
@@ -88,8 +88,8 @@ func TestIndexIsTheFrozenShapePlusViaDigestAndStars(t *testing.T) {
 	if verbs, _ := json.Marshal(e["verbs"]); string(verbs) != `["neighbors","shape_for"]` {
 		t.Errorf("verbs %s", verbs)
 	}
-	if len(e) != 9 {
-		t.Errorf("edge carries %d keys, want 9: %v", len(e), e)
+	if len(e) != 8 {
+		t.Errorf("edge carries %d keys, want 8: %v", len(e), e)
 	}
 	if s := doc.Stars["themis"]; len(s.Produces) != 0 || !slices.Equal(s.Consumes, []string{"chaos", "urania"}) {
 		t.Errorf("themis %+v", s)

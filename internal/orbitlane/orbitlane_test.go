@@ -9,7 +9,7 @@ import (
 	"dagger/foundry-tools/internal/orbitcompose"
 )
 
-const body = "version = \"1\"\nstatus = \"generated\"\nwire_form = \"native\"\nverbs = [\"neighbors\", \"shape_for\"]\n"
+const body = "version = \"1\"\nstatus = \"generated\"\nverbs = [\"neighbors\", \"shape_for\"]\n"
 
 func parse(t *testing.T, name, raw string) orbitcompose.Contract {
 	t.Helper()
