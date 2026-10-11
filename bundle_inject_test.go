@@ -16,7 +16,7 @@ const athenaEntry = `{"description":"Plans.","kind":"go","lifecycle":"production
 func TestTheRosterServesTheCatalogEntriesAndTheFluxFacts(t *testing.T) {
 	m := bundleOn(t, map[string]string{"fleet/stars/athena.json": athenaEntry})
 	scriptAGreenBundle()
-	scriptTheFleetWith(strings.Replace(rosterData, `"declared":{}`, `"declared":{"athena":{}}`, 1))
+	scriptTheFleetWith(strings.Replace(rosterData, `"declared":{}`, `"declared":{"athena":{}},"lean":{"ares":{}}`, 1))
 	bundles(t, m)
 	settledOn(t, "0", "published and signed")
 

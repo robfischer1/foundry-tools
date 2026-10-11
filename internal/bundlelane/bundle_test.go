@@ -152,6 +152,19 @@ func TestRosterRefusesAnEmptyFleetOrALeakedCharter(t *testing.T) {
 	}
 }
 
+func TestRosterRefusesAStarThatDroppedOut(t *testing.T) {
+	// hades is declared without a kind: fleet/derive.rego leaves its row
+	// undefined, so stars holds ares alone.
+	dropped := `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"hades":{"name":"hades"},"ares":{"kind":"go"}},"lean":{"hades":{},"chaos":{}},"stars":{"ares":{"name":"ares"},"chaos":{"name":"chaos"}}}}`
+	if _, _, _, problem, _ := Roster(dropped); !strings.Contains(problem, "drops its star") {
+		t.Errorf("a star missing from declared ∪ lean: problem = %q", problem)
+	}
+	whole := `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"hades":{"kind":"go"},"ares":{"kind":"go"}},"lean":{"hades":{},"chaos":{}},"stars":{"hades":{},"ares":{},"chaos":{}}}}`
+	if _, stars, _, problem, err := Roster(whole); err != nil || problem != "" || stars != 3 {
+		t.Errorf("a whole roster: stars = %d, problem = %q, err = %v", stars, problem, err)
+	}
+}
+
 func TestRosterDenialsCountOnlyTheRostersOwn(t *testing.T) {
 	denies := []string{
 		"seam to definitely-not-a-real-star is not in the fleet roster",
