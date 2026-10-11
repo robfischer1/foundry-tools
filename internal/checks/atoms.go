@@ -171,6 +171,13 @@ func atomTable() []AtomDef {
 			ID: "fleet:opengrep-sast", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "SAST scan that refuses a zero-file scan.",
 		},
+		// RECORDS, NEVER GRADES (slag-by-kind F13): the topics a tree produces
+		// to and consumes from, as findings beside the head's result, for nyx
+		// to compare with the broker. It passes on every tree it can read.
+		{
+			ID: "fleet:kafka-flows", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "Records the Kafka topics this tree produces to and consumes from (and each consumer group) as findings, for nyx; never fails a tree for having flows or an unresolved name.",
+		},
 		{
 			ID: "fleet:hadolint", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every Dockerfile in the tree passes hadolint under the fleet's ruleset.",

@@ -225,6 +225,7 @@ func Builtin() []Atom {
 		tree("fleet:opengrep-sast", fleetOpengrepSast),
 		tree("fleet:hadolint", fleetHadolint),
 		tree("fleet:wit-topics", fleetWitTopics),
+		tree(checks.KafkaFlowsID, kafkaFlows),
 		{ID: "fleet:witness", Scope: ScopeTree, Run: fleetWitness, Deadline: witnessDeadline},
 		tree("compose:no-tracked-secrets", composeNoTrackedSecrets),
 		tree("compose:third-party-pins", composeThirdPartyPins),

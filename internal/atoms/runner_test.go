@@ -73,7 +73,7 @@ func TestBuiltinIsThePortedAtomsInOrder(t *testing.T) {
 		"fleet:check-yaml", "fleet:check-added-large-files", "fleet:check-merge-conflict", "fleet:stop-justifications",
 		"fleet:sast-ruleset-lanes", "fleet:copier-answers-intact", "fleet:ourea-config-retired-keys", "fleet:retired-verbs",
 		"fleet:orbit-drift", "fleet:dagger-lockstep", "fleet:node-kinds-declared", "fleet:consumed-events-emitted",
-		"fleet:opengrep-sast", "fleet:hadolint", "fleet:wit-topics", "fleet:witness",
+		"fleet:opengrep-sast", "fleet:hadolint", "fleet:wit-topics", "fleet:kafka-flows", "fleet:witness",
 		"compose:no-tracked-secrets", "compose:third-party-pins", "compose:config",
 		"dies:data-keys", "dies:canonical", "dies:refusal-codes", "dies:opa-test", "dies:admission-dogfood", "dies:canary-visibility",
 		"dies:contracts", "dies:contract-copies", "dies:schema", "dies:findings", "dies:schemas",

@@ -158,7 +158,7 @@ func TestTheTestServerScopeLinesSayWhyOnEveryBranch(t *testing.T) {
 	}{
 		{"no service name", map[string]string{".copier-answers.yml": "critical_modules: \n"}, nil, []string{
 			"test databases: none — no service_name in .copier-answers.yml",
-			"test brokers: none — no service_name in .copier-answers.yml",
+			"test brokers: none — the tree states no kafka flow, and there is no service_name in .copier-answers.yml",
 		}},
 		{"no record", map[string]string{
 			".copier-answers.yml":           "service_name: nobody\n",
@@ -173,6 +173,12 @@ func TestTheTestServerScopeLinesSayWhyOnEveryBranch(t *testing.T) {
 		}, func() { engine.exitCode(`"grep","-rhoE"`, 2) }, []string{
 			"test databases: none — the tree's build tags could not be read",
 			"test brokers: none",
+		}},
+		{"flows unreadable", map[string]string{
+			".copier-answers.yml": "service_name: x\n",
+			"flows.go":            "package x\n",
+		}, func() { engine.fail(`file(path:"flows.go")`, "i/o error") }, []string{
+			"test brokers: none — the tree's kafka flows could not be read (flows.go (",
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
