@@ -1,0 +1,104 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ananke-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: ananke
+  namespace: prime
+  labels: {owner: rob, app: ananke, pistis.star: ananke}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: ananke}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: ananke, pistis.star: ananke}
+    spec:
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: ananke-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: ananke
+          livenessProbe:
+            tcpSocket: {port: 8200}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: registry.notusmi.com/rob/ananke
+          resources:
+            requests: {cpu: 10m, memory: 128Mi}
+            limits:   {memory: 256Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            exec:
+              command: ['/ananke', 'readycheck']
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 8
+            failureThreshold: 6
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: ANANKE_HOST, value: "0.0.0.0"}
+            - {name: ANANKE_OTEL_ENABLED, value: "true"}
+            - {name: ANANKE_PORT, value: "8200"}
+            - {name: OTEL_SERVICE_NAME, value: "ananke"}
+            - {name: PORT, value: "8200"}
+            - {name: STELLAR_DB_AUTH, value: "svid"}
+            - {name: ANANKE_DATABASE_URL, value: "postgresql://ananke_svid@aether:5432/ananke?sslmode=verify-full&sslrootcert=/etc/stellar/aether-db-ca/ca.crt"}
+            - {name: ANANKE_CALIBRATION_DB_URL, value: "postgresql://ananke_svid@aether:5432/terpsichore?sslmode=verify-full&sslrootcert=/etc/stellar/aether-db-ca/ca.crt"}
+            - {name: STELLAR_PEP_MODE, value: "witness"}
+          ports:
+            - {name: mcp,  containerPort: 8200}
+            - {name: mtls, containerPort: 8201}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+            - {name: orbit, mountPath: /etc/stellar/orbit.toml, subPath: orbit.toml, readOnly: true}
+            - {name: aether-db-ca, mountPath: /etc/stellar/aether-db-ca, readOnly: true}
+      volumes:
+        - name: orbit
+          configMap: {name: orbit-ananke}
+        - {name: tmp, emptyDir: {}}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+        - name: aether-db-ca
+          secret: {secretName: aether-db-server-ca, items: [{key: ca.crt, path: ca.crt}]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ananke
+  namespace: prime
+spec:
+  selector: {app: ananke}
+  ports:
+    - {name: mcp,  port: 8200, targetPort: 8200, protocol: TCP}
+    - {name: mtls, port: 8201, targetPort: 8201, protocol: TCP}

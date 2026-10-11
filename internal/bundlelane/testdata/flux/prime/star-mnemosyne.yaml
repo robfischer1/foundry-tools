@@ -1,0 +1,184 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mnemosyne-redis-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: mnemosyne-redis
+  namespace: prime
+  labels: {owner: rob, app: mnemosyne-redis}
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 0, maxUnavailable: 1}
+  selector:
+    matchLabels: {app: mnemosyne-redis}
+  template:
+    metadata:
+      labels: {app: mnemosyne-redis}
+    spec:
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: mnemosyne-redis-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: redis
+          livenessProbe:
+            tcpSocket: {port: 6379}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: docker.io/library/redis@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
+          resources:
+            requests: {cpu: 10m, memory: 64Mi}
+            limits:   {memory: 256Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            tcpSocket: {port: 6379}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          ports:
+            - {name: redis, containerPort: 6379}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mnemosyne-redis
+  namespace: prime
+spec:
+  selector: {app: mnemosyne-redis}
+  ports:
+    - {name: redis, port: 6379, targetPort: 6379, protocol: TCP}
+---
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mnemosyne-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: mnemosyne
+  namespace: prime
+  labels: {owner: rob, app: mnemosyne, pistis.star: mnemosyne}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: mnemosyne}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: mnemosyne, pistis.star: mnemosyne}
+    spec:
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: mnemosyne-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: mnemosyne
+          livenessProbe:
+            tcpSocket: {port: 8212}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: registry.notusmi.com/rob/mnemosyne
+          resources:
+            requests: {cpu: 10m, memory: 128Mi}
+            limits:   {memory: 256Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            tcpSocket: {port: 8212}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: HOST, value: "0.0.0.0"}
+            - {name: MNEMOSYNE_CHRONICLE_WIRE, value: "on"}
+            - {name: MNEMOSYNE_L1_ENABLED, value: "true"}
+            - {name: MNEMOSYNE_OTEL_ENABLED, value: "true"}
+            - {name: MNEMOSYNE_PORT, value: "8212"}
+            - {name: MNEMOSYNE_POSEIDON_URL, value: "https://poseidon:8201/mcp"}
+            - {name: MNEMOSYNE_REDIS_URL, value: "redis://mnemosyne-redis:6379/0"}
+            - {name: OTEL_SERVICE_NAME, value: "mnemosyne"}
+            - {name: STELLAR_PEP_MODE, value: "witness"}
+          ports:
+            - {name: mcp,  containerPort: 8212}
+            - {name: mtls, containerPort: 8213}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+            - {name: orbit, mountPath: /etc/stellar/orbit.toml, subPath: orbit.toml, readOnly: true}
+      volumes:
+        - name: orbit
+          configMap: {name: orbit-mnemosyne}
+        - {name: tmp, emptyDir: {}}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mnemosyne
+  namespace: prime
+spec:
+  selector: {app: mnemosyne}
+  ports:
+    - {name: mcp,  port: 8212, targetPort: 8212, protocol: TCP}
+    - {name: mtls, port: 8213, targetPort: 8213, protocol: TCP}

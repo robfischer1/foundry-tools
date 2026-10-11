@@ -1,0 +1,89 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: theia-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: theia
+  namespace: prime
+  labels: {owner: rob, app: theia, pistis.star: theia}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: theia}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: theia, pistis.star: theia}
+    spec:
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: theia-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: theia
+          livenessProbe:
+            tcpSocket: {port: 3000}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: registry.notusmi.com/rob/theia
+          resources:
+            requests: {cpu: 10m, memory: 128Mi}
+            limits:   {memory: 256Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            tcpSocket: {port: 3000}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: OTEL_SERVICE_NAME, value: "theia"}
+          ports:
+            - {name: mcp,  containerPort: 3000}
+          volumeMounts:
+            - {name: nginx-run, mountPath: /var/lib/nginx}
+            - {name: tmp, mountPath: /tmp}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+      volumes:
+        - {name: nginx-run, emptyDir: {}}
+        - {name: tmp, emptyDir: {}}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: theia
+  namespace: prime
+spec:
+  selector: {app: theia}
+  ports:
+    - {name: mcp,  port: 3000, targetPort: 3000, protocol: TCP}

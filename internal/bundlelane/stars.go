@@ -33,10 +33,16 @@ import (
 
 // The data.fleet keys this lane injects, and where they are staged.
 const (
-	DeclaredKey  = "declared"
-	FluxKey      = "flux"
-	DeclaredPath = "fleet/" + DeclaredKey + "/data.json"
-	FluxPath     = "fleet/" + FluxKey + "/data.json"
+	DeclaredKey   = "declared"
+	FluxKey       = "flux"
+	FluxSourceKey = "flux_source"
+	DeclaredPath  = "fleet/" + DeclaredKey + "/data.json"
+	FluxPath      = "fleet/" + FluxKey + "/data.json"
+	// FluxSourcePath stamps the flux commit the facts were read at:
+	// data.fleet.flux_source = {repo, sha}.
+	FluxSourcePath = "fleet/" + FluxSourceKey + "/data.json"
+	// FluxRepo is the repository the facts are read from.
+	FluxRepo = "foundry/flux"
 	// DeclaredGlob finds the catalog entries: files directly under
 	// fleet/stars/, beside the per-star directories.
 	DeclaredGlob = "fleet/stars/*.json"
@@ -82,6 +88,9 @@ type FluxFact struct {
 // server CA mounts at /etc/stellar/<cluster>-ca/.
 var sslRootCert = regexp.MustCompile(`sslrootcert=/etc/stellar/([a-z0-9-]+)-ca/`)
 
+// fullSHA is a full git commit id.
+var fullSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
 // dsnHost is a DSN's host, between the userinfo and the port or path.
 var dsnHost = regexp.MustCompile(`^postgres(?:ql)?://(?:[^@/]*@)?([^:/?]+)`)
 
@@ -96,8 +105,8 @@ func Clusters(manifests map[string]string) (map[string]bool, error) {
 			return nil, fmt.Errorf("%s: %w", p, err)
 		}
 		for _, d := range docs {
-			if d.Kind == "Cluster" && strings.HasPrefix(d.APIVersion, "postgresql.cnpg.io/") && d.Metadata.Name != "" {
-				out[d.Metadata.Name] = true
+			if d.Kind == "Cluster" && strings.HasPrefix(d.APIVersion, "postgresql.cnpg.io/") && d.Name != "" {
+				out[d.Name] = true
 			}
 		}
 	}
@@ -148,12 +157,12 @@ func FluxFacts(manifests map[string]string, stars, clusters map[string]bool) (ma
 func servicePorts(star string, docs []manifest) Ports {
 	var svcs []manifest
 	for _, d := range docs {
-		if d.Kind == "Service" && (d.Metadata.Name == star || strings.HasPrefix(d.Metadata.Name, star+"-")) {
+		if d.Kind == "Service" && (d.Name == star || strings.HasPrefix(d.Name, star+"-")) {
 			svcs = append(svcs, d)
 		}
 	}
 	sort.SliceStable(svcs, func(i, j int) bool {
-		a, b := svcs[i].Metadata.Name, svcs[j].Metadata.Name
+		a, b := svcs[i].Name, svcs[j].Name
 		if (a == star) != (b == star) {
 			return a == star
 		}
@@ -161,7 +170,7 @@ func servicePorts(star string, docs []manifest) Ports {
 	})
 	var p Ports
 	for _, s := range svcs {
-		for _, port := range s.Spec.Ports {
+		for _, port := range s.Ports {
 			switch port.Name {
 			case "mcp", "http":
 				if p.Listen == 0 {
@@ -238,7 +247,7 @@ func Collides(dataJSON string) []string {
 		return nil
 	}
 	var hit []string
-	for _, k := range []string{DeclaredKey, FluxKey} {
+	for _, k := range []string{DeclaredKey, FluxKey, FluxSourceKey} {
 		if _, ok := d[k]; ok {
 			hit = append(hit, k)
 		}
@@ -250,6 +259,8 @@ func Collides(dataJSON string) []string {
 // shard paths, and three path -> body maps — the catalog entries, flux's star
 // manifests and flux's data/ manifests.
 type Inputs struct {
+	// FluxSHA is the flux commit the manifests were read at.
+	FluxSHA         string
 	Tier            string
 	Shards          []string
 	Entries         map[string]string
@@ -259,7 +270,7 @@ type Inputs struct {
 
 // Injection is the two staged data.json bodies and the rows each holds.
 type Injection struct {
-	Declared, Flux         string
+	Declared, Flux, Source string
 	DeclaredRows, FluxRows int
 	Known, Clusters        int
 }
@@ -269,6 +280,9 @@ type Injection struct {
 // flux tree that answers no star manifest is an error, not an empty key: an
 // empty data.fleet.flux would derive every address away.
 func Inject(in Inputs) (Injection, error) {
+	if !fullSHA.MatchString(in.FluxSHA) {
+		return Injection{}, fmt.Errorf("the flux commit %q is not a full sha — the die would not say which flux it read", in.FluxSHA)
+	}
 	if hit := Collides(in.Tier); len(hit) > 0 {
 		return Injection{}, fmt.Errorf("fleet/data.json already sets data.fleet.%s, which the lane injects — OPA would refuse the bundle", strings.Join(hit, ", data.fleet."))
 	}
@@ -294,13 +308,15 @@ func Inject(in Inputs) (Injection, error) {
 	if err != nil {
 		return Injection{}, fmt.Errorf("foundry/flux %w", err)
 	}
-	return Injection{Declared: Stage(docs), Flux: Stage(facts), DeclaredRows: len(docs), FluxRows: len(facts), Known: len(stars), Clusters: len(clusters)}, nil
+	source := Stage(map[string]string{"repo": FluxRepo, "sha": in.FluxSHA})
+	return Injection{Declared: Stage(docs), Flux: Stage(facts), Source: source, DeclaredRows: len(docs), FluxRows: len(facts), Known: len(stars), Clusters: len(clusters)}, nil
 }
 
 // Injected grades the built roster's data.json: it carries data.fleet.declared
-// and data.fleet.flux with exactly the rows the lane staged. problem is ""
+// and data.fleet.flux with exactly the rows the lane staged, and
+// data.fleet.flux_source names the flux commit they were read at. problem is ""
 // when it does.
-func Injected(dataJSON string, declared, flux int) string {
+func Injected(dataJSON string, declared, flux int, fluxSHA string) string {
 	var d struct {
 		Fleet map[string]json.RawMessage `json:"fleet"`
 	}
@@ -319,23 +335,51 @@ func Injected(dataJSON string, declared, flux int) string {
 			return fmt.Sprintf("the built roster's data.fleet.%s has %d rows, the lane staged %d", k.key, got, k.want)
 		}
 	}
+	var source struct {
+		SHA string `json:"sha"`
+	}
+	if json.Unmarshal(d.Fleet[FluxSourceKey], &source) != nil || source.SHA != fluxSHA {
+		return fmt.Sprintf("the built roster's data.fleet.%s does not name flux %s, the commit the facts were read at", FluxSourceKey, fluxSHA)
+	}
 	return ""
 }
 
-// manifest is the part of a Kubernetes object these readers need.
+// manifest is the part of a Kubernetes object these readers need: its head
+// for every kind, and its spec only for the kinds whose spec they read.
 type manifest struct {
+	APIVersion string
+	Kind       string
+	Name       string
+	// Ports is a Service's spec.ports.
+	Ports []servicePort
+	// Pods is a workload's pod templates.
+	Pods []podTemplate
+}
+
+type head struct {
 	APIVersion string `yaml:"apiVersion"`
 	Kind       string `yaml:"kind"`
 	Metadata   struct {
 		Name string `yaml:"name"`
 	} `yaml:"metadata"`
+}
+
+type servicePort struct {
+	Name string `yaml:"name"`
+	Port int    `yaml:"port"`
+}
+
+type serviceDoc struct {
 	Spec struct {
-		Ports []struct {
-			Name string `yaml:"name"`
-			Port int    `yaml:"port"`
-		} `yaml:"ports"`
-		Template podTemplate `yaml:"template"`
-		// JobTemplate is a CronJob's.
+		Ports []servicePort `yaml:"ports"`
+	} `yaml:"spec"`
+}
+
+// workloadDoc is a workload's pod template, and a CronJob's under its
+// jobTemplate.
+type workloadDoc struct {
+	Spec struct {
+		Template    podTemplate `yaml:"template"`
 		JobTemplate struct {
 			Spec struct {
 				Template podTemplate `yaml:"template"`
@@ -357,32 +401,64 @@ type container struct {
 	} `yaml:"env"`
 }
 
+// workloads are the kinds whose pod templates carry a star's DSNs. World is
+// the Forge's own CR that renders a star's Deployment (narcissus since flux
+// 6a559a4); only its spec.template is read — its spec.ports is a map of
+// peers, not a Service's list.
+var workloads = map[string]bool{
+	"Deployment": true, "StatefulSet": true, "DaemonSet": true,
+	"Job": true, "CronJob": true, "World": true,
+}
+
 // containers is every container a workload object runs, init ones included.
 func (m manifest) containers() []container {
 	var out []container
-	for _, t := range []podTemplate{m.Spec.Template, m.Spec.JobTemplate.Spec.Template} {
+	for _, t := range m.Pods {
 		out = append(out, t.Spec.Containers...)
 		out = append(out, t.Spec.InitContainers...)
 	}
 	return out
 }
 
-// documents decodes every YAML document in one file; an empty one is skipped.
+// documents decodes every YAML document in one file, KIND FIRST: a spec is
+// decoded only for a Service or a workload, so another kind's spec — a
+// World's map-shaped ports, any CR's — can never fail the read. An empty
+// document is skipped.
 func documents(body string) ([]manifest, error) {
 	dec := yaml.NewDecoder(bytes.NewReader([]byte(body)))
 	var out []manifest
 	for {
-		var m manifest
-		err := dec.Decode(&m)
+		var node yaml.Node
+		err := dec.Decode(&node)
 		if errors.Is(err, io.EOF) {
 			return out, nil
 		}
 		if err != nil {
 			return nil, err
 		}
-		if m.Kind != "" {
-			out = append(out, m)
+		var h head
+		if err := node.Decode(&h); err != nil {
+			return nil, err
 		}
+		if h.Kind == "" {
+			continue
+		}
+		m := manifest{APIVersion: h.APIVersion, Kind: h.Kind, Name: h.Metadata.Name}
+		switch {
+		case h.Kind == "Service":
+			var svc serviceDoc
+			if err := node.Decode(&svc); err != nil {
+				return nil, fmt.Errorf("Service %s: %w", h.Metadata.Name, err)
+			}
+			m.Ports = svc.Spec.Ports
+		case workloads[h.Kind]:
+			var w workloadDoc
+			if err := node.Decode(&w); err != nil {
+				return nil, fmt.Errorf("%s %s: %w", h.Kind, h.Metadata.Name, err)
+			}
+			m.Pods = []podTemplate{w.Spec.Template, w.Spec.JobTemplate.Spec.Template}
+		}
+		out = append(out, m)
 	}
 }
 

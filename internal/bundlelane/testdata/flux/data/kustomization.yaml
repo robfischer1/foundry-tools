@@ -1,0 +1,45 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - secrets.yaml
+  - app-secrets.yaml
+  - network-policy.yaml
+  - argus-db.yaml
+  - ourea-db.yaml
+  - erebus-db.yaml
+  - chaos-db.yaml
+  - eros-db.yaml
+  - narcissus-db.yaml
+  - calypso-db.yaml
+  - cnpg-svid-auth.yaml
+  - cnpg-ca-public.yaml
+  - eso-data-reader.yaml
+  - aether-db.yaml
+  - homeassistant-db.yaml
+  - cnpg-offsite.yaml
+patches:
+  - target: {kind: Namespace}
+    patch: |
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: not-matched-by-name
+        annotations:
+          kustomize.toolkit.fluxcd.io/prune: disabled
+  - target: {kind: PersistentVolumeClaim}
+    patch: |
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: not-matched-by-name
+        annotations:
+          kustomize.toolkit.fluxcd.io/prune: disabled
+  - target: {kind: Cluster, group: postgresql.cnpg.io}
+    patch: |
+      apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      metadata:
+        name: not-matched-by-name
+        annotations:
+          kustomize.toolkit.fluxcd.io/prune: disabled

@@ -1,0 +1,108 @@
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: ourea-db-store
+spec:
+  configuration:
+    destinationPath: s3://cnpg/ourea-db
+    endpointURL: http://seaweedfs.objects.svc.cluster.local:8333
+    s3Credentials:
+      accessKeyId: {name: fleet-s3-credentials, key: access_key_id}
+      secretAccessKey: {name: fleet-s3-credentials, key: secret_access_key}
+    data:
+      compression: lz4
+    wal:
+      compression: gzip
+      maxParallel: 4
+  retentionPolicy: 30d
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: ourea-db
+spec:
+  instances: 1
+  enablePDB: false
+  imageName: docker.notusmi.com/ghcr.io/cloudnative-pg/postgresql:18.4-standard-trixie
+  primaryUpdateStrategy: unsupervised
+  affinity:
+    enablePodAntiAffinity: true
+    podAntiAffinityType: preferred
+    topologyKey: kubernetes.io/hostname
+  postgresUID: 26
+  postgresGID: 26
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 2Gi
+  postgresql:
+    parameters:
+      pg_stat_statements.max: "5000"
+      pg_stat_statements.track: "top"
+    pg_hba:
+      - hostssl ourea ourea_svid all cert map=svid
+    pg_ident:
+      - svid ourea.star.notusmi.com ourea_svid
+  certificates:
+    clientCASecret: ourea-db-client-ca
+    replicationTLSSecret: ourea-db-streaming-replica
+    serverAltDNSNames: [ourea-db]
+  managed:
+    roles:
+      - name: ourea_svid
+        ensure: present
+        comment: "F7 - ourea SVID cert login (CN ourea.star.notusmi.com)"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: true
+        disablePassword: true
+        inRoles: [kairos_tmpl_ourea]
+  bootstrap:
+    pg_basebackup:
+      source: ourea-db-prime
+      database: ourea
+      owner: ourea
+      secret:
+        name: ourea-db-app
+  replica:
+    enabled: false
+    source: ourea-db-prime
+  externalClusters:
+    - name: ourea-db-prime
+      connectionParameters:
+        host: ourea-db-rw.prime.svc.cluster.local
+        user: streaming_replica
+        dbname: postgres
+        sslmode: verify-ca
+  storage:
+    size: 20Gi
+    storageClass: gaia
+    resizeInUseVolumes: true
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      enabled: true
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: ourea-db-store
+        serverName: ourea-db-data
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: ourea-db-daily
+spec:
+  schedule: "0 30 2 * * *"
+  immediate: true
+  backupOwnerReference: self
+  cluster:
+    name: ourea-db
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io

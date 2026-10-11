@@ -1,0 +1,87 @@
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: narcissus-db
+spec:
+  instances: 1
+  enablePDB: false
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.4-standard-bookworm
+  primaryUpdateStrategy: unsupervised
+  affinity:
+    enablePodAntiAffinity: true
+    podAntiAffinityType: preferred
+    topologyKey: kubernetes.io/hostname
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values: [nas01]
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      memory: 2Gi
+  postgresUID: 26
+  postgresGID: 26
+  postgresql:
+    parameters:
+      pg_stat_statements.max: "5000"
+      pg_stat_statements.track: "top"
+      shared_buffers: "512MB"
+      effective_cache_size: "1536MB"
+      work_mem: "8MB"
+      maintenance_work_mem: "256MB"
+      max_connections: "200"
+      max_worker_processes: "32"
+      max_wal_senders: "32"
+      max_locks_per_transaction: "64"
+      max_prepared_transactions: "0"
+      checkpoint_completion_target: "0.9"
+      wal_compression: "pglz"
+    pg_hba:
+      - hostssl narcissus narcissus_svid all cert map=svid
+    pg_ident:
+      - svid narcissus.star.notusmi.com narcissus_svid
+  managed:
+    roles:
+      - name: narcissus_svid
+        ensure: present
+        comment: "F7 - narcissus SVID cert login (CN narcissus.star.notusmi.com)"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: true
+        disablePassword: true
+        inRoles: [kairos_tmpl_narcissus]
+  certificates:
+    clientCASecret: aether-db-client-ca
+    replicationTLSSecret: aether-db-streaming-replica
+  bootstrap:
+    pg_basebackup:
+      source: aether-db
+      database: narcissus
+      owner: narcissus
+  replica:
+    enabled: false
+    source: aether-db
+  externalClusters:
+    - name: aether-db
+      connectionParameters:
+        host: aether-db-rw.data.svc.cluster.local
+        user: streaming_replica
+        dbname: postgres
+        sslmode: verify-full
+      sslCert: {name: aether-db-streaming-replica, key: tls.crt}
+      sslKey: {name: aether-db-streaming-replica, key: tls.key}
+      sslRootCert: {name: aether-db-ca, key: ca.crt}
+  storage:
+    size: 40Gi
+    storageClass: gaia
+    resizeInUseVolumes: true

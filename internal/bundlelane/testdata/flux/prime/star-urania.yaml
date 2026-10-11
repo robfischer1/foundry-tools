@@ -1,0 +1,98 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: urania-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: urania
+  namespace: prime
+  labels: {owner: rob, app: urania, pistis.star: urania}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: urania}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: urania, pistis.star: urania}
+    spec:
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: urania-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: urania
+          livenessProbe:
+            tcpSocket: {port: 8202}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: registry.notusmi.com/rob/urania
+          resources:
+            requests: {cpu: 10m, memory: 128Mi}
+            limits:   {memory: 256Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            exec:
+              command: ['/urania', 'readycheck']
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 8
+            failureThreshold: 6
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: OTEL_SERVICE_NAME, value: "urania"}
+            - {name: URANIA_GO_MCP_MTLS_ADDR, value: ":8203"}
+            - {name: URANIA_GO_PORT, value: "8202"}
+            - {name: URANIA_MEMBERSHIP_BITMAPS, value: "1"}
+            - {name: STELLAR_PEP_MODE, value: "witness"}
+            - {name: STELLAR_PDP_URL, value: "http://ouranos-opa:8181/v1/data/authz/decision"}
+          ports:
+            - {name: mcp,  containerPort: 8202}
+            - {name: mtls, containerPort: 8203}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+            - {name: orbit, mountPath: /etc/stellar/orbit.toml, subPath: orbit.toml, readOnly: true}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+        - name: orbit
+          configMap: {name: orbit-urania}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: urania
+  namespace: prime
+spec:
+  selector: {app: urania}
+  ports:
+    - {name: mcp,  port: 8202, targetPort: 8202, protocol: TCP}
+    - {name: mtls, port: 8203, targetPort: 8203, protocol: TCP}

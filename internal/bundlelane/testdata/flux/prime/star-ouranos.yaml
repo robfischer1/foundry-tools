@@ -1,0 +1,178 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ouranos-opa-config
+  namespace: prime
+  labels:
+    app: ouranos-opa
+data:
+  config.yaml: |
+    "bundles":
+      "fleet":
+        "polling":
+          "max_delay_seconds": 120
+          "min_delay_seconds": 60
+        "resource": "foundry.notusmi.com/data/fleet-bundle:signed"
+        "service": "foundry"
+        "signing":
+          "keyid": "ouranos_bundle"
+      "policy":
+        "polling":
+          "max_delay_seconds": 120
+          "min_delay_seconds": 60
+        "resource": "foundry.notusmi.com/policy/ouranos-bundle:signed"
+        "service": "foundry"
+        "signing":
+          "keyid": "ouranos_bundle"
+    "decision_logs":
+      "console": true
+      "drop_decision": "/system/log/drop"
+      "mask_decision": "/system/log/mask"
+    "distributed_tracing":
+      "address": "hemera-otelcol:4318"
+      "sample_percentage": 100
+      "service_name": "ouranos-opa"
+      "type": "http"
+    "keys":
+      "ouranos_bundle":
+        "algorithm": "ES256"
+        "key": |
+          -----BEGIN PUBLIC KEY-----
+          MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEAan5DeroH0CYZee/tiRYuP14ZGH2
+          DsMInuZVKEa1YQDt8ZGoEyzUrc1SGiKm00nge7KnDXHnRQgflNyPG9Qpaw==
+          -----END PUBLIC KEY-----
+    "services":
+      "foundry":
+        "type": "oci"
+        "url": "https://foundry.notusmi.com"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ouranos-opa-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: ouranos-opa
+  namespace: prime
+  labels:
+    owner: rob
+    app: ouranos-opa
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 0, maxUnavailable: 1}
+  selector:
+    matchLabels:
+      app: ouranos-opa
+  template:
+    metadata:
+      labels:
+        app: ouranos-opa
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/hostname, operator: NotIn, values: [dev01]}
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels: {app: ouranos-opa}
+              topologyKey: kubernetes.io/hostname
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: ouranos-opa-sa
+      containers:
+      - name: opa
+        image: docker.io/openpolicyagent/opa@sha256:8cd62511addffce53431454e0fb74559bea3cc5b3ca36dfca83ecbb45c00b783
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities: {drop: [ALL]}
+        args:
+        - run
+        - --server
+        - --addr=0.0.0.0:8181
+        - --log-level=info
+        - --authorization=basic
+        - --config-file=/opa-config/config.yaml
+        ports:
+        - name: http
+          containerPort: 8181
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: opa-config
+          mountPath: /opa-config
+          readOnly: true
+        readinessProbe:
+          httpGet:
+            path: /health?bundles=true
+            port: 8181
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8181
+          initialDelaySeconds: 15
+          periodSeconds: 30
+          timeoutSeconds: 3
+          failureThreshold: 3
+        resources:
+          requests:
+            cpu: 25m
+            memory: 64Mi
+          limits:
+            memory: 512Mi
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: opa-config
+        configMap:
+          name: ouranos-opa-config
+          defaultMode: 420
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ouranos-opa
+  namespace: prime
+  labels:
+    app: ouranos-opa
+spec:
+  type: ClusterIP
+  selector:
+    app: ouranos-opa
+  ports:
+  - name: http
+    port: 8181
+    targetPort: 8181
+    protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ouranos
+  namespace: prime
+spec:
+  type: ExternalName
+  externalName: ouranos-opa.prime.svc.cluster.local

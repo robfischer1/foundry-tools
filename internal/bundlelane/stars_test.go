@@ -325,8 +325,8 @@ func TestCollidesNamesTheInjectedKeysTheTierAlreadySets(t *testing.T) {
 }
 
 func TestInjectedWantsBothKeysWithTheStagedRows(t *testing.T) {
-	built := `{"fleet":{"declared":{"hades":{}},"flux":{"hades":{},"chaos":{}}}}`
-	if p := Injected(built, 1, 2); p != "" {
+	built := `{"fleet":{"declared":{"hades":{}},"flux":{"hades":{},"chaos":{}},"flux_source":{"repo":"foundry/flux","sha":"abababababababababababababababababababab"}}}`
+	if p := Injected(built, 1, 2, testFluxSHA); p != "" {
 		t.Fatalf("a roster carrying what was staged: %q", p)
 	}
 	for name, c := range map[string]struct {
@@ -338,15 +338,20 @@ func TestInjectedWantsBothKeysWithTheStagedRows(t *testing.T) {
 		"no flux key":        {`{"fleet":{"declared":{}}}`, 0, 0, "no data.fleet.flux"},
 		"a row went missing": {built, 1, 3, "data.fleet.flux has 2 rows, the lane staged 3"},
 		"not JSON":           {"{", 0, 0, "not JSON"},
+		"no flux source":     {`{"fleet":{"declared":{},"flux":{}}}`, 0, 0, "does not name flux " + testFluxSHA},
+		"another flux":       {strings.Replace(built, "abab", "cdcd", 1), 1, 2, "does not name flux " + testFluxSHA},
 	} {
-		if p := Injected(c.data, c.declared, c.flux); !strings.Contains(p, c.want) {
+		if p := Injected(c.data, c.declared, c.flux, testFluxSHA); !strings.Contains(p, c.want) {
 			t.Errorf("%s: problem = %q, want %q", name, p, c.want)
 		}
 	}
 }
 
+const testFluxSHA = "abababababababababababababababababababab"
+
 func injectInputs() Inputs {
 	return Inputs{
+		FluxSHA:         testFluxSHA,
 		Tier:            `{"map":{}}`,
 		Shards:          []string{"fleet/stars/chaos/slag.json", "fleet/stars/tron/slag.json"},
 		Entries:         map[string]string{"fleet/stars/ourea.json": `{"name":"ourea","kind":"go"}`},
@@ -371,6 +376,9 @@ func TestInjectReadsFluxForTheStarsTheTreeKnows(t *testing.T) {
 	if !strings.Contains(inj.Declared, `"ourea": {`) {
 		t.Fatalf("declared = %s", inj.Declared)
 	}
+	if want := "{\n  \"repo\": \"foundry/flux\",\n  \"sha\": \"" + testFluxSHA + "\"\n}\n"; inj.Source != want {
+		t.Fatalf("source = %q, want %q", inj.Source, want)
+	}
 }
 
 func TestInjectRefusesWhatWouldServeTheWrongFacts(t *testing.T) {
@@ -379,6 +387,8 @@ func TestInjectRefusesWhatWouldServeTheWrongFacts(t *testing.T) {
 		want string
 	}{
 		"the tier sets an injected key":          {func(in *Inputs) { in.Tier = `{"flux":{}}` }, "fleet/data.json already sets data.fleet.flux"},
+		"the tier sets the flux source":          {func(in *Inputs) { in.Tier = `{"flux_source":{}}` }, "already sets data.fleet.flux_source"},
+		"a flux commit that is not a sha":        {func(in *Inputs) { in.FluxSHA = "main" }, `the flux commit "main" is not a full sha`},
 		"an entry named for another":             {func(in *Inputs) { in.Entries["fleet/stars/ourea.json"] = `{"name":"nyx"}` }, `fleet/stars/ourea.json: name must be "ourea"`},
 		"no star manifest":                       {func(in *Inputs) { in.StarManifests = nil }, "foundry/flux answered no prime/star-*.yaml"},
 		"a cluster manifest that does not parse": {func(in *Inputs) { in.ClusterManifest = map[string]string{"data/x.yaml": "kind: [unclosed"} }, "foundry/flux data/x.yaml"},

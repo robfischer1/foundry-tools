@@ -1,0 +1,110 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: terpsichore-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: terpsichore
+  namespace: prime
+  labels: {owner: rob, app: terpsichore, pistis.star: terpsichore}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: terpsichore}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: terpsichore, pistis.star: terpsichore}
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/hostname, operator: NotIn, values: [dev01]}
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - {key: kubernetes.io/hostname, operator: NotIn, values: [llm01]}
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: terpsichore-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: terpsichore
+          livenessProbe:
+            tcpSocket: {port: 8000}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: registry.notusmi.com/rob/terpsichore
+          resources:
+            requests: {cpu: 10m, memory: 128Mi}
+            limits:   {memory: 256Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            tcpSocket: {port: 8000}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: OTEL_SERVICE_NAME, value: "terpsichore"}
+            - {name: PORT, value: "8000"}
+            - {name: STELLAR_DB_AUTH, value: "svid"}
+            - {name: TERPSICHORE_DATABASE_URL, value: "postgresql://terpsichore_svid@aether:5432/terpsichore?sslmode=verify-full&sslrootcert=/etc/stellar/aether-db-ca/ca.crt"}
+            - {name: TERPSICHORE_CONSUMER_GROUP, value: "terpsichore"}
+            - {name: TERPSICHORE_HEARTBEAT_TOPIC, value: "terpsichore._ops.heartbeat"}
+            - {name: TERPSICHORE_HOST, value: "0.0.0.0"}
+            - {name: TERPSICHORE_KAFKA_TOPIC, value: "session-turns"}
+            - {name: TERPSICHORE_PORT, value: "8000"}
+            - {name: STELLAR_PEP_MODE, value: "witness"}
+            - {name: STELLAR_PDP_URL, value: "http://ouranos-opa:8181/v1/data/authz/decision"}
+          ports:
+            - {name: mcp,  containerPort: 8000}
+            - {name: mtls, containerPort: 8001}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+            - {name: orbit, mountPath: /etc/stellar/orbit.toml, subPath: orbit.toml, readOnly: true}
+            - {name: aether-db-ca, mountPath: /etc/stellar/aether-db-ca, readOnly: true}
+      volumes:
+        - name: orbit
+          configMap: {name: orbit-terpsichore}
+        - {name: tmp, emptyDir: {}}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+        - name: aether-db-ca
+          secret: {secretName: aether-db-server-ca, items: [{key: ca.crt, path: ca.crt}]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: terpsichore
+  namespace: prime
+spec:
+  selector: {app: terpsichore}
+  ports:
+    - {name: mcp,  port: 8000, targetPort: 8000, protocol: TCP}
+    - {name: mtls, port: 8001, targetPort: 8001, protocol: TCP}

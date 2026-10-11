@@ -116,9 +116,11 @@ type bundleLane struct {
 	// the dies were built in, and the paths the landing touched (touched).
 	built   *dagger.Container
 	touched []string
-	// flux is foundry/flux at main, run's: where the fleet die's flux facts
-	// are read (bundlelane.FluxFacts).
-	flux *dagger.Directory
+	// flux is foundry/flux at fluxSHA, the commit main resolved to when the
+	// lane began: every flux fact in the die is read from that one commit,
+	// and the die names it (data.fleet.flux_source).
+	flux    *dagger.Directory
+	fluxSHA string
 }
 
 // workDir is where the bundles are built, outside the mounted tree.
@@ -176,7 +178,6 @@ func (l *bundleLane) run(ctx context.Context) (int, string) {
 	bundleSay("%s at %.12s%s", starOf(m.Repo), m.Sha, mode)
 
 	r := newRun(m.Source, m.Repo, "")
-	l.flux = r.flux
 	opa, err := r.opaClient(ctx)
 	if err != nil {
 		return buildlane.CouldNotRun, "could not run: " + err.Error()
@@ -450,6 +451,7 @@ func (l *bundleLane) fleet(ctx context.Context, built *dagger.Container) (*dagge
 		WithDirectory("fleet", src.Directory("fleet"), dagger.DirectoryWithDirectoryOpts{Exclude: []string{"**/*.slag", "stars/*.json"}}).
 		WithNewFile(bundlelane.DeclaredPath, inj.Declared).
 		WithNewFile(bundlelane.FluxPath, inj.Flux).
+		WithNewFile(bundlelane.FluxSourcePath, inj.Source).
 		WithNewFile(".manifest", bundlelane.FleetManifest)
 	built = built.WithDirectory(workDir+"/stage", stage)
 	for _, b := range [][]string{
@@ -489,7 +491,7 @@ func (l *bundleLane) fleet(ctx context.Context, built *dagger.Container) (*dagge
 		return nil, findings(problem)
 	}
 	bundleSay("fleet: roster — %d stars mapped, %d lean rows, %d topics", rows, stars, topics)
-	if problem := bundlelane.Injected(roster, inj.DeclaredRows, inj.FluxRows); problem != "" {
+	if problem := bundlelane.Injected(roster, inj.DeclaredRows, inj.FluxRows, l.fluxSHA); problem != "" {
 		return nil, findings(problem)
 	}
 	bundleSay("fleet: injected — %d declared rows, %d flux rows", inj.DeclaredRows, inj.FluxRows)

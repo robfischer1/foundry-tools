@@ -1,0 +1,113 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: charon-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: charon
+  namespace: prime
+  labels: {owner: rob, app: charon, pistis.star: charon}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: charon}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: charon, pistis.star: charon}
+    spec:
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: charon-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: charon
+          livenessProbe:
+            tcpSocket: {port: 3000}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: registry.notusmi.com/rob/charon
+          resources:
+            requests: {cpu: 10m, memory: 128Mi}
+            limits:   {memory: 384Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            tcpSocket: {port: 3000}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: HOME, value: /tmp}
+            - {name: OTEL_SERVICE_NAME, value: "charon"}
+            - {name: HADES_URL, value: "https://hades:8102"}
+            - {name: CHARON_KAIROS_URL, value: "http://kairos:8200"}
+            - {name: CORS_ORIGINS, value: "https://tantalus.notusmi.com,https://theia.notusmi.com,https://aglaia.notusmi.com"}
+            - {name: PLUGIN_POLICIES, value: "{}"}
+            - name: AGLAIA_TAG_SEED
+              valueFrom: {secretKeyRef: {name: charon-tag-seed, key: AGLAIA_TAG_SEED, optional: true}}
+          ports:
+            - {name: mcp,  containerPort: 3000}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: charon
+  namespace: prime
+spec:
+  selector: {app: charon}
+  ports:
+    - {name: mcp,  port: 3000, targetPort: 3000, protocol: TCP}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: charon-tag-seed
+  namespace: prime
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: calypso
+    kind: ClusterSecretStore
+  target:
+    name: charon-tag-seed
+    creationPolicy: Owner
+  dataFrom:
+    - find:
+        path: /fleet/charon
+        name:
+          regexp: ^AGLAIA_TAG_SEED$

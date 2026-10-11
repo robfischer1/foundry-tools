@@ -1,0 +1,126 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: aether-db-ca-public
+type: Opaque
+---
+apiVersion: external-secrets.io/v1alpha1
+kind: PushSecret
+metadata:
+  name: aether-db-ca-public
+spec:
+  refreshInterval: 15m
+  secretStoreRefs:
+    - {name: cluster-data, kind: ClusterSecretStore}
+  selector:
+    secret: {name: aether-db-ca}
+  data:
+    - match:
+        secretKey: ca.crt
+        remoteRef: {remoteKey: aether-db-ca-public, property: ca.crt}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: chaos-db-ca-public
+type: Opaque
+---
+apiVersion: external-secrets.io/v1alpha1
+kind: PushSecret
+metadata:
+  name: chaos-db-ca-public
+spec:
+  refreshInterval: 15m
+  secretStoreRefs:
+    - {name: cluster-data, kind: ClusterSecretStore}
+  selector:
+    secret: {name: chaos-db-ca}
+  data:
+    - match:
+        secretKey: ca.crt
+        remoteRef: {remoteKey: chaos-db-ca-public, property: ca.crt}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: eros-db-ca-public
+type: Opaque
+---
+apiVersion: external-secrets.io/v1alpha1
+kind: PushSecret
+metadata:
+  name: eros-db-ca-public
+spec:
+  refreshInterval: 15m
+  secretStoreRefs:
+    - {name: cluster-data, kind: ClusterSecretStore}
+  selector:
+    secret: {name: eros-db-ca}
+  data:
+    - match:
+        secretKey: ca.crt
+        remoteRef: {remoteKey: eros-db-ca-public, property: ca.crt}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ourea-db-ca-public
+type: Opaque
+---
+apiVersion: external-secrets.io/v1alpha1
+kind: PushSecret
+metadata:
+  name: ourea-db-ca-public
+spec:
+  refreshInterval: 15m
+  secretStoreRefs:
+    - {name: cluster-data, kind: ClusterSecretStore}
+  selector:
+    secret: {name: ourea-db-ca}
+  data:
+    - match:
+        secretKey: ca.crt
+        remoteRef: {remoteKey: ourea-db-ca-public, property: ca.crt}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: erebus-db-ca-public
+type: Opaque
+---
+apiVersion: external-secrets.io/v1alpha1
+kind: PushSecret
+metadata:
+  name: erebus-db-ca-public
+spec:
+  refreshInterval: 15m
+  secretStoreRefs:
+    - {name: cluster-data, kind: ClusterSecretStore}
+  selector:
+    secret: {name: erebus-db-ca}
+  data:
+    - match:
+        secretKey: ca.crt
+        remoteRef: {remoteKey: erebus-db-ca-public, property: ca.crt}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: narcissus-db-ca-public
+type: Opaque
+---
+apiVersion: external-secrets.io/v1alpha1
+kind: PushSecret
+metadata:
+  name: narcissus-db-ca-public
+spec:
+  refreshInterval: 15m
+  secretStoreRefs:
+    - {name: cluster-data, kind: ClusterSecretStore}
+  selector:
+    secret: {name: narcissus-db-ca}
+  data:
+    - match:
+        secretKey: ca.crt
+        remoteRef: {remoteKey: narcissus-db-ca-public, property: ca.crt}

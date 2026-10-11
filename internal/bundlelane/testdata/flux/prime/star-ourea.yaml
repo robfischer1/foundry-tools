@@ -1,0 +1,155 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ourea
+  namespace: prime
+  labels: {app: ourea}
+automountServiceAccountToken: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: ourea
+  namespace: prime
+  labels: {owner: rob, app: ourea, pistis.star: ourea}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: ourea}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: ourea, pistis.star: ourea}
+      annotations:
+        pistis.ci/config-rev: "orbit-asked-again-it-reaches-the-engine"
+    spec:
+      serviceAccountName: ourea
+      terminationGracePeriodSeconds: 45
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: ourea
+          livenessProbe:
+            tcpSocket: {port: 8214}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: registry.notusmi.com/rob/ourea@sha256:6e1a71ee241c20dac761a124e190114ec95f37aef75f58b38cbc250e1767c7e4
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          lifecycle:
+            preStop:
+              sleep: {seconds: 5}
+          readinessProbe:
+            exec:
+              command: ['/ourea', 'readycheck']
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 8
+            failureThreshold: 6
+          resources:
+            requests: {cpu: 10m, memory: 512Mi}
+            limits: {memory: 8Gi}
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+            - secretRef: {name: ourea-calypso-env}
+          env:
+            - {name: OUREA_CONFIG, value: "/etc/ourea/config.toml"}
+            - {name: OTEL_SERVICE_NAME, value: "ourea"}
+            - {name: GOMEMLIMIT, value: "7GiB"}
+            - {name: OUREA_CAPTURE_DRAIN, value: "1"}
+            - {name: OUREA_ENRICH_SEAT, value: "casper"}
+            - {name: OUREA_GIT_CHALLENGE_PUSH, value: "1"}
+            - {name: OUREA_GIT_TRUSTED_EDGES, value: "spiffe://notusmi.com/host/rob02/git-credential-cerberus,spiffe://notusmi.com/host/llm01/git-credential-cerberus"}
+            - name: OUREA_GIT_WORKLOAD_CREDENTIALS
+              valueFrom: {secretKeyRef: {name: ourea-workload-credentials, key: OUREA_GIT_WORKLOAD_CREDENTIALS, optional: true}}
+            - {name: OUREA_PULL_ON_PUSH, value: "foundry/flux:image-updates"}
+            - name: OUREA_TIP_NOTIFY
+              valueFrom: {secretKeyRef: {name: ourea-tip-notify, key: OUREA_TIP_NOTIFY, optional: true}}
+            - {name: OUREA_NOT_FRONTED, value: "infra,personal/,actions/,forge-archives/,personal-archives/"}
+            - {name: OUREA_ARCHIVE_ORGS, value: "rob:forge-archives,personal:personal-archives,foundry:forge-archives"}
+            - {name: OUREA_PORT, value: "8214"}
+            - {name: OUREA_READ_CORS_ORIGINS, value: "https://theia.notusmi.com"}
+            - {name: OUREA_REALM_ROSTER, value: "{\"aether\":{\"hba\":\"18/docker/pg_hba.conf\",\"image\":\"pgvector/pgvector@sha256:c8a919765f2ef63681329fa21021b830cd4d79d1165bdca730dd016014e4da84\"},\"stars\":[{\"env\":{\"DATABASE_URL\":\"postgresql://forge@{aether}:5432/chaos\",\"HOST\":\"0.0.0.0\",\"PORT\":\"8206\"},\"health\":\"mcp\",\"image\":\"registry.notusmi.com/rob/chaos@sha256:9f577ae88191bf46ebb7c491869d1b980b4be194af9fa6cdd44227311385e36b\",\"name\":\"chaos\",\"port\":8206},{\"env\":{\"ATHENA_CHAOS_URL\":\"http://{chaos}:8206/mcp\",\"ATHENA_OTEL_ENABLED\":\"false\",\"ATHENA_WITNESS_ENABLED\":\"false\",\"KAFKA_BOOTSTRAP\":\"\",\"PORT\":\"8200\"},\"health\":\"mcp\",\"image\":\"registry.notusmi.com/rob/athena@sha256:34e435a3cbf29b76224e618ae77059f59bc808bf9047d93a78076c678000a296\",\"name\":\"athena\",\"port\":8200},{\"env\":{\"HADES_POLICY\":\"{\\\"tok-realm\\\":\\\"*\\\"}\",\"HADES_PORT\":\"8101\",\"HADES_STARS\":\"{\\\"athena\\\":\\\"http://{athena}:8200/mcp\\\",\\\"chaos\\\":\\\"http://{chaos}:8206/mcp\\\",\\\"ourea\\\":\\\"http://{ourea}:8214/mcp\\\"}\"},\"health\":\"http:/health\",\"image\":\"registry.notusmi.com/rob/hades@sha256:4b73f7f7b262254b455971d14fe21bd305d8aed5e6b6600ac87a816b9f141de3\",\"name\":\"hades\",\"port\":8101}],\"version\":1}"}
+            - {name: PORT, value: "8214"}
+            - {name: STELLAR_DB_AUTH, value: "svid"}
+            - {name: OUREA_DB_DSN, value: "postgresql://ourea_svid@ourea-db:5432/ourea?sslmode=verify-full&sslrootcert=/etc/stellar/ourea-db-ca/ca.crt"}
+            - {name: EREBUS_DB_DSN, value: "postgresql://ourea_svid@erebus-timescaledb:5432/erebus?sslmode=verify-full&sslrootcert=/etc/stellar/erebus-db-ca/ca.crt"}
+            - {name: STELLAR_PEP_MODE, value: "witness"}
+          ports:
+            - {name: mcp,  containerPort: 8214}
+            - {name: mtls, containerPort: 8216}
+            - {name: git,  containerPort: 8215}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: ourea-config, mountPath: /etc/ourea, readOnly: true}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+            - {name: orbit, mountPath: /etc/stellar/orbit.toml, subPath: orbit.toml, readOnly: true}
+            - {name: erebus-db-ca, mountPath: /etc/stellar/erebus-db-ca, readOnly: true}
+            - {name: ourea-db-ca, mountPath: /etc/stellar/ourea-db-ca, readOnly: true}
+      volumes:
+        - name: orbit
+          configMap: {name: orbit-ourea}
+        - {name: tmp, emptyDir: {}}
+        - name: ourea-config
+          configMap: {name: ourea-config}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+        - name: erebus-db-ca
+          secret: {secretName: erebus-db-server-ca, items: [{key: ca.crt, path: ca.crt}]}
+        - name: ourea-db-ca
+          secret: {secretName: ourea-db-server-ca, items: [{key: ca.crt, path: ca.crt}]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ourea
+  annotations:
+    lbipam.cilium.io/ips: "192.168.100.32"
+  labels: {bgp: lan}
+  namespace: prime
+spec:
+  type: LoadBalancer
+  allocateLoadBalancerNodePorts: false
+  selector: {app: ourea}
+  ports:
+    - {name: mcp,  port: 8214, targetPort: 8214, protocol: TCP}
+    - {name: mtls, port: 8216, targetPort: 8216, protocol: TCP}
+    - {name: git,  port: 8215, targetPort: 8215, protocol: TCP}
+
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: ourea-calypso-env
+  namespace: prime
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: calypso
+    kind: ClusterSecretStore
+  target:
+    name: ourea-calypso-env
+    creationPolicy: Owner
+  dataFrom:
+    - find:
+        path: /fleet/ourea
+        name:
+          regexp: ^OUREA_.+$

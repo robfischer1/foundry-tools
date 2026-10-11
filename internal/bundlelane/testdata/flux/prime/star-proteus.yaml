@@ -1,0 +1,97 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: proteus-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: proteus
+  namespace: prime
+  labels: {owner: rob, app: proteus, pistis.star: proteus}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: proteus}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: proteus, pistis.star: proteus}
+    spec:
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: proteus-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: proteus
+          image: registry.notusmi.com/rob/proteus
+          resources:
+            requests: {cpu: 10m, memory: 128Mi}
+            limits:   {memory: 256Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            exec:
+              command: ['/proteus', 'readycheck']
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 8
+            failureThreshold: 6
+          livenessProbe:
+            httpGet: {path: /livez, port: 8200}
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: PROTEUS_MCP_ADDR,      value: "0.0.0.0:8200"}
+            - {name: PROTEUS_MCP_MTLS_ADDR, value: "0.0.0.0:8201"}
+            - {name: OTEL_SERVICE_NAME,     value: "proteus"}
+            - {name: STELLAR_PEP_MODE, value: "witness"}
+          ports:
+            - {name: mcp,  containerPort: 8200}
+            - {name: mtls, containerPort: 8201}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+            - {name: orbit, mountPath: /etc/stellar/orbit.toml, subPath: orbit.toml, readOnly: true}
+      volumes:
+        - name: orbit
+          configMap: {name: orbit-proteus}
+        - {name: tmp, emptyDir: {}}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: proteus
+  namespace: prime
+spec:
+  selector: {app: proteus}
+  ports:
+    - {name: mcp,  port: 8200, targetPort: 8200, protocol: TCP}
+    - {name: mtls, port: 8201, targetPort: 8201, protocol: TCP}

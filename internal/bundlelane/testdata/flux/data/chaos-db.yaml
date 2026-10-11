@@ -1,0 +1,156 @@
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: argus-graph-login
+spec:
+  refreshInterval: 1h
+  secretStoreRef: {name: cluster-default, kind: ClusterSecretStore}
+  target:
+    name: argus-graph-login
+    creationPolicy: Owner
+    template:
+      type: kubernetes.io/basic-auth
+  dataFrom:
+    - extract:
+        key: argus-graph-login
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: chaos-db-store
+spec:
+  configuration:
+    destinationPath: s3://cnpg/chaos-db
+    endpointURL: http://seaweedfs.objects.svc.cluster.local:8333
+    s3Credentials:
+      accessKeyId: {name: fleet-s3-credentials, key: access_key_id}
+      secretAccessKey: {name: fleet-s3-credentials, key: secret_access_key}
+    data:
+      compression: lz4
+    wal:
+      compression: gzip
+      maxParallel: 4
+  retentionPolicy: 30d
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: chaos-db
+spec:
+  instances: 1
+  enablePDB: false
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.4-standard-bookworm
+  primaryUpdateStrategy: unsupervised
+  affinity:
+    enablePodAntiAffinity: true
+    podAntiAffinityType: preferred
+    topologyKey: kubernetes.io/hostname
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values: [nas01]
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      memory: 2Gi
+  postgresUID: 26
+  postgresGID: 26
+  postgresql:
+    parameters:
+      pg_stat_statements.max: "5000"
+      pg_stat_statements.track: "top"
+      shared_buffers: "1GB"
+      effective_cache_size: "4GB"
+      work_mem: "8MB"
+      maintenance_work_mem: "128MB"
+      max_connections: "200"
+      max_worker_processes: "32"
+      max_wal_senders: "32"
+      max_locks_per_transaction: "64"
+      tcp_keepalives_idle: "60"
+      tcp_keepalives_interval: "10"
+      tcp_keepalives_count: "6"
+      checkpoint_completion_target: "0.9"
+      wal_compression: "pglz"
+      log_lock_waits: "on"
+    pg_hba:
+      - hostssl chaos chaos_svid all cert map=svid
+    pg_ident:
+      - svid chaos.star.notusmi.com chaos_svid
+  managed:
+    roles:
+      - name: chaos_svid
+        ensure: present
+        comment: "F7 - chaos SVID cert login (CN chaos.star.notusmi.com)"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: true
+        disablePassword: true
+        inRoles: [kairos_tmpl_chaos]
+      - name: argus_graph
+        ensure: present
+        comment: "Grafana eye-chaos - login member of argus_graph_ro"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: true
+        inRoles: [argus_graph_ro]
+        passwordSecret: {name: argus-graph-login}
+  certificates:
+    clientCASecret: chaos-db-client-ca
+    replicationTLSSecret: chaos-db-streaming-replica
+  bootstrap:
+    pg_basebackup:
+      source: chaos-db-prime
+      database: chaos
+      owner: chaos
+      secret:
+        name: chaos-db-app
+  replica:
+    enabled: false
+    source: chaos-db-prime
+  externalClusters:
+    - name: chaos-db-prime
+      connectionParameters:
+        host: chaos-db-rw.prime.svc.cluster.local
+        user: streaming_replica
+        dbname: postgres
+        sslmode: verify-ca
+  storage:
+    size: 100Gi
+    storageClass: gaia
+    resizeInUseVolumes: true
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      enabled: true
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: chaos-db-store
+        serverName: chaos-db-data
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: chaos-db-daily
+spec:
+  schedule: "0 30 3 * * *"
+  immediate: true
+  backupOwnerReference: self
+  cluster:
+    name: chaos-db
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io

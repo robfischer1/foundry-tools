@@ -1,0 +1,83 @@
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: eros-db
+spec:
+  instances: 1
+  enablePDB: false
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.4-standard-bookworm
+  primaryUpdateStrategy: unsupervised
+  affinity:
+    enablePodAntiAffinity: true
+    podAntiAffinityType: preferred
+    topologyKey: kubernetes.io/hostname
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values: [llm01]
+  resources:
+    requests:
+      cpu: 250m
+      memory: 2Gi
+    limits:
+      memory: 4Gi
+  postgresUID: 26
+  postgresGID: 26
+  postgresql:
+    parameters:
+      pg_stat_statements.max: "5000"
+      pg_stat_statements.track: "top"
+      shared_buffers: "2GB"
+      effective_cache_size: "8GB"
+      work_mem: "16MB"
+      maintenance_work_mem: "256MB"
+      max_connections: "200"
+      checkpoint_completion_target: "0.9"
+      wal_compression: "pglz"
+    pg_hba:
+      - hostssl eros eros_svid all cert map=svid
+    pg_ident:
+      - svid eros.star.notusmi.com eros_svid
+  certificates:
+    clientCASecret: eros-db-client-ca
+    replicationTLSSecret: eros-db-streaming-replica
+  managed:
+    roles:
+      - name: eros_svid
+        ensure: present
+        comment: "F7 - eros SVID cert login (CN eros.star.notusmi.com)"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: true
+        disablePassword: true
+        inRoles: [kairos_tmpl_eros]
+  bootstrap:
+    pg_basebackup:
+      source: eros-db-prime
+      database: eros
+      owner: eros
+      secret:
+        name: eros-db-app
+  replica:
+    enabled: false
+    source: eros-db-prime
+  externalClusters:
+    - name: eros-db-prime
+      connectionParameters:
+        host: eros-db-rw.prime.svc.cluster.local
+        user: streaming_replica
+        dbname: postgres
+        sslmode: verify-ca
+  storage:
+    size: 150Gi
+    storageClass: gaia
+    resizeInUseVolumes: true

@@ -5,6 +5,7 @@ import (
 
 	"dagger/foundry-tools/internal/buildlane"
 	"dagger/foundry-tools/internal/bundlelane"
+	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
 )
 
@@ -13,12 +14,21 @@ import (
 // data/ manifests — and hands them to bundlelane.Inject, which decides
 // data.fleet.declared and data.fleet.flux.
 //
-// FLUX IS READ AT main WHEN THE DIE IS BUILT, so the facts are as of this
-// landing; a flux change alone republishes nothing (bundlelane.Publishes).
+// FLUX IS PINNED: main is resolved to one commit first, every manifest is
+// read at that commit, and the die names it (data.fleet.flux_source), so two
+// reads in one build cannot straddle a flux landing and a consumer can tell
+// which flux a fact came from. A flux change alone republishes nothing
+// (bundlelane.Publishes); the next fleet/ landing carries it.
 func (l *bundleLane) inject(ctx context.Context, data string, shards []string) (bundlelane.Injection, gateResult) {
 	src := l.m.Source
 	bundleSay("── fleet: the catalog entries and the flux facts ──")
-	for _, p := range []string{bundlelane.DeclaredPath, bundlelane.FluxPath} {
+	sha, err := dag.Git(checks.FluxRepo).Ref(checks.FluxRef).Commit(ctx)
+	if err != nil {
+		return bundlelane.Injection{}, couldNotRun("foundry/flux %s could not be resolved to a commit: %v", checks.FluxRef, err)
+	}
+	l.fluxSHA = sha
+	l.flux = dag.Git(checks.FluxRepo).Commit(sha).Tree()
+	for _, p := range []string{bundlelane.DeclaredPath, bundlelane.FluxPath, bundlelane.FluxSourcePath} {
 		_, ok, err := fileIn(ctx, src, p)
 		if err != nil {
 			return bundlelane.Injection{}, couldNotRun("%s could not be probed: %v", p, err)
@@ -27,7 +37,7 @@ func (l *bundleLane) inject(ctx context.Context, data string, shards []string) (
 			return bundlelane.Injection{}, findings(p + " is committed, and the lane writes it — the injected key would be overwritten without anyone seeing")
 		}
 	}
-	in := bundlelane.Inputs{Tier: data, Shards: shards}
+	in := bundlelane.Inputs{FluxSHA: sha, Tier: data, Shards: shards}
 	for _, read := range []struct {
 		dir     *dagger.Directory
 		pattern string
@@ -47,7 +57,7 @@ func (l *bundleLane) inject(ctx context.Context, data string, shards []string) (
 	if err != nil {
 		return bundlelane.Injection{}, findings(err.Error())
 	}
-	bundleSay("fleet: %d catalog entries; flux states %d of %d known stars (%d CNPG clusters)", inj.DeclaredRows, inj.FluxRows, inj.Known, inj.Clusters)
+	bundleSay("fleet: %d catalog entries; flux %.12s states %d of %d known stars (%d CNPG clusters)", inj.DeclaredRows, sha, inj.FluxRows, inj.Known, inj.Clusters)
 	return inj, clean()
 }
 

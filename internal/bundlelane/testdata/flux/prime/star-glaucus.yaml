@@ -1,0 +1,109 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: glaucus-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: glaucus
+  namespace: prime
+  labels: {owner: rob, app: glaucus, pistis.star: glaucus}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: glaucus}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: glaucus, pistis.star: glaucus}
+    spec:
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: glaucus-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: glaucus
+          image: registry.notusmi.com/rob/glaucus
+          resources:
+            requests: {cpu: 10m, memory: 128Mi}
+            limits:   {memory: 256Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            exec:
+              command: ['/glaucus', 'readycheck']
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 8
+            failureThreshold: 6
+          livenessProbe:
+            httpGet: {path: /livez, port: 8200}
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: GLAUCUS_MCP_ADDR,      value: "0.0.0.0:8200"}
+            - {name: GLAUCUS_MCP_MTLS_ADDR, value: "0.0.0.0:8201"}
+            - {name: GLAUCUS_IRIS_URL,      value: "https://iris:8201/mcp"}
+            - {name: GLAUCUS_SCOPE,         value: "moirae"}
+            - {name: GLAUCUS_CHAIRMAN_DECLARED,     value: "casper"}
+            - {name: GLAUCUS_CHAIRMAN_REALM,        value: "prime"}
+            - {name: GLAUCUS_CHAIRMAN_SEAT_HOST,    value: "chairmen"}
+            - {name: GLAUCUS_CHAIRMAN_TRUST_DOMAIN, value: "notusmi.com"}
+            - {name: OTEL_SERVICE_NAME,     value: "glaucus"}
+            - {name: STELLAR_DB_AUTH,      value: "svid"}
+            - {name: GLAUCUS_DATABASE_URL, value: "postgresql://glaucus_svid@aether:5432/glaucus?sslmode=verify-full&sslrootcert=/etc/stellar/aether-db-ca/ca.crt"}
+            - {name: STELLAR_PEP_MODE, value: "witness"}
+            - {name: STELLAR_PDP_URL, value: "http://ouranos-opa:8181/v1/data/authz/decision"}
+          ports:
+            - {name: mcp,  containerPort: 8200}
+            - {name: mtls, containerPort: 8201}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+            - {name: aether-db-ca, mountPath: /etc/stellar/aether-db-ca, readOnly: true}
+            - {name: orbit, mountPath: /etc/stellar/orbit.toml, subPath: orbit.toml, readOnly: true}
+      volumes:
+        - name: orbit
+          configMap: {name: orbit-glaucus}
+        - {name: tmp, emptyDir: {}}
+        - name: aether-db-ca
+          secret: {secretName: aether-db-server-ca, items: [{key: ca.crt, path: ca.crt}]}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: glaucus
+  namespace: prime
+spec:
+  selector: {app: glaucus}
+  ports:
+    - {name: mcp,  port: 8200, targetPort: 8200, protocol: TCP}
+    - {name: mtls, port: 8201, targetPort: 8201, protocol: TCP}

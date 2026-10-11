@@ -16,7 +16,7 @@ const (
 	// policyData is a built policy bundle's data.json: chaos curates a verb.
 	policyData = `{"authz_audience":{"star_only":{"chaos":["graph_commit_graph"],"athena":["task_create"]}}}`
 	// rosterData is a built roster's data.json.
-	rosterData = `{"fleet":{"map":{"athena":{},"ares":{}},"topics":["athena._ops.calls"],"stars":{"athena":{"name":"athena"},"ares":{"name":"ares"}},"declared":{},"flux":{"athena":{}}}}`
+	rosterData = `{"fleet":{"map":{"athena":{},"ares":{}},"topics":["athena._ops.calls"],"stars":{"athena":{"name":"athena"},"ares":{"name":"ares"}},"declared":{},"flux":{"athena":{}},"flux_source":{"repo":"foundry/flux","sha":"` + fakeFluxSHA + `"}}}`
 	// athenaManifest is foundry/flux's prime/star-athena.yaml, down to its
 	// Service and its DSN.
 	athenaManifest = "kind: Deployment\nmetadata: {name: athena}\nspec:\n  template:\n    spec:\n      containers:\n        - env:\n            - {name: DATABASE_URL, value: \"postgresql://athena_svid@aether:5432/athena?sslrootcert=/etc/stellar/aether-db-ca/ca.crt\"}\n" +

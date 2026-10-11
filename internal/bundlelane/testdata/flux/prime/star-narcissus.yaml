@@ -1,0 +1,166 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: narcissus-corpus
+  namespace: prime
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: gaia
+  resources: {requests: {storage: 10Gi}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: narcissus-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: aiws.notusmi.com/v1alpha1
+kind: World
+metadata:
+  name: narcissus
+  namespace: prime
+  labels: {owner: rob, app: narcissus, pistis.star: narcissus}
+  annotations:
+    email: owner@example.invalid
+spec:
+  world: notusmi:narcissus/narcissus-star@0.2.0
+  module: registry.notusmi.com/rob/narcissus@sha256:0ce0cb10f28a65f51f91d88ab6ab2463ef03a97ed16e5314bf3874028a8f224e
+  litigant: narcissus
+  deploymentAnnotations:
+    reloader.stakater.com/auto: "true"
+  ports:
+    clones-of: narcissus-db-rw:5432
+    nearest: narcissus-db-rw:5432
+    nearest-canonical: narcissus-db-rw:5432
+    ledger-status: narcissus-db-rw:5432
+    canonical-for: narcissus-db-rw:5432
+  field:
+    scope: repo:narcissus
+    transmitters:
+      - {name: dopamine, role: scaleOut}
+      - {name: ne, role: floor}
+    floor: 1
+    ceiling: 1
+  template:
+    metadata:
+      labels: {app: narcissus, pistis.star: narcissus}
+    spec:
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: narcissus-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      initContainers:
+        - name: spiffe-helper
+          image: ghcr.io/spiffe/spiffe-helper:0.11.0@sha256:1c92e5998ad3621e3323f25aabe40f5a88ba730ee0edb248aa8c943ca504e8a2
+          args: ["-config", "/etc/spiffe-helper/helper.conf"]
+          restartPolicy: Always
+          startupProbe:
+            httpGet: {path: /ready, port: 18081}
+            periodSeconds: 2
+            failureThreshold: 150
+          livenessProbe:
+            httpGet: {path: /live, port: 18081}
+            periodSeconds: 30
+          resources:
+            requests: {cpu: 5m, memory: 16Mi}
+            limits: {memory: 64Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+            - {name: svid, mountPath: /var/run/secrets/svid}
+            - {name: star-spiffe-helper, mountPath: /etc/spiffe-helper, readOnly: true}
+      containers:
+        - name: narcissus
+          livenessProbe:
+            tcpSocket: {port: 8200}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests: {cpu: 10m, memory: 128Mi}
+            limits: {memory: 512Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            tcpSocket: {port: 8200}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: LOUTRON_REDIS_URL, value: "redis://tron-redis:6379"}
+            - {name: NARCISSUS_EMBED_MODEL, value: "bge-m3-FP16.gguf"}
+            - {name: NARCISSUS_HOST, value: "0.0.0.0"}
+            - {name: NARCISSUS_OTEL_ENABLED, value: "true"}
+            - {name: NARCISSUS_PORT, value: "8200"}
+            - {name: OTEL_SERVICE_NAME, value: "narcissus"}
+            - {name: STELLAR_DB_AUTH, value: "svid"}
+            - {name: NARCISSUS_DATABASE_URL, value: "postgresql://narcissus_svid@narcissus-db-rw:5432/narcissus?sslmode=verify-full&sslrootcert=/etc/stellar/narcissus-db-ca/ca.crt"}
+            - {name: STELLAR_PEP_MODE, value: "witness"}
+            - {name: STELLAR_SVID_DIR, value: /var/run/secrets/svid}
+            - {name: SSL_CERT_FILE, value: /etc/ssl/fleet/ca.crt}
+            - {name: NODE_EXTRA_CA_CERTS, value: /etc/ssl/fleet/ca.crt}
+            - {name: REQUESTS_CA_BUNDLE, value: /etc/ssl/fleet/ca.crt}
+          ports:
+            - {name: mcp,  containerPort: 8200}
+            - {name: mtls, containerPort: 8201}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: narcissus-corpus, mountPath: /var/lib/narcissus/corpus}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+            - {name: orbit, mountPath: /etc/stellar/orbit.toml, subPath: orbit.toml, readOnly: true}
+            - {name: narcissus-db-ca, mountPath: /etc/stellar/narcissus-db-ca, readOnly: true}
+            - {name: svid, mountPath: /var/run/secrets/svid, readOnly: true}
+            - {name: fleet-trust, mountPath: /etc/ssl/fleet, readOnly: true}
+      volumes:
+        - name: orbit
+          configMap: {name: orbit-narcissus}
+        - {name: tmp, emptyDir: {}}
+        - name: narcissus-corpus
+          persistentVolumeClaim: {claimName: narcissus-corpus}
+        - name: spire-socket
+          csi: {driver: csi.spiffe.io, readOnly: true}
+        - name: narcissus-db-ca
+          secret: {secretName: narcissus-db-server-ca, items: [{key: ca.crt, path: ca.crt}]}
+        - {name: svid, emptyDir: {medium: Memory, sizeLimit: 1Mi}}
+        - name: star-spiffe-helper
+          configMap: {name: star-spiffe-helper}
+        - name: fleet-trust
+          configMap:
+            name: fleet-trust
+            items:
+              - {key: ca.crt, path: ca.crt}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: narcissus
+  namespace: prime
+spec:
+  selector: {app: narcissus}
+  ports:
+    - {name: mcp,  port: 8200, targetPort: 8200, protocol: TCP}
+    - {name: mtls, port: 8201, targetPort: 8201, protocol: TCP}

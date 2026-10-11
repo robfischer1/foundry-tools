@@ -1,0 +1,99 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: techne-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: techne
+  namespace: prime
+  labels: {owner: rob, app: techne, pistis.star: techne}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: techne}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: techne, pistis.star: techne}
+    spec:
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: techne-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: techne
+          livenessProbe:
+            tcpSocket: {port: 8200}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: registry.notusmi.com/rob/techne
+          resources:
+            requests: {cpu: 10m, memory: 128Mi}
+            limits:   {memory: 256Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            exec:
+              command: ['/techne', 'readycheck']
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 8
+            failureThreshold: 6
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: OTEL_SERVICE_NAME, value: "techne"}
+            - {name: TECHNE_CHAOS_URL, value: "https://chaos:8207/mcp"}
+            - {name: TECHNE_HOST, value: "0.0.0.0"}
+            - {name: TECHNE_OTEL_ENABLED, value: "true"}
+            - {name: TECHNE_PORT, value: "8200"}
+            - {name: TECHNE_PROMETHEUS_URL, value: "https://prometheus:8201/mcp"}
+            - {name: STELLAR_PEP_MODE, value: "witness"}
+          ports:
+            - {name: mcp,  containerPort: 8200}
+            - {name: mtls, containerPort: 8201}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+            - {name: orbit, mountPath: /etc/stellar/orbit.toml, subPath: orbit.toml, readOnly: true}
+      volumes:
+        - name: orbit
+          configMap: {name: orbit-techne}
+        - {name: tmp, emptyDir: {}}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: techne
+  namespace: prime
+spec:
+  selector: {app: techne}
+  ports:
+    - {name: mcp,  port: 8200, targetPort: 8200, protocol: TCP}
+    - {name: mtls, port: 8201, targetPort: 8201, protocol: TCP}

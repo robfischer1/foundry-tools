@@ -19,14 +19,18 @@ func TestTheRosterServesTheCatalogEntriesAndTheFluxFacts(t *testing.T) {
 	bundles(t, m)
 	settledOn(t, "0", "published and signed")
 
-	stage := engine.chain(`path:"fleet/flux/data.json"`, `"fleet/declared/data.json"`, `path:".manifest"`)
+	if engine.chain(`commit(id:"`+fakeFluxSHA+`")`, `glob(pattern:"prime/star-*.yaml")`) == "" {
+		t.Error("flux was not read at the commit main resolved to")
+	}
+	stage := engine.chain(`path:"fleet/flux/data.json"`, `"fleet/flux_source/data.json"`, `"fleet/declared/data.json"`, `path:".manifest"`)
 	if stage == "" {
 		t.Fatal("the roster was not built from a stage carrying both injected files")
 	}
 	for _, want := range []string{
 		`\"athena\": {`, `\"listen\": 8200`, `\"mtls\": 8201`, `\"aether-db\"`, // the flux facts
 		`\"repo\": \"rob/athena\"`, `\"lifecycle\": \"production\"`, // the catalog entry
-		`stars/*.json`, // the entries reach the die only through the stage
+		`stars/*.json`,                     // the entries reach the die only through the stage
+		`\"sha\": \"` + fakeFluxSHA + `\"`, // the flux commit the facts were read at
 	} {
 		if !strings.Contains(stage, want) {
 			t.Errorf("the stage lacks %s:\n%s", want, stage)
@@ -60,6 +64,9 @@ func TestTheInjectionRefusesWhatWouldServeTheWrongFacts(t *testing.T) {
 		{"the built roster lost the flux facts", nil, func() {
 			scriptTheFleetWith(strings.Replace(rosterData, `,"flux":{"athena":{}}`, "", 1))
 		}, "1", "carries no data.fleet.flux"},
+		{"the built roster names another flux", nil, func() {
+			scriptTheFleetWith(strings.Replace(rosterData, fakeFluxSHA, strings.Repeat("0", 40), 1))
+		}, "1", "does not name flux " + fakeFluxSHA},
 		{"the built roster lost a row", nil, func() {
 			scriptTheFleetWith(strings.Replace(rosterData, `"flux":{"athena":{}}`, `"flux":{}`, 1))
 		}, "1", "data.fleet.flux has 0 rows, the lane staged 1"},
@@ -82,6 +89,7 @@ func TestTheInjectionRefusesWhatWouldServeTheWrongFacts(t *testing.T) {
 // reading — never an empty key.
 func TestAnInjectionReadTheEngineLostCouldNotRun(t *testing.T) {
 	for name, c := range map[string]struct{ needle, reason string }{
+		"resolving flux main":      {`ref(name:"main"){commit}`, "foundry/flux main could not be resolved to a commit"},
 		"the committed-file probe": {`glob(pattern:"fleet/declared/data.json")`, "fleet/declared/data.json could not be probed"},
 		"the catalog entries":      {`glob(pattern:"fleet/stars/*.json")`, "fleet/stars/*.json could not be listed"},
 		"flux's star manifests":    {`glob(pattern:"prime/star-*.yaml")`, "prime/star-*.yaml could not be listed"},

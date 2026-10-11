@@ -1,0 +1,103 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cql-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: cql
+  namespace: prime
+  labels: {owner: rob, app: cql, pistis.star: cql}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: cql}
+  strategy: {type: RollingUpdate}
+  template:
+    metadata:
+      labels: {app: cql, pistis.star: cql}
+    spec:
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: cql-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: cql
+          livenessProbe:
+            tcpSocket: {port: 8218}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: registry.notusmi.com/rob/cql
+          resources:
+            requests: {cpu: 10m, memory: 128Mi}
+            limits:   {memory: 256Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            tcpSocket: {port: 8218}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          envFrom:
+            - configMapRef: {name: fleet-env}
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: CQL_HOST, value: "0.0.0.0"}
+            - {name: CQL_MCP_ADDR, value: ":8218"}
+            - {name: CQL_OTEL_ENABLED, value: "true"}
+            - {name: CQL_PORT, value: "8218"}
+            - {name: OTEL_SERVICE_NAME, value: "cql"}
+            - {name: PORT, value: "8218"}
+            - {name: STELLAR_DB_AUTH, value: "svid"}
+            - {name: CQL_DATABASE_URL, value: "postgresql://cql_svid@aether:5432/cql?sslmode=verify-full&sslrootcert=/etc/stellar/aether-db-ca/ca.crt"}
+            - {name: STELLAR_PEP_MODE, value: "witness"}
+          ports:
+            - {name: mcp,  containerPort: 8218}
+            - {name: mtls, containerPort: 8219}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+            - {name: orbit, mountPath: /etc/stellar/orbit.toml, subPath: orbit.toml, readOnly: true}
+            - {name: aether-db-ca, mountPath: /etc/stellar/aether-db-ca, readOnly: true}
+      volumes:
+        - name: orbit
+          configMap: {name: orbit-cql}
+        - {name: tmp, emptyDir: {}}
+        - name: spire-socket
+          hostPath: {path: /run/spire-k8s/agent/public, type: Directory}
+        - name: aether-db-ca
+          secret: {secretName: aether-db-server-ca, items: [{key: ca.crt, path: ca.crt}]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cql
+  namespace: prime
+spec:
+  selector: {app: cql}
+  ports:
+    - {name: mcp,  port: 8218, targetPort: 8218, protocol: TCP}
+    - {name: mtls, port: 8219, targetPort: 8219, protocol: TCP}
