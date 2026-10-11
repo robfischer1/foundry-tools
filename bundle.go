@@ -121,6 +121,10 @@ type bundleLane struct {
 	// and the die names it (data.fleet.flux_source).
 	flux    *dagger.Directory
 	fluxSHA string
+	// derive says the tree carries fleet/derive.rego (slag-by-kind F9): the
+	// fleet die then derives data.fleet.stars, its suite runs beside the
+	// policy's, and the lean rows are staged at data.fleet.lean.
+	derive bool
 }
 
 // workDir is where the bundles are built, outside the mounted tree.
@@ -176,6 +180,12 @@ func (l *bundleLane) run(ctx context.Context) (int, string) {
 		mode = " — dry run: every gate and both builds run for real; nothing is pushed, tagged or signed"
 	}
 	bundleSay("%s at %.12s%s", starOf(m.Repo), m.Sha, mode)
+
+	_, derive, err := fileIn(ctx, m.Source, checks.FleetDerive)
+	if err != nil {
+		return buildlane.CouldNotRun, "could not run: " + checks.FleetDerive + " could not be probed: " + err.Error()
+	}
+	l.derive = derive
 
 	r := newRun(m.Source, m.Repo, "")
 	opa, err := r.opaClient(ctx)
@@ -324,7 +334,7 @@ func member(ctx context.Context, ctr *dagger.Container, bundle, file string) (st
 // artifact. It answers the container the bundles were built in.
 func (l *bundleLane) policy(ctx context.Context, tools *dagger.Container) (*dagger.Container, gateResult) {
 	bundleSay("── policy: re-gate before publishing ──")
-	out, code, g := exec(ctx, tools, "opa test", "opa", "test", "policy/", "-v")
+	out, code, g := exec(ctx, tools, "opa test", append([]string{"opa"}, checks.OpaTestArgs(l.derive)...)...)
 	if g.code != buildlane.Clean {
 		return nil, g
 	}
@@ -464,12 +474,39 @@ func (l *bundleLane) fleet(ctx context.Context, built *dagger.Container) (*dagge
 	// reads data.json, and a stray file in the stage is one more thing a future
 	// builder could trip on. The catalog entries (fleet/stars/<n>.json) reach
 	// the die through the staged declared/data.json, not as themselves.
+	//
+	// ONCE THE TREE DERIVES data.fleet.stars (fleet/derive.rego), the lean rows
+	// cannot stay at fleet/stars/<n>/data.json: OPA refuses a rule and a data
+	// document at one path. They are staged at fleet/lean/<n>/data.json, the
+	// derivation's fallback, and stay committed where they are for the readers
+	// that read them in git.
+	exclude := []string{"**/*.slag", "stars/*.json"}
+	var lean map[string]string
+	if l.derive {
+		exclude = append(exclude, "stars/*/data.json")
+		committed, err := src.Glob(ctx, "fleet/"+bundlelane.LeanKey+"/**")
+		if err != nil {
+			return nil, couldNotRun("fleet/%s/ could not be probed: %v", bundlelane.LeanKey, err)
+		}
+		if len(committed) > 0 {
+			return nil, findings("fleet/" + bundlelane.LeanKey + "/ is committed, and the lane stages the lean rows there — they would be overwritten without anyone seeing")
+		}
+		rows, err := src.Glob(ctx, bundlelane.LeanGlob)
+		if err != nil {
+			return nil, couldNotRun("the lean rows could not be listed: %v", err)
+		}
+		lean = bundlelane.Lean(rows)
+		bundleSay("fleet: %s derives data.fleet.stars; %d lean rows staged at data.fleet.%s as its fallback", checks.FleetDerive, len(lean), bundlelane.LeanKey)
+	}
 	stage := dag.Directory().
-		WithDirectory("fleet", src.Directory("fleet"), dagger.DirectoryWithDirectoryOpts{Exclude: []string{"**/*.slag", "stars/*.json"}}).
+		WithDirectory("fleet", src.Directory("fleet"), dagger.DirectoryWithDirectoryOpts{Exclude: exclude}).
 		WithNewFile(bundlelane.DeclaredPath, inj.Declared).
 		WithNewFile(bundlelane.FluxPath, inj.Flux).
 		WithNewFile(bundlelane.FluxSourcePath, inj.Source).
 		WithNewFile(".manifest", bundlelane.FleetManifest)
+	for from, to := range lean {
+		stage = stage.WithFile(to, src.File(from))
+	}
 	built = built.WithDirectory(workDir+"/stage", stage)
 	for _, b := range [][]string{
 		{"opa", "build", "-b", workDir + "/stage", "-o", workDir + "/fleet-bundle.tar.gz", "--revision", bundlelane.FleetRevision(l.m.Sha, l.fluxSHA)},
@@ -496,9 +533,13 @@ func (l *bundleLane) fleet(ctx context.Context, built *dagger.Container) (*dagge
 	}
 
 	bundleSay("── fleet GATE: the artifact carries the roster it claims to ──")
-	roster, g := member(ctx, built, "fleet-bundle.tar.gz", "/data.json")
+	// Evaluated, not read out of the tarball: data.fleet.stars may be a rule.
+	roster, code, g := exec(ctx, built, "evaluating the built roster", "opa", "eval", "-b", workDir+"/fleet-bundle.tar.gz", "--format", "raw", "data")
 	if g.code != buildlane.Clean {
 		return nil, g
+	}
+	if code != 0 {
+		return nil, findings("the built roster does not evaluate:\n" + roster)
 	}
 	rows, stars, topics, problem, err := bundlelane.Roster(roster)
 	if err != nil {

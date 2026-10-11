@@ -169,8 +169,11 @@ func RootsAreFleet(manifest string) bool {
 	return len(m.Roots) == 1 && m.Roots[0] == "fleet"
 }
 
-// Roster grades the built roster's data.json: map, topics and stars all
-// non-empty, and no star row carrying a charter. An empty data.fleet makes
+// Roster grades the built roster's data.fleet AS OPA EVALUATES IT (opa eval
+// -b <die> data, which is {"fleet": …}): map, topics and stars all non-empty,
+// and no star row carrying a charter. Evaluated, not read out of the tarball's
+// data.json, because once fleet/derive.rego ships data.fleet.stars is a rule
+// and the tarball's data.json has no stars at all. An empty data.fleet makes
 // admission's seam and topic guards evaluate to nothing, and a charter in the
 // bundle means slag.json — the full declaration — leaked into the PDP
 // (bundle.sh fleet_roster_gate). problem is "" when the roster is sound.

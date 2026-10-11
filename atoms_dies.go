@@ -223,7 +223,11 @@ func diesOpaTest(ctx context.Context, r *run) checks.Verdict {
 	if stop != nil {
 		return *stop
 	}
-	out, code, err := output(ctx, ctr.WithExec([]string{"opa", "test", "policy/", "-v"}, anyExit))
+	_, derive, err := fileIn(ctx, r.src, checks.FleetDerive)
+	if err != nil {
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+checks.FleetDerive+" could not be probed: "+err.Error())
+	}
+	out, code, err := output(ctx, ctr.WithExec(append([]string{"opa"}, checks.OpaTestArgs(derive)...), anyExit))
 	if err != nil {
 		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the atom never ran: "+err.Error())
 	}

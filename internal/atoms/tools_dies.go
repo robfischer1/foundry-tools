@@ -28,7 +28,8 @@ func diesOpaTest(ctx context.Context, a checks.AtomDef, in Input) checks.Verdict
 	if stop := opaProvisioned(ctx, a, in); stop != nil {
 		return *stop
 	}
-	out, code := in.run(ctx, Cmd{Dir: in.Root, Name: "opa", Args: []string{"test", "policy/", "-v"}})
+	args := checks.OpaTestArgs(present(in.tree(), checks.FleetDerive))
+	out, code := in.run(ctx, Cmd{Dir: in.Root, Name: "opa", Args: args})
 	if code < 0 {
 		return checks.VerdictOf(a, int(checks.StateCannotRun), a.ID+": CANNOT RUN - the atom never ran: "+out)
 	}

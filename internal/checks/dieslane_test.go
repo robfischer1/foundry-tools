@@ -211,3 +211,13 @@ func TestContractFixtureVerdictGradesBothDirections(t *testing.T) {
 		}
 	}
 }
+
+func TestOpaTestArgsAddTheFleetDerivationOnlyWhereItExists(t *testing.T) {
+	if got := OpaTestArgs(false); !reflect.DeepEqual(got, []string{"test", "policy/", "-v"}) {
+		t.Fatalf("no derivation: %q", got)
+	}
+	want := []string{"test", "policy/", "fleet/derive.rego", "tests/fleet-derive/", "-v"}
+	if got := OpaTestArgs(true); !reflect.DeepEqual(got, want) {
+		t.Fatalf("with the derivation: %q, want %q", got, want)
+	}
+}

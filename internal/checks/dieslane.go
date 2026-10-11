@@ -36,6 +36,28 @@ func OpaVersionOK(versionOutput, want string) bool {
 	return false
 }
 
+// FleetDerive is the Rego that derives data.fleet.stars inside the fleet die
+// (slag-by-kind F9), and FleetDeriveTests the suite that grades it against
+// every star's lean row. Both are foundry-dies paths.
+const (
+	FleetDerive      = "fleet/derive.rego"
+	FleetDeriveTests = "tests/fleet-derive/"
+)
+
+// OpaTestArgs is the `opa test` argv after the binary: the policy suite, and,
+// on a tree that carries the fleet derivation, that file and its suite too.
+// The fleet die is built in bundle mode from fleet/, so its Rego is not under
+// policy/ and `opa test policy/` alone would never load it. The two are named
+// as paths, not fleet/ as a directory: directory mode merges every *.json it
+// finds at the data root, and fleet/ holds a data.json per star.
+func OpaTestArgs(derive bool) []string {
+	args := []string{"test", "policy/"}
+	if derive {
+		args = append(args, FleetDerive, FleetDeriveTests)
+	}
+	return append(args, "-v")
+}
+
 var opaPassRE = regexp.MustCompile(`^PASS: ([0-9]+)/[0-9]+$`)
 
 // OpaTestState maps an `opa test policy/ -v` run to this module's three states.
