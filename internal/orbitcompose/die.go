@@ -20,7 +20,7 @@ import (
 // (RenderReference — the file laid into the star's repository root; the
 // inlined runtime form stays flux's), plus orbits.json. orbits.json keeps the frozen
 // 2026-08-01 shape — {generated_from, edges[{producer, consumer, contract,
-// version, status, wire_form, verbs}]} — and adds, per edge, `via` (the
+// version, status, verbs}]} — and adds, per edge, `via` (the
 // transport; every contract today is an MCP verb seam) and `digest` (sha256 of
 // the contract file's bytes, the comparison fleet:orbit-drift makes), and a
 // top-level `stars` index: per star, the consumers it produces for and the
@@ -48,7 +48,6 @@ type dieEdge struct {
 	Via      string   `json:"via"`
 	Version  string   `json:"version"`
 	Status   string   `json:"status"`
-	WireForm string   `json:"wire_form"`
 	Verbs    []string `json:"verbs"`
 	Digest   string   `json:"digest"`
 }
@@ -83,7 +82,7 @@ func Index(contracts []Contract) []byte {
 	for _, c := range sorted {
 		doc.Edges = append(doc.Edges, dieEdge{
 			Producer: c.Producer, Consumer: c.Consumer, Contract: c.Name, Via: c.Via,
-			Version: c.Version, Status: c.Status, WireForm: c.WireForm, Verbs: c.Verbs, Digest: c.Digest,
+			Version: c.Version, Status: c.Status, Verbs: c.Verbs, Digest: c.Digest,
 		})
 	}
 	for _, s := range Compose(contracts) {

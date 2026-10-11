@@ -27,7 +27,7 @@ const Teach = "the contract is foundry-dies/orbits/<producer>-<consumer>.toml; e
 // One file per ordered pair is the directory's own guarantee (a file name
 // names the pair); what this adds is that the name parses as two stars on the
 // roster, that the body parses as the composer reads it (version, status,
-// wire_form and non-empty, well-formed verbs — orbitcompose.ParseContract),
+// and non-empty, well-formed verbs — orbitcompose.ParseContract),
 // and that the status is one the ladder knows.
 func Contracts(files, base map[string][]byte, roster map[string]bool) []checks.Finding {
 	var names []string

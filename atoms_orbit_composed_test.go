@@ -8,7 +8,6 @@ import (
 
 const composedContract = `version = "1"
 status = "generated"
-wire_form = "native"
 verbs = ["shape_for"]
 
 [witness]

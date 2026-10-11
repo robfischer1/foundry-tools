@@ -19,7 +19,7 @@ const (
 	rosterData = `{"fleet":{"map":{"athena":{},"ares":{}},"topics":["athena._ops.calls"],"stars":{"athena":{"name":"athena"},"ares":{"name":"ares"}}}}`
 	// plantedDenied is the composition probe's answer when both guards fire.
 	// orbitContract is one seam contract in foundry-dies/orbits.
-	orbitContract = "version = \"1\"\nstatus = \"generated\"\nwire_form = \"native\"\nverbs = [\"neighbors\"]\n"
+	orbitContract = "version = \"1\"\nstatus = \"generated\"\nverbs = [\"neighbors\"]\n"
 	plantedDenied = `{"result":[{"expressions":[{"value":["seam to definitely-not-a-real-star is not in the fleet roster","topic not-a-registered-topic is not in the fleet roster"]}]}]}`
 )
 
