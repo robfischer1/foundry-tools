@@ -16,6 +16,8 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/spiffe/go-spiffe/v2/svid/jwtsvid"
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // FetchJWT asks the SPIRE agent at socket for a JWT-SVID of the given
@@ -27,6 +29,36 @@ var FetchJWT = func(ctx context.Context, socket, audience string) (string, strin
 		return "", "", err
 	}
 	return svid.Marshal(), svid.ID.String(), nil
+}
+
+// retryEvery is how often a refused or unreachable agent is asked again.
+var retryEvery = time.Second
+
+// fetchJWTWaiting asks until ctx ends while the agent answers "not yet".
+//
+// THE CAST ASKS BEFORE ITS IDENTITY EXISTS. The ca-cast entry is per pod: the
+// SPIRE controller registers it after the cast's pod is created, and the node
+// agent learns it at its next sync. A warm cast reaches this ask about 3 s
+// after its pod starts (2026-10-11, cast-cerberus-c486581: asked 22:55:06,
+// pod 22:55:03) and the agent answers PermissionDenied "no identity issued" at
+// once; a cold one asks ~45 s in and finds the entry there. So PermissionDenied
+// and Unavailable are asked again until the wait runs out; anything else is
+// final at once.
+func fetchJWTWaiting(ctx context.Context, socket string) (string, string, error) {
+	for {
+		token, sub, err := FetchJWT(ctx, socket, castcache.Audience)
+		if err == nil {
+			return token, sub, nil
+		}
+		if c := status.Code(err); c != codes.PermissionDenied && c != codes.Unavailable {
+			return "", "", err
+		}
+		select {
+		case <-ctx.Done():
+			return "", "", err
+		case <-time.After(retryEvery):
+		}
+	}
 }
 
 // newProvider is minio-go's web-identity provider; a seam, because its only
@@ -67,7 +99,7 @@ func FetchCreds(ctx context.Context, c CredsConfig) (castcache.Creds, string, er
 	getter := func() (*credentials.WebIdentityToken, error) {
 		wctx, cancel := context.WithTimeout(ctx, c.Wait)
 		defer cancel()
-		token, sub, err := FetchJWT(wctx, c.Socket, castcache.Audience)
+		token, sub, err := fetchJWTWaiting(wctx, c.Socket)
 		if err != nil {
 			return nil, fmt.Errorf("no JWT-SVID for audience %s within %s: %v", castcache.Audience, c.Wait, err)
 		}
