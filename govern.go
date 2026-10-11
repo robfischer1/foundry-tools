@@ -40,6 +40,14 @@ import (
 
 // Govern casts each consumer's governance render at the commit the module was
 // constructed on as the runtime-gov bundle governance.<consumer>.
+//
+// NEVER CACHED. The engine keys a call on the module, --repo and --sha, so a new
+// landing is always a new call; but the SAME sha asked again (the cron tick after
+// an on-landing Job, a re-run to repair a channel moved by hand) was answered
+// from the cache with `FoundryTools.govern CACHED [0.0s]` and cast nothing. The
+// function is an act on the registry, not a pure read.
+//
+// +cache="never"
 func (m *FoundryTools) Govern(
 	ctx context.Context,
 	// The SPIRE agent's workload socket, forwarded by the calling pod: the
