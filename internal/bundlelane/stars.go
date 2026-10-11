@@ -223,8 +223,9 @@ func cluster(value string) string {
 }
 
 // Stage renders one injected key's data.json: the rows keyed by star, sorted,
-// two-space indented, one trailing LF — the same bytes for the same inputs,
-// so the die's data.json moves only when a fact did.
+// two-space indented, one trailing LF — the same bytes for the same inputs.
+// The die as a whole still moves on every flux commit it is built at, because
+// data.fleet.flux_source names that commit even when no fact changed.
 func Stage[T any](rows map[string]T) string {
 	if rows == nil {
 		rows = map[string]T{}
