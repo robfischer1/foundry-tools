@@ -9,10 +9,11 @@ import (
 	"strings"
 )
 
-// GravityGit is where the fleet's fork of gravity lives. It is read without
+// GravityGit is where the fleet's fork of gravity lives (the forks/ owner since
+// 2026-10-11; cargo is pointed at the key itself, not the 301). It is read without
 // credentials, so a lane can `cargo install --git` it as the test's own failure
 // message tells a human to.
-const GravityGit = "https://git.notusmi.com/foundry/gravity"
+const GravityGit = "https://git.notusmi.com/forks/gravity"
 
 // GravityRegen is one generated binding package that asks to be regenerated in
 // the lane: the directory its provenance.json sits in, the environment variable
