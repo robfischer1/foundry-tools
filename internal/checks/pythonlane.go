@@ -346,5 +346,5 @@ func UvRun(entries []string, tool string, args ...string) []string {
 	if DeclaresManifest(entries, ManifestFor(LanePython)) {
 		return append([]string{"uv", "run", "--all-extras", tool}, args...)
 	}
-	return append([]string{"uv", "run", "--no-project", "--with", tool, tool}, args...)
+	return append([]string{"uv", "run", "--no-project", "--with", PythonWith(tool), tool}, args...)
 }

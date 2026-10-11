@@ -1,6 +1,7 @@
 package main
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -55,7 +56,7 @@ func TestPythonRuffCheckRunsTheFleetsRulesetAndReadsTheExit(t *testing.T) {
 
 	wantState(t, runAtom(t, "python:ruff-check", "base-sha"), 0)
 
-	c := engine.chain(`"uvx","ruff@0.16.3","check"`, "exitCode")
+	c := engine.chain(`"ruff","check"`, "exitCode")
 	if !strings.Contains(c, checks.ImagePython) {
 		t.Errorf("python:ruff-check must run in the python lane image:\n%s", c)
 	}
@@ -65,13 +66,13 @@ func TestPythonRuffCheckRunsTheFleetsRulesetAndReadsTheExit(t *testing.T) {
 		[]string{"withMountedDirectory", `path:"/src"`},
 		[]string{"withNewFile", `path:"/rulesets/ruff.toml"`},
 		[]string{"withWorkdir", `path:"/src"`},
-		[]string{"withExec", `args:["uvx","ruff@0.16.3","--version"]`},
-		[]string{"withExec", `expect:ANY`, `args:["uvx","ruff@0.16.3","check","--config","` + ruffToml + `","."]`},
+		[]string{"withExec", `args:["ruff","--version"]`},
+		[]string{"withExec", `expect:ANY`, `args:["ruff","check","--config","` + ruffToml + `","."]`},
 	)
 	// Rule 1: the resolver probe is provisioning and a resolver that could not
 	// resolve is a could-not-run, so it must NOT carry anyExit.
-	if hasCall(c, "withExec", `args:["uvx","ruff@0.16.3","--version"]`, `expect:ANY`) {
-		t.Errorf("the uvx resolve is provisioning and must run under the default Expect:\n%s", c)
+	if hasCall(c, "withExec", `args:["ruff","--version"]`, `expect:ANY`) {
+		t.Errorf("the ruff probe is provisioning and must run under the default Expect:\n%s", c)
 	}
 	// Rule 8: ruff does not judge the change, so its cache key stays a
 	// function of the tree.
@@ -80,19 +81,19 @@ func TestPythonRuffCheckRunsTheFleetsRulesetAndReadsTheExit(t *testing.T) {
 	}
 
 	// Rule 2: ruff's own exit code is the verdict.
-	engine.exitCode(`"ruff@0.16.3","check"`, 1)
-	engine.stdout(`"ruff@0.16.3","check"`, "src/x.py:1:1: F401 [*] `os` imported but unused")
+	engine.exitCode(`"ruff","check"`, 1)
+	engine.stdout(`"ruff","check"`, "src/x.py:1:1: F401 [*] `os` imported but unused")
 	wantState(t, runAtom(t, "python:ruff-check", ""), 1, "F401")
 
-	engine.exitCode(`"ruff@0.16.3","check"`, 2)
-	engine.stderr(`"ruff@0.16.3","check"`, "ruff failed: invalid configuration")
+	engine.exitCode(`"ruff","check"`, 2)
+	engine.stderr(`"ruff","check"`, "ruff failed: invalid configuration")
 	wantState(t, runAtom(t, "python:ruff-check", ""), 2, "invalid configuration")
 
 	// The provisioning exec is the engine's error, not a finding.
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	engine.fail(`"uvx","ruff@0.16.3","--version"`, "failed to resolve ruff@0.16.3")
-	wantState(t, runAtom(t, "python:ruff-check", ""), 2, "never ran", "failed to resolve")
+	engine.fail(`"ruff","--version"`, "ruff: not found")
+	wantState(t, runAtom(t, "python:ruff-check", ""), 2, "never ran", "ruff: not found")
 }
 
 func TestPythonRuffFormatGradesAWheelBuilderAtEighty(t *testing.T) {
@@ -107,8 +108,8 @@ func TestPythonRuffFormatGradesAWheelBuilderAtEighty(t *testing.T) {
 	}))
 	wantState(t, runAtom(t, "python:ruff-format", "base-sha"), 0)
 
-	wantCalls(t, engine.chain(`"uvx","ruff@0.16.3","format"`, "exitCode"),
-		[]string{"withExec", `expect:ANY`, `args:["uvx","ruff@0.16.3","format","--config","` + ruffToml + `","--line-length","80","--check","src","tests"]`},
+	wantCalls(t, engine.chain(`"ruff","format"`, "exitCode"),
+		[]string{"withExec", `expect:ANY`, `args:["ruff","format","--config","` + ruffToml + `","--line-length","80","--check","src","tests"]`},
 	)
 }
 
@@ -126,11 +127,11 @@ func TestPythonRuffFormatScopesAGoStarToItsProductPython(t *testing.T) {
 	engine.withTree(everyLaneTree)
 	wantState(t, runAtom(t, "python:ruff-format", "base-sha"), 0)
 
-	c := engine.chain(`"uvx","ruff@0.16.3","format"`, "exitCode")
+	c := engine.chain(`"ruff","format"`, "exitCode")
 	wantCalls(t, c,
 		[]string{"withNewFile", `path:"/rulesets/ruff.toml"`},
-		[]string{"withExec", `args:["uvx","ruff@0.16.3","--version"]`},
-		[]string{"withExec", `expect:ANY`, `args:["uvx","ruff@0.16.3","format","--config","` + ruffToml + `","--line-length","100","--check","src","tests"]`},
+		[]string{"withExec", `args:["ruff","--version"]`},
+		[]string{"withExec", `expect:ANY`, `args:["ruff","format","--config","` + ruffToml + `","--line-length","100","--check","src","tests"]`},
 	)
 	// --check, NEVER the rewrite: a formatter that rewrites a tree mid-commit
 	// has aborted a commit in this fleet before.
@@ -145,7 +146,7 @@ func TestPythonRuffFormatScopesAGoStarToItsProductPython(t *testing.T) {
 	engine.reset()
 	engine.withTree(pyTree(nil, "go.mod"))
 	wantState(t, runAtom(t, "python:ruff-format", ""), 0)
-	if c := engine.chain(`"ruff@0.16.3","format"`, "exitCode"); !hasCall(c, "withExec", `"--check","."]`) {
+	if c := engine.chain(`"ruff","format"`, "exitCode"); !hasCall(c, "withExec", `"--check","."]`) {
 		t.Errorf("a tree with no go.mod formats itself whole:\n%s", c)
 	}
 
@@ -164,8 +165,8 @@ func TestPythonRuffFormatScopesAGoStarToItsProductPython(t *testing.T) {
 	// ruff's own exit code is the verdict.
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	engine.exitCode(`"ruff@0.16.3","format"`, 1)
-	engine.stdout(`"ruff@0.16.3","format"`, "Would reformat: src/x.py")
+	engine.exitCode(`"ruff","format"`, 1)
+	engine.stdout(`"ruff","format"`, "Would reformat: src/x.py")
 	wantState(t, runAtom(t, "python:ruff-format", ""), 1, "Would reformat")
 }
 
@@ -462,13 +463,16 @@ func TestPythonPytestFindsTestsWithoutATestsDirectory(t *testing.T) {
 
 // ---- pip-audit ----
 
+// pipAuditNeedle finds the audit exec in a chain: the pinned requirement, then the program.
+const pipAuditNeedle = `"pip-audit==` + checks.PipAuditVersion + `","pip-audit"`
+
 func TestPythonPipAuditRunsTheFleetsAuditorNotTheReposDependency(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
 
 	wantState(t, runAtom(t, "python:pip-audit", "base-sha"), 0)
 
-	c := engine.chain(`"pip-audit","pip-audit"`, "exitCode")
+	c := engine.chain(pipAuditNeedle, "exitCode")
 	if !strings.Contains(c, checks.ImagePython) {
 		t.Errorf("python:pip-audit must run in the python lane image:\n%s", c)
 	}
@@ -478,7 +482,7 @@ func TestPythonPipAuditRunsTheFleetsAuditorNotTheReposDependency(t *testing.T) {
 		[]string{"withExec", `args:["uv","--version"]`},
 		// --with rather than a dependency of the repo: a repo that did not
 		// declare the auditor is still audited.
-		[]string{"withExec", `expect:ANY`, `args:["uv","run","--with","pip-audit","pip-audit"]`},
+		[]string{"withExec", `expect:ANY`, `args:["uv","run","--with","pip-audit==` + checks.PipAuditVersion + `","pip-audit"]`},
 	)
 	if hasCall(c, "withExec", `args:["uv","--version"]`, `expect:ANY`) {
 		t.Errorf("the uv probe is provisioning and must run under the default Expect:\n%s", c)
@@ -487,14 +491,14 @@ func TestPythonPipAuditRunsTheFleetsAuditorNotTheReposDependency(t *testing.T) {
 		t.Errorf("python:pip-audit must not read GATE_BASE:\n%s", c)
 	}
 
-	engine.exitCode(`"pip-audit","pip-audit"`, 1)
-	engine.stdout(`"pip-audit","pip-audit"`, "Found 1 known vulnerability in 1 package")
+	engine.exitCode(pipAuditNeedle, 1)
+	engine.stdout(pipAuditNeedle, "Found 1 known vulnerability in 1 package")
 	wantState(t, runAtom(t, "python:pip-audit", ""), 1, "known vulnerability")
 
 	// A 127 is a missing binary and a 137 is an OOM kill; neither is a
 	// finding and neither is a pass.
 	for _, code := range []int{2, 127, 137} {
-		engine.exitCode(`"pip-audit","pip-audit"`, code)
+		engine.exitCode(pipAuditNeedle, code)
 		wantState(t, runAtom(t, "python:pip-audit", ""), 2)
 	}
 
@@ -516,7 +520,7 @@ const (
 	pyScopeNeedle     = `"forge-testkit-mutation","scope"`
 	pyPluginNeedle    = `"forge-testkit-mutation","plugin"`
 	pyPlanNeedle      = `"forge-testkit-mutation","plan"`
-	pyMeasureNeedle   = `"coverage>=7.4"`
+	pyMeasureNeedle   = `"coverage==` + checks.CoverageVersion + `"`
 	pyMapNeedle       = `"forge-testkit-mutation","map"`
 	pyPartitionNeedle = `"forge-testkit-mutation","partition"`
 	pyExecNeedle      = `"cosmic-ray","exec"`
@@ -562,7 +566,7 @@ func TestPythonMutationMeasuresAndMutatesInPlainExecs(t *testing.T) {
 		[]string{"withNewFile", `path:"cosmic-ray.toml"`, `module-path = \"src/x.py\"`, `timeout = 60.0`,
 			`test-command = \"prlimit --data=4294967296 python -m pytest -x -q -p no:cacheprovider\"`},
 		[]string{"withNewFile", `path:"/tmp/mutation/pr.diff"`, `+x = 1\n`},
-		[]string{"withExec", "expect:ANY", `args:["uv","run","--with","cosmic-ray","cosmic-ray","init","cosmic-ray.toml","session.sqlite"]`},
+		[]string{"withExec", "expect:ANY", `args:["uv","run","cosmic-ray","init","cosmic-ray.toml","session.sqlite"]`},
 		[]string{"withEnvVariable", `name:"GITHUB_OUTPUT"`, `value:"/tmp/mutation/scope.out"`},
 		[]string{"withExec", "expect:ANY", `args:[` + testkit + `,"scope","session.sqlite","--diff","/tmp/mutation/pr.diff","--base","since0",` + pythonExcludes() + `]`},
 		[]string{"withExec", "expect:ANY", `args:[` + testkit + `,"plugin","--out","/tmp/mutation/plugin"]`},
@@ -604,12 +608,12 @@ func TestPythonMutationMeasuresAndMutatesInPlainExecs(t *testing.T) {
 			[]string{"withEnvVariable", `name:"FORGE_MUT_MEASURE"`, `value:"/tmp/mutation/measure"`},
 			[]string{"withEnvVariable", `name:"FORGE_MUT_INCLUDE"`, `value:"src/x.py"`},
 			[]string{"withEnvVariable", `name:"PYTHONDONTWRITEBYTECODE"`, `value:"1"`},
-			[]string{"withExec", "expect:ANY", `args:["uv","run","--with","coverage>=7.4","prlimit","--data=4294967296","python","-m","pytest","-x","-q","-p","no:cacheprovider"]`},
+			[]string{"withExec", "expect:ANY", `args:["uv","run","--with","coverage==` + checks.CoverageVersion + `","prlimit","--data=4294967296","python","-m","pytest","-x","-q","-p","no:cacheprovider"]`},
 		)
 		e := worker(pyExecNeedle, w)
 		wantCalls(t, e,
 			[]string{"withFile", `path:"/src/session.sqlite"`},
-			[]string{"withExec", "expect:ANY", `args:["uv","run","--with","cosmic-ray","cosmic-ray","exec","cosmic-ray.toml","session.sqlite"]`},
+			[]string{"withExec", "expect:ANY", `args:["uv","run","cosmic-ray","exec","cosmic-ray.toml","session.sqlite"]`},
 		)
 	}
 
@@ -769,8 +773,8 @@ func TestPythonMutationStandsDownOrCannotRun(t *testing.T) {
 func TestPythonPipAuditNetworkFaultIsAskedAgainPastTheCache(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	engine.exitCode(`"pip-audit","pip-audit"`, 1)
-	engine.stdout(`"pip-audit","pip-audit"`,
+	engine.exitCode(pipAuditNeedle, 1)
+	engine.stdout(pipAuditNeedle,
 		"Installed 64 packages in 2.05s\nrequests.exceptions.ReadTimeout: HTTPSConnectionPool(host='pypi.org', port=443): Read timed out. (read timeout=15)\n")
 	engine.exitCode(`name:"CA_REASK"`, 0)
 	engine.stdout(`name:"CA_REASK"`, "No known vulnerabilities found\n")
@@ -782,15 +786,15 @@ func TestPythonPipAuditNetworkFaultIsAskedAgainPastTheCache(t *testing.T) {
 	if v.State != 0 {
 		t.Errorf("a timeout on the first ask and a clean second ask is a pass: %+v", v)
 	}
-	if engine.chain(`"pip-audit","pip-audit"`, `name:"CA_REASK"`) == "" {
+	if engine.chain(pipAuditNeedle, `name:"CA_REASK"`) == "" {
 		t.Errorf("the audit was not asked again past the cache")
 	}
 
 	// The same exit 1 with a real table is a finding, and is never re-asked.
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	engine.exitCode(`"pip-audit","pip-audit"`, 1)
-	engine.stdout(`"pip-audit","pip-audit"`,
+	engine.exitCode(pipAuditNeedle, 1)
+	engine.stdout(pipAuditNeedle,
 		"Found 1 known vulnerability in 1 package\nName    Version ID             Fix Versions\nurllib3 2.2.0   GHSA-34jh-p97f 2.2.2\n")
 	v, err = verdictFor(t.Context(), newRun(dag.Directory(), "", ""), "python:pip-audit")
 	if err != nil {
@@ -817,7 +821,7 @@ func TestPythonToolsRunInATreeThatIsNotAProject(t *testing.T) {
 	engine.withTree(pyTree(map[string]string{"hooks/test_hook.py": ""}, "pyproject.toml", "src", "tests"))
 	wantState(t, runAtom(t, "python:pytest", ""), 0)
 	c := engine.chain(`"pytest","-q"`, "exitCode")
-	if !hasCall(c, "withExec", `"--no-project","--with","pytest","pytest","-q"]`) {
+	if !hasCall(c, "withExec", `"--no-project","--with","pytest==`+checks.PytestVersion+`","pytest","-q"]`) {
 		t.Errorf("no project means --no-project and the tool fetched with --with:\n%s", c)
 	}
 	if strings.Contains(c, "--all-extras") {
@@ -948,4 +952,56 @@ func pythonExcludes() string {
 		parts = append(parts, `"--exclude-operator",`+strconv.Quote(op))
 	}
 	return strings.Join(parts, ",")
+}
+
+// THE PYTHON LANE'S TOOLS ARE INSTALLED ONCE, AT EXACT VERSIONS, IN THE
+// PROVISION LAYER. `uvx ruff@x` and `uv run --with cosmic-ray` resolved the tool
+// on every run; the go lane's `go install <module>@<version>` is the shape this
+// holds them to. Asserted on the chain: the install and its probe are there, are
+// exact, and sit BEFORE the cache volumes mount (a layer never reads a volume).
+func TestPythonLaneInstallsItsToolsOnceAtExactVersions(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	wantState(t, runAtom(t, "python:ruff-check", ""), 0)
+	c := engine.chain(`"ruff","check"`, "exitCode")
+
+	cacheAt := strings.Index(c, `path:"/opt/uv-cache"`)
+	if cacheAt < 0 {
+		t.Fatalf("the uv cache volume is not mounted:\n%s", c)
+	}
+	for _, tool := range checks.PythonLaneTools {
+		install := `args:["uv","tool","install","` + tool.Name + `==` + tool.Version + `"]`
+		at := strings.Index(c, install)
+		if at < 0 {
+			t.Errorf("the lane must install %s at its exact pin (%s):\n%s", tool.Name, install, c)
+			continue
+		}
+		if at > cacheAt {
+			t.Errorf("%s is installed after the cache volume mounts; a provision layer must not read a volume", tool.Name)
+		}
+		if !hasCall(c, "withExec", `args:["`+strings.Join(tool.Probe, `","`)+`"]`) {
+			t.Errorf("%s has no probe %v", tool.Name, tool.Probe)
+		}
+	}
+	for _, env := range []string{`name:"UV_TOOL_DIR"`, `name:"UV_TOOL_BIN_DIR"`} {
+		if !strings.Contains(c, env) {
+			t.Errorf("the lane must set %s for `uv tool install`:\n%s", env, c)
+		}
+	}
+}
+
+// NO `uv run --with` IN THE PYTHON LANE NAMES A FLOATING VERSION. The one floor
+// that remains is forge-testkit's, which comes from the fleet's own index and is
+// a floor on purpose (checks.PythonMutationTestkit).
+func TestPythonLaneNamesNoFloatingWith(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	wantState(t, runAtom(t, "python:pip-audit", ""), 0)
+	wantState(t, runAtom(t, "python:pytest", ""), 0)
+	all := strings.Join(engine.chains(), "\n")
+	for _, m := range regexp.MustCompile(`"--with","([^"]+)"`).FindAllStringSubmatch(all, -1) {
+		if !strings.Contains(m[1], "==") {
+			t.Errorf("`--with %s` floats; pin it with == in checks/toolpins.go", m[1])
+		}
+	}
 }

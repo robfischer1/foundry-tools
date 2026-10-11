@@ -38,10 +38,10 @@ func init() {
 	register("python:mutation", pythonMutation)
 }
 
-// ruffVersion pins the linter. A floating ruff is a gate whose verdict is not
-// a function of the pin the door declared — the same argument images.go makes
-// for the lane images, applied to the tool uvx fetches.
-const ruffVersion = "ruff@0.16.3"
+// ruff is installed once by the lane's provision layer at checks.RuffVersion
+// (a `uv tool install`, cached by the engine), so the atoms exec it by name.
+// A floating ruff is a gate whose verdict is not a function of the pin the door
+// declared — the same argument images.go makes for the lane images.
 
 // pythonRuleset answers the CANNOT RUN a missing fleet ruleset is, reading
 // foundry-stocks IN GO before any container starts.
@@ -86,10 +86,10 @@ func pythonRuffCheck(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("python:ruff-check")
 	return verdict(ctx, a, r.lane(checks.ImagePython).
 		WithNewFile(checks.RulesetsDir+"/ruff.toml", rulesets.Ruff).
-		// The provisioning probe: uvx resolves and caches the pinned ruff, and
-		// a resolver that could not is a could-not-run rather than a finding.
-		WithExec([]string{"uvx", ruffVersion, "--version"}).
-		WithExec([]string{"uvx", ruffVersion, "check", "--config", checks.RulesetsDir + "/ruff.toml", "."}, anyExit))
+		// The provisioning probe: the pinned ruff is on PATH, and one that is
+		// not is a could-not-run rather than a finding.
+		WithExec([]string{"ruff", "--version"}).
+		WithExec([]string{"ruff", "check", "--config", checks.RulesetsDir + "/ruff.toml", "."}, anyExit))
 }
 
 // ruff format --check is clean over the product python, under the fleet's
@@ -123,14 +123,14 @@ func pythonRuffFormat(ctx context.Context, r *run) checks.Verdict {
 	// --line-length, because the ruleset file carries ONE width and the fleet
 	// has two. checks.RuffLineLength says which this tree is graded at and why.
 	args := append([]string{
-		"uvx", ruffVersion, "format",
+		"ruff", "format",
 		"--config", checks.RulesetsDir + "/ruff.toml",
 		"--line-length", checks.RuffLineLength(entries, pyproject),
 		"--check",
 	}, targets...)
 	return verdict(ctx, a, r.lane(checks.ImagePython).
 		WithNewFile(checks.RulesetsDir+"/ruff.toml", rulesets.Ruff).
-		WithExec([]string{"uvx", ruffVersion, "--version"}).
+		WithExec([]string{"ruff", "--version"}).
 		WithExec(args, anyExit))
 }
 
@@ -289,7 +289,7 @@ func pythonPipAudit(ctx context.Context, r *run) checks.Verdict {
 		WithExec([]string{"uv", "--version"}).
 		// --with rather than a dependency of the repo: the auditor is the
 		// fleet's tool, and a repo that did not declare it is still audited.
-		WithExec([]string{"uv", "run", "--with", "pip-audit", "pip-audit"}, anyExit))
+		WithExec([]string{"uv", "run", "--with", checks.PythonWith("pip-audit"), "pip-audit"}, anyExit))
 }
 
 // Every mutant cosmic-ray makes of this pull's changes to the declared
@@ -429,7 +429,7 @@ func pythonMutation(ctx context.Context, r *run) checks.Verdict {
 	inited, err := do(synced.ctr.
 		WithNewFile(pythonMutationConfig, checks.CosmicRayConfig(kept, checks.PythonTestCommand, checks.PythonMutationTimeout)).
 		WithNewFile(pythonMutationDiff, diff+"\n"),
-		"uv", "run", "--with", "cosmic-ray", "cosmic-ray", "init", pythonMutationConfig, "session.sqlite")
+		"uv", "run", "cosmic-ray", "init", pythonMutationConfig, "session.sqlite")
 	if err != nil {
 		return neverRan(err)
 	}
@@ -494,7 +494,7 @@ func pythonMutation(ctx context.Context, r *run) checks.Verdict {
 			WithEnvVariable("PYTHONDONTWRITEBYTECODE", "1").
 			WithEnvVariable("FORGE_MUT_MEASURE", mutationDir+"/measure").
 			WithEnvVariable("FORGE_MUT_INCLUDE", include),
-			append([]string{"uv", "run", "--with", "coverage>=7.4"}, checks.PythonTestCommand...)...)
+			append([]string{"uv", "run", "--with", checks.PythonWith("coverage")}, checks.PythonTestCommand...)...)
 	})
 	if err != nil {
 		return neverRan(err)
@@ -539,7 +539,7 @@ func pythonMutation(ctx context.Context, r *run) checks.Verdict {
 		return do(partitioned.ctr.
 			WithEnvVariable("FORGE_MUT_WORKER", strconv.Itoa(i+1)).
 			WithFile("/src/session.sqlite", partitioned.ctr.File(sessions[i])),
-			"uv", "run", "--with", "cosmic-ray", "cosmic-ray", "exec", pythonMutationConfig, "session.sqlite")
+			"uv", "run", "cosmic-ray", "exec", pythonMutationConfig, "session.sqlite")
 	})
 	if err != nil {
 		return neverRan(err)

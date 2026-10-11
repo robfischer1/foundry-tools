@@ -882,7 +882,7 @@ func TestTheRustLaneCarriesTheFleetsPython(t *testing.T) {
 	c := engine.chains()
 	joined := strings.Join(c, "\n")
 	for _, want := range []string{
-		`"uv","python","install","--default","` + checks.FleetPython + `"`,
+		`"uv","python","install","--default","` + checks.FleetPythonVersion + `"`,
 		`UV_PYTHON_BIN_DIR`,
 		`"python3","--version"`,
 	} {

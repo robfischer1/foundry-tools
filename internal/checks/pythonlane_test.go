@@ -314,7 +314,7 @@ func TestUvRunAsksForAProjectOnlyWhenThereIsOne(t *testing.T) {
 		t.Errorf("got %v — a project's own extras are what its checks run against", withProject)
 	}
 	without := UvRun([]string{"README.md"}, "pytest", "-q")
-	if strings.Join(without, " ") != "uv run --no-project --with pytest pytest -q" {
+	if strings.Join(without, " ") != "uv run --no-project --with pytest=="+PytestVersion+" pytest -q" {
 		t.Errorf("got %v — no project to resolve, and the tool has to be fetched", without)
 	}
 }
