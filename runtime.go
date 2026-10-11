@@ -477,10 +477,14 @@ func withOpengrepSums(ctr *dagger.Container, sums map[string]string) *dagger.Con
 // puts copyout on PATH: a release build in the volume copies its outputs out
 // in the same exec (copiedOut).
 func (r *run) withReleaseCache(ctr *dagger.Container) *dagger.Container {
+	return r.withReleaseVolume(ctr).WithFile(copyOutPath, helperBinary("copyout"))
+}
+
+// withReleaseVolume mounts the release volume alone, for the containers that
+// archive it (castcache.go) and run no build.
+func (r *run) withReleaseVolume(ctr *dagger.Container) *dagger.Container {
 	c := checks.ReleaseCacheFor(r.repo)
-	return ctr.
-		WithMountedCache(c.Path, dag.CacheVolume(c.Key), dagger.ContainerWithMountedCacheOpts{Sharing: dagger.CacheSharingModeShared}).
-		WithFile(copyOutPath, helperBinary("copyout"))
+	return ctr.WithMountedCache(c.Path, dag.CacheVolume(c.Key), dagger.ContainerWithMountedCacheOpts{Sharing: dagger.CacheSharingModeShared})
 }
 
 // copyOutPath is where copyout sits in a lane's container.
