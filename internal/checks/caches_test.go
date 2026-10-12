@@ -31,9 +31,9 @@ func TestEveryLaneImageMountsACacheWithADistinctKey(t *testing.T) {
 	}
 }
 
-// The rust lane's config.toml (the Nexus registry route) lives at
-// CARGO_HOME/config.toml, beside registry/ and git/. A mount over CARGO_HOME
-// itself would hide it and send every crate fetch to crates.io.
+// A mount over the image's /usr/local/cargo would shadow bin/, where provision
+// installs cargo-audit and cargo-mutants (and hide anything else the image
+// keeps in its home). CARGO_HOME moves to its own volume instead.
 func TestTheCargoHomeItselfIsNeverMounted(t *testing.T) {
 	for _, m := range CachesFor(ImageRust) {
 		if m.Path == "/usr/local/cargo" || m.Path == "/usr/local/cargo/" {
@@ -176,10 +176,63 @@ func TestCachesForDevKeysTheTargetOnRepoAndTreeAndLocksIt(t *testing.T) {
 			t.Errorf("key %s is repo then tree", c.Key)
 		}
 	}
-	if k := CachesForDev(ImageRust, "r", "")[2].Key; k != "foundry-cargo-target-"+repoDigest("r") {
+	if k := CachesForDev(ImageRust, "r", "")[1].Key; k != "foundry-cargo-target-"+repoDigest("r") {
 		t.Errorf("no tree: the repo's alone, got %s", k)
 	}
 	if k := CachesForDev(ImageGo, "r", "/w")[0]; k.Locked || k.Key != "foundry-go-mod" {
 		t.Errorf("go caches are the fleet's, shared: %+v", k)
+	}
+}
+
+// foundry-tools#9663: cargo serialises registry and git-db access with an
+// flock on $CARGO_HOME/.package-cache. The rust lane's cache must therefore be
+// ONE volume that is CARGO_HOME, so the lock file lives where the shared data
+// does, and it must be SHARED (cargo's own flock serialises it; LOCKED would
+// queue whole build execs behind each other).
+func TestCargoHomeIsOneSharedVolumeHoldingItsLockFiles(t *testing.T) {
+	var home *CacheMount
+	ms := CachesFor(ImageRust)
+	for i, m := range ms {
+		if m.EnvVar == "CARGO_HOME" {
+			home = &ms[i]
+		}
+		if strings.HasPrefix(m.Path, "/usr/local/cargo") {
+			t.Errorf("%s: the registry and git db must not be mounted apart from the home that holds their lock: %+v", m.Path, m)
+		}
+	}
+	if home == nil {
+		t.Fatalf("no CARGO_HOME mount in %+v", ms)
+	}
+	if home.Path != CargoHome || home.Locked || home.PerRepo {
+		t.Errorf("CARGO_HOME volume must be %s, shared across repos and not LOCKED: %+v", CargoHome, *home)
+	}
+	for _, mounts := range [][]CacheMount{CachesForRepo(ImageRust, "r"), CachesForDev(ImageRust, "r", "/w")} {
+		for _, m := range mounts {
+			if m.EnvVar == "CARGO_HOME" && (m.Locked || m.Key != home.Key) {
+				t.Errorf("CARGO_HOME volume must stay the one shared key: %+v", m)
+			}
+		}
+	}
+}
+
+// A killed container leaves libgit2's config.lock in the shared git db, and
+// that lock counts as held by existing. The sweep runs under cargo's own flock
+// so it cannot race a live fetch, and never walks the registry or checkouts.
+func TestStaleCargoLocksSweepRunsUnderCargosLock(t *testing.T) {
+	a := StaleCargoLocks()
+	if len(a) < 3 || a[0] != "flock" || a[1] != CargoHome+"/.package-cache" {
+		t.Fatalf("sweep must hold cargo's .package-cache flock: %v", a)
+	}
+	joined := strings.Join(a, " ")
+	for _, want := range []string{CargoHome + "/git/db/*", "*.lock", CargoHome + "/registry", "-prune"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("sweep lacks %q: %v", want, a)
+		}
+	}
+	if strings.Contains(joined, "-delete") {
+		t.Errorf("-delete implies -depth and defeats -prune: %v", a)
+	}
+	if a[0] == "sh" || a[0] == "bash" {
+		t.Errorf("no shell: %v", a)
 	}
 }

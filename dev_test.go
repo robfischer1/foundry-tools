@@ -242,14 +242,14 @@ func TestDevCargoTargetIsKeyedOnRepoAndTreeAndLocked(t *testing.T) {
 		if _, err := d.Check(t.Context(), nil, false); err != nil {
 			t.Fatal(err)
 		}
-		key := checks.CachesForDev(checks.ImageRust, c.wantRepo, c.tree)[2].Key
+		key := checks.CachesForDev(checks.ImageRust, c.wantRepo, c.tree)[1].Key
 		if engine.chain(`cacheVolume(`, `key:"`+key+`"`) == "" {
 			t.Fatalf("repo %q tree %q: no volume keyed %s:\n%v", c.repo, c.tree, key, engine.chains())
 		}
 		chain := engine.chain(`"cargo","check"`, "exitCode")
 		wantCalls(t, chain, []string{"withMountedCache", `path:"/cache/cargo-target"`, `sharing:LOCKED`})
 		// The registry volumes are the gate's: shared, content-addressed.
-		for _, p := range []string{"/usr/local/cargo/registry", "/usr/local/cargo/git"} {
+		for _, p := range []string{"/cache/cargo-home"} {
 			if hasCall(chain, "withMountedCache", `path:"`+p+`"`, `sharing:LOCKED`) {
 				t.Errorf("%s must stay shared", p)
 			}
@@ -257,12 +257,12 @@ func TestDevCargoTargetIsKeyedOnRepoAndTreeAndLocked(t *testing.T) {
 	}
 	// Different trees, different volumes; the same tree, the same one; and never
 	// the fleet-shared or the gate's per-repo key.
-	one := checks.CachesForDev(checks.ImageRust, "r", "/w/one")[2].Key
-	two := checks.CachesForDev(checks.ImageRust, "r", "/w/two")[2].Key
-	if one == two || one == checks.CachesForDev(checks.ImageRust, "r", "")[2].Key {
+	one := checks.CachesForDev(checks.ImageRust, "r", "/w/one")[1].Key
+	two := checks.CachesForDev(checks.ImageRust, "r", "/w/two")[1].Key
+	if one == two || one == checks.CachesForDev(checks.ImageRust, "r", "")[1].Key {
 		t.Errorf("trees must key apart: %s %s", one, two)
 	}
-	if one == checks.CachesForRepo(checks.ImageRust, "r")[2].Key || one == "foundry-cargo-target" {
+	if one == checks.CachesForRepo(checks.ImageRust, "r")[1].Key || one == "foundry-cargo-target" {
 		t.Errorf("dev must not reuse the gate's or the fleet's target: %s", one)
 	}
 }

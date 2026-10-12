@@ -56,7 +56,7 @@ func TestBuildThenRunExecsMountTheirCargoVolumeLocked(t *testing.T) {
 			t.Errorf("rust:cargo-test %s: cargo target is %q, want LOCKED:\n%s", needle, got, c)
 		}
 		// The registry volumes stay shared.
-		if got := mountSharingAt(c, "/usr/local/cargo/registry", needle); got == "LOCKED" {
+		if got := mountSharingAt(c, "/cache/cargo-home", needle); got == "LOCKED" {
 			t.Errorf("registry must stay shared")
 		}
 	}
@@ -108,7 +108,7 @@ func TestLockedCargoVolumesKeepTheirPerRepoKey(t *testing.T) {
 	if _, err := r.withLockedCargoTarget(r.cargoDeps()).WithExec([]string{"cargo", "test"}).Sync(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	key := checks.CachesForRepo(checks.ImageRust, r.repo)[2].Key
+	key := checks.CachesForRepo(checks.ImageRust, r.repo)[1].Key
 	c := engine.chain(`"cargo","test"`)
 	if c == "" || engine.chain(`cacheVolume(`, `key:"`+key+`"`) == "" || mountSharingAt(c, "/cache/cargo-target", `"cargo","test"`) != "LOCKED" {
 		t.Errorf("want %s mounted LOCKED:\n%s", key, c)
@@ -120,7 +120,7 @@ func TestLockedCargoVolumesKeepTheirPerRepoKey(t *testing.T) {
 	if _, err := d.withLockedCargoTarget(d.cargoDeps()).WithExec([]string{"cargo", "test"}).Sync(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	dkey := checks.CachesForDev(checks.ImageRust, "cerberus", "/w/one")[2].Key
+	dkey := checks.CachesForDev(checks.ImageRust, "cerberus", "/w/one")[1].Key
 	if c := engine.chain(`"cargo","test"`); engine.chain(`cacheVolume(`, `key:"`+dkey+`"`) == "" || mountSharingAt(c, "/cache/cargo-target", `"cargo","test"`) != "LOCKED" {
 		t.Errorf("dev keeps its tree key %s, LOCKED:\n%s", dkey, c)
 	}
