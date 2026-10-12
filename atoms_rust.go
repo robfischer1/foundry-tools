@@ -393,6 +393,9 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 		WithEnvVariable("CARGO_PROFILE_DEV_DEBUG", "0").
 		WithEnvVariable("CARGO_PROFILE_TEST_DEBUG", "0").
 		WithEnvVariable(rustTestRunnerEnv, rustTestRunner).
+		WithEnvVariable("CARGO_BUILD_JOBS", strconv.Itoa(rustMutantCores)).
+		WithEnvVariable("CARGO_BUILD_RUSTFLAGS", rustMoldThreadsFlag).
+		WithEnvVariable("NEXTEST_TEST_THREADS", strconv.Itoa(rustMutantCores)).
 		WithExec(append(append([]string{execMemPath, "--"}, args...), "-D", rustMutationDiff), anyExit)
 	log, status, err := outputBoth(ctx, mutated)
 	// A KILLED RUN RAN. The engine answers an exec that ended in the signal
@@ -463,6 +466,26 @@ const (
 	// rustMutationDiff is the pull's diff as cargo mutants -D reads it.
 	rustMutationDiff = mutationDir + "/pr.diff"
 	rustMutationJobs = 2
+	// THE LANE'S CPU SHARE, about 8 cores: rustMutationJobs mutants at
+	// rustMutantCores each. Measured 2026-10-12 01:46Z on dev01 (24 cores):
+	// load average 96, CPU PSI some ~0.70, seven 24-thread mold processes at
+	// once. Each mutant's cargo ran at -j nproc, mold linked at a thread per
+	// core and nextest ran a test per core, so one lane saturated the node
+	// while daedalus priced it as a few units (flux #3051). Three knobs, all
+	// documented, all set on the one exec so the baseline obeys them too:
+	//   CARGO_BUILD_JOBS      cargo's build.jobs, rustc invocations per mutant
+	//   NEXTEST_TEST_THREADS  nextest's --test-threads, tests per mutant
+	//   --thread-count        mold 1.10.1 (bookworm) has no environment knob
+	//                         for it (only MOLD_REPRO/MOLD_DEBUG/MOLD_PATH), so
+	//                         it rides rustc's link args; verified in the lane
+	//                         image that the flag reaches mold and a bad value
+	//                         fails the link.
+	// The link flag rides CARGO_BUILD_RUSTFLAGS (build.rustflags), the lowest
+	// of cargo's rustflags sources: it never overrides a star's RUSTFLAGS or
+	// target rustflags, and a star that sets those loses only the mold cap.
+	rustMutantCores = 4
+	// rustMoldThreadsFlag is the link arg that carries rustMutantCores to mold.
+	rustMoldThreadsFlag = "-C link-arg=-Wl,--thread-count=4"
 	// rustTestRunnerEnv keys cargo's runner by the host triple; every engine
 	// node is x86_64 (measured 2026-10-02).
 	rustTestRunnerEnv = "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER"
