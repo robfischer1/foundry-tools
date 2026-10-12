@@ -79,3 +79,19 @@ func TestRenovateConfigRefusesATreeItCannotEnumerate(t *testing.T) {
 	engine.fail("{directory{entries}}", "the tree went away")
 	wantState(t, runAtom(t, "fleet:renovate-config", ""), 2, "CANNOT RUN", "would not enumerate", "the tree went away")
 }
+
+// A config.js that will not read is unknown, not absent and not valid.
+func TestRenovateConfigCannotRunWhenConfigJSWillNotRead(t *testing.T) {
+	engine.reset()
+	engine.withTree(fleetTree(renovateConfigTree))
+	engine.failLeaf(`file(path:"config.js")`, "contents", "the file went away")
+	wantState(t, runAtom(t, "fleet:renovate-config", ""), 2, "CANNOT RUN", "config.js could not be read", "the file went away")
+}
+
+// An image that will not run its version probe never graded anything.
+func TestRenovateConfigNeverRanWhenTheImageWillNotAnswer(t *testing.T) {
+	engine.reset()
+	engine.withTree(fleetTree(renovateConfigTree))
+	engine.fail(`"renovate","--version"`, "exit code: 126: cannot execute")
+	wantState(t, runAtom(t, "fleet:renovate-config", ""), 2, "the atom never ran", "cannot execute")
+}
