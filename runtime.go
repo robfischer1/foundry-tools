@@ -487,6 +487,58 @@ func (r *run) withReleaseVolume(ctr *dagger.Container) *dagger.Container {
 	return ctr.WithMountedCache(c.Path, dag.CacheVolume(c.Key), dagger.ContainerWithMountedCacheOpts{Sharing: dagger.CacheSharingModeShared})
 }
 
+// withLockedCargoTarget remounts the gate's per-repo cargo target
+// (foundry-cargo-target-<repo>) LOCKED, for the execs that build test binaries
+// there and then run them.
+//
+// WHY: two concurrent gates of ONE repo share that volume, and cargo's
+// build-dir file lock does not cover the gap between `cargo build` and
+// executing the binary it produced. Observed in stellar-core-rust 2026-10-11
+// (landing candidates 01a620a and a2a43bb gated at once, foundry-tools#16916):
+// rust:cargo-test "could not execute process
+// /cache/cargo-target/debug/deps/reader_declared_mapping-... (never executed)
+// ... No such file or directory", and later one branch's run replayed
+// another's mutated build out of the shared cache and failed door_conformance.
+//
+// WHY LOCKED AND NOT A KEY PER GATE/SHA: LOCKED makes the engine serialize
+// execs on the volume, so two gates of one repo take turns instead of
+// overwriting each other; other repos are unaffected (the key is per repo) and
+// the volume stays warm. A per-gate key would make every gate cold.
+//
+// THE TRADE, stated: within one gate, atoms that mount this volume LOCKED now
+// serialize on it (cargo already serialized them on its build-dir lock, so the
+// extra cost should be small), and concurrent gates of one repo wait on each
+// other. The earlier regression with LOCKED (#308/#309, a silent wait past the
+// 5m watchdog) was every atom locked; only the build-then-run execs are
+// locked here, the fetch, fmt and clippy atoms stay SHARED. The Dev surface
+// already mounts it LOCKED (checks.CachesForDev); this keeps it so.
+func (r *run) withLockedCargoTarget(ctr *dagger.Container) *dagger.Container {
+	mounts := checks.CachesForRepo(checks.ImageRust, r.repo)
+	if r.dev {
+		mounts = checks.CachesForDev(checks.ImageRust, r.repo, r.tree)
+	}
+	for _, c := range mounts {
+		if c.PerRepo {
+			ctr = ctr.WithMountedCache(c.Path, dag.CacheVolume(c.Key),
+				dagger.ContainerWithMountedCacheOpts{Sharing: dagger.CacheSharingModeLocked})
+		}
+	}
+	return ctr
+}
+
+// withLockedReleaseVolume remounts the repo's release volume LOCKED, for the
+// execs that build into it and then run what they built (the wit guest's
+// native test in wit-guest-test, compose.sh's guests). The same race and the
+// same reason as withLockedCargoTarget (foundry-tools#16916: rust:wit-guest
+// "could not execute process /cache/cargo-release/wit-guest-test/debug/deps/
+// classes_tier3-... No such file or directory"); the volume's SHARED default
+// (checks.ReleaseCacheFor) stands for the builds that copy their output out
+// in the same exec, where the gap is the copy itself.
+func (r *run) withLockedReleaseVolume(ctr *dagger.Container) *dagger.Container {
+	c := checks.ReleaseCacheFor(r.repo)
+	return ctr.WithMountedCache(c.Path, dag.CacheVolume(c.Key), dagger.ContainerWithMountedCacheOpts{Sharing: dagger.CacheSharingModeLocked})
+}
+
 // copyOutPath is where copyout sits in a lane's container.
 const copyOutPath = "/usr/local/bin/copyout"
 
