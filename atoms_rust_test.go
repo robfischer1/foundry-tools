@@ -936,6 +936,35 @@ func TestRustCargoTestStampsBeforeEveryExecThatCompilesDoctests(t *testing.T) {
 	}
 }
 
+// THE STAMP SURVIVES gitReady'S /src SWAP. From a linked worktree (every
+// author's `just check`) gitReady re-mounts /src from the raw tree, which
+// discards a stamp laid before it: cargo then judged normalised-mtime sources
+// against the shared target and linked a stale test binary
+// (stellar-core-rust tests/claim_composition, 2026-10-12). Both cargo execs
+// must see a tree whose LAST /src mount precedes the stamp, in a linked
+// worktree and in a primary checkout alike.
+func TestRustCargoTestStampFollowsTheSrcSwap(t *testing.T) {
+	for name, tree := range map[string]map[string]string{
+		"linked worktree":  fleetTree(map[string]string{".git": "gitdir: /x/.git/worktrees/y\n"}, ".git/HEAD"),
+		"primary checkout": everyLaneTree,
+	} {
+		engine.reset()
+		engine.withTree(tree)
+		engine.stdout(`"--list"`, "a::b: test\n")
+		wantState(t, runAtom(t, "rust:cargo-test", ""), 0)
+
+		for _, probe := range []string{`"cargo","test","--workspace","--","--list"]`, `args:["cargo","test","--workspace"]`} {
+			chain := engine.chain(probe, "exitCode")
+			swap := lastCall(chain, "withMountedDirectory", `path:"/src"`)
+			stamp := strings.LastIndex(chain, `"touch","-c","-d","@4102444800"`)
+			exec := strings.Index(chain, probe)
+			if swap < 0 || stamp < 0 || exec < 0 || swap > stamp || stamp > exec {
+				t.Errorf("%s, %s: want /src mount (%d) < stamp (%d) < cargo (%d):\n%s", name, probe, swap, stamp, exec, chain)
+			}
+		}
+	}
+}
+
 // The target volume is mounted with default (shared) sharing; the registry and git caches, which are
 // content-addressed, are not.
 func TestRustLaneTargetVolumeIsShared(t *testing.T) {
