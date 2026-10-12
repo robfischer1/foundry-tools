@@ -705,3 +705,111 @@ func TestServiceFactsFallBackToTheDirectoryName(t *testing.T) {
 		t.Fatalf("got %+v, want bare on port 7 in prime", got)
 	}
 }
+
+// WORKERS (b36-workload-stars): a repo whose Deployment or StatefulSet flux
+// deploys in prime is a star with or without a Service. Its entry states no
+// ports and no interface; db when its env names a CNPG cluster.
+func TestWorkloadFactsGiveAServicelessWorkerARow(t *testing.T) {
+	manifests := map[string]string{
+		"prime/a.yaml": `kind: Deployment
+metadata: {name: by-label, namespace: prime, labels: {pistis.star: lab}}
+spec: {template: {spec: {containers: [{name: c}]}}}
+---
+kind: Deployment
+metadata: {name: lab-redis, namespace: prime}
+spec: {template: {metadata: {labels: {pistis.star: podlab}}, spec: {containers: [{name: c}]}}}
+---
+kind: StatefulSet
+metadata: {name: ss, namespace: prime}
+spec: {template: {spec: {containers: [{name: c}]}}}
+---
+kind: Deployment
+metadata: {name: dbworker, namespace: prime}
+spec: {template: {spec: {containers: [{name: c, env: [{name: D, value: "postgresql://u@chaos-db-rw:5432/x"}, {name: E, value: "postgresql://u@aether:5432/x"}]}]}}}
+---
+kind: Deployment
+metadata: {name: tron-redis, namespace: prime}
+spec: {template: {spec: {containers: [{name: c}]}}}
+---
+kind: Deployment
+metadata: {name: elsewhere, namespace: blades}
+spec: {template: {spec: {containers: [{name: c}]}}}
+---
+kind: Deployment
+metadata: {name: haveit, namespace: prime}
+spec: {template: {spec: {containers: [{name: c}]}}}
+---
+kind: CronJob
+metadata: {name: cron, namespace: prime}
+spec: {jobTemplate: {spec: {template: {spec: {containers: [{name: c}]}}}}}
+`,
+	}
+	repos := map[string]bool{"lab": true, "podlab": true, "ss": true, "dbworker": true, "tron": true, "elsewhere": true, "haveit": true, "cron": true}
+	have := map[string]FluxFact{"haveit": {Ports: &Ports{Listen: 1}}}
+	got, err := WorkloadFacts(manifests, repos, have, map[string]bool{"chaos-db": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]FluxFact{"lab": {}, "podlab": {}, "ss": {}, "dbworker": {DB: []string{"chaos-db"}}}
+	if a, b := Stage(got), Stage(want); a != b {
+		t.Fatalf("WorkloadFacts =\n%s\nwant\n%s", a, b)
+	}
+}
+
+func TestWorkloadFactsNameTheManifestThatDoesNotParse(t *testing.T) {
+	_, err := WorkloadFacts(map[string]string{"prime/x.yaml": "kind: [unclosed"}, map[string]bool{"x": true}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "prime/x.yaml") {
+		t.Fatalf("err = %v, want one naming prime/x.yaml", err)
+	}
+}
+
+// THE REAL star-tron.yaml AND naiad.yaml: tron (a Deployment labelled
+// pistis.star=tron, tron-redis beside it, no Service for tron) and naiad (a
+// Deployment, no Service) are stars with an empty flux entry, and no other row
+// moves. naiad is matched by its pistis.star label; the second case matches it
+// by its Deployment name alone.
+func TestInjectOverTheRealWorkersAddsTronAndNaiad(t *testing.T) {
+	for name, strip := range map[string]bool{"label": false, "name only": true} {
+		t.Run(name, func(t *testing.T) {
+			in := snapshot(t)
+			before, err := Inject(in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			naiad, err := os.ReadFile(filepath.Join("testdata", "flux", "prime", "naiad.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := string(naiad)
+			if strip {
+				body = strings.ReplaceAll(body, ", pistis.star: naiad", "")
+			}
+			tron, err := os.ReadFile(filepath.Join("testdata", "flux", "prime", "star-tron.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			in.ServiceManifests = map[string]string{"prime/naiad.yaml": body, "prime/star-tron.yaml": string(tron)}
+			in.Entries["fleet/repos/naiad.json"] = `{"name":"naiad"}`
+			after, err := Inject(in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var b, a map[string]json.RawMessage
+			_ = json.Unmarshal([]byte(before.Flux), &b)
+			_ = json.Unmarshal([]byte(after.Flux), &a)
+			if len(a) != len(b)+2 {
+				t.Fatalf("rows %d -> %d, want exactly tron and naiad new", len(b), len(a))
+			}
+			for k, v := range b {
+				if string(a[k]) != string(v) {
+					t.Errorf("%s moved: %s -> %s", k, v, a[k])
+				}
+			}
+			for _, k := range []string{"tron", "naiad"} {
+				if got := strings.Join(strings.Fields(string(a[k])), ""); got != `{}` {
+					t.Errorf("%s = %s, want an empty fact", k, got)
+				}
+			}
+		})
+	}
+}
