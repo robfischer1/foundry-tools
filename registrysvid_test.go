@@ -210,7 +210,7 @@ func TestATipWithoutRegistrySvidFetchesNoToken(t *testing.T) {
 func bundleSvid(t *testing.T, m *FoundryTools, spire *dagger.Socket, token *dagger.Secret) {
 	t.Helper()
 	if err := m.Bundle(context.Background(), dag.SetSecret("opa-key", pem64()), token, dag.SetSecret("cosign-key", pem64()),
-		dag.SetSecret("cosign-password", "pw"), false, "", nil, spire, svidAudience); err != nil {
+		dag.SetSecret("cosign-password", "pw"), false, "", nil, spire, svidAudience, ""); err != nil {
 		t.Fatalf("bundle: %v", err)
 	}
 }

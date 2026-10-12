@@ -95,12 +95,21 @@ func (m *FoundryTools) Bundle(
 	// logs in exactly as before.
 	// +optional
 	registrySvid string,
+	// The non-exportable P-256 key the OPA bundle twins are signed with:
+	// <project>/<key>[?identity=<id>], an Infisical KMS key reached by the
+	// same ServiceAccount token as --kms (and, without ?identity=, the same
+	// machine identity). The twins are built with a throwaway key, then their
+	// signature is replaced by the KMS's and verified the way ouranos verifies
+	// it. With it, --opa-signing-key is neither required nor read. Empty means
+	// the file key, unchanged.
+	// +optional
+	opaKms string,
 ) error {
 	l := &bundleLane{
 		m: m, opaSigningKey: opaSigningKey, registryToken: registryToken,
 		svid:      svidLogin{audience: registrySvid, spire: spire},
 		cosignKey: cosignKey, cosignPassphrase: cosignPassphrase, dryRun: dryRun,
-		kmsSpec: kms, kmsToken: kmsToken,
+		kmsSpec: kms, kmsToken: kmsToken, opaKmsSpec: opaKms,
 		stamp: strconv.FormatInt(time.Now().UnixNano(), 10),
 	}
 	code, reason := l.run(ctx)
@@ -120,6 +129,11 @@ type bundleLane struct {
 	kmsToken *dagger.Secret
 	kms      bundlelane.KMS
 	kmsOn    bool
+	// opaKmsSpec is --opa-kms; opaKms is it parsed, and opaKmsOn says whether
+	// the OPA twins are signed by KMS instead of the file key.
+	opaKmsSpec string
+	opaKms     bundlelane.KMS
+	opaKmsOn   bool
 	// fleetOn says whether the file key signs at all: --cosign-key was given.
 	fleetOn bool
 	// stamp is this run's, on every registry read and write: what a registry
@@ -170,8 +184,15 @@ func (l *bundleLane) run(ctx context.Context) (int, string) {
 	if err != nil {
 		return buildlane.CouldNotRun, err.Error()
 	}
-	if !l.dryRun && (l.opaSigningKey == nil || (l.registryToken == nil && !l.svid.on())) {
-		return buildlane.CouldNotRun, "a bundle publishes and signs: --opa-signing-key and --registry-token are both required (--dry-run needs none)"
+	opaKms, opaKmsOn, err := bundlelane.ParseOpaKMS(l.opaKmsSpec, kms.Identity)
+	if err != nil {
+		return buildlane.CouldNotRun, err.Error()
+	}
+	if !l.dryRun && ((l.opaSigningKey == nil && !opaKmsOn) || (l.registryToken == nil && !l.svid.on())) {
+		return buildlane.CouldNotRun, "a bundle publishes and signs: --opa-signing-key and --registry-token are both required (--dry-run needs none; --opa-kms stands in for --opa-signing-key)"
+	}
+	if opaKmsOn && !l.dryRun && l.kmsToken == nil {
+		return buildlane.CouldNotRun, "--opa-kms signs as a machine identity: --kms-token (the pod's ServiceAccount token) is required with it"
 	}
 	if !l.dryRun && (l.cosignKey == nil) != (l.cosignPassphrase == nil) {
 		return buildlane.CouldNotRun, "--cosign-key and --cosign-passphrase go together: one without the other opens nothing"
@@ -184,6 +205,13 @@ func (l *bundleLane) run(ctx context.Context) (int, string) {
 		return buildlane.CouldNotRun, "--kms signs as a machine identity: --kms-token (the pod's ServiceAccount token) is required with it"
 	}
 	l.kms, l.kmsOn = kms, kmsOn
+	l.opaKms, l.opaKmsOn = opaKms, opaKmsOn
+	if opaKmsOn {
+		// The long-lived key is not read at all: OPA needs SOME key to compute
+		// the file hashes and the canonical payload, and the signature it makes
+		// is replaced by the KMS's (resignOpa). signingKey then mints a throwaway.
+		l.opaSigningKey = nil
+	}
 	pin, err := bundlelane.Pin(m.Sha)
 	if err != nil {
 		return buildlane.CouldNotRun, err.Error()
@@ -277,6 +305,14 @@ func (l *bundleLane) run(ctx context.Context) (int, string) {
 	return buildlane.Clean, "clean: gated both dies; published and signed " + strings.Join(published, ", ")
 }
 
+// ephemeralWhy says why the twins are built with a throwaway key.
+func (l *bundleLane) ephemeralWhy() string {
+	if l.opaKmsOn {
+		return "opa (--opa-kms: " + l.opaKms.KeyRef + " in project " + l.opaKms.Project + " signs instead)"
+	}
+	return "dry run"
+}
+
 // signingKey answers the ES256 key the twins are built with, as a secret.
 func (l *bundleLane) signingKey(ctx context.Context) (*dagger.Secret, gateResult) {
 	if l.opaSigningKey == nil {
@@ -284,7 +320,7 @@ func (l *bundleLane) signingKey(ctx context.Context) (*dagger.Secret, gateResult
 		if err != nil {
 			return nil, couldNotRun("no OPA signing key, and an ephemeral one could not be minted: %v", err)
 		}
-		bundleSay("dry run: minted an EPHEMERAL P-256 signing key; the twins are built and gated for real, their signatures are throwaway")
+		bundleSay("%s: minted an EPHEMERAL P-256 signing key; the twins are built and gated for real, their signatures are throwaway", l.ephemeralWhy())
 		return dag.SetSecret("bundle-opa-ephemeral-key-"+l.stamp, key), clean()
 	}
 	encoded, err := l.opaSigningKey.Plaintext(ctx)
@@ -386,6 +422,10 @@ func (l *bundleLane) policy(ctx context.Context, tools *dagger.Container) (*dagg
 		if code != 0 {
 			return nil, findings("opa build over policy/ failed:\n" + out)
 		}
+	}
+	built, g = l.resignOpa(ctx, built, "bundle-signed.tar.gz")
+	if g.code != buildlane.Clean {
+		return nil, g
 	}
 	if g := twin(ctx, built, "bundle.tar.gz", "bundle-signed.tar.gz", "the signed bundle"); g.code != buildlane.Clean {
 		return nil, g
@@ -512,6 +552,10 @@ func (l *bundleLane) fleet(ctx context.Context, built *dagger.Container) (*dagge
 		if code != 0 {
 			return nil, findings("opa build over the staged roster failed:\n" + out)
 		}
+	}
+	built, g = l.resignOpa(ctx, built, "fleet-bundle-signed.tar.gz")
+	if g.code != buildlane.Clean {
+		return nil, g
 	}
 	if g := twin(ctx, built, "fleet-bundle.tar.gz", "fleet-bundle-signed.tar.gz", "the signed roster"); g.code != buildlane.Clean {
 		return nil, g
@@ -776,6 +820,12 @@ func signEach(ctx context.Context, cosign *dagger.Container, refs []string, keys
 // never leaves KMS, and the token is good only for the identity bound to this
 // lane's ServiceAccount.
 func (l *bundleLane) kmsSigner(fleet *dagger.Container) *dagger.Container {
+	return l.kmsSignerFor(fleet, l.kms)
+}
+
+// kmsSignerFor is kmsSigner for one named KMS key: the cosign key and the OPA
+// bundle key live in different projects, behind the same token.
+func (l *bundleLane) kmsSignerFor(fleet *dagger.Container, kms bundlelane.KMS) *dagger.Container {
 	c := fleet
 	if l.fleetOn {
 		c = c.WithoutMount("/run/cosign/key").WithoutSecretVariable("COSIGN_PASSWORD")
@@ -784,7 +834,7 @@ func (l *bundleLane) kmsSigner(fleet *dagger.Container) *dagger.Container {
 		dag.Container().From(checks.ImageSigningTools).File("/usr/local/bin/sigstore-kms-infisical"),
 		dagger.ContainerWithFileOpts{Permissions: 0o755}).
 		WithMountedSecret(bundlelane.KMSTokenPath, l.kmsToken, dagger.ContainerWithMountedSecretOpts{Owner: "65532:65532"})
-	for _, kv := range l.kms.Env() {
+	for _, kv := range kms.Env() {
 		c = c.WithEnvVariable(kv[0], kv[1])
 	}
 	return c

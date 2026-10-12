@@ -1243,7 +1243,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registrySvid", err))
 				}
 			}
-			return nil, (*FoundryTools).Bundle(&parent, ctx, opaSigningKey, registryToken, cosignKey, cosignPassphrase, dryRun, kms, kmsToken, spire, registrySvid)
+			var opaKms string
+			if inputArgs["opaKms"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["opaKms"]), &opaKms)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg opaKms", err))
+				}
+			}
+			return nil, (*FoundryTools).Bundle(&parent, ctx, opaSigningKey, registryToken, cosignKey, cosignPassphrase, dryRun, kms, kmsToken, spire, registrySvid, opaKms)
 		case "Cast":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)

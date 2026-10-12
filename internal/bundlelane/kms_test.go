@@ -1,6 +1,12 @@
 package bundlelane
 
 import (
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"net/url"
 	"reflect"
@@ -84,5 +90,55 @@ func TestTheKMSPluginEnvironmentIsKubernetesAuthOverTheMountedToken(t *testing.T
 	}
 	if got := k.Env(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("Env = %q, want %q", got, want)
+	}
+}
+
+func TestParseOpaKMS(t *testing.T) {
+	k, ok, err := ParseOpaKMS("proj/key-1", "fallback-id")
+	if err != nil || !ok || k.KeyRef != "infisical://key-1" || k.Project != "proj" || k.Identity != "fallback-id" || k.Site != DefaultKMSSite {
+		t.Errorf("%+v %v %v", k, ok, err)
+	}
+	if k, _, _ := ParseOpaKMS("proj/key-1?identity=x&site=https://s.example", "fallback-id"); k.Identity != "x" || k.Site != "https://s.example" {
+		t.Errorf("%+v", k)
+	}
+	if _, ok, err := ParseOpaKMS("  ", "x"); ok || err != nil {
+		t.Errorf("an empty spec is no signer: %v %v", ok, err)
+	}
+	for _, bad := range []string{"proj", "/key", "proj/", "a/b/c", "proj/key", "proj/key?site=http://s", "proj/key?identity=x&site=http://s", "proj/key?identity=x&%zz"} {
+		if _, ok, err := ParseOpaKMS(bad, ""); ok || err == nil {
+			t.Errorf("%q was accepted", bad)
+		}
+	}
+}
+
+func TestCheckOpaPublicKey(t *testing.T) {
+	p256, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	p384, _ := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	_, edPub, _ := ed25519.GenerateKey(rand.Reader)
+	block := func(pub any) string {
+		der, _ := x509.MarshalPKIXPublicKey(pub)
+		return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+	}
+	if err := CheckOpaPublicKey(block(&p256.PublicKey)); err != nil {
+		t.Errorf("a P-256 key: %v", err)
+	}
+	for name, text := range map[string]string{
+		"P-384":     block(&p384.PublicKey),
+		"ed25519":   block(edPub.Public()),
+		"no block":  "not a key",
+		"wrong tag": string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: []byte{1}})),
+		"bad DER":   string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: []byte{1, 2, 3}})),
+	} {
+		if err := CheckOpaPublicKey(text); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+}
+
+func TestVerifyArgsLoadTheBundleTheWayOuranosDoes(t *testing.T) {
+	got := strings.Join(VerifyArgs("/k.pub", "/b.tgz"), " ")
+	want := "opa run --bundle /b.tgz --verification-key /k.pub --verification-key-id ouranos_bundle --signing-alg ES256"
+	if got != want {
+		t.Errorf("%s\nwant %s", got, want)
 	}
 }
