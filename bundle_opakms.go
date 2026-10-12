@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 
 	"dagger/foundry-tools/internal/buildlane"
 	"dagger/foundry-tools/internal/bundlelane"
@@ -31,13 +32,24 @@ import (
 
 // resignOpa replaces the throwaway signature on /work/<file> with the KMS's and
 // proves the result verifies. Without --opa-kms it is the identity.
+//
+// In dual mode (both keys given) file keeps the file key's signature and the
+// KMS signs a copy of it, kmsTwin(file), which is what gets gated and published.
 func (l *bundleLane) resignOpa(ctx context.Context, built *dagger.Container, file string) (*dagger.Container, gateResult) {
 	if !l.opaKmsOn {
 		return built, clean()
 	}
 	if l.dryRun {
-		bundleSay("%s: dry run — keeping the throwaway signature, not calling %s", file, l.opaKms.KeyRef)
+		bundleSay("%s: dry run — not calling %s", file, l.opaKms.KeyRef)
 		return built, clean()
+	}
+	if l.opaDual {
+		copied := kmsTwinName(file)
+		built = built.WithExec([]string{"cp", workDir + "/" + file, workDir + "/" + copied}, anyExit)
+		if _, g := stepOut(ctx, built, "copy "+file+" to "+copied); g.code != buildlane.Clean {
+			return nil, g
+		}
+		file = copied
 	}
 	bundleSay("── %s: signature, %s in project %s ──", file, l.opaKms.KeyRef, l.opaKms.Project)
 	path := workDir + "/" + file
@@ -55,7 +67,7 @@ func (l *bundleLane) resignOpa(ctx context.Context, built *dagger.Container, fil
 	// stdout is the base64 DER signature and nothing else; the log is stderr.
 	sig, g := stepOut(ctx, signer.
 		WithNewFile("/in/signing-input", input).
-		WithExec([]string{"sign-blob", "--key", l.opaKms.KeyRef, "--yes", "--use-signing-config=false", "/in/signing-input"}, entrypointAnyExit),
+		WithExec([]string{"sign-blob", "--key", l.opaKms.KeyRef, "--yes", "--use-signing-config=false", "--new-bundle-format=false", "/in/signing-input"}, entrypointAnyExit),
 		"cosign sign-blob "+l.opaKms.KeyRef)
 	if g.code != buildlane.Clean {
 		return nil, g
@@ -100,4 +112,19 @@ func stepOut(ctx context.Context, ctr *dagger.Container, what string) (string, g
 		return "", couldNotRun("%s failed (exit %d), so the twin is not signed by the KMS key:\n%s", what, code, out)
 	}
 	return out, clean()
+}
+
+// kmsTwinName is the KMS-signed copy's file name: bundle-signed.tar.gz becomes
+// bundle-signed-kms.tar.gz.
+func kmsTwinName(file string) string {
+	return strings.TrimSuffix(file, ".tar.gz") + "-kms.tar.gz"
+}
+
+// kmsTwin answers the KMS-signed twin of file in dual mode, and "" otherwise
+// (outside dual mode the KMS signs the twin itself, or nothing).
+func (l *bundleLane) kmsTwin(file string) string {
+	if !l.opaDual || l.dryRun {
+		return ""
+	}
+	return kmsTwinName(file)
 }

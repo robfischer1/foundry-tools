@@ -239,3 +239,67 @@ func TestOpaKMSStopsWhenTheSignersLoginDoesNotRead(t *testing.T) {
 		t.Errorf("the KMS was called:\n%s", c)
 	}
 }
+
+// bundlesDual hands the lane BOTH keys: the file key and --opa-kms.
+func bundlesDual(m *FoundryTools, dry bool, token *dagger.Secret) error {
+	return m.Bundle(context.Background(), dag.SetSecret("opa-key", pem64()), dag.SetSecret("registry-token", bundleToken),
+		dag.SetSecret("cosign-key", pem64()), dag.SetSecret("cosign-password", "pw"), dry, "", token, nil, "", opaKmsSpec)
+}
+
+// With both keys, :signed is built with the file key and left alone, and the KMS
+// signs a COPY that is published on its own pin and channel, :signed-kms.
+func TestOpaKMSWithTheFileKeyPublishesASeparateKMSTwin(t *testing.T) {
+	m := bundleOn(t, nil)
+	scriptAGreenBundle()
+	engine.stdout(`"public-key"`, kmsPublicPEM(t))
+	engine.stdout(`"sign-blob"`, "MEUCIQDfake")
+	said := sayings(t, func() {
+		if err := bundlesDual(m, false, dag.SetSecret("kms-token", saToken)); err != nil {
+			t.Fatalf("bundle: %v", err)
+		}
+	})
+	settledOn(t, "0", "published and signed")
+	if strings.Contains(said, "throwaway") {
+		t.Errorf("the file key was handed over, so no throwaway key is minted:\n%s", said)
+	}
+	for _, f := range []string{"bundle-signed-kms.tar.gz", "fleet-bundle-signed-kms.tar.gz"} {
+		if !strings.Contains(said, f+": signed by "+opaKeyRef+" and verified under key id ouranos_bundle") {
+			t.Errorf("the lane did not say %s was signed and verified:\n%s", f, said)
+		}
+		if engine.chain(`"cp"`, `"/work/`+strings.Replace(f, "-kms", "", 1)+`"`, `"/work/`+f+`"`) == "" {
+			t.Errorf("%s is not a copy of the file-key twin", f)
+		}
+		if engine.chain(`"bundleresign"`, `"apply"`, `"/work/`+f+`"`) == "" {
+			t.Errorf("the KMS signature was not written into %s", f)
+		}
+		if engine.chain(`"push"`, `"--artifact-type"`, `"`+f+`:`) == "" {
+			t.Errorf("%s was not pushed", f)
+		}
+	}
+	// The file-key twins are never re-signed, and stay on :signed.
+	for _, f := range []string{"bundle-signed.tar.gz", "fleet-bundle-signed.tar.gz"} {
+		if engine.chain(`"bundleresign","apply","/work/`+f+`"`) != "" {
+			t.Errorf("%s, the file-key twin, was re-signed", f)
+		}
+	}
+	for _, tag := range []string{`"signed"`, `"signed-kms"`} {
+		if engine.chain(`"tag"`, tag) == "" {
+			t.Errorf("no channel %s was moved", tag)
+		}
+	}
+}
+
+// A dry run with both keys builds and gates, calls nothing, and has no KMS twin.
+func TestOpaKMSDualDryRunCallsNothing(t *testing.T) {
+	m := bundleOn(t, nil)
+	scriptAGreenBundle()
+	if err := bundlesDual(m, true, nil); err != nil {
+		t.Fatalf("bundle: %v", err)
+	}
+	for _, needle := range []string{`"sign-blob"`, `"bundleresign"`} {
+		if c := engine.chain(needle); c != "" {
+			t.Errorf("a dry run reached %s:\n%s", needle, c)
+		}
+	}
+	nothingPushed(t)
+}
