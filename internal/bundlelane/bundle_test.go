@@ -159,27 +159,34 @@ func TestRosterRefusesAStarThatDroppedOut(t *testing.T) {
 	if _, _, _, problem, _ := Roster(dropped); !strings.Contains(problem, "drops its star") {
 		t.Errorf("a star missing from declared ∪ lean: problem = %q", problem)
 	}
-	whole := `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"hades":{"kind":"go"},"ares":{"kind":"go"}},"lean":{"hades":{},"chaos":{}},"stars":{"hades":{},"ares":{},"chaos":{}}}}`
+	whole := `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"hades":{"kind":"go"},"ares":{"kind":"go"}},"lean":{"hades":{},"chaos":{}},"stars":{"hades":{},"ares":{},"chaos":{}},"repos":{"hades":{},"ares":{},"chaos":{}}}}`
 	if _, stars, _, problem, err := Roster(whole); err != nil || problem != "" || stars != 3 {
 		t.Errorf("a whole roster: stars = %d, problem = %q, err = %v", stars, problem, err)
 	}
 }
 
-// data.fleet.repos (F15) is held to the same union as stars, but only once the
-// tree's derive.rego carries the rule: foundry-tools lands before foundry-dies.
-func TestRosterHoldsReposToTheDeclaredLeanUnionWhenTheTreeDerivesThem(t *testing.T) {
+// data.fleet.repos (F15) is held to the same union as stars, unconditionally:
+// foundry-dies main carries the rule, so its absence is a refusal.
+func TestRosterHoldsReposToTheDeclaredLeanUnion(t *testing.T) {
 	const head = `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"hades":{"kind":"go"},"ares":{"kind":"go"}},"lean":{"hades":{},"chaos":{}},"stars":{"hades":{},"ares":{},"chaos":{}}`
-	if _, _, _, problem, err := Roster(head + `}}`); err != nil || problem != "" {
-		t.Errorf("a tree without the repos rule: problem = %q, err = %v", problem, err)
-	}
 	if _, _, _, problem, err := Roster(head + `,"repos":{"hades":{},"ares":{},"chaos":{}}}}`); err != nil || problem != "" {
 		t.Errorf("repos == declared ∪ lean: problem = %q, err = %v", problem, err)
 	}
-	if _, _, _, problem, _ := Roster(head + `,"repos":{"hades":{},"chaos":{}}}}`); !strings.Contains(problem, "derives 2 repos from 3 declared/lean keys") {
-		t.Errorf("a repo that dropped out: problem = %q", problem)
+	for name, c := range map[string]struct{ doc, want string }{
+		"repos absent":   {head + `}}`, "derives 0 repos from 3 declared/lean keys"},
+		"repos null":     {head + `,"repos":null}}`, "derives 0 repos"},
+		"repos empty":    {head + `,"repos":{}}}`, "derives 0 repos"},
+		"a repo dropped": {head + `,"repos":{"hades":{},"chaos":{}}}}`, "derives 2 repos from 3 declared/lean keys"},
+		"an extra repo":  {head + `,"repos":{"hades":{},"ares":{},"chaos":{},"x":{}}}}`, "derives 4 repos from 3 declared/lean keys"},
+	} {
+		if _, _, _, problem, _ := Roster(c.doc); !strings.Contains(problem, c.want) {
+			t.Errorf("%s: problem = %q", name, problem)
+		}
 	}
-	if _, _, _, problem, _ := Roster(head + `,"repos":{}}}`); !strings.Contains(problem, "derives 0 repos") {
-		t.Errorf("an empty repos rule: problem = %q", problem)
+	// No declared or lean keys: nothing to hold repos to.
+	const bare = `{"fleet":{"map":{"a":{}},"topics":["t"],"stars":{"a":{}}}}`
+	if _, _, _, problem, err := Roster(bare); err != nil || problem != "" {
+		t.Errorf("an empty union asserts nothing: problem = %q, err = %v", problem, err)
 	}
 }
 
