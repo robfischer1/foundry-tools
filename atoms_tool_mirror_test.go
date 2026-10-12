@@ -13,6 +13,24 @@ func failMirror(url string) {
 	engine.fail(checks.ToolMirrorURL(checks.ToolSHA256[url]), "502 from mirror")
 }
 
+// failBoth makes BOTH sources of a pinned asset unfetchable, the mirror's blob
+// and the asset's own URL: the fetch is then an error, as the lone upstream
+// failure was before the mirror.
+func failBoth(url, message string) {
+	engine.fail(`url:"`+checks.ToolMirrorURL(checks.ToolSHA256[url])+`"`, message)
+	engine.fail(`url:"`+url+`"`, message)
+}
+
+// failBothLeaf is failBoth narrowed to one leaf of the fetch.
+func failBothLeaf(url, leaf, message string) {
+	engine.failLeaf(`url:"`+checks.ToolMirrorURL(checks.ToolSHA256[url])+`"`, leaf, message)
+	engine.failLeaf(`url:"`+url+`"`, leaf, message)
+}
+
+// sumFile is the line toolFile writes for the in-container verification of url:
+// it names the checksum and the file, and appears in no fetch's query.
+func sumFile(url string) string { return checks.ToolSHA256[url] + "  /tmp/pkg" }
+
 // pinnedFetch answers the newest chain that fetched the pinned asset url from
 // the MIRROR (the first source) WITH its sha256 pin and read the named leaf, or "".
 func pinnedFetch(url, leaf string) string {
