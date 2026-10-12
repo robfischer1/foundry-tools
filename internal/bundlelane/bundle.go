@@ -221,7 +221,7 @@ func Roster(dataJSON string) (mapped, stars, topics int, problem string, err err
 	// first. Stars is not held to it: stars is unchanged in this slice.
 	if len(want) > 0 && d.Fleet.Repos != nil {
 		if repos := size(d.Fleet.Repos); repos != len(want) {
-			return mapped, stars, topics, fmt.Sprintf("the built roster derives %d repos from %d declared/lean keys — a declared entry without a kind drops its repo silently", repos, len(want)), nil
+			return mapped, stars, topics, fmt.Sprintf("the built roster derives %d repos from %d declared/lean keys — a declared entry missing a required field drops its repo silently", repos, len(want)), nil
 		}
 	}
 	for _, row := range rows {
