@@ -134,3 +134,11 @@ func TestCheckOpaPublicKey(t *testing.T) {
 		}
 	}
 }
+
+func TestVerifyArgsLoadTheBundleTheWayOuranosDoes(t *testing.T) {
+	got := strings.Join(VerifyArgs("/k.pub", "/b.tgz"), " ")
+	want := "opa run --bundle /b.tgz --verification-key /k.pub --verification-key-id ouranos_bundle --signing-alg ES256"
+	if got != want {
+		t.Errorf("%s\nwant %s", got, want)
+	}
+}
