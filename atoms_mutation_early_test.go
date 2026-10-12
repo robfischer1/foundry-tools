@@ -133,7 +133,7 @@ func TestRustMutationWithNothingToMutateSettlesBeforeProvisioning(t *testing.T) 
 			if os.Getenv("CAPTURE_EARLY_GOLDEN") != "" {
 				return
 			}
-			if hits := provisioned(`"cargo","fetch"`, `"cargo","install"`, checks.CargoNextestURL, `"cargo","mutants"`, `"cargo","metadata"`); len(hits) > 0 {
+			if hits := provisioned(`"cargo","fetch"`, `"cargo","install"`, checks.CargoNextestURL, checks.ToolMirrorURL(checks.ToolSHA256[checks.CargoNextestURL]), `"cargo","mutants"`, `"cargo","metadata"`); len(hits) > 0 {
 				t.Errorf("nothing to mutate provisioned %v:\n%v", hits, engine.chains())
 			}
 			if engine.chain(rustDiffNeedle) == "" {

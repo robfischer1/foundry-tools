@@ -143,7 +143,7 @@ func TestDiesOpaClientIsPinnedFetchedAndProbed(t *testing.T) {
 	if strings.Contains(c, "GATE_BASE") {
 		t.Errorf("dies:opa-test must not read GATE_BASE:\n%s", c)
 	}
-	if engine.chain(`http(url:"`+checks.OpaURL+`")`, "id") == "" {
+	if pinnedFetch(checks.OpaURL, "id") == "" {
 		t.Errorf("opa's release URL is fetched and its file is the one placed:\n%v", engine.chains())
 	}
 	// The version probe is its own exec and carries the tool's exit code back.
@@ -158,7 +158,7 @@ func TestDiesOpaClientRefusesEveryProvisioningFailure(t *testing.T) {
 		script  func()
 		needles []string
 	}{
-		{"the release URL has no such asset", func() { engine.fail("opa_linux_amd64_static", "404") },
+		{"the release URL has no such asset", func() { failBoth(checks.OpaURL, "404") },
 			[]string{"could not be fetched", checks.OpaVersion}},
 		{"the probe never ran", func() { engine.fail(`"opa","version"`, "engine went away") },
 			[]string{"the opa version probe never ran", "engine went away"}},

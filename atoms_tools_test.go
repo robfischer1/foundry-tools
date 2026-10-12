@@ -93,8 +93,8 @@ func TestEveryPinnedToolHasOneVerifiedSource(t *testing.T) {
 	}
 	// The set of checksummed URLs is exactly the set of release assets fetched:
 	// the tools, the python layer's interpreter, and the rust lane's two cargo
-	// tool tarballs (runtime.go withCargoTarball).
-	fetched := []string{checks.PythonStandaloneURL, checks.CargoAuditURL, checks.CargoNextestURL, checks.WacURL}
+	// tool tarballs (runtime.go withCargoTarball) and oras.
+	fetched := []string{checks.PythonStandaloneURL, checks.CargoAuditURL, checks.CargoNextestURL, checks.WacURL, checks.OrasURL}
 	for _, tool := range pinnedTools {
 		if tool.url != "" {
 			fetched = append(fetched, tool.url)
@@ -173,7 +173,7 @@ func TestAtomsToolsAppliesTheBinaryLastOnTheDebianDigest(t *testing.T) {
 // others still are: one tool must not take the whole container with it.
 func TestAToolThatFailsItsChecksumIsLeftOut(t *testing.T) {
 	engine.reset()
-	engine.failLeaf(checks.ToolSHA256[checks.OpaURL], "sync", "sha256sum: FAILED")
+	engine.failLeaf(sumFile(checks.OpaURL), "sync", "sha256sum: FAILED")
 	if _, err := atomsTools(context.Background()).Sync(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -285,8 +285,8 @@ func TestToolFileRefusesWhatItCannotVerify(t *testing.T) {
 		want   string
 	}{
 		{"a release asset with no checksum", pinnedTool{name: "x", url: "https://example.invalid/x"}, func() {}, "has no checksum"},
-		{"an asset that will not fetch", toolNamed(t, "hadolint"), func() { engine.failLeaf(checks.HadolintURL, "sync", "dial tcp: i/o timeout") }, "could not fetch"},
-		{"an asset that fails its checksum", toolNamed(t, "hadolint"), func() { engine.failLeaf(checks.ToolSHA256[checks.HadolintURL], "sync", "sha256sum: FAILED") }, "did not verify against its pinned checksum"},
+		{"an asset that will not fetch", toolNamed(t, "hadolint"), func() { failBothLeaf(checks.HadolintURL, "sync", "dial tcp: i/o timeout") }, "could not fetch"},
+		{"an asset that fails its checksum", toolNamed(t, "hadolint"), func() { engine.failLeaf(sumFile(checks.HadolintURL), "sync", "sha256sum: FAILED") }, "did not verify against its pinned checksum"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			engine.reset()
@@ -327,8 +327,8 @@ func TestADroppedToolIsLoggedWithItsCause(t *testing.T) {
 		fail  func()
 		cause string
 	}{
-		{"a checksum that does not match", "opa", func() { engine.failLeaf(checks.ToolSHA256[checks.OpaURL], "sync", "sha256sum: FAILED") }, "did not verify against its pinned checksum"},
-		{"an asset that will not fetch", "hadolint", func() { engine.failLeaf(checks.HadolintURL, "sync", "dial tcp: i/o timeout") }, "could not fetch"},
+		{"a checksum that does not match", "opa", func() { engine.failLeaf(sumFile(checks.OpaURL), "sync", "sha256sum: FAILED") }, "did not verify against its pinned checksum"},
+		{"an asset that will not fetch", "hadolint", func() { failBothLeaf(checks.HadolintURL, "sync", "dial tcp: i/o timeout") }, "could not fetch"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			engine.reset()

@@ -155,7 +155,7 @@ func TestOpsChezmoi(t *testing.T) {
 		[]string{"withExec", `args:["chezmoi","--version"]`},
 		[]string{"withExec", "expect:ANY", `args:["chezmoi","--source",".","execute-template"]`, `stdin:"{{ .chezmoi.os }}\n"`},
 	)
-	if engine.chain(`http(url:"`+checks.ChezmoiURL+`")`, "sync") == "" {
+	if pinnedFetch(checks.ChezmoiURL, "sync") == "" {
 		t.Errorf("ops:chezmoi must fetch chezmoi from its release URL: %s", checks.ChezmoiURL)
 	}
 
@@ -170,7 +170,7 @@ func TestOpsChezmoi(t *testing.T) {
 
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	engine.fail(`http(url:"`+checks.ChezmoiURL+`")`, "upstream down")
+	failBoth(checks.ChezmoiURL, "upstream down")
 	wantState(t, runAtom(t, "ops:chezmoi", ""), 2, "CANNOT RUN", "could not be provisioned")
 	if engine.chain(`"execute-template"`) != "" {
 		t.Error("a tool that did not arrive must not run the phase")
@@ -357,7 +357,7 @@ func TestOpsFlux(t *testing.T) {
 	if engine.chain(`"kustomize","flux/infrastructure","-o"`, "exitCode") == "" {
 		t.Error("the second CR's tree was not built")
 	}
-	if engine.chain(`http(url:"`+checks.KubectlURL+`")`, "sync") == "" {
+	if pinnedFetch(checks.KubectlURL, "sync") == "" {
 		t.Errorf("ops:flux must fetch kubectl from %s", checks.KubectlURL)
 	}
 	// The built stream — both trees, a separator after each — is validated by

@@ -153,13 +153,13 @@ func TestComposeConfigRefusesWhenTheReleaseURLFails(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	wantState(t, runAtom(t, "compose:config", ""), 0)
-	if engine.chain(`http(url:"`+checks.ComposeURL+`")`, "id") == "" {
+	if pinnedFetch(checks.ComposeURL, "id") == "" {
 		t.Errorf("the happy path must place the release URL's file:\n%v", engine.chains())
 	}
 
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	engine.fail("docker/compose/releases", "404")
+	failBoth(checks.ComposeURL, "404")
 	wantState(t, runAtom(t, "compose:config", ""), 2,
 		"the pinned docker/compose client", checks.ComposeVersion, "never parsed")
 }

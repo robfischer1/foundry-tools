@@ -815,7 +815,7 @@ func TestFleetOpengrepProbesTheBakedBinaryAndSetsTheLocale(t *testing.T) {
 	}
 	// opengrep is provisioned ONCE by the lane, from the mirror at its pin,
 	// as a file — never fetched by the atom, never through curl.
-	if !hasCall(c, "withFile", `path:"/usr/local/bin/opengrep"`) || engine.chain(`http(`, `url:"`+checks.OpengrepURL+`"`) == "" {
+	if !hasCall(c, "withFile", `path:"/usr/local/bin/opengrep"`) || pinnedFetch(checks.OpengrepURL, "") == "" {
 		t.Errorf("the lane provisions opengrep from the mirror at its pin:\n%s", c)
 	}
 	if strings.Contains(c, `"curl","-`) || strings.Count(c, `path:"/usr/local/bin/opengrep"`) != 1 {
@@ -1189,7 +1189,7 @@ func TestFleetHadolintProvisionsThePinAndPointsItAtTheFleetRuleset(t *testing.T)
 	if hasCall(c, "withExec", `"hadolint","--version"`, `expect:ANY`) {
 		t.Errorf("the version probe is provisioning and must run under the default Expect:\n%s", c)
 	}
-	if engine.chain(`http(url:"`+checks.HadolintURL+`")`, "id") == "" {
+	if pinnedFetch(checks.HadolintURL, "id") == "" {
 		t.Errorf("the happy path must place the release URL's file:\n%v", engine.chains())
 	}
 	if strings.Contains(c, "GATE_BASE") {
@@ -1294,7 +1294,7 @@ func TestFleetHadolintRefusesWhenTheReleaseURLFails(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	hadolintPinned()
-	engine.fail("hadolint/hadolint/releases", "404")
+	failBoth(checks.HadolintURL, "404")
 	wantState(t, runAtom(t, "fleet:hadolint", ""), 2,
 		"could not be fetched", checks.HadolintVersion, "never linted")
 	fleetNoContainer(t, "the release URL did not serve the binary")

@@ -199,7 +199,7 @@ func TestOpsImmutableKeepsGoingAndComparesTheCRPaths(t *testing.T) {
 // Every way the engine can fail is a CANNOT RUN, never a pass.
 func TestOpsImmutableEngineFailuresAreCannotRun(t *testing.T) {
 	imTree(imJob("200m"), imJob("1"))
-	engine.fail(`http(url:"`+checks.KubectlURL+`")`, "dl.k8s.io unreachable")
+	failBoth(checks.KubectlURL, "dl.k8s.io unreachable")
 	wantState(t, runAtom(t, "ops:immutable", "base-sha"), 2, "CANNOT RUN - kubectl could not be fetched", "dl.k8s.io unreachable")
 
 	// Each failure is scoped to ONE leaf: the exec's exit code, or the read

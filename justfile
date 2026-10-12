@@ -77,14 +77,14 @@ unhooks:
 
 # Seed the tool mirror with one pinned release asset (see internal/checks/toolmirror.go).
 #
-# The wit lanes fetch pinned tool tarballs from registry.notusmi.com/foundry/tool/mirror
-# first and from GitHub second, both verified against the same sha256. The mirror is
+# Every pinned tool (checks.ToolSHA256: the wit, rust, tools-container and oras fetches)
+# is fetched from registry.notusmi.com/foundry/tool/mirror first and from its own URL second, both verified against the same sha256. The mirror is
 # a zot blob addressed by that sha256, so seeding is: fetch the asset from its own
 # URL, prove it is the pinned bytes, push it under the tag zot's retention never
 # reaps (sha256-<sum>). Idempotent: an asset already in the mirror is left alone.
 #
 # Needs a registry login that can write (`oras login registry.notusmi.com`, as
-# publisher or rob); reads are anonymous. The two the wit lanes fetch:
+# publisher or rob); reads are anonymous. Examples (the full list is every ToolSHA256 pair):
 #   just mirror-seed https://github.com/bytecodealliance/wasm-tools/releases/download/v1.261.0/wasm-tools-1.261.0-x86_64-linux.tar.gz ad62b2176037e93e1348cb65d6212d128ca9f097b63d155569f25215818ff7b1
 #   just mirror-seed https://github.com/bytecodealliance/wac/releases/download/v0.12.0/wac-cli-x86_64-unknown-linux-musl 7cd490edbd452221ef89e6750fc43eacc9b71b1242095eb577cb9a3bf0d3beda
 # The sum is the line in internal/checks/toolpins.go; a bump re-seeds with the new pair.

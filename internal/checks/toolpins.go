@@ -42,8 +42,10 @@ const (
 // download an interpreter of its own.
 const PythonStandaloneURL = "https://github.com/astral-sh/python-build-standalone/releases/download/20260623/cpython-3.14.6%2B20260623-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
 
-// ToolSHA256 is the checksum of every URL the tools container fetches, and of
-// the rust lane's two cargo tool tarballs, hex.
+// ToolSHA256 is the checksum of every pinned release asset the module fetches
+// (the tools container's, the lanes', the cargo tool tarballs', oras), hex. Every
+// one is served mirror-first (ToolSources), so every one is seeded
+// (`just mirror-seed <url> <sum>`).
 // A pin is a version AND a checksum: the engine's HTTP fetch is addressed by
 // URL, so without this a release asset replaced upstream would be installed
 // silently. Where the publisher states a checksum (kubectl, opa, compose,
@@ -71,6 +73,12 @@ var ToolSHA256 = map[string]string{
 	// cargo-mutants), computed from the assets 2026-10-09.
 	CargoAuditURL:   "7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428",
 	CargoNextestURL: "32aa82416099eb12fffae9cf1a279ad201fecbd3f74826c613e32e9006b29867",
+
+	// The oras client the build, bundle, cast and govern lanes push with: the
+	// publisher's own oras_1.3.4_checksums.txt line, equal to the asset's sum
+	// read 2026-10-12, when every fetch began going through the mirror (which
+	// serves a blob only by the digest of its bytes, so it needs a pin).
+	OrasURL: "f27adb935022d94df8dc77719c322dda592c78a0d57a6f7dcdd8d900b248c454",
 }
 
 // THE PYTHON AND RUST LANES' RUN-TIME INSTALLS, PINNED. These resolved at run

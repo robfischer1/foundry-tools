@@ -428,14 +428,15 @@ func provisionRustMutation(ctr *dagger.Container) *dagger.Container {
 const cargoBin = "/usr/local/cargo/bin"
 
 // withCargoTarball puts one member of a pinned release tarball into cargoBin,
-// VERIFIED BY THE ENGINE AT FETCH TIME against its pinned sum, exactly as
-// withOpengrep fetches. The extraction is provisioning under the default
-// Expect, and the tarball leaves the layer once the member is out.
+// MIRROR FIRST and VERIFIED BY THE ENGINE AT FETCH TIME against its pinned sum
+// (pinnedFile), exactly as withOpengrep fetches. The extraction is provisioning
+// under the default Expect, and the tarball leaves the layer once the member is
+// out.
 //
 // IT FAILS CLOSED, as withOpengrepSums does: a URL with no pinned sum gets an
 // exec that cannot succeed, never an unverified fetch.
 func withCargoTarball(ctr *dagger.Container, sums map[string]string, url, member string) *dagger.Container {
-	sum, ok := sums[url]
+	f, ok := pinnedFile(sums, url)
 	if !ok {
 		return ctr.WithExec([]string{"/bin/false"}) // no checksum pinned: the lane must not provision it
 	}
@@ -445,9 +446,31 @@ func withCargoTarball(ctr *dagger.Container, sums map[string]string, url, member
 		args = append(args, fmt.Sprintf("--strip-components=%d", strip))
 	}
 	return ctr.
-		WithFile(tgz, dag.HTTP(url, dagger.HTTPOpts{Checksum: "sha256:" + sum})).
+		WithFile(tgz, f).
 		WithExec(append(args, member)).
 		WithoutFile(tgz)
+}
+
+// pinnedFile is a lane's pinned release asset for provisioning, resolved
+// EAGERLY so the registry mirror can be tried before GitHub: a lazy dag.HTTP
+// cannot fall back, because nothing syncs it until an exec reads it. The
+// sources and their one pin are checks.ToolSources'; fetchPinnedTool syncs them
+// in order. (A lane is built where there is no context to hand, so the sync
+// runs under Background.)
+//
+// ok is false only for a URL with no usable pin: the caller fails closed. When
+// every source fails the file answered is the lazy upstream fetch at the same
+// pin, so the failure surfaces where it always has, as the lane's own exec
+// error (verdict() files state 2), rather than at construction.
+func pinnedFile(sums map[string]string, url string) (file *dagger.File, ok bool) {
+	_, sum, err := checks.ToolSources(url, sums)
+	if err != nil {
+		return nil, false
+	}
+	if f, err := fetchPinnedTool(context.Background(), url, sums); err == nil {
+		return f, true
+	}
+	return dag.HTTP(url, dagger.HTTPOpts{Checksum: "sha256:" + sum}), true
 }
 
 // withOpengrep puts opengrep on PATH from its pinned release asset, VERIFIED
@@ -466,13 +489,11 @@ func withOpengrep(ctr *dagger.Container) *dagger.Container {
 // withOpengrepSums is withOpengrep over a named set of pinned sums, so the
 // fail-closed branch can be held by a test with a set that lacks the pin.
 func withOpengrepSums(ctr *dagger.Container, sums map[string]string) *dagger.Container {
-	sum, ok := sums[checks.OpengrepURL]
+	f, ok := pinnedFile(sums, checks.OpengrepURL)
 	if !ok {
 		return ctr.WithExec([]string{"/bin/false"}) // no checksum pinned: the lane must not provision it
 	}
-	return ctr.WithFile("/usr/local/bin/opengrep",
-		dag.HTTP(checks.OpengrepURL, dagger.HTTPOpts{Checksum: "sha256:" + sum}),
-		dagger.ContainerWithFileOpts{Permissions: 0o755})
+	return ctr.WithFile("/usr/local/bin/opengrep", f, dagger.ContainerWithFileOpts{Permissions: 0o755})
 }
 
 // withReleaseCache mounts the repository's release target volume
@@ -854,27 +875,20 @@ func (r *run) gitReadyOn(ctx context.Context, ctr *dagger.Container, tree *dagge
 	return ctr
 }
 
-// fetchTool resolves a pinned binary the lane images do not carry, from the
-// tool's own public URL. THE ENGINE FETCHES IT, and the engine is where the
-// fleet's caching lives: inside the cluster the asset hosts resolve to the
-// transparent cache once the engine names the intercept face
-// (infra coredns-custom.yaml), the engine trusts cache-ca, and the same URL
-// outside the cluster is simply the upstream. There is no mirror address
-// to try first — Nexus's github-raw route retired with Nexus (master-plan
-// "Transparent Cache — Nexus Retired", F8), and a second address here would
-// be the fleet-specific name the plan exists to remove. (The wit lanes' pinned
-// assets are the one exception: fetchPinnedTool tries the registry mirror first,
-// because the transparent cache cannot serve a cold github.com 302.)
+// fetchTool resolves a pinned binary the lane images do not carry: the
+// in-cluster mirror first, the tool's own public URL second, both held to its
+// checks.ToolSHA256 pin (fetchPinnedTool). THE ENGINE FETCHES IT, and the engine
+// is where the fleet's caching lives: inside the cluster the asset hosts resolve
+// to the transparent cache once the engine names the intercept face (infra
+// coredns-custom.yaml) and the engine trusts cache-ca. The mirror leads because
+// the transparent cache cannot serve a cold github.com 302, and github.com
+// answered 500 at gate time (runs 870, 907 of stellar-core-rust).
 //
 // A FAILED FETCH IS THE ERROR — the caller files state 2 — never a
 // fallthrough: a spec that was never parsed and a policy suite that never ran
-// are not a clean tree.
+// are not a clean tree. A URL with no pin is refused before any address is asked.
 func fetchTool(ctx context.Context, url string) (*dagger.File, error) {
-	f := dag.HTTP(url)
-	if _, err := f.Sync(ctx); err != nil {
-		return nil, fmt.Errorf("could not fetch %s: %w", url, err)
-	}
-	return f, nil
+	return fetchPinnedTool(ctx, url, checks.ToolSHA256)
 }
 
 // fetchPinnedTool resolves a pinned release asset from the in-cluster mirror
