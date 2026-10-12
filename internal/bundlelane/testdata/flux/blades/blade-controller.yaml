@@ -1,0 +1,302 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: blade-controller
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: blade-controller
+rules:
+- apiGroups:
+  - blade.notusmi.com
+  resources:
+  - blades
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - blade.notusmi.com
+  resources:
+  - blades/status
+  verbs:
+  - get
+  - update
+  - patch
+- apiGroups:
+  - blade.notusmi.com
+  resources:
+  - blades/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - create
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - delete
+- apiGroups:
+  - extensions.agents.x-k8s.io
+  resources:
+  - sandboxclaims
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - delete
+- apiGroups:
+  - agents.x-k8s.io
+  resources:
+  - sandboxes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ''
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ''
+  resources:
+  - pods/log
+  verbs:
+  - get
+- apiGroups:
+  - ''
+  resources:
+  - pods/exec
+  verbs:
+  - create
+- apiGroups:
+  - ''
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - ''
+  resourceNames:
+  - blade-controller-s3
+  resources:
+  - secrets
+  verbs:
+  - get
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  annotations:
+  name: blade-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: blade-controller
+subjects:
+- kind: ServiceAccount
+  name: blade-controller
+  namespace: blades
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: blade-runs
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: gaia
+  resources: {requests: {storage: 50Gi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+    reloader.stakater.com/auto: "true"
+  labels:
+    owner: rob
+    app: blade-controller
+  name: blade-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: blade-controller
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: blade-controller
+    spec:
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      containers:
+      - command:
+        - /blade-controller
+        env:
+        - name: BLADE_MODEL_BASE_URL
+          value: http://ares:8219/v1
+        - name: BLADE_ALLOWED_REPOS
+          value: registry.notusmi.com/rob/tron,registry.notusmi.com/rob/stellar_core
+        - name: BLADE_REGISTRY_ENDPOINT
+          value: http://zot.foundry.svc.cluster.local:5000
+        - name: BLADE_NAMESPACE
+          value: blades
+        - name: BLADE_RUNNER_MTLS_ADDR
+          value: ":8218"
+        - name: BLADE_DIFFER_IMAGE
+          value: registry.notusmi.com/rob/stellar_core:blade-differ
+        - name: BLADE_RUNTIME_CLASS
+        - name: BLADE_WORKTREE_ROOT
+          value: /blade/runs
+        - name: BLADE_DOOR_URL
+          value: http://ourea.prime.svc.cluster.local:8215
+        - name: BLADE_CHAIRMAN_ENABLED
+          value: "true"
+        - name: BLADE_CHAIRMAN_NAMESPACE
+          value: board
+        - name: BLADE_CHAIRMAN_REALM
+          value: prime
+        - name: BLADE_RAZOR_NAMESPACE
+          value: razors
+        - name: STELLAR_PEP_MODE
+          value: witness
+        - name: BLADE_KAFKA_BOOTSTRAP
+          value: redpanda.redpanda.svc.cluster.local:29092
+        - name: BLADE_S3_ENDPOINT
+          value: http://seaweedfs.objects.svc.cluster.local:8333
+        - name: BLADE_S3_BUCKET
+          value: blade-diffs
+        - name: BLADE_S3_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              key: accessKey
+              name: blade-controller-s3
+        - name: BLADE_S3_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              key: secretKey
+              name: blade-controller-s3
+        image: registry.notusmi.com/rob/blade-runner@sha256:9cb0911af1b607ceed46cd2eb47a6f3244f5b9411324af2753213d7988bd22fa
+        resources:  # from its own 7d peak (31Mi / 1m)
+          requests: {cpu: 10m, memory: 128Mi}
+          limits:   {memory: 256Mi}
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /healthz
+            port: 8081
+            scheme: HTTP
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        name: controller
+        ports:
+        - containerPort: 8081
+          name: health
+          protocol: TCP
+        - containerPort: 8217
+          name: mcp
+          protocol: TCP
+        - containerPort: 8218
+          name: mtls
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /readyz
+            port: 8081
+            scheme: HTTP
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsGroup: 65532
+          runAsNonRoot: true
+          runAsUser: 65532
+        volumeMounts:
+        - mountPath: /blade/runs
+          name: runs
+        - mountPath: /tmp
+          name: tmp
+        - mountPath: /run/spire/agent/public
+          name: spire-socket
+          readOnly: true
+        - mountPath: /etc/stellar/orbit.toml
+          name: orbit
+          subPath: orbit.toml
+          readOnly: true
+      securityContext:
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccount: blade-controller
+      serviceAccountName: blade-controller
+      volumes:
+      - name: runs
+        persistentVolumeClaim:
+          claimName: blade-runs
+      - name: tmp
+        emptyDir: {}
+      - name: spire-socket
+        csi: {driver: csi.spiffe.io, readOnly: true}
+      - name: orbit
+        configMap: {name: orbit-blade-runner}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: blade-runner
+spec:
+  selector: {app: blade-controller}
+  ports:
+    - {name: mcp,  port: 8217, targetPort: 8217, protocol: TCP}
+    - {name: mtls, port: 8218, targetPort: 8218, protocol: TCP}

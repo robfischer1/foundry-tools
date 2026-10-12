@@ -190,6 +190,9 @@ func Roster(dataJSON string) (mapped, stars, topics int, problem string, err err
 			// stars from: one star per key of their union.
 			Declared map[string]json.RawMessage `json:"declared"`
 			Lean     map[string]json.RawMessage `json:"lean"`
+			// Flux is what makes a repo a star (F16): data.fleet.stars holds
+			// the repos with a flux entry.
+			Flux map[string]json.RawMessage `json:"flux"`
 		} `json:"fleet"`
 	}
 	if err := json.Unmarshal([]byte(dataJSON), &d); err != nil {
@@ -203,26 +206,68 @@ func Roster(dataJSON string) (mapped, stars, topics int, problem string, err err
 	}
 	// A declared entry without a kind makes its derived row undefined, and the
 	// star drops out of data.fleet.stars with nothing failing. When the roster
-	// carries the documents the rule derives from, every key of their union
-	// must be a star.
-	want := map[string]struct{}{}
+	// carries the documents the rule derives from, every repo (key of their
+	// union) that flux backs must be a star, and nothing else may be (F16:
+	// stars are the deployed repos, not the catalog).
+	repoKeys := map[string]struct{}{}
 	for k := range d.Fleet.Declared {
-		want[k] = struct{}{}
+		repoKeys[k] = struct{}{}
 	}
 	for k := range d.Fleet.Lean {
-		want[k] = struct{}{}
+		repoKeys[k] = struct{}{}
 	}
-	if len(want) > 0 && stars != len(want) {
-		return mapped, stars, topics, fmt.Sprintf("the built roster derives %d stars from %d declared/lean keys — a declared entry without a kind drops its star silently", stars, len(want)), nil
+	want := map[string]struct{}{}
+	for k := range repoKeys {
+		// A roster that carries no flux document predates the injection: its
+		// stars are the whole union, as before F16.
+		if _, deployed := d.Fleet.Flux[k]; deployed || d.Fleet.Flux == nil {
+			want[k] = struct{}{}
+		}
+	}
+	// TRANSITION (F16): the lane lands before foundry-dies narrows
+	// data.fleet.stars, so a roster built by the OLD derive.rego carries every
+	// repo as a star. Both counts pass until foundry-dies F16 lands; then the
+	// stars == len(repoKeys) arm below is deleted.
+	if len(repoKeys) > 0 && stars != len(want) && stars != len(repoKeys) {
+		return mapped, stars, topics, fmt.Sprintf("the built roster derives %d stars from %d flux-backed repos (of %d declared/lean keys) — a declared entry without a kind drops its star silently, and a repo flux does not deploy is not a star", stars, len(want), len(repoKeys)), nil
+	}
+	// A lean row that states an MCP interface or an address with a port is a
+	// deployed star by its own account. If flux backs no entry for it, or no
+	// star row came out, the narrowing would drop a live route silently
+	// (blade-runner's Service named no namespace, and flux said nothing for it).
+	var routed []string
+	for k, raw := range d.Fleet.Lean {
+		var row struct {
+			Address   string `json:"address"`
+			Interface struct {
+				Sync []string `json:"sync"`
+			} `json:"interface"`
+		}
+		_ = json.Unmarshal(raw, &row) // a lean row that is not an object states nothing
+		mcp := false
+		for _, i := range row.Interface.Sync {
+			mcp = mcp || i == "mcp"
+		}
+		if !mcp && !strings.Contains(row.Address, ":") {
+			continue
+		}
+		_, backed := d.Fleet.Flux[k]
+		if !backed || !hasKey(d.Fleet.Stars, k) {
+			routed = append(routed, k)
+		}
+	}
+	if len(routed) > 0 {
+		sort.Strings(routed)
+		return mapped, stars, topics, fmt.Sprintf("the built roster routes %s (a lean row states mcp or an address with a port) but flux has no entry or data.fleet.stars no row for it — the narrowed stars would drop a live route", strings.Join(routed, ", ")), nil
 	}
 	// data.fleet.repos is the same union, one catalog row per key, and the
 	// rule is on foundry-dies main, so it is held to the count unconditionally
 	// whenever the union is non-empty. OPA emits "repos":{} when every row is
 	// undefined, and omits the key when the rule is gone or renamed: both are
 	// a count of 0, so neither passes silently. Stars is not held to it.
-	if len(want) > 0 {
-		if repos := size(d.Fleet.Repos); repos != len(want) {
-			return mapped, stars, topics, fmt.Sprintf("the built roster derives %d repos from %d declared/lean keys — a declared entry missing a required field drops its repo silently, and a missing repos rule derives none", repos, len(want)), nil
+	if len(repoKeys) > 0 {
+		if repos := size(d.Fleet.Repos); repos != len(repoKeys) {
+			return mapped, stars, topics, fmt.Sprintf("the built roster derives %d repos from %d declared/lean keys — a declared entry missing a required field drops its repo silently, and a missing repos rule derives none", repos, len(repoKeys)), nil
 		}
 	}
 	for _, row := range rows {
@@ -234,6 +279,14 @@ func Roster(dataJSON string) (mapped, stars, topics int, problem string, err err
 		}
 	}
 	return mapped, stars, topics, "", nil
+}
+
+// hasKey is whether the stars object holds key.
+func hasKey(raw json.RawMessage, key string) bool {
+	var obj map[string]json.RawMessage
+	_ = json.Unmarshal(raw, &obj)
+	_, ok := obj[key]
+	return ok
 }
 
 // size is jq's length over an object or an array; anything else is 0.

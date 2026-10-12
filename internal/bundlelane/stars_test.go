@@ -2,6 +2,8 @@ package bundlelane
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -520,5 +522,196 @@ func TestStageIsTodaysBytesPlusTheInterfaceKey(t *testing.T) {
 	b, _ := json.Marshal(old)
 	if string(a) != string(b) {
 		t.Fatalf("minus interface, Stage =\n%s\nwant\n%s", a, b)
+	}
+}
+
+// F16: a repo with a Service in prime is a deployed star, whether the Service
+// is a ClusterIP in a star manifest or an ExternalName alias to another namespace.
+func TestServiceFactsGiveEveryPrimeServiceARow(t *testing.T) {
+	// blades names its namespace in the Kustomization, not the Service (below, on
+	// the real tree); explicit namespaces are what these hand-cut cases state.
+	manifests := map[string]string{
+		"prime/blade-runner-alias.yaml": "kind: Service\nmetadata: {name: blade-runner, namespace: prime}\nspec: {type: ExternalName, externalName: blade-runner.blades.svc.cluster.local}\n",
+		"blades/blade-controller.yaml":  "kind: Service\nmetadata: {name: blade-runner, namespace: blades}\nspec:\n  ports:\n    - {name: mcp, port: 8217}\n    - {name: mtls, port: 8218}\n",
+		"hemera/hemera-collect.yaml": `kind: Service
+metadata: {name: hemera-otelcol, namespace: hemera-node}
+spec:
+  ports:
+    - {name: otlp-http, port: 4318}
+---
+kind: Service
+metadata: {name: hemera-otelcol, namespace: prime}
+spec: {type: ExternalName, externalName: hemera-otelcol.hemera-node.svc.cluster.local}
+---
+kind: Service
+metadata: {name: hemera, namespace: prime}
+spec: {type: ExternalName, externalName: hemera-otelcol.hemera-node.svc.cluster.local}
+`,
+		"prime/other.yaml": "kind: Service\nmetadata: {name: plain, namespace: prime}\nspec:\n  ports:\n    - {name: http, port: 3000}\n---\nkind: Service\nmetadata: {name: lost, namespace: prime}\nspec: {type: ExternalName, externalName: lost.nowhere.svc.cluster.local}\n---\nkind: Service\nmetadata: {name: elsewhere, namespace: blades}\nspec:\n  ports:\n    - {name: mcp, port: 1}\n",
+	}
+	repos := map[string]bool{"blade-runner": true, "hemera": true, "plain": true, "lost": true, "elsewhere": true, "tron": true, "chaos": true}
+	have := map[string]FluxFact{"chaos": {Ports: &Ports{Listen: 1}}}
+	got, err := ServiceFacts(manifests, repos, have)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]FluxFact{
+		"blade-runner": {Ports: &Ports{Listen: 8217, MTLS: 8218}, Interface: []string{"mcp"}},
+		"hemera":       {},
+		"plain":        {Ports: &Ports{Listen: 3000}, Interface: []string{"http"}},
+		"lost":         {},
+	}
+	if a, b := Stage(got), Stage(want); a != b {
+		t.Fatalf("ServiceFacts =\n%s\nwant\n%s", a, b)
+	}
+}
+
+func TestServiceFactsNameTheManifestThatDoesNotParse(t *testing.T) {
+	_, err := ServiceFacts(map[string]string{"hemera/x.yaml": "kind: [unclosed"}, map[string]bool{"x": true}, nil)
+	if err == nil || !strings.Contains(err.Error(), "hemera/x.yaml") {
+		t.Fatalf("err = %v, want one naming hemera/x.yaml", err)
+	}
+}
+
+// Rows FluxFacts already states do not move when the Service manifests join.
+func TestInjectKeepsTodaysFluxRowsByteIdentical(t *testing.T) {
+	in := snapshot(t)
+	before, err := Inject(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.ServiceManifests = map[string]string{
+		"prime/blade-runner-alias.yaml": "kind: Service\nmetadata: {name: blade-runner, namespace: prime}\nspec: {type: ExternalName, externalName: blade-runner.blades.svc.cluster.local}\n",
+		"blades/c.yaml":                 "kind: Service\nmetadata: {name: blade-runner, namespace: blades}\nspec:\n  ports:\n    - {name: mcp, port: 8217}\n    - {name: mtls, port: 8218}\n",
+	}
+	in.Shards = append(in.Shards, "fleet/stars/blade-runner/slag.json")
+	after, err := Inject(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b, a map[string]json.RawMessage
+	_ = json.Unmarshal([]byte(before.Flux), &b)
+	_ = json.Unmarshal([]byte(after.Flux), &a)
+	if len(a) != len(b)+1 {
+		t.Fatalf("rows %d -> %d, want exactly one new", len(b), len(a))
+	}
+	for k, v := range b {
+		if string(a[k]) != string(v) {
+			t.Errorf("%s moved: %s -> %s", k, v, a[k])
+		}
+	}
+	if _, ok := a["blade-runner"]; !ok {
+		t.Error("blade-runner has no flux row")
+	}
+}
+
+// An ExternalName that is not an in-cluster Service (a hostname outside the
+// cluster) has no target flux could carry: the repo is still a star.
+func TestServiceFactsAnExternalHostIsAnEmptyFact(t *testing.T) {
+	got, err := ServiceFacts(map[string]string{
+		"prime/x.yaml": "kind: Service\nmetadata: {name: out, namespace: prime}\nspec: {type: ExternalName, externalName: db.example.com}\n",
+	}, map[string]bool{"out": true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f, ok := got["out"]; !ok || f.Ports != nil || f.Interface != nil {
+		t.Fatalf("got %+v, want an empty fact for out", got)
+	}
+}
+
+// A Service manifest that does not parse fails the injection, naming the file.
+func TestInjectNamesTheServiceManifestThatDoesNotParse(t *testing.T) {
+	in := snapshot(t)
+	in.ServiceManifests = map[string]string{"hemera/bad.yaml": "kind: [unclosed"}
+	if _, err := Inject(in); err == nil || !strings.Contains(err.Error(), "foundry/flux hemera/bad.yaml") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// THE REAL BLADES, HEMERA AND PRIME ALIAS MANIFESTS: testdata/flux/{blades,
+// hemera,prime/blade-runner-alias.yaml,clusters/pantheon} are foundry/flux's
+// files at testdata/flux/SERVICES_SOURCE, minus full-line comments, kube-linter
+// ignore annotations and owner emails. blades/blade-controller.yaml's
+// blade-runner Service names NO namespace (clusters/pantheon/blades.yaml sets
+// targetNamespace), which the hand-cut cases above never saw.
+func servicesSnapshot(t *testing.T) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	for _, g := range []string{"blades/*.yaml", "hemera/*.yaml", "prime/blade-runner-alias.yaml", "clusters/pantheon/*.yaml"} {
+		paths, err := filepath.Glob(filepath.Join("testdata", "flux", g))
+		if err != nil || len(paths) == 0 {
+			t.Fatalf("testdata/flux/%s: %v (%d files)", g, err, len(paths))
+		}
+		for _, p := range paths {
+			body, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out[strings.TrimPrefix(filepath.ToSlash(p), "testdata/flux/")] = string(body)
+		}
+	}
+	return out
+}
+
+func TestServiceFactsReadTheRealBladesAndHemeraManifests(t *testing.T) {
+	got, err := ServiceFacts(servicesSnapshot(t), map[string]bool{"blade-runner": true, "hemera": true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]FluxFact{
+		"blade-runner": {Ports: &Ports{Listen: 8217, MTLS: 8218}, Interface: []string{"mcp"}},
+		"hemera":       {},
+	}
+	if a, b := Stage(got), Stage(want); a != b {
+		t.Fatalf("ServiceFacts over the real tree =\n%s\nwant\n%s", a, b)
+	}
+}
+
+// Over the real flux tree the injection adds exactly blade-runner and hemera,
+// and moves no row it already had.
+func TestInjectOverTheRealTreeAddsBladeRunnerAndHemera(t *testing.T) {
+	in := snapshot(t)
+	before, err := Inject(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.ServiceManifests = servicesSnapshot(t)
+	in.Shards = append(in.Shards, "fleet/stars/blade-runner/slag.json", "fleet/stars/hemera/slag.json")
+	after, err := Inject(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b, a map[string]json.RawMessage
+	_ = json.Unmarshal([]byte(before.Flux), &b)
+	_ = json.Unmarshal([]byte(after.Flux), &a)
+	if len(a) != len(b)+2 {
+		t.Fatalf("rows %d -> %d, want exactly two new", len(b), len(a))
+	}
+	for k, v := range b {
+		if string(a[k]) != string(v) {
+			t.Errorf("%s moved: %s -> %s", k, v, a[k])
+		}
+	}
+	if got := strings.Join(strings.Fields(string(a["blade-runner"])), ""); got != `{"ports":{"listen":8217,"mtls":8218},"interface":["mcp"]}` {
+		t.Errorf("blade-runner = %s", got)
+	}
+	if got := string(a["hemera"]); got != "{}" {
+		t.Errorf("hemera = %s", got)
+	}
+}
+
+// A Service that names no namespace, in a directory no Kustomization places,
+// sits in the namespace named for the directory; a Kustomization whose spec
+// does not read places nothing.
+func TestServiceFactsFallBackToTheDirectoryName(t *testing.T) {
+	got, err := ServiceFacts(map[string]string{
+		"prime/bare.yaml":          "kind: Service\nmetadata: {name: bare}\nspec:\n  ports:\n    - {name: http, port: 7}\n",
+		"clusters/pantheon/x.yaml": "apiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nmetadata: {name: x}\nspec: oops\n",
+	}, map[string]bool{"bare": true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := got["bare"]; f.Ports == nil || f.Ports.Listen != 7 {
+		t.Fatalf("got %+v, want bare on port 7 in prime", got)
 	}
 }

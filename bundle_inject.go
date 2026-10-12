@@ -48,7 +48,21 @@ func (l *bundleLane) inject(ctx context.Context, data string, shards []string) (
 		{src, bundlelane.DeclaredGlob, &in.Entries},
 		{l.flux, bundlelane.StarManifestGlob, &in.StarManifests},
 		{l.flux, bundlelane.ClusterGlob, &in.ClusterManifest},
+		{l.flux, "", &in.ServiceManifests},
 	} {
+		if read.into == &in.ServiceManifests {
+			in.ServiceManifests = map[string]string{}
+			for _, pattern := range bundlelane.ServiceGlobs {
+				files, g := readGlob(ctx, read.dir, pattern)
+				if g.code != buildlane.Clean {
+					return bundlelane.Injection{}, g
+				}
+				for p, b := range files {
+					in.ServiceManifests[p] = b
+				}
+			}
+			continue
+		}
 		files, g := readGlob(ctx, read.dir, read.pattern)
 		if g.code != buildlane.Clean {
 			return bundlelane.Injection{}, g

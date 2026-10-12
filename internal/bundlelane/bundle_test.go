@@ -281,3 +281,60 @@ func TestEphemeralKeyIsAP256PEMOpaCanSignWith(t *testing.T) {
 		t.Error("two ephemeral keys must differ")
 	}
 }
+
+// F16: data.fleet.stars is the repos flux deploys, not the whole catalog. The
+// old derive (stars == repos) passes too until foundry-dies F16 lands.
+func TestRosterHoldsStarsToTheFluxBackedRepos(t *testing.T) {
+	const head = `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"hades":{"kind":"go"},"ares":{"kind":"go"}},"lean":{"hades":{},"chaos":{}},"repos":{"hades":{},"ares":{},"chaos":{}},"flux":{"hades":{},"ares":{}}`
+	for name, stars := range map[string]string{
+		"new derive: the flux-backed repos": `{"hades":{},"ares":{}}`,
+		"old derive: every repo":            `{"hades":{},"ares":{},"chaos":{}}`,
+	} {
+		if _, n, _, problem, err := Roster(head + `,"stars":` + stars + `}}`); err != nil || problem != "" {
+			t.Errorf("%s: stars = %d, problem = %q, err = %v", name, n, problem, err)
+		}
+	}
+	for name, c := range map[string]struct{ doc, want string }{
+		"a deployed repo dropped": {head + `,"stars":{"hades":{}}}}`, "derives 1 stars from 2 flux-backed repos"},
+		"neither count":           {head + `,"stars":{"hades":{},"ares":{},"chaos":{},"x":{}}}}`, "derives 4 stars"},
+	} {
+		if _, _, _, problem, _ := Roster(c.doc); !strings.Contains(problem, c.want) {
+			t.Errorf("%s: problem = %q", name, problem)
+		}
+	}
+}
+
+// A lean row that states mcp or an address with a port is a routed star: flux
+// must back it and stars must carry it, or the narrowing drops a live route.
+func TestRosterRefusesARoutedRepoFluxDoesNotBack(t *testing.T) {
+	const head = `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"hades":{"kind":"go"},"blade-runner":{"kind":"go"}},"repos":{"hades":{},"blade-runner":{}}`
+	routed := `"lean":{"hades":{"interface":{"sync":["mcp"]}},"blade-runner":{"address":"https://blade-runner:8218/mcp","interface":{"sync":["mcp"]}}}`
+	if _, _, _, problem, err := Roster(head + `,` + routed + `,"flux":{"hades":{},"blade-runner":{}},"stars":{"hades":{},"blade-runner":{}}}}`); err != nil || problem != "" {
+		t.Errorf("both backed: problem = %q, err = %v", problem, err)
+	}
+	for name, c := range map[string]struct{ tail, want string }{
+		"no flux entry (the blade-runner namespace bug)": {`"flux":{"hades":{}},"stars":{"hades":{}}}}`, "routes blade-runner"},
+		"flux but no star row":                           {`"flux":{"hades":{},"blade-runner":{}},"stars":{"hades":{}}}}`, "derives 1 stars from 2 flux-backed repos"}, // the count refuses first
+	} {
+		if _, _, _, problem, _ := Roster(head + `,` + routed + `,` + c.tail); !strings.Contains(problem, c.want) {
+			t.Errorf("%s: problem = %q", name, problem)
+		}
+	}
+	// An address with a port and no mcp (hemera's otlp) counts as routed too.
+	port := `"lean":{"hemera":{"address":"hemera:4318","interface":{"sync":["otlp"]}}}`
+	const h2 = `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"hemera":{"kind":"vendored"}},"repos":{"hemera":{}}`
+	if _, _, _, problem, _ := Roster(h2 + `,` + port + `,"flux":{"x":{}},"stars":{"hemera":{}}}}`); !strings.Contains(problem, "routes hemera") {
+		t.Errorf("an address with a port: problem = %q", problem)
+	}
+	// A lean row that is not an object states nothing.
+	const h4 = `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"x":{"kind":"go"}},"repos":{"x":{}}`
+	if _, _, _, problem, _ := Roster(h4 + `,"lean":{"x":"oops"},"flux":{"x":{}},"stars":{"x":{}}}}`); problem != "" {
+		t.Errorf("a non-object lean row: problem = %q", problem)
+	}
+	// A bare-name address with no mcp is not routed.
+	bare := `"lean":{"tron":{"address":"tron","interface":{"sync":[]}}}`
+	const h3 = `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"tron":{"kind":"rust"}},"repos":{"tron":{}}`
+	if _, _, _, problem, _ := Roster(h3 + `,` + bare + `,"flux":{"x":{}},"stars":{"tron":{}}}}`); strings.Contains(problem, "routes") {
+		t.Errorf("a bare address: problem = %q", problem)
+	}
+}

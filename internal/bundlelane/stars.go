@@ -68,6 +68,18 @@ const (
 	ClusterGlob      = "data/*.yaml"
 )
 
+// ServiceGlobs find every manifest that may hold a Service in namespace prime
+// or the Service an ExternalName there points at: prime itself, the blades
+// namespace (blade-runner) and hemera's (hemera-otelcol).
+//
+// clusters/pantheon/*.yaml is read beside them for the Flux Kustomizations: a
+// directory whose Kustomization sets targetNamespace (blades) names no
+// namespace in its own manifests.
+var ServiceGlobs = []string{"prime/*.yaml", "blades/*.yaml", "hemera/*.yaml", "clusters/pantheon/*.yaml"}
+
+// PrimeNamespace is the namespace whose Services make a repo a deployed star.
+const PrimeNamespace = "prime"
+
 // Declared reads the catalog entries, path -> body, into name -> document. A
 // document must be one JSON object whose name is its filename; anything else
 // is an error naming the file, because a document served under the wrong key
@@ -179,6 +191,88 @@ func FluxFacts(manifests map[string]string, stars, clusters map[string]bool) (ma
 	return out, nil
 }
 
+// ServiceFacts is the flux entry of every repo in repos that has a Service in
+// namespace prime and none in have (FluxFacts' rows): the deployed repos a
+// star manifest does not describe. manifests is path -> body over
+// ServiceGlobs. The Service is the one named for the repo; an ExternalName is
+// followed to its target Service (<name>.<ns>.svc...) in the same manifests,
+// and the ports and interface are read off that target by FluxFacts' rules.
+// The entry exists on the Service alone: a target flux does not carry, or one
+// whose ports are named for neither mcp, http nor mtls (hemera-otelcol serves
+// otlp), yields an empty fact, which is still the repo's membership in
+// data.fleet.stars.
+func ServiceFacts(manifests map[string]string, repos map[string]bool, have map[string]FluxFact) (map[string]FluxFact, error) {
+	byName := map[string]manifest{}
+	parsed := map[string][]manifest{}
+	targetNS := map[string]string{} // directory -> its Kustomization's targetNamespace
+	for _, p := range sortedKeys(manifests) {
+		docs, err := documents(manifests[p])
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", p, err)
+		}
+		parsed[p] = docs
+		for _, d := range docs {
+			if d.Kind == "Kustomization" && strings.HasPrefix(d.APIVersion, "kustomize.toolkit.fluxcd.io/") && d.TargetNamespace != "" {
+				targetNS[strings.Trim(strings.TrimPrefix(d.Path, "./"), "/")] = d.TargetNamespace
+			}
+		}
+	}
+	for _, p := range sortedKeys(parsed) {
+		dir := strings.SplitN(p, "/", 2)[0]
+		for _, d := range parsed[p] {
+			if d.Kind != "Service" {
+				continue
+			}
+			// A Service that names no namespace sits where its Kustomization
+			// puts it (targetNamespace), else in the namespace named for its
+			// directory: blades/blade-controller.yaml's blade-runner names none.
+			ns := d.Namespace
+			if ns == "" {
+				ns = targetNS[dir]
+			}
+			if ns == "" {
+				ns = dir
+			}
+			byName[ns+"/"+d.Name] = d
+		}
+	}
+	out := map[string]FluxFact{}
+	for name := range repos {
+		if _, ok := have[name]; ok {
+			continue
+		}
+		svc, ok := byName[PrimeNamespace+"/"+name]
+		if !ok {
+			continue
+		}
+		if svc.Type == "ExternalName" {
+			target, ok := byName[externalTarget(svc.ExternalName)]
+			if !ok {
+				out[name] = FluxFact{}
+				continue
+			}
+			svc = target
+		}
+		var fact FluxFact
+		if ports := portsOf([]manifest{svc}); ports != (Ports{}) {
+			fact.Ports = &ports
+		}
+		fact.Interface = interfacesOf([]manifest{svc})
+		out[name] = fact
+	}
+	return out, nil
+}
+
+// externalTarget turns an ExternalName (<svc>.<ns>.svc[.cluster.local]) into
+// the <ns>/<svc> key ServiceFacts indexes by; "" when it is not in-cluster.
+func externalTarget(host string) string {
+	parts := strings.Split(host, ".")
+	if len(parts) < 3 || parts[2] != "svc" {
+		return ""
+	}
+	return parts[1] + "/" + parts[0]
+}
+
 // starServices is the star's Services, the one named for it first (FluxFacts).
 func starServices(star string, docs []manifest) []manifest {
 	var svcs []manifest
@@ -200,8 +294,13 @@ func starServices(star string, docs []manifest) []manifest {
 // interfaces reads the protocols the star's Service port names imply
 // (FluxFacts), sorted.
 func interfaces(star string, docs []manifest) []string {
+	return interfacesOf(starServices(star, docs))
+}
+
+// interfacesOf is interfaces over the Services already chosen.
+func interfacesOf(svcs []manifest) []string {
 	seen := map[string]bool{}
-	for _, s := range starServices(star, docs) {
+	for _, s := range svcs {
 		for _, port := range s.Ports {
 			if port.Name == "mcp" || port.Name == "http" {
 				seen[port.Name] = true
@@ -216,8 +315,13 @@ func interfaces(star string, docs []manifest) []string {
 
 // servicePorts reads the star's ports off its Services (FluxFacts).
 func servicePorts(star string, docs []manifest) Ports {
+	return portsOf(starServices(star, docs))
+}
+
+// portsOf is servicePorts over the Services already chosen.
+func portsOf(svcs []manifest) Ports {
 	var p Ports
-	for _, s := range starServices(star, docs) {
+	for _, s := range svcs {
 		for _, port := range s.Ports {
 			switch port.Name {
 			case "mcp", "http":
@@ -327,6 +431,8 @@ type Inputs struct {
 	Entries         map[string]string
 	StarManifests   map[string]string
 	ClusterManifest map[string]string
+	// ServiceManifests is path -> body over ServiceGlobs.
+	ServiceManifests map[string]string
 }
 
 // Injection is the two staged data.json bodies and the rows each holds.
@@ -368,6 +474,13 @@ func Inject(in Inputs) (Injection, error) {
 	facts, err := FluxFacts(in.StarManifests, stars, clusters)
 	if err != nil {
 		return Injection{}, fmt.Errorf("foundry/flux %w", err)
+	}
+	svcFacts, err := ServiceFacts(in.ServiceManifests, stars, facts)
+	if err != nil {
+		return Injection{}, fmt.Errorf("foundry/flux %w", err)
+	}
+	for name, f := range svcFacts {
+		facts[name] = f
 	}
 	source := Stage(map[string]string{"repo": FluxRepo, "sha": in.FluxSHA})
 	return Injection{Declared: Stage(docs), Flux: Stage(facts), Source: source, DeclaredRows: len(docs), FluxRows: len(facts), Known: len(stars), Clusters: len(clusters)}, nil
@@ -411,6 +524,12 @@ type manifest struct {
 	APIVersion string
 	Kind       string
 	Name       string
+	Namespace  string
+	// Path and TargetNamespace are a Flux Kustomization's spec.path and
+	// spec.targetNamespace.
+	Path, TargetNamespace string
+	// Type and ExternalName are a Service's spec.type and spec.externalName.
+	Type, ExternalName string
 	// Ports is a Service's spec.ports.
 	Ports []servicePort
 	// Pods is a workload's pod templates.
@@ -421,7 +540,8 @@ type head struct {
 	APIVersion string `yaml:"apiVersion"`
 	Kind       string `yaml:"kind"`
 	Metadata   struct {
-		Name string `yaml:"name"`
+		Name      string `yaml:"name"`
+		Namespace string `yaml:"namespace"`
 	} `yaml:"metadata"`
 }
 
@@ -430,9 +550,18 @@ type servicePort struct {
 	Port int    `yaml:"port"`
 }
 
+type kustomizationDoc struct {
+	Spec struct {
+		Path            string `yaml:"path"`
+		TargetNamespace string `yaml:"targetNamespace"`
+	} `yaml:"spec"`
+}
+
 type serviceDoc struct {
 	Spec struct {
-		Ports []servicePort `yaml:"ports"`
+		Type         string        `yaml:"type"`
+		ExternalName string        `yaml:"externalName"`
+		Ports        []servicePort `yaml:"ports"`
 	} `yaml:"spec"`
 }
 
@@ -504,7 +633,7 @@ func documents(body string) ([]manifest, error) {
 		if h.Kind == "" {
 			continue
 		}
-		m := manifest{APIVersion: h.APIVersion, Kind: h.Kind, Name: h.Metadata.Name}
+		m := manifest{APIVersion: h.APIVersion, Kind: h.Kind, Name: h.Metadata.Name, Namespace: h.Metadata.Namespace}
 		switch {
 		case h.Kind == "Service":
 			var svc serviceDoc
@@ -512,6 +641,11 @@ func documents(body string) ([]manifest, error) {
 				return nil, fmt.Errorf("the Service %s: %w", h.Metadata.Name, err)
 			}
 			m.Ports = svc.Spec.Ports
+			m.Type, m.ExternalName = svc.Spec.Type, svc.Spec.ExternalName
+		case h.Kind == "Kustomization":
+			var k kustomizationDoc
+			_ = node.Decode(&k) // a Kustomization whose spec does not read places nothing
+			m.Path, m.TargetNamespace = k.Spec.Path, k.Spec.TargetNamespace
 		case workloads[h.Kind]:
 			var w workloadDoc
 			if err := node.Decode(&w); err != nil {
