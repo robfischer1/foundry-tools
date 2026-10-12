@@ -147,12 +147,15 @@ func TestAContractTheEngineCannotReadCouldNotRun(t *testing.T) {
 	noOrbitDie(t)
 }
 
+// The roster is the catalog (fleet/repos/*.json), which the injection lists
+// first, so a listing the engine loses stops the lane there, before the orbit
+// payloads ask for the roster a second time.
 func TestARosterBesideTheContractsTheEngineCannotListCouldNotRun(t *testing.T) {
 	m := bundleOn(t, nil)
 	scriptAGreenBundle()
-	engine.fail(`"fleet/stars/*/data.json"`, "the engine went away")
+	engine.fail(`"fleet/repos/*.json"`, "the engine went away")
 	bundles(t, m)
-	settledOn(t, "2", "roster beside orbits/")
+	settledOn(t, "2", "fleet/repos/*.json could not be listed")
 	noOrbitDie(t)
 }
 

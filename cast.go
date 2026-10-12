@@ -145,7 +145,7 @@ func (l *castLane) run(ctx context.Context) (int, string) {
 	}
 	l.seal("cast:preflight", buildlane.Clean, "the lane has its commit and its credentials")
 	star := starOf(m.Repo)
-	shard := "fleet/stars/" + star + "/slag.json"
+	shard := "fleet/repos/" + star + ".json"
 	slag, err := dag.Git(checks.DiesRepo).Ref(checks.DiesRef).Tree().File(shard).Contents(ctx)
 	if err != nil || strings.TrimSpace(slag) == "" {
 		return l.stop("cast:record", buildlane.CouldNotRun, fmt.Sprintf("could not run: no record for %s could be read at foundry-dies %s, so nothing says what it ships (%v)", star, shard, err))

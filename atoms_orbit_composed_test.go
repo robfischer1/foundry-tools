@@ -115,7 +115,7 @@ func TestOrbitComposedReportsABrokenContractAsAFinding(t *testing.T) {
 // A ROSTER THAT CANNOT BE LISTED IS A COULD-NOT-RUN that says so.
 func TestOrbitComposedCannotRunWhenTheRosterCannotBeRead(t *testing.T) {
 	composedTree(t, nil)
-	engine.fail(`"fleet/stars/*/data.json"`, "the dies went away")
+	engine.fail(`"fleet/repos/*.json"`, "the dies went away")
 	wantState(t, runAtom(t, "ops:orbit-composed", ""), 2, "foundry-dies' roster could not be read", "the dies went away")
 }
 
@@ -127,9 +127,9 @@ func TestOrbitComposedSplitsHyphenatedStarsAgainstTheDiesRoster(t *testing.T) {
 		t.Fatal(err)
 	}
 	tree := map[string]string{
-		"/dies/orbits/blade-runner-themis.toml":    composedContract,
-		"/dies/fleet/stars/blade-runner/data.json": "{}",
-		"/dies/fleet/stars/themis/data.json":       "{}",
+		"/dies/orbits/blade-runner-themis.toml": composedContract,
+		"/dies/fleet/repos/blade-runner.json":   "{}",
+		"/dies/fleet/repos/themis.json":         "{}",
 	}
 	for name, raw := range orbitcompose.Files(orbitNamespace, orbitcompose.Compose(cs)) {
 		tree["prime/orbits/"+name] = string(raw)

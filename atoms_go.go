@@ -614,11 +614,12 @@ func isNotAStar(err error) bool {
 	return errors.As(err, &ns)
 }
 
-// starOfRepo is the star whose record says meta.repo == key, or "" when no
-// record does. The records are read at their one home (r.dies); a tree that
-// cannot be listed is an error, not "no star".
+// starOfRepo is the repo whose catalog entry says repo == key, or "" when no
+// entry does. The entries are read at their one home (r.dies,
+// fleet/repos/<name>.json, which every fleet repo has whether or not flux
+// deploys it); a tree that cannot be listed is an error, not "no star".
 func (r *run) starOfRepo(ctx context.Context, key string) (string, error) {
-	paths, err := r.dies.Glob(ctx, "fleet/stars/*/slag.json")
+	paths, err := r.dies.Glob(ctx, "fleet/repos/*.json")
 	if err != nil {
 		return "", fmt.Errorf("the fleet's records could not be listed: %w", err)
 	}

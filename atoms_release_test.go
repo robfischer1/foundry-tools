@@ -73,7 +73,7 @@ func TestAFrontendStarWithNoServiceNameIsNamedByItsRecord(t *testing.T) {
 	engine.reset()
 	tree := bunStar()
 	tree[".copier-answers.yml"] = "repo_name: calliope-mcp\nframework: mcp\n"
-	tree["/dies/fleet/stars/calliope/slag.json"] = `{"meta":{"repo":"rob/calliope"}}`
+	tree["/dies/fleet/repos/calliope.json"] = `{"repo":"rob/calliope"}`
 	engine.withTree(tree)
 	r := newRun(dag.Directory(), "http://ourea.default.svc.cluster.local:8215/calliope.git", "")
 	wantState(t, registry["ts:release"](context.Background(), r), 0, "`bun run release`")
@@ -194,9 +194,9 @@ func TestTheBaseBuiltReleasesSayWhyTheyCouldNotAsk(t *testing.T) {
 	engine.reset()
 	tree := pythonStar()
 	delete(tree, ".copier-answers.yml")
-	tree["/dies/fleet/stars/iris/slag.json"] = `{"meta":{"repo":"rob/iris"}}`
+	tree["/dies/fleet/repos/iris.json"] = `{"repo":"rob/iris"}`
 	engine.withTree(tree)
-	engine.fail(`glob(pattern:"fleet/stars/*/slag.json")`, "the dies went away")
+	engine.fail(`glob(pattern:"fleet/repos/*.json")`, "the dies went away")
 	r := newRun(dag.Directory(), "http://ourea.default.svc.cluster.local:8215/iris.git", "")
 	wantState(t, registry["python:release"](context.Background(), r), 2, "python:release: CANNOT RUN", "the dies went away")
 

@@ -126,7 +126,7 @@ func TestContractsJudgesEveryFile(t *testing.T) {
 				t.Errorf("approved detail %q", f.Detail)
 			}
 		case "party-not-on-roster":
-			if !strings.HasSuffix(f.Detail, "is not on the fleet roster (fleet/stars/"+strings.Fields(f.Detail)[0]+"/data.json)") {
+			if !strings.HasSuffix(f.Detail, "is not on the fleet roster (fleet/repos/"+strings.Fields(f.Detail)[0]+".json)") {
 				t.Errorf("roster detail %q", f.Detail)
 			}
 		case "status-unknown":

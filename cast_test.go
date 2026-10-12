@@ -30,7 +30,7 @@ const (
 // only the name off it (any "binaries" in the block is ignored: the tree names
 // them).
 func tongsRecord(cast string) string {
-	return `{"$schema":"https://forgejo.notusmi.com/rob/foundry-dies/schema/slag-v3.schema.json","meta":{"name":"tongs","produces":["binary"]},"tools":{"cast":` + cast + `}}`
+	return `{"name":"tongs","kind":"rust","cast":` + cast + `}`
 }
 
 // tongsMetadata is cargo metadata for a workspace whose one default member
@@ -52,10 +52,10 @@ func castOn(t *testing.T, tree map[string]string) *FoundryTools {
 	t.Helper()
 	engine.reset()
 	base := map[string]string{
-		"Cargo.toml":                        "[workspace]\n",
-		"crates/tongs/src/main.rs":          "fn main() {}\n",
-		"cosign.pub":                        "-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----\n",
-		"/dies/fleet/stars/tongs/slag.json": tongsRecord(`null`),
+		"Cargo.toml":                   "[workspace]\n",
+		"crates/tongs/src/main.rs":     "fn main() {}\n",
+		"cosign.pub":                   "-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----\n",
+		"/dies/fleet/repos/tongs.json": tongsRecord(`null`),
 	}
 	for k, v := range tree {
 		if v == "" {
@@ -204,9 +204,9 @@ func TestAFailedCastIsAskedOnceAndNamesLayerCast(t *testing.T) {
 // and payload/d/ as d/, beside every binary the workspace builds.
 func TestThePayloadDirectoryShipsVerbatimBesideEveryBinary(t *testing.T) {
 	m := castOn(t, map[string]string{
-		"/dies/fleet/stars/tongs/slag.json": tongsRecord(`{}`),
-		"payload/hooks/a.py":                "a",
-		"payload/tongs.service":             "unit",
+		"/dies/fleet/repos/tongs.json": tongsRecord(`{}`),
+		"payload/hooks/a.py":           "a",
+		"payload/tongs.service":        "unit",
 	})
 	scriptACast(castPin + "\nhooks/a.py\ntongs\ntongs-gauge\ntongs.service\n")
 	scriptTheBinaries(`{"packages":[{"id":"p","targets":[{"name":"tongs","kind":["bin"]},{"name":"tongs-gauge","kind":["bin"]},{"name":"lib","kind":["lib"]}]}],"workspace_default_members":["p"]}`, "")
@@ -263,10 +263,10 @@ func TestACastThatCannotStartBuildsNothing(t *testing.T) {
 		// The needle is the read, not the path: the settle's reason names the
 		// path too, and a path needle would fail the verdict exec with it.
 		"no record": {nil, func() {
-			engine.fail(`file(path:"fleet/stars/tongs/slag.json"){contents}`, "no such file or directory")
-		}, "2", "no record for tongs could be read at foundry-dies fleet/stars/tongs/slag.json, so nothing says what it ships"},
-		"a record with no name": {map[string]string{"/dies/fleet/stars/tongs/slag.json": `{"meta":{}}`}, nil, "1",
-			"no meta.name"},
+			engine.fail(`file(path:"fleet/repos/tongs.json"){contents}`, "no such file or directory")
+		}, "2", "no record for tongs could be read at foundry-dies fleet/repos/tongs.json, so nothing says what it ships"},
+		"a record with no name": {map[string]string{"/dies/fleet/repos/tongs.json": `{}`}, nil, "1",
+			"names no name"},
 		"no cosign.pub": {map[string]string{"cosign.pub": ""}, nil, "1", "carries no cosign.pub"},
 	}
 	for name, c := range cases {

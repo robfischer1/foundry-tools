@@ -88,12 +88,12 @@ func hasContract(files map[string][]byte) bool {
 	return false
 }
 
-// roster answers each star on a tree's fleet roster and its verb prefix. A shard
-// that is not JSON still names a star by its directory; its prefix is unknown,
+// roster answers each repo on a tree's fleet catalog (fleet/repos/<name>.json)
+// and its verb prefix. A file that is not JSON still names a repo by its file name; its prefix is unknown,
 // so no gateway name is attributed through it.
 func roster(t tree) (map[string]string, error) {
 	out := map[string]string{}
-	for _, p := range t.glob("fleet/stars/*/data.json") {
+	for _, p := range t.glob("fleet/repos/*.json") {
 		body, err := t.read(p)
 		if err != nil {
 			return nil, fmt.Errorf("%s could not be read: %v", p, err)
@@ -102,7 +102,7 @@ func roster(t tree) (map[string]string, error) {
 			VerbPrefix string `json:"verb_prefix"`
 		}
 		_ = json.Unmarshal([]byte(body), &star)
-		out[path.Base(path.Dir(p))] = star.VerbPrefix
+		out[strings.TrimSuffix(path.Base(p), ".json")] = star.VerbPrefix
 	}
 	return out, nil
 }
@@ -157,7 +157,7 @@ func fleetContractsAndRoster(in Input) ([]orbitcompose.Contract, []checks.Findin
 // a known status, and an approved one moved its version with its verbs (against
 // foundry-dies main, the branch the pull merges into).
 func orbitContracts(_ context.Context, a checks.AtomDef, in Input) checks.Verdict {
-	const notHere = "this tree is not the contracts' repository (it needs orbits/*.toml beside fleet/stars/)"
+	const notHere = "this tree is not the contracts' repository (it needs orbits/*.toml beside fleet/repos/)"
 	t := in.tree()
 	files, err := filesIn(t, "orbits/*")
 	if err != nil {

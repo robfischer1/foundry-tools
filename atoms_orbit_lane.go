@@ -89,9 +89,10 @@ func hasContract(files map[string][]byte) bool {
 	return false
 }
 
-// roster answers each star on dir's fleet roster and its verb prefix.
+// roster answers each repo on dir's fleet catalog (fleet/repos/<name>.json) and
+// its verb prefix: a contract may name any repo the catalog holds.
 func roster(ctx context.Context, dir *dagger.Directory) (map[string]string, error) {
-	paths, err := dir.Glob(ctx, "fleet/stars/*/data.json")
+	paths, err := dir.Glob(ctx, "fleet/repos/*.json")
 	if err != nil {
 		return nil, fmt.Errorf("the roster could not be listed: %v", err)
 	}
@@ -104,10 +105,10 @@ func roster(ctx context.Context, dir *dagger.Directory) (map[string]string, erro
 		var star struct {
 			VerbPrefix string `json:"verb_prefix"`
 		}
-		// A shard that is not JSON still names a star by its directory; its
+		// A shard that is not JSON still names a repo by its file name; its
 		// prefix is unknown, so no gateway name is attributed through it.
 		_ = json.Unmarshal([]byte(body), &star)
-		out[path.Base(path.Dir(p))] = star.VerbPrefix
+		out[strings.TrimSuffix(path.Base(p), ".json")] = star.VerbPrefix
 	}
 	return out, nil
 }
@@ -150,7 +151,7 @@ func (r *run) fleetContracts(ctx context.Context) ([]orbitcompose.Contract, []ch
 // verbs (against foundry-dies main, the branch the pull merges into).
 func orbitContracts(ctx context.Context, r *run) checks.Verdict {
 	const id = "orbit:contracts"
-	const notHere = "this tree is not the contracts' repository (it needs orbits/*.toml beside fleet/stars/)"
+	const notHere = "this tree is not the contracts' repository (it needs orbits/*.toml beside fleet/repos/)"
 	files, err := filesIn(ctx, r.src, "orbits/*")
 	if err != nil {
 		return orbitCannot(id, err)

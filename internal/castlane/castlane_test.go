@@ -14,7 +14,7 @@ import (
 
 // record is a record around a tools block.
 func record(tools string) string {
-	return `{"$schema":"https://forgejo.notusmi.com/rob/foundry-dies/schema/slag-v3.schema.json","meta":{"name":"cerberus","produces":["binary"]},"tools":` + tools + `}`
+	return `{"name":"cerberus","kind":"rust","produces":["binary"],"tools":` + tools + `}`
 }
 
 // The record says the star's name and nothing else: whatever it still carries
@@ -35,7 +35,7 @@ func TestFromRecordReadsTheName(t *testing.T) {
 		t.Errorf("stage %q", got)
 	}
 	// No tools block, no produces, another schema: still a record with a name.
-	if c, err := FromRecord(`{"meta":{"name":"naiad"}}`); err != nil || c.Name != "naiad" {
+	if c, err := FromRecord(`{"name":"naiad"}`); err != nil || c.Name != "naiad" {
 		t.Errorf("a bare record: %+v %v", c, err)
 	}
 }
@@ -43,7 +43,7 @@ func TestFromRecordReadsTheName(t *testing.T) {
 func TestFromRecordRefusesARecordWithNoName(t *testing.T) {
 	for name, c := range map[string]struct{ slag, why string }{
 		"not json": {`{`, "does not parse"},
-		"no name":  {`{"meta":{}}`, "no meta.name"},
+		"no name":  {`{}`, "no name"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := FromRecord(c.slag); err == nil || !strings.Contains(err.Error(), c.why) {
