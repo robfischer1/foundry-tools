@@ -77,10 +77,10 @@ func FromRecord(entry string) (Cast, error) {
 		Name string `json:"name"`
 	}
 	if err := json.Unmarshal([]byte(entry), &rec); err != nil {
-		return Cast{}, fmt.Errorf("the record does not parse: %v", err)
+		return Cast{}, fmt.Errorf("the catalog entry does not parse: %v", err)
 	}
 	if rec.Name == "" {
-		return Cast{}, errors.New("the record names no name")
+		return Cast{}, errors.New("the catalog entry has no name")
 	}
 	return Cast{Name: rec.Name}, nil
 }

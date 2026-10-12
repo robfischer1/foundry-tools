@@ -294,7 +294,7 @@ func missingRootWith(in Input) Input {
 
 func TestDiesSchema(t *testing.T) {
 	const id = "dies:schema"
-	files := dieTree(map[string]string{"schema/slag.schema.json": "{}", "schema/slag-v3.schema.json": "{}"})
+	files := dieTree(map[string]string{"schema/fleet-star.schema.json": "{}"})
 	t.Run("the embedded validator is written for the run, run with python3, and removed", func(t *testing.T) {
 		tmp := t.TempDir()
 		t.Setenv("TMPDIR", tmp)
@@ -369,11 +369,10 @@ func TestDiesSchema(t *testing.T) {
 		expect(t, runAtom(t, id, in), stateOf(2), cannot, "the validator could not be written for the run")
 	})
 	for path, why := range map[string]string{
-		"schema/slag.schema.json":    "schema/slag.schema.json is absent, so there is no payload to validate",
-		"schema/slag-v3.schema.json": "schema/slag-v3.schema.json is absent, so there is no schema to validate the records against",
+		"schema/fleet-star.schema.json": "schema/fleet-star.schema.json is absent, so there is no schema to validate the catalog entries against",
 	} {
 		t.Run(path+" missing", func(t *testing.T) {
-			f := dieTree(map[string]string{"schema/slag.schema.json": "{}", "schema/slag-v3.schema.json": "{}"})
+			f := dieTree(map[string]string{"schema/fleet-star.schema.json": "{}"})
 			delete(f, path)
 			in, fake := pyTree(t, f, nil)
 			expect(t, runAtom(t, id, in), stateOf(2), cannot, why)

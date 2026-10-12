@@ -16,7 +16,7 @@ const (
 	// policyData is a built policy bundle's data.json: chaos curates a verb.
 	policyData = `{"authz_audience":{"star_only":{"chaos":["graph_commit_graph"],"athena":["task_create"]}}}`
 	// rosterData is a built roster's data.json.
-	rosterData = `{"fleet":{"map":{"athena":{},"ares":{}},"topics":["athena._ops.calls"],"stars":{"athena":{"name":"athena"},"ares":{"name":"ares"}},"declared":{},"flux":{"athena":{}},"flux_source":{"repo":"foundry/flux","sha":"` + fakeFluxSHA + `"}}}`
+	rosterData = `{"fleet":{"map":{"athena":{},"ares":{}},"topics":["athena._ops.calls"],"stars":{"athena":{"name":"athena"}},"repos":{"athena":{},"ares":{}},"declared":{"athena":{},"ares":{}},"flux":{"athena":{}},"flux_source":{"repo":"foundry/flux","sha":"` + fakeFluxSHA + `"}}}`
 	// athenaManifest is foundry/flux's prime/star-athena.yaml, down to its
 	// Service and its DSN.
 	athenaManifest = "kind: Deployment\nmetadata: {name: athena}\nspec:\n  template:\n    spec:\n      containers:\n        - env:\n            - {name: DATABASE_URL, value: \"postgresql://athena_svid@aether:5432/athena?sslrootcert=/etc/stellar/aether-db-ca/ca.crt\"}\n" +
@@ -39,8 +39,8 @@ func bundleOn(t *testing.T, tree map[string]string) *FoundryTools {
 		"policy/authz/visible.rego":          "package authz.visible",
 		"tests/fixtures/ouranos-self.json":   `{"name":"ouranos"}`,
 		"fleet/data.json":                    `{"map":{"athena":{},"ares":{}}}`,
-		"fleet/stars/athena/slag.json":       "{}",
-		"fleet/stars/ares/slag.json":         "{}",
+		"fleet/repos/athena.json":            athenaEntry,
+		"fleet/repos/ares.json":              aresEntry,
 		"cosign.pub":                         "-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----\n",
 		"orbits/urania-themis.toml":          orbitContract,
 		"orbits/README.md":                   "the contracts",
@@ -68,7 +68,7 @@ func scriptAGreenBundle() {
 	// The pin, not a literal: Renovate moves checks.OpaVersion, and a literal
 	// here turned every bump into 79 red bundle tests (rollup c6bba07, 2026-10-05).
 	engine.stdout(`"version"`, "Version: "+checks.OpaVersion+"\n")
-	engine.stdout(`"--name-only"`, "policy/authz/visible.rego\nfleet/stars/athena/slag.json\n")
+	engine.stdout(`"--name-only"`, "policy/authz/visible.rego\nfleet/repos/athena.json\n")
 	engine.stdout(`"-v"`, "PASS: 325/325")
 	engine.stdout(`"tests/fixtures/ouranos-self.json"`, `{"result":[{"expressions":[{"value":[]}]}]}`)
 	engine.stdout(`"/work/bundle.tar.gz"`, policyData)
@@ -360,7 +360,7 @@ func TestEveryGateRefusesWhatItGuards(t *testing.T) {
 		{"the session probe does not evaluate", nil, func() { engine.exitCode(`"/work/probe-session.json"`, 1) }, "1", "did not evaluate against the built bundle"},
 		{"the fleet tier is absent", map[string]string{"fleet/data.json": ""}, nil, "1", "fleet/data.json is absent"},
 		{"the fleet tier is not JSON", map[string]string{"fleet/data.json": "{"}, nil, "1", "not JSON"},
-		{"a shard the map lacks", map[string]string{"fleet/stars/zeus/slag.json": "{}"}, nil, "1", "no fleet/data.json map entry: zeus"},
+		{"a catalog entry the map lacks", map[string]string{"fleet/repos/zeus.json": `{"name":"zeus"}`}, nil, "1", "no fleet/data.json map entry: zeus"},
 		{"the roster does not build", nil, func() { engine.exitCode(`"/work/fleet-bundle-signed.tar.gz"`, 1) }, "1", "opa build over the staged roster failed"},
 		{"the signed roster's roots moved", nil, func() {
 			engine.stdout(`"/.manifest"`, `{"roots":["fleet","authz"]}`)

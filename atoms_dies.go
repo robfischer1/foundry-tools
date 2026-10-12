@@ -42,7 +42,7 @@ func init() {
 // Directory before any container runs.
 //
 // TWO MARKERS, BOTH REQUIRED, because either alone is ambiguous: policy/ turns
-// up in more than one repo in this fleet, and fleet/stars/ is a name a fleet
+// up in more than one repo in this fleet, and fleet/repos/ is a name a fleet
 // inventory could reasonably take. Together they name foundry-dies — the repo
 // that owns the policy bundle AND the star roster the bundle is built from —
 // and nothing else in custody carries both. Everywhere else these atoms report
@@ -53,7 +53,7 @@ func init() {
 // tree with no fleet/ is an error, and an error is not an answer about the
 // tree's shape.
 func diesShape(ctx context.Context, r *run, a checks.AtomDef) *checks.Verdict {
-	absent := checks.VerdictOf(a, 0, a.ID+": ABSENT - this tree is not the policy die's source. It needs both policy/.manifest and fleet/stars/, and this one does not carry both.")
+	absent := checks.VerdictOf(a, 0, a.ID+": ABSENT - this tree is not the policy die's source. It needs both policy/.manifest and fleet/repos/, and this one does not carry both.")
 
 	roots, err := r.src.Entries(ctx)
 	if err != nil {
@@ -71,7 +71,7 @@ func diesShape(ctx context.Context, r *run, a checks.AtomDef) *checks.Verdict {
 		v := checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - fleet/ is in the root listing but could not be read (%v).", a.ID, err))
 		return &v
 	}
-	if !checks.HasEntry(fleet, "stars") {
+	if !checks.HasEntry(fleet, "repos") {
 		return &absent
 	}
 	return nil
@@ -546,23 +546,19 @@ func diesContracts(ctx context.Context, r *run) checks.Verdict {
 	return verdict(ctx, a, ctr.WithExec(tomlpy("tools/check_contracts.py"), anyExit))
 }
 
-// The slag v1 schema (the published slag-schema die) and the v3 schema are
-// valid Draft 2020-12 documents, and every fleet/stars/*/slag.json satisfies v3.
+// Every catalog entry (fleet/repos/<name>.json) satisfies the fleet-star schema,
+// and a tree that still carries fleet/stars/ (slag is retired, slag-by-kind
+// F14) is refused: a stale writer, not a record to validate.
 //
-// TWO ASSERTIONS ABOUT EACH SCHEMA, v1 AND v3, and the second is the one check_schema does
+// TWO ASSERTIONS ABOUT EACH SCHEMA, and the second is the one check_schema does
 // not make. `required` naming a property that is not DEFINED is legal to the
 // metaschema and, under additionalProperties false, makes the schema reject
-// EVERY document — so pour would refuse every well-formed melt, and the failure
-// would surface at a pour rather than here.
+// EVERY document, and the failure would surface at a pour rather than here.
 //
-// AND THE RECORDS ARE VALIDATED. This atom globbed fleet/stars/*/*.slag against
-// the v2 schema, and no such file exists (v3 replaced v1 in place at
-// slag.json), so it matched zero records and passed on nothing: nothing in CI
-// checked a record against any schema. It now validates every slag.json against
-// the schema each names (slag-v3 or slag-v4), and zero records is a
-// could-not-run, not a pass. The meta.name rule
-// rides along because a record whose name is not its directory is one the
-// loader will not find.
+// AND THE DOCUMENTS ARE VALIDATED: zero documents is a could-not-run, not a
+// pass, because zero validated is not the same fact as every one valid. The
+// name rule rides along because a document whose name is not its filename is
+// one the loader will not find.
 //
 // THE PROVISION IS PROBED BEFORE THE GATE RUNS — `uv --version`, then an
 // `import jsonschema` under the same resolver, each its own exec under the
@@ -578,8 +574,7 @@ func diesSchema(ctx context.Context, r *run) checks.Verdict {
 		return *stop
 	}
 	if stop := requirePaths(ctx, r, a, [][2]string{
-		{"schema/slag.schema.json", "schema/slag.schema.json is absent, so there is no payload to validate."},
-		{"schema/slag-v3.schema.json", "schema/slag-v3.schema.json is absent, so there is no schema to validate the records against."},
+		{"schema/fleet-star.schema.json", "schema/fleet-star.schema.json is absent, so there is no schema to validate the catalog entries against."},
 	}); stop != nil {
 		return *stop
 	}
@@ -639,8 +634,8 @@ func diesFindings(ctx context.Context, r *run) checks.Verdict {
 // EVERY schema in the tree is checked, discovered rather than listed.
 //
 // WHY THIS EXISTS BESIDE dies:schema AND dies:findings. Those two name their
-// files: dies:schema names schema/slag.schema.json and schema/slag-v3.schema.json and
-// validates the fleet records against v3, dies:findings names findings' schema and its checker.
+// files: dies:schema names schema/fleet-star.schema.json and
+// validates the catalog entries against it, dies:findings names findings' schema and its checker.
 // Both are correct about what they name and silent about every other schema,
 // so a schema nobody listed (operable.schema.json once landed carrying nineteen
 // negative fixtures that no lane ever ran) was never checked at all. That gap
@@ -770,8 +765,8 @@ func diesWireGrammar(ctx context.Context, r *run) checks.Verdict {
 		WithExec(stdlibpy("tools/check_wire_grammar.py"), anyExit))
 }
 
-// diesCanonical grades the FORM of every committed record, in Go, with no
-// container: each fleet/stars/<star>/slag.json is re-emitted through
+// diesCanonical grades the FORM of every committed catalog entry, in Go, with no
+// container: each fleet/repos/<name>.json is re-emitted through
 // checks.CanonicalJSON — sorted keys, two-space indent, ensure_ascii, trailing
 // LF, python's json.dumps(sort_keys=True, indent=2) + "\n" — and must come
 // back byte for byte.
@@ -790,12 +785,12 @@ func diesCanonical(ctx context.Context, r *run) checks.Verdict {
 	if stop := diesShape(ctx, r, a); stop != nil {
 		return *stop
 	}
-	records, err := r.src.Glob(ctx, "fleet/stars/*/slag.json")
+	records, err := r.src.Glob(ctx, "fleet/repos/*.json")
 	if err != nil {
-		return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - fleet/stars/ could not be scanned for records (%v).", a.ID, err))
+		return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - fleet/repos/ could not be scanned for catalog entries (%v).", a.ID, err))
 	}
 	if len(records) == 0 {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - fleet/stars/ carries no slag.json, so there is no record whose form could be graded.")
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - fleet/repos/ carries no catalog entry, so there is no document whose form could be graded.")
 	}
 	sort.Strings(records)
 	var findings []string
@@ -814,9 +809,9 @@ func diesCanonical(ctx context.Context, r *run) checks.Verdict {
 		}
 	}
 	if len(findings) > 0 {
-		return checks.VerdictOf(a, 1, fmt.Sprintf("%s: FINDINGS - %d of %d record(s) are not their own canonical form:\n%s", a.ID, len(findings), len(records), strings.Join(findings, "\n")))
+		return checks.VerdictOf(a, 1, fmt.Sprintf("%s: FINDINGS - %d of %d catalog document(s) are not their own canonical form:\n%s", a.ID, len(findings), len(records), strings.Join(findings, "\n")))
 	}
-	return checks.VerdictOf(a, 0, fmt.Sprintf("%s: %d record(s) are each their own canonical form.", a.ID, len(records)))
+	return checks.VerdictOf(a, 0, fmt.Sprintf("%s: %d catalog document(s) are each their own canonical form.", a.ID, len(records)))
 }
 
 // Every refusal code a world or a star spells is in the fleet registry

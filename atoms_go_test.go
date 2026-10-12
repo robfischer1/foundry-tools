@@ -152,10 +152,7 @@ func TestGoTestRaceCountsTestFilesBeforeRunning(t *testing.T) {
 func TestGoTestIsTheUnitSuiteWithoutRaceOrADatabase(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	engine.withTree(map[string]string{
-		".copier-answers.yml":           "service_name: x\n",
-		"/dies/fleet/stars/x/slag.json": `{"backends":{"postgres":{"cnpg_cluster":"x-db","database":"x","owner":"x"}}}`,
-	})
+	engine.withTree(map[string]string{".copier-answers.yml": "service_name: x\n"})
 	engine.stdout(`"go","list"`, "11\n")
 	wantState(t, runAtom(t, "go:test", ""), 0, "unit suite")
 	c := engine.chain(`"go","test","./..."`, "exitCode")
@@ -168,16 +165,12 @@ func TestGoTestIsTheUnitSuiteWithoutRaceOrADatabase(t *testing.T) {
 	wantState(t, runAtom(t, "go:test", ""), 1, "no test file in any package")
 }
 
-// THE RECORD SAYS POSTGRES, THE TREE SAYS WHICH TAGS, THE LANE BRINGS THE
-// DATABASE (checks/testdb.go). Before this the DB-gated suites never compiled
+// THE TREE SAYS WHICH TAGS, THE LANE BRINGS THE DATABASE (checks/testdb.go). Before this the DB-gated suites never compiled
 // and every DB-touching line read NOT COVERED (foundry-tools#8608).
-func TestGoTestRaceBringsTheRecordsPostgres(t *testing.T) {
+func TestGoTestRaceBringsTheTreesDatabases(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	engine.withTree(map[string]string{
-		".copier-answers.yml":           "service_name: x\n",
-		"/dies/fleet/stars/x/slag.json": `{"backends":{"postgres":{"cnpg_cluster":"x-db","database":"x","owner":"x"}}}`,
-	})
+	engine.withTree(map[string]string{".copier-answers.yml": "service_name: x\n"})
 	engine.stdout(`"go","list"`, "11\n")
 	engine.stdout(`"grep","-rhoE"`, "//go:build live_db\n//go:build live_db_novector\n//go:build integration\n")
 
@@ -230,30 +223,15 @@ func TestGoTestRaceBringsTheRecordsPostgres(t *testing.T) {
 		t.Errorf("the build-tag read must tolerate grep's exit 1:\n%v", engine.chains())
 	}
 
-	// NO BACKEND IN THE RECORD: nothing is bound, the tags stay uncompiled,
-	// and the scope line says why.
-	engine.withTree(map[string]string{"/dies/fleet/stars/x/slag.json": `{"backends":{}}`})
-	wantState(t, runAtom(t, "go:test-race", ""), 0, "test databases: none", "no postgres backend")
-	c = engine.chain(`"go","test","-race"`, "exitCode")
-	if hasCall(c, "withServiceBinding") || !hasCall(c, "withExec", `args:["go","test","-race","-coverprofile","/tmp/go-test-race.cover","./..."]`) {
-		t.Errorf("a record without postgres binds nothing and compiles no tag:\n%s", c)
-	}
-
-	// A BACKEND BUT NO TAGGED SUITE: nothing to bind, said.
-	engine.withTree(map[string]string{"/dies/fleet/stars/x/slag.json": `{"backends":{"postgres":{}}}`})
+	// NO TAGGED SUITE: nothing is bound, no tag is compiled, and the scope
+	// line says why. grep exits 1 for no match, which is an answer.
 	engine.stdout(`"grep","-rhoE"`, "")
 	engine.exitCode(`"grep","-rhoE"`, 1)
 	wantState(t, runAtom(t, "go:test-race", ""), 0, "test databases: none", "no test file sits behind a tag")
-
-	// NO RECORD AT ALL — a star the dies do not know — is none, not an error.
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.withTree(map[string]string{
-		".copier-answers.yml":           "service_name: nobody\n",
-		"/dies/fleet/stars/x/slag.json": `{"backends":{"postgres":{}}}`, // someone else's
-	})
-	engine.stdout(`"go","list"`, "11\n")
-	wantState(t, runAtom(t, "go:test-race", ""), 0, "no record at fleet/stars/nobody")
+	c = engine.chain(`"go","test","-race"`, "exitCode")
+	if hasCall(c, "withServiceBinding") || !hasCall(c, "withExec", `args:["go","test","-race","-coverprofile","/tmp/go-test-race.cover","./..."]`) {
+		t.Errorf("a tree with no tagged suite binds nothing and compiles no tag:\n%s", c)
+	}
 }
 
 // The go:mutation needles, each in one exec's chain.
@@ -331,11 +309,8 @@ func scriptGoMutation(tree map[string]string) {
 	engine.stdout(goClassifyNeedle, `{"noise":[]}`+"\n")
 }
 
-func TestGoMutationCompilesTheRecordsDBTags(t *testing.T) {
-	scriptGoMutation(map[string]string{
-		".copier-answers.yml":           "service_name: x\n",
-		"/dies/fleet/stars/x/slag.json": `{"backends":{"postgres":{}}}`,
-	})
+func TestGoMutationCompilesTheTreesDBTags(t *testing.T) {
+	scriptGoMutation(map[string]string{".copier-answers.yml": "service_name: x\n"})
 	engine.stdout(`"grep","-rhoE"`, "//go:build live_db\n")
 	// A pass keeps no output (checks.VerdictOf); the scope line is set on
 	// the verdict and survives it.
@@ -396,17 +371,18 @@ func TestGoMutationCompilesTheRecordsDBTags(t *testing.T) {
 		t.Errorf("the mutation lane's server lost its non-durable flags:\n%s", svc)
 	}
 
-	// NO BACKEND, NO TAGS AT ALL — not an empty one: an empty -tags word is
+	// NO TAGGED SUITE, NO TAGS AT ALL — not an empty one: an empty -tags word is
 	// still `-tags ""`, and `-p 1` on a suite that shares no database.
-	engine.withTree(map[string]string{"/dies/fleet/stars/x/slag.json": `{"backends":{}}`})
+	engine.stdout(`"grep","-rhoE"`, "")
+	engine.exitCode(`"grep","-rhoE"`, 1)
 	wantState(t, runAtom(t, "go:mutation", "abc123"), 0, "test databases: none")
 	c = engine.chain(goMutantsNeedle, "exitCode")
 	if strings.Contains(c, `"-tags"`) || strings.Contains(c, `"--tags"`) || hasCall(c, "withServiceBinding") {
-		t.Errorf("a record without postgres sets no tags and binds nothing:\n%s", c)
+		t.Errorf("a tree with no tagged suite sets no tags and binds nothing:\n%s", c)
 	}
 	// ...and the listing likewise: an empty `-tags ""` is not "no tags".
 	if list := engine.chain(goMainListNeedle, "stdout"); strings.Contains(list, `"-tags"`) {
-		t.Errorf("a record without postgres tagged the misgraded-file listing:\n%s", list)
+		t.Errorf("a tree with no tagged suite tagged the misgraded-file listing:\n%s", list)
 	}
 }
 

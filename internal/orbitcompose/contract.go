@@ -93,7 +93,7 @@ func splitJob(name string) (producer, consumer string, ok bool) {
 // SplitName answers the producer and consumer a contract file is named for.
 // A consumer job.<lane> is a CI lane (splitJob); every other name is two stars.
 //
-// With a roster (stars: every star on foundry-dies' fleet/stars) a star name
+// With a roster (stars: every repo in foundry-dies' fleet/repos catalog) a star name
 // may carry hyphens, so the split is the one (producer, consumer) with
 // producer-consumer == the name and BOTH on the roster. Two such readings are
 // an error naming both. No such reading falls back to the two-part rule, so a

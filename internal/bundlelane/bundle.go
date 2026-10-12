@@ -115,22 +115,22 @@ func FleetRevision(sha, fluxSHA string) string {
 	return sha + "-f" + fluxSHA[:7]
 }
 
-// Orphans answers the stars with a slag shard (fleet/stars/<star>/slag.json)
-// that fleet/data.json's map does not carry, sorted, and the map's size. A
-// shard with no map entry is a star the fleet demonstrably has and the roster
+// Orphans answers the repos with a catalog entry (fleet/repos/<name>.json)
+// that fleet/data.json's map does not carry, sorted, and the map's size. An
+// entry with no map entry is a repo the fleet demonstrably has and the roster
 // is missing, and every seam pointing at it would be denied for the wrong
 // reason (bundle.sh fleet_tier_gate).
-func Orphans(shards []string, dataJSON string) (orphans []string, mapped int, err error) {
+func Orphans(entries []string, dataJSON string) (orphans []string, mapped int, err error) {
 	var d struct {
 		Map map[string]json.RawMessage `json:"map"`
 	}
 	if err := json.Unmarshal([]byte(dataJSON), &d); err != nil {
 		return nil, 0, fmt.Errorf("fleet/data.json is not JSON: %w", err)
 	}
-	for _, s := range shards {
-		star := path.Base(path.Dir(s))
-		if _, ok := d.Map[star]; !ok {
-			orphans = append(orphans, star)
+	for _, e := range entries {
+		name := strings.TrimSuffix(path.Base(e), ".json")
+		if _, ok := d.Map[name]; !ok {
+			orphans = append(orphans, name)
 		}
 	}
 	sort.Strings(orphans)
@@ -172,10 +172,10 @@ func RootsAreFleet(manifest string) bool {
 // Roster grades the built roster's data.fleet AS OPA EVALUATES IT (opa eval
 // -b <die> data, which is {"fleet": …}): map, topics and stars all non-empty,
 // and no star row carrying a charter. Evaluated, not read out of the tarball's
-// data.json, because once fleet/derive.rego ships data.fleet.stars is a rule
-// and the tarball's data.json has no stars at all. An empty data.fleet makes
-// admission's seam and topic guards evaluate to nothing, and a charter in the
-// bundle means slag.json — the full declaration — leaked into the PDP
+// data.json, because data.fleet.stars and data.fleet.repos are rules
+// (fleet/derive.rego) and the tarball's data.json has neither. An empty
+// data.fleet makes admission's seam and topic guards evaluate to nothing, and a
+// charter in the bundle means a full declaration leaked into the PDP
 // (bundle.sh fleet_roster_gate). problem is "" when the roster is sound.
 func Roster(dataJSON string) (mapped, stars, topics int, problem string, err error) {
 	var d struct {
@@ -183,13 +183,12 @@ func Roster(dataJSON string) (mapped, stars, topics int, problem string, err err
 			Map    json.RawMessage `json:"map"`
 			Topics json.RawMessage `json:"topics"`
 			Stars  json.RawMessage `json:"stars"`
-			// Repos is the catalog rule (F15): one row per key of
-			// declared ∪ lean. Absent when the rule is gone or renamed.
+			// Repos is the catalog rule (F15): one row per declared entry.
+			// Absent when the rule is gone or renamed.
 			Repos json.RawMessage `json:"repos"`
-			// Declared and Lean are the documents fleet/derive.rego derives
-			// stars from: one star per key of their union.
+			// Declared is the document fleet/derive.rego derives from: one
+			// repo per key.
 			Declared map[string]json.RawMessage `json:"declared"`
-			Lean     map[string]json.RawMessage `json:"lean"`
 			// Flux is what makes a repo a star (F16): data.fleet.stars holds
 			// the repos with a flux entry.
 			Flux map[string]json.RawMessage `json:"flux"`
@@ -205,88 +204,39 @@ func Roster(dataJSON string) (mapped, stars, topics int, problem string, err err
 		return mapped, stars, topics, "the built bundle has an empty data.fleet — admission's seam and topic guards would evaluate to nothing, so cross-star checks stop denying instead of failing", nil
 	}
 	// A declared entry without a kind makes its derived row undefined, and the
-	// star drops out of data.fleet.stars with nothing failing. When the roster
-	// carries the documents the rule derives from, every repo (key of their
-	// union) that flux backs must be a star, and nothing else may be (F16:
-	// stars are the deployed repos, not the catalog).
-	repoKeys := map[string]struct{}{}
+	// star drops out of data.fleet.stars with nothing failing. Every repo that
+	// flux backs must be a star, and nothing else may be (F16: stars are the
+	// deployed repos, not the catalog).
+	//
+	// A roster with no flux rows at all has nothing to hold stars to: Injected
+	// (the next gate) refuses it against the rows the lane staged, and Inject
+	// itself refuses a flux tree that answers no star manifest.
+	want := 0
 	for k := range d.Fleet.Declared {
-		repoKeys[k] = struct{}{}
-	}
-	for k := range d.Fleet.Lean {
-		repoKeys[k] = struct{}{}
-	}
-	want := map[string]struct{}{}
-	for k := range repoKeys {
-		// A roster that carries no flux document predates the injection: its
-		// stars are the whole union, as before F16.
-		if _, deployed := d.Fleet.Flux[k]; deployed || d.Fleet.Flux == nil {
-			want[k] = struct{}{}
+		if _, deployed := d.Fleet.Flux[k]; deployed {
+			want++
 		}
 	}
-	// TRANSITION (F16): the lane lands before foundry-dies narrows
-	// data.fleet.stars, so a roster built by the OLD derive.rego carries every
-	// repo as a star. Both counts pass until foundry-dies F16 lands; then the
-	// stars == len(repoKeys) arm below is deleted.
-	if len(repoKeys) > 0 && stars != len(want) && stars != len(repoKeys) {
-		return mapped, stars, topics, fmt.Sprintf("the built roster derives %d stars from %d flux-backed repos (of %d declared/lean keys) — a declared entry without a kind drops its star silently, and a repo flux does not deploy is not a star", stars, len(want), len(repoKeys)), nil
+	if len(d.Fleet.Declared) > 0 && len(d.Fleet.Flux) > 0 && stars != want {
+		return mapped, stars, topics, fmt.Sprintf("the built roster derives %d stars from %d flux-backed repos (of %d declared) — a declared entry without a kind drops its star silently, and a repo flux does not deploy is not a star", stars, want, len(d.Fleet.Declared)), nil
 	}
-	// A lean row that states an MCP interface or an address with a port is a
-	// deployed star by its own account. If flux backs no entry for it, or no
-	// star row came out, the narrowing would drop a live route silently
-	// (blade-runner's Service named no namespace, and flux said nothing for it).
-	var routed []string
-	for k, raw := range d.Fleet.Lean {
-		var row struct {
-			Address   string `json:"address"`
-			Interface struct {
-				Sync []string `json:"sync"`
-			} `json:"interface"`
-		}
-		_ = json.Unmarshal(raw, &row) // a lean row that is not an object states nothing
-		mcp := false
-		for _, i := range row.Interface.Sync {
-			mcp = mcp || i == "mcp"
-		}
-		if !mcp && !strings.Contains(row.Address, ":") {
-			continue
-		}
-		_, backed := d.Fleet.Flux[k]
-		if !backed || !hasKey(d.Fleet.Stars, k) {
-			routed = append(routed, k)
-		}
-	}
-	if len(routed) > 0 {
-		sort.Strings(routed)
-		return mapped, stars, topics, fmt.Sprintf("the built roster routes %s (a lean row states mcp or an address with a port) but flux has no entry or data.fleet.stars no row for it — the narrowed stars would drop a live route", strings.Join(routed, ", ")), nil
-	}
-	// data.fleet.repos is the same union, one catalog row per key, and the
-	// rule is on foundry-dies main, so it is held to the count unconditionally
-	// whenever the union is non-empty. OPA emits "repos":{} when every row is
-	// undefined, and omits the key when the rule is gone or renamed: both are
-	// a count of 0, so neither passes silently. Stars is not held to it.
-	if len(repoKeys) > 0 {
-		if repos := size(d.Fleet.Repos); repos != len(repoKeys) {
-			return mapped, stars, topics, fmt.Sprintf("the built roster derives %d repos from %d declared/lean keys — a declared entry missing a required field drops its repo silently, and a missing repos rule derives none", repos, len(repoKeys)), nil
+	// data.fleet.repos is the catalog, one row per declared entry. OPA emits
+	// "repos":{} when every row is undefined, and omits the key when the rule
+	// is gone or renamed: both are a count of 0, so neither passes silently.
+	if len(d.Fleet.Declared) > 0 {
+		if repos := size(d.Fleet.Repos); repos != len(d.Fleet.Declared) {
+			return mapped, stars, topics, fmt.Sprintf("the built roster derives %d repos from %d declared entries — a declared entry missing a required field drops its repo silently, and a missing repos rule derives none", repos, len(d.Fleet.Declared)), nil
 		}
 	}
 	for _, row := range rows {
 		var fields map[string]json.RawMessage
 		if json.Unmarshal(row, &fields) == nil {
 			if _, leaked := fields["charter"]; leaked {
-				return mapped, stars, topics, "slag.json leaked into the bundle — the lean/full split is broken", nil
+				return mapped, stars, topics, "a full declaration leaked into the bundle — the star rows are derived, not committed", nil
 			}
 		}
 	}
 	return mapped, stars, topics, "", nil
-}
-
-// hasKey is whether the stars object holds key.
-func hasKey(raw json.RawMessage, key string) bool {
-	var obj map[string]json.RawMessage
-	_ = json.Unmarshal(raw, &obj)
-	_, ok := obj[key]
-	return ok
 }
 
 // size is jq's length over an object or an array; anything else is 0.

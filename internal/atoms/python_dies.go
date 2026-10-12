@@ -139,8 +139,9 @@ func diesContractCopies(ctx context.Context, a checks.AtomDef, in Input) checks.
 	return pyVerdict(ctx, a, in, args...)
 }
 
-// diesSchema: the slag v1 and v3 schemas are valid Draft 2020-12 documents and
-// every fleet/stars/*/slag.json satisfies v3. The validator is embedded
+// diesSchema: every catalog entry (fleet/repos/<name>.json) satisfies the
+// fleet-star schema, and a tree that still carries fleet/stars/ (retired slag)
+// is refused. The validator is embedded
 // (checks/scripts/dies_schema.py) and written to a file of this run's own for
 // python to read.
 //
@@ -153,8 +154,7 @@ func diesSchema(ctx context.Context, a checks.AtomDef, in Input) checks.Verdict 
 		return *stop
 	}
 	if stop := requirePaths(t, a, [][2]string{
-		{"schema/slag.schema.json", "schema/slag.schema.json is absent, so there is no payload to validate."},
-		{"schema/slag-v3.schema.json", "schema/slag-v3.schema.json is absent, so there is no schema to validate the records against."},
+		{"schema/fleet-star.schema.json", "schema/fleet-star.schema.json is absent, so there is no schema to validate the catalog entries against."},
 	}); stop != nil {
 		return *stop
 	}

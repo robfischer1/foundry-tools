@@ -1,29 +1,28 @@
 package checks
 
 import (
-	"encoding/json"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 )
 
-// THE RECORD SAYS POSTGRES, THE TREE SAYS WHICH TAGS, THE LANE BRINGS THE
-// DATABASE. A Go star's DB-gated suites sit behind a build tag and read a DSN
-// from the environment; before this the lane compiled no tag and exported no
+// THE TREE SAYS WHICH TAGS, THE LANE BRINGS THE DATABASE. A Go star's DB-gated
+// suites sit behind a build tag and read a DSN from the environment; before this the lane compiled no tag and exported no
 // DSN, so every DB-touching line in chaos's store read NOT COVERED by
 // construction (foundry-tools#8608, chaos #36: six mutants in ScalarValues,
 // each driven end-to-end by a real Postgres the lane never started). The
 // fixture chaos declared in star.toml drove the Docker Engine API, which the
 // engine does not expose, and star.toml is retired anyway (Rob, 2026-09-13).
 //
-// A REPO STILL HAS NO SAY. Nothing here is a knob: the star's slag.json —
-// the fleet's own record in foundry-dies — says whether the star HAS a
-// Postgres (backends.postgres), the tree says which tags its tests sit behind
-// (`//go:build <tag>` in *_test.go), and this table is the fleet's closed
-// vocabulary mapping a tag to the service the lane binds and the name the
-// suite reads. A tag outside the vocabulary stays uncompiled and is named in
-// the scope line, so a suite nobody can see is at least said.
+// A REPO STILL HAS NO SAY. Nothing here is a knob: the tree says which tags
+// its tests sit behind (`//go:build <tag>` in *_test.go), and this table is
+// the fleet's closed vocabulary mapping a tag to the service the lane binds
+// and the name the suite reads. (The record used to say whether a star HAS a
+// Postgres or names topics; the record carries identity and kind now, and the
+// tree states both — slag-by-kind F13, F14.) A tag outside the vocabulary stays
+// uncompiled and is named in the scope line, so a suite nobody can see is at
+// least said.
 //
 // TWO SERVERS, NOT ONE. live_db_novector exists because one suite needs a
 // Postgres WITHOUT pgvector installed (chaos's soft-vector mode); one DSN
@@ -129,22 +128,9 @@ func (d TestDB) ServerArgs() []string {
 var serviceNameLine = regexp.MustCompile(`^service_name:\s*`)
 
 // ServiceName is the star's name as the answers file declares it — the
-// directory its record lives under in foundry-dies (fleet/stars/<name>/).
+// name its catalog entry carries in foundry-dies (fleet/repos/<name>.json).
 func ServiceName(yaml string) string {
 	return answersValue(yaml, serviceNameLine)
-}
-
-// PostgresBackend answers whether a slag record declares a Postgres backend:
-// backends.postgres present and an object. Anything unparseable is no.
-func PostgresBackend(slag string) bool {
-	var doc struct {
-		Backends map[string]json.RawMessage `json:"backends"`
-	}
-	if err := json.Unmarshal([]byte(slag), &doc); err != nil {
-		return false
-	}
-	raw, ok := doc.Backends["postgres"]
-	return ok && strings.HasPrefix(strings.TrimSpace(string(raw)), "{")
 }
 
 var buildTagLine = regexp.MustCompile(`^//go:build ([A-Za-z0-9_]+)$`)
@@ -400,31 +386,6 @@ func TestBrokersFor(tags []string) []TestBroker {
 	return out
 }
 
-// KafkaBackend answers whether a slag record declares a kafka backend.
-//
-// THE SHAPE IS NOT POSTGRES'. backends.postgres is an OBJECT (cluster, database,
-// owner); backends.kafka is the ARRAY OF TOPICS the star produces or consumes,
-// and a star with no broker carries `false`. So an empty array is no more a
-// declaration than `false` is: a star that names no topic has no broker seam for
-// a suite to exercise.
-func KafkaBackend(slag string) bool {
-	var doc struct {
-		Backends map[string]json.RawMessage `json:"backends"`
-	}
-	if err := json.Unmarshal([]byte(slag), &doc); err != nil {
-		return false
-	}
-	raw, ok := doc.Backends["kafka"]
-	if !ok {
-		return false
-	}
-	var topics []string
-	if err := json.Unmarshal(raw, &topics); err != nil {
-		return false
-	}
-	return len(topics) > 0
-}
-
 // TestBrokerScope is the line an atom prints about the brokers it brought, and
 // it is printed EITHER WAY, on the same rule as TestDBScope: a lane that bound
 // nothing says why.
@@ -445,25 +406,19 @@ func TestBrokerScope(brokers []TestBroker, why string) string {
 		"; one broker serves every package — mint unique topic and group names per test"
 }
 
-// BrokerReads is the three reads withTestBrokers makes, handed over as data.
+// BrokerReads is the reads withTestBrokers makes, handed over as data.
 //
 // THE DECISION IS PURE, THE I/O IS THE CALLER'S, and that split is not tidiness.
-// The first cut put all four guards inside the dagger method, where no unit test
+// The first cut put the guards inside the dagger method, where no unit test
 // can reach them: the mutation lane graded them NOT COVERED and LIVED on the very
 // pull that introduced them (foundry-tools #196, six survivors at atoms_go.go
 // 287-304). A guard no test can execute is a guard that is not there — so the
 // decision moved here, where every arm is a table row.
 //
-// An error is not the same fact as an empty read, for either one: a record that could not
-// be fetched and a record that names no topic are different refusals, and the
-// scope line has to say which.
+// An error is not the same fact as an empty read, for either one: a tree that
+// could not be read for its flows and a tree that states none are different
+// refusals, and the scope line has to say which.
 type BrokerReads struct {
-	// Answers is .copier-answers.yml's contents; "" when it could not be read.
-	Answers string
-	// Slag is the record's contents, SlagErr the error fetching it. The error
-	// distinguishes "could not fetch" from "fetched and says nothing".
-	Slag    string
-	SlagErr error
 	// Tags is the tree's `//go:build` grep output; TagsErr and TagsCode are the
 	// grep's own outcome. grep exits 1 for no match, which is an ANSWER; 2 and up
 	// is grep failing, which is not the same as the grep finding nothing.
@@ -472,48 +427,27 @@ type BrokerReads struct {
 	TagsCode int
 	// Flows is how many non-family Kafka flows the tree's own code states
 	// (KafkaFlows, NonFamilyFlows); FlowsErr is why the tree could not be read
-	// for them. THE TREE IS ASKED FIRST (slag-by-kind F13): a suite exercises
-	// the seams the code has, and the code is where they are stated. The
-	// record's backends.kafka is the fallback until F14 retires it.
+	// for them. THE TREE IS THE ONLY SOURCE (slag-by-kind F13, F14): a suite
+	// exercises the seams the code has, and the code is where they are stated.
 	Flows    int
 	FlowsErr error
 }
 
-// recordKafka is the record's fallback answer when the tree states no flow:
-// "" when backends.kafka names a topic, else why no broker is bound. The why
-// names the tree first, since that is where a flow would have been read.
-func recordKafka(r BrokerReads) string {
-	tree := "the tree states no kafka flow"
-	if r.FlowsErr != nil {
-		tree = "the tree's kafka flows could not be read (" + r.FlowsErr.Error() + ")"
-	}
-	star := ServiceName(r.Answers)
-	switch {
-	case star == "":
-		return tree + ", and there is no service_name in .copier-answers.yml, so no record to read"
-	case r.SlagErr != nil:
-		return tree + ", and there is no record at fleet/stars/" + star + "/slag.json"
-	case !KafkaBackend(r.Slag):
-		return tree + ", and the record names no kafka topics"
-	}
-	return ""
-}
-
 // SelectBrokers answers which brokers the lane binds and the scope line to print,
-// from the three reads. The empty slice is a decision, never an oversight — the
+// from the reads. The empty slice is a decision, never an oversight — the
 // line always says which read refused.
 func SelectBrokers(r BrokerReads) ([]TestBroker, string) {
-	if r.FlowsErr != nil || r.Flows == 0 {
-		if refused := recordKafka(r); refused != "" {
-			return nil, TestBrokerScope(nil, refused)
-		}
-	}
-	if r.TagsErr != nil || r.TagsCode > 1 {
+	switch {
+	case r.FlowsErr != nil:
+		return nil, TestBrokerScope(nil, "the tree's kafka flows could not be read ("+r.FlowsErr.Error()+")")
+	case r.Flows == 0:
+		return nil, TestBrokerScope(nil, "the tree states no kafka flow")
+	case r.TagsErr != nil || r.TagsCode > 1:
 		return nil, TestBrokerScope(nil, "the tree's build tags could not be read")
 	}
 	brokers := TestBrokersFor(GoBuildTags(r.Tags))
 	if len(brokers) == 0 {
-		return nil, TestBrokerScope(nil, "the tree or its record names kafka topics but no test file sits behind a tag the fleet names")
+		return nil, TestBrokerScope(nil, "the tree states kafka flows but no test file sits behind a tag the fleet names")
 	}
 	return brokers, TestBrokerScope(brokers, "")
 }

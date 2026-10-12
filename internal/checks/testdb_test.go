@@ -21,23 +21,6 @@ func TestServiceNameReadsTheAnswersFileTheWayTheShellDid(t *testing.T) {
 	}
 }
 
-func TestPostgresBackendReadsTheRecordAndNothingElse(t *testing.T) {
-	for in, want := range map[string]bool{
-		`{"backends":{"postgres":{"cnpg_cluster":"chaos-db","database":"chaos","owner":"chaos"}}}`: true,
-		`{"backends":{"postgres":{}}}`:      true,
-		`{"backends":{}}`:                   false,
-		`{"backends":{"postgres":null}}`:    false,
-		`{"backends":{"postgres":"chaos"}}`: false,
-		`{"tools":{}}`:                      false,
-		`not json`:                          false,
-		``:                                  false,
-	} {
-		if got := PostgresBackend(in); got != want {
-			t.Errorf("PostgresBackend(%s) = %v, want %v", in, got, want)
-		}
-	}
-}
-
 func TestGoBuildTagsReadsOnlySingleTagConstraints(t *testing.T) {
 	out := strings.Join([]string{
 		"//go:build live_db",
@@ -181,45 +164,9 @@ func TestTheBrokerVocabularyBindsAndAddressesItself(t *testing.T) {
 	}
 }
 
-func TestKafkaBackendReadsAnArrayOfTopicsNotAnObject(t *testing.T) {
-	// The shape is NOT postgres'. backends.kafka is the array of topics the star
-	// carries; a star with no broker records false.
-	for _, tc := range []struct {
-		name string
-		slag string
-		want bool
-	}{
-		{"topics named", `{"backends":{"kafka":["ci-attest","tartarus.acts"]}}`, true},
-		{"one topic", `{"backends":{"kafka":["session-events"]}}`, true},
-		{"false", `{"backends":{"kafka":false}}`, false},
-		{"empty array names no seam", `{"backends":{"kafka":[]}}`, false},
-		{"absent", `{"backends":{"postgres":{"database":"x"}}}`, false},
-		{"no backends", `{}`, false},
-		{"unparseable", `{`, false},
-		// An object is postgres' shape, not kafka's: reading one as the other is
-		// how a star with a database would have been handed a broker.
-		{"an object is not a topic list", `{"backends":{"kafka":{"topics":["a"]}}}`, false},
-	} {
-		if got := KafkaBackend(tc.slag); got != tc.want {
-			t.Errorf("%s: KafkaBackend = %v, want %v", tc.name, got, tc.want)
-		}
-	}
-	// The two predicates do not read each other's field.
-	both := `{"backends":{"kafka":["a"],"postgres":{"database":"x"}}}`
-	if !KafkaBackend(both) || !PostgresBackend(both) {
-		t.Error("a star with both backends declares both")
-	}
-	if PostgresBackend(`{"backends":{"kafka":["a"]}}`) {
-		t.Error("topics are not a postgres declaration")
-	}
-	if KafkaBackend(`{"backends":{"postgres":{"database":"x"}}}`) {
-		t.Error("a database is not a topic list")
-	}
-}
-
 func TestTestBrokerScopeIsPrintedEitherWayAndCarriesTheCaveat(t *testing.T) {
-	none := TestBrokerScope(nil, "the record names no kafka topics")
-	if !strings.HasPrefix(none, "test brokers: none — ") || !strings.Contains(none, "no kafka topics") {
+	none := TestBrokerScope(nil, "the tree states no kafka flow")
+	if !strings.HasPrefix(none, "test brokers: none — ") || !strings.Contains(none, "no kafka flow") {
 		t.Errorf("%q", none)
 	}
 	some := TestBrokerScope(TestBrokers, "")
@@ -238,8 +185,6 @@ func TestTestBrokerScopeIsPrintedEitherWayAndCarriesTheCaveat(t *testing.T) {
 var errStub = errors.New("the read failed")
 
 func TestSelectBrokersNamesWhichReadRefused(t *testing.T) {
-	const answers = "service_name: tartarus\n"
-	const topics = `{"backends":{"kafka":["tartarus.acts"]}}`
 	const tagged = "//go:build live_kafka\n"
 
 	for _, tc := range []struct {
@@ -248,27 +193,25 @@ func TestSelectBrokersNamesWhichReadRefused(t *testing.T) {
 		bound int
 		says  string
 	}{
-		{"no service_name, so no record to find",
-			BrokerReads{}, 0, "no service_name"},
-		{"the record could not be fetched",
-			BrokerReads{Answers: answers, SlagErr: errStub}, 0, "no record at fleet/stars/tartarus/slag.json"},
-		{"the record names no topics",
-			BrokerReads{Answers: answers, Slag: `{"backends":{"kafka":false}}`}, 0, "names no kafka topics"},
+		{"the tree states no flow",
+			BrokerReads{Tags: tagged}, 0, "the tree states no kafka flow"},
+		{"the tree could not be read for flows",
+			BrokerReads{FlowsErr: errStub, Tags: tagged}, 0, "the tree's kafka flows could not be read"},
 		{"the grep failed, which is not the grep finding nothing",
-			BrokerReads{Answers: answers, Slag: topics, TagsErr: errStub}, 0, "build tags could not be read"},
-		{"topics named, no tag carried",
-			BrokerReads{Answers: answers, Slag: topics, Tags: "//go:build live_db\n"}, 0, "no test file sits behind a tag"},
-		{"topics named and the tag carried",
-			BrokerReads{Answers: answers, Slag: topics, Tags: tagged}, 1, "live_kafka → KAFKA_BOOTSTRAP"},
+			BrokerReads{Flows: 1, TagsErr: errStub}, 0, "build tags could not be read"},
+		{"flows stated, no tag carried",
+			BrokerReads{Flows: 1, Tags: "//go:build live_db\n"}, 0, "no test file sits behind a tag"},
+		{"flows stated and the tag carried",
+			BrokerReads{Flows: 2, Tags: tagged}, 1, "live_kafka → KAFKA_BOOTSTRAP"},
 		// GREP'S EXIT 1 IS AN ANSWER, NOT A FAILURE, and the boundary between it
 		// and 2 is the whole reason the guard reads `> 1`. A tree with no build
 		// tags at all is the COMMONEST case in the fleet: read `>= 1` and every
 		// one of those repos is told its tags "could not be read" instead of that
 		// no test sits behind one — a wrong diagnosis, delivered confidently.
 		{"grep matched nothing, which is an answer",
-			BrokerReads{Answers: answers, Slag: topics, Tags: "", TagsCode: 1}, 0, "no test file sits behind a tag"},
+			BrokerReads{Flows: 1, Tags: "", TagsCode: 1}, 0, "no test file sits behind a tag"},
 		{"grep itself failed",
-			BrokerReads{Answers: answers, Slag: topics, Tags: "", TagsCode: 2}, 0, "build tags could not be read"},
+			BrokerReads{Flows: 1, Tags: "", TagsCode: 2}, 0, "build tags could not be read"},
 	} {
 		got, line := SelectBrokers(tc.reads)
 		if len(got) != tc.bound {
@@ -280,29 +223,30 @@ func TestSelectBrokersNamesWhichReadRefused(t *testing.T) {
 	}
 
 	// UNREAD IS NOT EMPTY, for either read, and the line has to say which. These
-	// two differ only in that flag and must not produce the same sentence.
-	_, unread := SelectBrokers(BrokerReads{Answers: answers, SlagErr: errStub})
-	_, empty := SelectBrokers(BrokerReads{Answers: answers, Slag: `{}`})
+	// pairs differ only in that flag and must not produce the same sentence.
+	_, unread := SelectBrokers(BrokerReads{FlowsErr: errStub})
+	_, empty := SelectBrokers(BrokerReads{})
 	if unread == empty {
-		t.Errorf("a record that could not be fetched and one that declares nothing are different refusals: %q", unread)
+		t.Errorf("a tree that could not be read and one that states no flow are different refusals: %q", unread)
 	}
-	_, tagsUnread := SelectBrokers(BrokerReads{Answers: answers, Slag: topics, TagsErr: errStub})
-	_, tagsEmpty := SelectBrokers(BrokerReads{Answers: answers, Slag: topics, Tags: ""})
+	_, tagsUnread := SelectBrokers(BrokerReads{Flows: 1, TagsErr: errStub})
+	_, tagsEmpty := SelectBrokers(BrokerReads{Flows: 1, Tags: ""})
 	if tagsUnread == tagsEmpty {
 		t.Errorf("a grep that failed and a grep that matched nothing are different refusals: %q", tagsUnread)
 	}
 	// The two sides of that boundary must not produce the same sentence.
-	_, matchedNothing := SelectBrokers(BrokerReads{Answers: answers, Slag: topics, TagsCode: 1})
-	_, grepFailed := SelectBrokers(BrokerReads{Answers: answers, Slag: topics, TagsCode: 2})
+	_, matchedNothing := SelectBrokers(BrokerReads{Flows: 1, TagsCode: 1})
+	_, grepFailed := SelectBrokers(BrokerReads{Flows: 1, TagsCode: 2})
 	if matchedNothing == grepFailed {
 		t.Errorf("exit 1 is grep answering, exit 2 is grep failing: both said %q", matchedNothing)
 	}
 
-	// The order of the guards is itself a contract: a tree carrying the tag but a
-	// record naming no topics binds nothing, and says so about the RECORD.
-	_, line := SelectBrokers(BrokerReads{Answers: answers, Slag: `{"backends":{"kafka":[]}}`, Tags: tagged})
-	if !strings.Contains(line, "names no kafka topics") {
-		t.Errorf("the record is read before the tree: %q", line)
+	// The order of the guards is itself a contract: a tree that could not be
+	// read for its flows binds nothing and says so about the FLOWS, before it
+	// is asked about tags.
+	_, line := SelectBrokers(BrokerReads{FlowsErr: errStub, TagsErr: errStub})
+	if !strings.Contains(line, "kafka flows could not be read") {
+		t.Errorf("the flows are read before the tags: %q", line)
 	}
 }
 
@@ -403,32 +347,5 @@ func TestTheTestServerRunsNonDurable(t *testing.T) {
 				t.Errorf("%s: ServerArgs lacks -c %s: %q", d.Tag, want, args)
 			}
 		}
-	}
-}
-
-func TestSelectBrokersAsksTheTreesFlowsFirst(t *testing.T) {
-	answers := "service_name: tartarus\n"
-	tagged := "//go:build live_kafka\n"
-	for _, tc := range []struct {
-		name   string
-		reads  BrokerReads
-		want   int
-		needle string
-	}{
-		{"flows in the tree bind a broker with no record at all",
-			BrokerReads{Flows: 2, Tags: tagged}, 1, "live_kafka → KAFKA_BOOTSTRAP"},
-		{"no flow falls back to the record",
-			BrokerReads{Answers: answers, Slag: `{"backends":{"kafka":["t"]}}`, Tags: tagged}, 1, "live_kafka"},
-		{"no flow and no record names both",
-			BrokerReads{Answers: answers, Slag: `{}`, Tags: tagged}, 0, "the tree states no kafka flow, and the record names no kafka topics"},
-		{"an unread tree says why before falling back",
-			BrokerReads{FlowsErr: errStub, Tags: tagged}, 0, "the tree's kafka flows could not be read"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got, line := SelectBrokers(tc.reads)
-			if len(got) != tc.want || !strings.Contains(line, tc.needle) {
-				t.Errorf("got %d broker(s), %q; want %d and %q", len(got), line, tc.want, tc.needle)
-			}
-		})
 	}
 }

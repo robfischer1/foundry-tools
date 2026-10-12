@@ -13,7 +13,7 @@ import (
 // canonical form: sorted keys, two-space indent, ensure_ascii escapes,
 // trailing LF — byte-equivalent to python's
 // json.dumps(doc, sort_keys=True, indent=2) + "\n", the convention every
-// committed fleet/stars/<star>/slag.json holds. Numbers round-trip as their
+// committed fleet/repos/<name>.json holds. Numbers round-trip as their
 // source literals (json.Number), so an int never grows a ".0".
 //
 // THE SAME EMITTER HEPHAESTUS GRADES WITH (internal/slag/canonical.go),

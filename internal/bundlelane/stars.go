@@ -14,22 +14,19 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// THE CATALOG ENTRY AND THE FLUX FACTS (slag-by-kind F8). Slag retires: a
-// star's record becomes one declared document, foundry-dies
-// fleet/stars/<name>.json, and what the record used to declare about the
+// THE CATALOG ENTRY AND THE FLUX FACTS (slag-by-kind F8, F14). Slag is
+// retired: a repo's record is one declared document, foundry-dies
+// fleet/repos/<name>.json, and what the record used to declare about the
 // runtime (address, database) is derived from foundry/flux instead. This
 // lane serves both into the fleet die:
 //
 //	fleet/repos/<name>.json      -> data.fleet.declared.<name>
-//	                                (fleet/stars/<name>.json until the move lands)
 //	foundry/flux prime/star-*    -> data.fleet.flux.<name>
 //
-// declared IS A PARALLEL KEY, NOT data.fleet.stars. Before F9 data.fleet.stars
-// is the lean fleet/stars/<name>/data.json hades and nyx route by. Once the
-// tree carries fleet/derive.rego (F9), data.fleet.stars is that Rego's rule,
-// and the lean rows move aside to data.fleet.lean.<name> (Lean), where the
-// rule reads them as its fallback: OPA refuses a rule and a data document at
-// the same path ("conflicting rule for data path fleet/stars").
+// declared IS A PARALLEL KEY, NOT data.fleet.stars: data.fleet.stars and
+// data.fleet.repos are the rules of fleet/derive.rego, and OPA refuses a rule
+// and a data document at the same path ("conflicting rule for data path
+// fleet/stars").
 //
 // opa build -b reads only files named data.json, so neither source reaches
 // the bundle by itself: the lane stages one data.json per key.
@@ -39,30 +36,20 @@ const (
 	DeclaredKey   = "declared"
 	FluxKey       = "flux"
 	FluxSourceKey = "flux_source"
-	// LeanKey is where the lean rows are served once data.fleet.stars is
-	// derived: data.fleet.lean.<name>.
-	LeanKey = "lean"
-	// LeanGlob finds the committed lean rows.
-	LeanGlob     = "fleet/stars/*/data.json"
-	DeclaredPath = "fleet/" + DeclaredKey + "/data.json"
-	FluxPath     = "fleet/" + FluxKey + "/data.json"
+	DeclaredPath  = "fleet/" + DeclaredKey + "/data.json"
+	FluxPath      = "fleet/" + FluxKey + "/data.json"
 	// FluxSourcePath stamps the flux commit the facts were read at:
 	// data.fleet.flux_source = {repo, sha}.
 	FluxSourcePath = "fleet/" + FluxSourceKey + "/data.json"
 	// FluxRepo is the repository the facts are read from.
 	FluxRepo = "foundry/flux"
 	// ReposKey is data.fleet.repos, the catalog fleet/derive.rego derives
-	// (one row per declared or lean key). The lane does not stage it; it is
+	// (one row per declared key). The lane does not stage it; it is
 	// reserved so a tier data.json cannot collide with the rule.
 	ReposKey = "repos"
 	// DeclaredGlob finds the catalog entries: fleet/repos/<name>.json, the
 	// F10 documents (decision absent-wrap-width).
 	DeclaredGlob = "fleet/repos/*.json"
-	// DeclaredLegacyGlob is where the same documents lived before they moved
-	// to fleet/repos/: files directly under fleet/stars/, beside the per-star
-	// directories. The lane reads it only when fleet/repos/ holds none, so a
-	// foundry-dies main that has not landed the move still builds.
-	DeclaredLegacyGlob = "fleet/stars/*.json"
 	// StarManifestGlob and ClusterGlob are read in foundry/flux.
 	StarManifestGlob = "prime/star-*.yaml"
 	ClusterGlob      = "data/*.yaml"
@@ -111,8 +98,9 @@ type Ports struct {
 type FluxFact struct {
 	Ports *Ports `json:"ports,omitempty"`
 	// Interface is the protocols the star's Service port names imply, sorted:
-	// a port named mcp is "mcp", a port named http is "http". Absent when no
-	// Service port carries either name.
+	// a port named mcp is "mcp", a port named http is "http", a port named
+	// otlp-http or otlp-grpc is "otlp". Absent when no Service port carries
+	// one of those names.
 	Interface []string `json:"interface,omitempty"`
 	DB        []string `json:"db,omitempty"`
 }
@@ -157,8 +145,11 @@ func Clusters(manifests map[string]string) (map[string]bool, error) {
 // (mnemosyne-redis, tron-redis, ourea's git).
 //
 // INTERFACE is the set of protocols those names imply: mcp -> "mcp", http ->
-// "http", over every Service of the star (the same selection as PORTS). The
-// name is the declaration: a star that serves plain HTTP names its port http.
+// "http", otlp-http or otlp-grpc -> "otlp", over every Service of the star (the
+// same selection as PORTS). The name is the declaration: a star that serves
+// plain HTTP names its port http, and a collector that serves OTLP names its
+// ports for it. The listen port of an OTLP star is the one named otlp-http
+// (hemera's 4318), when no port is named mcp or http.
 //
 // DB is every CNPG cluster a container's Postgres DSN names, sorted: by the
 // CA directory its sslrootcert pins, else by its host with a -rw/-ro/-r
@@ -198,9 +189,8 @@ func FluxFacts(manifests map[string]string, stars, clusters map[string]bool) (ma
 // followed to its target Service (<name>.<ns>.svc...) in the same manifests,
 // and the ports and interface are read off that target by FluxFacts' rules.
 // The entry exists on the Service alone: a target flux does not carry, or one
-// whose ports are named for neither mcp, http nor mtls (hemera-otelcol serves
-// otlp), yields an empty fact, which is still the repo's membership in
-// data.fleet.stars.
+// whose ports are named for none of mcp, http, mtls or otlp-*, yields an empty
+// fact, which is still the repo's membership in data.fleet.stars.
 func ServiceFacts(manifests map[string]string, repos map[string]bool, have map[string]FluxFact) (map[string]FluxFact, error) {
 	byName := map[string]manifest{}
 	parsed := map[string][]manifest{}
@@ -302,8 +292,11 @@ func interfacesOf(svcs []manifest) []string {
 	seen := map[string]bool{}
 	for _, s := range svcs {
 		for _, port := range s.Ports {
-			if port.Name == "mcp" || port.Name == "http" {
+			switch port.Name {
+			case "mcp", "http":
 				seen[port.Name] = true
+			case "otlp-http", "otlp-grpc":
+				seen["otlp"] = true
 			}
 		}
 	}
@@ -320,7 +313,7 @@ func servicePorts(star string, docs []manifest) Ports {
 
 // portsOf is servicePorts over the Services already chosen.
 func portsOf(svcs []manifest) Ports {
-	var p Ports
+	var p, otlp Ports
 	for _, s := range svcs {
 		for _, port := range s.Ports {
 			switch port.Name {
@@ -332,8 +325,17 @@ func portsOf(svcs []manifest) Ports {
 				if p.MTLS == 0 {
 					p.MTLS = port.Port
 				}
+			case "otlp-http":
+				// An OTLP collector's address is its http port; it counts
+				// only when no port is named mcp or http.
+				if otlp.Listen == 0 {
+					otlp.Listen = port.Port
+				}
 			}
 		}
+	}
+	if p.Listen == 0 {
+		p.Listen = otlp.Listen
 	}
 	return p
 }
@@ -400,7 +402,7 @@ func Collides(dataJSON string) []string {
 		return nil
 	}
 	var hit []string
-	for _, k := range []string{DeclaredKey, FluxKey, FluxSourceKey, LeanKey, ReposKey} {
+	for _, k := range []string{DeclaredKey, FluxKey, FluxSourceKey, ReposKey} {
 		if _, ok := d[k]; ok {
 			hit = append(hit, k)
 		}
@@ -408,26 +410,13 @@ func Collides(dataJSON string) []string {
 	return hit
 }
 
-// Lean answers where each committed lean row is staged once data.fleet.stars
-// is derived: fleet/stars/<name>/data.json -> fleet/lean/<name>/data.json,
-// served as data.fleet.lean.<name>. The committed path stays put: the orbit
-// atoms and nyx's contracts report read verb_prefix off it in git.
-func Lean(paths []string) map[string]string {
-	out := make(map[string]string, len(paths))
-	for _, p := range paths {
-		out[p] = "fleet/" + LeanKey + "/" + path.Base(path.Dir(p)) + "/data.json"
-	}
-	return out
-}
-
-// Inputs is what the lane read for the injection: fleet/data.json, the slag
-// shard paths, and three path -> body maps — the catalog entries, flux's star
-// manifests and flux's data/ manifests.
+// Inputs is what the lane read for the injection: fleet/data.json and the
+// path -> body maps — the catalog entries, flux's star manifests, flux's
+// data/ manifests and the Service manifests.
 type Inputs struct {
 	// FluxSHA is the flux commit the manifests were read at.
 	FluxSHA         string
 	Tier            string
-	Shards          []string
 	Entries         map[string]string
 	StarManifests   map[string]string
 	ClusterManifest map[string]string
@@ -443,7 +432,7 @@ type Injection struct {
 }
 
 // Inject decides the whole injection from what the lane read. The stars flux
-// is read for are the ones the tree knows: a slag shard or a catalog entry. A
+// is read for are the ones the tree knows: the catalog entries. A
 // flux tree that answers no star manifest is an error, not an empty key: an
 // empty data.fleet.flux would derive every address away.
 func Inject(in Inputs) (Injection, error) {
@@ -461,9 +450,6 @@ func Inject(in Inputs) (Injection, error) {
 		return Injection{}, errors.New("foundry/flux answered no " + StarManifestGlob + " — an empty data.fleet.flux would derive every star's address away")
 	}
 	stars := map[string]bool{}
-	for _, s := range in.Shards {
-		stars[path.Base(path.Dir(s))] = true
-	}
 	for name := range docs {
 		stars[name] = true
 	}

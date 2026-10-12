@@ -80,7 +80,7 @@ func opaEvalJSON(value string) string {
 // ---- the shared shape ----
 
 // TWO MARKERS, BOTH REQUIRED. Either alone is ambiguous: policy/ turns up in
-// more than one repo and fleet/stars/ is a name a fleet inventory could take.
+// more than one repo and fleet/repos/ is a name a fleet inventory could take.
 func TestDiesShapeIsAbsentWithoutBothMarkers(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -89,13 +89,13 @@ func TestDiesShapeIsAbsentWithoutBothMarkers(t *testing.T) {
 		{"no policy/ at all", diesTree(nil, "policy")},
 		{"no fleet/ at all", diesTree(nil, "fleet")},
 		{"policy/ without a .manifest", diesTree(map[string]string{"policy/admission/x.rego": ""}, "policy/.manifest")},
-		{"fleet/ without stars/", diesTree(map[string]string{"fleet/roster.md": ""}, "fleet/stars")},
+		{"fleet/ without repos/", diesTree(map[string]string{"fleet/roster.md": ""}, "fleet/repos")},
 	} {
 		for _, id := range diesAtoms {
 			engine.reset()
 			engine.withTree(tc.tree)
 			withOpa()
-			wantState(t, runAtom(t, id, ""), 0, id+": ABSENT", "not the policy die's source", "policy/.manifest and fleet/stars/")
+			wantState(t, runAtom(t, id, ""), 0, id+": ABSENT", "not the policy die's source", "policy/.manifest and fleet/repos/")
 			if diesBuiltAContainer() {
 				t.Errorf("%s (%s): an absent shape must not build a container", id, tc.name)
 			}
@@ -784,13 +784,12 @@ func TestDiesSchemaValidatesThroughUvWithTheEmbeddedValidator(t *testing.T) {
 	}
 }
 
-func TestDiesSchemaRefusesWithoutEitherSchema(t *testing.T) {
+func TestDiesSchemaRefusesWithoutTheCatalogSchema(t *testing.T) {
 	for _, tc := range []struct {
 		path   string
 		needle string
 	}{
-		{"schema/slag.schema.json", "no payload to validate"},
-		{"schema/slag-v3.schema.json", "no schema to validate the records against"},
+		{"schema/fleet-star.schema.json", "no schema to validate the catalog entries against"},
 	} {
 		engine.reset()
 		engine.withTree(diesTree(nil, tc.path))
@@ -799,9 +798,9 @@ func TestDiesSchemaRefusesWithoutEitherSchema(t *testing.T) {
 
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	engine.fail(`glob(pattern:"schema/slag-v3.schema.json")`, "scan interrupted")
+	engine.fail(`glob(pattern:"schema/fleet-star.schema.json")`, "scan interrupted")
 	wantState(t, runAtom(t, "dies:schema", ""), 2,
-		"the tree could not be scanned for schema/slag-v3.schema.json", "scan interrupted")
+		"the tree could not be scanned for schema/fleet-star.schema.json", "scan interrupted")
 }
 
 // REFUSING TO REPORT A VALIDATED SCHEMA THAT WAS NEVER VALIDATED is the whole
@@ -815,8 +814,8 @@ func TestDiesSchemaReadsTheValidatorsExit(t *testing.T) {
 	}{
 		{"a record that does not satisfy the schema", func() {
 			engine.exitCode(`"python3","/tmp/dies-schema.py"`, 1)
-			engine.stderr(`"python3","/tmp/dies-schema.py"`, "::error file=fleet/stars/x/slag.json::meta/name")
-		}, 1, []string{"meta/name"}},
+			engine.stderr(`"python3","/tmp/dies-schema.py"`, "::error file=fleet/repos/x.json::name")
+		}, 1, []string{"name"}},
 		{"the validator crashed", func() {
 			engine.exitCode(`"python3","/tmp/dies-schema.py"`, 2)
 			engine.stderr(`"python3","/tmp/dies-schema.py"`, "Traceback")
@@ -841,34 +840,34 @@ func TestDiesSchemaReadsTheValidatorsExit(t *testing.T) {
 // no trailing LF is findings naming the record and the re-emit that fixes it;
 // one that is not JSON is findings too. No container is ever built: the read
 // is the Directory's own.
-func TestDiesCanonicalGradesEveryRecordsForm(t *testing.T) {
-	canonical := "{\n  \"apiVersion\": 3,\n  \"tools\": {\n    \"build\": {\n      \"binaries\": [\n        \"clio\"\n      ]\n    },\n    \"calypso\": {\n      \"secret_path\": \"/fleet/clio\"\n    }\n  }\n}\n"
+func TestDiesCanonicalGradesEveryCatalogDocumentsForm(t *testing.T) {
+	canonical := "{\n  \"description\": \"the door\",\n  \"kind\": \"go\",\n  \"name\": \"clio\"\n}\n"
 	engine.reset()
 	engine.withTree(diesTree(map[string]string{
-		"fleet/stars/clio/slag.json":  canonical,
-		"fleet/stars/hades/slag.json": "{\n  \"apiVersion\": 3,\n  \"charter\": \"the door \\u2014 every ref's home\"\n}\n",
-	}))
+		"fleet/repos/clio.json":  canonical,
+		"fleet/repos/hades.json": "{\n  \"description\": \"the door \\u2014 every ref's home\",\n  \"name\": \"hades\"\n}\n",
+	}, "fleet/repos"))
 	wantState(t, runAtom(t, "dies:canonical", ""), 0)
 	if diesBuiltAContainer() {
 		t.Error("the form is graded in Go; no container should be built")
 	}
 
 	for name, tc := range map[string]struct{ body, needle string }{
-		"a block out of sorted order": {
-			"{\n  \"apiVersion\": 3,\n  \"tools\": {\n    \"calypso\": {\n      \"secret_path\": \"/fleet/clio\"\n    },\n    \"build\": {\n      \"binaries\": [\n        \"clio\"\n      ]\n    }\n  }\n}\n",
-			"fleet/stars/clio/slag.json: diverges from its canonical form",
+		"a key out of sorted order": {
+			"{\n  \"name\": \"clio\",\n  \"kind\": \"go\"\n}\n",
+			"fleet/repos/clio.json: diverges from its canonical form",
 		},
-		"four-space indent":        {"{\n    \"apiVersion\": 3\n}\n", "diverges from its canonical form"},
-		"no trailing newline":      {"{\n  \"apiVersion\": 3\n}", "diverges from its canonical form"},
-		"non-ascii left unescaped": {"{\n  \"charter\": \"the door \u2014 home\"\n}\n", "diverges from its canonical form"},
-		"not json":                 {"{\"apiVersion\": 3,\n", "fleet/stars/clio/slag.json: not one JSON document"},
+		"four-space indent":        {"{\n    \"kind\": \"go\"\n}\n", "diverges from its canonical form"},
+		"no trailing newline":      {"{\n  \"kind\": \"go\"\n}", "diverges from its canonical form"},
+		"non-ascii left unescaped": {"{\n  \"description\": \"the door \u2014 home\"\n}\n", "diverges from its canonical form"},
+		"not json":                 {"{\"kind\": \"go\",\n", "fleet/repos/clio.json: not one JSON document"},
 	} {
 		engine.reset()
 		engine.withTree(diesTree(map[string]string{
-			"fleet/stars/clio/slag.json":  tc.body,
-			"fleet/stars/hades/slag.json": canonical,
-		}))
-		wantState(t, runAtom(t, "dies:canonical", ""), 1, "1 of 2 record(s)", tc.needle)
+			"fleet/repos/clio.json":  tc.body,
+			"fleet/repos/hades.json": canonical,
+		}, "fleet/repos"))
+		wantState(t, runAtom(t, "dies:canonical", ""), 1, "1 of 2 catalog document(s)", tc.needle)
 		if diesBuiltAContainer() {
 			t.Errorf("%s: a finding must not build a container", name)
 		}
@@ -877,30 +876,30 @@ func TestDiesCanonicalGradesEveryRecordsForm(t *testing.T) {
 	// Every finding is named, not just the first.
 	engine.reset()
 	engine.withTree(diesTree(map[string]string{
-		"fleet/stars/a/slag.json": "{\"z\": 1, \"a\": 2}\n",
-		"fleet/stars/b/slag.json": "{\n  \"a\": 2\n}",
-		"fleet/stars/c/slag.json": canonical,
-	}))
-	wantState(t, runAtom(t, "dies:canonical", ""), 1, "2 of 3 record(s)", "fleet/stars/a/slag.json", "fleet/stars/b/slag.json")
+		"fleet/repos/a.json": "{\"z\": 1, \"a\": 2}\n",
+		"fleet/repos/b.json": "{\n  \"a\": 2\n}",
+		"fleet/repos/c.json": canonical,
+	}, "fleet/repos"))
+	wantState(t, runAtom(t, "dies:canonical", ""), 1, "2 of 3 catalog document(s)", "fleet/repos/a.json", "fleet/repos/b.json")
 }
 
-// A die with the shape but no record is could-not-run, and a record the engine
-// could not hand over is could-not-run naming it — neither is a verdict on
-// the form.
-func TestDiesCanonicalCannotRunWithoutARecordItCanRead(t *testing.T) {
+// A die with the shape but no catalog document is could-not-run, and a
+// document the engine could not hand over is could-not-run naming it — neither
+// is a verdict on the form.
+func TestDiesCanonicalCannotRunWithoutADocumentItCanRead(t *testing.T) {
 	engine.reset()
-	engine.withTree(diesTree(map[string]string{"fleet/stars/.keep": ""}, "fleet/stars/x"))
-	wantState(t, runAtom(t, "dies:canonical", ""), 2, "fleet/stars/ carries no slag.json")
+	engine.withTree(diesTree(map[string]string{"fleet/repos/.keep": ""}, "fleet/repos/x"))
+	wantState(t, runAtom(t, "dies:canonical", ""), 2, "fleet/repos/ carries no catalog entry")
 
 	engine.reset()
-	engine.withTree(diesTree(map[string]string{"fleet/stars/clio/slag.json": "{}\n"}))
-	engine.fail(`file(path:"fleet/stars/clio/slag.json"){contents}`, "the blob would not evaluate")
-	wantState(t, runAtom(t, "dies:canonical", ""), 2, "fleet/stars/clio/slag.json could not be read", "would not evaluate")
+	engine.withTree(diesTree(map[string]string{"fleet/repos/clio.json": "{}\n"}, "fleet/repos/x"))
+	engine.fail(`file(path:"fleet/repos/clio.json"){contents}`, "the blob would not evaluate")
+	wantState(t, runAtom(t, "dies:canonical", ""), 2, "fleet/repos/clio.json could not be read", "would not evaluate")
 
 	engine.reset()
 	engine.withTree(diesTree(nil))
-	engine.fail(`glob(pattern:"fleet/stars/*/slag.json")`, "the glob would not evaluate")
-	wantState(t, runAtom(t, "dies:canonical", ""), 2, "fleet/stars/ could not be scanned", "would not evaluate")
+	engine.fail(`glob(pattern:"fleet/repos/*.json")`, "the glob would not evaluate")
+	wantState(t, runAtom(t, "dies:canonical", ""), 2, "fleet/repos/ could not be scanned", "would not evaluate")
 }
 
 var schemasPaths = map[string]string{
@@ -908,7 +907,7 @@ var schemasPaths = map[string]string{
 }
 
 // THE ATOM NAMES NO SCHEMA, and that is the whole point of it. dies:schema
-// names schema/slag.schema.json, schema/slag-v3.schema.json and the records v3 validates, dies:findings
+// names schema/fleet-star.schema.json and the catalog entries it validates, dies:findings
 // names findings' two paths, and both are silent about everything else — which
 // is how operable landed with nineteen negative fixtures no lane
 // ran. A list forgets; a discovery step cannot.

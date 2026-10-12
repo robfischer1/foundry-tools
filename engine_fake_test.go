@@ -482,7 +482,7 @@ func (e *fakeEngine) answer(q string) (data any, errMsg string) {
 			// placed a checkout of that repository in the tree under its mount
 			// path (/dies/…), in which case the checkout is what is
 			// read, and a path it lacks is absent. That is how a test hands an
-			// atom a star's RECORD (fleet/stars/<star>/slag.json) and how it
+			// atom a star's catalog entry (fleet/repos/<star>.json) and how it
 			// models a star the dies do not know.
 			if mount := gitMount(fields[0]); mount != "" && tree.hasDir(mount) {
 				fp := ""
@@ -744,13 +744,12 @@ var everyLaneTree = map[string]string{
 	"orbit.toml":                       "",
 	"policy/.manifest":                 "",
 	"policy/admission/x.rego":          "",
-	"fleet/stars/x/x.slag":             "{}",
+	"fleet/repos/x.json":               "{}\n",
 	"tests/fixtures/ouranos-self.json": "{}",
 	"tools/check_contracts.py":         "",
 	"tests/contracts/fixtures.toml":    "",
 	"contracts/contracts.toml":         "",
-	"schema/slag.schema.json":          "{}",
-	"schema/slag-v3.schema.json":       "{}",
+	"schema/fleet-star.schema.json":    "{}",
 	"compose.yaml":                     "services: {}\n",
 	"Dockerfile":                       "FROM scratch\n",
 	".forgejo/workflows/ci.yml":        "uses: foundry/foundry-stocks/.forgejo/workflows/build.yml@main\nimage: x@sha256:" + strings.Repeat("a", 64) + "\n",

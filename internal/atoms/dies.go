@@ -16,12 +16,12 @@ import (
 // anywhere else.
 
 // diesShape is the condition every dies: atom shares. TWO MARKERS, BOTH
-// REQUIRED (policy/.manifest and fleet/stars/): policy/ turns up in more than one
-// repo and fleet/stars/ is a name an inventory could take. The root listing is
+// REQUIRED (policy/.manifest and fleet/repos/): policy/ turns up in more than one
+// repo and fleet/repos/ is a name an inventory could take. The root listing is
 // read first so a missing marker is an absence and not a descent into a
 // directory that is not there. Nil means the tree is the die's source.
 func diesShape(t tree, a checks.AtomDef) *checks.Verdict {
-	absent := checks.VerdictOf(a, int(checks.StatePass), a.ID+": ABSENT - this tree is not the policy die's source. It needs both policy/.manifest and fleet/stars/, and this one does not carry both.")
+	absent := checks.VerdictOf(a, int(checks.StatePass), a.ID+": ABSENT - this tree is not the policy die's source. It needs both policy/.manifest and fleet/repos/, and this one does not carry both.")
 	roots, err := t.entries(".")
 	if err != nil {
 		v := checks.VerdictOf(a, int(checks.StateCannotRun), fmt.Sprintf("%s: CANNOT RUN - the repository root could not be read (%v), so this tree's shape is unknown rather than wrong.", a.ID, err))
@@ -40,7 +40,7 @@ func diesShape(t tree, a checks.AtomDef) *checks.Verdict {
 		v := checks.VerdictOf(a, int(checks.StateCannotRun), fmt.Sprintf("%s: CANNOT RUN - fleet/ is in the root listing but could not be read (%v).", a.ID, err))
 		return &v
 	}
-	if !checks.HasEntry(fleet, "stars") {
+	if !checks.HasEntry(fleet, "repos") {
 		return &absent
 	}
 	return nil
@@ -142,17 +142,17 @@ func diesDataKeys(ctx context.Context, a checks.AtomDef, in Input) checks.Verdic
 	return checks.VerdictOf(a, int(checks.StatePass), fmt.Sprintf("%s: data roots ok; star_only carries %d stars", a.ID, stars))
 }
 
-// diesCanonical grades the FORM of every committed record: each
-// fleet/stars/<star>/slag.json re-emitted through checks.CanonicalJSON must come
+// diesCanonical grades the FORM of every committed catalog entry: each
+// fleet/repos/<name>.json re-emitted through checks.CanonicalJSON must come
 // back byte for byte. A record that does not parse is a finding too.
 func diesCanonical(_ context.Context, a checks.AtomDef, in Input) checks.Verdict {
 	t := in.tree()
 	if stop := diesShape(t, a); stop != nil {
 		return *stop
 	}
-	records := t.glob("fleet/stars/*/slag.json")
+	records := t.glob("fleet/repos/*.json")
 	if len(records) == 0 {
-		return checks.VerdictOf(a, int(checks.StateCannotRun), a.ID+": CANNOT RUN - fleet/stars/ carries no slag.json, so there is no record whose form could be graded.")
+		return checks.VerdictOf(a, int(checks.StateCannotRun), a.ID+": CANNOT RUN - fleet/repos/ carries no catalog entry, so there is no document whose form could be graded.")
 	}
 	sort.Strings(records)
 	var findings []string
@@ -171,7 +171,7 @@ func diesCanonical(_ context.Context, a checks.AtomDef, in Input) checks.Verdict
 		}
 	}
 	if len(findings) > 0 {
-		return checks.VerdictOf(a, int(checks.StateFindings), fmt.Sprintf("%s: FINDINGS - %d of %d record(s) are not their own canonical form:\n%s", a.ID, len(findings), len(records), strings.Join(findings, "\n")))
+		return checks.VerdictOf(a, int(checks.StateFindings), fmt.Sprintf("%s: FINDINGS - %d of %d catalog document(s) are not their own canonical form:\n%s", a.ID, len(findings), len(records), strings.Join(findings, "\n")))
 	}
-	return checks.VerdictOf(a, int(checks.StatePass), fmt.Sprintf("%s: %d record(s) are each their own canonical form.", a.ID, len(records)))
+	return checks.VerdictOf(a, int(checks.StatePass), fmt.Sprintf("%s: %d catalog document(s) are each their own canonical form.", a.ID, len(records)))
 }

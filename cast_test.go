@@ -266,7 +266,7 @@ func TestACastThatCannotStartBuildsNothing(t *testing.T) {
 			engine.fail(`file(path:"fleet/repos/tongs.json"){contents}`, "no such file or directory")
 		}, "2", "no record for tongs could be read at foundry-dies fleet/repos/tongs.json, so nothing says what it ships"},
 		"a record with no name": {map[string]string{"/dies/fleet/repos/tongs.json": `{}`}, nil, "1",
-			"names no name"},
+			"has no name"},
 		"no cosign.pub": {map[string]string{"cosign.pub": ""}, nil, "1", "carries no cosign.pub"},
 	}
 	for name, c := range cases {

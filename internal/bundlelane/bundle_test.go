@@ -31,7 +31,7 @@ func TestPublishesFollowsTheRetiredWorkflowsPathFilters(t *testing.T) {
 		{"cannot tell: both publish", nil, true, true},
 		{"a policy change", []string{"policy/authz/visible.rego"}, true, false},
 		{"docs and schema alone move nothing", []string{"README.md", "policy/authz/NOTES.md", ".forgejo/workflows/ci.yml", "schema/slag-v3.schema.json"}, false, false},
-		{"a roster change", []string{"fleet/stars/athena/slag.json"}, true, true},
+		{"a roster change", []string{"fleet/repos/athena.json"}, true, true},
 		{"the manifest moves both", []string{"policy/.manifest"}, true, true},
 		{"the stubs move both", []string{"policy/admission/stubs.rego"}, true, true},
 		{"a nested fleet/ is not the roster", []string{"docs/fleet/x.json"}, true, false},
@@ -81,19 +81,19 @@ func TestFleetPinNamesBothCommits(t *testing.T) {
 	}
 }
 
-func TestOrphansAreShardsTheMapLacks(t *testing.T) {
-	shards := []string{"fleet/stars/zeus/slag.json", "fleet/stars/athena/slag.json", "fleet/stars/argus/slag.json"}
-	orphans, mapped, err := Orphans(shards, `{"map":{"athena":{},"ares":{}}}`)
+func TestOrphansAreCatalogEntriesTheMapLacks(t *testing.T) {
+	entries := []string{"fleet/repos/zeus.json", "fleet/repos/athena.json", "fleet/repos/argus.json"}
+	orphans, mapped, err := Orphans(entries, `{"map":{"athena":{},"ares":{}}}`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(orphans, []string{"argus", "zeus"}) || mapped != 2 {
 		t.Fatalf("Orphans = %q, %d; want [argus zeus], 2", orphans, mapped)
 	}
-	if o, _, _ := Orphans([]string{"fleet/stars/athena/slag.json"}, `{"map":{"athena":{}}}`); o != nil {
-		t.Errorf("a mapped shard is no orphan: %q", o)
+	if o, _, _ := Orphans([]string{"fleet/repos/athena.json"}, `{"map":{"athena":{}}}`); o != nil {
+		t.Errorf("a mapped entry is no orphan: %q", o)
 	}
-	if _, _, err := Orphans(shards, "{not json"); err == nil {
+	if _, _, err := Orphans(entries, "{not json"); err == nil {
 		t.Error("an unreadable data.json must be an error, not an empty map")
 	}
 }
@@ -154,39 +154,44 @@ func TestRosterRefusesAnEmptyFleetOrALeakedCharter(t *testing.T) {
 
 func TestRosterRefusesAStarThatDroppedOut(t *testing.T) {
 	// hades is declared without a kind: fleet/derive.rego leaves its row
-	// undefined, so stars holds ares alone.
-	dropped := `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"hades":{"name":"hades"},"ares":{"kind":"go"}},"lean":{"hades":{},"chaos":{}},"stars":{"ares":{"name":"ares"},"chaos":{"name":"chaos"}}}}`
+	// undefined, so stars holds ares alone though flux backs both.
+	dropped := `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"hades":{"name":"hades"},"ares":{"kind":"go"}},"flux":{"hades":{},"ares":{}},"stars":{"ares":{"name":"ares"}},"repos":{"ares":{}}}}`
 	if _, _, _, problem, _ := Roster(dropped); !strings.Contains(problem, "drops its star") {
-		t.Errorf("a star missing from declared ∪ lean: problem = %q", problem)
+		t.Errorf("a flux-backed repo missing from stars: problem = %q", problem)
 	}
-	whole := `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"hades":{"kind":"go"},"ares":{"kind":"go"}},"lean":{"hades":{},"chaos":{}},"stars":{"hades":{},"ares":{},"chaos":{}},"repos":{"hades":{},"ares":{},"chaos":{}}}}`
-	if _, stars, _, problem, err := Roster(whole); err != nil || problem != "" || stars != 3 {
+	whole := `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"hades":{"kind":"go"},"ares":{"kind":"go"},"chaos":{"kind":"go"}},"flux":{"hades":{},"ares":{}},"stars":{"hades":{},"ares":{}},"repos":{"hades":{},"ares":{},"chaos":{}}}}`
+	if _, stars, _, problem, err := Roster(whole); err != nil || problem != "" || stars != 2 {
 		t.Errorf("a whole roster: stars = %d, problem = %q, err = %v", stars, problem, err)
+	}
+	// A repo flux does not deploy is not a star (F16).
+	extra := `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"hades":{"kind":"go"},"chaos":{"kind":"go"}},"flux":{"hades":{}},"stars":{"hades":{},"chaos":{}},"repos":{"hades":{},"chaos":{}}}}`
+	if _, _, _, problem, _ := Roster(extra); !strings.Contains(problem, "not a star") {
+		t.Errorf("an undeployed repo as a star: problem = %q", problem)
 	}
 }
 
-// data.fleet.repos (F15) is held to the same union as stars, unconditionally:
+// data.fleet.repos (F15) is held to the declared entries, unconditionally:
 // foundry-dies main carries the rule, so its absence is a refusal.
-func TestRosterHoldsReposToTheDeclaredLeanUnion(t *testing.T) {
-	const head = `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"hades":{"kind":"go"},"ares":{"kind":"go"}},"lean":{"hades":{},"chaos":{}},"stars":{"hades":{},"ares":{},"chaos":{}}`
+func TestRosterHoldsReposToTheDeclaredEntries(t *testing.T) {
+	const head = `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"hades":{"kind":"go"},"ares":{"kind":"go"},"chaos":{"kind":"go"}},"flux":{"hades":{},"ares":{},"chaos":{}},"stars":{"hades":{},"ares":{},"chaos":{}}`
 	if _, _, _, problem, err := Roster(head + `,"repos":{"hades":{},"ares":{},"chaos":{}}}}`); err != nil || problem != "" {
-		t.Errorf("repos == declared ∪ lean: problem = %q, err = %v", problem, err)
+		t.Errorf("repos == declared: problem = %q, err = %v", problem, err)
 	}
 	for name, c := range map[string]struct{ doc, want string }{
-		"repos absent":   {head + `}}`, "derives 0 repos from 3 declared/lean keys"},
+		"repos absent":   {head + `}}`, "derives 0 repos from 3 declared entries"},
 		"repos null":     {head + `,"repos":null}}`, "derives 0 repos"},
 		"repos empty":    {head + `,"repos":{}}}`, "derives 0 repos"},
-		"a repo dropped": {head + `,"repos":{"hades":{},"chaos":{}}}}`, "derives 2 repos from 3 declared/lean keys"},
-		"an extra repo":  {head + `,"repos":{"hades":{},"ares":{},"chaos":{},"x":{}}}}`, "derives 4 repos from 3 declared/lean keys"},
+		"a repo dropped": {head + `,"repos":{"hades":{},"chaos":{}}}}`, "derives 2 repos from 3 declared entries"},
+		"an extra repo":  {head + `,"repos":{"hades":{},"ares":{},"chaos":{},"x":{}}}}`, "derives 4 repos from 3 declared entries"},
 	} {
 		if _, _, _, problem, _ := Roster(c.doc); !strings.Contains(problem, c.want) {
 			t.Errorf("%s: problem = %q", name, problem)
 		}
 	}
-	// No declared or lean keys: nothing to hold repos to.
+	// No declared keys: nothing to hold repos to.
 	const bare = `{"fleet":{"map":{"a":{}},"topics":["t"],"stars":{"a":{}}}}`
 	if _, _, _, problem, err := Roster(bare); err != nil || problem != "" {
-		t.Errorf("an empty union asserts nothing: problem = %q, err = %v", problem, err)
+		t.Errorf("no declared entries asserts nothing: problem = %q, err = %v", problem, err)
 	}
 }
 
@@ -282,21 +287,16 @@ func TestEphemeralKeyIsAP256PEMOpaCanSignWith(t *testing.T) {
 	}
 }
 
-// F16: data.fleet.stars is the repos flux deploys, not the whole catalog. The
-// old derive (stars == repos) passes too until foundry-dies F16 lands.
+// F16: data.fleet.stars is the repos flux deploys, not the whole catalog.
 func TestRosterHoldsStarsToTheFluxBackedRepos(t *testing.T) {
-	const head = `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"hades":{"kind":"go"},"ares":{"kind":"go"}},"lean":{"hades":{},"chaos":{}},"repos":{"hades":{},"ares":{},"chaos":{}},"flux":{"hades":{},"ares":{}}`
-	for name, stars := range map[string]string{
-		"new derive: the flux-backed repos": `{"hades":{},"ares":{}}`,
-		"old derive: every repo":            `{"hades":{},"ares":{},"chaos":{}}`,
-	} {
-		if _, n, _, problem, err := Roster(head + `,"stars":` + stars + `}}`); err != nil || problem != "" {
-			t.Errorf("%s: stars = %d, problem = %q, err = %v", name, n, problem, err)
-		}
+	const head = `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"hades":{"kind":"go"},"ares":{"kind":"go"},"chaos":{"kind":"go"}},"repos":{"hades":{},"ares":{},"chaos":{}},"flux":{"hades":{},"ares":{}}`
+	if _, n, _, problem, err := Roster(head + `,"stars":{"hades":{},"ares":{}}}}`); err != nil || problem != "" {
+		t.Errorf("the flux-backed repos: stars = %d, problem = %q, err = %v", n, problem, err)
 	}
 	for name, c := range map[string]struct{ doc, want string }{
 		"a deployed repo dropped": {head + `,"stars":{"hades":{}}}}`, "derives 1 stars from 2 flux-backed repos"},
-		"neither count":           {head + `,"stars":{"hades":{},"ares":{},"chaos":{},"x":{}}}}`, "derives 4 stars"},
+		"every repo a star":       {head + `,"stars":{"hades":{},"ares":{},"chaos":{}}}}`, "derives 3 stars from 2 flux-backed repos"},
+		"an extra star":           {head + `,"stars":{"hades":{},"ares":{},"x":{}}}}`, "derives 3 stars"},
 	} {
 		if _, _, _, problem, _ := Roster(c.doc); !strings.Contains(problem, c.want) {
 			t.Errorf("%s: problem = %q", name, problem)
@@ -304,37 +304,11 @@ func TestRosterHoldsStarsToTheFluxBackedRepos(t *testing.T) {
 	}
 }
 
-// A lean row that states mcp or an address with a port is a routed star: flux
-// must back it and stars must carry it, or the narrowing drops a live route.
-func TestRosterRefusesARoutedRepoFluxDoesNotBack(t *testing.T) {
-	const head = `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"hades":{"kind":"go"},"blade-runner":{"kind":"go"}},"repos":{"hades":{},"blade-runner":{}}`
-	routed := `"lean":{"hades":{"interface":{"sync":["mcp"]}},"blade-runner":{"address":"https://blade-runner:8218/mcp","interface":{"sync":["mcp"]}}}`
-	if _, _, _, problem, err := Roster(head + `,` + routed + `,"flux":{"hades":{},"blade-runner":{}},"stars":{"hades":{},"blade-runner":{}}}}`); err != nil || problem != "" {
-		t.Errorf("both backed: problem = %q, err = %v", problem, err)
-	}
-	for name, c := range map[string]struct{ tail, want string }{
-		"no flux entry (the blade-runner namespace bug)": {`"flux":{"hades":{}},"stars":{"hades":{}}}}`, "routes blade-runner"},
-		"flux but no star row":                           {`"flux":{"hades":{},"blade-runner":{}},"stars":{"hades":{}}}}`, "derives 1 stars from 2 flux-backed repos"}, // the count refuses first
-	} {
-		if _, _, _, problem, _ := Roster(head + `,` + routed + `,` + c.tail); !strings.Contains(problem, c.want) {
-			t.Errorf("%s: problem = %q", name, problem)
-		}
-	}
-	// An address with a port and no mcp (hemera's otlp) counts as routed too.
-	port := `"lean":{"hemera":{"address":"hemera:4318","interface":{"sync":["otlp"]}}}`
-	const h2 = `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"hemera":{"kind":"vendored"}},"repos":{"hemera":{}}`
-	if _, _, _, problem, _ := Roster(h2 + `,` + port + `,"flux":{"x":{}},"stars":{"hemera":{}}}}`); !strings.Contains(problem, "routes hemera") {
-		t.Errorf("an address with a port: problem = %q", problem)
-	}
-	// A lean row that is not an object states nothing.
-	const h4 = `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"x":{"kind":"go"}},"repos":{"x":{}}`
-	if _, _, _, problem, _ := Roster(h4 + `,"lean":{"x":"oops"},"flux":{"x":{}},"stars":{"x":{}}}}`); problem != "" {
-		t.Errorf("a non-object lean row: problem = %q", problem)
-	}
-	// A bare-name address with no mcp is not routed.
-	bare := `"lean":{"tron":{"address":"tron","interface":{"sync":[]}}}`
-	const h3 = `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"tron":{"kind":"rust"}},"repos":{"tron":{}}`
-	if _, _, _, problem, _ := Roster(h3 + `,` + bare + `,"flux":{"x":{}},"stars":{"tron":{}}}}`); strings.Contains(problem, "routes") {
-		t.Errorf("a bare address: problem = %q", problem)
+// A roster that carries no flux rows has nothing to hold stars to; the Injected
+// gate refuses it against what the lane staged.
+func TestRosterWithoutFluxRowsAssertsNothingAboutStars(t *testing.T) {
+	const doc = `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"hades":{"kind":"go"}},"repos":{"hades":{}},"stars":{"hades":{}}}}`
+	if _, _, _, problem, err := Roster(doc); err != nil || problem != "" {
+		t.Errorf("no flux rows: problem = %q, err = %v", problem, err)
 	}
 }

@@ -146,9 +146,9 @@ func goVet(ctx context.Context, r *run) checks.Verdict {
 // as ok (#2453, #8118). A repo with no such test reads FOUNDRY_DIES and does
 // nothing with it.
 //
-// AND THE RECORD'S DATABASE RIDES ALONG. A star whose slag record declares
-// backends.postgres gets the fleet's test servers bound beside the lane and
-// its DB-gated suites compiled (withTestDatabases); `-p 1` with them, because
+// AND THE TREE'S DATABASES RIDE ALONG. A star whose tests sit behind a
+// database build tag gets the fleet's test servers bound beside the lane and
+// those suites compiled (withTestDatabases); `-p 1` with them, because
 // every package shares the one database and the suites reset its schema per
 // test (chaos's own README says so of its lane).
 func goTestRace(ctx context.Context, r *run) checks.Verdict {
@@ -248,17 +248,15 @@ func goTestIn(ctx context.Context, r *run, a checks.AtomDef, dir string, race bo
 }
 
 // withTestDatabases binds the fleet's test servers to a lane container for
-// the DB-gated suites the tree carries, when the star's RECORD says it has a
-// Postgres — checks/testdb.go carries the reasoning and the vocabulary. It
-// answers the container (bound or untouched), the databases bound, and the
-// scope line the atom prints either way.
+// the DB-gated suites the tree carries — checks/testdb.go carries the
+// reasoning and the vocabulary. It answers the container (bound or
+// untouched), the databases bound, and the scope line the atom prints either
+// way.
 //
-// Three reads decide it, none of them a knob: the star's name off the
-// answers file (rule 3, in Go off the tree), its record off the mounted
-// dies, and the tree's single-tag `//go:build` lines off one recursive grep
-// in the lane — an enumeration, not a judgement; the judgement is
-// checks.TestDBsFor. A missing name, a missing record or a record without
-// the backend all answer "none", said in the scope line with the reason.
+// One read decides it, and it is no knob: the tree's single-tag
+// `//go:build` lines off one recursive grep in the lane — an enumeration,
+// not a judgement; the judgement is checks.TestDBsFor. The tree states
+// which suites need a database; no record is asked (slag-by-kind F14).
 //
 // THE SERVICE IS THE ENGINE'S, NOT A SCRIPT'S. Dagger starts a bound service
 // just in time, health-checks its exposed port before the client runs, and
@@ -269,23 +267,11 @@ func (r *run) withTestDatabases(ctx context.Context, ctr *dagger.Container, scop
 	return bindTestDatabases(ctr, dbs, scope), dbs, line
 }
 
-// testDatabases is withTestDatabases' three reads and nothing else: which
+// testDatabases is withTestDatabases' read and nothing else: which
 // databases the suites need, and the scope line. It binds no service, so a
 // caller can ask BEFORE it knows whether anything will run (go:mutation asks
 // before its change set is known to be empty).
 func (r *run) testDatabases(ctx context.Context, ctr *dagger.Container) ([]checks.TestDB, string) {
-	answers, _, _ := fileIfPresent(ctx, r.src, ".copier-answers.yml")
-	star := checks.ServiceName(answers)
-	if star == "" {
-		return nil, checks.TestDBScope(nil, nil, "no service_name in .copier-answers.yml, so no record to read")
-	}
-	slag, err := r.starRecord(ctx, star)
-	if err != nil {
-		return nil, checks.TestDBScope(nil, nil, "no record at fleet/stars/"+star+"/slag.json")
-	}
-	if !checks.PostgresBackend(slag) {
-		return nil, checks.TestDBScope(nil, nil, "the record declares no postgres backend")
-	}
 	// grep exits 1 for no match, which is an answer; 2 and up is grep failing.
 	out, code, err := output(ctx, ctr.WithExec([]string{
 		"grep", "-rhoE", `^//go:build [A-Za-z0-9_]+$`, "--include=*_test.go", ".",
@@ -296,7 +282,7 @@ func (r *run) testDatabases(ctx context.Context, ctr *dagger.Container) ([]check
 	tags := checks.GoBuildTags(out)
 	dbs := checks.TestDBsFor(tags)
 	if len(dbs) == 0 {
-		return nil, checks.TestDBScope(nil, nil, "the record declares postgres but no test file sits behind a tag the fleet names")
+		return nil, checks.TestDBScope(nil, nil, "no test file sits behind a tag the fleet names")
 	}
 	return dbs, checks.TestDBScope(dbs, checks.UncompiledTags(tags, dbs, checks.TestBrokers), "")
 }
@@ -330,13 +316,14 @@ func bindTestDatabases(ctr *dagger.Container, dbs []checks.TestDB, scope string)
 }
 
 // withTestBrokers binds the fleet's test broker to a lane container for the
-// broker-gated suites the tree carries, when the star's RECORD names topics —
+// broker-gated suites the tree carries, when the tree states a Kafka flow —
 // checks/testdb.go carries the reasoning and the vocabulary.
 //
-// THE SAME THREE READS as withTestDatabases, and none of them a knob: the star's
-// name off the answers file, its record off the mounted dies, and the tree's
-// single-tag `//go:build` lines off one recursive grep. The grep is the same exec
-// the database path runs, so the engine serves it from cache rather than twice.
+// TWO READS, and none of them a knob: the tree's single-tag `//go:build`
+// lines off one recursive grep (the same exec the database path runs, so the
+// engine serves it from cache rather than twice), and the Kafka flows the
+// tree's own code states (treeFlows). A suite exercises the seams the code
+// has, and the code is where they are stated; no record is asked.
 //
 // NO ISOLATION HELPER, unlike the database path, and that is the broker's own
 // contract rather than a shortcut: kafka's isolation unit is the topic plus the
@@ -349,23 +336,19 @@ func (r *run) withTestBrokers(ctx context.Context, ctr *dagger.Container, scope 
 	return bindTestBrokers(ctr, brokers, scope), brokers, line
 }
 
-// testBrokers is withTestBrokers' three reads, binding nothing (testDatabases
+// testBrokers is withTestBrokers' two reads, binding nothing (testDatabases
 // says why the two halves are apart).
 func (r *run) testBrokers(ctx context.Context, ctr *dagger.Container) ([]checks.TestBroker, string) {
-	// NO BRANCH LIVES HERE. This makes the three reads and hands them over as
+	// NO BRANCH LIVES HERE. This makes the reads and hands them over as
 	// facts; every decision is checks.SelectBrokers', where a unit test can reach
 	// it. The first cut guarded in place and the mutation lane graded those guards
 	// NOT COVERED and LIVED on the pull that added them (#196, six survivors) — a
 	// guard no test can execute is a guard that is not there.
-	answers, _, _ := fileIfPresent(ctx, r.src, ".copier-answers.yml")
-	slag, slagErr := r.starRecord(ctx, checks.ServiceName(answers))
 	out, code, tagsErr := output(ctx, ctr.WithExec([]string{
 		"grep", "-rhoE", `^//go:build [A-Za-z0-9_]+$`, "--include=*_test.go", ".",
 	}, anyExit))
 	flows, flowsErr := r.treeFlows(ctx)
 	return checks.SelectBrokers(checks.BrokerReads{
-		Answers: answers,
-		Slag:    slag, SlagErr: slagErr,
 		Tags: out, TagsErr: tagsErr, TagsCode: code,
 		Flows: flows, FlowsErr: flowsErr,
 	})
@@ -562,8 +545,8 @@ func goRelease(ctx context.Context, r *run) checks.Verdict {
 // release convention share. The answers file says it first; a repository
 // with none is named by ITS RECORD, the one in foundry-dies whose meta.repo
 // is this clone's custody key. hephaestus is the case (CA F17, Rob
-// 2026-09-19): not copier-templated, no .copier-answers.yml, and a record at
-// fleet/stars/hephaestus/slag.json saying repo rob/hephaestus — the door
+// 2026-09-19): not copier-templated, no .copier-answers.yml, and a catalog entry at
+// fleet/repos/hephaestus.json saying repo rob/hephaestus — the door
 // already routes its lanes by that record, so the release build reads the
 // same name. The clone URL is the door's (--repo) or the hook's (--origin);
 // a run given neither, and no answers file, is not a star: an error here is
@@ -571,8 +554,8 @@ func goRelease(ctx context.Context, r *run) checks.Verdict {
 //
 // AN ANSWERS FILE WITH NO service_name FALLS BACK TO THE RECORD TOO. Only
 // the go, rust and python templates ask for one; the frontend template asks
-// for repo_name, which is not the star (demeter's is demeter-mcp, its record
-// fleet/stars/demeter). Measured on calliope #46, 2026-09-19: the push's
+// for repo_name, which is not the star (demeter's is demeter-mcp, its catalog
+// entry fleet/repos/demeter.json). Measured on calliope #46, 2026-09-19: the push's
 // ts:release stood down ABSENT as "not a star image" and the build lane's
 // Release() failed on the same sentence — a star with a record, read as none.
 func (r *run) starName(ctx context.Context) (string, error) {

@@ -139,222 +139,86 @@ def schema_tree(tmp_path: Path, **docs: object) -> Path:
     return tmp_path
 
 
-V3 = "slag-v3.schema.json"
-V4 = "slag-v4.schema.json"
-V4_URL = "https://forgejo.notusmi.com/rob/foundry-dies/schema/slag-v4.schema.json"
-V1 = "slag.schema.json"
-
-
-def add_record(tree: Path, star: str, text: str) -> None:
-    """Write one fleet record for *star*.
-
-    Args:
-        tree: the temporary repository.
-        star: the star's directory name.
-        text: the record's bytes.
-    """
-    star_dir = tree / "fleet" / "stars" / star
-    star_dir.mkdir(parents=True)
-    (star_dir / "slag.json").write_text(text, encoding="utf-8")
-
-
-def test_the_schema_check_cannot_run_without_its_schema(tmp_path):
-    # THE INSTRUMENT, NOT THE SUBJECT. A schema file that is not there means
-    # this atom could not look; before 2026-09-25 it left by an uncaught
-    # raise, whose traceback exits 1 — indistinguishable from having found
-    # something wrong with foundry-dies.
-    done = probe(schema_tree(tmp_path, **{V1: VALID}))
-    assert done.returncode == CANNOT_RUN, done.stdout + done.stderr
-    assert "could not read schema/slag-v3.schema.json" in done.stderr
-
-
-def test_the_schema_check_cannot_run_without_the_v1_schema(tmp_path):
-    done = probe(schema_tree(tmp_path, **{V3: VALID}))
-    assert done.returncode == CANNOT_RUN, done.stdout + done.stderr
-    assert "could not read schema/slag.schema.json" in done.stderr
-
-
-def test_v1_required_naming_an_undefined_property_is_a_finding(tmp_path):
-    done = probe(schema_tree(tmp_path, **{V1: {**VALID, "required": ["b"]}, V3: VALID}))
-    assert done.returncode == FINDINGS, done.stdout + done.stderr
-    assert "required names properties that are not defined" in done.stderr
-
-
-def test_a_malformed_schema_is_a_finding_not_a_crash(tmp_path):
-    # The other half of the same ladder: a schema that is not a schema IS
-    # something wrong with foundry-dies, so 1 — but said, not thrown.
-    done = probe(schema_tree(tmp_path, **{V1: VALID, V3: {"type": 17}}))
-    assert done.returncode == FINDINGS, done.stdout + done.stderr
-    assert "not a valid Draft 2020-12 schema" in done.stderr
-    assert "Traceback" not in done.stderr
-
-
-def test_required_naming_an_undefined_property_is_a_finding(tmp_path):
-    # A schema that requires a key it never describes validates nothing about
-    # that key, which is the defect this half exists to catch.
-    done = probe(schema_tree(tmp_path, **{V1: VALID, V3: {**VALID, "required": ["b"]}}))
-    assert done.returncode == FINDINGS, done.stdout + done.stderr
-    assert "required names properties that are not defined" in done.stderr
-
-
-def test_a_tree_with_no_records_cannot_run(tmp_path):
-    # ZERO RECORDS VALIDATED IS NOT EVERY RECORD VALID. The v2 half of this
-    # check globbed *.slag, matched nothing, and passed on it for as long as
-    # no one counted.
-    done = probe(schema_tree(tmp_path, **{V1: VALID, V3: VALID}))
-    assert done.returncode == CANNOT_RUN, done.stdout + done.stderr
-    assert "no record to validate" in done.stderr
-
-
-def test_a_clean_schema_and_record_pass(tmp_path):
-    tree = schema_tree(tmp_path, **{V1: VALID, V3: VALID})
-    add_record(tree, "hades", json.dumps({"meta": {"name": "hades"}}))
-    done = probe(tree)
-    assert done.returncode == PASS, done.stdout + done.stderr
-    assert "1 record(s) validated" in done.stdout
-
-
-def test_each_record_is_held_to_the_schema_it_names(tmp_path):
-    tree = schema_tree(tmp_path, **{V1: VALID, V3: VALID, V4: VALID})
-    add_record(tree, "hades", json.dumps({"meta": {"name": "hades"}}))
-    add_record(tree, "nyx", json.dumps({"$schema": V4_URL, "meta": {"name": "nyx"}}))
-    done = probe(tree)
-    assert done.returncode == PASS, done.stdout + done.stderr
-    assert "2 record(s) validated" in done.stdout
-    assert "1 against schema/slag-v3.schema.json" in done.stdout
-    assert "1 against schema/slag-v4.schema.json" in done.stdout
-
-
-def test_a_record_naming_a_schema_the_tree_lacks_cannot_be_judged(tmp_path):
-    tree = schema_tree(tmp_path, **{V1: VALID, V3: VALID})
-    add_record(tree, "nyx", json.dumps({"$schema": V4_URL, "meta": {"name": "nyx"}}))
-    done = probe(tree)
-    assert done.returncode == CANNOT_RUN, done.stdout + done.stderr
-    assert "could not read schema/slag-v4.schema.json" in done.stderr
-
-
-def test_a_malformed_v4_schema_is_a_finding(tmp_path):
-    done = probe(schema_tree(tmp_path, **{V1: VALID, V3: VALID, V4: {"type": 17}}))
-    assert done.returncode == FINDINGS, done.stdout + done.stderr
-    assert "schema/slag-v4.schema.json" in done.stderr
-
-
-def test_a_record_that_is_not_json_is_a_finding_about_the_record(tmp_path):
-    tree = schema_tree(tmp_path, **{V1: VALID, V3: VALID})
-    add_record(tree, "hades", "not json at all")
-    done = probe(tree)
-    assert done.returncode == FINDINGS, done.stdout + done.stderr
-    assert "not readable as JSON" in done.stderr
-    assert "Traceback" not in done.stderr
-
-
-def test_a_record_named_for_another_star_is_a_finding(tmp_path):
-    tree = schema_tree(tmp_path, **{V1: VALID, V3: VALID})
-    add_record(tree, "hades", json.dumps({"meta": {"name": "nyx"}}))
-    done = probe(tree)
-    assert done.returncode == FINDINGS, done.stdout + done.stderr
-    assert "meta.name must equal the directory name 'hades'" in done.stderr
-
-
-def test_a_record_that_is_not_an_object_is_a_finding_not_a_crash(tmp_path):
-    tree = schema_tree(tmp_path, **{V1: VALID, V3: VALID})
-    add_record(tree, "hades", "[]")
-    done = probe(tree)
-    assert done.returncode == FINDINGS, done.stdout + done.stderr
-    assert "Traceback" not in done.stderr
-
-
 CATALOG = "fleet-star.schema.json"
 
 
-def add_entry(tree: Path, star: str, text: str, where: str = "stars") -> None:
-    """Write one catalog entry, fleet/<where>/<star>.json.
+def add_entry(tree: Path, star: str, text: str) -> None:
+    """Write one catalog entry, fleet/repos/<star>.json.
 
     Args:
         tree: the temporary repository.
         star: the entry's file stem.
         text: the entry's bytes.
-        where: the directory under fleet/, repos (F10) or stars (before it).
     """
-    stars = tree / "fleet" / where
-    stars.mkdir(parents=True, exist_ok=True)
-    (stars / f"{star}.json").write_text(text, encoding="utf-8")
+    repos = tree / "fleet" / "repos"
+    repos.mkdir(parents=True, exist_ok=True)
+    (repos / f"{star}.json").write_text(text, encoding="utf-8")
 
 
-def test_a_tree_with_no_catalog_entries_still_passes(tmp_path):
-    # The migration starts from zero entries: that is not a could-not-run.
-    tree = schema_tree(tmp_path, **{V1: VALID, V3: VALID})
-    add_record(tree, "hades", json.dumps({"meta": {"name": "hades"}}))
-    done = probe(tree)
-    assert done.returncode == PASS, done.stdout + done.stderr
-    assert "0 catalog entries validated" in done.stdout
+def test_a_tree_with_no_entries_cannot_run(tmp_path):
+    # ZERO DOCUMENTS VALIDATED IS NOT EVERY DOCUMENT VALID.
+    done = probe(schema_tree(tmp_path, **{CATALOG: VALID}))
+    assert done.returncode == CANNOT_RUN, done.stdout + done.stderr
+    assert "nothing to validate" in done.stderr
 
 
-def test_a_catalog_entry_is_held_to_the_fleet_star_schema(tmp_path):
-    tree = schema_tree(tmp_path, **{V1: VALID, V3: VALID, CATALOG: VALID})
-    add_record(tree, "hades", json.dumps({"meta": {"name": "hades"}}))
+def test_a_clean_entry_passes(tmp_path):
+    tree = schema_tree(tmp_path, **{CATALOG: VALID})
     add_entry(tree, "hades", json.dumps({"name": "hades"}))
     done = probe(tree)
     assert done.returncode == PASS, done.stdout + done.stderr
-    assert "1 record(s) validated" in done.stdout
-    assert (
-        "1 catalog entry validated against schema/fleet-star.schema.json" in done.stdout
-    )
+    assert "1 catalog entry validated against schema/fleet-star.schema.json" in done.stdout
 
 
-def test_a_catalog_entry_at_fleet_repos_is_held_to_the_schema(tmp_path):
-    tree = schema_tree(tmp_path, **{V1: VALID, V3: VALID, CATALOG: VALID})
-    add_record(tree, "hades", json.dumps({"meta": {"name": "hades"}}))
-    add_entry(tree, "hades", json.dumps({"name": "nyx"}), where="repos")
-    done = probe(tree)
-    assert done.returncode == FINDINGS, done.stdout + done.stderr
-    assert (
-        "fleet/repos/hades.json::name: name must equal the filename 'hades'"
-        in done.stderr
-    )
-
-
-def test_entries_at_both_catalog_paths_are_a_finding(tmp_path):
-    # fleet/repos/ being non-empty turns the old-path fallback off, so a document
-    # still at fleet/stars/ would vanish from the bundle without anyone seeing.
-    tree = schema_tree(tmp_path, **{V1: VALID, V3: VALID, CATALOG: VALID})
-    add_record(tree, "hades", json.dumps({"meta": {"name": "hades"}}))
-    add_entry(tree, "hades", json.dumps({"name": "hades"}), where="repos")
-    add_entry(tree, "chaos", json.dumps({"name": "chaos"}), where="stars")
-    done = probe(tree)
-    assert done.returncode == FINDINGS, done.stdout + done.stderr
-    assert (
-        "catalog entries sit at both fleet/repos/ (1) and fleet/stars/ (1)"
-        in done.stderr
-    )
-
-
-def test_catalog_entries_with_no_schema_cannot_be_judged(tmp_path):
-    tree = schema_tree(tmp_path, **{V1: VALID, V3: VALID})
-    add_record(tree, "hades", json.dumps({"meta": {"name": "hades"}}))
+def test_entries_with_no_schema_cannot_be_judged(tmp_path):
+    tree = schema_tree(tmp_path)
     add_entry(tree, "hades", json.dumps({"name": "hades"}))
     done = probe(tree)
     assert done.returncode == CANNOT_RUN, done.stdout + done.stderr
     assert "could not read schema/fleet-star.schema.json" in done.stderr
 
 
-def test_a_catalog_entry_named_for_another_star_is_a_finding(tmp_path):
-    tree = schema_tree(tmp_path, **{V1: VALID, V3: VALID, CATALOG: VALID})
-    add_record(tree, "hades", json.dumps({"meta": {"name": "hades"}}))
+def test_a_malformed_schema_is_a_finding_not_a_crash(tmp_path):
+    tree = schema_tree(tmp_path, **{CATALOG: {"type": 17}})
+    add_entry(tree, "hades", json.dumps({"name": "hades"}))
+    done = probe(tree)
+    assert done.returncode == FINDINGS, done.stdout + done.stderr
+    assert "not a valid Draft 2020-12 schema" in done.stderr
+    assert "Traceback" not in done.stderr
+
+
+def test_required_naming_an_undefined_property_is_a_finding(tmp_path):
+    # A schema that requires a key it never describes validates nothing about that key.
+    tree = schema_tree(tmp_path, **{CATALOG: {**VALID, "required": ["b"]}})
+    add_entry(tree, "hades", json.dumps({"name": "hades"}))
+    done = probe(tree)
+    assert done.returncode == FINDINGS, done.stdout + done.stderr
+    assert "required names properties that are not defined" in done.stderr
+
+
+def test_an_entry_named_for_another_repo_is_a_finding(tmp_path):
+    tree = schema_tree(tmp_path, **{CATALOG: VALID})
     add_entry(tree, "hades", json.dumps({"name": "nyx"}))
     add_entry(tree, "nyx", "[]")
     add_entry(tree, "chaos", "not json")
     done = probe(tree)
     assert done.returncode == FINDINGS, done.stdout + done.stderr
-    assert (
-        "fleet/stars/hades.json::name: name must equal the filename 'hades'"
-        in done.stderr
-    )
-    assert (
-        "fleet/stars/nyx.json::name: name must equal the filename 'nyx'" in done.stderr
-    )
-    assert "fleet/stars/chaos.json::not readable as JSON" in done.stderr
+    assert "fleet/repos/hades.json::name: name must equal the filename 'hades'" in done.stderr
+    assert "fleet/repos/nyx.json::name: name must equal the filename 'nyx'" in done.stderr
+    assert "fleet/repos/chaos.json::not readable as JSON" in done.stderr
     assert "Traceback" not in done.stderr
+
+
+def test_a_fleet_stars_directory_is_refused(tmp_path):
+    # SLAG IS RETIRED: a writer that put fleet/stars/ back is a finding, not a record to validate.
+    tree = schema_tree(tmp_path, **{CATALOG: VALID})
+    add_entry(tree, "hades", json.dumps({"name": "hades"}))
+    stale = tree / "fleet" / "stars" / "hades"
+    stale.mkdir(parents=True)
+    (stale / "slag.json").write_text("{}", encoding="utf-8")
+    done = probe(tree)
+    assert done.returncode == FINDINGS, done.stdout + done.stderr
+    assert "fleet/stars/ is present" in done.stderr
 
 
 def test_the_probe_carries_the_fleet_copyright():

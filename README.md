@@ -106,7 +106,7 @@ dagger call -m git.notusmi.com/rob/foundry-tools@<sha> --source=. verdicts
 
 **`compose:`** (a tracked `compose.ya?ml`) — `config` · `no-tracked-secrets` · `third-party-pins` (commit)
 
-**`dies:`** (`policy/.manifest` **and** `fleet/stars/`) — `opa-test` · `contracts` · `schema` (commit) · `admission-dogfood` · `data-keys` · `canary-visibility` (push)
+**`dies:`** (`policy/.manifest` **and** `fleet/repos/`) — `opa-test` · `contracts` · `schema` (commit) · `admission-dogfood` · `data-keys` · `canary-visibility` (push)
 
 ### The rulesets are the fleet's
 
@@ -125,13 +125,13 @@ They exist because the **act-runner is being removed**, and what it validated is
 | `compose:config` | the stacks repos' former validate workflow | every tracked compose spec parses, env_file targets stubbed, `--no-interpolate` | no tracked `compose.ya?ml` |
 | `compose:no-tracked-secrets` | same | no `.env` / `envs/` / `.pem` / `.key` / `_rsa` file is **tracked** | ″ |
 | `compose:third-party-pins` | nas01's BP6b ratchet | zero `${PIN_}` image interpolations, as a **count** | ″ |
-| `dies:opa-test` | foundry-dies' former ci workflow | the rego unit + invariant suite passes | not `policy/.manifest` + `fleet/stars/` |
+| `dies:opa-test` | foundry-dies' former ci workflow | the rego unit + invariant suite passes | not `policy/.manifest` + `fleet/repos/` |
 | `dies:admission-dogfood` | ″ | the admission domain admits our own star shape | ″ |
 | `dies:data-keys` | ″ | the **built bundle** carries every data root, non-empty | ″ |
 | `dies:canary-visibility` | ″ | the **built bundle** still hides a curated verb from a session principal | ″ |
 | `dies:contracts` | `contracts.yml` | every copy of every shared closed set agrees — after 7 fixtures fail and 3 controls pass | ″ |
 | `dies:contract-copies` | foundry-tools#15237 | every vendored copy **this tree holds** matches foundry-dies' authority (closed set and bytes), graded here instead of on the next dies pull | a tree that holds no copy `contracts.toml` declares; foundry-dies itself |
-| `dies:schema` | `schema.yml` | the slag v1 (published slag-schema die) and v3 schemas are valid Draft 2020-12 and every `fleet/stars/*/slag.json` satisfies it | ″ |
+| `dies:schema` | `schema.yml` | every `fleet/repos/<name>.json` catalog entry satisfies `schema/fleet-star.schema.json` (and a tree still carrying `fleet/stars/`, the retired slag, is refused) | ″ |
 
 Three things the ports changed on purpose, each because the workflow's assumption was about its runner rather than about the check:
 
