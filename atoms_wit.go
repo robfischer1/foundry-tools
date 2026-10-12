@@ -174,28 +174,49 @@ func rustWitGuest(ctx context.Context, r *run) checks.Verdict {
 			}
 		}
 		logs = append(logs, prefixLines(world, v.Logs)...)
-		// The native test, on base's stamp (see above), in a target dir of its
-		// own (checks.WitGuestTestTargetDir says why: foundry-tools#16916).
-		// LOCKED for this exec: it builds the test binaries in the release
-		// volume and runs them, and a concurrent gate of the repo replaced
-		// them in between (withLockedReleaseVolume, foundry-tools#16916).
-		//
-		// --lib ONLY. The world's own code is feature-gated in src/ (each
-		// world's mod.rs), so its unit tests are what this step adds; tests/*.rs
-		// and doctests take no world feature and rust:cargo-test already runs
-		// them once with default features. Without --lib every world re-ran the
-		// whole suite: stellar-core-rust's F23 oracle tests (tests/*_f23_oracle.rs)
-		// ran once per world, wit-guest reached 26m40s (gate run 737) and the gate
-		// Job hit its 41m deadline (run 775, main b5f9a63, 2026-10-12).
-		tested := r.withLockedReleaseVolume(base).WithExec([]string{
-			"cargo", "test", "--locked", "--lib", "--no-default-features", "--features", world,
-			"--target-dir", checks.WitGuestTestTargetDir,
-		}, anyExit)
-		if v = cargoVerdict(ctx, a, tested); v.State != int(checks.StatePass) {
-			return namedWorld(v, a, world, "test")
+	}
+
+	// THE NATIVE TEST RUNS ONCE, WITH EVERY WORLD'S FEATURE ON. Each world
+	// gates only its own `pub mod wit;`, so the worlds are additive and their
+	// bindings live in sibling modules (`<core>::wit::bindings`). The component
+	// exports are wasm32-only (`#[cfg(target_arch = "wasm32")] export!`), so
+	// natively nothing emits cabi_realloc or an export symbol to clash.
+	// MEASURED on stellar-core-rust (16 worlds): the combined lib-test binary
+	// builds, links and passes, and lists exactly the union of the sixteen
+	// per-world lists (1021 = 1021, names compared). One run replaces N, each
+	// of which compiled the crate's test binary again and re-ran every
+	// ungated lib test.
+	tested := r.withLockedReleaseVolume(base).WithExec(witTestArgv(strings.Join(worlds, ",")), anyExit)
+	v := cargoVerdict(ctx, a, tested)
+	if v.State == int(checks.StatePass) {
+		return checks.VerdictOf(a, 0, strings.Join(logs, "\n"))
+	}
+	// RED: ATTRIBUTE IT. The combined run cannot say which world's tests
+	// failed (a world's directory is not always its name: rank is src/ranked),
+	// so a red re-runs the worlds one at a time and names the first that
+	// fails, as the per-world loop did. Only a red pays for this. A red that
+	// no single world reproduces (the combination itself fails) is named for
+	// the combination.
+	for _, world := range worlds {
+		one := r.withLockedReleaseVolume(base).WithExec(witTestArgv(world), anyExit)
+		if wv := cargoVerdict(ctx, a, one); wv.State != int(checks.StatePass) {
+			return namedWorld(wv, a, world, "test")
 		}
 	}
-	return checks.VerdictOf(a, 0, strings.Join(logs, "\n"))
+	return namedWorld(v, a, "all "+strings.Join(worlds, "+"), "test")
+}
+
+// witTestArgv is the native lib test for a feature list (one world, or every
+// world comma-joined), in the test target dir (checks.WitGuestTestTargetDir
+// says why it is apart from the gate's). --lib ONLY: tests/*.rs and doctests
+// take no world feature and rust:cargo-test already runs them once; without
+// --lib every world re-ran the whole suite and wit-guest reached 26m40s (gate
+// run 737, deadline hit in run 775, main b5f9a63, 2026-10-12).
+func witTestArgv(features string) []string {
+	return []string{
+		"cargo", "test", "--locked", "--lib", "--no-default-features", "--features", features,
+		"--target-dir", checks.WitGuestTestTargetDir,
+	}
 }
 
 // namedWorld stamps a failing step's verdict with the world and step that
