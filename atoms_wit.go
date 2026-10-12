@@ -176,7 +176,10 @@ func rustWitGuest(ctx context.Context, r *run) checks.Verdict {
 		logs = append(logs, prefixLines(world, v.Logs)...)
 		// The native test, on base's stamp (see above), in a target dir of its
 		// own (checks.WitGuestTestTargetDir says why: foundry-tools#16916).
-		tested := base.WithExec([]string{
+		// LOCKED for this exec: it builds the test binaries in the release
+		// volume and runs them, and a concurrent gate of the repo replaced
+		// them in between (withLockedReleaseVolume, foundry-tools#16916).
+		tested := r.withLockedReleaseVolume(base).WithExec([]string{
 			"cargo", "test", "--locked", "--no-default-features", "--features", world,
 			"--target-dir", checks.WitGuestTestTargetDir,
 		}, anyExit)
@@ -276,6 +279,12 @@ func rustWitCompose(ctx context.Context, r *run) checks.Verdict {
 		{"compose", []string{checks.WitComposeScript, checks.WitComposedPath}},
 		{"replay", append([]string{checks.WitReplayHost, checks.WitComposedPath}, tapes...)},
 	} {
+		// SHARED, deliberately: compose.sh reads the guest it just built from
+		// the release volume, but the writer that could replace it is another
+		// gate's SHARED guest build, which a LOCKED compose does not exclude;
+		// and the same gate's rust:wit-guest native tests hold the volume
+		// LOCKED for minutes, so a LOCKED compose would wait silently past the
+		// 5m watchdog (foundry-tools#308/#309).
 		ctr = ctr.WithExec(step.args, anyExit)
 		if v := verdict(ctx, a, ctr); v.State != int(checks.StatePass) {
 			return namedStep(v, a, step.name)

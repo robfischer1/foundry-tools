@@ -152,7 +152,10 @@ func rustCargoClippy(ctx context.Context, r *run) checks.Verdict {
 // passes. gitReady is the fix the mutation atom already carries.
 func rustCargoTest(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("rust:cargo-test")
-	lane := r.gitReady(ctx, r.cargoFresh())
+	// LOCKED: this atom builds the test binaries and runs them from the
+	// per-repo target, which a concurrent gate of the repo would otherwise
+	// replace in between (withLockedCargoTarget, foundry-tools#16916).
+	lane := r.withLockedCargoTarget(r.gitReady(ctx, r.cargoFresh()))
 
 	listed, code, err := output(ctx, lane.WithExec(
 		[]string{"cargo", "test", "--workspace", "--", "--list"}, anyExit))
