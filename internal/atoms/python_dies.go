@@ -140,8 +140,8 @@ func diesContractCopies(ctx context.Context, a checks.AtomDef, in Input) checks.
 }
 
 // diesSchema: every catalog entry (fleet/repos/<name>.json) satisfies the
-// fleet-star schema, and any slag schema or record the tree still carries is
-// held to its own. The validator is embedded
+// fleet-star schema, and a tree that still carries fleet/stars/ (retired slag)
+// is refused. The validator is embedded
 // (checks/scripts/dies_schema.py) and written to a file of this run's own for
 // python to read.
 //

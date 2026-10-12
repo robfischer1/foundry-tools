@@ -547,8 +547,8 @@ func diesContracts(ctx context.Context, r *run) checks.Verdict {
 }
 
 // Every catalog entry (fleet/repos/<name>.json) satisfies the fleet-star schema,
-// and any slag schema or record the tree still carries (slag retires in
-// slag-by-kind F14) is held to the schema it names.
+// and a tree that still carries fleet/stars/ (slag is retired, slag-by-kind
+// F14) is refused: a stale writer, not a record to validate.
 //
 // TWO ASSERTIONS ABOUT EACH SCHEMA, and the second is the one check_schema does
 // not make. `required` naming a property that is not DEFINED is legal to the

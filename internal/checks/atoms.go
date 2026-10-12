@@ -517,7 +517,7 @@ func atomTable() []AtomDef {
 		},
 		{
 			ID: "dies:schema", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "Every catalog entry fleet/repos/<name>.json satisfies schema/fleet-star.schema.json, and any slag schema or record a tree still carries is valid and satisfies the schema its own $schema names.",
+			Desc: "Every catalog entry fleet/repos/<name>.json satisfies schema/fleet-star.schema.json, and a tree that still carries fleet/stars/ (retired slag) is refused.",
 		},
 		{
 			ID: "dies:findings", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
