@@ -118,9 +118,16 @@ func (m *FoundryTools) Build(
 	// for a star: a star tip is never signed.
 	// +optional
 	signBases bool,
+	// The audience of a JWT-SVID to log in to the registry with, fetched from
+	// --spire's socket just before each registry call. With it (and --spire)
+	// --registry-auth is not needed and not read. Absent, the static
+	// credential logs in exactly as before.
+	// +optional
+	registrySvid string,
 ) error {
 	l := &buildLane{
 		m: m, tip: tip, force: force, signBases: signBases,
+		svid:         svidLogin{audience: registrySvid, spire: spire},
 		registryAuth: registryAuth, cosignKey: cosignKey, cosignPassphrase: cosignPassphrase,
 		indexURL: indexURL, registry: registry, sourceBase: sourceBase,
 		stamp:  strconv.FormatInt(time.Now().UnixNano(), 10),
@@ -158,7 +165,9 @@ type buildLane struct {
 	force bool
 	// signBases signs each base a tip publishes (--sign-bases, D13). Off by
 	// default; a star is never signed.
-	signBases                                 bool
+	signBases bool
+	// svid logs in with the lane's identity instead of registryAuth, when on.
+	svid                                      svidLogin
 	registryAuth, cosignKey, cosignPassphrase *dagger.Secret
 	indexURL, registry, sourceBase            string
 	// stamp is this run's, on every step that must happen again on a rerun of
@@ -212,7 +221,7 @@ func (l *buildLane) run(ctx context.Context) (int, string) {
 	if m.Repo == "" || m.Sha == "" {
 		return l.stop("build:preflight", buildlane.CouldNotRun, "the build lane builds a commit the engine fetched — construct the module with --repo and --sha")
 	}
-	if l.tip && withheld(l.registryAuth) {
+	if l.tip && withheld(l.registryAuth) && !l.svid.on() {
 		return l.stop("build:preflight", buildlane.CouldNotRun, "a tip build publishes: --registry-auth is required")
 	}
 	if l.tip && l.signBases && withheld(l.cosignKey, l.cosignPassphrase) {
@@ -618,15 +627,11 @@ type laneStop struct {
 // `<repo>@<digest>`.
 func (l *buildLane) push(ctx context.Context, img *Image, pushRepo, target, star string) (string, int, string) {
 	host, _, _ := strings.Cut(pushRepo, "/")
-	auth, err := l.registryAuth.Plaintext(ctx)
-	if err != nil {
-		return "", buildlane.CouldNotRun, fmt.Sprintf("could not run: the registry credential did not read: %v", err)
+	user, secret, code, why := l.pushLogin(ctx, host, star)
+	if code != buildlane.Clean {
+		return "", code, why
 	}
-	user, password, err := buildlane.RegistryLogin(auth, host)
-	if err != nil {
-		return "", buildlane.CouldNotRun, "could not run: " + err.Error()
-	}
-	out, err := img.Publish(ctx, target, user, dag.SetSecret("build-registry-password-"+star, password))
+	out, err := img.Publish(ctx, target, user, secret)
 	if err != nil {
 		code, why := buildlane.Failed("publish", err.Error())
 		return "", code, why
@@ -639,6 +644,27 @@ func (l *buildLane) push(ctx context.Context, img *Image, pushRepo, target, star
 	say("published %s = %s", target, ref)
 	l.published = append(l.published, pins.Image(target, digest))
 	return ref, buildlane.Clean, ""
+}
+
+// pushLogin is the login the engine's push uses: the lane's JWT-SVID, fetched
+// now, or the static credential's entry for host.
+func (l *buildLane) pushLogin(ctx context.Context, host, star string) (string, *dagger.Secret, int, string) {
+	if l.svid.on() {
+		user, secret, err := l.svid.token(ctx, host, "build-registry-svid-"+star)
+		if err != nil {
+			return "", nil, buildlane.CouldNotRun, "could not run: " + err.Error()
+		}
+		return user, secret, buildlane.Clean, ""
+	}
+	auth, err := l.registryAuth.Plaintext(ctx)
+	if err != nil {
+		return "", nil, buildlane.CouldNotRun, fmt.Sprintf("could not run: the registry credential did not read: %v", err)
+	}
+	user, password, err := buildlane.RegistryLogin(auth, host)
+	if err != nil {
+		return "", nil, buildlane.CouldNotRun, "could not run: " + err.Error()
+	}
+	return user, dag.SetSecret("build-registry-password-"+star, password), buildlane.Clean, ""
 }
 
 // declarePins prints the one line ourea's settle reads back out of this pod's
@@ -714,9 +740,8 @@ func (l *buildLane) sign(ctx context.Context, img *Image, ref, star string) (int
 		WithEnvVariable("HOME", "/tmp").
 		WithMountedSecret("/run/cosign/key", dag.SetSecret("build-cosign-key-"+star, string(key)), dagger.ContainerWithMountedSecretOpts{Owner: "65532:65532"}).
 		WithSecretVariable("COSIGN_PASSWORD", l.cosignPassphrase).
-		WithMountedSecret("/run/docker/config.json", l.registryAuth, dagger.ContainerWithMountedSecretOpts{Owner: "65532:65532"}).
-		WithEnvVariable("DOCKER_CONFIG", "/run/docker").
 		WithEnvVariable("BUILD_RUN", l.stamp)
+	cosign = l.registryLogin(cosign)
 
 	pub, code, err := output(ctx, cosign.WithExec([]string{"public-key", "--key", "/run/cosign/key"}, entrypointAnyExit))
 	if err != nil || code != 0 {
@@ -746,6 +771,18 @@ func (l *buildLane) sign(ctx context.Context, img *Image, ref, star string) (int
 	}
 	say("DEPLOY_DIGEST=%s", ref)
 	return buildlane.Clean, ""
+}
+
+// registryLogin is ctr logged in to the registry as the lane is configured: the
+// forwarded identity's credential helper, or the static docker config mounted
+// where cosign and oras read one.
+func (l *buildLane) registryLogin(ctr *dagger.Container) *dagger.Container {
+	if l.svid.on() {
+		return l.svid.login(ctr, l.registry)
+	}
+	return ctr.
+		WithMountedSecret("/run/docker/config.json", l.registryAuth, dagger.ContainerWithMountedSecretOpts{Owner: "65532:65532"}).
+		WithEnvVariable("DOCKER_CONFIG", "/run/docker")
 }
 
 // entrypointAnyExit runs a tool image's own entrypoint and lets its exit code

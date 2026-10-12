@@ -21,7 +21,7 @@ const (
 func bundlesWithKMS(t *testing.T, m *FoundryTools, spec string, token *dagger.Secret) {
 	t.Helper()
 	if err := m.Bundle(context.Background(), dag.SetSecret("opa-key", pem64()), dag.SetSecret("registry-token", bundleToken),
-		dag.SetSecret("cosign-key", pem64()), dag.SetSecret("cosign-password", "pw"), false, spec, token); err != nil {
+		dag.SetSecret("cosign-key", pem64()), dag.SetSecret("cosign-password", "pw"), false, spec, token, nil, ""); err != nil {
 		t.Fatalf("bundle: %v", err)
 	}
 }
@@ -153,7 +153,7 @@ func TestAKMSSpecThatCannotSignSignsNothing(t *testing.T) {
 func TestADryRunWithKMSNeedsNoToken(t *testing.T) {
 	m := bundleOn(t, nil)
 	scriptAGreenBundle()
-	if err := m.Bundle(context.Background(), nil, nil, nil, nil, true, kmsSpec, nil); err != nil {
+	if err := m.Bundle(context.Background(), nil, nil, nil, nil, true, kmsSpec, nil, nil, ""); err != nil {
 		t.Fatalf("bundle: %v", err)
 	}
 	if c := engine.chain(`"/usr/local/bin/verdict"`, `"2"`); c != "" {
@@ -224,7 +224,7 @@ func TestAFleetKeyFailureNeverReachesTheKMSKey(t *testing.T) {
 func bundlesKMSOnly(t *testing.T, m *FoundryTools, cosignKey, cosignPassphrase *dagger.Secret) {
 	t.Helper()
 	if err := m.Bundle(context.Background(), dag.SetSecret("opa-key", pem64()), dag.SetSecret("registry-token", bundleToken),
-		cosignKey, cosignPassphrase, false, kmsSpec, dag.SetSecret("kms-token", saToken)); err != nil {
+		cosignKey, cosignPassphrase, false, kmsSpec, dag.SetSecret("kms-token", saToken), nil, ""); err != nil {
 		t.Fatalf("bundle: %v", err)
 	}
 }

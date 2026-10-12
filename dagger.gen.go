@@ -1166,7 +1166,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg signBases", err))
 				}
 			}
-			return nil, (*FoundryTools).Build(&parent, ctx, tip, spire, registryAuth, cosignKey, cosignPassphrase, indexUrl, registry, sourceBase, hades, hadesId, force, recordToken, signBases)
+			var registrySvid string
+			if inputArgs["registrySvid"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["registrySvid"]), &registrySvid)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registrySvid", err))
+				}
+			}
+			return nil, (*FoundryTools).Build(&parent, ctx, tip, spire, registryAuth, cosignKey, cosignPassphrase, indexUrl, registry, sourceBase, hades, hadesId, force, recordToken, signBases, registrySvid)
 		case "Bundle":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
@@ -1222,7 +1229,21 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kmsToken", err))
 				}
 			}
-			return nil, (*FoundryTools).Bundle(&parent, ctx, opaSigningKey, registryToken, cosignKey, cosignPassphrase, dryRun, kms, kmsToken)
+			var spire *dagger.Socket
+			if inputArgs["spire"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["spire"]), &spire)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg spire", err))
+				}
+			}
+			var registrySvid string
+			if inputArgs["registrySvid"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["registrySvid"]), &registrySvid)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registrySvid", err))
+				}
+			}
+			return nil, (*FoundryTools).Bundle(&parent, ctx, opaSigningKey, registryToken, cosignKey, cosignPassphrase, dryRun, kms, kmsToken, spire, registrySvid)
 		case "Cast":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
@@ -1278,7 +1299,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg recordToken", err))
 				}
 			}
-			return nil, (*FoundryTools).Cast(&parent, ctx, spire, registryToken, doorbellUrl, hades, hadesId, dryRun, recordToken)
+			var registrySvid string
+			if inputArgs["registrySvid"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["registrySvid"]), &registrySvid)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registrySvid", err))
+				}
+			}
+			return nil, (*FoundryTools).Cast(&parent, ctx, spire, registryToken, doorbellUrl, hades, hadesId, dryRun, recordToken, registrySvid)
 		case "Catalogue":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
@@ -1460,7 +1488,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg rideToken", err))
 				}
 			}
-			return (*FoundryTools).GateFile(&parent, ctx, tree, pin, base, stage, recordToken, reuse, spire, artifactAuth, ride, rideToken)
+			var registrySvid string
+			if inputArgs["registrySvid"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["registrySvid"]), &registrySvid)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registrySvid", err))
+				}
+			}
+			return (*FoundryTools).GateFile(&parent, ctx, tree, pin, base, stage, recordToken, reuse, spire, artifactAuth, ride, rideToken, registrySvid)
 		case "Go":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
@@ -1516,7 +1551,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg dryRun", err))
 				}
 			}
-			return nil, (*FoundryTools).Govern(&parent, ctx, spire, registryToken, consumers, hades, hadesId, dryRun)
+			var registrySvid string
+			if inputArgs["registrySvid"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["registrySvid"]), &registrySvid)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registrySvid", err))
+				}
+			}
+			return nil, (*FoundryTools).Govern(&parent, ctx, spire, registryToken, consumers, hades, hadesId, dryRun, registrySvid)
 		case "Image":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
@@ -1628,7 +1670,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg dryRun", err))
 				}
 			}
-			return nil, (*FoundryTools).Publish(&parent, ctx, token, publishUrl, checkUrl, user, indexUrl, npmToken, npmRegistry, dryRun)
+			var spire *dagger.Socket
+			if inputArgs["spire"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["spire"]), &spire)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg spire", err))
+				}
+			}
+			return nil, (*FoundryTools).Publish(&parent, ctx, token, publishUrl, checkUrl, user, indexUrl, npmToken, npmRegistry, dryRun, spire)
 		case "Push":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)

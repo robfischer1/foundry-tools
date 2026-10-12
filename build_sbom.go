@@ -163,7 +163,15 @@ func baseDocument(ctx context.Context, oras *dagger.Container, base, digest, sta
 // composedSBOM provisions oras with the registry login and reads the image's
 // composed SBOM (sbomOf), saying what composing did.
 func (l *buildLane) composedSBOM(ctx context.Context, img *Image) (*dagger.Container, string, *laneStop) {
-	oras, err := orasIn(ctx, l.registryAuth)
+	var oras *dagger.Container
+	var err error
+	if l.svid.on() {
+		if oras, err = orasIn(ctx, nil); err == nil {
+			oras = l.svid.login(oras, l.registry)
+		}
+	} else {
+		oras, err = orasIn(ctx, l.registryAuth)
+	}
 	if err != nil {
 		return nil, "", &laneStop{buildlane.CouldNotRun, "could not run: " + err.Error()}
 	}

@@ -74,7 +74,7 @@ func governs(t *testing.T, m *FoundryTools, consumers ...string) {
 
 func governWith(t *testing.T, m *FoundryTools, spire *dagger.Socket, token *dagger.Secret, consumers []string, dryRun bool) {
 	t.Helper()
-	if err := m.Govern(context.Background(), spire, token, consumers, "https://hades:8102", "spiffe://notusmi.com/star/hades", dryRun); err != nil {
+	if err := m.Govern(context.Background(), spire, token, consumers, "https://hades:8102", "spiffe://notusmi.com/star/hades", dryRun, ""); err != nil {
 		t.Fatalf("govern: %v", err)
 	}
 }
