@@ -303,3 +303,40 @@ func TestOpaKMSDualDryRunCallsNothing(t *testing.T) {
 	}
 	nothingPushed(t)
 }
+
+// Every step that is only the KMS twin's fails the dual lane and publishes
+// nothing: the copy, the twin gates, and the push.
+func TestOpaKMSDualFailsClosedOnTheKMSTwin(t *testing.T) {
+	for _, tc := range []struct{ name, match, code, want string }{
+		{"copy", `"cp","/work/bundle-signed.tar.gz"`, "2", "copy bundle-signed.tar.gz"},
+		{"policy twin listing", `"tzf","/work/bundle-signed-kms.tar.gz"`, "1", "no .signatures.json"},
+		{"fleet twin listing", `"tzf","/work/fleet-bundle-signed-kms.tar.gz"`, "1", "no .signatures.json"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := bundleOn(t, nil)
+			scriptAGreenBundle()
+			engine.stdout(`"public-key"`, kmsPublicPEM(t))
+			engine.stdout(`"sign-blob"`, "MEUCIQDfake")
+			engine.exitCode(tc.match, 2)
+			if err := bundlesDual(m, false, dag.SetSecret("kms-token", saToken)); err != nil {
+				t.Fatalf("bundle: %v", err)
+			}
+			settledOn(t, tc.code, tc.want)
+			nothingPublished(t)
+		})
+	}
+}
+
+// A registry that refuses only the KMS twin's push fails the lane.
+func TestOpaKMSDualFailsWhenTheKMSTwinCannotBePushed(t *testing.T) {
+	m := bundleOn(t, nil)
+	scriptAGreenBundle()
+	engine.stdout(`"public-key"`, kmsPublicPEM(t))
+	engine.stdout(`"sign-blob"`, "MEUCIQDfake")
+	engine.exitCode(`"bundle-signed-kms.tar.gz:`, 1)
+	engine.stderr(`"bundle-signed-kms.tar.gz:`, "Error: unauthorized: authentication required")
+	if err := bundlesDual(m, false, dag.SetSecret("kms-token", saToken)); err != nil {
+		t.Fatalf("bundle: %v", err)
+	}
+	settledOn(t, "1", "findings in oras push")
+}
