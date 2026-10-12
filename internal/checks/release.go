@@ -267,29 +267,27 @@ func RepoKey(cloneURL string) string {
 	return u
 }
 
-// RecordRepo reads meta.repo off a v3 record — the custody key of the
-// repository the record is about. "" when the record does not parse or
-// names none.
-func RecordRepo(slag string) string {
+// RecordRepo reads repo off a catalog entry (fleet/repos/<name>.json) — the
+// custody key of the repository the entry is about. "" when the entry does not
+// parse or names none.
+func RecordRepo(entry string) string {
 	var rec struct {
-		Meta struct {
-			Repo string `json:"repo"`
-		} `json:"meta"`
+		Repo string `json:"repo"`
 	}
-	if err := json.Unmarshal([]byte(slag), &rec); err != nil {
+	if err := json.Unmarshal([]byte(entry), &rec); err != nil {
 		return ""
 	}
-	return rec.Meta.Repo
+	return rec.Repo
 }
 
-// StarOfRecordPath is the star a record path names: fleet/stars/<star>/slag.json
-// → <star>. "" for any other shape.
+// StarOfRecordPath is the name a catalog entry path carries:
+// fleet/repos/<name>.json → <name>. "" for any other shape.
 func StarOfRecordPath(p string) string {
-	rest, ok := strings.CutPrefix(p, "fleet/stars/")
+	rest, ok := strings.CutPrefix(p, "fleet/repos/")
 	if !ok {
 		return ""
 	}
-	star, ok := strings.CutSuffix(rest, "/slag.json")
+	star, ok := strings.CutSuffix(rest, ".json")
 	if !ok || star == "" || strings.Contains(star, "/") {
 		return ""
 	}

@@ -174,20 +174,21 @@ func TestRepoKeyReadsTheCustodyKeyOffACloneURL(t *testing.T) {
 }
 
 func TestRecordRepoAndStarOfRecordPath(t *testing.T) {
-	if got := RecordRepo(`{"meta":{"name":"hephaestus","repo":"rob/hephaestus"}}`); got != "rob/hephaestus" {
+	if got := RecordRepo(`{"name":"hephaestus","repo":"rob/hephaestus"}`); got != "rob/hephaestus" {
 		t.Errorf("meta.repo %q", got)
 	}
-	for _, slag := range []string{`{}`, `{"meta":{}}`, `not json`} {
+	for _, slag := range []string{`{}`, `{"name":"x"}`, `not json`} {
 		if got := RecordRepo(slag); got != "" {
 			t.Errorf("%s: %q", slag, got)
 		}
 	}
 	for p, want := range map[string]string{
-		"fleet/stars/hephaestus/slag.json": "hephaestus",
-		"fleet/stars/hephaestus/data.json": "",
-		"fleet/stars/a/b/slag.json":        "",
+		"fleet/repos/hephaestus.json":      "hephaestus",
+		"fleet/repos/hephaestus.toml":      "",
+		"fleet/repos/a/b.json":             "",
 		"fleet/data.json":                  "",
-		"fleet/stars//slag.json":           "",
+		"fleet/repos/.json":                "",
+		"fleet/stars/hephaestus/slag.json": "",
 		"policy/authz_grants/data.json":    "",
 	} {
 		if got := StarOfRecordPath(p); got != want {

@@ -151,7 +151,7 @@ func TestOrbitSurface(t *testing.T) {
 	})
 	t.Run("a roster shard of foundry-dies that will not read is a 2", func(t *testing.T) {
 		in, _ := surfaceIn(t, answering(holds, none))
-		brokenLink(t, in.Dies, "fleet/stars/z/data.json")
-		expect(t, runAtom(t, id, in), stateOf(2), cannot, "foundry-dies: fleet/stars/z/data.json could not be read")
+		brokenLink(t, in.Dies, "fleet/repos/z.json")
+		expect(t, runAtom(t, id, in), stateOf(2), cannot, "foundry-dies: fleet/repos/z.json could not be read")
 	})
 }

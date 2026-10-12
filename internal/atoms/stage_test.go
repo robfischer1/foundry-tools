@@ -300,15 +300,15 @@ func TestOrbitHelpers(t *testing.T) {
 		t.Error("an empty roster is nil (the two-part file-name rule alone); a roster is its set")
 	}
 	tr := treeIn(t, map[string]string{
-		"fleet/stars/a/data.json": starData("a"),
-		"fleet/stars/b/data.json": "not json at all",
+		"fleet/repos/a.json": starData("a"),
+		"fleet/repos/b.json": "not json at all",
 	}).tree()
 	got, err := roster(tr)
 	if err != nil || !reflect.DeepEqual(got, map[string]string{"a": "a", "b": ""}) {
 		t.Errorf("roster %v, %v: a shard that is not JSON still names its star, with no prefix", got, err)
 	}
-	broken := treeIn(t, map[string]string{"fleet/stars/a/data.json/x": "x"}).tree()
-	if _, err := roster(broken); err == nil || !strings.Contains(err.Error(), "fleet/stars/a/data.json/ could not be read") {
+	broken := treeIn(t, map[string]string{"fleet/repos/a.json/x": "x"}).tree()
+	if _, err := roster(broken); err == nil || !strings.Contains(err.Error(), "fleet/repos/a.json/ could not be read") {
 		t.Errorf("a shard that will not read: %v", err)
 	}
 	if _, err := filesIn(treeIn(t, map[string]string{"x/y/z": "z"}).tree(), "x/*"); err != nil {

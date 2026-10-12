@@ -34,12 +34,12 @@ func orbitAtomAgain(t *testing.T, id, repo string) checks.Verdict {
 // laneDies is foundry-dies at main: one contract and its two stars.
 func laneDies(extra map[string]string) map[string]string {
 	tree := map[string]string{
-		"/dies/orbits/urania-themis.toml":    laneContract,
-		"/dies/orbits/README.md":             "not a contract",
-		"/dies/fleet/stars/urania/data.json": uraniaRoster,
-		"/dies/fleet/stars/themis/data.json": themisRoster,
-		"/dies/fleet/stars/broken/data.json": "not json",
-		"/flux/" + fluxpin.File:              fluxPins,
+		"/dies/orbits/urania-themis.toml": laneContract,
+		"/dies/orbits/README.md":          "not a contract",
+		"/dies/fleet/repos/urania.json":   uraniaRoster,
+		"/dies/fleet/repos/themis.json":   themisRoster,
+		"/dies/fleet/repos/broken.json":   "not json",
+		"/flux/" + fluxpin.File:           fluxPins,
 	}
 	for k, v := range extra {
 		tree[k] = v
@@ -50,10 +50,10 @@ func laneDies(extra map[string]string) map[string]string {
 // contractsTree is foundry-dies itself under test.
 func contractsTree(extra map[string]string) map[string]string {
 	tree := laneDies(map[string]string{
-		"orbits/urania-themis.toml":    laneContract,
-		"orbits/README.md":             "the contracts",
-		"fleet/stars/urania/data.json": uraniaRoster,
-		"fleet/stars/themis/data.json": themisRoster,
+		"orbits/urania-themis.toml": laneContract,
+		"orbits/README.md":          "the contracts",
+		"fleet/repos/urania.json":   uraniaRoster,
+		"fleet/repos/themis.json":   themisRoster,
 	})
 	for k, v := range extra {
 		tree[k] = v
@@ -121,8 +121,8 @@ func TestOrbitContractsReportsABadContractWithoutFailing(t *testing.T) {
 // A hyphenated contract on the contracts tree reads against its own roster.
 func TestOrbitContractsHoldsAHyphenatedStarOnTheRoster(t *testing.T) {
 	v := orbitAtom(t, "orbit:contracts", "foundry-dies", contractsTree(map[string]string{
-		"orbits/blade-runner-themis.toml":    laneContract,
-		"fleet/stars/blade-runner/data.json": `{"name":"blade-runner","verb_prefix":"blade"}`,
+		"orbits/blade-runner-themis.toml": laneContract,
+		"fleet/repos/blade-runner.json":   `{"name":"blade-runner","verb_prefix":"blade"}`,
 	}))
 	if got := findingsOf(v); !strings.Contains(got, "holds contract orbits/blade-runner-themis.toml") {
 		t.Errorf("findings %s", got)
@@ -144,7 +144,7 @@ func TestOrbitContractsIsAbsentOutsideTheContractsTree(t *testing.T) {
 	for name, tree := range map[string]map[string]string{
 		"a star":         laneDies(map[string]string{"go.mod": "module x"}),
 		"orbits alone":   laneDies(map[string]string{"orbits/urania-themis.toml": laneContract}),
-		"a roster alone": laneDies(map[string]string{"fleet/stars/urania/data.json": uraniaRoster}),
+		"a roster alone": laneDies(map[string]string{"fleet/repos/urania.json": uraniaRoster}),
 	} {
 		v := orbitAtom(t, "orbit:contracts", "themis", tree)
 		wantState(t, v, 0, "orbit:contracts: ABSENT - this tree is not the contracts' repository")
@@ -159,8 +159,8 @@ func TestOrbitContractsCannotRunWhenATreeCannotBeRead(t *testing.T) {
 	for name, tc := range map[string]struct{ needle, leaf, want string }{
 		"the contracts":  {`pattern:"orbits/*"`, "glob", "orbits/* could not be read"},
 		"a contract":     {`"orbits/urania-themis.toml"`, "contents", "could not be read"},
-		"the roster":     {`"fleet/stars/*/data.json"`, "", "the roster could not be listed"},
-		"a roster shard": {`"fleet/stars/themis/data.json"`, "contents", "could not be read"},
+		"the roster":     {`"fleet/repos/*.json"`, "", "the roster could not be listed"},
+		"a roster shard": {`"fleet/repos/themis.json"`, "contents", "could not be read"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			engine.reset()
@@ -213,9 +213,9 @@ func TestOrbitRepoReportsAnUnreadableContractAndJudgesTheRest(t *testing.T) {
 // A HYPHENATED STAR IS ONE PARTY, split against foundry-dies' own roster.
 func TestOrbitRepoSplitsAHyphenatedStarAgainstTheDiesRoster(t *testing.T) {
 	v := orbitAtom(t, "orbit:repo", "themis", laneDies(map[string]string{
-		"orbit.toml":                               "# x\n",
-		"/dies/orbits/blade-runner-themis.toml":    laneContract,
-		"/dies/fleet/stars/blade-runner/data.json": `{"name":"blade-runner","verb_prefix":"blade"}`,
+		"orbit.toml":                            "# x\n",
+		"/dies/orbits/blade-runner-themis.toml": laneContract,
+		"/dies/fleet/repos/blade-runner.json":   `{"name":"blade-runner","verb_prefix":"blade"}`,
 	}))
 	if got := findingsOf(v); !strings.Contains(got, "consumes blade-runner") || strings.Contains(got, "contract-unparseable") {
 		t.Errorf("findings %s", got)
@@ -225,7 +225,7 @@ func TestOrbitRepoSplitsAHyphenatedStarAgainstTheDiesRoster(t *testing.T) {
 func TestOrbitRepoCannotRunWhenTheRosterCannotBeListed(t *testing.T) {
 	engine.reset()
 	engine.withTree(laneDies(map[string]string{"orbit.toml": "# x\n"}))
-	engine.failLeaf(`pattern:"fleet/stars/*/data.json"`, "glob", "engine went away")
+	engine.failLeaf(`pattern:"fleet/repos/*.json"`, "glob", "engine went away")
 	wantState(t, orbitAtomAgain(t, "orbit:repo", "themis"), 2, "foundry-dies: the roster could not be listed")
 }
 
@@ -316,9 +316,9 @@ func TestOrbitSurfaceRunsNarcissusOverTheCheckout(t *testing.T) {
 func TestOrbitSurfaceTeachesTheContractToEdit(t *testing.T) {
 	engine.reset()
 	engine.withTree(laneDies(map[string]string{
-		"go.mod":                             "module themis",
-		"/dies/orbits/urania-athena.toml":    strings.Replace(laneContract, `"neighbors"`, `"neighbors", "shapes"`, 1),
-		"/dies/fleet/stars/athena/data.json": `{"verb_prefix":"tasks"}`,
+		"go.mod":                          "module themis",
+		"/dies/orbits/urania-athena.toml": strings.Replace(laneContract, `"neighbors"`, `"neighbors", "shapes"`, 1),
+		"/dies/fleet/repos/athena.json":   `{"verb_prefix":"tasks"}`,
 	}))
 	scriptNarc(narcSurfaceNone, `{"version":1,"findings":[{"verdict":"unanalyzable","subject":"/src/b.go:2","cause":"loose-verb","detail":"urania_shapes — new call"}]}`)
 	v := orbitAtomAgain(t, "orbit:surface", "http://door/rob/themis.git")
@@ -346,7 +346,7 @@ func TestOrbitSurfaceCannotRunWhenItCannotLook(t *testing.T) {
 	}{
 		"the tree":      {func() { engine.failLeaf(`pattern:"orbits/*"`, "glob", "gone") }, "orbits/* could not be read"},
 		"the contracts": {func() { engine.failLeaf(`pattern:"orbits/*.toml"`, "glob", "gone") }, "foundry-dies: orbits/*.toml could not be read"},
-		"the roster":    {func() { engine.failLeaf(`pattern:"fleet/stars/*/data.json"`, "glob", "gone") }, "foundry-dies: the roster could not be listed"},
+		"the roster":    {func() { engine.failLeaf(`pattern:"fleet/repos/*.json"`, "glob", "gone") }, "foundry-dies: the roster could not be listed"},
 		"a narc scan":   {func() { engine.failLeaf(`"narc","scan","orbits"`, "stdout", "gone") }, "narc scan orbits never ran"},
 		"a narc answer": {func() { scriptNarc("a table", narcSurfaceNone) }, "narc scan surface answered something that is not its report"},
 	} {

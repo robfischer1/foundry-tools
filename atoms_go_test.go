@@ -1368,7 +1368,7 @@ func TestGoReleaseSaysWhyItCouldNotRun(t *testing.T) {
 
 // A REPOSITORY WITH NO ANSWERS FILE IS NAMED BY ITS RECORD (CA F17, Rob
 // 2026-09-19). hephaestus is not copier-templated and carries no
-// .copier-answers.yml, but foundry-dies holds fleet/stars/hephaestus/slag.json
+// .copier-answers.yml, but foundry-dies holds fleet/repos/hephaestus.json
 // saying repo rob/hephaestus — the record the door routes its lanes by. The
 // release build reads the same name off the same record, keyed by the clone
 // URL the door (--repo) or the hook (--origin) named; a run given neither, or
@@ -1383,9 +1383,9 @@ func TestGoReleaseNamesAStarWithNoAnswersFileByItsRecord(t *testing.T) {
 		}
 	}
 	dies := map[string]string{
-		"/dies/fleet/stars/hephaestus/slag.json":  `{"meta":{"name":"hephaestus","repo":"rob/hephaestus"},"tools":{}}`,
-		"/dies/fleet/stars/tron/slag.json":        `{"meta":{"name":"tron","repo":"rob/tron"}}`,
-		"/dies/fleet/stars/base-images/slag.json": `{"meta":{"name":"base-images","repo":"foundry/base-images"}}`,
+		"/dies/fleet/repos/hephaestus.json":  `{"name":"hephaestus","repo":"rob/hephaestus"}`,
+		"/dies/fleet/repos/tron.json":        `{"name":"tron","repo":"rob/tron"}`,
+		"/dies/fleet/repos/base-images.json": `{"name":"base-images","repo":"foundry/base-images"}`,
 	}
 	// The door's Job: the tree was fetched from --repo.
 	engine.reset()
@@ -1443,14 +1443,14 @@ func TestGoReleaseNamesAStarWithNoAnswersFileByItsRecord(t *testing.T) {
 	engine.withTree(noAnswers)
 	engine.withTree(map[string]string{"Dockerfile": "FROM x\nCOPY release/hephaestus /hephaestus\n"})
 	engine.withTree(dies)
-	engine.fail(`glob(pattern:"fleet/stars/*/slag.json")`, "the dies went away")
+	engine.fail(`glob(pattern:"fleet/repos/*.json")`, "the dies went away")
 	r = newRun(dag.Directory(), "http://ourea.default.svc.cluster.local:8215/hephaestus.git", "")
 	wantState(t, registry["go:release"](context.Background(), r), 2, "could not be listed", "the dies went away")
 	engine.reset()
 	engine.withTree(noAnswers)
 	engine.withTree(map[string]string{"Dockerfile": "FROM x\nCOPY release/hephaestus /hephaestus\n"})
 	engine.withTree(dies)
-	engine.failLeaf(`file(path:"fleet/stars/base-images/slag.json")`, "contents", "the record went away")
+	engine.failLeaf(`file(path:"fleet/repos/base-images.json")`, "contents", "the record went away")
 	r = newRun(dag.Directory(), "http://ourea.default.svc.cluster.local:8215/hephaestus.git", "")
 	wantState(t, registry["go:release"](context.Background(), r), 2, "could not be read", "the record went away")
 
@@ -1460,7 +1460,7 @@ func TestGoReleaseNamesAStarWithNoAnswersFileByItsRecord(t *testing.T) {
 	engine.withTree(noAnswers)
 	engine.withTree(map[string]string{"Dockerfile": "FROM x\nCOPY release/hephaestus /hephaestus\n"})
 	engine.withTree(dies)
-	engine.fail(`glob(pattern:"fleet/stars/*/slag.json")`, "the dies went away")
+	engine.fail(`glob(pattern:"fleet/repos/*.json")`, "the dies went away")
 	r = newRun(dag.Directory(), "http://ourea.default.svc.cluster.local:8215/hephaestus.git", "")
 	wantState(t, registry["rust:release"](context.Background(), r), 2, "rust:release: CANNOT RUN - the fleet's records could not be listed", "the dies went away")
 	engine.reset()

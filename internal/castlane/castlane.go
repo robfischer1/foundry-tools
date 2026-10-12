@@ -69,21 +69,20 @@ func (c Cast) Stage(host, pin string) string {
 	return host + "/staging/" + c.kind() + "-" + c.Name + ":" + pin
 }
 
-// FromRecord reads a record's cast arguments: the star's name. Every refusal
-// is about the record, so the lane settles it as a finding.
-func FromRecord(slag string) (Cast, error) {
+// FromRecord reads a catalog entry's cast arguments (fleet/repos/<name>.json):
+// the repo's name. Every refusal is about the entry, so the lane settles it as
+// a finding.
+func FromRecord(entry string) (Cast, error) {
 	var rec struct {
-		Meta struct {
-			Name string `json:"name"`
-		} `json:"meta"`
+		Name string `json:"name"`
 	}
-	if err := json.Unmarshal([]byte(slag), &rec); err != nil {
+	if err := json.Unmarshal([]byte(entry), &rec); err != nil {
 		return Cast{}, fmt.Errorf("the record does not parse: %v", err)
 	}
-	if rec.Meta.Name == "" {
-		return Cast{}, errors.New("the record names no meta.name")
+	if rec.Name == "" {
+		return Cast{}, errors.New("the record names no name")
 	}
-	return Cast{Name: rec.Meta.Name}, nil
+	return Cast{Name: rec.Name}, nil
 }
 
 // BinariesFromGoList reads `go list -find -f '{{.Name}} {{.ImportPath}}'
