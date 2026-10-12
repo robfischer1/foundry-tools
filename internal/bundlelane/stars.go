@@ -64,6 +64,9 @@ const (
 // namespace in its own manifests.
 var ServiceGlobs = []string{"prime/*.yaml", "blades/*.yaml", "hemera/*.yaml", "clusters/pantheon/*.yaml"}
 
+// starLabel is the label every star's workload carries.
+const starLabel = "pistis.star"
+
 // PrimeNamespace is the namespace whose Services make a repo a deployed star.
 const PrimeNamespace = "prime"
 
@@ -192,38 +195,16 @@ func FluxFacts(manifests map[string]string, stars, clusters map[string]bool) (ma
 // whose ports are named for none of mcp, http, mtls or otlp-*, yields an empty
 // fact, which is still the repo's membership in data.fleet.stars.
 func ServiceFacts(manifests map[string]string, repos map[string]bool, have map[string]FluxFact) (map[string]FluxFact, error) {
-	byName := map[string]manifest{}
-	parsed := map[string][]manifest{}
-	targetNS := map[string]string{} // directory -> its Kustomization's targetNamespace
-	for _, p := range sortedKeys(manifests) {
-		docs, err := documents(manifests[p])
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", p, err)
-		}
-		parsed[p] = docs
-		for _, d := range docs {
-			if d.Kind == "Kustomization" && strings.HasPrefix(d.APIVersion, "kustomize.toolkit.fluxcd.io/") && d.TargetNamespace != "" {
-				targetNS[strings.Trim(strings.TrimPrefix(d.Path, "./"), "/")] = d.TargetNamespace
-			}
-		}
+	parsed, targetNS, err := parseAll(manifests)
+	if err != nil {
+		return nil, err
 	}
+	byName := map[string]manifest{}
 	for _, p := range sortedKeys(parsed) {
-		dir := strings.SplitN(p, "/", 2)[0]
 		for _, d := range parsed[p] {
-			if d.Kind != "Service" {
-				continue
+			if d.Kind == "Service" {
+				byName[namespaceOf(d, p, targetNS)+"/"+d.Name] = d
 			}
-			// A Service that names no namespace sits where its Kustomization
-			// puts it (targetNamespace), else in the namespace named for its
-			// directory: blades/blade-controller.yaml's blade-runner names none.
-			ns := d.Namespace
-			if ns == "" {
-				ns = targetNS[dir]
-			}
-			if ns == "" {
-				ns = dir
-			}
-			byName[ns+"/"+d.Name] = d
 		}
 	}
 	out := map[string]FluxFact{}
@@ -251,6 +232,98 @@ func ServiceFacts(manifests map[string]string, repos map[string]bool, have map[s
 		out[name] = fact
 	}
 	return out, nil
+}
+
+// parseAll decodes every manifest file, and reads each Flux Kustomization's
+// targetNamespace by the directory it builds (directory -> namespace).
+func parseAll(manifests map[string]string) (map[string][]manifest, map[string]string, error) {
+	parsed := map[string][]manifest{}
+	targetNS := map[string]string{}
+	for _, p := range sortedKeys(manifests) {
+		docs, err := documents(manifests[p])
+		if err != nil {
+			return nil, nil, fmt.Errorf("%s: %w", p, err)
+		}
+		parsed[p] = docs
+		for _, d := range docs {
+			// documents() sets TargetNamespace for a Kustomization alone, so the
+			// kind needs no test of its own.
+			if strings.HasPrefix(d.APIVersion, "kustomize.toolkit.fluxcd.io/") && d.TargetNamespace != "" {
+				targetNS[strings.Trim(strings.TrimPrefix(d.Path, "./"), "/")] = d.TargetNamespace
+			}
+		}
+	}
+	return parsed, targetNS, nil
+}
+
+// namespaceOf is where an object sits: the namespace it names, else the one
+// its Kustomization puts its directory in (targetNamespace), else the one named
+// for its directory: blades/blade-controller.yaml's blade-runner names none.
+func namespaceOf(d manifest, file string, targetNS map[string]string) string {
+	dir := strings.SplitN(file, "/", 2)[0]
+	if d.Namespace != "" {
+		return d.Namespace
+	}
+	if ns := targetNS[dir]; ns != "" {
+		return ns
+	}
+	return dir
+}
+
+// WorkloadFacts is the flux entry of every repo in repos whose workload flux
+// deploys in namespace prime — a Deployment or StatefulSet — and that has none
+// in have (FluxFacts' and ServiceFacts' rows): the workers that serve nothing
+// (tron consumes from Kafka; naiad pulls from Poseidon). The workload is the
+// one labelled pistis.star=<repo> (on the object or its pod template; a label
+// naming no repo in repos is an error), else the one named for the repo. The entry states no ports and no interface — there
+// is no Service to read them off — and carries db when the workload's env
+// names a CNPG cluster in clusters. It is still the repo's membership in
+// data.fleet.stars.
+func WorkloadFacts(manifests map[string]string, repos map[string]bool, have map[string]FluxFact, clusters map[string]bool) (map[string]FluxFact, error) {
+	parsed, targetNS, err := parseAll(manifests)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]FluxFact{}
+	for _, p := range sortedKeys(parsed) {
+		for _, d := range parsed[p] {
+			if (d.Kind != "Deployment" && d.Kind != "StatefulSet") || namespaceOf(d, p, targetNS) != PrimeNamespace {
+				continue
+			}
+			name := d.Name
+			if d.Star != "" {
+				// A label that names no catalog repo is a typo or a repo never
+				// declared: refuse, rather than fall back to the Deployment name
+				// and state a different star than the manifest says.
+				if !repos[d.Star] {
+					return nil, fmt.Errorf("%s: the %s %s carries %s=%s, which is no catalog repo", p, d.Kind, d.Name, starLabel, d.Star)
+				}
+				name = d.Star
+			}
+			if !repos[name] {
+				continue
+			}
+			if _, ok := have[name]; ok {
+				continue
+			}
+			fact := out[name]
+			fact.DB = mergeSorted(fact.DB, databases([]manifest{d}, clusters))
+			out[name] = fact
+		}
+	}
+	return out, nil
+}
+
+// mergeSorted is the sorted union of two lists; nil when both are empty.
+func mergeSorted(a, b []string) []string {
+	seen := map[string]bool{}
+	for _, v := range append(append([]string{}, a...), b...) {
+		seen[v] = true
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	return sortedKeys(seen)
 }
 
 // externalTarget turns an ExternalName (<svc>.<ns>.svc[.cluster.local]) into
@@ -468,6 +541,13 @@ func Inject(in Inputs) (Injection, error) {
 	for name, f := range svcFacts {
 		facts[name] = f
 	}
+	workFacts, err := WorkloadFacts(in.ServiceManifests, stars, facts, clusters)
+	if err != nil {
+		return Injection{}, fmt.Errorf("foundry/flux %w", err)
+	}
+	for name, f := range workFacts {
+		facts[name] = f
+	}
 	source := Stage(map[string]string{"repo": FluxRepo, "sha": in.FluxSHA})
 	return Injection{Declared: Stage(docs), Flux: Stage(facts), Source: source, DeclaredRows: len(docs), FluxRows: len(facts), Known: len(stars), Clusters: len(clusters)}, nil
 }
@@ -520,14 +600,18 @@ type manifest struct {
 	Ports []servicePort
 	// Pods is a workload's pod templates.
 	Pods []podTemplate
+	// Star is a workload's pistis.star label, from the object or its pod
+	// template; "" when it carries none.
+	Star string
 }
 
 type head struct {
 	APIVersion string `yaml:"apiVersion"`
 	Kind       string `yaml:"kind"`
 	Metadata   struct {
-		Name      string `yaml:"name"`
-		Namespace string `yaml:"namespace"`
+		Name      string            `yaml:"name"`
+		Namespace string            `yaml:"namespace"`
+		Labels    map[string]string `yaml:"labels"`
 	} `yaml:"metadata"`
 }
 
@@ -565,6 +649,9 @@ type workloadDoc struct {
 }
 
 type podTemplate struct {
+	Metadata struct {
+		Labels map[string]string `yaml:"labels"`
+	} `yaml:"metadata"`
 	Spec struct {
 		Containers     []container `yaml:"containers"`
 		InitContainers []container `yaml:"initContainers"`
@@ -638,6 +725,9 @@ func documents(body string) ([]manifest, error) {
 				return nil, fmt.Errorf("the %s %s: %w", h.Kind, h.Metadata.Name, err)
 			}
 			m.Pods = []podTemplate{w.Spec.Template, w.Spec.JobTemplate.Spec.Template}
+			if m.Star = h.Metadata.Labels[starLabel]; m.Star == "" {
+				m.Star = w.Spec.Template.Metadata.Labels[starLabel]
+			}
 		}
 		out = append(out, m)
 	}

@@ -1,0 +1,57 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: naiad
+  namespace: prime
+  labels: {owner: rob, app: naiad, pistis.star: naiad}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: naiad}
+  strategy: {type: Recreate}
+  template:
+    metadata:
+      labels: {app: naiad, app.kubernetes.io/name: naiad, pistis.star: naiad}
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/hostname, operator: NotIn, values: [dev01]}
+      automountServiceAccountToken: false
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 60
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: naiad
+          image: registry.notusmi.com/rob/naiad
+          args: ["/naiad", "run"]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits:   {memory: 128Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          envFrom:
+            - configMapRef: {name: peer-endpoints}
+          env:
+            - {name: NAIAD_WORKER, value: "naiad-0"}
+            - {name: NAIAD_SLOT, value: "rob02-gpu"}
+            - {name: NAIAD_SEAT, value: "casper"}
+            - {name: NAIAD_RECIPES, value: "terpsichore:seal-batch,SUMMARIZE-ONE.md,ENRICH-ONE.md,ENRICH-PR.md,mnemosyne:chronicle-summarize"}
+            - {name: NAIAD_SLM_URL, value: "http://192.168.1.185:11434/v1"}
+            - {name: NAIAD_MODEL, value: "qwen3:4b-instruct-2507-q4_K_M"}
+            - {name: SPIFFE_ENDPOINT_SOCKET, value: unix:///run/spire/agent/public/api.sock}
+          volumeMounts:
+            - {name: spire-socket, mountPath: /run/spire/agent/public, readOnly: true}
+      volumes:
+        - name: spire-socket
+          csi: {driver: csi.spiffe.io, readOnly: true}

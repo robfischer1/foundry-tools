@@ -705,3 +705,186 @@ func TestServiceFactsFallBackToTheDirectoryName(t *testing.T) {
 		t.Fatalf("got %+v, want bare on port 7 in prime", got)
 	}
 }
+
+// WORKERS (b36-workload-stars): a repo whose Deployment or StatefulSet flux
+// deploys in prime is a star with or without a Service. Its entry states no
+// ports and no interface; db when its env names a CNPG cluster.
+func TestWorkloadFactsGiveAServicelessWorkerARow(t *testing.T) {
+	manifests := map[string]string{
+		"prime/a.yaml": `kind: Deployment
+metadata: {name: by-label, namespace: prime, labels: {pistis.star: lab}}
+spec: {template: {spec: {containers: [{name: c}]}}}
+---
+kind: Deployment
+metadata: {name: lab-redis, namespace: prime}
+spec: {template: {metadata: {labels: {pistis.star: podlab}}, spec: {containers: [{name: c}]}}}
+---
+kind: StatefulSet
+metadata: {name: ss, namespace: prime}
+spec: {template: {spec: {containers: [{name: c}]}}}
+---
+kind: Deployment
+metadata: {name: dbworker, namespace: prime}
+spec: {template: {spec: {containers: [{name: c, env: [{name: D, value: "postgresql://u@chaos-db-rw:5432/x"}, {name: E, value: "postgresql://u@aether:5432/x"}]}]}}}
+---
+kind: Deployment
+metadata: {name: tron-redis, namespace: prime}
+spec: {template: {spec: {containers: [{name: c}]}}}
+---
+kind: Deployment
+metadata: {name: elsewhere, namespace: blades}
+spec: {template: {spec: {containers: [{name: c}]}}}
+---
+kind: Deployment
+metadata: {name: haveit, namespace: prime}
+spec: {template: {spec: {containers: [{name: c}]}}}
+---
+kind: CronJob
+metadata: {name: cron, namespace: prime}
+spec: {jobTemplate: {spec: {template: {spec: {containers: [{name: c}]}}}}}
+`,
+	}
+	repos := map[string]bool{"lab": true, "podlab": true, "ss": true, "dbworker": true, "tron": true, "elsewhere": true, "haveit": true, "cron": true}
+	have := map[string]FluxFact{"haveit": {Ports: &Ports{Listen: 1}}}
+	got, err := WorkloadFacts(manifests, repos, have, map[string]bool{"chaos-db": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]FluxFact{"lab": {}, "podlab": {}, "ss": {}, "dbworker": {DB: []string{"chaos-db"}}}
+	if a, b := Stage(got), Stage(want); a != b {
+		t.Fatalf("WorkloadFacts =\n%s\nwant\n%s", a, b)
+	}
+}
+
+func TestWorkloadFactsNameTheManifestThatDoesNotParse(t *testing.T) {
+	_, err := WorkloadFacts(map[string]string{"prime/x.yaml": "kind: [unclosed"}, map[string]bool{"x": true}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "prime/x.yaml") {
+		t.Fatalf("err = %v, want one naming prime/x.yaml", err)
+	}
+}
+
+// THE REAL star-tron.yaml AND naiad.yaml: tron (a Deployment labelled
+// pistis.star=tron, tron-redis beside it, no Service for tron) and naiad (a
+// Deployment, no Service) are stars with an empty flux entry, and no other row
+// moves. naiad is matched by its pistis.star label; the second case matches it
+// by its Deployment name alone.
+func TestInjectOverTheRealWorkersAddsTronAndNaiad(t *testing.T) {
+	for name, strip := range map[string]bool{"label": false, "name only": true} {
+		t.Run(name, func(t *testing.T) {
+			in := snapshot(t)
+			before, err := Inject(in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			naiad, err := os.ReadFile(filepath.Join("testdata", "flux", "prime", "naiad.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := string(naiad)
+			if strip {
+				body = strings.ReplaceAll(body, ", pistis.star: naiad", "")
+			}
+			tron, err := os.ReadFile(filepath.Join("testdata", "flux", "prime", "star-tron.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			in.ServiceManifests = map[string]string{"prime/naiad.yaml": body, "prime/star-tron.yaml": string(tron)}
+			in.Entries["fleet/repos/naiad.json"] = `{"name":"naiad"}`
+			after, err := Inject(in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var b, a map[string]json.RawMessage
+			_ = json.Unmarshal([]byte(before.Flux), &b)
+			_ = json.Unmarshal([]byte(after.Flux), &a)
+			if len(a) != len(b)+2 {
+				t.Fatalf("rows %d -> %d, want exactly tron and naiad new", len(b), len(a))
+			}
+			for k, v := range b {
+				if string(a[k]) != string(v) {
+					t.Errorf("%s moved: %s -> %s", k, v, a[k])
+				}
+			}
+			for _, k := range []string{"tron", "naiad"} {
+				if got := strings.Join(strings.Fields(string(a[k])), ""); got != `{}` {
+					t.Errorf("%s = %s, want an empty fact", k, got)
+				}
+			}
+		})
+	}
+}
+
+// A Kustomization's targetNamespace places the directory it builds; only a
+// Flux Kustomization with one counts. An object with no namespace sits where
+// its directory is placed, else in the directory's own name.
+func TestParseAllAndNamespaceOfPlaceTheDirectory(t *testing.T) {
+	_, ns, err := parseAll(map[string]string{
+		"clusters/a.yaml": "apiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nmetadata: {name: a}\nspec: {path: ./apps/, targetNamespace: prime}\n---\n" +
+			"apiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nmetadata: {name: b}\nspec: {path: ./bare}\n---\n" +
+			"apiVersion: other.io/v1\nkind: Kustomization\nmetadata: {name: c}\nspec: {path: ./other, targetNamespace: elsewhere}\n---\n" +
+			"apiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Other\nmetadata: {name: d}\nspec: {path: ./kind, targetNamespace: elsewhere}\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ns) != 1 || ns["apps"] != "prime" {
+		t.Fatalf("targetNS = %v, want only apps -> prime", ns)
+	}
+	for _, c := range []struct {
+		d          manifest
+		file, want string
+	}{
+		{manifest{Namespace: "x"}, "apps/f.yaml", "x"},
+		{manifest{}, "apps/f.yaml", "prime"},
+		{manifest{}, "bare/f.yaml", "bare"},
+	} {
+		if got := namespaceOf(c.d, c.file, ns); got != c.want {
+			t.Errorf("namespaceOf(%+v, %s) = %q, want %q", c.d, c.file, got, c.want)
+		}
+	}
+}
+
+// A workload placed in prime by its Kustomization is in prime; one workload
+// per repo may name a database, and a repo's two workloads state the union.
+func TestWorkloadFactsPlaceByKustomizationAndMergeDatabases(t *testing.T) {
+	dep := func(name, label, dsn string) string {
+		return "kind: Deployment\nmetadata: {name: " + name + ", labels: {pistis.star: " + label + "}}\nspec: {template: {spec: {containers: [{name: c, env: [{name: D, value: \"" + dsn + "\"}]}]}}}\n"
+	}
+	manifests := map[string]string{
+		"clusters/k.yaml": "apiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nmetadata: {name: k}\nspec: {path: ./apps, targetNamespace: prime}\n",
+		"apps/a.yaml":     dep("w1", "w", "postgresql://u@erebus-db-rw:5432/x") + "---\n" + dep("w", "", "postgresql://u@chaos-db-rw:5432/x"),
+		"other/b.yaml":    dep("o", "o", ""),
+	}
+	got, err := WorkloadFacts(manifests, map[string]bool{"w": true, "o": true}, nil, map[string]bool{"chaos-db": true, "erebus-db": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]FluxFact{"w": {DB: []string{"chaos-db", "erebus-db"}}}
+	if a, b := Stage(got), Stage(want); a != b {
+		t.Fatalf("WorkloadFacts =\n%s\nwant\n%s", a, b)
+	}
+	if mergeSorted(nil, nil) != nil || len(mergeSorted([]string{"a"}, []string{"a"})) != 1 {
+		t.Fatal("mergeSorted: nil for nothing, a set for something")
+	}
+}
+
+// A pistis.star label that names no catalog repo is refused, not read as the
+// Deployment's own name: here `tron` is a repo and the label says `tronn`.
+func TestWorkloadFactsRefuseALabelThatNamesNoRepo(t *testing.T) {
+	manifests := map[string]string{"prime/x.yaml": "kind: Deployment\nmetadata: {name: tron, namespace: prime, labels: {pistis.star: tronn}}\nspec: {template: {spec: {containers: [{name: c}]}}}\n"}
+	_, err := WorkloadFacts(manifests, map[string]bool{"tron": true}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "prime/x.yaml") || !strings.Contains(err.Error(), "tronn") {
+		t.Fatalf("err = %v, want one naming prime/x.yaml and tronn", err)
+	}
+	in := snapshot(t)
+	in.ServiceManifests = manifests
+	in.Entries["fleet/repos/tron.json"] = `{"name":"tron"}`
+	if _, err := Inject(in); err == nil || !strings.Contains(err.Error(), "foundry/flux prime/x.yaml") {
+		t.Fatalf("Inject err = %v, want the lane to refuse", err)
+	}
+	// Outside prime a label is not this rule's business.
+	manifests["prime/x.yaml"] = strings.Replace(manifests["prime/x.yaml"], "namespace: prime", "namespace: blades", 1)
+	if _, err := WorkloadFacts(manifests, map[string]bool{"tron": true}, nil, nil); err != nil {
+		t.Fatalf("a label outside prime was refused: %v", err)
+	}
+}
