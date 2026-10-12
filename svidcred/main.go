@@ -13,6 +13,10 @@ import (
 	"dagger/foundry-tools/internal/svidcred"
 )
 
+// exit is os.Exit, and a variable so main_test.go can run main: a line no test
+// executes is graded NOT COVERED.
+var exit = os.Exit
+
 func main() {
-	os.Exit(svidcred.Run(context.Background(), os.Args[1:], os.Getenv, os.Stdin, os.Stdout, os.Stderr))
+	exit(svidcred.Run(context.Background(), os.Args[1:], os.Getenv, os.Stdin, os.Stdout, os.Stderr))
 }

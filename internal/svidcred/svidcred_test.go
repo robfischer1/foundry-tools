@@ -1,10 +1,16 @@
 package svidcred
 
 import (
+	"encoding/base64"
+	"net"
+	"path/filepath"
+	"time"
+
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/spiffe/go-spiffe/v2/svid/jwtsvid"
 	"strings"
 	"testing"
 )
@@ -111,5 +117,69 @@ func TestParseRejectsAnEmptyLogin(t *testing.T) {
 		if _, _, err := Parse(in); err == nil {
 			t.Errorf("%q parsed", in)
 		}
+	}
+}
+
+func TestAnswerNamesTheSubjectAndCarriesTheToken(t *testing.T) {
+	// A JWT with a blank signature parses insecurely: enough to hold an SVID without an agent.
+	seg := func(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }
+	tok := seg(`{"alg":"ES256","typ":"JWT"}`) + "." + seg(`{"sub":"spiffe://notusmi.com/ci/x","aud":["registry.notusmi.com"],"exp":4102444800}`) + "." + base64.RawURLEncoding.EncodeToString(make([]byte, 64))
+	svid, err := jwtsvid.ParseInsecure(tok, []string{"registry.notusmi.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, token, err := answer(svid, nil)
+	if err != nil || id != "spiffe://notusmi.com/ci/x" || token != tok {
+		t.Errorf("id %q token %q err %v", id, token, err)
+	}
+	if _, _, err := answer(nil, errors.New("no agent")); err == nil {
+		t.Error("an agent error was swallowed")
+	}
+}
+
+// The default Fetch, against a socket nobody listens on, fails inside its
+// wait instead of hanging.
+func TestDefaultFetchFailsWithinItsWait(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	if _, _, err := Fetch(ctx, "unix:///nonexistent/agent.sock", "a"); err == nil {
+		t.Error("fetched from nowhere")
+	}
+}
+
+func TestTheSocketDefaultsAndTheWaitIsConfigurable(t *testing.T) {
+	old := Fetch
+	t.Cleanup(func() { Fetch = old })
+	var got string
+	Fetch = func(_ context.Context, socket, _ string) (string, string, error) {
+		got = socket
+		return "id", "tok", nil
+	}
+	// The default socket is not there to connect to; reach refuses it first.
+	if code, _, errs := run([]string{"get"}, map[string]string{EnvAudience: "a"}, "h"); code != 1 || !strings.Contains(errs, "unix:///run/spire/agent.sock") {
+		t.Errorf("code %d err %q", code, errs)
+	}
+	if got != "" {
+		t.Errorf("fetched from %q", got)
+	}
+	env := map[string]string{EnvSocket: "tcp://agent:1", EnvAudience: "a", envWait: "5s"}
+	if code, _, errs := run([]string{"get"}, env, "h"); code != 0 {
+		t.Errorf("code %d err %q", code, errs)
+	}
+	env[envWait] = "soon"
+	if code, _, errs := run([]string{"get"}, env, "h"); code != 1 || !strings.Contains(errs, envWait) {
+		t.Errorf("code %d err %q", code, errs)
+	}
+}
+
+func TestReachConnectsToALiveSocket(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "a.sock")
+	l, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	if err := reach("unix://" + path); err != nil {
+		t.Error(err)
 	}
 }

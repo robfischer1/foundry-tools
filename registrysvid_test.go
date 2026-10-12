@@ -272,3 +272,64 @@ func TestABundleWithRegistrySvidButNoSocketStillNeedsTheToken(t *testing.T) {
 	bundleSvid(t, m, nil, nil)
 	settledOn(t, "2", "--opa-signing-key and --registry-token are both required")
 }
+
+// An engine that fails the token exec, or answers nothing usable, stops the
+// push as a could-not-run; the token is never guessed.
+func TestARegistrySvidThatCannotBeFetchedStopsTheTip(t *testing.T) {
+	for name, script := range map[string]func(){
+		"exec fails":   func() { engine.fail(svidHelper+`,"get"`, "no identity") },
+		"empty answer": func() { engine.stdout(svidHelper+`,"get"`, "{}") },
+	} {
+		m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+		scriptATip()
+		script()
+		tipSvid(t, m, dag.LoadSocketFromID("spire-agent-socket"), nil)
+		settledOn(t, "2", "could not run")
+		if engine.chain(`"publish"`) != "" && strings.Contains(engine.chain(`"publish"`), "build-registry-svid") {
+			t.Errorf("%s: published anyway", name)
+		}
+	}
+}
+
+// Without the flag, an unreadable static credential is still a could-not-run.
+func TestAnUnreadableStaticCredentialStillStopsThePush(t *testing.T) {
+	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	scriptATip()
+	engine.failLeaf("", "plaintext", "denied")
+	tip(t, m)
+	settledOn(t, "2", "the registry credential did not read")
+}
+
+// --sign-bases with the flag: cosign signs with the helper, not a mounted login.
+func TestSigningBasesWithRegistrySvidUsesTheHelper(t *testing.T) {
+	l := &buildLane{svid: svidLogin{svidAudience, dag.LoadSocketFromID("spire-agent-socket")}, registry: "registry.notusmi.com"}
+	if _, err := l.registryLogin(dag.Container().From("alpine")).Stdout(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	wantCalls(t, engine.chain(`from(address:"alpine")`),
+		[]string{"withFile", `path:"/usr/local/bin/docker-credential-svid"`},
+		[]string{"withEnvVariable", `"DOCKER_CONFIG"`, `"/run/docker"`})
+	l = &buildLane{registryAuth: dag.SetSecret("a", "{}")}
+	engine.reset()
+	if _, err := l.registryLogin(dag.Container().From("alpine")).Stdout(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if c := engine.chain(`from(address:"alpine")`); strings.Contains(c, "SVIDCRED") || !strings.Contains(c, "withMountedSecret") {
+		t.Errorf("the static login changed:\n%s", c)
+	}
+}
+
+// ---- govern
+
+func TestAGovernWithRegistrySvidNeedsNoToken(t *testing.T) {
+	m := governOn(t, nil)
+	scriptAGovern()
+	if err := m.Govern(context.Background(), dag.LoadSocketFromID("spire-agent-socket"), nil, nil, "https://hades:8102", "spiffe://notusmi.com/star/hades", false, svidAudience); err != nil {
+		t.Fatal(err)
+	}
+	settledOn(t, "0", "govern: governance/forge-root: clean")
+	wantCalls(t, engine.chain(stageNeedle), []string{"withFile", `path:"/usr/local/bin/docker-credential-svid"`})
+	if engine.chain("govern-registry-config") != "" {
+		t.Error("the static docker config was built")
+	}
+}

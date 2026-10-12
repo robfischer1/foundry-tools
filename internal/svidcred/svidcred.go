@@ -73,7 +73,11 @@ func Parse(out string) (user, secret string, err error) {
 // identity it names (the token's sub) and the token. A variable so a test can
 // hand over a token without an agent.
 var Fetch = func(ctx context.Context, socket, audience string) (id, token string, err error) {
-	svid, err := workloadapi.FetchJWTSVID(ctx, jwtsvid.Params{Audience: audience}, workloadapi.WithAddr(socket))
+	return answer(workloadapi.FetchJWTSVID(ctx, jwtsvid.Params{Audience: audience}, workloadapi.WithAddr(socket)))
+}
+
+// answer is the identity and token of the agent's reply.
+func answer(svid *jwtsvid.SVID, err error) (id, token string, e error) {
 	if err != nil {
 		return "", "", err
 	}
