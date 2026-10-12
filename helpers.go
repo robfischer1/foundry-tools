@@ -31,14 +31,15 @@ type helperSource struct {
 
 // helperSources is every helper, by the directory and binary name.
 var helperSources = map[string]helperSource{
-	"castpin":     {internal: []string{"internal/buildlane", "internal/castlane"}},
-	"hadescall":   {internal: []string{"internal/hadescall"}},
-	"verdict":     {internal: []string{"internal/verdict"}, offline: true},
-	"witnesscall": {internal: []string{"internal/checks", "internal/execmem", "internal/hadescall", "internal/unitkey", "internal/witnesscall"}},
-	"pgroupps":    {internal: []string{"internal/pgroupps"}, offline: true},
-	"execmem":     {internal: []string{"internal/execmem"}, offline: true},
-	"copyout":     {internal: []string{"internal/copyout"}, offline: true},
-	"casttarget":  {internal: []string{"internal/castcache", "internal/casttarget"}},
+	"castpin":      {internal: []string{"internal/buildlane", "internal/castlane"}},
+	"hadescall":    {internal: []string{"internal/hadescall"}},
+	"verdict":      {internal: []string{"internal/verdict"}, offline: true},
+	"witnesscall":  {internal: []string{"internal/checks", "internal/execmem", "internal/hadescall", "internal/unitkey", "internal/witnesscall"}},
+	"pgroupps":     {internal: []string{"internal/pgroupps"}, offline: true},
+	"execmem":      {internal: []string{"internal/execmem"}, offline: true},
+	"copyout":      {internal: []string{"internal/copyout"}, offline: true},
+	"casttarget":   {internal: []string{"internal/castcache", "internal/casttarget"}},
+	"bundleresign": {internal: []string{"internal/bundleresign"}, offline: true},
 }
 
 // helperInclude is the filtered source of a helper: the module files, the
