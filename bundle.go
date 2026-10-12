@@ -100,8 +100,10 @@ func (m *FoundryTools) Bundle(
 	// same ServiceAccount token as --kms (and, without ?identity=, the same
 	// machine identity). The twins are built with a throwaway key, then their
 	// signature is replaced by the KMS's and verified the way ouranos verifies
-	// it. With it, --opa-signing-key is neither required nor read. Empty means
-	// the file key, unchanged.
+	// it. Alone, --opa-signing-key is neither required nor read and the KMS key
+	// signs :signed. WITH --opa-signing-key it is DUAL: the file key signs
+	// :signed unchanged and the KMS key signs a copy published as :signed-kms.
+	// Empty means the file key, unchanged.
 	// +optional
 	opaKms string,
 ) error {
@@ -134,6 +136,9 @@ type bundleLane struct {
 	opaKmsSpec string
 	opaKms     bundlelane.KMS
 	opaKmsOn   bool
+	// opaDual says both --opa-signing-key and --opa-kms were given: the file
+	// key signs the :signed twin and the KMS key signs a separate :signed-kms.
+	opaDual bool
 	// fleetOn says whether the file key signs at all: --cosign-key was given.
 	fleetOn bool
 	// stamp is this run's, on every registry read and write: what a registry
@@ -206,11 +211,18 @@ func (l *bundleLane) run(ctx context.Context) (int, string) {
 	}
 	l.kms, l.kmsOn = kms, kmsOn
 	l.opaKms, l.opaKmsOn = opaKms, opaKmsOn
-	if opaKmsOn {
+	switch {
+	case opaKmsOn && l.opaSigningKey != nil:
+		// DUAL: both keys were handed over. The file key signs the :signed twin
+		// exactly as before (ouranos still pins it), and a COPY of that twin is
+		// re-signed by the KMS key and published beside it as :signed-kms. The
+		// flip to the KMS key is a flux change that moves ouranos's pin and
+		// its resource; until then nothing a verifier reads has moved.
+		l.opaDual = true
+	case opaKmsOn:
 		// The long-lived key is not read at all: OPA needs SOME key to compute
 		// the file hashes and the canonical payload, and the signature it makes
 		// is replaced by the KMS's (resignOpa). signingKey then mints a throwaway.
-		l.opaSigningKey = nil
 	}
 	pin, err := bundlelane.Pin(m.Sha)
 	if err != nil {
@@ -285,7 +297,7 @@ func (l *bundleLane) run(ctx context.Context) (int, string) {
 
 	var published []string
 	if publishPolicy {
-		refs, g := l.publishDie(ctx, fleet, bundlelane.PolicyDie, pin, l.m.Sha, "bundle.tar.gz", "bundle-signed.tar.gz")
+		refs, g := l.publishDie(ctx, fleet, bundlelane.PolicyDie, pin, l.m.Sha, "bundle.tar.gz", "bundle-signed.tar.gz", l.kmsTwin("bundle-signed.tar.gz"))
 		if g.code != buildlane.Clean {
 			return g.code, g.reason
 		}
@@ -294,7 +306,7 @@ func (l *bundleLane) run(ctx context.Context) (int, string) {
 		bundleSay("policy: nothing outside **.md, .forgejo/ and schema/ changed — :stable stays where it is")
 	}
 	if publishFleet {
-		refs, g := l.publishDie(ctx, fleet, bundlelane.FleetDie, fleetPin, bundlelane.FleetRevision(m.Sha, l.fluxSHA), "fleet-bundle.tar.gz", "fleet-bundle-signed.tar.gz")
+		refs, g := l.publishDie(ctx, fleet, bundlelane.FleetDie, fleetPin, bundlelane.FleetRevision(m.Sha, l.fluxSHA), "fleet-bundle.tar.gz", "fleet-bundle-signed.tar.gz", l.kmsTwin("fleet-bundle-signed.tar.gz"))
 		if g.code != buildlane.Clean {
 			return g.code, g.reason
 		}
@@ -430,6 +442,11 @@ func (l *bundleLane) policy(ctx context.Context, tools *dagger.Container) (*dagg
 	if g := twin(ctx, built, "bundle.tar.gz", "bundle-signed.tar.gz", "the signed bundle"); g.code != buildlane.Clean {
 		return nil, g
 	}
+	if kms := l.kmsTwin("bundle-signed.tar.gz"); kms != "" {
+		if g := twin(ctx, built, "bundle.tar.gz", kms, "the KMS-signed bundle"); g.code != buildlane.Clean {
+			return nil, g
+		}
+	}
 
 	bundleSay("── policy GATE: the artifact carries its data and still hides what it should ──")
 	data, g := member(ctx, built, "bundle.tar.gz", "/data.json")
@@ -560,6 +577,11 @@ func (l *bundleLane) fleet(ctx context.Context, built *dagger.Container) (*dagge
 	if g := twin(ctx, built, "fleet-bundle.tar.gz", "fleet-bundle-signed.tar.gz", "the signed roster"); g.code != buildlane.Clean {
 		return nil, g
 	}
+	if kms := l.kmsTwin("fleet-bundle-signed.tar.gz"); kms != "" {
+		if g := twin(ctx, built, "fleet-bundle.tar.gz", kms, "the KMS-signed roster"); g.code != buildlane.Clean {
+			return nil, g
+		}
+	}
 	manifest, g := member(ctx, built, "fleet-bundle-signed.tar.gz", "/.manifest")
 	if g.code != buildlane.Clean {
 		return nil, g
@@ -619,7 +641,11 @@ func (l *bundleLane) fleet(ctx context.Context, built *dagger.Container) (*dagge
 
 // publishDie pushes one die's two artifacts — the immutable pin, then its
 // channel — and signs both by digest.
-func (l *bundleLane) publishDie(ctx context.Context, built *dagger.Container, die, pin, revision, plain, signed string) ([]string, gateResult) {
+//
+// kmsSigned names the KMS-signed twin, or is empty outside dual mode: it is
+// pushed under its own pin and channel (bundlelane.SignedKMSChannel) and signed
+// by digest like the others, and nothing about :signed changes.
+func (l *bundleLane) publishDie(ctx context.Context, built *dagger.Container, die, pin, revision, plain, signed, kmsSigned string) ([]string, gateResult) {
 	bundleSay("── %s: publish — immutable pin first, then move the channel ──", die)
 	oras, g := l.oras(ctx, built)
 	if g.code != buildlane.Clean {
@@ -633,15 +659,23 @@ func (l *bundleLane) publishDie(ctx context.Context, built *dagger.Container, di
 	if g.code != buildlane.Clean {
 		return nil, g
 	}
+	refs := []string{digest, signedDigest}
+	if kmsSigned != "" {
+		kmsDigest, g := l.pushPin(ctx, oras, die, pin+"-signed-kms", revision, kmsSigned, bundlelane.SignedKMSChannel)
+		if g.code != buildlane.Clean {
+			return nil, g
+		}
+		refs = append(refs, kmsDigest)
+	}
 	bundleSay("── %s: sign + verify by digest ──", die)
 	cosign, g := l.cosign(ctx)
 	if g.code != buildlane.Clean {
 		return nil, g
 	}
-	if g := l.signAll(ctx, cosign, die, []string{digest, signedDigest}); g.code != buildlane.Clean {
+	if g := l.signAll(ctx, cosign, die, refs); g.code != buildlane.Clean {
 		return nil, g
 	}
-	return []string{digest, signedDigest}, clean()
+	return refs, clean()
 }
 
 // registryConfig is the docker config that logs rob in to foundry.notusmi.com.
