@@ -179,8 +179,16 @@ func rustWitGuest(ctx context.Context, r *run) checks.Verdict {
 		// LOCKED for this exec: it builds the test binaries in the release
 		// volume and runs them, and a concurrent gate of the repo replaced
 		// them in between (withLockedReleaseVolume, foundry-tools#16916).
+		//
+		// --lib ONLY. The world's own code is feature-gated in src/ (each
+		// world's mod.rs), so its unit tests are what this step adds; tests/*.rs
+		// and doctests take no world feature and rust:cargo-test already runs
+		// them once with default features. Without --lib every world re-ran the
+		// whole suite: stellar-core-rust's F23 oracle tests (tests/*_f23_oracle.rs)
+		// ran once per world, wit-guest reached 26m40s (gate run 737) and the gate
+		// Job hit its 41m deadline (run 775, main b5f9a63, 2026-10-12).
 		tested := r.withLockedReleaseVolume(base).WithExec([]string{
-			"cargo", "test", "--locked", "--no-default-features", "--features", world,
+			"cargo", "test", "--locked", "--lib", "--no-default-features", "--features", world,
 			"--target-dir", checks.WitGuestTestTargetDir,
 		}, anyExit)
 		if v = cargoVerdict(ctx, a, tested); v.State != int(checks.StatePass) {
