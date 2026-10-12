@@ -143,17 +143,9 @@ func (l *publishLane) runNpm(ctx context.Context, hasNpmrc, turbo bool) (int, st
 		}
 		break
 	}
-	// The static credential is read once; an SVID is fetched per package, right
-	// before its publish, because a build or a long queue of members can outlast
-	// its 15 minutes.
+	// The .npmrc is made per package, right before its publish: an SVID lives 15
+	// minutes, and a build or a long queue of members can outlast it.
 	npmrc := func() (*dagger.Secret, int, string) { return l.npmrc(ctx, hasNpmrc, key) }
-	if !l.svidOn() {
-		static, code, reason := npmrc()
-		if code != buildlane.Clean {
-			return code, reason
-		}
-		npmrc = func() (*dagger.Secret, int, string) { return static, buildlane.Clean, "" }
-	}
 
 	var published []npmPackage
 	var failures []string

@@ -124,3 +124,15 @@ func TestAnNpmPublishSvidWithoutASocketStillNeedsTheStaticToken(t *testing.T) {
 	publishSvid(t, m, nil, nil, nil, true)
 	settledOn(t, "2", "--npm-token is required")
 }
+
+// A token that does not fetch publishes nothing and settles could-not-run.
+func TestAnNpmSvidThatDoesNotFetchPublishesNothing(t *testing.T) {
+	m := npmOn(t, stellarCoreTS, nil)
+	registryAnswers(`{"versions": {"0.5.0": {}}}`, "200")
+	engine.stdout(svidHelper+`,"get"`, "{}")
+	publishSvid(t, m, nil, nil, svidSocket(), true)
+	settledOn(t, "2", "JWT-SVID did not fetch")
+	if chain := engine.chain(npmPublishNeedle); chain != "" {
+		t.Errorf("something was published:\n%s", chain)
+	}
+}
