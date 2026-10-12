@@ -90,8 +90,32 @@ func splitJob(name string) (producer, consumer string, ok bool) {
 	return p, consumer, rosterStar.MatchString(p) && jobConsumer.MatchString(consumer)
 }
 
+// CIPrefix names a CI lane on the v2 CI identity as a contract's consumer:
+// ci.<lane>, a job on spiffe://notusmi.com/ci/<owner.name>/<lane>/<main|branch>/<run>.
+// The endpoint PEP admits it through the [[produces]] entry for ci.<lane>
+// (stellar-core-go policy.ConsumerOf), exactly as it does job.<lane>.
+const CIPrefix = "ci."
+
+// ciConsumer is a ci consumer as a file name carries it: ci.<lane>.
+var ciConsumer = regexp.MustCompile(`^ci\.[a-z][a-z0-9-]*$`)
+
+// IsCI reports whether a contract party is a v2 CI lane.
+func IsCI(party string) bool { return strings.HasPrefix(party, CIPrefix) }
+
+// IsLane reports whether a contract party is a CI lane of either identity
+// (job.<lane> or ci.<lane>) rather than a star.
+func IsLane(party string) bool { return IsJob(party) || IsCI(party) }
+
+// splitCI answers <producer>-ci.<lane> as its producer and ci consumer.
+func splitCI(name string) (producer, consumer string, ok bool) {
+	p, lane, _ := strings.Cut(name, "-"+CIPrefix)
+	consumer = CIPrefix + lane
+	return p, consumer, rosterStar.MatchString(p) && ciConsumer.MatchString(consumer)
+}
+
 // SplitName answers the producer and consumer a contract file is named for.
-// A consumer job.<lane> is a CI lane (splitJob); every other name is two stars.
+// A consumer job.<lane> or ci.<lane> is a CI lane (splitJob, splitCI); every
+// other name is two stars.
 //
 // With a roster (stars: every repo in foundry-dies' fleet/repos catalog) a star name
 // may carry hyphens, so the split is the one (producer, consumer) with
@@ -103,6 +127,9 @@ func splitJob(name string) (producer, consumer string, ok bool) {
 func SplitName(file string, stars map[string]bool) (producer, consumer string, err error) {
 	name := strings.TrimSuffix(filepath.Base(file), ".toml")
 	if p, c, ok := splitJob(name); ok {
+		return p, c, nil
+	}
+	if p, c, ok := splitCI(name); ok {
 		return p, c, nil
 	}
 	reads := rosterReads(name, stars)
