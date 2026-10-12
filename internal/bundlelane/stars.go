@@ -533,10 +533,9 @@ func Inject(in Inputs) (Injection, error) {
 	for name, f := range svcFacts {
 		facts[name] = f
 	}
-	workFacts, err := WorkloadFacts(in.ServiceManifests, stars, facts, clusters)
-	if err != nil {
-		return Injection{}, fmt.Errorf("foundry/flux %w", err)
-	}
+	// ServiceFacts has parsed these same manifests, so WorkloadFacts' parse
+	// error is already returned above.
+	workFacts, _ := WorkloadFacts(in.ServiceManifests, stars, facts, clusters)
 	for name, f := range workFacts {
 		facts[name] = f
 	}

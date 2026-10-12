@@ -813,3 +813,57 @@ func TestInjectOverTheRealWorkersAddsTronAndNaiad(t *testing.T) {
 		})
 	}
 }
+
+// A Kustomization's targetNamespace places the directory it builds; only a
+// Flux Kustomization with one counts. An object with no namespace sits where
+// its directory is placed, else in the directory's own name.
+func TestParseAllAndNamespaceOfPlaceTheDirectory(t *testing.T) {
+	_, ns, err := parseAll(map[string]string{
+		"clusters/a.yaml": "apiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nmetadata: {name: a}\nspec: {path: ./apps/, targetNamespace: prime}\n---\n" +
+			"apiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nmetadata: {name: b}\nspec: {path: ./bare}\n---\n" +
+			"apiVersion: other.io/v1\nkind: Kustomization\nmetadata: {name: c}\nspec: {path: ./other, targetNamespace: elsewhere}\n---\n" +
+			"apiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Other\nmetadata: {name: d}\nspec: {path: ./kind, targetNamespace: elsewhere}\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ns) != 1 || ns["apps"] != "prime" {
+		t.Fatalf("targetNS = %v, want only apps -> prime", ns)
+	}
+	for _, c := range []struct {
+		d          manifest
+		file, want string
+	}{
+		{manifest{Namespace: "x"}, "apps/f.yaml", "x"},
+		{manifest{}, "apps/f.yaml", "prime"},
+		{manifest{}, "bare/f.yaml", "bare"},
+	} {
+		if got := namespaceOf(c.d, c.file, ns); got != c.want {
+			t.Errorf("namespaceOf(%+v, %s) = %q, want %q", c.d, c.file, got, c.want)
+		}
+	}
+}
+
+// A workload placed in prime by its Kustomization is in prime; one workload
+// per repo may name a database, and a repo's two workloads state the union.
+func TestWorkloadFactsPlaceByKustomizationAndMergeDatabases(t *testing.T) {
+	dep := func(name, label, dsn string) string {
+		return "kind: Deployment\nmetadata: {name: " + name + ", labels: {pistis.star: " + label + "}}\nspec: {template: {spec: {containers: [{name: c, env: [{name: D, value: \"" + dsn + "\"}]}]}}}\n"
+	}
+	manifests := map[string]string{
+		"clusters/k.yaml": "apiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nmetadata: {name: k}\nspec: {path: ./apps, targetNamespace: prime}\n",
+		"apps/a.yaml":     dep("w1", "w", "postgresql://u@erebus-db-rw:5432/x") + "---\n" + dep("w", "", "postgresql://u@chaos-db-rw:5432/x"),
+		"other/b.yaml":    dep("o", "o", ""),
+	}
+	got, err := WorkloadFacts(manifests, map[string]bool{"w": true, "o": true}, nil, map[string]bool{"chaos-db": true, "erebus-db": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]FluxFact{"w": {DB: []string{"chaos-db", "erebus-db"}}}
+	if a, b := Stage(got), Stage(want); a != b {
+		t.Fatalf("WorkloadFacts =\n%s\nwant\n%s", a, b)
+	}
+	if mergeSorted(nil, nil) != nil || len(mergeSorted([]string{"a"}, []string{"a"})) != 1 {
+		t.Fatal("mergeSorted: nil for nothing, a set for something")
+	}
+}
