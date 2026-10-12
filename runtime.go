@@ -862,7 +862,9 @@ func (r *run) gitReadyOn(ctx context.Context, ctr *dagger.Container, tree *dagge
 // outside the cluster is simply the upstream. There is no mirror address
 // to try first — Nexus's github-raw route retired with Nexus (master-plan
 // "Transparent Cache — Nexus Retired", F8), and a second address here would
-// be the fleet-specific name the plan exists to remove.
+// be the fleet-specific name the plan exists to remove. (The wit lanes' pinned
+// assets are the one exception: fetchPinnedTool tries the registry mirror first,
+// because the transparent cache cannot serve a cold github.com 302.)
 //
 // A FAILED FETCH IS THE ERROR — the caller files state 2 — never a
 // fallthrough: a spec that was never parsed and a policy suite that never ran
@@ -873,6 +875,34 @@ func fetchTool(ctx context.Context, url string) (*dagger.File, error) {
 		return nil, fmt.Errorf("could not fetch %s: %w", url, err)
 	}
 	return f, nil
+}
+
+// fetchPinnedTool resolves a pinned release asset from the in-cluster mirror
+// FIRST and from its own URL second, and holds BOTH to the same sha256 pin: the
+// engine verifies the bytes at fetch time (dag.HTTP's Checksum), so a mirror
+// that serves the wrong bytes is a failed source and the next is tried, never
+// an install. The mirror is the registry's blob of that digest
+// (checks.ToolMirrorURL); github.com answering 500 at gate time settled
+// stellar-core-rust's wit lanes could-not-run twice (runs 870, 907).
+//
+// A URL with no pin is refused before any address is asked (fail closed). When
+// every source fails the error names each one and its cause, so the record
+// shows the mirror was tried and why it did not answer.
+func fetchPinnedTool(ctx context.Context, url string, sums map[string]string) (*dagger.File, error) {
+	sources, sum, err := checks.ToolSources(url, sums)
+	if err != nil {
+		return nil, err
+	}
+	var failed []error
+	for _, src := range sources {
+		f := dag.HTTP(src, dagger.HTTPOpts{Checksum: "sha256:" + sum})
+		if _, err := f.Sync(ctx); err != nil {
+			failed = append(failed, fmt.Errorf("could not fetch %s: %w", src, err))
+			continue
+		}
+		return f, nil
+	}
+	return nil, errors.Join(failed...)
 }
 
 // exitCodeOf reads a chain's exit code, and when the ENGINE refuses — an exec

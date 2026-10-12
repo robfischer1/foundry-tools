@@ -74,7 +74,7 @@ func TestWitValidateRunsTheRepositorysOwnRecipe(t *testing.T) {
 		t.Errorf("rule 8: wit:validate must not read GATE_BASE:\n%s", c)
 	}
 	for _, url := range []string{checks.WasmToolsURL, checks.JustURL} {
-		if engine.chain(`http(url:"`+url+`")`, "id") == "" {
+		if pinnedFetch(url, "id") == "" {
 			t.Errorf("the pinned release %s was not fetched:\n%v", url, engine.chains())
 		}
 	}
@@ -100,6 +100,7 @@ func TestWitValidateRefusesWhenAToolCannotBeFetchedOrRun(t *testing.T) {
 	engine.reset()
 	engine.withTree(witTree(nil))
 	engine.fail("bytecodealliance/wasm-tools/releases", "404")
+	failMirror(checks.WasmToolsURL)
 	wantState(t, runAtom(t, "wit:validate", ""), 2, "CANNOT RUN", "could not fetch", "never resolved is not WIT that passed")
 	if engine.chain(`"just","validate"`) != "" {
 		t.Errorf("WIT was judged without its tool:\n%v", engine.chains())
@@ -108,6 +109,7 @@ func TestWitValidateRefusesWhenAToolCannotBeFetchedOrRun(t *testing.T) {
 	engine.reset()
 	engine.withTree(witTree(nil))
 	engine.fail("casey/just/releases", "404")
+	failMirror(checks.JustURL)
 	wantState(t, runAtom(t, "wit:validate", ""), 2, "CANNOT RUN", "could not fetch")
 
 	engine.reset()
@@ -194,7 +196,7 @@ func TestRustWitGuestBuildsLiftsAndValidates(t *testing.T) {
 	if strings.Contains(c, "GATE_BASE") {
 		t.Errorf("rule 8: rust:wit-guest must not read GATE_BASE:\n%s", c)
 	}
-	if engine.chain(`http(url:"`+checks.WasmToolsURL+`")`, "id") == "" {
+	if pinnedFetch(checks.WasmToolsURL, "id") == "" {
 		t.Errorf("the pinned wasm-tools was not fetched:\n%v", engine.chains())
 	}
 }
@@ -254,6 +256,7 @@ func TestRustWitGuestRefusalsAreCouldNotRuns(t *testing.T) {
 	engine.reset()
 	engine.withTree(map[string]string{"Cargo.toml": witCargo})
 	engine.fail("bytecodealliance/wasm-tools/releases", "404")
+	failMirror(checks.WasmToolsURL)
 	wantState(t, runAtom(t, "rust:wit-guest", ""), 2, "CANNOT RUN", "could not fetch", "never validated is not a guest that passed")
 
 	engine.reset()
@@ -469,7 +472,7 @@ func TestRustWitComposeBuildsComposesAndReplaysTheWorldsTapes(t *testing.T) {
 		t.Errorf("rule 8: rust:wit-compose must not read GATE_BASE:\n%s", c)
 	}
 	for _, u := range []string{checks.WasmToolsURL, checks.WacURL} {
-		if engine.chain(`http(url:"`+u+`")`, "id") == "" {
+		if pinnedFetch(u, "id") == "" {
 			t.Errorf("the pinned tool %s was not fetched:\n%v", u, engine.chains())
 		}
 	}
@@ -516,11 +519,13 @@ func TestRustWitComposeRefusalsAreCouldNotRuns(t *testing.T) {
 	engine.reset()
 	engine.withTree(witComposeTree(nil))
 	engine.fail("bytecodealliance/wac/releases", "404")
+	failMirror(checks.WacURL)
 	wantState(t, runAtom(t, "rust:wit-compose", ""), 2, "CANNOT RUN", "could not fetch", "never built is not one that passed")
 
 	engine.reset()
 	engine.withTree(witComposeTree(nil))
 	engine.fail("bytecodealliance/wasm-tools/releases", "404")
+	failMirror(checks.WasmToolsURL)
 	wantState(t, runAtom(t, "rust:wit-compose", ""), 2, "CANNOT RUN", "could not fetch")
 
 	engine.reset()

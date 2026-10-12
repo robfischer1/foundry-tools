@@ -30,7 +30,7 @@ func init() {
 // /usr/local/bin/<bin>, proved by `<bin> --version` under the default Expect.
 // strip is how many leading path components the member carries.
 func withTarballBinary(ctx context.Context, ctr *dagger.Container, url, member, bin string, strip int) (*dagger.Container, error) {
-	f, err := fetchTool(ctx, url)
+	f, err := fetchPinnedTool(ctx, url, checks.ToolSHA256)
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +268,7 @@ func rustWitCompose(ctx context.Context, r *run) checks.Verdict {
 	if err != nil {
 		return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - %v. A composition that was never built is not one that passed.", a.ID, err))
 	}
-	wac, err := fetchTool(ctx, checks.WacURL)
+	wac, err := fetchPinnedTool(ctx, checks.WacURL, checks.ToolSHA256)
 	if err != nil {
 		return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - %v. A composition that was never built is not one that passed.", a.ID, err))
 	}

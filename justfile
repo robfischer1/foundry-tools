@@ -74,3 +74,36 @@ hooks:
 unhooks:
     git config --unset core.hooksPath
     @echo "hooks -> .git/hooks (pre-commit framework)"
+
+# Seed the tool mirror with one pinned release asset (see internal/checks/toolmirror.go).
+#
+# The wit lanes fetch pinned tool tarballs from registry.notusmi.com/foundry/tool/mirror
+# first and from GitHub second, both verified against the same sha256. The mirror is
+# a zot blob addressed by that sha256, so seeding is: fetch the asset from its own
+# URL, prove it is the pinned bytes, push it under the tag zot's retention never
+# reaps (sha256-<sum>). Idempotent: an asset already in the mirror is left alone.
+#
+# Needs a registry login that can write (`oras login registry.notusmi.com`, as
+# publisher or rob); reads are anonymous. The two the wit lanes fetch:
+#   just mirror-seed https://github.com/bytecodealliance/wasm-tools/releases/download/v1.261.0/wasm-tools-1.261.0-x86_64-linux.tar.gz ad62b2176037e93e1348cb65d6212d128ca9f097b63d155569f25215818ff7b1
+#   just mirror-seed https://github.com/bytecodealliance/wac/releases/download/v0.12.0/wac-cli-x86_64-unknown-linux-musl 7cd490edbd452221ef89e6750fc43eacc9b71b1242095eb577cb9a3bf0d3beda
+# The sum is the line in internal/checks/toolpins.go; a bump re-seeds with the new pair.
+#
+# Seed one pinned release asset into the tool mirror (idempotent).
+mirror-seed url sum:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ref="registry.notusmi.com/foundry/tool/mirror"
+    if ! [[ "{{sum}}" =~ ^[0-9a-f]{64}$ ]]; then echo "mirror-seed: '{{sum}}' is not a lowercase sha256" >&2; exit 2; fi
+    if oras manifest fetch --descriptor "$ref:sha256-{{sum}}" >/dev/null 2>&1; then
+        echo "mirror-seed: sha256-{{sum}} is already in the mirror"; exit 0
+    fi
+    work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
+    cd "$work"
+    curl -fsSL --retry 3 -o asset "{{url}}"
+    echo "{{sum}}  asset" | sha256sum -c -
+    oras push --artifact-type application/vnd.foundry.tool.v1 "$ref:sha256-{{sum}}" asset:application/octet-stream
+    # The blob the lanes fetch must answer anonymously and hash to the pin.
+    got="$(curl -fsSL "https://registry.notusmi.com/v2/foundry/tool/mirror/blobs/sha256:{{sum}}" | sha256sum | cut -d' ' -f1)"
+    [ "$got" = "{{sum}}" ] || { echo "mirror-seed: the mirror serves $got, not the pin" >&2; exit 1; }
+    echo "mirror-seed: sha256-{{sum}} seeded and served at its pin"

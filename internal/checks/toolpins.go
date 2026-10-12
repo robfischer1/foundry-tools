@@ -48,7 +48,9 @@ const PythonStandaloneURL = "https://github.com/astral-sh/python-build-standalon
 // URL, so without this a release asset replaced upstream would be installed
 // silently. Where the publisher states a checksum (kubectl, opa, compose,
 // chezmoi, hadolint's recorded 2026-09-13 measurement) these are equal to it;
-// the others were computed from the asset on 2026-10-08. A version bump that
+// the others were computed from the asset on 2026-10-08 (WacURL's, the bare
+// binary rust:wit-compose places, on 2026-10-12, when the wit lane began
+// verifying what it fetches). A version bump that
 // does not update its line fails TestEveryToolPinHasAChecksum, and a mismatch
 // at build time leaves the tool out of the container (its atom settles 2).
 var ToolSHA256 = map[string]string{
@@ -59,6 +61,7 @@ var ToolSHA256 = map[string]string{
 	ChezmoiURL:    "4b42a0fb0dec69f37964c6701f89daa6bf6393aaeb92bbcbc8f3ee9f08a49bcd",
 	ComposeURL:    "40343e21ca777173e69cff5dbafeb37c6f81f3b0d57d9e597f036e95eb63e76a",
 	WasmToolsURL:  "ad62b2176037e93e1348cb65d6212d128ca9f097b63d155569f25215818ff7b1",
+	WacURL:        "7cd490edbd452221ef89e6750fc43eacc9b71b1242095eb577cb9a3bf0d3beda",
 	JustURL:       "4a5cc2f53e6f0f8c59092a6cc38291eb729d46a7dd95d3ae582008881b84931d",
 	ShellcheckURL: "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198",
 
