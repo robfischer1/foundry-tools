@@ -1,0 +1,353 @@
+---
+---
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hemera-tempo-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hemera-tempo
+  namespace: prime
+  labels: {owner: rob, app: hemera-tempo}
+  annotations:
+    email: owner@example.invalid
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 0, maxUnavailable: 1}
+  selector: {matchLabels: {app: hemera-tempo}}
+  template:
+    metadata:
+      labels: {app: hemera-tempo}
+    spec:
+      securityContext: {runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001}
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: hemera-tempo-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      containers:
+        - name: tempo
+          livenessProbe:
+            tcpSocket: {port: 3200}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests: {cpu: 25m, memory: 512Mi}
+            limits: {memory: 2Gi}
+          image: docker.io/grafana/tempo@sha256:ef4384fce6e8ad22b95b243d8fc165628cda655376fd50e7850536ad89d71d50
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          args:
+            - "-config.file=/etc/tempo.yaml"
+            - "-config.expand-env=true"
+          env:
+            - {name: AWS_WEB_IDENTITY_TOKEN_FILE, value: /var/run/secrets/spiffe/jwt_svid.token}
+            - {name: AWS_ROLE_ARN, value: "arn:aws:iam::role/HemeraTempo"}
+            - {name: AWS_ROLE_SESSION_NAME, value: hemera-tempo}
+            - {name: TEST_IAM_ENDPOINT, value: "http://seaweedfs:8333"}
+          ports:
+            - {name: http, containerPort: 3200}
+            - {name: otlp-grpc, containerPort: 4317}
+            - {name: otlp-http, containerPort: 4318}
+          readinessProbe:
+            httpGet: {path: /ready, port: 3200}
+            periodSeconds: 10
+          volumeMounts:
+            - {name: data, mountPath: /var/tempo}
+            - {name: cfg, mountPath: /etc/tempo.yaml, subPath: tempo.yaml, readOnly: true}
+            - {name: jwt, mountPath: /var/run/secrets/spiffe, readOnly: true}
+      initContainers:
+        - name: spiffe-helper
+          image: ghcr.io/spiffe/spiffe-helper:0.11.0@sha256:1c92e5998ad3621e3323f25aabe40f5a88ba730ee0edb248aa8c943ca504e8a2
+          args: ["-config", "/etc/spiffe-helper/helper.conf"]
+          restartPolicy: Always
+          startupProbe:
+            httpGet: {path: /ready, port: 8081}
+            periodSeconds: 2
+            failureThreshold: 150
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: spire-agent, mountPath: /run/spire/agent/public, readOnly: true}
+            - {name: jwt, mountPath: /var/run/secrets/spiffe}
+            - {name: spiffe-helper-cfg, mountPath: /etc/spiffe-helper, readOnly: true}
+      volumes:
+        - {name: data, emptyDir: {}}
+        - {name: cfg, configMap: {name: hemera-tempo-config}}
+        - name: spire-agent
+          csi: {driver: csi.spiffe.io, readOnly: true}
+        - {name: jwt, emptyDir: {medium: Memory}}
+        - {name: spiffe-helper-cfg, configMap: {name: hemera-tempo-spiffe-helper}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hemera-tempo
+  namespace: prime
+spec:
+  selector: {app: hemera-tempo}
+  ports:
+    - {name: http, port: 3200, targetPort: 3200, protocol: TCP}
+    - {name: otlp-grpc, port: 4317, targetPort: 4317, protocol: TCP}
+    - {name: otlp-http, port: 4318, targetPort: 4318, protocol: TCP}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hemera-tempo-spiffe-helper
+  namespace: prime
+data:
+  helper.conf: |
+    agent_address = "/run/spire/agent/public/api.sock"
+    cert_dir = "/var/run/secrets/spiffe"
+    daemon_mode = true
+    jwt_svids = [{jwt_audience = "seaweedfs", jwt_svid_file_name = "jwt_svid.token"}]
+    jwt_svid_file_mode = 0644
+    jwt_bundle_file_mode = 0644
+    health_checks {
+      listener_enabled = true
+      bind_port = 8081
+      liveness_path = "/live"
+      readiness_path = "/ready"
+    }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hemera-pyroscope-sa
+  namespace: prime
+  labels: {owner: rob}
+  annotations:
+    email: owner@example.invalid
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    email: owner@example.invalid
+  name: hemera-pyroscope
+  namespace: prime
+  labels: {owner: rob, app: hemera-pyroscope}
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 0, maxUnavailable: 1}
+  selector: {matchLabels: {app: hemera-pyroscope}}
+  template:
+    metadata:
+      labels: {app: hemera-pyroscope}
+    spec:
+      securityContext: {runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001}
+      restartPolicy: Always
+      dnsConfig:
+        options: [{name: ndots, value: "2"}]
+      serviceAccountName: hemera-pyroscope-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      containers:
+        - name: pyroscope
+          livenessProbe:
+            tcpSocket: {port: 4040}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          image: docker.io/grafana/pyroscope@sha256:881328cdbff0ef7601e23a0e7647fecb7099b4fe4c74fcdd204cb64722e2b2d0
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {memory: 2Gi}
+          args:
+            - "-config.file=/etc/pyroscope.yaml"
+            - "-config.expand-env"
+            - "-architecture.storage=v1"
+            - "-write-path=ingester"
+            - "-compactor.blocks-retention-period=72h"
+            - "-pyroscopedb.data-path=/data/pyroscope"
+          env:
+            - {name: GOMAXPROCS, value: "2"}
+            - name: PYRO_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: {name: fleet-s3-credentials, key: access_key_id}
+            - name: PYRO_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef: {name: fleet-s3-credentials, key: secret_access_key}
+          ports:
+            - {name: http, containerPort: 4040}
+          readinessProbe:
+            httpGet: {path: /ready, port: 4040}
+            periodSeconds: 10
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: cfg, mountPath: /etc/pyroscope.yaml, subPath: pyroscope.yaml, readOnly: true}
+      volumes:
+        - name: data
+          ephemeral:
+            volumeClaimTemplate:
+              spec:
+                accessModes: [ReadWriteOnce]
+                storageClassName: gaia-scratch
+                resources: {requests: {storage: 5Gi}}
+        - {name: cfg, configMap: {name: hemera-pyroscope-config}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hemera-pyroscope-config
+  namespace: prime
+data:
+  pyroscope.yaml: |
+    storage:
+      backend: s3
+      s3:
+        bucket_name: hemera-pyroscope
+        endpoint: seaweedfs:8333
+        region: us-east-1
+        access_key_id: ${PYRO_S3_ACCESS_KEY}
+        secret_access_key: ${PYRO_S3_SECRET_KEY}
+        insecure: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hemera-pyroscope
+  namespace: prime
+spec:
+  selector: {app: hemera-pyroscope}
+  ports:
+    - {name: http, port: 4040, targetPort: 4040, protocol: TCP}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hemera-alloy
+  namespace: hemera-node
+spec:
+  selector: {app: hemera-alloy-node}
+  ports:
+    - {name: otlp-grpc, port: 4317, targetPort: 4317, protocol: TCP}
+    - {name: otlp-http, port: 4318, targetPort: 4318, protocol: TCP}
+    - {name: faro, port: 12347, targetPort: 12347, protocol: TCP}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hemera-otelcol
+  namespace: hemera-node
+spec:
+  selector: {app: hemera-alloy-node}
+  ports:
+    - {name: otlp-http, port: 4318, targetPort: 4318, protocol: TCP}
+    - {name: otlp-grpc, port: 4317, targetPort: 4317, protocol: TCP}
+    - {name: sampling, port: 5778, targetPort: 5778, protocol: TCP}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hemera-otelcol
+  namespace: prime
+  annotations:
+    kustomize.toolkit.fluxcd.io/force: enabled
+spec:
+  type: ExternalName
+  externalName: hemera-otelcol.hemera-node.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hemera
+  namespace: prime
+spec:
+  type: ExternalName
+  externalName: hemera-otelcol.hemera-node.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hemera-alloy-lb
+  labels: {bgp: lan}
+  annotations:
+    lbipam.cilium.io/ips: "192.168.100.22"
+  namespace: hemera-node
+spec:
+  type: LoadBalancer
+  allocateLoadBalancerNodePorts: false
+  selector: {app: hemera-alloy-node}
+  ports:
+    - {name: otlp-grpc, port: 4317, targetPort: 4317, protocol: TCP}
+    - {name: otlp-http, port: 4318, targetPort: 4318, protocol: TCP}
+    - {name: faro, port: 12347, targetPort: 12347, protocol: TCP}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hemera-tempo-config
+  namespace: prime
+data:
+  tempo.yaml: |
+
+    server:
+      http_listen_port: 3200
+
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:4317
+            http:
+              endpoint: 0.0.0.0:4318
+
+    ingester:
+      max_block_duration: 5m
+
+    compactor:
+      compaction:
+        block_retention: 72h
+
+    storage:
+      trace:
+        backend: s3
+        s3:
+          bucket: hemera-tempo
+          endpoint: seaweedfs:8333
+          region: us-east-1
+          forcepathstyle: true
+          insecure: true
+        wal:
+          path: /var/tempo/wal
+
+    usage_report:
+      reporting_enabled: false

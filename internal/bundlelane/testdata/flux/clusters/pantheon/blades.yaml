@@ -1,0 +1,16 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: blades
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: infrastructure
+  interval: 10m
+  path: ./blades
+  prune: true
+  wait: false
+  targetNamespace: blades
+  sourceRef:
+    kind: GitRepository
+    name: flux-system

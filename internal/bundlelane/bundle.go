@@ -224,8 +224,43 @@ func Roster(dataJSON string) (mapped, stars, topics int, problem string, err err
 			want[k] = struct{}{}
 		}
 	}
-	if len(repoKeys) > 0 && stars != len(want) {
+	// TRANSITION (F16): the lane lands before foundry-dies narrows
+	// data.fleet.stars, so a roster built by the OLD derive.rego carries every
+	// repo as a star. Both counts pass until foundry-dies F16 lands; then the
+	// stars == len(repoKeys) arm below is deleted.
+	if len(repoKeys) > 0 && stars != len(want) && stars != len(repoKeys) {
 		return mapped, stars, topics, fmt.Sprintf("the built roster derives %d stars from %d flux-backed repos (of %d declared/lean keys) — a declared entry without a kind drops its star silently, and a repo flux does not deploy is not a star", stars, len(want), len(repoKeys)), nil
+	}
+	// A lean row that states an MCP interface or an address with a port is a
+	// deployed star by its own account. If flux backs no entry for it, or no
+	// star row came out, the narrowing would drop a live route silently
+	// (blade-runner's Service named no namespace, and flux said nothing for it).
+	var routed []string
+	for k, raw := range d.Fleet.Lean {
+		var row struct {
+			Address   string `json:"address"`
+			Interface struct {
+				Sync []string `json:"sync"`
+			} `json:"interface"`
+		}
+		if json.Unmarshal(raw, &row) != nil {
+			continue
+		}
+		mcp := false
+		for _, i := range row.Interface.Sync {
+			mcp = mcp || i == "mcp"
+		}
+		if !mcp && !strings.Contains(row.Address, ":") {
+			continue
+		}
+		_, backed := d.Fleet.Flux[k]
+		if !backed || !hasKey(d.Fleet.Stars, k) {
+			routed = append(routed, k)
+		}
+	}
+	if len(routed) > 0 {
+		sort.Strings(routed)
+		return mapped, stars, topics, fmt.Sprintf("the built roster routes %s (a lean row states mcp or an address with a port) but flux has no entry or data.fleet.stars no row for it — the narrowed stars would drop a live route", strings.Join(routed, ", ")), nil
 	}
 	// data.fleet.repos is the same union, one catalog row per key, and the
 	// rule is on foundry-dies main, so it is held to the count unconditionally
@@ -246,6 +281,26 @@ func Roster(dataJSON string) (mapped, stars, topics int, problem string, err err
 		}
 	}
 	return mapped, stars, topics, "", nil
+}
+
+// hasKey is whether an object (or the array form's named rows) holds key.
+func hasKey(raw json.RawMessage, key string) bool {
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(raw, &obj) == nil {
+		_, ok := obj[key]
+		return ok
+	}
+	var arr []struct {
+		Name string `json:"name"`
+	}
+	if json.Unmarshal(raw, &arr) == nil {
+		for _, a := range arr {
+			if a.Name == key {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // size is jq's length over an object or an array; anything else is 0.

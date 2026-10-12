@@ -1,0 +1,21 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: prime
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: infrastructure
+  interval: 10m
+  path: ./prime
+  prune: true
+  wait: false
+
+  ignore:
+    - paths: ["/spec/volumeName"]
+      target:
+        kind: PersistentVolumeClaim
+
+  sourceRef:
+    kind: GitRepository
+    name: flux-system

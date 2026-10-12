@@ -2,6 +2,8 @@ package bundlelane
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -526,6 +528,8 @@ func TestStageIsTodaysBytesPlusTheInterfaceKey(t *testing.T) {
 // F16: a repo with a Service in prime is a deployed star, whether the Service
 // is a ClusterIP in a star manifest or an ExternalName alias to another namespace.
 func TestServiceFactsGiveEveryPrimeServiceARow(t *testing.T) {
+	// blades names its namespace in the Kustomization, not the Service (below, on
+	// the real tree); explicit namespaces are what these hand-cut cases state.
 	manifests := map[string]string{
 		"prime/blade-runner-alias.yaml": "kind: Service\nmetadata: {name: blade-runner, namespace: prime}\nspec: {type: ExternalName, externalName: blade-runner.blades.svc.cluster.local}\n",
 		"blades/blade-controller.yaml":  "kind: Service\nmetadata: {name: blade-runner, namespace: blades}\nspec:\n  ports:\n    - {name: mcp, port: 8217}\n    - {name: mtls, port: 8218}\n",
@@ -621,5 +625,77 @@ func TestInjectNamesTheServiceManifestThatDoesNotParse(t *testing.T) {
 	in.ServiceManifests = map[string]string{"hemera/bad.yaml": "kind: [unclosed"}
 	if _, err := Inject(in); err == nil || !strings.Contains(err.Error(), "foundry/flux hemera/bad.yaml") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// THE REAL BLADES, HEMERA AND PRIME ALIAS MANIFESTS: testdata/flux/{blades,
+// hemera,prime/blade-runner-alias.yaml,clusters/pantheon} are foundry/flux's
+// files at testdata/flux/SERVICES_SOURCE, minus full-line comments, kube-linter
+// ignore annotations and owner emails. blades/blade-controller.yaml's
+// blade-runner Service names NO namespace (clusters/pantheon/blades.yaml sets
+// targetNamespace), which the hand-cut cases above never saw.
+func servicesSnapshot(t *testing.T) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	for _, g := range []string{"blades/*.yaml", "hemera/*.yaml", "prime/blade-runner-alias.yaml", "clusters/pantheon/*.yaml"} {
+		paths, err := filepath.Glob(filepath.Join("testdata", "flux", g))
+		if err != nil || len(paths) == 0 {
+			t.Fatalf("testdata/flux/%s: %v (%d files)", g, err, len(paths))
+		}
+		for _, p := range paths {
+			body, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out[strings.TrimPrefix(filepath.ToSlash(p), "testdata/flux/")] = string(body)
+		}
+	}
+	return out
+}
+
+func TestServiceFactsReadTheRealBladesAndHemeraManifests(t *testing.T) {
+	got, err := ServiceFacts(servicesSnapshot(t), map[string]bool{"blade-runner": true, "hemera": true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]FluxFact{
+		"blade-runner": {Ports: &Ports{Listen: 8217, MTLS: 8218}, Interface: []string{"mcp"}},
+		"hemera":       {},
+	}
+	if a, b := Stage(got), Stage(want); a != b {
+		t.Fatalf("ServiceFacts over the real tree =\n%s\nwant\n%s", a, b)
+	}
+}
+
+// Over the real flux tree the injection adds exactly blade-runner and hemera,
+// and moves no row it already had.
+func TestInjectOverTheRealTreeAddsBladeRunnerAndHemera(t *testing.T) {
+	in := snapshot(t)
+	before, err := Inject(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.ServiceManifests = servicesSnapshot(t)
+	in.Shards = append(in.Shards, "fleet/stars/blade-runner/slag.json", "fleet/stars/hemera/slag.json")
+	after, err := Inject(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b, a map[string]json.RawMessage
+	_ = json.Unmarshal([]byte(before.Flux), &b)
+	_ = json.Unmarshal([]byte(after.Flux), &a)
+	if len(a) != len(b)+2 {
+		t.Fatalf("rows %d -> %d, want exactly two new", len(b), len(a))
+	}
+	for k, v := range b {
+		if string(a[k]) != string(v) {
+			t.Errorf("%s moved: %s -> %s", k, v, a[k])
+		}
+	}
+	if got := strings.Join(strings.Fields(string(a["blade-runner"])), ""); got != `{"ports":{"listen":8217,"mtls":8218},"interface":["mcp"]}` {
+		t.Errorf("blade-runner = %s", got)
+	}
+	if got := string(a["hemera"]); got != "{}" {
+		t.Errorf("hemera = %s", got)
 	}
 }

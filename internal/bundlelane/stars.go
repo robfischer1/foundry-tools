@@ -71,7 +71,11 @@ const (
 // ServiceGlobs find every manifest that may hold a Service in namespace prime
 // or the Service an ExternalName there points at: prime itself, the blades
 // namespace (blade-runner) and hemera's (hemera-otelcol).
-var ServiceGlobs = []string{"prime/*.yaml", "blades/*.yaml", "hemera/*.yaml"}
+//
+// clusters/pantheon/*.yaml is read beside them for the Flux Kustomizations: a
+// directory whose Kustomization sets targetNamespace (blades) names no
+// namespace in its own manifests.
+var ServiceGlobs = []string{"prime/*.yaml", "blades/*.yaml", "hemera/*.yaml", "clusters/pantheon/*.yaml"}
 
 // PrimeNamespace is the namespace whose Services make a repo a deployed star.
 const PrimeNamespace = "prime"
@@ -199,15 +203,37 @@ func FluxFacts(manifests map[string]string, stars, clusters map[string]bool) (ma
 // data.fleet.stars.
 func ServiceFacts(manifests map[string]string, repos map[string]bool, have map[string]FluxFact) (map[string]FluxFact, error) {
 	byName := map[string]manifest{}
+	parsed := map[string][]manifest{}
+	targetNS := map[string]string{} // directory -> its Kustomization's targetNamespace
 	for _, p := range sortedKeys(manifests) {
 		docs, err := documents(manifests[p])
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", p, err)
 		}
+		parsed[p] = docs
 		for _, d := range docs {
-			if d.Kind == "Service" && d.Namespace != "" {
-				byName[d.Namespace+"/"+d.Name] = d
+			if d.Kind == "Kustomization" && strings.HasPrefix(d.APIVersion, "kustomize.toolkit.fluxcd.io/") && d.TargetNamespace != "" {
+				targetNS[strings.Trim(strings.TrimPrefix(d.Path, "./"), "/")] = d.TargetNamespace
 			}
+		}
+	}
+	for _, p := range sortedKeys(parsed) {
+		dir := strings.SplitN(p, "/", 2)[0]
+		for _, d := range parsed[p] {
+			if d.Kind != "Service" {
+				continue
+			}
+			// A Service that names no namespace sits where its Kustomization
+			// puts it (targetNamespace), else in the namespace named for its
+			// directory: blades/blade-controller.yaml's blade-runner names none.
+			ns := d.Namespace
+			if ns == "" {
+				ns = targetNS[dir]
+			}
+			if ns == "" {
+				ns = dir
+			}
+			byName[ns+"/"+d.Name] = d
 		}
 	}
 	out := map[string]FluxFact{}
@@ -499,6 +525,9 @@ type manifest struct {
 	Kind       string
 	Name       string
 	Namespace  string
+	// Path and TargetNamespace are a Flux Kustomization's spec.path and
+	// spec.targetNamespace.
+	Path, TargetNamespace string
 	// Type and ExternalName are a Service's spec.type and spec.externalName.
 	Type, ExternalName string
 	// Ports is a Service's spec.ports.
@@ -519,6 +548,13 @@ type head struct {
 type servicePort struct {
 	Name string `yaml:"name"`
 	Port int    `yaml:"port"`
+}
+
+type kustomizationDoc struct {
+	Spec struct {
+		Path            string `yaml:"path"`
+		TargetNamespace string `yaml:"targetNamespace"`
+	} `yaml:"spec"`
 }
 
 type serviceDoc struct {
@@ -606,6 +642,12 @@ func documents(body string) ([]manifest, error) {
 			}
 			m.Ports = svc.Spec.Ports
 			m.Type, m.ExternalName = svc.Spec.Type, svc.Spec.ExternalName
+		case h.Kind == "Kustomization":
+			var k kustomizationDoc
+			if err := node.Decode(&k); err != nil {
+				return nil, fmt.Errorf("the Kustomization %s: %w", h.Metadata.Name, err)
+			}
+			m.Path, m.TargetNamespace = k.Spec.Path, k.Spec.TargetNamespace
 		case workloads[h.Kind]:
 			var w workloadDoc
 			if err := node.Decode(&w); err != nil {

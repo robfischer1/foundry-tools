@@ -145,6 +145,7 @@ func TestAnInjectionReadTheEngineLostCouldNotRun(t *testing.T) {
 		"flux's data/":             {`glob(pattern:"data/*.yaml")`, "data/*.yaml could not be listed"},
 		"flux's blades/":           {`glob(pattern:"blades/*.yaml")`, "blades/*.yaml could not be listed"},
 		"flux's hemera/":           {`glob(pattern:"hemera/*.yaml")`, "hemera/*.yaml could not be listed"},
+		"flux's Kustomizations":    {`glob(pattern:"clusters/pantheon/*.yaml")`, "clusters/pantheon/*.yaml could not be listed"},
 		"one manifest's contents":  {`file(path:"prime/star-athena.yaml"){contents}`, "prime/star-athena.yaml could not be read"},
 	} {
 		t.Run(name, func(t *testing.T) {
