@@ -272,8 +272,8 @@ func namespaceOf(d manifest, file string, targetNS map[string]string) string {
 // deploys in namespace prime — a Deployment or StatefulSet — and that has none
 // in have (FluxFacts' and ServiceFacts' rows): the workers that serve nothing
 // (tron consumes from Kafka; naiad pulls from Poseidon). The workload is the
-// one labelled pistis.star=<repo> (on the object or its pod template), else
-// the one named for the repo. The entry states no ports and no interface — there
+// one labelled pistis.star=<repo> (on the object or its pod template; a label
+// naming no repo in repos is an error), else the one named for the repo. The entry states no ports and no interface — there
 // is no Service to read them off — and carries db when the workload's env
 // names a CNPG cluster in clusters. It is still the repo's membership in
 // data.fleet.stars.
@@ -288,9 +288,15 @@ func WorkloadFacts(manifests map[string]string, repos map[string]bool, have map[
 			if (d.Kind != "Deployment" && d.Kind != "StatefulSet") || namespaceOf(d, p, targetNS) != PrimeNamespace {
 				continue
 			}
-			name := d.Star
-			if !repos[name] {
-				name = d.Name
+			name := d.Name
+			if d.Star != "" {
+				// A label that names no catalog repo is a typo or a repo never
+				// declared: refuse, rather than fall back to the Deployment name
+				// and state a different star than the manifest says.
+				if !repos[d.Star] {
+					return nil, fmt.Errorf("%s: the %s %s carries %s=%s, which is no catalog repo", p, d.Kind, d.Name, starLabel, d.Star)
+				}
+				name = d.Star
 			}
 			if !repos[name] {
 				continue
@@ -533,9 +539,10 @@ func Inject(in Inputs) (Injection, error) {
 	for name, f := range svcFacts {
 		facts[name] = f
 	}
-	// ServiceFacts has parsed these same manifests, so WorkloadFacts' parse
-	// error is already returned above.
-	workFacts, _ := WorkloadFacts(in.ServiceManifests, stars, facts, clusters)
+	workFacts, err := WorkloadFacts(in.ServiceManifests, stars, facts, clusters)
+	if err != nil {
+		return Injection{}, fmt.Errorf("foundry/flux %w", err)
+	}
 	for name, f := range workFacts {
 		facts[name] = f
 	}

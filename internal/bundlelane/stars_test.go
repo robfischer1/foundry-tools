@@ -867,3 +867,24 @@ func TestWorkloadFactsPlaceByKustomizationAndMergeDatabases(t *testing.T) {
 		t.Fatal("mergeSorted: nil for nothing, a set for something")
 	}
 }
+
+// A pistis.star label that names no catalog repo is refused, not read as the
+// Deployment's own name: here `tron` is a repo and the label says `tronn`.
+func TestWorkloadFactsRefuseALabelThatNamesNoRepo(t *testing.T) {
+	manifests := map[string]string{"prime/x.yaml": "kind: Deployment\nmetadata: {name: tron, namespace: prime, labels: {pistis.star: tronn}}\nspec: {template: {spec: {containers: [{name: c}]}}}\n"}
+	_, err := WorkloadFacts(manifests, map[string]bool{"tron": true}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "prime/x.yaml") || !strings.Contains(err.Error(), "tronn") {
+		t.Fatalf("err = %v, want one naming prime/x.yaml and tronn", err)
+	}
+	in := snapshot(t)
+	in.ServiceManifests = manifests
+	in.Entries["fleet/repos/tron.json"] = `{"name":"tron"}`
+	if _, err := Inject(in); err == nil || !strings.Contains(err.Error(), "foundry/flux prime/x.yaml") {
+		t.Fatalf("Inject err = %v, want the lane to refuse", err)
+	}
+	// Outside prime a label is not this rule's business.
+	manifests["prime/x.yaml"] = strings.Replace(manifests["prime/x.yaml"], "namespace: prime", "namespace: blades", 1)
+	if _, err := WorkloadFacts(manifests, map[string]bool{"tron": true}, nil, nil); err != nil {
+		t.Fatalf("a label outside prime was refused: %v", err)
+	}
+}
