@@ -246,7 +246,9 @@ func parseAll(manifests map[string]string) (map[string][]manifest, map[string]st
 		}
 		parsed[p] = docs
 		for _, d := range docs {
-			if d.Kind == "Kustomization" && strings.HasPrefix(d.APIVersion, "kustomize.toolkit.fluxcd.io/") && d.TargetNamespace != "" {
+			// documents() sets TargetNamespace for a Kustomization alone, so the
+			// kind needs no test of its own.
+			if strings.HasPrefix(d.APIVersion, "kustomize.toolkit.fluxcd.io/") && d.TargetNamespace != "" {
 				targetNS[strings.Trim(strings.TrimPrefix(d.Path, "./"), "/")] = d.TargetNamespace
 			}
 		}
