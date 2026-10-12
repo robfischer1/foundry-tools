@@ -384,6 +384,12 @@ func TestRustMutationMeasuresTheDiffFromTheFetchedLayer(t *testing.T) {
 		// every test process under RLIMIT_DATA, so a runaway mutant fails its
 		// test instead of meeting the engine's per-exec OOM kill
 		[]string{"withEnvVariable", `name:"CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER"`, `value:"prlimit --data=4294967296 --"`},
+		// ABOUT 8 CORES FOR THE LANE (2 mutants x 4): cargo jobs, nextest
+		// threads and mold's link threads, each capped; the unset defaults
+		// were nproc apiece (dev01 load average 96, 2026-10-12).
+		[]string{"withEnvVariable", `name:"CARGO_BUILD_JOBS"`, `value:"4"`},
+		[]string{"withEnvVariable", `name:"CARGO_BUILD_RUSTFLAGS"`, `value:"-C link-arg=-Wl,--thread-count=4"`},
+		[]string{"withEnvVariable", `name:"NEXTEST_TEST_THREADS"`, `value:"4"`},
 		// The fleet's skipped classes ride the argv, every Rust row in order.
 		[]string{"withExec", "expect:ANY", `args:["/usr/local/bin/execmem","--","mold","-run","cargo","mutants","--colors","never","--caught","--unviable","-j","2","--build-timeout","900","--minimum-test-timeout","60","--test-tool","nextest","-f","src/lib.rs",` + rustExcludes() + `"-D","/tmp/mutation/pr.diff"]`},
 	)
@@ -941,5 +947,16 @@ func TestRustLaneTargetVolumeIsShared(t *testing.T) {
 	wantCalls(t, c, []string{"withMountedCache", `path:"/cache/cargo-target"`})
 	if hasCall(c, "withMountedCache", `path:"/cache/cargo-target"`, `sharing:`) {
 		t.Errorf("the target volume is shared within a run:\n%s", c)
+	}
+}
+
+// The three caps are one share: the flag's literal must track the constant,
+// and jobs x cores is the lane's whole budget.
+func TestRustMutationCPUShareIsAboutEightCores(t *testing.T) {
+	if rustMutantCores*rustMutationJobs != 8 {
+		t.Errorf("lane share = %d x %d cores, want 8", rustMutationJobs, rustMutantCores)
+	}
+	if want := "-C link-arg=-Wl,--thread-count=" + strconv.Itoa(rustMutantCores); rustMoldThreadsFlag != want {
+		t.Errorf("mold flag %q out of step with rustMutantCores, want %q", rustMoldThreadsFlag, want)
 	}
 }
