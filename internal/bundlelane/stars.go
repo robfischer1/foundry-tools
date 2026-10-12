@@ -20,7 +20,8 @@ import (
 // runtime (address, database) is derived from foundry/flux instead. This
 // lane serves both into the fleet die:
 //
-//	fleet/stars/<name>.json      -> data.fleet.declared.<name>
+//	fleet/repos/<name>.json      -> data.fleet.declared.<name>
+//	                                (fleet/stars/<name>.json until the move lands)
 //	foundry/flux prime/star-*    -> data.fleet.flux.<name>
 //
 // declared IS A PARALLEL KEY, NOT data.fleet.stars. Before F9 data.fleet.stars
@@ -50,9 +51,18 @@ const (
 	FluxSourcePath = "fleet/" + FluxSourceKey + "/data.json"
 	// FluxRepo is the repository the facts are read from.
 	FluxRepo = "foundry/flux"
-	// DeclaredGlob finds the catalog entries: files directly under
-	// fleet/stars/, beside the per-star directories.
-	DeclaredGlob = "fleet/stars/*.json"
+	// ReposKey is data.fleet.repos, the catalog fleet/derive.rego derives
+	// (one row per declared or lean key). The lane does not stage it; it is
+	// reserved so a tier data.json cannot collide with the rule.
+	ReposKey = "repos"
+	// DeclaredGlob finds the catalog entries: fleet/repos/<name>.json, the
+	// F10 documents (decision absent-wrap-width).
+	DeclaredGlob = "fleet/repos/*.json"
+	// DeclaredLegacyGlob is where the same documents lived before they moved
+	// to fleet/repos/: files directly under fleet/stars/, beside the per-star
+	// directories. The lane reads it only when fleet/repos/ holds none, so a
+	// foundry-dies main that has not landed the move still builds.
+	DeclaredLegacyGlob = "fleet/stars/*.json"
 	// StarManifestGlob and ClusterGlob are read in foundry/flux.
 	StarManifestGlob = "prime/star-*.yaml"
 	ClusterGlob      = "data/*.yaml"
@@ -286,7 +296,7 @@ func Collides(dataJSON string) []string {
 		return nil
 	}
 	var hit []string
-	for _, k := range []string{DeclaredKey, FluxKey, FluxSourceKey, LeanKey} {
+	for _, k := range []string{DeclaredKey, FluxKey, FluxSourceKey, LeanKey, ReposKey} {
 		if _, ok := d[k]; ok {
 			hit = append(hit, k)
 		}

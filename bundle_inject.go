@@ -10,7 +10,8 @@ import (
 )
 
 // inject reads what the fleet die serves beside the roster (slag-by-kind F8)
-// — the catalog entries, fleet/stars/<n>.json, and foundry/flux's star and
+// — the catalog entries, fleet/repos/<n>.json (fleet/stars/<n>.json until
+// the move lands), and foundry/flux's star and
 // data/ manifests — and hands them to bundlelane.Inject, which decides
 // data.fleet.declared and data.fleet.flux.
 //
@@ -50,6 +51,14 @@ func (l *bundleLane) inject(ctx context.Context, data string, shards []string) (
 		files, g := readGlob(ctx, read.dir, read.pattern)
 		if g.code != buildlane.Clean {
 			return bundlelane.Injection{}, g
+		}
+		if len(files) == 0 && read.pattern == bundlelane.DeclaredGlob {
+			// fleet/repos/ has not landed in foundry-dies: the entries are
+			// still where F10 first put them.
+			files, g = readGlob(ctx, read.dir, bundlelane.DeclaredLegacyGlob)
+			if g.code != buildlane.Clean {
+				return bundlelane.Injection{}, g
+			}
 		}
 		*read.into = files
 	}

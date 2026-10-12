@@ -183,6 +183,9 @@ func Roster(dataJSON string) (mapped, stars, topics int, problem string, err err
 			Map    json.RawMessage `json:"map"`
 			Topics json.RawMessage `json:"topics"`
 			Stars  json.RawMessage `json:"stars"`
+			// Repos is the catalog rule (F15): one row per key of
+			// declared ∪ lean. Absent while the tree's derive.rego predates it.
+			Repos json.RawMessage `json:"repos"`
 			// Declared and Lean are the documents fleet/derive.rego derives
 			// stars from: one star per key of their union.
 			Declared map[string]json.RawMessage `json:"declared"`
@@ -211,6 +214,15 @@ func Roster(dataJSON string) (mapped, stars, topics int, problem string, err err
 	}
 	if len(want) > 0 && stars != len(want) {
 		return mapped, stars, topics, fmt.Sprintf("the built roster derives %d stars from %d declared/lean keys — a declared entry without a kind drops its star silently", stars, len(want)), nil
+	}
+	// data.fleet.repos is the same union, one catalog row per key. It is held
+	// to the count only when the evaluated roster carries it: a tree whose
+	// derive.rego predates F15 has no repos rule, and foundry-tools lands
+	// first. Stars is not held to it: stars is unchanged in this slice.
+	if len(want) > 0 && d.Fleet.Repos != nil {
+		if repos := size(d.Fleet.Repos); repos != len(want) {
+			return mapped, stars, topics, fmt.Sprintf("the built roster derives %d repos from %d declared/lean keys — a declared entry without a kind drops its repo silently", repos, len(want)), nil
+		}
 	}
 	for _, row := range rows {
 		var fields map[string]json.RawMessage
