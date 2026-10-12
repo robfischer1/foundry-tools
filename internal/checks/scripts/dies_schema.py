@@ -1,10 +1,15 @@
 # SPDX-FileCopyrightText: 2026 Rob Fischer
 #
 # SPDX-License-Identifier: Apache-2.0
-"""Validate foundry-dies' slag schemas (v1, v3 and later) and every fleet record against its own.
+"""Validate foundry-dies' catalog entries and, while the tree still carries them, its slag schemas and records.
 
-Since slag-by-kind F8 it also holds every catalog entry, fleet/repos/<name>.json (fleet/stars/<name>.json
-until foundry-dies lands the move), to schema/fleet-star.schema.json.
+Every catalog entry, fleet/repos/<name>.json (fleet/stars/<name>.json until foundry-dies lands the move),
+is held to schema/fleet-star.schema.json. That is the whole check once slag retires (slag-by-kind F14).
+
+THE SLAG HALF RUNS WHILE THERE IS A SLAG RECORD, and only then: a tree with fleet/stars/*/slag.json
+records needs the slag schemas they name (a missing one is CANNOT RUN), and a tree with none is judged on
+its catalog alone. A slag schema file that IS there is checked either way, so a half-retired tree
+cannot hold a broken one.
 
 Two halves. Both the published slag-schema die (schema/slag.schema.json, v1)
 and the v3 schema are checked for being well-formed Draft 2020-12 documents
@@ -105,9 +110,13 @@ SCHEMA = "schema/slag-v3.schema.json"
 # (/slag-v3.schema.json or /slag-v4.schema.json) says which file of schema/ is its law; v3 is
 # required (it is the one every record carried until the flip), a later version is checked when its
 # file exists, and a record that names a version whose file is absent cannot be judged: 2.
-schemas = {
-    path: check_schema_file(path) for path in ("schema/slag.schema.json", SCHEMA)
-}
+records = sorted(str(p) for p in Path("fleet/stars").glob("*/slag.json"))
+schemas = {}
+for path in ("schema/slag.schema.json", SCHEMA):
+    # With records the schemas are required (check_schema_file leaves with 2 when one is missing);
+    # without any, a schema that is there is still held to being well formed.
+    if records or Path(path).exists():
+        schemas[path] = check_schema_file(path)
 for later in sorted(Path("schema").glob("slag-v[0-9]*.schema.json")):
     schemas.setdefault(str(later), check_schema_file(str(later)))
 validators = {path: Draft202012Validator(doc) for path, doc in schemas.items()}
@@ -133,13 +142,6 @@ def schema_path_for(doc: object) -> str:
 
 bad = 0
 used: dict[str, int] = {}
-records = sorted(str(p) for p in Path("fleet/stars").glob("*/slag.json"))
-if not records:
-    print(
-        "::error::fleet/stars/ carries no slag.json, so there is no record to validate",
-        file=sys.stderr,
-    )
-    sys.exit(2)
 for rec in records:
     name = rec.split("/")[2]
     try:
@@ -170,16 +172,17 @@ for rec in records:
     for f in findings:
         bad += 1
         print(f"::error file={rec}::{f}", file=sys.stderr)
-held = ", ".join(f"{n} against {path}" for path, n in sorted(used.items()))
-print(f"{len(records)} record(s) validated: {held}")
+if records:
+    held = ", ".join(f"{n} against {path}" for path, n in sorted(used.items()))
+    print(f"{len(records)} record(s) validated: {held}")
 
 # THE CATALOG ENTRIES (slag-by-kind F8, moved by F10): fleet/repos/<name>.json, or fleet/stars/<name>.json
 # beside the per-star directories while foundry-dies has not landed the move (the bundle lane reads
 # the same two places in the same order),
 # each held to schema/fleet-star.schema.json and named for its file. The bundle lane serves them as
 # data.fleet.declared.<name>, so an entry whose name is not its filename is a star routed as another.
-# Zero entries is the migration's starting point, not a could-not-run; a tree with entries and no
-# schema cannot be judged: 2.
+# A tree with entries and no schema cannot be judged: 2. A tree with neither slag records nor
+# catalog entries has nothing to validate, and zero validated is not the same fact as all valid: 2.
 CATALOG = "schema/fleet-star.schema.json"
 repo_entries = sorted(str(p) for p in Path("fleet/repos").glob("*.json"))
 legacy_entries = sorted(str(p) for p in Path("fleet/stars").glob("*.json"))
@@ -192,6 +195,12 @@ if repo_entries and legacy_entries:
     )
     sys.exit(1)
 entries = repo_entries or legacy_entries
+if not records and not entries:
+    print(
+        "::error::fleet/ carries no catalog entry and no slag record, so there is nothing to validate",
+        file=sys.stderr,
+    )
+    sys.exit(2)
 if entries:
     if not Path(CATALOG).exists():
         print(

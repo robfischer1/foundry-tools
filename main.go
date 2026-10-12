@@ -164,7 +164,7 @@ func (m *FoundryTools) Tree(ctx context.Context) (string, error) {
 func (m *FoundryTools) Compose() *Compose { return &Compose{Source: m.Source} }
 
 // Dies holds the policy die's atoms. They report ABSENT on any tree that is not
-// foundry-dies-shaped — policy/.manifest and fleet/stars/ together.
+// foundry-dies-shaped — policy/.manifest and fleet/repos/ together.
 func (m *FoundryTools) Dies() *Dies { return &Dies{Source: m.Source} }
 
 // Fleet holds the atoms that run in every repository, whatever it is written in.

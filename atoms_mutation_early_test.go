@@ -65,19 +65,20 @@ func provisioned(needles ...string) []string {
 	return hits
 }
 
+// oneKafkaFlow is a source file that states one Kafka flow, which is what binds
+// a test broker (the tree is the only source of flows).
+const oneKafkaFlow = "package x\nimport \"git.notusmi.com/rob/stellar-core-go/kafkatopics\"\nfunc p() { kafkatopics.Record(kafkatopics.TopicSessionTurns, nil) }\n"
+
 const (
 	goEarlyGolden         = `{"atom":"go:mutation","state":0,"result":"pass","reason":"test databases: live_db → TEST_DATABASE_URL\ntest brokers: live_kafka → KAFKA_BOOTSTRAP; one broker serves every package — mint unique topic and group names per test\ngo:mutation: PASS","logs":["go:mutation: this pull changes no Go file — nothing to mutate"],"findings":null,"gradings":null}`
 	rustEarlyGolden       = `{"atom":"rust:mutation","state":0,"result":"pass","reason":"rust:mutation: scoped to the declared critical modules: src/lib.rs\nrust:mutation: PASS","logs":["rust:mutation: this pull touched none of the critical modules — nothing to mutate"],"findings":null,"gradings":null}`
 	rustEarlyRemoveGolden = `{"atom":"rust:mutation","state":0,"result":"pass","reason":"rust:mutation: scoped to the declared critical modules: src/lib.rs\nrust:mutation: PASS","logs":["rust:mutation: this pull only REMOVED lines from the critical modules — nothing to mutate"],"findings":null,"gradings":null}`
 )
 
-// A Go pull that changes no Go file, on a star whose record binds a Postgres
-// and a broker: the old verdict, and no server, no download.
+// A Go pull that changes no Go file, on a star whose tree carries a Postgres
+// suite and a broker suite: the old verdict, and no server, no download.
 func TestGoMutationWithNoChangedGoSettlesBeforeProvisioning(t *testing.T) {
-	scriptGoMutation(map[string]string{
-		".copier-answers.yml":           "service_name: x\n",
-		"/dies/fleet/stars/x/slag.json": `{"backends":{"postgres":{},"kafka":["x.events"]}}`,
-	})
+	scriptGoMutation(map[string]string{".copier-answers.yml": "service_name: x\n", "go.mod": "module example.com/x\n", "flows.go": oneKafkaFlow})
 	engine.stdout(`"grep","-rhoE"`, "//go:build live_db\n//go:build live_kafka\n")
 	engine.stdout(goDiffNeedle, "")
 	v := runAtom(t, "go:mutation", "abc123")
@@ -92,18 +93,15 @@ func TestGoMutationWithNoChangedGoSettlesBeforeProvisioning(t *testing.T) {
 	if engine.chain(goDiffNeedle) == "" || engine.chain(mergeBaseNeedle) == "" {
 		t.Errorf("the change set was never computed:\n%v", engine.chains())
 	}
-	// And the scope line is the record's, read without binding anything.
+	// And the scope line is the tree's, read without binding anything.
 	if !strings.Contains(v.Reason, "live_db → TEST_DATABASE_URL") || !strings.Contains(v.Reason, "live_kafka") {
-		t.Errorf("the scope line lost the record's servers: %q", v.Reason)
+		t.Errorf("the scope line lost the tree's servers: %q", v.Reason)
 	}
 }
 
 // The same star with a Go change still gets its servers and its download.
 func TestGoMutationWithAChangeStillProvisions(t *testing.T) {
-	scriptGoMutation(map[string]string{
-		".copier-answers.yml":           "service_name: x\n",
-		"/dies/fleet/stars/x/slag.json": `{"backends":{"postgres":{},"kafka":["x.events"]}}`,
-	})
+	scriptGoMutation(map[string]string{".copier-answers.yml": "service_name: x\n", "go.mod": "module example.com/x\n", "flows.go": oneKafkaFlow})
 	engine.stdout(`"grep","-rhoE"`, "//go:build live_db\n//go:build live_kafka\n")
 	runAtom(t, "go:mutation", "abc123")
 	c := engine.chain(goMutantsNeedle, "exitCode")
@@ -156,20 +154,12 @@ func TestTheTestServerScopeLinesSayWhyOnEveryBranch(t *testing.T) {
 		grep  func()
 		lines []string
 	}{
-		{"no service name", map[string]string{".copier-answers.yml": "critical_modules: \n"}, nil, []string{
-			"test databases: none — no service_name in .copier-answers.yml",
-			"test brokers: none — the tree states no kafka flow, and there is no service_name in .copier-answers.yml",
-		}},
-		{"no record", map[string]string{
-			".copier-answers.yml":           "service_name: nobody\n",
-			"/dies/fleet/stars/x/slag.json": `{"backends":{"postgres":{}}}`, // someone else's
-		}, nil, []string{
-			"test databases: none — no record at fleet/stars/nobody/slag.json",
-			"test brokers: none",
+		{"no tagged suite and no flow", map[string]string{".copier-answers.yml": "critical_modules: \n"}, nil, []string{
+			"test databases: none — no test file sits behind a tag the fleet names",
+			"test brokers: none — the tree states no kafka flow",
 		}},
 		{"tags unreadable", map[string]string{
-			".copier-answers.yml":           "service_name: x\n",
-			"/dies/fleet/stars/x/slag.json": `{"backends":{"postgres":{}}}`,
+			".copier-answers.yml": "service_name: x\n",
 		}, func() { engine.exitCode(`"grep","-rhoE"`, 2) }, []string{
 			"test databases: none — the tree's build tags could not be read",
 			"test brokers: none",
@@ -205,12 +195,13 @@ func TestTheTestServerScopeLinesSayWhyOnEveryBranch(t *testing.T) {
 
 // A BROKER ALONE STILL TAGS AND SERIALISES go:test-race: withTestBrokers hands
 // the brokers it bound back, and the run compiles their tag under -p 1.
-func TestGoTestRaceCompilesABrokerOnlyRecordsTag(t *testing.T) {
+func TestGoTestRaceCompilesABrokerOnlyTreesTag(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	engine.withTree(map[string]string{
-		".copier-answers.yml":           "service_name: x\n",
-		"/dies/fleet/stars/x/slag.json": `{"backends":{"kafka":["x.events"]}}`,
+		".copier-answers.yml": "service_name: x\n",
+		"go.mod":              "module example.com/x\n",
+		"flows.go":            oneKafkaFlow,
 	})
 	engine.stdout(`"go","list"`, "11\n")
 	engine.stdout(`"grep","-rhoE"`, "//go:build live_kafka\n")

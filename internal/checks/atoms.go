@@ -517,7 +517,7 @@ func atomTable() []AtomDef {
 		},
 		{
 			ID: "dies:schema", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "The slag v1 (published slag-schema die) and v3 schemas are valid Draft 2020-12 documents and every fleet/stars/*/slag.json satisfies the schema its own $schema names (slag-v3 or slag-v4).",
+			Desc: "Every catalog entry fleet/repos/<name>.json satisfies schema/fleet-star.schema.json, and any slag schema or record a tree still carries is valid and satisfies the schema its own $schema names.",
 		},
 		{
 			ID: "dies:findings", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
@@ -537,7 +537,7 @@ func atomTable() []AtomDef {
 		},
 		{
 			ID: "dies:canonical", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "Every committed fleet/stars/<star>/slag.json is byte-for-byte its own canonical form (sorted keys, two-space indent, ensure_ascii, trailing LF).",
+			Desc: "Every committed fleet/repos/<name>.json catalog entry is byte-for-byte its own canonical form (sorted keys, two-space indent, ensure_ascii, trailing LF).",
 		},
 
 		{

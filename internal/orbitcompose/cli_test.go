@@ -329,12 +329,15 @@ func TestMainWithAnUnreadableContractWritesNothingAndNamesEachFile(t *testing.T)
 	}
 }
 
-// THE ROSTER BESIDE THE CONTRACTS (foundry-dies' fleet/stars) LETS A
+// THE ROSTER BESIDE THE CONTRACTS (foundry-dies' fleet/repos) LETS A
 // HYPHENATED STAR COMPOSE, or a named one does.
 func TestMainReadsTheRosterBesideTheContracts(t *testing.T) {
 	root := t.TempDir()
 	for _, star := range []string{"blade-runner", "poseidon"} {
-		if err := os.MkdirAll(filepath.Join(root, "fleet", "stars", star), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(root, "fleet", "repos"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "fleet", "repos", star+".json"), []byte("{}\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -351,7 +354,7 @@ func TestMainReadsTheRosterBesideTheContracts(t *testing.T) {
 	}
 	plain := writeContracts(t, map[string]string{"urania-themis.toml": contractBody})
 	fresh := filepath.Join(t.TempDir(), "orbits")
-	if code, stdout, stderr := run("-contracts", plain, "-stars", filepath.Join(root, "absent"), "-out", fresh); code != 2 || stdout != "" || !strings.Contains(stderr, "absent") {
+	if code, stdout, stderr := run("-contracts", plain, "-repos", filepath.Join(root, "absent"), "-out", fresh); code != 2 || stdout != "" || !strings.Contains(stderr, "absent") {
 		t.Errorf("a named roster that is not there: exit %d stdout %q stderr %q", code, stdout, stderr)
 	}
 	if _, err := os.Stat(fresh); !os.IsNotExist(err) {
@@ -366,7 +369,10 @@ func TestRosterForIsTheNamedDirectoryElseTheOneBesideElseNone(t *testing.T) {
 		t.Errorf("no roster beside: %v %v", stars, err)
 	}
 	named := filepath.Join(root, "named")
-	if err := os.MkdirAll(filepath.Join(named, "zeta"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(named, "dir.json"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(named, "zeta.json"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(named, "README"), nil, 0o644); err != nil {
@@ -374,10 +380,13 @@ func TestRosterForIsTheNamedDirectoryElseTheOneBesideElseNone(t *testing.T) {
 	}
 	stars, err := RosterFor(contracts, named)
 	if err != nil || len(stars) != 1 || !stars["zeta"] {
-		t.Errorf("named: %v %v (a file is not a star)", stars, err)
+		t.Errorf("named: %v %v (only <name>.json files are repos)", stars, err)
 	}
-	beside := filepath.Join(root, "fleet", "stars", "alpha")
+	beside := filepath.Join(root, "fleet", "repos")
 	if err := os.MkdirAll(beside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(beside, "alpha.json"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if stars, err := RosterFor(contracts, ""); err != nil || !stars["alpha"] {
@@ -392,7 +401,7 @@ func TestRosterForIsTheNamedDirectoryElseTheOneBesideElseNone(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(other, "fleet"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(other, "fleet", "stars"), nil, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(other, "fleet", "repos"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if stars, err := RosterFor(filepath.Join(other, "orbits"), ""); err == nil || stars != nil {

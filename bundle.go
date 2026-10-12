@@ -122,8 +122,8 @@ type bundleLane struct {
 	flux    *dagger.Directory
 	fluxSHA string
 	// derive says the tree carries fleet/derive.rego (slag-by-kind F9): the
-	// fleet die then derives data.fleet.stars, its suite runs beside the
-	// policy's, and the lean rows are staged at data.fleet.lean.
+	// fleet die then derives data.fleet.stars and data.fleet.repos, and its
+	// suite runs beside the policy's.
 	derive bool
 }
 
@@ -451,52 +451,34 @@ func (l *bundleLane) fleet(ctx context.Context, built *dagger.Container) (*dagge
 	if !ok {
 		return nil, findings("fleet/data.json is absent — the fleet tier (map, topics, wiring) is not in the repo")
 	}
-	shards, err := src.Glob(ctx, "fleet/stars/*/slag.json")
+	entries, err := src.Glob(ctx, bundlelane.DeclaredGlob)
 	if err != nil {
-		return nil, couldNotRun("the slag shards could not be listed: %v", err)
+		return nil, couldNotRun("%s could not be listed: %v", bundlelane.DeclaredGlob, err)
 	}
-	orphans, mapped, err := bundlelane.Orphans(shards, data)
+	orphans, mapped, err := bundlelane.Orphans(entries, data)
 	if err != nil {
 		return nil, findings(err.Error())
 	}
 	if len(orphans) > 0 {
-		return nil, findings("slag shards with no fleet/data.json map entry: " + strings.Join(orphans, " "))
+		return nil, findings("catalog entries with no fleet/data.json map entry: " + strings.Join(orphans, " "))
 	}
-	bundleSay("fleet: tier gate — %d shards, all present in a %d-star map", len(shards), mapped)
+	bundleSay("fleet: tier gate — %d catalog entries, all present in a %d-repo map", len(entries), mapped)
 
-	inj, g := l.inject(ctx, data, shards)
+	inj, g := l.inject(ctx, data)
 	if g.code != buildlane.Clean {
 		return nil, g
 	}
 
 	bundleSay("── fleet: build the roster and its SIGNED twin from a staged tree ──")
-	// The v2 records (fleet/stars/<n>/<n>.slag) are not bundle data: opa build
-	// reads data.json, and a stray file in the stage is one more thing a future
-	// builder could trip on. The catalog entries (fleet/repos/<n>.json, or fleet/stars/<n>.json before the move) reach
-	// the die through the staged declared/data.json, not as themselves.
-	//
-	// ONCE THE TREE DERIVES data.fleet.stars (fleet/derive.rego), the lean rows
-	// cannot stay at fleet/stars/<n>/data.json: OPA refuses a rule and a data
-	// document at one path. They are staged at fleet/lean/<n>/data.json, the
-	// derivation's fallback, and stay committed where they are for the readers
-	// that read them in git.
-	exclude := []string{"**/*.slag", "stars/*.json", "repos/*.json"}
-	var lean map[string]string
+	// The catalog entries (fleet/repos/<n>.json) reach the die through the
+	// staged declared/data.json, not as themselves, and nothing under
+	// fleet/stars/ is bundle data: opa build reads data.json, and a
+	// fleet/stars/<n>/data.json beside the derived data.fleet.stars rule is a
+	// document and a rule at one path, which OPA refuses. A tree that still
+	// carries fleet/stars/ (slag retires in slag-by-kind F14) builds without it.
+	exclude := []string{"**/*.slag", "stars/**", "repos/*.json"}
 	if l.derive {
-		exclude = append(exclude, "stars/*/data.json")
-		committed, err := src.Glob(ctx, "fleet/"+bundlelane.LeanKey+"/**")
-		if err != nil {
-			return nil, couldNotRun("fleet/%s/ could not be probed: %v", bundlelane.LeanKey, err)
-		}
-		if len(committed) > 0 {
-			return nil, findings("fleet/" + bundlelane.LeanKey + "/ is committed, and the lane stages the lean rows there — they would be overwritten without anyone seeing")
-		}
-		rows, err := src.Glob(ctx, bundlelane.LeanGlob)
-		if err != nil {
-			return nil, couldNotRun("the lean rows could not be listed: %v", err)
-		}
-		lean = bundlelane.Lean(rows)
-		bundleSay("fleet: %s derives data.fleet.stars; %d lean rows staged at data.fleet.%s as its fallback", checks.FleetDerive, len(lean), bundlelane.LeanKey)
+		bundleSay("fleet: %s derives data.fleet.stars and data.fleet.repos from the catalog entries and flux", checks.FleetDerive)
 	}
 	stage := dag.Directory().
 		WithDirectory("fleet", src.Directory("fleet"), dagger.DirectoryWithDirectoryOpts{Exclude: exclude}).
@@ -504,9 +486,6 @@ func (l *bundleLane) fleet(ctx context.Context, built *dagger.Container) (*dagge
 		WithNewFile(bundlelane.FluxPath, inj.Flux).
 		WithNewFile(bundlelane.FluxSourcePath, inj.Source).
 		WithNewFile(".manifest", bundlelane.FleetManifest)
-	for from, to := range lean {
-		stage = stage.WithFile(to, src.File(from))
-	}
 	built = built.WithDirectory(workDir+"/stage", stage)
 	for _, b := range [][]string{
 		{"opa", "build", "-b", workDir + "/stage", "-o", workDir + "/fleet-bundle.tar.gz", "--revision", bundlelane.FleetRevision(l.m.Sha, l.fluxSHA)},
@@ -548,7 +527,7 @@ func (l *bundleLane) fleet(ctx context.Context, built *dagger.Container) (*dagge
 	if problem != "" {
 		return nil, findings(problem)
 	}
-	bundleSay("fleet: roster — %d stars mapped, %d lean rows, %d topics", rows, stars, topics)
+	bundleSay("fleet: roster — %d repos mapped, %d stars, %d topics", rows, stars, topics)
 	if problem := bundlelane.Injected(roster, inj.DeclaredRows, inj.FluxRows, l.fluxSHA); problem != "" {
 		return nil, findings(problem)
 	}

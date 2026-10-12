@@ -14,7 +14,7 @@ import (
 )
 
 // Usage is the command line.
-const Usage = "usage: orbitcompose -contracts <foundry-dies>/orbits [-stars <foundry-dies>/fleet/stars] (-out <flux>/prime/orbits [-namespace prime] | -die <dir>) [-check]"
+const Usage = "usage: orbitcompose -contracts <foundry-dies>/orbits [-repos <foundry-dies>/fleet/repos] (-out <flux>/prime/orbits [-namespace prime] | -die <dir>) [-check]"
 
 // Change is what bringing the directory to the composed set takes.
 type Change struct {
@@ -81,32 +81,34 @@ func ReadContracts(dir string, stars map[string]bool) ([]Contract, error) {
 	return cs, nil
 }
 
-// StarsIn answers the star names under a fleet/stars directory (foundry-dies):
-// one per subdirectory.
-func StarsIn(dir string) (map[string]bool, error) {
+// ReposIn answers the repo names under a fleet/repos directory (foundry-dies):
+// one per catalog document, <name>.json. The roster is the catalog, not the
+// stars: a contract party is a repo the fleet knows, and the catalog is where
+// the fleet says which.
+func ReposIn(dir string) (map[string]bool, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
-	stars := map[string]bool{}
+	repos := map[string]bool{}
 	for _, e := range entries {
-		if e.IsDir() {
-			stars[e.Name()] = true
+		if name, ok := strings.CutSuffix(e.Name(), ".json"); ok && !e.IsDir() && name != "" {
+			repos[name] = true
 		}
 	}
-	return stars, nil
+	return repos, nil
 }
 
 // RosterFor answers the roster the contracts directory is read against: the
-// directory named by flag, else fleet/stars beside contracts (foundry-dies
+// directory named by flag, else fleet/repos beside contracts (foundry-dies
 // keeps orbits/ and fleet/ side by side). A default that is not there is no
 // roster (the two-part rule alone); a named one that is not there is an
 // error.
 func RosterFor(contracts, flag string) (map[string]bool, error) {
 	if flag != "" {
-		return StarsIn(flag)
+		return ReposIn(flag)
 	}
-	stars, err := StarsIn(filepath.Join(contracts, "..", "fleet", "stars"))
+	stars, err := ReposIn(filepath.Join(contracts, "..", "fleet", "repos"))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -167,7 +169,7 @@ func Main(args []string, out, errOut io.Writer) int {
 	contracts := fs.String("contracts", "", "the contracts directory (foundry-dies/orbits)")
 	dir := fs.String("out", "", "the directory the composer owns (flux prime/orbits)")
 	die := fs.String("die", "", "instead of -out: the data/orbits die payload directory (every sidecar + orbits.json)")
-	starsDir := fs.String("stars", "", "the fleet roster directory (default: fleet/stars beside -contracts); star names may carry hyphens only when it is there")
+	starsDir := fs.String("repos", "", "the fleet catalog directory (default: fleet/repos beside -contracts); star names may carry hyphens only when it is there")
 	namespace := fs.String("namespace", "prime", "the ConfigMaps' namespace")
 	check := fs.Bool("check", false, "write nothing; exit 1 if the directory is not the composed set")
 	if err := fs.Parse(args); err != nil || *contracts == "" || (*dir == "") == (*die == "") || fs.NArg() != 0 {

@@ -266,8 +266,8 @@ func TestClusterReadsTheCAThenTheHost(t *testing.T) {
 
 func TestDeclaredKeysEachDocumentByItsFilename(t *testing.T) {
 	got, err := Declared(map[string]string{
-		"fleet/stars/hades.json": `{"name":"hades","kind":"go"}`,
-		"fleet/stars/chaos.json": `{"name":"chaos"}`,
+		"fleet/repos/hades.json": `{"name":"hades","kind":"go"}`,
+		"fleet/repos/chaos.json": `{"name":"chaos"}`,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -276,13 +276,13 @@ func TestDeclaredKeysEachDocumentByItsFilename(t *testing.T) {
 		t.Fatalf("Declared keys = %q", sortedKeys(got))
 	}
 	for name, files := range map[string]map[string]string{
-		"a name that is not the filename": {"fleet/stars/hades.json": `{"name":"nyx"}`},
-		"no name":                         {"fleet/stars/hades.json": `{"kind":"go"}`},
-		"a name that is not a string":     {"fleet/stars/hades.json": `{"name":7}`},
-		"not JSON":                        {"fleet/stars/hades.json": `{`},
-		"not an object":                   {"fleet/stars/hades.json": `["hades"]`},
+		"a name that is not the filename": {"fleet/repos/hades.json": `{"name":"nyx"}`},
+		"no name":                         {"fleet/repos/hades.json": `{"kind":"go"}`},
+		"a name that is not a string":     {"fleet/repos/hades.json": `{"name":7}`},
+		"not JSON":                        {"fleet/repos/hades.json": `{`},
+		"not an object":                   {"fleet/repos/hades.json": `["hades"]`},
 	} {
-		if _, err := Declared(files); err == nil || !strings.Contains(err.Error(), "fleet/stars/hades.json") {
+		if _, err := Declared(files); err == nil || !strings.Contains(err.Error(), "fleet/repos/hades.json") {
 			t.Errorf("%s: err = %v, want one naming the file", name, err)
 		}
 	}
@@ -304,8 +304,8 @@ func TestStageIsTheSameBytesWhateverOrderTheFactsArrivedIn(t *testing.T) {
 		t.Fatalf("Stage = %q, want sorted keys, two-space indent, one trailing LF", first)
 	}
 	// a declared document's own layout does not reach the die
-	a, _ := Declared(map[string]string{"fleet/stars/hades.json": `{"name":"hades","kind":"go"}`})
-	b, _ := Declared(map[string]string{"fleet/stars/hades.json": "{\n    \"kind\": \"go\",   \"name\":   \"hades\"\n}\n"})
+	a, _ := Declared(map[string]string{"fleet/repos/hades.json": `{"name":"hades","kind":"go"}`})
+	b, _ := Declared(map[string]string{"fleet/repos/hades.json": "{\n    \"kind\": \"go\",   \"name\":   \"hades\"\n}\n"})
 	if Stage(a) != Stage(b) {
 		t.Fatalf("two layouts of one document staged differently:\n%s\n%s", Stage(a), Stage(b))
 	}
@@ -317,9 +317,6 @@ func TestStageIsTheSameBytesWhateverOrderTheFactsArrivedIn(t *testing.T) {
 func TestCollidesNamesTheInjectedKeysTheTierAlreadySets(t *testing.T) {
 	if hit := Collides(`{"map":{},"flux":{},"declared":{}}`); !reflect.DeepEqual(hit, []string{"declared", "flux"}) {
 		t.Fatalf("Collides = %q", hit)
-	}
-	if hit := Collides(`{"map":{},"lean":{}}`); !reflect.DeepEqual(hit, []string{"lean"}) {
-		t.Fatalf("the lean rows' key is the lane's too: Collides = %q", hit)
 	}
 	if hit := Collides(`{"map":{},"repos":{}}`); !reflect.DeepEqual(hit, []string{"repos"}) {
 		t.Fatalf("the derived catalog's key is reserved too: Collides = %q", hit)
@@ -359,10 +356,13 @@ const testFluxSHA = "abababababababababababababababababababab"
 
 func injectInputs() Inputs {
 	return Inputs{
-		FluxSHA:         testFluxSHA,
-		Tier:            `{"map":{}}`,
-		Shards:          []string{"fleet/stars/chaos/slag.json", "fleet/stars/tron/slag.json"},
-		Entries:         map[string]string{"fleet/stars/ourea.json": `{"name":"ourea","kind":"go"}`},
+		FluxSHA: testFluxSHA,
+		Tier:    `{"map":{}}`,
+		Entries: map[string]string{
+			"fleet/repos/chaos.json": `{"name":"chaos","kind":"go"}`,
+			"fleet/repos/tron.json":  `{"name":"tron","kind":"go"}`,
+			"fleet/repos/ourea.json": `{"name":"ourea","kind":"go"}`,
+		},
 		StarManifests:   fluxTree(),
 		ClusterManifest: map[string]string{"data/dbs.yaml": clusterManifests},
 	}
@@ -373,8 +373,8 @@ func TestInjectReadsFluxForTheStarsTheTreeKnows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// chaos and tron by shard, ourea by its catalog entry; tron states nothing.
-	if inj.DeclaredRows != 1 || inj.FluxRows != 2 || inj.Known != 3 || inj.Clusters != 5 {
+	// chaos, tron and ourea by their catalog entries; tron states nothing.
+	if inj.DeclaredRows != 3 || inj.FluxRows != 2 || inj.Known != 3 || inj.Clusters != 5 {
 		t.Fatalf("Inject = %+v", inj)
 	}
 	var flux map[string]FluxFact
@@ -397,7 +397,7 @@ func TestInjectRefusesWhatWouldServeTheWrongFacts(t *testing.T) {
 		"the tier sets an injected key":          {func(in *Inputs) { in.Tier = `{"flux":{}}` }, "fleet/data.json already sets data.fleet.flux"},
 		"the tier sets the flux source":          {func(in *Inputs) { in.Tier = `{"flux_source":{}}` }, "already sets data.fleet.flux_source"},
 		"a flux commit that is not a sha":        {func(in *Inputs) { in.FluxSHA = "main" }, `the flux commit "main" is not a full sha`},
-		"an entry named for another":             {func(in *Inputs) { in.Entries["fleet/stars/ourea.json"] = `{"name":"nyx"}` }, `fleet/stars/ourea.json: name must be "ourea"`},
+		"an entry named for another":             {func(in *Inputs) { in.Entries["fleet/repos/ourea.json"] = `{"name":"nyx"}` }, `fleet/repos/ourea.json: name must be "ourea"`},
 		"no star manifest":                       {func(in *Inputs) { in.StarManifests = nil }, "foundry/flux answered no prime/star-*.yaml"},
 		"a cluster manifest that does not parse": {func(in *Inputs) { in.ClusterManifest = map[string]string{"data/x.yaml": "kind: [unclosed"} }, "foundry/flux data/x.yaml"},
 		"a star manifest that does not parse":    {func(in *Inputs) { in.StarManifests["prime/star-chaos.yaml"] = "kind: [unclosed" }, "foundry/flux prime/star-chaos.yaml"},
@@ -407,17 +407,6 @@ func TestInjectRefusesWhatWouldServeTheWrongFacts(t *testing.T) {
 		if _, err := Inject(in); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: err = %v, want %q", name, err, c.want)
 		}
-	}
-}
-
-func TestLeanStagesEachCommittedRowUnderTheLeanKey(t *testing.T) {
-	got := Lean([]string{"fleet/stars/hades/data.json", "fleet/stars/blade-runner/data.json"})
-	want := map[string]string{
-		"fleet/stars/hades/data.json":        "fleet/lean/hades/data.json",
-		"fleet/stars/blade-runner/data.json": "fleet/lean/blade-runner/data.json",
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("Lean = %v, want %v", got, want)
 	}
 }
 
@@ -557,7 +546,7 @@ spec: {type: ExternalName, externalName: hemera-otelcol.hemera-node.svc.cluster.
 	}
 	want := map[string]FluxFact{
 		"blade-runner": {Ports: &Ports{Listen: 8217, MTLS: 8218}, Interface: []string{"mcp"}},
-		"hemera":       {},
+		"hemera":       {Ports: &Ports{Listen: 4318}, Interface: []string{"otlp"}},
 		"plain":        {Ports: &Ports{Listen: 3000}, Interface: []string{"http"}},
 		"lost":         {},
 	}
@@ -584,7 +573,7 @@ func TestInjectKeepsTodaysFluxRowsByteIdentical(t *testing.T) {
 		"prime/blade-runner-alias.yaml": "kind: Service\nmetadata: {name: blade-runner, namespace: prime}\nspec: {type: ExternalName, externalName: blade-runner.blades.svc.cluster.local}\n",
 		"blades/c.yaml":                 "kind: Service\nmetadata: {name: blade-runner, namespace: blades}\nspec:\n  ports:\n    - {name: mcp, port: 8217}\n    - {name: mtls, port: 8218}\n",
 	}
-	in.Shards = append(in.Shards, "fleet/stars/blade-runner/slag.json")
+	in.Entries["fleet/repos/blade-runner.json"] = `{"name":"blade-runner"}`
 	after, err := Inject(in)
 	if err != nil {
 		t.Fatal(err)
@@ -660,7 +649,7 @@ func TestServiceFactsReadTheRealBladesAndHemeraManifests(t *testing.T) {
 	}
 	want := map[string]FluxFact{
 		"blade-runner": {Ports: &Ports{Listen: 8217, MTLS: 8218}, Interface: []string{"mcp"}},
-		"hemera":       {},
+		"hemera":       {Ports: &Ports{Listen: 4318}, Interface: []string{"otlp"}},
 	}
 	if a, b := Stage(got), Stage(want); a != b {
 		t.Fatalf("ServiceFacts over the real tree =\n%s\nwant\n%s", a, b)
@@ -676,7 +665,8 @@ func TestInjectOverTheRealTreeAddsBladeRunnerAndHemera(t *testing.T) {
 		t.Fatal(err)
 	}
 	in.ServiceManifests = servicesSnapshot(t)
-	in.Shards = append(in.Shards, "fleet/stars/blade-runner/slag.json", "fleet/stars/hemera/slag.json")
+	in.Entries["fleet/repos/blade-runner.json"] = `{"name":"blade-runner"}`
+	in.Entries["fleet/repos/hemera.json"] = `{"name":"hemera"}`
 	after, err := Inject(in)
 	if err != nil {
 		t.Fatal(err)
@@ -695,7 +685,7 @@ func TestInjectOverTheRealTreeAddsBladeRunnerAndHemera(t *testing.T) {
 	if got := strings.Join(strings.Fields(string(a["blade-runner"])), ""); got != `{"ports":{"listen":8217,"mtls":8218},"interface":["mcp"]}` {
 		t.Errorf("blade-runner = %s", got)
 	}
-	if got := string(a["hemera"]); got != "{}" {
+	if got := strings.Join(strings.Fields(string(a["hemera"])), ""); got != `{"ports":{"listen":4318},"interface":["otlp"]}` {
 		t.Errorf("hemera = %s", got)
 	}
 }

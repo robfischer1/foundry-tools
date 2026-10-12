@@ -10,7 +10,7 @@ import (
 
 // dieTree is the smallest tree diesShape calls the policy die's source.
 func dieTree(extra map[string]string) map[string]string {
-	files := map[string]string{"policy/.manifest": "x", "fleet/stars/chaos/slag.json": "{\n  \"a\": 1\n}\n"}
+	files := map[string]string{"policy/.manifest": "x", "fleet/repos/chaos.json": "{\n  \"a\": 1\n}\n"}
 	for k, v := range extra {
 		files[k] = v
 	}
@@ -22,11 +22,11 @@ func TestDiesShape(t *testing.T) {
 		t.Run(id+" is absent off the die's source", func(t *testing.T) {
 			for name, files := range map[string]map[string]string{
 				"neither marker":    {"main.go": "x"},
-				"no manifest":       {"policy/rules.rego": "x", "fleet/stars/a/x": "x"},
-				"no stars":          {"policy/.manifest": "x", "fleet/other": "x"},
+				"no manifest":       {"policy/rules.rego": "x", "fleet/repos/a.json": "x"},
+				"no repos":          {"policy/.manifest": "x", "fleet/other": "x"},
 				"no fleet at all":   {"policy/.manifest": "x"},
-				"no policy at all":  {"fleet/stars/a/x": "x"},
-				"manifest is a dir": {"policy/.manifest/x": "x", "fleet/stars/a/x": "x"},
+				"no policy at all":  {"fleet/repos/a.json": "x"},
+				"manifest is a dir": {"policy/.manifest/x": "x", "fleet/repos/a.json": "x"},
 			} {
 				v := runAtom(t, id, treeIn(t, files))
 				if v.State != 0 || v.Result != absent {
@@ -52,15 +52,15 @@ func TestDiesCanonical(t *testing.T) {
 		result  string
 		needles []string
 	}{
-		{"a record that is its own canonical form passes", dieTree(nil), 0, pass, []string{"1 record(s) are each their own canonical form"}},
-		{"keys out of order diverge", dieTree(map[string]string{"fleet/stars/b/slag.json": "{\"b\": 1, \"a\": 2}\n"}), 1, findings,
-			[]string{"1 of 2 record(s)", "fleet/stars/b/slag.json: diverges from its canonical form"}},
-		{"a record that is not JSON is a finding", dieTree(map[string]string{"fleet/stars/b/slag.json": "{"}), 1, findings,
-			[]string{"fleet/stars/b/slag.json: not one JSON document"}},
-		{"no record at all grades nothing", map[string]string{"policy/.manifest": "x", "fleet/stars/a/other.json": "x"}, 2, cannot,
-			[]string{"carries no slag.json"}},
-		{"a record that will not read", map[string]string{"policy/.manifest": "x", "fleet/stars/a/slag.json/x": "x"}, 2, cannot,
-			[]string{"fleet/stars/a/slag.json/ could not be read"}},
+		{"a document that is its own canonical form passes", dieTree(nil), 0, pass, []string{"1 catalog document(s) are each their own canonical form"}},
+		{"keys out of order diverge", dieTree(map[string]string{"fleet/repos/b.json": "{\"b\": 1, \"a\": 2}\n"}), 1, findings,
+			[]string{"1 of 2 catalog document(s)", "fleet/repos/b.json: diverges from its canonical form"}},
+		{"a document that is not JSON is a finding", dieTree(map[string]string{"fleet/repos/b.json": "{"}), 1, findings,
+			[]string{"fleet/repos/b.json: not one JSON document"}},
+		{"no document at all grades nothing", map[string]string{"policy/.manifest": "x", "fleet/repos/a/other.json": "x"}, 2, cannot,
+			[]string{"carries no catalog entry"}},
+		{"a document that will not read", map[string]string{"policy/.manifest": "x", "fleet/repos/a.json/x": "x"}, 2, cannot,
+			[]string{"fleet/repos/a.json/ could not be read"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			expect(t, runAtom(t, id, treeIn(t, tc.files)), stateOf(tc.state), tc.result, tc.needles...)

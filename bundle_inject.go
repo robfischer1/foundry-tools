@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 
 	"dagger/foundry-tools/internal/buildlane"
 	"dagger/foundry-tools/internal/bundlelane"
@@ -11,8 +10,7 @@ import (
 )
 
 // inject reads what the fleet die serves beside the roster (slag-by-kind F8)
-// — the catalog entries, fleet/repos/<n>.json (fleet/stars/<n>.json until
-// the move lands), and foundry/flux's star and
+// — the catalog entries, fleet/repos/<n>.json, and foundry/flux's star and
 // data/ manifests — and hands them to bundlelane.Inject, which decides
 // data.fleet.declared and data.fleet.flux.
 //
@@ -21,7 +19,7 @@ import (
 // reads in one build cannot straddle a flux landing and a consumer can tell
 // which flux a fact came from. A flux change alone republishes nothing
 // (bundlelane.Publishes); the next fleet/ landing carries it.
-func (l *bundleLane) inject(ctx context.Context, data string, shards []string) (bundlelane.Injection, gateResult) {
+func (l *bundleLane) inject(ctx context.Context, data string) (bundlelane.Injection, gateResult) {
 	src := l.m.Source
 	bundleSay("── fleet: the catalog entries and the flux facts ──")
 	sha, err := dag.Git(checks.FluxRepo).Ref(checks.FluxRef).Commit(ctx)
@@ -39,7 +37,7 @@ func (l *bundleLane) inject(ctx context.Context, data string, shards []string) (
 			return bundlelane.Injection{}, findings(p + " is committed, and the lane writes it — the injected key would be overwritten without anyone seeing")
 		}
 	}
-	in := bundlelane.Inputs{FluxSHA: sha, Tier: data, Shards: shards}
+	in := bundlelane.Inputs{FluxSHA: sha, Tier: data}
 	for _, read := range []struct {
 		dir     *dagger.Directory
 		pattern string
@@ -66,22 +64,6 @@ func (l *bundleLane) inject(ctx context.Context, data string, shards []string) (
 		files, g := readGlob(ctx, read.dir, read.pattern)
 		if g.code != buildlane.Clean {
 			return bundlelane.Injection{}, g
-		}
-		if read.pattern == bundlelane.DeclaredGlob {
-			legacy, g := readGlob(ctx, read.dir, bundlelane.DeclaredLegacyGlob)
-			if g.code != buildlane.Clean {
-				return bundlelane.Injection{}, g
-			}
-			switch {
-			case len(files) > 0 && len(legacy) > 0:
-				// A catalog document at the old path would vanish silently:
-				// fleet/repos/ being non-empty turns the fallback off.
-				return bundlelane.Injection{}, findings(fmt.Sprintf("catalog entries sit at both %s (%d) and %s (%d) — the lane reads one place, so the other's documents would be dropped; move them to fleet/repos/", bundlelane.DeclaredGlob, len(files), bundlelane.DeclaredLegacyGlob, len(legacy)))
-			case len(files) == 0:
-				// fleet/repos/ has not landed in foundry-dies: the entries are
-				// still where F10 first put them.
-				files = legacy
-			}
 		}
 		*read.into = files
 	}

@@ -737,9 +737,8 @@ func TestRustReleaseReportsTheBinaryThatDidNotBuild(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	engine.withTree(map[string]string{
-		"Dockerfile":                    "FROM x\nCOPY release/a /a\nCOPY release/b /b\n",
-		".copier-answers.yml":           "service_name: a\n",
-		"/dies/fleet/stars/a/slag.json": `{"tools":{"build":{"binaries":["a","b"]}}}`,
+		"Dockerfile":          "FROM x\nCOPY release/a /a\nCOPY release/b /b\n",
+		".copier-answers.yml": "service_name: a\n",
 	})
 	engine.exitCode(`"-p","a"`, 101)
 	engine.stderr(`"-p","a"`, "error[E0425]: cannot find value `x` in this scope")

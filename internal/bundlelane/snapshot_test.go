@@ -41,10 +41,10 @@ func snapshot(t *testing.T) Inputs {
 		}
 		return out
 	}
-	in := Inputs{FluxSHA: testFluxSHA, Tier: `{"map":{}}`, StarManifests: read(StarManifestGlob), ClusterManifest: read(ClusterGlob)}
+	in := Inputs{FluxSHA: testFluxSHA, Tier: `{"map":{}}`, Entries: map[string]string{}, StarManifests: read(StarManifestGlob), ClusterManifest: read(ClusterGlob)}
 	for p := range in.StarManifests {
 		star := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(p), "star-"), ".yaml")
-		in.Shards = append(in.Shards, "fleet/stars/"+star+"/slag.json")
+		in.Entries["fleet/repos/"+star+".json"] = `{"name":"` + star + `"}`
 	}
 	return in
 }
@@ -137,7 +137,7 @@ func TestTheHTTPStarsDeriveTheSamePortsUnderEitherName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	renamed := Inputs{FluxSHA: in.FluxSHA, Tier: in.Tier, Shards: in.Shards, ClusterManifest: in.ClusterManifest, StarManifests: map[string]string{}}
+	renamed := Inputs{FluxSHA: in.FluxSHA, Tier: in.Tier, Entries: in.Entries, ClusterManifest: in.ClusterManifest, StarManifests: map[string]string{}}
 	for p, body := range in.StarManifests {
 		renamed.StarManifests[p] = body
 		for _, s := range httpStars {

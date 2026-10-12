@@ -82,10 +82,7 @@ func TestAKeyReadThatExitsWrongIsNotBelieved(t *testing.T) {
 // The keys read the closure under the databases' build tags, as the run does:
 // a DB-gated test file's imports are in the closure only under its tag.
 func TestTheClosureIsReadUnderTheRunsTags(t *testing.T) {
-	scriptGoMutation(map[string]string{
-		".copier-answers.yml":           "service_name: x\n",
-		"/dies/fleet/stars/x/slag.json": `{"backends":{"postgres":{}}}`,
-	})
+	scriptGoMutation(map[string]string{".copier-answers.yml": "service_name: x\n"})
 	engine.stdout(`"grep","-rhoE"`, "//go:build live_db\n")
 	runAtom(t, "go:mutation", "abc123")
 	wantCalls(t, engine.chain(depsNeedle, "stdout"), []string{"withExec", `"-test","-f"`, `"-tags","live_db","./..."`})

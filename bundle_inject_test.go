@@ -8,21 +8,19 @@ import (
 	"dagger/foundry-tools/internal/checks"
 )
 
-// catalogRoster is rosterData with a declared and a lean key, and the repos
-// rule's row for each: the Roster gate holds repos to that union unconditionally.
-// ares has no flux row, so it is a repo and not a star (F16).
-var catalogRoster = strings.Replace(strings.Replace(rosterData, `"declared":{}`, `"declared":{"athena":{}},"lean":{"ares":{}},"repos":{"athena":{},"ares":{}}`, 1),
-	`,"ares":{"name":"ares"}},"declared"`, `},"declared"`, 1)
-
-// athenaEntry is a catalog entry, fleet/stars/athena.json.
-const athenaEntry = `{"description":"Plans.","kind":"go","lifecycle":"production","name":"athena","repo":"rob/athena"}`
+// athenaEntry and aresEntry are catalog entries, fleet/repos/athena.json and
+// fleet/repos/ares.json.
+const (
+	athenaEntry = `{"description":"Plans.","kind":"go","lifecycle":"production","name":"athena","repo":"rob/athena"}`
+	aresEntry   = `{"description":"The model gateway.","kind":"go","lifecycle":"production","name":"ares","repo":"rob/ares"}`
+)
 
 // The fleet die serves the catalog entries and the facts flux states about
 // each known star, staged as the two data.json files opa build reads.
 func TestTheRosterServesTheCatalogEntriesAndTheFluxFacts(t *testing.T) {
-	m := bundleOn(t, map[string]string{"fleet/stars/athena.json": athenaEntry})
+	m := bundleOn(t, nil)
 	scriptAGreenBundle()
-	scriptTheFleetWith(catalogRoster)
+	scriptTheFleetWith(rosterData)
 	bundles(t, m)
 	settledOn(t, "0", "published and signed")
 
@@ -36,7 +34,7 @@ func TestTheRosterServesTheCatalogEntriesAndTheFluxFacts(t *testing.T) {
 	for _, want := range []string{
 		`\"athena\": {`, `\"listen\": 8200`, `\"mtls\": 8201`, `\"aether-db\"`, // the flux facts
 		`\"repo\": \"rob/athena\"`, `\"lifecycle\": \"production\"`, // the catalog entry
-		`stars/*.json`,                     // the entries reach the die only through the stage
+		`repos/*.json`,                     // the entries reach the die only through the stage
 		`\"sha\": \"` + fakeFluxSHA + `\"`, // the flux commit the facts were read at
 	} {
 		if !strings.Contains(stage, want) {
@@ -48,45 +46,23 @@ func TestTheRosterServesTheCatalogEntriesAndTheFluxFacts(t *testing.T) {
 	}
 }
 
-// The entries live at fleet/repos/<name>.json (F10). Until foundry-dies lands
-// the move they are still at fleet/stars/<name>.json, and the lane serves them
-// from there; where both hold entries the lane refuses (below).
-func TestTheCatalogEntriesAreReadFromReposThenFromStars(t *testing.T) {
-	for name, c := range map[string]struct {
-		tree   map[string]string
-		want   string
-		absent string
-	}{
-		"fleet/repos":  {map[string]string{"fleet/repos/athena.json": athenaEntry}, `\"repo\": \"rob/athena\"`, ""},
-		"fleet/stars":  {map[string]string{"fleet/stars/athena.json": athenaEntry}, `\"repo\": \"rob/athena\"`, ""},
-		"repos stages": {map[string]string{"fleet/repos/athena.json": athenaEntry}, `repos/*.json`, ""},
-	} {
-		t.Run(name, func(t *testing.T) {
-			m := bundleOn(t, c.tree)
-			scriptAGreenBundle()
-			scriptTheFleetWith(catalogRoster)
-			bundles(t, m)
-			settledOn(t, "0", "published and signed")
-			stage := engine.chain(`path:"fleet/declared/data.json"`, `path:".manifest"`)
-			if !strings.Contains(stage, c.want) {
-				t.Errorf("the stage lacks %s:\n%s", c.want, stage)
-			}
-			if c.absent != "" && strings.Contains(stage, c.absent) {
-				t.Errorf("the stage carries %s:\n%s", c.absent, stage)
-			}
-		})
-	}
-}
-
-func TestEntriesAtBothCatalogPathsFailLoudly(t *testing.T) {
-	m := bundleOn(t, map[string]string{
-		"fleet/repos/athena.json": athenaEntry,
-		"fleet/stars/ares.json":   `{"name":"ares","kind":"go"}`,
-	})
+// The entries live at fleet/repos/<name>.json (F10), and reach the die only
+// through the staged declared/data.json.
+func TestTheCatalogEntriesAreReadFromRepos(t *testing.T) {
+	m := bundleOn(t, nil)
 	scriptAGreenBundle()
+	scriptTheFleetWith(rosterData)
 	bundles(t, m)
-	settledOn(t, "1", "catalog entries sit at both fleet/repos/*.json (1) and fleet/stars/*.json (1)")
-	nothingPushed(t)
+	settledOn(t, "0", "published and signed")
+	stage := engine.chain(`path:"fleet/declared/data.json"`, `path:".manifest"`)
+	for _, want := range []string{`\"repo\": \"rob/athena\"`, `\"repo\": \"rob/ares\"`, `repos/*.json`} {
+		if !strings.Contains(stage, want) {
+			t.Errorf("the stage lacks %s:\n%s", want, stage)
+		}
+	}
+	if !strings.Contains(stage, `stars/**`) {
+		t.Errorf("a tree that still carries fleet/stars/ is not excluded from the stage:\n%s", stage)
+	}
 }
 
 func TestTheInjectionRefusesWhatWouldServeTheWrongFacts(t *testing.T) {
@@ -101,10 +77,10 @@ func TestTheInjectionRefusesWhatWouldServeTheWrongFacts(t *testing.T) {
 			"1", "fleet/data.json already sets data.fleet.flux"},
 		{"an injected file is committed", map[string]string{"fleet/flux/data.json": "{}"}, nil,
 			"1", "fleet/flux/data.json is committed"},
-		{"an entry named for another star", map[string]string{"fleet/stars/athena.json": `{"name":"ares"}`}, nil,
-			"1", `fleet/stars/athena.json: name must be \"athena\"`},
-		{"an entry that is not JSON", map[string]string{"fleet/stars/athena.json": "{"}, nil,
-			"1", "fleet/stars/athena.json is not one JSON object"},
+		{"an entry named for another star", map[string]string{"fleet/repos/athena.json": `{"name":"ares"}`}, nil,
+			"1", `fleet/repos/athena.json: name must be \"athena\"`},
+		{"an entry that is not JSON", map[string]string{"fleet/repos/athena.json": "{"}, nil,
+			"1", "fleet/repos/athena.json is not one JSON object"},
 		{"flux answers no star manifest", map[string]string{"/flux/prime/star-athena.yaml": "", "/flux/prime/star-svid-sidecar.yaml": ""}, nil,
 			"1", "foundry/flux answered no prime/star-*.yaml"},
 		{"a flux manifest that does not parse", map[string]string{"/flux/prime/star-athena.yaml": "kind: [unclosed"}, nil,
@@ -140,7 +116,6 @@ func TestAnInjectionReadTheEngineLostCouldNotRun(t *testing.T) {
 		"resolving flux main":      {`ref(name:"main"){commit}`, "foundry/flux main could not be resolved to a commit"},
 		"the committed-file probe": {`glob(pattern:"fleet/declared/data.json")`, "fleet/declared/data.json could not be probed"},
 		"the catalog entries":      {`glob(pattern:"fleet/repos/*.json")`, "fleet/repos/*.json could not be listed"},
-		"the legacy entries":       {`glob(pattern:"fleet/stars/*.json")`, "fleet/stars/*.json could not be listed"},
 		"flux's star manifests":    {`glob(pattern:"prime/star-*.yaml")`, "prime/star-*.yaml could not be listed"},
 		"flux's data/":             {`glob(pattern:"data/*.yaml")`, "data/*.yaml could not be listed"},
 		"flux's blades/":           {`glob(pattern:"blades/*.yaml")`, "blades/*.yaml could not be listed"},
@@ -166,45 +141,31 @@ func TestTheInjectedPathsAreDataFleetDeclaredAndFlux(t *testing.T) {
 	}
 }
 
-// A tree that carries fleet/derive.rego (slag-by-kind F9) gets its lean rows
-// staged at data.fleet.lean, out of the rule's path, and its derivation suite
-// run beside the policy's.
-func TestADerivingTreeStagesTheLeanRowsAsideAndTestsTheDerivation(t *testing.T) {
-	m := bundleOn(t, map[string]string{
-		checks.FleetDerive:             "package fleet",
-		"fleet/stars/athena/data.json": `{"name":"athena"}`,
-	})
+// A tree that carries fleet/derive.rego (slag-by-kind F9) has its derivation
+// suite run beside the policy's, and the roster graded as opa evaluates it.
+func TestADerivingTreeTestsTheDerivation(t *testing.T) {
+	m := bundleOn(t, map[string]string{checks.FleetDerive: "package fleet"})
 	scriptAGreenBundle()
 	said := sayings(t, func() { bundles(t, m) })
 	settledOn(t, "0", "published and signed")
 
-	stage := engine.chain(`"fleet/lean/athena/data.json"`, `path:".manifest"`)
-	if stage == "" {
-		t.Fatal("the lean row was not staged at fleet/lean/athena/data.json")
-	}
-	if !strings.Contains(stage, `stars/*/data.json`) {
-		t.Errorf("the lean rows still reach fleet/stars in the stage:\n%s", stage)
-	}
 	if engine.chain(`"opa","test","policy/","fleet/derive.rego","tests/fleet-derive/","-v"`) == "" {
 		t.Error("the policy re-gate did not test the derivation")
 	}
 	if engine.chain(`"opa","eval","-b","/work/fleet-bundle.tar.gz","--format","raw","data"`) == "" {
 		t.Error("the roster was not graded as opa evaluates it")
 	}
-	if !strings.Contains(said, "1 lean rows staged at data.fleet.lean") {
-		t.Errorf("the lane did not say where the lean rows went:\n%s", said)
+	if !strings.Contains(said, "derives data.fleet.stars and data.fleet.repos") {
+		t.Errorf("the lane did not say the roster is derived:\n%s", said)
 	}
 }
 
-// Without the file the stage keeps the lean rows where they were.
-func TestATreeWithoutTheDerivationKeepsItsLeanRowsInPlace(t *testing.T) {
-	m := bundleOn(t, map[string]string{"fleet/stars/athena/data.json": `{"name":"athena"}`})
+// Without the file the policy suite runs as before.
+func TestATreeWithoutTheDerivationRunsThePolicySuiteAlone(t *testing.T) {
+	m := bundleOn(t, nil)
 	scriptAGreenBundle()
 	bundles(t, m)
 	settledOn(t, "0", "published and signed")
-	if engine.chain(`"fleet/lean/`) != "" {
-		t.Error("a tree that does not derive had its lean rows moved")
-	}
 	if engine.chain(`"opa","test","policy/","-v"`) == "" {
 		t.Error("the policy suite did not run as before")
 	}
@@ -212,13 +173,6 @@ func TestATreeWithoutTheDerivationKeepsItsLeanRowsInPlace(t *testing.T) {
 
 func TestADerivingTreeRefusesWhatWouldHideTheRoster(t *testing.T) {
 	derive := map[string]string{checks.FleetDerive: "package fleet"}
-	t.Run("a committed fleet/lean", func(t *testing.T) {
-		m := bundleOn(t, map[string]string{checks.FleetDerive: "package fleet", "fleet/lean/athena/data.json": "{}"})
-		scriptAGreenBundle()
-		bundles(t, m)
-		settledOn(t, "1", "fleet/lean/ is committed")
-		nothingPushed(t)
-	})
 	t.Run("a roster that does not evaluate", func(t *testing.T) {
 		m := bundleOn(t, derive)
 		scriptAGreenBundle()
@@ -229,8 +183,6 @@ func TestADerivingTreeRefusesWhatWouldHideTheRoster(t *testing.T) {
 	})
 	for name, c := range map[string]struct{ needle, reason string }{
 		"the derivation probe":  {`glob(pattern:"fleet/derive.rego")`, "fleet/derive.rego could not be probed"},
-		"the fleet/lean probe":  {`glob(pattern:"fleet/lean/**")`, "fleet/lean/ could not be probed"},
-		"the lean rows listing": {`glob(pattern:"fleet/stars/*/data.json")`, "the lean rows could not be listed"},
 		"the roster evaluation": {`"--format","raw","data"`, "evaluating the built roster never ran"},
 	} {
 		t.Run(name, func(t *testing.T) {

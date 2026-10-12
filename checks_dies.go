@@ -20,7 +20,7 @@ import (
 // for the artifact.
 //
 // THE CONDITION IS THE TREE'S SHAPE, not its name: policy/.manifest and
-// fleet/stars/ together, because either alone is a name another repo could
+// fleet/repos/ together, because either alone is a name another repo could
 // reasonably take. Everywhere else these report ABSENT and say why.
 //
 // build.yml and fleet-bundle.yml are NOT here. They publish rather than

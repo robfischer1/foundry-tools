@@ -163,13 +163,17 @@ def test_the_schema_check_cannot_run_without_its_schema(tmp_path):
     # this atom could not look; before 2026-09-25 it left by an uncaught
     # raise, whose traceback exits 1 — indistinguishable from having found
     # something wrong with foundry-dies.
-    done = probe(schema_tree(tmp_path, **{V1: VALID}))
+    tree = schema_tree(tmp_path, **{V1: VALID})
+    add_record(tree, "hades", json.dumps({"meta": {"name": "hades"}}))
+    done = probe(tree)
     assert done.returncode == CANNOT_RUN, done.stdout + done.stderr
     assert "could not read schema/slag-v3.schema.json" in done.stderr
 
 
 def test_the_schema_check_cannot_run_without_the_v1_schema(tmp_path):
-    done = probe(schema_tree(tmp_path, **{V3: VALID}))
+    tree = schema_tree(tmp_path, **{V3: VALID})
+    add_record(tree, "hades", json.dumps({"meta": {"name": "hades"}}))
+    done = probe(tree)
     assert done.returncode == CANNOT_RUN, done.stdout + done.stderr
     assert "could not read schema/slag.schema.json" in done.stderr
 
@@ -197,13 +201,30 @@ def test_required_naming_an_undefined_property_is_a_finding(tmp_path):
     assert "required names properties that are not defined" in done.stderr
 
 
-def test_a_tree_with_no_records_cannot_run(tmp_path):
-    # ZERO RECORDS VALIDATED IS NOT EVERY RECORD VALID. The v2 half of this
+def test_a_tree_with_no_records_and_no_entries_cannot_run(tmp_path):
+    # ZERO DOCUMENTS VALIDATED IS NOT EVERY DOCUMENT VALID. The v2 half of this
     # check globbed *.slag, matched nothing, and passed on it for as long as
     # no one counted.
     done = probe(schema_tree(tmp_path, **{V1: VALID, V3: VALID}))
     assert done.returncode == CANNOT_RUN, done.stdout + done.stderr
-    assert "no record to validate" in done.stderr
+    assert "nothing to validate" in done.stderr
+
+
+def test_a_catalog_only_tree_needs_no_slag_schema(tmp_path):
+    # SLAG RETIRED (slag-by-kind F14): no records, no slag schemas, and the
+    # catalog alone is judged.
+    tree = schema_tree(tmp_path, **{CATALOG: VALID})
+    add_entry(tree, "hades", json.dumps({"name": "hades"}), where="repos")
+    done = probe(tree)
+    assert done.returncode == PASS, done.stdout + done.stderr
+    assert "1 catalog entry validated against schema/fleet-star.schema.json" in done.stdout
+
+
+def test_a_catalog_only_tree_still_refuses_a_bad_entry(tmp_path):
+    tree = schema_tree(tmp_path, **{CATALOG: VALID})
+    add_entry(tree, "hades", json.dumps({"name": "nyx"}), where="repos")
+    done = probe(tree)
+    assert done.returncode == FINDINGS, done.stdout + done.stderr
 
 
 def test_a_clean_schema_and_record_pass(tmp_path):
