@@ -120,11 +120,22 @@ func kmsTwinName(file string) string {
 	return strings.TrimSuffix(file, ".tar.gz") + "-kms.tar.gz"
 }
 
-// kmsTwin answers the KMS-signed twin of file in dual mode, and "" otherwise
-// (outside dual mode the KMS signs the twin itself, or nothing).
+// kmsTwin answers the file published under :signed-kms, or "" when none is.
+//
+// Dual mode: the KMS-signed COPY of the file-key twin. KMS-only mode: the twin
+// itself, already KMS-signed in place, so :signed and :signed-kms carry the SAME
+// bytes. ouranos reads :signed-kms, so dropping --opa-signing-key must not stop
+// that channel; :signed keeps being published (KMS-signed, no longer file-key)
+// for any reader still pinned to it. A dry run publishes nothing.
 func (l *bundleLane) kmsTwin(file string) string {
-	if !l.opaDual || l.dryRun {
+	if l.dryRun {
 		return ""
 	}
-	return kmsTwinName(file)
+	if l.opaDual {
+		return kmsTwinName(file)
+	}
+	if l.opaKmsOn {
+		return file
+	}
+	return ""
 }

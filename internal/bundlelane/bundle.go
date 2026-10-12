@@ -78,9 +78,9 @@ func Publishes(changed []string) (policy, fleet bool) {
 	return policy, fleet
 }
 
-// SignedKMSChannel is the channel the KMS-signed twin is published under in dual
-// mode (--opa-signing-key with --opa-kms), beside :signed, which the file key
-// still signs. ouranos polls :signed until a flux change moves it to this one.
+// SignedKMSChannel is the channel the KMS-signed twin is published under whenever
+// --opa-kms is given. With --opa-signing-key too, :signed stays file-key signed;
+// alone, :signed carries the same KMS-signed bytes. ouranos polls this channel.
 const SignedKMSChannel = "signed-kms"
 
 // Pin is a die's immutable tag for a commit: g and the commit's first seven.

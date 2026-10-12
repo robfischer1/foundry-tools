@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -339,4 +340,33 @@ func TestOpaKMSDualFailsWhenTheKMSTwinCannotBePushed(t *testing.T) {
 		t.Fatalf("bundle: %v", err)
 	}
 	settledOn(t, "1", "findings in oras push")
+}
+
+// With --opa-kms alone the KMS signs the twins in place, and the SAME KMS-signed
+// bytes go out on both :signed and :signed-kms: ouranos reads :signed-kms, so
+// dropping the file key must not stop that channel.
+func TestOpaKMSAlonePublishesTheSignedKMSChannelToo(t *testing.T) {
+	m := bundleOn(t, nil)
+	scriptAGreenBundle()
+	engine.stdout(`"public-key"`, kmsPublicPEM(t))
+	engine.stdout(`"sign-blob"`, "MEUCIQDfake")
+	said := sayings(t, func() {
+		if err := bundlesWithOpaKMS(m, false, dag.SetSecret("kms-token", saToken)); err != nil {
+			t.Fatalf("bundle: %v", err)
+		}
+	})
+	settledOn(t, "0", "published and signed")
+	for _, f := range []string{"bundle-signed.tar.gz", "fleet-bundle-signed.tar.gz"} {
+		if engine.chain(`"cp"`, `"/work/`+f+`"`) != "" {
+			t.Errorf("%s was copied; alone, the twin is signed in place", f)
+		}
+	}
+	for _, tag := range []string{`"signed"`, `"signed-kms"`} {
+		if engine.chain(`"tag"`, tag) == "" {
+			t.Errorf("no channel %s was moved", tag)
+		}
+	}
+	if !regexp.MustCompile(`pushed \S+:g\w+-signed-kms\b`).MatchString(said) {
+		t.Errorf("nothing was pushed on a -signed-kms pin:\n%s", said)
+	}
 }

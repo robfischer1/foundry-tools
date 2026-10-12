@@ -100,8 +100,8 @@ func (m *FoundryTools) Bundle(
 	// same ServiceAccount token as --kms (and, without ?identity=, the same
 	// machine identity). The twins are built with a throwaway key, then their
 	// signature is replaced by the KMS's and verified the way ouranos verifies
-	// it. Alone, --opa-signing-key is neither required nor read and the KMS key
-	// signs :signed. WITH --opa-signing-key it is DUAL: the file key signs
+	// it. Alone, --opa-signing-key is neither required nor read; the KMS key signs
+	// :signed AND the same bytes are published as :signed-kms. WITH --opa-signing-key it is DUAL: the file key signs
 	// :signed unchanged and the KMS key signs a copy published as :signed-kms.
 	// Empty means the file key, unchanged.
 	// +optional
@@ -442,7 +442,7 @@ func (l *bundleLane) policy(ctx context.Context, tools *dagger.Container) (*dagg
 	if g := twin(ctx, built, "bundle.tar.gz", "bundle-signed.tar.gz", "the signed bundle"); g.code != buildlane.Clean {
 		return nil, g
 	}
-	if kms := l.kmsTwin("bundle-signed.tar.gz"); kms != "" {
+	if kms := l.kmsTwin("bundle-signed.tar.gz"); kms != "" && kms != "bundle-signed.tar.gz" {
 		if g := twin(ctx, built, "bundle.tar.gz", kms, "the KMS-signed bundle"); g.code != buildlane.Clean {
 			return nil, g
 		}
@@ -577,7 +577,7 @@ func (l *bundleLane) fleet(ctx context.Context, built *dagger.Container) (*dagge
 	if g := twin(ctx, built, "fleet-bundle.tar.gz", "fleet-bundle-signed.tar.gz", "the signed roster"); g.code != buildlane.Clean {
 		return nil, g
 	}
-	if kms := l.kmsTwin("fleet-bundle-signed.tar.gz"); kms != "" {
+	if kms := l.kmsTwin("fleet-bundle-signed.tar.gz"); kms != "" && kms != "fleet-bundle-signed.tar.gz" {
 		if g := twin(ctx, built, "fleet-bundle.tar.gz", kms, "the KMS-signed roster"); g.code != buildlane.Clean {
 			return nil, g
 		}
@@ -642,7 +642,7 @@ func (l *bundleLane) fleet(ctx context.Context, built *dagger.Container) (*dagge
 // publishDie pushes one die's two artifacts — the immutable pin, then its
 // channel — and signs both by digest.
 //
-// kmsSigned names the KMS-signed twin, or is empty outside dual mode: it is
+// kmsSigned names the KMS-signed twin, or is empty without --opa-kms: it is
 // pushed under its own pin and channel (bundlelane.SignedKMSChannel) and signed
 // by digest like the others, and nothing about :signed changes.
 func (l *bundleLane) publishDie(ctx context.Context, built *dagger.Container, die, pin, revision, plain, signed, kmsSigned string) ([]string, gateResult) {
