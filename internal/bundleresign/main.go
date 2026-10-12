@@ -10,6 +10,10 @@ const usage = `usage:
   bundleresign input <bundle.tar.gz> <keyid>           print the header.payload a KMS signs
   bundleresign apply <bundle.tar.gz> <keyid> <sigfile>  write the KMS's base64 DER signature into the bundle, in place`
 
+// writeFile is os.WriteFile, a variable so a test can fail it: as root no
+// permission does.
+var writeFile = os.WriteFile
+
 // Main is bundleresign's process.
 func Main(args []string, stdout, stderr io.Writer) int {
 	fail := func(err error) int {
@@ -41,11 +45,7 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		if err != nil {
 			return fail(err)
 		}
-		tmp := args[1] + ".resigned"
-		if err := os.WriteFile(tmp, out, 0o600); err != nil {
-			return fail(err)
-		}
-		if err := os.Rename(tmp, args[1]); err != nil {
+		if err := writeFile(args[1], out, 0o600); err != nil {
 			return fail(err)
 		}
 		return 0

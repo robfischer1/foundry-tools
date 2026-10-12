@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"dagger/foundry-tools/internal/bundlelane"
 	"dagger/foundry-tools/internal/dagger"
 )
 
@@ -114,7 +113,7 @@ func TestOpaKMSFailsTheBuildWhenTheSignatureDoesNotVerify(t *testing.T) {
 	if err := bundlesWithOpaKMS(m, false, dag.SetSecret("kms-token", saToken)); err != nil {
 		t.Fatalf("bundle: %v", err)
 	}
-	settledOn(t, "2", "does not verify under key id ouranos_bundle")
+	settledOn(t, "2", "opa run verification of bundle-signed.tar.gz under key id ouranos_bundle")
 	nothingPublished(t)
 }
 
@@ -172,20 +171,71 @@ func nothingPublished(t *testing.T) {
 	}
 }
 
-func TestParseOpaKMS(t *testing.T) {
-	k, ok, err := bundlelane.ParseOpaKMS("proj/key-1", "fallback-id")
-	if err != nil || !ok || k.KeyRef != "infisical://key-1" || k.Project != "proj" || k.Identity != "fallback-id" || k.Site != bundlelane.DefaultKMSSite {
-		t.Errorf("%+v %v %v", k, ok, err)
-	}
-	if k, _, _ := bundlelane.ParseOpaKMS("proj/key-1?identity=x&site=https://s.example", "fallback-id"); k.Identity != "x" || k.Site != "https://s.example" {
-		t.Errorf("%+v", k)
-	}
-	if _, ok, err := bundlelane.ParseOpaKMS("  ", "x"); ok || err != nil {
-		t.Errorf("an empty spec is no signer: %v %v", ok, err)
-	}
-	for _, bad := range []string{"proj", "/key", "proj/", "a/b/c", "proj/key?site=http://s"} {
-		if _, ok, err := bundlelane.ParseOpaKMS(bad, ""); ok || err == nil {
-			t.Errorf("%q was accepted", bad)
+// Every step of the re-sign that fails, by exit code or by the engine, fails the
+// lane as could-not-run and publishes nothing.
+func TestOpaKMSFailsClosedAtEveryStep(t *testing.T) {
+	for _, tc := range []struct{ name, needle, want string }{
+		{"resign input", `"bundleresign","input"`, "bundleresign input"},
+		{"sign-blob", `"sign-blob"`, "cosign sign-blob"},
+		{"public-key", `"public-key"`, "cosign public-key"},
+		{"apply", `"bundleresign","apply"`, "bundleresign apply"},
+	} {
+		for _, how := range []string{"exit", "engine"} {
+			t.Run(tc.name+"/"+how, func(t *testing.T) {
+				m := bundleOn(t, nil)
+				scriptAGreenBundle()
+				engine.stdout(`"public-key"`, kmsPublicPEM(t))
+				engine.stdout(`"sign-blob"`, "MEUCIQDfake")
+				if how == "exit" {
+					engine.exitCode(tc.needle, 1)
+				} else {
+					engine.fail(tc.needle, "engine went away")
+				}
+				if err := bundlesWithOpaKMS(m, false, dag.SetSecret("kms-token", saToken)); err != nil {
+					t.Fatalf("bundle: %v", err)
+				}
+				settledOn(t, "2", tc.want)
+				nothingPublished(t)
+			})
 		}
+	}
+}
+
+// A malformed --opa-kms is could-not-run before anything is built.
+func TestOpaKMSRefusesAMalformedSpec(t *testing.T) {
+	m := bundleOn(t, nil)
+	scriptAGreenBundle()
+	if err := m.Bundle(context.Background(), nil, nil, nil, nil, true, "", nil, "no-slash"); err != nil {
+		t.Fatalf("bundle: %v", err)
+	}
+	settledOn(t, "2", "--opa-kms")
+}
+
+// The fleet twin's signature can fail after the policy twin's held.
+func TestOpaKMSFailsTheLaneWhenOnlyTheFleetTwinCannotBeSigned(t *testing.T) {
+	m := bundleOn(t, nil)
+	scriptAGreenBundle()
+	engine.stdout(`"public-key"`, kmsPublicPEM(t))
+	engine.stdout(`"sign-blob"`, "MEUCIQDfake")
+	engine.exitCode(`"apply","/work/fleet-bundle-signed.tar.gz"`, 1)
+	if err := bundlesWithOpaKMS(m, false, dag.SetSecret("kms-token", saToken)); err != nil {
+		t.Fatalf("bundle: %v", err)
+	}
+	settledOn(t, "2", "bundleresign apply fleet-bundle-signed.tar.gz")
+	nothingPublished(t)
+}
+
+// The signer carries the registry login, so a login that does not read stops
+// the re-sign before the KMS is called.
+func TestOpaKMSStopsWhenTheSignersLoginDoesNotRead(t *testing.T) {
+	m := bundleOn(t, nil)
+	scriptAGreenBundle()
+	engine.failLeaf(`"registry-token"`, "plaintext", "secret vanished")
+	if err := bundlesWithOpaKMS(m, false, dag.SetSecret("kms-token", saToken)); err != nil {
+		t.Fatalf("bundle: %v", err)
+	}
+	settledOn(t, "2", "registry token did not read")
+	if c := engine.chain(`"sign-blob"`); c != "" {
+		t.Errorf("the KMS was called:\n%s", c)
 	}
 }

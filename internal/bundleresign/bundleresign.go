@@ -87,14 +87,13 @@ func parse(sigs []byte) (jws, error) {
 
 // compactJSON marshals without HTML escaping, which Go does by default and
 // which would change bytes nothing asked it to.
-func compactJSON(v any) ([]byte, error) {
+// Its inputs are decoded JSON, which always encodes, so it has no error.
+func compactJSON(v any) []byte {
 	var b bytes.Buffer
 	enc := json.NewEncoder(&b)
 	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
-		return nil, err
-	}
-	return bytes.TrimRight(b.Bytes(), "\n"), nil
+	_ = enc.Encode(v)
+	return bytes.TrimRight(b.Bytes(), "\n")
 }
 
 var b64 = base64.RawURLEncoding
@@ -127,10 +126,6 @@ func SigningInput(tgz []byte, keyID string) (string, error) {
 		return "", fmt.Errorf("the JWS header says alg %q, this re-signs ES256 only", alg)
 	}
 	hdr["kid"] = keyID
-	newHdr, err := compactJSON(hdr)
-	if err != nil {
-		return "", err
-	}
 	payRaw, err := b64.DecodeString(tok.payload)
 	if err != nil {
 		return "", fmt.Errorf("the JWS payload is not base64url: %w", err)
@@ -143,14 +138,9 @@ func SigningInput(tgz []byte, keyID string) (string, error) {
 		return "", errors.New("the JWS payload lists no files")
 	}
 	if _, ok := pay["keyid"]; ok {
-		q, _ := json.Marshal(keyID)
-		pay["keyid"] = q
+		pay["keyid"] = compactJSON(keyID)
 	}
-	newPay, err := compactJSON(pay)
-	if err != nil {
-		return "", err
-	}
-	return b64.EncodeToString(newHdr) + "." + b64.EncodeToString(newPay), nil
+	return b64.EncodeToString(compactJSON(hdr)) + "." + b64.EncodeToString(compactJSON(pay)), nil
 }
 
 // DERToRS converts an ASN.1 DER ECDSA signature (SEQUENCE { r, s }) to the
@@ -184,8 +174,9 @@ func DERToRS(der []byte) ([]byte, error) {
 
 // SignaturesJSON answers a .signatures.json carrying the one token, in the
 // layout OPA writes.
-func SignaturesJSON(token string) ([]byte, error) {
-	return json.MarshalIndent(signatureFile{Signatures: []string{token}}, "", " ")
+func SignaturesJSON(token string) []byte {
+	out, _ := json.MarshalIndent(signatureFile{Signatures: []string{token}}, "", " ") // a string list always encodes
+	return out
 }
 
 // Apply answers the bundle with its .signatures.json replaced by one signed by
@@ -204,11 +195,13 @@ func Apply(tgz []byte, keyID, derB64 string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	sigs, err := SignaturesJSON(input + "." + b64.EncodeToString(rs))
-	if err != nil {
-		return nil, err
-	}
-	return ReplaceMember(tgz, SignaturesMember, sigs)
+	return ReplaceMember(tgz, SignaturesMember, SignaturesJSON(input+"."+b64.EncodeToString(rs)))
+}
+
+// entry is one tar member: its header, as read, and its body.
+type entry struct {
+	h    *tar.Header
+	body []byte
 }
 
 // ReplaceMember answers tgz with the named member's body replaced. Order and
@@ -220,9 +213,7 @@ func ReplaceMember(tgz []byte, name string, body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("the bundle is not gzip: %w", err)
 	}
 	tr := tar.NewReader(zr)
-	var out bytes.Buffer
-	zw := gzip.NewWriter(&out)
-	tw := tar.NewWriter(zw)
+	var entries []entry
 	found := false
 	for {
 		h, err := tr.Next()
@@ -234,28 +225,39 @@ func ReplaceMember(tgz []byte, name string, body []byte) ([]byte, error) {
 		}
 		content, err := io.ReadAll(tr)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("the bundle is cut off inside %s: %w", h.Name, err)
 		}
 		if norm(h.Name) == norm(name) {
 			found = true
 			content = body
 			h.Size = int64(len(body))
 		}
-		if err := tw.WriteHeader(h); err != nil {
-			return nil, err
-		}
-		if _, err := tw.Write(content); err != nil {
-			return nil, err
-		}
+		entries = append(entries, entry{h, content})
 	}
 	if !found {
 		return nil, errors.New("the bundle carries no " + name)
 	}
-	if err := tw.Close(); err != nil {
-		return nil, err
+	return encode(entries)
+}
+
+// encode writes the members as a gzip tar, in order. The first write error is
+// the one answered.
+func encode(entries []entry) ([]byte, error) {
+	var out bytes.Buffer
+	zw := gzip.NewWriter(&out)
+	tw := tar.NewWriter(zw)
+	var first error
+	keep := func(err error) {
+		if first == nil {
+			first = err
+		}
 	}
-	if err := zw.Close(); err != nil {
-		return nil, err
+	for _, e := range entries {
+		keep(tw.WriteHeader(e.h))
+		_, err := tw.Write(e.body)
+		keep(err)
 	}
-	return out.Bytes(), nil
+	keep(tw.Close())
+	keep(zw.Close())
+	return out.Bytes(), first
 }

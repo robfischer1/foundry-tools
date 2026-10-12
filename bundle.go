@@ -193,6 +193,12 @@ func (l *bundleLane) run(ctx context.Context) (int, string) {
 	}
 	l.kms, l.kmsOn = kms, kmsOn
 	l.opaKms, l.opaKmsOn = opaKms, opaKmsOn
+	if opaKmsOn {
+		// The long-lived key is not read at all: OPA needs SOME key to compute
+		// the file hashes and the canonical payload, and the signature it makes
+		// is replaced by the KMS's (resignOpa). signingKey then mints a throwaway.
+		l.opaSigningKey = nil
+	}
 	pin, err := bundlelane.Pin(m.Sha)
 	if err != nil {
 		return buildlane.CouldNotRun, err.Error()
@@ -286,25 +292,22 @@ func (l *bundleLane) run(ctx context.Context) (int, string) {
 	return buildlane.Clean, "clean: gated both dies; published and signed " + strings.Join(published, ", ")
 }
 
+// ephemeralWhy says why the twins are built with a throwaway key.
+func (l *bundleLane) ephemeralWhy() string {
+	if l.opaKmsOn {
+		return "opa (--opa-kms: " + l.opaKms.KeyRef + " in project " + l.opaKms.Project + " signs instead)"
+	}
+	return "dry run"
+}
+
 // signingKey answers the ES256 key the twins are built with, as a secret.
 func (l *bundleLane) signingKey(ctx context.Context) (*dagger.Secret, gateResult) {
-	if l.opaKmsOn {
-		// The long-lived key is not read at all: OPA needs SOME key to compute
-		// the file hashes and the canonical payload, and the signature it makes
-		// is replaced by the KMS's (resignOpa).
-		key, err := bundlelane.EphemeralKey()
-		if err != nil {
-			return nil, couldNotRun("--opa-kms: the build-time throwaway key could not be minted: %v", err)
-		}
-		bundleSay("opa: twins are built with a throwaway P-256 key; their signature is replaced by %s in project %s", l.opaKms.KeyRef, l.opaKms.Project)
-		return dag.SetSecret("bundle-opa-ephemeral-key-"+l.stamp, key), clean()
-	}
 	if l.opaSigningKey == nil {
 		key, err := bundlelane.EphemeralKey()
 		if err != nil {
 			return nil, couldNotRun("no OPA signing key, and an ephemeral one could not be minted: %v", err)
 		}
-		bundleSay("dry run: minted an EPHEMERAL P-256 signing key; the twins are built and gated for real, their signatures are throwaway")
+		bundleSay("%s: minted an EPHEMERAL P-256 signing key; the twins are built and gated for real, their signatures are throwaway", l.ephemeralWhy())
 		return dag.SetSecret("bundle-opa-ephemeral-key-"+l.stamp, key), clean()
 	}
 	encoded, err := l.opaSigningKey.Plaintext(ctx)

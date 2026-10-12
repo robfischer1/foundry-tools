@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"strings"
 
 	"dagger/foundry-tools/internal/buildlane"
 	"dagger/foundry-tools/internal/bundlelane"
@@ -44,38 +43,26 @@ func (l *bundleLane) resignOpa(ctx context.Context, built *dagger.Container, fil
 	path := workDir + "/" + file
 	built = built.WithFile("/usr/local/bin/bundleresign", helperBinary("bundleresign"), dagger.ContainerWithFileOpts{Permissions: 0o755})
 
-	input, code, g := exec(ctx, built, "bundleresign input "+file, "bundleresign", "input", path, bundlelane.OPAKeyID)
+	input, g := stepOut(ctx, built.WithExec([]string{"bundleresign", "input", path, bundlelane.OPAKeyID}, anyExit), "bundleresign input "+file)
 	if g.code != buildlane.Clean {
 		return nil, g
 	}
-	if code != 0 {
-		c, why := buildlane.ToolFailed("bundleresign input "+file, input)
-		return nil, gateResult{c, why}
-	}
-
 	cosign, g := l.cosign(ctx)
 	if g.code != buildlane.Clean {
 		return nil, g
 	}
 	signer := l.kmsSignerFor(cosign, l.opaKms)
 	// stdout is the base64 DER signature and nothing else; the log is stderr.
-	sig, code, err := output(ctx, signer.
+	sig, g := stepOut(ctx, signer.
 		WithNewFile("/in/signing-input", input).
-		WithExec([]string{"sign-blob", "--key", l.opaKms.KeyRef, "--yes", "--use-signing-config=false", "/in/signing-input"}, entrypointAnyExit))
-	if err != nil {
-		return nil, couldNotRun("cosign sign-blob never ran for %s: %v", file, err)
+		WithExec([]string{"sign-blob", "--key", l.opaKms.KeyRef, "--yes", "--use-signing-config=false", "/in/signing-input"}, entrypointAnyExit),
+		"cosign sign-blob "+l.opaKms.KeyRef)
+	if g.code != buildlane.Clean {
+		return nil, g
 	}
-	if code != 0 {
-		c, why := buildlane.ToolFailed("cosign sign-blob "+l.opaKms.KeyRef, sig)
-		return nil, gateResult{c, why}
-	}
-	pub, code, err := output(ctx, signer.WithExec([]string{"public-key", "--key", l.opaKms.KeyRef}, entrypointAnyExit))
-	if err != nil {
-		return nil, couldNotRun("cosign public-key never ran for %s: %v", l.opaKms.KeyRef, err)
-	}
-	if code != 0 {
-		c, why := buildlane.ToolFailed("cosign public-key "+l.opaKms.KeyRef, pub)
-		return nil, gateResult{c, why}
+	pub, g := stepOut(ctx, signer.WithExec([]string{"public-key", "--key", l.opaKms.KeyRef}, entrypointAnyExit), "cosign public-key "+l.opaKms.KeyRef)
+	if g.code != buildlane.Clean {
+		return nil, g
 	}
 	if err := bundlelane.CheckOpaPublicKey(pub); err != nil {
 		return nil, couldNotRun("%s: %v", l.opaKms.KeyRef, err)
@@ -84,13 +71,8 @@ func (l *bundleLane) resignOpa(ctx context.Context, built *dagger.Container, fil
 	applied := built.
 		WithNewFile(workDir+"/opa-kms.sig", sig).
 		WithExec([]string{"bundleresign", "apply", path, bundlelane.OPAKeyID, workDir + "/opa-kms.sig"}, anyExit)
-	out, code, err := output(ctx, applied)
-	if err != nil {
-		return nil, couldNotRun("bundleresign apply never ran for %s: %v", file, err)
-	}
-	if code != 0 {
-		c, why := buildlane.ToolFailed("bundleresign apply "+file, out)
-		return nil, gateResult{c, why}
+	if _, g := stepOut(ctx, applied, "bundleresign apply "+file); g.code != buildlane.Clean {
+		return nil, g
 	}
 
 	// THE GATE: load it the way ouranos does. stdin is one query; a bundle whose
@@ -98,14 +80,24 @@ func (l *bundleLane) resignOpa(ctx context.Context, built *dagger.Container, fil
 	verify := applied.
 		WithNewFile(workDir+"/opa-kms.pub", pub+"\n").
 		WithExec(bundlelane.VerifyArgs(workDir+"/opa-kms.pub", path), dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny, Stdin: "true\n"})
-	out, code, err = outputBoth(ctx, verify)
-	if err != nil {
-		return nil, couldNotRun("opa run never verified %s: %v", file, err)
-	}
-	if code != 0 {
-		return nil, couldNotRun("%s carries a KMS signature that does not verify under key id %s — ouranos would load nothing from it:\n%s",
-			file, bundlelane.OPAKeyID, strings.TrimSpace(out))
+	if _, g := stepOut(ctx, verify, "opa run verification of "+file+" under key id "+bundlelane.OPAKeyID); g.code != buildlane.Clean {
+		return nil, g
 	}
 	bundleSay("%s: signed by %s and verified under key id %s", file, l.opaKms.KeyRef, bundlelane.OPAKeyID)
 	return applied, clean()
+}
+
+// stepOut runs one step of the re-sign and answers what it printed. A step that
+// would not run or exited non-zero is could-not-run: nothing here is a claim
+// about the tree, and a twin that was not signed or does not verify publishes
+// nothing.
+func stepOut(ctx context.Context, ctr *dagger.Container, what string) (string, gateResult) {
+	out, code, err := output(ctx, ctr)
+	if err != nil {
+		return "", couldNotRun("%s never ran: %v", what, err)
+	}
+	if code != 0 {
+		return "", couldNotRun("%s failed (exit %d), so the twin is not signed by the KMS key:\n%s", what, code, out)
+	}
+	return out, clean()
 }

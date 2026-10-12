@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"math/big"
 	"os"
@@ -348,12 +349,132 @@ func TestMainInputAndApplyInPlace(t *testing.T) {
 	if len(sf.Signatures) != 1 || !verifyJWS(sf.Signatures[0], &kms.key.PublicKey) {
 		t.Errorf("the bundle on disk does not carry the KMS signature: %q", bodies["/.signatures.json"])
 	}
-	if _, err := os.Stat(bundle + ".resigned"); err == nil {
-		t.Error("the temp file was left behind")
-	}
 	for _, args := range [][]string{nil, {"input"}, {"sign", bundle, "k"}, {"apply", bundle, "k"}, {"input", filepath.Join(dir, "missing"), "k"}} {
 		if rc := Main(args, io.Discard, io.Discard); rc == 0 {
 			t.Errorf("%v exited 0", args)
 		}
+	}
+}
+
+// A token that is damaged at each layer is refused at that layer.
+func TestSigningInputRefusesADamagedToken(t *testing.T) {
+	good := b64.EncodeToString([]byte(`{"alg":"ES256","kid":"default"}`))
+	pay := b64.EncodeToString([]byte(`{"files":[],"keyid":"default"}`))
+	for name, token := range map[string]string{
+		"header not base64": "!!." + pay + ".x",
+		"header not JSON":   b64.EncodeToString([]byte("nope")) + "." + pay + ".x",
+		"payload not b64":   good + ".!!.x",
+		"payload not JSON":  good + "." + b64.EncodeToString([]byte("[1]")) + ".x",
+		"payload no files":  good + "." + b64.EncodeToString([]byte(`{"keyid":"d"}`)) + ".x",
+	} {
+		files := sources()
+		files["/.signatures.json"] = `{"signatures":["` + token + `"]}`
+		b := tarOf(t, []string{"/data.json", "/.signatures.json"}, files, 0o600)
+		if _, err := SigningInput(b, "k"); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+	// A payload with no keyid claim is still signed; only the header kid is set.
+	files := sources()
+	files["/.signatures.json"] = `{"signatures":["` + good + "." + b64.EncodeToString([]byte(`{"files":[]}`)) + `.x"]}`
+	b := tarOf(t, []string{"/data.json", "/.signatures.json"}, files, 0o600)
+	in, err := SigningInput(b, "k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pb, _ := b64.DecodeString(strings.Split(in, ".")[1])
+	if strings.Contains(string(pb), "keyid") {
+		t.Errorf("a keyid claim was invented: %s", pb)
+	}
+}
+
+func TestATarballThatIsNotATarIsRefused(t *testing.T) {
+	var gz bytes.Buffer
+	zw := gzip.NewWriter(&gz)
+	zw.Write(bytes.Repeat([]byte{0xAB}, 1024))
+	zw.Close()
+	if _, err := ReadSignatures(gz.Bytes()); err == nil {
+		t.Error("ReadSignatures accepted a gzip of noise")
+	}
+	if _, err := ReplaceMember(gz.Bytes(), SignaturesMember, nil); err == nil {
+		t.Error("ReplaceMember accepted a gzip of noise")
+	}
+	if _, err := ReplaceMember([]byte("plain"), SignaturesMember, nil); err == nil {
+		t.Error("ReplaceMember accepted a file that is not gzip")
+	}
+	// A tar cut off inside a member body.
+	tgz, _ := fakeBundle(t, sources())
+	zr, _ := gzip.NewReader(bytes.NewReader(tgz))
+	raw, _ := io.ReadAll(zr)
+	var cut bytes.Buffer
+	zw = gzip.NewWriter(&cut)
+	zw.Write(raw[:600])
+	zw.Close()
+	if _, err := ReplaceMember(cut.Bytes(), SignaturesMember, nil); err == nil {
+		t.Error("ReplaceMember accepted a truncated tar")
+	}
+	if _, err := ReadSignatures(cut.Bytes()); err == nil {
+		t.Error("ReadSignatures accepted a truncated tar")
+	}
+	if _, err := Apply(cut.Bytes(), "k", "AA=="); err == nil {
+		t.Error("Apply accepted a truncated tar")
+	}
+}
+
+func TestMainReportsUnreadableInputs(t *testing.T) {
+	tgz, _ := fakeBundle(t, sources())
+	dir := t.TempDir()
+	bundle := filepath.Join(dir, "b.tar.gz")
+	os.WriteFile(bundle, tgz, 0o600)
+	notDER := filepath.Join(dir, "sig")
+	os.WriteFile(notDER, []byte("***"), 0o600)
+	var errb bytes.Buffer
+	for name, args := range map[string][]string{
+		"missing signature file": {"apply", bundle, "k", filepath.Join(dir, "nope")},
+		"signature not base64":   {"apply", bundle, "k", notDER},
+		"empty key id":           {"input", bundle, ""},
+	} {
+		errb.Reset()
+		if rc := Main(args, io.Discard, &errb); rc != 1 || !strings.Contains(errb.String(), "bundleresign:") {
+			t.Errorf("%s: rc %d, stderr %q", name, rc, errb.String())
+		}
+	}
+}
+
+func TestApplyInPlaceReportsAWriteThatFails(t *testing.T) {
+	tgz, _ := fakeBundle(t, sources())
+	dir := t.TempDir()
+	bundle := filepath.Join(dir, "b.tar.gz")
+	os.WriteFile(bundle, tgz, 0o600)
+	kms := newFakeKMS(t)
+	in, _ := SigningInput(tgz, "k")
+	sig := filepath.Join(dir, "sig")
+	os.WriteFile(sig, []byte(kms.sign(t, in)), 0o600)
+	writeFile = func(string, []byte, os.FileMode) error { return errors.New("disk full") }
+	t.Cleanup(func() { writeFile = os.WriteFile })
+	var errb bytes.Buffer
+	if rc := Main([]string{"apply", bundle, "k", sig}, io.Discard, &errb); rc != 1 || !strings.Contains(errb.String(), "disk full") {
+		t.Errorf("rc %d, stderr %q", rc, errb.String())
+	}
+}
+
+func TestEncodeAnswersTheFirstWriteError(t *testing.T) {
+	// A header that claims more bytes than its body holds cannot be written.
+	bad := entry{&tar.Header{Name: "x", Size: 10, Mode: 0o600}, []byte("short")}
+	if _, err := encode([]entry{bad}); err == nil {
+		t.Error("a short body was written")
+	}
+}
+
+func TestATarCutOffInsideABodyIsRefused(t *testing.T) {
+	tgz, _ := fakeBundle(t, sources())
+	zr, _ := gzip.NewReader(bytes.NewReader(tgz))
+	raw, _ := io.ReadAll(zr)
+	var cut bytes.Buffer
+	zw := gzip.NewWriter(&cut)
+	zw.Write(raw[:515]) // the first header, then three bytes of its body
+	zw.Close()
+	if _, err := ReplaceMember(cut.Bytes(), SignaturesMember, nil); err == nil || !strings.Contains(err.Error(), "cut off") {
+		t.Errorf("ReplaceMember: %v", err)
 	}
 }
