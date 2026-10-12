@@ -154,6 +154,11 @@ func (m *FoundryTools) GateFile(
 	// that one is.
 	// +optional
 	rideToken *dagger.Secret,
+	// The audience of a JWT-SVID the visual push logs in with, fetched from
+	// --spire's socket just before the push, in place of --artifact-auth.
+	// Absent, or without --spire, --artifact-auth logs in exactly as before.
+	// +optional
+	registrySvid string,
 ) (*dagger.File, error) {
 	if reuse && recordToken != nil {
 		m.lookup = lookupVia(m.Repo, recordToken)
@@ -161,6 +166,7 @@ func (m *FoundryTools) GateFile(
 	}
 	m.spire = spire
 	m.artifactAuth = artifactAuth
+	m.registrySvid = registrySvid
 	// The rider starts before the gate grades, on its own copy of m (startRide),
 	// so it overlaps the gate; with no ride this is nothing.
 	rider := m.startRide(ctx, tree, stage, ride, base, rideToken)

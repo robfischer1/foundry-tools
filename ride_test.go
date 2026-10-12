@@ -89,7 +89,7 @@ func gateFileRun(t *testing.T, m *FoundryTools, ride string, rideToken *dagger.S
 	engine.withTree(map[string]string{"go.mod": "module x\n"})
 	engine.stdout(`"rev-parse","HEAD^{tree}"`, fakeTree+"\n")
 	f, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "",
-		dag.SetSecret("record-token", "gate-tok"), false, nil, nil, ride, rideToken)
+		dag.SetSecret("record-token", "gate-tok"), false, nil, nil, ride, rideToken, "")
 	if err != nil {
 		t.Fatalf("gate-file: %v", err)
 	}

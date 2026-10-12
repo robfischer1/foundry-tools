@@ -84,9 +84,16 @@ func (m *FoundryTools) Cast(
 	// printed into the pod log and shipped to Loki. A Secret is masked.
 	// +optional
 	recordToken *dagger.Secret,
+	// The audience of a JWT-SVID to log in to the registry with, fetched from
+	// --spire's socket just before each registry call. With it (and --spire)
+	// --registry-token is not needed and not read. Absent, the static token
+	// logs in exactly as before.
+	// +optional
+	registrySvid string,
 ) error {
 	l := &castLane{
 		m: m, spire: spire, registryToken: registryToken, doorbellURL: doorbellURL,
+		svid:  svidLogin{audience: registrySvid, spire: spire},
 		hades: hades, hadesID: hadesID, dryRun: dryRun,
 		stamp:  strconv.FormatInt(time.Now().UnixNano(), 10),
 		phases: phases{group: castGroup, order: castPhases},
@@ -113,9 +120,11 @@ func (m *FoundryTools) Cast(
 type castLane struct {
 	// phases records what each step of the lane answered. See lanerecord.go.
 	phases
-	m              *FoundryTools
-	spire          *dagger.Socket
-	registryToken  *dagger.Secret
+	m             *FoundryTools
+	spire         *dagger.Socket
+	registryToken *dagger.Secret
+	// svid logs in with the lane's identity instead of registryToken, when on.
+	svid           svidLogin
 	doorbellURL    string
 	hades, hadesID string
 	dryRun         bool
@@ -140,7 +149,7 @@ func (l *castLane) run(ctx context.Context) (int, string) {
 	if m.Repo == "" || m.Sha == "" {
 		return l.stop("cast:preflight", buildlane.CouldNotRun, "could not run: the cast lane casts a commit the engine fetched — construct the module with --repo and --sha")
 	}
-	if !l.dryRun && (l.spire == nil || l.registryToken == nil) {
+	if !l.dryRun && (l.spire == nil || (l.registryToken == nil && !l.svid.on())) {
 		return l.stop("cast:preflight", buildlane.CouldNotRun, "could not run: a cast stages, mints and verifies: --spire and --registry-token are both required (--dry-run needs neither)")
 	}
 	l.seal("cast:preflight", buildlane.Clean, "the lane has its commit and its credentials")
@@ -186,11 +195,15 @@ func (l *castLane) run(ctx context.Context) (int, string) {
 		return l.stop("", buildlane.Clean, fmt.Sprintf("clean: dry run — %d file(s) pin to %s for %s; nothing was staged, minted or verified", len(files), pin, c.Artifact()))
 	}
 
-	token, err := l.registryToken.Plaintext(ctx)
-	if err != nil {
-		return l.stop("cast:stage", buildlane.CouldNotRun, fmt.Sprintf("could not run: the registry token did not read: %v", err))
+	if l.svid.on() {
+		l.registryConfig = l.svid.config(bundlelane.RegistryHost)
+	} else {
+		token, err := l.registryToken.Plaintext(ctx)
+		if err != nil {
+			return l.stop("cast:stage", buildlane.CouldNotRun, fmt.Sprintf("could not run: the registry token did not read: %v", err))
+		}
+		l.registryConfig = dag.SetSecret("cast-registry-config", bundlelane.DockerConfig(bundlelane.RegistryHost, bundlelane.RegistryUser, strings.TrimSpace(token)))
 	}
-	l.registryConfig = dag.SetSecret("cast-registry-config", bundlelane.DockerConfig(bundlelane.RegistryHost, bundlelane.RegistryUser, strings.TrimSpace(token)))
 
 	ref := c.Stage(bundlelane.RegistryHost, pin)
 	digest, code, why := l.stage(ctx, payload, ref, files)
@@ -466,7 +479,7 @@ func (l *castLane) stage(ctx context.Context, payload *dagger.Directory, ref str
 	}
 	argv := append([]string{"oras", "push", "--registry-config", "/run/docker/config.json",
 		"--format", "go-template", "--template", "{{.digest}}", ref}, files...)
-	out, code, err := output(ctx, dag.Container().From(checks.ImageFleet).
+	out, code, err := output(ctx, l.svid.withHelper(dag.Container().From(checks.ImageFleet)).
 		WithFile("/tmp/oras.tgz", tarball).
 		WithExec([]string{"tar", "-xzf", "/tmp/oras.tgz", "-C", "/usr/local/bin", "oras"}).
 		WithMountedSecret("/run/docker/config.json", l.registryConfig).
@@ -526,7 +539,7 @@ func (l *castLane) ask(ctx context.Context, verb, args string) (int, string, err
 func (l *castLane) verify(ctx context.Context, c castlane.Cast, r castlane.Result) (int, string) {
 	ref := c.Repo(bundlelane.RegistryHost) + "@" + r.Digest
 	nonroot := dagger.ContainerWithMountedSecretOpts{Owner: "65532:65532"}
-	out, code, err := output(ctx, cosignIn().
+	out, code, err := output(ctx, l.svid.withHelper(cosignIn()).
 		WithMountedTemp("/tmp").
 		WithEnvVariable("HOME", "/tmp").
 		WithMountedSecret("/run/docker/config.json", l.registryConfig, nonroot).
