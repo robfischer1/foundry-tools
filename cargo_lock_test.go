@@ -85,21 +85,17 @@ func TestBuildThenRunExecsMountTheirCargoVolumeLocked(t *testing.T) {
 		}
 	}
 
-	// rust:wit-compose: compose.sh builds and reads its guests, LOCKED; the
-	// replay that follows is SHARED again.
+	// rust:wit-compose stays SHARED throughout: its compose exec would wait
+	// silently behind the same gate's LOCKED wit-guest tests.
 	engine.reset()
 	engine.withTree(witComposeTree(nil))
 	engine.stdout(composeReplay, "TOTAL 1371 pass, 0 fail")
 	wantState(t, runAtom(t, "rust:wit-compose", ""), 0)
 	c := engine.chain(composeReplay, "exitCode")
-	if got := mountSharingAt(c, release, composeRun); got != "LOCKED" {
-		t.Errorf("rust:wit-compose compose: release volume is %q, want LOCKED:\n%s", got, c)
-	}
-	if got := mountSharingAt(c, release, composeBuildHost); got != "SHARED" {
-		t.Errorf("rust:wit-compose host build is %q, want SHARED:\n%s", got, c)
-	}
-	if got := mountSharingAt(c, release, composeReplay); got != "SHARED" {
-		t.Errorf("rust:wit-compose replay is %q, want SHARED:\n%s", got, c)
+	for _, needle := range []string{composeBuildHost, composeRun, composeReplay} {
+		if got := mountSharingAt(c, release, needle); got != "SHARED" {
+			t.Errorf("rust:wit-compose %s: release volume is %q, want SHARED:\n%s", needle, got, c)
+		}
 	}
 }
 

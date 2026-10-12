@@ -279,15 +279,13 @@ func rustWitCompose(ctx context.Context, r *run) checks.Verdict {
 		{"compose", []string{checks.WitComposeScript, checks.WitComposedPath}},
 		{"replay", append([]string{checks.WitReplayHost, checks.WitComposedPath}, tapes...)},
 	} {
-		if step.name == "compose" {
-			// compose.sh builds every guest into the release volume and reads
-			// them in its own exec: LOCKED for that exec, then back to the
-			// volume's SHARED default so the replay does not queue behind it
-			// (withLockedReleaseVolume, foundry-tools#16916).
-			ctr = r.withReleaseVolume(r.withLockedReleaseVolume(ctr).WithExec(step.args, anyExit))
-		} else {
-			ctr = ctr.WithExec(step.args, anyExit)
-		}
+		// SHARED, deliberately: compose.sh reads the guest it just built from
+		// the release volume, but the writer that could replace it is another
+		// gate's SHARED guest build, which a LOCKED compose does not exclude;
+		// and the same gate's rust:wit-guest native tests hold the volume
+		// LOCKED for minutes, so a LOCKED compose would wait silently past the
+		// 5m watchdog (foundry-tools#308/#309).
+		ctr = ctr.WithExec(step.args, anyExit)
 		if v := verdict(ctx, a, ctr); v.State != int(checks.StatePass) {
 			return namedStep(v, a, step.name)
 		}
