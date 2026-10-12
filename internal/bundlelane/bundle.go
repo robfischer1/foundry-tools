@@ -243,9 +243,7 @@ func Roster(dataJSON string) (mapped, stars, topics int, problem string, err err
 				Sync []string `json:"sync"`
 			} `json:"interface"`
 		}
-		if json.Unmarshal(raw, &row) != nil {
-			continue
-		}
+		_ = json.Unmarshal(raw, &row) // a lean row that is not an object states nothing
 		mcp := false
 		for _, i := range row.Interface.Sync {
 			mcp = mcp || i == "mcp"
@@ -283,24 +281,12 @@ func Roster(dataJSON string) (mapped, stars, topics int, problem string, err err
 	return mapped, stars, topics, "", nil
 }
 
-// hasKey is whether an object (or the array form's named rows) holds key.
+// hasKey is whether the stars object holds key.
 func hasKey(raw json.RawMessage, key string) bool {
 	var obj map[string]json.RawMessage
-	if json.Unmarshal(raw, &obj) == nil {
-		_, ok := obj[key]
-		return ok
-	}
-	var arr []struct {
-		Name string `json:"name"`
-	}
-	if json.Unmarshal(raw, &arr) == nil {
-		for _, a := range arr {
-			if a.Name == key {
-				return true
-			}
-		}
-	}
-	return false
+	_ = json.Unmarshal(raw, &obj)
+	_, ok := obj[key]
+	return ok
 }
 
 // size is jq's length over an object or an array; anything else is 0.

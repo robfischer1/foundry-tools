@@ -644,9 +644,7 @@ func documents(body string) ([]manifest, error) {
 			m.Type, m.ExternalName = svc.Spec.Type, svc.Spec.ExternalName
 		case h.Kind == "Kustomization":
 			var k kustomizationDoc
-			if err := node.Decode(&k); err != nil {
-				return nil, fmt.Errorf("the Kustomization %s: %w", h.Metadata.Name, err)
-			}
+			_ = node.Decode(&k) // a Kustomization whose spec does not read places nothing
 			m.Path, m.TargetNamespace = k.Spec.Path, k.Spec.TargetNamespace
 		case workloads[h.Kind]:
 			var w workloadDoc

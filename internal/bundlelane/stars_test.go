@@ -699,3 +699,19 @@ func TestInjectOverTheRealTreeAddsBladeRunnerAndHemera(t *testing.T) {
 		t.Errorf("hemera = %s", got)
 	}
 }
+
+// A Service that names no namespace, in a directory no Kustomization places,
+// sits in the namespace named for the directory; a Kustomization whose spec
+// does not read places nothing.
+func TestServiceFactsFallBackToTheDirectoryName(t *testing.T) {
+	got, err := ServiceFacts(map[string]string{
+		"prime/bare.yaml":          "kind: Service\nmetadata: {name: bare}\nspec:\n  ports:\n    - {name: http, port: 7}\n",
+		"clusters/pantheon/x.yaml": "apiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nmetadata: {name: x}\nspec: oops\n",
+	}, map[string]bool{"bare": true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := got["bare"]; f.Ports == nil || f.Ports.Listen != 7 {
+		t.Fatalf("got %+v, want bare on port 7 in prime", got)
+	}
+}

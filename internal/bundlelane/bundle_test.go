@@ -326,6 +326,11 @@ func TestRosterRefusesARoutedRepoFluxDoesNotBack(t *testing.T) {
 	if _, _, _, problem, _ := Roster(h2 + `,` + port + `,"flux":{"x":{}},"stars":{"hemera":{}}}}`); !strings.Contains(problem, "routes hemera") {
 		t.Errorf("an address with a port: problem = %q", problem)
 	}
+	// A lean row that is not an object states nothing.
+	const h4 = `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"x":{"kind":"go"}},"repos":{"x":{}}`
+	if _, _, _, problem, _ := Roster(h4 + `,"lean":{"x":"oops"},"flux":{"x":{}},"stars":{"x":{}}}}`); problem != "" {
+		t.Errorf("a non-object lean row: problem = %q", problem)
+	}
 	// A bare-name address with no mcp is not routed.
 	bare := `"lean":{"tron":{"address":"tron","interface":{"sync":[]}}}`
 	const h3 = `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"tron":{"kind":"rust"}},"repos":{"tron":{}}`
