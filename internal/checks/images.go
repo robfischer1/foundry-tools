@@ -277,7 +277,7 @@ const (
 var LaneImages = []string{
 	ImageGo, ImagePython, ImageRust, ImageRustWasm, ImageTS, ImageFleet,
 	ImageUV, ImageNode, ImageTools,
-	ImageKubeconform, ImageKubeLinter,
+	ImageKubeconform, ImageKubeLinter, ImageRenovate,
 	ImagePgvector, ImagePostgres,
 }
 
@@ -457,6 +457,21 @@ const (
 	ImageKubeconform = "ghcr.io/yannh/kubeconform:v0.7.0-alpine@sha256:8f0eeaaa96ba27ba1500b0e4b1c215acc358d159c62a7ecae58d7a03403287b0"
 	// ImageKubeLinter — likewise alpine, and likewise held still.
 	ImageKubeLinter = "docker.io/stackrox/kube-linter:v0.8.3-alpine@sha256:b8311611c27032d4922bc67719225e373e4a0ab0c767bbdcf5f20a9306b1a3bb"
+
+	// RenovateTag / ImageRenovate: the Renovate the fleet DEPLOYS, read from
+	// flux renovate/renovate.yaml on main 2026-10-12 (both containers carry this
+	// exact ref). fleet:renovate-config validates renovate-config's config.js with
+	// the validator inside it. A validator older than the deployed image rejects
+	// options the image accepts (42.99.0 reports postUpgradeTasks.installTools
+	// invalid), so the pin follows flux, not npm's latest.
+	//
+	// THE IMAGE IS NODE AND RENOVATE BOTH, pinned by one digest: it ships the node
+	// runtime and renovate-config-validator on PATH, so there is no tarball (no
+	// ToolSHA256 line, no mirror seed) and no npm install to cache. It is pulled
+	// through the engine's ghcr.io mirror like every lane image, and the layers
+	// are cached by digest.
+	RenovateTag   = "43.261.4"
+	ImageRenovate = "ghcr.io/renovatebot/renovate:43.261.4@sha256:adc66d8ffba5d835b9ef27768bd3176d07e7ea98c8dba274b07f511beea5fe81"
 )
 
 // MirroredRegistries are the upstream registries the engine pulls through the

@@ -262,3 +262,11 @@ func TestEveryPinnedVersionNamesItsRenovateSource(t *testing.T) {
 			"the shape this package uses, and this test is no longer checking anything", seen)
 	}
 }
+
+// THE VALIDATOR'S IMAGE IS THE DEPLOYED ONE: the tag is RenovateTag, the
+// repository is renovatebot's, and flux's CronJob runs the same ref.
+func TestRenovateImageCarriesTheVersionItClaims(t *testing.T) {
+	if !strings.HasPrefix(ImageRenovate, "ghcr.io/renovatebot/renovate:"+RenovateTag+"@sha256:") {
+		t.Errorf("ImageRenovate %q does not carry RenovateTag %q", ImageRenovate, RenovateTag)
+	}
+}
