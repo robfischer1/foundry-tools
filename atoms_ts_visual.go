@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"path"
 	"slices"
 	"strconv"
@@ -53,6 +54,17 @@ func (r *run) withArtifacts(auth *dagger.Secret, sha string) *run {
 	r.artifactAuth, r.sha = auth, sha
 	return r
 }
+
+// withRegistrySvid arms the artifact push to log in with the lane's JWT-SVID
+// for audience, in place of --artifact-auth, when the run also holds the
+// socket. Empty leaves the push as it was.
+func (r *run) withRegistrySvid(audience string) *run {
+	r.registrySvid = audience
+	return r
+}
+
+// svid is the run's registry identity login; on() says whether it applies.
+func (r *run) svid() svidLogin { return svidLogin{audience: r.registrySvid, spire: r.spire} }
 
 // visualSuite is one suite's run: its findings, its state and what to keep.
 type visualSuite struct {
@@ -213,7 +225,7 @@ func publishVisual(ctx context.Context, r *run, runs []visualSuite) string {
 	if err != nil {
 		return "artifact: not pushed — " + err.Error()
 	}
-	if r.artifactAuth == nil {
+	if r.artifactAuth == nil && !r.svid().on() {
 		return "artifact: not pushed — the lane was given no --artifact-auth"
 	}
 	art := dag.Directory()
@@ -241,16 +253,29 @@ func publishVisual(ctx context.Context, r *run, runs []visualSuite) string {
 	if !carried {
 		return "artifact: not pushed — no suite ran far enough to write results or baselines"
 	}
-	auth, err := r.artifactAuth.Plaintext(ctx)
-	if err != nil {
-		return "artifact: not pushed — the registry credential did not read: " + err.Error()
-	}
-	user, password, err := buildlane.RegistryLogin(auth, visualReg)
+	user, secret, err := r.visualLogin(ctx)
 	if err != nil {
 		return "artifact: not pushed — " + err.Error()
 	}
-	if _, err := publish(ctx, dag.Container().WithRootfs(art), ref, user, dag.SetSecret("visual-registry-password", password)); err != nil {
+	if _, err := publish(ctx, dag.Container().WithRootfs(art), ref, user, secret); err != nil {
 		return "artifact: not pushed — " + err.Error()
 	}
 	return visuallane.FetchHint(ref)
+}
+
+// visualLogin is the login the artifact push uses: the lane's JWT-SVID, fetched
+// now, right before the push, or --artifact-auth's entry for the registry.
+func (r *run) visualLogin(ctx context.Context) (string, *dagger.Secret, error) {
+	if r.svid().on() {
+		return r.svid().token(ctx, visualReg, "visual-registry-svid")
+	}
+	auth, err := r.artifactAuth.Plaintext(ctx)
+	if err != nil {
+		return "", nil, fmt.Errorf("the registry credential did not read: %w", err)
+	}
+	user, password, err := buildlane.RegistryLogin(auth, visualReg)
+	if err != nil {
+		return "", nil, err
+	}
+	return user, dag.SetSecret("visual-registry-password", password), nil
 }

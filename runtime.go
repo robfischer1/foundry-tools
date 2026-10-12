@@ -87,6 +87,9 @@ type run struct {
 	// (atoms_ts_visual.go); nil pushes nothing.
 	artifactAuth *dagger.Secret
 	sha          string
+	// registrySvid, with spire, replaces artifactAuth: the audience of the
+	// JWT-SVID the artifact push logs in with (registrysvid.go).
+	registrySvid string
 
 	dies *dagger.Directory
 	// flux is foundry/flux at main: the pins flux image automation writes.
@@ -132,7 +135,7 @@ func (r *run) reasked(nonce string) *run {
 func (r *run) reaskedAgain(nonce string) *run {
 	again := newRun(r.src, r.repo, r.base).fromOrigin(r.origin).reasked(nonce)
 	again.lookup, again.audit, again.spire = r.lookup, r.audit, r.spire
-	again.artifactAuth, again.sha = r.artifactAuth, r.sha
+	again.artifactAuth, again.sha, again.registrySvid = r.artifactAuth, r.sha, r.registrySvid
 	return again
 }
 

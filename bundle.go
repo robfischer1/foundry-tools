@@ -85,6 +85,16 @@ func (m *FoundryTools) Bundle(
 	// Required with --kms unless --dry-run.
 	// +optional
 	kmsToken *dagger.Secret,
+	// The SPIRE agent's workload socket, forwarded by the calling pod. Used
+	// only with --registry-svid: the registry JWT-SVID is fetched through it.
+	// +optional
+	spire *dagger.Socket,
+	// The audience of a JWT-SVID to log in to the registry with, fetched from
+	// --spire's socket just before each registry call. With it (and --spire)
+	// --registry-token is not needed and not read. Absent, the static token
+	// logs in exactly as before.
+	// +optional
+	registrySvid string,
 	// The non-exportable P-256 key the OPA bundle twins are signed with:
 	// <project>/<key>[?identity=<id>], an Infisical KMS key reached by the
 	// same ServiceAccount token as --kms (and, without ?identity=, the same
@@ -97,6 +107,7 @@ func (m *FoundryTools) Bundle(
 ) error {
 	l := &bundleLane{
 		m: m, opaSigningKey: opaSigningKey, registryToken: registryToken,
+		svid:      svidLogin{audience: registrySvid, spire: spire},
 		cosignKey: cosignKey, cosignPassphrase: cosignPassphrase, dryRun: dryRun,
 		kmsSpec: kms, kmsToken: kmsToken, opaKmsSpec: opaKms,
 		stamp: strconv.FormatInt(time.Now().UnixNano(), 10),
@@ -110,6 +121,8 @@ type bundleLane struct {
 	m                                                         *FoundryTools
 	opaSigningKey, registryToken, cosignKey, cosignPassphrase *dagger.Secret
 	dryRun                                                    bool
+	// svid logs in with the lane's identity instead of registryToken, when on.
+	svid svidLogin
 	// kmsSpec and kmsToken are --kms and --kms-token; kms is kmsSpec parsed,
 	// and kmsOn says whether there is a second signer at all.
 	kmsSpec  string
@@ -175,7 +188,7 @@ func (l *bundleLane) run(ctx context.Context) (int, string) {
 	if err != nil {
 		return buildlane.CouldNotRun, err.Error()
 	}
-	if !l.dryRun && ((l.opaSigningKey == nil && !opaKmsOn) || l.registryToken == nil) {
+	if !l.dryRun && ((l.opaSigningKey == nil && !opaKmsOn) || (l.registryToken == nil && !l.svid.on())) {
 		return buildlane.CouldNotRun, "a bundle publishes and signs: --opa-signing-key and --registry-token are both required (--dry-run needs none; --opa-kms stands in for --opa-signing-key)"
 	}
 	if opaKmsOn && !l.dryRun && l.kmsToken == nil {
@@ -633,6 +646,9 @@ func (l *bundleLane) publishDie(ctx context.Context, built *dagger.Container, di
 
 // registryConfig is the docker config that logs rob in to foundry.notusmi.com.
 func (l *bundleLane) registryConfig(ctx context.Context) (*dagger.Secret, gateResult) {
+	if l.svid.on() {
+		return l.svid.config(bundlelane.RegistryHost), clean()
+	}
 	token, err := l.registryToken.Plaintext(ctx)
 	if err != nil {
 		return nil, couldNotRun("the registry token did not read: %v", err)
@@ -652,7 +668,7 @@ func (l *bundleLane) oras(ctx context.Context, built *dagger.Container) (*dagger
 	if g.code != buildlane.Clean {
 		return nil, g
 	}
-	return built.
+	return l.svid.withHelper(built).
 		WithFile("/tmp/oras.tgz", tarball).
 		WithExec([]string{"tar", "-xzf", "/tmp/oras.tgz", "-C", "/usr/local/bin", "oras"}).
 		WithMountedSecret("/run/docker/config.json", cfg).
@@ -760,7 +776,7 @@ func (l *bundleLane) cosign(ctx context.Context) (*dagger.Container, gateResult)
 	if g.code != buildlane.Clean {
 		return nil, g
 	}
-	return c.
+	return l.svid.withHelper(c).
 		WithMountedSecret("/run/docker/config.json", cfg, nonroot).
 		WithEnvVariable("DOCKER_CONFIG", "/run/docker").
 		WithEnvVariable("BUNDLE_RUN", l.stamp), clean()

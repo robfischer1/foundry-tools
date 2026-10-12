@@ -73,9 +73,13 @@ func (m *FoundryTools) Govern(
 	// Pin the payloads for real; stage, mint and verify nothing.
 	// +optional
 	dryRun bool,
+	// The audience of a JWT-SVID to log in to the registry with, as Cast's.
+	// +optional
+	registrySvid string,
 ) error {
 	l := &castLane{
 		m: m, spire: spire, registryToken: registryToken,
+		svid:  svidLogin{audience: registrySvid, spire: spire},
 		hades: hades, hadesID: hadesID, dryRun: dryRun,
 		stamp: strconv.FormatInt(time.Now().UnixNano(), 10),
 	}
@@ -89,7 +93,7 @@ func (l *castLane) govern(ctx context.Context, consumers []string) (int, string)
 	if m.Repo == "" || m.Sha == "" {
 		return 2, "could not run: the governance cast casts a commit the engine fetched — construct the module with --repo and --sha"
 	}
-	if !l.dryRun && (l.spire == nil || l.registryToken == nil) {
+	if !l.dryRun && (l.spire == nil || (l.registryToken == nil && !l.svid.on())) {
 		return 2, "could not run: a cast stages, mints and verifies: --spire and --registry-token are both required (--dry-run needs neither)"
 	}
 	if len(consumers) == 0 {
@@ -111,7 +115,9 @@ func (l *castLane) govern(ctx context.Context, consumers []string) (int, string)
 	} else if !ok {
 		return 1, "findings: this repo carries no cosign.pub, so a landed digest could not be verified — nothing was cast"
 	}
-	if !l.dryRun {
+	if !l.dryRun && l.svid.on() {
+		l.registryConfig = l.svid.config(bundlelane.RegistryHost)
+	} else if !l.dryRun {
 		token, err := l.registryToken.Plaintext(ctx)
 		if err != nil {
 			return 2, fmt.Sprintf("could not run: the registry token did not read: %v", err)
@@ -180,7 +186,7 @@ func (l *castLane) current(ctx context.Context, c castlane.Cast, pin string) str
 		return ""
 	}
 	repo := c.Repo(bundlelane.RegistryHost)
-	out, _, _ := output(ctx, dag.Container().From(checks.ImageFleet).
+	out, _, _ := output(ctx, l.svid.withHelper(dag.Container().From(checks.ImageFleet)).
 		WithFile("/tmp/oras.tgz", tarball).
 		WithExec([]string{"tar", "-xzf", "/tmp/oras.tgz", "-C", "/usr/local/bin", "oras"}).
 		WithMountedSecret("/run/docker/config.json", l.registryConfig).

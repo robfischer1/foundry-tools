@@ -47,7 +47,7 @@ func scanClean() {
 func pull(t *testing.T, m *FoundryTools) {
 	t.Helper()
 	if err := m.Build(context.Background(), false, nil, nil, nil, nil, "",
-		"registry.notusmi.com", "https://forgejo.notusmi.com/rob", "https://hades:8102", "spiffe://notusmi.com/star/hades", false, nil, false); err != nil {
+		"registry.notusmi.com", "https://forgejo.notusmi.com/rob", "https://hades:8102", "spiffe://notusmi.com/star/hades", false, nil, false, ""); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 }
@@ -56,7 +56,7 @@ func pull(t *testing.T, m *FoundryTools) {
 func pullForced(t *testing.T, m *FoundryTools) {
 	t.Helper()
 	if err := m.Build(context.Background(), false, nil, nil, nil, nil, "",
-		"registry.notusmi.com", "https://forgejo.notusmi.com/rob", "https://hades:8102", "spiffe://notusmi.com/star/hades", true, nil, false); err != nil {
+		"registry.notusmi.com", "https://forgejo.notusmi.com/rob", "https://hades:8102", "spiffe://notusmi.com/star/hades", true, nil, false, ""); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 }
@@ -87,7 +87,7 @@ func tipAs(t *testing.T, m *FoundryTools, registryAuth string, signBases bool) {
 	// A module has no Host to open a socket on; the socket a caller forwards
 	// arrives as an id, which is what the lane receives.
 	if err := m.Build(context.Background(), true, dag.LoadSocketFromID("spire-agent-socket"), auth, key, password, "https://nexus.example/simple",
-		"registry.notusmi.com", "https://forgejo.notusmi.com/rob", "https://hades:8102", "spiffe://notusmi.com/star/hades", false, nil, signBases); err != nil {
+		"registry.notusmi.com", "https://forgejo.notusmi.com/rob", "https://hades:8102", "spiffe://notusmi.com/star/hades", false, nil, signBases, ""); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 }
@@ -174,7 +174,7 @@ func TestTheVerdictIsBuiltWithNothingFetched(t *testing.T) {
 func TestATipBuildWithoutItsCredentialsIsCouldNotRun(t *testing.T) {
 	m := buildOn(t, map[string]string{"Dockerfile": "FROM scratch\n"})
 	if err := m.Build(context.Background(), true, nil, nil, nil, nil, "",
-		"registry.notusmi.com", "https://forgejo.notusmi.com/rob", "https://hades:8102", "spiffe://notusmi.com/star/hades", false, nil, false); err != nil {
+		"registry.notusmi.com", "https://forgejo.notusmi.com/rob", "https://hades:8102", "spiffe://notusmi.com/star/hades", false, nil, false, ""); err != nil {
 		t.Fatal(err)
 	}
 	settledOn(t, "2", "--registry-auth is required")

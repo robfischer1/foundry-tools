@@ -65,6 +65,9 @@ type FoundryTools struct {
 	// under --artifact-auth, nil otherwise; ts:visual pushes its artifact
 	// with it.
 	artifactAuth *dagger.Secret
+	// registrySvid is the audience of the JWT-SVID the visual push logs in
+	// with — set by GateFile under --registry-svid; used only with spire.
+	registrySvid string
 	// box carries the binary's votes to the lane's reverse shadow — set by
 	// startShadow when the binary votes, nil otherwise (atoms_vote.go).
 	box *ballotBox
@@ -358,7 +361,7 @@ func (m *FoundryTools) graded(ctx context.Context, stage, only, base string, sid
 	// An atom another SELECTED atom covers stands down here rather than in the
 	// runner, so the caller still gets its line (checks.Subsumed says why).
 	selected, covered := checks.Subsumed(selected)
-	r := newRun(m.Source, m.Repo, base).fromOrigin(m.Origin).withLookup(m.lookup).withAudit(m.audit).withSpire(m.spire).withArtifacts(m.artifactAuth, m.Sha)
+	r := newRun(m.Source, m.Repo, base).fromOrigin(m.Origin).withLookup(m.lookup).withAudit(m.audit).withSpire(m.spire).withArtifacts(m.artifactAuth, m.Sha).withRegistrySvid(m.registrySvid)
 	plan, absent, err := r.plan(ctx, selected)
 	if err != nil {
 		return nil, err

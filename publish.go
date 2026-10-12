@@ -91,7 +91,14 @@ func (m *FoundryTools) Publish(
 	// Build and ask the index for real; upload nothing, and need no --token.
 	// +optional
 	dryRun bool,
+	// The SPIRE agent's workload socket, forwarded by the calling pod. UNUSED
+	// today — publish pushes to the python and npm indexes with their own
+	// logins, not to the registry — accepted so every lane Job can pass the
+	// same flags, as build accepts it.
+	// +optional
+	spire *dagger.Socket,
 ) error {
+	_ = spire
 	l := &publishLane{
 		m: m, token: token, npmToken: npmToken,
 		publishURL: publishURL, checkURL: checkURL, user: user, indexURL: indexURL, npmRegistry: npmRegistry, dryRun: dryRun,

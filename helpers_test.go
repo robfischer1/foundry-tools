@@ -72,8 +72,8 @@ func importClosure(t *testing.T, dir string) []string {
 // where no unit test can see it, and a package the list names that the helper
 // does not import is a rebuild for an edit the helper never reads.
 func TestHelperSourcesCoverTheirImports(t *testing.T) {
-	if len(helperSources) != 9 {
-		t.Errorf("%d helpers, want castpin, hadescall, verdict, witnesscall, pgroupps, execmem, copyout, casttarget and bundleresign", len(helperSources))
+	if len(helperSources) != 10 {
+		t.Errorf("%d helpers, want castpin, hadescall, verdict, witnesscall, pgroupps, execmem, copyout, casttarget, bundleresign and svidcred", len(helperSources))
 	}
 	for name, src := range helperSources {
 		t.Run(name, func(t *testing.T) {

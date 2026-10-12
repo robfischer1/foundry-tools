@@ -35,7 +35,7 @@ func kmsPublicPEM(t *testing.T) string {
 // long-lived key is not handed over at all.
 func bundlesWithOpaKMS(m *FoundryTools, dry bool, token *dagger.Secret) error {
 	return m.Bundle(context.Background(), nil, dag.SetSecret("registry-token", bundleToken),
-		dag.SetSecret("cosign-key", pem64()), dag.SetSecret("cosign-password", "pw"), dry, "", token, opaKmsSpec)
+		dag.SetSecret("cosign-key", pem64()), dag.SetSecret("cosign-password", "pw"), dry, "", token, nil, "", opaKmsSpec)
 }
 
 // Without the flag the OPA twins are signed by the file key exactly as before,
@@ -205,7 +205,7 @@ func TestOpaKMSFailsClosedAtEveryStep(t *testing.T) {
 func TestOpaKMSRefusesAMalformedSpec(t *testing.T) {
 	m := bundleOn(t, nil)
 	scriptAGreenBundle()
-	if err := m.Bundle(context.Background(), nil, nil, nil, nil, true, "", nil, "no-slash"); err != nil {
+	if err := m.Bundle(context.Background(), nil, nil, nil, nil, true, "", nil, nil, "", "no-slash"); err != nil {
 		t.Fatalf("bundle: %v", err)
 	}
 	settledOn(t, "2", "--opa-kms")
