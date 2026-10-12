@@ -274,6 +274,10 @@ func TestRustWitGuestRefusalsAreCouldNotRuns(t *testing.T) {
 
 const witTwoWorlds = "[package]\nname = \"stellar-core\"\n\n[features]\ndefault = []\nwit-guest = [\"wit-guest-identity\"]\nwit-guest-identity = [\"dep:wit-bindgen\"]\nwit-guest-reader = [\"dep:wit-bindgen\"]\n"
 
+// combinedFeat is witTwoWorlds' one native test: every world, comma-joined, in
+// the order the manifest declares them.
+const combinedFeat = `"--features","wit-guest-identity,wit-guest-reader"`
+
 func feat(world string) string { return `"--features","` + world + `"` }
 
 // Two worlds and the alias: exactly the two are built and tested, the alias
@@ -289,8 +293,8 @@ func TestRustWitGuestGradesEveryWorldAndNotTheAlias(t *testing.T) {
 		if engine.chain(guestBuild, feat(w), "exitCode") == "" {
 			t.Errorf("%s: no wasm32 build:\n%v", w, engine.chains())
 		}
-		if engine.chain(`"cargo","test"`, `"--no-default-features"`, feat(w), "exitCode") == "" {
-			t.Errorf("%s: no native cargo test:\n%v", w, engine.chains())
+		if engine.chain(`"cargo","test"`, feat(w), "exitCode") != "" {
+			t.Errorf("%s: a green combined run must not re-run the world alone:\n%v", w, engine.chains())
 		}
 		if !strings.Contains(strings.Join(v.Logs, "\n"), "["+w+"] ") {
 			t.Errorf("%s: pass logs name the world, got %q", w, v.Logs)
@@ -298,6 +302,10 @@ func TestRustWitGuestGradesEveryWorldAndNotTheAlias(t *testing.T) {
 	}
 	if engine.chain(guestBuild, feat("wit-guest"), "exitCode") != "" || engine.chain(`"cargo","test"`, feat("wit-guest"), "exitCode") != "" {
 		t.Errorf("the bare alias must not be graded when a world exists:\n%v", engine.chains())
+	}
+	// ONE native test for every world: the world features comma-joined.
+	if engine.chain(`"cargo","test"`, combinedFeat, "exitCode") == "" {
+		t.Errorf("the one native test carries both worlds' features (%s):\n%v", combinedFeat, engine.chains())
 	}
 }
 
@@ -313,28 +321,31 @@ func TestRustWitGuestNativeTestRunsUnderTheStamp(t *testing.T) {
 	wantState(t, runAtom(t, "rust:wit-guest", ""), 0)
 
 	stamp := `"touch","-c","-d","@4102444800"`
-	for _, w := range []string{"wit-guest-identity", "wit-guest-reader"} {
-		c := engine.chain(`"cargo","test"`, `"--no-default-features"`, feat(w), "exitCode")
-		if c == "" {
-			t.Fatalf("%s: no native cargo test:\n%v", w, engine.chains())
-		}
-		// Its own target dir, never the gate's foundry-cargo-target that
-		// rust:cargo-test's doctests link from (foundry-tools#16916).
-		if !strings.Contains(c, `"--target-dir","`+checks.WitGuestTestTargetDir+`"`) {
-			t.Errorf("%s: the native test must build in %s:\n%s", w, checks.WitGuestTestTargetDir, c)
-		}
-		// Only the world's unit tests: tests/*.rs and doctests are cargo-test's,
-		// run once; per world they re-ran the whole suite (gate run 775 deadline).
-		if !strings.Contains(c, `"cargo","test","--locked","--lib","--no-default-features"`) {
-			t.Errorf("%s: the native test must run --lib only:\n%s", w, c)
-		}
-		if checks.WitGuestTestTargetDir == "/cache/cargo-target" || !strings.HasPrefix(checks.WitGuestTestTargetDir, checks.ReleaseCachePath+"/") {
-			t.Errorf("WitGuestTestTargetDir %q must sit apart from the gate's target, inside the release volume", checks.WitGuestTestTargetDir)
-		}
-		fetch, find, test := strings.Index(c, `"cargo","fetch","--locked"`), strings.Index(c, stamp), strings.Index(c, `"cargo","test"`)
-		if fetch < 0 || find < 0 || !(fetch < find && find < test) {
-			t.Errorf("%s: want fetch, then the stamp, then cargo test (fetch %d, stamp %d, test %d):\n%s", w, fetch, find, test, c)
-		}
+	w := "wit-guest-identity,wit-guest-reader"
+	c := engine.chain(`"cargo","test"`, `"--no-default-features"`, combinedFeat, "exitCode")
+	if c == "" {
+		t.Fatalf("no combined native cargo test:\n%v", engine.chains())
+	}
+	// Its own target dir, never the gate's foundry-cargo-target that
+	// rust:cargo-test's doctests link from (foundry-tools#16916).
+	if !strings.Contains(c, `"--target-dir","`+checks.WitGuestTestTargetDir+`"`) {
+		t.Errorf("%s: the native test must build in %s:\n%s", w, checks.WitGuestTestTargetDir, c)
+	}
+	// Only the unit tests: tests/*.rs and doctests are cargo-test's, run once;
+	// per world they re-ran the whole suite (gate run 775 deadline).
+	if !strings.Contains(c, `"cargo","test","--locked","--lib","--no-default-features"`) {
+		t.Errorf("%s: the native test must run --lib only:\n%s", w, c)
+	}
+	// LOCKED: it builds the test binaries in the release volume and runs them.
+	if !strings.Contains(c, `sharing:LOCKED`) {
+		t.Errorf("%s: the native test holds the release volume LOCKED:\n%s", w, c)
+	}
+	if checks.WitGuestTestTargetDir == "/cache/cargo-target" || !strings.HasPrefix(checks.WitGuestTestTargetDir, checks.ReleaseCachePath+"/") {
+		t.Errorf("WitGuestTestTargetDir %q must sit apart from the gate's target, inside the release volume", checks.WitGuestTestTargetDir)
+	}
+	fetch, find, test := strings.Index(c, `"cargo","fetch","--locked"`), strings.Index(c, stamp), strings.Index(c, `"cargo","test"`)
+	if fetch < 0 || find < 0 || !(fetch < find && find < test) {
+		t.Errorf("%s: want fetch, then the stamp, then cargo test (fetch %d, stamp %d, test %d):\n%s", w, fetch, find, test, c)
 	}
 }
 
@@ -353,15 +364,25 @@ func TestRustWitGuestAliasAloneIsTheOneWorld(t *testing.T) {
 // A red names the world and the step; the other world's failure is not
 // attributed to the first.
 func TestRustWitGuestFindingsNameTheFailingWorld(t *testing.T) {
-	for _, c := range []struct{ name, needle, world, step string }{
-		{"reader build", guestBuild + `,"--no-default-features",` + feat("wit-guest-reader"), "wit-guest-reader", "build"},
-		{"reader test", `"cargo","test","--locked","--lib","--no-default-features",` + feat("wit-guest-reader"), "wit-guest-reader", "test"},
-		{"identity test", `"cargo","test","--locked","--lib","--no-default-features",` + feat("wit-guest-identity"), "wit-guest-identity", "test"},
+	test := `"cargo","test","--locked","--lib","--no-default-features",`
+	for _, c := range []struct {
+		name, world, step string
+		red               []string
+	}{
+		{"reader build", "wit-guest-reader", "build", []string{guestBuild + `,"--no-default-features",` + feat("wit-guest-reader")}},
+		// The combined run is red and reproduces in one world: that world is named.
+		{"reader test", "wit-guest-reader", "test", []string{test + combinedFeat, test + feat("wit-guest-reader")}},
+		{"identity test", "wit-guest-identity", "test", []string{test + combinedFeat, test + feat("wit-guest-identity")}},
+		// Red only in combination: no world reproduces it, so the verdict names
+		// the combination.
+		{"combination only", "all wit-guest-identity+wit-guest-reader", "test", []string{test + combinedFeat}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			engine.reset()
 			engine.withTree(map[string]string{"Cargo.toml": witTwoWorlds})
-			engine.exitCode(c.needle, 101)
+			for _, r := range c.red {
+				engine.exitCode(r, 101)
+			}
 			v := runAtom(t, "rust:wit-guest", "")
 			wantState(t, v, 1, "world "+c.world, c.step)
 			if len(v.Logs) == 0 || !strings.Contains(v.Logs[0], c.world) {
@@ -370,13 +391,13 @@ func TestRustWitGuestFindingsNameTheFailingWorld(t *testing.T) {
 		})
 	}
 
-	// identity (sorted first) failing stops before reader is built.
+	// A world that fails its build stops the atom before the native test.
 	engine.reset()
 	engine.withTree(map[string]string{"Cargo.toml": witTwoWorlds})
-	engine.exitCode(`"cargo","test","--locked","--lib","--no-default-features",`+feat("wit-guest-identity"), 101)
+	engine.exitCode(guestBuild+`,"--no-default-features",`+feat("wit-guest-identity"), 101)
 	runAtom(t, "rust:wit-guest", "")
-	if engine.chain(feat("wit-guest-reader")) != "" {
-		t.Errorf("a failed world goes no further:\n%v", engine.chains())
+	if engine.chain(feat("wit-guest-reader")) != "" || engine.chain(`"cargo","test"`) != "" {
+		t.Errorf("a failed build goes no further:\n%v", engine.chains())
 	}
 }
 
