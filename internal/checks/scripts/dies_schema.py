@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Validate foundry-dies' slag schemas (v1, v3 and later) and every fleet record against its own.
 
-Since slag-by-kind F8 it also holds every catalog entry, fleet/stars/<name>.json, to
-schema/fleet-star.schema.json.
+Since slag-by-kind F8 it also holds every catalog entry, fleet/repos/<name>.json (fleet/stars/<name>.json
+until foundry-dies lands the move), to schema/fleet-star.schema.json.
 
 Two halves. Both the published slag-schema die (schema/slag.schema.json, v1)
 and the v3 schema are checked for being well-formed Draft 2020-12 documents
@@ -161,16 +161,20 @@ for rec in records:
 held = ", ".join(f"{n} against {path}" for path, n in sorted(used.items()))
 print(f"{len(records)} record(s) validated: {held}")
 
-# THE CATALOG ENTRIES (slag-by-kind F8): fleet/stars/<name>.json, beside the per-star directories,
+# THE CATALOG ENTRIES (slag-by-kind F8, moved by F10): fleet/repos/<name>.json, or fleet/stars/<name>.json
+# beside the per-star directories while foundry-dies has not landed the move (the bundle lane reads
+# the same two places in the same order),
 # each held to schema/fleet-star.schema.json and named for its file. The bundle lane serves them as
 # data.fleet.declared.<name>, so an entry whose name is not its filename is a star routed as another.
 # Zero entries is the migration's starting point, not a could-not-run; a tree with entries and no
 # schema cannot be judged: 2.
 CATALOG = "schema/fleet-star.schema.json"
-entries = sorted(str(p) for p in Path("fleet/stars").glob("*.json"))
+entries = sorted(str(p) for p in Path("fleet/repos").glob("*.json")) or sorted(
+    str(p) for p in Path("fleet/stars").glob("*.json")
+)
 if entries:
     if not Path(CATALOG).exists():
-        print(f"::error::fleet/stars/ carries catalog entries and there is no {CATALOG}: could not read {CATALOG}", file=sys.stderr)
+        print(f"::error::the tree carries catalog entries and there is no {CATALOG}: could not read {CATALOG}", file=sys.stderr)
         sys.exit(2)
     catalog = Draft202012Validator(check_schema_file(CATALOG))
     for entry in entries:
