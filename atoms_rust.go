@@ -96,7 +96,23 @@ func (r *run) cargoDeps() *dagger.Container {
 // crates from THIS tree. The mutation lane and the release build compile
 // into target dirs of their own and branch from cargoDeps.
 func (r *run) cargoFresh() *dagger.Container {
-	return r.cargoDeps().WithExec(checks.Unstale())
+	return stampFresh(r.cargoDeps())
+}
+
+// stampFresh dates the tree at /src past every artifact (checks.Unstale).
+//
+// IT MUST RUN ON THE /src THAT CARGO WILL READ. The stamp is an exec's write
+// into the mounted tree, and a later WithMountedDirectory("/src") replaces
+// that tree with the unstamped one: gitReady does exactly that for a linked
+// worktree, which is where every author's `just check` comes from. Stamped
+// before the swap, cargo-test built against files the engine hands over with
+// normalised mtimes, found the shared per-repo target's artifact "newer", and
+// linked a test binary whose include_str! manifest was the previous tree's
+// (stellar-core-rust tests/claim_composition, 2026-10-12, three authors;
+// touching a file cannot help, the upload drops the stamp). So a chain that
+// re-mounts /src stamps AFTER it.
+func stampFresh(ctr *dagger.Container) *dagger.Container {
+	return ctr.WithExec(checks.Unstale())
 }
 
 func rustCargoFmt(ctx context.Context, r *run) checks.Verdict {
@@ -155,7 +171,9 @@ func rustCargoTest(ctx context.Context, r *run) checks.Verdict {
 	// LOCKED: this atom builds the test binaries and runs them from the
 	// per-repo target, which a concurrent gate of the repo would otherwise
 	// replace in between (withLockedCargoTarget, foundry-tools#16916).
-	lane := r.withLockedCargoTarget(r.gitReady(ctx, r.cargoFresh()))
+	// THE STAMP FOLLOWS gitReady (stampFresh says why): gitReady re-mounts /src
+	// for a linked worktree and would discard it.
+	lane := r.withLockedCargoTarget(stampFresh(r.gitReady(ctx, r.cargoDeps())))
 
 	listed, code, err := output(ctx, lane.WithExec(
 		[]string{"cargo", "test", "--workspace", "--", "--list"}, anyExit))
