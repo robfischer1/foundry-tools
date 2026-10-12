@@ -320,6 +320,11 @@ func TestRustWitGuestNativeTestRunsUnderTheStamp(t *testing.T) {
 		if !strings.Contains(c, `"--target-dir","`+checks.WitGuestTestTargetDir+`"`) {
 			t.Errorf("%s: the native test must build in %s:\n%s", w, checks.WitGuestTestTargetDir, c)
 		}
+		// Only the world's unit tests: tests/*.rs and doctests are cargo-test's,
+		// run once; per world they re-ran the whole suite (gate run 775 deadline).
+		if !strings.Contains(c, `"cargo","test","--locked","--lib","--no-default-features"`) {
+			t.Errorf("%s: the native test must run --lib only:\n%s", w, c)
+		}
 		if checks.WitGuestTestTargetDir == "/cache/cargo-target" || !strings.HasPrefix(checks.WitGuestTestTargetDir, checks.ReleaseCachePath+"/") {
 			t.Errorf("WitGuestTestTargetDir %q must sit apart from the gate's target, inside the release volume", checks.WitGuestTestTargetDir)
 		}
@@ -347,8 +352,8 @@ func TestRustWitGuestAliasAloneIsTheOneWorld(t *testing.T) {
 func TestRustWitGuestFindingsNameTheFailingWorld(t *testing.T) {
 	for _, c := range []struct{ name, needle, world, step string }{
 		{"reader build", guestBuild + `,"--no-default-features",` + feat("wit-guest-reader"), "wit-guest-reader", "build"},
-		{"reader test", `"cargo","test","--locked","--no-default-features",` + feat("wit-guest-reader"), "wit-guest-reader", "test"},
-		{"identity test", `"cargo","test","--locked","--no-default-features",` + feat("wit-guest-identity"), "wit-guest-identity", "test"},
+		{"reader test", `"cargo","test","--locked","--lib","--no-default-features",` + feat("wit-guest-reader"), "wit-guest-reader", "test"},
+		{"identity test", `"cargo","test","--locked","--lib","--no-default-features",` + feat("wit-guest-identity"), "wit-guest-identity", "test"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			engine.reset()
@@ -365,7 +370,7 @@ func TestRustWitGuestFindingsNameTheFailingWorld(t *testing.T) {
 	// identity (sorted first) failing stops before reader is built.
 	engine.reset()
 	engine.withTree(map[string]string{"Cargo.toml": witTwoWorlds})
-	engine.exitCode(`"cargo","test","--locked","--no-default-features",`+feat("wit-guest-identity"), 101)
+	engine.exitCode(`"cargo","test","--locked","--lib","--no-default-features",`+feat("wit-guest-identity"), 101)
 	runAtom(t, "rust:wit-guest", "")
 	if engine.chain(feat("wit-guest-reader")) != "" {
 		t.Errorf("a failed world goes no further:\n%v", engine.chains())
