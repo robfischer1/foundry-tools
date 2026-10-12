@@ -22,8 +22,9 @@ import (
 // tongs, rust:cargo-clippy and rust:cargo-test running concurrently against
 // the shared registry volume, cargo-test answered "failed to download
 // `deranged v0.5.8`" while clippy fetched the same crate. cargo's
-// package-cache lock lives in CARGO_HOME, which the mount does not cover, so
-// two containers do not see each other's lock. One fetch, cached as a layer
+// package-cache lock lived in CARGO_HOME, which the mounts did not cover, so
+// two containers did not see each other's lock (checks.CargoHome is the fix:
+// one volume holds the home, lock included). One fetch, cached as a layer
 // keyed on the tree, and the parallel atoms only read.
 //
 // The fetch is also rule 1 of runtime.go: a registry outage is a could-not-run
@@ -87,7 +88,17 @@ func cargoVerdict(ctx context.Context, a checks.AtomDef, ctr *dagger.Container) 
 // before landing this -- `cargo fetch --locked` across all nine rust stars,
 // two stale, both repaired first -- so no star reds on the change itself.
 func (r *run) cargoDeps() *dagger.Container {
-	return r.lane(checks.ImageRust).WithExec([]string{"cargo", "fetch", "--locked"})
+	return cargoFetch(r.lane(checks.ImageRust))
+}
+
+// cargoFetch sweeps stale git-db locks, then fetches. The sweep runs under
+// cargo's own flock (checks.StaleCargoLocks), so it cannot race a live fetch;
+// the fetch is the only step that takes the shared CARGO_HOME lock for long,
+// so it is the only step that serialises across containers. Nothing here
+// mounts LOCKED: that would hold the volume for whole build execs and queue
+// gates past the 5m watchdog.
+func cargoFetch(ctr *dagger.Container) *dagger.Container {
+	return ctr.WithExec(checks.StaleCargoLocks()).WithExec([]string{"cargo", "fetch", "--locked"})
 }
 
 // cargoFresh is cargoDeps for the atoms that build into the shared
@@ -307,8 +318,7 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 	}
 
 	// SOMETHING WILL BE MUTATED: the mutation lane, its dependencies fetched.
-	ctr := r.gitReady(ctx, r.withBase(r.rustMutationLane().
-		WithExec([]string{"cargo", "fetch", "--locked"}).
+	ctr := r.gitReady(ctx, r.withBase(cargoFetch(r.rustMutationLane()).
 		WithoutEnvVariable("CARGO_TARGET_DIR").
 		WithoutMount("/cache/cargo-target"))).
 		// Provisioning, under the default Expect: an image without cargo-mutants

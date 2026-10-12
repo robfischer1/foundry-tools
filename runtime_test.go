@@ -18,8 +18,8 @@ func TestLaneMountsEachCacheAndExportsOnlyTheOneEnvVar(t *testing.T) {
 	runAtom(t, "rust:cargo-clippy", "")
 	c := engine.chain(`"cargo","clippy"`, "exitCode")
 	wantCalls(t, c,
-		[]string{"withMountedCache", `path:"/usr/local/cargo/registry"`},
-		[]string{"withMountedCache", `path:"/usr/local/cargo/git"`},
+		[]string{"withMountedCache", `path:"/cache/cargo-home"`},
+		[]string{"withEnvVariable", `name:"CARGO_HOME"`, `value:"/cache/cargo-home"`},
 		[]string{"withMountedCache", `path:"/cache/cargo-target"`},
 		[]string{"withEnvVariable", `name:"CARGO_TARGET_DIR"`, `value:"/cache/cargo-target"`},
 	)

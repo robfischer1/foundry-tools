@@ -47,8 +47,8 @@ func TestRustCargoFmtCompilesNothingAndFetchesNothing(t *testing.T) {
 	}
 	wantCalls(t, c,
 		[]string{"withEnvVariable", `name:"CI"`, `value:"true"`},
-		[]string{"withMountedCache", `path:"/usr/local/cargo/registry"`},
-		[]string{"withMountedCache", `path:"/usr/local/cargo/git"`},
+		[]string{"withMountedCache", `path:"/cache/cargo-home"`},
+		[]string{"withEnvVariable", `name:"CARGO_HOME"`, `value:"/cache/cargo-home"`},
 		[]string{"withMountedCache", `path:"/cache/cargo-target"`},
 		[]string{"withEnvVariable", `name:"CARGO_TARGET_DIR"`, `value:"/cache/cargo-target"`},
 		[]string{"withMountedDirectory", `path:"/src"`},
@@ -564,7 +564,8 @@ func TestRustMutationScopesAnUndeclaredPullToTheWholeDiffAndItsMembers(t *testin
 		[]string{"withExec", `args:["git","diff","--relative","since0","HEAD","--","*.rs",":!tests/"]`})
 	c := engine.chain(rustMutantsNeedle, "exitCode")
 	wantCalls(t, c, []string{"withExec", `"--test-tool","nextest","-p","gen","-p","x",` + rustExcludes() + `"-D"`})
-	if strings.Contains(c, `"-f"`) {
+	// (from the mutants exec on: the stale-lock sweep before the fetch has its own "-f" for rm)
+	if strings.Contains(c[strings.Index(c, `args:["/usr/local/bin/execmem"`):], `"-f"`) {
 		t.Errorf("an empty declaration narrows nothing with -f:\n%s", c)
 	}
 
@@ -857,7 +858,7 @@ func TestRustSharedTargetBuildsRunUnderTheStamp(t *testing.T) {
 			t.Fatalf("%s: no chain ran %s", tc.atom, tc.needle)
 		}
 		wantCalls(t, c, []string{"withExec", `args:["cargo","fetch","--locked"]`}, stamp)
-		if strings.Index(c, `"cargo","fetch","--locked"`) > strings.Index(c, `"find"`) {
+		if strings.Index(c, `"cargo","fetch","--locked"`) > strings.Index(c, `"find",".","-path"`) {
 			t.Errorf("%s: the stamp follows the fetch:\n%s", tc.atom, c)
 		}
 	}
@@ -986,5 +987,24 @@ func TestRustMutationCPUShareIsAboutEightCores(t *testing.T) {
 	}
 	if want := "-C link-arg=-Wl,--thread-count=" + strconv.Itoa(rustMutantCores); rustMoldThreadsFlag != want {
 		t.Errorf("mold flag %q out of step with rustMutantCores, want %q", rustMoldThreadsFlag, want)
+	}
+}
+
+// The fetch is the one step that serialises across containers (cargo's flock
+// in the shared CARGO_HOME), and it sweeps stale git-db locks first, under
+// that same flock. Neither the volume nor any exec is LOCKED.
+func TestCargoFetchSweepsStaleLocksFirstAndLocksNothing(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	wantState(t, runAtom(t, "rust:cargo-clippy", ""), 0)
+	c := engine.chain(`"cargo","clippy"`, "exitCode")
+
+	sweep := strings.Index(c, `"flock","/cache/cargo-home/.package-cache"`)
+	fetch := strings.Index(c, `"cargo","fetch","--locked"`)
+	if sweep < 0 || fetch < 0 || sweep > fetch {
+		t.Errorf("the stale-lock sweep must run before the fetch (sweep %d, fetch %d):\n%s", sweep, fetch, c)
+	}
+	if strings.Contains(c, "sharing:LOCKED") && mountSharingAt(c, "/cache/cargo-home", `"cargo","clippy"`) == "LOCKED" {
+		t.Errorf("the cargo home must not be LOCKED:\n%s", c)
 	}
 }

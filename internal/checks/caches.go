@@ -11,8 +11,9 @@ package checks
 //
 //	go      GOPATH=/go (module cache at /go/pkg/mod); GOCACHE is exported
 //	python  UV_CACHE_DIR is exported
-//	rust    CARGO_HOME=/usr/local/cargo (registry/ and git/); CARGO_TARGET_DIR
-//	        is exported
+//	rust    CARGO_HOME is exported and points at ONE volume (CargoHome), so
+//	        registry/, git/ and cargo's lock files share it; CARGO_TARGET_DIR
+//	        is exported too
 //	ts      bun's default /root/.bun/install/cache
 //
 // Mounting at the toolchain's own path rather than redirecting it with an
@@ -128,8 +129,28 @@ func CachesFor(image string) []CacheMount {
 		}
 	case ImageRust:
 		return []CacheMount{
-			{Path: "/usr/local/cargo/registry", Key: "foundry-cargo-registry"},
-			{Path: "/usr/local/cargo/git", Key: "foundry-cargo-git"},
+			// ONE VOLUME FOR THE WHOLE CARGO_HOME, lock files included, SHARED.
+			// cargo serialises registry and git-db writes with an flock on
+			// $CARGO_HOME/.package-cache. With registry/ and git/ mounted
+			// separately that file sat in the container's own layer: every
+			// container held a lock nobody else could see, and concurrent lanes
+			// unpacked the same crate into the shared registry (".cargo-ok:
+			// File exists", 2026-09-13 and 09-16) and collided in the git db
+			// (libgit2 "config.lock: File exists"). With the lock inside the
+			// volume, cargo's own flock serialises the lanes (one engine, one
+			// filesystem).
+			//
+			// WHY NOT LOCKED: LOCKED holds the volume for a whole exec, so every
+			// build exec would queue behind the others, past the 5m silence
+			// watchdog (#308/#309). cargo holds its flock only while it fetches.
+			//
+			// NOT /usr/local/cargo ITSELF: that would shadow bin/, where
+			// provision installs cargo-audit and cargo-mutants. CARGO_HOME moves
+			// instead; bin/ stays on PATH. A move rather than a mount over the
+			// image's home, so nothing the image keeps there is hidden: the lane
+			// gets no config.toml from this module (nothing here writes one; the
+			// registry route is the engine's cache CA).
+			{Path: CargoHome, Key: "foundry-cargo-home", EnvVar: "CARGO_HOME"},
 			{Path: "/cache/cargo-target", Key: "foundry-cargo-target", EnvVar: "CARGO_TARGET_DIR", PerRepo: true},
 		}
 	case ImageTS:
@@ -138,6 +159,27 @@ func CachesFor(image string) []CacheMount {
 		}
 	}
 	return nil
+}
+
+// CargoHome is the one cache volume the rust lanes keep cargo's home in
+// (registry/, git/, and the .package-cache lock that guards both).
+const CargoHome = "/cache/cargo-home"
+
+// StaleCargoLocks is the exec that removes lock files a killed container left
+// in the shared cargo git db. libgit2's config.lock (and ref locks) count as
+// held by merely existing, unlike cargo's own flock, so a container killed
+// mid-fetch wedges every later fetch ("config.lock: File exists") until
+// something deletes it. Run under flock on cargo's own lock file, the sweep
+// cannot race a live cargo: whoever holds that flock is the only writer of
+// those files.
+func StaleCargoLocks() []string {
+	// -prune keeps the walk off the crate sources, and -exec rather than
+	// -delete because -delete implies -depth, which defeats -prune. git/db may
+	// not exist yet on a fresh volume; find from the home, which always does.
+	return []string{"flock", CargoHome + "/.package-cache",
+		"find", CargoHome,
+		"(", "-path", CargoHome + "/registry", "-o", "-path", CargoHome + "/git/checkouts", ")", "-prune", "-o",
+		"-path", CargoHome + "/git/db/*", "-name", "*.lock", "-type", "f", "-exec", "rm", "-f", "{}", "+"}
 }
 
 // ReleaseCachePath is where every Rust RELEASE build keeps its target
