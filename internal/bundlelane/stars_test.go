@@ -600,3 +600,26 @@ func TestInjectKeepsTodaysFluxRowsByteIdentical(t *testing.T) {
 		t.Error("blade-runner has no flux row")
 	}
 }
+
+// An ExternalName that is not an in-cluster Service (a hostname outside the
+// cluster) has no target flux could carry: the repo is still a star.
+func TestServiceFactsAnExternalHostIsAnEmptyFact(t *testing.T) {
+	got, err := ServiceFacts(map[string]string{
+		"prime/x.yaml": "kind: Service\nmetadata: {name: out, namespace: prime}\nspec: {type: ExternalName, externalName: db.example.com}\n",
+	}, map[string]bool{"out": true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f, ok := got["out"]; !ok || f.Ports != nil || f.Interface != nil {
+		t.Fatalf("got %+v, want an empty fact for out", got)
+	}
+}
+
+// A Service manifest that does not parse fails the injection, naming the file.
+func TestInjectNamesTheServiceManifestThatDoesNotParse(t *testing.T) {
+	in := snapshot(t)
+	in.ServiceManifests = map[string]string{"hemera/bad.yaml": "kind: [unclosed"}
+	if _, err := Inject(in); err == nil || !strings.Contains(err.Error(), "foundry/flux hemera/bad.yaml") {
+		t.Fatalf("err = %v", err)
+	}
+}
