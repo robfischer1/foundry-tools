@@ -82,6 +82,17 @@ func TestComposeGivesAJobNoSidecar(t *testing.T) {
 	}
 }
 
+// A v2 CI lane (ci.<lane>) is composed exactly as a job lane is.
+func TestComposeGivesACILaneNoSidecar(t *testing.T) {
+	got := Compose([]Contract{contract("narcissus", "ci.gate", "witness")})
+	if len(got) != 1 || got[0].Star != "narcissus" || names(got[0].Produces) != "narcissus-ci.gate" || len(got[0].Consumes) != 0 {
+		t.Fatalf("%+v", got)
+	}
+	if r := string(Render(got[0])); !strings.Contains(r, "[[produces]]\nto = \"ci.gate\"\ncontract = \"narcissus-ci.gate\"") {
+		t.Errorf("%s", r)
+	}
+}
+
 func TestRenderIsTheComposedSidecarDialect(t *testing.T) {
 	approved := contract("chaos", "urania", "shapes")
 	approved.Version, approved.Status = "2", "approved"

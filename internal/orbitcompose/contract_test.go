@@ -68,6 +68,8 @@ func TestSplitNameReadsAJobConsumer(t *testing.T) {
 	for file, want := range map[string]string{
 		"/x/orbits/narcissus-job.gate.toml": "narcissus job.gate",
 		"blade-runner-job.mutation-bg.toml": "blade-runner job.mutation-bg",
+		"/x/orbits/narcissus-ci.gate.toml":  "narcissus ci.gate",
+		"blade-runner-ci.mutation-bg.toml":  "blade-runner ci.mutation-bg",
 	} {
 		for _, roster := range []map[string]bool{nil, rosterStars} {
 			p, c, err := SplitName(file, roster)
@@ -76,13 +78,19 @@ func TestSplitNameReadsAJobConsumer(t *testing.T) {
 			}
 		}
 	}
-	for _, f := range []string{"narcissus-job.Gate.toml", "Narcissus-job.gate.toml", "narcissus-job..toml", "-job.gate.toml"} {
+	for _, f := range []string{"narcissus-job.Gate.toml", "Narcissus-job.gate.toml", "narcissus-job..toml", "-job.gate.toml", "narcissus-ci.Gate.toml", "Narcissus-ci.gate.toml", "narcissus-ci..toml", "-ci.gate.toml"} {
 		if _, _, err := SplitName(f, nil); err == nil {
 			t.Errorf("%s read as a contract", f)
 		}
 	}
 	if !IsJob("job.gate") || IsJob("narcissus") || IsJob("jobs") {
 		t.Error("IsJob")
+	}
+	if !IsCI("ci.gate") || IsCI("narcissus") || IsCI("cis") || IsCI("job.gate") {
+		t.Error("IsCI")
+	}
+	if !IsLane("job.gate") || !IsLane("ci.gate") || IsLane("narcissus") {
+		t.Error("IsLane")
 	}
 }
 
