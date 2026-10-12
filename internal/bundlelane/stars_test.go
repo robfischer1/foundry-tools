@@ -319,6 +319,9 @@ func TestCollidesNamesTheInjectedKeysTheTierAlreadySets(t *testing.T) {
 	if hit := Collides(`{"map":{},"lean":{}}`); !reflect.DeepEqual(hit, []string{"lean"}) {
 		t.Fatalf("the lean rows' key is the lane's too: Collides = %q", hit)
 	}
+	if hit := Collides(`{"map":{},"repos":{}}`); !reflect.DeepEqual(hit, []string{"repos"}) {
+		t.Fatalf("the derived catalog's key is reserved too: Collides = %q", hit)
+	}
 	if hit := Collides(`{"map":{},"topics":[]}`); hit != nil {
 		t.Fatalf("a tier without them collides with nothing, got %q", hit)
 	}

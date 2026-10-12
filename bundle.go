@@ -472,7 +472,7 @@ func (l *bundleLane) fleet(ctx context.Context, built *dagger.Container) (*dagge
 	bundleSay("── fleet: build the roster and its SIGNED twin from a staged tree ──")
 	// The v2 records (fleet/stars/<n>/<n>.slag) are not bundle data: opa build
 	// reads data.json, and a stray file in the stage is one more thing a future
-	// builder could trip on. The catalog entries (fleet/stars/<n>.json) reach
+	// builder could trip on. The catalog entries (fleet/repos/<n>.json, or fleet/stars/<n>.json before the move) reach
 	// the die through the staged declared/data.json, not as themselves.
 	//
 	// ONCE THE TREE DERIVES data.fleet.stars (fleet/derive.rego), the lean rows
@@ -480,7 +480,7 @@ func (l *bundleLane) fleet(ctx context.Context, built *dagger.Container) (*dagge
 	// document at one path. They are staged at fleet/lean/<n>/data.json, the
 	// derivation's fallback, and stay committed where they are for the readers
 	// that read them in git.
-	exclude := []string{"**/*.slag", "stars/*.json"}
+	exclude := []string{"**/*.slag", "stars/*.json", "repos/*.json"}
 	var lean map[string]string
 	if l.derive {
 		exclude = append(exclude, "stars/*/data.json")

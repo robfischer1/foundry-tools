@@ -165,6 +165,24 @@ func TestRosterRefusesAStarThatDroppedOut(t *testing.T) {
 	}
 }
 
+// data.fleet.repos (F15) is held to the same union as stars, but only once the
+// tree's derive.rego carries the rule: foundry-tools lands before foundry-dies.
+func TestRosterHoldsReposToTheDeclaredLeanUnionWhenTheTreeDerivesThem(t *testing.T) {
+	const head = `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"hades":{"kind":"go"},"ares":{"kind":"go"}},"lean":{"hades":{},"chaos":{}},"stars":{"hades":{},"ares":{},"chaos":{}}`
+	if _, _, _, problem, err := Roster(head + `}}`); err != nil || problem != "" {
+		t.Errorf("a tree without the repos rule: problem = %q, err = %v", problem, err)
+	}
+	if _, _, _, problem, err := Roster(head + `,"repos":{"hades":{},"ares":{},"chaos":{}}}}`); err != nil || problem != "" {
+		t.Errorf("repos == declared ∪ lean: problem = %q, err = %v", problem, err)
+	}
+	if _, _, _, problem, _ := Roster(head + `,"repos":{"hades":{},"chaos":{}}}}`); !strings.Contains(problem, "derives 2 repos from 3 declared/lean keys") {
+		t.Errorf("a repo that dropped out: problem = %q", problem)
+	}
+	if _, _, _, problem, _ := Roster(head + `,"repos":{}}}`); !strings.Contains(problem, "derives 0 repos") {
+		t.Errorf("an empty repos rule: problem = %q", problem)
+	}
+}
+
 func TestRosterDenialsCountOnlyTheRostersOwn(t *testing.T) {
 	denies := []string{
 		"seam to definitely-not-a-real-star is not in the fleet roster",

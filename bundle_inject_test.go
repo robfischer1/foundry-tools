@@ -42,6 +42,47 @@ func TestTheRosterServesTheCatalogEntriesAndTheFluxFacts(t *testing.T) {
 	}
 }
 
+// The entries live at fleet/repos/<name>.json (F10). Until foundry-dies lands
+// the move they are still at fleet/stars/<name>.json, and the lane serves them
+// from there; where both hold entries the lane refuses (below).
+func TestTheCatalogEntriesAreReadFromReposThenFromStars(t *testing.T) {
+	for name, c := range map[string]struct {
+		tree   map[string]string
+		want   string
+		absent string
+	}{
+		"fleet/repos":  {map[string]string{"fleet/repos/athena.json": athenaEntry}, `\"repo\": \"rob/athena\"`, ""},
+		"fleet/stars":  {map[string]string{"fleet/stars/athena.json": athenaEntry}, `\"repo\": \"rob/athena\"`, ""},
+		"repos stages": {map[string]string{"fleet/repos/athena.json": athenaEntry}, `repos/*.json`, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := bundleOn(t, c.tree)
+			scriptAGreenBundle()
+			scriptTheFleetWith(strings.Replace(rosterData, `"declared":{}`, `"declared":{"athena":{}},"lean":{"ares":{}}`, 1))
+			bundles(t, m)
+			settledOn(t, "0", "published and signed")
+			stage := engine.chain(`path:"fleet/declared/data.json"`, `path:".manifest"`)
+			if !strings.Contains(stage, c.want) {
+				t.Errorf("the stage lacks %s:\n%s", c.want, stage)
+			}
+			if c.absent != "" && strings.Contains(stage, c.absent) {
+				t.Errorf("the stage carries %s:\n%s", c.absent, stage)
+			}
+		})
+	}
+}
+
+func TestEntriesAtBothCatalogPathsFailLoudly(t *testing.T) {
+	m := bundleOn(t, map[string]string{
+		"fleet/repos/athena.json": athenaEntry,
+		"fleet/stars/ares.json":   `{"name":"ares","kind":"go"}`,
+	})
+	scriptAGreenBundle()
+	bundles(t, m)
+	settledOn(t, "1", "catalog entries sit at both fleet/repos/*.json (1) and fleet/stars/*.json (1)")
+	nothingPushed(t)
+}
+
 func TestTheInjectionRefusesWhatWouldServeTheWrongFacts(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -92,7 +133,8 @@ func TestAnInjectionReadTheEngineLostCouldNotRun(t *testing.T) {
 	for name, c := range map[string]struct{ needle, reason string }{
 		"resolving flux main":      {`ref(name:"main"){commit}`, "foundry/flux main could not be resolved to a commit"},
 		"the committed-file probe": {`glob(pattern:"fleet/declared/data.json")`, "fleet/declared/data.json could not be probed"},
-		"the catalog entries":      {`glob(pattern:"fleet/stars/*.json")`, "fleet/stars/*.json could not be listed"},
+		"the catalog entries":      {`glob(pattern:"fleet/repos/*.json")`, "fleet/repos/*.json could not be listed"},
+		"the legacy entries":       {`glob(pattern:"fleet/stars/*.json")`, "fleet/stars/*.json could not be listed"},
 		"flux's star manifests":    {`glob(pattern:"prime/star-*.yaml")`, "prime/star-*.yaml could not be listed"},
 		"flux's data/":             {`glob(pattern:"data/*.yaml")`, "data/*.yaml could not be listed"},
 		"one manifest's contents":  {`file(path:"prime/star-athena.yaml"){contents}`, "prime/star-athena.yaml could not be read"},

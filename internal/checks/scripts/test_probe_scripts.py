@@ -49,7 +49,7 @@ CANNOT_RUN = 2
 # string, which is enough to drive the malformed-schema case; iter_errors
 # yields nothing, so record findings come from the naming invariants the
 # script checks itself and not from validation we would be faking.
-STUB_INIT = '''
+STUB_INIT = """
 from .exceptions import SchemaError
 
 
@@ -64,12 +64,12 @@ class Draft202012Validator:
 
     def iter_errors(self, doc):
         return iter(())
-'''
+"""
 
-STUB_EXCEPTIONS = '''
+STUB_EXCEPTIONS = """
 class SchemaError(Exception):
     pass
-'''
+"""
 
 
 def stage(script: str, tree: Path) -> None:
@@ -267,15 +267,16 @@ def test_a_record_that_is_not_an_object_is_a_finding_not_a_crash(tmp_path):
 CATALOG = "fleet-star.schema.json"
 
 
-def add_entry(tree: Path, star: str, text: str) -> None:
-    """Write one catalog entry, fleet/stars/<star>.json.
+def add_entry(tree: Path, star: str, text: str, where: str = "stars") -> None:
+    """Write one catalog entry, fleet/<where>/<star>.json.
 
     Args:
         tree: the temporary repository.
         star: the entry's file stem.
         text: the entry's bytes.
+        where: the directory under fleet/, repos (F10) or stars (before it).
     """
-    stars = tree / "fleet" / "stars"
+    stars = tree / "fleet" / where
     stars.mkdir(parents=True, exist_ok=True)
     (stars / f"{star}.json").write_text(text, encoding="utf-8")
 
@@ -296,7 +297,36 @@ def test_a_catalog_entry_is_held_to_the_fleet_star_schema(tmp_path):
     done = probe(tree)
     assert done.returncode == PASS, done.stdout + done.stderr
     assert "1 record(s) validated" in done.stdout
-    assert "1 catalog entry validated against schema/fleet-star.schema.json" in done.stdout
+    assert (
+        "1 catalog entry validated against schema/fleet-star.schema.json" in done.stdout
+    )
+
+
+def test_a_catalog_entry_at_fleet_repos_is_held_to_the_schema(tmp_path):
+    tree = schema_tree(tmp_path, **{V1: VALID, V3: VALID, CATALOG: VALID})
+    add_record(tree, "hades", json.dumps({"meta": {"name": "hades"}}))
+    add_entry(tree, "hades", json.dumps({"name": "nyx"}), where="repos")
+    done = probe(tree)
+    assert done.returncode == FINDINGS, done.stdout + done.stderr
+    assert (
+        "fleet/repos/hades.json::name: name must equal the filename 'hades'"
+        in done.stderr
+    )
+
+
+def test_entries_at_both_catalog_paths_are_a_finding(tmp_path):
+    # fleet/repos/ being non-empty turns the old-path fallback off, so a document
+    # still at fleet/stars/ would vanish from the bundle without anyone seeing.
+    tree = schema_tree(tmp_path, **{V1: VALID, V3: VALID, CATALOG: VALID})
+    add_record(tree, "hades", json.dumps({"meta": {"name": "hades"}}))
+    add_entry(tree, "hades", json.dumps({"name": "hades"}), where="repos")
+    add_entry(tree, "chaos", json.dumps({"name": "chaos"}), where="stars")
+    done = probe(tree)
+    assert done.returncode == FINDINGS, done.stdout + done.stderr
+    assert (
+        "catalog entries sit at both fleet/repos/ (1) and fleet/stars/ (1)"
+        in done.stderr
+    )
 
 
 def test_catalog_entries_with_no_schema_cannot_be_judged(tmp_path):
@@ -316,8 +346,13 @@ def test_a_catalog_entry_named_for_another_star_is_a_finding(tmp_path):
     add_entry(tree, "chaos", "not json")
     done = probe(tree)
     assert done.returncode == FINDINGS, done.stdout + done.stderr
-    assert "fleet/stars/hades.json::name: name must equal the filename 'hades'" in done.stderr
-    assert "fleet/stars/nyx.json::name: name must equal the filename 'nyx'" in done.stderr
+    assert (
+        "fleet/stars/hades.json::name: name must equal the filename 'hades'"
+        in done.stderr
+    )
+    assert (
+        "fleet/stars/nyx.json::name: name must equal the filename 'nyx'" in done.stderr
+    )
     assert "fleet/stars/chaos.json::not readable as JSON" in done.stderr
     assert "Traceback" not in done.stderr
 
