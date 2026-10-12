@@ -92,7 +92,9 @@ def check_schema_file(path: str) -> dict:
     props = set(doc.get("properties", {}))
     missing = [k for k in doc.get("required", []) if k not in props]
     if missing:
-        sys.exit(f"::error file={path}::required names properties that are not defined: {missing}")
+        sys.exit(
+            f"::error file={path}::required names properties that are not defined: {missing}"
+        )
     print(f"valid Draft 2020-12 schema - {doc.get('$id')}")
     print(f"{len(doc.get('required', []))} required keys, all defined in properties")
     return doc
@@ -103,7 +105,9 @@ SCHEMA = "schema/slag-v3.schema.json"
 # (/slag-v3.schema.json or /slag-v4.schema.json) says which file of schema/ is its law; v3 is
 # required (it is the one every record carried until the flip), a later version is checked when its
 # file exists, and a record that names a version whose file is absent cannot be judged: 2.
-schemas = {path: check_schema_file(path) for path in ("schema/slag.schema.json", SCHEMA)}
+schemas = {
+    path: check_schema_file(path) for path in ("schema/slag.schema.json", SCHEMA)
+}
 for later in sorted(Path("schema").glob("slag-v[0-9]*.schema.json")):
     schemas.setdefault(str(later), check_schema_file(str(later)))
 validators = {path: Draft202012Validator(doc) for path, doc in schemas.items()}
@@ -131,7 +135,10 @@ bad = 0
 used: dict[str, int] = {}
 records = sorted(str(p) for p in Path("fleet/stars").glob("*/slag.json"))
 if not records:
-    print("::error::fleet/stars/ carries no slag.json, so there is no record to validate", file=sys.stderr)
+    print(
+        "::error::fleet/stars/ carries no slag.json, so there is no record to validate",
+        file=sys.stderr,
+    )
     sys.exit(2)
 for rec in records:
     name = rec.split("/")[2]
@@ -145,12 +152,17 @@ for rec in records:
         continue
     law = schema_path_for(doc)
     if law not in validators:
-        print(f"::error::{rec} names {law}, which is not in schema/: could not read {law}", file=sys.stderr)
+        print(
+            f"::error::{rec} names {law}, which is not in schema/: could not read {law}",
+            file=sys.stderr,
+        )
         sys.exit(2)
     used[law] = used.get(law, 0) + 1
     findings = [
         f"{'/'.join(str(x) for x in e.path) or '<root>'}: {e.message}"
-        for e in sorted(validators[law].iter_errors(doc), key=lambda e: [str(x) for x in e.path])
+        for e in sorted(
+            validators[law].iter_errors(doc), key=lambda e: [str(x) for x in e.path]
+        )
     ]
     meta = doc.get("meta") if isinstance(doc, dict) else None
     if not isinstance(meta, dict) or meta.get("name") != name:
@@ -169,12 +181,23 @@ print(f"{len(records)} record(s) validated: {held}")
 # Zero entries is the migration's starting point, not a could-not-run; a tree with entries and no
 # schema cannot be judged: 2.
 CATALOG = "schema/fleet-star.schema.json"
-entries = sorted(str(p) for p in Path("fleet/repos").glob("*.json")) or sorted(
-    str(p) for p in Path("fleet/stars").glob("*.json")
-)
+repo_entries = sorted(str(p) for p in Path("fleet/repos").glob("*.json"))
+legacy_entries = sorted(str(p) for p in Path("fleet/stars").glob("*.json"))
+if repo_entries and legacy_entries:
+    # The lane reads one place; a document at the other would vanish silently.
+    print(
+        f"::error::catalog entries sit at both fleet/repos/ ({len(repo_entries)}) and fleet/stars/ "
+        f"({len(legacy_entries)}): move {legacy_entries[0]} and the rest to fleet/repos/",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+entries = repo_entries or legacy_entries
 if entries:
     if not Path(CATALOG).exists():
-        print(f"::error::the tree carries catalog entries and there is no {CATALOG}: could not read {CATALOG}", file=sys.stderr)
+        print(
+            f"::error::the tree carries catalog entries and there is no {CATALOG}: could not read {CATALOG}",
+            file=sys.stderr,
+        )
         sys.exit(2)
     catalog = Draft202012Validator(check_schema_file(CATALOG))
     for entry in entries:
@@ -187,13 +210,17 @@ if entries:
             continue
         findings = [
             f"{'/'.join(str(x) for x in e.path) or '<root>'}: {e.message}"
-            for e in sorted(catalog.iter_errors(doc), key=lambda e: [str(x) for x in e.path])
+            for e in sorted(
+                catalog.iter_errors(doc), key=lambda e: [str(x) for x in e.path]
+            )
         ]
         if not isinstance(doc, dict) or doc.get("name") != stem:
             findings.append(f"name: name must equal the filename {stem!r}")
         for f in findings:
             bad += 1
             print(f"::error file={entry}::{f}", file=sys.stderr)
-print(f"{len(entries)} catalog entr{'y' if len(entries) == 1 else 'ies'} validated against {CATALOG}")
+print(
+    f"{len(entries)} catalog entr{'y' if len(entries) == 1 else 'ies'} validated against {CATALOG}"
+)
 if bad:
     sys.exit(f"::error::{bad} record finding(s)")

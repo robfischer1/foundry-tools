@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 
 	"dagger/foundry-tools/internal/buildlane"
 	"dagger/foundry-tools/internal/bundlelane"
@@ -52,12 +53,20 @@ func (l *bundleLane) inject(ctx context.Context, data string, shards []string) (
 		if g.code != buildlane.Clean {
 			return bundlelane.Injection{}, g
 		}
-		if len(files) == 0 && read.pattern == bundlelane.DeclaredGlob {
-			// fleet/repos/ has not landed in foundry-dies: the entries are
-			// still where F10 first put them.
-			files, g = readGlob(ctx, read.dir, bundlelane.DeclaredLegacyGlob)
+		if read.pattern == bundlelane.DeclaredGlob {
+			legacy, g := readGlob(ctx, read.dir, bundlelane.DeclaredLegacyGlob)
 			if g.code != buildlane.Clean {
 				return bundlelane.Injection{}, g
+			}
+			switch {
+			case len(files) > 0 && len(legacy) > 0:
+				// A catalog document at the old path would vanish silently:
+				// fleet/repos/ being non-empty turns the fallback off.
+				return bundlelane.Injection{}, findings(fmt.Sprintf("catalog entries sit at both %s (%d) and %s (%d) — the lane reads one place, so the other's documents would be dropped; move them to fleet/repos/", bundlelane.DeclaredGlob, len(files), bundlelane.DeclaredLegacyGlob, len(legacy)))
+			case len(files) == 0:
+				// fleet/repos/ has not landed in foundry-dies: the entries are
+				// still where F10 first put them.
+				files = legacy
 			}
 		}
 		*read.into = files

@@ -44,9 +44,8 @@ func TestTheRosterServesTheCatalogEntriesAndTheFluxFacts(t *testing.T) {
 
 // The entries live at fleet/repos/<name>.json (F10). Until foundry-dies lands
 // the move they are still at fleet/stars/<name>.json, and the lane serves them
-// from there; where both exist, fleet/repos/ is the whole catalog.
+// from there; where both hold entries the lane refuses (below).
 func TestTheCatalogEntriesAreReadFromReposThenFromStars(t *testing.T) {
-	const aresEntry = `{"description":"Ares.","kind":"go","lifecycle":"production","name":"ares","repo":"rob/ares"}`
 	for name, c := range map[string]struct {
 		tree   map[string]string
 		want   string
@@ -54,7 +53,6 @@ func TestTheCatalogEntriesAreReadFromReposThenFromStars(t *testing.T) {
 	}{
 		"fleet/repos":  {map[string]string{"fleet/repos/athena.json": athenaEntry}, `\"repo\": \"rob/athena\"`, ""},
 		"fleet/stars":  {map[string]string{"fleet/stars/athena.json": athenaEntry}, `\"repo\": \"rob/athena\"`, ""},
-		"repos wins":   {map[string]string{"fleet/repos/athena.json": athenaEntry, "fleet/stars/ares.json": aresEntry}, `\"repo\": \"rob/athena\"`, `rob/ares`},
 		"repos stages": {map[string]string{"fleet/repos/athena.json": athenaEntry}, `repos/*.json`, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -72,6 +70,17 @@ func TestTheCatalogEntriesAreReadFromReposThenFromStars(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEntriesAtBothCatalogPathsFailLoudly(t *testing.T) {
+	m := bundleOn(t, map[string]string{
+		"fleet/repos/athena.json": athenaEntry,
+		"fleet/stars/ares.json":   `{"name":"ares","kind":"go"}`,
+	})
+	scriptAGreenBundle()
+	bundles(t, m)
+	settledOn(t, "1", "catalog entries sit at both fleet/repos/*.json (1) and fleet/stars/*.json (1)")
+	nothingPushed(t)
 }
 
 func TestTheInjectionRefusesWhatWouldServeTheWrongFacts(t *testing.T) {
