@@ -184,7 +184,7 @@ func Roster(dataJSON string) (mapped, stars, topics int, problem string, err err
 			Topics json.RawMessage `json:"topics"`
 			Stars  json.RawMessage `json:"stars"`
 			// Repos is the catalog rule (F15): one row per key of
-			// declared ∪ lean. Absent while the tree's derive.rego predates it.
+			// declared ∪ lean. Absent when the rule is gone or renamed.
 			Repos json.RawMessage `json:"repos"`
 			// Declared and Lean are the documents fleet/derive.rego derives
 			// stars from: one star per key of their union.
@@ -215,13 +215,14 @@ func Roster(dataJSON string) (mapped, stars, topics int, problem string, err err
 	if len(want) > 0 && stars != len(want) {
 		return mapped, stars, topics, fmt.Sprintf("the built roster derives %d stars from %d declared/lean keys — a declared entry without a kind drops its star silently", stars, len(want)), nil
 	}
-	// data.fleet.repos is the same union, one catalog row per key. It is held
-	// to the count only when the evaluated roster carries it: a tree whose
-	// derive.rego predates F15 has no repos rule, and foundry-tools lands
-	// first. Stars is not held to it: stars is unchanged in this slice.
-	if len(want) > 0 && d.Fleet.Repos != nil {
+	// data.fleet.repos is the same union, one catalog row per key, and the
+	// rule is on foundry-dies main, so it is held to the count unconditionally
+	// whenever the union is non-empty. OPA emits "repos":{} when every row is
+	// undefined, and omits the key when the rule is gone or renamed: both are
+	// a count of 0, so neither passes silently. Stars is not held to it.
+	if len(want) > 0 {
 		if repos := size(d.Fleet.Repos); repos != len(want) {
-			return mapped, stars, topics, fmt.Sprintf("the built roster derives %d repos from %d declared/lean keys — a declared entry missing a required field drops its repo silently", repos, len(want)), nil
+			return mapped, stars, topics, fmt.Sprintf("the built roster derives %d repos from %d declared/lean keys — a declared entry missing a required field drops its repo silently, and a missing repos rule derives none", repos, len(want)), nil
 		}
 	}
 	for _, row := range rows {

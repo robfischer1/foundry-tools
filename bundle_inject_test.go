@@ -8,6 +8,10 @@ import (
 	"dagger/foundry-tools/internal/checks"
 )
 
+// catalogRoster is rosterData with a declared and a lean key, and the repos
+// rule's row for each: the Roster gate holds repos to that union unconditionally.
+var catalogRoster = strings.Replace(rosterData, `"declared":{}`, `"declared":{"athena":{}},"lean":{"ares":{}},"repos":{"athena":{},"ares":{}}`, 1)
+
 // athenaEntry is a catalog entry, fleet/stars/athena.json.
 const athenaEntry = `{"description":"Plans.","kind":"go","lifecycle":"production","name":"athena","repo":"rob/athena"}`
 
@@ -16,7 +20,7 @@ const athenaEntry = `{"description":"Plans.","kind":"go","lifecycle":"production
 func TestTheRosterServesTheCatalogEntriesAndTheFluxFacts(t *testing.T) {
 	m := bundleOn(t, map[string]string{"fleet/stars/athena.json": athenaEntry})
 	scriptAGreenBundle()
-	scriptTheFleetWith(strings.Replace(rosterData, `"declared":{}`, `"declared":{"athena":{}},"lean":{"ares":{}}`, 1))
+	scriptTheFleetWith(catalogRoster)
 	bundles(t, m)
 	settledOn(t, "0", "published and signed")
 
@@ -58,7 +62,7 @@ func TestTheCatalogEntriesAreReadFromReposThenFromStars(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			m := bundleOn(t, c.tree)
 			scriptAGreenBundle()
-			scriptTheFleetWith(strings.Replace(rosterData, `"declared":{}`, `"declared":{"athena":{}},"lean":{"ares":{}}`, 1))
+			scriptTheFleetWith(catalogRoster)
 			bundles(t, m)
 			settledOn(t, "0", "published and signed")
 			stage := engine.chain(`path:"fleet/declared/data.json"`, `path:".manifest"`)
