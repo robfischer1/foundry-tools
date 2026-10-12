@@ -190,6 +190,9 @@ func Roster(dataJSON string) (mapped, stars, topics int, problem string, err err
 			// stars from: one star per key of their union.
 			Declared map[string]json.RawMessage `json:"declared"`
 			Lean     map[string]json.RawMessage `json:"lean"`
+			// Flux is what makes a repo a star (F16): data.fleet.stars holds
+			// the repos with a flux entry.
+			Flux map[string]json.RawMessage `json:"flux"`
 		} `json:"fleet"`
 	}
 	if err := json.Unmarshal([]byte(dataJSON), &d); err != nil {
@@ -203,26 +206,35 @@ func Roster(dataJSON string) (mapped, stars, topics int, problem string, err err
 	}
 	// A declared entry without a kind makes its derived row undefined, and the
 	// star drops out of data.fleet.stars with nothing failing. When the roster
-	// carries the documents the rule derives from, every key of their union
-	// must be a star.
-	want := map[string]struct{}{}
+	// carries the documents the rule derives from, every repo (key of their
+	// union) that flux backs must be a star, and nothing else may be (F16:
+	// stars are the deployed repos, not the catalog).
+	repoKeys := map[string]struct{}{}
 	for k := range d.Fleet.Declared {
-		want[k] = struct{}{}
+		repoKeys[k] = struct{}{}
 	}
 	for k := range d.Fleet.Lean {
-		want[k] = struct{}{}
+		repoKeys[k] = struct{}{}
 	}
-	if len(want) > 0 && stars != len(want) {
-		return mapped, stars, topics, fmt.Sprintf("the built roster derives %d stars from %d declared/lean keys — a declared entry without a kind drops its star silently", stars, len(want)), nil
+	want := map[string]struct{}{}
+	for k := range repoKeys {
+		// A roster that carries no flux document predates the injection: its
+		// stars are the whole union, as before F16.
+		if _, deployed := d.Fleet.Flux[k]; deployed || d.Fleet.Flux == nil {
+			want[k] = struct{}{}
+		}
+	}
+	if len(repoKeys) > 0 && stars != len(want) {
+		return mapped, stars, topics, fmt.Sprintf("the built roster derives %d stars from %d flux-backed repos (of %d declared/lean keys) — a declared entry without a kind drops its star silently, and a repo flux does not deploy is not a star", stars, len(want), len(repoKeys)), nil
 	}
 	// data.fleet.repos is the same union, one catalog row per key, and the
 	// rule is on foundry-dies main, so it is held to the count unconditionally
 	// whenever the union is non-empty. OPA emits "repos":{} when every row is
 	// undefined, and omits the key when the rule is gone or renamed: both are
 	// a count of 0, so neither passes silently. Stars is not held to it.
-	if len(want) > 0 {
-		if repos := size(d.Fleet.Repos); repos != len(want) {
-			return mapped, stars, topics, fmt.Sprintf("the built roster derives %d repos from %d declared/lean keys — a declared entry missing a required field drops its repo silently, and a missing repos rule derives none", repos, len(want)), nil
+	if len(repoKeys) > 0 {
+		if repos := size(d.Fleet.Repos); repos != len(repoKeys) {
+			return mapped, stars, topics, fmt.Sprintf("the built roster derives %d repos from %d declared/lean keys — a declared entry missing a required field drops its repo silently, and a missing repos rule derives none", repos, len(repoKeys)), nil
 		}
 	}
 	for _, row := range rows {

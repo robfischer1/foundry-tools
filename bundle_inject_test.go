@@ -10,7 +10,9 @@ import (
 
 // catalogRoster is rosterData with a declared and a lean key, and the repos
 // rule's row for each: the Roster gate holds repos to that union unconditionally.
-var catalogRoster = strings.Replace(rosterData, `"declared":{}`, `"declared":{"athena":{}},"lean":{"ares":{}},"repos":{"athena":{},"ares":{}}`, 1)
+// ares has no flux row, so it is a repo and not a star (F16).
+var catalogRoster = strings.Replace(strings.Replace(rosterData, `"declared":{}`, `"declared":{"athena":{}},"lean":{"ares":{}},"repos":{"athena":{},"ares":{}}`, 1),
+	`,"ares":{"name":"ares"}},"declared"`, `},"declared"`, 1)
 
 // athenaEntry is a catalog entry, fleet/stars/athena.json.
 const athenaEntry = `{"description":"Plans.","kind":"go","lifecycle":"production","name":"athena","repo":"rob/athena"}`
@@ -141,6 +143,8 @@ func TestAnInjectionReadTheEngineLostCouldNotRun(t *testing.T) {
 		"the legacy entries":       {`glob(pattern:"fleet/stars/*.json")`, "fleet/stars/*.json could not be listed"},
 		"flux's star manifests":    {`glob(pattern:"prime/star-*.yaml")`, "prime/star-*.yaml could not be listed"},
 		"flux's data/":             {`glob(pattern:"data/*.yaml")`, "data/*.yaml could not be listed"},
+		"flux's blades/":           {`glob(pattern:"blades/*.yaml")`, "blades/*.yaml could not be listed"},
+		"flux's hemera/":           {`glob(pattern:"hemera/*.yaml")`, "hemera/*.yaml could not be listed"},
 		"one manifest's contents":  {`file(path:"prime/star-athena.yaml"){contents}`, "prime/star-athena.yaml could not be read"},
 	} {
 		t.Run(name, func(t *testing.T) {

@@ -522,3 +522,81 @@ func TestStageIsTodaysBytesPlusTheInterfaceKey(t *testing.T) {
 		t.Fatalf("minus interface, Stage =\n%s\nwant\n%s", a, b)
 	}
 }
+
+// F16: a repo with a Service in prime is a deployed star, whether the Service
+// is a ClusterIP in a star manifest or an ExternalName alias to another namespace.
+func TestServiceFactsGiveEveryPrimeServiceARow(t *testing.T) {
+	manifests := map[string]string{
+		"prime/blade-runner-alias.yaml": "kind: Service\nmetadata: {name: blade-runner, namespace: prime}\nspec: {type: ExternalName, externalName: blade-runner.blades.svc.cluster.local}\n",
+		"blades/blade-controller.yaml":  "kind: Service\nmetadata: {name: blade-runner, namespace: blades}\nspec:\n  ports:\n    - {name: mcp, port: 8217}\n    - {name: mtls, port: 8218}\n",
+		"hemera/hemera-collect.yaml": `kind: Service
+metadata: {name: hemera-otelcol, namespace: hemera-node}
+spec:
+  ports:
+    - {name: otlp-http, port: 4318}
+---
+kind: Service
+metadata: {name: hemera-otelcol, namespace: prime}
+spec: {type: ExternalName, externalName: hemera-otelcol.hemera-node.svc.cluster.local}
+---
+kind: Service
+metadata: {name: hemera, namespace: prime}
+spec: {type: ExternalName, externalName: hemera-otelcol.hemera-node.svc.cluster.local}
+`,
+		"prime/other.yaml": "kind: Service\nmetadata: {name: plain, namespace: prime}\nspec:\n  ports:\n    - {name: http, port: 3000}\n---\nkind: Service\nmetadata: {name: lost, namespace: prime}\nspec: {type: ExternalName, externalName: lost.nowhere.svc.cluster.local}\n---\nkind: Service\nmetadata: {name: elsewhere, namespace: blades}\nspec:\n  ports:\n    - {name: mcp, port: 1}\n",
+	}
+	repos := map[string]bool{"blade-runner": true, "hemera": true, "plain": true, "lost": true, "elsewhere": true, "tron": true, "chaos": true}
+	have := map[string]FluxFact{"chaos": {Ports: &Ports{Listen: 1}}}
+	got, err := ServiceFacts(manifests, repos, have)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]FluxFact{
+		"blade-runner": {Ports: &Ports{Listen: 8217, MTLS: 8218}, Interface: []string{"mcp"}},
+		"hemera":       {},
+		"plain":        {Ports: &Ports{Listen: 3000}, Interface: []string{"http"}},
+		"lost":         {},
+	}
+	if a, b := Stage(got), Stage(want); a != b {
+		t.Fatalf("ServiceFacts =\n%s\nwant\n%s", a, b)
+	}
+}
+
+func TestServiceFactsNameTheManifestThatDoesNotParse(t *testing.T) {
+	_, err := ServiceFacts(map[string]string{"hemera/x.yaml": "kind: [unclosed"}, map[string]bool{"x": true}, nil)
+	if err == nil || !strings.Contains(err.Error(), "hemera/x.yaml") {
+		t.Fatalf("err = %v, want one naming hemera/x.yaml", err)
+	}
+}
+
+// Rows FluxFacts already states do not move when the Service manifests join.
+func TestInjectKeepsTodaysFluxRowsByteIdentical(t *testing.T) {
+	in := snapshot(t)
+	before, err := Inject(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.ServiceManifests = map[string]string{
+		"prime/blade-runner-alias.yaml": "kind: Service\nmetadata: {name: blade-runner, namespace: prime}\nspec: {type: ExternalName, externalName: blade-runner.blades.svc.cluster.local}\n",
+		"blades/c.yaml":                 "kind: Service\nmetadata: {name: blade-runner, namespace: blades}\nspec:\n  ports:\n    - {name: mcp, port: 8217}\n    - {name: mtls, port: 8218}\n",
+	}
+	in.Shards = append(in.Shards, "fleet/stars/blade-runner/slag.json")
+	after, err := Inject(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b, a map[string]json.RawMessage
+	_ = json.Unmarshal([]byte(before.Flux), &b)
+	_ = json.Unmarshal([]byte(after.Flux), &a)
+	if len(a) != len(b)+1 {
+		t.Fatalf("rows %d -> %d, want exactly one new", len(b), len(a))
+	}
+	for k, v := range b {
+		if string(a[k]) != string(v) {
+			t.Errorf("%s moved: %s -> %s", k, v, a[k])
+		}
+	}
+	if _, ok := a["blade-runner"]; !ok {
+		t.Error("blade-runner has no flux row")
+	}
+}

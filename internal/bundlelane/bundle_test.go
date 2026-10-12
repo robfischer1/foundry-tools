@@ -281,3 +281,19 @@ func TestEphemeralKeyIsAP256PEMOpaCanSignWith(t *testing.T) {
 		t.Error("two ephemeral keys must differ")
 	}
 }
+
+// F16: data.fleet.stars is the repos flux deploys, not the whole catalog.
+func TestRosterHoldsStarsToTheFluxBackedRepos(t *testing.T) {
+	const head = `{"fleet":{"map":{"a":{}},"topics":["t"],"declared":{"hades":{"kind":"go"},"ares":{"kind":"go"}},"lean":{"hades":{},"chaos":{}},"repos":{"hades":{},"ares":{},"chaos":{}},"flux":{"hades":{},"ares":{}}`
+	if _, stars, _, problem, err := Roster(head + `,"stars":{"hades":{},"ares":{}}}}`); err != nil || problem != "" || stars != 2 {
+		t.Errorf("stars == flux-backed repos: stars = %d, problem = %q, err = %v", stars, problem, err)
+	}
+	for name, c := range map[string]struct{ doc, want string }{
+		"an undeployed repo is a star": {head + `,"stars":{"hades":{},"ares":{},"chaos":{}}}}`, "derives 3 stars from 2 flux-backed repos"},
+		"a deployed repo dropped":      {head + `,"stars":{"hades":{}}}}`, "derives 1 stars from 2 flux-backed repos"},
+	} {
+		if _, _, _, problem, _ := Roster(c.doc); !strings.Contains(problem, c.want) {
+			t.Errorf("%s: problem = %q", name, problem)
+		}
+	}
+}
