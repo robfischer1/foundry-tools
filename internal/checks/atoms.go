@@ -148,6 +148,10 @@ func atomTable() []AtomDef {
 			Desc: "flux's committed redpanda/wit is current with redpanda/schemas - a topic schema changed, added or removed without regenerating, or a hand edit of aiws-topics.wit, fails (stellar-core F2).",
 		},
 		{
+			ID: "fleet:renovate-config", Stage: StagePrecommit, Lane: LaneAny, Image: ImageRenovate,
+			Desc: "A root config.js that is a Renovate global config passes renovate-config-validator --strict, run from the Renovate image the fleet deploys.",
+		},
+		{
 			ID: "fleet:retired-verbs", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "No skill, agent, command, hook, setting, governance block or rule names a retired MCP verb.",
 		},
