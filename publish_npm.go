@@ -93,7 +93,7 @@ func (l *publishLane) runNpm(ctx context.Context, hasNpmrc, turbo bool) (int, st
 			return buildlane.Findings, fmt.Sprintf("findings: %s's publishConfig.registry is %s, and this lane publishes only to %s", p.Name, p.Registry, l.npmRegistry)
 		}
 	}
-	if !l.dryRun && l.npmToken == nil {
+	if !l.dryRun && l.npmToken == nil && !l.svidOn() {
 		return buildlane.CouldNotRun, "a publish uploads: --npm-token is required for a package.json tree (--dry-run publishes nothing and needs none)"
 	}
 	mode := ""
@@ -143,10 +143,9 @@ func (l *publishLane) runNpm(ctx context.Context, hasNpmrc, turbo bool) (int, st
 		}
 		break
 	}
-	npmrc, code, reason := l.npmrc(ctx, hasNpmrc, key)
-	if code != buildlane.Clean {
-		return code, reason
-	}
+	// The .npmrc is made per package, right before its publish: an SVID lives 15
+	// minutes, and a build or a long queue of members can outlast it.
+	npmrc := func() (*dagger.Secret, int, string) { return l.npmrc(ctx, hasNpmrc, key) }
 
 	var published []npmPackage
 	var failures []string
@@ -250,7 +249,7 @@ func (l *publishLane) npmManifest(ctx context.Context, dir string) (publishlane.
 // lifecycle scripts, because the script it would have run names a package
 // manager the lane need not carry (aglaia's says pnpm). Any other prepublishOnly
 // is the package's own to run, so bun runs it.
-func (l *publishLane) publishOne(ctx context.Context, installed *dagger.Container, npmrc *dagger.Secret, p npmPackage, turbo bool) (int, string) {
+func (l *publishLane) publishOne(ctx context.Context, installed *dagger.Container, npmrc func() (*dagger.Secret, int, string), p npmPackage, turbo bool) (int, string) {
 	workdir := path.Join("/src", p.dir)
 	ready := installed
 	args := []string{"bun", "publish", "--registry", l.npmRegistry}
@@ -270,8 +269,12 @@ func (l *publishLane) publishOne(ctx context.Context, installed *dagger.Containe
 		}
 		args = append(args, "--ignore-scripts")
 	}
+	rc, code, reason := npmrc()
+	if code != buildlane.Clean {
+		return code, reason
+	}
 	up := ready.
-		WithMountedSecret("/src/.npmrc", npmrc).
+		WithMountedSecret("/src/.npmrc", rc).
 		WithWorkdir(workdir).
 		WithEnvVariable("PUBLISH_UPLOADED_AT", l.stamp).
 		WithExec(args, anyExit)
@@ -327,7 +330,14 @@ func (l *publishLane) npmReleased(ctx context.Context, ts *dagger.Container, pkg
 // env. It sits at the workspace root, where theia's recipe wrote it and a
 // member's publish found it.
 func (l *publishLane) npmrc(ctx context.Context, hasNpmrc bool, key string) (*dagger.Secret, int, string) {
-	password, err := l.npmToken.Plaintext(ctx)
+	user, tokenSecret := l.user, l.npmToken
+	if l.svidOn() {
+		var err error
+		if user, tokenSecret, err = l.svid(ctx, npmAudience, l.npmRegistry); err != nil {
+			return nil, buildlane.CouldNotRun, fmt.Sprintf("could not run: %v", err)
+		}
+	}
+	password, err := tokenSecret.Plaintext(ctx)
 	if err != nil {
 		return nil, buildlane.CouldNotRun, fmt.Sprintf("could not run: the npm token did not read: %v", err)
 	}
@@ -338,7 +348,7 @@ func (l *publishLane) npmrc(ctx context.Context, hasNpmrc bool, key string) (*da
 			return nil, buildlane.CouldNotRun, fmt.Sprintf("could not run: the tree's .npmrc could not be read: %v", err)
 		}
 	}
-	line := publishlane.AuthLine(key, l.user, strings.TrimSpace(password))
+	line := publishlane.AuthLine(key, user, strings.TrimSpace(password))
 	return dag.SetSecret("publish-npmrc-"+l.stamp, strings.TrimRight(own, "\n")+"\n"+line+"\n"), buildlane.Clean, ""
 }
 

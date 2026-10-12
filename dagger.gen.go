@@ -1684,7 +1684,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg spire", err))
 				}
 			}
-			return nil, (*FoundryTools).Publish(&parent, ctx, token, publishUrl, checkUrl, user, indexUrl, npmToken, npmRegistry, dryRun, spire)
+			var publishSvid bool
+			if inputArgs["publishSvid"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["publishSvid"]), &publishSvid)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg publishSvid", err))
+				}
+			}
+			return nil, (*FoundryTools).Publish(&parent, ctx, token, publishUrl, checkUrl, user, indexUrl, npmToken, npmRegistry, dryRun, spire, publishSvid)
 		case "Push":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)

@@ -91,16 +91,20 @@ func (m *FoundryTools) Publish(
 	// Build and ask the index for real; upload nothing, and need no --token.
 	// +optional
 	dryRun bool,
-	// The SPIRE agent's workload socket, forwarded by the calling pod. UNUSED
-	// today — publish pushes to the python and npm indexes with their own
-	// logins, not to the registry — accepted so every lane Job can pass the
-	// same flags, as build accepts it.
+	// The SPIRE agent's workload socket, forwarded by the calling pod. With
+	// --publish-svid it is where the index password is fetched; without, it is
+	// accepted and unused, so every lane Job can pass the same flags.
 	// +optional
 	spire *dagger.Socket,
+	// Log in to the indexes with a JWT-SVID instead of --token / --npm-token:
+	// audience packages-pypi for the upload, packages-npm for the npm publish,
+	// fetched through --spire right before each. Needs --spire; without it the
+	// static tokens apply exactly as before.
+	// +optional
+	publishSvid bool,
 ) error {
-	_ = spire
 	l := &publishLane{
-		m: m, token: token, npmToken: npmToken,
+		m: m, token: token, npmToken: npmToken, spire: spire, publishSvid: publishSvid,
 		publishURL: publishURL, checkURL: checkURL, user: user, indexURL: indexURL, npmRegistry: npmRegistry, dryRun: dryRun,
 		stamp: strconv.FormatInt(time.Now().UnixNano(), 10),
 	}
@@ -111,6 +115,8 @@ func (m *FoundryTools) Publish(
 type publishLane struct {
 	m                                                 *FoundryTools
 	token, npmToken                                   *dagger.Secret
+	spire                                             *dagger.Socket
+	publishSvid                                       bool
 	publishURL, checkURL, user, indexURL, npmRegistry string
 	dryRun                                            bool
 	// stamp is this run's, on the probe and on every upload: what the index
@@ -122,6 +128,33 @@ type publishLane struct {
 // distDir is where uv build writes: outside the mounted tree, so nothing the
 // tree carries under dist/ can be mistaken for this build's output.
 const distDir = "/dist"
+
+// The audiences the package indexes' svid-auth plugins validate.
+const (
+	pypiAudience = "packages-pypi"
+	npmAudience  = "packages-npm"
+	// svidUser is the Basic username sent with a JWT-SVID password. The SVID's
+	// sub (spiffe://...) holds a colon, which splits a Basic credential in the
+	// wrong place, and both plugins ignore the username.
+	svidUser = "svid"
+)
+
+// svidOn says whether the indexes are logged in to with the workload identity:
+// the flag AND a socket. Either missing leaves the static tokens as they were.
+func (l *publishLane) svidOn() bool { return l.publishSvid && l.spire != nil }
+
+// svid fetches a JWT-SVID for audience now, through the forwarded socket, and
+// answers the Basic login: a fixed username and the token as a secret. It is
+// called right before the upload or publish it authenticates, never earlier,
+// so the 15-minute token is fresh and sits in no cached layer, env var or log.
+func (l *publishLane) svid(ctx context.Context, audience, host string) (string, *dagger.Secret, error) {
+	name := fmt.Sprintf("publish-svid-%s-%d", audience, time.Now().UnixNano())
+	_, secret, err := svidLogin{audience, l.spire}.token(ctx, host, name)
+	if err != nil {
+		return "", nil, fmt.Errorf("the %s JWT-SVID did not fetch: %w", audience, err)
+	}
+	return svidUser, secret, nil
+}
 
 func publishSay(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "publish: "+format+"\n", args...)
@@ -135,7 +168,7 @@ func (l *publishLane) run(ctx context.Context) (int, string) {
 	if code, reason, npm := l.npmTree(ctx); npm {
 		return code, reason
 	}
-	if !l.dryRun && l.token == nil {
+	if !l.dryRun && l.token == nil && !l.svidOn() {
 		return buildlane.CouldNotRun, "a publish uploads: --token is required (--dry-run uploads nothing and needs none)"
 	}
 	mode := ""
@@ -195,9 +228,16 @@ func (l *publishLane) run(ctx context.Context) (int, string) {
 			uploaded++
 			continue
 		}
+		user, password := l.user, l.token
+		if l.svidOn() {
+			var err error
+			if user, password, err = l.svid(ctx, pypiAudience, l.publishURL); err != nil {
+				return buildlane.CouldNotRun, fmt.Sprintf("could not run: %v", err)
+			}
+		}
 		up := built.
-			WithEnvVariable("UV_PUBLISH_USERNAME", l.user).
-			WithSecretVariable("UV_PUBLISH_PASSWORD", l.token).
+			WithEnvVariable("UV_PUBLISH_USERNAME", user).
+			WithSecretVariable("UV_PUBLISH_PASSWORD", password).
 			WithEnvVariable("PUBLISH_UPLOADED_AT", l.stamp).
 			WithExec([]string{"uv", "publish", "--publish-url", l.publishURL, "--check-url", l.checkURL, distDir + "/" + a.File}, anyExit)
 		out, code, err := outputBoth(ctx, up)
