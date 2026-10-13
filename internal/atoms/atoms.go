@@ -244,6 +244,7 @@ func Builtin() []Atom {
 		tree("dies:wit-regenerated", diesWitRegenerated),
 		tree("dies:schema-rendered", diesSchemaRendered),
 		tree("dies:wire-grammar", diesWireGrammar),
+		tree("dies:resource-referents", diesResourceReferents),
 		tree("law:lint", lawLint),
 		tree("law:verb-liveness", lawVerbLiveness),
 		tree("law:budget", lawBudget),

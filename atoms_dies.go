@@ -36,6 +36,7 @@ func init() {
 	register("dies:canonical", diesCanonical)
 	register("dies:refusal-codes", diesRefusalCodes)
 	register("dies:wire-grammar", diesWireGrammar)
+	register("dies:resource-referents", diesResourceReferents)
 }
 
 // diesShape is the condition every dies: atom shares, decided IN GO from the
@@ -763,6 +764,27 @@ func diesWireGrammar(ctx context.Context, r *run) checks.Verdict {
 	return verdict(ctx, a, r.lane(checks.ImageFleet).
 		WithExec([]string{"uv", "--version"}).
 		WithExec(stdlibpy("tools/check_wire_grammar.py"), anyExit))
+}
+
+// Every non-null face of a resource family in policy/resources/data.json names
+// a served wire name: a verb with a schema/tool-output schema (F17 remainder
+// W6). After Wave 1 that directory is the live surface, so the check needs no
+// dial. THE CHECKER IS THE TREE'S, the dies:wire-grammar shape; the exit code
+// is the verdict, unmapped: 0 holds, 1 a dangling or malformed face, 2 the check
+// could not run.
+func diesResourceReferents(ctx context.Context, r *run) checks.Verdict {
+	a := checks.AtomByID("dies:resource-referents")
+	if stop := diesShape(ctx, r, a); stop != nil {
+		return *stop
+	}
+	if stop := requirePaths(ctx, r, a, [][2]string{
+		{"tools/check_resource_referents.py", "tools/check_resource_referents.py is absent, so there is no checker to run."},
+	}); stop != nil {
+		return *stop
+	}
+	return verdict(ctx, a, r.lane(checks.ImageFleet).
+		WithExec([]string{"uv", "--version"}).
+		WithExec(stdlibpy("tools/check_resource_referents.py"), anyExit))
 }
 
 // diesCanonical grades the FORM of every committed catalog entry, in Go, with no
