@@ -90,6 +90,7 @@ type goIndex struct {
 	calls   map[string][]site   // callee name -> call expression sites
 	fields  map[string][]site   // field name -> value sites
 	aliases map[string][]string // function name -> the names it is stored under
+	passes  []funcPass          // every call argument that is a bare name, for followFuncValues
 	lits    map[*ast.FuncLit][]string
 	keyeds  []keyed
 	known   KnownTopics
@@ -126,6 +127,7 @@ func goFlows(files map[string]string, known KnownTopics) (flows []KafkaFlow, bad
 		}
 		ix.index(&goFile{path: p, dir: path.Dir(p), imports: importsOf(f)}, f)
 	}
+	ix.followFuncValues()
 	for _, fs := range ix.flows {
 		flows = append(flows, ix.flowsAt(fs)...)
 	}
@@ -308,6 +310,11 @@ func (w *walker) call(c *ast.CallExpr) {
 	name := calleeName(c)
 	if name != "" {
 		w.ix.calls[name] = append(w.ix.calls[name], site{expr: c, file: w.file, fc: w.fc})
+		for i, a := range c.Args {
+			if id, ok := a.(*ast.Ident); ok {
+				w.ix.passes = append(w.ix.passes, funcPass{callee: name, pos: i, arg: id.Name})
+			}
+		}
 	}
 	if name == "StringVar" && len(c.Args) >= 3 {
 		// flag.StringVar(&cfg.Field, name, default, usage): the default is
@@ -380,4 +387,56 @@ func (w *walker) kgo(opt string, c *ast.CallExpr) {
 			w.flow(c.Args[0], FlowProduce, false, false, c.Pos())
 		}
 	}
+}
+
+// funcPass is a bare name handed to a call as its pos-th argument.
+type funcPass struct {
+	callee string
+	pos    int
+	arg    string
+}
+
+// followFuncValues names a declared function by the parameters it is handed
+// down through. prometheus' openConsumer is passed to beginConsumer and on to
+// startConsumer, which calls it as `open(...)` inside a goroutine: the call
+// that reaches lsl.New is spelled with the parameter's name, not the
+// function's, so without this its arguments (the topic among them) have no
+// caller to follow and the consume flow reads unresolved. Each pass of a
+// function (or of a parameter already known to hold it) into a declared
+// callee adds the callee's parameter name as an alias, to a fixpoint.
+func (ix *goIndex) followFuncValues() {
+	for fn := range ix.funcs {
+		holds := map[string]bool{fn: true}
+		for grew := true; grew; {
+			grew = false
+			for _, p := range ix.passes {
+				if !holds[p.arg] {
+					continue
+				}
+				for _, callee := range ix.funcs[p.callee] {
+					name, ok := paramNameAt(callee, p.pos)
+					if !ok || holds[name] {
+						continue
+					}
+					holds[name] = true
+					ix.aliases[fn] = append(ix.aliases[fn], name)
+					grew = true
+				}
+			}
+		}
+	}
+}
+
+// paramNameAt is the name of a function's pos-th parameter.
+func paramNameAt(fc *funcCtx, pos int) (string, bool) {
+	i := 0
+	for _, fld := range fc.funcType().Params.List {
+		for _, n := range fld.Names {
+			if i == pos {
+				return n.Name, true
+			}
+			i++
+		}
+	}
+	return "", false
 }
