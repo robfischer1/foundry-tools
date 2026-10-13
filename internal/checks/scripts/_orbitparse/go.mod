@@ -2,7 +2,7 @@ module orbitparse
 
 go 1.26.6
 
-require git.notusmi.com/rob/stellar-core-go v0.134.3
+require git.notusmi.com/rob/stellar-core-go v0.142.0
 
 require (
 	github.com/BurntSushi/toml v1.6.0 // indirect
@@ -11,7 +11,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.5 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
-	github.com/klauspost/compress v1.20.1 // indirect
+	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/modelcontextprotocol/go-sdk v1.8.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pierrec/lz4/v4 v4.1.33 // indirect
