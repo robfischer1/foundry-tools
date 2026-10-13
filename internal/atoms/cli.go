@@ -35,6 +35,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, now func(
 	dies := fs.String("dies", "", "a checkout of foundry-dies at main, for the atoms that grade against the fleet's contracts")
 	spire := fs.String("spire", "", "the SPIRE agent socket the lane pod forwarded, for fleet:witness's identified ask; empty asks in the clear")
 	witnessDry := fs.Bool("witness-dry", false, "fleet:witness lists what it would ask and asks nothing (the shadow's mode); the default asks for real")
+	witnessURL := fs.String("witness-url", "", "narcissus's plaintext MCP port for fleet:witness; empty is the production port")
 	narcErr := fs.String("narc-err", "", "why narc was not provisioned; empty means it was")
 	timeout := fs.Duration("timeout", DefaultTimeout, "each atom's deadline")
 	workers := fs.Int("workers", 0, "worker pool size; 0 is GOMAXPROCS")
@@ -58,6 +59,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, now func(
 	in.Dies = *dies
 	in.Spire = *spire
 	in.WitnessDry = *witnessDry
+	in.Witness.URL = *witnessURL
 	in.NarcErr = *narcErr
 	// THE PROFILE SPANS THE ATOMS AND NOTHING ELSE (cpu.go): what each atom
 	// spent is read off it, and a profile that will not start is a CPU not

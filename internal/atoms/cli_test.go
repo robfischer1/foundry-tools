@@ -20,8 +20,12 @@ func TestRunPrintsTheVectorAndExitsZero(t *testing.T) {
 	put(t, dir, "bad.txt", "<<<<<<< HEAD\n")
 	commitAll(t, dir, "root")
 
+	// The witness is a stand-in: a.py is source the star authored, so
+	// fleet:witness asks, and the production host does not resolve off-cluster.
+	n := newNarcissus(t, reply("novel"))
+
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"-root", dir}, &stdout, &stderr, fixedNow)
+	code := Run(context.Background(), []string{"-root", dir, "-witness-url", n.srv.URL}, &stdout, &stderr, fixedNow)
 	if code != 0 {
 		t.Fatalf("exit %d, stderr %q: a finding is a result, not a failure", code, stderr.String())
 	}
@@ -47,6 +51,9 @@ func TestRunPrintsTheVectorAndExitsZero(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Errorf("stderr %q", stderr.String())
+	}
+	if n.total() == 0 {
+		t.Error("the stand-in witness was never asked: -witness-url did not reach fleet:witness")
 	}
 }
 
