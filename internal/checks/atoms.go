@@ -582,6 +582,11 @@ func atomTable() []AtomDef {
 			Desc: "Every string enum in an answer schema folds onto the six findings words or is declared kept, and no required measure can only say 'not measured' as 0 - each section warns until its count is 0, then fails.",
 		},
 
+		{
+			ID: "dies:resource-referents", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "Every non-null face in policy/resources/data.json names a served wire name that has a schema/tool-output schema; a null face is owed to the CRUD gate and not graded.",
+		},
+
 		// ---- law: the governance CI lanes on foundry-stocks law commits ----
 		// Nomos F5b. Each is ABSENT on a tree that is not foundry-stocks (a
 		// kits.toml beside a retired-verbs.toml); the judgement is internal/govlaw.

@@ -23,7 +23,7 @@ var diesAtoms = []string{
 	"dies:opa-test", "dies:admission-dogfood", "dies:data-keys",
 	"dies:canary-visibility", "dies:contracts", "dies:schema", "dies:findings",
 	"dies:schemas", "dies:wit-regenerated", "dies:schema-rendered", "dies:canonical",
-	"dies:wire-grammar",
+	"dies:wire-grammar", "dies:resource-referents",
 }
 
 // diesBuiltAContainer reports whether anything pulled an image. Named for this
@@ -1089,6 +1089,47 @@ func TestDiesWireGrammarCannotRunWithoutAChecker(t *testing.T) {
 	engine.withTree(diesTree(map[string]string{}, "tools/check_wire_grammar.py"))
 	wantState(t, runAtom(t, "dies:wire-grammar", ""), 2,
 		"tools/check_wire_grammar.py is absent")
+}
+
+// ---- dies:resource-referents ----
+
+var resourceReferentsPaths = map[string]string{
+	"tools/check_resource_referents.py": "",
+}
+
+// THE TREE'S CHECKER RUNS, UNEMBEDDED, AND NEEDS NO PACKAGE: it reads JSON with
+// the standard library.
+func TestDiesResourceReferentsRunsTheTreesOwnCheckerWithNoPackages(t *testing.T) {
+	engine.reset()
+	engine.withTree(diesTree(resourceReferentsPaths))
+	wantState(t, runAtom(t, "dies:resource-referents", ""), 0)
+
+	c := engine.chain("tools/check_resource_referents.py", "exitCode")
+	wantCalls(t, c,
+		[]string{"withExec", `args:["uv","--version"]`},
+		[]string{"withExec", "expect:ANY", `"uv","run","--no-project","--quiet","python3","tools/check_resource_referents.py"`},
+	)
+	if strings.Contains(c, "withNewFile") || strings.Contains(c, "--with") {
+		t.Errorf("dies:resource-referents embedded a script or asked uv for a package:\n%s", c)
+	}
+}
+
+// 0 holds, 1 a dangling face, 2 could not run: the ladder is the verdict.
+func TestDiesResourceReferentsPassesTheExitCodeStraightThrough(t *testing.T) {
+	for code, want := range map[int]int{0: 0, 1: 1, 2: 2} {
+		engine.reset()
+		engine.withTree(diesTree(resourceReferentsPaths))
+		engine.exitCode(`"python3","tools/check_resource_referents.py"`, code)
+		wantState(t, runAtom(t, "dies:resource-referents", ""), want)
+	}
+}
+
+// No checker is a COULD-NOT-RUN naming it.
+func TestDiesResourceReferentsCannotRunWithoutAChecker(t *testing.T) {
+	engine.reset()
+	engine.withTree(diesTree(map[string]string{}, "tools/check_resource_referents.py"))
+	wantState(t, runAtom(t, "dies:resource-referents", ""), 2,
+		"tools/check_resource_referents.py is absent")
 }
 
 // ---- dies:refusal-codes ----

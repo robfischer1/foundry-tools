@@ -242,3 +242,13 @@ func diesSchemaRendered(ctx context.Context, a checks.AtomDef, in Input) checks.
 func diesWireGrammar(ctx context.Context, a checks.AtomDef, in Input) checks.Verdict {
 	return pyChecker(ctx, a, in, "tools/check_wire_grammar.py")
 }
+
+// diesResourceReferents: every non-null face of a resource family in
+// policy/resources/data.json names a served wire name, i.e. a verb with a
+// schema/tool-output schema (F17 remainder W6). After Wave 1 that directory is
+// the live surface, so the check needs no dial. THE CHECKER IS THE TREE'S and
+// the exit code is the verdict: 0 holds, 1 a dangling or malformed face, 2 could
+// not run.
+func diesResourceReferents(ctx context.Context, a checks.AtomDef, in Input) checks.Verdict {
+	return pyChecker(ctx, a, in, "tools/check_resource_referents.py")
+}
