@@ -631,3 +631,26 @@ func TestNoAtomExecsGitFetch(t *testing.T) {
 		})
 	}
 }
+
+// A FORK IS NAMED TO THE BINARY (-fork) by its record; a star is not.
+func TestAtomsVectorNamesAForkToTheBinary(t *testing.T) {
+	for name, tc := range map[string]struct {
+		kind string
+		want bool
+	}{"a fork": {"vendored", true}, "a star": {"rust", false}} {
+		t.Run(name, func(t *testing.T) {
+			m := &FoundryTools{Source: dag.Directory(), Repo: forkDoor, Sha: buildSha}
+			engine.reset()
+			engine.withTree(map[string]string{"go.mod": "module x\n"})
+			engine.withTree(map[string]string{"/dies/fleet/repos/gravity.json": `{"name":"gravity","kind":"` + tc.kind + `","repo":"forks/gravity"}`})
+			engine.stdout(`"/usr/local/bin/atoms"`, "[]")
+			if _, err := m.atomsVector(context.Background(), checks.StagePrecommit, "abc"); err != nil {
+				t.Fatal(err)
+			}
+			c := engine.chain(`"-stage","precommit"`)
+			if got := strings.Contains(c, `"-fork","gravity"`); got != tc.want {
+				t.Errorf("-fork present %v, want %v:\n%s", got, tc.want, c)
+			}
+		})
+	}
+}

@@ -34,7 +34,7 @@ var helperSources = map[string]helperSource{
 	"castpin":      {internal: []string{"internal/buildlane", "internal/castlane"}},
 	"hadescall":    {internal: []string{"internal/hadescall"}},
 	"verdict":      {internal: []string{"internal/verdict"}, offline: true},
-	"witnesscall":  {internal: []string{"internal/checks", "internal/execmem", "internal/hadescall", "internal/unitkey", "internal/witnesscall"}},
+	"witnesscall":  {internal: []string{"internal/checks", "internal/checks/rulesets", "internal/execmem", "internal/hadescall", "internal/unitkey", "internal/witnesscall"}},
 	"pgroupps":     {internal: []string{"internal/pgroupps"}, offline: true},
 	"execmem":      {internal: []string{"internal/execmem"}, offline: true},
 	"copyout":      {internal: []string{"internal/copyout"}, offline: true},
