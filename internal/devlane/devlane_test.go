@@ -390,3 +390,25 @@ func TestReportRustPairsEachBinaryWithItsResult(t *testing.T) {
 		t.Errorf("heads and results out of order:\n%s", got)
 	}
 }
+
+// A head with no result (a binary that crashed before printing one) leaves the
+// counts unequal: the summary lists every head, then every result, rather than
+// pairing a result with the wrong binary.
+func TestSummaryListsHeadsThenResultsWhenTheyDoNotPair(t *testing.T) {
+	stderr := "     Running unittests src/lib.rs (a)\n     Running unittests src/main.rs (b)\n"
+	stdout := "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n"
+	lines := strings.Split(strings.TrimSpace(Summary(Rust, stdout, stderr)), "\n")
+	if len(lines) != 4 || !strings.Contains(lines[0], "(a)") || !strings.Contains(lines[1], "(b)") ||
+		!strings.Contains(lines[2], "3 passed") || !strings.HasPrefix(lines[3], "total: 3 passed") {
+		t.Errorf("unpaired heads and results, got:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+// A failure whose log does not end in a newline still sets the summary apart
+// on its own line, after one blank line.
+func TestReportFailureWithoutATrailingNewlineStillSeparatesTheSummary(t *testing.T) {
+	got := TestReport(Go, "--- FAIL: TestX (0.00s)\nFAIL\tex/pkg\t0.01s", "", 1, false)
+	if !strings.Contains(got, "0.01s\n\nFAIL\tex/pkg\t0.01s\n") {
+		t.Errorf("summary not separated from an unterminated log:\n%q", got)
+	}
+}
