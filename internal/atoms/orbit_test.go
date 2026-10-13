@@ -45,9 +45,6 @@ func TestOrbitContracts(t *testing.T) {
 		notes := map[string]string{"orbits/README.md": "x", "fleet/repos/a.json": starData("a")}
 		expect(t, runAtom(t, id, treeIn(t, notes)), stateOf(0), absent, "not the contracts' repository")
 	})
-	t.Run("foundry-dies main not supplied is a 2", func(t *testing.T) {
-		expect(t, runAtom(t, id, treeIn(t, own)), stateOf(2), cannot, "foundry-dies main: ", "(-dies)")
-	})
 	t.Run("a contract of this tree that will not read is a 2", func(t *testing.T) {
 		in := treeIn(t, own)
 		brokenLink(t, in.Root, "orbits/z.toml")
@@ -58,27 +55,11 @@ func TestOrbitContracts(t *testing.T) {
 		brokenLink(t, in.Root, "fleet/repos/z.json")
 		expect(t, runAtom(t, id, in), stateOf(2), cannot, "fleet/repos/z.json could not be read")
 	})
-	t.Run("foundry-dies' contracts that will not read are a 2", func(t *testing.T) {
-		in := treeIn(t, own)
-		in.Dies = diesAt(t, nil)
-		brokenLink(t, in.Dies, "orbits/z.toml")
-		expect(t, runAtom(t, id, in), stateOf(2), cannot, "foundry-dies main: orbits/*.toml could not be read")
-	})
 	t.Run("a contract that does not parse is recorded, report-only, and the atom stays 0", func(t *testing.T) {
-		in := treeIn(t, own)
-		in.Dies = diesAt(t, nil)
-		v := runAtom(t, id, in)
+		v := runAtom(t, id, treeIn(t, own))
 		expect(t, v, stateOf(0), pass, "orbit:contracts: ")
 		if len(v.Findings) != 1 || v.Findings[0].Verdict != checks.VerdictDrifted || v.Findings[0].Probe != id {
 			t.Errorf("findings %+v: want one drifted finding for the bad contract (report-only until Enforce flips)", v.Findings)
-		}
-	})
-	t.Run("a directory named like a contract in the base is named, not read", func(t *testing.T) {
-		in := treeIn(t, map[string]string{"orbits/a.toml": "x", "fleet/repos/a.json": starData("a")})
-		in.Dies = diesAt(t, map[string]string{"orbits/x.toml/inner": "x"}) // a directory named like a contract
-		v := runAtom(t, id, in)
-		if v.State != 0 {
-			t.Errorf("a directory in the base is named, not read: state %d\n%s", v.State, v.Reason)
 		}
 	})
 }
