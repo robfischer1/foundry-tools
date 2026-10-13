@@ -244,3 +244,21 @@ func TestOpengrepOnAForkScansWithTheBuiltInRulesAndDoesNotFail(t *testing.T) {
 	wantState(t, v, 0, "ABSENT", "no file in a language")
 	fleetNoContainer(t, "a fork with no covered language")
 }
+
+// The chain's fork scan cannot enumerate, never ran, and folds stderr in on a
+// clean exit.
+func TestOpengrepOnAForkFaultsAndStreams(t *testing.T) {
+	record := map[string]string{"/dies/fleet/repos/gravity.json": `{"name":"gravity","kind":"vendored","repo":"forks/gravity"}`}
+	run := func(setup func()) checks.Verdict {
+		engine.reset()
+		engine.withTree(forkTree)
+		engine.withTree(record)
+		setup()
+		return registry["fleet:opengrep-sast"](context.Background(), newRun(dag.Directory(), forkDoor, ""))
+	}
+	wantState(t, run(func() { engine.fail(`glob(pattern:"**/*.go")`, "the tree went away") }), 2, "would not enumerate")
+	wantState(t, run(func() { engine.fail(`"opengrep","scan"`, "exit code: 125: the image would not pull") }), 2, "the atom never ran")
+	// opengrep prints its summary on stderr; a clean exit must still read it.
+	v := run(func() { engine.stderr(`"opengrep","scan"`, "Ran 8 rules on 0 files: 0 findings.") })
+	wantState(t, v, 2, checks.ForkSastRefusal)
+}

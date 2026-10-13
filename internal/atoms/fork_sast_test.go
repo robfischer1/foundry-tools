@@ -88,3 +88,29 @@ func TestFleetOpengrepOnAForkScansWithTheBuiltInRules(t *testing.T) {
 		expect(t, runAtom(t, id, in), stateOf(2), cannot, "the atom never ran")
 	})
 }
+
+// A scratch directory that cannot be made, and a ruleset the disk refuses, are
+// could-not-run: the scan never started, and nothing ran opengrep.
+func TestFleetOpengrepOnAForkCannotRunWhenTheRulesetsCannotBeLaid(t *testing.T) {
+	gravity := map[string]string{"cmd/g/main.rs": "fn main() {}\n"}
+	t.Run("no scratch directory", func(t *testing.T) {
+		in, f := toolTree(t, gravity, nil)
+		in.Fork = "gravity"
+		t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "gone"))
+		expect(t, runAtom(t, "fleet:opengrep-sast", in), stateOf(2), cannot, "could not be written for the run")
+		if len(f.calls) != 0 {
+			t.Errorf("opengrep ran: %v", f.ran())
+		}
+	})
+	t.Run("a ruleset the disk refuses", func(t *testing.T) {
+		in, f := toolTree(t, gravity, nil)
+		in.Fork = "gravity"
+		orig := writeRuleset
+		writeRuleset = func(string, []byte, os.FileMode) error { return os.ErrPermission }
+		t.Cleanup(func() { writeRuleset = orig })
+		expect(t, runAtom(t, "fleet:opengrep-sast", in), stateOf(2), cannot, "could not be written for the run")
+		if len(f.calls) != 0 {
+			t.Errorf("opengrep ran: %v", f.ran())
+		}
+	})
+}

@@ -8,6 +8,9 @@ import (
 	"dagger/foundry-tools/internal/checks"
 )
 
+// writeRuleset is os.WriteFile, a variable so a test says the disk refused.
+var writeRuleset = os.WriteFile
+
 // noRulesSast answers fleet:opengrep-sast for a tree with no rules/sast: a
 // fork (Input.Fork) is scanned with the fleet's built-in rulesets, anything
 // else gets absentRuleset's answer.
@@ -36,7 +39,7 @@ func forkOpengrep(ctx context.Context, a checks.AtomDef, in Input) checks.Verdic
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 	for _, s := range sets {
-		if err := os.WriteFile(filepath.Join(dir, s.File), []byte(s.Body), 0o644); err != nil {
+		if err := writeRuleset(filepath.Join(dir, s.File), []byte(s.Body), 0o644); err != nil {
 			return checks.VerdictOf(a, int(checks.StateCannotRun), a.ID+": CANNOT RUN - the fleet's built-in rulesets could not be written for the run: "+err.Error())
 		}
 	}

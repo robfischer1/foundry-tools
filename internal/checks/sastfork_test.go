@@ -50,6 +50,7 @@ func TestOpengrepFindingCount(t *testing.T) {
 		{"Ran 12 rules on 80 files: 1 finding.", 1},
 		{"Ran 4 rules on 12 files: 0 findings.", 0},
 		{"boom", -1},
+		{"Ran 1 rules on 1 files: 99999999999999999999 findings.", -1},
 	} {
 		if got := OpengrepFindingCount(tc.out); got != tc.want {
 			t.Errorf("%q: %d, want %d", tc.out, got, tc.want)
