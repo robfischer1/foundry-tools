@@ -101,6 +101,11 @@ type Verdict struct {
 	// programs it ran. NIL IS NOT KNOWN, never zero: a chain's atom, one that
 	// never started, one whose profile would not start and that ran no program.
 	CPUMs *int64 `json:"cpu_ms,omitempty"`
+	// MemPeakBytes is the atom's peak memory in bytes: the largest peak RSS
+	// of the programs it ran (internal/atoms cpu.go). NIL IS NOT KNOWN, never
+	// zero: a chain's atom, one that never started, one that ran no program
+	// (an in-process atom's memory is the shared heap's, nobody's own).
+	MemPeakBytes *int64 `json:"mem_peak_bytes,omitempty"`
 }
 
 // VerdictOf builds one element of the vector from a raw exit code.

@@ -52,6 +52,9 @@ type StageResult struct {
 	// cpu is each atom's CPU in milliseconds, by atom id, for the record
 	// alone, for the same reason; an atom with no entry has no CPU known.
 	cpu map[string]*int64
+	// mem is each atom's peak memory in bytes, by atom id, for the record
+	// alone, for the same reason.
+	mem map[string]*int64
 	// stageCPU is the atoms binary's whole CPU over this stage's runs, in
 	// milliseconds (atoms_cpu.go); nil when the binary did not run or did not
 	// say.
@@ -110,6 +113,10 @@ type recordAtom struct {
 	// cpu.go): only the binary's atoms measure it, so a chain's atom and one
 	// whose CPU is not known carry no key, which Daedalus stores as NULL.
 	CPUMs *int64 `json:"cpu_ms,omitempty"`
+	// MemPeakBytes is the atom's peak memory in bytes (internal/atoms
+	// cpu.go): only the binary's atoms that ran a program measure it, so
+	// every other atom carries no key, which Daedalus stores as NULL.
+	MemPeakBytes *int64 `json:"mem_peak_bytes,omitempty"`
 }
 
 // atomWire is AtomResult's fields as the record spells them.
@@ -150,7 +157,8 @@ func (s *StageResult) wire() recordStage {
 		}
 		out := make([]recordAtom, len(as))
 		for i, a := range as {
-			out[i] = recordAtom{atomWire: atomWire(a), Gradings: s.gradings[a.Atom], Audit: s.audits[a.Atom], CPUMs: s.cpu[a.Atom]}
+			out[i] = recordAtom{atomWire: atomWire(a), Gradings: s.gradings[a.Atom], Audit: s.audits[a.Atom], CPUMs: s.cpu[a.Atom],
+				MemPeakBytes: s.mem[a.Atom]}
 		}
 		return out
 	}
@@ -412,9 +420,9 @@ func stageResult(st checks.Stage) *StageResult {
 		}
 		return out
 	}
-	gradings, audits, cpu := map[string][]checks.Grading{}, map[string]string{}, map[string]*int64{}
+	gradings, audits, cpu, mem := map[string][]checks.Grading{}, map[string]string{}, map[string]*int64{}, map[string]*int64{}
 	for _, a := range st.Ran {
-		gradings[a.Atom], audits[a.Atom], cpu[a.Atom] = a.Gradings, a.Audit, a.CPUMs
+		gradings[a.Atom], audits[a.Atom], cpu[a.Atom], mem[a.Atom] = a.Gradings, a.Audit, a.CPUMs, a.MemPeakBytes
 	}
 	return &StageResult{
 		Stage: st.Name, State: st.State, Lanes: st.Lanes,
@@ -422,6 +430,7 @@ func stageResult(st checks.Stage) *StageResult {
 		gradings: gradings,
 		audits:   audits,
 		cpu:      cpu,
+		mem:      mem,
 	}
 }
 

@@ -25,6 +25,14 @@ import (
 //   - CHILDREN, the rusage of every program an atom execs (RunProgram, git),
 //     charged to the atom whose context started it.
 //
+// THE SAME CHILDREN SAY WHAT EACH ATOM PEAKED AT IN MEMORY: the wait4 rusage
+// os/exec reaps each program with carries that program's own peak RSS
+// (ru_maxrss, KiB on Linux — its own and its reaped descendants', never a
+// sibling's, which getrusage(RUSAGE_CHILDREN)'s process-wide high-water mark
+// could not separate). An atom's peak is the largest of its programs'. The
+// in-process half has no per-atom memory to read — the atoms share one Go
+// heap — so an atom that ran no program has a peak not known, never zero.
+//
 // IT IS EVIDENCE, NEVER A VERDICT. A profile that would not start (one is
 // already running: a test under -cpuprofile) or would not parse leaves the
 // in-process half unknown, and nothing an atom answers depends on any of it.
@@ -37,10 +45,35 @@ const cpuLabel = "atom"
 type Meter struct {
 	mu    sync.Mutex
 	child map[string]time.Duration
+	// peak is the largest peak RSS of the atom's programs, in bytes.
+	peak map[string]int64
 }
 
 // NewMeter answers an empty meter.
-func NewMeter() *Meter { return &Meter{child: map[string]time.Duration{}} }
+func NewMeter() *Meter {
+	return &Meter{child: map[string]time.Duration{}, peak: map[string]int64{}}
+}
+
+// chargePeak raises the atom's peak memory to b when b is higher.
+func (m *Meter) chargePeak(id string, b int64) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if b > m.peak[id] {
+		m.peak[id] = b
+	}
+}
+
+// peakOf answers the atom's peak memory in bytes, and whether a program of
+// its said one.
+func (m *Meter) peakOf(id string) (int64, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	b, ok := m.peak[id]
+	return b, ok
+}
 
 // charge adds d to the atom's children.
 func (m *Meter) charge(id string, d time.Duration) {
@@ -83,6 +116,20 @@ func chargeChild(ctx context.Context, ps *os.ProcessState) {
 		return
 	}
 	at.m.charge(at.id, ps.UserTime()+ps.SystemTime())
+	if b, ok := peakRSS(ps); ok {
+		at.m.chargePeak(at.id, b)
+	}
+}
+
+// peakRSS is a reaped program's peak resident set in bytes: its wait4
+// rusage's ru_maxrss, which Linux counts in KiB. A state with no rusage (not
+// a Unix process) or a peak the kernel did not fill says nothing.
+func peakRSS(ps *os.ProcessState) (int64, bool) {
+	ru, ok := ps.SysUsage().(*syscall.Rusage)
+	if !ok || ru == nil || ru.Maxrss <= 0 {
+		return 0, false
+	}
+	return ru.Maxrss * 1024, true
 }
 
 // Profile is a started CPU profile. A nil *Profile is one that would not start,
@@ -153,6 +200,20 @@ func (m *Meter) Stamp(vector []checks.Verdict, inproc map[string]time.Duration, 
 		}
 		ms := millis(inproc[v.Atom] + child)
 		vector[i].CPUMs = &ms
+	}
+	m.stampPeaks(vector)
+}
+
+// stampPeaks writes each started atom's peak memory onto its verdict: the
+// largest of its programs' peaks. One that ran no program carries none.
+func (m *Meter) stampPeaks(vector []checks.Verdict) {
+	for i, v := range vector {
+		if v.StartedAt == "" {
+			continue
+		}
+		if b, ok := m.peakOf(v.Atom); ok {
+			vector[i].MemPeakBytes = &b
+		}
 	}
 }
 
