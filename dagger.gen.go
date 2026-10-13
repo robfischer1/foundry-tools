@@ -801,7 +801,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg fresh", err))
 				}
 			}
-			return (*Dev).Test(&parent, ctx, args, race, fresh)
+			var verbose bool
+			if inputArgs["verbose"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["verbose"]), &verbose)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg verbose", err))
+				}
+			}
+			return (*Dev).Test(&parent, ctx, args, race, fresh, verbose)
 		case "Tidy":
 			var parent Dev
 			err = json.Unmarshal(parentJSON, &parent)

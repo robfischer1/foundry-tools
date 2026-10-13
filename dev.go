@@ -110,13 +110,16 @@ func (d *Dev) Build(ctx context.Context,
 	// +optional
 	fresh bool,
 ) (string, error) {
-	return d.text(ctx, "build", args, false, fresh)
+	return d.text(ctx, "build", args, false, fresh, false)
 }
 
 // Test runs the suite. Go: go test -race (./... by default; --race=false or
 // -race=false in args turns the detector off). Rust: cargo test (--workspace by
-// default; `-p crate name` narrows). The tool's own output; a failing test
-// makes the call exit non-zero.
+// default; `-p crate name` narrows). A pass answers a summary (go: the ok / ?
+// package lines; cargo: the Running and test result lines and a total), because
+// a suite that tests its failure paths logs errors that are not failures; --verbose
+// answers the whole log. A failing test answers the whole output then the summary,
+// and makes the call exit non-zero.
 //
 // +cache="never"
 func (d *Dev) Test(ctx context.Context,
@@ -129,8 +132,12 @@ func (d *Dev) Test(ctx context.Context,
 	// Run past the engine's cache even on an unchanged tree.
 	// +optional
 	fresh bool,
+	// Answer the tool's whole output on a pass, not the summary. A failure
+	// always answers everything.
+	// +optional
+	verbose bool,
 ) (string, error) {
-	return d.text(ctx, "test", args, race, fresh)
+	return d.text(ctx, "test", args, race, fresh, verbose)
 }
 
 // Vet runs go vet (Go only).
@@ -142,7 +149,7 @@ func (d *Dev) Vet(ctx context.Context,
 	// +optional
 	fresh bool,
 ) (string, error) {
-	return d.text(ctx, "vet", args, false, fresh)
+	return d.text(ctx, "vet", args, false, fresh, false)
 }
 
 // Check runs cargo check (Rust only).
@@ -154,7 +161,7 @@ func (d *Dev) Check(ctx context.Context,
 	// +optional
 	fresh bool,
 ) (string, error) {
-	return d.text(ctx, "check", args, false, fresh)
+	return d.text(ctx, "check", args, false, fresh, false)
 }
 
 // Clippy runs cargo clippy under the fleet's lint set, warnings denied (Rust
@@ -167,7 +174,7 @@ func (d *Dev) Clippy(ctx context.Context,
 	// +optional
 	fresh bool,
 ) (string, error) {
-	return d.text(ctx, "clippy", args, false, fresh)
+	return d.text(ctx, "clippy", args, false, fresh, false)
 }
 
 // Fmt formats in place and answers the files it changed, for
@@ -212,7 +219,7 @@ func (d *Dev) Vendor(ctx context.Context) (*dagger.Directory, error) {
 		return nil, err
 	}
 	if res.code != 0 {
-		return nil, res.settle(ctx)
+		return nil, res.settle(ctx, res.reason("vendor"))
 	}
 	ctr := res.ctr
 	after, err := ctr.Directory("/src").Entries(ctx)
@@ -247,13 +254,16 @@ func (d *Dev) Update(ctx context.Context,
 }
 
 // text runs a verb whose product is the tool's output.
-func (d *Dev) text(ctx context.Context, verb string, args []string, race, fresh bool) (string, error) {
+func (d *Dev) text(ctx context.Context, verb string, args []string, race, fresh, verbose bool) (string, error) {
 	res, err := d.ran(ctx, verb, args, race, fresh)
 	if err != nil {
 		return "", err
 	}
 	if res.code != 0 {
-		return "", res.settle(ctx)
+		return "", res.settle(ctx, res.reason(verb))
+	}
+	if verb == "test" && !verbose {
+		return devlane.TestReport(d.Lang, res.stdout, res.stderr, res.code, false), nil
 	}
 	return res.stdout + res.stderr, nil
 }
@@ -266,7 +276,7 @@ func (d *Dev) changed(ctx context.Context, verb string, args []string) (*dagger.
 		return nil, err
 	}
 	if res.code != 0 {
-		return nil, res.settle(ctx)
+		return nil, res.settle(ctx, res.reason(verb))
 	}
 	return d.Source.Diff(res.ctr.Directory("/src")), nil
 }
@@ -277,19 +287,29 @@ type devRan struct {
 	ctr            *dagger.Container
 	stdout, stderr string
 	code           int
+	lang           string
 }
 
 // settle ends the call on the tool's own failure. The reason travels as a FILE,
 // not an argument, so the engine does not echo it a second time into the exec's
 // span title; the two streams are tailed on their own (devlane.Reason).
-func (r devRan) settle(ctx context.Context) error {
+func (r devRan) settle(ctx context.Context, reason string) error {
 	_, err := dag.Container().From(checks.ImageStatic).
 		WithFile("/usr/local/bin/verdict", helperBinary("verdict")).
 		WithEnvVariable("LANE_SETTLED_AT", strconv.FormatInt(time.Now().UnixNano(), 10)).
-		WithNewFile("/reason", devlane.Reason(r.stdout, r.stderr)).
+		WithNewFile("/reason", reason).
 		WithExec([]string{"/usr/local/bin/verdict", strconv.Itoa(devlane.SettleCode(r.code)), "@/reason"}).
 		Sync(ctx)
 	return err
+}
+
+// reason is the failed tool's text: the test verb's carries the summary at the
+// end (devlane.TestReport), every other verb's is the tails (devlane.Reason).
+func (r devRan) reason(verb string) string {
+	if verb == "test" {
+		return devlane.TestReport(r.lang, r.stdout, r.stderr, r.code, false)
+	}
+	return devlane.Reason(r.stdout, r.stderr)
 }
 
 // ran builds the verb's container and runs its command there.
@@ -316,7 +336,7 @@ func (d *Dev) ran(ctx context.Context, verb string, args []string, race, fresh b
 	if err != nil {
 		return devRan{}, fmt.Errorf("%s ran, and its output could not be read: %w", verb, err)
 	}
-	return devRan{ctr: ctr, stdout: stdout, stderr: stderr, code: code}, nil
+	return devRan{ctr: ctr, stdout: stdout, stderr: stderr, code: code, lang: d.Lang}, nil
 }
 
 // plan is the container a verb starts from and the command it runs there.

@@ -1,0 +1,16 @@
+
+running 2 tests
+test auth::ok ... ok
+test auth::bad ... FAILED
+
+failures:
+
+---- auth::bad stdout ----
+thread 'auth::bad' panicked at src/auth.rs:44:9:
+assertion `left == right` failed
+
+failures:
+    auth::bad
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

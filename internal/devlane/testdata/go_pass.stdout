@@ -1,0 +1,3 @@
+ok  	example.com/cerberus/internal/auth	0.412s
+ok  	example.com/cerberus/internal/store	(cached)
+?   	example.com/cerberus/cmd/cerberus	[no test files]
