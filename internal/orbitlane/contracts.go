@@ -11,25 +11,26 @@ import (
 // orbit:contracts — the contract directory is well formed. Runs on the tree
 // that holds the contracts (foundry-dies), on every pull to it.
 
-// The statuses a contract may carry. Moving one to approved is Rob's edit.
-var statuses = []string{"generated", "approved"}
+// The statuses a contract may carry. The ladder is retired (F15 cutover,
+// 2026-10-06): every Contract fact renders approved, so approved is the only
+// status. A generated file is a hand edit or a stale generator, and is refused.
+var statuses = []string{"approved"}
 
 // Teach is the authoring path every orbit finding ends with: what a session
 // does about it.
-const Teach = "the contract is foundry-dies/orbits/<producer>-<consumer>.toml; edit it in a foundry-dies pull (orbits/README.md, \"Who writes these\")"
+const Teach = "the contract is a fact on graph:nyx, rendered to foundry-dies/orbits/<producer>-<consumer>.toml; declare or retire it with nyx_declare_contract / nyx_retire_contract, then re-render with `nyx facts render --dies . --apply` (orbits/README.md, \"Who writes these\"); never hand-edit the file"
 
 // Contracts judges every contract file in files (name -> bytes, the
-// directory's whole content) against the roster of star names, and each
-// approved contract against base, the same directory on the branch the pull
-// merges into: an approved contract whose verbs moved must move its version
-// with them, so an approved surface cannot change silently.
+// directory's whole content) against the roster of star names. A contract's
+// version is the seam's last chaos tx, so it moves with the facts and there is
+// no version rule to check here.
 //
 // One file per ordered pair is the directory's own guarantee (a file name
 // names the pair); what this adds is that the name parses as two stars on the
 // roster, that the body parses as the composer reads it (version, status,
 // and non-empty, well-formed verbs — orbitcompose.ParseContract),
-// and that the status is one the ladder knows.
-func Contracts(files, base map[string][]byte, roster map[string]bool) []checks.Finding {
+// and that the status is approved, the only one a rendered fact carries.
+func Contracts(files map[string][]byte, roster map[string]bool) []checks.Finding {
 	var names []string
 	for n := range files {
 		if strings.HasSuffix(n, ".toml") {
@@ -43,7 +44,7 @@ func Contracts(files, base map[string][]byte, roster map[string]bool) []checks.F
 	}
 	var out []checks.Finding
 	for _, n := range names {
-		out = append(out, contract(n, files[n], base[n], roster))
+		out = append(out, contract(n, files[n], roster))
 	}
 	return out
 }
@@ -65,7 +66,7 @@ func unparseable(name string, err error) checks.Finding {
 }
 
 // contract judges one file.
-func contract(name string, raw, baseRaw []byte, roster map[string]bool) checks.Finding {
+func contract(name string, raw []byte, roster map[string]bool) checks.Finding {
 	subject := "orbits/" + name
 	c, err := orbitcompose.ParseContract(name, raw, roster)
 	if err != nil {
@@ -73,23 +74,13 @@ func contract(name string, raw, baseRaw []byte, roster map[string]bool) checks.F
 	}
 	if !slices.Contains(statuses, c.Status) {
 		return finding(checks.VerdictViolated, subject, "status-unknown",
-			"status "+c.Status+" is not one of generated, approved")
+			"status "+c.Status+" is not approved (the only status; the ladder is retired); "+Teach)
 	}
 	for _, star := range []string{c.Producer, c.Consumer} {
 		// A CI lane consumer (job.<lane> or ci.<lane>) is no star and is on no roster.
 		if !roster[star] && !orbitcompose.IsLane(star) {
 			return finding(checks.VerdictViolated, subject, "party-not-on-roster",
 				star+" is not on the fleet roster (fleet/repos/"+star+".json)")
-		}
-	}
-	// A base the composer cannot read (absent: a new contract) answers an
-	// error, and then there is nothing to compare against.
-	if c.Status == "approved" {
-		if was, err := orbitcompose.ParseContract(name, baseRaw, roster); err == nil &&
-			!slices.Equal(was.Verbs, c.Verbs) && was.Version == c.Version {
-			return finding(checks.VerdictViolated, subject, "approved-verbs-moved",
-				"an approved contract's verbs changed ("+strings.Join(was.Verbs, ",")+" -> "+strings.Join(c.Verbs, ",")+
-					") and its version stayed "+c.Version+" — raise version in the same pull")
 		}
 	}
 	return finding(checks.VerdictHolds, subject, "contract", c.Status+" v"+c.Version+", "+

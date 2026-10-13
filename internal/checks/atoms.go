@@ -572,7 +572,7 @@ func atomTable() []AtomDef {
 		// ---- orbit: the orbit lane, asked for by name (StageOrbit) ----
 		{
 			ID: "orbit:contracts", Stage: StageOrbit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "Every seam contract in foundry-dies/orbits parses, names two stars on the roster, carries a known status, and an approved one moved its version with its verbs.",
+			Desc: "Every seam contract in foundry-dies/orbits parses, names two stars on the roster, and carries the one status a rendered fact has, approved.",
 		},
 		{
 			ID: "orbit:surface", Stage: StageOrbit, Lane: LaneAny, Image: ImageFleet,

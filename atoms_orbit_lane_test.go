@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	laneContract    = "version = \"1\"\nstatus = \"generated\"\nverbs = [\"neighbors\"]\n"
+	laneContract    = "version = \"1\"\nstatus = \"approved\"\nverbs = [\"neighbors\"]\n"
 	themisRoster    = `{"name":"themis","verb_prefix":"themis"}`
 	uraniaRoster    = `{"name":"urania","verb_prefix":"urania"}`
 	narcSurfaceNone = `{"version":1,"findings":[]}`
@@ -129,17 +129,6 @@ func TestOrbitContractsHoldsAHyphenatedStarOnTheRoster(t *testing.T) {
 	}
 }
 
-// The base is foundry-dies main: an approved contract whose verbs moved
-// there without a version bump is the finding.
-func TestOrbitContractsReadsTheBaseFromTheDies(t *testing.T) {
-	approved := strings.Replace(laneContract, "generated", "approved", 1)
-	v := orbitAtom(t, "orbit:contracts", "foundry-dies", contractsTree(map[string]string{
-		"/dies/orbits/urania-themis.toml": approved,
-		"orbits/urania-themis.toml":       strings.Replace(approved, `"neighbors"`, `"shapes"`, 1),
-	}))
-	wantSaid(t, v, 0, "raise version in the same pull")
-}
-
 func TestOrbitContractsIsAbsentOutsideTheContractsTree(t *testing.T) {
 	for name, tree := range map[string]map[string]string{
 		"a star":         laneDies(map[string]string{"go.mod": "module x"}),
@@ -169,14 +158,6 @@ func TestOrbitContractsCannotRunWhenATreeCannotBeRead(t *testing.T) {
 			wantState(t, orbitAtomAgain(t, "orbit:contracts", "foundry-dies"), 2, tc.want)
 		})
 	}
-}
-
-func TestOrbitContractsCannotRunWhenTheDiesCannotBeRead(t *testing.T) {
-	engine.reset()
-	engine.withTree(contractsTree(nil))
-	engine.failLeaf(`"/dies/orbits/urania-themis.toml"`, "contents", "engine went away")
-	engine.failLeaf(`url:"`, "contents", "engine went away")
-	wantState(t, orbitAtomAgain(t, "orbit:contracts", "foundry-dies"), 2, "foundry-dies main:")
 }
 
 func TestOrbitRepoJudgesTheLaidFile(t *testing.T) {

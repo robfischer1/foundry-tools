@@ -9,7 +9,7 @@ import (
 	"dagger/foundry-tools/internal/orbitcompose"
 )
 
-const body = "version = \"1\"\nstatus = \"generated\"\nverbs = [\"neighbors\", \"shape_for\"]\n"
+const body = "version = \"1\"\nstatus = \"approved\"\nverbs = [\"neighbors\", \"shape_for\"]\n"
 
 func parse(t *testing.T, name, raw string) orbitcompose.Contract {
 	t.Helper()
@@ -76,17 +76,17 @@ func TestEnforcedAViolationIsRedAndStaysViolated(t *testing.T) {
 
 func TestContractsJudgesEveryFile(t *testing.T) {
 	roster := map[string]bool{"urania": true, "themis": true, "chaos": true}
-	approved := strings.Replace(body, "generated", "approved", 1)
+	generated := strings.Replace(body, "approved", "generated", 1)
 	files := map[string][]byte{
-		"README.md":           []byte("not a contract"),
-		"urania-themis.toml":  []byte(body),
-		"chaos-themis.toml":   []byte(strings.Replace(body, "generated", "proposed", 1)),
+		"README.md":          []byte("not a contract"),
+		"urania-themis.toml": []byte(body),
+		"chaos-themis.toml":  []byte(strings.Replace(body, "approved", "proposed", 1)),
+		// The ladder is retired: generated is no longer a status a fact renders.
+		"themis-chaos.toml":   []byte(generated),
 		"chaos-ghost.toml":    []byte(body),
 		"ghost-chaos.toml":    []byte(body),
 		"chaos-urania.toml":   []byte("version = 1"),
-		"themis-urania.toml":  []byte(strings.Replace(approved, `"shape_for"`, `"shapes"`, 1)),
-		"themis-chaos.toml":   []byte(strings.Replace(strings.Replace(approved, `"shape_for"`, `"shapes"`, 1), `"1"`, `"2"`, 1)),
-		"urania-chaos.toml":   []byte(approved),
+		"urania-chaos.toml":   []byte(body),
 		"themis-themis2.toml": []byte(body),
 		// A CI lane consumer is on no roster and needs none; its producer does.
 		"chaos-job.gate.toml": []byte(body),
@@ -94,12 +94,7 @@ func TestContractsJudgesEveryFile(t *testing.T) {
 		"chaos-ci.gate.toml":  []byte(body),
 		"ghost-ci.gate.toml":  []byte(body),
 	}
-	base := map[string][]byte{
-		"themis-urania.toml": []byte(approved),
-		"themis-chaos.toml":  []byte(approved),
-		"urania-chaos.toml":  []byte(approved),
-	}
-	got := verdicts(Contracts(files, base, roster))
+	got := verdicts(Contracts(files, roster))
 	want := []string{
 		"holds contract orbits/chaos-ci.gate.toml",
 		"violated party-not-on-roster orbits/chaos-ghost.toml",
@@ -109,72 +104,53 @@ func TestContractsJudgesEveryFile(t *testing.T) {
 		"violated party-not-on-roster orbits/ghost-chaos.toml",
 		"violated party-not-on-roster orbits/ghost-ci.gate.toml",
 		"violated party-not-on-roster orbits/ghost-job.gate.toml",
-		"holds contract orbits/themis-chaos.toml",
+		"violated status-unknown orbits/themis-chaos.toml",
 		"violated party-not-on-roster orbits/themis-themis2.toml",
-		"violated approved-verbs-moved orbits/themis-urania.toml",
 		"holds contract orbits/urania-chaos.toml",
 		"holds contract orbits/urania-themis.toml",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
-	found := Contracts(files, base, roster)
-	for _, f := range found {
+	for _, f := range Contracts(files, roster) {
 		switch f.Cause {
 		case "contract-unparseable":
 			if !strings.Contains(f.Detail, "does not parse") || !strings.HasSuffix(f.Detail, Teach) {
 				t.Errorf("unparseable detail %q", f.Detail)
-			}
-		case "approved-verbs-moved":
-			if f.Detail != "an approved contract's verbs changed (neighbors,shape_for -> neighbors,shapes) and its version stayed 1 — raise version in the same pull" {
-				t.Errorf("approved detail %q", f.Detail)
 			}
 		case "party-not-on-roster":
 			if !strings.HasSuffix(f.Detail, "is not on the fleet roster (fleet/repos/"+strings.Fields(f.Detail)[0]+".json)") {
 				t.Errorf("roster detail %q", f.Detail)
 			}
 		case "status-unknown":
-			if f.Detail != "status proposed is not one of generated, approved" {
+			if !strings.HasPrefix(f.Detail, "status ") || !strings.Contains(f.Detail, " is not approved (the only status") || !strings.HasSuffix(f.Detail, Teach) {
 				t.Errorf("status detail %q", f.Detail)
 			}
+		case "approved-verbs-moved":
+			t.Errorf("the version rule is retired: %q", f.Detail)
 		case "contract":
-			if f.Subject == "orbits/urania-themis.toml" && f.Detail != "generated v1, neighbors,shape_for" {
+			if f.Subject == "orbits/urania-themis.toml" && f.Detail != "approved v1, neighbors,shape_for" {
 				t.Errorf("holds detail %q", f.Detail)
 			}
 		}
 	}
 }
 
-func TestContractsOfAnEmptyDirectoryIsAViolation(t *testing.T) {
-	got := verdicts(Contracts(map[string][]byte{"README.md": nil}, nil, nil))
-	if !slices.Equal(got, []string{"violated no-contracts orbits/"}) {
-		t.Errorf("%v", got)
-	}
-}
-
-func TestAnApprovedContractWithNoBaseOrAnUnparseableBaseHolds(t *testing.T) {
-	approved := strings.Replace(body, "generated", "approved", 1)
-	roster := map[string]bool{"urania": true, "themis": true}
-	moved := strings.Replace(approved, `"shape_for"`, `"shapes"`, 1)
-	for name, base := range map[string]map[string][]byte{
-		// A base the composer refuses (no status) still decodes its verbs
-		// and version; refused is refused, and nothing is compared.
-		"refused base": {"urania-themis.toml": []byte(strings.Replace(moved, `status = "approved"`, `status = ""`, 1))},
-		"new":          nil,
-		"broken base":  {"urania-themis.toml": []byte("version = 1")},
-		"same verbs":   {"urania-themis.toml": []byte(approved)},
-	} {
-		got := verdicts(Contracts(map[string][]byte{"urania-themis.toml": []byte(approved)}, base, roster))
-		if !slices.Equal(got, []string{"holds contract orbits/urania-themis.toml"}) {
-			t.Errorf("%s: %v", name, got)
+// Teach points at the facts, not at a hand edit.
+func TestTeachNamesTheDeclareVerbAndTheRender(t *testing.T) {
+	for _, want := range []string{"nyx_declare_contract", "nyx_retire_contract", "nyx facts render"} {
+		if !strings.Contains(Teach, want) {
+			t.Errorf("Teach lacks %q: %s", want, Teach)
 		}
 	}
+	if strings.Contains(Teach, "edit it in a foundry-dies pull") {
+		t.Errorf("Teach still sends a session to hand-edit: %s", Teach)
+	}
 }
 
-func TestAGeneratedContractsVerbsMoveFreely(t *testing.T) {
-	roster := map[string]bool{"urania": true, "themis": true}
-	base := map[string][]byte{"urania-themis.toml": []byte(strings.Replace(body, `"shape_for"`, `"shapes"`, 1))}
-	if got := verdicts(Contracts(map[string][]byte{"urania-themis.toml": []byte(body)}, base, roster)); !slices.Equal(got, []string{"holds contract orbits/urania-themis.toml"}) {
+func TestContractsOfAnEmptyDirectoryIsAViolation(t *testing.T) {
+	got := verdicts(Contracts(map[string][]byte{"README.md": nil}, nil))
+	if !slices.Equal(got, []string{"violated no-contracts orbits/"}) {
 		t.Errorf("%v", got)
 	}
 }
@@ -253,10 +229,10 @@ func TestRepoRefusesAFileThatDoesNotParseAndSaysNothingForNoSeams(t *testing.T) 
 func TestContractsSplitsAHyphenatedStarAgainstTheRoster(t *testing.T) {
 	roster := map[string]bool{"blade-runner": true, "poseidon": true}
 	files := map[string][]byte{"blade-runner-poseidon.toml": []byte(body)}
-	if got := verdicts(Contracts(files, nil, roster)); !slices.Equal(got, []string{"holds contract orbits/blade-runner-poseidon.toml"}) {
+	if got := verdicts(Contracts(files, roster)); !slices.Equal(got, []string{"holds contract orbits/blade-runner-poseidon.toml"}) {
 		t.Errorf("with the roster: %v", got)
 	}
-	if got := verdicts(Contracts(files, nil, map[string]bool{"poseidon": true})); !slices.Equal(got, []string{"violated contract-unparseable orbits/blade-runner-poseidon.toml"}) {
+	if got := verdicts(Contracts(files, map[string]bool{"poseidon": true})); !slices.Equal(got, []string{"violated contract-unparseable orbits/blade-runner-poseidon.toml"}) {
 		t.Errorf("blade-runner off the roster: %v", got)
 	}
 }

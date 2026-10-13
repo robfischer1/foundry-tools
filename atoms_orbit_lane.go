@@ -147,8 +147,7 @@ func (r *run) fleetContracts(ctx context.Context) ([]orbitcompose.Contract, []ch
 }
 
 // orbit:contracts — every contract parses, names two stars on the roster,
-// carries a known status, and an approved one moved its version with its
-// verbs (against foundry-dies main, the branch the pull merges into).
+// and carries the one status a rendered fact has, approved.
 func orbitContracts(ctx context.Context, r *run) checks.Verdict {
 	const id = "orbit:contracts"
 	const notHere = "this tree is not the contracts' repository (it needs orbits/*.toml beside fleet/repos/)"
@@ -166,11 +165,7 @@ func orbitContracts(ctx context.Context, r *run) checks.Verdict {
 	if len(stars) == 0 {
 		return orbitAbsent(id, notHere)
 	}
-	base, err := filesIn(ctx, r.dies, "orbits/*.toml")
-	if err != nil {
-		return orbitCannot(id, fmt.Errorf("foundry-dies main: %v", err))
-	}
-	return orbitVerdict(id, orbitlane.Contracts(files, base, starSet(stars)))
+	return orbitVerdict(id, orbitlane.Contracts(files, starSet(stars)))
 }
 
 // orbit:repo — a laid orbit.toml is what the contracts compose to for this
