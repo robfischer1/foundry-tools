@@ -147,6 +147,11 @@ func TestRenovateLockstep(t *testing.T) {
 			expect(t, runAtom(t, id, in), stateOf(tc.state), tc.result, tc.needles...)
 		})
 	}
+	t.Run("a pin file that will not read is a 2", func(t *testing.T) {
+		in := treeIn(t, map[string]string{"a": "x"})
+		in.Files = append(in.Files, "renovate/renovate.yaml") // listed, and not on disk
+		expect(t, runAtom(t, id, in), stateOf(2), cannot, "renovate/renovate.yaml would not read")
+	})
 }
 
 func TestNodeKindsDeclared(t *testing.T) {
