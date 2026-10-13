@@ -774,6 +774,76 @@ func TestFleetDaggerLockstepNeverRunsWhenTheTreeWillNotAnswer(t *testing.T) {
 	wantState(t, runAtom(t, "fleet:dagger-lockstep", ""), 2, "CANNOT RUN - bases/layer-dagger-cli/Dockerfile would not read", "would not read")
 }
 
+// ---- fleet:renovate-lockstep ----
+
+func TestFleetRenovateLockstepIsAbsentWithoutAPin(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	asks := fakeDoor(t, func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
+	v := runAtom(t, "fleet:renovate-lockstep", "")
+	wantState(t, v, 0, "ABSENT", "neither deploys nor pins")
+	if len(*asks) != 0 {
+		t.Errorf("nothing to compare, yet the door was asked %v", *asks)
+	}
+	fleetNoContainer(t, "no renovate pin")
+}
+
+// ImageRenovate is held to flux main's ref, read from the door by name.
+func TestFleetRenovateLockstepHoldsTheImageToFluxMain(t *testing.T) {
+	engine.reset()
+	pinned := "ghcr.io/renovatebot/renovate:43.261.4@sha256:" + strings.Repeat("a", 64)
+	deployed := "ghcr.io/renovatebot/renovate:43.262.0@sha256:" + strings.Repeat("b", 64)
+	engine.withTree(fleetTree(map[string]string{
+		"internal/checks/images.go": "const (\n\tImageRenovate = \"" + pinned + "\"\n)\n",
+	}))
+	asks := fakeDoor(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "image: "+deployed+"\n")
+	})
+	wantReport(t, runAtom(t, "fleet:renovate-lockstep", ""), 1,
+		"ImageRenovate "+pinned+", but Renovate runs "+deployed+" (foundry/flux main renovate/renovate.yaml)")
+	want := []doorAsk{{"foundry/flux", "renovate/renovate.yaml"}}
+	if !reflect.DeepEqual(*asks, want) {
+		t.Errorf("the door was asked %v, want %v", *asks, want)
+	}
+	fleetNoContainer(t, "renovate-lockstep reads the door from the module")
+}
+
+// A tree that IS flux is judged on itself; the door is not asked.
+func TestFleetRenovateLockstepJudgesFluxOnItsOwnTree(t *testing.T) {
+	engine.reset()
+	ref := "ghcr.io/renovatebot/renovate:43.261.4@sha256:" + strings.Repeat("c", 64)
+	engine.withTree(fleetTree(map[string]string{
+		"renovate/renovate.yaml": "image: " + ref + "\nimage: " + ref + "\n",
+	}))
+	asks := fakeDoor(t, func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
+	wantReport(t, runAtom(t, "fleet:renovate-lockstep", ""), 0, "2 pin(s) agree with the Renovate "+ref)
+	if len(*asks) != 0 {
+		t.Errorf("flux's own tree holds the source, yet the door was asked %v", *asks)
+	}
+}
+
+// The +check entry point answers the same verdict the registry does.
+func TestFleetRenovateLockstepCheckEntryPoint(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	out, err := (&Fleet{Source: dag.Directory()}).RenovateLockstep(context.Background())
+	if err != nil || !strings.Contains(out, "ABSENT") {
+		t.Fatalf("got %q, %v; want the ABSENT answer", out, err)
+	}
+}
+
+func TestFleetRenovateLockstepNeverRunsWhenTheTreeWillNotAnswer(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.fail(`glob(pattern:"renovate/renovate.yaml")`, "the tree went away")
+	wantState(t, runAtom(t, "fleet:renovate-lockstep", ""), 2, "the tree would not enumerate")
+
+	engine.reset()
+	engine.withTree(fleetTree(map[string]string{"renovate/renovate.yaml": "image: x\n"}))
+	engine.failLeaf(`"renovate/renovate.yaml"`, "contents", "the manifest would not read")
+	wantState(t, runAtom(t, "fleet:renovate-lockstep", ""), 2, "CANNOT RUN - renovate/renovate.yaml would not read", "would not read")
+}
+
 // ---- fleet:opengrep-sast ----
 
 func TestFleetOpengrepIsAbsentWithoutRulesSast(t *testing.T) {

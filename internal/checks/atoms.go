@@ -193,6 +193,10 @@ func atomTable() []AtomDef {
 			Desc: "The dagger CLI, engine and module pins in this tree agree with the engine foundry/flux runs — CLI and engine move in lockstep.",
 		},
 		{
+			ID: "fleet:renovate-lockstep", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
+			Desc: "The Renovate image this repo pins (ImageRenovate) equals the one foundry/flux deploys, and flux's two containers agree.",
+		},
+		{
 			ID: "fleet:node-kinds-declared", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every node kind this repo's Go code captures is declared in chaos's node_kinds, so the foreign key never refuses it at runtime.",
 		},

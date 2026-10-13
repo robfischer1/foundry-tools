@@ -44,6 +44,17 @@ func (f *Fleet) DaggerLockstep(ctx context.Context) (string, error) {
 	return check(ctx, f.Source, "fleet:dagger-lockstep")
 }
 
+// The Renovate image this repo pins (ImageRenovate, the validator behind
+// fleet:renovate-config) equals the one foundry/flux deploys. Renovate cannot
+// open one pull across two repositories, so flux leads and this follows: in
+// flux both CronJob containers must carry one ref, elsewhere ImageRenovate
+// must equal flux main's.
+//
+// +check
+func (f *Fleet) RenovateLockstep(ctx context.Context) (string, error) {
+	return check(ctx, f.Source, "fleet:renovate-lockstep")
+}
+
 // Every node kind this repo's Go code captures is declared in chaos's
 // node_kinds. nodes.kind is a foreign key onto that table, so an undeclared
 // kind is refused at runtime and only there: a star's own tests mint against a
