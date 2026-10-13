@@ -422,16 +422,22 @@ func (r *run) plan(ctx context.Context, selected []checks.AtomDef) (checks.Plan,
 	entries, entriesErr := r.src.Entries(ctx)
 	mods, modsErr := r.goModuleDirs(ctx)
 	pys, pysErr := r.pythonFiles(ctx)
+	fork := r.forkRecord(ctx)
 	plan := checks.PlanAtoms(selected, checks.Tree{
 		Entries:     entries,
 		GoModules:   len(mods),
 		PythonFiles: len(pys),
+		Fork:        fork,
 	})
 	if entriesErr != nil || modsErr != nil || pysErr != nil {
 		why := cmp.Or(entriesErr, modsErr, pysErr)
 		plan = checks.Plan{}
 		var unread []checks.Verdict
 		for _, a := range selected {
+			if fork != "" && a.NotOnForks != "" {
+				unread = append(unread, checks.ForkVerdict(a, fork))
+				continue
+			}
 			if a.Lane == checks.LaneAny {
 				plan.Run = append(plan.Run, a)
 				continue
@@ -443,6 +449,9 @@ func (r *run) plan(ctx context.Context, selected []checks.AtomDef) (checks.Plan,
 	absent := make([]checks.Verdict, 0, len(plan.Absent))
 	for _, a := range plan.Absent {
 		absent = append(absent, checks.AbsentVerdict(a))
+	}
+	for _, a := range plan.Fork {
+		absent = append(absent, checks.ForkVerdict(a, fork))
 	}
 	return plan, absent, nil
 }

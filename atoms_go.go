@@ -602,20 +602,66 @@ func isNotAStar(err error) bool {
 // fleet/repos/<name>.json, which every fleet repo has whether or not flux
 // deploys it); a tree that cannot be listed is an error, not "no star".
 func (r *run) starOfRepo(ctx context.Context, key string) (string, error) {
+	star, _, err := r.recordOfRepo(ctx, key)
+	return star, err
+}
+
+// recordOfRepo is starOfRepo with the entry itself: the record's name and its
+// JSON, or "" for both when no entry names key.
+func (r *run) recordOfRepo(ctx context.Context, key string) (string, string, error) {
 	paths, err := r.dies.Glob(ctx, "fleet/repos/*.json")
 	if err != nil {
-		return "", fmt.Errorf("the fleet's records could not be listed: %w", err)
+		return "", "", fmt.Errorf("the fleet's records could not be listed: %w", err)
 	}
 	for _, p := range paths {
 		slag, err := r.dies.File(p).Contents(ctx)
 		if err != nil {
-			return "", fmt.Errorf("record %s could not be read: %w", p, err)
+			return "", "", fmt.Errorf("record %s could not be read: %w", p, err)
 		}
 		if checks.RecordRepo(slag) == key {
-			return checks.StarOfRecordPath(p), nil
+			return checks.StarOfRecordPath(p), slag, nil
 		}
 	}
-	return "", nil
+	return "", "", nil
+}
+
+// forkRecord is the name of the record that declares this repository a fork
+// of an upstream (checks.RecordIsFork), or "" — the planner's Tree.Fork.
+//
+// EVERY DOUBT ANSWERS "NOT A FORK". No clone URL, no record, a record that
+// will not read: the tree takes the fleet's whole bar. Standing an atom down
+// is the one direction a read fault must never push, because a fork verdict
+// passes and a missed one only grades more.
+func (r *run) forkRecord(ctx context.Context) string {
+	key := checks.RepoKey(r.repo)
+	if key == "" {
+		key = checks.RepoKey(r.origin)
+	}
+	if key == "" {
+		return ""
+	}
+	// THE RECORD NAMED FOR THE REPO IS READ FIRST. Most records are named for
+	// their repo (forks/gravity is fleet/repos/gravity.json) and every gate
+	// asks this, so the common case is one read; a repo whose record is named
+	// otherwise falls through to the scan.
+	if _, name, ok := strings.Cut(key, "/"); ok {
+		if slag, err := r.dies.File("fleet/repos/" + name + ".json").Contents(ctx); err == nil && checks.RecordRepo(slag) == key {
+			return forkName(name, slag)
+		}
+	}
+	name, slag, err := r.recordOfRepo(ctx, key)
+	if err != nil {
+		return ""
+	}
+	return forkName(name, slag)
+}
+
+// forkName is name when slag declares a fork, else "".
+func forkName(name, slag string) string {
+	if !checks.RecordIsFork(slag) {
+		return ""
+	}
+	return name
 }
 
 // releasePlan derives what the star's release build produces: the binaries

@@ -100,7 +100,36 @@ type AtomDef struct {
 	// is. Nothing marks it in the go lane today; go has no atom whose subject
 	// is a root go.mod rather than the modules themselves.
 	NeedsManifest bool
+	// NotOnForks, when set, says why this atom stands down on a fork of an
+	// upstream: a repository whose foundry-dies record is kind vendored
+	// (Tree.Fork). It is one of the ForkReasons, and it is the sentence the
+	// ABSENT verdict carries (ForkVerdict).
+	//
+	// THE FORK LANE IS THE UPSTREAM'S OWN BAR PLUS THE FLEET'S SAFETY NET.
+	// Rob, 2026-10-12: "gravity needs a separate/dedicated build lane so we're
+	// not reformatting and refactoring upstream's forked code." A fork keeps
+	// what proves the code works and is safe — build, the test suites, the
+	// audits, the release build, cargo fmt (which upstreams enforce as the
+	// same command) — and drops what holds upstream-owned code to the fleet's
+	// own house rules: its lint set, its style, its canon, and its
+	// change-scoped bars (mutation, diff coverage). Every upstream sync would
+	// otherwise drag the fork toward reformatting code that is not ours, and
+	// the diff against upstream is what a rebase has to read.
+	NotOnForks string
 }
+
+// The reasons an atom gives for standing down on a fork (AtomDef.NotOnForks).
+const (
+	// ForkFleetStyle is a lint, a format or a convention the fleet holds its
+	// own code to, and an upstream does not.
+	ForkFleetStyle = "it holds code to the fleet's own lint set, style and conventions, which upstream-owned code does not follow"
+	// ForkChangeBar is a change-scoped grading (mutation, diff coverage) whose
+	// bar is the fleet's, applied to a diff that is mostly upstream's code.
+	ForkChangeBar = "it grades the change against the fleet's own test-strength bar, and a fork's changes are mostly its upstream's code"
+)
+
+// ForkReasons is every value NotOnForks may take.
+var ForkReasons = []string{ForkFleetStyle, ForkChangeBar}
 
 var Atoms = atomTable()
 
@@ -128,7 +157,7 @@ func atomTable() []AtomDef {
 			Desc: "No conflict markers were committed.",
 		},
 		{
-			ID: "fleet:stop-justifications", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
+			ID: "fleet:stop-justifications", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet, NotOnForks: ForkFleetStyle,
 			Desc: "No silent suppression of any gate — a suppression carries a tool-conflict line.",
 		},
 		{
@@ -287,11 +316,11 @@ func atomTable() []AtomDef {
 
 		// ---- go ----
 		{
-			ID: "go:gofmt", Stage: StagePrecommit, Lane: LaneGo, Image: ImageGo,
+			ID: "go:gofmt", Stage: StagePrecommit, Lane: LaneGo, Image: ImageGo, NotOnForks: ForkFleetStyle,
 			Desc: "Every Go file is gofmt-clean.",
 		},
 		{
-			ID: "go:vet", Stage: StagePrecommit, Lane: LaneGo, Image: ImageGo,
+			ID: "go:vet", Stage: StagePrecommit, Lane: LaneGo, Image: ImageGo, NotOnForks: ForkFleetStyle,
 			Desc: "go vet ./... reports nothing.",
 		},
 		{
@@ -306,7 +335,7 @@ func atomTable() []AtomDef {
 		// that answers in seconds must not wait behind a suite that answers in
 		// minutes.
 		{
-			ID: "go:staticcheck", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo,
+			ID: "go:staticcheck", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo, NotOnForks: ForkFleetStyle,
 			Desc: "staticcheck ./... reports nothing.",
 		},
 		{
@@ -330,33 +359,33 @@ func atomTable() []AtomDef {
 		// same run to share it with (raceSuite) — the same `go test` the armed
 		// goldens need /dies for.
 		{
-			ID: "go:diff-coverage", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo, NeedsDies: true,
+			ID: "go:diff-coverage", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo, NeedsDies: true, NotOnForks: ForkChangeBar,
 			Desc: "Every line this pull changes in non-test, non-generated Go that holds code ran under go:test-race's suite — NOT COVERED, read off its coverage profile.",
 		},
 
 		// ---- python ----
 		{
-			ID: "python:ruff-check", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython,
+			ID: "python:ruff-check", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython, NotOnForks: ForkFleetStyle,
 			Desc: "ruff lint is clean over every .py in the tree, under the fleet's ruleset.",
 		},
 		{
-			ID: "python:ruff-format", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython,
+			ID: "python:ruff-format", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython, NotOnForks: ForkFleetStyle,
 			Desc: "ruff format --check is clean over the product python, under the fleet's ruleset.",
 		},
 		{
-			ID: "python:forge-testkit-assertion-free", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython,
+			ID: "python:forge-testkit-assertion-free", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython, NotOnForks: ForkFleetStyle,
 			Desc: "No assertion-free test bodies (forge-testkit).",
 		},
 		{
-			ID: "python:forge-testkit-fake-placement", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython,
+			ID: "python:forge-testkit-fake-placement", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython, NotOnForks: ForkFleetStyle,
 			Desc: "Fake and Stub doubles live where they belong (forge-testkit).",
 		},
 		{
-			ID: "python:forge-testkit-schema-budget", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython,
+			ID: "python:forge-testkit-schema-budget", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython, NotOnForks: ForkFleetStyle,
 			Desc: "MCP verb descriptions stay inside the schema budget (forge-testkit).",
 		},
 		{
-			ID: "python:mypy", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython,
+			ID: "python:mypy", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython, NotOnForks: ForkFleetStyle,
 			Desc: "mypy is clean over src and tests, under the fleet's strict configuration.",
 			// A TYPE CHECK IS AGAINST A DEPENDENCY SET, and only the manifest
 			// declares one. This atom's own note says why --all-extras is
@@ -410,7 +439,7 @@ func atomTable() []AtomDef {
 			Desc: "cargo fmt --all --check is clean.",
 		},
 		{
-			ID: "rust:cargo-clippy", Stage: StagePrecommit, Lane: LaneRust, Image: ImageRust,
+			ID: "rust:cargo-clippy", Stage: StagePrecommit, Lane: LaneRust, Image: ImageRust, NotOnForks: ForkFleetStyle,
 			Desc: "cargo clippy is clean under the fleet's lint set, warnings denied.",
 		},
 		{
@@ -516,7 +545,7 @@ func atomTable() []AtomDef {
 			Desc: "Every vendored copy this tree holds (a WIT, a schema, a verb's output schema) is the closed set and the bytes foundry-dies' authority declares — graded here, in the repo that holds it, instead of on the next dies pull.",
 		},
 		{
-			ID: "fleet:witness", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
+			ID: "fleet:witness", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet, NotOnForks: ForkFleetStyle,
 			Desc: "Every changed .py/.go source file is shown to the code witness (narcissus), never a test: a canonical-class or Standard match is a finding, a Convention is advisory, novel is clean.",
 		},
 		{
@@ -632,11 +661,11 @@ func atomTable() []AtomDef {
 		// that runs a repo's `go test` runs its armed goldens
 		// (TestTheGoTestAtomCarriesTheFleetRecordTree holds both).
 		{
-			ID: "go:mutation", Stage: StageMutation, Lane: LaneGo, Image: ImageGo, NeedsDies: true,
+			ID: "go:mutation", Stage: StageMutation, Lane: LaneGo, Image: ImageGo, NeedsDies: true, NotOnForks: ForkChangeBar,
 			Desc: "Every mutant gremlins makes of this pull's changed Go is killed by the tests.",
 		},
 		{
-			ID: "python:mutation", Stage: StageMutation, Lane: LanePython, Image: ImagePython,
+			ID: "python:mutation", Stage: StageMutation, Lane: LanePython, Image: ImagePython, NotOnForks: ForkChangeBar,
 			Desc: "Every mutant cosmic-ray makes of this pull's changes to the declared critical modules is killed by the tests.",
 			// Its scope is critical_modules off .copier-answers.yml and it
 			// runs cosmic-ray against the project — neither of which a tree
@@ -645,11 +674,11 @@ func atomTable() []AtomDef {
 			NeedsManifest: true,
 		},
 		{
-			ID: "rust:mutation", Stage: StageMutation, Lane: LaneRust, Image: ImageRust,
+			ID: "rust:mutation", Stage: StageMutation, Lane: LaneRust, Image: ImageRust, NotOnForks: ForkChangeBar,
 			Desc: "Every viable mutant cargo-mutants makes of this pull's changes to the declared critical modules is killed by the tests.",
 		},
 		{
-			ID: "ts:mutation", Stage: StageMutation, Lane: LaneTS, Image: ImageTS,
+			ID: "ts:mutation", Stage: StageMutation, Lane: LaneTS, Image: ImageTS, NotOnForks: ForkChangeBar,
 			Desc: "Every mutant StrykerJS makes of this pull's changes to the declared critical modules is killed by the tests.",
 		},
 	}
