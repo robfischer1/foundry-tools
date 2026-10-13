@@ -213,6 +213,17 @@ func AbsentVerdict(a AtomDef) Verdict {
 	}
 }
 
+// ForkVerdict is AbsentVerdict for an atom a fork does not take
+// (AtomDef.NotOnForks): it never ran, it exits 0, and it says which record
+// made the tree a fork and why this atom is not the upstream's bar. record is
+// the record's name (Tree.Fork).
+func ForkVerdict(a AtomDef, record string) Verdict {
+	v := AbsentVerdict(a)
+	v.Reason = fmt.Sprintf("%s: ABSENT — fleet/repos/%s.json is kind vendored, a fork of an upstream, and this atom does not grade a fork: %s. The fork's build, tests and audits still run. Nothing was checked here and nothing needed to be.",
+		a.ID, record, a.NotOnForks)
+	return v
+}
+
 // absentReason says which absence this is, and there are three of them.
 //
 // THE READER HAS TO BE ABLE TO TELL THEM APART. An atom that stood down

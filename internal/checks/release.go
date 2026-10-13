@@ -280,6 +280,23 @@ func RecordRepo(entry string) string {
 	return rec.Repo
 }
 
+// KindVendored is the record kind foundry-dies' fleet-star schema gives a fork
+// of an upstream ("vendored: a fork of an upstream, exempt from conform").
+const KindVendored = "vendored"
+
+// RecordIsFork reports whether a catalog entry declares its repository a fork
+// of an upstream: kind vendored. An entry that does not parse is not a fork,
+// so a record nobody can read takes the fleet's whole bar, never less.
+func RecordIsFork(entry string) bool {
+	var rec struct {
+		Kind string `json:"kind"`
+	}
+	if err := json.Unmarshal([]byte(entry), &rec); err != nil {
+		return false
+	}
+	return rec.Kind == KindVendored
+}
+
 // StarOfRecordPath is the name a catalog entry path carries:
 // fleet/repos/<name>.json → <name>. "" for any other shape.
 func StarOfRecordPath(p string) string {

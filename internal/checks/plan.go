@@ -30,6 +30,10 @@ type Plan struct {
 	// reach a container; each answers AbsentVerdict, with the reason that
 	// names the manifest it looked for.
 	Absent []AtomDef
+	// Fork are the atoms whose lane IS here but which a fork does not take
+	// (AtomDef.NotOnForks). They never reach a container either; each answers
+	// ForkVerdict, naming the record that says the tree is a fork.
+	Fork []AtomDef
 }
 
 // Tree is what the planner knows about the repository before anything runs.
@@ -51,6 +55,11 @@ type Tree struct {
 	// PythonFiles is how many .py files the tree carries that count as the
 	// repository's own (PythonFiles says which do not).
 	PythonFiles int
+	// Fork is the record that declares this repository a fork of an upstream
+	// (fleet/repos/<name>.json, kind vendored), by its name; "" for every
+	// repository the fleet authors. THE RECORD SAYS IT, NOT THE TREE: a fork
+	// carries its upstream's files, and nothing in them says whose they are.
+	Fork string
 }
 
 // PlanAtoms answers the plan for a selection: what the tree declares, which
@@ -74,6 +83,12 @@ func PlanAtoms(selected []AtomDef, tree Tree) Plan {
 			continue
 		case a.NeedsManifest && !DeclaresManifest(tree.Entries, ManifestFor(a.Lane)):
 			p.Absent = append(p.Absent, a)
+			continue
+		}
+		// AFTER THE LANE: an atom with no surface here says so first, because
+		// that is true whoever owns the code.
+		if tree.Fork != "" && a.NotOnForks != "" {
+			p.Fork = append(p.Fork, a)
 			continue
 		}
 		p.Run = append(p.Run, a)
