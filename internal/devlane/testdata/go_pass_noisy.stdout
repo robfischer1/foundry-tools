@@ -1,0 +1,3 @@
+{"level":"ERROR","msg":"deliberate failure path"}
+ok  	example.com/cerberus/internal/auth	0.412s
+?   	example.com/cerberus/cmd/cerberus	[no test files]

@@ -312,7 +312,7 @@ func fixture(t *testing.T, name string) string {
 }
 
 func TestReportGoPassIsTheSummaryLines(t *testing.T) {
-	out := fixture(t, "go_pass_noisy.out")
+	out := fixture(t, "go_pass_noisy.stdout")
 	got := TestReport(Go, out, "", 0, false)
 	want := "ok  \texample.com/cerberus/internal/auth\t0.412s\n?   \texample.com/cerberus/cmd/cerberus\t[no test files]\n"
 	if got != want {
@@ -321,20 +321,20 @@ func TestReportGoPassIsTheSummaryLines(t *testing.T) {
 	if strings.Contains(got, "ERROR") {
 		t.Error("the deliberate ERROR log must not reach a pass")
 	}
-	if all := fixture(t, "go_pass.out"); !strings.Contains(TestReport(Go, all, "", 0, false), "(cached)") {
+	if all := fixture(t, "go_pass.stdout"); !strings.Contains(TestReport(Go, all, "", 0, false), "(cached)") {
 		t.Error("a cached ok line is a summary line")
 	}
 }
 
 func TestReportVerboseKeepsTheWholeLogOnAPass(t *testing.T) {
-	out := fixture(t, "go_pass_noisy.out")
+	out := fixture(t, "go_pass_noisy.stdout")
 	if got := TestReport(Go, out, "", 0, true); got != out {
 		t.Errorf("verbose pass must be the output unchanged: %q", got)
 	}
 }
 
 func TestReportGoFailKeepsEverythingAndEndsWithTheSummary(t *testing.T) {
-	out := fixture(t, "go_fail.out")
+	out := fixture(t, "go_fail.stdout")
 	got := TestReport(Go, out, "", 1, false)
 	if !strings.HasPrefix(got, out) {
 		t.Errorf("a failure keeps the full output first: %q", got)

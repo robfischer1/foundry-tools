@@ -1,0 +1,6 @@
+--- FAIL: TestToken (0.00s)
+    token_test.go:21: got "a", want "b"
+FAIL
+FAIL	example.com/cerberus/internal/auth	0.318s
+ok  	example.com/cerberus/internal/store	0.101s
+FAIL
