@@ -114,6 +114,14 @@ func other(topic string, f func(string)) { f("x") }
 func mk(topic string) { kgo.NewClient(kgo.ConsumeTopics(topic)) }
 `},
 			[]string{"consume x "}},
+		{"a function value passed past a variadic callee's last named parameter is not followed",
+			map[string]string{"a/a.go": "package a\n" + kgoImport + `
+func Main() { spread("x", mk, mk) }
+func spread(first string, fs ...func(string)) {}
+func mk(topic string) { kgo.NewClient(kgo.ConsumeTopics(topic)) }
+func Other() { mk("t-direct") }
+`},
+			[]string{"consume t-direct "}},
 		{"two fields of one struct literal pair",
 			map[string]string{"a/a.go": "package a\n" + kgoImport + `
 type L struct{ Topic, Group string }
