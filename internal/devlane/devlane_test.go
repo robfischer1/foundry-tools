@@ -1,6 +1,7 @@
 package devlane
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -298,5 +299,94 @@ func TestRefuseAnUnidentifiedRepo(t *testing.T) {
 	}
 	if err := Refuse(""); err == nil || !strings.Contains(err.Error(), "--repo") {
 		t.Errorf("no identity must be refused: %v", err)
+	}
+}
+
+func fixture(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile("testdata/" + name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func TestReportGoPassIsTheSummaryLines(t *testing.T) {
+	out := fixture(t, "go_pass_noisy.out")
+	got := TestReport(Go, out, "", 0, false)
+	want := "ok  \texample.com/cerberus/internal/auth\t0.412s\n?   \texample.com/cerberus/cmd/cerberus\t[no test files]\n"
+	if got != want {
+		t.Errorf("got %q want %q", got, want)
+	}
+	if strings.Contains(got, "ERROR") {
+		t.Error("the deliberate ERROR log must not reach a pass")
+	}
+	if all := fixture(t, "go_pass.out"); !strings.Contains(TestReport(Go, all, "", 0, false), "(cached)") {
+		t.Error("a cached ok line is a summary line")
+	}
+}
+
+func TestReportVerboseKeepsTheWholeLogOnAPass(t *testing.T) {
+	out := fixture(t, "go_pass_noisy.out")
+	if got := TestReport(Go, out, "", 0, true); got != out {
+		t.Errorf("verbose pass must be the output unchanged: %q", got)
+	}
+}
+
+func TestReportGoFailKeepsEverythingAndEndsWithTheSummary(t *testing.T) {
+	out := fixture(t, "go_fail.out")
+	got := TestReport(Go, out, "", 1, false)
+	if !strings.HasPrefix(got, out) {
+		t.Errorf("a failure keeps the full output first: %q", got)
+	}
+	if !strings.HasSuffix(got, "FAIL\texample.com/cerberus/internal/auth\t0.318s\nok  \texample.com/cerberus/internal/store\t0.101s\n") {
+		t.Errorf("summary missing at the end: %q", got)
+	}
+}
+
+func TestReportRustMultipleBinariesAndATotal(t *testing.T) {
+	got := TestReport(Rust, fixture(t, "rust_pass.stdout"), fixture(t, "rust_pass.stderr"), 0, false)
+	for _, want := range []string{
+		"Running unittests src/lib.rs", "Running unittests src/main.rs", "Running tests/probe.rs", "Doc-tests cerberus",
+		"test result: ok. 12 passed", "test result: ok. 5 passed; 0 failed; 1 ignored",
+		"total: 18 passed; 0 failed; 1 ignored across 4 test results",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in\n%s", want, got)
+		}
+	}
+	for _, not := range []string{"ERROR", "Compiling", "... ok"} {
+		if strings.Contains(got, not) {
+			t.Errorf("%q must not reach a pass:\n%s", not, got)
+		}
+	}
+}
+
+func TestReportRustFailKeepsEverythingAndEndsWithTheSummary(t *testing.T) {
+	so, se := fixture(t, "rust_fail.stdout"), fixture(t, "rust_fail.stderr")
+	got := TestReport(Rust, so, se, 101, false)
+	if !strings.HasPrefix(got, so) || !strings.Contains(got, "panicked at src/auth.rs:44:9") {
+		t.Errorf("a failure keeps the full output: %q", got)
+	}
+	if !strings.HasSuffix(got, "total: 1 passed; 1 failed; 0 ignored across 1 test results\n") {
+		t.Errorf("total missing at the end: %q", got)
+	}
+}
+
+func TestReportWithNothingToSummariseIsTheOutput(t *testing.T) {
+	if got := TestReport(Rust, "", "error[E0432]: unresolved import\n", 0, false); got != "error[E0432]: unresolved import\n" {
+		t.Errorf("%q", got)
+	}
+	if got := TestReport(Go, "--- FAIL: TestX\n", "FAIL\n", 1, false); got != "--- FAIL: TestX\nFAIL\n" {
+		t.Errorf("a failure with no summary lines is Reason, unchanged: %q", got)
+	}
+}
+
+func TestReportRustPairsEachBinaryWithItsResult(t *testing.T) {
+	got := Summary(Rust, fixture(t, "rust_pass.stdout"), fixture(t, "rust_pass.stderr"))
+	lines := strings.Split(got, "\n")
+	if !strings.Contains(lines[0], "Running unittests src/lib.rs") || !strings.Contains(lines[1], "12 passed") ||
+		!strings.Contains(lines[2], "src/main.rs") || !strings.Contains(lines[3], "0 passed") {
+		t.Errorf("heads and results out of order:\n%s", got)
 	}
 }

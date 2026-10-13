@@ -74,7 +74,7 @@ func settledWith(t *testing.T, code string) string {
 func TestDevTestEndsOnTheToolsOwnExit(t *testing.T) {
 	d := devOver(t, devGoTree, "", "")
 	engine.stdout(`"go","test"`, "ok  \texample.com/dev\t0.1s\n")
-	out, err := d.Test(t.Context(), nil, true, false)
+	out, err := d.Test(t.Context(), nil, true, false, false)
 	if err != nil || !strings.Contains(out, "ok  \texample.com/dev") {
 		t.Fatalf("a passing suite answers its output: %q, %v", out, err)
 	}
@@ -89,7 +89,7 @@ func TestDevTestEndsOnTheToolsOwnExit(t *testing.T) {
 	engine.stderr(`"go","test"`, "FAIL\n")
 	// The real engine fails the verdict exec with the tool's code; say so.
 	engine.fail(`"/usr/local/bin/verdict"`, "exit code: 1")
-	if _, err := d.Test(t.Context(), nil, true, false); err == nil || !strings.Contains(err.Error(), "exit code: 1") {
+	if _, err := d.Test(t.Context(), nil, true, false, false); err == nil || !strings.Contains(err.Error(), "exit code: 1") {
 		t.Fatalf("a failing suite must fail the call: %v", err)
 	}
 	// stdout first, then stderr, once each.
@@ -102,10 +102,24 @@ func TestDevTestEndsOnTheToolsOwnExit(t *testing.T) {
 	engine.withTree(devGoTree)
 	engine.exitCode(`"go","test"`, 127)
 	engine.fail(`"/usr/local/bin/verdict"`, "exit code: 2")
-	if _, err := d.Test(t.Context(), nil, true, false); err == nil {
+	if _, err := d.Test(t.Context(), nil, true, false, false); err == nil {
 		t.Error("a missing binary must fail the call")
 	}
 	settledWith(t, "2")
+}
+
+// A pass answers the summary, not the log; --verbose answers the log.
+func TestDevTestPassAnswersTheSummaryUnlessVerbose(t *testing.T) {
+	d := devOver(t, devGoTree, "", "")
+	log := "{\"level\":\"ERROR\",\"msg\":\"deliberate\"}\nok  \texample.com/dev\t0.1s\n"
+	engine.stdout(`"go","test"`, log)
+	out, err := d.Test(t.Context(), nil, true, false, false)
+	if err != nil || out != "ok  \texample.com/dev\t0.1s\n" {
+		t.Fatalf("a pass answers the summary: %q, %v", out, err)
+	}
+	if out, err = d.Test(t.Context(), nil, true, false, true); err != nil || out != log {
+		t.Fatalf("verbose answers the log: %q, %v", out, err)
+	}
 }
 
 func TestDevGoTestRunsRacedInTheGoLaneWithGitAndTheDies(t *testing.T) {
@@ -113,7 +127,7 @@ func TestDevGoTestRunsRacedInTheGoLaneWithGitAndTheDies(t *testing.T) {
 	if d.Lang != devlane.Go || d.Repo != "example.com/dev" {
 		t.Fatalf("lang %q repo %q", d.Lang, d.Repo)
 	}
-	if _, err := d.Test(t.Context(), []string{"-run", "TestX", "./internal/foo/..."}, true, false); err != nil {
+	if _, err := d.Test(t.Context(), []string{"-run", "TestX", "./internal/foo/..."}, true, false, false); err != nil {
 		t.Fatal(err)
 	}
 	c := engine.chain(`"go","test"`, "exitCode")
@@ -139,7 +153,7 @@ func TestDevGoTestRunsRacedInTheGoLaneWithGitAndTheDies(t *testing.T) {
 	for _, args := range [][]string{nil, {"-race=false"}} {
 		engine.reset()
 		engine.withTree(devGoTree)
-		if _, err := d.Test(t.Context(), args, false, false); err != nil {
+		if _, err := d.Test(t.Context(), args, false, false, false); err != nil {
 			t.Fatal(err)
 		}
 		if got := engine.chain(`"go","test"`, "exitCode"); strings.Contains(got, `"go","test","-race",`) {
@@ -187,7 +201,7 @@ func TestDevRustVerbsRunTheGatesCargoLane(t *testing.T) {
 		{func() (string, error) { return d.Check(t.Context(), nil, false) }, `["cargo","check","--workspace"]`},
 		{func() (string, error) { return d.Build(t.Context(), nil, false) }, `["cargo","build","--workspace"]`},
 		{func() (string, error) { return d.Clippy(t.Context(), nil, false) }, `["cargo","clippy","--workspace","--all-targets","--","-W","clippy::all","-D","warnings"]`},
-		{func() (string, error) { return d.Test(t.Context(), []string{"-p", "x", "name"}, true, false) }, `["cargo","test","-p","x","name"]`},
+		{func() (string, error) { return d.Test(t.Context(), []string{"-p", "x", "name"}, true, false, false) }, `["cargo","test","-p","x","name"]`},
 	} {
 		engine.reset()
 		engine.withTree(devRustTree)
@@ -217,7 +231,7 @@ func TestDevRustVerbsRunTheGatesCargoLane(t *testing.T) {
 	}
 	engine.reset()
 	engine.withTree(devRustTree)
-	_, _ = d.Test(t.Context(), nil, true, false)
+	_, _ = d.Test(t.Context(), nil, true, false, false)
 	wantCalls(t, engine.chain(`"cargo","test"`, "exitCode"), []string{"withExec", `args:["git","init","-q","."]`})
 }
 

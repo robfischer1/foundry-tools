@@ -1,0 +1,6 @@
+   Compiling cerberus v0.4.0 (/src)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 41.20s
+     Running unittests src/lib.rs (target/debug/deps/cerberus-0a1b2c3d4e5f6a7b)
+     Running unittests src/main.rs (target/debug/deps/cerberus-1111222233334444)
+     Running tests/probe.rs (target/debug/deps/probe-99aabbccddeeff00)
+   Doc-tests cerberus
