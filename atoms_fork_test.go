@@ -102,6 +102,10 @@ func TestForkRecordAnswersNotAForkOnEveryDoubt(t *testing.T) {
 	if got := ask(forkDoor); got != "gravity" {
 		t.Errorf("the vendored record: %q", got)
 	}
+	// ONE READ in the common case: the record named for the repo, no scan.
+	if c := engine.chain(`"fleet/repos/*.json"`); c != "" {
+		t.Errorf("the record named for the repo was found by a scan:\n%s", c)
+	}
 	if got := ask(""); got != "" {
 		t.Errorf("no clone URL: %q", got)
 	}
@@ -114,6 +118,9 @@ func TestForkRecordAnswersNotAForkOnEveryDoubt(t *testing.T) {
 	engine.withTree(map[string]string{"/dies/fleet/repos/arcjet-gravity.json": `{"name":"arcjet-gravity","kind":"vendored","repo":"forks/gravity"}`})
 	if got := ask(forkDoor); got != "arcjet-gravity" {
 		t.Errorf("by scan: %q", got)
+	}
+	if engine.chain(`"fleet/repos/*.json"`) == "" {
+		t.Errorf("a record named otherwise was found without the scan:\n%v", engine.chains())
 	}
 
 	// A record of the same name that names another repo is not this one's.
@@ -136,5 +143,37 @@ func TestForkRecordAnswersNotAForkOnEveryDoubt(t *testing.T) {
 	engine.withTree(vendored)
 	if got := newRun(dag.Directory(), "", "").fromOrigin("https://git.notusmi.com/forks/gravity.git").forkRecord(context.Background()); got != "gravity" {
 		t.Errorf("by origin: %q", got)
+	}
+}
+
+// A ROOT THAT CANNOT BE READ STILL KNOWS IT IS A FORK. The planner files every
+// lane atom could-not-run and runs the run-anywhere atoms; on a fork the ones
+// a fork does not take stand down instead of running.
+func TestAnUnreadableForkRootStillStandsDownWhatAForkDoesNotTake(t *testing.T) {
+	casting(t, voterChains)
+	calls := stubEveryChain(t)
+	engine.reset()
+	engine.withTree(forkTree)
+	engine.withTree(map[string]string{"/dies/fleet/repos/gravity.json": `{"name":"gravity","kind":"vendored","repo":"forks/gravity"}`})
+	engine.fail("entries", "the tree went away")
+	m := &FoundryTools{Source: dag.Directory(), Repo: forkDoor, Sha: buildSha}
+	vs, err := m.vector(soon(t), checks.StagePrepush, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]checks.Verdict{}
+	for _, v := range vs {
+		seen[v.Atom] = v
+	}
+	for _, id := range []string{"fleet:witness", "go:staticcheck"} {
+		if v := seen[id]; v.State != 0 || !strings.Contains(v.Reason, "is kind vendored") || calls.of(id) != 0 {
+			t.Errorf("%s: %+v (asked %d)", id, v, calls.of(id))
+		}
+	}
+	if v := seen["go:build"]; v.State != 2 || !strings.Contains(v.Reason, "could not read the repository root") {
+		t.Errorf("go:build: %+v", v)
+	}
+	if calls.of("fleet:node-kinds-declared") != 1 {
+		t.Errorf("a run-anywhere atom a fork keeps did not run")
 	}
 }
