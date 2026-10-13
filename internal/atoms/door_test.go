@@ -117,6 +117,38 @@ func TestDaggerLockstep(t *testing.T) {
 	})
 }
 
+func TestRenovateLockstep(t *testing.T) {
+	const id = "fleet:renovate-lockstep"
+	ref := "ghcr.io/renovatebot/renovate:43.261.4@sha256:" + strings.Repeat("a", 64)
+	other := "ghcr.io/renovatebot/renovate:43.262.0@sha256:" + strings.Repeat("b", 64)
+	flux := map[string]string{"foundry/flux renovate/renovate.yaml": "image: " + ref + "\n"}
+	pin := func(r string) map[string]string {
+		return map[string]string{"internal/checks/images.go": "const (\n\tImageRenovate = \"" + r + "\"\n)\n"}
+	}
+	for _, tc := range []struct {
+		name    string
+		files   map[string]string
+		dead    bool
+		state   int
+		result  string
+		needles []string
+	}{
+		{"a tree that pins no renovate is absent", map[string]string{"a": "x"}, false, 0, absent, []string{"nothing to hold in lockstep"}},
+		{"a pin equal to flux main agrees", pin(ref), false, 0, pass, []string{"1 pin(s) agree"}},
+		{"a pin that differs from flux main is out of lockstep", pin(other), false, 1, findings, []string{"land flux first"}},
+		{"flux that could not be read is a 2", pin(ref), true, 2, cannot, []string{"the door is unreachable"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := treeIn(t, tc.files)
+			in.Door = doorOf(t, flux)
+			if tc.dead {
+				in.Door = deadDoor(t)
+			}
+			expect(t, runAtom(t, id, in), stateOf(tc.state), tc.result, tc.needles...)
+		})
+	}
+}
+
 func TestNodeKindsDeclared(t *testing.T) {
 	const id = "fleet:node-kinds-declared"
 	const schema = "INSERT INTO {schema}.node_kinds (kind, canonical_form, note)\nSELECT k, k, 'bootstrap' FROM unnest(ARRAY[\n    'Memory'\n]) k\n"

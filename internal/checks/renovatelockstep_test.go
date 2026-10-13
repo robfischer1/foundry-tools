@@ -107,3 +107,13 @@ func TestRenovateLockstepReadsTheRealConstant(t *testing.T) {
 		t.Fatalf("renovateConstRe does not read ImageRenovate %q", ImageRenovate)
 	}
 }
+
+func TestRenovateLockstepIsCannotRunWhenTheDoorIsDown(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	door := Door{Base: srv.URL, Client: srv.Client()}
+	srv.Close()
+	state, out := RenovateLockstep(context.Background(), map[string]string{RenovateImagesSource: renImages(renRefA)}, door)
+	if state != 2 || !strings.Contains(out, "the door is unreachable") {
+		t.Fatalf("state %d:\n%s", state, out)
+	}
+}

@@ -822,6 +822,16 @@ func TestFleetRenovateLockstepJudgesFluxOnItsOwnTree(t *testing.T) {
 	}
 }
 
+// The +check entry point answers the same verdict the registry does.
+func TestFleetRenovateLockstepCheckEntryPoint(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	out, err := (&Fleet{Source: dag.Directory()}).RenovateLockstep(context.Background())
+	if err != nil || !strings.Contains(out, "ABSENT") {
+		t.Fatalf("got %q, %v; want the ABSENT answer", out, err)
+	}
+}
+
 func TestFleetRenovateLockstepNeverRunsWhenTheTreeWillNotAnswer(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
