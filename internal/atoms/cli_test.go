@@ -33,13 +33,13 @@ func TestRunPrintsTheVectorAndExitsZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The pull path: the 52 atoms of precommit and prepush, none of the orbit
+	// The pull path: the 53 atoms of precommit and prepush, none of the orbit
 	// lane's. The first four are the first cut, and the only one with a finding;
 	// a tree with no surface for the rest is absent or clean in all of them.
 	want := StageIDs("")
 	wantState := map[string]int{"fleet:check-merge-conflict": 1}
-	if len(vector) != 52 || len(vector) != len(want) {
-		t.Fatalf("%d verdicts, want 52", len(vector))
+	if len(vector) != 53 || len(vector) != len(want) {
+		t.Fatalf("%d verdicts, want 53", len(vector))
 	}
 	for i, v := range vector {
 		if v.Atom != want[i] || v.State != wantState[v.Atom] {
@@ -71,7 +71,7 @@ func TestRunOutsideARepositoryStillAnswersAVector(t *testing.T) {
 	// is honest. The ones that read the directory itself have a directory to read.
 	gitBound := map[string]bool{
 		"fleet:check-yaml": true, "fleet:check-added-large-files": true, "fleet:check-merge-conflict": true,
-		"fleet:stop-justifications": true, "fleet:dagger-lockstep": true, "fleet:node-kinds-declared": true,
+		"fleet:stop-justifications": true, "fleet:dagger-lockstep": true, "fleet:renovate-lockstep": true, "fleet:node-kinds-declared": true,
 		"fleet:consumed-events-emitted": true, "compose:no-tracked-secrets": true, "compose:third-party-pins": true,
 		"ops:yaml": true,
 	}

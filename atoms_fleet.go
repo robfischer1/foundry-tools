@@ -31,6 +31,7 @@ func init() {
 	register("fleet:sast-ruleset-lanes", fleetSastRulesetLanes)
 	register("fleet:orbit-drift", fleetOrbitDrift)
 	register("fleet:dagger-lockstep", fleetDaggerLockstep)
+	register("fleet:renovate-lockstep", fleetRenovateLockstep)
 	register("fleet:node-kinds-declared", fleetNodeKindsDeclared)
 	register("fleet:consumed-events-emitted", fleetConsumedEventsEmitted)
 	register("fleet:opengrep-sast", fleetOpengrepSast)
@@ -444,6 +445,29 @@ func fleetDaggerLockstep(ctx context.Context, r *run) checks.Verdict {
 		files[p] = body
 	}
 	state, report := checks.DaggerLockstep(ctx, files, oureaDoor)
+	return checks.VerdictOf(a, state, report)
+}
+
+// The Renovate image this repo pins is held to the one foundry/flux deploys.
+// The judgement is checks.RenovateLockstep; this reads the two files the tree
+// holds (a literal glob each) and, like dagger-lockstep, lets the door answer
+// flux's main at gate time rather than freezing it into a cached exec.
+func fleetRenovateLockstep(ctx context.Context, r *run) checks.Verdict {
+	a := checks.AtomByID("fleet:renovate-lockstep")
+
+	present, err := r.population(ctx, checks.RenovateLockstepFiles...)
+	if err != nil {
+		return cannotEnumerate(a, err)
+	}
+	files := map[string]string{}
+	for _, p := range present {
+		body, err := r.src.File(p).Contents(ctx)
+		if err != nil {
+			return checks.VerdictOf(a, 2, fmt.Sprintf("fleet:renovate-lockstep: CANNOT RUN - %s would not read: %v", p, err))
+		}
+		files[p] = body
+	}
+	state, report := checks.RenovateLockstep(ctx, files, oureaDoor)
 	return checks.VerdictOf(a, state, report)
 }
 

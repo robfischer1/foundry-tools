@@ -60,6 +60,28 @@ func daggerLockstep(ctx context.Context, a checks.AtomDef, in Input) checks.Verd
 	return checks.VerdictOf(a, state, report)
 }
 
+// renovateLockstep: the Renovate image this repo pins is held to the one
+// foundry/flux deploys. The files are a literal list, so a tree that holds
+// neither reads nothing.
+func renovateLockstep(ctx context.Context, a checks.AtomDef, in Input) checks.Verdict {
+	if in.FilesErr != nil {
+		return cannotEnumerate(a, in.FilesErr)
+	}
+	files := map[string]string{}
+	for _, p := range checks.RenovateLockstepFiles {
+		if !slices.Contains(in.Files, p) {
+			continue
+		}
+		body, err := in.tree().read(p)
+		if err != nil {
+			return checks.VerdictOf(a, int(checks.StateCannotRun), fmt.Sprintf("fleet:renovate-lockstep: CANNOT RUN - %s would not read: %v", p, err))
+		}
+		files[p] = body
+	}
+	state, report := checks.RenovateLockstep(ctx, files, in.door())
+	return checks.VerdictOf(a, state, report)
+}
+
 // readAll reads every named file. A file that would not read is the answer: the
 // first of them, sorted, with why, since a file never read is a file never
 // judged.

@@ -220,6 +220,7 @@ func Builtin() []Atom {
 		tree("fleet:retired-verbs", retiredVerbs),
 		tree("fleet:orbit-drift", orbitDrift),
 		tree("fleet:dagger-lockstep", daggerLockstep),
+		tree("fleet:renovate-lockstep", renovateLockstep),
 		tree("fleet:node-kinds-declared", nodeKindsDeclared),
 		tree("fleet:consumed-events-emitted", consumedEventsEmitted),
 		tree("fleet:opengrep-sast", fleetOpengrepSast),
