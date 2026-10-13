@@ -30,3 +30,29 @@ var Mypy string
 //
 //go:embed eslint.config.mjs
 var ESLint string
+
+// The fleet's SAST rules, one file per language, byte for byte the
+// dataflow.yml each repo template ships at template/rules/sast. A star carries
+// its template's copy in rules/sast; a fork does not (we keep fork-only files
+// out of upstream PRs and syncs), so fleet:opengrep-sast scans a fork with
+// these (checks.ForkSastRulesets). Re-copy from the templates when one changes.
+
+// SastGo is go-repo-template's rules/sast/dataflow.yml.
+//
+//go:embed sast-go.yml
+var SastGo string
+
+// SastRust is rust-repo-template's rules/sast/dataflow.yml.
+//
+//go:embed sast-rust.yml
+var SastRust string
+
+// SastPython is python-repo-template's rules/sast/dataflow.yml.
+//
+//go:embed sast-python.yml
+var SastPython string
+
+// SastFrontend is frontend-repo-template's rules/sast/dataflow.yml.
+//
+//go:embed sast-frontend.yml
+var SastFrontend string

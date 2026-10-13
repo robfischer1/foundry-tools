@@ -37,6 +37,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, now func(
 	witnessDry := fs.Bool("witness-dry", false, "fleet:witness lists what it would ask and asks nothing (the shadow's mode); the default asks for real")
 	witnessURL := fs.String("witness-url", "", "narcissus's plaintext MCP port for fleet:witness; empty is the production port")
 	narcErr := fs.String("narc-err", "", "why narc was not provisioned; empty means it was")
+	fork := fs.String("fork", "", "the foundry-dies record that declares this repository a fork of an upstream; empty is not a fork")
 	timeout := fs.Duration("timeout", DefaultTimeout, "each atom's deadline")
 	workers := fs.Int("workers", 0, "worker pool size; 0 is GOMAXPROCS")
 	if err := fs.Parse(args); err != nil {
@@ -57,6 +58,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, now func(
 	}
 	in := Collect(ctx, *root, *base, *origin, now())
 	in.Dies = *dies
+	in.Fork = *fork
 	in.Spire = *spire
 	in.WitnessDry = *witnessDry
 	in.Witness.URL = *witnessURL

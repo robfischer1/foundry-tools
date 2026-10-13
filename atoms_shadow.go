@@ -242,6 +242,13 @@ func (m *FoundryTools) atomsRun(ctx context.Context, stage, base string, voting 
 	}
 	ctr, narcFlags := r.withAtomNarc(ctx, ctr, stage)
 	flags = append(flags, narcFlags...)
+	// A FORK IS NAMED TO THE BINARY BY ITS RECORD (-fork), read here as the
+	// planner reads it: the binary has no door to foundry-dies for it. Fleet
+	// atoms that scan a fork differently (fleet:opengrep-sast) read it off
+	// Input.Fork; "" is not a fork.
+	if fork := r.forkRecord(ctx); fork != "" {
+		flags = append(flags, "-fork", fork)
+	}
 	// -timeout: the tool atoms scan, build and lint whole trees, which the
 	// default minute (sized for atoms that read a few files) does not allow.
 	// fleet:witness sizes its own deadline from the change (Atom.Deadline).

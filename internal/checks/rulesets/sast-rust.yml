@@ -1,0 +1,193 @@
+# Curated SAST ruleset for Forge RUST stars (#1471) - opengrep / semgrep.
+#
+# REPLACES A COPY OF THE PYTHON RULESET. Until 2026-08-18 this file was
+# python-repo-template's dataflow.yml verbatim - four rules declaring
+# `languages: [python]` shipped into repos that contain no python. opengrep
+# matched nothing, exited 0, and the gate printed Passed. Every Rust star in the
+# fleet had a security gate that had never examined a single file
+# (foundry-stocks#4415, found by session Maple13).
+#
+# cerberus was the worst shape: 29 .py and 37 .rs, so the scan was non-empty and
+# a careful reader saw a real file count while the whole Rust surface went
+# unexamined.
+#
+# RUST TAINT mode, by design. Scoped to data-FLOW issues - an untrusted SOURCE
+# reaching a dangerous SINK - which is the semantic layer above clippy's AST lint.
+# Non-overlapping with clippy by construction.
+#
+# Sources are external/untrusted inputs (HTTP request data, argv, stdin), NOT
+# std::env::var / config values, to avoid config-flow false positives. argv is a
+# source in three of the four rules and deliberately NOT in path-traversal - see
+# the note there; it is the file's one source-side correction. Vendored + pinned
+# (no registry / `auto`); that local, offline posture is why we run opengrep.
+# ASCII-only on purpose: opengrep reads rule files under the runner's C locale,
+# which chokes on non-ASCII punctuation.
+#
+# A NOTE ON RUST AND TAINT ANALYSIS, because it changes what to expect here.
+# Rust's web frameworks deliver untrusted data through EXTRACTORS resolved by
+# type inference - `Query(params): Query<Params>` in axum, `web::Query<T>` in
+# actix - not through a named accessor call the way `r.FormValue("x")` is in Go.
+# A syntactic taint engine cannot see a type-driven binding, so the source
+# patterns below catch the explicit accessor forms and stdin, and will MISS
+# idiomatic extractor-bound handlers. That is a real limit, stated rather than
+# papered over. The sinks are still worth having: they are where a finding
+# actually matters, and the source list grows as real flows surface.
+#
+# SEED set, and it has NOT fired on a real flow. With argv out of the path rule
+# the honest reading is that path-traversal now has NO reachable source on this
+# fleet - every Rust star here is a CLI or a daemon, none carries an explicit
+# accessor form, and the extractor blindness above covers the rest. That is a
+# placeholder, not a working control, and it is written down rather than left for
+# a reader to infer from a green. The opengrep hook refuses a ZERO-FILE scan
+# (foundry-stocks#4415); nothing yet refuses a scan with no reachable source -
+# foundry-stocks#4584. The one thing that IS true, and was not before, is that
+# these rules match Rust files at all.
+rules:
+  - id: forge-rust-taint-ssrf
+    mode: taint
+    languages: [rust]
+    severity: ERROR
+    message: >
+      Untrusted input flows into an outbound HTTP call (SSRF). An attacker could
+      coerce the request toward internal services or the cloud metadata endpoint.
+      Validate the URL host against an allowlist before the call.
+    metadata:
+      category: security
+      cwe: "CWE-918: Server-Side Request Forgery (SSRF)"
+    pattern-sources:
+      - pattern-either:
+          - pattern: std::env::args()
+          - pattern: env::args()
+          - pattern: $REQ.uri().query()
+          - pattern: $REQ.headers().get(...)
+          - pattern: $REQ.query_string()
+          - pattern: $STDIN.read_line(...)
+    pattern-sinks:
+      # focus-metavariable, NOT the bare call - same correction the go ruleset
+      # needed. Without it the sink is the whole call expression, so any method
+      # named get/post matches regardless of what flows into the URL argument.
+      - patterns:
+          - pattern-either:
+              - pattern: reqwest::get($URL)
+              - pattern: reqwest::blocking::get($URL)
+              - pattern: $CLIENT.get($URL)
+              - pattern: $CLIENT.post($URL)
+              - pattern: $CLIENT.request($M, $URL)
+          - focus-metavariable: $URL
+
+  - id: forge-rust-taint-sql-injection
+    mode: taint
+    languages: [rust]
+    severity: ERROR
+    message: >
+      Untrusted input flows into a SQL execution sink. Use bind parameters
+      (sqlx::query("... WHERE id = $1").bind(id)); never format! or push_str into
+      the query string. Note sqlx's compile-time-checked query! macros are safe by
+      construction - this fires on the runtime query() family.
+    metadata:
+      category: security
+      cwe: "CWE-89: SQL Injection"
+    pattern-sources:
+      - pattern-either:
+          - pattern: std::env::args()
+          - pattern: env::args()
+          - pattern: $REQ.uri().query()
+          - pattern: $REQ.headers().get(...)
+          - pattern: $REQ.query_string()
+          - pattern: $STDIN.read_line(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: sqlx::query($SQL, ...)
+              - pattern: sqlx::query_as($SQL, ...)
+              - pattern: sqlx::query_scalar($SQL, ...)
+              - pattern: sqlx::raw_sql($SQL)
+              - pattern: diesel::sql_query($SQL)
+          - focus-metavariable: $SQL
+
+  - id: forge-rust-taint-command-injection
+    mode: taint
+    languages: [rust]
+    severity: ERROR
+    message: >
+      Untrusted input flows into an OS command sink. Never build a shell string;
+      pass discrete .arg() values and validate against an allowlist. Passing
+      tainted data to Command::new (the program NAME) is worse than to .arg().
+    metadata:
+      category: security
+      cwe: "CWE-78: OS Command Injection"
+    pattern-sources:
+      - pattern-either:
+          - pattern: std::env::args()
+          - pattern: env::args()
+          - pattern: $REQ.uri().query()
+          - pattern: $REQ.headers().get(...)
+          - pattern: $REQ.query_string()
+          - pattern: $STDIN.read_line(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              # ONLY the program NAME, deliberately. `$CMD.arg(...)` was here and
+              # is removed: a bare metavariable receiver makes EVERY method named
+              # arg/args a command sink, and it fired on anvil's `fn main()` -
+              # `std::env::args().skip(1).collect()` passed to the crate's own CLI
+              # parser, with no Command in the file. That rule would have reddened
+              # essentially every Rust binary in the fleet the moment SAST was
+              # wired. A check that reports what it did not find is worse than no
+              # check - which is the whole reason this file is being rewritten.
+              - pattern: std::process::Command::new($NAME)
+              - pattern: Command::new($NAME)
+          - focus-metavariable: $NAME
+
+  - id: forge-rust-taint-path-traversal
+    mode: taint
+    languages: [rust]
+    severity: WARNING
+    message: >
+      Untrusted input flows into a filesystem path. An attacker could traverse
+      with '../' to read or write arbitrary files. Path::join does NOT confine a
+      path, and an absolute component REPLACES the base entirely. Canonicalize,
+      then verify the result still starts with the intended base directory.
+    metadata:
+      category: security
+      cwe: "CWE-22: Path Traversal"
+    pattern-sources:
+      # argv is NOT a source HERE, deliberately - the one source-side correction
+      # in this file, and the same species as the two sink-side ones below.
+      # Path traversal is a CONFUSED-DEPUTY bug: it needs an authority gap, where
+      # the process reaches files the input's supplier cannot, so `../` buys the
+      # supplier something. An HTTP client -> fs::read has that gap. argv does
+      # not - whoever sets argv already runs the process at its own privilege, so
+      # `bb2_replay /etc/passwd` is `cat` with extra steps.
+      # Measured 2026-08-19 across every Rust/Go/Python star (1213 files):
+      # argv-as-source fired TWICE fleet-wide and was wrong both times - cerberus
+      # examples/bb2_replay.rs:30 and vault-mcp benchmarks/benchmark_live.py:248,
+      # both dev-only CLI tooling reading the file it was handed. Zero true
+      # positives. It stays a source in the SSRF / SQLi / command-injection rules
+      # above - but NOT because it is clean there. Pointed at cerberus's 29 .py
+      # (a tree no lane scans, since star lanes are single-language) the python
+      # twin of command-injection fires 5/5 on the identical shape: argv ->
+      # subprocess in dev probe drivers. Same confused-deputy argument, same
+      # verdict. Left alone HERE only because it is a separate change on
+      # different evidence - foundry-stocks#4585, not this commit.
+      # foundry-stocks#4582.
+      - pattern-either:
+          - pattern: $REQ.uri().query()
+          - pattern: $REQ.uri().path()
+          - pattern: $REQ.query_string()
+          - pattern: $STDIN.read_line(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: std::fs::File::open($P)
+              - pattern: File::open($P)
+              - pattern: std::fs::read($P)
+              - pattern: std::fs::read_to_string($P)
+              - pattern: std::fs::write($P, ...)
+              - pattern: std::fs::remove_file($P)
+              - pattern: std::fs::remove_dir_all($P)
+              # `$PATH.join(...)` removed for the same reason as .arg() above:
+              # a bare receiver also matches Vec::join, str::join and
+              # JoinHandle::join. PathBuf::from stays - it is unambiguous.
+              - pattern: PathBuf::from($P)
+          - focus-metavariable: $P

@@ -103,6 +103,11 @@ type Input struct {
 	// Exec runs a program for the atoms whose tool is a program (opa, uv,
 	// orbitparse). Nil is the real thing (RunProgram).
 	Exec Exec
+	// Fork is the name of the foundry-dies record that declares this
+	// repository a fork of an upstream (kind vendored); "" for every repository
+	// the fleet authors, and for any doubt. The caller reads the record
+	// (forkRecord in package main) and passes it as -fork.
+	Fork string
 }
 
 // RunFunc answers one atom's verdict. The AtomDef is resolved by the registry

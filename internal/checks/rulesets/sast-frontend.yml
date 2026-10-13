@@ -1,0 +1,108 @@
+# Curated SAST ruleset for Forge front-end stars (#1471) - opengrep / semgrep.
+#
+# TypeScript/JavaScript TAINT mode, by design. Scoped to data-FLOW issues - an
+# untrusted SOURCE reaching a dangerous SINK - which is the semantic layer above
+# eslint's AST lint (the TS analogue of ruff `S` for the Python template).
+#
+# Sources are external/untrusted inputs (request bodies, search/route params,
+# headers, argv), NOT static config. ASCII-only on purpose: opengrep reads rule
+# files under the runner's C locale and chokes on non-ASCII punctuation.
+#
+# SEED set: the SCOPING (local, curated, taint-mode) is settled; the rule
+# *content* grows as real flows surface across the fleet. Runs INFORMATIONAL in
+# CI until tuned, then the workflow drops `continue-on-error`.
+rules:
+  - id: forge-ts-taint-ssrf
+    mode: taint
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >
+      Untrusted input flows into an outbound fetch/HTTP call (SSRF). An attacker
+      could coerce the request toward internal services. Validate the URL against
+      an allowlist before the call.
+    metadata:
+      category: security
+      cwe: "CWE-918: Server-Side Request Forgery (SSRF)"
+    pattern-sources:
+      - pattern-either:
+          - pattern: $X.searchParams.get(...)
+          - pattern: useSearchParams(...).get(...)
+          - pattern: (await $REQ.json())
+          - pattern: $REQ.headers.get(...)
+          - pattern: process.argv
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: fetch(...)
+              - pattern: axios(...)
+              - pattern: axios.$M(...)
+
+  - id: forge-ts-taint-code-injection
+    mode: taint
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >
+      Untrusted input flows into a dynamic code-execution sink (eval / Function).
+      Never evaluate request-derived data as code.
+    metadata:
+      category: security
+      cwe: "CWE-95: Eval Injection"
+    pattern-sources:
+      - pattern-either:
+          - pattern: $X.searchParams.get(...)
+          - pattern: useSearchParams(...).get(...)
+          - pattern: (await $REQ.json())
+          - pattern: $REQ.headers.get(...)
+          - pattern: process.argv
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: eval(...)
+              - pattern: new Function(...)
+              - pattern: Function(...)
+
+  - id: forge-ts-taint-open-redirect
+    mode: taint
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: >
+      Untrusted input flows into a redirect target (open redirect). Restrict
+      redirects to a same-origin allowlist of paths.
+    metadata:
+      category: security
+      cwe: "CWE-601: Open Redirect"
+    pattern-sources:
+      - pattern-either:
+          - pattern: $X.searchParams.get(...)
+          - pattern: useSearchParams(...).get(...)
+          - pattern: (await $REQ.json())
+          - pattern: $REQ.headers.get(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: redirect(...)
+              - pattern: NextResponse.redirect(...)
+              - pattern: $RES.redirect(...)
+
+  - id: forge-ts-taint-dom-xss
+    mode: taint
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >
+      Untrusted input flows into a DOM HTML sink (XSS). Render as text, or
+      sanitize (e.g. DOMPurify) before assigning HTML.
+    metadata:
+      category: security
+      cwe: "CWE-79: Cross-site Scripting (XSS)"
+    pattern-sources:
+      - pattern-either:
+          - pattern: $X.searchParams.get(...)
+          - pattern: useSearchParams(...).get(...)
+          - pattern: (await $REQ.json())
+          - pattern: $REQ.headers.get(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $EL.innerHTML = $SINK
+              - pattern: $EL.outerHTML = $SINK
+              - pattern: document.write(...)

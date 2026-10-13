@@ -37,14 +37,14 @@ func fleetOpengrepSast(ctx context.Context, a checks.AtomDef, in Input) checks.V
 		return cannotEnumerate(a, err)
 	}
 	if !checks.HasEntry(entries, "rules") {
-		return absentRuleset(t, a)
+		return noRulesSast(ctx, a, in)
 	}
 	rulesEntries, err := t.entries("rules")
 	if err != nil {
 		return cannotEnumerate(a, err)
 	}
 	if !checks.HasEntry(rulesEntries, "sast") {
-		return absentRuleset(t, a)
+		return noRulesSast(ctx, a, in)
 	}
 	out, code := in.run(ctx, Cmd{Dir: in.Root, Name: "opengrep", Args: []string{"scan", "--config", "rules/sast", "--error", "."}, Env: opengrepEnv, Both: true})
 	if code < 0 {
