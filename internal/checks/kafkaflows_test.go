@@ -92,6 +92,28 @@ func run(topic, group string) {
 }
 `},
 			[]string{"consume t g"}},
+		{"a constructor handed down as a function value and called in a goroutine (prometheus #337)",
+			map[string]string{"a/a.go": "package a\n" + kgoImport + `
+type runner interface{ Run() }
+func Main() { begin("session-turns", open) }
+func begin(topic string, open func(string) (runner, error)) { start(topic, open) }
+func start(topic string, o func(string) (runner, error)) {
+	go func() { r, _ := o(topic); r.Run() }()
+}
+func open(topic string) (runner, error) { return mk(topic) }
+func mk(topic string) (runner, error) {
+	kgo.NewClient(kgo.ConsumePartitions(map[string]map[int32]kgo.Offset{topic: nil}))
+	return nil, nil
+}
+`},
+			[]string{"consume session-turns "}},
+		{"a function value called through a parameter resolves the argument it is called with, not the outer one",
+			map[string]string{"a/a.go": "package a\n" + kgoImport + `
+func Main() { other("t", mk) }
+func other(topic string, f func(string)) { f("x") }
+func mk(topic string) { kgo.NewClient(kgo.ConsumeTopics(topic)) }
+`},
+			[]string{"consume x "}},
 		{"two fields of one struct literal pair",
 			map[string]string{"a/a.go": "package a\n" + kgoImport + `
 type L struct{ Topic, Group string }
