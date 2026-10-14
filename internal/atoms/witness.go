@@ -90,6 +90,7 @@ type witnessAsk struct {
 // identity difference and not a verdict difference.
 func (in Input) witnessAsker(ctx context.Context) witnessAsk {
 	inClear := func(why string) witnessAsk {
+		checks.WarnWitnessInTheClear(why)
 		return witnessAsk{ask: in.Witness.askInClear, say: func() string { return checks.WitnessInTheClear(why) }}
 	}
 	if in.Spire == "" {
@@ -118,6 +119,7 @@ func (in Input) witnessAsker(ctx context.Context) witnessAsk {
 			return 0, "", "", err
 		}
 		fell.Add(1)
+		checks.WarnWitnessInTheClear("the identified ask failed: " + err.Error())
 		return in.Witness.askInClear(ctx, body)
 	}
 	return witnessAsk{ask: ask, say: func() string { return checks.WitnessAskedAs(id, fell.Load(), asked.Load()) }}

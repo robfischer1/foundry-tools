@@ -3,6 +3,7 @@ package checks
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 )
@@ -54,4 +55,14 @@ func WitnessAskedAs(id string, fell, asked int64) string {
 // identity, and why. Never a finding: stars are in witness mode.
 func WitnessInTheClear(why string) string {
 	return "identity: none — asked " + WitnessURL + " in the clear: " + why
+}
+
+// WarnWitnessInTheClear logs, loudly, that fleet:witness is about to ask
+// narcissus on its plaintext port, and why. The fallback stays (it never
+// changes a verdict), but every ask that takes it files an `unidentified`
+// caller at narcissus, so each one must be visible in the pod log, not only
+// in the atom's output line. why is the reason the fallback was taken.
+func WarnWitnessInTheClear(why string) {
+	slog.Warn("fleet:witness asking narcissus in the clear: no identity",
+		"url", WitnessURL, "reason", why)
 }
