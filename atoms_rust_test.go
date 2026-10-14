@@ -1036,6 +1036,10 @@ func TestRustCargoTestRunsOnlyTheCratesAPullReaches(t *testing.T) {
 	scriptRustScope("crates/circuit/src/lib.rs\x00", "-p stellar-core-circuit\n-p stellar-core-conformance --test circuit_conformance --test compose\n")
 	wantState(t, runAtom(t, "rust:cargo-test", "abc123"), 0)
 
+	// The change set carries BOTH sides of a rename: a file moved out of a crate
+	// lists only the destination by default, and the source crate is never graded.
+	wantCalls(t, engine.chain(rustFilesNeedle, "stdout"),
+		[]string{"withExec", "expect:ANY", `args:["git","diff","--relative","--no-renames","--name-only","-z","since0","HEAD"]`})
 	// The script is asked about the crates the diff touched, for this verb.
 	wantCalls(t, engine.chain(scopeScriptNeedle, "stdout"),
 		[]string{"withExec", "expect:ANY", `args:["python3","tools/scope/scope.py","test","stellar-core-circuit"]`})
@@ -1057,6 +1061,22 @@ func TestRustCargoTestRunsOnlyTheCratesAPullReaches(t *testing.T) {
 	// A red in the second set is the verdict, and the first set's green does not hide it.
 	engine.exitCode(`"--test","circuit_conformance","--test","compose"]`, 101)
 	wantState(t, runAtom(t, "rust:cargo-test", "abc123"), 1)
+}
+
+// A script that prints a second line for clippy gets it linted, not dropped.
+func TestRustCargoClippyLintsEverySetTheScriptNames(t *testing.T) {
+	scriptRustScope("crates/circuit/src/lib.rs\x00", "-p stellar-core-circuit\n-p stellar-core-conformance\n")
+	wantState(t, runAtom(t, "rust:cargo-clippy", "abc123"), 0)
+	for _, probe := range []string{
+		`args:["cargo","clippy","-p","stellar-core-circuit","--all-targets"`,
+		`args:["cargo","clippy","-p","stellar-core-conformance","--all-targets"`,
+	} {
+		if engine.chain(probe, "exitCode") == "" {
+			t.Errorf("no %s:\n%v", probe, engine.chains())
+		}
+	}
+	engine.exitCode(`"-p","stellar-core-conformance","--all-targets"`, 101)
+	wantState(t, runAtom(t, "rust:cargo-clippy", "abc123"), 1)
 }
 
 func TestRustCargoClippyLintsOnlyTheCratesAPullReaches(t *testing.T) {

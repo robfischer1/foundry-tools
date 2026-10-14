@@ -146,16 +146,23 @@ func rustCargoClippy(ctx context.Context, r *run) checks.Verdict {
 	a := checks.AtomByID("rust:cargo-clippy")
 	// THE CRATES THE PULL CAN BREAK, when the repo says how to find them.
 	sets, scoped := r.rustScope(ctx, "clippy")
-	pkgs := []string{"--workspace"}
-	if scoped {
-		if len(sets) == 0 {
-			return checks.VerdictOf(a, 0, a.ID+": ABSENT - this pull changed nothing a crate compiles, so there is no crate to lint")
-		}
-		pkgs = sets[0]
+	sets = append([][]string(nil), sets...)
+	if !scoped {
+		sets = [][]string{{"--workspace"}}
+	} else if len(sets) == 0 {
+		return checks.VerdictOf(a, 0, a.ID+": ABSENT - this pull changed nothing a crate compiles, so there is no crate to lint")
 	}
-	argv := append([]string{"cargo", "clippy"}, pkgs...)
-	argv = append(argv, "--all-targets", "--", "-W", "clippy::all", "-D", "warnings")
-	return cargoVerdict(ctx, a, r.cargoFresh().WithExec(argv, anyExit))
+	// EVERY SET THE SCRIPT NAMED: a second line must not go unlinted.
+	var last checks.Verdict
+	for _, pkgs := range sets {
+		argv := append([]string{"cargo", "clippy"}, pkgs...)
+		argv = append(argv, "--all-targets", "--", "-W", "clippy::all", "-D", "warnings")
+		last = cargoVerdict(ctx, a, r.cargoFresh().WithExec(argv, anyExit))
+		if last.State != int(checks.StatePass) {
+			return last
+		}
+	}
+	return last
 }
 
 // rustScope is THE PER-CRATE SCOPE (checks.RustScope says why): the argument
@@ -183,7 +190,9 @@ func (r *run) rustScope(ctx context.Context, verb string) (sets [][]string, ok b
 	if err != nil || since == "" {
 		return nil, false
 	}
-	files, code, err := output(ctx, pre.WithExec([]string{"git", "diff", "--relative", "--name-only", "-z", since, "HEAD"}, anyExit))
+	// --no-renames: a file moved from crate A to crate B lists only B's path by
+	// default, and A, which lost it and may no longer compile, would go ungraded.
+	files, code, err := output(ctx, pre.WithExec([]string{"git", "diff", "--relative", "--no-renames", "--name-only", "-z", since, "HEAD"}, anyExit))
 	if err != nil || code != 0 {
 		return nil, false
 	}

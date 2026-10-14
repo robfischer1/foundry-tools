@@ -26,9 +26,14 @@ import (
 // RustScopeScript is the path whose presence in a tree is the repo's opt-in.
 const RustScopeScript = "tools/scope/scope.py"
 
-// rustInertFiles are the files at any depth whose change no cargo command can
-// feel: prose and repo furniture. A pull that changes only these (and files in
+// rustInert is the files at any depth whose change no cargo command can feel:
+// prose and repo furniture. A pull that changes only these (and files in
 // members) does not widen the scope to the whole workspace.
+//
+// THE ASSUMPTION: no Rust source include_str!s a root-owned .md. A member that
+// did (`#![doc = include_str!("../../X.md")]`) would make that file load-bearing
+// for the crate, and this list would call it inert; such a repo keeps the file
+// inside the crate that reads it, where the owner rule already counts it.
 func rustInert(file string) bool {
 	base := path.Base(file)
 	switch {
