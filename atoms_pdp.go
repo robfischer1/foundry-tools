@@ -36,9 +36,6 @@ func fleetPDPWired(ctx context.Context, r *run) checks.Verdict {
 	}
 	files := map[string]string{}
 	for _, p := range present {
-		if !checks.IsPDPWiredFile(p) {
-			continue
-		}
 		body, err := r.src.File(p).Contents(ctx)
 		if err != nil {
 			return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - %s would not read: %v", a.ID, p, err))

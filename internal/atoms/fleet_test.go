@@ -209,4 +209,8 @@ func TestPDPWired(t *testing.T) {
 	in = treeIn(t, map[string]string{"prime/star-a.yaml": wired})
 	in.FilesErr = os.ErrPermission
 	expect(t, runAtom(t, id, in), checks.StateCannotRun, cannot, "would not enumerate")
+	// A root that will not list is a tree not examined.
+	in = treeIn(t, map[string]string{"prime/star-a.yaml": wired})
+	in.Root = filepath.Join(in.Root, "gone")
+	expect(t, runAtom(t, id, in), checks.StateCannotRun, cannot, "would not enumerate")
 }

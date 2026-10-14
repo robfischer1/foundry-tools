@@ -95,3 +95,15 @@ func TestIsPDPWiredFile(t *testing.T) {
 		}
 	}
 }
+
+// Malformed env entries (a bare string, an entry with no name) are skipped,
+// not trusted and not fatal; the well-formed entries beside them still grade.
+func TestPDPWiredSkipsMalformedEnvEntries(t *testing.T) {
+	body := starManifest(`            - just-a-string
+            - {value: orphan}
+` + witness)
+	state, report := PDPWired(map[string]string{"prime/star-a.yaml": body})
+	if state != int(StateFindings) || !strings.Contains(report, "prime/star-a.yaml (container star)") {
+		t.Errorf("state %d, report %q", state, report)
+	}
+}
