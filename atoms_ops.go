@@ -54,6 +54,7 @@ func init() {
 	register("ops:declaration", opsDeclaration)
 	register("ops:specs", opsSpecs)
 	register("ops:metrics", opsMetrics)
+	register("ops:star-sa", opsStarSA)
 	register("ops:ansible", opsAnsible)
 	register("ops:flux", opsFlux)
 	register("ops:kube-linter", opsKubeLinter)
@@ -382,6 +383,25 @@ func opsMetrics(ctx context.Context, r *run) checks.Verdict {
 		res := opsSettled("metrics", rc, out)
 		if rc == 2 {
 			res = opsResult{state: 2, out: out + "\nmetrics: could not read a keep-list or a source — did not look"}
+		}
+		return res, err
+	}, nil)
+}
+
+// ops:star-sa — the star-SA admission policy's SA list is the ClusterSPIFFEID
+// CRs' SA list. flux's tools/star-sa-list regenerates the list from the CRs and
+// exits 1 when identity/star-sa-admission.yaml is stale; a stale list makes the
+// star-sa-guard VAP fail open. The tool grades itself: 2 is "could not read",
+// could-not-run whatever its words were.
+func opsStarSA(ctx context.Context, r *run) checks.Verdict {
+	return opsAtom(ctx, r, "ops:star-sa", func(ctx context.Context, ctr *dagger.Container, files []checks.OpsFile) (opsResult, error) {
+		if !checks.OpsHasTool(files, "star-sa-list", false) {
+			return opsResult{absent: "no tools/star-sa-list in this tree"}, nil
+		}
+		_, out, rc, err := opsRun(ctx, ctr, uvPython("star-sa-list"))
+		res := opsSettled("star-sa", rc, out)
+		if rc == 2 {
+			res = opsResult{state: 2, out: out + "\nstar-sa: could not read the ClusterSPIFFEID CRs or the policy — did not look"}
 		}
 		return res, err
 	}, nil)

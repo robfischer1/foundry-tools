@@ -8,7 +8,7 @@ import (
 	"dagger/foundry-tools/internal/checks"
 )
 
-var opsIDs = []string{"ops:shell", "ops:chezmoi", "ops:yaml", "ops:dup", "ops:declaration", "ops:specs", "ops:metrics", "ops:ansible", "ops:flux"}
+var opsIDs = []string{"ops:shell", "ops:chezmoi", "ops:yaml", "ops:dup", "ops:declaration", "ops:specs", "ops:metrics", "ops:star-sa", "ops:ansible", "ops:flux"}
 
 // A star is not an ops tree: every ops atom stands down ABSENT without a
 // container, whatever scripts and YAML the star happens to carry. The lane
@@ -200,7 +200,7 @@ func TestOpsYAML(t *testing.T) {
 // otherwise; dup-check must be tracked executable; console-specs' own 2 is
 // could-not-run.
 func TestOpsRepoTools(t *testing.T) {
-	tools := map[string]string{"flux/a.yaml": "", "tools/dup-check": "", "tools/declaration-integrity": "", "tools/console-specs": "", "tools/metric-allowlist": ""}
+	tools := map[string]string{"flux/a.yaml": "", "tools/dup-check": "", "tools/declaration-integrity": "", "tools/console-specs": "", "tools/metric-allowlist": "", "tools/star-sa-list": ""}
 	exec := map[string]string{"tools/dup-check": "100755"}
 	for _, c := range []struct {
 		id, needle string
@@ -210,6 +210,7 @@ func TestOpsRepoTools(t *testing.T) {
 		{"ops:declaration", `"tools/declaration-integrity"`, `args:["uv","run","--isolated","--no-project","--with","pyyaml","python","tools/declaration-integrity"]`},
 		{"ops:specs", `"tools/console-specs"`, `args:["uv","run","--isolated","--no-project","--with","pyyaml","python","tools/console-specs","--check"]`},
 		{"ops:metrics", `"tools/metric-allowlist"`, `args:["uv","run","--isolated","--no-project","--with","pyyaml","python","tools/metric-allowlist"]`},
+		{"ops:star-sa", `"tools/star-sa-list"`, `args:["uv","run","--isolated","--no-project","--with","pyyaml","python","tools/star-sa-list"]`},
 	} {
 		opsTree(tools, exec)
 		wantState(t, runAtom(t, c.id, ""), 0)
@@ -235,6 +236,11 @@ func TestOpsRepoTools(t *testing.T) {
 	engine.exitCode(`"tools/metric-allowlist"`, 2)
 	engine.stdout(`"tools/metric-allowlist"`, "could not read — no metricAllowlist")
 	wantState(t, runAtom(t, "ops:metrics", ""), 2, "could not read — no metricAllowlist", "metrics: could not read a keep-list or a source — did not look")
+
+	opsTree(tools, exec)
+	engine.exitCode(`"tools/star-sa-list"`, 2)
+	engine.stdout(`"tools/star-sa-list"`, "could not read identity/")
+	wantState(t, runAtom(t, "ops:star-sa", ""), 2, "could not read identity/", "star-sa: could not read the ClusterSPIFFEID CRs or the policy — did not look")
 
 	// The tool's own exec failing in the engine is could-not-run, not a pass.
 	opsTree(tools, exec)

@@ -257,6 +257,10 @@ func atomTable() []AtomDef {
 			Desc: "The repo's own tools/metric-allowlist (flux): every kube_*/container_* name a rule or dashboard reads is on a keep-list some job ingests, or it names which are not.",
 		},
 		{
+			ID: "ops:star-sa", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "The repo's own tools/star-sa-list (flux): the star-SA admission policy's generated SA list is the ClusterSPIFFEID CRs' SA list, or it names the drift (a stale list makes star-sa-guard fail open).",
+		},
+		{
 			ID: "ops:ansible", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every playbook under ansible/playbooks passes ansible-playbook --syntax-check and ansible-lint at profile min; the basic-profile count is reported, not gated.",
 		},

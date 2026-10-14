@@ -131,6 +131,7 @@ func TestEveryPythonAtomExecsAListedProgram(t *testing.T) {
 		{"ops:dup", map[string]string{"flux/x.yaml": "a: 1\n", "tools/dup-check": "x"}, false, nil},
 		{"ops:declaration", map[string]string{"flux/x.yaml": "a: 1\n", "tools/declaration-integrity": "x"}, false, nil},
 		{"ops:metrics", map[string]string{"flux/x.yaml": "a: 1\n", "tools/metric-allowlist": "x"}, false, nil},
+		{"ops:star-sa", map[string]string{"flux/x.yaml": "a: 1\n", "tools/star-sa-list": "x"}, false, nil},
 		{"ops:ansible", ansibleFiles(), false, nil},
 		{"template:render-matrix", templateFiles(matrixTOML), false, r.answer},
 	} {

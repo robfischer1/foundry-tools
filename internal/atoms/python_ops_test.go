@@ -42,6 +42,7 @@ func TestOpsPythonCheckers(t *testing.T) {
 		{"ops:dup", "dup-check", "python3", []string{"--blocking"}, true},
 		{"ops:declaration", "declaration-integrity", "python", nil, false},
 		{"ops:metrics", "metric-allowlist", "python", nil, false},
+		{"ops:star-sa", "star-sa-list", "python", nil, false},
 		{"ops:specs", "console-specs", "python", []string{"--check"}, false},
 	} {
 		t.Run(tc.id, func(t *testing.T) {
@@ -139,6 +140,12 @@ func TestOpsPythonCheckers(t *testing.T) {
 	t.Run("ops:metrics: the tool grades itself, and its 2 is a could-not-run whatever its words were", func(t *testing.T) {
 		in, _ := checkerTree(t, "metric-allowlist", 0o755, func(Cmd) (string, int) { return "could not read a source", 2 })
 		expect(t, runAtom(t, "ops:metrics", in), stateOf(2), cannot, "could not read a source", "metrics: could not read a keep-list or a source — did not look")
+	})
+	t.Run("ops:star-sa: a stale list is a finding, and the tool's 2 is a could-not-run", func(t *testing.T) {
+		in, _ := checkerTree(t, "star-sa-list", 0o755, func(Cmd) (string, int) { return "stale: star-sa-admission.yaml", 1 })
+		expect(t, runAtom(t, "ops:star-sa", in), stateOf(1), findings, "stale: star-sa-admission.yaml", "star-sa failed (rc=1) — findings")
+		in, _ = checkerTree(t, "star-sa-list", 0o755, func(Cmd) (string, int) { return "could not read identity/", 2 })
+		expect(t, runAtom(t, "ops:star-sa", in), stateOf(2), cannot, "could not read identity/", "star-sa: could not read the ClusterSPIFFEID CRs or the policy — did not look")
 	})
 	t.Run("ops:declaration has no exit-2 case: any other exit is a finding, as the chain settled it", func(t *testing.T) {
 		in, _ := checkerTree(t, "declaration-integrity", 0o755, func(Cmd) (string, int) { return "a payload is undeclared", 2 })

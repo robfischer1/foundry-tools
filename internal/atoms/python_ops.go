@@ -11,7 +11,7 @@ import (
 
 // THE OPS ATOMS THAT RUN THE TREE'S OWN CHECKER: ops:dup (infra's
 // tools/dup-check), ops:declaration (infra's tools/declaration-integrity) and
-// ops:metrics (flux's tools/metric-allowlist). They share the ops atoms' shape:
+// ops:metrics (flux's tools/metric-allowlist) and ops:star-sa (flux's tools/star-sa-list). They share the ops atoms' shape:
 // the ops surface first, the checker's presence second (ABSENT before python is
 // asked anything), the version probe third, the checker last.
 //
@@ -91,6 +91,17 @@ func opsMetrics(ctx context.Context, a checks.AtomDef, in Input) checks.Verdict 
 	return opsRunChecker(ctx, a, in, opsChecker{
 		phase: "metrics", tool: "metric-allowlist", python: "python",
 		two: "\nmetrics: could not read a keep-list or a source — did not look",
+	})
+}
+
+// opsStarSA: the star-SA admission policy's generated SA list is the
+// ClusterSPIFFEID CRs' SA list (flux's tools/star-sa-list, stdlib only). A stale
+// list makes the star-sa-guard VAP fail open. The tool grades itself: 1 is stale,
+// 2 is "could not read", could-not-run whatever its words were.
+func opsStarSA(ctx context.Context, a checks.AtomDef, in Input) checks.Verdict {
+	return opsRunChecker(ctx, a, in, opsChecker{
+		phase: "star-sa", tool: "star-sa-list", python: "python",
+		two: "\nstar-sa: could not read the ClusterSPIFFEID CRs or the policy — did not look",
 	})
 }
 
