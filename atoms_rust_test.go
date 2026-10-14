@@ -1123,6 +1123,16 @@ func TestRustScopeFallsBackToTheWholeWorkspaceInEveryDoubt(t *testing.T) {
 	engine.exitCode(scopeScriptNeedle, 1)
 	whole("script failed")
 
+	// the base is not in this history
+	scriptRustScope("crates/circuit/src/lib.rs\x00", "-p stellar-core-circuit\n")
+	engine.exitCode(rustBaseNeedle, 1)
+	whole("base not in history")
+
+	// cargo metadata would not run
+	scriptRustScope("crates/circuit/src/lib.rs\x00", "-p stellar-core-circuit\n")
+	engine.exitCode(rustMetaNeedle, 101)
+	whole("metadata failed")
+
 	// the diff would not list
 	scriptRustScope("crates/circuit/src/lib.rs\x00", "-p stellar-core-circuit\n")
 	engine.exitCode(rustFilesNeedle, 128)

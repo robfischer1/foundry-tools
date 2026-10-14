@@ -83,3 +83,16 @@ func TestRustScopeArgsKeepsEachLineAsAnArgumentSet(t *testing.T) {
 		t.Error("blank lines name no set")
 	}
 }
+
+func TestRustScopeEveryInertSpellingAndTheFileOutsideTheTree(t *testing.T) {
+	inert := []string{"LICENSE", "cosign.pub", "cliff.toml", "CHANGELOG.md", ".gitignore", ".editorconfig", "justfile", "stages.just", "dev.just", "hooks/pre-commit", ".claude/settings.json", ""}
+	got, whole, err := RustScope([]byte(scopeMeta), "/src", append([]string{"crates/circuit/src/lib.rs"}, inert...))
+	if err != nil || whole || !reflect.DeepEqual(got, []string{"stellar-core-circuit"}) {
+		t.Errorf("furniture changes no crate: got %v whole=%v err=%v", got, whole, err)
+	}
+	// A path that climbs out of the workspace belongs to nobody, and nobody's
+	// change is not one the scope can account for.
+	if _, whole, _ := RustScope([]byte(scopeMeta), "/src", []string{"../elsewhere/x.rs"}); !whole {
+		t.Error("a file outside every member is graded whole")
+	}
+}
