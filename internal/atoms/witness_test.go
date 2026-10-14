@@ -21,13 +21,16 @@ import (
 // narcissus is a stand-in for the witness's MCP port: it records every request
 // and answers per file, by the path the request names.
 type narcissus struct {
-	t      *testing.T
-	srv    *httptest.Server
-	mu     sync.Mutex
-	hits   map[string]int
-	bodies []string
-	live   atomic.Int64
-	peak   atomic.Int64
+	t   *testing.T
+	srv *httptest.Server
+	mu  sync.Mutex
+	// readyStatus is what GET /ready answers (0 is 200); readyHits counts the probes.
+	readyStatus atomic.Int64
+	readyHits   atomic.Int64
+	hits        map[string]int
+	bodies      []string
+	live        atomic.Int64
+	peak        atomic.Int64
 	// answer says what one ask of a file gets; n counts that file's asks from 1.
 	answer func(w http.ResponseWriter, path string, n int)
 }
@@ -36,6 +39,16 @@ func newNarcissus(t *testing.T, answer func(w http.ResponseWriter, path string, 
 	t.Helper()
 	n := &narcissus{t: t, hits: map[string]int{}, answer: answer}
 	n.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/ready" {
+			n.readyHits.Add(1)
+			status := int(n.readyStatus.Load())
+			if status == 0 {
+				status = http.StatusOK
+			}
+			w.WriteHeader(status)
+			_, _ = io.WriteString(w, `{"service":"narcissus","status":"starting","ready":false,"store":"waiting"}`)
+			return
+		}
 		raw, _ := io.ReadAll(r.Body)
 		var call struct {
 			Params struct {
@@ -109,6 +122,10 @@ func witnessIn(t *testing.T, n *narcissus, tree map[string]string, changed ...st
 	}}
 	if n != nil {
 		in.Witness.URL = n.srv.URL
+	} else {
+		// No stand-in: the default port is not reachable from here, so the
+		// witness reads ready by decree.
+		in.Witness.Probe = func(context.Context, string) (int, string, error) { return 200, "{}", nil }
 	}
 	return in, &pauses
 }
@@ -538,5 +555,42 @@ func TestWitnessDryIsOffByDefault(t *testing.T) {
 	}
 	if len(got) != 2 || got[0] || !got[1] {
 		t.Errorf("dry was %v for no flag and the flag; want false then true (the voter asks for real)", got)
+	}
+}
+
+// A witness that does not say ready is a could-not-run about the target: state
+// 2 (never a finding, never a pass), named so, and not one ask is sent. The
+// revert of narcissus's own tip must not wait on narcissus (foundry-tools#18242).
+func TestFleetWitnessCannotRunWhenTheWitnessIsNotReady(t *testing.T) {
+	n := newNarcissus(t, reply("standard"))
+	n.readyStatus.Store(http.StatusServiceUnavailable)
+	in, pauses := witnessIn(t, n, map[string]string{"a.go": "package a\nfunc A() {}\n"}, "a.go")
+	v := runAtom(t, "fleet:witness", in)
+	expect(t, v, stateOf(2), cannot, "CANNOT RUN - the witness (narcissus) is not ready: HTTP 503 (status=starting store=waiting)", "No file was asked")
+	if n.total() != 0 {
+		t.Errorf("a witness that was not ready was asked %d time(s)", n.total())
+	}
+	if got := n.readyHits.Load(); got != int64(checks.WitnessReadyAttempts) {
+		t.Errorf("probed %d time(s), want %d", got, checks.WitnessReadyAttempts)
+	}
+	if len(*pauses) != checks.WitnessReadyAttempts-1 {
+		t.Errorf("paused %v between probes", *pauses)
+	}
+}
+
+// A blip is not an outage: ready on the second probe, the asks go out.
+func TestFleetWitnessAsksOnceTheWitnessIsReadyAgain(t *testing.T) {
+	n := newNarcissus(t, reply("novel"))
+	n.readyStatus.Store(http.StatusServiceUnavailable)
+	in, _ := witnessIn(t, n, map[string]string{"a.go": "package a\nfunc A() {}\n"}, "a.go")
+	sleep := in.Witness.Sleep
+	in.Witness.Sleep = func(ctx context.Context, d time.Duration) error {
+		n.readyStatus.Store(http.StatusOK)
+		return sleep(ctx, d)
+	}
+	v := runAtom(t, "fleet:witness", in)
+	expect(t, v, stateOf(0), pass, "clean")
+	if n.total() != 1 {
+		t.Errorf("asked %d time(s), want 1", n.total())
 	}
 }
