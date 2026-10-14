@@ -57,6 +57,7 @@ func TestOpsPythonCheckers(t *testing.T) {
 			}{
 				{"a checker that holds is a pass", 0, "checked", 0, pass, []string{"checked"}},
 				{"a checker that finds something is a finding", 1, "a duplicate", 1, findings, []string{"a duplicate", phase + " failed (rc=1) — findings"}},
+				{"an uncaught exception (missing pyyaml) is a 2, not a finding", 1, "Traceback (most recent call last):\n  File \"x\", line 1, in <module>\nModuleNotFoundError: No module named 'yaml'\n", 2, cannot, []string{"ModuleNotFoundError: No module named 'yaml'", "crashed on an uncaught python exception"}},
 				{"a fault of the substrate is a 2, not a finding", 1, "connection refused", 2, cannot, []string{"failed on a fault of the substrate"}},
 				{"a python that would not start never ran", -1, "python: gone", 2, cannot, []string{"the atom never ran: python: gone"}},
 			} {

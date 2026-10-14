@@ -39,6 +39,44 @@ func OpsSettle(phase string, rc int, out string) (int, string) {
 	return 1, fmt.Sprintf("%s failed (rc=%d) — findings", phase, rc)
 }
 
+// pyTraceback is the header CPython prints, at the start of a line, when an
+// exception reaches the top of the program. pyExcLine is that report's last
+// line: `ModuleNotFoundError: No module named 'yaml'`, `KeyError: 'x'`.
+var (
+	pyTraceback = regexp.MustCompile(`(?m)^Traceback \(most recent call last\):$`)
+	pyExcLine   = regexp.MustCompile(`^[A-Za-z_][\w.]*(: .*)?$`)
+)
+
+// PythonCrash answers the exception line when a python checker's exit 1 is an
+// UNCAUGHT EXCEPTION and not the checker's own finding. CPython exits 1 on an
+// uncaught exception, the same code a checker uses for "I found something", so
+// a missing dependency (ImportError / ModuleNotFoundError) or any crash in the
+// checker would otherwise be graded a finding. The tell is the traceback: the
+// header at the start of a line AND the output ending on the exception line
+// that the interpreter prints last. A checker that quotes a traceback in its
+// own report and then prints more is still a finding.
+func PythonCrash(rc int, out string) (string, bool) {
+	if rc != 1 || !pyTraceback.MatchString(out) {
+		return "", false
+	}
+	lines := strings.Split(strings.TrimRight(out, " \t\r\n"), "\n")
+	last := strings.TrimRight(lines[len(lines)-1], " \t\r")
+	if !pyExcLine.MatchString(last) {
+		return "", false
+	}
+	return last, true
+}
+
+// OpsSettlePython is OpsSettle for a phase whose tool is a python script: an
+// uncaught exception is could-not-run (the checker did not look), whatever
+// exit code the interpreter chose.
+func OpsSettlePython(phase string, rc int, out string) (int, string) {
+	if exc, ok := PythonCrash(rc, out); ok {
+		return 2, fmt.Sprintf("%s crashed on an uncaught python exception (rc=%d): %s — did not look; a checker that cannot run is not a finding", phase, rc, exc)
+	}
+	return OpsSettle(phase, rc, out)
+}
+
 // OpsFile is one tracked file: its path and its git mode.
 type OpsFile struct {
 	Path string

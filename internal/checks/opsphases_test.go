@@ -19,6 +19,31 @@ func TestOpsSettle(t *testing.T) {
 	}
 }
 
+func TestOpsSettlePythonCrash(t *testing.T) {
+	missing := "Traceback (most recent call last):\n  File \"tools/star-sa-list\", line 3, in <module>\n    import yaml\nModuleNotFoundError: No module named 'yaml'\n"
+	keyErr := "Traceback (most recent call last):\n  File \"x\", line 9, in <module>\nKeyError: 'metricAllowlist'"
+	for _, c := range []struct {
+		name  string
+		rc    int
+		out   string
+		state int
+		needs string
+	}{
+		{"missing dependency", 1, missing, 2, "ModuleNotFoundError: No module named 'yaml'"},
+		{"any uncaught exception", 1, keyErr, 2, "KeyError: 'metricAllowlist'"},
+		{"a finding without a traceback", 1, "drifted: x", 1, "findings"},
+		{"a traceback quoted inside a report is still a finding", 1, missing + "\n2 problems found\n", 1, "findings"},
+		{"a traceback in the middle of a line is not a crash", 1, "log: Traceback (most recent call last):\nValueError: x", 1, "findings"},
+		{"exit 2 is the tool's own", 2, missing, 1, "findings"},
+		{"a pass", 0, missing, 0, ""},
+	} {
+		state, line := OpsSettlePython("metrics", c.rc, c.out)
+		if state != c.state || !strings.Contains(line, c.needs) {
+			t.Errorf("%s: (%d, %q), want state %d containing %q", c.name, state, line, c.state, c.needs)
+		}
+	}
+}
+
 func TestOpsTracked(t *testing.T) {
 	ls := "100644 " + strings.Repeat("a", 40) + " 0\tflux/a b.yaml\x00100755 " + strings.Repeat("b", 40) + " 0\ttools/dup-check\x00garbage\x00"
 	files := OpsTracked(ls)

@@ -72,3 +72,13 @@ func opsSettled(phase string, rc int, out string) (int, string) {
 	}
 	return state, out
 }
+
+// opsSettledPython is opsSettled for a python checker: an uncaught exception
+// (a missing dependency, a crash) is could-not-run, not a finding.
+func opsSettledPython(phase string, rc int, out string) (int, string) {
+	state, line := checks.OpsSettlePython(phase, rc, out)
+	if line != "" {
+		out += "\n" + line
+	}
+	return state, out
+}
