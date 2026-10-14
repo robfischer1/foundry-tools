@@ -108,8 +108,8 @@ func TestDevTestEndsOnTheToolsOwnExit(t *testing.T) {
 	settledWith(t, "2")
 }
 
-// A pass answers the summary, not the log; --verbose answers the log.
-func TestDevTestPassAnswersTheSummaryUnlessVerbose(t *testing.T) {
+// A pass answers the summary, not the log; --full answers the log.
+func TestDevTestPassAnswersTheSummaryUnlessFull(t *testing.T) {
 	d := devOver(t, devGoTree, "", "")
 	log := "{\"level\":\"ERROR\",\"msg\":\"deliberate\"}\nok  \texample.com/dev\t0.1s\n"
 	engine.stdout(`"go","test"`, log)
@@ -118,7 +118,7 @@ func TestDevTestPassAnswersTheSummaryUnlessVerbose(t *testing.T) {
 		t.Fatalf("a pass answers the summary: %q, %v", out, err)
 	}
 	if out, err = d.Test(t.Context(), nil, true, false, true); err != nil || out != log {
-		t.Fatalf("verbose answers the log: %q, %v", out, err)
+		t.Fatalf("full answers the log: %q, %v", out, err)
 	}
 }
 

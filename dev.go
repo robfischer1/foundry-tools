@@ -117,8 +117,11 @@ func (d *Dev) Build(ctx context.Context,
 // -race=false in args turns the detector off). Rust: cargo test (--workspace by
 // default; `-p crate name` narrows). A pass answers a summary (go: the ok / ?
 // package lines; cargo: the Running and test result lines and a total), because
-// a suite that tests its failure paths logs errors that are not failures; --verbose
-// answers the whole log. A failing test answers the whole output then the summary,
+// a suite that tests its failure paths logs errors that are not failures; --full
+// answers the whole log. (Not --verbose: the dagger CLI owns that flag globally, and
+// a function argument of the same name makes every `dagger call dev test --args=..`
+// fail with "flag already exists: verbose", stellar-core-go#18107.) A failing test
+// answers the whole output then the summary,
 // and makes the call exit non-zero.
 //
 // +cache="never"
@@ -135,9 +138,9 @@ func (d *Dev) Test(ctx context.Context,
 	// Answer the tool's whole output on a pass, not the summary. A failure
 	// always answers everything.
 	// +optional
-	verbose bool,
+	full bool,
 ) (string, error) {
-	return d.text(ctx, "test", args, race, fresh, verbose)
+	return d.text(ctx, "test", args, race, fresh, full)
 }
 
 // Vet runs go vet (Go only).
@@ -254,7 +257,7 @@ func (d *Dev) Update(ctx context.Context,
 }
 
 // text runs a verb whose product is the tool's output.
-func (d *Dev) text(ctx context.Context, verb string, args []string, race, fresh, verbose bool) (string, error) {
+func (d *Dev) text(ctx context.Context, verb string, args []string, race, fresh, full bool) (string, error) {
 	res, err := d.ran(ctx, verb, args, race, fresh)
 	if err != nil {
 		return "", err
@@ -262,7 +265,7 @@ func (d *Dev) text(ctx context.Context, verb string, args []string, race, fresh,
 	if res.code != 0 {
 		return "", res.settle(ctx, res.reason(verb))
 	}
-	if verb == "test" && !verbose {
+	if verb == "test" && !full {
 		return devlane.TestReport(d.Lang, res.stdout, res.stderr, res.code, false), nil
 	}
 	return res.stdout + res.stderr, nil
