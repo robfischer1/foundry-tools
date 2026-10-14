@@ -130,7 +130,7 @@ func TestDiesOpaClientIsPinnedFetchedAndProbed(t *testing.T) {
 	engine.stdout(`"opa","test"`, "PASS: 12/12\n")
 	wantState(t, runAtom(t, "dies:opa-test", ""), 0)
 
-	c := engine.chain(`"opa","test","policy/","-v"`, "exitCode")
+	c := engine.chain(`"opa","test","policy/","-v","--timeout","120s"`, "exitCode")
 	if !strings.Contains(c, checks.ImageFleet) {
 		t.Errorf("the dies lane runs in the fleet image:\n%s", c)
 	}
@@ -138,7 +138,7 @@ func TestDiesOpaClientIsPinnedFetchedAndProbed(t *testing.T) {
 		[]string{"withFile", `path:"/usr/local/bin/opa"`, "permissions:493"},
 		[]string{"withMountedDirectory", `path:"/src"`},
 		[]string{"withWorkdir", `path:"/src"`},
-		[]string{"withExec", "expect:ANY", `args:["opa","test","policy/","-v"]`},
+		[]string{"withExec", "expect:ANY", `args:["opa","test","policy/","-v","--timeout","120s"]`},
 	)
 	if strings.Contains(c, "GATE_BASE") {
 		t.Errorf("dies:opa-test must not read GATE_BASE:\n%s", c)
@@ -1465,7 +1465,7 @@ func TestDiesOpaTestRunsTheFleetDerivationWhereTheTreeCarriesIt(t *testing.T) {
 	withOpa()
 	engine.stdout(`"opa","test"`, "PASS: 12/12\n")
 	wantState(t, runAtom(t, "dies:opa-test", ""), 0)
-	if engine.chain(`args:["opa","test","policy/","fleet/derive.rego","tests/fleet-derive/","-v"]`) == "" {
+	if engine.chain(`args:["opa","test","policy/","fleet/derive.rego","tests/fleet-derive/","-v","--timeout","120s"]`) == "" {
 		t.Errorf("the derivation was not tested:\n%v", engine.chains())
 	}
 
