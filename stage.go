@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -59,6 +60,11 @@ type StageResult struct {
 	// milliseconds (atoms_cpu.go); nil when the binary did not run or did not
 	// say.
 	stageCPU *int64
+	// startedAt and finishedAt are the stage's own wall clock, UTC, stamped
+	// only for a RIDER (ride.go): it shares its gate's Job, so the Job's clock
+	// is the gate's and says nothing of the rider's. Zero for every other
+	// stage, whose Job IS its clock. Unexported for the reason gradings is.
+	startedAt, finishedAt time.Time
 }
 
 // AtomResult is one atom's line in a stage.
@@ -147,6 +153,11 @@ type recordStage struct {
 	// the CPU no atom is answerable for is the difference from the atoms' sum.
 	// Absent when the binary did not run in this stage.
 	StageCPUMs *int64 `json:"stage_cpu_ms,omitempty"`
+	// StartedAt and FinishedAt are the stage's own start and end, RFC 3339
+	// UTC, present only on a rider's record (ride.go). Daedalus settles the
+	// rider's start and duration from them; absent, from the Job's.
+	StartedAt  string `json:"started_at,omitempty"`
+	FinishedAt string `json:"finished_at,omitempty"`
 }
 
 // wire is the stage in the shape Record marshals.
@@ -163,7 +174,16 @@ func (s *StageResult) wire() recordStage {
 		return out
 	}
 	return recordStage{Stage: s.Stage, State: s.State, Lanes: s.Lanes, Atoms: atoms(s.Atoms),
-		Omitted: atoms(s.Omitted), Unreached: s.Unreached, Log: s.Log, StageCPUMs: s.stageCPU}
+		Omitted: atoms(s.Omitted), Unreached: s.Unreached, Log: s.Log, StageCPUMs: s.stageCPU,
+		StartedAt: stamp(s.startedAt), FinishedAt: stamp(s.finishedAt)}
+}
+
+// stamp is an instant as the record spells it, "" for the zero time.
+func stamp(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339Nano)
 }
 
 // Finding is one of an atom's findings on the module's PUBLIC surface.

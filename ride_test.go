@@ -175,6 +175,58 @@ func TestOrbitRidesUnderItsOwnToken(t *testing.T) {
 	}
 }
 
+// THE RIDER'S RECORD CARRIES ITS OWN STAGE'S WALL CLOCK, start to end of the
+// stage, so the door settles its duration from that and not from the gate Job's
+// (which it shares). The gate's record and file carry no such stamp: they are
+// byte-identical to the ride-less run (TestOrbitRidesUnderItsOwnToken).
+func TestARiderRecordCarriesItsOwnElapsed(t *testing.T) {
+	wantPosts, _, _ := baseline(t)
+
+	// Each stamp the rider takes is 90s after the last: its stage is 90s long.
+	var mu sync.Mutex
+	at := time.Date(2026, 10, 13, 12, 4, 10, 0, time.UTC)
+	prev := rideNow
+	rideNow = func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		now := at
+		at = at.Add(90 * time.Second)
+		return now
+	}
+	t.Cleanup(func() { rideNow = prev })
+
+	m := gateOn(t, cleanVector)
+	door := rideDoor(t, m)
+	rideLines(t)
+	gateVector = gradeBy(func() (string, error) { return cleanVector, nil })
+	gateFileRun(t, m, "orbit", dag.SetSecret("ride-token", "orbit-tok"))
+
+	posts := door.all()
+	if len(posts) != 2 {
+		t.Fatalf("want 2 posts, got %+v", posts)
+	}
+	if posts[0] != wantPosts[0] {
+		t.Errorf("the gate's post moved: %+v", posts[0])
+	}
+	var gate, rider recordStage
+	for body, into := range map[string]*recordStage{posts[0].body: &gate, posts[1].body: &rider} {
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(body, "ourea-run-record/1 ")), into); err != nil {
+			t.Fatalf("not a record: %v", err)
+		}
+	}
+	if gate.StartedAt != "" || gate.FinishedAt != "" {
+		t.Errorf("the gate's record carries a stage clock: %q..%q", gate.StartedAt, gate.FinishedAt)
+	}
+	start, err1 := time.Parse(time.RFC3339Nano, rider.StartedAt)
+	end, err2 := time.Parse(time.RFC3339Nano, rider.FinishedAt)
+	if err1 != nil || err2 != nil {
+		t.Fatalf("the rider's stamps do not parse: %q %q", rider.StartedAt, rider.FinishedAt)
+	}
+	if end.Sub(start) != 90*time.Second || start.Format(time.RFC3339) != "2026-10-13T12:04:10Z" {
+		t.Errorf("rider stage = %s..%s, want its own 90s", rider.StartedAt, rider.FinishedAt)
+	}
+}
+
 // A RIDER THAT CANNOT RUN POSTS COULD-NOT-RUN — an error and a panic alike —
 // and the gate is unaffected.
 func TestARiderThatCannotRunPostsStateTwo(t *testing.T) {
