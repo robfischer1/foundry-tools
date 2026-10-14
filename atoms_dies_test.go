@@ -1201,6 +1201,16 @@ func TestDiesGrantsStampBaseMissingFromHistory(t *testing.T) {
 	}
 }
 
+// A base check the engine could not run is a could-not-run, never a pass.
+func TestDiesGrantsStampBaseCheckNeverRan(t *testing.T) {
+	gsTree()
+	engine.fail(gsBaseNeedle, "engine gone")
+	wantState(t, runAtom(t, "dies:grants-stamp", "base-sha"), 2, "CANNOT RUN", "never ran")
+	if strings.Contains(engine.chain(gsChecker, "exitCode"), gsChecker) {
+		t.Errorf("the checker ran with no base resolved")
+	}
+}
+
 // No checker is a COULD-NOT-RUN naming it.
 func TestDiesGrantsStampCannotRunWithoutAChecker(t *testing.T) {
 	engine.reset()
