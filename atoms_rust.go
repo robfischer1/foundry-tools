@@ -420,7 +420,13 @@ func rustMutation(ctx context.Context, r *run) checks.Verdict {
 	// EVERY WORKSPACE MEMBER THE PULL TOUCHED, each passed as -p
 	// (checks.RustTouchedMembers). A metadata read that fails is could-not-run,
 	// never a run over the root package alone.
-	files, code, err := output(ctx, ctr.WithExec(append([]string{"git", "diff", "--relative", "--name-only", "-z", "--diff-filter=d", since, "HEAD"}, specs...), anyExit))
+	//
+	// --no-renames, and no --diff-filter=d: a file moved from crate A to crate
+	// B lists only B's path under default rename detection, and A, which lost it
+	// and may no longer compile, would go unmutated. Without renames the move is
+	// a deletion in A plus an addition in B, and the deletion must stay listed
+	// so A is named (RustTouchedMembers maps by path; the file need not exist).
+	files, code, err := output(ctx, ctr.WithExec(append([]string{"git", "diff", "--relative", "--no-renames", "--name-only", "-z", since, "HEAD"}, specs...), anyExit))
 	if err != nil {
 		return neverRan(err)
 	}

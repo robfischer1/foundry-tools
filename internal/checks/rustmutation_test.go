@@ -55,6 +55,10 @@ func TestRustTouchedMembersNamesTheDeepestOwner(t *testing.T) {
 		{"a non-member's file", rustWorkspace, []string{"vendor/dep/src/lib.rs"}, "x"},
 		// A prefix of a directory name is not the directory.
 		{"a sibling that shares a prefix", rustWorkspace, []string{"tools/generate.rs"}, "x"},
+		// A file moved from gen to x lists as a deletion in gen and an addition in
+		// x under --no-renames; gen lost the file and must be named too. Under
+		// default rename detection only x's path appears (foundry-tools#18013).
+		{"a file moved between crates", rustWorkspace, []string{"tools/gen/src/moved.rs", "src/moved.rs"}, "gen x"},
 		{"a file no member holds", rustWorkspace, []string{"../elsewhere.rs"}, ""},
 		{"one package", `{"packages":[{"name":"x","id":"x","manifest_path":"/src/Cargo.toml"}],"workspace_members":["x"]}`,
 			[]string{"src/lib.rs"}, ""},
