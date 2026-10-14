@@ -149,7 +149,7 @@ func TestADerivingTreeTestsTheDerivation(t *testing.T) {
 	said := sayings(t, func() { bundles(t, m) })
 	settledOn(t, "0", "published and signed")
 
-	if engine.chain(`"opa","test","policy/","fleet/derive.rego","tests/fleet-derive/","-v"`) == "" {
+	if engine.chain(`"opa","test","policy/","fleet/derive.rego","tests/fleet-derive/","-v","--timeout","120s"`) == "" {
 		t.Error("the policy re-gate did not test the derivation")
 	}
 	if engine.chain(`"opa","eval","-b","/work/fleet-bundle.tar.gz","--format","raw","data"`) == "" {
@@ -166,7 +166,7 @@ func TestATreeWithoutTheDerivationRunsThePolicySuiteAlone(t *testing.T) {
 	scriptAGreenBundle()
 	bundles(t, m)
 	settledOn(t, "0", "published and signed")
-	if engine.chain(`"opa","test","policy/","-v"`) == "" {
+	if engine.chain(`"opa","test","policy/","-v","--timeout","120s"`) == "" {
 		t.Error("the policy suite did not run as before")
 	}
 }

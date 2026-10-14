@@ -63,7 +63,7 @@ func TestDiesOpaTest(t *testing.T) {
 			in, f := toolTree(t, dieTree(nil), tc.script.answer)
 			expect(t, runAtom(t, id, in), stateOf(tc.state), tc.result, tc.needles...)
 			last := f.calls[len(f.calls)-1]
-			if tc.ranTest != (flagged(last) == "test policy/ -v") || last.Dir != in.Root {
+			if tc.ranTest != (flagged(last) == "test policy/ -v --timeout 120s") || last.Dir != in.Root {
 				t.Errorf("the last call was %q in %q; the suite should have run: %v", flagged(last), last.Dir, tc.ranTest)
 			}
 		})

@@ -55,8 +55,15 @@ func OpaTestArgs(derive bool) []string {
 	if derive {
 		args = append(args, FleetDerive, FleetDeriveTests)
 	}
-	return append(args, "-v")
+	// --timeout: opa's per-test default is 5s and the heavy visibility grids
+	// sit on it (test_f10_live_tier_touches_only_default_sessions ERRORed at
+	// 5.004s on foundry-dies b18e3a0, 1/753, then passed on retry). A loaded
+	// builder must not turn a slow-but-correct test into a red lane.
+	return append(args, "-v", "--timeout", OpaTestTimeout)
 }
+
+// OpaTestTimeout is the per-test budget handed to `opa test --timeout`.
+const OpaTestTimeout = "120s"
 
 var opaPassRE = regexp.MustCompile(`^PASS: ([0-9]+)/[0-9]+$`)
 
