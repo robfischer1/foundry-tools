@@ -308,7 +308,19 @@ func componentKey(c any) string {
 // base-images settles were BYTE-IDENTICAL, which a ladder comparing
 // consecutive could-not-run outputs can see and a classifier reading one
 // output never can. That belongs in ourea's ladder, not here.
-var fault = regexp.MustCompile(`(?i)connection refused|connection reset|connection timed out|operation timed out|i/o timeout|no such host|temporary failure in name resolution|dns error|server misbehaving|TLS handshake timeout|response status code 5\d\d|500 Internal Server Error|502 Bad Gateway|503 Service Unavailable|504 Gateway|failed to load container from converted ID|unexpected EOF|too many requests|429 Too Many Requests|toomanyrequests|context deadline exceeded|failed to do request|unexpected media type [^[:space:]]+ for sha256:[0-9a-f]{64}: not found`)
+//
+// AN HTTP/2 STREAM RESET IS A FAULT TOO. MEASURED 2026-10-14, aletheia 62534c2
+// (build-aletheia-62534c2-54lq6): `go install honnef.co/go/tools/cmd/staticcheck`
+// died verifying a module against sum.golang.org — `reading
+// https://sum.golang.org/tile/8/0/x269/387: stream error: INTERNAL_ERROR` — and
+// the build settled FINDINGS ("running again changes nothing") on a tree that had
+// built green on its PR head. The settled tip then refused every re-ask
+// (already_settled) and the only way to roll the star was a no-op commit. Go's
+// net/http writes the reset as `stream error: stream ID N; INTERNAL_ERROR` (the ID
+// clause absent in some wrappers); a reset the peer sent is the network's, never a
+// verdict on the tree, and settling it could-not-run puts it on the door's
+// bounded ladder (three reruns, an hour's cooldown, a ceiling of nine).
+var fault = regexp.MustCompile(`(?i)stream error: (?:stream ID \d+; )?(?:INTERNAL_ERROR|CANCEL|REFUSED_STREAM)|connection refused|connection reset|connection timed out|operation timed out|i/o timeout|no such host|temporary failure in name resolution|dns error|server misbehaving|TLS handshake timeout|response status code 5\d\d|500 Internal Server Error|502 Bad Gateway|503 Service Unavailable|504 Gateway|failed to load container from converted ID|unexpected EOF|too many requests|429 Too Many Requests|toomanyrequests|context deadline exceeded|failed to do request|unexpected media type [^[:space:]]+ for sha256:[0-9a-f]{64}: not found`)
 
 // contended is a SHARED TOOLCHAIN CACHE being written by two lanes at once.
 // It is neither a network fault nor a tool refusing its arguments, so it gets

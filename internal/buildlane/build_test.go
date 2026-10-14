@@ -386,6 +386,8 @@ func TestAFaultIsTransientAndANotFoundIsNot(t *testing.T) {
 		{"the registry is rate limiting", "toomanyrequests: retry later"},
 		{"a wrapper whose CAUSE is transient", "failed to resolve source metadata for registry.notusmi.com/foundry/base-images/go:stable: dial tcp: connection refused"},
 		{"a blob upload's 502", "unexpected status from PUT request to https://registry/v2/x/blobs/uploads/y: 502 Bad Gateway"},
+		{"go's sum database fetch resets the stream (aletheia 62534c2)", "verifying module: golang.org/x/tools@v0.30.0: reading https://sum.golang.org/tile/8/0/x269/387: stream error: INTERNAL_ERROR"},
+		{"net/http writes the stream ID before the code", "reading https://sum.golang.org/latest: stream error: stream ID 17; INTERNAL_ERROR; received from peer"},
 		{"a reaped blob, which the producing build re-pushes", "unexpected media type application/x for sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc: not found"},
 	} {
 		if v, why := Failed("build", c.out); v != CouldNotRun || !strings.Contains(why, "network fault") {
