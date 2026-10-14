@@ -220,3 +220,41 @@ func retiredVerbs(_ context.Context, a checks.AtomDef, in Input) checks.Verdict 
 	}
 	return checks.VerdictOf(a, int(checks.StateFindings), retiredverbs.Report(a.ID, hits, ledger))
 }
+
+// pdpWired: every container in the flux tree's prime/star-*.yaml that arms the
+// policy PEP also sets its decision URL. A tree with no prime/ is not the flux
+// tree (ABSENT); a prime/ with no star manifest is NOT absence - the manifests
+// moved, and "0 files, 0 findings" is the zero-file scan.
+func pdpWired(_ context.Context, a checks.AtomDef, in Input) checks.Verdict {
+	t := in.tree()
+	entries, err := t.entries(".")
+	if err != nil {
+		return cannotEnumerate(a, err)
+	}
+	if !checks.HasEntry(entries, checks.PDPWiredDir) {
+		return checks.VerdictOf(a, int(checks.StatePass), string(a.ID)+
+			": ABSENT - this tree carries no "+checks.PDPWiredDir+"/, so it is not the fleet's flux tree and holds no star manifest")
+	}
+	if in.FilesErr != nil {
+		return cannotEnumerate(a, in.FilesErr)
+	}
+	files := map[string]string{}
+	for _, p := range in.Files {
+		if !checks.IsPDPWiredFile(p) {
+			continue
+		}
+		body, err := t.read(p)
+		if err != nil {
+			return checks.VerdictOf(a, int(checks.StateCannotRun), fmt.Sprintf(
+				"%s: CANNOT RUN - %s would not read: %v", a.ID, p, err))
+		}
+		files[p] = body
+	}
+	if len(files) == 0 {
+		return checks.VerdictOf(a, int(checks.StateCannotRun), string(a.ID)+
+			": CANNOT RUN - this is the fleet's flux tree ("+checks.PDPWiredDir+"/ is here) and holds no "+
+			checks.PDPWiredDir+"/"+checks.PDPWiredPrefix+"*"+checks.PDPWiredSuffix+": the star manifests moved, and this atom grades nothing until PDPWiredDir says where")
+	}
+	state, report := checks.PDPWired(files)
+	return checks.VerdictOf(a, state, report)
+}

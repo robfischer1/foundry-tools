@@ -1611,3 +1611,54 @@ func TestFleetNodeKindsDeclaredNamesUnreadSourcesOnlyOnAPass(t *testing.T) {
 	fakeDoor(t, serveSchema)
 	wantReport(t, runAtom(t, "fleet:node-kinds-declared", ""), 0, "all declared", "NOT JUDGED", "src/client/_client.py")
 }
+
+// ---- fleet:pdp-wired ----
+
+const pdpArmed = "kind: Deployment\nspec:\n  template:\n    spec:\n      containers:\n        - name: s\n          env:\n            - {name: STELLAR_PEP_MODE, value: witness}\n"
+
+func TestFleetPDPWiredIsAbsentOutsideTheFluxTree(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	wantState(t, runAtom(t, "fleet:pdp-wired", ""), 0, "ABSENT", "not the fleet's flux tree")
+	fleetNoContainer(t, "pdp-wired reads the tree")
+}
+
+func TestFleetPDPWiredGreenAndRed(t *testing.T) {
+	engine.reset()
+	engine.withTree(fleetTree(map[string]string{
+		"prime/star-a.yaml": pdpArmed + "            - {name: STELLAR_PDP_URL, value: \"http://opa/v1\"}\n",
+	}))
+	wantReport(t, runAtom(t, "fleet:pdp-wired", ""), 0, "all 1 container(s) that arm the PEP")
+
+	engine.reset()
+	engine.withTree(fleetTree(map[string]string{
+		"prime/star-a.yaml":      pdpArmed + "            - {name: STELLAR_PDP_URL, value: \"http://opa/v1\"}\n",
+		"prime/star-themis.yaml": pdpArmed,
+	}))
+	wantState(t, runAtom(t, "fleet:pdp-wired", ""), 1, "prime/star-themis.yaml (container s)", "1 of 2 container(s)")
+}
+
+func TestFleetPDPWiredNeverRunsOnAMovedOrUnreadableTree(t *testing.T) {
+	engine.reset()
+	engine.withTree(fleetTree(map[string]string{"prime/ourea-config.yaml": "x"}))
+	wantState(t, runAtom(t, "fleet:pdp-wired", ""), 2, "star manifests moved")
+
+	engine.reset()
+	engine.withTree(fleetTree(map[string]string{"prime/star-a.yaml": pdpArmed}))
+	engine.failLeaf(`"prime/star-a.yaml"`, "contents", "the manifest would not read")
+	wantState(t, runAtom(t, "fleet:pdp-wired", ""), 2, "CANNOT RUN - prime/star-a.yaml would not read")
+
+	engine.reset()
+	engine.withTree(fleetTree(map[string]string{"prime/star-a.yaml": pdpArmed}))
+	engine.fail(`glob(pattern:"prime/star-*.yaml")`, "the tree went away")
+	wantState(t, runAtom(t, "fleet:pdp-wired", ""), 2, "the tree would not enumerate")
+}
+
+func TestFleetPDPWiredCheckEntryPoint(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	out, err := (&Fleet{Source: dag.Directory()}).PdpWired(context.Background())
+	if err != nil || !strings.Contains(out, "ABSENT") {
+		t.Fatalf("got %q, %v; want the ABSENT answer", out, err)
+	}
+}

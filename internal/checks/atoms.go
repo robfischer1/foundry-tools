@@ -177,6 +177,10 @@ func atomTable() []AtomDef {
 			Desc: "flux's committed redpanda/wit is current with redpanda/schemas - a topic schema changed, added or removed without regenerating, or a hand edit of aiws-topics.wit, fails (stellar-core F2).",
 		},
 		{
+			ID: "fleet:pdp-wired", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "Every container in flux's prime/star-*.yaml that arms the stellar-core-go policy PEP (STELLAR_PEP_MODE not off) also sets STELLAR_PDP_URL - unset, the PEP consults nothing and, in witness mode, refuses nothing.",
+		},
+		{
 			ID: "fleet:renovate-config", Stage: StagePrecommit, Lane: LaneAny, Image: ImageRenovate,
 			Desc: "A root config.js that is a Renovate global config passes renovate-config-validator --strict, run from the Renovate image the fleet deploys.",
 		},
