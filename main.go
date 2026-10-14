@@ -503,8 +503,22 @@ func askedTwice(ctx context.Context, r *run, fn atomFn) checks.Verdict {
 	// lane exec afresh, so it looks again. MEASURED on the gate receipts
 	// 2026-09-09 -> 17: 759 could-not-run rows against 1,362 findings.
 	return reasked(v, func() checks.Verdict {
-		return fn(ctx, newRun(r.src, r.repo, r.base).fromOrigin(r.origin).reasked(strconv.FormatInt(time.Now().UnixNano(), 10)))
+		return fn(ctx, r.askedAgain(strconv.FormatInt(time.Now().UnixNano(), 10)))
 	})
+}
+
+// askedAgain is the run a could-not-run is asked again on: a fresh run over the
+// same tree, keyed afresh, that keeps the lane's SPIRE socket and nothing else
+// (the reuse lookup, its audit and the artifact credentials stay dropped, as
+// they always were). THE SOCKET IS IDENTITY, NOT STATE: fleet:witness settles 2
+// when narcissus answers store_unavailable, and a re-ask built from newRun alone
+// had no socket, so it asked narcissus's plaintext port and was filed
+// `unidentified` -- measured 2026-10-14, on gate-stellar-core-go and
+// gate-narcissus pods whose first (identified) ask drew store_unavailable.
+func (r *run) askedAgain(nonce string) *run {
+	again := newRun(r.src, r.repo, r.base).fromOrigin(r.origin).reasked(nonce)
+	again.spire = r.spire
+	return again
 }
 
 // reasked settles a could-not-run's second ask: the second answer is the one
