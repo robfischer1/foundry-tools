@@ -452,3 +452,80 @@ func TestDiesCheckers(t *testing.T) {
 		expect(t, runAtom(t, "dies:findings", in), stateOf(2), cannot, "schema/findings.schema.json is absent, so there is no schema to validate")
 	})
 }
+
+// dies:grants-stamp hands the tree's checker the pull's MERGE BASE, not main's tip,
+// so a pull that never touched the rendered documents is not refused because main
+// rendered after it branched. The checker's four refusals (tx not risen,
+// contracts_tx lowered, split tx, wrong rendered_from) are graded where it lives,
+// foundry-dies tests/grants_stamp; this holds the seam: the argv, the base, and the
+// exit passed through.
+func TestDiesGrantsStamp(t *testing.T) {
+	const id, checker = "dies:grants-stamp", "tools/check_grants_stamp.py"
+	files := dieTree(map[string]string{checker: "# checker", "policy/grants/data.json": "{}"})
+	// repo commits files, then a branch point B, a pull commit C on main and a
+	// later main commit D on side; the run is at C with main's tip D as the base.
+	repo := func(t *testing.T) (in Input, f *toolFake, branchPoint, tip string) {
+		in, f = pyTree(t, files, func(Cmd) (string, int) { return "checked ok", 0 })
+		t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+		t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+		gitIn(t, in.Root, "init", "-q", "-b", "main")
+		gitIn(t, in.Root, "config", "user.email", "t@example.invalid")
+		gitIn(t, in.Root, "config", "user.name", "t")
+		gitIn(t, in.Root, "config", "commit.gpgsign", "false")
+		branchPoint = commitAll(t, in.Root, "branch point")
+		gitIn(t, in.Root, "checkout", "-q", "-b", "side")
+		put(t, in.Root, "policy/grants/data.json", `{"tx": 12}`)
+		tip = commitAll(t, in.Root, "main renders again")
+		gitIn(t, in.Root, "checkout", "-q", "main")
+		put(t, in.Root, "README.md", "the pull")
+		commitAll(t, in.Root, "the pull")
+		return in, f, branchPoint, tip
+	}
+
+	t.Run("a base is judged at the merge base, not at the tip", func(t *testing.T) {
+		in, f, branchPoint, tip := repo(t)
+		in.Base = tip
+		expect(t, runAtom(t, id, in), stateOf(0), pass, "checked ok")
+		wantPython(t, f.lastCall(t), in.Root, checker, "--base", branchPoint)
+	})
+	t.Run("no base still runs the tree half", func(t *testing.T) {
+		in, f, _, _ := repo(t)
+		expect(t, runAtom(t, id, in), stateOf(0), pass, "checked ok")
+		wantPython(t, f.lastCall(t), in.Root, checker)
+	})
+	t.Run("the checker's exit is the verdict, unmapped", func(t *testing.T) {
+		for code, c := range map[int]struct {
+			state  int
+			result string
+		}{1: {1, findings}, 2: {2, cannot}} {
+			in, _, _, tip := repo(t)
+			in.Base = tip
+			in.Exec = (&toolFake{t: t, answer: func(cmd Cmd) (string, int) {
+				if cmd.Name == "python3" && len(cmd.Args) == 1 {
+					return "Python 3.14.0", 0
+				}
+				return "refused: themis grants render is the only writer", code
+			}}).exec
+			expect(t, runAtom(t, id, in), stateOf(c.state), c.result, "themis grants render is the only writer")
+		}
+	})
+	t.Run("a base the history does not reach never compared", func(t *testing.T) {
+		in, f, _, _ := repo(t)
+		in.Base = strings.Repeat("a", 40)
+		expect(t, runAtom(t, id, in), stateOf(2), cannot, "CANNOT RUN - the base "+in.Base+" is not in this history")
+		if len(f.calls) != 0 {
+			t.Errorf("python ran: %v", f.ran())
+		}
+	})
+	t.Run("the checker missing is a could-not-run naming it", func(t *testing.T) {
+		in, f := pyTree(t, dieTree(nil), nil)
+		expect(t, runAtom(t, id, in), stateOf(2), cannot, checker+" is absent, so there is no checker to run")
+		if len(f.calls) != 0 {
+			t.Errorf("python ran: %v", f.ran())
+		}
+	})
+	t.Run("off the die's source it is absent", func(t *testing.T) {
+		in, _ := pyTree(t, map[string]string{checker: "x"}, nil)
+		expect(t, runAtom(t, id, in), stateOf(0), absent, "not the policy die's source")
+	})
+}

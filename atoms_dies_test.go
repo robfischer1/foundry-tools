@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"reflect"
@@ -23,7 +24,7 @@ var diesAtoms = []string{
 	"dies:opa-test", "dies:admission-dogfood", "dies:data-keys",
 	"dies:canary-visibility", "dies:contracts", "dies:schema", "dies:findings",
 	"dies:schemas", "dies:wit-regenerated", "dies:schema-rendered", "dies:canonical",
-	"dies:wire-grammar", "dies:resource-referents",
+	"dies:wire-grammar", "dies:resource-referents", "dies:grants-stamp",
 }
 
 // diesBuiltAContainer reports whether anything pulled an image. Named for this
@@ -1130,6 +1131,91 @@ func TestDiesResourceReferentsCannotRunWithoutAChecker(t *testing.T) {
 	engine.withTree(diesTree(map[string]string{}, "tools/check_resource_referents.py"))
 	wantState(t, runAtom(t, "dies:resource-referents", ""), 2,
 		"tools/check_resource_referents.py is absent")
+}
+
+// ---- dies:grants-stamp ----
+
+const (
+	gsChecker    = "tools/check_grants_stamp.py"
+	gsBaseNeedle = `"rev-parse","--verify","--quiet","base-sha^{commit}"`
+	gsMergeBase  = `"git","merge-base","base-sha","HEAD"`
+)
+
+func gsTree() {
+	engine.reset()
+	engine.withTree(diesTree(map[string]string{gsChecker: ""}))
+	engine.stdout(gsMergeBase, sinceSha+"\n")
+}
+
+// WITH A BASE the tree's checker is handed the pull's MERGE BASE (changeBase), not
+// the base the door named: main's tip would refuse a pull that never touched the
+// documents because main rendered after it branched. WITHOUT ONE the tree half
+// still runs, and no git is asked.
+func TestDiesGrantsStampComparesAgainstTheMergeBase(t *testing.T) {
+	gsTree()
+	wantState(t, runAtom(t, "dies:grants-stamp", "base-sha"), 0)
+	c := engine.chain(gsChecker, "exitCode")
+	wantCalls(t, c,
+		[]string{"withExec", `args:["uv","--version"]`},
+		[]string{"withExec", "expect:ANY", `"python3","tools/check_grants_stamp.py","--base","` + sinceSha + `"`},
+	)
+	if strings.Contains(c, `"--base","base-sha"`) {
+		t.Errorf("the checker was handed the door's base, not the merge base:\n%s", c)
+	}
+
+	gsTree()
+	wantState(t, runAtom(t, "dies:grants-stamp", ""), 0)
+	c = engine.chain(gsChecker, "exitCode")
+	if strings.Contains(c, "--base") || strings.Contains(c, "merge-base") {
+		t.Errorf("a run with no base compared against one:\n%s", c)
+	}
+}
+
+// 0 holds, 1 refused, 2 could not run: the ladder is the verdict.
+func TestDiesGrantsStampPassesTheExitCodeStraightThrough(t *testing.T) {
+	for code, want := range map[int]int{0: 0, 1: 1, 2: 2} {
+		gsTree()
+		engine.exitCode(`"python3","tools/check_grants_stamp.py"`, code)
+		wantState(t, runAtom(t, "dies:grants-stamp", "base-sha"), want)
+	}
+}
+
+// A base the history does not reach, on the tree the door fetched, is a
+// could-not-run: a comparison nobody made is not one that passed. A local
+// snapshot has no history to reach it and keeps the tree half.
+func TestDiesGrantsStampBaseMissingFromHistory(t *testing.T) {
+	gsTree()
+	engine.exitCode(gsBaseNeedle, 1)
+	v := newRun(dag.Directory(), "http://door:8215/star.git", "base-sha")
+	wantState(t, registry["dies:grants-stamp"](context.Background(), v), 2,
+		"CANNOT RUN - the base base-sha is not in this history")
+	if strings.Contains(engine.chain(gsChecker, "exitCode"), gsChecker) {
+		t.Errorf("the checker ran with no base to compare")
+	}
+
+	gsTree()
+	engine.exitCode(gsBaseNeedle, 1)
+	wantState(t, runAtom(t, "dies:grants-stamp", "base-sha"), 0)
+	if strings.Contains(engine.chain(gsChecker, "exitCode"), "--base") {
+		t.Errorf("a local snapshot compared against a base it cannot reach")
+	}
+}
+
+// A base check the engine could not run is a could-not-run, never a pass.
+func TestDiesGrantsStampBaseCheckNeverRan(t *testing.T) {
+	gsTree()
+	engine.fail(gsBaseNeedle, "engine gone")
+	wantState(t, runAtom(t, "dies:grants-stamp", "base-sha"), 2, "CANNOT RUN", "never ran")
+	if strings.Contains(engine.chain(gsChecker, "exitCode"), gsChecker) {
+		t.Errorf("the checker ran with no base resolved")
+	}
+}
+
+// No checker is a COULD-NOT-RUN naming it.
+func TestDiesGrantsStampCannotRunWithoutAChecker(t *testing.T) {
+	engine.reset()
+	engine.withTree(diesTree(map[string]string{}, gsChecker))
+	wantState(t, runAtom(t, "dies:grants-stamp", ""), 2, gsChecker+" is absent")
 }
 
 // ---- dies:refusal-codes ----
