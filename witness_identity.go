@@ -68,6 +68,7 @@ type witnessAsk struct {
 // witnessAsker answers how this run asks narcissus.
 func (r *run) witnessAsker(ctx context.Context) witnessAsk {
 	inClear := func(why string) witnessAsk {
+		checks.WarnWitnessInTheClear(why)
 		return witnessAsk{ask: askWitness, say: func() string { return checks.WitnessInTheClear(why) }}
 	}
 	if r.spire == nil {
@@ -96,6 +97,7 @@ func (r *run) witnessAsker(ctx context.Context) witnessAsk {
 			return 0, "", "", err
 		}
 		fell.Add(1)
+		checks.WarnWitnessInTheClear("the identified ask failed: " + err.Error())
 		return askWitness(ctx, body)
 	}
 	say := func() string { return checks.WitnessAskedAs(id, fell.Load(), asked.Load()) }
