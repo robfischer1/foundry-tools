@@ -1008,3 +1008,125 @@ func TestCargoFetchSweepsStaleLocksFirstAndLocksNothing(t *testing.T) {
 		t.Errorf("the cargo home must not be LOCKED:\n%s", c)
 	}
 }
+
+// THE PER-CRATE SCOPE (checks.RustScope, run.rustScope): a repo that carries
+// tools/scope/scope.py is graded on the crates a pull reaches, and on the whole
+// workspace in every doubt.
+const (
+	scopeScriptNeedle = `"python3","tools/scope/scope.py"`
+	scopeWorkspace    = `{"workspace_members":["root","circ","conf"],"packages":[
+	 {"name":"stellar-core","id":"root","manifest_path":"/src/Cargo.toml"},
+	 {"name":"stellar-core-circuit","id":"circ","manifest_path":"/src/crates/circuit/Cargo.toml"},
+	 {"name":"stellar-core-conformance","id":"conf","manifest_path":"/src/crates/conformance/Cargo.toml"}]}`
+)
+
+// scriptRustScope answers a pull of `files` on a scoping repo (the script is
+// in the tree) whose script names `sets` for the verb.
+func scriptRustScope(files, scriptOut string) {
+	engine.reset()
+	engine.withTree(rustTSTree(map[string]string{"tools/scope/scope.py": "#!/usr/bin/env python3\n"}))
+	engine.stdout(mergeBaseNeedle, sinceSha+"\n")
+	engine.stdout(rustFilesNeedle, files)
+	engine.stdout(rustMetaNeedle, scopeWorkspace)
+	engine.stdout(scopeScriptNeedle, scriptOut)
+	engine.stdout(`"--list"`, "a::b: test\n")
+}
+
+func TestRustCargoTestRunsOnlyTheCratesAPullReaches(t *testing.T) {
+	scriptRustScope("crates/circuit/src/lib.rs\x00", "-p stellar-core-circuit\n-p stellar-core-conformance --test circuit_conformance --test compose\n")
+	wantState(t, runAtom(t, "rust:cargo-test", "abc123"), 0)
+
+	// The script is asked about the crates the diff touched, for this verb.
+	wantCalls(t, engine.chain(scopeScriptNeedle, "stdout"),
+		[]string{"withExec", "expect:ANY", `args:["python3","tools/scope/scope.py","test","stellar-core-circuit"]`})
+	// One list and one run per argument set, and no --workspace anywhere.
+	for _, probe := range []string{
+		`args:["cargo","test","-p","stellar-core-circuit","--","--list"]`,
+		`args:["cargo","test","-p","stellar-core-conformance","--test","circuit_conformance","--test","compose","--","--list"]`,
+		`args:["cargo","test","-p","stellar-core-circuit"]`,
+		`args:["cargo","test","-p","stellar-core-conformance","--test","circuit_conformance","--test","compose"]`,
+	} {
+		if engine.chain(probe, "exitCode") == "" {
+			t.Errorf("no %s:\n%v", probe, engine.chains())
+		}
+	}
+	if engine.chain(`"cargo","test","--workspace"`, "exitCode") != "" {
+		t.Errorf("a scoped pull must not run the whole workspace:\n%v", engine.chains())
+	}
+
+	// A red in the second set is the verdict, and the first set's green does not hide it.
+	engine.exitCode(`"--test","circuit_conformance","--test","compose"]`, 101)
+	wantState(t, runAtom(t, "rust:cargo-test", "abc123"), 1)
+}
+
+func TestRustCargoClippyLintsOnlyTheCratesAPullReaches(t *testing.T) {
+	scriptRustScope("crates/circuit/src/lib.rs\x00", "-p stellar-core-circuit -p stellar-core-conformance\n")
+	wantState(t, runAtom(t, "rust:cargo-clippy", "abc123"), 0)
+	wantCalls(t, engine.chain(`"cargo","clippy"`, "exitCode"),
+		[]string{"withExec", "expect:ANY",
+			`args:["cargo","clippy","-p","stellar-core-circuit","-p","stellar-core-conformance","--all-targets","--","-W","clippy::all","-D","warnings"]`})
+	if engine.chain(`"cargo","clippy","--workspace"`, "exitCode") != "" {
+		t.Errorf("a scoped pull must not lint the whole workspace")
+	}
+}
+
+func TestRustScopeFallsBackToTheWholeWorkspaceInEveryDoubt(t *testing.T) {
+	whole := func(name string) {
+		t.Helper()
+		for atom, probe := range map[string]string{
+			"rust:cargo-clippy": `args:["cargo","clippy","--workspace","--all-targets","--"`,
+			"rust:cargo-test":   `args:["cargo","test","--workspace"]`,
+		} {
+			wantState(t, runAtom(t, atom, "abc123"), 0)
+			if engine.chain(probe, "exitCode") == "" {
+				t.Errorf("%s, %s: want the whole workspace:\n%v", name, atom, engine.chains())
+			}
+		}
+	}
+
+	// a file in the root package (the lock), beside a crate file
+	scriptRustScope("crates/circuit/src/lib.rs\x00Cargo.lock\x00", "-p stellar-core-circuit\n")
+	whole("root file")
+
+	// the repo did not opt in: no script in the tree
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.stdout(mergeBaseNeedle, sinceSha+"\n")
+	engine.stdout(rustFilesNeedle, "crates/circuit/src/lib.rs\x00")
+	engine.stdout(`"--list"`, "a::b: test\n")
+	whole("no script")
+
+	// the script would not run, or answered nothing
+	scriptRustScope("crates/circuit/src/lib.rs\x00", "")
+	whole("script answered nothing")
+	scriptRustScope("crates/circuit/src/lib.rs\x00", "boom\n")
+	engine.exitCode(scopeScriptNeedle, 1)
+	whole("script failed")
+
+	// the diff would not list
+	scriptRustScope("crates/circuit/src/lib.rs\x00", "-p stellar-core-circuit\n")
+	engine.exitCode(rustFilesNeedle, 128)
+	whole("diff failed")
+
+	// no base: a local snapshot has no history to measure from
+	scriptRustScope("crates/circuit/src/lib.rs\x00", "-p stellar-core-circuit\n")
+	for _, atom := range []string{"rust:cargo-clippy", "rust:cargo-test"} {
+		wantState(t, runAtom(t, atom, ""), 0)
+	}
+	if engine.chain(scopeScriptNeedle, "stdout") != "" {
+		t.Errorf("with no base nothing is asked of the scope script")
+	}
+}
+
+func TestRustScopeAPullThatTouchedNoCrateHasNothingToGrade(t *testing.T) {
+	scriptRustScope("README.md\x00CLAUDE-INIT.md\x00", "-p never\n")
+	for _, atom := range []string{"rust:cargo-clippy", "rust:cargo-test"} {
+		wantState(t, runAtom(t, atom, "abc123"), 0, "nothing")
+	}
+	if c := engine.chain(`"cargo","test"`, "exitCode"); c != "" {
+		t.Errorf("a prose-only pull runs no cargo test:\n%s", c)
+	}
+	if c := engine.chain(`"--all-targets"`, "exitCode"); c != "" {
+		t.Errorf("a prose-only pull runs no cargo clippy:\n%s", c)
+	}
+}

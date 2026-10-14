@@ -100,7 +100,7 @@ dagger call -m git.notusmi.com/rob/foundry-tools@<sha> --source=. verdicts
 
 **`python:`** (`pyproject.toml`) — `ruff-check` · `ruff-format` · `forge-testkit-assertion-free` · `forge-testkit-fake-placement` · `forge-testkit-schema-budget` · `mypy` · `pytest` (commit) · `pip-audit` (push)
 
-**`rust:`** (`Cargo.toml`) — `cargo-fmt` · `cargo-clippy` · `cargo-test` (commit) · `cargo-audit` (push)
+**`rust:`** (`Cargo.toml`) — `cargo-fmt` · `cargo-clippy` · `cargo-test` (commit) · `cargo-audit` (push). A workspace that carries `tools/scope/scope.py` opts into per-crate scoping: `cargo-clippy` and `cargo-test` grade the crates the pull's diff reaches (the script names them and the tests that belong to them) instead of `--workspace`, and the whole workspace whenever a file in the root package changes or anything is in doubt. `wit-guest`'s native lib tests run `--workspace`, because a world's tests live in its crate.
 
 **`ts:`** (`package.json`) — `bun-gate` (commit) · `bun-audit` (push) · `visual` (the visual lane, its own Job: `gate-file --stage=visual` runs every Playwright screenshot suite a root `visual.toml` declares, in the ts image, against the committed baselines; a red run pushes its diffs and the baselines it would accept to `registry.notusmi.com/foundry/visual/<star>:<sha>`)
 

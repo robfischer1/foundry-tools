@@ -212,9 +212,18 @@ func rustWitGuest(ctx context.Context, r *run) checks.Verdict {
 // take no world feature and rust:cargo-test already runs them once; without
 // --lib every world re-ran the whole suite and wit-guest reached 26m40s (gate
 // run 737, deadline hit in run 775, main b5f9a63, 2026-10-12).
+//
+// --workspace, BECAUSE A WORLD'S TESTS LIVE IN ITS CRATE. stellar-core-rust was
+// one package whose `--lib` held every world's round-trip tests; split per core
+// (F26a), the root package is a facade with no test of its own, and
+// `--lib` alone would pass running none of the 1,042 the combined run listed.
+// The root's wit-guest-<world> features forward to the member crates' own, so
+// one `--workspace --features` run still turns every world on; a member that
+// defines no such feature is simply not asked for it. A single-package repo is
+// its own workspace and reads the flag as it always read the bare form.
 func witTestArgv(features string) []string {
 	return []string{
-		"cargo", "test", "--locked", "--lib", "--no-default-features", "--features", features,
+		"cargo", "test", "--locked", "--workspace", "--lib", "--no-default-features", "--features", features,
 		"--target-dir", checks.WitGuestTestTargetDir,
 	}
 }
