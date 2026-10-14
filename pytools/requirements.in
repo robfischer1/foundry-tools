@@ -12,7 +12,7 @@
 #     --python-platform x86_64-manylinux_2_28 -o requirements.txt
 #
 # WHO NEEDS WHAT
-#   pyyaml          ops:declaration, ops:metrics, ops:star-sa (infra's and flux's own tools)
+#   pyyaml          ops:declaration, ops:metrics (infra's and flux's own tools)
 #   tomli           the dies checkers' `--with tomli>=2.0` (3.14 has tomllib; kept so the set is the chains')
 #   jsonschema      dies:schema, dies:findings, dies:schemas
 #   ansible-core    ops:ansible (ansible-playbook --syntax-check)
