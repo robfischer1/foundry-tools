@@ -143,11 +143,80 @@ func rustCargoFmt(ctx context.Context, r *run) checks.Verdict {
 // leaves tests, benches and examples ungraded, which is a partial scan
 // reporting a clean one.
 func rustCargoClippy(ctx context.Context, r *run) checks.Verdict {
-	return cargoVerdict(ctx, checks.AtomByID("rust:cargo-clippy"),
-		r.cargoFresh().WithExec([]string{
-			"cargo", "clippy", "--workspace", "--all-targets", "--",
-			"-W", "clippy::all", "-D", "warnings",
-		}, anyExit))
+	a := checks.AtomByID("rust:cargo-clippy")
+	// THE CRATES THE PULL CAN BREAK, when the repo says how to find them.
+	sets, scoped := r.rustScope(ctx, "clippy")
+	sets = append([][]string(nil), sets...)
+	if !scoped {
+		sets = [][]string{{"--workspace"}}
+	} else if len(sets) == 0 {
+		return checks.VerdictOf(a, 0, a.ID+": ABSENT - this pull changed nothing a crate compiles, so there is no crate to lint")
+	}
+	// EVERY SET THE SCRIPT NAMED: a second line must not go unlinted.
+	var last checks.Verdict
+	for _, pkgs := range sets {
+		argv := append([]string{"cargo", "clippy"}, pkgs...)
+		argv = append(argv, "--all-targets", "--", "-W", "clippy::all", "-D", "warnings")
+		last = cargoVerdict(ctx, a, r.cargoFresh().WithExec(argv, anyExit))
+		if last.State != int(checks.StatePass) {
+			return last
+		}
+	}
+	return last
+}
+
+// rustScope is THE PER-CRATE SCOPE (checks.RustScope says why): the argument
+// sets, one per cargo run, that grade the crates this pull reaches instead of
+// `--workspace`, as the repo's own tools/scope/scope.py names them for verb
+// ("test" or "clippy"). ok is false for the whole workspace, and EVERY doubt is
+// false: a tree without the script (the repo did not opt in), no base, a base
+// the history does not reach, a diff or metadata or script that would not run,
+// a file in the root package. ok with no sets is a pull that touched nothing a
+// crate can feel.
+//
+// WHY THE GATE ASKS THE REPO. Which conformance tests belong to which crate is
+// a naming convention of the repo, and the script that knows it is under test
+// there (tools/scope/test_scope.py); a second copy of that rule in Go would
+// drift from it.
+func (r *run) rustScope(ctx context.Context, verb string) (sets [][]string, ok bool) {
+	if r.base == "" {
+		return nil, false
+	}
+	if has, err := present(ctx, r, checks.RustScopeScript); err != nil || !has {
+		return nil, false
+	}
+	pre := r.gitReady(ctx, r.withBase(r.lane(checks.ImageRust)))
+	since, err := r.changeBase(ctx, pre)
+	if err != nil || since == "" {
+		return nil, false
+	}
+	// --no-renames: a file moved from crate A to crate B lists only B's path by
+	// default, and A, which lost it and may no longer compile, would go ungraded.
+	files, code, err := output(ctx, pre.WithExec([]string{"git", "diff", "--relative", "--no-renames", "--name-only", "-z", since, "HEAD"}, anyExit))
+	if err != nil || code != 0 {
+		return nil, false
+	}
+	meta, code, err := output(ctx, pre.WithExec([]string{"cargo", "metadata", "--no-deps", "--format-version", "1"}, anyExit))
+	if err != nil || code != 0 {
+		return nil, false
+	}
+	crates, whole, err := checks.RustScope([]byte(meta), "/src", strings.Split(files, "\x00"))
+	if err != nil || whole {
+		return nil, false
+	}
+	if len(crates) == 0 {
+		return nil, true
+	}
+	argv := append([]string{"python3", checks.RustScopeScript, verb}, crates...)
+	out, code, err := output(ctx, pre.WithExec(argv, anyExit))
+	if err != nil || code != 0 {
+		return nil, false
+	}
+	sets = checks.RustScopeArgs(out)
+	if len(sets) == 0 {
+		return nil, false
+	}
+	return sets, true
 }
 
 // cargo test --workspace passes, and there is something for it to pass.
@@ -186,18 +255,41 @@ func rustCargoTest(ctx context.Context, r *run) checks.Verdict {
 	// for a linked worktree and would discard it.
 	lane := r.withLockedCargoTarget(stampFresh(r.gitReady(ctx, r.cargoDeps())))
 
-	listed, code, err := output(ctx, lane.WithExec(
-		[]string{"cargo", "test", "--workspace", "--", "--list"}, anyExit))
-	if err != nil {
-		return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
+	// ONE ARGUMENT SET PER CARGO RUN. The whole workspace is one; a repo that
+	// scopes per crate (rustScope) names the crates the pull reaches and, for a
+	// tests-only suite crate, the test files that belong to them, which are
+	// separate runs because cargo cannot select both in one.
+	sets := [][]string{{"--workspace"}}
+	if scoped, ok := r.rustScope(ctx, "test"); ok {
+		if len(scoped) == 0 {
+			return checks.VerdictOf(a, 0, a.ID+": ABSENT - this pull changed nothing a crate tests, so there is no test to run")
+		}
+		sets = scoped
 	}
-	if code != 0 {
-		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - the tests did not build: "+checks.FirstCargoError(listed))
+
+	var listed string
+	for _, set := range sets {
+		out, code, err := output(ctx, lane.WithExec(
+			append(append([]string{"cargo", "test"}, set...), "--", "--list"), anyExit))
+		if err != nil {
+			return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
+		}
+		if code != 0 {
+			return checks.VerdictOf(a, 1, a.ID+": FINDINGS - the tests did not build: "+checks.FirstCargoError(out))
+		}
+		listed += out
 	}
 	if !checks.CargoListsTests(listed) {
 		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - no test in the workspace; nothing is built without tests")
 	}
-	return cargoVerdict(ctx, a, lane.WithExec([]string{"cargo", "test", "--workspace"}, anyExit))
+	var last checks.Verdict
+	for _, set := range sets {
+		last = cargoVerdict(ctx, a, lane.WithExec(append([]string{"cargo", "test"}, set...), anyExit))
+		if last.State != int(checks.StatePass) {
+			return last
+		}
+	}
+	return last
 }
 
 // cargo audit reports no known vulnerability.

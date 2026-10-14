@@ -333,7 +333,7 @@ func TestRustWitGuestNativeTestRunsUnderTheStamp(t *testing.T) {
 	}
 	// Only the unit tests: tests/*.rs and doctests are cargo-test's, run once;
 	// per world they re-ran the whole suite (gate run 775 deadline).
-	if !strings.Contains(c, `"cargo","test","--locked","--lib","--no-default-features"`) {
+	if !strings.Contains(c, `"cargo","test","--locked","--workspace","--lib","--no-default-features"`) {
 		t.Errorf("%s: the native test must run --lib only:\n%s", w, c)
 	}
 	// LOCKED: it builds the test binaries in the release volume and runs them.
@@ -364,7 +364,7 @@ func TestRustWitGuestAliasAloneIsTheOneWorld(t *testing.T) {
 // A red names the world and the step; the other world's failure is not
 // attributed to the first.
 func TestRustWitGuestFindingsNameTheFailingWorld(t *testing.T) {
-	test := `"cargo","test","--locked","--lib","--no-default-features",`
+	test := `"cargo","test","--locked","--workspace","--lib","--no-default-features",`
 	for _, c := range []struct {
 		name, world, step string
 		red               []string
