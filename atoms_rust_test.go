@@ -436,11 +436,11 @@ func TestRustMutationMeasuresTheDiffFromTheFetchedLayer(t *testing.T) {
 		t.Errorf("a single-package crate passes no -p:\n%s", c)
 	}
 	// The diff is taken over the declared modules, and the file list over the
-	// same pathspec, deletions left out.
+	// same pathspec, renames split so a moved file names the crate it left.
 	wantCalls(t, engine.chain(rustDiffNeedle, "stdout"),
 		[]string{"withExec", "expect:ANY", `args:["git","diff","--relative","since0","HEAD","--","src/lib.rs"]`})
 	wantCalls(t, engine.chain(rustFilesNeedle, "stdout"),
-		[]string{"withExec", "expect:ANY", `args:["git","diff","--relative","--name-only","-z","--diff-filter=d","since0","HEAD","--","src/lib.rs"]`})
+		[]string{"withExec", "expect:ANY", `args:["git","diff","--relative","--no-renames","--name-only","-z","since0","HEAD","--","src/lib.rs"]`})
 }
 
 // Survivors are findings with the table and the list; the lists are read off
