@@ -44,6 +44,9 @@ var rideLanes = map[string]bool{"orbit": true}
 // lane that sent no record.
 var rideGrace = 60 * time.Second
 
+// rideNow is the clock the rider's stage is stamped with; a test replaces it.
+var rideNow = time.Now
+
 // rideHandle is a started rider. A nil handle (no ride asked, or a ride
 // refused) is valid and finish on it does nothing.
 type rideHandle struct {
@@ -103,7 +106,12 @@ func (m *FoundryTools) startRide(ctx context.Context, tree, stage, ride, base st
 				h.done <- stageResult(checks.SettleStage(h.lane, checks.CannotRunVector(h.lane, gradedStage(ride), reason)))
 			}
 		}()
-		h.done <- rider.gateStage(ctx, tree, ride, base)
+		// THE RIDER'S OWN WALL CLOCK, start to end of its stage: the Job's is
+		// the gate's, so the record says when the rider ran.
+		started := rideNow()
+		result := rider.gateStage(ctx, tree, ride, base)
+		result.startedAt, result.finishedAt = started, rideNow()
+		h.done <- result
 	}()
 	return h
 }
