@@ -143,3 +143,22 @@ func askedTwiceFor(t *testing.T, id string) (checks.Verdict, error) {
 	t.Helper()
 	return verdictFor(t.Context(), newRun(dag.Directory(), "", ""), id)
 }
+
+// A COULD-NOT-RUN IS ASKED AGAIN AS THE SAME IDENTITY. The re-ask used to be
+// built from newRun alone and dropped the lane's SPIRE socket, so fleet:witness
+// (settles 2 on store_unavailable) re-asked narcissus in the clear and was
+// filed `unidentified`.
+func TestAReaskKeepsTheLanesSpireSocket(t *testing.T) {
+	sock := dag.LoadSocketFromID("spire-agent-socket")
+	r := newRun(dag.Directory(), "http://door/rob/x.git", "base").withSpire(sock)
+	again := r.askedAgain("n")
+	if again.spire == nil {
+		t.Fatal("the re-ask dropped the SPIRE socket: fleet:witness would ask in the clear")
+	}
+	if again.reask != "n" || again.repo != r.repo || again.base != r.base {
+		t.Errorf("the re-ask is not the same run keyed afresh: %+v", again)
+	}
+	if none := newRun(dag.Directory(), "", "").askedAgain("n"); none.spire != nil {
+		t.Error("a run with no socket grew one")
+	}
+}
