@@ -242,6 +242,19 @@ func TestOpsRepoTools(t *testing.T) {
 	engine.stdout(`"tools/star-sa-list"`, "could not read identity/")
 	wantState(t, runAtom(t, "ops:star-sa", ""), 2, "could not read identity/", "star-sa: could not read the ClusterSPIFFEID CRs or the policy — did not look")
 
+	// A python checker that crashes (a missing pyyaml) exits 1 like a finding;
+	// the traceback makes it could-not-run, for every python checker.
+	crash := "Traceback (most recent call last):\n  File \"tools/x\", line 3, in <module>\nModuleNotFoundError: No module named 'yaml'\n"
+	for _, c := range []struct{ id, needle string }{
+		{"ops:dup", `"tools/dup-check"`}, {"ops:declaration", `"tools/declaration-integrity"`}, {"ops:specs", `"tools/console-specs"`},
+		{"ops:metrics", `"tools/metric-allowlist"`}, {"ops:star-sa", `"tools/star-sa-list"`},
+	} {
+		opsTree(tools, exec)
+		engine.exitCode(c.needle, 1)
+		engine.stdout(c.needle, crash)
+		wantState(t, runAtom(t, c.id, ""), 2, "ModuleNotFoundError: No module named 'yaml'", "crashed on an uncaught python exception", "did not look")
+	}
+
 	// The tool's own exec failing in the engine is could-not-run, not a pass.
 	opsTree(tools, exec)
 	engine.fail(`"tools/metric-allowlist"`, "engine gone")

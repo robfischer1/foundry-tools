@@ -173,6 +173,16 @@ func opsSettled(phase string, rc int, out string) opsResult {
 	return opsResult{state: state, out: out}
 }
 
+// opsSettledPython is opsSettled for a python checker: an uncaught exception (a
+// missing dependency, a crash) exits 1 like a finding but is could-not-run.
+func opsSettledPython(phase string, rc int, out string) opsResult {
+	state, line := checks.OpsSettlePython(phase, rc, out)
+	if line != "" {
+		out += "\n" + line
+	}
+	return opsResult{state: state, out: out}
+}
+
 // uvPython runs one of the repo's own python tools the way the body did:
 // isolated, no project, pyyaml alongside.
 func uvPython(tool string, args ...string) []string {
@@ -339,7 +349,7 @@ func opsDup(ctx context.Context, r *run) checks.Verdict {
 			return opsResult{absent: "no tools/dup-check in this tree"}, nil
 		}
 		_, out, rc, err := opsRun(ctx, ctr, []string{"python3", "tools/dup-check", "--blocking"})
-		return opsSettled("dup", rc, out), err
+		return opsSettledPython("dup", rc, out), err
 	}, nil)
 }
 
@@ -349,7 +359,7 @@ func opsDeclaration(ctx context.Context, r *run) checks.Verdict {
 			return opsResult{absent: "no tools/declaration-integrity in this tree"}, nil
 		}
 		_, out, rc, err := opsRun(ctx, ctr, uvPython("declaration-integrity"))
-		return opsSettled("declaration", rc, out), err
+		return opsSettledPython("declaration", rc, out), err
 	}, nil)
 }
 
@@ -365,7 +375,7 @@ func opsSpecs(ctx context.Context, r *run) checks.Verdict {
 		if rc == 2 {
 			return opsResult{state: 2, out: out + "\nspecs: could not read the source — did not look"}, err
 		}
-		return opsSettled("specs", rc, out), err
+		return opsSettledPython("specs", rc, out), err
 	}, nil)
 }
 
@@ -380,7 +390,7 @@ func opsMetrics(ctx context.Context, r *run) checks.Verdict {
 			return opsResult{absent: "no tools/metric-allowlist in this tree"}, nil
 		}
 		_, out, rc, err := opsRun(ctx, ctr, uvPython("metric-allowlist"))
-		res := opsSettled("metrics", rc, out)
+		res := opsSettledPython("metrics", rc, out)
 		if rc == 2 {
 			res = opsResult{state: 2, out: out + "\nmetrics: could not read a keep-list or a source — did not look"}
 		}
@@ -399,7 +409,7 @@ func opsStarSA(ctx context.Context, r *run) checks.Verdict {
 			return opsResult{absent: "no tools/star-sa-list in this tree"}, nil
 		}
 		_, out, rc, err := opsRun(ctx, ctr, uvPython("star-sa-list"))
-		res := opsSettled("star-sa", rc, out)
+		res := opsSettledPython("star-sa", rc, out)
 		if rc == 2 {
 			res = opsResult{state: 2, out: out + "\nstar-sa: could not read the ClusterSPIFFEID CRs or the policy — did not look"}
 		}

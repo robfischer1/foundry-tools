@@ -68,7 +68,7 @@ func opsRunChecker(ctx context.Context, a checks.AtomDef, in Input, c opsChecker
 	if code == 2 && c.two != "" {
 		return checks.VerdictOf(a, int(checks.StateCannotRun), out+c.two)
 	}
-	state, report := opsSettled(c.phase, code, out)
+	state, report := opsSettledPython(c.phase, code, out)
 	return checks.VerdictOf(a, state, report)
 }
 
