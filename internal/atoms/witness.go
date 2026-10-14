@@ -37,6 +37,15 @@ type Witness struct {
 	URL string
 	// Sleep is the pause between attempts; nil is checks.SleepContext.
 	Sleep func(context.Context, time.Duration) error
+	// Probe reads the witness's /ready before any ask; nil is checks.GetWitnessReady.
+	Probe checks.WitnessProbe
+}
+
+func (w Witness) probe() checks.WitnessProbe {
+	if w.Probe == nil {
+		return checks.GetWitnessReady
+	}
+	return w.Probe
 }
 
 func (w Witness) url() string {
@@ -187,6 +196,13 @@ func fleetWitness(ctx context.Context, a checks.AtomDef, in Input) checks.Verdic
 	if len(sources) == 0 {
 		state, reason := checks.AggregateWitness(nil, skipped, vendored, tests)
 		return settle(state, reason, nil)
+	}
+	// THE TARGET MAY BE THE THING THE CHANGE REPAIRS. A witness that does not say
+	// ready is a could-not-run about narcissus, named so, with no ask sent
+	// (checks/witness_ready.go says why).
+	if ok, detail := checks.WitnessReadiness(ctx, in.Witness.probe(), in.Witness.url(),
+		checks.WitnessReadyAttempts, checks.WitnessReadyPause, in.Witness.sleep()); !ok {
+		return settle(int(checks.StateCannotRun), checks.WitnessNotReadyReason(detail), nil)
 	}
 	star := checks.StarName(in.Origin)
 

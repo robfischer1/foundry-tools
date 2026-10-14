@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"dagger/foundry-tools/internal/checks"
 )
@@ -1015,6 +1016,13 @@ func scriptWitness(tree map[string]string) {
 	engine.stdout(wOriginNeedle, "http://ourea:8215/nereus.git\n")
 }
 
+// The suite never reaches the network: the witness reads ready unless a test
+// says otherwise (TestFleetWitnessCannotRunWhenTheWitnessIsNotReady).
+func init() {
+	probeWitness = func(context.Context, string) (int, string, error) { return 200, "{}", nil }
+	witnessSleep = func(context.Context, time.Duration) error { return nil }
+}
+
 const witnessNovel = `{"verdict":"novel","novelty":{}}`
 
 // Each changed source file the star authored is asked about, whole, from Go —
@@ -1660,5 +1668,29 @@ func TestFleetPDPWiredCheckEntryPoint(t *testing.T) {
 	out, err := (&Fleet{Source: dag.Directory()}).PdpWired(context.Background())
 	if err != nil || !strings.Contains(out, "ABSENT") {
 		t.Fatalf("got %q, %v; want the ABSENT answer", out, err)
+	}
+}
+
+// A witness that is down is a could-not-run about the TARGET, and no file is
+// asked: the revert of narcissus's tip cannot depend on narcissus being up
+// (foundry-tools#18242).
+func TestFleetWitnessCannotRunWhenTheWitnessIsNotReady(t *testing.T) {
+	scriptWitness(nil)
+	asked := answerWitness(t, map[string]witnessAnswer{"*": witnessResult(witnessNovel)})
+	prev := probeWitness
+	var probes int
+	probeWitness = func(context.Context, string) (int, string, error) {
+		probes++
+		return 503, `{"status":"starting","store":"waiting"}`, nil
+	}
+	t.Cleanup(func() { probeWitness = prev })
+
+	wantState(t, runAtom(t, "fleet:witness", "base-sha"), 2,
+		"CANNOT RUN - the witness (narcissus) is not ready: HTTP 503 (status=starting store=waiting)", "No file was asked")
+	if len(*asked) != 0 {
+		t.Errorf("a witness that was not ready was asked %d time(s)", len(*asked))
+	}
+	if probes != checks.WitnessReadyAttempts {
+		t.Errorf("probed %d time(s), want %d", probes, checks.WitnessReadyAttempts)
 	}
 }

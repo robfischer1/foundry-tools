@@ -624,6 +624,13 @@ func fleetWitness(ctx context.Context, r *run) checks.Verdict {
 		return settle(state, reason, nil)
 	}
 
+	// THE TARGET MAY BE THE THING THE CHANGE REPAIRS: a witness that does not
+	// say ready is a could-not-run about narcissus, with no ask sent.
+	if ok, detail := checks.WitnessReadiness(ctx, probeWitness, checks.WitnessURL,
+		checks.WitnessReadyAttempts, checks.WitnessReadyPause, witnessSleep); !ok {
+		return settle(2, checks.WitnessNotReadyReason(detail), nil)
+	}
+
 	origin, code, err := r.originURL(ctx, ctr)
 	if err != nil {
 		return neverRan(a, err)
@@ -663,6 +670,10 @@ func fleetWitness(ctx context.Context, r *run) checks.Verdict {
 	state, reason := checks.AggregateWitness(rows, skipped, vendored, tests)
 	return settle(state, reason+"\n"+via.say(), rows)
 }
+
+// probeWitness reads narcissus's /ready; a variable, so the tests can say the
+// witness is down without a network.
+var probeWitness checks.WitnessProbe = checks.GetWitnessReady
 
 // askWitness posts one JSON-RPC request to narcissus's MCP port
 // (checks.PostWitness). A variable, so the tests can answer for narcissus the
