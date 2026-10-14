@@ -252,3 +252,35 @@ func diesWireGrammar(ctx context.Context, a checks.AtomDef, in Input) checks.Ver
 func diesResourceReferents(ctx context.Context, a checks.AtomDef, in Input) checks.Verdict {
 	return pyChecker(ctx, a, in, "tools/check_resource_referents.py")
 }
+
+// diesGrantsStamp: policy/grants and policy/principals are renders, never hand
+// edits (F15 W-E, 338; the lane is foundry-tools #17714). `themis grants render`
+// is their only writer and stamps them rendered_from, tx and contracts_tx; CI holds
+// no chaos credentials, so it asks whether a change is SHAPED like a render.
+//
+// THE CHECKER IS THE TREE'S, and its exit is the verdict, unmapped (0 holds, 1
+// refused, 2 could not run). The tree half (stamp present, one tx in both
+// documents) always runs. The base half runs when the run has a base: the
+// documents are compared with the PULL'S MERGE BASE's, not main's tip, so a pull
+// that never touched them is not refused because main rendered since it branched.
+// A base the history does not reach is a could-not-run: a comparison nobody made
+// is not one that passed.
+func diesGrantsStamp(ctx context.Context, a checks.AtomDef, in Input) checks.Verdict {
+	const checker = "tools/check_grants_stamp.py"
+	t := in.tree()
+	if stop := diesShape(t, a); stop != nil {
+		return *stop
+	}
+	if stop := requirePaths(t, a, [][2]string{{checker, checker + " is absent, so there is no checker to run."}}); stop != nil {
+		return *stop
+	}
+	args := []string{checker}
+	if in.Base != "" {
+		since, err := mergeBase(ctx, in.Root, in.Base)
+		if err != nil {
+			return checks.VerdictOf(a, int(checks.StateCannotRun), a.ID+": CANNOT RUN - "+err.Error())
+		}
+		args = append(args, "--base", since)
+	}
+	return pyVerdict(ctx, a, in, args...)
+}

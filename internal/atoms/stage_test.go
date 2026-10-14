@@ -19,7 +19,7 @@ func TestStageIDs(t *testing.T) {
 	orbit := []string{"orbit:contracts", "orbit:surface", "orbit:sidecars", "orbit:repo"}
 	prepush := []string{
 		"fleet:orbit-drift", "fleet:dagger-lockstep", "fleet:renovate-lockstep", "fleet:node-kinds-declared", "fleet:consumed-events-emitted", "fleet:witness",
-		"dies:data-keys", "dies:admission-dogfood", "dies:canary-visibility", "ops:orbit-composed", "ops:orbit-sidecars", "ops:immutable",
+		"dies:data-keys", "dies:admission-dogfood", "dies:canary-visibility", "dies:grants-stamp", "ops:orbit-composed", "ops:orbit-sidecars", "ops:immutable",
 		"template:render-matrix", "wit:validate",
 	}
 	precommit := []string{

@@ -587,6 +587,10 @@ func atomTable() []AtomDef {
 		},
 
 		{
+			ID: "dies:grants-stamp", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
+			Desc: "policy/grants and policy/principals are renders, not hand edits: both carry rendered_from graph:policy and one tx, and a document changed against the pull's merge base carries a strictly higher tx and a contracts_tx that did not fall.",
+		},
+		{
 			ID: "dies:resource-referents", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every non-null face in policy/resources/data.json names a served wire name that has a schema/tool-output schema; a null face is owed to the CRUD gate and not graded.",
 		},

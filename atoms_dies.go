@@ -37,6 +37,7 @@ func init() {
 	register("dies:refusal-codes", diesRefusalCodes)
 	register("dies:wire-grammar", diesWireGrammar)
 	register("dies:resource-referents", diesResourceReferents)
+	register("dies:grants-stamp", diesGrantsStamp)
 }
 
 // diesShape is the condition every dies: atom shares, decided IN GO from the
@@ -785,6 +786,45 @@ func diesResourceReferents(ctx context.Context, r *run) checks.Verdict {
 	return verdict(ctx, a, r.lane(checks.ImageFleet).
 		WithExec([]string{"uv", "--version"}).
 		WithExec(stdlibpy("tools/check_resource_referents.py"), anyExit))
+}
+
+// policy/grants and policy/principals are renders, never hand edits (F15 W-E,
+// 338; the lane is #17714). THE CHECKER IS THE TREE'S, the dies:wire-grammar
+// shape; its exit is the verdict, unmapped: 0 holds, 1 refused, 2 could not run.
+//
+// WITH A BASE it also compares the two documents with the pull's MERGE BASE's
+// (changeBase), not main's tip, so a pull that never touched them is not refused
+// because main rendered since it branched. A base the history does not reach is a
+// could-not-run on the door's tree (missingBase): a comparison nobody made is not
+// one that passed. With no base the tree half still runs.
+func diesGrantsStamp(ctx context.Context, r *run) checks.Verdict {
+	a := checks.AtomByID("dies:grants-stamp")
+	const checker = "tools/check_grants_stamp.py"
+	if stop := diesShape(ctx, r, a); stop != nil {
+		return *stop
+	}
+	if stop := requirePaths(ctx, r, a, [][2]string{
+		{checker, checker + " is absent, so there is no checker to run."},
+	}); stop != nil {
+		return *stop
+	}
+	ctr := r.lane(checks.ImageFleet).WithExec([]string{"uv", "--version"})
+	args := []string{checker}
+	if r.base != "" {
+		ctr = r.gitReady(ctx, r.withBase(ctr))
+		since, err := r.changeBase(ctx, ctr)
+		if err != nil {
+			return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+err.Error())
+		}
+		if since == "" {
+			if state, why := r.missingBase(""); state == 2 {
+				return checks.VerdictOf(a, 2, a.ID+": "+why)
+			}
+		} else {
+			args = append(args, "--base", since)
+		}
+	}
+	return verdict(ctx, a, ctr.WithExec(stdlibpy(args...), anyExit))
 }
 
 // diesCanonical grades the FORM of every committed catalog entry, in Go, with no
