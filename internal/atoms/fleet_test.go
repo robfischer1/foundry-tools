@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"dagger/foundry-tools/internal/checks"
 )
 
 const stamped = "_src_path: https://git.notusmi.com/rob/go-repo-template.git\n"
@@ -183,4 +185,28 @@ func TestRetiredVerbs(t *testing.T) {
 	t.Run("a tree that would not enumerate", func(t *testing.T) {
 		expect(t, runAtom(t, id, missingRoot(t)), stateOf(2), cannot, "the tree would not enumerate")
 	})
+}
+
+func TestPDPWired(t *testing.T) {
+	const id = "fleet:pdp-wired"
+	armed := "kind: Deployment\nspec:\n  template:\n    spec:\n      containers:\n        - name: s\n          env:\n            - {name: STELLAR_PEP_MODE, value: witness}\n"
+	wired := armed + "            - {name: STELLAR_PDP_URL, value: \"http://opa/v1\"}\n"
+
+	// ABSENT: not the flux tree.
+	expect(t, runAtom(t, id, treeIn(t, map[string]string{"main.go": "x"})), checks.StatePass, "absent", "not the fleet's flux tree")
+	// Not absence: the flux tree with no star manifest in it.
+	expect(t, runAtom(t, id, treeIn(t, map[string]string{"prime/ourea-config.yaml": "x"})), checks.StateCannotRun, cannot, "star manifests moved")
+	// Green.
+	expect(t, runAtom(t, id, treeIn(t, map[string]string{"prime/star-a.yaml": wired})), checks.StatePass, pass)
+	// Red: names the star.
+	expect(t, runAtom(t, id, treeIn(t, map[string]string{"prime/star-a.yaml": wired, "prime/star-themis.yaml": armed})),
+		checks.StateFindings, findings, "prime/star-themis.yaml (container s)")
+	// A manifest in the population that will not read is a manifest not judged.
+	in := treeIn(t, map[string]string{"prime/star-a.yaml": wired})
+	in.Files = append(in.Files, "prime/star-gone.yaml")
+	expect(t, runAtom(t, id, in), checks.StateCannotRun, cannot, "prime/star-gone.yaml would not read")
+	// A file list that would not enumerate is not a pass.
+	in = treeIn(t, map[string]string{"prime/star-a.yaml": wired})
+	in.FilesErr = os.ErrPermission
+	expect(t, runAtom(t, id, in), checks.StateCannotRun, cannot, "would not enumerate")
 }

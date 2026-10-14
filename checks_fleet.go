@@ -34,6 +34,16 @@ func (f *Fleet) OrbitDrift(ctx context.Context) (string, error) {
 	return check(ctx, f.Source, "fleet:orbit-drift")
 }
 
+// Every container in flux's prime/star-*.yaml that arms the stellar-core-go
+// policy PEP (STELLAR_PEP_MODE not off) also sets STELLAR_PDP_URL. Unset, the
+// PEP records would_consult{pdp_not_consulted}, consults nothing and, in
+// witness mode, refuses nothing - which is how themis ran for days.
+//
+// +check
+func (f *Fleet) PdpWired(ctx context.Context) (string, error) {
+	return check(ctx, f.Source, "fleet:pdp-wired")
+}
+
 // The dagger CLI, engine and module pins in this tree agree with the engine
 // foundry/flux runs. CLI and engine move in lockstep and the engine leads: in
 // flux the four engine pins must agree, elsewhere a CLI pin must equal flux

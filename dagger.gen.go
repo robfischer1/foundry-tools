@@ -1015,6 +1015,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Fleet).OrbitDrift(&parent, ctx)
+		case "PdpWired":
+			var parent Fleet
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Fleet).PdpWired(&parent, ctx)
 		case "RenovateLockstep":
 			var parent Fleet
 			err = json.Unmarshal(parentJSON, &parent)
