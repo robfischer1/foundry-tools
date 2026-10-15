@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "star": "athena",
+  "verbs": [
+    "task_delete",
+    "task_read",
+    "task_update"
+  ]
+}

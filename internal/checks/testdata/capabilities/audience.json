@@ -1,0 +1,4 @@
+{
+  "star_only": {"ananke": ["egg_ping", "egg_calendar"]},
+  "session_hidden": {"ananke": ["egg_necessity", "egg_ping"]}
+}

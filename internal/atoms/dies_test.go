@@ -168,3 +168,42 @@ func TestDiesDataKeys(t *testing.T) {
 		})
 	}
 }
+
+func TestDiesCapabilitiesServed(t *testing.T) {
+	const id = "dies:capabilities-served"
+	decl := "{\"stars\":{\"athena\":{\"prefix\":\"plan\",\"verbs\":[\"task_read\"],\"tier\":{\"task_read\":\"default\"}}}}\n"
+	served := "{\"schema\":1,\"star\":\"athena\",\"verbs\":[\"task_read\"]}\n"
+	for _, tc := range []struct {
+		name    string
+		files   map[string]string
+		state   int
+		result  string
+		needles []string
+	}{
+		{"declared exactly as served passes", dieTree(map[string]string{
+			"fleet/repos/athena.json": "{\"verb_prefix\":\"plan\"}\n", "policy/capabilities/data.json": decl, "capabilities/served/athena.json": served,
+		}), 0, pass, []string{"1 verb(s) across 1 star(s)"}},
+		{"a die that has not adopted capabilities is absent", dieTree(nil), 0, absent, []string{"neither policy/capabilities/data.json"}},
+		{"a served verb the document omits is findings", dieTree(map[string]string{
+			"fleet/repos/athena.json": "{\"verb_prefix\":\"plan\"}\n", "policy/capabilities/data.json": decl,
+			"capabilities/served/athena.json": "{\"schema\":1,\"star\":\"athena\",\"verbs\":[\"task_read\",\"task_new\"]}\n",
+		}), 1, findings, []string{"served but not declared (denied to every caller): task_new"}},
+		{"a declared verb nothing serves is findings", dieTree(map[string]string{
+			"fleet/repos/athena.json": "{\"verb_prefix\":\"plan\"}\n", "policy/capabilities/data.json": decl,
+			"capabilities/served/athena.json": "{\"schema\":1,\"star\":\"athena\",\"verbs\":[]}\n",
+		}), 1, findings, []string{"declared but not served: task_read"}},
+		{"a declaration landed beside the path the gate reads is findings, not absent", dieTree(map[string]string{
+			"fleet/repos/athena.json": "{\"verb_prefix\":\"plan\"}\n", "policy/capabilities/stars/data.json": decl,
+		}), 1, findings, []string{"not policy/capabilities/data.json"}},
+		{"a document with no stars key is findings even with no exports", dieTree(map[string]string{
+			"policy/capabilities/data.json": "{}\n",
+		}), 1, findings, []string{"no \"stars\" object"}},
+		{"declared with no export committed is findings", dieTree(map[string]string{
+			"fleet/repos/athena.json": "{\"verb_prefix\":\"plan\"}\n", "policy/capabilities/data.json": decl,
+		}), 1, findings, []string{"athena: declared in policy/capabilities/data.json but no served-verbs export"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			expect(t, runAtom(t, id, treeIn(t, tc.files)), stateOf(tc.state), tc.result, tc.needles...)
+		})
+	}
+}

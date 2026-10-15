@@ -1,26 +1,88 @@
 package checks
 
 import (
+	"os"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 )
 
 func TestOpaVersionOKMatchesAWholeLineOnly(t *testing.T) {
-	out := "Version: 1.18.0\nBuild Commit: abc\nGo Version: go1.24\n"
-	if !OpaVersionOK(out, "1.18.0") {
+	out := "Version: 1.21.2\nBuild Commit: abc\nGo Version: go1.24\n"
+	if !OpaVersionOK(out, "1.21.2") {
 		t.Error("the pinned version is on its own line and was not seen")
 	}
-	for _, bad := range []string{"1.18.1", "1.18", "1.18.0-rc1"} {
+	for _, bad := range []string{"1.21.3", "1.21", "1.21.2-rc1"} {
 		if OpaVersionOK(out, bad) {
 			t.Errorf("%q: matched a version the binary does not carry", bad)
 		}
 	}
-	if OpaVersionOK("Version: 1.18.0-rc1\n", "1.18.0") {
+	if OpaVersionOK("Version: 1.21.2-rc1\n", "1.21.2") {
 		t.Error("a prerelease is not the pin")
 	}
-	if OpaVersionOK("", "1.18.0") {
+	if OpaVersionOK("", "1.21.2") {
 		t.Error("no output is not the pin")
+	}
+}
+
+// TestOpaVersionOKRefusesAPinBelowTheFloor: the binary agreeing with a bad pin
+// is not a pass. 1.18.0 leaks per bundle activation (#8817).
+func TestOpaVersionOKRefusesAPinBelowTheFloor(t *testing.T) {
+	for _, bad := range []string{"1.18.0", "1.17.9", "0.70.0", "1.18.0-rc1", "garbage", ""} {
+		if OpaVersionOK("Version: "+bad+"\n", bad) {
+			t.Errorf("%q: a binary at a version below the floor was accepted", bad)
+		}
+	}
+	for _, good := range []string{OpaFloor, "1.18.2", "1.21.2", "2.0.0"} {
+		if !OpaVersionOK("Version: "+good+"\n", good) {
+			t.Errorf("%q: at or above the floor and refused", good)
+		}
+	}
+}
+
+func TestOpaAtLeast(t *testing.T) {
+	for _, tc := range []struct {
+		v, floor string
+		want     bool
+	}{
+		{"1.18.1", "1.18.1", true},
+		{"1.18.0", "1.18.1", false},
+		{"1.19.0", "1.18.1", true},
+		{"1.9.9", "1.18.1", false}, // numeric, not lexical
+		{"2.0.0", "1.18.1", true},
+		{"v1.21.2", "1.18.1", true},
+		{"1.21", "1.18.1", false},
+		{"1.21.2-rc1", "1.18.1", false},
+		{"1.21.x", "1.18.1", false},
+		{"1..2", "1.18.1", false},        // an empty part
+		{"1234567.0.0", "1.18.1", false}, // a part too long to be a version
+		{"1.21.2", "1.18", false},        // an unreadable floor accepts nothing
+	} {
+		if got := OpaAtLeast(tc.v, tc.floor); got != tc.want {
+			t.Errorf("OpaAtLeast(%q, %q) = %v, want %v", tc.v, tc.floor, got, tc.want)
+		}
+	}
+}
+
+// TestOpaPinsAreAboveTheFloor holds BOTH pins: the binary the dies atoms fetch
+// (OpaVersion) and the OPA Go module the bundle-resign tests link (go.mod). The
+// plan asks >= 1.21.2 for both, and nothing below OpaFloor in any case.
+func TestOpaPinsAreAboveTheFloor(t *testing.T) {
+	const want = "1.21.2"
+	if !OpaAtLeast(OpaVersion, want) {
+		t.Errorf("OpaVersion %s is below %s", OpaVersion, want)
+	}
+	mod, err := os.ReadFile("../../go.mod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`(?m)^\s*github\.com/open-policy-agent/opa\s+v(\S+)`).FindSubmatch(mod)
+	if m == nil {
+		t.Fatal("go.mod does not require github.com/open-policy-agent/opa")
+	}
+	if got := string(m[1]); !OpaAtLeast(got, want) {
+		t.Errorf("go.mod pins opa %s, below %s (and the floor is %s)", got, want, OpaFloor)
 	}
 }
 

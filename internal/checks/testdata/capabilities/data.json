@@ -1,0 +1,30 @@
+{
+  "stars": {
+    "ananke": {
+      "prefix": "egg",
+      "tier": {
+        "calendar": "star_only",
+        "necessity": "session_hidden",
+        "ping": "star_only"
+      },
+      "verbs": [
+        "calendar",
+        "necessity",
+        "ping"
+      ]
+    },
+    "athena": {
+      "prefix": "plan",
+      "tier": {
+        "task_delete": "default",
+        "task_read": "default",
+        "task_update": "default"
+      },
+      "verbs": [
+        "task_delete",
+        "task_read",
+        "task_update"
+      ]
+    }
+  }
+}
