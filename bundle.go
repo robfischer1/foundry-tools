@@ -462,9 +462,10 @@ func (l *bundleLane) policy(ctx context.Context, tools *dagger.Container) (*dagg
 	if canary == "" {
 		return nil, findings("chaos has no star_only row in the built bundle — the roster did not survive the build")
 	}
+	// The audience tier, asked of `callable` (atoms_dies.go, dies:canary-visibility, says why not `visible`).
 	probe := workDir + "/probe-session.json"
 	out, code, g = exec(ctx, built.WithNewFile(probe, fmt.Sprintf(`{"principal":{"type":"session","subject":"s"},"verbs":["search",%q]}`, canary)),
-		"the session-principal probe", "opa", "eval", "-b", workDir+"/bundle.tar.gz", "-i", probe, "--format", "json", "data.authz.visible.allowed")
+		"the session-principal probe", "opa", "eval", "-b", workDir+"/bundle.tar.gz", "-i", probe, "--format", "json", "data.authz.callable.allowed")
 	if g.code != buildlane.Clean {
 		return nil, g
 	}

@@ -89,7 +89,9 @@ func diesAdmissionDogfood(ctx context.Context, a checks.AtomDef, in Input) check
 }
 
 // canaryProbe asks the built bundle which of search and the canary verb a
-// principal of the given type may see. The input is a file opa is pointed at,
+// principal of the given type may CALL (data.authz.callable: the audience tier
+// alone, in v1 and authz_v2 alike; since the F5 flip `visible` also filters by
+// grant effect, so the grantless subject "s" sees nothing there - atoms_dies.go). The input is a file opa is pointed at,
 // exactly as the chain's probe was; a probe that did not evaluate is the
 // refusal's reason.
 func canaryProbe(ctx context.Context, in Input, bundle, principal, canary string) ([]string, string) {
@@ -100,7 +102,7 @@ func canaryProbe(ctx context.Context, in Input, bundle, principal, canary string
 		return nil, err.Error()
 	}
 	out, code := in.run(ctx, Cmd{Dir: in.Root, Name: "opa", Args: []string{
-		"eval", "-b", bundle, "-i", input, "--format", "json", "data.authz.visible.allowed",
+		"eval", "-b", bundle, "-i", input, "--format", "json", "data.authz.callable.allowed",
 	}})
 	if code != 0 {
 		return nil, out
