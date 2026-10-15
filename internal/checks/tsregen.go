@@ -163,9 +163,12 @@ type CoreCopy struct{ Path, SHA256 string }
 
 // CoreCopies are the WIT files the core at its recorded commit carries for the
 // guest to be built against: the guest is built against its own copy, so the
-// copy has to be the pinned file.
-func (p RegenProv) CoreCopies(world string) []CoreCopy {
-	out := []CoreCopy{{"wit/aiws-" + world + ".wit", p.WIT.SHA256}}
+// copy has to be the pinned file. The guest's copy sits at the path the
+// provenance pins (wit.path), not one derived from the world's name: a package
+// name with hyphens (extract-then-evaluate, schema-validator) is not spelled by
+// the world (extractthenevaluate, schemavalidator).
+func (p RegenProv) CoreCopies() []CoreCopy {
+	out := []CoreCopy{{p.WIT.Path, p.WIT.SHA256}}
 	if p.WITResult != nil {
 		out = append(out, CoreCopy{"wit/aiws-result.wit", p.WITResult.SHA256})
 	}
