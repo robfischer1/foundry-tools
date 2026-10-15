@@ -131,7 +131,7 @@ func (m *FoundryTools) Build(
 		registryAuth: registryAuth, cosignKey: cosignKey, cosignPassphrase: cosignPassphrase,
 		indexURL: indexURL, registry: registry, sourceBase: sourceBase,
 		stamp:  strconv.FormatInt(time.Now().UnixNano(), 10),
-		phases: phases{group: buildGroup, order: buildPhases},
+		phases: newPhases(buildGroup, buildPhases),
 	}
 	code, reason := l.run(ctx)
 	// THE RECORD EXPLAINS THE VERDICT; IT DOES NOT DECIDE IT. settle() below is

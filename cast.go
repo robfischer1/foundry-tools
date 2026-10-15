@@ -96,7 +96,7 @@ func (m *FoundryTools) Cast(
 		svid:  svidLogin{audience: registrySvid, spire: spire},
 		hades: hades, hadesID: hadesID, dryRun: dryRun,
 		stamp:  strconv.FormatInt(time.Now().UnixNano(), 10),
-		phases: phases{group: castGroup, order: castPhases},
+		phases: newPhases(castGroup, castPhases),
 	}
 	code, reason := l.run(ctx)
 	if code == 0 {
