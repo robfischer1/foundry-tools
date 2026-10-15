@@ -55,6 +55,7 @@ func init() {
 	register("ops:specs", opsSpecs)
 	register("ops:metrics", opsMetrics)
 	register("ops:star-sa", opsStarSA)
+	register("ops:world-patches", opsWorldPatches)
 	register("ops:ansible", opsAnsible)
 	register("ops:flux", opsFlux)
 	register("ops:kube-linter", opsKubeLinter)
@@ -412,6 +413,25 @@ func opsStarSA(ctx context.Context, r *run) checks.Verdict {
 		res := opsSettledPython("star-sa", rc, out)
 		if rc == 2 {
 			res = opsResult{state: 2, out: out + "\nstar-sa: could not read the ClusterSPIFFEID CRs or the policy — did not look"}
+		}
+		return res, err
+	}, nil)
+}
+
+// ops:world-patches — a World's pod gets the pistis.star patches a star
+// Deployment gets. flux's tools/world-patches exits 1 when a pistis.star patch
+// misses Worlds, reaches one as strategic-merge, or a World writes out what a
+// patch adds (flux#18356: the narcissus World froze without wait-for-svid). The
+// tool grades itself: 2 is "could not read", could-not-run whatever its words were.
+func opsWorldPatches(ctx context.Context, r *run) checks.Verdict {
+	return opsAtom(ctx, r, "ops:world-patches", func(ctx context.Context, ctr *dagger.Container, files []checks.OpsFile) (opsResult, error) {
+		if !checks.OpsHasTool(files, "world-patches", false) {
+			return opsResult{absent: "no tools/world-patches in this tree"}, nil
+		}
+		_, out, rc, err := opsRun(ctx, ctr, uvPython("world-patches"))
+		res := opsSettledPython("world-patches", rc, out)
+		if rc == 2 {
+			res = opsResult{state: 2, out: out + "\nworld-patches: could not read prime's kustomization or its Worlds — did not look"}
 		}
 		return res, err
 	}, nil)
