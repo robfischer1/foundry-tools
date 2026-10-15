@@ -156,11 +156,10 @@ func RenderCapabilities(served []Served, prefixes map[string]string, aud Audienc
 		sort.Strings(problems)
 		return nil, fmt.Errorf("cannot render capabilities: %s", strings.Join(problems, "; "))
 	}
-	// Round-trip through the generic form so CanonicalJSON sorts every key.
-	raw, err := json.Marshal(doc)
-	if err != nil {
-		return nil, err
-	}
+	// Round-trip through the generic form so CanonicalJSON sorts every key. The
+	// marshal error is dropped on purpose: doc is strings, slices and maps of
+	// strings, which encoding/json cannot fail on.
+	raw, _ := json.Marshal(doc)
 	return CanonicalJSON(raw)
 }
 

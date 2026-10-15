@@ -55,7 +55,9 @@ func TestOpaAtLeast(t *testing.T) {
 		{"1.21", "1.18.1", false},
 		{"1.21.2-rc1", "1.18.1", false},
 		{"1.21.x", "1.18.1", false},
-		{"1.21.2", "1.18", false}, // an unreadable floor accepts nothing
+		{"1..2", "1.18.1", false},        // an empty part
+		{"1234567.0.0", "1.18.1", false}, // a part too long to be a version
+		{"1.21.2", "1.18", false},        // an unreadable floor accepts nothing
 	} {
 		if got := OpaAtLeast(tc.v, tc.floor); got != tc.want {
 			t.Errorf("OpaAtLeast(%q, %q) = %v, want %v", tc.v, tc.floor, got, tc.want)

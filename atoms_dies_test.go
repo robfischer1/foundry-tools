@@ -1600,3 +1600,14 @@ func TestDiesCapabilitiesServedCannotRunOnATreeItCannotList(t *testing.T) {
 	engine.fail(`glob(pattern:"policy/capabilities/data.json")`, "the glob would not evaluate")
 	wantState(t, runAtom(t, "dies:capabilities-served", ""), 2, "could not be read", "would not evaluate")
 }
+
+// A file the tree lists but will not read is could-not-run, never a pass.
+func TestDiesCapabilitiesServedCannotRunOnAFileItCannotRead(t *testing.T) {
+	engine.reset()
+	engine.withTree(diesTree(map[string]string{
+		"fleet/repos/athena.json":       "{\"verb_prefix\":\"plan\"}\n",
+		"policy/capabilities/data.json": "{\"stars\":{}}\n",
+	}, "fleet/repos"))
+	engine.fail(`file(path:"policy/capabilities/data.json")`, "i/o error")
+	wantState(t, runAtom(t, "dies:capabilities-served", ""), 2, "could not be read", "i/o error")
+}

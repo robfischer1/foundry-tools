@@ -232,6 +232,9 @@ func TestGradeCapabilitiesServed(t *testing.T) {
 		{"export from another star", with(map[string]string{CapabilitiesServedDir + "/b.json": served}), 1, `names star "a" but is committed as "b"`},
 		{"document malformed", with(map[string]string{CapabilitiesData: "["}), 1, "not a capabilities document"},
 		{"record unreadable json", with(map[string]string{"fleet/repos/a.json": "["}), 2, "is not JSON"},
+		{"declaration beside the path the gate reads", map[string]string{CapabilitiesDir + "/stars/data.json": decl, "fleet/repos/a.json": rec}, 1, "not " + CapabilitiesData},
+		{"document with no stars and no exports", map[string]string{CapabilitiesData: `{"tx":1}`}, 1, `no "stars" object`},
+		{"document with null stars", map[string]string{CapabilitiesData: `{"stars":null}`}, 1, `no "stars" object`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			v := GradeCapabilitiesServed(a, fakeTree(tc.files))
@@ -251,5 +254,18 @@ func TestGradeCapabilitiesServed(t *testing.T) {
 	}
 	if v := GradeCapabilitiesServed(a, tr); v.State != 2 {
 		t.Errorf("unreadable export graded %d: %s", v.State, v.Reason)
+	}
+	// So is the document, or a star's record, that the glob lists and the read refuses.
+	for _, refused := range []string{CapabilitiesData, "fleet/repos/a.json"} {
+		tr := fakeTree(full)
+		tr.Read = func(p string) (string, error) {
+			if p == refused {
+				return "", os.ErrPermission
+			}
+			return full[p], nil
+		}
+		if v := GradeCapabilitiesServed(a, tr); v.State != 2 || !strings.Contains(v.Reason, "could not be read") {
+			t.Errorf("unreadable %s graded %d: %s", refused, v.State, v.Reason)
+		}
 	}
 }
