@@ -28,12 +28,62 @@ import (
 // prints several `Key: value` lines and "Version: 1.18.0" must be one of them
 // exactly, so 1.18.0-rc1 is not 1.18.0.
 func OpaVersionOK(versionOutput, want string) bool {
+	// A pin below the floor is refused whatever the binary says: the binary
+	// matching a bad pin is not a pass.
+	if !OpaAtLeast(want, OpaFloor) {
+		return false
+	}
 	for _, line := range strings.Split(versionOutput, "\n") {
 		if strings.TrimSpace(line) == "Version: "+want {
 			return true
 		}
 	}
 	return false
+}
+
+// OpaFloor is the lowest OPA this fleet accepts, as a pin or as a binary. OPA
+// 1.18.0 leaks memory on every bundle activation (upstream #8817); stellar-core-go
+// embeds OPA in every star, so the leak would arrive in each pod instead of two.
+// 1.18.1 is the first release without it.
+const OpaFloor = "1.18.1"
+
+// OpaAtLeast reports whether version is a release at or above floor. Both are
+// MAJOR.MINOR.PATCH; anything else (a pre-release suffix, a missing part, text)
+// is false, so a version this cannot read is never taken as good enough.
+func OpaAtLeast(version, floor string) bool {
+	v, ok := parseSemver(version)
+	f, fok := parseSemver(floor)
+	if !ok || !fok {
+		return false
+	}
+	for i := range v {
+		if v[i] != f[i] {
+			return v[i] > f[i]
+		}
+	}
+	return true
+}
+
+func parseSemver(s string) ([3]int, bool) {
+	var out [3]int
+	parts := strings.Split(strings.TrimPrefix(s, "v"), ".")
+	if len(parts) != 3 {
+		return out, false
+	}
+	for i, p := range parts {
+		if p == "" || len(p) > 6 {
+			return out, false
+		}
+		n := 0
+		for _, c := range p {
+			if c < '0' || c > '9' {
+				return out, false
+			}
+			n = n*10 + int(c-'0')
+		}
+		out[i] = n
+	}
+	return out, true
 }
 
 // FleetDerive is the Rego that derives data.fleet.stars inside the fleet die

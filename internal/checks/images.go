@@ -542,13 +542,16 @@ const (
 // v1 and graded by another major answers a different question, and "the policy
 // suite passed" would be a true statement about the wrong language. foundry-dies
 // pinned 1.18.0 in its own workflow; the pin moves here rather than being left
-// behind with the runner.
+// behind with the runner. The pin is >= 1.21.2 and OpaFloor (1.18.1) is the line
+// below which nothing is accepted: 1.18.0 leaks memory on every bundle
+// activation (upstream #8817), and the Go module in go.mod is held to the same
+// bar by TestOpaPinsAreAboveTheFloor.
 //
 // The static build deliberately: `opa_linux_amd64_static` needs no libc the lane
 // image may not have, which is the same reasoning that picks the alpine variants
 // for kubeconform and kube-linter above.
 const (
 	// renovate: datasource=github-releases depName=open-policy-agent/opa extractVersion=^v(?<version>.*)$
-	OpaVersion = "1.21.1"
+	OpaVersion = "1.21.2"
 	OpaURL     = "https://openpolicyagent.org/downloads/v" + OpaVersion + "/opa_linux_amd64_static"
 )

@@ -56,7 +56,7 @@ const PythonStandaloneURL = "https://github.com/astral-sh/python-build-standalon
 // does not update its line fails TestEveryToolPinHasAChecksum, and a mismatch
 // at build time leaves the tool out of the container (its atom settles 2).
 var ToolSHA256 = map[string]string{
-	OpaURL:        "668506eb17a2eaa1fce6cc0d1f42ef85125d4ac5bda5fc74d1152d0c77145031",
+	OpaURL:        "830ab11f61ffec760b5e19db0d7ad02bf037e13f5ef4d665faeaf17632177527",
 	OpengrepURL:   "a66aa3278457f02b287b985a45b6762aebcaba5000f2689245fd1ed86d1456c7",
 	HadolintURL:   "c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507",
 	KubectlURL:    "65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8",
