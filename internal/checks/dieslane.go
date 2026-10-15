@@ -169,7 +169,7 @@ func OpaDenySet(doc string) ([]string, error) {
 	return out, nil
 }
 
-// OpaAllowed reads the verb list `data.authz.visible.allowed` answered for one
+// OpaAllowed reads the verb list `data.authz.callable.allowed` (the canary probes; see atoms_dies.go) answered for one
 // probe principal. Every element must be a verb; a shape that is not a list of
 // strings is an error, for OpaDenySet's reason.
 func OpaAllowed(doc string) ([]string, error) {
