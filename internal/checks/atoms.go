@@ -602,6 +602,10 @@ func atomTable() []AtomDef {
 			ID: "dies:resource-referents", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every non-null face in policy/resources/data.json names a served wire name that has a schema/tool-output schema; a null face is owed to the CRUD gate and not graded.",
 		},
+		{
+			ID: CapabilitiesServedID, Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "Every star's declared capabilities (policy/capabilities data: prefix, verbs, tier) are exactly the verbs its code serves, from the served-verbs export committed under capabilities/served/: a served verb nobody declared is denied to every caller, and a declared verb nothing serves is a grant surface for a verb that is gone.",
+		},
 
 		// ---- law: the governance CI lanes on foundry-stocks law commits ----
 		// Nomos F5b. Each is ABSENT on a tree that is not foundry-stocks (a

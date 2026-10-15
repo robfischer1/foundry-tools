@@ -175,3 +175,14 @@ func diesCanonical(_ context.Context, a checks.AtomDef, in Input) checks.Verdict
 	}
 	return checks.VerdictOf(a, int(checks.StatePass), fmt.Sprintf("%s: %d catalog document(s) are each their own canonical form.", a.ID, len(records)))
 }
+
+// diesCapabilitiesServed: the capabilities declared in the die equal the verbs
+// the stars serve. The judgement is checks.GradeCapabilitiesServed, shared with
+// the Dagger chain; this only hands it the tree.
+func diesCapabilitiesServed(_ context.Context, a checks.AtomDef, in Input) checks.Verdict {
+	t := in.tree()
+	if stop := diesShape(t, a); stop != nil {
+		return *stop
+	}
+	return checks.GradeCapabilitiesServed(a, checks.TreeReader{Read: t.read, Glob: t.glob})
+}

@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "star": "ananke",
+  "verbs": [
+    "calendar",
+    "necessity",
+    "ping"
+  ]
+}

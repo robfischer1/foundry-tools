@@ -38,6 +38,7 @@ func init() {
 	register("dies:wire-grammar", diesWireGrammar)
 	register("dies:resource-referents", diesResourceReferents)
 	register("dies:grants-stamp", diesGrantsStamp)
+	register("dies:capabilities-served", diesCapabilitiesServed)
 }
 
 // diesShape is the condition every dies: atom shares, decided IN GO from the
@@ -1032,4 +1033,45 @@ func refusalDoorProbe(ctx context.Context, a checks.AtomDef, registry string) *c
 		return &v
 	}
 	return nil
+}
+
+// dies:capabilities-served: the capabilities the die declares are exactly the
+// verbs the stars serve (Capabilities plan S3). It reads the tree in Go with no
+// container, like dies:canonical; the judgement is checks.GradeCapabilitiesServed,
+// which the in-process runner calls too.
+//
+// A READ THAT FAILS IS A 2, NOT A MISSING FILE. The grader's reads cannot carry an
+// error out of a Glob, so the first one is held here and settles the verdict
+// afterwards: a tree that could not be listed must not read as "nothing declared".
+func diesCapabilitiesServed(ctx context.Context, r *run) checks.Verdict {
+	a := checks.AtomByID(checks.CapabilitiesServedID)
+	if stop := diesShape(ctx, r, a); stop != nil {
+		return *stop
+	}
+	var first error
+	note := func(err error) {
+		if first == nil {
+			first = err
+		}
+	}
+	v := checks.GradeCapabilitiesServed(a, checks.TreeReader{
+		Read: func(rel string) (string, error) {
+			s, err := r.src.File(rel).Contents(ctx)
+			if err != nil {
+				note(err)
+			}
+			return s, err
+		},
+		Glob: func(pattern string) []string {
+			m, err := r.src.Glob(ctx, pattern)
+			if err != nil {
+				note(err)
+			}
+			return m
+		},
+	})
+	if first != nil && v.State != 2 {
+		return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - the tree could not be read (%v).", a.ID, first))
+	}
+	return v
 }

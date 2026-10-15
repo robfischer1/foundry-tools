@@ -24,7 +24,7 @@ var diesAtoms = []string{
 	"dies:opa-test", "dies:admission-dogfood", "dies:data-keys",
 	"dies:canary-visibility", "dies:contracts", "dies:schema", "dies:findings",
 	"dies:schemas", "dies:wit-regenerated", "dies:schema-rendered", "dies:canonical",
-	"dies:wire-grammar", "dies:resource-referents", "dies:grants-stamp",
+	"dies:wire-grammar", "dies:resource-referents", "dies:grants-stamp", "dies:capabilities-served",
 }
 
 // diesBuiltAContainer reports whether anything pulled an image. Named for this
@@ -1560,4 +1560,43 @@ func TestDiesOpaTestRunsTheFleetDerivationWhereTheTreeCarriesIt(t *testing.T) {
 	withOpa()
 	engine.fail(`glob(pattern:"fleet/derive.rego")`, "gone")
 	wantState(t, runAtom(t, "dies:opa-test", ""), 2, "fleet/derive.rego could not be probed", "gone")
+}
+
+// ---- dies:capabilities-served ----
+
+// Declared exactly as served passes, a served verb the document omits is
+// findings (it would be denied to every caller), and neither side present is
+// absent. The judgement is shared with the in-process atom; this holds the
+// chain's own reads, in Go, with no container.
+func TestDiesCapabilitiesServedGradesDeclaredAgainstServed(t *testing.T) {
+	decl := "{\"stars\":{\"athena\":{\"prefix\":\"plan\",\"verbs\":[\"task_read\"],\"tier\":{\"task_read\":\"default\"}}}}\n"
+	files := map[string]string{
+		"fleet/repos/athena.json":         "{\"verb_prefix\":\"plan\"}\n",
+		"policy/capabilities/data.json":   decl,
+		"capabilities/served/athena.json": "{\"schema\":1,\"star\":\"athena\",\"verbs\":[\"task_read\"]}\n",
+	}
+	engine.reset()
+	engine.withTree(diesTree(files, "fleet/repos"))
+	wantState(t, runAtom(t, "dies:capabilities-served", ""), 0)
+	if diesBuiltAContainer() {
+		t.Error("the comparison is made in Go; no container should be built")
+	}
+
+	files["capabilities/served/athena.json"] = "{\"schema\":1,\"star\":\"athena\",\"verbs\":[\"task_read\",\"task_new\"]}\n"
+	engine.reset()
+	engine.withTree(diesTree(files, "fleet/repos"))
+	wantState(t, runAtom(t, "dies:capabilities-served", ""), 1, "served but not declared (denied to every caller): task_new")
+
+	engine.reset()
+	engine.withTree(diesTree(nil, "fleet/repos"))
+	engine.withTree(diesTree(map[string]string{"fleet/repos/athena.json": "{}\n"}, "fleet/repos"))
+	wantState(t, runAtom(t, "dies:capabilities-served", ""), 0)
+}
+
+// A tree that cannot be listed is could-not-run, never "nothing declared".
+func TestDiesCapabilitiesServedCannotRunOnATreeItCannotList(t *testing.T) {
+	engine.reset()
+	engine.withTree(diesTree(map[string]string{"fleet/repos/athena.json": "{}\n"}, "fleet/repos"))
+	engine.fail(`glob(pattern:"policy/capabilities/data.json")`, "the glob would not evaluate")
+	wantState(t, runAtom(t, "dies:capabilities-served", ""), 2, "could not be read", "would not evaluate")
 }
