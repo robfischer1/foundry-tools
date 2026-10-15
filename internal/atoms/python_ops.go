@@ -11,7 +11,7 @@ import (
 
 // THE OPS ATOMS THAT RUN THE TREE'S OWN CHECKER: ops:dup (infra's
 // tools/dup-check), ops:declaration (infra's tools/declaration-integrity) and
-// ops:metrics (flux's tools/metric-allowlist) and ops:star-sa (flux's tools/star-sa-list). They share the ops atoms' shape:
+// ops:metrics (flux's tools/metric-allowlist), ops:star-sa (flux's tools/star-sa-list) and ops:world-patches (flux's tools/world-patches). They share the ops atoms' shape:
 // the ops surface first, the checker's presence second (ABSENT before python is
 // asked anything), the version probe third, the checker last.
 //
@@ -102,6 +102,17 @@ func opsStarSA(ctx context.Context, a checks.AtomDef, in Input) checks.Verdict {
 	return opsRunChecker(ctx, a, in, opsChecker{
 		phase: "star-sa", tool: "star-sa-list", python: "python",
 		two: "\nstar-sa: could not read the ClusterSPIFFEID CRs or the policy — did not look",
+	})
+}
+
+// opsWorldPatches: a World's pod gets the pistis.star patches a star Deployment
+// gets (flux's tools/world-patches, pyyaml). A patch that misses Worlds, or a World
+// that writes out what a patch adds, freezes that World's pod (flux#18356). The tool
+// grades itself: 1 is drift, 2 is "could not read", could-not-run whatever its words were.
+func opsWorldPatches(ctx context.Context, a checks.AtomDef, in Input) checks.Verdict {
+	return opsRunChecker(ctx, a, in, opsChecker{
+		phase: "world-patches", tool: "world-patches", python: "python",
+		two: "\nworld-patches: could not read prime's kustomization or its Worlds — did not look",
 	})
 }
 

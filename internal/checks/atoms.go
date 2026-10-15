@@ -261,6 +261,10 @@ func atomTable() []AtomDef {
 			Desc: "The repo's own tools/star-sa-list (flux): the star-SA admission policy's generated SA list is the ClusterSPIFFEID CRs' SA list, or it names the drift (a stale list makes star-sa-guard fail open).",
 		},
 		{
+			ID: "ops:world-patches", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "The repo's own tools/world-patches (flux): every pistis.star patch in prime reaches Worlds as JSON6902, and no World writes out what a patch adds, or it names the drift (a World's pod freezes otherwise).",
+		},
+		{
 			ID: "ops:ansible", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every playbook under ansible/playbooks passes ansible-playbook --syntax-check and ansible-lint at profile min; the basic-profile count is reported, not gated.",
 		},
