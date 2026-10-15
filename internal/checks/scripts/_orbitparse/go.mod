@@ -2,11 +2,11 @@ module orbitparse
 
 go 1.26.6
 
-require git.notusmi.com/rob/stellar-core-go v0.149.1
+require git.notusmi.com/rob/stellar-core-go v0.164.0
 
 require (
 	github.com/BurntSushi/toml v1.6.0 // indirect
-	github.com/Microsoft/go-winio v0.6.3 // indirect
+	github.com/Microsoft/go-winio v0.6.4 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.5 // indirect
