@@ -140,7 +140,7 @@ func (s Surface) Mentions(line string) []Mention {
 // surface and none may be in the retired ledger.
 //
 // WHAT IS READ. The block library and the always-on documents of every render
-// (AGENTS.md, CLAUDE.md, APPEND_SYSTEM.md). The skills, hooks and agents a
+// (AGENTS.md, CLAUDE.md, APPEND_SYSTEM.md, .claude/CLAUDE.md). The skills, hooks and agents a
 // render carries are graded for retired names by fleet:retired-verbs, which
 // owns that surface.
 //

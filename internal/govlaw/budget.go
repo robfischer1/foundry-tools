@@ -21,8 +21,9 @@ const BudgetID = "law:budget"
 //	<provider> = <bytes>
 //
 // WHAT IS COUNTED. The bytes a session loads on every turn from a render: its
-// AGENTS.md, and its APPEND_SYSTEM.md where the provider has one. The CLAUDE.md
-// shim is a constant import line and is not counted.
+// AGENTS.md, its APPEND_SYSTEM.md where the provider has one, and its user-scope
+// .claude/CLAUDE.md where it has one. The root CLAUDE.md shim is a constant
+// import line and is not counted.
 //
 // THE RATCHET. A render over its ceiling is a finding, so a commit that grows a
 // context document past it can only land by raising the ceiling in the same
