@@ -2,8 +2,10 @@ package main
 
 import (
 	"strings"
+	"time"
 
 	"dagger/foundry-tools/internal/buildlane"
+	"dagger/foundry-tools/internal/checks"
 )
 
 // A PROCEDURAL LANE'S RECORD, AS PHASES — the shape the build lane proved and
@@ -38,6 +40,18 @@ type phases struct {
 	// what the phase now running has said.
 	atoms []AtomResult
 	lines []string
+	// mark is when the phase now running began: the lane's start, then each
+	// seal. The phases are a sequence, so one ends exactly where the next
+	// begins. Zero for a phases built as a literal; seal then starts that
+	// phase when it ends rather than leaving it untimed.
+	mark time.Time
+}
+
+// newPhases is a lane's record, its clock started. Both procedural lanes
+// build theirs here; a literal still works but times its first phase as
+// a zero span.
+func newPhases(group string, order []string) phases {
+	return phases{group: group, order: order, mark: atomClock()}
 }
 
 // say records what a phase reported AND prints it through the lane's own
@@ -55,12 +69,22 @@ func (p *phases) say(print func(string), line string) {
 // staying silent about it, and it is what lets Unreached mean "never ran"
 // instead of "said nothing".
 func (p *phases) seal(atom string, code int, reason string) {
+	// EVERY SEAL IS TIMED, so no lane built on phases can settle without
+	// started_at/finished_at (ci_atom: build and cast posted none until this).
+	end := atomClock()
+	start := p.mark
+	if start.IsZero() {
+		start = end
+	}
+	p.mark = end
 	p.atoms = append(p.atoms, AtomResult{
-		Atom:   atom,
-		Group:  p.group,
-		State:  code,
-		Result: phaseResult(code),
-		Reason: strings.TrimSpace(reason),
+		StartedAt:  start.UTC().Format(checks.TimeLayout),
+		FinishedAt: end.UTC().Format(checks.TimeLayout),
+		Atom:       atom,
+		Group:      p.group,
+		State:      code,
+		Result:     phaseResult(code),
+		Reason:     strings.TrimSpace(reason),
 		// NEVER NIL. The door's reader tolerates a null, but an empty list and
 		// an absent one read differently to anyone looking at the JSON, and
 		// "this phase printed nothing" is a fact worth being able to see.
