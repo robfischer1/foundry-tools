@@ -237,7 +237,12 @@ func OpaAllowed(doc string) ([]string, error) {
 // DiesRequiredDataRoots are the documents the policy actually reads. They are
 // asserted PRESENT and NON-EMPTY, by name, because an empty or partial data
 // document is the silent fail-open the bundle gate exists to catch.
-var DiesRequiredDataRoots = []string{"authz_audience", "authz_grants", "authz_meta", "path_grants", "subject_aliases"}
+//
+// capabilities (Capabilities S1) is the declared-capability root authz_v2.decide
+// reads first: an empty one denies every call to every star, so its absence from
+// the built bundle is a fail-CLOSED outage rather than a fail-open, and just as
+// silent at every source-tree gate.
+var DiesRequiredDataRoots = []string{"authz_audience", "authz_grants", "authz_meta", "path_grants", "subject_aliases", "capabilities"}
 
 // DiesDataKeys grades the BUILT bundle's data.json: which required roots are
 // missing or empty, and how many stars the star_only roster carried through the

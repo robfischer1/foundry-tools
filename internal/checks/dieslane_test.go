@@ -179,7 +179,8 @@ const fullDataJSON = `{
   "authz_grants": {"a": 1},
   "authz_meta": {"b": 2},
   "path_grants": {"c": 3},
-  "subject_aliases": {"d": 4}
+  "subject_aliases": {"d": 4},
+  "capabilities": {"stars": {"athena": {"prefix": "plan", "verbs": ["task_read"], "tier": {"task_read": "default"}}}}
 }`
 
 func TestDiesDataKeysPassesAFullBundleAndCountsTheRoster(t *testing.T) {
@@ -214,7 +215,7 @@ func TestDiesDataKeysTreatsEmptyAsMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := []string{"authz_grants", "path_grants", "subject_aliases"}
+	want := []string{"authz_grants", "path_grants", "subject_aliases", "capabilities"}
 	if !reflect.DeepEqual(missing, want) {
 		t.Errorf("got %v, want %v", missing, want)
 	}

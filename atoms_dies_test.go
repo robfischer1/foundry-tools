@@ -71,7 +71,8 @@ const diesData = `{
   "authz_grants": {"a": 1},
   "authz_meta": {"built": "yes"},
   "path_grants": {"p": ["r"]},
-  "subject_aliases": {"rob": "rob"}
+  "subject_aliases": {"rob": "rob"},
+  "capabilities": {"stars": {"chaos": {"prefix": "graph", "verbs": ["probe"], "tier": {"probe": "star_only"}}}}
 }`
 
 func opaEvalJSON(value string) string {
@@ -391,8 +392,8 @@ func TestDiesDataKeysGradesTheBuiltDataDocument(t *testing.T) {
 		{"every root, and the roster survived", diesData, 0, nil},
 		{"a root that is not there", `{"authz_grants":{"a":1},"authz_meta":{"b":1},"path_grants":{"c":1},"subject_aliases":{"d":1}}`, 1,
 			[]string{"missing/empty", "authz_audience", "reads ONLY files named data.json"}},
-		{"EMPTY COUNTS AS MISSING", `{"authz_audience":{},"authz_grants":{},"authz_meta":{},"path_grants":{},"subject_aliases":{}}`, 1,
-			[]string{"authz_audience", "authz_grants", "authz_meta", "path_grants", "subject_aliases"}},
+		{"EMPTY COUNTS AS MISSING", `{"authz_audience":{},"authz_grants":{},"authz_meta":{},"path_grants":{},"subject_aliases":{},"capabilities":{}}`, 1,
+			[]string{"authz_audience", "authz_grants", "authz_meta", "path_grants", "subject_aliases", "capabilities"}},
 		{"the silent fail-open, arriving exactly as described", `{}`, 1, []string{"missing/empty"}},
 		{"a shape this atom cannot read", `not json`, 2,
 			[]string{"a shape this atom cannot read", "no data document to grade"}},
