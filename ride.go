@@ -103,7 +103,7 @@ func (m *FoundryTools) startRide(ctx context.Context, tree, stage, ride, base st
 		defer func() {
 			if p := recover(); p != nil {
 				reason := fmt.Sprintf("the %s rider panicked inside the gate Job: %v", h.lane, p)
-				h.done <- stageResult(checks.SettleStage(h.lane, checks.CannotRunVector(h.lane, gradedStage(ride), reason)))
+				h.done <- stageResult(checks.SettleStage(h.lane, checks.CannotRunVector(h.lane, gradedStage(ride), reason, rideNow(), rideNow())))
 			}
 		}()
 		// THE RIDER'S OWN WALL CLOCK, start to end of its stage: the Job's is

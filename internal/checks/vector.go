@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // THE LANE'S VECTOR — the gate lane's decisions as pure functions over a
@@ -17,7 +18,10 @@ import (
 
 // CannotRunVector is the one-atom vector a gate settles on when it could not
 // grade: the lane's own name, state 2, and why (gate.py cannot_run_vector).
-func CannotRunVector(lane, stage, reason string) []Verdict {
+// started and finished are when the attempt began and when it gave up: the
+// atom never ran, but the settle still says when it tried, so no cannot-run
+// row reaches ci_atom without started_at.
+func CannotRunVector(lane, stage, reason string, started, finished time.Time) []Verdict {
 	if stage == "" {
 		stage = "prepush"
 	}
@@ -25,8 +29,8 @@ func CannotRunVector(lane, stage, reason string) []Verdict {
 	// output, so the explanation is all there is, and it belongs in logs as
 	// well as in the rendered reason.
 	logs, truncated, originalBytes := CaptureLogs(reason)
-	return []Verdict{{Atom: lane, Stage: stage, Lane: "any", State: int(StateCannotRun), Result: "cannot-run",
-		Reason: truncate(reason, 1200), Logs: logs, Truncated: truncated, OriginalBytes: originalBytes}}
+	return []Verdict{Timed(Verdict{Atom: lane, Stage: stage, Lane: "any", State: int(StateCannotRun), Result: "cannot-run",
+		Reason: truncate(reason, 1200), Logs: logs, Truncated: truncated, OriginalBytes: originalBytes}, started, finished)}
 }
 
 // ParseVector reads the module's vector, or the atoms binary's with its
