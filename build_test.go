@@ -1280,6 +1280,29 @@ func TestATipWhoseCommitTimeCannotBeReadPublishesNothing(t *testing.T) {
 	}
 }
 
+// THE RELEASE IS STAMPED FROM THE COMMIT TIME, so a release-copying star whose
+// commit time cannot be read stops at the release stage and compiles nothing.
+func TestAReleaseTipWhoseCommitTimeCannotBeReadCompilesNothing(t *testing.T) {
+	for name, c := range map[string]struct {
+		arm  func()
+		want string
+	}{
+		"the exec exits non-zero": {func() { engine.exitCode(commitTimeNeedle, 1) }, "could not run: the commit time could not be read (exit 1)"},
+		"git prints no time":      {func() { engine.stdout(commitTimeNeedle, "\n") }, "is not a unix timestamp"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := buildOn(t, releaseTree())
+			scriptATip()
+			c.arm()
+			tip(t, m)
+			settledOn(t, "2", c.want)
+			if engine.chain(`"-o","/out/ares"`) != "" || engine.chain("publish(") != "" {
+				t.Fatal("a release whose stamp could not be named was compiled or published")
+			}
+		})
+	}
+}
+
 // The stamp tag's push failing is the publish failing: could-not-run, and
 // nothing is signed or permitted.
 func TestATipWhoseStampPushFailsIsCouldNotRun(t *testing.T) {

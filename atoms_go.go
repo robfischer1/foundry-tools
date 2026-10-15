@@ -732,10 +732,9 @@ func (r *run) releaseBuild(ctx context.Context, plan checks.ReleasePlan, version
 	}
 	module := ""
 	if version != "" {
-		gomod, present, err := fileIfPresent(ctx, r.src, "go.mod")
-		if err != nil || !present {
-			return nil, fmt.Errorf("go.mod could not be read to stamp the version: %v", err)
-		}
+		// go.mod is there (the root-module check above); a body that names no
+		// module fails ReleaseStamp's module check below.
+		gomod, _, _ := fileIfPresent(ctx, r.src, "go.mod")
 		module = checks.GoModulePath(gomod)
 		if _, err := checks.ReleaseStamp(module, version); err != nil {
 			return nil, err
