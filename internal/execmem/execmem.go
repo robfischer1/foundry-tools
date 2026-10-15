@@ -14,6 +14,13 @@
 // printed as they change, and the last one printed before a kill is the one
 // the record keeps.
 //
+// PEAK IS NOT ANON. memory.peak counts the cgroup's page cache: a build that
+// reads and writes a few GiB of files shows a few GiB of "peak" that the kernel
+// reclaims under pressure and that never contributes to an OOM kill (the 11 GB
+// "builds" of a warm target volume were mostly this). So each reading also
+// carries anon_bytes, memory.stat's anon at the moment the peak was last
+// raised: the memory only the process can give back.
+//
 // A line is printed for the first reading, each new GiB of peak, and each
 // change of the OOM-kill count: a handful per run on stderr, never one a
 // second. READ IT AS A LOWER BOUND, as the engine's own line is: a peak
@@ -41,15 +48,24 @@ type Reading struct {
 	Peak    int64  // memory.peak, bytes
 	Max     string // memory.max as written: bytes, or "max"
 	OOMKill int64  // memory.events oom_kill
+	// Anon is memory.stat's anon at the time of this reading, bytes; -1 when
+	// memory.stat does not read. AnonAtPeak is the Anon of the reading at which
+	// Peak last rose (tracker fills it; Read leaves it equal to Anon).
+	Anon       int64
+	AnonAtPeak int64
 }
 
 // Line is the reading as printed.
 func (r Reading) Line() string {
-	return fmt.Sprintf("%s peak_bytes=%d memory_max=%s oom_kill=%d", Prefix, r.Peak, r.Max, r.OOMKill)
+	line := fmt.Sprintf("%s peak_bytes=%d memory_max=%s oom_kill=%d", Prefix, r.Peak, r.Max, r.OOMKill)
+	if r.AnonAtPeak >= 0 {
+		line += fmt.Sprintf(" anon_bytes=%d", r.AnonAtPeak)
+	}
+	return line
 }
 
-// Read reads dir's memory files. Only memory.peak is required: the other two
-// read as "unknown" and zero when absent.
+// Read reads dir's memory files. Only memory.peak is required: the others
+// read as "unknown", zero and -1 (no anon) when absent.
 func Read(dir string) (Reading, error) {
 	raw, err := os.ReadFile(filepath.Join(dir, "memory.peak"))
 	if err != nil {
@@ -59,7 +75,16 @@ func Read(dir string) (Reading, error) {
 	if err != nil {
 		return Reading{}, fmt.Errorf("memory.peak: %w", err)
 	}
-	r := Reading{Peak: peak, Max: "unknown"}
+	r := Reading{Peak: peak, Max: "unknown", Anon: -1, AnonAtPeak: -1}
+	if raw, err := os.ReadFile(filepath.Join(dir, "memory.stat")); err == nil {
+		for _, ln := range strings.Split(string(raw), "\n") {
+			if n, ok := strings.CutPrefix(ln, "anon "); ok {
+				if v, err := strconv.ParseInt(strings.TrimSpace(n), 10, 64); err == nil {
+					r.Anon, r.AnonAtPeak = v, v
+				}
+			}
+		}
+	}
 	if raw, err := os.ReadFile(filepath.Join(dir, "memory.max")); err == nil {
 		r.Max = strings.TrimSpace(string(raw))
 	}
@@ -129,25 +154,46 @@ func Run(args []string, dir string, every time.Duration, out io.Writer) int {
 	}(t)
 	err := cmd.Wait()
 	close(stop)
-	(<-done).sample(dir, out)
+	end := (<-done).sample(dir, out)
+	end.flush(out)
 	return exitCode(err)
 }
 
-// tracker is what has been printed: the last reading, and whether any was.
+// tracker is what has been read and what has been printed: last is the newest
+// reading (peak and its anon carried forward), shown the one on the last line.
 type tracker struct {
-	last    Reading
-	printed bool
+	last, shown Reading
+	printed     bool
 }
 
 // sample reads dir and prints the reading when it is due, answering the
 // tracker that follows. A cgroup that does not read prints nothing.
 func (t tracker) sample(dir string, out io.Writer) tracker {
 	now, err := Read(dir)
-	if err != nil || !due(t.last, now, t.printed) {
+	if err != nil {
+		return t
+	}
+	// The anon that goes with the peak is the one read when the peak rose; a
+	// tick that raised nothing keeps the earlier figure (the process may have
+	// shrunk since, and the anon AT THE PEAK is what is asked for).
+	if t.printed && now.Peak <= t.last.Peak {
+		now.Peak, now.AnonAtPeak = t.last.Peak, t.last.AnonAtPeak
+	}
+	t.last = now
+	if !due(t.shown, now, t.printed) {
 		return t
 	}
 	fmt.Fprintln(out, now.Line())
-	return tracker{last: now, printed: true}
+	t.shown, t.printed = now, true
+	return t
+}
+
+// flush prints the newest reading when it differs from the last line, so the
+// run's final peak and its anon are on record even inside the same GiB.
+func (t tracker) flush(out io.Writer) {
+	if t.printed && t.last != t.shown {
+		fmt.Fprintln(out, t.last.Line())
+	}
 }
 
 // exitCode is a waited command's code as a shell would report it.

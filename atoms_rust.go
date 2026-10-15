@@ -107,7 +107,59 @@ func cargoFetch(ctr *dagger.Container) *dagger.Container {
 // crates from THIS tree. The mutation lane and the release build compile
 // into target dirs of their own and branch from cargoDeps.
 func (r *run) cargoFresh() *dagger.Container {
-	return stampFresh(r.cargoDeps())
+	return stampFresh(cargoBounded(r.cargoDeps()))
+}
+
+// cargoBounded is the gate's memory and CPU bound for every atom that
+// COMPILES (clippy, test, release, wit-guest), set AFTER the fetch so the
+// fetch layer stays shared. Two knobs, both cargo's own environment:
+//
+//	CARGO_BUILD_JOBS=rustGateJobs  build.jobs. Unset it is nproc (24 on dev01),
+//	                               and a gate runs up to atomsInFlight (4) of
+//	                               these at once: 4 x 24 rustc/linker processes.
+//	CARGO_INCREMENTAL=0            the dev profile's incremental cache is a
+//	                               second copy of every workspace crate's
+//	                               codegen, written and mapped per unit, and a
+//	                               gate's target volume is rebuilt from a
+//	                               stamped tree anyway (stampFresh): the cache
+//	                               it fills is not one the next run reads.
+//
+// MEASURED (edison47 investigation, 2026-10-15): the defaults drove a 14G anon
+// spike in one gate and the 16:16Z dev01 OOM. The mutation atom has carried its
+// own caps since 2026-10-12 (rustMutantCores) and sets them after this, so its
+// four-job cap wins.
+func cargoBounded(ctr *dagger.Container) *dagger.Container {
+	return ctr.
+		WithEnvVariable("CARGO_BUILD_JOBS", strconv.Itoa(rustGateJobs)).
+		WithEnvVariable("CARGO_INCREMENTAL", "0")
+}
+
+// cargoLineTables is the debuginfo clippy and test need and no more. Debug=2
+// (cargo's dev and test default) is full DWARF for every crate, most of what
+// rustc and the linker move and hold. line-tables-only keeps file:line in a
+// backtrace and drops the type and variable info only a debugger reads. NOT
+// applied to the release build: that binary is the shipped artifact, and its
+// profile is the star's own.
+func cargoLineTables(ctr *dagger.Container) *dagger.Container {
+	return ctr.
+		WithEnvVariable("CARGO_PROFILE_DEV_DEBUG", rustGateDebug).
+		WithEnvVariable("CARGO_PROFILE_TEST_DEBUG", rustGateDebug)
+}
+
+// cargoMoldLink caps the threads mold links with, the way the mutation atom
+// does (rustMoldThreadsFlag): mold 1.10.1 has no environment knob, so the flag
+// rides CARGO_BUILD_RUSTFLAGS, the lowest of cargo's rustflags sources, and a
+// star's own RUSTFLAGS or target rustflags still win (losing only the cap).
+func cargoMoldLink(ctr *dagger.Container) *dagger.Container {
+	return ctr.WithEnvVariable("CARGO_BUILD_RUSTFLAGS", rustGateMoldThreadsFlag)
+}
+
+// moldRun runs argv with mold as the linker for the whole process tree
+// (LD_PRELOAD), so no RUSTFLAGS are overridden and a star's own
+// .cargo/config.toml still applies. mold is in the lane image
+// (provision, runtime.go: apt `mold`, probed with `mold --version`).
+func moldRun(argv []string) []string {
+	return append([]string{"mold", "-run"}, argv...)
 }
 
 // stampFresh dates the tree at /src past every artifact (checks.Unstale).
@@ -157,7 +209,7 @@ func rustCargoClippy(ctx context.Context, r *run) checks.Verdict {
 	for _, pkgs := range sets {
 		argv := append([]string{"cargo", "clippy"}, pkgs...)
 		argv = append(argv, "--all-targets", "--", "-W", "clippy::all", "-D", "warnings")
-		last = cargoVerdict(ctx, a, r.cargoFresh().WithExec(argv, anyExit))
+		last = cargoVerdict(ctx, a, cargoLineTables(r.cargoFresh()).WithExec(argv, anyExit))
 		if last.State != int(checks.StatePass) {
 			return last
 		}
@@ -253,7 +305,10 @@ func rustCargoTest(ctx context.Context, r *run) checks.Verdict {
 	// replace in between (withLockedCargoTarget, foundry-tools#16916).
 	// THE STAMP FOLLOWS gitReady (stampFresh says why): gitReady re-mounts /src
 	// for a linked worktree and would discard it.
-	lane := r.withLockedCargoTarget(stampFresh(r.gitReady(ctx, r.cargoDeps())))
+	//
+	// BOUNDED, LEAN DEBUGINFO, MOLD-LINKED (cargoBounded, cargoLineTables,
+	// cargoMoldLink): the test binaries are the biggest links the gate makes.
+	lane := cargoMoldLink(cargoLineTables(r.withLockedCargoTarget(stampFresh(r.gitReady(ctx, cargoBounded(r.cargoDeps()))))))
 
 	// ONE ARGUMENT SET PER CARGO RUN. The whole workspace is one; a repo that
 	// scopes per crate (rustScope) names the crates the pull reaches and, for a
@@ -270,7 +325,7 @@ func rustCargoTest(ctx context.Context, r *run) checks.Verdict {
 	var listed string
 	for _, set := range sets {
 		out, code, err := output(ctx, lane.WithExec(
-			append(append([]string{"cargo", "test"}, set...), "--", "--list"), anyExit))
+			moldRun(append(append([]string{"cargo", "test"}, set...), "--", "--list")), anyExit))
 		if err != nil {
 			return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
 		}
@@ -284,7 +339,7 @@ func rustCargoTest(ctx context.Context, r *run) checks.Verdict {
 	}
 	var last checks.Verdict
 	for _, set := range sets {
-		last = cargoVerdict(ctx, a, lane.WithExec(append([]string{"cargo", "test"}, set...), anyExit))
+		last = cargoVerdict(ctx, a, lane.WithExec(moldRun(append([]string{"cargo", "test"}, set...)), anyExit))
 		if last.State != int(checks.StatePass) {
 			return last
 		}
@@ -595,6 +650,21 @@ const (
 	// rustMutationDiff is the pull's diff as cargo mutants -D reads it.
 	rustMutationDiff = mutationDir + "/pr.diff"
 	rustMutationJobs = 2
+	// rustGateJobs is CARGO_BUILD_JOBS for the gate's compiling atoms (clippy,
+	// test, release, wit-guest), beside rustMutantCores, the mutation atom's.
+	// Why six: unset, cargo takes nproc (24 on dev01) and a gate runs up to
+	// atomsInFlight (4) atoms at once, so 96 rustc and linker processes could
+	// hold debug=2 codegen at the same time. That is the 14G anon spike and the
+	// 16:16Z dev01 OOM (edison47, 2026-10-15). Six is a quarter of the node
+	// per atom. Build time at six is not yet measured.
+	rustGateJobs = 6
+	// rustGateDebug is the debuginfo level of the dev and test profiles in the
+	// clippy and test atoms (cargoLineTables).
+	rustGateDebug = "line-tables-only"
+	// rustGateLinkThreads is mold's --thread-count for the test link, and
+	// rustGateMoldThreadsFlag its literal (kept in step by a test).
+	rustGateLinkThreads     = 4
+	rustGateMoldThreadsFlag = "-C link-arg=-Wl,--thread-count=4"
 	// THE LANE'S CPU SHARE, about 8 cores: rustMutationJobs mutants at
 	// rustMutantCores each. Measured 2026-10-12 01:46Z on dev01 (24 cores):
 	// load average 96, CPU PSI some ~0.70, seven 24-thread mold processes at

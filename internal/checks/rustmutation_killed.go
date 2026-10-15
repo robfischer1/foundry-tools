@@ -127,6 +127,9 @@ func rustMutationKilled(status int, log string, timeoutDetected bool) (int, stri
 	oomNote := ""
 	if mem != nil && mem[4] != "0" {
 		oomNote = fmt.Sprintf(", out of memory (oom_kill=%s at peak_bytes=%s of memory_max=%s)", mem[4], mem[2], mem[3])
+		if mem[5] != "" {
+			oomNote = strings.TrimSuffix(oomNote, ")") + ", anon_bytes=" + mem[5] + ")"
+		}
 	}
 	killed := fmt.Sprintf("killed (%s) after %s mutants%s", signalOf(status), count, oomNote)
 	head := "cargo mutants was " + killed + where + ". "
@@ -182,12 +185,15 @@ func rustMutationKilled(status int, log string, timeoutDetected bool) (int, stri
 // THE EXEC'S MEMORY, as execmem printed it while cargo mutants ran: the
 // cgroup's peak, its cap and its OOM-kill count, read every second. The last
 // line printed before a kill is the record; nothing can be read after one.
-var execMemoryLine = regexp.MustCompile(`^` + regexp.QuoteMeta(execmem.Prefix) + ` (peak_bytes=(\d+) memory_max=(\S+) oom_kill=(\d+))$`)
+// anon_bytes (optional: an older execmem prints none) is memory.stat's anon at
+// the peak, the part of the peak an OOM kill is about; the peak itself counts
+// page cache.
+var execMemoryLine = regexp.MustCompile(`^` + regexp.QuoteMeta(execmem.Prefix) + ` (peak_bytes=(\d+) memory_max=(\S+) oom_kill=(\d+)(?: anon_bytes=(\d+))?)$`)
 
 const execMemoryLead = "The exec's memory at its last reading (execmem, every second — a lower bound): "
 
 // execMemoryReading is the last reading in log as its submatches — the
-// reading, peak, cap, OOM-kill count — or nil when there is none.
+// reading, peak, cap, OOM-kill count, anon at peak or "" — or nil when there is none.
 func execMemoryReading(log string) []string {
 	var last []string
 	for _, ln := range strings.Split(log, "\n") {
