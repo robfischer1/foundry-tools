@@ -378,7 +378,19 @@ func (l *buildLane) stageRelease(ctx context.Context, img *Image) (int, string) 
 	if !buildlane.CopiesRelease(body) {
 		return buildlane.Clean, ""
 	}
-	release, err := l.m.Release(ctx)
+	// THE STAMP: the version the star reports is the stamp tag Flux rolls it
+	// from, {commit time}-{sha7}. It is read here, before the release is
+	// built, because the binary is where it goes (foundry-tools#18676).
+	tr := newRun(l.m.Source, l.m.Repo, "")
+	committed, rc, err := output(ctx, tr.gitReady(ctx, tr.lane(checks.ImageFleet)).WithExec([]string{"git", "log", "-1", "--format=%ct", "HEAD"}, anyExit))
+	if err != nil || rc != 0 {
+		return buildlane.CouldNotRun, fmt.Sprintf("could not run: the commit time could not be read (exit %d): %v %.200s", rc, err, committed)
+	}
+	version, err := buildlane.StampVersion(l.m.Sha, committed)
+	if err != nil {
+		return buildlane.CouldNotRun, "could not run: " + err.Error()
+	}
+	release, err := l.m.Release(ctx, version)
 	if err != nil {
 		// The error IS the release build's log: say it, and carry its last
 		// line in the verdict, or the door's reason reads "read its log

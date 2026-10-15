@@ -410,3 +410,21 @@ func TestAFaultIsTransientAndANotFoundIsNot(t *testing.T) {
 		}
 	}
 }
+
+// The version a star's binary is stamped with is the stamp tag without its
+// repo: what Flux rolls the star from is what the star reports.
+func TestStampVersionIsTheStampTagsTail(t *testing.T) {
+	v, err := StampVersion("0123456789abcdef", "1792086104\n")
+	if err != nil || v != "1792086104-0123456" {
+		t.Fatalf("%q %v", v, err)
+	}
+	tag, _ := StampTag("zot/techne", "0123456789abcdef", "1792086104\n")
+	if tag != "zot/techne:"+v {
+		t.Errorf("tag %q != repo:%q", tag, v)
+	}
+	for _, c := range [][2]string{{"abc", "1"}, {"0123456789", "x"}, {"0123456789", "0"}} {
+		if _, err := StampVersion(c[0], c[1]); err == nil {
+			t.Errorf("StampVersion(%q,%q) accepted", c[0], c[1])
+		}
+	}
+}

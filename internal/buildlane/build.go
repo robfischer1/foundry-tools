@@ -104,6 +104,17 @@ func GPin(pushRepo, sha string) (string, error) {
 // rerun of an older landing would carry a newer stamp and roll the star back.
 // committed is `git log -1 --format=%ct` verbatim, newline and all.
 func StampTag(pushRepo, sha, committed string) (string, error) {
+	v, err := StampVersion(sha, committed)
+	if err != nil {
+		return "", err
+	}
+	return pushRepo + ":" + v, nil
+}
+
+// StampVersion is the stamp tag without its repo, `{unix-ts}-{sha7}`: what a
+// star's binary is stamped with, so the version it reports is the tag Flux
+// rolled it from (foundry-tools#18676).
+func StampVersion(sha, committed string) (string, error) {
 	if len(sha) < 7 {
 		return "", fmt.Errorf("the commit %q is too short for a stamp tag", sha)
 	}
@@ -111,7 +122,7 @@ func StampTag(pushRepo, sha, committed string) (string, error) {
 	if n, err := strconv.ParseInt(ts, 10, 64); err != nil || n <= 0 {
 		return "", fmt.Errorf("the commit time %q is not a unix timestamp", ts)
 	}
-	return pushRepo + ":" + ts + "-" + sha[:7], nil
+	return ts + "-" + sha[:7], nil
 }
 
 // BuildArgs reads the root build-args.env — KEY=VALUE per line, blank lines

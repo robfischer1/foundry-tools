@@ -532,7 +532,7 @@ func goRelease(ctx context.Context, r *run) checks.Verdict {
 	if why != "" {
 		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+why)
 	}
-	ctr, err := r.releaseBuild(ctx, plan)
+	ctr, err := r.releaseBuild(ctx, plan, "")
 	if err != nil {
 		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+err.Error())
 	}
@@ -695,7 +695,12 @@ func (r *run) releasePlan(ctx context.Context, star, dockerfile string) (checks.
 // releaseBuild is the compile itself: one exec per binary, in the go lane, off
 // the root module. The container it answers carries /out, which is what F14
 // copies onto the base image.
-func (r *run) releaseBuild(ctx context.Context, plan checks.ReleasePlan) (*dagger.Container, error) {
+//
+// version "" IS THE GATE'S COMPILE and stamps nothing, so its exec is the same
+// one it always was. The build lane passes the stamp tag's version, which
+// exists only once the commit it builds does, and so compiles once more with
+// the version linked in (foundry-tools#18676: every star reported "dev").
+func (r *run) releaseBuild(ctx context.Context, plan checks.ReleasePlan, version string) (*dagger.Container, error) {
 	dirs, err := r.goModuleDirs(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("could not enumerate the tree's Go modules: %w", err)
@@ -725,9 +730,19 @@ func (r *run) releaseBuild(ctx context.Context, plan checks.ReleasePlan) (*dagge
 	} else {
 		base = goDownload(base, ".")
 	}
+	module := ""
+	if version != "" {
+		// go.mod is there (the root-module check above); a body that names no
+		// module fails ReleaseStamp's module check below.
+		gomod, _, _ := fileIfPresent(ctx, r.src, "go.mod")
+		module = checks.GoModulePath(gomod)
+		if _, err := checks.ReleaseStamp(module, version); err != nil {
+			return nil, err
+		}
+	}
 	ctr := base.WithEnvVariable("CGO_ENABLED", "0")
 	for _, b := range plan.Binaries {
-		ctr = ctr.WithExec(checks.GoReleaseArgs(b, plan.Vendored), anyExit)
+		ctr = ctr.WithExec(checks.GoReleaseStampedArgs(b, plan.Vendored, module, version), anyExit)
 	}
 	return ctr, nil
 }

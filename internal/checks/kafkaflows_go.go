@@ -112,7 +112,7 @@ func goFlows(files map[string]string, known KnownTopics) (flows []KafkaFlow, bad
 	sort.Strings(paths)
 	for _, p := range paths {
 		if path.Base(p) == "go.mod" {
-			if mod := goModulePath(files[p]); mod != "" {
+			if mod := GoModulePath(files[p]); mod != "" {
 				ix.modules[mod] = path.Dir(p)
 			}
 			continue
@@ -134,8 +134,8 @@ func goFlows(files map[string]string, known KnownTopics) (flows []KafkaFlow, bad
 	return flows, bad
 }
 
-// goModulePath is a go.mod's module path.
-func goModulePath(mod string) string {
+// GoModulePath is a go.mod's module path.
+func GoModulePath(mod string) string {
 	for _, line := range strings.Split(mod, "\n") {
 		if f := strings.Fields(line); len(f) >= 2 && f[0] == "module" {
 			return strings.Trim(f[1], `"`)

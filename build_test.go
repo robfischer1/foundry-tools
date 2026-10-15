@@ -1110,6 +1110,25 @@ func TestADockerfileThatCopiesFromReleaseGetsTheGatesArtifact(t *testing.T) {
 	settledOn(t, "0", "clean: built ares at 0123456789ab")
 }
 
+// THE STAMP (foundry-tools#18676): the binary the tip's release build links
+// carries the version Flux rolls the star from, {committer time}-{sha7} — the
+// same string the stamp tag ends in — so a star's build_info names its tag.
+func TestATipsReleaseIsStampedWithItsStampTag(t *testing.T) {
+	m := buildOn(t, releaseTree())
+	scriptATip()
+	tip(t, m)
+	want := buildCommitted + "-" + buildSha[:7]
+	release := engine.chain(`"-o","/out/ares"`)
+	if release == "" {
+		t.Fatalf("the release build never ran:\n%v", engine.chains())
+	}
+	for _, x := range []string{"-X main.Version=" + want, "-X main.version=" + want} {
+		if !strings.Contains(release, x) {
+			t.Errorf("the release compile lacks %q:\n%s", x, release)
+		}
+	}
+}
+
 // A Dockerfile that still carries its own build stage asks for nothing: no
 // release build runs, and the context is the tree as fetched — which is what
 // lets the fleet flip one star at a time.
@@ -1145,7 +1164,7 @@ func TestARustDockerfileThatCopiesFromReleaseGetsTheGatesArtifact(t *testing.T) 
 	if engine.chain(`"cargo","build","--release","--locked","-p","ares"`) == "" {
 		t.Fatalf("the rust release build never ran:\n%v", engine.chains())
 	}
-	if engine.chain(`"go","build","-trimpath","-ldflags=-s -w"`) != "" {
+	if engine.chain(`"go","build","-trimpath","-ldflags=-s -w`) != "" {
 		t.Errorf("a Rust star got a Go release compile:\n%v", engine.chains())
 	}
 	wantCalls(t, engine.chain("dockerBuild", "sync"),
@@ -1170,8 +1189,8 @@ func TestARustDockerfileThatCopiesFromReleaseGetsTheGatesArtifact(t *testing.T) 
 func TestATipWhoseReleaseDoesNotBuildIsFindingsAndPublishesNothing(t *testing.T) {
 	m := buildOn(t, releaseTree())
 	scriptATip()
-	engine.exitCode(`"go","build","-trimpath","-ldflags=-s -w"`, 1)
-	engine.stderr(`"go","build","-trimpath","-ldflags=-s -w"`, "cmd/ares/main.go:2: undefined: x")
+	engine.exitCode(`"go","build","-trimpath","-ldflags=-s -w -X main.Version=`, 1)
+	engine.stderr(`"go","build","-trimpath","-ldflags=-s -w -X main.Version=`, "cmd/ares/main.go:2: undefined: x")
 	tip(t, m)
 	settledOn(t, "1", "findings in the release build")
 	settledOn(t, "1", "undefined: x") // the compiler's words reach the verdict, not only the log
@@ -1184,7 +1203,7 @@ func TestATipWhoseReleaseDoesNotBuildIsFindingsAndPublishesNothing(t *testing.T)
 func TestATipWhoseReleaseHitsAFaultIsCouldNotRun(t *testing.T) {
 	m := buildOn(t, releaseTree())
 	scriptATip()
-	engine.fail(`"go","build","-trimpath","-ldflags=-s -w"`, "dial tcp: i/o timeout")
+	engine.fail(`"go","build","-trimpath","-ldflags=-s -w -X main.Version=`, "dial tcp: i/o timeout")
 	tip(t, m)
 	settledOn(t, "2", "could not run: the release build failed on a network fault")
 	if engine.chain("publish(") != "" {
@@ -1256,6 +1275,29 @@ func TestATipWhoseCommitTimeCannotBeReadPublishesNothing(t *testing.T) {
 			settledOn(t, "2", c.want)
 			if engine.chain("publish(") != "" {
 				t.Fatal("a tip whose commit time did not read was published")
+			}
+		})
+	}
+}
+
+// THE RELEASE IS STAMPED FROM THE COMMIT TIME, so a release-copying star whose
+// commit time cannot be read stops at the release stage and compiles nothing.
+func TestAReleaseTipWhoseCommitTimeCannotBeReadCompilesNothing(t *testing.T) {
+	for name, c := range map[string]struct {
+		arm  func()
+		want string
+	}{
+		"the exec exits non-zero": {func() { engine.exitCode(commitTimeNeedle, 1) }, "could not run: the commit time could not be read (exit 1)"},
+		"git prints no time":      {func() { engine.stdout(commitTimeNeedle, "\n") }, "is not a unix timestamp"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := buildOn(t, releaseTree())
+			scriptATip()
+			c.arm()
+			tip(t, m)
+			settledOn(t, "2", c.want)
+			if engine.chain(`"-o","/out/ares"`) != "" || engine.chain("publish(") != "" {
+				t.Fatal("a release whose stamp could not be named was compiled or published")
 			}
 		})
 	}

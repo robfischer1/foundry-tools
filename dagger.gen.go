@@ -1747,7 +1747,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return (*FoundryTools).Release(&parent, ctx)
+			var version string
+			if inputArgs["version"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["version"]), &version)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg version", err))
+				}
+			}
+			return (*FoundryTools).Release(&parent, ctx, version)
 		case "Rust":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
