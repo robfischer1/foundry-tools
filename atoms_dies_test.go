@@ -453,7 +453,7 @@ func TestDiesCanaryVisibilityProbesBothPrincipalsAgainstTheBundle(t *testing.T) 
 		wantCalls(t, c,
 			[]string{"withNewFile", `path:"/tmp/probe-` + principal + `.json"`, `\"type\":\"` + principal + `\"`, `chaos_probe`},
 			[]string{"withExec", "expect:ANY",
-				`args:["opa","eval","-b","/tmp/dies-bundle.tar.gz","-i","/tmp/probe-` + principal + `.json","--format","json","data.authz.visible.allowed"]`},
+				`args:["opa","eval","-b","/tmp/dies-bundle.tar.gz","-i","/tmp/probe-` + principal + `.json","--format","json","data.authz.callable.allowed"]`},
 		)
 	}
 }
