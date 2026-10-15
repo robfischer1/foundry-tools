@@ -192,6 +192,15 @@ func TestDiesCapabilitiesServed(t *testing.T) {
 			"fleet/repos/athena.json": "{\"verb_prefix\":\"plan\"}\n", "policy/capabilities/data.json": decl,
 			"capabilities/served/athena.json": "{\"schema\":1,\"star\":\"athena\",\"verbs\":[]}\n",
 		}), 1, findings, []string{"declared but not served: task_read"}},
+		{"a declaration landed beside the path the gate reads is findings, not absent", dieTree(map[string]string{
+			"fleet/repos/athena.json": "{\"verb_prefix\":\"plan\"}\n", "policy/capabilities/stars/data.json": decl,
+		}), 1, findings, []string{"not policy/capabilities/data.json"}},
+		{"a document with no stars key is findings even with no exports", dieTree(map[string]string{
+			"policy/capabilities/data.json": "{}\n",
+		}), 1, findings, []string{"no \"stars\" object"}},
+		{"declared with no export committed is findings", dieTree(map[string]string{
+			"fleet/repos/athena.json": "{\"verb_prefix\":\"plan\"}\n", "policy/capabilities/data.json": decl,
+		}), 1, findings, []string{"athena: declared in policy/capabilities/data.json but no served-verbs export"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			expect(t, runAtom(t, id, treeIn(t, tc.files)), stateOf(tc.state), tc.result, tc.needles...)

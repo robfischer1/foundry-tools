@@ -23,7 +23,8 @@ import (
 // in the bundle; CapabilitiesServedDir is where each star's export is committed
 // (<star>.json), kept OUTSIDE policy/ so no bundle build can load it.
 const (
-	CapabilitiesData      = "policy/capabilities/data.json"
+	CapabilitiesDir       = "policy/capabilities"
+	CapabilitiesData      = CapabilitiesDir + "/data.json"
 	CapabilitiesServedDir = "capabilities/served"
 )
 

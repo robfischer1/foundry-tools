@@ -33,7 +33,13 @@ func GradeCapabilitiesServed(a AtomDef, tr TreeReader) Verdict {
 	declaredPaths := tr.Glob(CapabilitiesData)
 	servedPaths := tr.Glob(CapabilitiesServedDir + "/*.json")
 	sort.Strings(servedPaths)
-	if len(declaredPaths) == 0 && len(servedPaths) == 0 {
+	// ABSENT MUST NOT OUTLIVE THE DATA. If the capabilities root lands anywhere
+	// under policy/capabilities/ other than CapabilitiesData (a sibling file, a
+	// nested data.json), an ABSENT keyed on the one path would pass forever while
+	// the real declaration drifts. So any file there without CapabilitiesData is a
+	// finding naming the path this gate reads, never an absence.
+	stray := append(tr.Glob(CapabilitiesDir+"/*"), tr.Glob(CapabilitiesDir+"/*/*")...)
+	if len(declaredPaths) == 0 && len(servedPaths) == 0 && len(stray) == 0 {
 		return VerdictOf(a, int(StatePass), a.ID+": ABSENT - this tree carries neither "+CapabilitiesData+" nor a served-verbs export under "+CapabilitiesServedDir+"/, so no capability is declared or served to compare.")
 	}
 	cannot := func(format string, args ...any) Verdict {
@@ -41,6 +47,10 @@ func GradeCapabilitiesServed(a AtomDef, tr TreeReader) Verdict {
 	}
 
 	var findings []string
+	if len(declaredPaths) == 0 && len(stray) > 0 {
+		sort.Strings(stray)
+		findings = append(findings, fmt.Sprintf("%s/ carries %s but not %s, the document this gate reads - the declaration is somewhere it does not look", CapabilitiesDir, strings.Join(stray, ", "), CapabilitiesData))
+	}
 	var declared Capabilities
 	if len(declaredPaths) > 0 {
 		raw, err := tr.Read(CapabilitiesData)
@@ -49,8 +59,13 @@ func GradeCapabilitiesServed(a AtomDef, tr TreeReader) Verdict {
 		}
 		// Lenient on extra keys: the document will grow (tx, per-verb data) and a
 		// gate about verb names must not turn red on a field it does not read.
+		var top map[string]json.RawMessage
 		if err := json.Unmarshal([]byte(raw), &declared); err != nil {
 			findings = append(findings, fmt.Sprintf("%s: not a capabilities document (%v)", CapabilitiesData, err))
+		} else if _ = json.Unmarshal([]byte(raw), &top); top["stars"] == nil || string(top["stars"]) == "null" {
+			// A document without its one key declares nothing, and with no exports
+			// committed it would pass as "0 verbs across 0 stars".
+			findings = append(findings, fmt.Sprintf("%s: no \"stars\" object - a capabilities document that declares nothing is not one", CapabilitiesData))
 		}
 	}
 
