@@ -41,6 +41,7 @@ const (
 	contextDocName  = "AGENTS.md"
 	appendDocName   = "APPEND_SYSTEM.md"
 	shimDocName     = "CLAUDE.md"
+	userDocName     = ".claude/CLAUDE.md"
 	spansFileInside = ".furnace/spans.json"
 )
 
@@ -125,10 +126,12 @@ func (t Tree) matching(re *regexp.Regexp) (paths []string, groups map[string][]s
 
 var blockRe = regexp.MustCompile(`^` + regexp.QuoteMeta(blocksDir) + `([^/]+)\.md$`)
 
-// renderDoc is renders/<consumer>/<provider>/<file> for one of the three
-// always-on documents.
+// renderDoc is renders/<consumer>/<provider>/<file> for one of the always-on
+// documents: the root AGENTS.md, APPEND_SYSTEM.md and shim CLAUDE.md, and the
+// user-scope .claude/CLAUDE.md (a real document Claude Code loads every
+// session, unlike the root shim).
 var renderDocRe = regexp.MustCompile(`^renders/([^/]+)/([^/]+)/(` +
-	regexp.QuoteMeta(contextDocName) + `|` + regexp.QuoteMeta(shimDocName) + `|` + regexp.QuoteMeta(appendDocName) + `)$`)
+	regexp.QuoteMeta(contextDocName) + `|` + regexp.QuoteMeta(shimDocName) + `|` + regexp.QuoteMeta(appendDocName) + `|` + regexp.QuoteMeta(userDocName) + `)$`)
 
 // blockStems is the block library's names, sorted. The assembler names a block
 // by its file stem.

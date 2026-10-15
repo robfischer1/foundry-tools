@@ -107,3 +107,19 @@ func TestBudgetAddsAProvidersDocumentsAndNotAnotherRenders(t *testing.T) {
 	want(t, r, StateFindings, "renders/vault/pi: 100 bytes")
 	wantNot(t, r, "forge-root")
 }
+
+func TestBudgetCountsAUserScopeClaudeMdAndStillSkipsTheRootShim(t *testing.T) {
+	user := map[string]string{
+		"renders/home/claude/.claude/CLAUDE.md": strings.Repeat("u", 50),
+		"renders/home/claude/CLAUDE.md":         strings.Repeat("s", 900),
+	}
+	r := Budget(budgetTree(exactBudget, user))
+	want(t, r, StateFindings, "renders/home/claude: 50 bytes of always-on context and no ceiling in budget.toml")
+	wantNot(t, r, "forge-root", "vault", "950")
+
+	r = Budget(budgetTree(exactBudget+"[budget.home]\nclaude = 5000\n", user))
+	want(t, r, StatePass, "3 render(s) are within their always-on ceilings")
+
+	r = Budget(budgetTree(exactBudget+"[budget.home]\nclaude = 49\n", user))
+	want(t, r, StateFindings, "renders/home/claude: 50 bytes of always-on context is 1 over its ceiling of 49")
+}
