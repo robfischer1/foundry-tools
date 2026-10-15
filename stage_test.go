@@ -235,7 +235,7 @@ func TestReleaseAnswersTheBuiltBinariesOrSaysWhyNot(t *testing.T) {
 	}
 	engine.reset()
 	engine.withTree(tree)
-	dir, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background())
+	dir, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background(), "")
 	if err != nil || dir == nil {
 		t.Fatalf("dir %v err %v", dir, err)
 	}
@@ -248,7 +248,7 @@ func TestReleaseAnswersTheBuiltBinariesOrSaysWhyNot(t *testing.T) {
 	engine.withTree(tree)
 	engine.exitCode(`"go","build","-trimpath"`, 1)
 	engine.stderr(`"go","build","-trimpath"`, "main.go:1: undefined: x")
-	if dir, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err == nil || dir != nil {
+	if dir, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background(), ""); err == nil || dir != nil {
 		t.Errorf("a failed release build is an error, got dir %v err %v", dir, err)
 	} else if !strings.Contains(err.Error(), "undefined: x") {
 		t.Errorf("the error carries the compiler's own words: %v", err)
@@ -260,7 +260,7 @@ func TestReleaseAnswersTheBuiltBinariesOrSaysWhyNot(t *testing.T) {
 	engine.withTree(map[string]string{
 		"Dockerfile": "FROM x\n", ".copier-answers.yml": "service_name: hades\n", "go.mod": "module x\n", "cmd/hades/main.go": "package main\n",
 	})
-	if dir, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err == nil || dir != nil || !strings.Contains(err.Error(), "no tracked Dockerfile copies from release/") {
+	if dir, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background(), ""); err == nil || dir != nil || !strings.Contains(err.Error(), "no tracked Dockerfile copies from release/") {
 		t.Errorf("dir %v err %v", dir, err)
 	}
 	if engine.chain(`"go","build"`) != "" {
@@ -271,14 +271,14 @@ func TestReleaseAnswersTheBuiltBinariesOrSaysWhyNot(t *testing.T) {
 	engine.reset()
 	engine.withTree(tree)
 	engine.failLeaf(`file(path:"Dockerfile")`, "contents", "the file went away")
-	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err == nil || !strings.Contains(err.Error(), "Dockerfile could not be read") {
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "Dockerfile could not be read") {
 		t.Errorf("err %v", err)
 	}
 
 	// A repo that names no star cannot name a binary either.
 	engine.reset()
 	engine.withTree(map[string]string{"go.mod": "module x\n"})
-	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err == nil || !strings.Contains(err.Error(), "names no star") {
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "names no star") {
 		t.Errorf("err %v", err)
 	}
 
@@ -292,7 +292,7 @@ func TestReleaseAnswersTheBuiltBinariesOrSaysWhyNot(t *testing.T) {
 		"tools/go.mod":        "module x\n",
 		"cmd/hades/main.go":   "package main\n",
 	})
-	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err == nil || !strings.Contains(err.Error(), "no go.mod at the repository root") {
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "no go.mod at the repository root") {
 		t.Errorf("err %v", err)
 	}
 
@@ -300,7 +300,7 @@ func TestReleaseAnswersTheBuiltBinariesOrSaysWhyNot(t *testing.T) {
 	engine.reset()
 	engine.withTree(tree)
 	engine.fail(`"go","build","-trimpath"`, "the engine went away")
-	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err == nil || !strings.Contains(err.Error(), "the engine went away") {
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "the engine went away") {
 		t.Errorf("err %v", err)
 	}
 }
@@ -319,7 +319,7 @@ func TestReleaseBuildsARustStarWithCargoAndHandsOverItsBinaries(t *testing.T) {
 	}
 	engine.reset()
 	engine.withTree(tree)
-	dir, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background())
+	dir, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background(), "")
 	if err != nil || dir == nil {
 		t.Fatalf("dir %v err %v", dir, err)
 	}
@@ -357,7 +357,7 @@ func TestReleaseBuildsARustStarWithCargoAndHandsOverItsBinaries(t *testing.T) {
 	engine.withTree(tree)
 	engine.exitCode(`"-p","tron"`, 101)
 	engine.stderr(`"-p","tron"`, "error[E0425]: cannot find value `x`")
-	if dir, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err == nil || dir != nil {
+	if dir, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background(), ""); err == nil || dir != nil {
 		t.Errorf("a failed release build is an error, got dir %v err %v", dir, err)
 	} else if !strings.Contains(err.Error(), "E0425") {
 		t.Errorf("the error carries the compiler's own words: %v", err)
@@ -367,7 +367,7 @@ func TestReleaseBuildsARustStarWithCargoAndHandsOverItsBinaries(t *testing.T) {
 	engine.reset()
 	engine.withTree(tree)
 	engine.withTree(map[string]string{"Dockerfile": "FROM x\nCOPY release/-x /tron\n"})
-	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err == nil || !strings.Contains(err.Error(), "is not a binary name") {
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "is not a binary name") {
 		t.Errorf("err %v", err)
 	}
 	if engine.chain(`"cargo","build"`) != "" {
@@ -378,7 +378,7 @@ func TestReleaseBuildsARustStarWithCargoAndHandsOverItsBinaries(t *testing.T) {
 	engine.reset()
 	engine.withTree(tree)
 	engine.withTree(map[string]string{"go.mod": "module x\n"})
-	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err == nil || !strings.Contains(err.Error(), "both a Cargo.toml and a root go.mod") {
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "both a Cargo.toml and a root go.mod") {
 		t.Errorf("err %v", err)
 	}
 
@@ -387,7 +387,7 @@ func TestReleaseBuildsARustStarWithCargoAndHandsOverItsBinaries(t *testing.T) {
 	engine.reset()
 	engine.withTree(tree)
 	engine.fail(`"-p","tron"`, "dial tcp: i/o timeout")
-	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err == nil || !strings.Contains(err.Error(), "did not run") || !strings.Contains(err.Error(), "i/o timeout") {
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "did not run") || !strings.Contains(err.Error(), "i/o timeout") {
 		t.Errorf("err %v", err)
 	}
 
@@ -395,7 +395,7 @@ func TestReleaseBuildsARustStarWithCargoAndHandsOverItsBinaries(t *testing.T) {
 	engine.reset()
 	engine.withTree(tree)
 	engine.fail("entries", "the root went away")
-	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err == nil || !strings.Contains(err.Error(), "the root went away") {
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "the root went away") {
 		t.Errorf("err %v", err)
 	}
 }
@@ -796,7 +796,7 @@ func TestTheGatesReleaseAndTheBuildLanesReleaseShareOneExecKey(t *testing.T) {
 
 	engine.reset()
 	engine.withTree(tree)
-	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background()); err != nil {
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background(), ""); err != nil {
 		t.Fatal(err)
 	}
 	build := engine.chain(compile)

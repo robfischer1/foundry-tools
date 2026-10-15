@@ -266,7 +266,7 @@ func TestReleaseFollowsTheImagesBase(t *testing.T) {
 
 	engine.reset()
 	engine.withTree(pythonStar())
-	dir, err := (&FoundryTools{Source: dag.Directory()}).Release(ctx)
+	dir, err := (&FoundryTools{Source: dag.Directory()}).Release(ctx, "")
 	if err != nil || dir == nil {
 		t.Fatalf("dir %v err %v", dir, err)
 	}
@@ -287,7 +287,7 @@ func TestReleaseFollowsTheImagesBase(t *testing.T) {
 	// A bun star's release is its steps' release/.
 	engine.reset()
 	engine.withTree(bunStar())
-	dir, err = (&FoundryTools{Source: dag.Directory()}).Release(ctx)
+	dir, err = (&FoundryTools{Source: dag.Directory()}).Release(ctx, "")
 	if err != nil || dir == nil {
 		t.Fatalf("dir %v err %v", dir, err)
 	}
@@ -303,14 +303,14 @@ func TestReleaseFollowsTheImagesBase(t *testing.T) {
 	engine.withTree(pythonStar())
 	engine.exitCode(`"uv","sync"`, 2)
 	engine.stderr(`"uv","sync"`, "error: The lockfile needs to be updated")
-	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(ctx); err == nil || !strings.Contains(err.Error(), "the release build failed") {
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(ctx, ""); err == nil || !strings.Contains(err.Error(), "the release build failed") {
 		t.Errorf("err %v", err)
 	}
 	engine.reset()
 	engine.withTree(bunStar())
 	engine.exitCode(`"bun","run","release"`, 1)
 	engine.stderr(`"bun","run","release"`, `error: Script not found "release"`)
-	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(ctx); err == nil || !strings.Contains(err.Error(), "Script not found") {
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(ctx, ""); err == nil || !strings.Contains(err.Error(), "Script not found") {
 		t.Errorf("a bun star with no release script: err %v", err)
 	}
 
@@ -319,14 +319,14 @@ func TestReleaseFollowsTheImagesBase(t *testing.T) {
 	engine.reset()
 	engine.withTree(pythonStar())
 	engine.fail("glob", "the tree went away")
-	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(ctx); err == nil || !strings.Contains(err.Error(), "the tree could not be read") {
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(ctx, ""); err == nil || !strings.Contains(err.Error(), "the tree could not be read") {
 		t.Errorf("err %v", err)
 	}
 	engine.reset()
 	engine.withTree(bunStar())
 	engine.exitCode(`"bun","install","--frozen-lockfile"`, 127)
 	engine.stderr(`"bun","install","--frozen-lockfile"`, "bun: not found")
-	if dir, err := (&FoundryTools{Source: dag.Directory()}).Release(ctx); err == nil || dir != nil || !strings.Contains(err.Error(), "the release build did not run") {
+	if dir, err := (&FoundryTools{Source: dag.Directory()}).Release(ctx, ""); err == nil || dir != nil || !strings.Contains(err.Error(), "the release build did not run") {
 		t.Errorf("dir %v err %v", dir, err)
 	}
 
@@ -337,10 +337,54 @@ func TestReleaseFollowsTheImagesBase(t *testing.T) {
 		".copier-answers.yml": "service_name: mnemosyne\n",
 		"Dockerfile":          "FROM " + goBase + "\nCOPY release/mnemosyne /mnemosyne\n",
 	})
-	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(ctx); err != nil {
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(ctx, ""); err != nil {
 		t.Fatalf("err %v", err)
 	}
 	if engine.chain(`"go","build"`) == "" || engine.chain(`"uv","sync"`) != "" {
 		t.Errorf("a go-based image was not compiled by the go lane:\n%v", engine.chains())
+	}
+}
+
+// THE STAMP REACHES THE COMPILE (foundry-tools#18676): Release(version) links
+// the version in with the module path go.mod names, and Release("") — the
+// Gate's compile — links nothing, so its exec is the one the cache holds.
+func TestReleaseStampsTheVersionOnlyWhenAsked(t *testing.T) {
+	tree := map[string]string{
+		"Dockerfile":          copiesHades,
+		".copier-answers.yml": "service_name: hades\n",
+		"go.mod":              "module git.notusmi.com/rob/hades\n",
+		"cmd/hades/main.go":   "package main\n",
+	}
+	ctx := context.Background()
+
+	engine.reset()
+	engine.withTree(tree)
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(ctx, "1792086104-b3db6f1"); err != nil {
+		t.Fatal(err)
+	}
+	c := engine.chain(`"-o","/out/hades"`)
+	for _, want := range []string{
+		`-X main.version=1792086104-b3db6f1`,
+		`-X git.notusmi.com/rob/hades/internal/config.Version=1792086104-b3db6f1`,
+	} {
+		if !strings.Contains(c, want) {
+			t.Errorf("the compile lacks %q:\n%v", want, engine.chains())
+		}
+	}
+
+	engine.reset()
+	engine.withTree(tree)
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	if c := engine.chain(`"-o","/out/hades"`); c == "" || strings.Contains(c, "-X ") {
+		t.Errorf("the Gate's compile is stamped:\n%v", engine.chains())
+	}
+
+	// A version that would split the ldflags is refused before any compile.
+	engine.reset()
+	engine.withTree(tree)
+	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(ctx, "1 -X main.evil=x"); err == nil {
+		t.Error("an unsafe version was stamped")
 	}
 }

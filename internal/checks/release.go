@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -184,13 +185,60 @@ func ReleaseStepState(code int, out string) int {
 }
 
 // GoReleaseArgs is one binary's compile, as an argv: the fleet's flags, vendor
-// when the module vendors, and the output under ReleaseOut.
+// when the module vendors, and the output under ReleaseOut. It stamps no
+// version: this is the Gate's compile, which runs before the commit that will
+// carry the tag exists.
 func GoReleaseArgs(b ReleaseBinary, vendored bool) []string {
+	return GoReleaseStampedArgs(b, vendored, "", "")
+}
+
+// stampSafe is what a module path or version may be made of: it is spliced
+// into one -ldflags string that go splits on spaces and quotes.
+var stampSafe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/+~-]*$`)
+
+// ReleaseStamp is the -X list that stamps version into a Go binary built from
+// module (a go.mod's module path). THE LINKER IGNORES A -X NAMING A SYMBOL THE
+// BINARY LACKS, so one list covers every convention the fleet's stars keep
+// their version var in, measured 2026-10-15 over the Go stars carrying a
+// string var: main.version (athena, techne, themis ...), main.Version
+// (nereus), <module>/internal/config.Version (eros, kairos, harmonia),
+// <module>/internal/verbs.Version (athena, iris, mnemosyne ...) and
+// <module>/verbs.Version (chaos). A const cannot be set by -X (thalia,
+// aletheia, ares ...): those stars own a change of their own.
+func ReleaseStamp(module, version string) (string, error) {
+	if !stampSafe.MatchString(version) {
+		return "", fmt.Errorf("the version %q cannot be stamped into -ldflags", version)
+	}
+	if !stampSafe.MatchString(module) {
+		return "", fmt.Errorf("the module path %q cannot be named in -ldflags", module)
+	}
+	var out []string
+	for _, sym := range []string{"main.Version", "main.version", module + "/internal/config.Version", module + "/internal/verbs.Version", module + "/verbs.Version"} {
+		out = append(out, "-X "+sym+"="+version)
+	}
+	return strings.Join(out, " "), nil
+}
+
+// GoReleaseStampedArgs is GoReleaseArgs with the version stamped in. An empty
+// version stamps nothing (the Gate's compile). A version or module that
+// ReleaseStamp refuses also stamps nothing here; the caller validated it
+// first, so this is the argv builder and not the gate.
+func GoReleaseStampedArgs(b ReleaseBinary, vendored bool, module, version string) []string {
 	args := []string{"go", "build"}
 	if vendored {
 		args = append(args, "-mod=vendor")
 	}
-	args = append(args, ReleaseFlags...)
+	flags := slices.Clone(ReleaseFlags)
+	if version != "" {
+		if x, err := ReleaseStamp(module, version); err == nil {
+			for i, f := range flags {
+				if strings.HasPrefix(f, "-ldflags=") {
+					flags[i] = f + " " + x
+				}
+			}
+		}
+	}
+	args = append(args, flags...)
 	return append(args, "-o", path.Join(ReleaseOut, b.Name), b.Package)
 }
 

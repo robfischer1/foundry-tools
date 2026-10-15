@@ -470,7 +470,15 @@ func stageResult(st checks.Stage) *StageResult {
 // Go lane's build, a Cargo.toml the Rust lane's, and a tree declaring both is
 // refused — two toolchains that each build a <star> would hand over whichever
 // ran last.
-func (m *FoundryTools) Release(ctx context.Context) (*dagger.Directory, error) {
+//
+// version stamps a Go binary's version var (checks.ReleaseStamp); the build
+// lane passes its stamp tag's version, the Gate passes none and so stays the
+// exec the cache already holds. Other lanes ignore it.
+func (m *FoundryTools) Release(
+	ctx context.Context,
+	// +optional
+	version string,
+) (*dagger.Directory, error) {
 	r := newRun(m.Source, m.Repo, "")
 	star, err := r.starName(ctx)
 	if err != nil {
@@ -510,7 +518,7 @@ func (m *FoundryTools) Release(ctx context.Context) (*dagger.Directory, error) {
 	if why != "" {
 		return nil, errors.New(why)
 	}
-	ctr, err := r.releaseBuild(ctx, plan)
+	ctr, err := r.releaseBuild(ctx, plan, version)
 	if err != nil {
 		return nil, err
 	}

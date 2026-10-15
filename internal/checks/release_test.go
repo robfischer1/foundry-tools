@@ -234,3 +234,67 @@ func TestReleaseStepStateReadsWhoseFaultAFailureWas(t *testing.T) {
 		}
 	}
 }
+
+// THE STAMP: foundry-tools#18676/#18695 — every star the lane built reported
+// version=dev because the release flags never named the version. The linker
+// ignores a -X naming a symbol the binary lacks, so one flag set covers the
+// fleet's conventions: main.Version / main.version, and the config and verbs
+// packages the stars keep a var in.
+func TestGoReleaseStampedArgsStampEveryConvention(t *testing.T) {
+	p, err := GoReleasePlan("techne", []string{"techne"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := GoReleaseStampedArgs(p.Binaries[0], p.Vendored, "git.notusmi.com/rob/techne", "1792086104-b3db6f1")
+	want := "go build -trimpath -ldflags=-s -w" +
+		" -X main.Version=1792086104-b3db6f1 -X main.version=1792086104-b3db6f1" +
+		" -X git.notusmi.com/rob/techne/internal/config.Version=1792086104-b3db6f1" +
+		" -X git.notusmi.com/rob/techne/internal/verbs.Version=1792086104-b3db6f1" +
+		" -X git.notusmi.com/rob/techne/verbs.Version=1792086104-b3db6f1" +
+		" -o /out/techne ./cmd/techne"
+	if s := strings.Join(got, " "); s != want {
+		t.Errorf("argv\n got %q\nwant %q", s, want)
+	}
+	// The ldflags are ONE argv element: go splits it on spaces itself.
+	n := 0
+	for _, a := range got {
+		if strings.HasPrefix(a, "-ldflags=") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("%d -ldflags elements in %q", n, got)
+	}
+}
+
+// No version, no stamp: the gate's go:release stays byte-identical to what it
+// was, which is what lets the build lane's later compile be the only new one.
+func TestGoReleaseArgsUnstampedWhenNoVersion(t *testing.T) {
+	p, _ := GoReleasePlan("ourea", []string{"ourea"}, true)
+	a := strings.Join(GoReleaseArgs(p.Binaries[0], p.Vendored), " ")
+	b := strings.Join(GoReleaseStampedArgs(p.Binaries[0], p.Vendored, "git.notusmi.com/rob/ourea", ""), " ")
+	if a != b || strings.Contains(a, "-X") {
+		t.Errorf("unstamped argv differs:\n%q\n%q", a, b)
+	}
+}
+
+// A version or module that could break out of the ldflags string is refused.
+func TestReleaseStampRefusesWhatSplitsLdflags(t *testing.T) {
+	for _, c := range []struct{ module, version string }{
+		{"m", "1 -X main.evil=x"}, {"m", `a"b`}, {"m", "a'b"}, {"m", ""},
+		{"m x", "1-abc"}, {"", "1-abc"}, {"m\"", "1-abc"},
+	} {
+		if _, err := ReleaseStamp(c.module, c.version); err == nil {
+			t.Errorf("ReleaseStamp(%q, %q) accepted", c.module, c.version)
+		}
+	}
+	if _, err := ReleaseStamp("git.notusmi.com/rob/x", "1792086104-b3db6f1"); err != nil {
+		t.Errorf("a stamp tag was refused: %v", err)
+	}
+}
+
+func TestGoModulePathReadsTheModuleLine(t *testing.T) {
+	if got := GoModulePath("// c\nmodule git.notusmi.com/rob/x\n\ngo 1.22\n"); got != "git.notusmi.com/rob/x" {
+		t.Errorf("%q", got)
+	}
+}
