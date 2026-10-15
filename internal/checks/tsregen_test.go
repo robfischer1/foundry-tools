@@ -133,15 +133,16 @@ func TestRegenProvListsPinsAndCoreCopiesInTheScriptsOrder(t *testing.T) {
 		pins[2].Label != "tape" || pins[2].Pin.Path != "t.json" {
 		t.Fatalf("%+v", pins)
 	}
-	copies := p.CoreCopies("stamp")
-	if len(copies) != 2 || copies[0] != (CoreCopy{"wit/aiws-stamp.wit", "w"}) || copies[1] != (CoreCopy{"wit/aiws-result.wit", "r"}) {
+	copies := p.CoreCopies()
+	// The guest's copy is at the pinned wit.path, whatever the world is called.
+	if len(copies) != 2 || copies[0] != (CoreCopy{"wit/a.wit", "w"}) || copies[1] != (CoreCopy{"wit/aiws-result.wit", "r"}) {
 		t.Fatalf("%+v", copies)
 	}
 	p.WITResult = nil
 	if got := p.Pins(); len(got) != 2 || got[1].Label != "tape" {
 		t.Fatalf("%+v", got)
 	}
-	if got := p.CoreCopies("stamp"); len(got) != 1 {
+	if got := p.CoreCopies(); len(got) != 1 {
 		t.Fatalf("%+v", got)
 	}
 }

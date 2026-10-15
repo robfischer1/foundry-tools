@@ -8,7 +8,7 @@ import (
 	"dagger/foundry-tools/internal/checks"
 )
 
-var opsIDs = []string{"ops:shell", "ops:chezmoi", "ops:yaml", "ops:dup", "ops:declaration", "ops:specs", "ops:metrics", "ops:star-sa", "ops:ansible", "ops:flux"}
+var opsIDs = []string{"ops:shell", "ops:chezmoi", "ops:yaml", "ops:dup", "ops:declaration", "ops:specs", "ops:metrics", "ops:star-sa", "ops:world-patches", "ops:ansible", "ops:flux"}
 
 // A star is not an ops tree: every ops atom stands down ABSENT without a
 // container, whatever scripts and YAML the star happens to carry. The lane
@@ -200,7 +200,7 @@ func TestOpsYAML(t *testing.T) {
 // otherwise; dup-check must be tracked executable; console-specs' own 2 is
 // could-not-run.
 func TestOpsRepoTools(t *testing.T) {
-	tools := map[string]string{"flux/a.yaml": "", "tools/dup-check": "", "tools/declaration-integrity": "", "tools/console-specs": "", "tools/metric-allowlist": "", "tools/star-sa-list": ""}
+	tools := map[string]string{"flux/a.yaml": "", "tools/dup-check": "", "tools/declaration-integrity": "", "tools/console-specs": "", "tools/metric-allowlist": "", "tools/star-sa-list": "", "tools/world-patches": ""}
 	exec := map[string]string{"tools/dup-check": "100755"}
 	for _, c := range []struct {
 		id, needle string
@@ -211,6 +211,7 @@ func TestOpsRepoTools(t *testing.T) {
 		{"ops:specs", `"tools/console-specs"`, `args:["uv","run","--isolated","--no-project","--with","pyyaml","python","tools/console-specs","--check"]`},
 		{"ops:metrics", `"tools/metric-allowlist"`, `args:["uv","run","--isolated","--no-project","--with","pyyaml","python","tools/metric-allowlist"]`},
 		{"ops:star-sa", `"tools/star-sa-list"`, `args:["uv","run","--isolated","--no-project","--with","pyyaml","python","tools/star-sa-list"]`},
+		{"ops:world-patches", `"tools/world-patches"`, `args:["uv","run","--isolated","--no-project","--with","pyyaml","python","tools/world-patches"]`},
 	} {
 		opsTree(tools, exec)
 		wantState(t, runAtom(t, c.id, ""), 0)
@@ -242,12 +243,17 @@ func TestOpsRepoTools(t *testing.T) {
 	engine.stdout(`"tools/star-sa-list"`, "could not read identity/")
 	wantState(t, runAtom(t, "ops:star-sa", ""), 2, "could not read identity/", "star-sa: could not read the ClusterSPIFFEID CRs or the policy — did not look")
 
+	opsTree(tools, exec)
+	engine.exitCode(`"tools/world-patches"`, 2)
+	engine.stdout(`"tools/world-patches"`, "could not read prime/kustomization.yaml")
+	wantState(t, runAtom(t, "ops:world-patches", ""), 2, "could not read prime/kustomization.yaml", "world-patches: could not read prime's kustomization or its Worlds — did not look")
+
 	// A python checker that crashes (a missing pyyaml) exits 1 like a finding;
 	// the traceback makes it could-not-run, for every python checker.
 	crash := "Traceback (most recent call last):\n  File \"tools/x\", line 3, in <module>\nModuleNotFoundError: No module named 'yaml'\n"
 	for _, c := range []struct{ id, needle string }{
 		{"ops:dup", `"tools/dup-check"`}, {"ops:declaration", `"tools/declaration-integrity"`}, {"ops:specs", `"tools/console-specs"`},
-		{"ops:metrics", `"tools/metric-allowlist"`}, {"ops:star-sa", `"tools/star-sa-list"`},
+		{"ops:metrics", `"tools/metric-allowlist"`}, {"ops:star-sa", `"tools/star-sa-list"`}, {"ops:world-patches", `"tools/world-patches"`},
 	} {
 		opsTree(tools, exec)
 		engine.exitCode(c.needle, 1)

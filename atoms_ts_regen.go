@@ -116,7 +116,7 @@ func (r *run) regenWorld(ctx context.Context, world string) checks.RegenWorldRes
 
 	// 2. The core at its recorded commit carries the very same WIT.
 	core := dag.Git(checks.TSRegenCoreGit).Commit(p.Core.Commit).Tree(dagger.GitRefTreeOpts{DiscardGitDir: true})
-	for _, c := range p.CoreCopies(world) {
+	for _, c := range p.CoreCopies() {
 		text := rd.text(core.File(c.Path), "core "+c.Path+"@"+p.Core.Commit)
 		probes = append(probes, checks.RegenProbe{
 			Label: "core " + c.Path + " (guest's own copy)", Got: checks.SHA256Hex(text), Pinned: c.SHA256})

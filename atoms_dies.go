@@ -359,6 +359,15 @@ func diesDataKeys(ctx context.Context, r *run) checks.Verdict {
 // the fail-open. A curated verb INVISIBLE to a star principal is the opposite
 // error and just as wrong: curation that narrowed both audiences instead of one.
 //
+// THE PROBE ASKS `callable`, NOT `visible` (authz F5). The canary's question is
+// the AUDIENCE tier: does the built bundle still keep a star_only verb from a
+// session principal? `callable` is exactly that gate in both trees (v1's
+// call_admits; authz_v2's audience + adjudication hide). Since the F5 flip
+// `visible` also filters by the principal's grant EFFECT, so the placeholder
+// subject "s" (no grants) lists nothing for either type and the probe would
+// read an empty session list as a broken roster. visible ⊆ callable holds by
+// construction, so a verb `callable` hides is hidden from tools/list too.
+//
 // THE PROBE INPUT IS A FILE, NOT A REDIRECT. `--stdin-input` needed a `<` and a
 // `<` needs a shell; `-i /tmp/probe-<principal>.json` asks opa the same question
 // with the file placed by the engine, which is also why each probe is its own
@@ -393,7 +402,7 @@ func diesCanaryVisibility(ctx context.Context, r *run) checks.Verdict {
 			WithNewFile(path, in).
 			WithExec([]string{
 				"opa", "eval", "-b", "/tmp/dies-bundle.tar.gz", "-i", path,
-				"--format", "json", "data.authz.visible.allowed",
+				"--format", "json", "data.authz.callable.allowed",
 			}, anyExit))
 		if err != nil {
 			return nil, refuse(err.Error())

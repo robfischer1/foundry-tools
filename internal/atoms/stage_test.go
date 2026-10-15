@@ -30,7 +30,7 @@ func TestStageIDs(t *testing.T) {
 		"dies:canonical", "dies:refusal-codes", "dies:opa-test",
 		"dies:contracts", "dies:contract-copies", "dies:schema", "dies:findings", "dies:schemas",
 		"dies:wit-regenerated", "dies:schema-rendered", "dies:wire-grammar", "dies:resource-referents", "dies:capabilities-served", "law:lint", "law:verb-liveness", "law:budget",
-		"ops:yaml", "ops:shell", "ops:chezmoi", "ops:flux", "ops:dup", "ops:declaration", "ops:specs", "ops:metrics", "ops:star-sa", "ops:ansible",
+		"ops:yaml", "ops:shell", "ops:chezmoi", "ops:flux", "ops:dup", "ops:declaration", "ops:specs", "ops:metrics", "ops:star-sa", "ops:world-patches", "ops:ansible",
 	}
 	for _, tc := range []struct {
 		stage string

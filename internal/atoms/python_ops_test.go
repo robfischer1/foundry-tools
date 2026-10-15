@@ -43,6 +43,7 @@ func TestOpsPythonCheckers(t *testing.T) {
 		{"ops:declaration", "declaration-integrity", "python", nil, false},
 		{"ops:metrics", "metric-allowlist", "python", nil, false},
 		{"ops:star-sa", "star-sa-list", "python", nil, false},
+		{"ops:world-patches", "world-patches", "python", nil, false},
 		{"ops:specs", "console-specs", "python", []string{"--check"}, false},
 	} {
 		t.Run(tc.id, func(t *testing.T) {
@@ -147,6 +148,12 @@ func TestOpsPythonCheckers(t *testing.T) {
 		expect(t, runAtom(t, "ops:star-sa", in), stateOf(1), findings, "stale: star-sa-admission.yaml", "star-sa failed (rc=1) — findings")
 		in, _ = checkerTree(t, "star-sa-list", 0o755, func(Cmd) (string, int) { return "could not read identity/", 2 })
 		expect(t, runAtom(t, "ops:star-sa", in), stateOf(2), cannot, "could not read identity/", "star-sa: could not read the ClusterSPIFFEID CRs or the policy — did not look")
+	})
+	t.Run("ops:world-patches: drift is a finding, and the tool's 2 is a could-not-run", func(t *testing.T) {
+		in, _ := checkerTree(t, "world-patches", 0o755, func(Cmd) (string, int) { return "World narcissus: writes out env", 1 })
+		expect(t, runAtom(t, "ops:world-patches", in), stateOf(1), findings, "World narcissus: writes out env", "world-patches failed (rc=1) — findings")
+		in, _ = checkerTree(t, "world-patches", 0o755, func(Cmd) (string, int) { return "could not read prime/", 2 })
+		expect(t, runAtom(t, "ops:world-patches", in), stateOf(2), cannot, "could not read prime/", "world-patches: could not read prime's kustomization or its Worlds — did not look")
 	})
 	t.Run("ops:declaration has no exit-2 case: any other exit is a finding, as the chain settled it", func(t *testing.T) {
 		in, _ := checkerTree(t, "declaration-integrity", 0o755, func(Cmd) (string, int) { return "a payload is undeclared", 2 })
