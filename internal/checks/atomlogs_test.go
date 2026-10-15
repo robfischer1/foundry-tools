@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 // atomFor is a minimal AtomDef for the verdict-shape tests.
@@ -104,7 +105,7 @@ func TestReasonIsUnchangedByTheCapture(t *testing.T) {
 // A CANNOT-RUN VECTOR'S REASON IS ITS EVIDENCE — there was no run to produce
 // output, so the explanation is all there is.
 func TestCannotRunVectorCarriesItsReasonAsLines(t *testing.T) {
-	vs := CannotRunVector("gate", "prepush", "the engine could not fetch the tree")
+	vs := CannotRunVector("gate", "prepush", "the engine could not fetch the tree", time.Time{}, time.Time{})
 	if len(vs) != 1 {
 		t.Fatalf("want one verdict, got %d", len(vs))
 	}

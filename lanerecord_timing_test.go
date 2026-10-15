@@ -1,9 +1,7 @@
 package main
 
 import (
-	"os"
-	"path/filepath"
-	"regexp"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -88,28 +86,57 @@ func assertTimed(t *testing.T, s *StageResult) {
 	}
 }
 
-// A NEW LANE OR ATOM PATH CANNOT SKIP TIMING SILENTLY. An AtomResult is built
-// in exactly two places: phases.seal (the procedural lanes, timed there) and
-// stageResult (the gate's atoms, which arrive timed by checks.Timed). A third
-// literal is a path nobody stamps, so it fails here until it is routed through
-// one of the two or added to this list with its reason.
-func TestAtomResultsAreBuiltOnlyWhereTheyAreTimed(t *testing.T) {
-	allowed := map[string]bool{"lanerecord.go": true, "stage.go": true}
-	lit := regexp.MustCompile(`\bAtomResult\{`)
-	files, err := filepath.Glob("*.go")
+// EVERY ATOM THAT RAN, ON ANY PATH THAT REACHES THE RECORD, CARRIES BOTH TIMES.
+// This renders the record the door reads and checks the wire, so it holds for
+// a path no regex over the source would find (a `var a AtomResult`, a
+// make([]AtomResult, n), a checks.Verdict literal): the cannot-run vector was
+// exactly that, and settled untimed on the gate and orbit lanes.
+func assertRecordTimed(t *testing.T, name string, s *StageResult) {
+	t.Helper()
+	rec, err := s.Record()
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range files {
-		if strings.HasSuffix(f, "_test.go") || f == "dagger.gen.go" || allowed[f] {
+	var wire struct{ Atoms, Omitted []map[string]any }
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(rec, runRecordSentinel+" ")), &wire); err != nil {
+		t.Fatal(err)
+	}
+	if len(wire.Atoms)+len(wire.Omitted) == 0 {
+		t.Fatalf("%s: the record carries no atoms", name)
+	}
+	for _, a := range append(wire.Atoms, wire.Omitted...) {
+		if a["Result"] == "absent" {
 			continue
 		}
-		src, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if lit.Match(src) {
-			t.Errorf("%s builds an AtomResult outside phases.seal / stageResult: it would settle untimed", f)
+		for _, k := range []string{"started_at", "finished_at"} {
+			if v, _ := a[k].(string); v == "" {
+				t.Errorf("%s: atom %v settled with no %s: %v", name, a["Atom"], k, a)
+			}
 		}
 	}
+}
+
+// A GATE THAT COULD NOT GRADE (no repo, a tree the engine could not fetch, a
+// mismatched tree, a rider's panic) STILL SAYS WHEN IT TRIED.
+func TestCannotRunVectorsAreTimedOnTheRecord(t *testing.T) {
+	tickingClock(t)
+	m := &FoundryTools{}
+	for _, lane := range []string{"gate", "orbit", "check"} {
+		vector, state := m.gradeTree(t.Context(), lane, "tree", "", "")
+		if state != int(checks.StateCannotRun) {
+			t.Fatalf("%s: want cannot-run, got %d", lane, state)
+		}
+		assertRecordTimed(t, lane+" cannot-run", stageResult(checks.SettleStage(lane, vector)))
+	}
+	at := atomClock()
+	assertRecordTimed(t, "rider panic",
+		stageResult(checks.SettleStage("orbit", checks.CannotRunVector("orbit", "prepush", "panicked", at, at))))
+}
+
+// A GRADED VECTOR'S ATOMS ARE TIMED, the ones that ran; absent ones carry none.
+func TestAGradedVectorIsTimedOnTheRecord(t *testing.T) {
+	tickingClock(t)
+	ran := checks.Timed(checks.VerdictOf(checks.AtomDef{ID: "go:vet"}, 0, "ok"), atomClock(), atomClock())
+	absent := checks.AbsentVerdict(checks.AtomDef{ID: "rust:fmt"})
+	assertRecordTimed(t, "graded", stageResult(checks.SettleStage("gate", []checks.Verdict{ran, absent})))
 }

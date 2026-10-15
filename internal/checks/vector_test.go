@@ -3,14 +3,15 @@ package checks
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestACannotRunVectorIsOneAtomAtStateTwo(t *testing.T) {
-	v := CannotRunVector("gate", "", strings.Repeat("x", 2000))
+	v := CannotRunVector("gate", "", strings.Repeat("x", 2000), time.Time{}, time.Time{})
 	if len(v) != 1 || v[0].Atom != "gate" || v[0].Stage != "prepush" || v[0].State != int(StateCannotRun) || v[0].Result != "cannot-run" || len(v[0].Reason) != 1200 {
 		t.Fatalf("%+v", v)
 	}
-	if v := CannotRunVector("mutation", "mutation", "why"); v[0].Stage != "mutation" || v[0].Reason != "why" {
+	if v := CannotRunVector("mutation", "mutation", "why", time.Time{}, time.Time{}); v[0].Stage != "mutation" || v[0].Reason != "why" {
 		t.Fatalf("%+v", v)
 	}
 	if Worst(v) != int(StateCannotRun) {

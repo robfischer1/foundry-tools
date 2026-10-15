@@ -263,8 +263,9 @@ func laneOf(stage string) string {
 // gradeTree proves the tree and answers the vector and its worst state. Every
 // reason the grading could not happen is a one-atom cannot-run vector.
 func (m *FoundryTools) gradeTree(ctx context.Context, lane, tree, stage, base string) ([]checks.Verdict, int) {
+	started := atomClock()
 	cannot := func(reason string) ([]checks.Verdict, int) {
-		return checks.CannotRunVector(lane, stage, reason), int(checks.StateCannotRun)
+		return checks.CannotRunVector(lane, stage, reason, started, atomClock()), int(checks.StateCannotRun)
 	}
 	if m.Repo == "" || m.Sha == "" {
 		return cannot("the gate grades a commit the engine fetched — construct the module with --repo and --sha")
