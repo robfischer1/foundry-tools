@@ -68,7 +68,7 @@ func TestDiesCanonical(t *testing.T) {
 	}
 }
 
-const goodData = `{"authz_audience":{"star_only":{"chaos":["v"],"nyx":["w"]}},"authz_grants":{"a":1},"authz_meta":{"a":1},"path_grants":{"a":1},"subject_aliases":{"a":1}}`
+const goodData = `{"authz_audience":{"star_only":{"chaos":["v"],"nyx":["w"]}},"authz_grants":{"a":1},"authz_meta":{"a":1},"path_grants":{"a":1},"subject_aliases":{"a":1},"capabilities":{"stars":{"athena":{"prefix":"plan","verbs":["task_read"],"tier":{"task_read":"default"}}}}}`
 
 // fakeOpa answers for opa, tar and git the way the tools do, recording each call.
 type fakeOpa struct {
@@ -104,7 +104,7 @@ func TestDiesDataKeys(t *testing.T) {
 		needles []string
 	}{
 		{"every data root present passes", fakeOpa{version: pinned, tarOut: goodData}, 0, pass, []string{"data roots ok; star_only carries 2 stars"}},
-		{"an empty root is the fail-open", fakeOpa{version: pinned, tarOut: `{"authz_audience":{},"authz_grants":{"a":1},"authz_meta":{"a":1},"path_grants":{"a":1},"subject_aliases":{"a":1}}`},
+		{"an empty root is the fail-open", fakeOpa{version: pinned, tarOut: `{"authz_audience":{},"authz_grants":{"a":1},"authz_meta":{"a":1},"path_grants":{"a":1},"subject_aliases":{"a":1},"capabilities":{"stars":{"athena":{"prefix":"plan","verbs":["task_read"],"tier":{"task_read":"default"}}}}}`},
 			1, findings, []string{"bundle data.json is missing/empty: [authz_audience]"}},
 		{"a bundle with no data.json member is a finding", fakeOpa{version: pinned, tarOut: "tar: /data.json: Not found in archive", tarCode: 2}, 1, findings,
 			[]string{"carries NO data.json member at all", "Not found in archive"}},
