@@ -136,26 +136,26 @@ func TestRustCargoTestListsTheSuiteBeforeItRunsIt(t *testing.T) {
 	list := engine.chain(`"--list"`, "exitCode")
 	wantCalls(t, list,
 		[]string{"withExec", `args:["cargo","fetch","--locked"]`},
-		[]string{"withExec", `expect:ANY`, `args:["cargo","test","--workspace","--","--list"]`},
+		[]string{"withExec", `expect:ANY`, `args:["mold","-run","cargo","test","--workspace","--","--list"]`},
 	)
-	run := engine.chain(`args:["cargo","test","--workspace"]`, "exitCode")
+	run := engine.chain(`args:["mold","-run","cargo","test","--workspace"]`, "exitCode")
 	wantCalls(t, run,
 		[]string{"withExec", `args:["cargo","fetch","--locked"]`},
-		[]string{"withExec", `expect:ANY`, `args:["cargo","test","--workspace"]`},
+		[]string{"withExec", `expect:ANY`, `args:["mold","-run","cargo","test","--workspace"]`},
 	)
 	if strings.Contains(run, "--list") {
 		t.Errorf("the suite run is its own chain off the fetched layer, not the listing's:\n%s", run)
 	}
 
 	// The suite itself, in cargo's vocabulary.
-	engine.exitCode(`args:["cargo","test","--workspace"]`, 101)
-	engine.stdout(`args:["cargo","test","--workspace"]`, "test lane::works ... FAILED")
+	engine.exitCode(`args:["mold","-run","cargo","test","--workspace"]`, 101)
+	engine.stdout(`args:["mold","-run","cargo","test","--workspace"]`, "test lane::works ... FAILED")
 	wantState(t, runAtom(t, "rust:cargo-test", ""), 1, "FAILED")
 
-	engine.exitCode(`args:["cargo","test","--workspace"]`, 1)
+	engine.exitCode(`args:["mold","-run","cargo","test","--workspace"]`, 1)
 	wantState(t, runAtom(t, "rust:cargo-test", ""), 1)
 
-	engine.exitCode(`args:["cargo","test","--workspace"]`, 137)
+	engine.exitCode(`args:["mold","-run","cargo","test","--workspace"]`, 137)
 	wantState(t, runAtom(t, "rust:cargo-test", ""), 2)
 }
 
@@ -171,11 +171,11 @@ func TestRustCargoTestRunsInATreeGitCanRead(t *testing.T) {
 
 	wantState(t, runAtom(t, "rust:cargo-test", ""), 0)
 
-	run := engine.chain(`args:["cargo","test","--workspace"]`, "exitCode")
+	run := engine.chain(`args:["mold","-run","cargo","test","--workspace"]`, "exitCode")
 	wantCalls(t, run,
 		[]string{"withExec", `args:["git","init","-q","."]`},
 		[]string{"withExec", `args:["git","add","-A"]`},
-		[]string{"withExec", `expect:ANY`, `args:["cargo","test","--workspace"]`},
+		[]string{"withExec", `expect:ANY`, `args:["mold","-run","cargo","test","--workspace"]`},
 	)
 	swap := lastCall(run, "withMountedDirectory", `path:"/src"`)
 	gitInit := strings.Index(run, `"git","init"`)
@@ -190,7 +190,7 @@ func TestRustCargoTestRunsInATreeGitCanRead(t *testing.T) {
 	engine.withTree(everyLaneTree)
 	engine.stdout(`"--list"`, "a::b: test\n")
 	wantState(t, runAtom(t, "rust:cargo-test", ""), 0)
-	if hasCall(engine.chain(`args:["cargo","test","--workspace"]`, "exitCode"), "withExec", `"git","init"`) {
+	if hasCall(engine.chain(`args:["mold","-run","cargo","test","--workspace"]`, "exitCode"), "withExec", `"git","init"`) {
 		t.Errorf("a primary checkout needs no throwaway repository")
 	}
 }
@@ -208,7 +208,7 @@ func TestRustCargoTestReadsTheListingsOwnAnswers(t *testing.T) {
 	if v := runAtom(t, "rust:cargo-test", ""); strings.Contains(v.Reason, "aborting due to") {
 		t.Errorf("only the FIRST diagnostic is named; the rest is fallout:\n%s", v.Reason)
 	}
-	if engine.chain(`args:["cargo","test","--workspace"]`) != "" {
+	if engine.chain(`args:["mold","-run","cargo","test","--workspace"]`) != "" {
 		t.Error("a listing that would not build must not run the suite")
 	}
 
@@ -226,7 +226,7 @@ func TestRustCargoTestReadsTheListingsOwnAnswers(t *testing.T) {
 	engine.withTree(everyLaneTree)
 	engine.stdout(`"--list"`, "\n0 tests, 0 benchmarks\n")
 	wantState(t, runAtom(t, "rust:cargo-test", ""), 1, "no test in the workspace")
-	if engine.chain(`args:["cargo","test","--workspace"]`) != "" {
+	if engine.chain(`args:["mold","-run","cargo","test","--workspace"]`) != "" {
 		t.Error("a workspace with no test must not run the suite")
 	}
 
@@ -245,7 +245,7 @@ func TestRustCargoTestReadsTheListingsOwnAnswers(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	engine.stdout(`"--list"`, "a::b: test\n")
-	engine.fail(`args:["cargo","test","--workspace"]`, "the mount would not evaluate")
+	engine.fail(`args:["mold","-run","cargo","test","--workspace"]`, "the mount would not evaluate")
 	wantState(t, runAtom(t, "rust:cargo-test", ""), 2, "never ran", "would not evaluate")
 }
 
@@ -928,7 +928,7 @@ func TestRustCargoTestStampsBeforeEveryExecThatCompilesDoctests(t *testing.T) {
 	wantState(t, runAtom(t, "rust:cargo-test", ""), 0)
 
 	stamp := `"find","."`
-	for _, probe := range []string{`"cargo","test","--workspace","--","--list"]`, `args:["cargo","test","--workspace"]`} {
+	for _, probe := range []string{`"cargo","test","--workspace","--","--list"]`, `args:["mold","-run","cargo","test","--workspace"]`} {
 		chain := engine.chain(probe, "exitCode")
 		i, j := strings.Index(chain, stamp), strings.Index(chain, probe)
 		if i < 0 || j < 0 || i > j {
@@ -954,7 +954,7 @@ func TestRustCargoTestStampFollowsTheSrcSwap(t *testing.T) {
 		engine.stdout(`"--list"`, "a::b: test\n")
 		wantState(t, runAtom(t, "rust:cargo-test", ""), 0)
 
-		for _, probe := range []string{`"cargo","test","--workspace","--","--list"]`, `args:["cargo","test","--workspace"]`} {
+		for _, probe := range []string{`"cargo","test","--workspace","--","--list"]`, `args:["mold","-run","cargo","test","--workspace"]`} {
 			chain := engine.chain(probe, "exitCode")
 			swap := lastCall(chain, "withMountedDirectory", `path:"/src"`)
 			stamp := strings.LastIndex(chain, `"touch","-c","-d","@4102444800"`)
@@ -1045,10 +1045,10 @@ func TestRustCargoTestRunsOnlyTheCratesAPullReaches(t *testing.T) {
 		[]string{"withExec", "expect:ANY", `args:["python3","tools/scope/scope.py","test","stellar-core-circuit"]`})
 	// One list and one run per argument set, and no --workspace anywhere.
 	for _, probe := range []string{
-		`args:["cargo","test","-p","stellar-core-circuit","--","--list"]`,
-		`args:["cargo","test","-p","stellar-core-conformance","--test","circuit_conformance","--test","compose","--","--list"]`,
-		`args:["cargo","test","-p","stellar-core-circuit"]`,
-		`args:["cargo","test","-p","stellar-core-conformance","--test","circuit_conformance","--test","compose"]`,
+		`args:["mold","-run","cargo","test","-p","stellar-core-circuit","--","--list"]`,
+		`args:["mold","-run","cargo","test","-p","stellar-core-conformance","--test","circuit_conformance","--test","compose","--","--list"]`,
+		`args:["mold","-run","cargo","test","-p","stellar-core-circuit"]`,
+		`args:["mold","-run","cargo","test","-p","stellar-core-conformance","--test","circuit_conformance","--test","compose"]`,
 	} {
 		if engine.chain(probe, "exitCode") == "" {
 			t.Errorf("no %s:\n%v", probe, engine.chains())
@@ -1095,7 +1095,7 @@ func TestRustScopeFallsBackToTheWholeWorkspaceInEveryDoubt(t *testing.T) {
 		t.Helper()
 		for atom, probe := range map[string]string{
 			"rust:cargo-clippy": `args:["cargo","clippy","--workspace","--all-targets","--"`,
-			"rust:cargo-test":   `args:["cargo","test","--workspace"]`,
+			"rust:cargo-test":   `args:["mold","-run","cargo","test","--workspace"]`,
 		} {
 			wantState(t, runAtom(t, atom, "abc123"), 0)
 			if engine.chain(probe, "exitCode") == "" {

@@ -256,6 +256,11 @@ func TestRustMutationKilledCarriesTheMemoryReading(t *testing.T) {
 		{"an OOM kill counted", m137Killed + reads,
 			"cargo mutants was killed (SIGKILL 137) after 12 of 21 mutants, out of memory (oom_kill=1 at peak_bytes=17179860992 of memory_max=17179869184), before its summary — 9 were never graded. 2 viable mutant(s) survived the suite before the kill — see the survivor list below",
 			"The exec's memory at its last reading (execmem, every second — a lower bound): peak_bytes=17179860992 memory_max=17179869184 oom_kill=1"},
+		// The anon at the peak rides the line and the headline: the peak counts
+		// page cache, the OOM kill is about anon.
+		{"an OOM kill with anon at the peak", m137Killed + "\nexec-memory: peak_bytes=17179860992 memory_max=17179869184 oom_kill=1 anon_bytes=9663676416",
+			"cargo mutants was killed (SIGKILL 137) after 12 of 21 mutants, out of memory (oom_kill=1 at peak_bytes=17179860992 of memory_max=17179869184, anon_bytes=9663676416), before its summary — 9 were never graded. 2 viable mutant(s) survived the suite before the kill — see the survivor list below",
+			"peak_bytes=17179860992 memory_max=17179869184 oom_kill=1 anon_bytes=9663676416"},
 		{"no OOM kill counted", m137Killed + "\nexec-memory: peak_bytes=2163326976 memory_max=17179869184 oom_kill=0",
 			"cargo mutants was killed (SIGKILL 137) after 12 of 21 mutants, before its summary — 9 were never graded. 2 viable mutant(s) survived the suite before the kill — see the survivor list below",
 			"The exec's memory at its last reading (execmem, every second — a lower bound): peak_bytes=2163326976 memory_max=17179869184 oom_kill=0. No OOM kill was counted by then; a kill inside the final second is not seen."},

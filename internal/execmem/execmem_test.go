@@ -34,7 +34,7 @@ func cgroup(t *testing.T, peak, max string, oomKill string) string {
 
 func TestRead(t *testing.T) {
 	got, err := Read(cgroup(t, "17179869184", "17179869184", "1"))
-	if err != nil || got != (Reading{Peak: 17179869184, Max: "17179869184", OOMKill: 1}) {
+	if err != nil || got != (Reading{Peak: 17179869184, Max: "17179869184", OOMKill: 1, Anon: -1, AnonAtPeak: -1}) {
 		t.Fatalf("%+v %v", got, err)
 	}
 	if got.Line() != "exec-memory: peak_bytes=17179869184 memory_max=17179869184 oom_kill=1" {
@@ -55,7 +55,7 @@ func TestRead(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, "memory.max")); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := Read(dir); err != nil || got != (Reading{Peak: 5, Max: "unknown", OOMKill: 0}) {
+	if got, err := Read(dir); err != nil || got != (Reading{Peak: 5, Max: "unknown", OOMKill: 0, Anon: -1, AnonAtPeak: -1}) {
 		t.Errorf("%+v %v", got, err)
 	}
 }
@@ -157,7 +157,8 @@ func TestTrackerSample(t *testing.T) {
 	dir := cgroup(t, "7", "max", "0")
 	var out bytes.Buffer
 	first := tracker{}.sample(dir, &out)
-	if first != (tracker{last: Reading{Peak: 7, Max: "max"}, printed: true}) {
+	seven := Reading{Peak: 7, Max: "max", Anon: -1, AnonAtPeak: -1}
+	if first != (tracker{last: seven, shown: seven, printed: true}) {
 		t.Fatalf("%+v", first)
 	}
 	if again := first.sample(dir, &out); again != first {
@@ -236,4 +237,58 @@ func (s *syncBuffer) String() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.b.String()
+}
+
+// writeStat lays memory.stat as the kernel shows it: anon beside file, the
+// page cache that memory.peak counts and an OOM kill does not.
+func writeStat(t *testing.T, dir string, anon, file int) {
+	t.Helper()
+	body := "anon " + strconv.Itoa(anon) + "\nfile " + strconv.Itoa(file) + "\nkernel 4096\n"
+	if err := os.WriteFile(filepath.Join(dir, "memory.stat"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The anon on the line is memory.stat's anon at the reading that raised the
+// peak, not the page cache that the peak includes, and not a later, smaller
+// figure once the process shrank.
+func TestAnonAtPeak(t *testing.T) {
+	const gib = 1 << 30
+	dir := cgroup(t, strconv.Itoa(11*gib), "max", "0")
+	writeStat(t, dir, 3*gib, 8*gib)
+	got, err := Read(dir)
+	if err != nil || got.Anon != 3*gib || got.AnonAtPeak != 3*gib {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if want := "exec-memory: peak_bytes=11811160064 memory_max=max oom_kill=0 anon_bytes=3221225472"; got.Line() != want {
+		t.Errorf("%q, want %q", got.Line(), want)
+	}
+
+	var out bytes.Buffer
+	tr := tracker{}.sample(dir, &out)
+	// The peak rises within the same GiB, with more anon: nothing printed yet.
+	if err := os.WriteFile(filepath.Join(dir, "memory.peak"), []byte(strconv.Itoa(11*gib+4096)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeStat(t, dir, 4*gib, 7*gib)
+	tr = tr.sample(dir, &out)
+	// The process shrinks; the peak holds. The peak's anon stays the larger.
+	writeStat(t, dir, gib, 7*gib)
+	tr = tr.sample(dir, &out)
+	if tr.last.AnonAtPeak != 4*gib {
+		t.Errorf("anon at peak %d, want %d", tr.last.AnonAtPeak, 4*gib)
+	}
+	if strings.Count(out.String(), "\n") != 1 {
+		t.Errorf("only the first reading is due:\n%s", out.String())
+	}
+	// The run's end prints the final peak and its anon.
+	tr.flush(&out)
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if want := "exec-memory: peak_bytes=" + strconv.Itoa(11*gib+4096) + " memory_max=max oom_kill=0 anon_bytes=" + strconv.Itoa(4*gib); len(lines) != 2 || lines[1] != want {
+		t.Errorf("flush: %q, want last %q", lines, want)
+	}
+	// No memory.stat: no anon on the line, which is the old line exactly.
+	if line := (Reading{Peak: 1, Max: "max", Anon: -1, AnonAtPeak: -1}).Line(); strings.Contains(line, "anon") {
+		t.Errorf("%q", line)
+	}
 }
