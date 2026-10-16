@@ -1,4 +1,4 @@
-package dieskit
+package dieskit_test
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"dagger/foundry-tools/internal/atoms"
 	"dagger/foundry-tools/internal/atomtest"
 	"dagger/foundry-tools/internal/checks"
+	"dagger/foundry-tools/internal/checks/dieskit"
 )
 
 var row = checks.AtomDef{ID: "dies:x", Stage: checks.StagePrecommit, Lane: checks.LaneAny}
@@ -24,24 +25,24 @@ func TestShapeIsAbsentWithoutBothMarkers(t *testing.T) {
 		"manifest is a dir": {"policy/.manifest/x": "x", "fleet/repos/a.json": "x"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			v := Shape(atomtest.TreeIn(t, files).Tree(), row)
+			v := dieskit.Shape(atomtest.TreeIn(t, files).Tree(), row)
 			if v == nil {
 				t.Fatal("a tree that is not the die's source was taken for it")
 			}
 			atomtest.Expect(t, *v, checks.StatePass, atomtest.Absent, "this tree is not the policy die's source")
 		})
 	}
-	if v := Shape(atomtest.TreeIn(t, atomtest.DieTree(nil)).Tree(), row); v != nil {
+	if v := dieskit.Shape(atomtest.TreeIn(t, atomtest.DieTree(nil)).Tree(), row); v != nil {
 		t.Errorf("the die's source was refused: %+v", v)
 	}
 }
 
 func TestShapeCannotJudgeATreeItCouldNotRead(t *testing.T) {
-	v := Shape(atomtest.MissingRoot(t).Tree(), row)
+	v := dieskit.Shape(atomtest.MissingRoot(t).Tree(), row)
 	atomtest.Expect(t, *v, checks.StateCannotRun, atomtest.Cannot, "the repository root could not be read")
 	in := atomtest.TreeIn(t, map[string]string{"policy/.manifest": "x", "x": "y"})
 	atomtest.Put(t, in.Root, "fleet", "a file, not a directory")
-	atomtest.Expect(t, *Shape(in.Tree(), row), checks.StateCannotRun, atomtest.Cannot, "fleet/ is in the root listing but could not be read")
+	atomtest.Expect(t, *dieskit.Shape(in.Tree(), row), checks.StateCannotRun, atomtest.Cannot, "fleet/ is in the root listing but could not be read")
 }
 
 func TestOpaProvisionedProvesThePinnedVersion(t *testing.T) {
@@ -59,7 +60,7 @@ func TestOpaProvisionedProvesThePinnedVersion(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			in, f := atomtest.ToolTree(t, atomtest.DieTree(nil), atomtest.OpaScript{Version: tc.version, VCode: tc.code}.Answer)
-			v := OpaProvisioned(ctx, row, in)
+			v := dieskit.OpaProvisioned(ctx, row, in)
 			if tc.needles == nil {
 				if v != nil {
 					t.Errorf("the pinned opa was refused: %+v", v)
@@ -77,7 +78,7 @@ func TestOpaProvisionedProvesThePinnedVersion(t *testing.T) {
 func TestBundleBuildsAtHeadAndOpensTheDataDocument(t *testing.T) {
 	ctx := context.Background()
 	in, f := atomtest.ToolTree(t, atomtest.DieTree(nil), atomtest.OpaScript{Version: atomtest.PinnedOpa()}.Answer)
-	data, stop := Bundle(ctx, row, in, "/tmp/b.tar.gz")
+	data, stop := dieskit.Bundle(ctx, row, in, "/tmp/b.tar.gz")
 	if stop != nil || data != atomtest.GoodData {
 		t.Fatalf("%q %+v", data, stop)
 	}
@@ -100,7 +101,7 @@ func TestBundleSeparatesABrokenBuildFromAnEmptyArtifactAndStampsUnknown(t *testi
 	ctx := context.Background()
 	t.Run("a build that did not complete is a 2", func(t *testing.T) {
 		in, _ := atomtest.ToolTree(t, atomtest.DieTree(nil), atomtest.OpaScript{On: map[string]func(atoms.Cmd) (string, int){"build": atomtest.Const0("rego_error", 1)}}.Answer)
-		_, stop := Bundle(ctx, row, in, "/tmp/b.tar.gz")
+		_, stop := dieskit.Bundle(ctx, row, in, "/tmp/b.tar.gz")
 		atomtest.Expect(t, *stop, checks.StateCannotRun, atomtest.Cannot, "opa build did not produce a bundle", "opa build exited 1: rego_error")
 	})
 	t.Run("a bundle with no data.json member is a 1", func(t *testing.T) {
@@ -110,7 +111,7 @@ func TestBundleSeparatesABrokenBuildFromAnEmptyArtifactAndStampsUnknown(t *testi
 			}
 			return atomtest.OpaScript{}.Answer(c)
 		})
-		_, stop := Bundle(ctx, row, in, "/tmp/b.tar.gz")
+		_, stop := dieskit.Bundle(ctx, row, in, "/tmp/b.tar.gz")
 		atomtest.Expect(t, *stop, checks.StateFindings, atomtest.Findings, "carries NO data.json member at all", "Not found in archive")
 	})
 	for name, git := range map[string]func() (string, int){
@@ -129,7 +130,7 @@ func TestBundleSeparatesABrokenBuildFromAnEmptyArtifactAndStampsUnknown(t *testi
 				}
 				return atomtest.GoodData, 0
 			})
-			if _, stop := Bundle(ctx, row, in, "/tmp/b.tar.gz"); stop != nil {
+			if _, stop := dieskit.Bundle(ctx, row, in, "/tmp/b.tar.gz"); stop != nil {
 				t.Fatalf("%+v", stop)
 			}
 			if !strings.Contains(build, "--revision unknown") {
@@ -140,12 +141,12 @@ func TestBundleSeparatesABrokenBuildFromAnEmptyArtifactAndStampsUnknown(t *testi
 }
 
 func TestUVIsPython3UnderUVRunFromTheRootWithBothStreams(t *testing.T) {
-	c := UV("/src", WithTOML, "x.py", "--flag")
-	atomtest.WantUV(t, c, "/src", WithTOML, "x.py", "--flag")
+	c := dieskit.UV("/src", dieskit.WithTOML, "x.py", "--flag")
+	atomtest.WantUV(t, c, "/src", dieskit.WithTOML, "x.py", "--flag")
 	if got := strings.Join(c.Args, " "); got != "run --no-project --quiet --with tomli>=2.0 python3 x.py --flag" {
 		t.Errorf("%s", got)
 	}
-	if got := strings.Join(UV("/src", "", "x.py").Args, " "); got != "run --no-project --quiet python3 x.py" {
+	if got := strings.Join(dieskit.UV("/src", "", "x.py").Args, " "); got != "run --no-project --quiet python3 x.py" {
 		t.Errorf("a program that needs no package is resolved with none: %s", got)
 	}
 }
@@ -155,31 +156,31 @@ func TestProbeImportsSettleAndVerdictRunTheProgramsTheyName(t *testing.T) {
 	t.Run("a container without uv is a 2 and the program is not run", func(t *testing.T) {
 		in, f := atomtest.ToolTree(t, atomtest.DieTree(nil), func(atoms.Cmd) (string, int) { return "gone", 127 })
 		f.Free = []string{"uv"}
-		atomtest.Expect(t, *Probe(ctx, row, in), checks.StateCannotRun, atomtest.Cannot, "the atom never ran: exit code: 127", "failed: uv --version", "gone")
-		atomtest.Expect(t, Verdict(ctx, row, in, "", "x.py"), checks.StateCannotRun, atomtest.Cannot, "exit code: 127", "failed: uv --version")
+		atomtest.Expect(t, *dieskit.Probe(ctx, row, in), checks.StateCannotRun, atomtest.Cannot, "the atom never ran: exit code: 127", "failed: uv --version", "gone")
+		atomtest.Expect(t, dieskit.Verdict(ctx, row, in, "", "x.py"), checks.StateCannotRun, atomtest.Cannot, "exit code: 127", "failed: uv --version")
 		if len(f.Calls) != 2 {
 			t.Errorf("the program ran on an unprovisioned container: %v", f.Ran())
 		}
 	})
 	t.Run("a probe that passes returns nothing", func(t *testing.T) {
 		in, _ := atomtest.UVTree(t, atomtest.DieTree(nil), nil)
-		if v := Probe(ctx, row, in); v != nil {
+		if v := dieskit.Probe(ctx, row, in); v != nil {
 			t.Errorf("%+v", v)
 		}
 	})
 	t.Run("an import the resolver cannot supply is a 2", func(t *testing.T) {
 		in, f := atomtest.UVTree(t, atomtest.DieTree(nil), atomtest.Const0("ModuleNotFoundError: No module named 'jsonschema'", 1))
-		atomtest.Expect(t, *Imports(ctx, row, in, WithJSONSchema, "jsonschema"), checks.StateCannotRun, atomtest.Cannot,
+		atomtest.Expect(t, *dieskit.Imports(ctx, row, in, dieskit.WithJSONSchema, "jsonschema"), checks.StateCannotRun, atomtest.Cannot,
 			"the atom never ran: exit code: 1", "failed: uv run --no-project --quiet --with jsonschema>=4.20 python3 -c import jsonschema", "No module named 'jsonschema'")
-		atomtest.WantUV(t, f.Last(), in.Root, WithJSONSchema, "-c", "import jsonschema")
+		atomtest.WantUV(t, f.Last(), in.Root, dieskit.WithJSONSchema, "-c", "import jsonschema")
 		ok, _ := atomtest.UVTree(t, atomtest.DieTree(nil), nil)
-		if v := Imports(ctx, row, ok, WithJSONSchema, "jsonschema"); v != nil {
+		if v := dieskit.Imports(ctx, row, ok, dieskit.WithJSONSchema, "jsonschema"); v != nil {
 			t.Errorf("%+v", v)
 		}
 	})
 	t.Run("an import probe whose uv would not start never ran", func(t *testing.T) {
 		in, _ := atomtest.UVTree(t, atomtest.DieTree(nil), atomtest.Const0("uv: gone", -1))
-		atomtest.Expect(t, *Imports(ctx, row, in, WithJSONSchema, "jsonschema"), checks.StateCannotRun, atomtest.Cannot, "the atom never ran: uv: gone")
+		atomtest.Expect(t, *dieskit.Imports(ctx, row, in, dieskit.WithJSONSchema, "jsonschema"), checks.StateCannotRun, atomtest.Cannot, "the atom never ran: uv: gone")
 	})
 	t.Run("the exit is the state, unmapped, and a uv that would not start never ran", func(t *testing.T) {
 		for _, tc := range []struct {
@@ -194,8 +195,8 @@ func TestProbeImportsSettleAndVerdictRunTheProgramsTheyName(t *testing.T) {
 			{-1, checks.StateCannotRun, atomtest.Cannot, "the atom never ran: all clear"},
 		} {
 			in, f := atomtest.UVTree(t, atomtest.DieTree(nil), atomtest.Const0("all clear", tc.code))
-			atomtest.Expect(t, Verdict(ctx, row, in, WithTOML, "x.py"), tc.state, tc.result, tc.words)
-			atomtest.WantUV(t, f.Last(), in.Root, WithTOML, "x.py")
+			atomtest.Expect(t, dieskit.Verdict(ctx, row, in, dieskit.WithTOML, "x.py"), tc.state, tc.result, tc.words)
+			atomtest.WantUV(t, f.Last(), in.Root, dieskit.WithTOML, "x.py")
 		}
 	})
 }
@@ -204,10 +205,51 @@ func TestCheckerSettlesTheShapeThePresenceAndTheProbeBeforeTheProgram(t *testing
 	ctx := context.Background()
 	files := atomtest.DieTree(map[string]string{"tools/check.py": "x"})
 	in, f := atomtest.UVTree(t, files, atomtest.Const0("checked", 0))
-	atomtest.Expect(t, Checker(ctx, row, in, "", "tools/check.py"), checks.StatePass, atomtest.Pass, "checked")
+	atomtest.Expect(t, dieskit.Checker(ctx, row, in, "", "tools/check.py"), checks.StatePass, atomtest.Pass, "checked")
 	atomtest.WantUV(t, f.Last(), in.Root, "", "tools/check.py")
 	in2, _ := atomtest.UVTree(t, atomtest.DieTree(nil), nil)
-	atomtest.Expect(t, Checker(ctx, row, in2, "", "tools/check.py"), checks.StateCannotRun, atomtest.Cannot, "tools/check.py is absent, so there is no checker to run")
+	atomtest.Expect(t, dieskit.Checker(ctx, row, in2, "", "tools/check.py"), checks.StateCannotRun, atomtest.Cannot, "tools/check.py is absent, so there is no checker to run")
 	in3, _ := atomtest.UVTree(t, map[string]string{"main.go": "x"}, nil)
-	atomtest.Expect(t, Checker(ctx, row, in3, "", "tools/check.py"), checks.StatePass, atomtest.Absent, "not the policy die's source")
+	atomtest.Expect(t, dieskit.Checker(ctx, row, in3, "", "tools/check.py"), checks.StatePass, atomtest.Absent, "not the policy die's source")
+}
+
+// In the tools container the venv holds the packages: the program is its python3
+// with the arguments as they are, nothing is resolved, and the probes are the
+// ones the in-process atoms made.
+func TestInTheVenvThePythonIsTheVenvsOwnAndNothingIsResolved(t *testing.T) {
+	ctx := context.Background()
+	atomtest.SetVenv(t, true)
+	c := dieskit.UV("/src", dieskit.WithTOML, "x.py", "--flag")
+	atomtest.WantUV(t, c, "/src", dieskit.WithTOML, "x.py", "--flag")
+	if c.Name != "python3" || strings.Join(c.Args, " ") != "x.py --flag" {
+		t.Errorf("%+v", c)
+	}
+	t.Run("the probe and the import probe say what they ran", func(t *testing.T) {
+		in, f := atomtest.ToolTree(t, atomtest.DieTree(nil), func(atoms.Cmd) (string, int) { return "gone", 127 })
+		atomtest.Expect(t, *dieskit.Probe(ctx, row, in), checks.StateCannotRun, atomtest.Cannot, "the atom never ran: python3 --version exited 127: gone")
+		atomtest.Expect(t, *dieskit.Imports(ctx, row, in, dieskit.WithJSONSchema, "jsonschema"), checks.StateCannotRun, atomtest.Cannot,
+			"the atom never ran: python3 -c import jsonschema exited 127: gone")
+		atomtest.WantUV(t, f.Last(), in.Root, dieskit.WithJSONSchema, "-c", "import jsonschema")
+		ok, _ := atomtest.UVTree(t, atomtest.DieTree(nil), nil)
+		if dieskit.Probe(ctx, row, ok) != nil || dieskit.Imports(ctx, row, ok, dieskit.WithJSONSchema, "jsonschema") != nil {
+			t.Error("a venv that answers was refused")
+		}
+	})
+	t.Run("the exit is the state and a python that would not start never ran", func(t *testing.T) {
+		for _, tc := range []struct {
+			code   int
+			state  checks.State
+			result string
+			words  string
+		}{
+			{0, checks.StatePass, atomtest.Pass, "all clear"},
+			{1, checks.StateFindings, atomtest.Findings, "all clear"},
+			{2, checks.StateCannotRun, atomtest.Cannot, "all clear"},
+			{-1, checks.StateCannotRun, atomtest.Cannot, "the atom never ran: all clear"},
+		} {
+			in, f := atomtest.UVTree(t, atomtest.DieTree(nil), atomtest.Const0("all clear", tc.code))
+			atomtest.Expect(t, dieskit.Verdict(ctx, row, in, dieskit.WithTOML, "x.py"), tc.state, tc.result, tc.words)
+			atomtest.WantUV(t, f.Last(), in.Root, dieskit.WithTOML, "x.py")
+		}
+	})
 }

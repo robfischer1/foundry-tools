@@ -9,6 +9,7 @@ import (
 	"dagger/foundry-tools/internal/atomkit"
 	"dagger/foundry-tools/internal/atoms"
 	"dagger/foundry-tools/internal/checks"
+	"dagger/foundry-tools/internal/checks/dieskit"
 )
 
 // UVTree is ToolTree for the atoms that run python under uv: `uv --version`
@@ -17,8 +18,8 @@ import (
 func UVTree(t TB, files map[string]string, answer func(atoms.Cmd) (string, int)) (atomkit.In, *Fake) {
 	t.Helper()
 	in, f := ToolTree(t, files, func(c atoms.Cmd) (string, int) {
-		if c.Name == "uv" && len(c.Args) == 1 && c.Args[0] == "--version" {
-			return "uv 0.12.13", 0
+		if (c.Name == "uv" || c.Name == "python3") && len(c.Args) == 1 && c.Args[0] == "--version" {
+			return c.Name + " 1.0", 0
 		}
 		if answer == nil {
 			return "", 0
@@ -29,18 +30,30 @@ func UVTree(t TB, files map[string]string, answer func(atoms.Cmd) (string, int))
 	return in, f
 }
 
-// WantUV holds a call to the shape every python atom runs in: python3 under
-// `uv run`, from the root, both streams, bytecode off, resolved with the one
+// SetVenv says whether the test runs in the tools container, whose prebuilt venv
+// the python atoms use, or on a toolchain image, where they run under uv.
+func SetVenv(t TB, on bool) {
+	t.Helper()
+	old := dieskit.VenvPresent
+	dieskit.VenvPresent = func() bool { return on }
+	t.Cleanup(func() { dieskit.VenvPresent = old })
+}
+
+// WantUV holds a call to the shape every python atom runs in: the venv's python3
+// with the arguments, or python3 under `uv run`, from the root, both streams, bytecode off, resolved with the one
 // requirement (none for "") and given args.
 func WantUV(t TB, c atoms.Cmd, root, with string, args ...string) {
 	t.Helper()
-	Assert(t, c.Name == "uv" && c.Dir == root && c.Both && slices.Contains(c.Env, "PYTHONDONTWRITEBYTECODE=1"),
-		"call %+v: want uv in %s with both streams and no bytecode", c, root)
-	want := []string{"run", "--no-project", "--quiet"}
-	if with != "" {
-		want = append(want, "--with", with)
+	program, want := "python3", args
+	if !dieskit.VenvPresent() {
+		program, want = "uv", []string{"run", "--no-project", "--quiet"}
+		if with != "" {
+			want = append(want, "--with", with)
+		}
+		want = append(append(want, "python3"), args...)
 	}
-	want = append(append(want, "python3"), args...)
+	Assert(t, c.Name == program && c.Dir == root && c.Both && slices.Contains(c.Env, "PYTHONDONTWRITEBYTECODE=1"),
+		"call %+v: want %s in %s with both streams and no bytecode", c, program, root)
 	got := strings.Join(c.Args, " ")
 	Assert(t, got == strings.Join(want, " "), "uv ran as %q, want %q", got, strings.Join(want, " "))
 }
@@ -51,6 +64,16 @@ func WantUV(t TB, c atoms.Cmd, root, with string, args ...string) {
 // ABSENT off the die's source. extra is the files the atom needs beside the
 // checker.
 func CheckerSuite(t *testing.T, check func(context.Context, atomkit.In) checks.Verdict, checker, with string, extra map[string]string) {
+	t.Helper()
+	for _, venv := range []bool{false, true} {
+		t.Run(map[bool]string{false: "under uv", true: "in the venv"}[venv], func(t *testing.T) {
+			SetVenv(t, venv)
+			checkerSuite(t, check, checker, with, extra)
+		})
+	}
+}
+
+func checkerSuite(t *testing.T, check func(context.Context, atomkit.In) checks.Verdict, checker, with string, extra map[string]string) {
 	t.Helper()
 	files := DieTree(extra)
 	files[checker] = "# checker"
@@ -72,10 +95,14 @@ func CheckerSuite(t *testing.T, check func(context.Context, atomkit.In) checks.V
 			WantUV(t, f.Last(), in.Root, with, checker)
 		})
 	}
-	t.Run("a container without uv never ran the checker", func(t *testing.T) {
+	t.Run("a container without the python it needs never ran the checker", func(t *testing.T) {
 		in, f := ToolTree(t, files, func(atoms.Cmd) (string, int) { return "gone", 127 })
 		f.Free = []string{"uv"}
-		Expect(t, check(context.Background(), in), checks.StateCannotRun, Cannot, "exit code: 127", "failed: uv --version")
+		if dieskit.VenvPresent() {
+			Expect(t, check(context.Background(), in), checks.StateCannotRun, Cannot, "python3 --version exited 127")
+		} else {
+			Expect(t, check(context.Background(), in), checks.StateCannotRun, Cannot, "exit code: 127", "failed: uv --version")
+		}
 		Assert(t, len(f.Calls) == 1, "the checker ran: %v", f.Ran())
 	})
 	t.Run("the checker missing is a could-not-run naming it", func(t *testing.T) {

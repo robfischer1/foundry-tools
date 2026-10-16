@@ -69,3 +69,8 @@ func RequirePaths(t Tree, a checks.AtomDef, required [][2]string) *checks.Verdic
 	}
 	return nil
 }
+
+// HasVenv says whether the tools container's prebuilt python venv is there: the
+// atoms binary's container has it, a toolchain image on the executor path does
+// not.
+func HasVenv() bool { return programPath("python3") != "python3" }

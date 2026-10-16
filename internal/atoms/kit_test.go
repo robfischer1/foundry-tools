@@ -80,3 +80,18 @@ func TestPlaceWritesAFileMakingItsDirectories(t *testing.T) {
 		t.Error("a file under a file was placed")
 	}
 }
+
+func TestHasVenvFollowsWhereTheVenvIs(t *testing.T) {
+	old := pythonBinDir
+	t.Cleanup(func() { pythonBinDir = old })
+	pythonBinDir = t.TempDir()
+	if HasVenv() {
+		t.Error("an empty directory is a venv")
+	}
+	if err := os.WriteFile(filepath.Join(pythonBinDir, "python3"), nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !HasVenv() {
+		t.Error("a venv with python3 in it is not one")
+	}
+}

@@ -217,7 +217,7 @@ func TestTheBinaryCarriesTheNoneToolchainAtoms(t *testing.T) {
 	}
 	var want []string
 	for _, d := range Defs {
-		if d.Toolchain == "none" {
+		if d.Toolchain == "none" || votesInBinaryByHistory[d.ID] {
 			want = append(want, d.ID)
 		}
 	}
@@ -336,5 +336,20 @@ func TestTheCommitAndPushStagesHoldTheirAtoms(t *testing.T) {
 	}
 	if got := ids(checks.StagePrepush); got != push {
 		t.Errorf("push stage\n got %s\nwant %s", got, push)
+	}
+}
+
+// The declared set names Defs that exist and are not already toolchain none.
+func TestTheDeclaredBinaryVotersAreRealPythonAtoms(t *testing.T) {
+	for id := range votesInBinaryByHistory {
+		e, ok := Lookup(id)
+		if !ok || e.Def == nil || e.Def.Toolchain != "python" {
+			t.Errorf("%s: %+v", id, e.Def)
+		}
+	}
+	none := atomkit.Def{ID: "st:none", Toolchain: "none"}
+	py := atomkit.Def{ID: "st:py", Toolchain: "python"}
+	if !votesInBinary(&none) || votesInBinary(&py) {
+		t.Error("only toolchain none, or a declared id, votes in the binary")
 	}
 }
