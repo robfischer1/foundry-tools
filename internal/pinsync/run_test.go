@@ -1,0 +1,432 @@
+package pinsync
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+)
+
+// fakeWeb serves canned bodies by URL and counts what was asked for.
+type fakeWeb struct {
+	mu     sync.Mutex
+	bodies map[string]string
+	asked  []string
+	auth   []string // the Authorization header of each request
+	onAsk  func(u string)
+}
+
+// Two bodies that are not bodies: a transport that fails, and a body that
+// breaks off mid-read.
+const (
+	unreachable = "\x00unreachable"
+	brokenOff   = "\x00broken"
+)
+
+type breaksOff struct{}
+
+func (breaksOff) Read([]byte) (int, error) { return 0, errors.New("connection reset") }
+
+func (w *fakeWeb) RoundTrip(r *http.Request) (*http.Response, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	u := r.URL.String()
+	w.asked = append(w.asked, u)
+	w.auth = append(w.auth, r.Header.Get("Authorization"))
+	if w.onAsk != nil {
+		w.onAsk(u)
+	}
+	body, ok := w.bodies[u]
+	var reader io.Reader = strings.NewReader(body)
+	status := http.StatusOK
+	switch {
+	case !ok:
+		status, reader = http.StatusNotFound, strings.NewReader("not found")
+	case body == unreachable:
+		return nil, errors.New("no route to host")
+	case body == brokenOff:
+		reader = breaksOff{}
+	}
+	return &http.Response{StatusCode: status, Status: http.StatusText(status), Body: io.NopCloser(reader), Request: r}, nil
+}
+
+func sum(s string) string {
+	h := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(h[:])
+}
+
+func releaseJSON(t *testing.T, rels ...release) string {
+	t.Helper()
+	var b []byte
+	var err error
+	if len(rels) == 1 {
+		b, err = json.Marshal(rels[0])
+	} else {
+		b, err = json.Marshal(rels)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// The fixture is a miniature foundry-tools in step: every shape the real tree
+// has once (a literal URL with a member, a joined URL, a retagged URL, a uv
+// tool, the copier pin), and a 15th-entry-free ToolSHA256 over them.
+const (
+	wasmOld = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.261.0/wasm-tools-1.261.0-x86_64-linux.tar.gz"
+	wasmNew = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.262.0/wasm-tools-1.262.0-x86_64-linux.tar.gz"
+	grepOld = "https://github.com/opengrep/opengrep/releases/download/v1.30.2/opengrep_manylinux_x86"
+	grepNew = "https://github.com/opengrep/opengrep/releases/download/v1.31.0/opengrep_manylinux_x86"
+	pyOld   = "https://github.com/astral-sh/python-build-standalone/releases/download/20260623/cpython-3.14.6%2B20260623-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+	pyNew   = "https://github.com/astral-sh/python-build-standalone/releases/download/20260801/cpython-3.14.7%2B20260801-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+)
+
+var (
+	wasmOldSum = sum("wasm-old")
+	grepOldSum = sum("grep-old")
+	pyOldSum   = sum("py-old")
+)
+
+func fixtureFiles() map[string]string {
+	return map[string]string{
+		"internal/checks/witlane.go": `package checks
+
+const (
+	// renovate: datasource=github-releases depName=bytecodealliance/wasm-tools extractVersion=^v(?<version>.*)$
+	WasmToolsVersion = "1.261.0"
+	WasmToolsURL     = "` + wasmOld + `"
+	// WasmToolsMember is the binary inside that tarball.
+	WasmToolsMember = "wasm-tools-1.261.0-x86_64-linux/wasm-tools"
+)
+`,
+		"internal/checks/images.go": `package checks
+
+const (
+	// renovate: datasource=github-releases depName=opengrep/opengrep
+	OpengrepVersion = "v1.30.2"
+	OpengrepURL     = "https://github.com/opengrep/opengrep/releases/download/" + OpengrepVersion + "/opengrep_manylinux_x86"
+)
+
+// renovate: datasource=pypi depName=copier
+const CopierVersion = "9.18.2"
+`,
+		"internal/checks/toolpins.go": `package checks
+
+const PythonStandaloneURL = "` + pyOld + `"
+
+var ToolSHA256 = map[string]string{
+	WasmToolsURL:        "` + wasmOldSum + `",
+	OpengrepURL:         "` + grepOldSum + `",
+	PythonStandaloneURL: "` + pyOldSum + `",
+}
+
+const (
+	// renovate: datasource=pypi depName=ruff
+	RuffVersion = "0.16.3"
+	// renovate: datasource=python-version depName=python versioning=pep440
+	FleetPythonVersion = "3.14.6"
+)
+
+type UVTool struct{ Name, Version string }
+
+var PythonLaneTools = []UVTool{
+	{Name: "ruff", Version: RuffVersion},
+}
+`,
+		"internal/checks/toolpins_test.go": "package checks\n\nconst ignored = (\n", // a test file is never read
+		"tools.toml": `# tools@1
+schema = "tools@1"
+
+[tool.opengrep]
+kind = "url"
+spec = "` + grepOld + `"
+version = "v1.30.2"
+sha256 = "` + grepOldSum + `"
+
+[tool.wasm-tools]
+kind = "url"
+spec = "` + wasmOld + `"
+version = "1.261.0"
+sha256 = "` + wasmOldSum + `"
+
+[tool.python-standalone]
+kind = "url"
+spec = "` + pyOld + `"
+version = "3.14.6"
+sha256 = "` + pyOldSum + `"
+
+[tool.ruff]
+kind = "uv"
+spec = "ruff"
+version = "0.16.3"
+`,
+		"pytools/requirements.in": "# the venv\npyyaml\ncopier==9.18.2\n",
+		"pytools/requirements.txt": "# This file was autogenerated by uv via the following command:\n" +
+			"#    uv pip compile requirements.in --generate-hashes --python-version 3.14 -o requirements.txt\n" +
+			"copier==9.18.2 \\\n    --hash=sha256:" + sum("c") + "\n",
+	}
+}
+
+// fixturePins narrows the tables to what the fixture holds.
+func fixturePins(t *testing.T) {
+	t.Helper()
+	urlPins, followers := URLPins, Followers
+	t.Cleanup(func() { URLPins, Followers = urlPins, followers })
+	URLPins = []URLPin{
+		{"opengrep", "OpengrepURL", "OpengrepVersion"},
+		{"wasm-tools", "WasmToolsURL", "WasmToolsVersion"},
+		{"python-standalone", "PythonStandaloneURL", "FleetPythonVersion"},
+	}
+	Followers = []Follower{
+		{Const: "WasmToolsURL", Version: "WasmToolsVersion"},
+		{Const: "WasmToolsMember", Version: "WasmToolsVersion"},
+		{Const: "PythonStandaloneURL", Version: "FleetPythonVersion", Retag: true},
+	}
+}
+
+func writeTree(t *testing.T, files map[string]string) string {
+	t.Helper()
+	root := t.TempDir()
+	for name, body := range files {
+		p := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+func read(t *testing.T, root, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(root, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// lockRun records the lock command and writes a lock that pins what the
+// requirement now says.
+type lockRun struct {
+	dir  string
+	args []string
+	fail error
+}
+
+// Two lock runs that exit 0 and are still wrong.
+var (
+	errLockWithoutPin = errors.New("writes a lock without the pin")
+	errLockRemoved    = errors.New("removes the lock")
+)
+
+func (l *lockRun) run(_ context.Context, dir string, args []string) error {
+	l.dir, l.args = dir, args
+	switch l.fail {
+	case nil:
+	case errLockWithoutPin:
+		return os.WriteFile(filepath.Join(dir, "requirements.txt"), []byte("pyyaml==6.0 \\\n"), 0o644)
+	case errLockRemoved:
+		return os.Remove(filepath.Join(dir, "requirements.txt"))
+	default:
+		return l.fail
+	}
+	in, err := os.ReadFile(filepath.Join(dir, "requirements.in"))
+	if err != nil {
+		return err
+	}
+	pin := strings.TrimSpace(string(in[strings.Index(string(in), "copier=="):]))
+	return os.WriteFile(filepath.Join(dir, "requirements.txt"), []byte("# This file was autogenerated by uv via the following command:\n#    "+strings.Join(args, " ")+"\n"+pin+" \\\n    --hash=sha256:"+sum("c2")+"\n"), 0o644)
+}
+
+func newEnv(root string, web *fakeWeb, lock *lockRun, write bool) (*Env, *bytes.Buffer) {
+	log := &bytes.Buffer{}
+	return &Env{
+		Root: root, HTTP: &http.Client{Transport: web}, GitHubAPI: "https://api.test",
+		Write: write, Log: log, RunLock: lock.run,
+	}, log
+}
+
+func snapshot(t *testing.T, root string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	for name := range fixtureFiles() {
+		out[name] = read(t, root, name)
+	}
+	return out
+}
+
+// IN STEP IS A NO-OP: nothing fetched, nothing run, nothing written.
+func TestATreeInStepIsLeftAlone(t *testing.T) {
+	fixturePins(t)
+	root := writeTree(t, fixtureFiles())
+	before := snapshot(t, root)
+	web, lock := &fakeWeb{}, &lockRun{}
+	env, log := newEnv(root, web, lock, true)
+	res, err := env.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Changed) != 0 || len(web.asked) != 0 || lock.args != nil {
+		t.Errorf("changed %v, fetched %v, ran %v; log:\n%s", res.Changed, web.asked, lock.args, log)
+	}
+	for name, body := range snapshot(t, root) {
+		if body != before[name] {
+			t.Errorf("%s was rewritten", name)
+		}
+	}
+}
+
+// bumped is the fixture after Renovate's regex manager: each version line
+// moved, nothing that follows it.
+func bumped() map[string]string {
+	f := fixtureFiles()
+	r := strings.NewReplacer(
+		`WasmToolsVersion = "1.261.0"`, `WasmToolsVersion = "1.262.0"`,
+		`OpengrepVersion = "v1.30.2"`, `OpengrepVersion = "v1.31.0"`,
+		`CopierVersion = "9.18.2"`, `CopierVersion = "9.19.1"`,
+		`FleetPythonVersion = "3.14.6"`, `FleetPythonVersion = "3.14.7"`,
+		`RuffVersion = "0.16.3"`, `RuffVersion = "0.17.1"`,
+	)
+	for _, name := range []string{"internal/checks/witlane.go", "internal/checks/images.go", "internal/checks/toolpins.go"} {
+		f[name] = r.Replace(f[name])
+	}
+	return f
+}
+
+const pyAsset = "cpython-3.14.7+20260801-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+
+// publisherWeb is upstream after those releases: each asset, and what its
+// publisher states about it.
+func publisherWeb(t *testing.T) *fakeWeb {
+	return &fakeWeb{bodies: map[string]string{
+		wasmNew: "wasm-new",
+		"https://api.test/repos/bytecodealliance/wasm-tools/releases/tags/v1.262.0": releaseJSON(t, release{Tag: "v1.262.0", Assets: []asset{
+			{Name: "wasm-tools-1.262.0-x86_64-linux.tar.gz", Digest: "sha256:" + sum("wasm-new")},
+		}}),
+		grepNew:             "grep-new",
+		grepNew + ".sha256": sum("grep-new") + "  opengrep_manylinux_x86\n",
+		"https://api.test/repos/opengrep/opengrep/releases/tags/v1.31.0": releaseJSON(t, release{Tag: "v1.31.0", Assets: []asset{
+			{Name: "opengrep_manylinux_x86"},
+			{Name: "opengrep_manylinux_x86.sig", URL: "https://sig"},
+			{Name: "checksums.txt", URL: "https://sums/opengrep"},
+		}}),
+		"https://sums/opengrep": sum("other") + "  opengrep_osx_arm64\n" + sum("grep-new") + " *opengrep_manylinux_x86\nnot a line\n",
+		"https://api.test/repos/astral-sh/python-build-standalone/releases?per_page=5&page=1": releaseJSON(t,
+			release{Tag: "20260801", Assets: []asset{{Name: pyAsset}, {Name: "SHA256SUMS"}}},
+			release{Tag: "20260623", Assets: []asset{{Name: "cpython-3.14.6+20260623-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"}}},
+		),
+		pyNew: "py-new",
+		"https://api.test/repos/astral-sh/python-build-standalone/releases/tags/20260801": releaseJSON(t, release{Tag: "20260801", Assets: []asset{
+			{Name: pyAsset, Digest: "sha256:" + sum("py-new")},
+			{Name: "SHA256SUMS", URL: "https://sums/pbs"},
+		}}),
+		"https://sums/pbs": sum("py-new") + "  " + pyAsset + "\n",
+	}}
+}
+
+// A BUMP IS FOLLOWED EVERYWHERE, and a second run is the no-op the first left.
+func TestABumpIsFollowedEverywhereAndThenLeftAlone(t *testing.T) {
+	fixturePins(t)
+	root := writeTree(t, bumped())
+	web, lock := publisherWeb(t), &lockRun{}
+	env, log := newEnv(root, web, lock, true)
+	res, err := env.Run(context.Background())
+	if err != nil {
+		t.Fatalf("%v; log:\n%s", err, log)
+	}
+	want := []string{"internal/checks/toolpins.go", "internal/checks/witlane.go", "pytools/requirements.in", "tools.toml", "pytools/requirements.txt"}
+	if strings.Join(res.Changed, " ") != strings.Join(want, " ") {
+		t.Errorf("changed %v, want %v", res.Changed, want)
+	}
+	wit := read(t, root, "internal/checks/witlane.go")
+	for _, s := range []string{`"` + wasmNew + `"`, `"wasm-tools-1.262.0-x86_64-linux/wasm-tools"`, "// WasmToolsMember is the binary inside that tarball."} {
+		if !strings.Contains(wit, s) {
+			t.Errorf("witlane.go lacks %s:\n%s", s, wit)
+		}
+	}
+	if read(t, root, "internal/checks/images.go") != bumped()["internal/checks/images.go"] {
+		t.Error("images.go was rewritten, though its URL is a join")
+	}
+	pins := read(t, root, "internal/checks/toolpins.go")
+	for _, s := range []string{
+		`const PythonStandaloneURL = "` + pyNew + `"`,
+		`WasmToolsURL:        "` + sum("wasm-new") + `"`,
+		`OpengrepURL:         "` + sum("grep-new") + `"`,
+		`PythonStandaloneURL: "` + sum("py-new") + `"`,
+	} {
+		if !strings.Contains(pins, s) {
+			t.Errorf("toolpins.go lacks %s:\n%s", s, pins)
+		}
+	}
+	toml := read(t, root, "tools.toml")
+	for _, s := range []string{
+		`spec = "` + grepNew + `"` + "\nversion = \"v1.31.0\"\nsha256 = \"" + sum("grep-new") + `"`,
+		`spec = "` + wasmNew + `"` + "\nversion = \"1.262.0\"\nsha256 = \"" + sum("wasm-new") + `"`,
+		`spec = "` + pyNew + `"` + "\nversion = \"3.14.7\"\nsha256 = \"" + sum("py-new") + `"`,
+		"spec = \"ruff\"\nversion = \"0.17.1\"",
+		"# tools@1\n",
+	} {
+		if !strings.Contains(toml, s) {
+			t.Errorf("tools.toml lacks %q:\n%s", s, toml)
+		}
+	}
+	if got := read(t, root, "pytools/requirements.in"); got != "# the venv\npyyaml\ncopier==9.19.1\n" {
+		t.Errorf("requirements.in = %q", got)
+	}
+	if lock.dir != filepath.Join(root, "pytools") || strings.Join(lock.args, " ") != "uv pip compile requirements.in --generate-hashes --python-version 3.14 -o requirements.txt" {
+		t.Errorf("the lock ran %v in %s", lock.args, lock.dir)
+	}
+	if !strings.Contains(read(t, root, "pytools/requirements.txt"), "\ncopier==9.19.1 \\\n") {
+		t.Error("the lock does not pin the new copier")
+	}
+
+	after := snapshot(t, root)
+	web.asked, lock.args = nil, nil
+	res, err = env.Run(context.Background())
+	if err != nil || len(res.Changed) != 0 || len(web.asked) != 0 || lock.args != nil {
+		t.Errorf("the second run: changed %v, fetched %v, ran %v, err %v", res.Changed, web.asked, lock.args, err)
+	}
+	for name, body := range snapshot(t, root) {
+		if body != after[name] {
+			t.Errorf("the second run rewrote %s", name)
+		}
+	}
+}
+
+// A DRY RUN names what would move and writes and fetches nothing.
+func TestADryRunWritesAndFetchesNothing(t *testing.T) {
+	fixturePins(t)
+	root := writeTree(t, bumped())
+	before := snapshot(t, root)
+	web, lock := publisherWeb(t), &lockRun{}
+	env, _ := newEnv(root, web, lock, false)
+	res, err := env.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"internal/checks/toolpins.go", "internal/checks/witlane.go", "pytools/requirements.in", "tools.toml", "pytools/requirements.txt"}
+	if strings.Join(res.Changed, " ") != strings.Join(want, " ") {
+		t.Errorf("changed %v, want %v", res.Changed, want)
+	}
+	if len(web.asked) != 0 || lock.args != nil {
+		t.Errorf("a dry run fetched %v and ran %v", web.asked, lock.args)
+	}
+	for name, body := range snapshot(t, root) {
+		if body != before[name] {
+			t.Errorf("a dry run wrote %s", name)
+		}
+	}
+}
