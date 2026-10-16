@@ -31,8 +31,8 @@ func TestTheLandedTreeIsInStep(t *testing.T) {
 }
 
 // URLPins is every url tool in tools.toml, and every ToolSHA256 key is one of
-// them, or WasmTools1250URL: the regen lane's fixed asset, which has no
-// renovate marker and so never moves.
+// them, or WasmTools1250URL and NodeRegenURL: the regen atom's fixed assets,
+// which have no renovate marker and so never move.
 func TestTheTablesCoverTheTree(t *testing.T) {
 	src, err := loadGoSource(filepath.Join(repoRoot, "internal", "checks"))
 	if err != nil {
@@ -64,7 +64,7 @@ func TestTheTablesCoverTheTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	for key := range maps.Keys(sums) {
-		if !slices.Contains(urls, key) && key != "WasmTools1250URL" {
+		if !slices.Contains(urls, key) && key != "WasmTools1250URL" && key != "NodeRegenURL" {
 			t.Errorf("ToolSHA256[%s] is no url pin's", key)
 		}
 	}
