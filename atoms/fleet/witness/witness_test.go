@@ -554,53 +554,6 @@ func TestFleetWitnessAnIdentifiedRequestThatCannotBeWrittenFallsBackToTheClear(t
 	}
 }
 
-// THE SHADOW'S WITNESS IS DRY: it lists what it would ask and asks nothing.
-func TestFleetWitnessDryAsksNothing(t *testing.T) {
-	tree := map[string]string{"a.go": "package a\n", "b.py": "x = 1\n"}
-	t.Run("it lists the files in git's order and never settles 0", func(t *testing.T) {
-		n := newNarcissus(t, reply("novel"))
-		in, pauses := witnessIn(t, n, tree, "b.py", "a.go", "t_test.go", "vendor/x.go", "lib.rs", "README.md")
-		in.WitnessDry = true
-		in.Spire = "/run/spire/agent.sock"
-		in.Exec = func(_ context.Context, c atoms.Cmd) (string, int) {
-			t.Errorf("a dry run exec'd %s %v", c.Name, c.Args)
-			return "", 0
-		}
-		v := run(t, in)
-		expect(t, v, stateOf(2), cannot, checks.WitnessDryMark+" would ask the witness about 2 file(s)",
-			"skipped 1 file(s) in languages the witness has no analyzer for", "skipped 1 vendored file(s)", "skipped 1 test file(s)")
-		if got := checks.WitnessDryPaths(strings.Join(v.Logs, "\n")); strings.Join(got, ",") != "b.py,a.go" {
-			t.Errorf("would ask %v, want b.py,a.go in the change set's order", got)
-		}
-		if !strings.Contains(v.Reason, "b.py | python | ci:gate:some-star@HEAD") {
-			t.Errorf("the list does not carry the language and caller:\n%s", v.Reason)
-		}
-		if n.total() != 0 || len(*pauses) != 0 {
-			t.Errorf("%d request(s) and %d pause(s) from a dry run", n.total(), len(*pauses))
-		}
-	})
-	t.Run("with nothing to ask it still is not a pass", func(t *testing.T) {
-		in, _ := witnessIn(t, nil, tree, "README.md")
-		in.WitnessDry = true
-		expect(t, run(t, in), stateOf(2), cannot, "would ask the witness about 0 file(s)")
-	})
-	for _, tc := range []struct {
-		name string
-		err  error
-		want string
-	}{
-		{"a snapshot", atoms.SnapshotError{Kind: "worktree"}, "no change set to read: the source is a worktree snapshot"},
-		{"a change set that would not compute", errBoom, "no change set to read: boom"},
-	} {
-		t.Run(tc.name+" is dry and not a pass", func(t *testing.T) {
-			in, _ := witnessIn(t, nil, tree, "a.go")
-			in.WitnessDry = true
-			in.ChangedErr = tc.err
-			expect(t, run(t, in), stateOf(2), cannot, checks.WitnessDryMark, tc.want)
-		})
-	}
-}
-
 // A witness that does not say ready is a could-not-run about the target: state
 // 2 (never a finding, never a pass), named so, and not one ask is sent. The
 // revert of narcissus's own tip must not wait on narcissus (foundry-tools#18242).
@@ -653,7 +606,6 @@ func TestWitnessDeadlineIsTheWorstCaseOfTheSourcesItWouldAsk(t *testing.T) {
 		{"four sources are one round", atomkit.In{Changed: []string{"a.go", "b.go", "c.py", "d.py"}}, one},
 		{"five sources are two rounds", atomkit.In{Changed: []string{"a.go", "b.go", "c.py", "d.py", "e.go"}}, 2 * one},
 		{"a test file is not a source", atomkit.In{Changed: []string{"a.go", "a_test.go"}}, one},
-		{"a dry run asks nothing", atomkit.In{WitnessDry: true, Changed: []string{"a.go"}}, 0},
 		{"a change set that would not compute", atomkit.In{ChangedErr: context.Canceled, Changed: []string{"a.go"}}, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

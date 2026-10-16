@@ -503,36 +503,6 @@ func WitnessedPaths(text string) []string {
 	return out
 }
 
-// WitnessDryMark opens the reason of a dry run, which asked nothing.
-const WitnessDryMark = "DRY - not asked:"
-
-// witnessWouldAsk prefixes each line of a dry run's list.
-const witnessWouldAsk = "would ask: "
-
-// WitnessDryText is a dry run's reason: what it would have asked, in order, each
-// file with the language and the caller the request would carry, then the
-// skipped clauses (WitnessSkipTail). Asking is the only thing it leaves out.
-func WitnessDryText(sources []string, caller string, skipped, vendored, tests []string) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "%s would ask the witness about %d file(s)%s", WitnessDryMark, len(sources), WitnessSkipTail(skipped, vendored, tests))
-	for _, p := range sources {
-		fmt.Fprintf(&b, "\n%s%s | %s | %s", witnessWouldAsk, p, WitnessLanguage(p), caller)
-	}
-	return b.String()
-}
-
-// WitnessDryPaths reads the files a WitnessDryText names, in its order.
-func WitnessDryPaths(text string) []string {
-	var out []string
-	for _, ln := range strings.Split(text, "\n") {
-		if rest, ok := strings.CutPrefix(ln, witnessWouldAsk); ok {
-			p, _, _ := strings.Cut(rest, " | ")
-			out = append(out, p)
-		}
-	}
-	return out
-}
-
 // StarName is the star a checkout's origin URL names: its last path segment,
 // less .git; "unknown" when there is none.
 func StarName(originURL string) string {

@@ -57,7 +57,7 @@ type pythonLayers struct {
 const pythonInstallDir = "/opt/python"
 
 // toolsLog is where the build says what it left out. A variable so a test reads
-// it; stderr in the module, where the shadow's own report goes. The tools are
+// it; stderr in the module. The tools are
 // fetched at once, so the lines are written under a lock: a line is whole.
 var (
 	toolsLog   io.Writer = os.Stderr
@@ -98,7 +98,7 @@ func buildPython(ctx context.Context, base *dagger.Container) (out pythonLayers)
 		// them, not in the system store the engine writes its CA into, so
 		// ansible-galaxy answered CERTIFICATE_VERIFY_FAILED "unable to get local
 		// issuer" on both tries and the collections were left out of every
-		// container since #328 (measured 2026-10-09, shadow on infra:
+		// container since #328 (measured 2026-10-09, binary on infra:
 		// ops:ansible settled 2, "the container carries none").
 		WithEnvVariable("SSL_CERT_FILE", "/etc/ssl/certs/ca-certificates.crt").
 		WithEnvVariable("REQUESTS_CA_BUNDLE", "/etc/ssl/certs/ca-certificates.crt").

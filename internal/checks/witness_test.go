@@ -442,7 +442,7 @@ func TestAskWitnessRetriedDoesNotRepeatANoAnswer(t *testing.T) {
 	}
 }
 
-func TestWitnessSummaryAndDryTextReadBack(t *testing.T) {
+func TestWitnessSummaryReadsBack(t *testing.T) {
 	rows := []WitnessRow{{Path: "a.go", Class: "clean", Verdict: "novel", Reason: "x | y"}, {Path: "b.py", Class: "finding", Verdict: "standard", Reason: "z"}}
 	text := "reason line\n\n" + WitnessSummary(rows) + "- tail bullet | with bars\n"
 	if got := strings.Join(WitnessedPaths(text), ","); got != "a.go,b.py" {
@@ -451,18 +451,12 @@ func TestWitnessSummaryAndDryTextReadBack(t *testing.T) {
 	if got := WitnessedPaths("no table here\n| not a row\n"); len(got) != 0 {
 		t.Errorf("paths %v from text with no table", got)
 	}
-	dry := WitnessDryText([]string{"a.go", "b.py"}, "ci:gate:x@HEAD", []string{"s.rs"}, []string{"v"}, []string{"t", "u"})
-	if got := strings.Join(WitnessDryPaths(dry), ","); got != "a.go,b.py" {
-		t.Errorf("dry paths %q", got)
-	}
-	if s, v, tt := WitnessSkipCounts(dry); s != 1 || v != 1 || tt != 2 {
+	skips := "reason" + WitnessSkipTail([]string{"s.rs"}, []string{"v"}, []string{"t", "u"})
+	if s, v, tt := WitnessSkipCounts(skips); s != 1 || v != 1 || tt != 2 {
 		t.Errorf("counts %d %d %d", s, v, tt)
 	}
 	if s, v, tt := WitnessSkipCounts("clean"); s+v+tt != 0 {
 		t.Errorf("counts from nothing: %d %d %d", s, v, tt)
-	}
-	if !strings.HasPrefix(dry, WitnessDryMark+" would ask the witness about 2 file(s)") {
-		t.Errorf("dry text %q", dry)
 	}
 }
 

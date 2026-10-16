@@ -117,7 +117,7 @@ func TestTheCastTalliesTheBinarysStageCPU(t *testing.T) {
 	if c := votes["fleet:check-yaml"].CPUMs; c == nil || *c != 9 {
 		t.Errorf("the vote lost its CPU: %v", c)
 	}
-	// A lane that keeps no tally (the shadow's run) still votes.
+	// A lane that keeps no tally (the local hook's stages) still votes.
 	if votes := m.cast(context.Background(), run, "precommit", "", want); votes["fleet:check-yaml"].State != 0 {
 		t.Errorf("an untallied cast voted %+v", votes)
 	}

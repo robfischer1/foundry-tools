@@ -53,8 +53,7 @@ func withTally(ctx context.Context, t *cpuTally) context.Context {
 	return context.WithValue(ctx, tallyKey{}, t)
 }
 
-// tallyOf is the lane's tally, nil when the lane keeps none (a shadow's run,
-// the local hook's stages).
+// tallyOf is the lane's tally, nil when the lane keeps none (the local hook's stages).
 func tallyOf(ctx context.Context) *cpuTally {
 	t, _ := ctx.Value(tallyKey{}).(*cpuTally)
 	return t
