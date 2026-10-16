@@ -101,40 +101,19 @@ func TestFleetWitTopics(t *testing.T) {
 func TestEveryPythonAtomExecsAListedProgram(t *testing.T) {
 	provision(t, nil)
 	r := &renderer{t: t, render: okRender()}
-	star := map[string]string{"vendor/a.json": "{}", "main.go": "x"}
-	checkers := dieTree(map[string]string{
-		"tools/check_findings.py": "x", "schema/findings.schema.json": "{}", "tools/check_schemas.py": "x",
-		"tools/check_wit_regenerated.py": "x", "tools/check_schema_rendered.py": "x",
-		"tools/check_wire_grammar.py":       "x",
-		"tools/check_resource_referents.py": "x",
-		"tools/check_grants_stamp.py":       "x",
-		"schema/fleet-star.schema.json":     "{}",
-	})
 	for _, tc := range []struct {
 		id     string
 		files  map[string]string
-		door   bool
 		answer func(Cmd) (string, int)
 	}{
-		{"fleet:wit-topics", map[string]string{"prime/a.yaml": "x", witTopicsChecker: "x"}, false, nil},
-		{"dies:contracts", contractsTree(), false, fixtureAnswer(0, "")},
-		{"dies:contract-copies", star, true, nil},
-		{"dies:schema", checkers, false, nil},
-		{"dies:findings", checkers, false, nil},
-		{"dies:schemas", checkers, false, nil},
-		{"dies:wit-regenerated", checkers, false, nil},
-		{"dies:schema-rendered", checkers, false, nil},
-		{"dies:wire-grammar", checkers, false, nil},
-		{"dies:resource-referents", checkers, false, nil},
-		{"dies:grants-stamp", checkers, false, nil},
-		{"dies:refusal-codes", ownerTree(), false, nil},
-		{"ops:dup", map[string]string{"flux/x.yaml": "a: 1\n", "tools/dup-check": "x"}, false, nil},
-		{"ops:declaration", map[string]string{"flux/x.yaml": "a: 1\n", "tools/declaration-integrity": "x"}, false, nil},
-		{"ops:metrics", map[string]string{"flux/x.yaml": "a: 1\n", "tools/metric-allowlist": "x"}, false, nil},
-		{"ops:star-sa", map[string]string{"flux/x.yaml": "a: 1\n", "tools/star-sa-list": "x"}, false, nil},
-		{"ops:world-patches", map[string]string{"flux/x.yaml": "a: 1\n", "tools/world-patches": "x"}, false, nil},
-		{"ops:ansible", ansibleFiles(), false, nil},
-		{"template:render-matrix", templateFiles(matrixTOML), false, r.answer},
+		{"fleet:wit-topics", map[string]string{"prime/a.yaml": "x", witTopicsChecker: "x"}, nil},
+		{"ops:dup", map[string]string{"flux/x.yaml": "a: 1\n", "tools/dup-check": "x"}, nil},
+		{"ops:declaration", map[string]string{"flux/x.yaml": "a: 1\n", "tools/declaration-integrity": "x"}, nil},
+		{"ops:metrics", map[string]string{"flux/x.yaml": "a: 1\n", "tools/metric-allowlist": "x"}, nil},
+		{"ops:star-sa", map[string]string{"flux/x.yaml": "a: 1\n", "tools/star-sa-list": "x"}, nil},
+		{"ops:world-patches", map[string]string{"flux/x.yaml": "a: 1\n", "tools/world-patches": "x"}, nil},
+		{"ops:ansible", ansibleFiles(), nil},
+		{"template:render-matrix", templateFiles(matrixTOML), r.answer},
 	} {
 		t.Run(tc.id, func(t *testing.T) {
 			in, f := toolTree(t, tc.files, opsPyAnswer(tc.answer))
@@ -142,9 +121,6 @@ func TestEveryPythonAtomExecsAListedProgram(t *testing.T) {
 				if err := os.Chmod(filepath.Join(in.Root, "tools/dup-check"), 0o755); err != nil {
 					t.Fatal(err)
 				}
-			}
-			if tc.door {
-				in.Door = copiesDoor(t)
 			}
 			if v := runAtom(t, tc.id, in); v.Result == absent {
 				t.Fatalf("%s was absent on a tree built to run it: %s", tc.id, v.Reason)

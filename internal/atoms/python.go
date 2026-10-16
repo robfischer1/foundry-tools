@@ -57,17 +57,6 @@ func pyProbe(ctx context.Context, a checks.AtomDef, in Input) *checks.Verdict {
 	return &v
 }
 
-// pyImports is the probe that the packages a checker imports are in the venv:
-// dies:schema's `-c "import jsonschema"`, kept as the chain had it.
-func pyImports(ctx context.Context, a checks.AtomDef, in Input, module string) *checks.Verdict {
-	out, code := in.run(ctx, pyCmd(in.Root, "-c", "import "+module))
-	if code == 0 {
-		return nil
-	}
-	v := checks.VerdictOf(a, int(checks.StateCannotRun), fmt.Sprintf("the atom never ran: python3 -c import %s exited %d: %s", module, code, out))
-	return &v
-}
-
 // pySettle runs a python program and settles on its exit, stdout then stderr,
 // unmapped: the tree's checkers speak the fleet's ladder (0 holds, 1 a defect, 2
 // the check could not run), so the exit IS the state. A python3 that would not
@@ -113,7 +102,7 @@ func fleetWitTopics(ctx context.Context, a checks.AtomDef, in Input) checks.Verd
 		return checks.VerdictOf(a, int(checks.StatePass), a.ID+
 			": ABSENT - this tree carries no "+checks.OureaConfigDir+"/, so it is not the fleet's flux tree and holds no topic schemas to render")
 	}
-	if stop := requirePaths(t, a, [][2]string{
+	if stop := RequirePaths(t, a, [][2]string{
 		{witTopicsChecker, witTopicsChecker + " is absent, so there is no checker to run and the topics' WIT is ungraded."},
 	}); stop != nil {
 		return *stop

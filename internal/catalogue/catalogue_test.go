@@ -215,7 +215,14 @@ func TestTheBinaryCarriesTheNoneToolchainAtoms(t *testing.T) {
 	for _, a := range Atoms() {
 		ids = append(ids, a.ID)
 	}
-	if want := []string{"fleet:check-merge-conflict", "fleet:manifest-one-command"}; !slices.Equal(ids, want) {
+	var want []string
+	for _, d := range Defs {
+		if d.Toolchain == "none" {
+			want = append(want, d.ID)
+		}
+	}
+	slices.Sort(want)
+	if len(want) == 0 || !slices.Equal(ids, want) {
 		t.Fatalf("got %v, want %v", ids, want)
 	}
 	if !slices.Contains(atoms.StageIDs("precommit"), "fleet:check-merge-conflict") {
@@ -225,7 +232,7 @@ func TestTheBinaryCarriesTheNoneToolchainAtoms(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reg.IDs()) != 2 {
+	if len(reg.IDs()) != len(want) {
 		t.Errorf("ids %v", reg.IDs())
 	}
 }

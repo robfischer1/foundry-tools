@@ -66,16 +66,13 @@ func flagged(c Cmd) string { return strings.Join(c.Args, " ") }
 // says yes to everything, and each program they name must be listed.
 func TestEveryToolAtomExecsAListedProgram(t *testing.T) {
 	trees := map[string]map[string]string{
-		"fleet:opengrep-sast":    {"rules/sast/a.yml": "x"},
-		"fleet:hadolint":         {"Dockerfile": "FROM x\n"},
-		"dies:opa-test":          dieTree(nil),
-		"dies:admission-dogfood": dieTree(map[string]string{"policy/admission/a.rego": "x", "tests/fixtures/ouranos-self.json": "{}"}),
-		"dies:canary-visibility": dieTree(nil),
-		"ops:shell":              {"flux/x.yaml": "a: 1", "run.sh": "#!/bin/bash\n"},
-		"ops:chezmoi":            {"dot_zshrc": "x", "dot_a.tmpl": "x"},
-		"ops:flux":               {"flux/kustomization.yaml": "x", "flux/clusters/a/k.yaml": "x"},
-		"compose:config":         {"compose.yaml": "services: {}\n"},
-		"wit:validate":           {"wit/a.wit": "x", "justfile": "validate:\n  true\n"},
+		"fleet:opengrep-sast": {"rules/sast/a.yml": "x"},
+		"fleet:hadolint":      {"Dockerfile": "FROM x\n"},
+		"ops:shell":           {"flux/x.yaml": "a: 1", "run.sh": "#!/bin/bash\n"},
+		"ops:chezmoi":         {"dot_zshrc": "x", "dot_a.tmpl": "x"},
+		"ops:flux":            {"flux/kustomization.yaml": "x", "flux/clusters/a/k.yaml": "x"},
+		"compose:config":      {"compose.yaml": "services: {}\n"},
+		"wit:validate":        {"wit/a.wit": "x", "justfile": "validate:\n  true\n"},
 	}
 	for id, files := range trees {
 		t.Run(id, func(t *testing.T) {

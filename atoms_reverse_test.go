@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"dagger/foundry-tools/internal/atoms"
+	"dagger/foundry-tools/internal/catalogue"
 	"dagger/foundry-tools/internal/checks"
 )
 
@@ -127,7 +128,13 @@ func TestAReverseShadowDoesNotWaitForAVoteThatCannotCome(t *testing.T) {
 // report says it was left out; a switch brings it back.
 func TestTheReverseShadowLeavesTheWitnessChainOut(t *testing.T) {
 	ids, skipped := reverseIDs(checks.StagePrepush, false)
-	if !skipped || slices.Contains(ids, "fleet:witness") || len(ids) != len(atoms.StageIDs(checks.StagePrepush))-1 {
+	chained := 0 // the binary's atoms that no file of their own answers
+	for _, id := range atoms.StageIDs(checks.StagePrepush) {
+		if !catalogue.Ported(id) {
+			chained++
+		}
+	}
+	if !skipped || slices.Contains(ids, "fleet:witness") || len(ids) != chained-1 {
 		t.Errorf("ids %v skipped %v", ids, skipped)
 	}
 	if ids, skipped := reverseIDs(checks.StageOrbit, false); skipped || len(ids) != 4 {

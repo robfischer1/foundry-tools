@@ -133,27 +133,3 @@ func brokenLink(t *testing.T, root, rel string) {
 		t.Fatal(err)
 	}
 }
-
-// doorBreaking answers like doorOf, except that the connection for one file is
-// dropped mid-request: the door as a network that failed for that read alone.
-func doorBreaking(t *testing.T, answers map[string]string, breakOn string) checks.Door {
-	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		key := r.URL.Query().Get("repo") + " " + r.URL.Query().Get("path")
-		if key == breakOn {
-			conn, _, err := w.(http.Hijacker).Hijack()
-			if err == nil {
-				_ = conn.Close()
-			}
-			return
-		}
-		body, ok := answers[key]
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
-		_, _ = w.Write([]byte(body))
-	}))
-	t.Cleanup(srv.Close)
-	return checks.Door{Base: srv.URL}
-}

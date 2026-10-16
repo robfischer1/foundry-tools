@@ -198,7 +198,7 @@ func fakeTree(files map[string]string) TreeReader {
 }
 
 func TestGradeCapabilitiesServed(t *testing.T) {
-	a := AtomByID(CapabilitiesServedID)
+	a := AtomDef{ID: CapabilitiesServedID, Stage: StagePrecommit, Lane: LaneAny}
 	served := `{"schema":1,"star":"a","verbs":["x"]}`
 	decl := `{"stars":{"a":{"prefix":"pa","verbs":["x"],"tier":{"x":"default"}}},"tx":7}`
 	rec := `{"verb_prefix":"pa"}`

@@ -507,17 +507,6 @@ func TestTheCollectionsAreExactReleases(t *testing.T) {
 	}
 }
 
-func TestTheChainsContractFixturesAreTheBinarys(t *testing.T) {
-	if len(diesContractFixtures) != len(checks.ContractFixtures) {
-		t.Fatalf("%d fixtures in the chain, %d in the binary", len(diesContractFixtures), len(checks.ContractFixtures))
-	}
-	for i, f := range diesContractFixtures {
-		if g := checks.ContractFixtures[i]; f.name != g.Name || f.expectFail != g.ExpectFail {
-			t.Errorf("fixture %d: chain %+v, binary %+v", i, f, g)
-		}
-	}
-}
-
 // A STAGE THAT DOES NOT BUILD IS LEFT OUT WITH ITS CAUSE, and so is every stage
 // above it; the ones below still are. The atoms that need what is missing settle
 // 2 on their own probe.

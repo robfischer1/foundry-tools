@@ -66,18 +66,14 @@ func TestBuiltinIsThePortedAtomsInOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The four of the first cut lead, in their order; the eighteen ported after, the five that read git history or the network last,
-	// the ten that exec a pinned tool among them by family, and the thirteen that
-	// run python among those, by family.
+	// The atoms still written here, in the order the vector lists them: the ones
+	// that live in their own files (atoms/<ns>/<name>) follow them.
 	want := []string{
 		"fleet:check-yaml", "fleet:check-added-large-files", "fleet:stop-justifications",
 		"fleet:sast-ruleset-lanes", "fleet:copier-answers-intact", "fleet:ourea-config-retired-keys", "fleet:retired-verbs",
 		"fleet:orbit-drift", "fleet:dagger-lockstep", "fleet:renovate-lockstep", "fleet:node-kinds-declared", "fleet:consumed-events-emitted",
 		"fleet:opengrep-sast", "fleet:hadolint", "fleet:wit-topics", "fleet:pdp-wired", "fleet:kafka-flows", "fleet:witness",
 		"compose:no-tracked-secrets", "compose:third-party-pins", "compose:config",
-		"dies:data-keys", "dies:canonical", "dies:refusal-codes", "dies:opa-test", "dies:admission-dogfood", "dies:canary-visibility",
-		"dies:contracts", "dies:contract-copies", "dies:schema", "dies:findings", "dies:schemas",
-		"dies:wit-regenerated", "dies:schema-rendered", "dies:wire-grammar", "dies:resource-referents", "dies:capabilities-served", "dies:grants-stamp", "law:lint", "law:verb-liveness", "law:budget",
 		"orbit:contracts", "orbit:surface", "orbit:sidecars", "orbit:repo",
 		"ops:orbit-composed", "ops:orbit-sidecars", "ops:immutable", "ops:yaml", "ops:shell", "ops:chezmoi", "ops:flux", "ops:dup", "ops:declaration", "ops:specs", "ops:metrics", "ops:star-sa", "ops:world-patches", "ops:record-lanes", "ops:ansible",
 		"template:render-matrix", "wit:validate",
