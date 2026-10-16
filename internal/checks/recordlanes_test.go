@@ -1,0 +1,110 @@
+package checks
+
+import (
+	"strings"
+	"testing"
+)
+
+// jobsYAML is flux's daedalus-jobs ConfigMap in its real shape: the lists are
+// JSON inside string values, and a comment names both keys.
+func jobsYAML(record, executor string) string {
+	s := "# RECORD_LANES and EXECUTOR_LANES are explained here.\napiVersion: v1\nkind: ConfigMap\nmetadata: {name: daedalus-jobs}\ndata:\n"
+	if record != "" {
+		s += "  RECORD_LANES: '" + record + "'\n"
+	}
+	if executor != "" {
+		s += "  EXECUTOR_LANES: '" + executor + "'\n"
+	}
+	return s
+}
+
+// oureaYAML is ourea-config's ConfigMap: the TOML rides in config.toml.
+func oureaYAML(toml string) string {
+	s := "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: ourea-config}\ndata:\n  config.toml: |\n"
+	for _, l := range strings.Split(toml, "\n") {
+		s += "    " + l + "\n"
+	}
+	return s
+}
+
+func laneFiles(jobs, ourea string) map[string]string {
+	return map[string]string{RecordLanesJobsFile: jobs, RecordLanesOureaFile: ourea}
+}
+
+func TestRecordLanesPass(t *testing.T) {
+	for name, files := range map[string]map[string]string{
+		"equal, atoms and dev present, no executor lanes": laneFiles(
+			jobsYAML(`["gate","atoms","dev"]`, ""), oureaYAML(`record_lanes = ["dev", "gate", "atoms"]`)),
+		"equal and holding the executor lanes": laneFiles(
+			jobsYAML(`["gate","check","atoms","dev"]`, `["check"]`), oureaYAML("door_url = \"x\"\nrecord_lanes = [\"atoms\",\"check\",\"dev\",\"gate\"]\n[[offsite_remotes]]\nname = \"a\"")),
+		"a comment naming a lane is inert": laneFiles(
+			jobsYAML(`["atoms","dev"]`, ""), oureaYAML("# record_lanes = [\"check\"]\nrecord_lanes = [\"atoms\",\"dev\"]")),
+	} {
+		if state, report := RecordLanes(files); state != int(StatePass) {
+			t.Errorf("%s: state %d, want pass:\n%s", name, state, report)
+		}
+	}
+}
+
+func TestRecordLanesFindings(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		files   map[string]string
+		needles []string
+	}{
+		{ // UT-680
+			"an executor lane missing from ourea-config",
+			laneFiles(jobsYAML(`["gate","check","atoms","dev"]`, `["check"]`), oureaYAML(`record_lanes = ["gate","atoms","dev"]`)),
+			[]string{"check", "missing from record_lanes in prime/ourea-config.yaml"},
+		},
+		{
+			"an executor lane missing from daedalus-jobs",
+			laneFiles(jobsYAML(`["gate","atoms","dev"]`, `["check"]`), oureaYAML(`record_lanes = ["gate","check","atoms","dev"]`)),
+			[]string{"check", "missing from RECORD_LANES in prime/daedalus-jobs.yaml"},
+		},
+		{
+			"unequal lists",
+			laneFiles(jobsYAML(`["gate","atoms","dev","orbit"]`, ""), oureaYAML(`record_lanes = ["gate","atoms","dev","visual"]`)),
+			[]string{"orbit", "visual", "not equal"},
+		},
+		{
+			"atoms missing from both",
+			laneFiles(jobsYAML(`["gate","dev"]`, ""), oureaYAML(`record_lanes = ["gate","dev"]`)),
+			[]string{"atoms", "missing from RECORD_LANES in prime/daedalus-jobs.yaml", "missing from record_lanes in prime/ourea-config.yaml"},
+		},
+		{
+			"dev missing from one",
+			laneFiles(jobsYAML(`["gate","atoms"]`, ""), oureaYAML(`record_lanes = ["gate","atoms","dev"]`)),
+			[]string{"dev", "missing from RECORD_LANES in prime/daedalus-jobs.yaml"},
+		},
+	} {
+		state, report := RecordLanes(tc.files)
+		if state != int(StateFindings) {
+			t.Errorf("%s: state %d, want findings:\n%s", tc.name, state, report)
+		}
+		for _, n := range tc.needles {
+			if !strings.Contains(report, n) {
+				t.Errorf("%s: report lacks %q:\n%s", tc.name, n, report)
+			}
+		}
+	}
+}
+
+// A list that cannot be read is a list not judged: could-not-run, never a pass.
+func TestRecordLanesCannotRun(t *testing.T) {
+	good := oureaYAML(`record_lanes = ["atoms","dev"]`)
+	for name, files := range map[string]map[string]string{
+		"the jobs file is not YAML":      laneFiles("a: [", good),
+		"RECORD_LANES is not JSON":       laneFiles(jobsYAML(`gate,atoms`, ""), good),
+		"EXECUTOR_LANES is not JSON":     laneFiles(jobsYAML(`["atoms","dev"]`, `nope`), good),
+		"RECORD_LANES key moved":         laneFiles(jobsYAML("", ""), good),
+		"the ourea TOML does not parse":  laneFiles(jobsYAML(`["atoms","dev"]`, ""), oureaYAML(`record_lanes = [`)),
+		"record_lanes key moved":         laneFiles(jobsYAML(`["atoms","dev"]`, ""), oureaYAML(`door_url = "x"`)),
+		"config.toml key moved":          laneFiles(jobsYAML(`["atoms","dev"]`, ""), "kind: ConfigMap\ndata: {other: x}\n"),
+		"one of the two files is absent": {RecordLanesJobsFile: jobsYAML(`["atoms","dev"]`, "")},
+	} {
+		if state, report := RecordLanes(files); state != int(StateCannotRun) {
+			t.Errorf("%s: state %d, want cannot-run:\n%s", name, state, report)
+		}
+	}
+}
