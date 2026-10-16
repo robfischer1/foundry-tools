@@ -41,6 +41,12 @@ image = "docker.io/pgvector/pgvector:pg18@sha256:1d50c689b0a6511b9ea0a15615281c8
 [service.redpanda]
 image = "docker.notusmi.com/redpandadata/redpanda@sha256:6d627e3ebdc05438d1e8e3b55695ac1a7a0f79e7d5ca90b3b0f12dc984633e83"
 
+[service.kube-apiserver]
+image = "registry.k8s.io/kube-apiserver:v1.36.3@sha256:b4bc06c81fd76f81174e6c19ddacf477acdf1583e7a5846ebbd513493aef6e43"
+
+[service.etcd]
+image = "registry.k8s.io/etcd:3.6.8-0@sha256:397189418d1a00e500c0605ad18d1baf3b541a1004d768448c367e48071622e5"
+
 [tool.opa]
 kind = "url"
 spec = "https://openpolicyagent.org/downloads/v1.21.2/opa_linux_amd64_static"

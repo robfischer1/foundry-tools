@@ -37,6 +37,8 @@ func goMutationEngine() string {
 		"pgvector":       checks.ImagePgvector,
 		"postgres":       checks.ImagePostgres,
 		"redpanda":       checks.ImageRedpanda,
+		"kube-apiserver": checks.ImageKubeAPIServer,
+		"etcd":           checks.ImageEtcd,
 		"epoch":          checks.MutationGradingEpoch,
 	})
 }

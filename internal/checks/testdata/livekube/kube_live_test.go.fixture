@@ -1,0 +1,157 @@
+//go:build live_kube
+
+package kubefixture
+
+import (
+	"bytes"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/hex"
+	"encoding/json"
+	"io"
+	"net/http"
+	"os"
+	"testing"
+	"time"
+)
+
+// client talks to the lane's real API server over HTTPS, as the three variables
+// the lane hands every live_kube suite describe it: a URL, an admin bearer token
+// and the CA file the serving certificate verifies against. Nothing here is a
+// double — the objects below are created in, and read back out of, a real etcd.
+type client struct {
+	t     *testing.T
+	base  string
+	token string
+	http  *http.Client
+}
+
+func newClient(t *testing.T) *client {
+	t.Helper()
+	base, token, caFile := os.Getenv("TEST_KUBE_URL"), os.Getenv("TEST_KUBE_TOKEN"), os.Getenv("TEST_KUBE_CA_FILE")
+	if base == "" || token == "" || caFile == "" {
+		t.Fatalf("the lane did not hand over the API server: TEST_KUBE_URL=%q TEST_KUBE_TOKEN set=%v TEST_KUBE_CA_FILE=%q", base, token != "", caFile)
+	}
+	pemBytes, err := os.ReadFile(caFile)
+	if err != nil {
+		t.Fatalf("reading the CA file: %v", err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(pemBytes) {
+		t.Fatalf("%s holds no certificate", caFile)
+	}
+	return &client{t: t, base: base, token: token, http: &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}},
+	}}
+}
+
+// call sends one request and decodes the JSON answer; it fails the test on any
+// status but the one wanted.
+func (c *client) call(method, path string, body any, want int) map[string]any {
+	c.t.Helper()
+	var rd io.Reader
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			c.t.Fatalf("encoding %s %s: %v", method, path, err)
+		}
+		rd = bytes.NewReader(raw)
+	}
+	req, err := http.NewRequest(method, c.base+path, rd)
+	if err != nil {
+		c.t.Fatalf("building %s %s: %v", method, path, err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		c.t.Fatalf("%s %s: %v", method, path, err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.t.Fatalf("reading %s %s: %v", method, path, err)
+	}
+	if resp.StatusCode != want {
+		c.t.Fatalf("%s %s = %d, want %d: %s", method, path, resp.StatusCode, want, raw)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		c.t.Fatalf("%s %s answered non-JSON: %v: %s", method, path, err, raw)
+	}
+	return out
+}
+
+// field walks a decoded object by key.
+func field(t *testing.T, obj map[string]any, keys ...string) any {
+	t.Helper()
+	var cur any = obj
+	for _, k := range keys {
+		m, ok := cur.(map[string]any)
+		if !ok {
+			t.Fatalf("%v: %q is not under an object", keys, k)
+		}
+		cur = m[k]
+	}
+	return cur
+}
+
+func suffix(t *testing.T) string {
+	t.Helper()
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		t.Fatal(err)
+	}
+	return hex.EncodeToString(b)
+}
+
+// A ConfigMap created over raw HTTPS under the admin token is read back whole.
+func TestConfigMapRoundTripsThroughARealAPIServer(t *testing.T) {
+	c := newClient(t)
+	name := "fixture-" + suffix(t)
+	c.call("POST", "/api/v1/namespaces/default/configmaps", map[string]any{
+		"apiVersion": "v1", "kind": "ConfigMap",
+		"metadata": map[string]any{"name": name},
+		"data":     map[string]any{"greeting": "hello from etcd"},
+	}, http.StatusCreated)
+	got := c.call("GET", "/api/v1/namespaces/default/configmaps/"+name, nil, http.StatusOK)
+	if v := field(t, got, "data", "greeting"); v != "hello from etcd" {
+		t.Errorf("data.greeting = %v", v)
+	}
+	if v := field(t, got, "metadata", "name"); v != name {
+		t.Errorf("metadata.name = %v", v)
+	}
+}
+
+// A ServiceAccount's token, minted by the server's own TokenRequest, is
+// reviewed by the same server as that ServiceAccount: the signing key, the
+// issuer and the audience all line up.
+func TestServiceAccountTokenIsReviewedAsItsServiceAccount(t *testing.T) {
+	c := newClient(t)
+	sa := "fixture-sa-" + suffix(t)
+	c.call("POST", "/api/v1/namespaces/default/serviceaccounts", map[string]any{
+		"apiVersion": "v1", "kind": "ServiceAccount", "metadata": map[string]any{"name": sa},
+	}, http.StatusCreated)
+	audience := "https://kubernetes.default.svc"
+	minted := c.call("POST", "/api/v1/namespaces/default/serviceaccounts/"+sa+"/token", map[string]any{
+		"apiVersion": "authentication.k8s.io/v1", "kind": "TokenRequest",
+		"spec": map[string]any{"audiences": []string{audience}, "expirationSeconds": 600},
+	}, http.StatusCreated)
+	token, _ := field(t, minted, "status", "token").(string)
+	if token == "" {
+		t.Fatalf("the TokenRequest answered no token: %v", minted)
+	}
+	review := c.call("POST", "/apis/authentication.k8s.io/v1/tokenreviews", map[string]any{
+		"apiVersion": "authentication.k8s.io/v1", "kind": "TokenReview",
+		"spec": map[string]any{"token": token, "audiences": []string{audience}},
+	}, http.StatusCreated)
+	if v := field(t, review, "status", "authenticated"); v != true {
+		t.Fatalf("the token was not authenticated: %v", review["status"])
+	}
+	want := "system:serviceaccount:default:" + sa
+	if v := field(t, review, "status", "user", "username"); v != want {
+		t.Errorf("username = %v, want %s", v, want)
+	}
+}

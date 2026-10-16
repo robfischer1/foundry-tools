@@ -65,13 +65,15 @@ func GoSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race b
 	if race {
 		var dbs []checks.TestDB
 		var brokers []checks.TestBroker
-		dbs, brokers, scope = GoTestServers(ctx, in, cwd)
+		var kubes []checks.TestKube
+		dbs, brokers, kubes, scope = GoTestServers(ctx, in, cwd)
 		args = append(args, "-race")
-		// `-p 1` for EITHER kind. The databases share one server and the suites
+		// `-p 1` for ANY kind. The databases share one server and the suites
 		// reset its schema; one broker serves every package and its isolation
-		// unit is the topic. Parallel packages break both the same way.
-		if len(dbs) > 0 || len(brokers) > 0 {
-			args = append(args, "-tags", checks.BuildTags(dbs, brokers), "-p", "1")
+		// unit is the topic; one API server serves every package and its
+		// objects are cluster-wide. Parallel packages break all three the same way.
+		if word := checks.BuildTags(dbs, brokers, kubes); word != "" {
+			args = append(args, "-tags", word, "-p", "1")
 		}
 		args = append(args, "-coverprofile", checks.GoCoverProfile)
 	}
@@ -93,10 +95,11 @@ func goTagRead(ctx context.Context, in Input, cwd string) (out string, code int)
 
 // GoTestServers is which test servers a module's suites need, and the scope
 // line the atom prints either way: the databases (checks.TestDBsFor over the
-// tree's tags) and the brokers (checks.SelectBrokers over the tags and the
-// Kafka flows the tree's own code states). The tree states both; no record is
+// tree's tags), the brokers (checks.SelectBrokers over the tags and the
+// Kafka flows the tree's own code states) and the API servers
+// (checks.SelectKubes over the tags). The tree states all three; no record is
 // asked. The adapter binds the same servers off the same reads.
-func GoTestServers(ctx context.Context, in Input, cwd string) ([]checks.TestDB, []checks.TestBroker, string) {
+func GoTestServers(ctx context.Context, in Input, cwd string) ([]checks.TestDB, []checks.TestBroker, []checks.TestKube, string) {
 	out, code := goTagRead(ctx, in, cwd)
 	var dbs []checks.TestDB
 	var dbLine string
@@ -108,7 +111,7 @@ func GoTestServers(ctx context.Context, in Input, cwd string) ([]checks.TestDB, 
 		if len(dbs) == 0 {
 			dbLine = checks.TestDBScope(nil, nil, "no test file sits behind a tag the fleet names")
 		} else {
-			dbLine = checks.TestDBScope(dbs, checks.UncompiledTags(tags, dbs, checks.TestBrokers), "")
+			dbLine = checks.TestDBScope(dbs, checks.UncompiledTags(tags, dbs, checks.TestBrokers, checks.TestKubes), "")
 		}
 	}
 	flows, flowsErr := goTreeFlows(in)
@@ -120,7 +123,8 @@ func GoTestServers(ctx context.Context, in Input, cwd string) ([]checks.TestDB, 
 		Tags: out, TagsErr: tagsErr, TagsCode: code,
 		Flows: flows, FlowsErr: flowsErr,
 	})
-	return dbs, brokers, dbLine + "\n" + brokerLine
+	kubes, kubeLine := checks.SelectKubes(out, code)
+	return dbs, brokers, kubes, dbLine + "\n" + brokerLine + "\n" + kubeLine
 }
 
 // goTreeFlows counts the non-family Kafka flows the tree's own code states. No

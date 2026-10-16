@@ -45,14 +45,17 @@ func goSuiteLane(scope string, servers bool) func(context.Context, *run, *dagger
 		}
 		var dbs []checks.TestDB
 		var brokers []checks.TestBroker
+		var kubes []checks.TestKube
 		for _, dir := range dirs {
 			module := inModule(ctr, dir)
 			found, _ := r.testDatabases(ctx, module)
 			dbs = append(dbs, found...)
 			wanted, _ := r.testBrokers(ctx, module)
 			brokers = append(brokers, wanted...)
+			needed, _ := r.testKubes(ctx, module)
+			kubes = append(kubes, needed...)
 		}
-		return bindTestBrokers(bindTestDatabases(ctr, vocabularyDBs(dbs), scope), vocabularyBrokers(brokers), scope)
+		return bindTestKubes(bindTestBrokers(bindTestDatabases(ctr, vocabularyDBs(dbs), scope), vocabularyBrokers(brokers), scope), vocabularyKubes(kubes), scope)
 	}
 }
 
@@ -74,6 +77,17 @@ func vocabularyBrokers(found []checks.TestBroker) []checks.TestBroker {
 	for _, b := range checks.TestBrokers {
 		if slices.ContainsFunc(found, func(f checks.TestBroker) bool { return f.Tag == b.Tag }) {
 			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// vocabularyKubes is the API servers found, each once, in the vocabulary's order.
+func vocabularyKubes(found []checks.TestKube) []checks.TestKube {
+	var out []checks.TestKube
+	for _, k := range checks.TestKubes {
+		if slices.ContainsFunc(found, func(f checks.TestKube) bool { return f.Tag == k.Tag }) {
+			out = append(out, k)
 		}
 	}
 	return out

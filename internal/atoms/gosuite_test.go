@@ -124,6 +124,21 @@ func TestGoSuiteRaceCompilesABrokerOnlyTreesTag(t *testing.T) {
 	}
 }
 
+// AN API SERVER ALONE STILL TAGS AND SERIALISES the race run, and the reason says
+// which variables the suite was handed.
+func TestGoSuiteRaceCompilesAKubeOnlyTreesTag(t *testing.T) {
+	f := &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}, {"grep -rhoE", "//go:build live_kube\n", 0}}}
+	v := gosuiteVerdict(t, f, map[string]string{"go.mod": gosuiteGo}, true)
+	last := f.runs[len(f.runs)-1]
+	if v.State != 0 || !strings.Contains(v.Reason, "test kubes: live_kube → TEST_KUBE_URL, TEST_KUBE_TOKEN, TEST_KUBE_CA_FILE") ||
+		!strings.Contains(last, "go test -race -tags live_kube -p 1 -coverprofile") {
+		t.Errorf("%+v ran %q", v, last)
+	}
+	if strings.Contains(v.Reason, "uncompiled") {
+		t.Errorf("the scope line calls a compiled tag uncompiled:\n%s", v.Reason)
+	}
+}
+
 // go test's exit is the state, its whole output the reason's evidence; a suite
 // that would not start never ran.
 func TestGoSuiteReadsGoTestsExit(t *testing.T) {
@@ -223,10 +238,12 @@ func TestTheTestServerScopeLinesSayWhyOnEveryBranch(t *testing.T) {
 		{"no tagged suite and no flow", map[string]string{"go.mod": gosuiteGo}, "", golaneRule{"grep", "", 1}, 0, 0, []string{
 			"test databases: none — no test file sits behind a tag the fleet names",
 			"test brokers: none — the tree states no kafka flow",
+			"test kubes: none — no test file sits behind a tag the fleet names",
 		}},
 		{"tags unreadable", map[string]string{"go.mod": gosuiteGo}, "", golaneRule{"grep", "grep: x: Permission denied", 2}, 0, 0, []string{
 			"test databases: none — the tree's build tags could not be read",
 			"test brokers: none",
+			"test kubes: none — the tree's build tags could not be read",
 		}},
 		{"grep would not start", map[string]string{"go.mod": gosuiteGo}, "", golaneRule{"grep", "exec: grep: not found", -1}, 0, 0, []string{
 			"test databases: none — the tree's build tags could not be read",
@@ -250,7 +267,7 @@ func TestTheTestServerScopeLinesSayWhyOnEveryBranch(t *testing.T) {
 			if tc.listed != "" {
 				in.Files = append(in.Files, tc.listed)
 			}
-			dbs, brokers, scope := GoTestServers(t.Context(), in, in.Root)
+			dbs, brokers, _, scope := GoTestServers(t.Context(), in, in.Root)
 			if len(dbs) != tc.dbs || len(brokers) != tc.brokes {
 				t.Errorf("dbs %v brokers %v", dbs, brokers)
 			}
@@ -263,7 +280,7 @@ func TestTheTestServerScopeLinesSayWhyOnEveryBranch(t *testing.T) {
 	}
 	// a tree that would not enumerate has no flows to read
 	in := Input{Root: t.TempDir(), FilesErr: errTreeGone, Exec: (&golaneFake{rules: []golaneRule{{"grep", "", 1}}}).exec}
-	if _, _, scope := GoTestServers(t.Context(), in, in.Root); !strings.Contains(scope, "test brokers: none — the tree's kafka flows could not be read (the tree would not enumerate: gone)") {
+	if _, _, _, scope := GoTestServers(t.Context(), in, in.Root); !strings.Contains(scope, "test brokers: none — the tree's kafka flows could not be read (the tree would not enumerate: gone)") {
 		t.Errorf("the scope:\n%s", scope)
 	}
 }

@@ -173,40 +173,46 @@ func TestDBsFor(tags []string) []TestDB {
 }
 
 // BuildTags is the -tags word for every service bound: comma-joined, databases
-// before brokers, "" when none.
+// before brokers before API servers, "" when none.
 //
 // ONE FUNCTION FOR BOTH KINDS, deliberately. A second way to build this word is
 // how it ends up incomplete — and an incomplete -tags word does not fail, it
 // compiles the un-named suites OUT and the lane reports green over tests that
 // never built. That is the exact shape this file exists to end, so the word has
 // one author.
-func BuildTags(dbs []TestDB, brokers []TestBroker) string {
-	tags := make([]string, 0, len(dbs)+len(brokers))
+func BuildTags(dbs []TestDB, brokers []TestBroker, kubes []TestKube) string {
+	tags := make([]string, 0, len(dbs)+len(brokers)+len(kubes))
 	for _, d := range dbs {
 		tags = append(tags, d.Tag)
 	}
 	for _, b := range brokers {
 		tags = append(tags, b.Tag)
 	}
+	for _, k := range kubes {
+		tags = append(tags, k.Tag)
+	}
 	return strings.Join(tags, ",")
 }
 
 // UncompiledTags is what the tree carries that the vocabulary does not name.
 //
-// IT HAS TO SEE BOTH VOCABULARIES. Told only about the databases, it reported
+// IT HAS TO SEE ALL THREE VOCABULARIES (databases, brokers, API servers). Told only about the databases, it reported
 // every broker tag as "not in the fleet's vocabulary" — on the same lane whose
 // very next line announced it had bound a broker for that tag. The word is built
 // from both (BuildTags), so the complement has to be taken against both, or the
 // scope line calls a compiled suite uncompiled. Measured on tartarus #87, whose
 // gate printed `tags left uncompiled ...: live_kafka` directly above
 // `test brokers: live_kafka -> KAFKA_BOOTSTRAP`.
-func UncompiledTags(tags []string, dbs []TestDB, brokers []TestBroker) []string {
+func UncompiledTags(tags []string, dbs []TestDB, brokers []TestBroker, kubes []TestKube) []string {
 	named := map[string]bool{}
 	for _, d := range dbs {
 		named[d.Tag] = true
 	}
 	for _, b := range brokers {
 		named[b.Tag] = true
+	}
+	for _, k := range kubes {
+		named[k.Tag] = true
 	}
 	var out []string
 	for _, t := range tags {

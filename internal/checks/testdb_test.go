@@ -47,10 +47,10 @@ func TestTheVocabularyBindsInOrderAndNamesTheRest(t *testing.T) {
 	if len(dbs) != 2 || dbs[0].Tag != "live_db" || dbs[1].Tag != "live_db_novector" {
 		t.Fatalf("TestDBsFor = %+v", dbs)
 	}
-	if got := BuildTags(dbs, nil); got != "live_db,live_db_novector" {
+	if got := BuildTags(dbs, nil, nil); got != "live_db,live_db_novector" {
 		t.Errorf("BuildTags = %q", got)
 	}
-	if got := UncompiledTags(tags, dbs, nil); !reflect.DeepEqual(got, []string{"integration"}) {
+	if got := UncompiledTags(tags, dbs, nil, nil); !reflect.DeepEqual(got, []string{"integration"}) {
 		t.Errorf("UncompiledTags = %v", got)
 	}
 	// The DSN names the role twice (its credential is its name), the alias
@@ -93,7 +93,7 @@ func TestTheVocabularyBindsInOrderAndNamesTheRest(t *testing.T) {
 	if rev[0].Tag != "live_db" {
 		t.Errorf("binding order is the vocabulary's, not the tree's: %+v", rev)
 	}
-	if got := BuildTags(nil, nil); got != "" {
+	if got := BuildTags(nil, nil, nil); got != "" {
 		t.Errorf("no databases, no -tags word: %q", got)
 	}
 	// Every vocabulary entry points at a pinned image the fleet checks.
@@ -151,10 +151,10 @@ func TestTheBrokerVocabularyBindsAndAddressesItself(t *testing.T) {
 	if b.AdvertiseFor("") == b.AdvertiseFor("mutation") {
 		t.Error("two lanes must not build byte-identical broker definitions")
 	}
-	if got := BuildTags(nil, brokers); got != "live_kafka" {
+	if got := BuildTags(nil, brokers, nil); got != "live_kafka" {
 		t.Errorf("BuildTags(brokers only) = %q", got)
 	}
-	if got := BuildTags(TestDBs[:1], brokers); got != "live_db,live_kafka" {
+	if got := BuildTags(TestDBs[:1], brokers, nil); got != "live_db,live_kafka" {
 		t.Errorf("databases before brokers, one word: %q", got)
 	}
 	for _, e := range TestBrokers {
@@ -308,8 +308,8 @@ func TestTheScopeLineNeverCallsABoundTagUncompiled(t *testing.T) {
 	if len(dbs) == 0 || len(brokers) == 0 {
 		t.Fatalf("fixture needs one of each: dbs=%v brokers=%v", dbs, brokers)
 	}
-	compiled := strings.Split(BuildTags(dbs, brokers), ",")
-	uncompiled := UncompiledTags(tags, dbs, brokers)
+	compiled := strings.Split(BuildTags(dbs, brokers, nil), ",")
+	uncompiled := UncompiledTags(tags, dbs, brokers, TestKubes)
 	for _, c := range compiled {
 		for _, u := range uncompiled {
 			if c == u {

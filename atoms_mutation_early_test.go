@@ -70,7 +70,7 @@ func provisioned(needles ...string) []string {
 const oneKafkaFlow = "package x\nimport \"git.notusmi.com/rob/stellar-core-go/kafkatopics\"\nfunc p() { kafkatopics.Record(kafkatopics.TopicSessionTurns, nil) }\n"
 
 const (
-	goEarlyGolden         = `{"atom":"go:mutation","state":0,"result":"pass","reason":"test databases: live_db → TEST_DATABASE_URL\ntest brokers: live_kafka → KAFKA_BOOTSTRAP; one broker serves every package — mint unique topic and group names per test\ngo:mutation: PASS","logs":["go:mutation: this pull changes no Go file — nothing to mutate"],"findings":null,"gradings":null}`
+	goEarlyGolden         = `{"atom":"go:mutation","state":0,"result":"pass","reason":"test databases: live_db → TEST_DATABASE_URL\ntest brokers: live_kafka → KAFKA_BOOTSTRAP; one broker serves every package — mint unique topic and group names per test\ntest kubes: none — no test file sits behind a tag the fleet names\ngo:mutation: PASS","logs":["go:mutation: this pull changes no Go file — nothing to mutate"],"findings":null,"gradings":null}`
 	rustEarlyGolden       = `{"atom":"rust:mutation","state":0,"result":"pass","reason":"rust:mutation: scoped to the declared critical modules: src/lib.rs\nrust:mutation: PASS","logs":["rust:mutation: this pull touched none of the critical modules — nothing to mutate"],"findings":null,"gradings":null}`
 	rustEarlyRemoveGolden = `{"atom":"rust:mutation","state":0,"result":"pass","reason":"rust:mutation: scoped to the declared critical modules: src/lib.rs\nrust:mutation: PASS","logs":["rust:mutation: this pull only REMOVED lines from the critical modules — nothing to mutate"],"findings":null,"gradings":null}`
 )
@@ -157,12 +157,14 @@ func TestTheTestServerScopeLinesSayWhyOnEveryBranch(t *testing.T) {
 		{"no tagged suite and no flow", map[string]string{".copier-answers.yml": "critical_modules: \n"}, nil, []string{
 			"test databases: none — no test file sits behind a tag the fleet names",
 			"test brokers: none — the tree states no kafka flow",
+			"test kubes: none — no test file sits behind a tag the fleet names",
 		}},
 		{"tags unreadable", map[string]string{
 			".copier-answers.yml": "service_name: x\n",
 		}, func() { engine.exitCode(`"grep","-rhoE"`, 2) }, []string{
 			"test databases: none — the tree's build tags could not be read",
 			"test brokers: none",
+			"test kubes: none — the tree's build tags could not be read",
 		}},
 		{"flows unreadable", map[string]string{
 			".copier-answers.yml": "service_name: x\n",
