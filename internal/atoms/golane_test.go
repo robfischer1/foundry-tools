@@ -181,3 +181,11 @@ func TestTheDoorTreeIsTheOneThatNamedItsOrigin(t *testing.T) {
 }
 
 var errTreeGone = errors.New("gone")
+
+func TestRunCmdGoesThroughTheInputsSeam(t *testing.T) {
+	f := &golaneFake{rules: []golaneRule{{"echo hi", "hi", 0}}}
+	out, code := RunCmd(t.Context(), Input{Exec: f.exec}, Cmd{Dir: "/src", Name: "echo", Args: []string{"hi"}})
+	if out != "hi" || code != 0 || f.runs[0] != "/src: echo hi" {
+		t.Errorf("%q %d %v", out, code, f.runs)
+	}
+}
