@@ -127,8 +127,9 @@ const (
 	//
 	// Digests are the manifest-list digests registry.k8s.io answers
 	// (docker-content-digest for the tag, resolved 2026-10-16). registry.k8s.io
-	// is NOT one of the engine's mirrors (DirectRegistries below says what that
-	// means); the pull was measured from the lane on the same date.
+	// is NOT yet one of the engine's mirrors: these constants fail
+	// TestEveryImageComesThroughTheFleetMirror until the engine's
+	// registries.mirrors maps registry.k8s.io through registry-proxy-k8s (infra).
 	ImageKubeAPIServer = "registry.k8s.io/kube-apiserver:v1.36.3@sha256:b4bc06c81fd76f81174e6c19ddacf477acdf1583e7a5846ebbd513493aef6e43"
 	ImageEtcd          = "registry.k8s.io/etcd:3.6.8-0@sha256:397189418d1a00e500c0605ad18d1baf3b541a1004d768448c367e48071622e5"
 
@@ -502,16 +503,6 @@ const (
 // pulled from INSIDE a lane container names one of those alias hosts in full
 // instead (trivy's databases), because the engine's mirror config cannot see it.
 var MirroredRegistries = []string{"docker.io/", "ghcr.io/", "gcr.io/"}
-
-// DirectRegistries are the upstream registries a lane image may name that the
-// engine does NOT mirror: its registries config maps no host for them, so the
-// engine pulls them from the upstream itself, digest-pinned. registry.k8s.io
-// carries the kube-apiserver and etcd images the live_kube services run
-// (ImageKubeAPIServer, ImageEtcd). The fleet already runs a pull-through for it
-// (registry-proxy-k8s, behind registry-k8s.notusmi.com, which the nodes use);
-// mapping it into the engine's registries is an infra change, and until it
-// lands this list is the honest statement that those pulls leave the cluster.
-var DirectRegistries = []string{"registry.k8s.io/"}
 
 // CRDSchema is the schema location the kubeconform atom adds to the default
 // store, and the probe URL that proves it is reachable.

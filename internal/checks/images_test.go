@@ -58,19 +58,6 @@ func mirrored(img string) bool {
 	return false
 }
 
-// pullable is mirrored or one of the declared direct registries.
-func pullable(img string) bool {
-	if mirrored(img) {
-		return true
-	}
-	for _, d := range DirectRegistries {
-		if strings.HasPrefix(img, d) {
-			return true
-		}
-	}
-	return false
-}
-
 // BY DIGEST, NEVER BY TAG. All four CI images are MOVING tags: CronJob
 // foundry-weekly rebuilds them every Monday and base-rescan rebuilds them
 // whenever the vulnerability DB moves. A gate whose image floats produces a
@@ -97,23 +84,8 @@ func TestEveryImageIsPinnedByDigest(t *testing.T) {
 // does not reach — and name the fleet's ghcr alias host in full.
 func TestEveryImageComesThroughTheFleetMirror(t *testing.T) {
 	for _, img := range append(append([]string{}, LaneImages...), ImageCosign, ImageSyft, ImageStatic) {
-		if !pullable(img) {
-			t.Errorf("image %q is not on a registry the engine mirrors (%v) or one declared direct (%v)", img, MirroredRegistries, DirectRegistries)
-		}
-	}
-	// A DIRECT REGISTRY IS AN EXCEPTION THAT NAMES ITS IMAGES: only the two
-	// kube images may leave the cluster, and a mirrored host never needs the list.
-	for _, img := range LaneImages {
-		if mirrored(img) {
-			continue
-		}
-		if img != ImageKubeAPIServer && img != ImageEtcd {
-			t.Errorf("image %q is pulled direct from upstream; only the live_kube services may be", img)
-		}
-	}
-	for _, d := range DirectRegistries {
-		if mirrored(d) {
-			t.Errorf("direct registry %q is also mirrored; it belongs in only one list", d)
+		if !mirrored(img) {
+			t.Errorf("image %q is not on a registry the engine mirrors (%v)", img, MirroredRegistries)
 		}
 	}
 	for _, repo := range []string{TrivyDBRepo, TrivyJavaDBRepo} {
