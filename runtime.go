@@ -80,7 +80,7 @@ type run struct {
 	// and holds the answered gradings against the cold ones (mutation_reuse.go).
 	audit bool
 	// spire, when set, is the lane pod's SPIRE socket: fleet:witness asks as
-	// the SVID it issues (witness_identity.go); nil asks in the clear.
+	// the SVID it issues (witness_identity.go); nil cannot ask: the atom settles could-not-run.
 	spire *dagger.Socket
 	// artifactAuth, when set, is the registry credential the visual atom
 	// pushes its artifact with, and sha the commit that artifact is tagged by

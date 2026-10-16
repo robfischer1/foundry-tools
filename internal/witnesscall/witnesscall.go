@@ -16,9 +16,8 @@
 //
 // Exit codes: 0 narcissus answered (whatever it said), 2 could not ask,
 // 3 no identity, 4 the request went out and drew no answer in time (deadline,
-// or an answer cut short). The caller asks in the clear on 2 and 3 only: on 4
-// the witness is slow, and a clear retry doubles its load and records an
-// anonymous caller (2465 on 2026-10-07). The 0 is spelled as a literal: a
+// or an answer cut short). The caller retries on 2 and settles could-not-run on 3; on 4
+// the witness is slow and a retry doubles its load. Nothing asks in the clear. The 0 is spelled as a literal: a
 // named zero is a RETURN_ZERO mutant no test can kill.
 package witnesscall
 
