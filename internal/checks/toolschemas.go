@@ -330,9 +330,9 @@ func canonicalToolBody(raw []byte, dropRoot bool) (string, error) {
 	var out bytes.Buffer
 	enc := json.NewEncoder(&out)
 	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
-		return "", err
-	}
+	// The encode error is dropped on purpose: v was just decoded from JSON, so it is
+	// maps, slices, strings, bools and json.Numbers, which encoding/json cannot fail on.
+	_ = enc.Encode(v)
 	return strings.TrimSuffix(out.String(), "\n"), nil
 }
 

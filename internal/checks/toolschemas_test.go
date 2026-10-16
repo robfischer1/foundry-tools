@@ -95,6 +95,12 @@ func TestGradeToolSchemasServed(t *testing.T) {
 		{"lock wrong format", toolTree(map[string]string{ToolSchemasLockPath: `{"format":"x/9"}`}), 1, []string{`tools/tool_schemas.lock.json: format "x/9"`}},
 		{"lock malformed", toolTree(map[string]string{ToolSchemasLockPath: `{`}), 1, []string{"tools/tool_schemas.lock.json:"}},
 		{"served verbs without a prefix", toolTree(map[string]string{"fleet/repos/a.json": `{}`}), 1, []string{"a: serves 2 verb(s) but its record has no verb_prefix"}},
+		{"served-verbs export malformed", toolTree(map[string]string{CapabilitiesServedDir + "/a.json": `{`}), 1, []string{"capabilities/served/a.json: not a served-verbs export"}},
+		{"fleet record not JSON", toolTree(map[string]string{"fleet/repos/a.json": `[`}), 2, []string{"is not JSON"}},
+		{"tool-input file not a JSON object", toolTree(map[string]string{ToolInputDir + "/pa_x.schema.json": `[]`}), 1, []string{"pa_x schema/tool-input/pa_x.schema.json is not a JSON object"}},
+		{"tool-input file null", toolTree(map[string]string{ToolInputDir + "/pa_x.schema.json": `null`}), 1, []string{"is not a JSON object (null)"}},
+		{"served schema not a JSON object", toolTree(map[string]string{ServedInputsDir + "/a.json": `{"schema":1,"star":"a","verbs":{"x":[]}}`}), 1, []string{"served schema in capabilities/served-inputs/a.json is not a JSON object"}},
+		{"served-inputs for a star with no export", toolTree(map[string]string{ServedInputsDir + "/z.json": `{"schema":1,"star":"z","verbs":{}}`}), 1, []string{"z: capabilities/served-inputs/z.json holds inputs for a star with no served-verbs export"}},
 		// canonicalisation: key order and whitespace differ, still equal
 		{"canonicalisation: order and whitespace are not drift", toolTree(map[string]string{
 			ToolInputDir + "/pa_x.schema.json": "{\n \"x-ops\": {\"\": \"read\"},\n \"additionalProperties\": false,\n \"type\": \"object\",\n \"title\": \"t\",\n \"properties\": {\"q\": {\"type\": \"string\"}}\n}\n",
