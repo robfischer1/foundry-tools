@@ -1,0 +1,192 @@
+# tools@1: every toolchain, service and tool the atoms run on, by digest or checksum.
+#
+# The Go constants in internal/checks (images.go, toolpins.go, ops.go, witlane.go,
+# hadolintlane.go) stay where they are this step, and TestToolsTomlMatchesGo holds
+# this file equal to them, so the two cannot drift. A pin moves in both.
+schema = "tools@1"
+
+[base]
+# The atom image base: foundry/base-images/go at the digest daedalus and ourea build from.
+go = "registry.notusmi.com/foundry/base-images/go:stable@sha256:99bd0b3b464b64dc0bee7a8d95c7107b8f0a456b3c45798323f4cd03d3f72bcd"
+
+[toolchain.go]
+image = "docker.io/library/golang:1.26.9-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c"
+preflight = ["go", "mod", "download"]
+
+[toolchain.python]
+image = "docker.io/library/python:3.14-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f"
+
+[toolchain.rust]
+image = "docker.io/library/rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e75fea57e2a2a5c3073"
+preflight = ["cargo", "fetch", "--locked"]
+
+[toolchain.rust-wasm]
+image = "docker.io/library/rust:1.90.0-bookworm@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f"
+
+[toolchain.bun]
+image = "docker.io/oven/bun:1.4-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61"
+
+[toolchain.node]
+image = "docker.io/library/node:24-bookworm-slim@sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553"
+
+[toolchain.renovate]
+image = "ghcr.io/renovatebot/renovate:43.261.4@sha256:adc66d8ffba5d835b9ef27768bd3176d07e7ea98c8dba274b07f511beea5fe81"
+
+[service.postgres]
+image = "docker.io/library/postgres:18-bookworm@sha256:a10c981235b4f635e65df0cfb66a5598064628128505dbc6a3ed4ca303717521"
+
+[service.pgvector]
+image = "docker.io/pgvector/pgvector:pg18@sha256:1d50c689b0a6511b9ea0a15615281c81a59fd04a08eb35057ec8646fb3a2118a"
+
+[service.redpanda]
+image = "docker.notusmi.com/redpandadata/redpanda@sha256:6d627e3ebdc05438d1e8e3b55695ac1a7a0f79e7d5ca90b3b0f12dc984633e83"
+
+[tool.opa]
+kind = "url"
+spec = "https://openpolicyagent.org/downloads/v1.21.2/opa_linux_amd64_static"
+version = "1.21.2"
+sha256 = "830ab11f61ffec760b5e19db0d7ad02bf037e13f5ef4d665faeaf17632177527"
+
+[tool.opengrep]
+kind = "url"
+spec = "https://github.com/opengrep/opengrep/releases/download/v1.30.2/opengrep_manylinux_x86"
+version = "v1.30.2"
+sha256 = "a66aa3278457f02b287b985a45b6762aebcaba5000f2689245fd1ed86d1456c7"
+
+[tool.hadolint]
+kind = "url"
+spec = "https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-linux-x86_64"
+version = "2.15.1"
+sha256 = "c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507"
+
+[tool.kubectl]
+kind = "url"
+spec = "https://dl.k8s.io/release/v1.37.1/bin/linux/amd64/kubectl"
+version = "1.37.1"
+sha256 = "65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8"
+
+[tool.chezmoi]
+kind = "url"
+spec = "https://github.com/twpayne/chezmoi/releases/download/v2.73.0/chezmoi-linux-amd64"
+version = "2.73.0"
+sha256 = "4b42a0fb0dec69f37964c6701f89daa6bf6393aaeb92bbcbc8f3ee9f08a49bcd"
+
+[tool.compose]
+kind = "url"
+spec = "https://github.com/docker/compose/releases/download/v5.6.0/docker-compose-linux-x86_64"
+version = "5.6.0"
+sha256 = "40343e21ca777173e69cff5dbafeb37c6f81f3b0d57d9e597f036e95eb63e76a"
+
+[tool.wasm-tools]
+kind = "url"
+spec = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.261.0/wasm-tools-1.261.0-x86_64-linux.tar.gz"
+version = "1.261.0"
+sha256 = "ad62b2176037e93e1348cb65d6212d128ca9f097b63d155569f25215818ff7b1"
+
+[tool.wac]
+kind = "url"
+spec = "https://github.com/bytecodealliance/wac/releases/download/v0.12.0/wac-cli-x86_64-unknown-linux-musl"
+version = "0.12.0"
+sha256 = "7cd490edbd452221ef89e6750fc43eacc9b71b1242095eb577cb9a3bf0d3beda"
+
+[tool.just]
+kind = "url"
+spec = "https://github.com/casey/just/releases/download/1.58.0/just-1.58.0-x86_64-unknown-linux-musl.tar.gz"
+version = "1.58.0"
+sha256 = "4a5cc2f53e6f0f8c59092a6cc38291eb729d46a7dd95d3ae582008881b84931d"
+
+[tool.shellcheck]
+kind = "url"
+spec = "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz"
+version = "0.11.0"
+sha256 = "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198"
+
+[tool.oras]
+kind = "url"
+spec = "https://github.com/oras-project/oras/releases/download/v1.3.4/oras_1.3.4_linux_amd64.tar.gz"
+version = "1.3.4"
+sha256 = "f27adb935022d94df8dc77719c322dda592c78a0d57a6f7dcdd8d900b248c454"
+
+[tool.cargo-audit]
+kind = "url"
+spec = "https://github.com/rustsec/rustsec/releases/download/cargo-audit/v0.22.2/cargo-audit-x86_64-unknown-linux-musl-v0.22.2.tgz"
+version = "0.22.2"
+sha256 = "7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428"
+
+[tool.cargo-nextest]
+kind = "url"
+spec = "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.145/cargo-nextest-0.9.145-x86_64-unknown-linux-gnu.tar.gz"
+version = "0.9.145"
+sha256 = "32aa82416099eb12fffae9cf1a279ad201fecbd3f74826c613e32e9006b29867"
+
+[tool.python-standalone]
+kind = "url"
+spec = "https://github.com/astral-sh/python-build-standalone/releases/download/20260623/cpython-3.14.6%2B20260623-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+version = "3.14.6"
+sha256 = "c172314f4a8ec137a8f605289010c3d19c8b56867d968f0095074cc68efa1d29"
+
+[tool.staticcheck]
+kind = "go"
+spec = "honnef.co/go/tools/cmd/staticcheck"
+version = "2025.1.1"
+
+[tool.govulncheck]
+kind = "go"
+spec = "golang.org/x/vuln/cmd/govulncheck"
+version = "v1.1.4"
+
+[tool.gomutants]
+kind = "go"
+spec = "github.com/szhekpisov/gomutants"
+version = "v0.6.1"
+
+[tool.mutation-gate]
+kind = "go"
+spec = "git.notusmi.com/rob/forge-testkit-go/cmd/mutation-gate"
+version = "v0.10.0"
+
+[tool.ruff]
+kind = "uv"
+spec = "ruff"
+version = "0.16.3"
+
+[tool.cosmic-ray]
+kind = "uv"
+spec = "cosmic-ray"
+version = "8.7.0"
+
+[tool.uv]
+kind = "image"
+image = "ghcr.io/astral-sh/uv:0.12.13@sha256:b485bd65cc2cf1c9a93b3554012c9c3778cf7b1b5fd3d3096ce9e1226c97e1e6"
+
+[tool.trivy]
+kind = "image"
+image = "docker.io/aquasec/trivy:0.72.0@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f"
+
+[tool.syft]
+kind = "image"
+image = "docker.io/anchore/syft:v1.33.0@sha256:f94e5d9fce1f2278491a8e3a63bd5f6ddb81fdfdbb8bf7a1637565c1d5344357"
+
+[tool.cosign]
+kind = "image"
+image = "ghcr.io/sigstore/cosign/cosign:v3.1.1@sha256:6bbe0d281d955c79f85b325f0f7e651c1bcab5a4fa4ad4903d74955178a3b2eb"
+
+[tool.signing-tools]
+kind = "image"
+image = "registry.notusmi.com/foundry/base-images/signing-tools:stable@sha256:e15ba67886b94bec6cb11f58cbe7746812f3372857e4042294ec7d389a808e82"
+
+[tool.kubeconform]
+kind = "image"
+image = "ghcr.io/yannh/kubeconform:v0.7.0-alpine@sha256:8f0eeaaa96ba27ba1500b0e4b1c215acc358d159c62a7ecae58d7a03403287b0"
+
+[tool.kube-linter]
+kind = "image"
+image = "docker.io/stackrox/kube-linter:v0.8.3-alpine@sha256:b8311611c27032d4922bc67719225e373e4a0ab0c767bbdcf5f20a9306b1a3bb"
+
+[tool.static]
+kind = "image"
+image = "gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab"
+
+[tool.debian]
+kind = "image"
+image = "docker.io/library/debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587"

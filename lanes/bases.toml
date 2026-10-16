@@ -1,0 +1,28 @@
+schema = "lane@1"
+lane = "bases"
+
+# As lane build, with the assemble capability iterating bases/*/Dockerfile (it
+# reads the lane from its environment); the secret is the build lane's.
+[[phase]]
+name = "release"
+kind = "fanout"
+atoms = ["go:release", "python:release", "rust:release", "ts:release"]
+
+[[phase]]
+name = "assemble"
+kind = "sequence"
+capability = "assemble"
+after = ["release"]
+
+[[phase]]
+name = "scan"
+kind = "sequence"
+capability = "scan"
+after = ["assemble"]
+
+[[phase]]
+name = "publish"
+kind = "sequence"
+capability = "publish"
+after = ["scan"]
+secrets = ["ca-build-registry"]

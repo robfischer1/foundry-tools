@@ -1,0 +1,12 @@
+schema = "command-atom@1"
+id = "go:vet"
+stage = "precommit"
+lane = "go"
+group = "language"
+desc = "go vet ./... reports nothing."
+surface = "any:**/go.mod"
+toolchain = "go"
+argv = ["go", "vet", "./..."]
+per_module = true
+judge = "exit"
+not_on_forks = "it holds code to the fleet's own lint set, style and conventions, which upstream-owned code does not follow"

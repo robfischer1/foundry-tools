@@ -1,0 +1,11 @@
+schema = "command-atom@1"
+id = "rust:cargo-fmt"
+stage = "precommit"
+lane = "rust"
+group = "language"
+desc = "cargo fmt --all --check is clean."
+surface = "root:Cargo.toml"
+toolchain = "rust"
+argv = ["cargo", "fmt", "--all", "--check"]
+per_module = false
+judge = "exit"

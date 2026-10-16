@@ -1,0 +1,12 @@
+schema = "command-atom@1"
+id = "python:pip-audit"
+stage = "prepush"
+lane = "python"
+group = "language"
+desc = "pip-audit reports no known vulnerability."
+surface = "any:**/*.py"
+toolchain = "python"
+argv = ["uv", "run", "--with", "pip-audit==2.10.1", "pip-audit"]
+per_module = false
+judge = "exit"
+needs = ["tool:uv"]
