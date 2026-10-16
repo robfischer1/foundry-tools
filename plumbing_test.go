@@ -2,22 +2,33 @@ package main
 
 import (
 	"context"
+	"strings"
 	"testing"
+
+	"dagger/foundry-tools/internal/catalogue"
 )
 
 // ON THE DOOR'S TREE, ORIGIN IS THE REPO IT WAS FETCHED FROM, WITHOUT ASKING.
 // sourceAt sets it; stop-justifications names the repository by it (the
-// exemption keyed on cerberus applies) and no `git remote get-url` runs.
-func TestStopJustificationsReadsTheDoorsOriginWithoutAnExec(t *testing.T) {
-	drive := map[string]string{"probes/drive.py": "p = Popen([x])  # no" + "qa: S603\n"}
-	sjRepo(drive)
-	// What the exec would have said, were it asked: a different repository,
-	// so a run that asked anyway would lose the exemption and fail below.
-	engine.stdout(sjOriginNeedle, "http://ourea.default.svc.cluster.local:8215/x.git\n")
-	v := registry["fleet:stop-justifications"](context.Background(), newRun(dag.Directory(), "http://door:8215/cerberus.git", ""))
-	wantState(t, v, 0)
-	if engine.chain(sjOriginNeedle) != "" {
-		t.Errorf("the door's tree names its origin; nothing should have asked git: %v", engine.chains())
+// exemption keyed on cerberus applies), is handed it as ATOM_ORIGIN and nothing
+// else of the change's facts (no base is fetched), and no `git remote get-url`
+// runs.
+func TestStopJustificationsIsHandedTheDoorsOriginWithoutAnExec(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.contents("fleet__stop-justifications.json", `{"atom":"fleet:stop-justifications","state":0,"result":"pass","logs":[]}`)
+	e, ok := catalogue.Lookup("fleet:stop-justifications")
+	if !ok {
+		t.Fatal("fleet:stop-justifications is not in the catalogue")
+	}
+	r := newRun(dag.Directory(), "http://door:8215/cerberus.git", "")
+	wantState(t, runAtomOnDagger(t.Context(), r, e), 0)
+	c := engine.chain("fleet__stop-justifications.json", "contents")
+	wantCalls(t, c, []string{"withEnvVariable", `name:"ATOM_ORIGIN"`, `value:"http://door:8215/cerberus.git"`})
+	for _, not := range []string{"ATOM_BASE", "GATE_BASE", "ATOM_FORK", "get-url"} {
+		if strings.Contains(c, not) {
+			t.Errorf("the origin alone is handed over, yet the run carries %s:\n%s", not, c)
+		}
 	}
 }
 

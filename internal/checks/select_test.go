@@ -6,17 +6,17 @@ import (
 )
 
 func TestSelectNarrowsToTheNamedAtoms(t *testing.T) {
-	got, err := Select(AtomsForStage(StagePrecommit), "fleet:hadolint")
+	got, err := Select(AtomsForStage(StagePrepush), "go:release")
 	if err != nil {
 		t.Fatalf("Select: %v", err)
 	}
-	if len(got) != 1 || got[0].ID != "fleet:hadolint" {
-		t.Fatalf("Select chose %v, want just fleet:hadolint", ids(got))
+	if len(got) != 1 || got[0].ID != "go:release" {
+		t.Fatalf("Select chose %v, want just go:release", ids(got))
 	}
 }
 
 func TestSelectTakesAListAndTolerantWhitespace(t *testing.T) {
-	got, err := Select(AtomsForStage(StagePrecommit), " fleet:hadolint , fleet:check-yaml ")
+	got, err := Select(AtomsForStage(StagePrepush), " go:release , rust:release ")
 	if err != nil {
 		t.Fatalf("Select: %v", err)
 	}

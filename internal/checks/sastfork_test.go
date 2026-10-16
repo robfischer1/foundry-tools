@@ -59,7 +59,7 @@ func TestOpengrepFindingCount(t *testing.T) {
 }
 
 func TestForkSastVerdict(t *testing.T) {
-	a := AtomByID("fleet:opengrep-sast")
+	a := AtomDef{ID: "fleet:opengrep-sast", Stage: StagePrecommit, Lane: LaneAny}
 	sets := ForkSastRulesets([]string{"a.go", "b.rs"})
 	scanned := "Ran 8 rules on 90 files: "
 

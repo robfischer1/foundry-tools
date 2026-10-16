@@ -237,6 +237,40 @@ func TestTheBinaryCarriesTheNoneToolchainAtoms(t *testing.T) {
 	}
 }
 
+// Only fleet:witness carries a deadline that grows with the input: its worst case
+// grows with the change set, and every other atom's does not.
+func TestOnlyFleetWitnessCarriesADeadlineThatGrows(t *testing.T) {
+	large := atoms.Input{}
+	for range 50 {
+		large.Changed = append(large.Changed, "a.go")
+	}
+	for _, a := range Atoms() {
+		if a.Deadline == nil {
+			continue
+		}
+		if grows := a.Deadline(large) > a.Deadline(atoms.Input{}); grows != (a.ID == "fleet:witness") {
+			t.Errorf("%s: its deadline grows with the change set: %v", a.ID, grows)
+		}
+	}
+}
+
+// A Def's Deadline raises the atom's deadline over a large input and never
+// lowers it below the Def's Timeout.
+func TestInProcessDeadlineIsTheLongerOfTheDeadlineAndTheTimeout(t *testing.T) {
+	check := func(context.Context, atomkit.In) checks.Verdict { return checks.Verdict{} }
+	long := func(atomkit.In) time.Duration { return 5 * time.Minute }
+	short := func(atomkit.In) time.Duration { return time.Second }
+	if got := inProcess(atomkit.Def{ID: "st:x", Deadline: long, Check: check}).Deadline(atoms.Input{}); got != 5*time.Minute {
+		t.Errorf("no timeout: %v", got)
+	}
+	if got := inProcess(atomkit.Def{ID: "st:x", Timeout: time.Minute, Deadline: long, Check: check}).Deadline(atoms.Input{}); got != 5*time.Minute {
+		t.Errorf("a longer deadline: %v", got)
+	}
+	if got := inProcess(atomkit.Def{ID: "st:x", Timeout: time.Minute, Deadline: short, Check: check}).Deadline(atoms.Input{}); got != time.Minute {
+		t.Errorf("a shorter deadline lowered the timeout: %v", got)
+	}
+}
+
 func TestInProcessFillsIdentityAndKeepsTheDeadline(t *testing.T) {
 	d := atomkit.Def{ID: "st:x", Stage: "precommit", Timeout: 90 * time.Second, Check: func(context.Context, atomkit.In) checks.Verdict {
 		return checks.Verdict{State: 0, Result: "pass"}
@@ -294,12 +328,13 @@ func TestImageOfDefaultsToTheFleetLane(t *testing.T) {
 // build, the audits and the merge-conflict scan do not.
 func TestTheForkLaneOfThePortedAtomsIsUnchanged(t *testing.T) {
 	for _, id := range []string{"go:gofmt", "go:vet", "go:staticcheck", "python:ruff-check", "python:ruff-format", "python:mypy",
-		"python:forge-testkit-assertion-free", "python:forge-testkit-fake-placement", "python:forge-testkit-schema-budget"} {
+		"python:forge-testkit-assertion-free", "python:forge-testkit-fake-placement", "python:forge-testkit-schema-budget",
+		"fleet:stop-justifications", "fleet:witness"} {
 		if got := checks.AtomByID(id).NotOnForks; got != checks.ForkFleetStyle {
 			t.Errorf("%s: NotOnForks %q", id, got)
 		}
 	}
-	for _, id := range []string{"go:build", "rust:cargo-fmt", "rust:cargo-audit", "python:pip-audit", "python:pytest", "ts:bun-audit", "ts:bun-gate", "fleet:check-merge-conflict", "fleet:manifest-one-command"} {
+	for _, id := range []string{"go:build", "rust:cargo-fmt", "rust:cargo-audit", "python:pip-audit", "python:pytest", "ts:bun-audit", "ts:bun-gate", "fleet:check-merge-conflict", "fleet:manifest-one-command", "fleet:opengrep-sast", "fleet:check-added-large-files"} {
 		if got := checks.AtomByID(id).NotOnForks; got != "" {
 			t.Errorf("%s stands down on a fork (%q); a fork keeps it", id, got)
 		}

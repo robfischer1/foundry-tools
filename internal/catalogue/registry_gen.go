@@ -23,8 +23,27 @@ import (
 	diesschemas "dagger/foundry-tools/atoms/dies/schemas"
 	dieswiregrammar "dagger/foundry-tools/atoms/dies/wire-grammar"
 	dieswitregenerated "dagger/foundry-tools/atoms/dies/wit-regenerated"
+	fleetcheckaddedlargefiles "dagger/foundry-tools/atoms/fleet/check-added-large-files"
 	fleetcheckmergeconflict "dagger/foundry-tools/atoms/fleet/check-merge-conflict"
+	fleetcheckyaml "dagger/foundry-tools/atoms/fleet/check-yaml"
+	fleetconsumedeventsemitted "dagger/foundry-tools/atoms/fleet/consumed-events-emitted"
+	fleetcopieranswersintact "dagger/foundry-tools/atoms/fleet/copier-answers-intact"
+	fleetdaggerlockstep "dagger/foundry-tools/atoms/fleet/dagger-lockstep"
+	fleethadolint "dagger/foundry-tools/atoms/fleet/hadolint"
+	fleetkafkaflows "dagger/foundry-tools/atoms/fleet/kafka-flows"
 	fleetmanifestonecommand "dagger/foundry-tools/atoms/fleet/manifest-one-command"
+	fleetnodekindsdeclared "dagger/foundry-tools/atoms/fleet/node-kinds-declared"
+	fleetopengrepsast "dagger/foundry-tools/atoms/fleet/opengrep-sast"
+	fleetorbitdrift "dagger/foundry-tools/atoms/fleet/orbit-drift"
+	fleetoureaconfigretiredkeys "dagger/foundry-tools/atoms/fleet/ourea-config-retired-keys"
+	fleetpdpwired "dagger/foundry-tools/atoms/fleet/pdp-wired"
+	fleetrenovateconfig "dagger/foundry-tools/atoms/fleet/renovate-config"
+	fleetrenovatelockstep "dagger/foundry-tools/atoms/fleet/renovate-lockstep"
+	fleetretiredverbs "dagger/foundry-tools/atoms/fleet/retired-verbs"
+	fleetsastrulesetlanes "dagger/foundry-tools/atoms/fleet/sast-ruleset-lanes"
+	fleetstopjustifications "dagger/foundry-tools/atoms/fleet/stop-justifications"
+	fleetwittopics "dagger/foundry-tools/atoms/fleet/wit-topics"
+	fleetwitness "dagger/foundry-tools/atoms/fleet/witness"
 	godiffcoverage "dagger/foundry-tools/atoms/go/diff-coverage"
 	gogofmt "dagger/foundry-tools/atoms/go/gofmt"
 	gogovulncheck "dagger/foundry-tools/atoms/go/govulncheck"
@@ -90,8 +109,27 @@ var Defs = []*atomkit.Def{
 	&diesschemas.Def,
 	&dieswiregrammar.Def,
 	&dieswitregenerated.Def,
+	&fleetcheckaddedlargefiles.Def,
 	&fleetcheckmergeconflict.Def,
+	&fleetcheckyaml.Def,
+	&fleetconsumedeventsemitted.Def,
+	&fleetcopieranswersintact.Def,
+	&fleetdaggerlockstep.Def,
+	&fleethadolint.Def,
+	&fleetkafkaflows.Def,
 	&fleetmanifestonecommand.Def,
+	&fleetnodekindsdeclared.Def,
+	&fleetopengrepsast.Def,
+	&fleetorbitdrift.Def,
+	&fleetoureaconfigretiredkeys.Def,
+	&fleetpdpwired.Def,
+	&fleetrenovateconfig.Def,
+	&fleetrenovatelockstep.Def,
+	&fleetretiredverbs.Def,
+	&fleetsastrulesetlanes.Def,
+	&fleetstopjustifications.Def,
+	&fleetwittopics.Def,
+	&fleetwitness.Def,
 	&godiffcoverage.Def,
 	&gogofmt.Def,
 	&gogovulncheck.Def,

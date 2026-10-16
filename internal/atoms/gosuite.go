@@ -136,7 +136,7 @@ func goTreeFlows(in Input) (int, error) {
 			wanted = append(wanted, p)
 		}
 	}
-	files, bad := readAll(in.tree(), wanted)
+	files, bad := checks.ReadAll(in.tree().read, wanted)
 	if bad != "" {
 		return 0, errors.New(bad)
 	}

@@ -229,9 +229,10 @@ func TestShadowAtomsAsksTheChainsForTheStagesAtoms(t *testing.T) {
 		notOnly  string
 		compared bool
 	}{
-		{"prepush", "fleet:orbit-drift,fleet:dagger-lockstep,fleet:renovate-lockstep,fleet:node-kinds-declared,fleet:consumed-events-emitted,fleet:witness", "fleet:check-yaml", true},
-		{"orbit", "", "", false}, // every orbit atom lives in its own file: no chain to hold it against
-		{"", "fleet:check-yaml,fleet:check-added-large-files,fleet:stop-justifications,", "orbit:", true},
+		// every atom of the pull path lives in its own file: no chain to hold it against
+		{"prepush", "", "", false},
+		{"orbit", "", "", false},
+		{"", "", "", false},
 		{"mutation", "", "", false},
 	} {
 		t.Run("stage "+tc.stage, func(t *testing.T) {

@@ -123,6 +123,38 @@ func TestADeadlineCutsACheckThatIgnoresItsContext(t *testing.T) {
 	}
 }
 
+// A Def's Deadline gives the check the longer of it and Timeout over this input:
+// an atom whose worst case grows with the change is not cut off at its timeout,
+// and a deadline shorter than the timeout shortens nothing.
+func TestADeadlineThatGrowsWithTheInputLengthensTheCheck(t *testing.T) {
+	slow := func(ctx context.Context, _ In) checks.Verdict {
+		select {
+		case <-time.After(150 * time.Millisecond):
+			return checks.Verdict{State: 0, Result: "pass"}
+		case <-ctx.Done():
+			return checks.Verdict{State: 2, Result: "cannot-run"}
+		}
+	}
+	for _, tc := range []struct {
+		name     string
+		deadline func(In) time.Duration
+		want     int
+	}{
+		{"none: the timeout cuts it", nil, 2},
+		{"a longer deadline lets it finish", func(In) time.Duration { return 5 * time.Second }, 0},
+		{"a shorter deadline does not shorten the timeout", func(In) time.Duration { return time.Millisecond }, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := defWith(slow)
+			d.Timeout = 50 * time.Millisecond
+			d.Deadline = tc.deadline
+			if v := check(d, In{}); v.State != tc.want {
+				t.Errorf("state %d, want %d: %+v", v.State, tc.want, v)
+			}
+		})
+	}
+}
+
 func TestUT_454_NoTreeFactsAndNoGit(t *testing.T) {
 	t.Setenv("ATOM_TREE", "")
 	t.Setenv("PATH", "/nonexistent")

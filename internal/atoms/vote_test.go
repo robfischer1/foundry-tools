@@ -9,40 +9,6 @@ import (
 	"dagger/foundry-tools/internal/checks"
 )
 
-// THE VOTER'S DEADLINE. A voting fleet:witness asks for real, so its honest worst
-// case grows with the change set while every other atom's does not.
-func TestWitnessDeadlineIsTheWorstCaseOfTheSourcesItWouldAsk(t *testing.T) {
-	const one = 3 * (120*time.Second + 2*time.Second)
-	for _, tc := range []struct {
-		name string
-		in   Input
-		want time.Duration
-	}{
-		{"no change set", Input{}, 0},
-		{"only files nobody asks about", Input{Changed: []string{"README.md", "a_test.go"}}, 0},
-		{"one source", Input{Changed: []string{"a.go"}}, one},
-		{"four sources are one round", Input{Changed: []string{"a.go", "b.go", "c.py", "d.py"}}, one},
-		{"five sources are two rounds", Input{Changed: []string{"a.go", "b.go", "c.py", "d.py", "e.go"}}, 2 * one},
-		{"a test file is not a source", Input{Changed: []string{"a.go", "a_test.go"}}, one},
-		{"a dry run asks nothing", Input{WitnessDry: true, Changed: []string{"a.go"}}, 0},
-		{"a change set that would not compute", Input{ChangedErr: context.Canceled, Changed: []string{"a.go"}}, 0},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := witnessDeadline(tc.in); got != tc.want {
-				t.Errorf("deadline %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestOnlyFleetWitnessCarriesADeadline(t *testing.T) {
-	for _, a := range Builtin() {
-		if has := a.Deadline != nil; has != (a.ID == "fleet:witness") {
-			t.Errorf("%s carries a deadline: %v", a.ID, has)
-		}
-	}
-}
-
 // The runner gives an atom the longer of its own deadline and the run's, so a
 // slow witness over a large change is not cut off at the per-atom minute, and an
 // atom without one is cut off exactly as before.

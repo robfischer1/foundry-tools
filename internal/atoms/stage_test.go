@@ -15,14 +15,7 @@ import (
 // THE STAGE SELECTS WHAT RUNS. The atoms of a stage are the catalogue's answer
 // (checks.AtomsForStage), narrowed to what the binary carries.
 func TestStageIDs(t *testing.T) {
-	prepush := []string{
-		"fleet:orbit-drift", "fleet:dagger-lockstep", "fleet:renovate-lockstep", "fleet:node-kinds-declared", "fleet:consumed-events-emitted", "fleet:witness",
-	}
-	precommit := []string{
-		"fleet:check-yaml", "fleet:check-added-large-files", "fleet:stop-justifications",
-		"fleet:sast-ruleset-lanes", "fleet:copier-answers-intact", "fleet:ourea-config-retired-keys", "fleet:retired-verbs",
-		"fleet:opengrep-sast", "fleet:hadolint", "fleet:wit-topics", "fleet:pdp-wired", "fleet:kafka-flows",
-	}
+	var prepush, precommit []string // every atom of the pull path lives in its own file
 	for _, tc := range []struct {
 		stage string
 		want  []string
@@ -87,6 +80,7 @@ func TestToolMarker(t *testing.T) {
 }
 
 func TestRegistryForStage(t *testing.T) {
+	withOneAtom(t)
 	reg, err := NewRegistry(Builtin()...)
 	if err != nil {
 		t.Fatal(err)
@@ -237,7 +231,7 @@ func TestRunHandsTheSocketAndTheNarcReasonToTheAtoms(t *testing.T) {
 	put(t, dir, "a.txt", "a\n")
 	commitAll(t, dir, "c1")
 	build := func() (*Registry, error) {
-		return NewRegistry(Atom{ID: "fleet:check-yaml", Run: func(_ context.Context, a checks.AtomDef, in Input) checks.Verdict {
+		return NewRegistry(Atom{ID: "go:release", Run: func(_ context.Context, a checks.AtomDef, in Input) checks.Verdict {
 			return checks.VerdictOf(a, 0, "seen "+in.Spire+"|"+in.NarcErr)
 		}})
 	}

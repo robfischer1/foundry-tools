@@ -185,7 +185,10 @@ func inProcess(d atomkit.Def) atoms.Atom {
 			return v
 		},
 	}
-	if d.Timeout > 0 {
+	switch {
+	case d.Deadline != nil:
+		a.Deadline = func(in atoms.Input) time.Duration { return max(d.Timeout, d.Deadline(in)) }
+	case d.Timeout > 0:
 		a.Deadline = func(atoms.Input) time.Duration { return d.Timeout }
 	}
 	return a

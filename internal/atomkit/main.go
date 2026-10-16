@@ -103,6 +103,9 @@ func check(d Def, in In) checks.Verdict {
 	if limit == 0 {
 		limit = defaultTimeout
 	}
+	if d.Deadline != nil {
+		limit = max(limit, d.Deadline(in))
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
 	done := make(chan checks.Verdict, 1)

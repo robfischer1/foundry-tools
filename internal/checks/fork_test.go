@@ -13,12 +13,10 @@ import (
 // spelled out here rather than derived. The atoms that live in their own files
 // are pinned in internal/catalogue, which sees them; this sees the table alone.
 var forkInert = map[string]string{
-	"fleet:stop-justifications": ForkFleetStyle,
-	"fleet:witness":             ForkFleetStyle,
-	"go:mutation":               ForkChangeBar,
-	"python:mutation":           ForkChangeBar,
-	"rust:mutation":             ForkChangeBar,
-	"ts:mutation":               ForkChangeBar,
+	"go:mutation":     ForkChangeBar,
+	"python:mutation": ForkChangeBar,
+	"rust:mutation":   ForkChangeBar,
+	"ts:mutation":     ForkChangeBar,
 }
 
 func TestTheForkLaneIsTheCatalogueRowsThatSaySo(t *testing.T) {
@@ -53,7 +51,6 @@ func TestAForkKeepsItsBuildTestsAuditsAndSAST(t *testing.T) {
 		"go:release",
 		"python:release",
 		"ts:release",
-		"fleet:opengrep-sast", "fleet:check-added-large-files",
 	} {
 		if a := AtomByID(id); a.NotOnForks != "" {
 			t.Errorf("%s stands down on a fork (%q); a fork keeps it", id, a.NotOnForks)

@@ -1,11 +1,8 @@
 package atoms
 
 import (
-	"context"
 	"errors"
 	"io/fs"
-	"net/http"
-	"net/http/httptest"
 	"sort"
 	"strings"
 	"testing"
@@ -33,18 +30,6 @@ func treeIn(t *testing.T, files map[string]string) Input {
 	}
 }
 
-// runAtom runs a built-in atom by id with its catalogue row, as the runner does.
-func runAtom(t *testing.T, id string, in Input) checks.Verdict {
-	t.Helper()
-	for _, a := range Builtin() {
-		if a.ID == id {
-			return a.Run(context.Background(), checks.AtomByID(id), in)
-		}
-	}
-	t.Fatalf("%s is not a built-in atom", id)
-	return checks.Verdict{}
-}
-
 // expect holds a verdict to its state, its result word (an ABSENT pass reads
 // "absent") and the words it must carry. A pass's Reason is only "<id>: PASS" —
 // what the atom said rides in its Logs — so the words are looked for in both.
@@ -62,37 +47,9 @@ func expect(t *testing.T, v checks.Verdict, state checks.State, result string, n
 }
 
 var (
-	pass     = checks.StatePass.String()
 	findings = checks.StateFindings.String()
 	cannot   = checks.StateCannotRun.String()
 )
-
-const absent = "absent"
-
-// doorOf answers for the git door: "<repo> <path>" to the body it serves; any
-// other file is a 404, which is what the door says for a path it does not hold.
-func doorOf(t *testing.T, answers map[string]string) checks.Door {
-	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, ok := answers[r.URL.Query().Get("repo")+" "+r.URL.Query().Get("path")]
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
-		_, _ = w.Write([]byte(body))
-	}))
-	t.Cleanup(srv.Close)
-	return checks.Door{Base: srv.URL}
-}
-
-// deadDoor is a door nothing answers at: connection refused.
-func deadDoor(t *testing.T) checks.Door {
-	t.Helper()
-	srv := httptest.NewServer(http.NotFoundHandler())
-	base := srv.URL
-	srv.Close()
-	return checks.Door{Base: base}
-}
 
 // missingRoot is an Input over a directory that is not there: the atoms that
 // open with the root's listing settle 2.

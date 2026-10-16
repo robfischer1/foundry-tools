@@ -8,23 +8,6 @@ import (
 	"dagger/foundry-tools/internal/checks"
 )
 
-func init() {
-	register("fleet:kafka-flows", fleetKafkaFlows)
-}
-
-// fleetKafkaFlows is fleet:kafka-flows' chain, the binary's comparator: the
-// same read and the same judgement (checks.KafkaFlowsVerdict) over the
-// engine's copy of the tree.
-func fleetKafkaFlows(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("fleet:kafka-flows")
-	files, err := r.kafkaSources(ctx)
-	if err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+err.Error())
-	}
-	known, knownErr := checks.LazyKnownTopics(ctx, oureaDoor)
-	return checks.KafkaFlowsVerdict(a, files, known, knownErr)
-}
-
 // kafkaSources reads every file the flow extraction reads (checks.
 // KafkaSourceFile). A tree that would not enumerate, or a file that would not
 // read, is the error: a file never read is a flow never seen.

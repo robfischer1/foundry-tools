@@ -13,8 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"dagger/foundry-tools/internal/atoms"
-	"dagger/foundry-tools/internal/catalogue"
 	"dagger/foundry-tools/internal/checks"
 )
 
@@ -73,6 +71,13 @@ func TestTheReverseShadowReportsWhoVotedAndWhoAgreed(t *testing.T) {
 	recordedOn(t, record, "0", votedMark+"fleet:check-yaml")
 	ids, _ := reverseIDs("", false)
 	n := len(ids)
+	if n == 0 {
+		// every atom lives in its own file: there is no chain to hold a vote against
+		if !strings.Contains(report.String(), "nothing to compare") {
+			t.Errorf("report %q", report.String())
+		}
+		return
+	}
 	if want := fmt.Sprintf("shadow atoms (binary voted): %d compared, %d identical, 0 same state, 0 state differs", n, n); !strings.Contains(report.String(), want) {
 		t.Errorf("report %q lacks %q", report.String(), want)
 	}
@@ -81,6 +86,9 @@ func TestTheReverseShadowReportsWhoVotedAndWhoAgreed(t *testing.T) {
 // (b) A CHAIN SIDE THAT FAILS, PANICS OR HANGS CHANGES NOTHING: the record is
 // the one a lane with no shadow records, and the report says what happened.
 func TestAFailingHangingOrPanickingReverseShadowChangesNothing(t *testing.T) {
+	if !haveChains(t) {
+		return
+	}
 	baseline, _, _ := func() (string, *bytes.Buffer, time.Duration) {
 		return reverseRun(t, func(context.Context) ([]checks.Verdict, error) { return chainVerdicts(t) }, time.Minute)
 	}()
@@ -146,25 +154,15 @@ func TestAReverseShadowDoesNotWaitForAVoteThatCannotCome(t *testing.T) {
 	}
 }
 
-// The chain's fleet:witness is not run beside the voter's real asks, and the
-// report says it was left out; a switch brings it back.
-func TestTheReverseShadowLeavesTheWitnessChainOut(t *testing.T) {
-	ids, skipped := reverseIDs(checks.StagePrepush, false)
-	chained := 0 // the binary's atoms that no file of their own answers
-	for _, id := range atoms.StageIDs(checks.StagePrepush) {
-		if !catalogue.Ported(id) {
-			chained++
+// fleet:witness lives in its own file, so no chain of it exists to run beside the
+// voter's real asks: the reverse shadow never asks for one, whichever way the
+// switch is set.
+func TestTheReverseShadowAsksForNoWitnessChain(t *testing.T) {
+	for _, with := range []bool{false, true} {
+		ids, skipped := reverseIDs(checks.StagePrepush, with)
+		if skipped || slices.Contains(ids, "fleet:witness") {
+			t.Errorf("witness switch %v: ids %v skipped %v", with, ids, skipped)
 		}
-	}
-	if !skipped || slices.Contains(ids, "fleet:witness") || len(ids) != chained-1 {
-		t.Errorf("ids %v skipped %v", ids, skipped)
-	}
-	// an atom that lives in its own file has no chain to hold against
-	if ids, skipped := reverseIDs(checks.StageOrbit, false); skipped || len(ids) != 0 {
-		t.Errorf("orbit: ids %v skipped %v", ids, skipped)
-	}
-	if ids, skipped := reverseIDs(checks.StagePrepush, true); skipped || !slices.Contains(ids, "fleet:witness") {
-		t.Errorf("with the switch on: ids %v skipped %v", ids, skipped)
 	}
 	for _, with := range []bool{false, true} {
 		var only string
@@ -175,7 +173,7 @@ func TestTheReverseShadowLeavesTheWitnessChainOut(t *testing.T) {
 		m.box.put(map[string]checks.Verdict{})
 		m.box.seal()
 		m.reverseShadow(soon(t), checks.StagePrepush, "")
-		if strings.Contains(only, "fleet:witness") != with {
+		if strings.Contains(only, "fleet:witness") {
 			t.Errorf("witness switch %v: the chains were asked for %q", with, only)
 		}
 	}
@@ -220,3 +218,11 @@ func scrubTimes(record string) string {
 }
 
 var timesRE = regexp.MustCompile(`"(started_at|finished_at)":"[^"]*"`)
+
+// haveChains says whether a test of the shadow machinery has a chain to hold the
+// binary's vote against: once every atom lives in its own file none does, and
+// the test has nothing to say.
+func haveChains(t *testing.T) bool {
+	t.Helper()
+	return len(chainedIDs("")) > 0
+}

@@ -25,10 +25,15 @@ type Def struct {
 	Toolchain   string        // a tools.toml [toolchain.<name>] key, or "none"
 	Needs       []string      // dies | svid | tool:<name> | service:<name>
 	Timeout     time.Duration // 0 = 10 min
-	History     string        // "" = shallow | "full"
-	WritesTree  bool
-	SubsumedBy  string
-	NotOnForks  string
+	// Deadline, when set, is how long this atom may take over this input; the run
+	// gives the atom the longer of it and Timeout. An atom whose honest worst case
+	// scales with the change (fleet:witness asks about every changed source) is
+	// not cut off by a deadline sized for the atoms that read a few files.
+	Deadline   func(In) time.Duration
+	History    string // "" = shallow | "full"
+	WritesTree bool
+	SubsumedBy string
+	NotOnForks string
 	// NeedsManifest is checks.AtomDef.NeedsManifest: the atom's subject is the
 	// lane's root manifest, and its absent sentence says so.
 	NeedsManifest bool
