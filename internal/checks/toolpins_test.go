@@ -15,7 +15,7 @@ func TestEveryToolPinHasAChecksum(t *testing.T) {
 			t.Errorf("%s has no SHA-256 in ToolSHA256 (got %q)", url, sum)
 		}
 	}
-	if len(ToolSHA256) != 16 {
+	if len(ToolSHA256) != 17 {
 		t.Errorf("ToolSHA256 holds %d entries; a stale line for a URL nothing fetches is a pin nobody checks", len(ToolSHA256))
 	}
 }

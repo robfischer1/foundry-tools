@@ -85,6 +85,7 @@ import (
 	rustwitguest "dagger/foundry-tools/atoms/rust/wit-guest"
 	templaterendermatrix "dagger/foundry-tools/atoms/template/render-matrix"
 	tsbungate "dagger/foundry-tools/atoms/ts/bun-gate"
+	tsregen "dagger/foundry-tools/atoms/ts/regen"
 	witvalidate "dagger/foundry-tools/atoms/wit/validate"
 	"dagger/foundry-tools/internal/atomkit"
 )
@@ -173,6 +174,7 @@ var Defs = []*atomkit.Def{
 	&rustwitguest.Def,
 	&templaterendermatrix.Def,
 	&tsbungate.Def,
+	&tsregen.Def,
 	&witvalidate.Def,
 }
 
