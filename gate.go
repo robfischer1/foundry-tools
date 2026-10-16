@@ -131,7 +131,7 @@ func (m *FoundryTools) GateFile(
 	// +optional
 	spire *dagger.Socket,
 	// The registry credential the visual lane pushes its artifact with — the
-	// diff images and the regenerated baselines (atoms_ts_visual.go), a docker
+	// diff images and the regenerated baselines (atom_env_ts.go), a docker
 	// config JSON naming registry.notusmi.com. Only the visual stage reads it;
 	// absent, that lane grades exactly the same and says it pushed nothing.
 	// +optional

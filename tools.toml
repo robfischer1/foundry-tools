@@ -29,6 +29,10 @@ image = "docker.io/oven/bun:1.4-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa8
 [toolchain.node]
 image = "docker.io/library/node:24-bookworm-slim@sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553"
 
+# ts:visual's Playwright, one entry per version bun.lock may resolve (checks.PlaywrightImages).
+[toolchain."playwright.1.62.0"]
+image = "mcr.microsoft.com/playwright:v1.62.0-noble@sha256:baed2032d533817f3dbe6425de795788430ba345e819a1201337009ba17c9d07"
+
 [toolchain.renovate]
 image = "ghcr.io/renovatebot/renovate:43.261.4@sha256:adc66d8ffba5d835b9ef27768bd3176d07e7ea98c8dba274b07f511beea5fe81"
 
@@ -160,6 +164,11 @@ version = "0.16.3"
 kind = "uv"
 spec = "cosmic-ray"
 version = "8.7.0"
+
+# bun for a container that is not the bun toolchain (the Playwright image has none).
+[tool.bun]
+kind = "image"
+image = "docker.io/oven/bun:1.4-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61"
 
 [tool.uv]
 kind = "image"

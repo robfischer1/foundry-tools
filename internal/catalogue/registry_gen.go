@@ -90,6 +90,7 @@ import (
 	templaterendermatrix "dagger/foundry-tools/atoms/template/render-matrix"
 	tsbungate "dagger/foundry-tools/atoms/ts/bun-gate"
 	tsregen "dagger/foundry-tools/atoms/ts/regen"
+	tsvisual "dagger/foundry-tools/atoms/ts/visual"
 	tsrelease "dagger/foundry-tools/atoms/ts/release"
 	witvalidate "dagger/foundry-tools/atoms/wit/validate"
 	"dagger/foundry-tools/internal/atomkit"
@@ -184,6 +185,7 @@ var Defs = []*atomkit.Def{
 	&templaterendermatrix.Def,
 	&tsbungate.Def,
 	&tsregen.Def,
+	&tsvisual.Def,
 	&tsrelease.Def,
 	&witvalidate.Def,
 }

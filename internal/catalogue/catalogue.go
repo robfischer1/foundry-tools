@@ -102,8 +102,11 @@ var toolchainImages = map[string]string{
 	"rust":      checks.ImageRust,
 	"rust-wasm": checks.ImageRustWasm,
 	"bun":       checks.ImageTS,
-	"node":      checks.ImageNode,
-	"renovate":  checks.ImageRenovate,
+	// the pod runs ts:visual in a Playwright image; the Dagger runner installs the
+	// browsers into the ts lane
+	"playwright": checks.ImageTS,
+	"node":       checks.ImageNode,
+	"renovate":   checks.ImageRenovate,
 }
 
 // imageOf is the lane image an atom of this toolchain runs in today. "none"

@@ -282,6 +282,16 @@ const (
 	SccacheMember = "sccache-v0.18.0-x86_64-unknown-linux-musl/sccache"
 )
 
+// PlaywrightImages are the toolchains ts:visual runs in on the executor, by the
+// @playwright/test version bun.lock resolves: Microsoft's own image for that
+// release, whose browsers are the revision that version drives. A tree whose
+// lockfile names a version not listed here has no image pinned and the atom
+// says so. The registry is not one the engine mirrors, so they stay out of
+// LaneImages (the Dagger runner installs the browsers into ImageTS instead).
+var PlaywrightImages = map[string]string{
+	"1.62.0": "mcr.microsoft.com/playwright:v1.62.0-noble@sha256:baed2032d533817f3dbe6425de795788430ba345e819a1201337009ba17c9d07",
+}
+
 // LaneImages is every image an atom may run in, so a test can assert the ONE
 // property this block exists to hold — that each is pinned by digest. Listed
 // rather than derived from Atoms because an image nothing currently references
