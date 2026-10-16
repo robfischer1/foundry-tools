@@ -23,6 +23,7 @@ import (
 	"dagger/foundry-tools/internal/atomkit"
 	"dagger/foundry-tools/internal/atoms"
 	"dagger/foundry-tools/internal/checks"
+	"dagger/foundry-tools/internal/witnesscall"
 )
 
 // Def is the atom. It asks narcissus as the run's SVID, so it needs one; its
@@ -69,6 +70,18 @@ func sleep(w atoms.Witness) func(context.Context, time.Duration) error {
 	return w.Sleep
 }
 
+// call runs the identity helper: the seam when a test set one, else the lane
+// pod's SPIRE agent in this process. The helper used to be a program on the
+// PATH, which the in-pod executor's lead container does not carry.
+func call(w atoms.Witness) atoms.Exec {
+	if w.Call != nil {
+		return w.Call
+	}
+	return func(ctx context.Context, c atoms.Cmd) (string, int) {
+		return witnesscall.Exec(ctx, c.Args, c.Env)
+	}
+}
+
 // asking is how one run asks narcissus: ask posts one request, and say is the
 // line the atom's output carries about the identity it asked as.
 type asking struct {
@@ -78,7 +91,8 @@ type asking struct {
 
 // asker answers how this run asks narcissus, or why it cannot.
 //
-// THE IDENTITY IS THE LANE POD'S SPIRE SVID, through the witnesscall helper, at
+// THE IDENTITY IS THE LANE POD'S SPIRE SVID, through the witnesscall helper (in this process: the
+// executor's lead has no such program), at
 // narcissus's mTLS door, and there is no other way to ask. A run with no forwarded
 // agent socket (In.Spire), or whose helper cannot say who it is, has no way to
 // ask: the reason comes back and the atom settles could-not-run. NOTHING HERE
@@ -91,7 +105,7 @@ func asker(ctx context.Context, in atomkit.In) (asking, string) {
 		return asking{}, "the lane forwarded no --spire socket, and the witness is asked only as the lane's SVID over mTLS, never in the clear"
 	}
 	env := []string{"WITNESSCALL_SOCKET=unix://" + in.Spire}
-	who, code := in.Run(ctx, atoms.Cmd{Dir: in.Root, Name: "witnesscall", Args: []string{"whoami"}, Env: env})
+	who, code := call(in.Witness)(ctx, atoms.Cmd{Dir: in.Root, Name: "witnesscall", Args: []string{"whoami"}, Env: env})
 	if code < 0 {
 		return asking{}, "witnesscall never ran: " + who
 	}
@@ -117,7 +131,7 @@ func identifiedPost(in atomkit.In, env []string) checks.WitnessAsk {
 		if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
 			return 0, "", "", fmt.Errorf("the request could not be written for the helper: %w", err)
 		}
-		out, code := in.Run(ctx, atoms.Cmd{Dir: in.Root, Name: "witnesscall", Args: []string{"post", checks.WitnessMTLSURL, file}, Env: env})
+		out, code := call(in.Witness)(ctx, atoms.Cmd{Dir: in.Root, Name: "witnesscall", Args: []string{"post", checks.WitnessMTLSURL, file}, Env: env})
 		if code == checks.WitnessNoAnswerExit {
 			return 0, "", "", fmt.Errorf("%w: %s", checks.ErrWitnessNoAnswer, out)
 		}

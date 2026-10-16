@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -22,6 +23,7 @@ import (
 	"dagger/foundry-tools/internal/atomkit"
 	"dagger/foundry-tools/internal/atoms"
 	"dagger/foundry-tools/internal/checks"
+	"dagger/foundry-tools/internal/hadescall"
 )
 
 // put writes a file, making its directories.
@@ -249,7 +251,7 @@ func witnessIn(t *testing.T, n *narcissus, tree map[string]string, changed ...st
 	in.Spire = "/run/spire/agent.sock"
 	if n != nil {
 		in.Witness.URL = n.srv.URL
-		in.Exec = n.exec
+		in.Witness.Call = n.exec
 	} else {
 		// No stand-in: the default port is not reachable from here, so the
 		// witness reads ready by decree.
@@ -274,7 +276,7 @@ func TestFleetWitnessAsksOnlyForSourceTheStarAuthored(t *testing.T) {
 			n := newNarcissus(t, reply("novel"))
 			in, _ := witnessIn(t, n, map[string]string{"README.md": "x"}, tc.changed...)
 			in.Spire = "/run/spire/agent.sock"
-			in.Exec = func(_ context.Context, c atoms.Cmd) (string, int) {
+			in.Witness.Call = func(_ context.Context, c atoms.Cmd) (string, int) {
 				t.Errorf("a change with nothing to witness exec'd %s %v", c.Name, c.Args)
 				return "", 0
 			}
@@ -542,7 +544,7 @@ func TestFleetWitnessAsksAsTheLanesIdentity(t *testing.T) {
 			n := newNarcissus(t, reply("novel"))
 			in, _ := witnessIn(t, n, map[string]string{"a.go": "package a\n"}, "a.go")
 			h := &witnessHelper{t: t, whoami: func() (string, int) { return svid, 0 }, post: tc.post}
-			in.Exec = h.exec
+			in.Witness.Call = h.exec
 			expect(t, run(t, in), stateOf(tc.state), tc.result, tc.needles...)
 			if h.posts() != tc.posts {
 				t.Errorf("the helper posted %d time(s), want %d", h.posts(), tc.posts)
@@ -566,7 +568,7 @@ func TestFleetWitnessAsksAsTheLanesIdentity(t *testing.T) {
 	t.Run("the helper is handed the request the chain would have posted", func(t *testing.T) {
 		in, _ := witnessIn(t, nil, map[string]string{"a.go": "package a\n"}, "a.go")
 		var got string
-		in.Exec = (&witnessHelper{t: t, whoami: func() (string, int) { return svid, 0 }, post: func(_ atoms.Cmd, body string) (string, int) {
+		in.Witness.Call = (&witnessHelper{t: t, whoami: func() (string, int) { return svid, 0 }, post: func(_ atoms.Cmd, body string) (string, int) {
 			got = body
 			return "HTTP 200\napplication/json\n" + said("novel", ""), 0
 		}}).exec
@@ -603,9 +605,9 @@ func TestFleetWitnessWithoutAnIdentityCannotRunAndAsksNothing(t *testing.T) {
 				t.Error("an ask was posted with no identity")
 				return "", 0
 			}}
-			in.Exec = h.exec
+			in.Witness.Call = h.exec
 			if tc.whoami == nil {
-				in.Exec = func(_ context.Context, c atoms.Cmd) (string, int) {
+				in.Witness.Call = func(_ context.Context, c atoms.Cmd) (string, int) {
 					t.Errorf("a lane with no socket exec'd %s %v", c.Name, c.Args)
 					return "", 0
 				}
@@ -636,7 +638,7 @@ func TestFleetWitnessAnIdentifiedRequestThatCannotBeWrittenIsNotAskedInTheClear(
 		t.Error("the helper was handed a request that was never written")
 		return "", 0
 	}}
-	in.Exec = h.exec
+	in.Witness.Call = h.exec
 	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "not-there"))
 	expect(t, run(t, in), stateOf(2), cannot, "could not consult 1 of 1 file(s)", "the request could not be written for the helper")
 	if n.total() != 0 || h.posts() != 0 {
@@ -724,5 +726,28 @@ func TestTheDeclarationIsTheRowItReplaced(t *testing.T) {
 	}
 	if !slices.Equal(Def.Needs, []string{"svid"}) {
 		t.Errorf("needs %v", Def.Needs)
+	}
+}
+
+// TestB4MTLS_DefaultAskIsInProcessNotAnExec: the executor's lead has no
+// witnesscall program, so with no seam set the atom asks the SPIRE agent in its
+// own process and never execs one. An agent that gives no identity is the
+// helper's own reason, unchanged, and nothing reaches narcissus.
+func TestB4MTLS_DefaultAskIsInProcessNotAnExec(t *testing.T) {
+	opened := hadescall.Open
+	t.Cleanup(func() { hadescall.Open = opened })
+	hadescall.Open = func(context.Context, string) (hadescall.Identity, error) {
+		return nil, errors.New("no agent behind the socket")
+	}
+	n := newNarcissus(t, reply("novel"))
+	in, _ := witnessIn(t, n, map[string]string{"a.go": "package a\n"}, "a.go")
+	in.Witness.Call = nil
+	in.Exec = func(_ context.Context, c atoms.Cmd) (string, int) {
+		t.Errorf("the atom exec'd %s %v: the executor pod has no such program", c.Name, c.Args)
+		return "", -1
+	}
+	expect(t, run(t, in), stateOf(2), cannot, "witnesscall: no identity from unix:///run/spire/agent.sock", "no agent behind the socket")
+	if n.total() != 0 {
+		t.Errorf("%d request(s) reached narcissus", n.total())
 	}
 }
