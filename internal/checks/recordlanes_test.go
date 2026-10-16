@@ -94,17 +94,32 @@ func TestRecordLanesFindings(t *testing.T) {
 func TestRecordLanesCannotRun(t *testing.T) {
 	good := oureaYAML(`record_lanes = ["atoms","dev"]`)
 	for name, files := range map[string]map[string]string{
-		"the jobs file is not YAML":      laneFiles("a: [", good),
-		"RECORD_LANES is not JSON":       laneFiles(jobsYAML(`gate,atoms`, ""), good),
-		"EXECUTOR_LANES is not JSON":     laneFiles(jobsYAML(`["atoms","dev"]`, `nope`), good),
-		"RECORD_LANES key moved":         laneFiles(jobsYAML("", ""), good),
-		"the ourea TOML does not parse":  laneFiles(jobsYAML(`["atoms","dev"]`, ""), oureaYAML(`record_lanes = [`)),
-		"record_lanes key moved":         laneFiles(jobsYAML(`["atoms","dev"]`, ""), oureaYAML(`door_url = "x"`)),
-		"config.toml key moved":          laneFiles(jobsYAML(`["atoms","dev"]`, ""), "kind: ConfigMap\ndata: {other: x}\n"),
-		"one of the two files is absent": {RecordLanesJobsFile: jobsYAML(`["atoms","dev"]`, "")},
+		"the jobs file is not YAML":     laneFiles("a: [", good),
+		"RECORD_LANES is not JSON":      laneFiles(jobsYAML(`gate,atoms`, ""), good),
+		"EXECUTOR_LANES is not JSON":    laneFiles(jobsYAML(`["atoms","dev"]`, `nope`), good),
+		"RECORD_LANES key moved":        laneFiles(jobsYAML("", ""), good),
+		"the ourea TOML does not parse": laneFiles(jobsYAML(`["atoms","dev"]`, ""), oureaYAML(`record_lanes = [`)),
+		"record_lanes key moved":        laneFiles(jobsYAML(`["atoms","dev"]`, ""), oureaYAML(`door_url = "x"`)),
+		"config.toml key moved":         laneFiles(jobsYAML(`["atoms","dev"]`, ""), "kind: ConfigMap\ndata: {other: x}\n"),
+		"the ourea file is absent":      {RecordLanesJobsFile: jobsYAML(`["atoms","dev"]`, "")},
+		"the jobs file is absent":       {RecordLanesOureaFile: good},
+		"the ourea file is not YAML":    laneFiles(jobsYAML(`["atoms","dev"]`, ""), "a: ["),
+		"data holds other keys only":    laneFiles("kind: ConfigMap\ndata: {OTHER: x}\n", good),
+		"no document carries data":      laneFiles("kind: ConfigMap\n", good),
 	} {
 		if state, report := RecordLanes(files); state != int(StateCannotRun) {
 			t.Errorf("%s: state %d, want cannot-run:\n%s", name, state, report)
+		}
+	}
+}
+
+func TestIsRecordLanesFile(t *testing.T) {
+	for path, want := range map[string]bool{
+		RecordLanesJobsFile: true, RecordLanesOureaFile: true,
+		"prime/star-a.yaml": false, "daedalus-jobs.yaml": false,
+	} {
+		if got := IsRecordLanesFile(path); got != want {
+			t.Errorf("IsRecordLanesFile(%q) = %v, want %v", path, got, want)
 		}
 	}
 }
