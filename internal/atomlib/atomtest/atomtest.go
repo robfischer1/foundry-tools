@@ -7,9 +7,6 @@ package atomtest
 import (
 	"context"
 	"errors"
-	"io/fs"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,7 +23,7 @@ import (
 )
 
 // GitIn runs git in dir and answers its trimmed stdout; a failure is fatal.
-func GitIn(t *testing.T, dir string, args ...string) string {
+func GitIn(t testing.TB, dir string, args ...string) string {
 	t.Helper()
 	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
 	if err != nil {
@@ -38,7 +35,7 @@ func GitIn(t *testing.T, dir string, args ...string) string {
 // NewRepo is an empty repository on main whose git ignores the developer's own
 // configuration: a global gitignore, a signing key or a template would otherwise
 // change what the tests see.
-func NewRepo(t *testing.T) string {
+func NewRepo(t testing.TB) string {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Fatalf("these tests build real repositories and need git on PATH: %v", err)
@@ -54,7 +51,7 @@ func NewRepo(t *testing.T) string {
 }
 
 // Put writes a file, making its directories.
-func Put(t *testing.T, dir, rel, body string) {
+func Put(t testing.TB, dir, rel, body string) {
 	t.Helper()
 	p := filepath.Join(dir, rel)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -66,7 +63,7 @@ func Put(t *testing.T, dir, rel, body string) {
 }
 
 // CommitAll stages everything and commits, answering the new sha.
-func CommitAll(t *testing.T, dir, msg string) string {
+func CommitAll(t testing.TB, dir, msg string) string {
 	t.Helper()
 	GitIn(t, dir, "add", "-A")
 	GitIn(t, dir, "commit", "-q", "-m", msg)
@@ -77,7 +74,7 @@ func CommitAll(t *testing.T, dir, msg string) string {
 // it, WITHOUT git: the population is the file list, as Collect would build it for
 // a tree with nothing ignored. Atoms that ask the root, a file or a glob read the
 // disk; atoms that ask the lists read these.
-func TreeIn(t *testing.T, files map[string]string) atoms.Input {
+func TreeIn(t testing.TB, files map[string]string) atoms.Input {
 	t.Helper()
 	dir := t.TempDir()
 	var names []string
@@ -95,7 +92,7 @@ func TreeIn(t *testing.T, files map[string]string) atoms.Input {
 // Expect holds a verdict to its state, its result word (an ABSENT pass reads
 // "absent") and the words it must carry. A pass's Reason is only "<id>: PASS" -
 // what the atom said rides in its Logs - so the words are looked for in both.
-func Expect(t *testing.T, v checks.Verdict, state checks.State, result string, needles ...string) {
+func Expect(t testing.TB, v checks.Verdict, state checks.State, result string, needles ...string) {
 	t.Helper()
 	if v.State != int(state) || v.Result != result {
 		t.Errorf("%s: state %d (%s), want %d (%s)\n%s", v.Atom, v.State, v.Result, state, result, v.Reason)
@@ -121,25 +118,9 @@ const Absent = "absent"
 // StateOf is a table's plain int as the catalogue's State.
 func StateOf(n int) checks.State { return checks.State(n) }
 
-// DoorOf answers for the git door: "<repo> <path>" to the body it serves; any
-// other file is a 404, which is what the door says for a path it does not hold.
-func DoorOf(t *testing.T, answers map[string]string) checks.Door {
-	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, ok := answers[r.URL.Query().Get("repo")+" "+r.URL.Query().Get("path")]
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
-		_, _ = w.Write([]byte(body))
-	}))
-	t.Cleanup(srv.Close)
-	return checks.Door{Base: srv.URL}
-}
-
 // MissingRoot is an Input over a directory that is not there: the atoms that
 // open with the root's listing settle 2.
-func MissingRoot(t *testing.T) atoms.Input {
+func MissingRoot(t testing.TB) atoms.Input {
 	t.Helper()
 	return atoms.Input{Root: t.TempDir() + "/not-there", Now: time.Now()}
 }
@@ -147,23 +128,9 @@ func MissingRoot(t *testing.T) atoms.Input {
 // ErrBoom is the error a failing double answers.
 var ErrBoom = errors.New("boom")
 
-// FailingFS is the disk, except that listing the named directory fails.
-type FailingFS struct {
-	fs.FS
-	Dir string
-}
-
-// ReadDir fails for the named directory.
-func (f FailingFS) ReadDir(name string) ([]fs.DirEntry, error) {
-	if name == f.Dir {
-		return nil, ErrBoom
-	}
-	return fs.ReadDir(f.FS, name)
-}
-
 // BrokenLink makes a file the glob lists and nothing can read: a symlink to
 // nowhere.
-func BrokenLink(t *testing.T, root, rel string) {
+func BrokenLink(t testing.TB, root, rel string) {
 	t.Helper()
 	p := filepath.Join(root, rel)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -178,7 +145,7 @@ func BrokenLink(t *testing.T, root, rel string) {
 // call from a script, records it, and fails the test for a program the tools
 // container does not carry (atoms.Programs).
 type ToolFake struct {
-	T      *testing.T
+	T      testing.TB
 	Calls  []atoms.Cmd
 	Answer func(c atoms.Cmd) (string, int)
 }
@@ -218,7 +185,7 @@ func (f *ToolFake) Call(name string) atoms.Cmd {
 }
 
 // LastCall is the call the atom made last.
-func (f *ToolFake) LastCall(t *testing.T) atoms.Cmd {
+func (f *ToolFake) LastCall(t testing.TB) atoms.Cmd {
 	t.Helper()
 	if len(f.Calls) == 0 {
 		t.Fatal("no program was exec'd")
@@ -227,7 +194,7 @@ func (f *ToolFake) LastCall(t *testing.T) atoms.Cmd {
 }
 
 // ToolTree is TreeIn with the exec seam set to the script.
-func ToolTree(t *testing.T, files map[string]string, answer func(atoms.Cmd) (string, int)) (atoms.Input, *ToolFake) {
+func ToolTree(t testing.TB, files map[string]string, answer func(atoms.Cmd) (string, int)) (atoms.Input, *ToolFake) {
 	t.Helper()
 	in := TreeIn(t, files)
 	f := &ToolFake{T: t, Answer: answer}
@@ -238,7 +205,7 @@ func ToolTree(t *testing.T, files map[string]string, answer func(atoms.Cmd) (str
 // PyTree is ToolTree for the atoms that run python: `python3 --version` (the
 // provisioning probe) is answered by the venv, and every other call by the
 // script. A nil script answers 0 and nothing.
-func PyTree(t *testing.T, files map[string]string, answer func(atoms.Cmd) (string, int)) (atoms.Input, *ToolFake) {
+func PyTree(t testing.TB, files map[string]string, answer func(atoms.Cmd) (string, int)) (atoms.Input, *ToolFake) {
 	t.Helper()
 	return ToolTree(t, files, func(c atoms.Cmd) (string, int) {
 		if c.Name == "python3" && len(c.Args) == 1 && c.Args[0] == "--version" {
@@ -257,7 +224,7 @@ func Flagged(c atoms.Cmd) string { return strings.Join(c.Args, " ") }
 // DeclaresItsRow holds an atom's declaration to the catalogue row it replaced:
 // it validates, it is an any-lane atom of this stage and toolchain, and its group
 // is the one checks.GroupOf gives its id.
-func DeclaresItsRow(t *testing.T, d atomkit.Def, stage, toolchain string) {
+func DeclaresItsRow(t testing.TB, d atomkit.Def, stage, toolchain string) {
 	t.Helper()
 	if err := atomkit.Validate(d); err != nil {
 		t.Fatal(err)
@@ -277,7 +244,7 @@ const Contract = "version = \"v1\"\nstatus = \"draft\"\nverbs = [\"a_verb\"]\n"
 // DiesAt is a foundry-dies checkout holding a roster, one contract between its
 // two stars, and the named files. (A directory of orbits that holds no contract
 // does not compose: that is a 2, and the atoms say so.) It answers the root.
-func DiesAt(t *testing.T, extra map[string]string) string {
+func DiesAt(t testing.TB, extra map[string]string) string {
 	t.Helper()
 	files := map[string]string{
 		"fleet/repos/a.json": StarData("a"), "fleet/repos/b.json": StarData("b"), "orbits/a-b.toml": Contract,
@@ -302,7 +269,7 @@ verbs = ["shape_for"]
 // run would write from foundry-dies' one contract, edited by edit (nil leaves
 // it), and the Input that names that foundry-dies. The extra files are added to
 // the tree beside the render.
-func ComposedTree(t *testing.T, edit func(map[string][]byte), extra map[string]string) atoms.Input {
+func ComposedTree(t testing.TB, edit func(map[string][]byte), extra map[string]string) atoms.Input {
 	t.Helper()
 	cs, err := orbitcompose.ContractsOf(map[string][]byte{"urania-themis.toml": []byte(ComposedContract)}, nil)
 	if err != nil {
@@ -325,7 +292,7 @@ func ComposedTree(t *testing.T, edit func(map[string][]byte), extra map[string]s
 }
 
 // ListTree is every file under dir, slash-separated and sorted.
-func ListTree(t *testing.T, dir string) []string {
+func ListTree(t testing.TB, dir string) []string {
 	t.Helper()
 	files, err := atoms.Input{Root: dir}.Tree().Files()
 	if err != nil {

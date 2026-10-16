@@ -40,7 +40,7 @@ func TestSelectRefusesAnUnknownAtom(t *testing.T) {
 }
 
 // The other half of the same trap: a REAL atom that this stage does not admit.
-// go:govulncheck is prepush; naming it in a precommit selector must say
+// The govulncheck atom is prepush; naming it in a precommit selector must say
 // so rather than answer an empty vector.
 func TestSelectRefusesAnAtomTheStageDoesNotAdmit(t *testing.T) {
 	_, err := Select(AtomsForStage(StagePrecommit), "go:govulncheck")

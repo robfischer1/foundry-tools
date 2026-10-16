@@ -35,18 +35,16 @@ func PyAnswer(answer func(atoms.Cmd) (string, int)) func(atoms.Cmd) (string, int
 
 // CheckerTree is an ops tree (it carries flux/) with one of the tree's own
 // checkers, tracked executable or not.
-func CheckerTree(t *testing.T, tool string, mode os.FileMode, answer func(atoms.Cmd) (string, int)) (atoms.Input, *ToolFake) {
+func CheckerTree(t testing.TB, tool string, mode os.FileMode, answer func(atoms.Cmd) (string, int)) (atoms.Input, *ToolFake) {
 	t.Helper()
 	in, f := ToolTree(t, map[string]string{"flux/x.yaml": "a: 1\n", "tools/" + tool: "#!/usr/bin/env python3\n"}, PyAnswer(answer))
-	if err := os.Chmod(filepath.Join(in.Root, "tools", tool), mode); err != nil {
-		t.Fatal(err)
-	}
+	_ = os.Chmod(filepath.Join(in.Root, "tools", tool), mode) // the file was written a line ago
 	return in, f
 }
 
 // CheckerSuite holds a checker atom to the shape all six share: the surface, the
 // checker's presence, the probe, the run and the settle. run is the atom's check.
-func CheckerSuite(t *testing.T, run func(context.Context, atoms.Input) checks.Verdict, c Checker) {
+func CheckerSuite(t testing.TB, run func(context.Context, atoms.Input) checks.Verdict, c Checker) {
 	t.Helper()
 	phase := strings.TrimPrefix(c.ID, "ops:")
 	for _, k := range []struct {
@@ -63,7 +61,7 @@ func CheckerSuite(t *testing.T, run func(context.Context, atoms.Input) checks.Ve
 		{"a fault of the substrate is a 2, not a finding", 1, "connection refused", 2, Cannot, []string{"failed on a fault of the substrate"}},
 		{"a python that would not start never ran", -1, "python: gone", 2, Cannot, []string{"the atom never ran: python: gone"}},
 	} {
-		t.Run(k.name, func(t *testing.T) {
+		step(t, k.name, func() {
 			in, f := CheckerTree(t, c.Tool, 0o755, func(atoms.Cmd) (string, int) { return k.out, k.code })
 			Expect(t, run(context.Background(), in), StateOf(k.state), k.result, k.needles...)
 			last := f.LastCall(t)
@@ -79,33 +77,39 @@ func CheckerSuite(t *testing.T, run func(context.Context, atoms.Input) checks.Ve
 			}
 		})
 	}
-	t.Run("a python that fails its probe is unprovisioned", func(t *testing.T) {
+	step(t, "a python that fails its probe is unprovisioned", func() {
 		in, f := ToolTree(t, map[string]string{"flux/x.yaml": "a: 1\n", "tools/" + c.Tool: "#!/usr/bin/env python3\n"}, func(atoms.Cmd) (string, int) { return "gone", 127 })
-		if err := os.Chmod(filepath.Join(in.Root, "tools", c.Tool), 0o755); err != nil {
-			t.Fatal(err)
-		}
+		_ = os.Chmod(filepath.Join(in.Root, "tools", c.Tool), 0o755) // the file was written a line ago
 		Expect(t, run(context.Background(), in), StateOf(2), Cannot, "the phase's tool could not be provisioned", c.Python+" --version exited 127")
 		if len(f.Calls) != 1 {
 			t.Errorf("the checker ran on an unprovisioned container: %v", f.Ran())
 		}
 	})
-	t.Run("no checker is absent and python is not touched", func(t *testing.T) {
+	step(t, "no checker is absent and python is not touched", func() {
 		in, f := ToolTree(t, map[string]string{"flux/x.yaml": "a: 1\n"}, nil)
 		Expect(t, run(context.Background(), in), StateOf(0), Absent, "no tools/"+c.Tool+" in this tree")
 		if len(f.Calls) != 0 {
 			t.Errorf("an absent atom touched %v", f.Ran())
 		}
 	})
-	t.Run("a tree that is not an ops tree is absent", func(t *testing.T) {
+	step(t, "a tree that is not an ops tree is absent", func() {
 		in, f := ToolTree(t, map[string]string{"main.go": "x"}, nil)
 		Expect(t, run(context.Background(), in), StateOf(0), Absent, "has no ops shape")
 		if len(f.Calls) != 0 {
 			t.Errorf("an absent atom touched %v", f.Ran())
 		}
 	})
-	t.Run("a population that failed", func(t *testing.T) {
+	step(t, "a population that failed", func() {
 		in, _ := CheckerTree(t, c.Tool, 0o755, nil)
 		in.FilesErr = ErrBoom
 		Expect(t, run(context.Background(), in), StateOf(2), Cannot, "the tree would not enumerate")
 	})
+}
+
+// step runs one case of the suite under its name: a failure is reported after the
+// line that says which case it was.
+func step(t testing.TB, name string, f func()) {
+	t.Helper()
+	t.Logf("case: %s", name)
+	f()
 }
