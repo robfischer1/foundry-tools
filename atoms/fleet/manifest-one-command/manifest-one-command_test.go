@@ -72,6 +72,7 @@ func TestUT_704_to_717_EachRuleHasItsLine(t *testing.T) {
 		{"UT-704 a second step", vet + "prepare = [\"true\"]\n", "second-step", "key prepare declares a second step"},
 		{"UT-705 argv empty", strings.Replace(vet, `argv = ["go", "vet", "./..."]`, "argv = []", 1), "argv-shape", "argv must be one non-empty list of strings"},
 		{"UT-705 argv a string", strings.Replace(vet, `argv = ["go", "vet", "./..."]`, `argv = "go vet"`, 1), "argv-shape", "argv must be one non-empty list of strings"},
+		{"UT-705 argv with a non-string", strings.Replace(vet, `["go", "vet", "./..."]`, `["go", 2]`, 1), "argv-shape", "argv must be one non-empty list of strings"},
 		{"UT-706 sh -c", strings.Replace(vet, `["go", "vet", "./..."]`, `["sh", "-c", "true"]`, 1), "inline-script", "argv runs sh with an inline script (-c)"},
 		{"UT-706 uv run python -c", strings.Replace(vet, `["go", "vet", "./..."]`, `["uv", "run", "python", "-c", "x"]`, 1), "inline-script", "argv runs python with an inline script (-c)"},
 		{"UT-706 env node -e", strings.Replace(vet, `["go", "vet", "./..."]`, `["env", "node", "-e", "x"]`, 1), "inline-script", "argv runs node with an inline script (-e)"},

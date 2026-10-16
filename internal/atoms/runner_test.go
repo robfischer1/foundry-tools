@@ -336,3 +336,16 @@ func TestExecuteOfNothingIsNothing(t *testing.T) {
 		t.Errorf("an empty registry answered %d verdicts", len(got))
 	}
 }
+
+// UseExtra adds the atoms that live in their own files after the ones written
+// here, in the order given.
+func TestUseExtraAppendsThePortedAtoms(t *testing.T) {
+	old := ported
+	t.Cleanup(func() { ported = old })
+	extra := Atom{ID: "fleet:check-yaml", Scope: ScopeTree}
+	UseExtra(func() []Atom { return []Atom{extra} })
+	got := Builtin()
+	if last := got[len(got)-1]; last.ID != extra.ID {
+		t.Errorf("the last atom is %s, want the extra", last.ID)
+	}
+}

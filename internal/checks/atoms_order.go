@@ -1,6 +1,10 @@
 package checks
 
-import "slices"
+import (
+	"cmp"
+	"slices"
+	"strings"
+)
 
 // catalogueOrder is the order of the catalogue: the order the atoms were
 // declared in when the table was the whole of it, now the order the catalogue
@@ -122,16 +126,7 @@ func ordered(rows []AtomDef) []AtomDef {
 		return len(catalogueOrder)
 	}
 	slices.SortStableFunc(rows, func(a, b AtomDef) int {
-		if pa, pb := place(a.ID), place(b.ID); pa != pb {
-			return pa - pb
-		}
-		if a.ID < b.ID {
-			return -1
-		}
-		if a.ID > b.ID {
-			return 1
-		}
-		return 0
+		return cmp.Or(place(a.ID)-place(b.ID), strings.Compare(a.ID, b.ID))
 	})
 	return rows
 }

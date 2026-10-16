@@ -104,7 +104,7 @@ func TestAPreflightThatFailsStopsTheCommand(t *testing.T) {
 	wantState(t, runAtom(t, "go:vet", ""), 2, "never ran", "image would not pull")
 }
 
-// go:staticcheck's manifest carries the fleet's check set, and the lane the
+// The staticcheck manifest carries the fleet's check set, and the lane the
 // tool is baked into carries it at its pin.
 func TestGoStaticcheckRunsItsManifestsCheckSet(t *testing.T) {
 	engine.reset()
@@ -404,5 +404,18 @@ func TestAToolsFileThatDoesNotParseIsACouldNotRun(t *testing.T) {
 	wantState(t, runAtom(t, "go:vet", ""), 2, "tools.toml: ")
 	if len(engine.chains()) != 0 {
 		t.Errorf("a container was built: %v", engine.chains())
+	}
+}
+
+// Catalogue lists the atoms that live in files beside the table's.
+func TestCatalogueListsThePortedAtoms(t *testing.T) {
+	out, err := (&FoundryTools{}).Catalogue(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range catalogue.Entries() {
+		if !strings.Contains(out, `"atom": "`+e.ID+`"`) {
+			t.Errorf("%s is not in the catalogue listing", e.ID)
+		}
 	}
 }
