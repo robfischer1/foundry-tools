@@ -177,6 +177,10 @@ func TestProbeImportsSettleAndVerdictRunTheProgramsTheyName(t *testing.T) {
 			t.Errorf("%+v", v)
 		}
 	})
+	t.Run("an import probe whose uv would not start never ran", func(t *testing.T) {
+		in, _ := atomtest.UVTree(t, atomtest.DieTree(nil), atomtest.Const0("uv: gone", -1))
+		atomtest.Expect(t, *Imports(ctx, row, in, WithJSONSchema, "jsonschema"), checks.StateCannotRun, atomtest.Cannot, "the atom never ran: uv: gone")
+	})
 	t.Run("the exit is the state, unmapped, and a uv that would not start never ran", func(t *testing.T) {
 		for _, tc := range []struct {
 			code   int
