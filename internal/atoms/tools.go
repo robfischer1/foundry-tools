@@ -54,9 +54,3 @@ var tempSeq atomic.Int64
 func tempPath(kind, ext string) string {
 	return filepath.Join(WorkDir(), fmt.Sprintf("atoms-%s-%d-%d%s", kind, os.Getpid(), tempSeq.Add(1), ext))
 }
-
-// neverRan is a program that would not start, or an engine-side failure the
-// chains filed as "the atom never ran": a 2, with the reason.
-func neverRan(a checks.AtomDef, why string) checks.Verdict {
-	return checks.VerdictOf(a, int(checks.StateCannotRun), "the atom never ran: "+why)
-}

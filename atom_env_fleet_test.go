@@ -27,19 +27,15 @@ func runFleetAtom(t *testing.T, r *run, id string) (checks.Verdict, string) {
 	return v, engine.chain(atomkit.EscapeID(id)+".json", "contents")
 }
 
-// fleet:wit-topics' toolchain is python, and the python image is the fleet lane's
-// (checks.ImageFleet): its checker runs under uv, as its chain ran, with no
-// environment of its own.
-func TestWitTopicsRunsInTheFleetLane(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	v, c := runFleetAtom(t, newRun(dag.Directory(), "", ""), "fleet:wit-topics")
-	wantState(t, v, 0)
-	if !strings.Contains(c, checks.ImageFleet) || checks.ImageFleet != checks.ImagePython {
-		t.Errorf("fleet:wit-topics must run in the fleet lane image:\n%s", c)
-	}
-	if _, ok := atomEnvironments["fleet:wit-topics"]; ok {
-		t.Error("the lane of its toolchain is the lane its chain ran in; it needs no environment of its own")
+// The fleet atoms that exec a program or the tree's python run in the tools
+// container the atoms binary votes in: it carries opengrep, hadolint, the
+// witness helper and the python venv already, so nothing is fetched per run and
+// the adapter is only their re-ask.
+func TestTheFleetAtomsThatExecAProgramRunInTheToolsContainer(t *testing.T) {
+	for _, id := range []string{"fleet:opengrep-sast", "fleet:hadolint", "fleet:wit-topics", "fleet:witness"} {
+		if !atomEnvironments[id].tools {
+			t.Errorf("%s does not run in the tools container", id)
+		}
 	}
 }
 
@@ -59,36 +55,6 @@ func TestRenovateConfigRunsInTheRenovateImageWithoutARepository(t *testing.T) {
 	}
 }
 
-// fleet:hadolint's tool is fetched at its pin, mirror first, and placed in the
-// fleet lane: the lane images carry no hadolint.
-func TestHadolintRunsWithThePinnedBinaryInTheFleetLane(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	v, c := runFleetAtom(t, newRun(dag.Directory(), "", ""), "fleet:hadolint")
-	wantState(t, v, 0)
-	if !strings.Contains(c, checks.ImageFleet) {
-		t.Errorf("fleet:hadolint must run in the fleet lane image:\n%s", c)
-	}
-	wantCalls(t, c, []string{"withFile", `path:"/usr/local/bin/hadolint"`, `permissions:493`})
-	if pinnedFetch(checks.HadolintURL, "id") == "" {
-		t.Errorf("the release URL's file is placed from the mirror at its pin:\n%v", engine.chains())
-	}
-}
-
-// A hadolint that could not be fetched is the atom's could-not-run, said in the
-// atom's words, and no second address is tried.
-func TestHadolintCouldNotBeFetchedIsACouldNotRun(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	failBoth(checks.HadolintURL, "404")
-	e, _ := catalogue.Lookup("fleet:hadolint")
-	wantState(t, runAtomOnDagger(t.Context(), newRun(dag.Directory(), "", ""), e), 2,
-		"fleet:hadolint: CANNOT RUN", "could not be fetched", checks.HadolintVersion, "A Dockerfile that was never linted is not a Dockerfile that passed.")
-	if strings.Contains(strings.Join(engine.chains(), "\n"), "nexus.notusmi.com") {
-		t.Errorf("no fleet address is tried:\n%v", engine.chains())
-	}
-}
-
 // fleet:witness asks narcissus as the run's SVID: the lane carries the helper,
 // the base is fetched and handed over with the origin and the fork record, and
 // the run is keyed so no earlier answer stands in for a later ask.
@@ -99,7 +65,6 @@ func TestWitnessRunsWithTheHelperTheSocketAndTheChangesFacts(t *testing.T) {
 	v, c := runFleetAtom(t, r, "fleet:witness")
 	wantState(t, v, 0)
 	wantCalls(t, c,
-		[]string{"withFile", `path:"/usr/local/bin/witnesscall"`, `permissions:493`},
 		[]string{"withEnvVariable", `name:"WITNESS_RUN"`},
 		[]string{"withUnixSocket", `path:"` + atomsSpirePath + `"`},
 		[]string{"withEnvVariable", `name:"SPIFFE_ENDPOINT_SOCKET"`},

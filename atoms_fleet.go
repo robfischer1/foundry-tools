@@ -24,20 +24,6 @@ func cannotEnumerate(a checks.AtomDef, err error) checks.Verdict {
 	return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - the tree would not enumerate: %v", a.ID, err))
 }
 
-// neverRan is the verdict when the ENGINE would not answer — a mount that did
-// not evaluate, an image that would not pull, a provisioning exec that failed
-// under the default Expect. It is verdict()'s own wording, because it is
-// verdict()'s own case: output() separates the engine's error from the tool's
-// exit code precisely so an atom that reads the code itself still files the
-// error the way every other atom does.
-func neverRan(a checks.AtomDef, err error) checks.Verdict {
-	return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
-}
-
-// oureaDoor is where dies:contracts reads contracts. A variable so the tests
-// can point it at a fake door.
-var oureaDoor = checks.NewDoor()
-
 // fileRead is one file's contents, or why it would not read.
 type fileRead struct {
 	body string

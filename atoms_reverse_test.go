@@ -71,6 +71,13 @@ func TestTheReverseShadowReportsWhoVotedAndWhoAgreed(t *testing.T) {
 	recordedOn(t, record, "0", votedMark+"fleet:check-yaml")
 	ids, _ := reverseIDs("", false)
 	n := len(ids)
+	if n == 0 {
+		// every atom lives in its own file: there is no chain to hold a vote against
+		if !strings.Contains(report.String(), "nothing to compare") {
+			t.Errorf("report %q", report.String())
+		}
+		return
+	}
 	if want := fmt.Sprintf("shadow atoms (binary voted): %d compared, %d identical, 0 same state, 0 state differs", n, n); !strings.Contains(report.String(), want) {
 		t.Errorf("report %q lacks %q", report.String(), want)
 	}
@@ -79,6 +86,9 @@ func TestTheReverseShadowReportsWhoVotedAndWhoAgreed(t *testing.T) {
 // (b) A CHAIN SIDE THAT FAILS, PANICS OR HANGS CHANGES NOTHING: the record is
 // the one a lane with no shadow records, and the report says what happened.
 func TestAFailingHangingOrPanickingReverseShadowChangesNothing(t *testing.T) {
+	if !haveChains(t) {
+		return
+	}
 	baseline, _, _ := func() (string, *bytes.Buffer, time.Duration) {
 		return reverseRun(t, func(context.Context) ([]checks.Verdict, error) { return chainVerdicts(t) }, time.Minute)
 	}()
@@ -208,3 +218,11 @@ func scrubTimes(record string) string {
 }
 
 var timesRE = regexp.MustCompile(`"(started_at|finished_at)":"[^"]*"`)
+
+// haveChains says whether a test of the shadow machinery has a chain to hold the
+// binary's vote against: once every atom lives in its own file none does, and
+// the test has nothing to say.
+func haveChains(t *testing.T) bool {
+	t.Helper()
+	return len(chainedIDs("")) > 0
+}

@@ -1,12 +1,5 @@
 package atoms
 
-import (
-	"context"
-	"fmt"
-
-	"dagger/foundry-tools/internal/checks"
-)
-
 // THE ATOMS THAT RUN A PYTHON PROGRAM. A repository's own checker
 // (tools/check_contracts.py, infra's tools/dup-check, flux's tools/wit-topics)
 // is the tree's, so it is run, not reimplemented: what is Go here is everything
@@ -39,40 +32,3 @@ const (
 // it grades. In the chain that was the engine's copy of the tree; the binary
 // runs on the tree.
 var pythonEnv = []string{"PYTHONDONTWRITEBYTECODE=1"}
-
-// pyCmd is a python3 run from dir, answering both streams as the chain's
-// verdict() does.
-func pyCmd(dir string, args ...string) Cmd {
-	return Cmd{Dir: dir, Name: "python3", Args: args, Env: pythonEnv, Both: true}
-}
-
-// pyProbe is the chain's `uv --version`: the provisioning probe, on its own
-// exec. A container without the venv is a could-not-run, never a finding.
-func pyProbe(ctx context.Context, a checks.AtomDef, in Input) *checks.Verdict {
-	out, code := in.run(ctx, pyCmd(in.Root, "--version"))
-	if code == 0 {
-		return nil
-	}
-	v := checks.VerdictOf(a, int(checks.StateCannotRun), fmt.Sprintf("the atom never ran: python3 --version exited %d: %s", code, out))
-	return &v
-}
-
-// pySettle runs a python program and settles on its exit, stdout then stderr,
-// unmapped: the tree's checkers speak the fleet's ladder (0 holds, 1 a defect, 2
-// the check could not run), so the exit IS the state. A python3 that would not
-// start never ran.
-func pySettle(ctx context.Context, a checks.AtomDef, in Input, args ...string) checks.Verdict {
-	out, code := in.run(ctx, pyCmd(in.Root, args...))
-	if code < 0 {
-		return neverRan(a, out)
-	}
-	return checks.VerdictOf(a, code, out)
-}
-
-// pyVerdict is the probe and then the checker's verdict.
-func pyVerdict(ctx context.Context, a checks.AtomDef, in Input, args ...string) checks.Verdict {
-	if stop := pyProbe(ctx, a, in); stop != nil {
-		return *stop
-	}
-	return pySettle(ctx, a, in, args...)
-}

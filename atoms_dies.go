@@ -26,24 +26,6 @@ func present(ctx context.Context, r *run, path string) (bool, error) {
 	return len(matches) > 0, nil
 }
 
-// requirePaths is the run of `[ -f … ] || CANNOT RUN` each dies atom opened
-// with. Each entry keeps the original sentence, because each says something
-// different about what cannot be claimed without that file.
-func requirePaths(ctx context.Context, r *run, a checks.AtomDef, required [][2]string) *checks.Verdict {
-	for _, req := range required {
-		ok, err := present(ctx, r, req[0])
-		if err != nil {
-			v := checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - the tree could not be scanned for %s (%v).", a.ID, req[0], err))
-			return &v
-		}
-		if !ok {
-			v := checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+req[1])
-			return &v
-		}
-	}
-	return nil
-}
-
 // opaClient provisions opa AT THE PINNED VERSION, and the pin is load-bearing.
 //
 // The rego language version is a property of the binary: a suite written for v1
@@ -76,12 +58,4 @@ func (r *run) opaClient(ctx context.Context) (*dagger.Container, error) {
 		return nil, fmt.Errorf("the binary on disk does not answer %q, so the rego semantics are not the pinned ones: %s", "Version: "+checks.OpaVersion, out)
 	}
 	return ctr, nil
-}
-
-// stdlibpy runs a tree-owned script that needs nothing but the interpreter. It
-// goes through uv for the same reason schemapy does (the lane images are
-// uv-managed and carry no bare python3 on PATH) and asks for no packages, so a
-// gate that only reads files cannot be broken by a registry.
-func stdlibpy(args ...string) []string {
-	return append([]string{"uv", "run", "--no-project", "--quiet", "python3"}, args...)
 }

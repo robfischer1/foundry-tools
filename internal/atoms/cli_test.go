@@ -93,8 +93,7 @@ func TestRunOutsideARepositoryStillAnswersAVector(t *testing.T) {
 	// The atoms defined over git's answers (the population, the tracked list)
 	// cannot say anything about a tree git would not read, and only could-not-run
 	// is honest. The ones that read the directory itself have a directory to read.
-	gitBound := map[string]bool{
-	}
+	gitBound := map[string]bool{}
 	for _, v := range vector {
 		if gitBound[v.Atom] && v.State != 2 {
 			t.Errorf("%s answered %d about a tree git would not read; only could-not-run is honest", v.Atom, v.State)

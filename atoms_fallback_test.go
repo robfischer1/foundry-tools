@@ -343,6 +343,13 @@ func TestAGateWhoseBinaryFailsRecordsTheChainsAnswerAndReportsTheFallbacks(t *te
 	recordedOn(t, rec, "0", chainMark+"fleet:check-yaml")
 	listed, _ := reverseIDs("", false)
 	n := len(listed)
+	if n == 0 {
+		// every atom lives in its own file: no chain is left to fall back to
+		if !strings.Contains(report.String(), "nothing to compare") {
+			t.Errorf("report %q", report.String())
+		}
+		return
+	}
 	if want := fmt.Sprintf("%d of %d fell back to the chain", n, n); !strings.Contains(report.String(), want) || !strings.Contains(report.String(), "OOM") {
 		t.Errorf("report %q lacks %q and the binary's reason", report.String(), want)
 	}

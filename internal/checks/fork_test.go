@@ -13,10 +13,10 @@ import (
 // spelled out here rather than derived. The atoms that live in their own files
 // are pinned in internal/catalogue, which sees them; this sees the table alone.
 var forkInert = map[string]string{
-	"go:mutation":               ForkChangeBar,
-	"python:mutation":           ForkChangeBar,
-	"rust:mutation":             ForkChangeBar,
-	"ts:mutation":               ForkChangeBar,
+	"go:mutation":     ForkChangeBar,
+	"python:mutation": ForkChangeBar,
+	"rust:mutation":   ForkChangeBar,
+	"ts:mutation":     ForkChangeBar,
 }
 
 func TestTheForkLaneIsTheCatalogueRowsThatSaySo(t *testing.T) {
