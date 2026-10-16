@@ -88,20 +88,11 @@ func buildPython(ctx context.Context, base *dagger.Container) (out pythonLayers)
 		return
 	}
 	interp = interp.
-		// uv verifies against the platform store the engine's CA is in (laneBase
-		// says why this is not its default). It never fetches an interpreter: the
-		// one it is handed below is the pinned one.
-		WithEnvVariable("UV_NATIVE_TLS", "1").
+		// The CA variables come from the OS layer (withSystemCA): without
+		// SSL_CERT_FILE ansible-galaxy answered CERTIFICATE_VERIFY_FAILED and the
+		// collections were left out of every container since #328 (2026-10-09).
+		// uv never fetches an interpreter: the one it is handed below is pinned.
 		WithEnvVariable("UV_PYTHON_DOWNLOADS", "never").
-		// AND THE PYTHON READERS, as laneBase hands every lane (runtime.go):
-		// the pinned interpreter's OpenSSL looks for roots where its build put
-		// them, not in the system store the engine writes its CA into, so
-		// ansible-galaxy answered CERTIFICATE_VERIFY_FAILED "unable to get local
-		// issuer" on both tries and the collections were left out of every
-		// container since #328 (measured 2026-10-09, binary on infra:
-		// ops:ansible settled 2, "the container carries none").
-		WithEnvVariable("SSL_CERT_FILE", "/etc/ssl/certs/ca-certificates.crt").
-		WithEnvVariable("REQUESTS_CA_BUNDLE", "/etc/ssl/certs/ca-certificates.crt").
 		WithFile(toolsBinDir+"uv", uv, dagger.ContainerWithFileOpts{Permissions: 0o755}).
 		WithExec([]string{"uv", "--version"}).
 		WithExec([]string{"uv", "venv", venv, "--python", pythonInstallDir + "/bin/python3", "--verbose"}).
