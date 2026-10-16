@@ -79,7 +79,7 @@ func TestTSMutationMeasuresTheDiffWithThePackagesStryker(t *testing.T) {
 	}
 	// No declaration: every TypeScript source outside the tests is the scope.
 	wantCalls(t, engine.chain(tsDiffNeedle, "stdout"),
-		[]string{"withExec", "expect:ANY", `args:["git","diff","--unified=0","since0","HEAD","--","*.ts","*.tsx",":!*.test.ts",":!*.test.tsx",":!*.spec.ts",":!*.spec.tsx",":!*__tests__/*",":!node_modules/"]`})
+		[]string{"withExec", "expect:ANY", `args:["git","diff","--unified=0","since0","HEAD","--","*.ts","*.tsx",":!*.test.ts",":!*.test.tsx",":!*.spec.ts",":!*.spec.tsx",":!*.config.ts",":!*__tests__/*",":!node_modules/"]`})
 
 	// A declared module is a :(glob) pathspec, and survivors are findings with
 	// the honest table and the list.
