@@ -156,6 +156,14 @@ func TestUT_490_ThePortedAtomsAreResolvedByTheCatalogue(t *testing.T) {
 		{"go:gofmt", checks.AtomDef{Stage: "precommit", Lane: checks.LaneGo, Image: checks.ImageGo, NotOnForks: checks.ForkFleetStyle}},
 		{"go:staticcheck", checks.AtomDef{Stage: "prepush", Lane: checks.LaneGo, Image: checks.ImageGo, NotOnForks: checks.ForkFleetStyle}},
 		{"python:pip-audit", checks.AtomDef{Stage: "prepush", Lane: checks.LanePython, Image: checks.ImagePython, NeedsManifest: true}},
+		{"python:ruff-check", checks.AtomDef{Stage: "precommit", Lane: checks.LanePython, Image: checks.ImagePython, NotOnForks: checks.ForkFleetStyle}},
+		{"python:ruff-format", checks.AtomDef{Stage: "precommit", Lane: checks.LanePython, Image: checks.ImagePython, NotOnForks: checks.ForkFleetStyle}},
+		{"python:forge-testkit-assertion-free", checks.AtomDef{Stage: "precommit", Lane: checks.LanePython, Image: checks.ImagePython, NotOnForks: checks.ForkFleetStyle}},
+		{"python:forge-testkit-fake-placement", checks.AtomDef{Stage: "precommit", Lane: checks.LanePython, Image: checks.ImagePython, NotOnForks: checks.ForkFleetStyle}},
+		{"python:forge-testkit-schema-budget", checks.AtomDef{Stage: "precommit", Lane: checks.LanePython, Image: checks.ImagePython, NotOnForks: checks.ForkFleetStyle}},
+		{"python:mypy", checks.AtomDef{Stage: "precommit", Lane: checks.LanePython, Image: checks.ImagePython, NotOnForks: checks.ForkFleetStyle, NeedsManifest: true}},
+		{"python:pytest", checks.AtomDef{Stage: "precommit", Lane: checks.LanePython, Image: checks.ImagePython}},
+		{"ts:bun-gate", checks.AtomDef{Stage: "precommit", Lane: checks.LaneTS, Image: checks.ImageTS}},
 		{"rust:cargo-fmt", checks.AtomDef{Stage: "precommit", Lane: checks.LaneRust, Image: checks.ImageRust}},
 		{"ts:bun-audit", checks.AtomDef{Stage: "prepush", Lane: checks.LaneTS, Image: checks.ImageTS}},
 	} {
@@ -178,6 +186,21 @@ func TestDEF_B3_009_PipAuditAbsentWordingIsTheManifestSentence(t *testing.T) {
 	want := "python:pip-audit: ABSENT — no pyproject.toml at the repository root, so this repo declares no python project for it to read. The lane's lint and tests still run. Nothing was checked here and nothing needed to be."
 	if got != want {
 		t.Errorf("got %q", got)
+	}
+	// python:mypy is the other python atom whose subject is the manifest, and
+	// says so; the lint atoms read files and say that. ts:bun-gate's lane is
+	// declared by its root manifest alone.
+	got = checks.AbsentVerdict(checks.AtomByID("python:mypy")).Reason
+	if want := strings.Replace(want, "python:pip-audit", "python:mypy", 1); got != want {
+		t.Errorf("python:mypy: %q", got)
+	}
+	got = checks.AbsentVerdict(checks.AtomByID("python:ruff-check")).Reason
+	if !strings.Contains(got, "no .py file anywhere in the tree") {
+		t.Errorf("python:ruff-check: %q", got)
+	}
+	got = checks.AbsentVerdict(checks.AtomByID("ts:bun-gate")).Reason
+	if !strings.Contains(got, "no package.json at the repository root, so this repo does not build the ts lane") {
+		t.Errorf("ts:bun-gate: %q", got)
 	}
 	got = checks.AbsentVerdict(checks.AtomByID("rust:cargo-fmt")).Reason
 	if !strings.Contains(got, "so this repo does not build the rust lane") {
@@ -263,12 +286,13 @@ func TestImageOfDefaultsToTheFleetLane(t *testing.T) {
 // table rows had: the fleet's lint set and style stand down on a fork, and the
 // build, the audits and the merge-conflict scan do not.
 func TestTheForkLaneOfThePortedAtomsIsUnchanged(t *testing.T) {
-	for _, id := range []string{"go:gofmt", "go:vet", "go:staticcheck"} {
+	for _, id := range []string{"go:gofmt", "go:vet", "go:staticcheck", "python:ruff-check", "python:ruff-format", "python:mypy",
+		"python:forge-testkit-assertion-free", "python:forge-testkit-fake-placement", "python:forge-testkit-schema-budget"} {
 		if got := checks.AtomByID(id).NotOnForks; got != checks.ForkFleetStyle {
 			t.Errorf("%s: NotOnForks %q", id, got)
 		}
 	}
-	for _, id := range []string{"go:build", "rust:cargo-fmt", "rust:cargo-audit", "python:pip-audit", "ts:bun-audit", "fleet:check-merge-conflict", "fleet:manifest-one-command"} {
+	for _, id := range []string{"go:build", "rust:cargo-fmt", "rust:cargo-audit", "python:pip-audit", "python:pytest", "ts:bun-audit", "ts:bun-gate", "fleet:check-merge-conflict", "fleet:manifest-one-command"} {
 		if got := checks.AtomByID(id).NotOnForks; got != "" {
 			t.Errorf("%s stands down on a fork (%q); a fork keeps it", id, got)
 		}

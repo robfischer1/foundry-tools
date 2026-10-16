@@ -6,6 +6,14 @@ import (
 	fleetcheckmergeconflict "dagger/foundry-tools/atoms/fleet/check-merge-conflict"
 	fleetmanifestonecommand "dagger/foundry-tools/atoms/fleet/manifest-one-command"
 	gogofmt "dagger/foundry-tools/atoms/go/gofmt"
+	pythonforgetestkitassertionfree "dagger/foundry-tools/atoms/python/forge-testkit-assertion-free"
+	pythonforgetestkitfakeplacement "dagger/foundry-tools/atoms/python/forge-testkit-fake-placement"
+	pythonforgetestkitschemabudget "dagger/foundry-tools/atoms/python/forge-testkit-schema-budget"
+	pythonmypy "dagger/foundry-tools/atoms/python/mypy"
+	pythonpytest "dagger/foundry-tools/atoms/python/pytest"
+	pythonruffcheck "dagger/foundry-tools/atoms/python/ruff-check"
+	pythonruffformat "dagger/foundry-tools/atoms/python/ruff-format"
+	tsbungate "dagger/foundry-tools/atoms/ts/bun-gate"
 	"dagger/foundry-tools/internal/atomkit"
 )
 
@@ -14,6 +22,14 @@ var Defs = []*atomkit.Def{
 	&fleetcheckmergeconflict.Def,
 	&fleetmanifestonecommand.Def,
 	&gogofmt.Def,
+	&pythonforgetestkitassertionfree.Def,
+	&pythonforgetestkitfakeplacement.Def,
+	&pythonforgetestkitschemabudget.Def,
+	&pythonmypy.Def,
+	&pythonpytest.Def,
+	&pythonruffcheck.Def,
+	&pythonruffformat.Def,
+	&tsbungate.Def,
 }
 
 // ManifestSources is every command atom's manifest, sorted by path.

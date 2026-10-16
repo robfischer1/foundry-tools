@@ -10,41 +10,20 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"dagger/foundry-tools/internal/checks"
-	"dagger/foundry-tools/internal/checks/rulesets"
 	"dagger/foundry-tools/internal/dagger"
 )
 
-// THE PYTHON LANE, AS TYPED CHAINS. Read runtime.go's eight rules and
-// atoms_go.go's exemplar first; this file follows both.
+// THE PYTHON LANE'S CHAINS. What is left here is the mutation gate: it fans a
+// worker out per container filesystem, which one atom's exec cannot express, so
+// it stays a chain. The lane's other atoms live in atoms/python/<name>/.
 //
-// pyright is deliberately absent from this file, not overlooked. Two type
-// checkers ran on every python pre-push with no incident behind the
-// duplication, and it is dropped fleet-wide (decided, Rob). mypy is the one.
+// pyright is deliberately absent, not overlooked. Two type checkers ran on every
+// python pre-push with no incident behind the duplication, and it is dropped
+// fleet-wide (decided, Rob). mypy is the one.
 
 func init() {
-	register("python:ruff-check", pythonRuffCheck)
-	register("python:ruff-format", pythonRuffFormat)
-	// Three forge-testkit lint hooks, one function: they differ only by mode
-	// and by the files that mode reads, and the pattern belongs beside the id.
-	// No assertion-free test bodies.
-	register("python:forge-testkit-assertion-free", forgeTestkitLint("assertion-free", "tests/**/*.py"))
-	// Fake and Stub doubles live where they belong.
-	register("python:forge-testkit-fake-placement", forgeTestkitLint("fake-placement", "**/*.py"))
-	// MCP verb descriptions stay inside the schema budget.
-	register("python:forge-testkit-schema-budget", forgeTestkitLint("schema-budget", "src/**/*.py"))
-	register("python:mypy", pythonMypy)
-	register("python:pytest", pythonPytest)
 	register("python:mutation", pythonMutation)
 }
-
-// ruff is installed once by the lane's provision layer at checks.RuffVersion
-// (a `uv tool install`, cached by the engine), so the atoms exec it by name.
-// A floating ruff is a gate whose verdict is not a function of the pin the door
-// declared — the same argument images.go makes for the lane images.
-
-// pythonRuleset answers the CANNOT RUN a missing fleet ruleset is, reading
-// foundry-stocks IN GO before any container starts.
-//
 
 // pythonFiles is the tree's own python (checks.PythonFiles), read once per run
 // off the gate's own population — the same shape as goModuleDirs, because the
@@ -59,226 +38,6 @@ func (r *run) pythonFiles(ctx context.Context) ([]string, error) {
 		r.pyFiles = checks.PythonFiles(files)
 	})
 	return r.pyFiles, r.pyFilesErr
-}
-
-// pythonRootEntries is the repository root, or the CANNOT RUN that not being
-// able to read it is. A tree the engine cannot list is a fact about the
-// repository, not a finding about it.
-func pythonRootEntries(ctx context.Context, r *run, a checks.AtomDef) ([]string, checks.Verdict, bool) {
-	entries, err := r.src.Entries(ctx)
-	if err != nil {
-		return nil, checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - could not read the repository root: "+err.Error()), false
-	}
-	return entries, checks.Verdict{}, true
-}
-
-// ruff lint is clean over every .py in the tree, under the fleet's ruleset.
-//
-// THE RULESET IS THE FLEET'S. `--config <file>` makes ruff ignore every
-// pyproject.toml and ruff.toml in the tree, so the repository's copy — the
-// template pours one, and seven repos had drifted from it by 2026-09-11 —
-// decides nothing here. internal/checks/rulesets/ruff.toml is the template's
-// ruleset with one home — //go:embed'd into this binary and rendered into the
-// container, so the tool that enforces it and the rules it enforces ship as
-// one artifact and cannot be at different revisions.
-func pythonRuffCheck(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("python:ruff-check")
-	return verdict(ctx, a, r.lane(checks.ImagePython).
-		WithNewFile(checks.RulesetsDir+"/ruff.toml", rulesets.Ruff).
-		// The provisioning probe: the pinned ruff is on PATH, and one that is
-		// not is a could-not-run rather than a finding.
-		WithExec([]string{"ruff", "--version"}).
-		WithExec([]string{"ruff", "check", "--config", checks.RulesetsDir + "/ruff.toml", "."}, anyExit))
-}
-
-// ruff format --check is clean over the product python, under the fleet's
-// ruleset.
-//
-// --check, NEVER the rewrite. The stock hook reformats in place and fails so
-// you re-stage, which has aborted a commit in this fleet before (themis). The
-// path scope is the measurement the go stars' hook records: incidental python
-// (scripts/, conformance recorders) is linted but not formatted; product
-// python under src/ and tests/ is — checks.RuffFormatTargets decides that, in
-// Go, from the root entries. The width and the rest come from the fleet's
-// ruff.toml, as above.
-//
-// THE RULESET IS ASKED FOR FIRST, before the absence, because that is the
-// order the shell body asked in: a run that could not read the fleet's ruleset
-// reports so even where it would have had nothing to format.
-func pythonRuffFormat(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("python:ruff-format")
-	entries, v, ok := pythonRootEntries(ctx, r, a)
-	if !ok {
-		return v
-	}
-	// The width reads the manifest's CONTENTS, not just its name: a
-	// pyproject that declares an environment rather than a distribution is
-	// not a python star. checks.RuffLineLength carries the measurement.
-	pyproject, _, _ := fileIfPresent(ctx, r.src, "pyproject.toml")
-	targets, ok := checks.RuffFormatTargets(entries)
-	if !ok {
-		return checks.VerdictOf(a, 0, a.ID+": ABSENT - a go star with no product python under src/ or tests/")
-	}
-	// --line-length, because the ruleset file carries ONE width and the fleet
-	// has two. checks.RuffLineLength says which this tree is graded at and why.
-	args := append([]string{
-		"ruff", "format",
-		"--config", checks.RulesetsDir + "/ruff.toml",
-		"--line-length", checks.RuffLineLength(entries, pyproject),
-		"--check",
-	}, targets...)
-	return verdict(ctx, a, r.lane(checks.ImagePython).
-		WithNewFile(checks.RulesetsDir+"/ruff.toml", rulesets.Ruff).
-		WithExec([]string{"ruff", "--version"}).
-		WithExec(args, anyExit))
-}
-
-// forgeTestkitLint binds one mode and its file pattern to a runner. Three
-// copies of a provisioning probe is exactly the duplication this repository
-// exists to delete.
-func forgeTestkitLint(mode, pattern string) atomFn {
-	return func(ctx context.Context, r *run) checks.Verdict {
-		return pythonForgeTestkit(ctx, r, mode, pattern)
-	}
-}
-
-// pythonForgeTestkit runs one forge-testkit-lint pre-commit hook.
-//
-// THE HOOK TAKES PATHS. pre-commit appends the files its `files:` pattern
-// matched, and the CLI refuses to run without them ("the following arguments
-// are required: paths"). MEASURED 2026-09-10T01:25Z gate-helios-057545b:
-// fake-placement and schema-budget red on that usage error in every repo the
-// gate touched, go and python alike.
-//
-// THE PATTERNS ARE THE TEMPLATE HOOK'S `files:`, READ OVER THE GATE'S OWN
-// POPULATION so the fleet exclude applies. The shell body spelled them as git
-// pathspecs — `population -- 'tests/*.py'` — where an unanchored `*` crosses a
-// `/`; the Dagger glob that asks the same question is `tests/**/*.py`, and
-// likewise `**/*.py` for `*.py` and `src/**/*.py` for `src/*.py`. The
-// population itself is the engine's gitignore filter plus checks.GateExclude,
-// in Go, rather than `git ls-files | grep -v`.
-//
-// TWO ABSENCES, BOTH ANNOUNCED. No forge-testkit DEPENDENCY ENTRY in
-// pyproject.toml is ABSENT — a repo that never took the dependency has nothing
-// for the linter to read, and checks.DeclaresForgeTestkit says why a mention
-// is not an entry. No matching file is ABSENT too: pre-commit skips a hook
-// with an empty file list, and a linter handed nothing would be a pass over
-// nothing.
-//
-// THE FILE LIST IS ARGUMENTS, NOT xargs. The shell body piped it through
-// `xargs -r`, which is not available to a typed chain for a reason worth
-// writing down: xargs answers 123 when the command it ran exited 1-125, so the
-// linter's own exit 1 would reach the verdict as 123 and checks.StateFor would
-// read a FINDING as a could-not-run. Rule 2 says the tool's exit code is the
-// verdict, so the tool is the process — and no repo in custody has a python
-// population anywhere near an argv (MEASURED 2026-09-11 across every clone in
-// Forge/Outputs: the largest, foundry-stocks, tracks 114 .py files, 4,734
-// bytes of path text against a 2 MiB ARG_MAX). If one ever does, the fix is
-// the NUL-file-and-xargs form WITH a pure remap of 123, not a silent 123.
-func pythonForgeTestkit(ctx context.Context, r *run, mode, pattern string) checks.Verdict {
-	a := checks.AtomByID("python:forge-testkit-" + mode)
-
-	pyproject, present, _ := fileIfPresent(ctx, r.src, "pyproject.toml")
-	if !present || !checks.DeclaresForgeTestkit(pyproject) {
-		return checks.VerdictOf(a, 0, a.ID+": ABSENT - forge-testkit is not a dependency of this project")
-	}
-	files, err := r.population(ctx, pattern)
-	if err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - could not enumerate the repository: "+err.Error())
-	}
-	if len(files) == 0 {
-		return checks.VerdictOf(a, 0, a.ID+": ABSENT - no files match "+pattern)
-	}
-
-	args := append([]string{"uv", "run", "--extra", "dev", "forge-testkit-lint", mode}, files...)
-	return verdict(ctx, a, r.lane(checks.ImagePython).
-		WithExec([]string{"uv", "--version"}).
-		WithExec(args, anyExit))
-}
-
-// mypy is clean over src and tests, under the fleet's strict configuration.
-//
-// THE CONFIGURATION IS THE FLEET'S: --config-file makes mypy ignore the
-// [tool.mypy] table in the repository's pyproject.toml. Strict is in the file,
-// not the flag, so there is one place the rules live.
-//
-// --all-extras because a type check that cannot import the optional
-// dependencies the code declares is a type check of a different program.
-func pythonMypy(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("python:mypy")
-	entries, v, ok := pythonRootEntries(ctx, r, a)
-	if !ok {
-		return v
-	}
-	pys, err := r.pythonFiles(ctx)
-	if err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - could not enumerate the repository: "+err.Error())
-	}
-	// The directories that CARRY python, not the ones that are named src and
-	// tests: a .py-declared lane reaches Go stars whose src/ and tests/ are
-	// full of .go, and mypy pointed at one answers exit 2 — a could-not-run
-	// filed against a repository with nothing wrong with it.
-	targets := checks.DirsCarryingPython(checks.PythonSourceDirs(entries), pys)
-	if len(targets) == 0 {
-		return checks.VerdictOf(a, 0, a.ID+": ABSENT - no src/ or tests/ carrying python to type-check")
-	}
-	args := append(checks.UvRun(entries, "mypy", "--config-file", checks.RulesetsDir+"/mypy.ini"), targets...)
-	return verdict(ctx, a, r.lane(checks.ImagePython).
-		WithNewFile(checks.RulesetsDir+"/mypy.ini", rulesets.Mypy).
-		WithExec([]string{"uv", "--version"}).
-		WithExec(args, anyExit))
-}
-
-// pytest passes, and there is something for it to pass.
-//
-// NO TESTS IS A FINDING. This atom used to answer ABSENT — exit 0 — for a tree
-// with no tests/ and for pytest's exit 5 ("no tests ran"), on the reasoning
-// that a go star with one .py file (gate-helios-057545b, 2026-09-10) was in
-// its permanent state, not at fault. Rob, 2026-09-11: nothing is built without
-// tests. A python lane with nothing to collect is red, and the go star with a
-// stray .py file is a repo that should not carry a pyproject.
-//
-// The emptiness is decided in Go, off the tree, before pytest is asked:
-// no tests/ directory AND no file matching either of pytest's two default
-// naming conventions. checks.PytestState carries the rest of the mapping,
-// including the shell body's fold of every non-zero code that is not 5 to one
-// finding.
-func pythonPytest(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("python:pytest")
-
-	entries, v, ok := pythonRootEntries(ctx, r, a)
-	if !ok {
-		return v
-	}
-	pys, err := r.pythonFiles(ctx)
-	if err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - could not enumerate the repository: "+err.Error())
-	}
-	// A ROOT tests/ NO LONGER STANDS IN FOR HAVING TESTS. It did while only a
-	// pyproject.toml put a repo in this lane; a .py-declared lane reaches Go
-	// stars whose tests/ holds no python at all, and letting the directory
-	// name answer would have sent pytest to collect nothing and report its
-	// exit 5 instead of the true sentence. The rule itself is unchanged and is
-	// Rob's, 2026-09-11 and again 2026-09-25 when the lane widened: nothing is
-	// built without tests, and a lane with nothing to collect is RED.
-	if len(checks.PythonTestFiles(pys)) == 0 {
-		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - no test_*.py or *_test.py anywhere; nothing is built without tests")
-	}
-
-	// gitReady for the same reason go:test-race carries it: a suite that
-	// shells out to git must find a repository, not a worktree's dangling
-	// `.git` file.
-	out, code, err := output(ctx, r.gitReady(ctx, r.lane(checks.ImagePython)).
-		WithExec([]string{"uv", "--version"}).
-		WithExec(checks.UvRun(entries, "pytest", "-q"), anyExit))
-	if err != nil {
-		return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
-	}
-	state, reason := checks.PytestState(code)
-	if reason != "" {
-		return checks.VerdictOf(a, state, a.ID+": FINDINGS - "+reason)
-	}
-	return checks.VerdictOf(a, state, out)
 }
 
 // Every mutant cosmic-ray makes of this pull's changes to the declared

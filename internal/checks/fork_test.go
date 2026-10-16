@@ -10,22 +10,17 @@ import (
 // keeps what proves its code works and is safe, and stands down what holds
 // upstream-owned code to the fleet's own house rules. A row that gains or
 // loses NotOnForks changes what every fork is graded by, so the set is
-// spelled out here rather than derived.
+// spelled out here rather than derived. The atoms that live in their own files
+// are pinned in internal/catalogue, which sees them; this sees the table alone.
 var forkInert = map[string]string{
-	"fleet:stop-justifications":           ForkFleetStyle,
-	"fleet:witness":                       ForkFleetStyle,
-	"python:ruff-check":                   ForkFleetStyle,
-	"python:ruff-format":                  ForkFleetStyle,
-	"python:mypy":                         ForkFleetStyle,
-	"python:forge-testkit-assertion-free": ForkFleetStyle,
-	"python:forge-testkit-fake-placement": ForkFleetStyle,
-	"python:forge-testkit-schema-budget":  ForkFleetStyle,
-	"rust:cargo-clippy":                   ForkFleetStyle,
-	"go:diff-coverage":                    ForkChangeBar,
-	"go:mutation":                         ForkChangeBar,
-	"python:mutation":                     ForkChangeBar,
-	"rust:mutation":                       ForkChangeBar,
-	"ts:mutation":                         ForkChangeBar,
+	"fleet:stop-justifications": ForkFleetStyle,
+	"fleet:witness":             ForkFleetStyle,
+	"rust:cargo-clippy":         ForkFleetStyle,
+	"go:diff-coverage":          ForkChangeBar,
+	"go:mutation":               ForkChangeBar,
+	"python:mutation":           ForkChangeBar,
+	"rust:mutation":             ForkChangeBar,
+	"ts:mutation":               ForkChangeBar,
 }
 
 func TestTheForkLaneIsTheCatalogueRowsThatSaySo(t *testing.T) {
@@ -58,8 +53,8 @@ func TestAForkKeepsItsBuildTestsAuditsAndSAST(t *testing.T) {
 	for _, id := range []string{
 		"rust:cargo-test", "rust:release",
 		"go:test", "go:test-race", "go:govulncheck", "go:release",
-		"python:pytest", "python:release",
-		"ts:bun-gate", "ts:release",
+		"python:release",
+		"ts:release",
 		"fleet:opengrep-sast", "fleet:check-added-large-files",
 		"compose:no-tracked-secrets",
 	} {

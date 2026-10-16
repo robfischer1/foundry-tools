@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"dagger/foundry-tools/internal/checks"
-	"dagger/foundry-tools/internal/checks/rulesets"
 	"dagger/foundry-tools/internal/dagger"
 )
 
@@ -18,87 +17,7 @@ import (
 // defined over the git INDEX and the engine receives a directory.
 
 func init() {
-	register("ts:bun-gate", tsBunGate)
 	register("ts:mutation", tsMutation)
-}
-
-// bun run gate passes against a frozen lockfile under the fleet's eslint
-// config, and the tree carries tests for it to run.
-func tsBunGate(ctx context.Context, r *run) checks.Verdict {
-	return tsGate(ctx, r, "ts:bun-gate")
-}
-
-// tsGate is the bun gate. It was two atoms — a commit-stage twin that skipped
-// the test-file check — and they ran the same `bun run gate` on the same trees:
-// over 5,295 gated trees (2026-09-09 → 17) one reported findings on 72 and the
-// other on 70. Rob, 2026-09-17: merge them.
-//
-// THE GATE'S CHECKOUT HAS NO node_modules. The pre-commit hook this ports runs
-// in a working tree that already installed; the engine mounts a bare tree.
-// MEASURED 2026-09-10T02:38Z gate-calliope-9ed7599: `bun run format:check` →
-// "prettier: command not found", exit 127, a red about the runner and not
-// about the repo. So the install is part of the atom, and a lockfile that will
-// not install frozen is a CANNOT RUN — it is a fact about the pull's
-// reproducibility, and reading it as a finding would put it in the wrong
-// queue. (A 127 that survives the install now reaches the verdict as a
-// could-not-run on its own, where the shell body's `|| exit 1` flattened it
-// into FINDINGS. That is the same story's correct ending.)
-//
-// THE ESLINT CONFIG IS THE FLEET'S, WRITTEN OVER THE REPOSITORY'S. eslint
-// resolves its plugins relative to the config file, so a config outside the
-// tree cannot load them; the fleet's file is placed at the root before the
-// gate runs, and every package's `eslint .` finds it there (the template pours
-// one root config and no per-package one). What the repo's copy said decides
-// nothing (Rob, 2026-09-11) — overwriting it is the point, not a side effect.
-//
-// It is written into the DIRECTORY and the tree re-mounted, rather than laid
-// over the existing mount with Container.WithFile: /src is a mount, and
-// gitReady already establishes that re-mounting is how this runtime edits it.
-func tsGate(ctx context.Context, r *run, id string) checks.Verdict {
-	a := checks.AtomByID(id)
-
-	// The fleet's ruleset, laid over whatever the repository carries. It is
-	// embedded in this module now (CA F18), so the "cannot read the ruleset"
-	// could-not-run that used to guard the mount is unreachable rather than
-	// handled: an absent embed does not compile.
-	ctr := r.lane(checks.ImageTS).
-		WithMountedDirectory("/src", r.src.WithNewFile("eslint.config.mjs", rulesets.ESLint))
-
-	installed := ctr.WithExec([]string{"bun", "install", "--frozen-lockfile"}, anyExit)
-	out, code, err := output(ctx, installed)
-	if err != nil {
-		return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
-	}
-	if code != 0 {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - frozen lockfile install failed\n"+out)
-	}
-
-	// NO TESTS IS A FINDING, and the presence check is the atom's own rather
-	// than bun's: `bun test` refuses a tree with no test file, but this atom
-	// runs the REPO'S `gate` script, which may never reach `bun test` at all.
-	// Rob, 2026-09-11: nothing is built without tests. The population is the
-	// gate's own — the engine's gitignore filter and the fleet exclude, which
-	// is what the shell body's `-path ./node_modules -prune` was doing by hand.
-	//
-	// The order is the old body's: the install runs first, so a tree that
-	// cannot install frozen answers CANNOT RUN rather than being graded on its
-	// test files. A population that cannot be enumerated is now a could-not-run
-	// too, where `find ... 2>/dev/null` read a broken scan as an empty tree.
-	tests, err := r.population(ctx, checks.TSTestPatterns...)
-	if err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the tree could not be enumerated, so its test surface is unknown rather than empty: "+err.Error())
-	}
-	if len(tests) == 0 {
-		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - no test file in the tree (bun's pattern: {.test,.spec,_test_,_spec_}.{js,ts,jsx,tsx}); nothing is built without tests")
-	}
-
-	out, code, err = output(ctx, installed.WithExec([]string{"bun", "run", "gate"}, anyExit))
-	if err != nil {
-		return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
-	}
-	// The script's exit is its failing tool's: tsc's 2 is a finding, not a
-	// could-not-run (checks.BunGateExit says why).
-	return checks.VerdictOf(a, checks.BunGateExit(code), out)
 }
 
 // Every mutant StrykerJS makes of this pull's changes to the declared critical

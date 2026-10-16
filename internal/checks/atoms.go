@@ -389,58 +389,6 @@ func atomTable() []AtomDef {
 
 		// ---- python ----
 		{
-			ID: "python:ruff-check", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython, NotOnForks: ForkFleetStyle,
-			Desc: "ruff lint is clean over every .py in the tree, under the fleet's ruleset.",
-		},
-		{
-			ID: "python:ruff-format", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython, NotOnForks: ForkFleetStyle,
-			Desc: "ruff format --check is clean over the product python, under the fleet's ruleset.",
-		},
-		{
-			ID: "python:forge-testkit-assertion-free", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython, NotOnForks: ForkFleetStyle,
-			Desc: "No assertion-free test bodies (forge-testkit).",
-		},
-		{
-			ID: "python:forge-testkit-fake-placement", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython, NotOnForks: ForkFleetStyle,
-			Desc: "Fake and Stub doubles live where they belong (forge-testkit).",
-		},
-		{
-			ID: "python:forge-testkit-schema-budget", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython, NotOnForks: ForkFleetStyle,
-			Desc: "MCP verb descriptions stay inside the schema budget (forge-testkit).",
-		},
-		{
-			ID: "python:mypy", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython, NotOnForks: ForkFleetStyle,
-			Desc: "mypy is clean over src and tests, under the fleet's strict configuration.",
-			// A TYPE CHECK IS AGAINST A DEPENDENCY SET, and only the manifest
-			// declares one. This atom's own note says why --all-extras is
-			// there: "a type check that cannot import the optional
-			// dependencies the code declares is a type check of a different
-			// program." A tree with no manifest is that argument's limit case
-			// — nothing is installed, so EVERY third-party import is
-			// unresolvable and mypy reports on a program that does not exist.
-			//
-			// MEASURED on foundry-dies, 2026-09-25, the day the lane started
-			// reaching file-declared trees (Scotty19 hit it within the hour):
-			//
-			//   uv run --no-project --with mypy mypy tests
-			//     -> Cannot find implementation or library stub for module
-			//        named "pytest"  [import-not-found]        (+ the strict
-			//        untyped-decorator cascade off every @pytest.mark)
-			//   ...--with mypy --with pytest mypy tests
-			//     -> Success: no issues found in 1 source file
-			//
-			// The repository was clean. `--with pytest` would have fixed that
-			// one import and nothing about the unbounded class it belongs to,
-			// so the atom waits for the manifest instead. Lint reads files and
-			// needs no imports; pytest RUNS the code and brings what it needs;
-			// type-checking needs the declared set and has no way to guess it.
-			NeedsManifest: true,
-		},
-		{
-			ID: "python:pytest", Stage: StagePrecommit, Lane: LanePython, Image: ImagePython,
-			Desc: "pytest passes, and there is something for it to pass.",
-		},
-		{
 			ID: "python:release", Stage: StagePrepush, Lane: LanePython, Image: ImagePython,
 			Desc: "The venv the image will carry builds from the star's lock on the image's own python base — for a Dockerfile on foundry/base-images/python that copies from release/; any other image is absent.",
 			// The build lane, and the one Rob named: a release builds from the
@@ -473,10 +421,6 @@ func atomTable() []AtomDef {
 		},
 
 		// ---- ts ----
-		{
-			ID: "ts:bun-gate", Stage: StagePrecommit, Lane: LaneTS, Image: ImageTS,
-			Desc: "bun run gate passes against a frozen lockfile under the fleet's eslint config, and the tree carries tests for it to run.",
-		},
 		{
 			ID: "ts:regen", Stage: StagePrepush, Lane: LaneTS, Image: ImageTS,
 			Desc:          "Each core the justfile's regen-check names regenerates byte-identical from its pinned WIT, core commit and tool versions (the star's own build and transpile scripts, run on the engine); absent where the justfile calls no scripts/regen-check.sh.",
