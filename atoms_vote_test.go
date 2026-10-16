@@ -140,7 +140,7 @@ func TestEveryAtomTheBinaryRegistersVotesFromTheBinary(t *testing.T) {
 }
 
 // (c) THE ROLLBACK: with the chains voting the binary is not run for a vote, no
-// verdict is the binary's, and the shadow is the dry one (no ballot box).
+// verdict is the binary's.
 func TestTheRollbackSwitchRestoresTheChainsAsVoters(t *testing.T) {
 	ran := casting(t, voterChains)
 	engine.reset()
@@ -157,19 +157,6 @@ func TestTheRollbackSwitchRestoresTheChainsAsVoters(t *testing.T) {
 			t.Errorf("%s was voted by the binary after the rollback", v.Atom)
 		}
 	}
-	m := &FoundryTools{}
-	h := m.startShadow(soon(t), "", "b")
-	if h == nil || h.box != nil || m.box != nil {
-		t.Errorf("a chain-voted lane was given a ballot box: %+v", h)
-	}
-	h.finish()
-	casting(t, voterBinary)
-	m = &FoundryTools{}
-	h = m.startShadow(soon(t), "", "b")
-	if h == nil || h.box == nil || m.box != h.box {
-		t.Errorf("a binary-voted lane has no ballot box: %+v", h)
-	}
-	h.finish()
 }
 
 // The push sequence asks the binary once, when it reaches the first of its

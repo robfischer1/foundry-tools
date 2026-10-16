@@ -1762,27 +1762,6 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*FoundryTools).Rust(&parent), nil
-		case "ShadowAtoms":
-			var parent FoundryTools
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			var base string
-			if inputArgs["base"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["base"]), &base)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg base", err))
-				}
-			}
-			var stage string
-			if inputArgs["stage"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["stage"]), &stage)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg stage", err))
-				}
-			}
-			return (*FoundryTools).ShadowAtoms(&parent, ctx, base, stage), nil
 		case "Tree":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
