@@ -260,12 +260,16 @@ func TestContractFixtureVerdictGradesBothDirections(t *testing.T) {
 		{"lagging", true, 0, true, "no longer detects it"},
 		{"agreeing", false, 0, false, "correctly passed"},
 		{"agreeing", false, 1, true, "invents divergence"},
-		// A crash is not a detection: the checker must exit non-zero for the
-		// right reason, and a fixture that exits 2 still did not pass.
-		{"unreadable", true, 2, false, "correctly detected"},
-		{"retiring", false, 2, true, "invents divergence"},
+		// Only 0 and 1 are the checker's answers. Any other exit (uv's 2 when
+		// it cannot provision python) is a tool failure, graded cannot-run by
+		// the atom, never a detection and never an invented divergence.
+		{"unreadable", true, 2, false, "did not run to a verdict"},
+		{"retiring", false, 2, false, "did not run to a verdict"},
 	} {
-		line, bad := ContractFixtureVerdict(tc.name, tc.expectFail, tc.code)
+		line, bad, toolFailed := ContractFixtureVerdict(tc.name, tc.expectFail, tc.code)
+		if wantTool := tc.code > 1; toolFailed != wantTool {
+			t.Errorf("%s code=%d: got toolFailed=%v, want %v", tc.name, tc.code, toolFailed, wantTool)
+		}
 		if bad != tc.bad {
 			t.Errorf("%s expectFail=%v code=%d: got bad=%v, want %v", tc.name, tc.expectFail, tc.code, bad, tc.bad)
 		}
