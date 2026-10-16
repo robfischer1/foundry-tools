@@ -173,8 +173,8 @@ func pythonInterpreter(ctx context.Context, base *dagger.Container) (*dagger.Con
 // withPythonStandalone unpacks checks.PythonStandaloneURL into pythonInstallDir
 // and links python, python3 and python3.<minor> onto /usr/local/bin. `ln` is an
 // exec, not a shell (TestNoAtomExecsAShell). A URL with no pin fails closed.
-func withPythonStandalone(ctr *dagger.Container) *dagger.Container {
-	f, ok := pinnedFile(checks.ToolSHA256, checks.PythonStandaloneURL)
+func withPythonStandalone(ctr *dagger.Container, sums map[string]string) *dagger.Container {
+	f, ok := pinnedFile(sums, checks.PythonStandaloneURL)
 	if !ok {
 		return ctr.WithExec([]string{"/bin/false"}) // no checksum pinned: the lane must not provision it
 	}

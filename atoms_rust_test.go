@@ -691,3 +691,17 @@ func TestCargoFetchSweepsStaleLocksFirstAndLocksNothing(t *testing.T) {
 		t.Errorf("the cargo home must not be LOCKED:\n%s", c)
 	}
 }
+
+// A python pin with no sum is not fetched unverified: the rust lane gets an exec
+// that cannot succeed, the same fail-closed rule as every other pinned tool.
+func TestTheRustLanesPythonWithoutAPinnedSumFailsClosed(t *testing.T) {
+	engine.reset()
+	engine.fail(`"/bin/false"`, "exit code: 1")
+	c := withPythonStandalone(dag.Container().From("x"), map[string]string{})
+	if _, err := c.Sync(t.Context()); err == nil {
+		t.Error("a rust lane with no pinned python sum provisioned anyway")
+	}
+	if engine.chain(`http(`, checks.PythonStandaloneURL) != "" {
+		t.Error("python was fetched with nothing to verify it against")
+	}
+}

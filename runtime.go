@@ -380,7 +380,7 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 		// rust lane CANNOT RUN with "No download found". The python layer
 		// moved off uv for the same class of reason (atoms_tools_python.go);
 		// this follows it, and uv is told never to fetch one.
-		ctr = withPythonStandalone(ctr).
+		ctr = withPythonStandalone(ctr, checks.ToolSHA256).
 			WithEnvVariable("UV_PYTHON_DOWNLOADS", "never").
 			WithExec([]string{"python3", "--version"}).
 			WithExec([]string{"rustup", "component", "add", "rustfmt", "clippy"})
