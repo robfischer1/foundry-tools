@@ -10,7 +10,7 @@ func TestTSMutationSpecsGlobTheDeclarationOrTakeEverySource(t *testing.T) {
 	if got := strings.Join(TSMutationSpecs(" src/**/*.ts  lib/a.ts "), "|"); got != ":(glob)src/**/*.ts|:(glob)lib/a.ts" {
 		t.Errorf("declared: %s", got)
 	}
-	if got := strings.Join(TSMutationSpecs("  "), "|"); got != "*.ts|*.tsx|:!*.test.ts|:!*.test.tsx|:!*.spec.ts|:!*.spec.tsx|:!*__tests__/*|:!node_modules/" {
+	if got := strings.Join(TSMutationSpecs("  "), "|"); got != "*.ts|*.tsx|:!*.test.ts|:!*.test.tsx|:!*.spec.ts|:!*.spec.tsx|:!*.config.ts|:!*__tests__/*|:!node_modules/" {
 		t.Errorf("undeclared: %s", got)
 	}
 }

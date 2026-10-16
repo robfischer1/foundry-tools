@@ -43,6 +43,7 @@ const (
 	shimDocName     = "CLAUDE.md"
 	userDocName     = ".claude/CLAUDE.md"
 	spansFileInside = ".furnace/spans.json"
+	userSpansInside = ".claude/forge/spans.json"
 )
 
 // Tree is what a lane reads: every tracked path (slash-separated, relative to

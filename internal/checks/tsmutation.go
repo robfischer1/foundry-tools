@@ -29,7 +29,9 @@ import (
 // `**` (git diff -- 'src/**/*.ts' matched 0 files; with the magic it matches,
 // nested included). Without it a star declaring the ordinary Stryker glob gets
 // a diff that matches nothing and the gate stands down green having mutated
-// nothing. An empty declaration is every TypeScript source outside the tests.
+// nothing. An empty declaration is every TypeScript source outside the tests
+// and the tool configs (*.config.ts: vite, vitest, playwright, eslint...), which
+// are build wiring, not code under test. A declared module is taken as written.
 func TSMutationSpecs(mods string) []string {
 	var specs []string
 	for _, m := range strings.Fields(mods) {
@@ -38,7 +40,7 @@ func TSMutationSpecs(mods string) []string {
 	if len(specs) > 0 {
 		return specs
 	}
-	return []string{"*.ts", "*.tsx", ":!*.test.ts", ":!*.test.tsx", ":!*.spec.ts", ":!*.spec.tsx", ":!*__tests__/*", ":!node_modules/"}
+	return []string{"*.ts", "*.tsx", ":!*.test.ts", ":!*.test.tsx", ":!*.spec.ts", ":!*.spec.tsx", ":!*.config.ts", ":!*__tests__/*", ":!node_modules/"}
 }
 
 // StrykerRange is one run of changed lines, as Stryker's --mutate names it.
