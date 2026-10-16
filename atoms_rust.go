@@ -31,8 +31,6 @@ import (
 // the door re-asks, not a finding the committer is told to fix.
 
 func init() {
-	register("rust:cargo-clippy", rustCargoClippy)
-	register("rust:cargo-test", rustCargoTest)
 	register("rust:mutation", rustMutation)
 	register("rust:release", rustRelease)
 }
@@ -93,65 +91,33 @@ func cargoFetch(ctr *dagger.Container) *dagger.Container {
 	return ctr.WithExec(checks.StaleCargoLocks()).WithExec([]string{"cargo", "fetch", "--locked"})
 }
 
-// cargoFresh is cargoDeps for the atoms that build into the shared
-// foundry-cargo-target — clippy and test — with the tree dated past every
-// artifact in it (checks.Unstale), so cargo rebuilds the workspace's own
-// crates from THIS tree. The mutation lane and the release build compile
-// into target dirs of their own and branch from cargoDeps.
+// cargoFresh is cargoDeps for the chains that build into a shared target — the
+// release build, the wit guest and the dev surface — with the tree dated past
+// every artifact in it (checks.Unstale), so cargo rebuilds the workspace's own
+// crates from THIS tree. (Clippy and test, now files, date the tree themselves:
+// atoms.RustStamp.) The mutation lane compiles into target dirs of its own and
+// branches from cargoDeps.
 func (r *run) cargoFresh() *dagger.Container {
 	return stampFresh(cargoBounded(r.cargoDeps()))
 }
 
-// cargoBounded is the gate's memory and CPU bound for every atom that
-// COMPILES (clippy, test, release, wit-guest), set AFTER the fetch so the
-// fetch layer stays shared. Two knobs, both cargo's own environment:
-//
-//	CARGO_BUILD_JOBS=rustGateJobs  build.jobs. Unset it is nproc (24 on dev01),
-//	                               and a gate runs up to atomsInFlight (4) of
-//	                               these at once: 4 x 24 rustc/linker processes.
-//	CARGO_INCREMENTAL=0            the dev profile's incremental cache is a
-//	                               second copy of every workspace crate's
-//	                               codegen, written and mapped per unit, and a
-//	                               gate's target volume is rebuilt from a
-//	                               stamped tree anyway (stampFresh): the cache
-//	                               it fills is not one the next run reads.
-//
-// MEASURED (edison47 investigation, 2026-10-15): the defaults drove a 14G anon
-// spike in one gate and the 16:16Z dev01 OOM. The mutation atom has carried its
-// own caps since 2026-10-12 (rustMutantCores) and sets them after this, so its
-// four-job cap wins.
+// cargoBounded is the gate's memory and CPU bound for the chains that COMPILE
+// (release, wit-guest), set AFTER the fetch so the fetch layer stays shared. Two
+// knobs, both cargo's own environment (checks.CargoBoundedEnv carries the
+// measurement; the atoms that moved into files set the same pair themselves).
+// The mutation atom has its own caps (rustMutantCores) and sets them after this,
+// so its four-job cap wins.
 func cargoBounded(ctr *dagger.Container) *dagger.Container {
-	return ctr.
-		WithEnvVariable("CARGO_BUILD_JOBS", strconv.Itoa(rustGateJobs)).
-		WithEnvVariable("CARGO_INCREMENTAL", "0")
+	return withEnvPairs(ctr, checks.CargoBoundedEnv())
 }
 
-// cargoLineTables is the debuginfo clippy and test need and no more. Debug=2
-// (cargo's dev and test default) is full DWARF for every crate, most of what
-// rustc and the linker move and hold. line-tables-only keeps file:line in a
-// backtrace and drops the type and variable info only a debugger reads. NOT
-// applied to the release build: that binary is the shipped artifact, and its
-// profile is the star's own.
-func cargoLineTables(ctr *dagger.Container) *dagger.Container {
-	return ctr.
-		WithEnvVariable("CARGO_PROFILE_DEV_DEBUG", rustGateDebug).
-		WithEnvVariable("CARGO_PROFILE_TEST_DEBUG", rustGateDebug)
-}
-
-// cargoMoldLink caps the threads mold links with, the way the mutation atom
-// does (rustMoldThreadsFlag): mold 1.10.1 has no environment knob, so the flag
-// rides CARGO_BUILD_RUSTFLAGS, the lowest of cargo's rustflags sources, and a
-// star's own RUSTFLAGS or target rustflags still win (losing only the cap).
-func cargoMoldLink(ctr *dagger.Container) *dagger.Container {
-	return ctr.WithEnvVariable("CARGO_BUILD_RUSTFLAGS", rustGateMoldThreadsFlag)
-}
-
-// moldRun runs argv with mold as the linker for the whole process tree
-// (LD_PRELOAD), so no RUSTFLAGS are overridden and a star's own
-// .cargo/config.toml still applies. mold is in the lane image
-// (provision, runtime.go: apt `mold`, probed with `mold --version`).
-func moldRun(argv []string) []string {
-	return append([]string{"mold", "-run"}, argv...)
+// withEnvPairs sets each KEY=VALUE on the container.
+func withEnvPairs(ctr *dagger.Container, pairs []string) *dagger.Container {
+	for _, p := range pairs {
+		k, v, _ := strings.Cut(p, "=")
+		ctr = ctr.WithEnvVariable(k, v)
+	}
+	return ctr
 }
 
 // stampFresh dates the tree at /src past every artifact (checks.Unstale).
@@ -168,170 +134,6 @@ func moldRun(argv []string) []string {
 // re-mounts /src stamps AFTER it.
 func stampFresh(ctr *dagger.Container) *dagger.Container {
 	return ctr.WithExec(checks.Unstale())
-}
-
-// cargo clippy is clean under the fleet's lint set, warnings denied.
-//
-// THE LINT SET IS NAMED ON THE COMMAND LINE. The rust template pours
-// `[workspace.lints.clippy] all = "warn"` into Cargo.toml; a crate can edit
-// that table, and `#![allow]` in source is stop-justifications' to catch.
-// Flags after `--` reach rustc last and win over the table, so the fleet's set
-// is the one enforced whatever the manifest says (Rob, 2026-09-11).
-//
-// --all-targets is the other half: without it clippy grades the library and
-// leaves tests, benches and examples ungraded, which is a partial scan
-// reporting a clean one.
-func rustCargoClippy(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("rust:cargo-clippy")
-	// THE CRATES THE PULL CAN BREAK, when the repo says how to find them.
-	sets, scoped := r.rustScope(ctx, "clippy")
-	sets = append([][]string(nil), sets...)
-	if !scoped {
-		sets = [][]string{{"--workspace"}}
-	} else if len(sets) == 0 {
-		return checks.VerdictOf(a, 0, a.ID+": ABSENT - this pull changed nothing a crate compiles, so there is no crate to lint")
-	}
-	// EVERY SET THE SCRIPT NAMED: a second line must not go unlinted.
-	var last checks.Verdict
-	for _, pkgs := range sets {
-		argv := append([]string{"cargo", "clippy"}, pkgs...)
-		argv = append(argv, "--all-targets", "--", "-W", "clippy::all", "-D", "warnings")
-		last = cargoVerdict(ctx, a, cargoLineTables(r.cargoFresh()).WithExec(argv, anyExit))
-		if last.State != int(checks.StatePass) {
-			return last
-		}
-	}
-	return last
-}
-
-// rustScope is THE PER-CRATE SCOPE (checks.RustScope says why): the argument
-// sets, one per cargo run, that grade the crates this pull reaches instead of
-// `--workspace`, as the repo's own tools/scope/scope.py names them for verb
-// ("test" or "clippy"). ok is false for the whole workspace, and EVERY doubt is
-// false: a tree without the script (the repo did not opt in), no base, a base
-// the history does not reach, a diff or metadata or script that would not run,
-// a file in the root package. ok with no sets is a pull that touched nothing a
-// crate can feel.
-//
-// WHY THE GATE ASKS THE REPO. Which conformance tests belong to which crate is
-// a naming convention of the repo, and the script that knows it is under test
-// there (tools/scope/test_scope.py); a second copy of that rule in Go would
-// drift from it.
-func (r *run) rustScope(ctx context.Context, verb string) (sets [][]string, ok bool) {
-	if r.base == "" {
-		return nil, false
-	}
-	if has, err := present(ctx, r, checks.RustScopeScript); err != nil || !has {
-		return nil, false
-	}
-	pre := r.gitReady(ctx, r.withBase(r.lane(checks.ImageRust)))
-	since, err := r.changeBase(ctx, pre)
-	if err != nil || since == "" {
-		return nil, false
-	}
-	// --no-renames: a file moved from crate A to crate B lists only B's path by
-	// default, and A, which lost it and may no longer compile, would go ungraded.
-	files, code, err := output(ctx, pre.WithExec([]string{"git", "diff", "--relative", "--no-renames", "--name-only", "-z", since, "HEAD"}, anyExit))
-	if err != nil || code != 0 {
-		return nil, false
-	}
-	meta, code, err := output(ctx, pre.WithExec([]string{"cargo", "metadata", "--no-deps", "--format-version", "1"}, anyExit))
-	if err != nil || code != 0 {
-		return nil, false
-	}
-	crates, whole, err := checks.RustScope([]byte(meta), "/src", strings.Split(files, "\x00"))
-	if err != nil || whole {
-		return nil, false
-	}
-	if len(crates) == 0 {
-		return nil, true
-	}
-	argv := append([]string{"python3", checks.RustScopeScript, verb}, crates...)
-	out, code, err := output(ctx, pre.WithExec(argv, anyExit))
-	if err != nil || code != 0 {
-		return nil, false
-	}
-	sets = checks.RustScopeArgs(out)
-	if len(sets) == 0 {
-		return nil, false
-	}
-	return sets, true
-}
-
-// cargo test --workspace passes, and there is something for it to pass.
-//
-// NO TESTS IS A FINDING. A workspace with no #[test] prints "running 0 tests"
-// and exits 0, so a crate with no test anywhere read green. Rob, 2026-09-11:
-// nothing is built without tests. libtest's own --list names every test as
-// `<path>: test`; a workspace that lists none is red before the suite runs
-// (checks.CargoListsTests).
-//
-// THE LIST BUILD IS THE SUITE'S BUILD. `cargo test -- --list` builds every
-// test binary and then asks each to enumerate itself; the `cargo test` that
-// follows finds that build in CARGO_TARGET_DIR — a cache volume — and runs it.
-// Under cargoFresh's stamp the suite re-checks the workspace's own crates
-// once more (incrementally, from rustc's content hashes); registry crates stay
-// built. The count is still asked for with the real toolchain rather than by
-// grepping for `#[test]`.
-//
-// A LISTING THAT WOULD NOT BUILD IS A FINDING, NOT A COULD-NOT-RUN. Code that
-// does not compile is the committer's to fix, and the old body said so; what
-// it named is the first rustc diagnostic (checks.FirstCargoError), because the
-// rest of the output is that error's fallout.
-//
-// THE SUITE RUNS IN A TREE GIT CAN READ. A test may probe the repository it
-// runs in, and cerberus's porosity probe does (`rev-parse --is-inside-work-tree`
-// on its own crate directory). From a linked worktree, /src keeps a `.git` FILE
-// whose gitdir is a host path that does not exist in here, so that probe read
-// "not a repository" and the pre-push refused a suite the door's whole clone
-// passes. gitReady is the fix the mutation atom already carries.
-func rustCargoTest(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("rust:cargo-test")
-	// LOCKED: this atom builds the test binaries and runs them from the
-	// per-repo target, which a concurrent gate of the repo would otherwise
-	// replace in between (withLockedCargoTarget, foundry-tools#16916).
-	// THE STAMP FOLLOWS gitReady (stampFresh says why): gitReady re-mounts /src
-	// for a linked worktree and would discard it.
-	//
-	// BOUNDED, LEAN DEBUGINFO, MOLD-LINKED (cargoBounded, cargoLineTables,
-	// cargoMoldLink): the test binaries are the biggest links the gate makes.
-	lane := cargoMoldLink(cargoLineTables(r.withLockedCargoTarget(stampFresh(r.gitReady(ctx, cargoBounded(r.cargoDeps()))))))
-
-	// ONE ARGUMENT SET PER CARGO RUN. The whole workspace is one; a repo that
-	// scopes per crate (rustScope) names the crates the pull reaches and, for a
-	// tests-only suite crate, the test files that belong to them, which are
-	// separate runs because cargo cannot select both in one.
-	sets := [][]string{{"--workspace"}}
-	if scoped, ok := r.rustScope(ctx, "test"); ok {
-		if len(scoped) == 0 {
-			return checks.VerdictOf(a, 0, a.ID+": ABSENT - this pull changed nothing a crate tests, so there is no test to run")
-		}
-		sets = scoped
-	}
-
-	var listed string
-	for _, set := range sets {
-		out, code, err := output(ctx, lane.WithExec(
-			moldRun(append(append([]string{"cargo", "test"}, set...), "--", "--list")), anyExit))
-		if err != nil {
-			return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
-		}
-		if code != 0 {
-			return checks.VerdictOf(a, 1, a.ID+": FINDINGS - the tests did not build: "+checks.FirstCargoError(out))
-		}
-		listed += out
-	}
-	if !checks.CargoListsTests(listed) {
-		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - no test in the workspace; nothing is built without tests")
-	}
-	var last checks.Verdict
-	for _, set := range sets {
-		last = cargoVerdict(ctx, a, lane.WithExec(moldRun(append([]string{"cargo", "test"}, set...)), anyExit))
-		if last.State != int(checks.StatePass) {
-			return last
-		}
-	}
-	return last
 }
 
 // Every viable mutant cargo-mutants makes of this pull's changes to the
@@ -615,21 +417,6 @@ const (
 	// rustMutationDiff is the pull's diff as cargo mutants -D reads it.
 	rustMutationDiff = mutationDir + "/pr.diff"
 	rustMutationJobs = 2
-	// rustGateJobs is CARGO_BUILD_JOBS for the gate's compiling atoms (clippy,
-	// test, release, wit-guest), beside rustMutantCores, the mutation atom's.
-	// Why six: unset, cargo takes nproc (24 on dev01) and a gate runs up to
-	// atomsInFlight (4) atoms at once, so 96 rustc and linker processes could
-	// hold debug=2 codegen at the same time. That is the 14G anon spike and the
-	// 16:16Z dev01 OOM (edison47, 2026-10-15). Six is a quarter of the node
-	// per atom. Build time at six is not yet measured.
-	rustGateJobs = 6
-	// rustGateDebug is the debuginfo level of the dev and test profiles in the
-	// clippy and test atoms (cargoLineTables).
-	rustGateDebug = "line-tables-only"
-	// rustGateLinkThreads is mold's --thread-count for the test link, and
-	// rustGateMoldThreadsFlag its literal (kept in step by a test).
-	rustGateLinkThreads     = 4
-	rustGateMoldThreadsFlag = "-C link-arg=-Wl,--thread-count=4"
 	// THE LANE'S CPU SHARE, about 8 cores: rustMutationJobs mutants at
 	// rustMutantCores each. Measured 2026-10-12 01:46Z on dev01 (24 cores):
 	// load average 96, CPU PSI some ~0.70, seven 24-thread mold processes at

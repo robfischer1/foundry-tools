@@ -10,7 +10,7 @@ import (
 )
 
 // THE GO LANE'S SHARED PARTS: what go:test, go:test-race, go:govulncheck and
-// go:diff-coverage each need and no one of them owns — the module walk, the
+// diff-coverage each need and no one of them owns — the module walk, the
 // provisioning step in front of a module, the way a program that would not
 // start is worded. They sit here, with the other helpers two or more atoms use
 // (atoms/<ns>/<name> holds exactly one Def and what only that atom uses).
@@ -53,30 +53,33 @@ func EachGoModule(in Input, a checks.AtomDef, one func(dir string) checks.Verdic
 // GoModuleRoot is a module's directory on disk.
 func GoModuleRoot(in Input, dir string) string { return filepath.Join(in.Root, dir) }
 
-// GoNeverRan is the verdict for a program that would not start: the engine's
+// NeverRan is the verdict for a program that would not start: the engine's
 // "the atom never ran", which is the atom's could-not-run and never a pass.
-func GoNeverRan(a checks.AtomDef, why string) checks.Verdict {
+func NeverRan(a checks.AtomDef, why string) checks.Verdict {
 	return checks.VerdictOf(a, 2, "the atom never ran: "+why)
 }
 
-// GoPreflight runs one provisioning step in a module — `go mod download`, a
+// Provision runs one provisioning step in a module — `go mod download`, a
 // tool's version probe — under the default Expect: a step that fails is the
 // atom's could-not-run, never a finding about the tree. `go vet` and `go build`
 // exit 1 for a module the proxy would not serve exactly as they exit 1 for a
 // finding, and an atom that reads exit 1 as FINDINGS turns a proxy's bad hour
 // into a terminal red the sweep will not re-ask (foundry-tools#29). ok is false
 // with the verdict to return when the step failed.
-func GoPreflight(ctx context.Context, in Input, a checks.AtomDef, cwd string, argv ...string) (v checks.Verdict, ok bool) {
+func Provision(ctx context.Context, in Input, a checks.AtomDef, cwd string, argv ...string) (v checks.Verdict, ok bool) {
 	out, code := in.run(ctx, Cmd{Dir: cwd, Name: argv[0], Args: argv[1:]})
 	if code == 0 {
 		return checks.Verdict{}, true
 	}
 	return checks.VerdictOf(a, int(checks.StateCannotRun), fmt.Sprintf("%s: CANNOT RUN - preflight `%s` exited %d: %s",
-		a.ID, strings.Join(argv, " "), code, GoLastLine(out))), false
+		a.ID, strings.Join(argv, " "), code, LastLine(out))), false
 }
 
-// GoLastLine is the tail of a tool's output: the line a human reads first.
-func GoLastLine(s string) string {
+// RunCmd runs one program through the input's Exec seam (the real one when nil).
+func RunCmd(ctx context.Context, in Input, c Cmd) (string, int) { return in.run(ctx, c) }
+
+// LastLine is the tail of a tool's output: the line a human reads first.
+func LastLine(s string) string {
 	lines := strings.Split(strings.TrimSpace(s), "\n")
 	return lines[len(lines)-1]
 }

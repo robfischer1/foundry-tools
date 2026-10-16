@@ -93,27 +93,27 @@ func TestGoModuleRootJoinsTheRootAndTheDirectory(t *testing.T) {
 
 // A provisioning step under the default Expect: its failure is the atom's
 // could-not-run, worded with the step and its last line.
-func TestGoPreflightIsACouldNotRunWhenTheStepFails(t *testing.T) {
+func TestProvisionIsACouldNotRunWhenTheStepFails(t *testing.T) {
 	f := &golaneFake{}
-	if _, ok := GoPreflight(t.Context(), Input{Exec: f.exec}, golaneRow, "/src", "go", "mod", "download"); !ok {
+	if _, ok := Provision(t.Context(), Input{Exec: f.exec}, golaneRow, "/src", "go", "mod", "download"); !ok {
 		t.Fatal("a step that exited 0 failed")
 	}
 	if f.runs[0] != "/src: go mod download" {
 		t.Errorf("ran %v", f.runs)
 	}
 	f = &golaneFake{rules: []golaneRule{{"mod download", "go: fetching\nproxy 502\n", 1}}}
-	v, ok := GoPreflight(t.Context(), Input{Exec: f.exec}, golaneRow, "/src", "go", "mod", "download")
+	v, ok := Provision(t.Context(), Input{Exec: f.exec}, golaneRow, "/src", "go", "mod", "download")
 	if ok || v.State != 2 || !strings.Contains(v.Reason, "go:x: CANNOT RUN - preflight `go mod download` exited 1: proxy 502") {
 		t.Errorf("%v %+v", ok, v)
 	}
 }
 
-func TestGoNeverRanAndTheLastLine(t *testing.T) {
-	v := GoNeverRan(golaneRow, "exec: \"go\": not found")
+func TestNeverRanAndTheLastLine(t *testing.T) {
+	v := NeverRan(golaneRow, "exec: \"go\": not found")
 	if v.State != 2 || !strings.Contains(v.Reason, "the atom never ran: exec: \"go\": not found") {
 		t.Errorf("%+v", v)
 	}
-	if GoLastLine("a\nb\n") != "b" || GoLastLine("") != "" {
+	if LastLine("a\nb\n") != "b" || LastLine("") != "" {
 		t.Error("the last line is the last line")
 	}
 }

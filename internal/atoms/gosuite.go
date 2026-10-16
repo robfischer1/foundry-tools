@@ -11,7 +11,7 @@ import (
 
 // THE GO SUITE, once, for the three atoms that run it: go:test (the commit's
 // unit run), go:test-race (the push's race + live-database run) and
-// go:diff-coverage (which reads the profile the race run writes). It is the
+// diff-coverage (which reads the profile the race run writes). It is the
 // body of what the chain called goTestIn, as execs in the module's directory of
 // the container the adapter gives the atom.
 //
@@ -31,18 +31,18 @@ import (
 // two NOT COVERED signals agreeing.
 func GoSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race bool) checks.Verdict {
 	cwd := GoModuleRoot(in, dir)
-	if v, ok := GoPreflight(ctx, in, a, cwd, "go", "mod", "download"); !ok {
+	if v, ok := Provision(ctx, in, a, cwd, "go", "mod", "download"); !ok {
 		return v
 	}
 	counts, code := in.run(ctx, Cmd{Dir: cwd, Name: "go", Args: []string{"list", "-f", "{{len .TestGoFiles}}{{len .XTestGoFiles}}", "./..."}})
 	if code < 0 {
-		return GoNeverRan(a, counts)
+		return NeverRan(a, counts)
 	}
 	if code != 0 {
 		// A module that will not even list is a red about the module, and the
 		// old atom filed it as FINDINGS on purpose: the tests cannot be counted,
 		// so they cannot be shown to exist.
-		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - go list ./... failed, so the tests cannot be counted: "+GoLastLine(counts))
+		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - go list ./... failed, so the tests cannot be counted: "+LastLine(counts))
 	}
 	if !checks.GoHasTestFiles(counts) {
 		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - no test file in any package; nothing is built without tests")
@@ -78,7 +78,7 @@ func GoSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race b
 	args = append(args, "./...")
 	out, code := in.run(ctx, Cmd{Dir: cwd, Name: "go", Args: args, Env: env, Both: true})
 	if code < 0 {
-		return GoNeverRan(a, out)
+		return NeverRan(a, out)
 	}
 	v := checks.VerdictOf(a, code, out)
 	v.Reason = scope + "\n" + plan.Scope + "\n" + v.Reason

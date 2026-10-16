@@ -46,19 +46,16 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 // module scans one module.
 func module(ctx context.Context, in atomkit.In, dir string) checks.Verdict {
 	cwd := atoms.GoModuleRoot(in, dir)
-	if v, ok := atoms.GoPreflight(ctx, in, row, cwd, "go", "mod", "download"); !ok {
+	if v, ok := atoms.Provision(ctx, in, row, cwd, "go", "mod", "download"); !ok {
 		return v
 	}
-	if v, ok := atoms.GoPreflight(ctx, in, row, cwd, "govulncheck", "-version"); !ok {
+	if v, ok := atoms.Provision(ctx, in, row, cwd, "govulncheck", "-version"); !ok {
 		return v
 	}
-	run := in.Exec
-	if run == nil {
-		run = atoms.RunProgram
-	}
+	run := func(ctx context.Context, c atoms.Cmd) (string, int) { return atoms.RunCmd(ctx, in, c) }
 	out, code := run(ctx, atoms.Cmd{Dir: cwd, Name: "govulncheck", Args: []string{"./..."}})
 	if code < 0 {
-		return atoms.GoNeverRan(row, out)
+		return atoms.NeverRan(row, out)
 	}
 	// govulncheck's 3 is "vulnerabilities found" and reads as 1; any other
 	// non-zero with a network fault in it is the database not answering, which

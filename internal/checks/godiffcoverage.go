@@ -40,7 +40,7 @@ const GoDiffCoverageCause = "not-covered"
 // GoMutationExclude keeps generated Go out of the mutant population and out of
 // the diff-coverage bar — vendored code, dagger's codegen, protobuf stubs and
 // kubebuilder's zz_generated — as one pattern over module-relative paths, so
-// go:mutation and go:diff-coverage never disagree about which files are graded.
+// the mutation lane and diff-coverage never disagree about which files are graded.
 const GoMutationExclude = `^vendor/|(^|/)dagger\.gen\.go$|\.pb\.go$|(^|/)zz_generated`
 
 // GoCoverProfile is where go:test-race writes its profile, outside the tree so

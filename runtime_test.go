@@ -15,8 +15,9 @@ import (
 func TestLaneMountsEachCacheAndExportsOnlyTheOneEnvVar(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
+	engine.contents(rustClippyNeedle, rustVerdict("rust:cargo-clippy", "precommit"))
 	runAtom(t, "rust:cargo-clippy", "")
-	c := engine.chain(`"cargo","clippy"`, "exitCode")
+	c := engine.chain(rustClippyNeedle, "contents")
 	wantCalls(t, c,
 		[]string{"withMountedCache", `path:"/cache/cargo-home"`},
 		[]string{"withEnvVariable", `name:"CARGO_HOME"`, `value:"/cache/cargo-home"`},
@@ -45,7 +46,7 @@ func TestLaneMountsEachCacheAndExportsOnlyTheOneEnvVar(t *testing.T) {
 func TestEveryLaneDisablesTheOTelSDKAndTrustsTheEnginesCA(t *testing.T) {
 	for atom, probe := range map[string]string{
 		"go:vet":            `"go","vet"`,
-		"rust:cargo-clippy": `"cargo","clippy"`,
+		"rust:cargo-clippy": atomExec,
 		"python:pip-audit":  `"pip-audit"`,
 		"ts:bun-audit":      `"bun","audit"`,
 		"fleet:witness":     `"git","--version"`,

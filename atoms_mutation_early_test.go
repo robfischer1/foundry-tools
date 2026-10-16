@@ -146,7 +146,7 @@ func TestRustMutationWithNothingToMutateSettlesBeforeProvisioning(t *testing.T) 
 // EACH SCOPE LINE IS ITS OWN, on every branch of the reads: the database line
 // and the broker line both say why, and a reason one of them carries must not
 // pass for the other's. Held on go:mutation's early exit (the reads alone);
-// go:test-race's own reads are atoms.GoTestServers' and are held in internal/atoms.
+// The race atom's own reads are atoms.GoTestServers' and are held in internal/atoms.
 func TestTheTestServerScopeLinesSayWhyOnEveryBranch(t *testing.T) {
 	for _, tc := range []struct {
 		name  string

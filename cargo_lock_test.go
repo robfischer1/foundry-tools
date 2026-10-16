@@ -45,27 +45,27 @@ func mountSharingAt(chain, path, needle string) string {
 func TestBuildThenRunExecsMountTheirCargoVolumeLocked(t *testing.T) {
 	const target, release = "/cache/cargo-target", "/cache/cargo-release"
 
-	// rust:cargo-test: the listing build and the suite both.
+	// rust:cargo-test: the listing build and the suite are one exec now, and it
+	// holds the target LOCKED throughout.
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	engine.stdout(`"--list"`, "tests::one: test\n")
+	engine.contents(rustTestNeedle, rustVerdict("rust:cargo-test", "precommit"))
 	runAtom(t, "rust:cargo-test", "")
-	for _, needle := range []string{`"cargo","test","--workspace","--","--list"`, `"cargo","test","--workspace"]`} {
-		c := engine.chain(needle, "exitCode")
-		if got := mountSharingAt(c, target, needle); got != "LOCKED" {
-			t.Errorf("rust:cargo-test %s: cargo target is %q, want LOCKED:\n%s", needle, got, c)
-		}
-		// The registry volumes stay shared.
-		if got := mountSharingAt(c, "/cache/cargo-home", needle); got == "LOCKED" {
-			t.Errorf("registry must stay shared")
-		}
+	c := engine.chain(rustTestNeedle, "contents")
+	if got := mountSharingAt(c, target, atomExec); got != "LOCKED" {
+		t.Errorf("rust:cargo-test: cargo target is %q, want LOCKED:\n%s", got, c)
+	}
+	// The registry volumes stay shared.
+	if got := mountSharingAt(c, "/cache/cargo-home", atomExec); got == "LOCKED" {
+		t.Errorf("registry must stay shared")
 	}
 
 	// rust:cargo-clippy builds no binary it runs: still the default sharing.
 	engine.reset()
 	engine.withTree(everyLaneTree)
+	engine.contents(rustClippyNeedle, rustVerdict("rust:cargo-clippy", "precommit"))
 	runAtom(t, "rust:cargo-clippy", "")
-	if c := engine.chain(`"cargo","clippy"`, "exitCode"); mountSharingAt(c, target, `"cargo","clippy"`) == "LOCKED" {
+	if c := engine.chain(rustClippyNeedle, "contents"); mountSharingAt(c, target, atomExec) == "LOCKED" {
 		t.Errorf("rust:cargo-clippy runs no binary and must stay shared:\n%s", c)
 	}
 
@@ -76,7 +76,7 @@ func TestBuildThenRunExecsMountTheirCargoVolumeLocked(t *testing.T) {
 	engine.stdout(`"component","wit"`, "world w")
 	wantState(t, runAtom(t, "rust:wit-guest", ""), 0)
 	// One native test, every world's feature on it.
-	c := engine.chain(`"cargo","test"`, `"--no-default-features"`, combinedFeat, "exitCode")
+	c = engine.chain(`"cargo","test"`, `"--no-default-features"`, combinedFeat, "exitCode")
 	if got := mountSharingAt(c, release, `"cargo","test"`); got != "LOCKED" {
 		t.Errorf("rust:wit-guest test: release volume is %q, want LOCKED:\n%s", got, c)
 	}

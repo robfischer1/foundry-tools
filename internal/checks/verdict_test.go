@@ -97,7 +97,7 @@ func TestAnswerIsNilOnlyForAPass(t *testing.T) {
 // in the tree reports absent, exit 0, and says so" — is the whole reason this
 // is not just a silent skip.
 func TestAbsentPassesAndSaysSo(t *testing.T) {
-	v := AbsentVerdict(AtomByID("rust:cargo-test"))
+	v := AbsentVerdict(AtomDef{ID: "rust:cargo-test", Stage: StagePrecommit, Lane: LaneRust})
 	if v.State != int(StatePass) {
 		t.Fatalf("absent must be state 0, got %d", v.State)
 	}

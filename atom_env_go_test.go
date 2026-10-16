@@ -69,7 +69,7 @@ func TestGoTestRaceRunsWithTheFleetRecordsAndTheTreesDatabases(t *testing.T) {
 			t.Errorf("no service chain runs %s:\n%v", img, engine.chains())
 		}
 	}
-	// go:test-race KEEPS THE SHARED SERVER: it must carry no lane word, or it
+	// The race atom KEEPS THE SHARED SERVER: it must carry no lane word, or it
 	// would be a third database nobody asked for.
 	if hasCall(engine.chain(checks.ImagePgvector, "asService"), "withEnvVariable", `name:"FOUNDRY_TEST_DB_LANE"`) {
 		t.Error("go:test-race took a lane-scoped server; it shares by design")
@@ -193,7 +193,7 @@ func TestGoTestBindsNoServerAndCarriesTheFleetRecords(t *testing.T) {
 	}
 }
 
-// go:diff-coverage RUNS THE SUITE ITSELF, on servers of its own: dagger
+// The diff-coverage atom RUNS THE SUITE ITSELF, on servers of its own: dagger
 // content-addresses services, so a server shared with go:test-race (which runs
 // beside it) has its schema reset under both. It judges the change, so it is
 // handed the base, the origin and the fork record, and it reads git against the

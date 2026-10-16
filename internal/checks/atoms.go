@@ -377,14 +377,6 @@ func atomTable() []AtomDef {
 
 		// ---- rust ----
 		{
-			ID: "rust:cargo-clippy", Stage: StagePrecommit, Lane: LaneRust, Image: ImageRust, NotOnForks: ForkFleetStyle,
-			Desc: "cargo clippy is clean under the fleet's lint set, warnings denied.",
-		},
-		{
-			ID: "rust:cargo-test", Stage: StagePrecommit, Lane: LaneRust, Image: ImageRust,
-			Desc: "cargo test --workspace passes, and there is something for it to pass.",
-		},
-		{
 			ID: "rust:release", Stage: StagePrepush, Lane: LaneRust, Image: ImageRust,
 			Desc: "The release binaries the image will carry compile under cargo's release profile — for a Dockerfile that copies from release/; one that compiles itself is built by the build lane, and this is absent.",
 		},

@@ -86,10 +86,7 @@ func module(ctx context.Context, in atomkit.In, dir string) checks.Verdict {
 	if since == "" {
 		return settle(atoms.MissingBase(in, noBase))
 	}
-	run := in.Exec
-	if run == nil {
-		run = atoms.RunProgram
-	}
+	run := func(ctx context.Context, c atoms.Cmd) (string, int) { return atoms.RunCmd(ctx, in, c) }
 	diff, code := run(ctx, atoms.Cmd{Dir: cwd, Name: "git", Args: []string{"diff", "--unified=0", "--no-color", "--no-ext-diff", "--relative", since, "--", "*.go"}})
 	if code != 0 {
 		return settle(2, "CANNOT RUN - the pull could not be diffed against its base "+since+": "+readFailed("git diff", diff, code)+"\n"+diff)
