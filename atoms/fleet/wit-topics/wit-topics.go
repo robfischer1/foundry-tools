@@ -70,10 +70,16 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 		return checks.VerdictOf(row, int(checks.StateCannotRun), id+": CANNOT RUN - "+checker+
 			" is absent, so there is no checker to run and the topics' WIT is ungraded.")
 	}
-	if out, code := in.Run(ctx, atoms.Cmd{Dir: in.Root, Name: "uv", Args: []string{"--version"}}); code != 0 {
-		return checks.VerdictOf(row, int(checks.StateCannotRun), fmt.Sprintf("the atom never ran: uv --version exited %d: %s", code, out))
+	// The atoms binary's container carries a venv with python3: use it when it
+	// is there (it resolves nothing at run time). Otherwise uv provides one.
+	name, args := "python3", []string{checker}
+	if _, code := in.Run(ctx, atoms.Cmd{Dir: in.Root, Name: "python3", Args: []string{"--version"}}); code != 0 {
+		name, args = "uv", []string{"run", "--no-project", "--quiet", "python3", checker}
+		if out, code := in.Run(ctx, atoms.Cmd{Dir: in.Root, Name: "uv", Args: []string{"--version"}}); code != 0 {
+			return checks.VerdictOf(row, int(checks.StateCannotRun), fmt.Sprintf("the atom never ran: uv --version exited %d: %s", code, out))
+		}
 	}
-	out, code := in.Run(ctx, atoms.Cmd{Dir: in.Root, Name: "uv", Args: []string{"run", "--no-project", "--quiet", "python3", checker}, Env: pythonEnv, Both: true})
+	out, code := in.Run(ctx, atoms.Cmd{Dir: in.Root, Name: name, Args: args, Env: pythonEnv, Both: true})
 	if code < 0 {
 		return atoms.NeverRan(row, nil, code, out)
 	}

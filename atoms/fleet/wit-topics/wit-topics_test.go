@@ -141,6 +141,9 @@ var flux = map[string]string{"prime/orbits/a.yaml": "x", checker: "#!/usr/bin/en
 func uvTree(t *testing.T, files map[string]string, answer func(atoms.Cmd) (string, int)) (atomkit.In, *toolFake) {
 	t.Helper()
 	return toolTree(t, files, func(c atoms.Cmd) (string, int) {
+		if c.Name == "python3" && len(c.Args) == 1 && c.Args[0] == "--version" {
+			return "python3: not found", -1 // no venv: uv provides python
+		}
 		if c.Name == "uv" && len(c.Args) == 1 && c.Args[0] == "--version" {
 			return "uv 0.12.13", 0
 		}
@@ -178,10 +181,33 @@ func TestFleetWitTopics(t *testing.T) {
 			}
 		})
 	}
+	t.Run("a container with the venv runs the checker with its python3 and never touches uv", func(t *testing.T) {
+		in, f := toolTree(t, flux, func(c atoms.Cmd) (string, int) {
+			if c.Name == "python3" && c.Args[0] == "--version" {
+				return "Python 3.14.0", 0
+			}
+			return "wit-topics: redpanda/wit matches redpanda/schemas", 0
+		})
+		expect(t, run(t, in), stateOf(0), pass, "redpanda/wit matches")
+		c := f.calls[len(f.calls)-1]
+		if c.Name != "python3" || flagged(c) != "tools/wit-topics" || !c.Both || !slices.Contains(c.Env, "PYTHONDONTWRITEBYTECODE=1") {
+			t.Errorf("the checker ran as %+v", c)
+		}
+		for _, p := range f.ran() {
+			if p == "uv" {
+				t.Errorf("uv was touched: %v", f.ran())
+			}
+		}
+	})
 	t.Run("a container without uv never ran the checker", func(t *testing.T) {
-		in, f := toolTree(t, flux, func(atoms.Cmd) (string, int) { return "uv: not found", 127 })
+		in, f := toolTree(t, flux, func(c atoms.Cmd) (string, int) {
+			if c.Name == "python3" {
+				return "python3: not found", -1
+			}
+			return "uv: not found", 127
+		})
 		expect(t, run(t, in), stateOf(2), cannot, "the atom never ran: uv --version exited 127: uv: not found")
-		if len(f.calls) != 1 {
+		if len(f.calls) != 2 {
 			t.Errorf("the checker ran after a failed probe: %v", f.ran())
 		}
 	})
