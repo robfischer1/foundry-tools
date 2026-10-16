@@ -17,4 +17,7 @@ type Witness struct {
 	Sleep func(context.Context, time.Duration) error
 	// Probe reads the witness's /ready before any ask; nil is checks.GetWitnessReady.
 	Probe checks.WitnessProbe
+	// Call runs the identity helper (Name "witnesscall": whoami, then post);
+	// nil asks the lane pod's SPIRE agent in this process (witnesscall.Exec).
+	Call Exec
 }

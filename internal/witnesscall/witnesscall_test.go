@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -315,5 +317,60 @@ func TestATimeoutIsNoAnswerNotCouldNotAsk(t *testing.T) {
 	code := post(context.Background(), c, "https://narcissus:8201/mcp", nil, &out, &errOut)
 	if code != checks.WitnessNoAnswerExit || out.Len() != 0 || !strings.Contains(errOut.String(), "did not answer") {
 		t.Errorf("code %d out %q err %q", code, out.String(), errOut.String())
+	}
+}
+
+// execWith runs Exec with an identity in place of the agent.
+func execWith(id hadescall.Identity, openErr error, env []string, args ...string) (string, int) {
+	opened := hadescall.Open
+	hadescall.Open = func(context.Context, string) (hadescall.Identity, error) { return id, openErr }
+	defer func() { hadescall.Open = opened }()
+	return Exec(context.Background(), args, env)
+}
+
+// TestB4MTLS_ExecIsTheHelperInProcess: Exec answers what the exec'd helper's
+// output and exit code were, so the atom reads them the same way.
+func TestB4MTLS_ExecWhoamiAndNoIdentity(t *testing.T) {
+	p := newPKI(t)
+	out, code := execWith(&fakeIdentity{svid: p.svid(t, "spiffe://notusmi.com/ci/rob.foundry-tools/gate/branch/j-1")}, nil,
+		[]string{"WITNESSCALL_SOCKET=unix:///s"}, "whoami")
+	if code != 0 || out != "spiffe://notusmi.com/ci/rob.foundry-tools/gate/branch/j-1" {
+		t.Errorf("code %d out %q", code, out)
+	}
+	out, code = execWith(nil, errors.New("deadline exceeded"), []string{"WITNESSCALL_SOCKET=unix:///s", "UNRELATED"}, "whoami")
+	if code != NoIdentity || out != "witnesscall: no identity from unix:///s within 20s: deadline exceeded" {
+		t.Errorf("code %d out %q", code, out)
+	}
+	out, code = execWith(nil, nil, nil, "bogus")
+	if code != CouldNotAsk || !strings.Contains(out, "usage:") {
+		t.Errorf("code %d out %q", code, out)
+	}
+}
+
+func TestB4MTLS_ExecPostPresentsTheCIIdentity(t *testing.T) {
+	p := newPKI(t)
+	n := newServer(t, p, "spiffe://notusmi.com/star/narcissus", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":1}`))
+	})
+	const ci = "spiffe://notusmi.com/ci/rob.foundry-tools/gate/branch/gate-foundry-tools-1"
+	id := &fakeIdentity{svid: p.svid(t, ci), bundle: x509bundle.FromX509Authorities(p.td, []*x509.Certificate{p.ca})}
+	file := filepath.Join(t.TempDir(), "req.json")
+	if err := os.WriteFile(file, []byte(`{"jsonrpc":"2.0"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, code := execWith(id, nil, nil, "post", n.URL+"/mcp", file)
+	if code != 0 || out != "HTTP 200\napplication/json\n{\"ok\":1}" {
+		t.Fatalf("code %d out %q", code, out)
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if len(n.peerURIs) != 1 || n.peerURIs[0] != ci {
+		t.Errorf("narcissus saw the caller as %v, want %s", n.peerURIs, ci)
+	}
+	// A request file that cannot be read is the helper's could-not-ask.
+	out, code = execWith(id, nil, nil, "post", n.URL+"/mcp", file+".gone")
+	if code != CouldNotAsk || !strings.Contains(out, "no such file") {
+		t.Errorf("code %d out %q", code, out)
 	}
 }
