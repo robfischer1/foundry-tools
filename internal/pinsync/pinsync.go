@@ -49,6 +49,7 @@ var URLPins = []URLPin{
 	{"oras", "OrasURL", "OrasVersion"},
 	{"cargo-audit", "CargoAuditURL", "CargoAuditVersion"},
 	{"cargo-nextest", "CargoNextestURL", "CargoNextestVersion"},
+	{"sccache", "SccacheURL", "SccacheVersion"},
 	{"python-standalone", "PythonStandaloneURL", "FleetPythonVersion"},
 }
 
@@ -72,6 +73,8 @@ var Followers = []Follower{
 	{Const: "CargoAuditURL", Version: "CargoAuditVersion"},
 	{Const: "CargoAuditMember", Version: "CargoAuditVersion"},
 	{Const: "CargoNextestURL", Version: "CargoNextestVersion"},
+	{Const: "SccacheURL", Version: "SccacheVersion"},
+	{Const: "SccacheMember", Version: "SccacheVersion"},
 	{Const: "PythonStandaloneURL", Version: "FleetPythonVersion", Retag: true},
 }
 
