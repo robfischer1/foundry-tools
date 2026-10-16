@@ -166,6 +166,12 @@ func TestTheTestServerScopeLinesSayWhyOnEveryBranch(t *testing.T) {
 			"test brokers: none",
 			"test kubes: none — the tree's build tags could not be read",
 		}},
+		{"tag read lost to the engine", map[string]string{
+			".copier-answers.yml": "service_name: x\n",
+		}, func() { engine.fail(`"grep","-rhoE"`, "engine gone") }, []string{
+			"test databases: none — the tree's build tags could not be read",
+			"test kubes: none — the tree's build tags could not be read",
+		}},
 		{"flows unreadable", map[string]string{
 			".copier-answers.yml": "service_name: x\n",
 			"flows.go":            "package x\n",
