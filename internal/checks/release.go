@@ -224,6 +224,13 @@ func ReleaseStamp(module, version string) (string, error) {
 // ReleaseStamp refuses also stamps nothing here; the caller validated it
 // first, so this is the argv builder and not the gate.
 func GoReleaseStampedArgs(b ReleaseBinary, vendored bool, module, version string) []string {
+	return GoReleaseArgsTo(ReleaseOut, b, vendored, module, version)
+}
+
+// GoReleaseArgsTo is GoReleaseStampedArgs with the output directory named: the
+// lane's ReleaseOut for the engine's chain, the atom's own release directory
+// for a pod. It is the one place the compile's argv is built.
+func GoReleaseArgsTo(out string, b ReleaseBinary, vendored bool, module, version string) []string {
 	args := []string{"go", "build"}
 	if vendored {
 		args = append(args, "-mod=vendor")
@@ -239,7 +246,7 @@ func GoReleaseStampedArgs(b ReleaseBinary, vendored bool, module, version string
 		}
 	}
 	args = append(args, flags...)
-	return append(args, "-o", path.Join(ReleaseOut, b.Name), b.Package)
+	return append(args, "-o", path.Join(out, b.Name), b.Package)
 }
 
 // RustReleaseTarget is where a Rust release build writes: the repository's
@@ -260,7 +267,13 @@ func RustReleaseArgs(b ReleaseBinary) []string {
 
 // RustReleaseBuilt is where cargo leaves one built binary, in the volume.
 func RustReleaseBuilt(b ReleaseBinary) string {
-	return path.Join(RustReleaseTarget, "release", b.Name)
+	return RustReleaseBuiltIn(RustReleaseTarget, b)
+}
+
+// RustReleaseBuiltIn is where cargo leaves one built binary under a target
+// directory: the volume's for the engine's chain, CARGO_TARGET_DIR's for a pod.
+func RustReleaseBuiltIn(target string, b ReleaseBinary) string {
+	return path.Join(target, "release", b.Name)
 }
 
 // RustReleaseBinary is where the build's own exec copied that binary, in the
