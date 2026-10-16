@@ -26,6 +26,15 @@ import (
 type atomEnv struct {
 	// container is the lane container the atom runs in, with /src mounted.
 	container func(r *run) *dagger.Container
+	// containerCtx is container for an atom whose lane is decided off the tree
+	// (the base the image's Dockerfile FROMs); it reads the tree with the same
+	// questions the atom asks and judges nothing.
+	containerCtx func(ctx context.Context, r *run) *dagger.Container
+	// tree hands the atom tree@1 built from the engine's population in place of
+	// a repository git can read: its container may be an image's own base, which
+	// carries no git. The atom reads the tree's files and the clone it came from
+	// and nothing of the change.
+	tree bool
 	// facts says the atom judges the change or the origin: it is handed the
 	// base, the origin URL and the fork record (ATOM_BASE, ATOM_ORIGIN,
 	// ATOM_FORK) and the base is fetched. Off, the exec's cache key is the
@@ -92,6 +101,13 @@ var atomEnvironments = map[string]atomEnv{
 	"rust:wit-guest":   {container: witGuestLane, bind: witTools(false)},
 	"rust:wit-compose": {container: witComposeLane, bind: witTools(true)},
 
+	// The release atoms (atom_env_release.go): the lane, or the image's own base
+	// for the two that build on it, handed the tree as facts.
+	"go:release":     {tree: true},
+	"rust:release":   {container: rustReleaseLane, tree: true},
+	"ts:release":     {containerCtx: baseReleaseLane("ts:release", "bun", "/root/.bun/install/cache", "foundry-bun", ""), tree: true},
+	"python:release": {containerCtx: baseReleaseLane("python:release", "python", "/opt/uv-cache", "foundry-uv", "UV_CACHE_DIR"), tree: true},
+
 	// The ops, orbit, compose, wit and template atoms that exec a program: the
 	// tools container, as the binary's vote runs them.
 	"compose:config":         {tools: true},
@@ -150,6 +166,8 @@ func (r *run) atomEnvironment(ctx context.Context, e catalogue.Entry) *dagger.Co
 	switch {
 	case ok && env.tools:
 		ctr = r.onTools(atomsTools(ctx))
+	case ok && env.containerCtx != nil:
+		ctr = env.containerCtx(ctx, r)
 	case ok && env.container != nil:
 		ctr = env.container(r)
 	default:
@@ -170,6 +188,9 @@ func (r *run) atomEnvironment(ctx context.Context, e catalogue.Entry) *dagger.Co
 	}
 	if e.Def == nil {
 		return ctr
+	}
+	if ok && env.tree {
+		return r.withTreeFacts(ctx, ctr)
 	}
 	if env.origin {
 		ctr = ctr.WithEnvVariable("ATOM_ORIGIN", r.repo)

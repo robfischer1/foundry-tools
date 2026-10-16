@@ -329,7 +329,7 @@ func TestExecuteOfNothingIsNothing(t *testing.T) {
 func TestUseExtraAppendsThePortedAtoms(t *testing.T) {
 	old := ported
 	t.Cleanup(func() { ported = old })
-	extra := Atom{ID: "go:release", Scope: ScopeTree}
+	extra := Atom{ID: "ts:regen", Scope: ScopeTree}
 	UseExtra(func() []Atom { return []Atom{extra} })
 	got := Builtin()
 	if last := got[len(got)-1]; last.ID != extra.ID {

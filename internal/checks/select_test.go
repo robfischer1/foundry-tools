@@ -6,17 +6,17 @@ import (
 )
 
 func TestSelectNarrowsToTheNamedAtoms(t *testing.T) {
-	got, err := Select(AtomsForStage(StagePrepush), "go:release")
+	got, err := Select(AtomsForStage(StagePrepush), "ts:regen")
 	if err != nil {
 		t.Fatalf("Select: %v", err)
 	}
-	if len(got) != 1 || got[0].ID != "go:release" {
-		t.Fatalf("Select chose %v, want just go:release", ids(got))
+	if len(got) != 1 || got[0].ID != "ts:regen" {
+		t.Fatalf("Select chose %v, want just ts:regen", ids(got))
 	}
 }
 
 func TestSelectTakesAListAndTolerantWhitespace(t *testing.T) {
-	got, err := Select(AtomsForStage(StagePrepush), " go:release , rust:release ")
+	got, err := Select(AtomsForStage(StagePrepush), " ts:regen , rust:wit-guest ")
 	if err != nil {
 		t.Fatalf("Select: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestSelectRefusesAnUnknownAtom(t *testing.T) {
 // The govulncheck atom is prepush; naming it in a precommit selector must say
 // so rather than answer an empty vector.
 func TestSelectRefusesAnAtomTheStageDoesNotAdmit(t *testing.T) {
-	_, err := Select(AtomsForStage(StagePrecommit), "go:release")
+	_, err := Select(AtomsForStage(StagePrecommit), "ts:regen")
 	if err == nil {
 		t.Fatal("a prepush atom was admitted into a precommit vector")
 	}

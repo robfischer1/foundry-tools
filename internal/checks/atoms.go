@@ -174,31 +174,12 @@ func atomTable() []AtomDef {
 		// that answers in seconds must not wait behind a suite that answers in
 		// minutes. (The order is catalogueOrder's now: go:test, go:test-race and the
 		// rest of the go lane live in atoms/go.)
-		{
-			ID: "go:release", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo,
-			Desc: "The release binaries the image will carry compile, with the image's own flags — for a Dockerfile that copies from release/; one that compiles itself is built by the build lane, and this is absent.",
-		},
 
 		// ---- python ----
-		{
-			ID: "python:release", Stage: StagePrepush, Lane: LanePython, Image: ImagePython,
-			Desc: "The venv the image will carry builds from the star's lock on the image's own python base — for a Dockerfile on foundry/base-images/python that copies from release/; any other image is absent.",
-			// The build lane, and the one Rob named: a release builds from the
-			// star's lock, which is the manifest's own artifact.
-			NeedsManifest: true,
-		},
 
 		// ---- rust ----
-		{
-			ID: "rust:release", Stage: StagePrepush, Lane: LaneRust, Image: ImageRust,
-			Desc: "The release binaries the image will carry compile under cargo's release profile — for a Dockerfile that copies from release/; one that compiles itself is built by the build lane, and this is absent.",
-		},
 
 		// ---- ts ----
-		{
-			ID: "ts:release", Stage: StagePrepush, Lane: LaneTS, Image: ImageTS,
-			Desc: "The record's release steps leave the image's files under release/, run on the image's own bun base — for a Dockerfile on foundry/base-images/bun that copies from release/; any other image is absent.",
-		},
 
 		// ---- compose: the host stacks. Ported off the act-runner's validate.yml ----
 

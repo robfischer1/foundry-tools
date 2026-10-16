@@ -48,8 +48,8 @@ func withOneAtom(t *testing.T) {
 	old := ported
 	t.Cleanup(func() { ported = old })
 	UseExtra(func() []Atom {
-		return []Atom{{ID: "go:release", Scope: ScopeTree, Run: func(_ context.Context, a checks.AtomDef, _ Input) checks.Verdict {
-			return checks.VerdictOf(a, int(checks.StatePass), "go:release: passes")
+		return []Atom{{ID: "ts:regen", Scope: ScopeTree, Run: func(_ context.Context, a checks.AtomDef, _ Input) checks.Verdict {
+			return checks.VerdictOf(a, int(checks.StatePass), "ts:regen: passes")
 		}}}
 	})
 }
