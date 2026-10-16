@@ -58,14 +58,7 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 			unread = append(unread, err.Error())
 			continue
 		}
-		if bytes.IndexByte(body, 0) >= 0 {
-			continue
-		}
-		for n, line := range strings.Split(string(body), "\n") {
-			if conflictRE.MatchString(line) {
-				hits = append(hits, fmt.Sprintf("%s:%d:%s", f, n+1, line))
-			}
-		}
+		hits = append(hits, markerHits(f, body)...)
 	}
 	switch {
 	case len(hits) > 0:
@@ -78,4 +71,19 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 			id, len(unread), checks.Unmeasured(unread)))
 	}
 	return checks.VerdictOf(row, int(checks.StatePass), id+": no conflict markers")
+}
+
+// markerHits is one file's `path:line:text` findings. A body holding a NUL byte
+// is binary and yields none (grep -I).
+func markerHits(path string, body []byte) []string {
+	if bytes.IndexByte(body, 0) >= 0 {
+		return nil
+	}
+	var hits []string
+	for n, line := range strings.Split(string(body), "\n") {
+		if conflictRE.MatchString(line) {
+			hits = append(hits, fmt.Sprintf("%s:%d:%s", path, n+1, line))
+		}
+	}
+	return hits
 }
