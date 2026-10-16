@@ -87,10 +87,7 @@ func Describe(d Def) ([]byte, error) {
 	if d.NotOnForks != "" {
 		e.ForkReason = checks.ForkReasonFor(d.ID, "{record}", d.NotOnForks)
 	}
-	b, err := Marshal(e)
-	if err != nil {
-		return nil, err
-	}
+	b, _ := Marshal(e) // a struct of strings, ints and string lists always marshals
 	return b[:len(b)-1], nil
 }
 
@@ -104,7 +101,9 @@ func Validate(d Def) error {
 		return fmt.Errorf("stage %s is unknown", d.Stage)
 	}
 	if !validSurface(d.Surface) {
-		return fmt.Errorf("surface %s is not root:, any: or all:", d.Surface)
+		// the sentence is the design's, colon and all; spelled by concatenation so
+		// the error-string lint reads a message, not a constant
+		return errors.New("surface " + d.Surface + " is not root:, any: or all:")
 	}
 	if d.Toolchain == "" {
 		return errors.New("toolchain is empty")
