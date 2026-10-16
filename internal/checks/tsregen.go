@@ -136,10 +136,18 @@ func RegenExpect(label, got, pinned string) (ok, problem string) {
 	return fmt.Sprintf("ok  %s %s", label, got), ""
 }
 
-// RegenToolVersion reads `wasm-tools --version` as the script does: the name
-// dropped, the rest as the version the pin is compared with.
+// RegenToolVersion reads `wasm-tools --version` as the version the pin is
+// compared with: the name dropped, and only the version number kept. A
+// cargo-installed wasm-tools prints `wasm-tools 1.250.0`; the prebuilt release
+// the lanes fetch since 76973ff prints `wasm-tools 1.250.0 (4a72fcd2e
+// 2026-05-21)`, the same version with its commit and date, and every core's
+// pin is the bare number. Comparing the whole tail turned every ts:regen red.
 func RegenToolVersion(out string) string {
-	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(out), "wasm-tools "))
+	rest := strings.TrimPrefix(strings.TrimSpace(out), "wasm-tools ")
+	if f := strings.Fields(rest); len(f) > 0 {
+		return f[0]
+	}
+	return ""
 }
 
 // RegenLabeledPin is a stellar-core file pin with the name its line carries.
