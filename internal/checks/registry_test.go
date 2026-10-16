@@ -361,6 +361,13 @@ func TestTheNamedCheckSetsAreTheFleets(t *testing.T) {
 		lits += "\x00" + string(raw)
 	}
 
+	// rust:cargo-clippy is a file now: its source carries the set.
+	if raw, err := os.ReadFile("../../atoms/rust/cargo-clippy/cargo-clippy.go"); err != nil {
+		t.Fatal(err)
+	} else {
+		lits += "\x00" + string(raw)
+	}
+
 	const staticcheckSet = "all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-ST1023"
 	if !strings.Contains(lits, staticcheckSet) {
 		t.Errorf("no lane file names staticcheck's check set %q — without -checks on the command line, "+

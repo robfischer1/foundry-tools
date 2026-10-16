@@ -31,6 +31,18 @@ type atomEnv struct {
 	// ATOM_FORK) and the base is fetched. Off, the exec's cache key is the
 	// tree's alone and a pull's base does not reach it.
 	facts bool
+	// factsWhen is facts for an atom that judges the change only when the tree
+	// opts in (the rust lane's scope script): the base reaches the atom, and its
+	// cache key, only for the repos that ask. Nil is never.
+	factsWhen func(ctx context.Context, r *run) bool
+	// narrow says /src is the tree less what no toolchain reads (r.code()), so
+	// the linked-worktree swap re-mounts that same tree and not the whole one.
+	narrow bool
+	// bind adds, last, what the tree decides the run needs and no layer below
+	// knows: the test servers its build tags name, the generator its regen
+	// tests ask for. It reads the tree with the same questions the atom asks and
+	// judges nothing; nil adds nothing.
+	bind func(ctx context.Context, r *run, ctr *dagger.Container) *dagger.Container
 }
 
 // atomEnvironments are the atoms whose chain did not run in the plain lane
@@ -40,6 +52,33 @@ var atomEnvironments = map[string]atomEnv{
 	"go:vet":         {container: goCodeLane},
 	"go:build":       {container: goCodeLane},
 	"go:staticcheck": {container: goCodeLane},
+	// the go lane over the narrowed tree, the gravity the regen tests need and,
+	// for the push's run, the servers the tree's tags name
+	"go:govulncheck": {container: goCodeLane, narrow: true},
+	"go:test":        {container: goCodeLane, narrow: true, bind: goSuiteLane("", false)},
+	"go:test-race":   {container: goCodeLane, narrow: true, bind: goSuiteLane("", true)},
+	// The diff-coverage atom reads the change (git diff against the base), so it runs
+	// on the whole tree, as the mutation lane's git reads do, and judges it
+	// (facts). Its suite is a run of its own beside go:test-race's, on servers
+	// of its own: dagger content-addresses services, and two suites that reset
+	// one schema per test tear it apart.
+	"go:diff-coverage": {facts: true, bind: goSuiteLane("diffcov", true)},
+	// the rust lane with the dependency graph fetched, and the base only for a
+	// repo that scopes its crates; the tests build binaries in the per-repo
+	// target and then run them, so they hold it LOCKED (withLockedCargoTarget)
+	"rust:cargo-clippy": {container: (*run).cargoDeps, factsWhen: rustScoped},
+	"rust:cargo-test":   {container: rustTestLane, factsWhen: rustScoped},
+}
+
+// rustTestLane is the fetched rust lane with the per-repo target held LOCKED, the
+// remount after the fetch so the fetch itself takes no lock.
+func rustTestLane(r *run) *dagger.Container { return r.withLockedCargoTarget(r.cargoDeps()) }
+
+// rustScoped says the tree carries the repo's scope script, the opt-in to being
+// graded on the crates a pull reaches (checks.RustScopeScript).
+func rustScoped(ctx context.Context, r *run) bool {
+	has, err := present(ctx, r, checks.RustScopeScript)
+	return err == nil && has
 }
 
 // goCodeLane is the go lane over the narrowed tree.
@@ -52,7 +91,7 @@ func goCodeLane(r *run) *dagger.Container { return r.laneCode(checks.ImageGo) }
 func (r *run) atomEnvironment(ctx context.Context, e catalogue.Entry) *dagger.Container {
 	env, ok := atomEnvironments[e.ID]
 	var ctr *dagger.Container
-	if ok {
+	if ok && env.container != nil {
 		ctr = env.container(r)
 	} else {
 		ctr = r.lane(checks.AtomByID(e.ID).Image)
@@ -67,13 +106,21 @@ func (r *run) atomEnvironment(ctx context.Context, e catalogue.Entry) *dagger.Co
 	if e.Def == nil {
 		return ctr
 	}
-	if env.facts {
+	if env.facts || (ok && env.factsWhen != nil && env.factsWhen(ctx, r)) {
 		ctr = r.withBase(ctr).
 			WithEnvVariable("ATOM_BASE", r.base).
 			WithEnvVariable("ATOM_ORIGIN", r.repo).
 			WithEnvVariable("ATOM_FORK", r.forkRecord(ctx))
 	}
-	return r.gitReady(ctx, ctr)
+	if ok && env.narrow {
+		ctr = r.gitReadyOn(ctx, ctr, r.code())
+	} else {
+		ctr = r.gitReady(ctx, ctr)
+	}
+	if ok && env.bind != nil {
+		ctr = env.bind(ctx, r, ctr)
+	}
+	return ctr
 }
 
 // needsOf is what an atom declares it needs.

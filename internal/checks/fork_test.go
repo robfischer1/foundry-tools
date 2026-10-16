@@ -15,8 +15,6 @@ import (
 var forkInert = map[string]string{
 	"fleet:stop-justifications": ForkFleetStyle,
 	"fleet:witness":             ForkFleetStyle,
-	"rust:cargo-clippy":         ForkFleetStyle,
-	"go:diff-coverage":          ForkChangeBar,
 	"go:mutation":               ForkChangeBar,
 	"python:mutation":           ForkChangeBar,
 	"rust:mutation":             ForkChangeBar,
@@ -51,8 +49,8 @@ func TestTheForkLaneIsTheCatalogueRowsThatSaySo(t *testing.T) {
 // command (arcjet/gravity's ci.yml runs `cargo fmt --all --check`).
 func TestAForkKeepsItsBuildTestsAuditsAndSAST(t *testing.T) {
 	for _, id := range []string{
-		"rust:cargo-test", "rust:release",
-		"go:test", "go:test-race", "go:govulncheck", "go:release",
+		"rust:release",
+		"go:release",
 		"python:release",
 		"ts:release",
 		"fleet:opengrep-sast", "fleet:check-added-large-files",
@@ -95,7 +93,7 @@ func TestPlanAtomsStandsDownWhatAForkDoesNotTake(t *testing.T) {
 }
 
 func TestForkVerdictIsAnAbsenceThatNamesTheRecordAndWhy(t *testing.T) {
-	a := AtomByID("rust:cargo-clippy")
+	a := AtomDef{ID: "rust:cargo-clippy", Stage: StagePrecommit, Lane: LaneRust, NotOnForks: ForkFleetStyle}
 	v := ForkVerdict(a, "gravity")
 	if v.State != int(StatePass) || v.Result != "absent" || v.Logs == nil || len(v.Logs) != 0 {
 		t.Errorf("%+v", v)

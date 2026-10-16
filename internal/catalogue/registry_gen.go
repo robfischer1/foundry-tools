@@ -22,7 +22,11 @@ import (
 	dieswitregenerated "dagger/foundry-tools/atoms/dies/wit-regenerated"
 	fleetcheckmergeconflict "dagger/foundry-tools/atoms/fleet/check-merge-conflict"
 	fleetmanifestonecommand "dagger/foundry-tools/atoms/fleet/manifest-one-command"
+	godiffcoverage "dagger/foundry-tools/atoms/go/diff-coverage"
 	gogofmt "dagger/foundry-tools/atoms/go/gofmt"
+	gogovulncheck "dagger/foundry-tools/atoms/go/govulncheck"
+	gotest "dagger/foundry-tools/atoms/go/test"
+	gotestrace "dagger/foundry-tools/atoms/go/test-race"
 	lawbudget "dagger/foundry-tools/atoms/law/budget"
 	lawlint "dagger/foundry-tools/atoms/law/lint"
 	lawverbliveness "dagger/foundry-tools/atoms/law/verb-liveness"
@@ -33,6 +37,8 @@ import (
 	pythonpytest "dagger/foundry-tools/atoms/python/pytest"
 	pythonruffcheck "dagger/foundry-tools/atoms/python/ruff-check"
 	pythonruffformat "dagger/foundry-tools/atoms/python/ruff-format"
+	rustcargoclippy "dagger/foundry-tools/atoms/rust/cargo-clippy"
+	rustcargotest "dagger/foundry-tools/atoms/rust/cargo-test"
 	tsbungate "dagger/foundry-tools/atoms/ts/bun-gate"
 	"dagger/foundry-tools/internal/atomkit"
 )
@@ -58,7 +64,11 @@ var Defs = []*atomkit.Def{
 	&dieswitregenerated.Def,
 	&fleetcheckmergeconflict.Def,
 	&fleetmanifestonecommand.Def,
+	&godiffcoverage.Def,
 	&gogofmt.Def,
+	&gogovulncheck.Def,
+	&gotest.Def,
+	&gotestrace.Def,
 	&lawbudget.Def,
 	&lawlint.Def,
 	&lawverbliveness.Def,
@@ -69,6 +79,8 @@ var Defs = []*atomkit.Def{
 	&pythonpytest.Def,
 	&pythonruffcheck.Def,
 	&pythonruffformat.Def,
+	&rustcargoclippy.Def,
+	&rustcargotest.Def,
 	&tsbungate.Def,
 }
 

@@ -15,8 +15,9 @@ import (
 func TestLaneMountsEachCacheAndExportsOnlyTheOneEnvVar(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
+	engine.contents(rustClippyNeedle, rustVerdict("rust:cargo-clippy", "precommit"))
 	runAtom(t, "rust:cargo-clippy", "")
-	c := engine.chain(`"cargo","clippy"`, "exitCode")
+	c := engine.chain(rustClippyNeedle, "contents")
 	wantCalls(t, c,
 		[]string{"withMountedCache", `path:"/cache/cargo-home"`},
 		[]string{"withEnvVariable", `name:"CARGO_HOME"`, `value:"/cache/cargo-home"`},
@@ -45,7 +46,7 @@ func TestLaneMountsEachCacheAndExportsOnlyTheOneEnvVar(t *testing.T) {
 func TestEveryLaneDisablesTheOTelSDKAndTrustsTheEnginesCA(t *testing.T) {
 	for atom, probe := range map[string]string{
 		"go:vet":            `"go","vet"`,
-		"rust:cargo-clippy": `"cargo","clippy"`,
+		"rust:cargo-clippy": atomExec,
 		"python:pip-audit":  `"pip-audit"`,
 		"ts:bun-audit":      `"bun","audit"`,
 		"fleet:witness":     `"git","--version"`,
@@ -95,7 +96,10 @@ func TestOutputSeparatesTheEnginesErrorFromTheToolsCode(t *testing.T) {
 	// The exit code answers but the stdout read fails: that is the engine's
 	// error, and the atom never ran.
 	engine.script(script{match: `"go","list"`, leaf: "stdout", fail: "stdout vanished"})
-	wantState(t, runAtom(t, "go:test-race", ""), 2, "stdout vanished")
+	_, code, err := output(t.Context(), dag.Container().From("x").WithExec([]string{"go", "list"}, anyExit))
+	if err == nil || code != 0 || !strings.Contains(err.Error(), "stdout vanished") {
+		t.Errorf("a stdout the engine would not read is its error, not the tool's code: code %d, err %v", code, err)
+	}
 
 	engine.reset()
 	engine.withTree(everyLaneTree)

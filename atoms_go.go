@@ -8,23 +8,21 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"dagger/foundry-tools/internal/buildlane"
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
 )
 
-// THE GO LANE, AS CHAINS. go:test-race is the exemplar every other lane's chain
-// follows; read runtime.go's rules first, then it, then the rest of the lane
-// below it. go:gofmt, go:vet, go:build and go:staticcheck are no longer chains:
-// they are files (atoms/go), run by the adapter (atom_adapter.go).
+// THE GO LANE, AS CHAINS: go:release and go:mutation, which stay on Dagger (the
+// build, publish and cast lanes consume the release compile; the mutation lane's
+// reuse, re-ask and memo are the run's). Every other go atom is a file
+// (atoms/go), run by the adapter (atom_adapter.go) in the environment atom_env.go
+// and atom_env_go.go give it; this file keeps the helpers they and the two
+// chains share.
 
 func init() {
 	register("go:release", goRelease)
-	register("go:test", goTest)
-	register("go:test-race", goTestRace)
-	register("go:govulncheck", goGovulncheck)
 	register("go:mutation", goMutation)
 }
 
@@ -101,145 +99,9 @@ func (r *run) eachModule(ctx context.Context, a checks.AtomDef, one func(dir str
 	return checks.FoldModules(a, mods)
 }
 
-// go test -race ./... passes, and there is something for it to pass.
-//
-// NO TESTS IS A FINDING. `go test ./...` prints "[no test files]" per package
-// and exits 0, so a module with no test anywhere read green. Rob, 2026-09-11:
-// nothing is built without tests. The count is go's own (TestGoFiles +
-// XTestGoFiles per package), read in Go rather than in shell; a module where
-// every package answers 0 is red before the suite runs.
-//
-// THE FLEET RECORD TREE RIDES ALONG. hephaestus's internal/slag goldens grade
-// every record committed in foundry-dies; a lane checks out one repo, so
-// without the mount they resolved nothing and SKIPPED, which `go test` prints
-// as ok (#2453, #8118). A repo with no such test reads FOUNDRY_DIES and does
-// nothing with it.
-//
-// AND THE TREE'S DATABASES RIDE ALONG. A star whose tests sit behind a
-// database build tag gets the fleet's test servers bound beside the lane and
-// those suites compiled (withTestDatabases); `-p 1` with them, because
-// every package shares the one database and the suites reset its schema per
-// test (chaos's own README says so of its lane).
-func goTestRace(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("go:test-race")
-	return r.eachModule(ctx, a, func(dir string) checks.Verdict { return r.raceSuite(ctx, dir).v })
-}
-
-// go test ./... passes: the SAME packages, at the commit's cadence — no race
-// detector, no database, no build tags, so the DB-gated suites do not even
-// compile in. Rob's four stages put the unit tests at the commit and the race
-// + live-DB run at the push; a commit that waits minutes for a suite it will
-// wait for again at the push is the loop this plan exists to shorten.
-//
-// It is SUBSUMED BY go:test-race (checks.AtomDef.SubsumedBy): a caller that
-// asks for both stages at once gets the race run and an omission line saying
-// so, never the suite twice.
-func goTest(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("go:test")
-	return r.eachModule(ctx, a, func(dir string) checks.Verdict {
-		v, _ := goTestIn(ctx, r, a, dir, false)
-		return v
-	})
-}
-
-// goTestIn runs one module's suite: race + the record's live databases when
-// race is set (the push), the plain unit run when it is not (the commit). It
-// answers the verdict and, when the suite itself ran, the container it ran in —
-// nil for a module whose tests could not be counted or were never reached.
-//
-// THE PUSH'S RUN WRITES A COVERAGE PROFILE (checks.GoCoverProfile), and that is
-// the only difference the flag makes: -race already forces -covermode=atomic, the
-// exit code and the output's FAIL lines are go test's either way, and the file
-// sits outside the tree. go:diff-coverage reads it off the same container
-// (raceSuite), so the suite runs once for both atoms. NO -coverpkg, so each
-// package's coverage is its own tests' — exactly the profile gomutants gathers,
-// which is what keeps the two NOT COVERED signals agreeing.
-func goTestIn(ctx context.Context, r *run, a checks.AtomDef, dir string, race bool) (checks.Verdict, *dagger.Container) {
-	// THE SUITE RUNS IN A REPOSITORY git CAN READ. A test that shells out to
-	// git — hephaestus's TestRealResolveHistory runs `git ls-remote` against a
-	// fixture — fails on a linked worktree's dangling `.git` file with
-	// "fatal: not a git repository: <primary>/.git/worktrees/<name>" before
-	// it ever reaches the fixture, and the lane files FINDINGS for a test
-	// that never got to look (measured 2026-09-14 on hephaestus, pre-push).
-	// gitReady is the fix cargo-test and the mutation atoms already carry.
-	mods := goDownload(r.gitReadyOn(ctx, r.withDies(r.laneCode(checks.ImageGo)), r.code()), dir)
-
-	counts, code, err := output(ctx, mods.WithExec([]string{
-		"go", "list", "-f", "{{len .TestGoFiles}}{{len .XTestGoFiles}}", "./...",
-	}, anyExit))
-	if err != nil {
-		return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error()), nil
-	}
-	if code != 0 {
-		// A module that will not even list is a red about the module, and
-		// the old atom filed it as FINDINGS on purpose: the tests cannot be
-		// counted, so they cannot be shown to exist.
-		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - go list ./... failed, so the tests cannot be counted: "+lastLine(counts)), nil
-	}
-	if !checks.GoHasTestFiles(counts) {
-		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - no test file in any package; nothing is built without tests"), nil
-	}
-	// THE REGEN TESTS RUN INSTEAD OF SKIPPING where the tree has packages
-	// gravity generated (atoms_go_regen.go): a stale regeneration is a finding,
-	// not just a hand edit.
-	mods, regen, err := r.withGravityRegen(ctx, mods)
-	if errors.Is(err, errGravityRead) {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+err.Error()), nil
-	}
-	if err != nil {
-		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - "+err.Error()), nil
-	}
-	args := []string{"go", "test"}
-	scope := "unit suite: no race detector and no database — go:test-race runs those at the push"
-	if race {
-		var dbs []checks.TestDB
-		var brokers []checks.TestBroker
-		var bscope string
-		// The shared binding: the complex checks run in sequence, so they do
-		// not contend with each other. Only the mutation gate runs beside them.
-		mods, dbs, scope = r.withTestDatabases(ctx, mods, "")
-		mods, brokers, bscope = r.withTestBrokers(ctx, mods, "")
-		scope = scope + "\n" + bscope
-		args = append(args, "-race")
-		// `-p 1` for EITHER kind. The databases share one server and the suites
-		// reset its schema; one broker serves every package and its isolation
-		// unit is the topic. Parallel packages break both the same way.
-		if len(dbs) > 0 || len(brokers) > 0 {
-			args = append(args, "-tags", checks.BuildTags(dbs, brokers), "-p", "1")
-		}
-		args = append(args, "-coverprofile", checks.GoCoverProfile)
-	}
-	args = append(args, "./...")
-	ran := mods.WithExec(args, anyExit)
-	v := verdict(ctx, a, ran)
-	v.Reason = scope + "\n" + regen + "\n" + v.Reason
-	return v, ran
-}
-
-// withTestDatabases binds the fleet's test servers to a lane container for
-// the DB-gated suites the tree carries — checks/testdb.go carries the
-// reasoning and the vocabulary. It answers the container (bound or
-// untouched), the databases bound, and the scope line the atom prints either
-// way.
-//
-// One read decides it, and it is no knob: the tree's single-tag
-// `//go:build` lines off one recursive grep in the lane — an enumeration,
-// not a judgement; the judgement is checks.TestDBsFor. The tree states
-// which suites need a database; no record is asked (slag-by-kind F14).
-//
-// THE SERVICE IS THE ENGINE'S, NOT A SCRIPT'S. Dagger starts a bound service
-// just in time, health-checks its exposed port before the client runs, and
-// stops it when nothing needs it — the fixture the retired star.toml
-// provisioned through the Docker Engine API, without the socket.
-func (r *run) withTestDatabases(ctx context.Context, ctr *dagger.Container, scope string) (*dagger.Container, []checks.TestDB, string) {
-	dbs, line := r.testDatabases(ctx, ctr)
-	return bindTestDatabases(ctr, dbs, scope), dbs, line
-}
-
-// testDatabases is withTestDatabases' read and nothing else: which
-// databases the suites need, and the scope line. It binds no service, so a
-// caller can ask BEFORE it knows whether anything will run (go:mutation asks
-// before its change set is known to be empty).
+// testDatabases is which databases the suites need, and the scope line. It binds
+// no service, so a caller can ask BEFORE it knows whether anything will run
+// (go:mutation asks before its change set is known to be empty).
 func (r *run) testDatabases(ctx context.Context, ctr *dagger.Container) ([]checks.TestDB, string) {
 	// grep exits 1 for no match, which is an answer; 2 and up is grep failing.
 	out, code, err := output(ctx, ctr.WithExec([]string{
@@ -284,29 +146,8 @@ func bindTestDatabases(ctr *dagger.Container, dbs []checks.TestDB, scope string)
 	return ctr
 }
 
-// withTestBrokers binds the fleet's test broker to a lane container for the
-// broker-gated suites the tree carries, when the tree states a Kafka flow —
-// checks/testdb.go carries the reasoning and the vocabulary.
-//
-// TWO READS, and none of them a knob: the tree's single-tag `//go:build`
-// lines off one recursive grep (the same exec the database path runs, so the
-// engine serves it from cache rather than twice), and the Kafka flows the
-// tree's own code states (treeFlows). A suite exercises the seams the code
-// has, and the code is where they are stated; no record is asked.
-//
-// NO ISOLATION HELPER, unlike the database path, and that is the broker's own
-// contract rather than a shortcut: kafka's isolation unit is the topic plus the
-// consumer group, so one bound broker has exactly the semantics
-// forge-testkit-go's fixture documented. What the lane CANNOT do is mint the
-// names — a suite that hardcodes a topic reads another package's records, which
-// is why TestBrokerScope prints the caveat on every run.
-func (r *run) withTestBrokers(ctx context.Context, ctr *dagger.Container, scope string) (*dagger.Container, []checks.TestBroker, string) {
-	brokers, line := r.testBrokers(ctx, ctr)
-	return bindTestBrokers(ctr, brokers, scope), brokers, line
-}
-
-// testBrokers is withTestBrokers' two reads, binding nothing (testDatabases
-// says why the two halves are apart).
+// testBrokers is the broker-gated suites' two reads, binding nothing
+// (testDatabases says why the two halves are apart).
 func (r *run) testBrokers(ctx context.Context, ctr *dagger.Container) ([]checks.TestBroker, string) {
 	// NO BRANCH LIVES HERE. This makes the reads and hands them over as
 	// facts; every decision is checks.SelectBrokers', where a unit test can reach
@@ -640,48 +481,6 @@ func (r *run) releaseBuild(ctx context.Context, plan checks.ReleasePlan, version
 		ctr = ctr.WithExec(checks.GoReleaseStampedArgs(b, plan.Vendored, module, version), anyExit)
 	}
 	return ctr, nil
-}
-
-// govulncheck ./... reports no known vulnerability.
-//
-// A LAYER, LIKE staticcheck. The old script `go install`ed
-// golang.org/x/vuln/cmd/govulncheck@latest on every run; the lane now installs
-// it once at its pin, and the version probe is the check in its place, its own
-// exec under the default Expect.
-//
-// THE MODULES ARE DOWNLOADED FIRST, which the old script did NOT do — it
-// guarded the install and nothing else. govulncheck loads the package graph
-// before it scans, so a proxy that is briefly gone surfaces as a govulncheck
-// failure, and at exit 1 that reads as a vulnerability finding. MEASURED
-// 2026-09-10T02:58Z, gate-hades-c099a35: govulncheck red at "loading packages"
-// while the door rolled onto 9a5313fb. A door that is briefly gone is not a
-// verdict on the code, so the fetch is its own step and its failure is a 2.
-func goGovulncheck(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("go:govulncheck")
-	return r.eachModule(ctx, a, func(dir string) checks.Verdict {
-		out, code, err := output(ctx, r.goModules(dir).
-			WithExec([]string{"govulncheck", "-version"}).
-			WithExec([]string{"govulncheck", "./..."}, anyExit))
-		if err != nil {
-			return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
-		}
-		// govulncheck's 3 is "vulnerabilities found" and reads as 1; any
-		// other non-zero with a network fault in it is the database not
-		// answering, which AuditVerdict reads as could-not-run.
-		exit := checks.GovulncheckExit(code)
-		// AND ONLY THEN, THE ALLOWANCE. It is checked against a FINDINGS exit
-		// alone — never a could-not-run — because a scan that did not complete
-		// has found nothing to allow, and letting an allowance answer for it
-		// would turn "the advisory database was unreachable" into a pass.
-		// checks.SuppressedVulnReason fails closed on anything it cannot parse
-		// and on any advisory not covered; see vulnallow.go for why this exists.
-		if exit == 1 {
-			if why, ok := checks.SuppressedVulnReason(out, time.Now()); ok {
-				return checks.AllowedVulnVerdict(a, why, out)
-			}
-		}
-		return checks.AuditVerdict(a, exit, out)
-	})
 }
 
 // Every mutant gremlins makes of this pull's changed Go is killed by the tests.
@@ -1225,7 +1024,7 @@ const (
 	// goMutationExclude keeps generated Go out of the mutant population —
 	// vendored code, dagger's codegen, protobuf stubs and kubebuilder's
 	// zz_generated. See goMutation for the measurement.
-	goMutationExclude = `^vendor/|(^|/)dagger\.gen\.go$|\.pb\.go$|(^|/)zz_generated`
+	goMutationExclude = checks.GoMutationExclude
 )
 
 // goMutationDisable is the mutator set, by exclusion. gomutants ships 28

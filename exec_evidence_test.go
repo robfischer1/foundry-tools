@@ -55,19 +55,21 @@ func TestANonExecErrorIsUnchanged(t *testing.T) {
 	}
 }
 
-// THROUGH THE ENGINE: an exec in front of the atom's own fails, and the
-// atom's could-not-run says what that exec printed rather than only
-// "exit code: N". The paper engine attaches an exec error's streams for the
-// signal range (engine_fake_test.go's execError), which is the same
-// ExecError a code-1 setup failure arrives as on the cluster.
-func TestAnAtomThatNeverRanSaysWhatTheFailedExecPrinted(t *testing.T) {
+// THROUGH THE ENGINE: an exec in front of the one a chain asks about fails, and
+// the error says what that exec printed rather than only "exit code: N". The
+// paper engine attaches an exec error's streams for the signal range
+// (engine_fake_test.go's execError), which is the same ExecError a code-1 setup
+// failure arrives as on the cluster.
+func TestAChainThatNeverRanSaysWhatTheFailedExecPrinted(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	engine.exitCode(`"go","mod","download"`, 137)
 	engine.stderr(`"go","mod","download"`, "go: reading example.com/x: 404 Not Found")
-	v := registry["go:test"](t.Context(), newRun(dag.Directory(), "", ""))
-	if v.State != 2 || !strings.Contains(v.Reason, "never ran") || !strings.Contains(v.Reason, "404 Not Found") {
-		t.Fatalf("the could-not-run must carry the failed exec's stderr: %+v", v)
+	_, _, err := output(t.Context(), dag.Container().From("x").
+		WithExec([]string{"go", "mod", "download"}).
+		WithExec([]string{"go", "list"}, anyExit))
+	if err == nil || !strings.Contains(err.Error(), "404 Not Found") {
+		t.Fatalf("the error must carry the failed exec's stderr: %v", err)
 	}
 }
 

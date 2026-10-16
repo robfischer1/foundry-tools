@@ -145,8 +145,8 @@ func TestRustMutationWithNothingToMutateSettlesBeforeProvisioning(t *testing.T) 
 
 // EACH SCOPE LINE IS ITS OWN, on every branch of the reads: the database line
 // and the broker line both say why, and a reason one of them carries must not
-// pass for the other's. Held on go:test-race (withTestDatabases and
-// withTestBrokers, bound) and on go:mutation's early exit (the reads alone).
+// pass for the other's. Held on go:mutation's early exit (the reads alone);
+// The race atom's own reads are atoms.GoTestServers' and are held in internal/atoms.
 func TestTheTestServerScopeLinesSayWhyOnEveryBranch(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -172,7 +172,7 @@ func TestTheTestServerScopeLinesSayWhyOnEveryBranch(t *testing.T) {
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			for _, atom := range []string{"go:test-race", "go:mutation"} {
+			for _, atom := range []string{"go:mutation"} {
 				engine.reset()
 				engine.withTree(everyLaneTree)
 				engine.withTree(tc.tree)
@@ -191,24 +191,4 @@ func TestTheTestServerScopeLinesSayWhyOnEveryBranch(t *testing.T) {
 			}
 		})
 	}
-}
-
-// A BROKER ALONE STILL TAGS AND SERIALISES go:test-race: withTestBrokers hands
-// the brokers it bound back, and the run compiles their tag under -p 1.
-func TestGoTestRaceCompilesABrokerOnlyTreesTag(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.withTree(map[string]string{
-		".copier-answers.yml": "service_name: x\n",
-		"go.mod":              "module example.com/x\n",
-		"flows.go":            oneKafkaFlow,
-	})
-	engine.stdout(`"go","list"`, "11\n")
-	engine.stdout(`"grep","-rhoE"`, "//go:build live_kafka\n")
-	wantState(t, runAtom(t, "go:test-race", ""), 0, "test brokers: live_kafka")
-	c := engine.chain(`"go","test","-race"`, "exitCode")
-	wantCalls(t, c,
-		[]string{"withServiceBinding", `alias:"broker"`},
-		[]string{"withExec", `args:["go","test","-race","-tags","live_kafka","-p","1","-coverprofile","/tmp/go-test-race.cover","./..."]`},
-	)
 }
