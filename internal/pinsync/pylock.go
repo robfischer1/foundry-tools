@@ -73,7 +73,18 @@ func (e *Env) pythonPins(src *goSource, out map[string][]byte) (func(context.Con
 	}
 	return func(ctx context.Context) error {
 		fmt.Fprintf(e.Log, "pinsync: regenerating the lock: %s\n", h[1])
-		if err := e.RunLock(ctx, dir, strings.Fields(h[1])); err != nil {
+		// uv reads the -o file it is about to overwrite as preferences, hashes
+		// included, so a version edited in place keeps the hashes of the one it
+		// replaced: renovate's pip_requirements bumped pydantic-core 2.50.0 ->
+		// 2.50.1 in rollup 85a79c7 under 2.50.0's hashes, this regeneration
+		// kept them, and the lock failed to install (fixed by hand in #447).
+		// Stripping the hashes keeps the versions as preferences and makes uv
+		// fetch every hash fresh.
+		err := os.WriteFile(lockPath, stripHashes(lock), 0o644)
+		if err == nil {
+			err = e.RunLock(ctx, dir, strings.Fields(h[1]))
+		}
+		if err != nil {
 			return fmt.Errorf("regenerating the lock (%s): %w", h[1], err)
 		}
 		lock, err := os.ReadFile(lockPath)
@@ -88,6 +99,14 @@ func (e *Env) pythonPins(src *goSource, out map[string][]byte) (func(context.Con
 		return nil
 	}, nil
 }
+
+// hashLine is one `--hash=` continuation of a requirement, with the ` \`
+// that joined it to the line before.
+var hashLine = regexp.MustCompile(` \\\n[ \t]+--hash=[a-z0-9]+:[0-9a-f]+`)
+
+// stripHashes drops every --hash continuation from a uv-compiled lock, leaving
+// each requirement on its own line with its comments.
+func stripHashes(lock []byte) []byte { return hashLine.ReplaceAll(lock, nil) }
 
 // lockHolds says whether the lock pins exactly this name==version.
 func lockHolds(lock []byte, pin string) bool {
