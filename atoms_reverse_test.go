@@ -133,3 +133,35 @@ func TestTheDryShadowNamesTheChainsAsVoters(t *testing.T) {
 		t.Errorf("report %q", got)
 	}
 }
+
+// The comparison itself, over one atom named as chained: the chains' verdict is
+// held against the binary's vote, and a failing chain side is reported, not raised.
+func TestTheReverseShadowComparesAChainedAtom(t *testing.T) {
+	orig := chainedIDs
+	chainedIDs = func(string) []string { return []string{"fleet:check-yaml"} }
+	t.Cleanup(func() { chainedIDs = orig })
+	yaml := checks.VerdictOf(checks.AtomByID("fleet:check-yaml"), 0, "")
+	for name, tc := range map[string]struct {
+		chain func(context.Context, *FoundryTools, string, string, string) ([]checks.Verdict, error)
+		want  string
+	}{
+		"agree": {func(_ context.Context, _ *FoundryTools, _, only, _ string) ([]checks.Verdict, error) {
+			if only != "fleet:check-yaml" {
+				t.Errorf("the chains were asked for %q", only)
+			}
+			return []checks.Verdict{yaml}, nil
+		}, "shadow atoms (binary voted): 1 compared, 1 identical"},
+		"chains fail": {func(context.Context, *FoundryTools, string, string, string) ([]checks.Verdict, error) {
+			return nil, errors.New("engine gone")
+		}, "the chains did not answer: engine gone"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := &FoundryTools{box: newBallotBox(tc.chain)}
+			m.box.put(map[string]checks.Verdict{"fleet:check-yaml": yaml})
+			m.box.seal()
+			if got := m.reverseShadow(soon(t), "", ""); !strings.Contains(got, tc.want) {
+				t.Errorf("report %q lacks %q", got, tc.want)
+			}
+		})
+	}
+}
