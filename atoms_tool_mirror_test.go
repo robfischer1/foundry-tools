@@ -130,7 +130,8 @@ func TestFetchPinnedToolFailsClosedWithoutAPin(t *testing.T) {
 // would otherwise hide a lane that kept the bare upstream fetch.
 func TestWitLanesFetchTheirToolsMirrorFirst(t *testing.T) {
 	engine.reset()
-	engine.withTree(witComposeTree(nil))
+	engine.withTree(everyLaneTree)
+	engine.contents(witComposeNeedle, witVerdict("rust:wit-compose"))
 	wantState(t, runAtom(t, "rust:wit-compose", ""), 0)
 	for _, url := range []string{checks.WasmToolsURL, checks.WacURL} {
 		m := indexOfFetch(checks.ToolMirrorURL(checks.ToolSHA256[url]))

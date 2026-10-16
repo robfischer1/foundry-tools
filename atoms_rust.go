@@ -102,7 +102,7 @@ func (r *run) cargoFresh() *dagger.Container {
 }
 
 // cargoBounded is the gate's memory and CPU bound for the chains that COMPILE
-// (release, wit-guest), set AFTER the fetch so the fetch layer stays shared. Two
+// (release), set AFTER the fetch so the fetch layer stays shared. Two
 // knobs, both cargo's own environment (checks.CargoBoundedEnv carries the
 // measurement; the atoms that moved into files set the same pair themselves).
 // The mutation atom has its own caps (rustMutantCores) and sets them after this,

@@ -66,20 +66,3 @@ func TestRustReleaseIsBoundedButKeepsItsProfile(t *testing.T) {
 		}
 	}
 }
-
-func TestRustWitGuestIsBounded(t *testing.T) {
-	engine.reset()
-	engine.withTree(map[string]string{"Cargo.toml": witTwoWorlds})
-	engine.stdout(`"component","wit"`, "world w")
-	wantState(t, runAtom(t, "rust:wit-guest", ""), 0)
-	for _, probe := range []string{`"--target","` + checks.WitGuestTarget + `"`, `"cargo","test"`} {
-		c := engine.chain(probe, "exitCode")
-		if c == "" {
-			t.Fatalf("no chain for %s:\n%v", probe, engine.chains())
-		}
-		wantBounded(t, "rust:wit-guest", c, probe)
-		if strings.Contains(c, leverDevDb) || strings.Contains(c, leverTstDb) {
-			t.Errorf("only clippy and test trim debuginfo:\n%s", c)
-		}
-	}
-}
