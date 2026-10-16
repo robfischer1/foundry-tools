@@ -16,6 +16,32 @@ func TestTheScanVerdictsWordTheCouldNotRuns(t *testing.T) {
 	}
 }
 
+// The boundary of the cut: five errors are all shown, six show five and say one more.
+func TestUnmeasuredBoundary(t *testing.T) {
+	mk := func(n int) []string {
+		var e []string
+		for i := range n {
+			e = append(e, "e"+strings.Repeat("x", i))
+		}
+		return e
+	}
+	for _, tc := range []struct {
+		n         int
+		more      string
+		wantLines int
+	}{
+		{1, "", 1}, {4, "", 4}, {5, "", 5}, {6, "... and 1 more", 6}, {7, "... and 2 more", 6},
+	} {
+		got := Unmeasured(mk(tc.n))
+		if has := strings.Contains(got, "... and"); has != (tc.more != "") || (tc.more != "" && !strings.Contains(got, tc.more)) {
+			t.Errorf("%d errors: %q", tc.n, got)
+		}
+		if lines := strings.Count(got, "\n") + 1; lines != tc.wantLines {
+			t.Errorf("%d errors shown on %d lines, want %d", tc.n, lines, tc.wantLines)
+		}
+	}
+}
+
 func TestUnmeasuredShowsTheFirstFiveAndCountsTheRest(t *testing.T) {
 	if got := Unmeasured([]string{"a", "b"}); got != "a\nb" {
 		t.Errorf("%q", got)
