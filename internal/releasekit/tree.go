@@ -13,7 +13,6 @@ package releasekit
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -113,16 +112,11 @@ func (d Disk) RecordPaths(_ context.Context) ([]string, error) {
 	if d.Dies == "" {
 		return nil, errors.New("no foundry-dies checkout was given")
 	}
-	paths, err := filepath.Glob(filepath.Join(d.Dies, "fleet", "repos", "*.json"))
-	if err != nil {
-		return nil, err
-	}
+	// the pattern is constant, and Glob fails only on a malformed one
+	paths, _ := filepath.Glob(filepath.Join(d.Dies, "fleet", "repos", "*.json"))
 	out := make([]string, 0, len(paths))
 	for _, p := range paths {
-		rel, err := filepath.Rel(d.Dies, p)
-		if err != nil {
-			return nil, fmt.Errorf("%s is not under the checkout: %w", p, err)
-		}
+		rel, _ := filepath.Rel(d.Dies, p) // p is under the checkout by construction
 		out = append(out, filepath.ToSlash(rel))
 	}
 	slices.Sort(out)

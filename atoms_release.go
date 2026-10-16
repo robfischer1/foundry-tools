@@ -11,7 +11,7 @@ import (
 )
 
 // THE RELEASE BUILDS THE BUILD AND CAST LANES CONSUME (CA master-plan F14/F17).
-// go:release, python:release, rust:release and ts:release are files now
+// The go, python, rust and ts release atoms are files now
 // (atoms/<ns>/release), run by the adapter and by the executor; what each DECIDES
 // — whose image this is, what the build produces, which argv, what the exit
 // means — is internal/releasekit's, read through runTree here and through the

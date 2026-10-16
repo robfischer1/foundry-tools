@@ -210,3 +210,19 @@ func TestATreeThatCannotBeCopiedIsCouldNotRun(t *testing.T) {
 		t.Errorf("uv ran with nowhere to build: %v", f.Calls)
 	}
 }
+
+// A venv that cannot be carried out is the run's could-not-run.
+func TestAVenvThatCannotBeCarriedOutIsCouldNotRun(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "out")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	work := t.TempDir()
+	t.Setenv("ATOM_WORK", work)
+	t.Setenv("ATOM_RELEASE_OUT", filepath.Join(file, "release"))
+	t.Setenv("ATOM_RELEASE_APP", filepath.Join(work, "app"))
+	u := &uv{t: t}
+	in, f := atomtest.ToolTree(t, pythonStar(), u.answer)
+	f.Free = []string{"uv"}
+	atomtest.Expect(t, check(context.Background(), in), checks.StateCannotRun, atomtest.Cannot, "python:release: CANNOT RUN - the venv could not be carried out")
+}

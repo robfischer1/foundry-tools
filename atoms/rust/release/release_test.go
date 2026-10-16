@@ -317,3 +317,23 @@ func TestABinaryThatWillNotCopyIsCouldNotRun(t *testing.T) {
 		t.Errorf("builds %v", f.Calls)
 	}
 }
+
+// A target directory the previous binary cannot be cleared from stops the build:
+// a stale binary must never be carried.
+func TestATargetThatCannotBeClearedIsCouldNotRun(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "target")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ATOM_WORK", t.TempDir())
+	t.Setenv("ATOM_RELEASE_OUT", "")
+	t.Setenv("CARGO_TARGET_DIR", file)
+	c := &cargo{}
+	c.t = t
+	in, f := atomtest.ToolTree(t, star("tron", copiesTron), c.answer)
+	f.Free = []string{"cargo", "find"}
+	atomtest.Expect(t, check(context.Background(), in), checks.StateCannotRun, atomtest.Cannot, "could not clear")
+	if len(builds(f)) != 0 {
+		t.Errorf("cargo ran over a target it could not clear: %v", f.Calls)
+	}
+}

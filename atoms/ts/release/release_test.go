@@ -236,11 +236,11 @@ func TestAFrontendStarWithNoServiceNameIsNamedByItsRecord(t *testing.T) {
 // Dockerfile that cannot be read, records that cannot be listed.
 func TestTheBunReleaseSaysWhyItCouldNotAsk(t *testing.T) {
 	t.Setenv("ATOM_WORK", t.TempDir())
-	in, f := atomtest.ToolTree(t, bunStar(), nil)
+	in, _ := atomtest.ToolTree(t, bunStar(), nil)
 	in.FilesErr = os.ErrPermission
 	atomtest.Expect(t, check(context.Background(), in), checks.StateCannotRun, atomtest.Cannot, "the tree could not be read")
 
-	in, f = atomtest.ToolTree(t, bunStar(), nil)
+	in, f := atomtest.ToolTree(t, bunStar(), nil)
 	if err := os.Remove(filepath.Join(in.Root, "Dockerfile")); err != nil {
 		t.Fatal(err)
 	}
@@ -271,4 +271,18 @@ func TestATreeThatCannotBeCopiedIsCouldNotRun(t *testing.T) {
 	if len(f.Calls) != 0 {
 		t.Errorf("the steps ran with nowhere to build: %v", f.Calls)
 	}
+}
+
+// A release that cannot be carried out is the run's could-not-run.
+func TestAReleaseThatCannotBeCarriedOutIsCouldNotRun(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "out")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ATOM_WORK", t.TempDir())
+	t.Setenv("ATOM_RELEASE_OUT", filepath.Join(file, "release"))
+	b := &bun{t: t}
+	in, f := atomtest.ToolTree(t, bunStar(), b.answer)
+	f.Free = []string{"bun"}
+	atomtest.Expect(t, check(context.Background(), in), checks.StateCannotRun, atomtest.Cannot, "ts:release: CANNOT RUN - the release could not be carried out")
 }

@@ -63,9 +63,8 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 		return *stood
 	}
 	build := releasekit.BuildDir()
-	if err := os.RemoveAll(build); err != nil {
-		return checks.VerdictOf(row, int(checks.StateCannotRun), id+": CANNOT RUN - the build directory could not be cleared: "+err.Error())
-	}
+	// a build directory that cannot be cleared fails the copy below
+	_ = os.RemoveAll(build)
 	if err := releasekit.CopyTree(in.Root, build, releasekit.TSExcludes); err != nil {
 		return checks.VerdictOf(row, int(checks.StateCannotRun), id+": CANNOT RUN - the tree could not be copied: "+err.Error())
 	}

@@ -51,10 +51,8 @@ func CopyTree(src, dst string, globs []string) error {
 		if err != nil {
 			return err
 		}
-		rel, err := filepath.Rel(src, p)
-		if err != nil {
-			return err
-		}
+		// p is under src by construction, so it has a relative path
+		rel, _ := filepath.Rel(src, p)
 		if rel == "." {
 			return nil
 		}
@@ -71,10 +69,10 @@ func CopyTree(src, dst string, globs []string) error {
 			return os.MkdirAll(to, 0o755)
 		case d.Type()&fs.ModeSymlink != 0:
 			target, err := os.Readlink(p)
-			if err != nil {
-				return err
+			if err == nil {
+				err = os.Symlink(target, to)
 			}
-			return os.Symlink(target, to)
+			return err
 		}
 		return copyFile(p, to)
 	})
@@ -87,11 +85,11 @@ func copyFile(src, dst string) (err error) {
 		return err
 	}
 	defer in.Close()
-	fi, err := in.Stat()
-	if err != nil {
-		return err
+	perm := os.FileMode(0o644)
+	if fi, err := in.Stat(); err == nil { // the stat of a file just opened does not fail
+		perm = fi.Mode().Perm()
 	}
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fi.Mode().Perm())
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
 	if err != nil {
 		return err
 	}

@@ -70,7 +70,7 @@ func TestTheReleaseAtomsAreHandedTheTreeAsFacts(t *testing.T) {
 	}
 }
 
-// go:release runs in the plain go lane on the whole tree, and the dies are
+// The go release runs in the plain go lane on the whole tree, and the dies are
 // mounted for the star's record.
 func TestGoReleaseRunsInTheGoLane(t *testing.T) {
 	engine.reset()

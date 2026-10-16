@@ -87,7 +87,7 @@ func (m mem) Record(_ context.Context, rel string) (string, error) {
 	return m.records[rel], nil
 }
 
-var boom = errors.New("boom")
+var errBoom = errors.New("boom")
 
 func row(id string) checks.AtomDef {
 	return checks.AtomDef{ID: id, Stage: checks.StagePrepush, Lane: checks.LaneGo}
@@ -114,10 +114,10 @@ func TestUT_ResolveStandsDownInTheOrderTheChainsAsked(t *testing.T) {
 		state int
 		said  string
 	}{
-		{"the tree cannot be read", mem{fail: map[string]error{"Population": boom}}, 2, "go:release: CANNOT RUN - the tree could not be read: boom"},
+		{"the tree cannot be read", mem{fail: map[string]error{"Population": errBoom}}, 2, "go:release: CANNOT RUN - the tree could not be read: boom"},
 		{"no Dockerfile", with(nil), 0, "ABSENT - this repository tracks no Dockerfile or Containerfile"},
 		{"no star", mem{files: map[string]string{"Dockerfile": "FROM x\n"}}, 0, "ABSENT - no .copier-answers.yml and no clone URL to find a record by, so the repository names no star, so this is not a star image"},
-		{"records that cannot be listed", mem{files: map[string]string{"Dockerfile": "FROM x\n"}, fail: map[string]error{"RecordPaths": boom}}.at("http://o:8215/x.git"), 2, "CANNOT RUN - the fleet's records could not be listed: boom"},
+		{"records that cannot be listed", mem{files: map[string]string{"Dockerfile": "FROM x\n"}, fail: map[string]error{"RecordPaths": errBoom}}.at("http://o:8215/x.git"), 2, "CANNOT RUN - the fleet's records could not be listed: boom"},
 		{"a Dockerfile that cannot be read", with(map[string]string{"Dockerfile": "x"}).failing("File:Dockerfile"), 2, "CANNOT RUN - Dockerfile could not be read: boom"},
 		{"a Dockerfile that builds itself", with(map[string]string{"Dockerfile": "FROM x\nRUN go build\n"}), 0, "ABSENT - no tracked Dockerfile copies from release/, so this image compiles itself"},
 	}
@@ -145,7 +145,7 @@ func (m mem) failing(keys ...string) mem {
 		f[k] = v
 	}
 	for _, k := range keys {
-		f[k] = boom
+		f[k] = errBoom
 	}
 	m.fail = f
 	return m
@@ -181,7 +181,7 @@ func TestUT_StarNameReadsTheAnswersThenTheRecord(t *testing.T) {
 		{"a record by the clone", "http://o:8215/hephaestus.git", nil, nil, "hephaestus", "", false},
 		{"a clone no record names", "http://o:8215/nobody.git", nil, nil, "", "no .copier-answers.yml, and no record in foundry-dies names repo rob/nobody, so the repository names no star", true},
 		{"an answers file without the name and no clone", "", map[string]string{".copier-answers.yml": "x: y\n"}, nil, "", "no service_name in .copier-answers.yml and no clone URL to find a record by, so the repository names no star", true},
-		{"a record that cannot be read", "http://o:8215/other.git", nil, map[string]error{"Record:fleet/repos/hephaestus.json": boom}, "", "record fleet/repos/hephaestus.json could not be read: boom", false},
+		{"a record that cannot be read", "http://o:8215/other.git", nil, map[string]error{"Record:fleet/repos/hephaestus.json": errBoom}, "", "record fleet/repos/hephaestus.json could not be read: boom", false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			got, err := StarName(ctx, mem{files: c.files, records: records, fail: c.fail}, c.origin)
@@ -207,14 +207,14 @@ func TestUT_GoPlanDerivesTheBinariesAndRefusesWhatHasNoMain(t *testing.T) {
 		t.Errorf("%+v %q", plan, why)
 	}
 	// a tree whose root cannot be listed is not vendored, and the plan stands
-	plan, why = GoPlan(ctx, mem{dirs: []string{"cmd/hades/"}, fail: map[string]error{"Entries": boom}}, sub)
+	plan, why = GoPlan(ctx, mem{dirs: []string{"cmd/hades/"}, fail: map[string]error{"Entries": errBoom}}, sub)
 	if why != "" || plan.Vendored {
 		t.Errorf("%+v %q", plan, why)
 	}
 	if _, why = GoPlan(ctx, mem{}, sub); !strings.Contains(why, "copies release/hades and the tree carries no cmd/hades") {
 		t.Errorf("%q", why)
 	}
-	if _, why = GoPlan(ctx, mem{dirs: []string{"cmd/hades/"}, fail: map[string]error{"IsDir": boom}}, sub); !strings.Contains(why, "the tree could not be read for cmd/hades: boom") {
+	if _, why = GoPlan(ctx, mem{dirs: []string{"cmd/hades/"}, fail: map[string]error{"IsDir": errBoom}}, sub); !strings.Contains(why, "the tree could not be read for cmd/hades: boom") {
 		t.Errorf("%q", why)
 	}
 	if _, why = GoPlan(ctx, mem{}, Subject{Star: "hades", Body: "FROM x\nCOPY release/ /a\n"}); !strings.Contains(why, "copies no file out of it") {
@@ -240,7 +240,7 @@ func TestUT_GoRootWantsTheRootModuleAndAWalkThatWorks(t *testing.T) {
 	if err := GoRoot(ctx, mem{files: map[string]string{"tools/go.mod": ""}}); err == nil || !strings.Contains(err.Error(), "no go.mod at the repository root") {
 		t.Error(err)
 	}
-	if err := GoRoot(ctx, mem{fail: map[string]error{"Population": boom}}); err == nil || !strings.Contains(err.Error(), "could not enumerate the tree's Go modules: boom") {
+	if err := GoRoot(ctx, mem{fail: map[string]error{"Population": errBoom}}); err == nil || !strings.Contains(err.Error(), "could not enumerate the tree's Go modules: boom") {
 		t.Error(err)
 	}
 }
@@ -350,7 +350,7 @@ func TestUT_DiskIsATreeOverACheckout(t *testing.T) {
 	if !slices.Equal(mods, []string{"go.mod", "tools/go.mod"}) {
 		t.Errorf("a pattern given twice is read once, in order: %v", mods)
 	}
-	if _, err := (Disk{FilesErr: boom}).Population(ctx); err != boom {
+	if _, err := (Disk{FilesErr: errBoom}).Population(ctx); err != errBoom {
 		t.Errorf("%v", err)
 	}
 	if b, err := d.File(ctx, "Dockerfile"); b != "FROM x" || err != nil {
@@ -480,5 +480,35 @@ func TestUT_EntriesAndCarry(t *testing.T) {
 	}
 	if err := Carry(dir, filepath.Join(file, "x", "y")); err == nil {
 		t.Error("a destination under a file was filled")
+	}
+}
+
+func TestUT_TSStepsAreTheFrozenInstallThenTheReleaseScript(t *testing.T) {
+	steps := TSSteps()
+	if len(steps) != 2 || strings.Join(steps[0], " ") != "bun install --frozen-lockfile" || strings.Join(steps[1], " ") != "bun run release" {
+		t.Errorf("%v", steps)
+	}
+}
+
+func TestUT_AnExcludedFileIsLeftOutAndACopyThatCannotBeMadeIsAnError(t *testing.T) {
+	src, dst := t.TempDir(), filepath.Join(t.TempDir(), "copy")
+	for rel, body := range map[string]string{"release": "a file, not a directory", "keep": "x"} {
+		if err := os.WriteFile(filepath.Join(src, rel), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := CopyTree(src, dst, TSExcludes); err != nil {
+		t.Fatal(err)
+	}
+	if got := Entries(dst); !slices.Equal(got, []string{"keep"}) {
+		t.Errorf("copied %v", got)
+	}
+	// the source file cannot be opened
+	if err := copyFile(filepath.Join(src, "nowhere"), filepath.Join(dst, "x")); err == nil {
+		t.Error("a missing source copied")
+	}
+	// the destination is a directory
+	if err := copyFile(filepath.Join(src, "keep"), src); err == nil {
+		t.Error("a file was copied over a directory")
 	}
 }

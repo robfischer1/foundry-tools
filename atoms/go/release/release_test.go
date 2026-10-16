@@ -341,3 +341,20 @@ func TestRecordsThatCannotBeReadAreCouldNotRunNotNoStar(t *testing.T) {
 	}
 	atomtest.Expect(t, check(context.Background(), in), checks.StateCannotRun, atomtest.Cannot, "record fleet/repos/b.json could not be read")
 }
+
+// A release directory that cannot be made is the run's could-not-run, and the
+// compile does not start.
+func TestAReleaseDirectoryThatCannotBeMadeIsCouldNotRun(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "out")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ATOM_WORK", t.TempDir())
+	t.Setenv("ATOM_RELEASE_OUT", filepath.Join(file, "release"))
+	in, f := atomtest.ToolTree(t, merge(star("hades", copiesHades, nil), cmds("hades")), nil)
+	f.Free = []string{"go"}
+	atomtest.Expect(t, check(context.Background(), in), checks.StateCannotRun, atomtest.Cannot, "the release directory could not be made")
+	if len(f.Calls) != 0 {
+		t.Errorf("the compile ran with nowhere to put its binary: %v", f.Calls)
+	}
+}
