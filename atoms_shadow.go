@@ -378,7 +378,7 @@ func (m *FoundryTools) startShadow(ctx context.Context, stage, base string) *sha
 	if voting {
 		// The vote reaches the shadow through the box, set BEFORE the goroutine
 		// starts and before the lane grades.
-		h.box = newBallotBox(shadowToday, reverseShadowWitness)
+		h.box = newBallotBox(shadowToday)
 		m.box = h.box
 	}
 	ctx, h.cancel = context.WithTimeout(ctx, timeout)

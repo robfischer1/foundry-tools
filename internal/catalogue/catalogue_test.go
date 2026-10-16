@@ -388,3 +388,52 @@ func TestTheDeclaredBinaryVotersAreRealPythonAtoms(t *testing.T) {
 		t.Error("only toolchain none, or a declared id, votes in the binary")
 	}
 }
+
+// unported is the twelve atoms that stay Dagger chains with a table row in
+// checks.atomTable (DEF-B3-035, DEF-B3-044): release and mutation for each
+// language, and the ones whose chain is a multi-container pipeline.
+var unported = []string{
+	"go:mutation", "go:release",
+	"python:mutation", "python:release",
+	"rust:mutation", "rust:release", "rust:wit-compose", "rust:wit-guest",
+	"ts:mutation", "ts:regen", "ts:release", "ts:visual",
+}
+
+// TestIT_285_EveryCatalogueIDIsOneFileOrTheUnportedSet (lld FN-090 step 3): the
+// catalogue ids that no file declares are exactly the unported set, and every
+// other id is declared by exactly one file under atoms/, a .go Def or a .toml
+// manifest.
+func TestIT_285_EveryCatalogueIDIsOneFileOrTheUnportedSet(t *testing.T) {
+	dirs, manifests, err := scan(filepath.Join(root, "atoms"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]int{}
+	for _, d := range dirs {
+		files[strings.Replace(d, "/", ":", 1)]++
+	}
+	for _, m := range manifests {
+		ns, name, _ := strings.Cut(strings.TrimPrefix(m, "atoms/"), "/")
+		files[ns+":"+strings.TrimSuffix(name, ".toml")]++
+	}
+	var rowOnly []string
+	catalogued := map[string]bool{}
+	for _, a := range checks.Atoms() {
+		catalogued[a.ID] = true
+		switch n := files[a.ID]; {
+		case n == 0:
+			rowOnly = append(rowOnly, a.ID)
+		case n > 1:
+			t.Errorf("%s is declared by %d files", a.ID, n)
+		}
+	}
+	for id := range files {
+		if !catalogued[id] {
+			t.Errorf("a file declares %s, which the catalogue does not carry", id)
+		}
+	}
+	slices.Sort(rowOnly)
+	if !slices.Equal(rowOnly, unported) {
+		t.Errorf("ids with no file under atoms/ = %v, want the unported set %v", rowOnly, unported)
+	}
+}
