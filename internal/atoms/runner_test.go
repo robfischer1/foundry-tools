@@ -79,7 +79,7 @@ func TestBuiltinIsThePortedAtomsInOrder(t *testing.T) {
 		"dies:contracts", "dies:contract-copies", "dies:schema", "dies:findings", "dies:schemas",
 		"dies:wit-regenerated", "dies:schema-rendered", "dies:wire-grammar", "dies:resource-referents", "dies:capabilities-served", "dies:grants-stamp", "law:lint", "law:verb-liveness", "law:budget",
 		"orbit:contracts", "orbit:surface", "orbit:sidecars", "orbit:repo",
-		"ops:orbit-composed", "ops:orbit-sidecars", "ops:immutable", "ops:yaml", "ops:shell", "ops:chezmoi", "ops:flux", "ops:dup", "ops:declaration", "ops:specs", "ops:metrics", "ops:star-sa", "ops:world-patches", "ops:ansible",
+		"ops:orbit-composed", "ops:orbit-sidecars", "ops:immutable", "ops:yaml", "ops:shell", "ops:chezmoi", "ops:flux", "ops:dup", "ops:declaration", "ops:specs", "ops:metrics", "ops:star-sa", "ops:world-patches", "ops:record-lanes", "ops:ansible",
 		"template:render-matrix", "wit:validate",
 	}
 	if got := reg.IDs(); fmt.Sprint(got) != fmt.Sprint(want) {

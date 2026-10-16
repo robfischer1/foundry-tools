@@ -265,6 +265,10 @@ func atomTable() []AtomDef {
 			Desc: "The repo's own tools/world-patches (flux): every pistis.star patch in prime reaches Worlds as JSON6902, and no World writes out what a patch adds, or it names the drift (a World's pod freezes otherwise).",
 		},
 		{
+			ID: "ops:record-lanes", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
+			Desc: "Flux's RECORD_LANES (prime/daedalus-jobs.yaml) and record_lanes (the TOML in prime/ourea-config.yaml) are the same set, and each holds every EXECUTOR_LANES lane plus atoms and dev - a lane that owes a record to one reader and not the other settles differently depending on who asks.",
+		},
+		{
 			ID: "ops:ansible", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "Every playbook under ansible/playbooks passes ansible-playbook --syntax-check and ansible-lint at profile min; the basic-profile count is reported, not gated.",
 		},

@@ -274,6 +274,7 @@ func Builtin() []Atom {
 		tree("ops:metrics", opsMetrics),
 		tree("ops:star-sa", opsStarSA),
 		tree("ops:world-patches", opsWorldPatches),
+		tree("ops:record-lanes", opsRecordLanes),
 		tree("ops:ansible", opsAnsible),
 		tree("template:render-matrix", templateRenderMatrix),
 		tree("wit:validate", witValidate),
