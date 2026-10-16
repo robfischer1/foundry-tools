@@ -104,6 +104,13 @@ func TestRegenToolVersionDropsTheName(t *testing.T) {
 	if got := RegenToolVersion("  1.250.0  "); got != "1.250.0" {
 		t.Fatal(got)
 	}
+	// The prebuilt release adds its commit and date; the pin is the number.
+	if got := RegenToolVersion("wasm-tools 1.250.0 (4a72fcd2e 2026-05-21)\n"); got != "1.250.0" {
+		t.Fatal(got)
+	}
+	if got := RegenToolVersion(""); got != "" {
+		t.Fatal(got)
+	}
 }
 
 func TestParseSha256sum(t *testing.T) {
