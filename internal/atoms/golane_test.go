@@ -109,7 +109,7 @@ func TestProvisionIsACouldNotRunWhenTheStepFails(t *testing.T) {
 }
 
 func TestNeverRanAndTheLastLine(t *testing.T) {
-	v := NeverRan(golaneRow, "exec: \"go\": not found")
+	v := CouldNotStart(golaneRow, "exec: \"go\": not found")
 	if v.State != 2 || !strings.Contains(v.Reason, "the atom never ran: exec: \"go\": not found") {
 		t.Errorf("%+v", v)
 	}

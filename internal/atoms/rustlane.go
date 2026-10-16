@@ -22,7 +22,7 @@ import (
 // program that would not start (code -1) never ran.
 func CargoVerdict(a checks.AtomDef, out string, code int) checks.Verdict {
 	if code < 0 {
-		return NeverRan(a, out)
+		return CouldNotStart(a, out)
 	}
 	return checks.VerdictOf(a, checks.CargoExit(code), out)
 }

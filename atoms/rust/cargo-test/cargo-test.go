@@ -73,7 +73,7 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 	for _, set := range sets {
 		out, code := atoms.CargoExec(ctx, in, env, checks.MoldRun(slices.Concat([]string{"cargo", "test"}, set, []string{"--", "--list"}))...)
 		if code < 0 {
-			return atoms.NeverRan(row, out)
+			return atoms.CouldNotStart(row, out)
 		}
 		if code != 0 {
 			return checks.VerdictOf(row, 1, id+": FINDINGS - the tests did not build: "+checks.FirstCargoError(out))

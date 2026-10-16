@@ -53,9 +53,9 @@ func EachGoModule(in Input, a checks.AtomDef, one func(dir string) checks.Verdic
 // GoModuleRoot is a module's directory on disk.
 func GoModuleRoot(in Input, dir string) string { return filepath.Join(in.Root, dir) }
 
-// NeverRan is the verdict for a program that would not start: the engine's
+// CouldNotStart is the verdict for a program that would not start: the engine's
 // "the atom never ran", which is the atom's could-not-run and never a pass.
-func NeverRan(a checks.AtomDef, why string) checks.Verdict {
+func CouldNotStart(a checks.AtomDef, why string) checks.Verdict {
 	return checks.VerdictOf(a, 2, "the atom never ran: "+why)
 }
 

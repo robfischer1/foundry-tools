@@ -55,7 +55,7 @@ func module(ctx context.Context, in atomkit.In, dir string) checks.Verdict {
 	run := func(ctx context.Context, c atoms.Cmd) (string, int) { return atoms.RunCmd(ctx, in, c) }
 	out, code := run(ctx, atoms.Cmd{Dir: cwd, Name: "govulncheck", Args: []string{"./..."}})
 	if code < 0 {
-		return atoms.NeverRan(row, out)
+		return atoms.CouldNotStart(row, out)
 	}
 	// govulncheck's 3 is "vulnerabilities found" and reads as 1; any other
 	// non-zero with a network fault in it is the database not answering, which

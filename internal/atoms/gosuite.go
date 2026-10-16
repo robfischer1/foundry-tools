@@ -36,7 +36,7 @@ func GoSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race b
 	}
 	counts, code := in.run(ctx, Cmd{Dir: cwd, Name: "go", Args: []string{"list", "-f", "{{len .TestGoFiles}}{{len .XTestGoFiles}}", "./..."}})
 	if code < 0 {
-		return NeverRan(a, counts)
+		return CouldNotStart(a, counts)
 	}
 	if code != 0 {
 		// A module that will not even list is a red about the module, and the
@@ -78,7 +78,7 @@ func GoSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race b
 	args = append(args, "./...")
 	out, code := in.run(ctx, Cmd{Dir: cwd, Name: "go", Args: args, Env: env, Both: true})
 	if code < 0 {
-		return NeverRan(a, out)
+		return CouldNotStart(a, out)
 	}
 	v := checks.VerdictOf(a, code, out)
 	v.Reason = scope + "\n" + plan.Scope + "\n" + v.Reason
