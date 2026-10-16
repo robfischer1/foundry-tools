@@ -697,3 +697,62 @@ func TestWrapNamesWhatWasRead(t *testing.T) {
 		t.Error("wrap")
 	}
 }
+
+// A work directory that cannot be made is a could-not-run, wherever it is first needed.
+func TestTSRegenCannotRunWhenItsDirectoriesCannotBeMade(t *testing.T) {
+	for name, block := range map[string]string{
+		"world":  "ts-regen",
+		"core":   "ts-regen/stamp/core",
+		"rustup": "ts-regen-tools/rustup",
+		"node":   "ts-regen-tools/node",
+	} {
+		_, in, _ := withFake(t, star(t, "1.250.0", "stamp"))
+		work := os.Getenv("ATOM_WORK")
+		if name == "core" {
+			g := in.Exec
+			in.Exec = func(ctx context.Context, c atoms.Cmd) (string, int) {
+				if c.Name == "git" && c.Args[0] == "show" && strings.HasSuffix(c.Args[1], "tapes/stamp.json") {
+					put(t, work, block, "in the way")
+				}
+				return g(ctx, c)
+			}
+		} else {
+			put(t, work, block, "in the way")
+		}
+		if v := check(t.Context(), in); v.State != 2 || !strings.Contains(v.Reason, "CANNOT RUN") {
+			t.Errorf("%s: %+v", name, v)
+		}
+	}
+}
+
+func TestTSRegenCannotRunWhenNodeWillNotArrive(t *testing.T) {
+	_, in, _ := withFake(t, star(t, "1.250.0", "stamp"))
+	good := fetchPinned
+	fetchPinned = func(ctx context.Context, c *http.Client, sources []string, sum, dest string) error {
+		if strings.Contains(sources[0], "nodejs") || strings.Contains(sources[len(sources)-1], "nodejs") {
+			return errors.New("nodejs.org is down")
+		}
+		return good(ctx, c, sources, sum, dest)
+	}
+	if v := check(t.Context(), in); v.State != 2 || !strings.Contains(v.Reason, "node 24.21.0: nodejs.org is down") {
+		t.Errorf("%+v", v)
+	}
+}
+
+func TestTSRegenFallsBackToTheCompileWhenTheReleaseDirectoryCannotBeMade(t *testing.T) {
+	f, in, _ := withFake(t, star(t, "1.250.0", "stamp"))
+	put(t, os.Getenv("ATOM_WORK"), "ts-regen-tools/wasm-tools-1.250.0", "in the way")
+	if v := check(t.Context(), in); v.State != 0 {
+		t.Errorf("%+v", v)
+	}
+	if !strings.Contains(f.bodies["stamp-core-inner.sh"], installLine) {
+		t.Error("the script must compile what could not be placed")
+	}
+}
+
+func TestAnAssetWithNoPinIsNeverFetched(t *testing.T) {
+	_, in, _ := withFake(t, atomkit.In{})
+	if err := newProvision(in).fetch(t.Context(), "https://example.com/unpinned.tar.gz", filepath.Join(t.TempDir(), "x")); err == nil {
+		t.Error("an asset nothing vouches for must not be fetched")
+	}
+}

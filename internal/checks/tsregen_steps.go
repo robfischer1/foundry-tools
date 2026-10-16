@@ -174,18 +174,18 @@ func fetchOne(ctx context.Context, client *http.Client, src, sum, dest string) e
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(dest), ".fetch-")
+	f, err := os.Create(dest)
 	if err != nil {
 		return err
 	}
-	defer os.Remove(tmp.Name())
 	h := sha256.New()
-	_, err = io.Copy(io.MultiWriter(tmp, h), resp.Body)
-	if err = errors.Join(err, tmp.Close()); err != nil {
-		return err
+	_, err = io.Copy(io.MultiWriter(f, h), resp.Body)
+	err = errors.Join(err, f.Close())
+	if got := hex.EncodeToString(h.Sum(nil)); err == nil && got != sum {
+		err = fmt.Errorf("sha256 %s, pinned %s", got, sum)
 	}
-	if got := hex.EncodeToString(h.Sum(nil)); got != sum {
-		return fmt.Errorf("sha256 %s, pinned %s", got, sum)
+	if err != nil {
+		_ = os.Remove(dest)
 	}
-	return os.Rename(tmp.Name(), dest)
+	return err
 }

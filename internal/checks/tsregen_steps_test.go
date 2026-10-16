@@ -167,3 +167,34 @@ func TestSHA256FileIsSha256sum(t *testing.T) {
 		t.Error("a missing file has no digest")
 	}
 }
+
+func TestFetchPinnedRefusesWhatCannotBeRequestedOrWritten(t *testing.T) {
+	if err := FetchPinned(context.Background(), nil, []string{"http://[::1"}, sumOf("a"), filepath.Join(t.TempDir(), "x")); err == nil {
+		t.Error("a source that is not a URL is an error")
+	}
+	good := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("asset")) }))
+	defer good.Close()
+	dir := t.TempDir()
+	if err := FetchPinned(context.Background(), nil, []string{good.URL}, sumOf("asset"), dir); err == nil {
+		t.Error("a destination that is a directory cannot be written")
+	}
+	// a body that ends before its length is a failed source, and leaves nothing
+	cut := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "100")
+		_, _ = w.Write([]byte("short"))
+	}))
+	defer cut.Close()
+	dest := filepath.Join(t.TempDir(), "x")
+	if err := FetchPinned(context.Background(), nil, []string{cut.URL}, sumOf("asset"), dest); err == nil {
+		t.Error("a truncated body is an error")
+	}
+	if _, err := os.Stat(dest); err == nil {
+		t.Error("a failed fetch leaves no file")
+	}
+}
+
+func TestSHA256FileOfADirectoryHasNoDigest(t *testing.T) {
+	if _, err := SHA256File(t.TempDir()); err == nil {
+		t.Error("a directory has no bytes to hash")
+	}
+}
