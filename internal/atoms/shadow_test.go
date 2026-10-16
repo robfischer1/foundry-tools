@@ -9,8 +9,15 @@ import (
 	"dagger/foundry-tools/internal/checks"
 )
 
+// verdict is an atom's verdict for a row that need not be in this package's
+// catalogue (the atoms that live in their own files are not): the comparison reads
+// the identity, and fleet:witness is the push stage's.
 func verdict(id string, state int, out string) checks.Verdict {
-	return checks.VerdictOf(checks.AtomByID(id), state, out)
+	stage := checks.StagePrecommit
+	if id == "fleet:witness" {
+		stage = checks.StagePrepush
+	}
+	return checks.VerdictOf(checks.AtomDef{ID: id, Stage: stage, Lane: checks.LaneAny}, state, out)
 }
 
 func TestRenderCarriesTheShadowsWallTime(t *testing.T) {

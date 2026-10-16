@@ -13,8 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"dagger/foundry-tools/internal/atoms"
-	"dagger/foundry-tools/internal/catalogue"
 	"dagger/foundry-tools/internal/checks"
 )
 
@@ -146,25 +144,15 @@ func TestAReverseShadowDoesNotWaitForAVoteThatCannotCome(t *testing.T) {
 	}
 }
 
-// The chain's fleet:witness is not run beside the voter's real asks, and the
-// report says it was left out; a switch brings it back.
-func TestTheReverseShadowLeavesTheWitnessChainOut(t *testing.T) {
-	ids, skipped := reverseIDs(checks.StagePrepush, false)
-	chained := 0 // the binary's atoms that no file of their own answers
-	for _, id := range atoms.StageIDs(checks.StagePrepush) {
-		if !catalogue.Ported(id) {
-			chained++
+// fleet:witness lives in its own file, so no chain of it exists to run beside the
+// voter's real asks: the reverse shadow never asks for one, whichever way the
+// switch is set.
+func TestTheReverseShadowAsksForNoWitnessChain(t *testing.T) {
+	for _, with := range []bool{false, true} {
+		ids, skipped := reverseIDs(checks.StagePrepush, with)
+		if skipped || slices.Contains(ids, "fleet:witness") {
+			t.Errorf("witness switch %v: ids %v skipped %v", with, ids, skipped)
 		}
-	}
-	if !skipped || slices.Contains(ids, "fleet:witness") || len(ids) != chained-1 {
-		t.Errorf("ids %v skipped %v", ids, skipped)
-	}
-	// an atom that lives in its own file has no chain to hold against
-	if ids, skipped := reverseIDs(checks.StageOrbit, false); skipped || len(ids) != 0 {
-		t.Errorf("orbit: ids %v skipped %v", ids, skipped)
-	}
-	if ids, skipped := reverseIDs(checks.StagePrepush, true); skipped || !slices.Contains(ids, "fleet:witness") {
-		t.Errorf("with the switch on: ids %v skipped %v", ids, skipped)
 	}
 	for _, with := range []bool{false, true} {
 		var only string
@@ -175,7 +163,7 @@ func TestTheReverseShadowLeavesTheWitnessChainOut(t *testing.T) {
 		m.box.put(map[string]checks.Verdict{})
 		m.box.seal()
 		m.reverseShadow(soon(t), checks.StagePrepush, "")
-		if strings.Contains(only, "fleet:witness") != with {
+		if strings.Contains(only, "fleet:witness") {
 			t.Errorf("witness switch %v: the chains were asked for %q", with, only)
 		}
 	}

@@ -68,12 +68,7 @@ func TestBuiltinIsThePortedAtomsInOrder(t *testing.T) {
 	}
 	// The atoms still written here, in the order the vector lists them: the ones
 	// that live in their own files (atoms/<ns>/<name>) follow them.
-	want := []string{
-		"fleet:check-yaml", "fleet:check-added-large-files", "fleet:stop-justifications",
-		"fleet:sast-ruleset-lanes", "fleet:copier-answers-intact", "fleet:ourea-config-retired-keys", "fleet:retired-verbs",
-		"fleet:orbit-drift", "fleet:dagger-lockstep", "fleet:renovate-lockstep", "fleet:node-kinds-declared", "fleet:consumed-events-emitted",
-		"fleet:opengrep-sast", "fleet:hadolint", "fleet:wit-topics", "fleet:pdp-wired", "fleet:kafka-flows", "fleet:witness",
-	}
+	var want []string
 	if got := reg.IDs(); fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("ids %q, want %q", got, want)
 	}
@@ -334,7 +329,7 @@ func TestExecuteOfNothingIsNothing(t *testing.T) {
 func TestUseExtraAppendsThePortedAtoms(t *testing.T) {
 	old := ported
 	t.Cleanup(func() { ported = old })
-	extra := Atom{ID: "fleet:check-yaml", Scope: ScopeTree}
+	extra := Atom{ID: "go:release", Scope: ScopeTree}
 	UseExtra(func() []Atom { return []Atom{extra} })
 	got := Builtin()
 	if last := got[len(got)-1]; last.ID != extra.ID {

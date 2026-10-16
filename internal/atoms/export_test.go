@@ -3,62 +3,22 @@ package atoms
 import (
 	"context"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
 	"dagger/foundry-tools/internal/checks"
 )
 
-// The tree the atoms in their own packages are handed answers the three
-// questions the chains asked of their Directory, and the whole walk.
-func TestTheExportedTreeAnswersEntriesReadsGlobsAndTheWalk(t *testing.T) {
-	in := treeIn(t, map[string]string{"a.txt": "A", "d/b.yml": "B", "d/c.yml": "C"})
-	tr := in.Tree()
-	if got, err := tr.Entries("."); err != nil || !slices.Equal(got, []string{"a.txt", "d/"}) {
-		t.Errorf("entries %v, %v", got, err)
-	}
-	if got, err := tr.Read("d/b.yml"); err != nil || got != "B" {
-		t.Errorf("read %q, %v", got, err)
-	}
-	if got := tr.Glob("d/*.yml"); !slices.Equal(got, []string{"d/b.yml", "d/c.yml"}) {
-		t.Errorf("glob %v", got)
-	}
-	if got, err := tr.Files(); err != nil || !slices.Equal(got, []string{"a.txt", "d/b.yml", "d/c.yml"}) {
-		t.Errorf("files %v, %v", got, err)
-	}
-}
-
 // A tree with no rules/sast is absent unless a fleet template stamped it.
-func TestTheExportedTreeSaysWhatAnAbsentRulesetMeans(t *testing.T) {
+func TestTheTreeSaysWhatAnAbsentRulesetMeans(t *testing.T) {
 	a := checks.AtomDef{ID: "fleet:opengrep-sast", Stage: checks.StagePrecommit, Lane: checks.LaneAny}
-	expect(t, treeIn(t, map[string]string{"main.go": "x"}).Tree().AbsentRuleset(a), checks.StatePass, absent, "no SAST-shipping fleet template stamped it")
-	stamped := treeIn(t, map[string]string{".copier-answers.yml": "_src_path: https://git.notusmi.com/rob/go-repo-template.git\n"})
-	expect(t, stamped.Tree().AbsentRuleset(a), checks.StateCannotRun, cannot, "go-repo-template stamped it")
-}
-
-// The program seam is the input's Exec, or the real thing.
-func TestTheExportedRunIsTheInputsExecOrTheRealProgram(t *testing.T) {
-	var ran []string
-	in := Input{Exec: func(_ context.Context, c Cmd) (string, int) {
-		ran = append(ran, c.Name)
-		return "answered", 3
-	}}
-	if out, code := in.Run(t.Context(), Cmd{Name: "tool"}); out != "answered" || code != 3 || !slices.Equal(ran, []string{"tool"}) {
-		t.Errorf("%q %d %v", out, code, ran)
+	unstamped := treeIn(t, map[string]string{"main.go": "x"}).Tree().AbsentRuleset(a)
+	if unstamped.State != int(checks.StatePass) || unstamped.Result != "absent" {
+		t.Errorf("%+v", unstamped)
 	}
-	if out, code := (Input{}).Run(t.Context(), Cmd{Name: "/no/such/program"}); code != -1 || !strings.Contains(out, "/no/such/program") {
-		t.Errorf("a program that would not start: %q %d", out, code)
-	}
-}
-
-func TestTheExportedDoorIsTheInputsOrTheProductions(t *testing.T) {
-	d := checks.Door{Base: "http://door.invalid"}
-	if got := (Input{Door: d}).GitDoor(); got.Base != d.Base {
-		t.Errorf("%+v", got)
-	}
-	if got := (Input{}).GitDoor(); got.Base != checks.NewDoor().Base {
-		t.Errorf("%+v", got)
+	stamped := treeIn(t, map[string]string{".copier-answers.yml": "_src_path: https://git.notusmi.com/rob/go-repo-template.git\n"}).Tree().AbsentRuleset(a)
+	if stamped.State != int(checks.StateCannotRun) || !strings.Contains(stamped.Reason, "go-repo-template stamped it") {
+		t.Errorf("%+v", stamped)
 	}
 }
 
@@ -80,9 +40,16 @@ func TestScratchPathsLiveUnderTheAtomsWorkDirectory(t *testing.T) {
 	}
 }
 
-func TestTheExportedNeverRanIsTheCouldNotRunOfAProgramThatWouldNotStart(t *testing.T) {
-	v := NeverRan(checks.AtomDef{ID: "fleet:x", Stage: checks.StagePrecommit, Lane: checks.LaneAny}, "opengrep: gone")
-	if v.State != int(checks.StateCannotRun) || !strings.Contains(v.Reason, "the atom never ran: opengrep: gone") {
-		t.Errorf("%+v", v)
-	}
+// withOneAtom joins one atom of the pull path to the built-ins for the test: every
+// atom lives in its own file now (linked in by internal/catalogue), so a test of
+// the runner, the CLI or a stage asks for the one it needs. It passes.
+func withOneAtom(t *testing.T) {
+	t.Helper()
+	old := ported
+	t.Cleanup(func() { ported = old })
+	UseExtra(func() []Atom {
+		return []Atom{{ID: "go:release", Scope: ScopeTree, Run: func(_ context.Context, a checks.AtomDef, _ Input) checks.Verdict {
+			return checks.VerdictOf(a, int(checks.StatePass), "go:release: passes")
+		}}}
+	})
 }

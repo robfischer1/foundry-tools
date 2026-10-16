@@ -14,6 +14,7 @@ import "dagger/foundry-tools/internal/atomkit"
 // The set is declared, not guessed: an atom is added here by the commit that
 // ports it from internal/atoms and for no other reason.
 var votesInBinaryByHistory = map[string]bool{
+	"fleet:wit-topics":        true,
 	"dies:contracts":          true,
 	"dies:contract-copies":    true,
 	"dies:schema":             true,

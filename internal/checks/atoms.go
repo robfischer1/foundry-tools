@@ -167,83 +167,6 @@ func UseDefs(rows []AtomDef) {
 // mutant in a row is a mutant they see.
 func atomTable() []AtomDef {
 	return []AtomDef{
-		// ---- fleet: every repository, whatever it is written in ----
-		{
-			ID: "fleet:check-yaml", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "Every YAML file in the tree parses.",
-		},
-		{
-			ID: "fleet:check-added-large-files", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "No file in the tree exceeds 2 MB.",
-		},
-		{
-			ID: "fleet:stop-justifications", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet, NotOnForks: ForkFleetStyle,
-			Desc: "No silent suppression of any gate — a suppression carries a tool-conflict line.",
-		},
-		{
-			ID: "fleet:sast-ruleset-lanes", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "The SAST ruleset declares every lane this repository actually builds.",
-		},
-		{
-			ID: "fleet:copier-answers-intact", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "No crashed copier render is recorded in .copier-answers.yml.",
-		},
-		{
-			ID: "fleet:ourea-config-retired-keys", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "The ourea ConfigMap names no key the door has stopped reading.",
-		},
-		{
-			ID: "fleet:wit-topics", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "flux's committed redpanda/wit is current with redpanda/schemas - a topic schema changed, added or removed without regenerating, or a hand edit of aiws-topics.wit, fails (stellar-core F2).",
-		},
-		{
-			ID: "fleet:pdp-wired", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "Every container in flux's prime/star-*.yaml that arms the stellar-core-go policy PEP (STELLAR_PEP_MODE not off) also sets STELLAR_PDP_URL - unset, the PEP consults nothing and, in witness mode, refuses nothing.",
-		},
-		{
-			ID: "fleet:renovate-config", Stage: StagePrecommit, Lane: LaneAny, Image: ImageRenovate,
-			Desc: "A root config.js that is a Renovate global config passes renovate-config-validator --strict, run from the Renovate image the fleet deploys.",
-		},
-		{
-			ID: "fleet:retired-verbs", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "No skill, agent, command, hook, setting, governance block or rule names a retired MCP verb.",
-		},
-		{
-			ID: "fleet:orbit-drift", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
-			Desc: "This repo's declared seams agree with the canonical contracts in foundry-dies/orbits.",
-		},
-		{
-			ID: "fleet:dagger-lockstep", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
-			Desc: "The dagger CLI, engine and module pins in this tree agree with the engine foundry/flux runs — CLI and engine move in lockstep.",
-		},
-		{
-			ID: "fleet:renovate-lockstep", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
-			Desc: "The Renovate image this repo pins (ImageRenovate) equals the one foundry/flux deploys, and flux's two containers agree.",
-		},
-		{
-			ID: "fleet:node-kinds-declared", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
-			Desc: "Every node kind this repo's Go code captures is declared in chaos's node_kinds, so the foreign key never refuses it at runtime.",
-		},
-		{
-			ID: "fleet:consumed-events-emitted", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
-			Desc: "Every event_type this repo consumes has at least one live emitter in the fleet, so a retired producer cannot leave a reader silent.",
-		},
-		{
-			ID: "fleet:opengrep-sast", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "SAST scan that refuses a zero-file scan.",
-		},
-		// RECORDS, NEVER GRADES (slag-by-kind F13): the topics a tree produces
-		// to and consumes from, as findings beside the head's result, for nyx
-		// to compare with the broker. It passes on every tree it can read.
-		{
-			ID: "fleet:kafka-flows", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "Records the Kafka topics this tree produces to and consumes from (and each consumer group) as findings, for nyx; never fails a tree for having flows or an unresolved name.",
-		},
-		{
-			ID: "fleet:hadolint", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "Every Dockerfile in the tree passes hadolint under the fleet's ruleset.",
-		},
-
 		// ---- go ----
 		// THE PUSH STAGE'S ROWS ARE IN THE ORDER IT RUNS THEM, cheapest first:
 		// the sequence fails fast (Rob, 2026-09-17: "Each stage fails fast, and
@@ -293,10 +216,6 @@ func atomTable() []AtomDef {
 		},
 
 		// ---- compose: the host stacks. Ported off the act-runner's validate.yml ----
-		{
-			ID: "fleet:witness", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet, NotOnForks: ForkFleetStyle,
-			Desc: "Every changed .py/.go source file is shown to the code witness (narcissus), never a test: a canonical-class or Standard match is a finding, a Convention is advisory, novel is clean.",
-		},
 
 		// ---- visual: the visual lane, asked for by name (StageVisual) ----
 		{

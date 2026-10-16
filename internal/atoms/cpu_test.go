@@ -320,6 +320,7 @@ func TestExecuteChargesEachAtomItsOwnCPU(t *testing.T) {
 // always did. A profile that will not start and a kernel that will not say leave
 // the CPU unknown, and every verdict exactly as it was.
 func TestRunPrintsTheStageCPUAfterTheVector(t *testing.T) {
+	withOneAtom(t)
 	dir := newRepo(t)
 	put(t, dir, "ok.yml", "a: 1\n")
 	commitAll(t, dir, "root")
@@ -333,7 +334,7 @@ func TestRunPrintsTheStageCPUAfterTheVector(t *testing.T) {
 	}
 
 	var measured, blind bytes.Buffer
-	if code := Run(context.Background(), []string{"-root", dir, "-stage", "precommit"}, &measured, &bytes.Buffer{}, fixedNow); code != 0 {
+	if code := Run(context.Background(), []string{"-root", dir, "-stage", "prepush"}, &measured, &bytes.Buffer{}, fixedNow); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
 	v1, tr := parse(measured.String())
@@ -354,7 +355,7 @@ func TestRunPrintsTheStageCPUAfterTheVector(t *testing.T) {
 	t.Cleanup(func() { startProfile, processCPU = origStart, origCPU })
 	startProfile = func() *Profile { return nil }
 	processCPU = func() time.Duration { return 1499 * time.Microsecond }
-	if code := Run(context.Background(), []string{"-root", dir, "-stage", "precommit"}, &blind, &bytes.Buffer{}, fixedNow); code != 0 {
+	if code := Run(context.Background(), []string{"-root", dir, "-stage", "prepush"}, &blind, &bytes.Buffer{}, fixedNow); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
 	v2, tr2 := parse(blind.String())

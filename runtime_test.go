@@ -49,7 +49,7 @@ func TestEveryLaneDisablesTheOTelSDKAndTrustsTheEnginesCA(t *testing.T) {
 		"rust:cargo-clippy": atomExec,
 		"python:pip-audit":  `"pip-audit"`,
 		"ts:bun-audit":      `"bun","audit"`,
-		"fleet:witness":     `"git","--version"`,
+		"fleet:witness":     `"/atom","/src"`,
 	} {
 		engine.reset()
 		engine.withTree(everyLaneTree)

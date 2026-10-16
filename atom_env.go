@@ -52,6 +52,12 @@ type atomEnv struct {
 	// programs and the python venv its question execs. The chain provisioned
 	// them one run at a time; the container has them already.
 	tools bool
+	// fork hands the atom the fork record (ATOM_FORK) and nothing else of facts.
+	fork bool
+	// nogit leaves the repository alone: the atom reads files off the disk and
+	// asks git nothing, and its image runs as a user who cannot make a
+	// repository in /src (the Renovate image).
+	nogit bool
 	// narc says the atom execs narcissus's analyzer: it is mounted from the pin
 	// flux holds live, and a pin that could not be read reaches the atom as
 	// ATOM_NARC_ERR, which it settles 2 with.
@@ -104,6 +110,16 @@ var atomEnvironments = map[string]atomEnv{
 	"ops:immutable": {tools: true, facts: true},
 	"orbit:repo":    {origin: true},
 	"orbit:surface": {tools: true, origin: true, narc: true},
+
+	// The fleet atoms. The ones that exec a program or read the tree with the
+	// tools container's venv run there, as the binary's vote runs them; the
+	// witness's run is keyed so no earlier answer stands in for a later ask.
+	"fleet:stop-justifications": {origin: true},
+	"fleet:opengrep-sast":       {tools: true, fork: true},
+	"fleet:hadolint":            {tools: true},
+	"fleet:wit-topics":          {tools: true},
+	"fleet:witness":             {tools: true, facts: true, bind: witnessRun},
+	"fleet:renovate-config":     {container: renovateLane, nogit: true},
 }
 
 // rustTestLane is the fetched rust lane with the per-repo target held LOCKED, the
@@ -154,11 +170,17 @@ func (r *run) atomEnvironment(ctx context.Context, e catalogue.Entry) *dagger.Co
 	if env.origin {
 		ctr = ctr.WithEnvVariable("ATOM_ORIGIN", r.repo)
 	}
+	if env.fork {
+		ctr = ctr.WithEnvVariable("ATOM_FORK", r.forkRecord(ctx))
+	}
 	if env.facts || (ok && env.factsWhen != nil && env.factsWhen(ctx, r)) {
 		ctr = r.withBase(ctr).
 			WithEnvVariable("ATOM_BASE", r.base).
 			WithEnvVariable("ATOM_ORIGIN", r.repo).
 			WithEnvVariable("ATOM_FORK", r.forkRecord(ctx))
+	}
+	if ok && env.nogit {
+		return ctr
 	}
 	if ok && env.narrow {
 		ctr = r.gitReadyOn(ctx, ctr, r.code())

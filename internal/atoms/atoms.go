@@ -222,34 +222,9 @@ func Builtin() []Atom {
 	return append(builtin(), ported()...)
 }
 
-// builtin is the atoms still written in this package.
-func builtin() []Atom {
-	tree := func(id string, run RunFunc) Atom { return Atom{ID: id, Scope: ScopeTree, Run: run} }
-	// An atom whose tool is a pinned layer of the container the binary runs in
-	// (atoms_tools.go) carries no marker: the tool is on PATH wherever the
-	// binary is meant to run. That is every atom today, the python ones included
-	// (python.go): their packages are in the venv, not resolved by the atom.
-	return []Atom{
-		tree("fleet:check-yaml", checkYAML),
-		tree("fleet:check-added-large-files", checkAddedLargeFiles),
-		tree("fleet:stop-justifications", stopJustifications),
-		tree("fleet:sast-ruleset-lanes", sastRulesetLanes),
-		tree("fleet:copier-answers-intact", copierAnswersIntact),
-		tree("fleet:ourea-config-retired-keys", oureaConfigRetiredKeys),
-		tree("fleet:retired-verbs", retiredVerbs),
-		tree("fleet:orbit-drift", orbitDrift),
-		tree("fleet:dagger-lockstep", daggerLockstep),
-		tree("fleet:renovate-lockstep", renovateLockstep),
-		tree("fleet:node-kinds-declared", nodeKindsDeclared),
-		tree("fleet:consumed-events-emitted", consumedEventsEmitted),
-		tree("fleet:opengrep-sast", fleetOpengrepSast),
-		tree("fleet:hadolint", fleetHadolint),
-		tree("fleet:wit-topics", fleetWitTopics),
-		tree("fleet:pdp-wired", pdpWired),
-		tree(checks.KafkaFlowsID, kafkaFlows),
-		{ID: "fleet:witness", Scope: ScopeTree, Run: fleetWitness, Deadline: witnessDeadline},
-	}
-}
+// builtin is the atoms still written in this package: none. Every atom lives in
+// its own file (atoms/<ns>/<name>) and joins through UseExtra.
+func builtin() []Atom { return nil }
 
 // admittedBy is the set of catalogue ids a stage grades.
 func admittedBy(stage string) map[string]bool {

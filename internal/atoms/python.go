@@ -76,36 +76,3 @@ func pyVerdict(ctx context.Context, a checks.AtomDef, in Input, args ...string) 
 	}
 	return pySettle(ctx, a, in, args...)
 }
-
-// witTopicsChecker is flux's own gate for redpanda/wit (stellar-core F2).
-const witTopicsChecker = "tools/wit-topics"
-
-// fleetWitTopics: flux's redpanda/wit is the WIT of redpanda/schemas.
-//
-// THE CHECKER IS THE TREE'S, NOT EMBEDDED. flux holds neither the generator nor
-// a way to run it, so tools/wit-topics compares the digests the generator
-// recorded in aiws-topics.report.json: a schema edited and not regenerated, a
-// topic added or removed and a hand edit of aiws-topics.wit are one failure each.
-// Its exit code is the verdict, unmapped: 0 current, 1 stale, 2 could not run.
-//
-// ABSENT ONLY ON A TREE THAT IS NOT FLUX's, decided before python is touched:
-// prime/ is the fleet's flux tree and nothing else's. On that tree a missing
-// checker is a CANNOT RUN naming it, never an absence: a gate that goes quiet
-// when its script moves is how this one graded nothing.
-func fleetWitTopics(ctx context.Context, a checks.AtomDef, in Input) checks.Verdict {
-	t := in.tree()
-	roots, err := t.entries(".")
-	if err != nil {
-		return cannotEnumerate(a, err)
-	}
-	if !checks.HasEntry(roots, checks.OureaConfigDir) {
-		return checks.VerdictOf(a, int(checks.StatePass), a.ID+
-			": ABSENT - this tree carries no "+checks.OureaConfigDir+"/, so it is not the fleet's flux tree and holds no topic schemas to render")
-	}
-	if stop := RequirePaths(t, a, [][2]string{
-		{witTopicsChecker, witTopicsChecker + " is absent, so there is no checker to run and the topics' WIT is ungraded."},
-	}); stop != nil {
-		return *stop
-	}
-	return pyVerdict(ctx, a, in, witTopicsChecker)
-}

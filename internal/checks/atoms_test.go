@@ -130,7 +130,7 @@ func TestUseDefsJoinsTheRowsAndRefusesADuplicate(t *testing.T) {
 		t.Errorf("an id with no place sorts last, got %s", last.ID)
 	}
 
-	for _, rows := range [][]AtomDef{{{ID: "fleet:check-yaml"}}, {{ID: "x:a"}, {ID: "x:a"}}} {
+	for _, rows := range [][]AtomDef{{{ID: "go:release"}}, {{ID: "x:a"}, {ID: "x:a"}}} {
 		func() {
 			defer func() {
 				if r := recover(); r == nil || !strings.Contains(r.(string), "catalogued twice") {

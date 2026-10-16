@@ -311,7 +311,7 @@ func TestKafkaFlowFindingsAreFactsNotGrades(t *testing.T) {
 }
 
 func TestKafkaFlowsVerdictAlwaysPasses(t *testing.T) {
-	a := AtomByID(KafkaFlowsID)
+	a := AtomDef{ID: KafkaFlowsID, Stage: StagePrecommit, Lane: LaneAny}
 	files := goTree(map[string]string{"a/a.go": "package a\n" + kgoImport + `
 func p() { kgo.NewClient(kgo.DefaultProduceTopic(unknown)) }
 `})
