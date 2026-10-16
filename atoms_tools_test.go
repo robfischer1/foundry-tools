@@ -107,7 +107,7 @@ func TestEveryPinnedToolHasOneVerifiedSource(t *testing.T) {
 
 // EVERY PROGRAM THE ATOMS EXEC IS ON THE CONTAINER'S PATH: git and tar from the
 // base system, everything else a layer. An atom that execs a program no layer
-// carries is a could-not-run on every shadow, and looks like a finding about
+// carries is a could-not-run on every run, and looks like a finding about
 // the binary.
 func TestToolsContainerCarriesEveryProgram(t *testing.T) {
 	layered := map[string]bool{}

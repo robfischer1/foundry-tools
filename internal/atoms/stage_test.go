@@ -48,14 +48,14 @@ func TestStageIDs(t *testing.T) {
 	}
 }
 
-// Every registered atom is at a stage a lane that starts a shadow grades: a
-// catalogued atom of the mutation or visual stage would never be compared.
-func TestEveryBuiltinAtomIsAtAStageAShadowedLaneGrades(t *testing.T) {
+// Every registered atom is at a stage a lane that starts the binary grades: a
+// catalogued atom of the mutation or visual stage would never be run.
+func TestEveryBuiltinAtomIsAtAStageABinaryLaneGrades(t *testing.T) {
 	for _, a := range Builtin() {
 		switch checks.AtomByID(a.ID).Stage {
 		case checks.StagePrecommit, checks.StagePrepush, checks.StageOrbit:
 		default:
-			t.Errorf("%s is at stage %s, which no lane that starts a shadow grades", a.ID, checks.AtomByID(a.ID).Stage)
+			t.Errorf("%s is at stage %s, which no lane that starts the binary grades", a.ID, checks.AtomByID(a.ID).Stage)
 		}
 	}
 }

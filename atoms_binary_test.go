@@ -34,7 +34,7 @@ func coveredBy(dir string) bool {
 
 // THE FILTERED SOURCE IS ONLY AS GOOD AS ITS LIST. The atoms binary is built in
 // the engine from atomsSourceInclude and nothing else, so a package it imports
-// that the list omits is a `go build` failure no unit test can see: the shadow
+// that the list omits is a `go build` failure no unit test can see: the vote
 // would report "the binary did not answer" on every run, forever, and look like
 // a finding about the binary. This walks the import closure of ./atoms through
 // the module's own packages and holds the list to it in both directions - a
@@ -276,9 +276,6 @@ func TestAtomsRunAsksTheWitnessForRealAndMountsTheSocketWhereItIsCarried(t *test
 				t.Fatal(err)
 			}
 			c := engine.chain(`"/usr/local/bin/atoms"`)
-			if strings.Contains(c, `"-witness-dry"`) {
-				t.Errorf("the binary was told to run the witness dry:\n%s", c)
-			}
 			if got := strings.Contains(c, `"-spire"`) && strings.Contains(c, "withUnixSocket"); got != tc.socket {
 				t.Errorf("socket mounted: %v, want %v\n%s", got, tc.socket, c)
 			}

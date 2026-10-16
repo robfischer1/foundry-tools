@@ -176,7 +176,7 @@ func toolFile(ctx context.Context, base *dagger.Container, t pinnedTool) (*dagge
 
 // toolFiles fetches and verifies every tool at once, in the plan's order. A
 // tool that is not available is nil: one tool that will not fetch must not take
-// the whole shadow's answer with it. Its absence is not silent: one stderr line
+// the whole tools container with it. Its absence is not silent: one stderr line
 // per dropped tool carries the fetch or verify error, because the atom that
 // needed it only says "executable file not found".
 func toolFiles(ctx context.Context, base *dagger.Container) map[string]*dagger.File {

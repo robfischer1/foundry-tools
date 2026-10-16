@@ -36,7 +36,7 @@ var row = checks.AtomDef{ID: id, Stage: checks.StagePrecommit, Lane: checks.Lane
 // `git clone --depth 1 http://ourea:8215/nas01-stacks.git` and compares the
 // tree's copy to whatever that door holds now. The clone is the tool's own, left
 // explicit rather than moved here: the argv is the chain's, nothing pins or
-// caches a source, and the binary's exec is keyed afresh on every shadow call
+// caches a source, and the binary's exec is keyed afresh on every call
 // (CA_REASK), so no earlier answer stands in for this one. An unreachable door is
 // the tool's exit 2: a source nobody read agrees with nothing.
 func check(ctx context.Context, in atomkit.In) checks.Verdict {

@@ -15,8 +15,8 @@ import (
 // Directory API, and as an in-process atom in internal/atoms, reading it from
 // disk. What differs between them is only HOW A FILE IS READ; the sentence a
 // finding is written in, and the parse that turns a ConfigMap into the keys it
-// sets, are the same, and a shadow comparison of the two is only meaningful if
-// they cannot drift. They live here, once. (The rule logic proper already did:
+// sets, are the same, and a chain that answers in the binary's place (a
+// could-not-run is asked once through it) must not word a verdict differently. They live here, once. (The rule logic proper already did:
 // every other judgement is a function in this package.)
 
 const (

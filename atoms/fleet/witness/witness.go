@@ -164,30 +164,25 @@ func identifiedPost(in atomkit.In, env []string) checks.WitnessAsk {
 }
 
 // deadline is the atom's own deadline: its worst case over the sources this
-// change set would ask about (checks.WitnessWorstCase). A dry run asks nothing
-// and a change set that would not compute has nothing to ask, so neither raises
-// the run's per-atom timeout.
+// change set would ask about (checks.WitnessWorstCase). A change set that would
+// not compute has nothing to ask, so it does not raise the run's per-atom
+// timeout.
 func deadline(in atomkit.In) time.Duration {
-	if in.WitnessDry || in.ChangedErr != nil {
+	if in.ChangedErr != nil {
 		return 0
 	}
 	sources, _, _, _ := checks.WitnessChangeSet(in.Changed)
 	return checks.WitnessWorstCase(len(sources))
 }
 
-// check shows every changed source the star authored to the witness. A DRY run
-// (In.WitnessDry, the shadow's) asks nothing: it classifies the change set,
-// lists what it would have asked and settles 2, never 0, so that no reader takes
-// it for a verdict. A source snapshot has no change set to read and the verdict
-// says so; any other change set that would not compute is a 2.
+// check shows every changed source the star authored to the witness. A source
+// snapshot has no change set to read and the verdict says so; any other change
+// set that would not compute is a 2.
 func check(ctx context.Context, in atomkit.In) checks.Verdict {
 	settle := func(state int, reason string, rows []checks.WitnessRow) checks.Verdict {
 		return checks.VerdictOf(row, state, "narcissus — fleet:witness: "+reason+"\n\n"+checks.WitnessSummary(rows))
 	}
 	if in.ChangedErr != nil {
-		if in.WitnessDry {
-			return settle(int(checks.StateCannotRun), checks.WitnessDryMark+" no change set to read: "+in.ChangedErr.Error(), nil)
-		}
 		var snap atoms.SnapshotError
 		if errors.As(in.ChangedErr, &snap) {
 			return settle(0, "no change set to witness at pre-push: the source is a "+snap.Kind+
@@ -196,9 +191,6 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 		return settle(2, "CANNOT RUN - could not read the change set: "+in.ChangedErr.Error(), nil)
 	}
 	sources, skipped, vendored, tests := checks.WitnessChangeSet(in.Changed)
-	if in.WitnessDry {
-		return settle(int(checks.StateCannotRun), checks.WitnessDryText(sources, "ci:gate:"+checks.StarName(in.Origin)+"@HEAD", skipped, vendored, tests), nil)
-	}
 	if len(sources) == 0 {
 		state, reason := checks.AggregateWitness(nil, skipped, vendored, tests)
 		return settle(state, reason, nil)
