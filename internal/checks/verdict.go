@@ -224,9 +224,15 @@ func AbsentVerdict(a AtomDef) Verdict {
 // the record's name (Tree.Fork).
 func ForkVerdict(a AtomDef, record string) Verdict {
 	v := AbsentVerdict(a)
-	v.Reason = fmt.Sprintf("%s: ABSENT — fleet/repos/%s.json is kind vendored, a fork of an upstream, and this atom does not grade a fork: %s. The fork's build, tests and audits still run. Nothing was checked here and nothing needed to be.",
-		a.ID, record, a.NotOnForks)
+	v.Reason = ForkReasonFor(a.ID, record, a.NotOnForks)
 	return v
+}
+
+// ForkReasonFor is ForkVerdict's sentence as a function of its three inputs,
+// so an atom's declaration can state it without an AtomDef (lld.md FN-086).
+func ForkReasonFor(id, record, why string) string {
+	return fmt.Sprintf("%s: ABSENT — fleet/repos/%s.json is kind vendored, a fork of an upstream, and this atom does not grade a fork: %s. The fork's build, tests and audits still run. Nothing was checked here and nothing needed to be.",
+		id, record, why)
 }
 
 // absentReason says which absence this is, and there are three of them.
@@ -238,22 +244,28 @@ func ForkVerdict(a AtomDef, record string) Verdict {
 // is right. So the manifest sentence is reserved for the atoms that actually
 // asked for a manifest, and the lanes declared by their files say so.
 func absentReason(a AtomDef) string {
-	if a.NeedsManifest {
+	return AbsentReasonFor(a.ID, a.Lane, a.NeedsManifest)
+}
+
+// AbsentReasonFor is absentReason with its three inputs passed directly
+// (lld.md FN-086).
+func AbsentReasonFor(id string, lane Lane, needsManifest bool) string {
+	if needsManifest {
 		// The lane may well be running; this atom's subject is the PROJECT,
 		// and the project is what the root manifest declares. It does not say
 		// "does not build the lane" — that sentence is true of python:release
 		// and false of python:mypy, which is not a build and still cannot work
 		// without the dependency set the manifest declares.
 		return fmt.Sprintf("%s: ABSENT — no %s at the repository root, so this repo declares no %s project for it to read. The lane's lint and tests still run. Nothing was checked here and nothing needed to be.",
-			a.ID, ManifestFor(a.Lane), a.Lane)
+			id, ManifestFor(lane), lane)
 	}
-	if source, ok := laneDeclaredByFiles[a.Lane]; ok {
+	if source, ok := laneDeclaredByFiles[lane]; ok {
 		// Declared by its FILES, so its absence is not a root-only statement.
 		return fmt.Sprintf("%s: ABSENT — no %s anywhere in the tree (vendor/, testdata/ and _ or . directories do not count), so this repo carries no %s to check. Nothing was checked and nothing needed to be.",
-			a.ID, source, a.Lane)
+			id, source, lane)
 	}
 	return fmt.Sprintf("%s: ABSENT — no %s at the repository root, so this repo does not build the %s lane. Nothing was checked and nothing needed to be.",
-		a.ID, ManifestFor(a.Lane), a.Lane)
+		id, ManifestFor(lane), lane)
 }
 
 // laneDeclaredByFiles names what a lane declared BY ITS FILES looks for, for the atoms
