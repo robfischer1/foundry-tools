@@ -39,8 +39,8 @@ const (
 	toolSchemaSuffix      = ".schema.json"
 )
 
-// toolFileRootKeys are the root keys the dies add to a served body: dropped
-// from the file before it is compared with what the star serves.
+// toolFileRootKeys are the root keys the dies add to or replace on a served body:
+// dropped from BOTH sides before they are compared.
 var toolFileRootKeys = []string{"$schema", "$id", "title", "x-ops"}
 
 // ServedInputs is one star's export of input schemas: the BARE verb name to the
@@ -212,7 +212,7 @@ func GradeToolSchemasServed(a AtomDef, tr TreeReader) Verdict {
 						return cannot("%s could not be read (%v).", inFile, err)
 					}
 					fileCanon, ferr := canonicalToolBody([]byte(raw), true)
-					servedCanon, serr := canonicalToolBody(body, false)
+					servedCanon, serr := canonicalToolBody(body, true)
 					switch {
 					case ferr != nil:
 						add("%s: %s %s is not a JSON object (%v)", s.Star, gw, inFile, ferr)
@@ -309,7 +309,9 @@ func parseServedInputs(stem string, raw []byte) (ServedInputs, error) {
 }
 
 // canonicalToolBody re-serialises a JSON object as sorted keys, compact, with
-// HTML escaping off. dropRoot removes the dies' root keys first (the file side).
+// HTML escaping off. dropRoot removes the root keys the dies strip ($schema, $id,
+// title, x-ops) first; both sides are canonicalised the same way, because a kit may
+// serve its own root $schema (calliope serves draft-07) that the dies replace.
 func canonicalToolBody(raw []byte, dropRoot bool) (string, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()

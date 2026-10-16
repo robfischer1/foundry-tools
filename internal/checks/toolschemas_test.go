@@ -99,6 +99,12 @@ func TestGradeToolSchemasServed(t *testing.T) {
 		{"canonicalisation: order and whitespace are not drift", toolTree(map[string]string{
 			ToolInputDir + "/pa_x.schema.json": "{\n \"x-ops\": {\"\": \"read\"},\n \"additionalProperties\": false,\n \"type\": \"object\",\n \"title\": \"t\",\n \"properties\": {\"q\": {\"type\": \"string\"}}\n}\n",
 		}), 0, nil},
+		{"canonicalisation: a served root $schema is dropped like the file's", toolTree(map[string]string{
+			ServedInputsDir + "/a.json": `{"schema":1,"star":"a","verbs":{"x":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"q":{"type":"string"}},"additionalProperties":false}}}`,
+		}), 0, nil},
+		{"3: a served nested difference still counts", toolTree(map[string]string{
+			ServedInputsDir + "/a.json": `{"schema":1,"star":"a","verbs":{"x":{"$schema":"s","type":"object","properties":{"q":{"type":"integer"}},"additionalProperties":false}}}`,
+		}), 1, []string{"differs from the served schema"}},
 		{"canonicalisation: html characters compare unescaped", toolTree(map[string]string{
 			ServedInputsDir + "/a.json":        `{"schema":1,"star":"a","verbs":{"x":{"description":"a<b>&c"}}}`,
 			ToolInputDir + "/pa_x.schema.json": `{"$id":"i","description":"a\u003cb\u003e\u0026c"}`,
