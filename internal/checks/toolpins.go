@@ -56,16 +56,17 @@ const PythonStandaloneURL = "https://github.com/astral-sh/python-build-standalon
 // does not update its line fails TestEveryToolPinHasAChecksum, and a mismatch
 // at build time leaves the tool out of the container (its atom settles 2).
 var ToolSHA256 = map[string]string{
-	OpaURL:        "830ab11f61ffec760b5e19db0d7ad02bf037e13f5ef4d665faeaf17632177527",
-	OpengrepURL:   "a66aa3278457f02b287b985a45b6762aebcaba5000f2689245fd1ed86d1456c7",
-	HadolintURL:   "c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507",
-	KubectlURL:    "65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8",
-	ChezmoiURL:    "4b42a0fb0dec69f37964c6701f89daa6bf6393aaeb92bbcbc8f3ee9f08a49bcd",
-	ComposeURL:    "40343e21ca777173e69cff5dbafeb37c6f81f3b0d57d9e597f036e95eb63e76a",
-	WasmToolsURL:  "ad62b2176037e93e1348cb65d6212d128ca9f097b63d155569f25215818ff7b1",
-	WacURL:        "7cd490edbd452221ef89e6750fc43eacc9b71b1242095eb577cb9a3bf0d3beda",
-	JustURL:       "4a5cc2f53e6f0f8c59092a6cc38291eb729d46a7dd95d3ae582008881b84931d",
-	ShellcheckURL: "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198",
+	OpaURL:           "830ab11f61ffec760b5e19db0d7ad02bf037e13f5ef4d665faeaf17632177527",
+	OpengrepURL:      "a66aa3278457f02b287b985a45b6762aebcaba5000f2689245fd1ed86d1456c7",
+	HadolintURL:      "c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507",
+	KubectlURL:       "65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8",
+	ChezmoiURL:       "4b42a0fb0dec69f37964c6701f89daa6bf6393aaeb92bbcbc8f3ee9f08a49bcd",
+	ComposeURL:       "40343e21ca777173e69cff5dbafeb37c6f81f3b0d57d9e597f036e95eb63e76a",
+	WasmToolsURL:     "ad62b2176037e93e1348cb65d6212d128ca9f097b63d155569f25215818ff7b1",
+	WasmTools1250URL: "b746c34e7c4162b8812eb29397ebe076834e496a8c46fe68d793379a2741eb50",
+	WacURL:           "7cd490edbd452221ef89e6750fc43eacc9b71b1242095eb577cb9a3bf0d3beda",
+	JustURL:          "4a5cc2f53e6f0f8c59092a6cc38291eb729d46a7dd95d3ae582008881b84931d",
+	ShellcheckURL:    "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198",
 
 	PythonStandaloneURL: "c172314f4a8ec137a8f605289010c3d19c8b56867d968f0095074cc68efa1d29",
 

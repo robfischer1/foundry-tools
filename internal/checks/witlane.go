@@ -242,3 +242,30 @@ func WitComposeRed(files []string) []string {
 	slices.Sort(red)
 	return red
 }
+
+// THE REGEN LANE'S WASM-TOOLS, AS A RELEASE BINARY. ts:regen builds each core's
+// guest with the wasm-tools version the core's provenance.json records, which is
+// not the wit lane's pin: the cores were generated at 1.250.0. The lane used to
+// `cargo install` it (a 1-2 minute rustc fan-out in the engine, and on a cold
+// engine cache four worlds' worth of it at once); the release asset is the same
+// program. A recorded version with no line here still falls back to the compile,
+// so a core that moves its pin is slower, never wrong. The member is stripped to
+// /usr/local/bin by withTarballBinary; its sum was computed from the asset on
+// 2026-10-16 and the asset is seeded in the tool mirror (`just mirror-seed`).
+const (
+	WasmTools1250Version = "1.250.0"
+	WasmTools1250URL     = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.250.0/wasm-tools-1.250.0-x86_64-linux.tar.gz"
+	WasmTools1250Member  = "wasm-tools-1.250.0-x86_64-linux/wasm-tools"
+)
+
+// WasmToolsRelease answers the release asset for a recorded wasm-tools version:
+// its URL and the tarball member, or ok false when none is pinned.
+func WasmToolsRelease(version string) (url, member string, ok bool) {
+	switch version {
+	case WasmTools1250Version:
+		return WasmTools1250URL, WasmTools1250Member, true
+	case WasmToolsVersion:
+		return WasmToolsURL, WasmToolsMember, true
+	}
+	return "", "", false
+}

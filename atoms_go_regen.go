@@ -66,8 +66,23 @@ func (r *run) withGravityRegen(ctx context.Context, ctr *dagger.Container) (*dag
 	return ctr, plan.Scope, nil
 }
 
-// gravityAt builds the gravity binary at one commit of the fleet's fork.
+// gravityAt is the gravity binary at one commit of the fleet's fork: the
+// prebuilt one from the tool mirror when the rev has one (checks.GravityPrebuilt,
+// verified against its sha256 by the engine at fetch time), otherwise built.
+// THE BUILD IS THE FALLBACK: it is a rustc fan-out of ~100 processes, and run
+// cold beside another cargo install it took a node down (2026-10-16).
 func gravityAt(rev string) *dagger.File {
+	if sum, ok := checks.GravityPrebuilt[rev]; ok {
+		f := dag.HTTP(checks.ToolMirrorURL(sum), dagger.HTTPOpts{Checksum: "sha256:" + sum})
+		if _, err := f.Sync(context.Background()); err == nil {
+			return f
+		}
+	}
+	return gravityBuilt(rev)
+}
+
+// gravityBuilt compiles the gravity binary at one commit of the fleet's fork.
+func gravityBuilt(rev string) *dagger.File {
 	return dag.Container().From(checks.ImageRust).
 		WithExec([]string{"cargo", "install", "--locked", "--git", checks.GravityGit, "--rev", rev,
 			"--root", "/opt/gravity", "arcjet-gravity"}).

@@ -281,6 +281,25 @@ func TestGoTestStagesGravityAtThePinnedRev(t *testing.T) {
 	)
 }
 
+// A rev with a prebuilt binary in the mirror is fetched at its sha256, not
+// compiled: the cargo install is the fallback for a rev nobody seeded.
+func TestGoTestStagesThePrebuiltGravityWithoutCompiling(t *testing.T) {
+	var rev, sum string
+	for rev, sum = range checks.GravityPrebuilt {
+	}
+	c := gravityRun(t, map[string]string{
+		"classescore/provenance.json": gravityProv(rev),
+		"classescore/regen_test.go":   "package classescore\n",
+	})
+	wantCalls(t, c, []string{"withFile", `path:"/usr/local/bin/gravity"`, `permissions:493`})
+	if h := engine.chain(checks.ToolMirrorURL(sum), "sha256:"+sum); h == "" {
+		t.Errorf("gravity is fetched from the mirror at its pin:\n%v", engine.chains())
+	}
+	if engine.chain(`"cargo","install"`) != "" {
+		t.Error("a prebuilt gravity must not be compiled")
+	}
+}
+
 func TestGoTestStagesNothingWithoutAGravityPackageThatHasTheTest(t *testing.T) {
 	c := gravityRun(t, map[string]string{
 		"alarm/provenance.json": gravityProv(regenRev),

@@ -161,3 +161,13 @@ func PlanGravity(files map[string]string, regenTests []string) (GravityPlan, err
 	}
 	return GravityPlan{Regens: regens, Rev: rev, Scope: GravityScope(regens, rev)}, nil
 }
+
+// GravityPrebuilt is the gravity binary built once at a rev, by the very
+// `cargo install` the lane would run, on ImageRust (bookworm, glibc 2.36), and
+// seeded in the tool mirror under its sha256 (`oras push ...:sha256-<sum>`, the
+// mirror-seed shape; the fork has no release assets to fetch). rev -> sha256 of
+// the binary. A rev with no line here is compiled in the lane, as before: a
+// pin that moves is slower on its first run, never wrong. Built 2026-10-16.
+var GravityPrebuilt = map[string]string{
+	"68d8146b88e53e619bfbc0a36b9d70ef9c3bcf06": "db5a9f0bec3976e9fe84ae8e6f4d6afa2409c0fb556d9646f489b44e96afa395",
+}

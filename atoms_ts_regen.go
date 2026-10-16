@@ -123,13 +123,12 @@ func (r *run) regenWorld(ctx context.Context, world string) checks.RegenWorldRes
 	}
 
 	// 3. Build the guest with the star's own inner script, and measure.
-	built := regenRustBase(p.Tools.WasmTools).
+	rustBase, released := regenRustBase(ctx, p.Tools.WasmTools)
+	built := withInner(rustBase.
 		WithMountedDirectory("/src", core).
-		WithMountedFile("/inner.sh", r.src.File("scripts/"+world+"-core-inner.sh")).
-		WithWorkdir("/src").
 		WithEnvVariable("WASM_TOOLS_VERSION", p.Tools.WasmTools).
-		WithEnvVariable("CARGO_TARGET_DIR", "/tmp/target").
-		WithExec([]string{"sh", "/inner.sh"}).
+		WithEnvVariable("CARGO_TARGET_DIR", "/tmp/target"),
+		r.src.File("scripts/"+world+"-core-inner.sh"), released).
 		Directory("/out")
 	wasmTools := rd.text(built.File("wasm-tools.version"), "the build's wasm-tools.version")
 	rustc := rd.text(built.File("rustc.version"), "the build's rustc.version")
@@ -207,11 +206,35 @@ func wasmSums(ctx context.Context, files map[string]*dagger.File) (map[string]st
 
 // regenRustBase is the rust container the guests are built in: the toolchain
 // the provenance records (checks.ImageRustWasm), the wasm32 target, and
-// wasm-tools compiled once at its pinned version. The inner scripts run
-// `rustup target add` and `cargo install wasm-tools --locked --version` again;
-// both find them present and do nothing, so the layer is shared by every world.
-func regenRustBase(wasmTools string) *dagger.Container {
-	return dag.Container().From(checks.ImageRustWasm).
-		WithExec([]string{"rustup", "target", "add", "wasm32-unknown-unknown"}).
-		WithExec([]string{"cargo", "install", "wasm-tools", "--locked", "--version", wasmTools})
+// wasm-tools at its recorded version. The version comes from its pinned release
+// asset, served mirror-first and held to a checksum, when one is pinned
+// (checks.WasmToolsRelease); otherwise it is compiled, once, at its pin.
+//
+// released says which: the star's inner scripts end in
+// `cargo install wasm-tools --locked --version`, which finds a COMPILED install
+// already recorded and does nothing, but would compile over a release binary
+// cargo never registered. withInner drops exactly that line when released.
+func regenRustBase(ctx context.Context, wasmTools string) (ctr *dagger.Container, released bool) {
+	base := dag.Container().From(checks.ImageRustWasm).
+		WithExec([]string{"rustup", "target", "add", "wasm32-unknown-unknown"})
+	if url, member, ok := checks.WasmToolsRelease(wasmTools); ok {
+		if withBin, err := withTarballBinary(ctx, base, url, member, "wasm-tools", 1); err == nil {
+			return withBin, true
+		}
+	}
+	return base.WithExec([]string{"cargo", "install", "wasm-tools", "--locked", "--version", wasmTools}), false
+}
+
+// withInner stages the star's inner script at /inner.sh and runs it. With the
+// release binary on PATH the script is a copy (WithFile, so sed can edit it)
+// minus its own wasm-tools install line; a line that is not exactly that one
+// stays, and compiles: the fallback is slower, never different. No shell: sed
+// and the interpreter are execs of their own.
+func withInner(ctr *dagger.Container, script *dagger.File, released bool) *dagger.Container {
+	if !released {
+		return ctr.WithMountedFile("/inner.sh", script).WithWorkdir("/src").WithExec([]string{"sh", "/inner.sh"})
+	}
+	return ctr.WithFile("/inner.sh", script).WithWorkdir("/src").
+		WithExec([]string{"sed", "-i", `/^cargo install wasm-tools --locked --version "\$WASM_TOOLS_VERSION"$/d`, "/inner.sh"}).
+		WithExec([]string{"sh", "/inner.sh"})
 }

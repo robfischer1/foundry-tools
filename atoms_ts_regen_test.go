@@ -17,7 +17,10 @@ const (
 // regenFixture lays a star whose justfile regenerates one world, its
 // provenance, and the engine's answers for every read the atom makes, all
 // agreeing with the pins. A test then breaks one.
-func regenFixture(world string) {
+func regenFixture(world string) { regenFixtureAt(world, "1.250.0") }
+
+// regenFixtureAt is regenFixture with the provenance recording wasm-tools ver.
+func regenFixtureAt(world, ver string) {
 	engine.reset()
 	wit, result, tape := "wit text", "result text", "tape text"
 	prov := fmt.Sprintf(`{
@@ -25,12 +28,12 @@ func regenFixture(world string) {
  "wit_result":{"commit":%q,"path":"wit/aiws-result.wit","sha256":%q},
  "tape":{"commit":%q,"path":"conformance/tapes/%s.json","sha256":%q},
  "core":{"commit":%q,"toolchain":"rustc 1.90.0 (1159e78c4 2025-09-14)"},
- "tools":{"wasm-tools":"1.250.0","jco":"1.35.0"},
+ "tools":{"wasm-tools":%q,"jco":"1.35.0"},
  "guest_wasm":{"sha256":%q},"component_wasm":{"sha256":%q}}`,
 		rgCommit, world, checks.SHA256Hex(wit),
 		rgCommit, checks.SHA256Hex(result),
 		rgCommit, world, checks.SHA256Hex(tape),
-		rgCommit, rgGuest, rgComp)
+		rgCommit, ver, rgGuest, rgComp)
 	engine.withTree(map[string]string{
 		"justfile": "regen-check:\n    scripts/regen-check.sh " + world + "\n",
 		"src/" + world + "core-gen/provenance.json": prov,
@@ -63,14 +66,21 @@ func TestTSRegenHoldsAWorldToItsPinsAndToTheShippedBytes(t *testing.T) {
 	}
 	wantCalls(t, b,
 		[]string{"withExec", `"rustup","target","add","wasm32-unknown-unknown"`},
-		[]string{"withExec", `"cargo","install","wasm-tools","--locked","--version","1.250.0"`},
-		[]string{"withMountedFile", `path:"/inner.sh"`},
-		[]string{"withWorkdir", `path:"/src"`},
+		// wasm-tools is the pinned release asset, not a compile; the script's own
+		// install line is dropped so cargo does not compile over it.
+		[]string{"withExec", `"tar","xzf","/tmp/wasm-tools.tar.gz"`, `wasm-tools-1.250.0-x86_64-linux/wasm-tools`},
+		[]string{"withExec", `"wasm-tools","--version"`},
 		[]string{"withEnvVariable", `name:"WASM_TOOLS_VERSION"`, `value:"1.250.0"`},
 		[]string{"withEnvVariable", `name:"CARGO_TARGET_DIR"`, `value:"/tmp/target"`},
+		[]string{"withFile", `path:"/inner.sh"`},
+		[]string{"withWorkdir", `path:"/src"`},
+		[]string{"withExec", `"sed","-i"`, `cargo install wasm-tools`, `"/inner.sh"`},
 		[]string{"withExec", `"sh","/inner.sh"`},
 		[]string{"directory", `path:"/out"`},
 	)
+	if strings.Contains(b, `"cargo","install"`) {
+		t.Errorf("a pinned release must not be compiled:\n%s", b)
+	}
 	// Transpiled by the star's own script with the pinned jco.
 	j := engine.chain(checks.ImageNode, `.jco-version`)
 	wantCalls(t, j,
@@ -222,4 +232,20 @@ func TestTSRegenReportsEveryReadThatFailed(t *testing.T) {
 	engine.failLeaf(`wasm-tools.version`, "contents", "first gone")
 	engine.failLeaf(`rustc.version`, "contents", "second gone")
 	wantState(t, runAtom(t, "ts:regen", ""), 2, "the build's wasm-tools.version", "the build's rustc.version")
+}
+
+// A wasm-tools version with no pinned release is compiled, once, as before; the
+// star's script runs untouched, because nothing was installed over cargo's back.
+func TestTSRegenCompilesAWasmToolsWithNoPinnedRelease(t *testing.T) {
+	regenFixtureAt("stamp", "1.249.0")
+	runAtom(t, "ts:regen", "")
+	b := engine.chain(`"sh","/inner.sh"`, "wasm-tools.version")
+	wantCalls(t, b,
+		[]string{"withExec", `"cargo","install","wasm-tools","--locked","--version","1.249.0"`},
+		[]string{"withMountedFile", `path:"/inner.sh"`},
+		[]string{"withExec", `"sh","/inner.sh"`},
+	)
+	if strings.Contains(b, `"sed"`) || strings.Contains(b, "wasm-tools.tar.gz") {
+		t.Errorf("an unpinned version must neither fetch a release nor edit the script:\n%s", b)
+	}
 }

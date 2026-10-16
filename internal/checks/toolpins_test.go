@@ -9,13 +9,13 @@ import (
 // Every URL the tools container fetches has a checksum, and it is a SHA-256.
 func TestEveryToolPinHasAChecksum(t *testing.T) {
 	hex := regexp.MustCompile(`^[0-9a-f]{64}$`)
-	for _, url := range []string{OpaURL, OpengrepURL, HadolintURL, KubectlURL, ChezmoiURL, ComposeURL, WasmToolsURL, WacURL, JustURL, ShellcheckURL, PythonStandaloneURL, CargoAuditURL, CargoNextestURL, OrasURL} {
+	for _, url := range []string{OpaURL, OpengrepURL, HadolintURL, KubectlURL, ChezmoiURL, ComposeURL, WasmToolsURL, WasmTools1250URL, WacURL, JustURL, ShellcheckURL, PythonStandaloneURL, CargoAuditURL, CargoNextestURL, OrasURL} {
 		sum, ok := ToolSHA256[url]
 		if !ok || !hex.MatchString(sum) {
 			t.Errorf("%s has no SHA-256 in ToolSHA256 (got %q)", url, sum)
 		}
 	}
-	if len(ToolSHA256) != 14 {
+	if len(ToolSHA256) != 15 {
 		t.Errorf("ToolSHA256 holds %d entries; a stale line for a URL nothing fetches is a pin nobody checks", len(ToolSHA256))
 	}
 }
@@ -130,5 +130,31 @@ func TestFleetPythonVersionIsAPatchOfTheFleetsPython(t *testing.T) {
 	}
 	if !regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`).MatchString(FleetPythonVersion) {
 		t.Errorf("FleetPythonVersion %q is not major.minor.patch", FleetPythonVersion)
+	}
+}
+
+// The regen lane's wasm-tools release asset names its own version, its member is
+// the binary, and an unpinned version has no release (the lane compiles it).
+func TestWasmToolsReleaseAgrees(t *testing.T) {
+	for _, v := range []string{WasmTools1250Version, WasmToolsVersion} {
+		url, member, ok := WasmToolsRelease(v)
+		if !ok || !strings.Contains(url, "/v"+v+"/wasm-tools-"+v+"-x86_64-linux.tar.gz") || member != "wasm-tools-"+v+"-x86_64-linux/wasm-tools" {
+			t.Errorf("WasmToolsRelease(%q) = %q, %q, %v", v, url, member, ok)
+		}
+		if _, ok := ToolSHA256[url]; !ok {
+			t.Errorf("%s is released but has no checksum", url)
+		}
+	}
+	if _, _, ok := WasmToolsRelease("0.0.1"); ok {
+		t.Error("a version with no pinned asset must fall back to the compile")
+	}
+}
+
+// A prebuilt gravity is keyed by a full commit and pinned by a sha256.
+func TestGravityPrebuiltIsPinned(t *testing.T) {
+	for rev, sum := range GravityPrebuilt {
+		if !gravityRevRe.MatchString(rev) || !sha256Hex.MatchString(sum) {
+			t.Errorf("GravityPrebuilt[%q] = %q is not a commit and a sha256", rev, sum)
+		}
 	}
 }
