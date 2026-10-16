@@ -102,8 +102,9 @@ type FluxFact struct {
 	Ports *Ports `json:"ports,omitempty"`
 	// Interface is the protocols the star's Service port names imply, sorted:
 	// a port named mcp is "mcp", a port named http is "http", a port named
-	// otlp-http or otlp-grpc is "otlp". Absent when no Service port carries
-	// one of those names.
+	// otlp-http or otlp-grpc is "otlp", a port named openapi is "openapi" (hades
+	// then routes the star over REST; removing the port reverts it to MCP). Absent
+	// when no Service port carries one of those names.
 	Interface []string `json:"interface,omitempty"`
 	DB        []string `json:"db,omitempty"`
 }
@@ -148,7 +149,7 @@ func Clusters(manifests map[string]string) (map[string]bool, error) {
 // (mnemosyne-redis, tron-redis, ourea's git).
 //
 // INTERFACE is the set of protocols those names imply: mcp -> "mcp", http ->
-// "http", otlp-http or otlp-grpc -> "otlp", over every Service of the star (the
+// "http", otlp-http or otlp-grpc -> "otlp", openapi -> "openapi", over every Service of the star (the
 // same selection as PORTS). The name is the declaration: a star that serves
 // plain HTTP names its port http, and a collector that serves OTLP names its
 // ports for it. The listen port of an OTLP star is the one named otlp-http
@@ -370,6 +371,10 @@ func interfacesOf(svcs []manifest) []string {
 				seen[port.Name] = true
 			case "otlp-http", "otlp-grpc":
 				seen["otlp"] = true
+			case "openapi":
+				// A marker, never an address: hades routes the star through
+				// its OpenAPI translator (the REST surface on the mtls port).
+				seen["openapi"] = true
 			}
 		}
 	}

@@ -888,3 +888,26 @@ func TestWorkloadFactsRefuseALabelThatNamesNoRepo(t *testing.T) {
 		t.Fatalf("a label outside prime was refused: %v", err)
 	}
 }
+
+// A port named openapi declares the REST surface: it adds "openapi" beside mcp
+// and moves neither the listen nor the mtls port (it is a marker, not an address).
+func TestOpenAPIPortDeclaresTheRESTSurface(t *testing.T) {
+	doc := `kind: Service
+metadata: {name: x}
+spec:
+  ports:
+    - {name: mcp, port: 8000}
+    - {name: mtls, port: 8001}
+    - {name: openapi, port: 8002, targetPort: 8001}
+`
+	got, err := FluxFacts(map[string]string{"prime/star-x.yaml": doc}, map[string]bool{"x": true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := FluxFact{Ports: &Ports{Listen: 8000, MTLS: 8001}, Interface: []string{"mcp", "openapi"}}
+	if !reflect.DeepEqual(got["x"], want) {
+		a, _ := json.Marshal(got["x"])
+		b, _ := json.Marshal(want)
+		t.Fatalf("FluxFacts[x] = %s, want %s", a, b)
+	}
+}
