@@ -126,6 +126,10 @@ func TestRefusesWhatItCannotRunOrFind(t *testing.T) {
 			}
 		})
 	}
+	t.Run("a fixture run that exits 2 is the tool failing, not a finding", func(t *testing.T) {
+		in, _ := atomtest.UVTree(t, contractsTree(), func(atoms.Cmd) (string, int) { return "error: Failed to download python", 2 })
+		atomtest.Expect(t, check(context.Background(), in), checks.StateCannotRun, atomtest.Cannot, "never reached a verdict (exit 2)", "Failed to download python")
+	})
 	t.Run("off the die's source it is absent", func(t *testing.T) {
 		in, f := atomtest.UVTree(t, map[string]string{"main.go": "x"}, nil)
 		atomtest.Expect(t, check(context.Background(), in), checks.StatePass, atomtest.Absent, "this tree is not the policy die's source")
