@@ -49,9 +49,9 @@ sha256 = "830ab11f61ffec760b5e19db0d7ad02bf037e13f5ef4d665faeaf17632177527"
 
 [tool.opengrep]
 kind = "url"
-spec = "https://github.com/opengrep/opengrep/releases/download/v1.30.2/opengrep_manylinux_x86"
-version = "v1.30.2"
-sha256 = "a66aa3278457f02b287b985a45b6762aebcaba5000f2689245fd1ed86d1456c7"
+spec = "https://github.com/opengrep/opengrep/releases/download/v1.31.0/opengrep_manylinux_x86"
+version = "v1.31.0"
+sha256 = "dbbe3c2058dbe600c449a8ba22ea79a1643a6660658400090d0323a8d0d31147"
 
 [tool.hadolint]
 kind = "url"
@@ -67,9 +67,9 @@ sha256 = "65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8"
 
 [tool.chezmoi]
 kind = "url"
-spec = "https://github.com/twpayne/chezmoi/releases/download/v2.73.0/chezmoi-linux-amd64"
-version = "2.73.0"
-sha256 = "4b42a0fb0dec69f37964c6701f89daa6bf6393aaeb92bbcbc8f3ee9f08a49bcd"
+spec = "https://github.com/twpayne/chezmoi/releases/download/v2.73.1/chezmoi-linux-amd64"
+version = "2.73.1"
+sha256 = "fbf312e45c5c1f629e1d994c201cdd666198bd556af38512f4432ae6d3952521"
 
 [tool.compose]
 kind = "url"
@@ -79,9 +79,9 @@ sha256 = "40343e21ca777173e69cff5dbafeb37c6f81f3b0d57d9e597f036e95eb63e76a"
 
 [tool.wasm-tools]
 kind = "url"
-spec = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.261.0/wasm-tools-1.261.0-x86_64-linux.tar.gz"
-version = "1.261.0"
-sha256 = "ad62b2176037e93e1348cb65d6212d128ca9f097b63d155569f25215818ff7b1"
+spec = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.262.0/wasm-tools-1.262.0-x86_64-linux.tar.gz"
+version = "1.262.0"
+sha256 = "655b8df67d54c3ef9b52fc237c4e94bbfbb5f5f43825245cb0940a7002a9ed65"
 
 [tool.wac]
 kind = "url"
@@ -91,9 +91,9 @@ sha256 = "7cd490edbd452221ef89e6750fc43eacc9b71b1242095eb577cb9a3bf0d3beda"
 
 [tool.just]
 kind = "url"
-spec = "https://github.com/casey/just/releases/download/1.58.0/just-1.58.0-x86_64-unknown-linux-musl.tar.gz"
-version = "1.58.0"
-sha256 = "4a5cc2f53e6f0f8c59092a6cc38291eb729d46a7dd95d3ae582008881b84931d"
+spec = "https://github.com/casey/just/releases/download/1.59.0/just-1.59.0-x86_64-unknown-linux-musl.tar.gz"
+version = "1.59.0"
+sha256 = "409044617b6f06517c1035e55ca38c8c856ff8b650e41bc2aa1ef82d5903a23e"
 
 [tool.shellcheck]
 kind = "url"
@@ -121,9 +121,9 @@ sha256 = "32aa82416099eb12fffae9cf1a279ad201fecbd3f74826c613e32e9006b29867"
 
 [tool.python-standalone]
 kind = "url"
-spec = "https://github.com/astral-sh/python-build-standalone/releases/download/20260623/cpython-3.14.6%2B20260623-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
-version = "3.14.6"
-sha256 = "c172314f4a8ec137a8f605289010c3d19c8b56867d968f0095074cc68efa1d29"
+spec = "https://github.com/astral-sh/python-build-standalone/releases/download/20261013/cpython-3.14.8%2B20261013-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+version = "3.14.8"
+sha256 = "d8faa1b588506b9e3e5a3f57807bb056d534a1641a6b10d15b6ea3f0b413b960"
 
 [tool.staticcheck]
 kind = "go"

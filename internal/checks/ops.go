@@ -51,7 +51,7 @@ const OpsUVIndex = "https://pypi.org/simple"
 // lines to one version instead.
 const (
 	// renovate: datasource=github-releases depName=twpayne/chezmoi extractVersion=^v(?<version>.*)$
-	ChezmoiVersion = "2.73.0"
+	ChezmoiVersion = "2.73.1"
 	ChezmoiURL     = "https://github.com/twpayne/chezmoi/releases/download/v" + ChezmoiVersion + "/chezmoi-linux-amd64"
 )
 
