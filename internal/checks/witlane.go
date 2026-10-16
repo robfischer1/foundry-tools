@@ -69,17 +69,17 @@ const (
 // `component new` + `validate` accept the guest.
 const (
 	// renovate: datasource=github-releases depName=bytecodealliance/wasm-tools extractVersion=^v(?<version>.*)$
-	WasmToolsVersion = "1.261.0"
-	WasmToolsURL     = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.261.0/wasm-tools-1.261.0-x86_64-linux.tar.gz"
+	WasmToolsVersion = "1.262.0"
+	WasmToolsURL     = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.262.0/wasm-tools-1.262.0-x86_64-linux.tar.gz"
 	// WasmToolsMember is the binary inside that tarball.
-	WasmToolsMember = "wasm-tools-1.261.0-x86_64-linux/wasm-tools"
+	WasmToolsMember = "wasm-tools-1.262.0-x86_64-linux/wasm-tools"
 
 	// JustVersion / JustURL fetch `just`, the runner the repository's own
 	// validate recipe is written for. The musl build is static: it runs in the
 	// fleet lane image and the rust one alike.
 	// renovate: datasource=github-releases depName=casey/just
-	JustVersion = "1.58.0"
-	JustURL     = "https://github.com/casey/just/releases/download/1.58.0/just-1.58.0-x86_64-unknown-linux-musl.tar.gz"
+	JustVersion = "1.59.0"
+	JustURL     = "https://github.com/casey/just/releases/download/1.59.0/just-1.59.0-x86_64-unknown-linux-musl.tar.gz"
 	// JustMember is the binary inside that tarball (it sits at the root).
 	JustMember = "just"
 
