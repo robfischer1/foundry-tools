@@ -33,14 +33,14 @@ func TestRunPrintsTheVectorAndExitsZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The pull path: the 38 atoms of precommit and prepush this package carries,
+	// The pull path: the 18 atoms of precommit and prepush this package carries,
 	// none of the orbit lane's and none of the ones that live in their own files
 	// (atoms/<ns>/<name>); a tree with no surface for them is absent or clean in
 	// all of them.
 	want := StageIDs("")
 	wantState := map[string]int{}
-	if len(vector) != 38 || len(vector) != len(want) {
-		t.Fatalf("%d verdicts, want 38", len(vector))
+	if len(vector) != 18 || len(vector) != len(want) {
+		t.Fatalf("%d verdicts, want 18", len(vector))
 	}
 	for i, v := range vector {
 		if v.Atom != want[i] || v.State != wantState[v.Atom] {
@@ -73,8 +73,7 @@ func TestRunOutsideARepositoryStillAnswersAVector(t *testing.T) {
 	gitBound := map[string]bool{
 		"fleet:check-yaml": true, "fleet:check-added-large-files": true,
 		"fleet:stop-justifications": true, "fleet:dagger-lockstep": true, "fleet:renovate-lockstep": true, "fleet:node-kinds-declared": true,
-		"fleet:consumed-events-emitted": true, "compose:no-tracked-secrets": true, "compose:third-party-pins": true,
-		"ops:yaml": true,
+		"fleet:consumed-events-emitted": true,
 	}
 	for _, v := range vector {
 		if gitBound[v.Atom] && v.State != 2 {

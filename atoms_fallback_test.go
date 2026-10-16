@@ -5,13 +5,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"dagger/foundry-tools/internal/atoms"
+	"dagger/foundry-tools/internal/catalogue"
 	"dagger/foundry-tools/internal/checks"
 )
 
@@ -35,17 +38,28 @@ func (c *chainCalls) of(id string) int {
 func stubChains(t *testing.T) *chainCalls {
 	t.Helper()
 	calls := &chainCalls{n: map[string]int{}}
+	// the atoms the binary carries, and the ported ones it does not (a python
+	// atom runs through the adapter alone: it is its own chain)
+	var ids []string
 	for _, a := range atoms.Builtin() {
-		orig := registry[a.ID]
-		registry[a.ID] = func(_ context.Context, _ *run) checks.Verdict {
+		ids = append(ids, a.ID)
+	}
+	for _, e := range catalogue.Entries() {
+		if e.Def != nil && !slices.Contains(ids, e.ID) {
+			ids = append(ids, e.ID)
+		}
+	}
+	for _, id := range ids {
+		orig := registry[id]
+		registry[id] = func(_ context.Context, _ *run) checks.Verdict {
 			calls.mu.Lock()
-			calls.n[a.ID]++
+			calls.n[id]++
 			calls.mu.Unlock()
-			v := checks.VerdictOf(checks.AtomByID(a.ID), 0, "")
-			v.Reason = chainMark + a.ID
+			v := checks.VerdictOf(checks.AtomByID(id), 0, "")
+			v.Reason = chainMark + id
 			return v
 		}
-		t.Cleanup(func() { registry[a.ID] = orig })
+		t.Cleanup(func() { registry[id] = orig })
 	}
 	return calls
 }
@@ -278,12 +292,13 @@ func TestTheReverseShadowReportCountsFallbacks(t *testing.T) {
 		v := checks.VerdictOf(checks.AtomByID(id), 0, "")
 		chains, voted[id] = append(chains, v), v
 	}
-	fell := map[string]string{ids[1]: "orbit:surface: CANNOT RUN - narc did not build\nsecond line"}
+	const fellID = "orbit:surface"
+	fell := map[string]string{fellID: "orbit:surface: CANNOT RUN - narc did not build\nsecond line"}
 	got := renderReverse(ids, false, chains, nil, voted, fell, nil, 0)
 	for _, want := range []string{
 		"shadow atoms (binary voted): 3 compared, 3 identical, 0 same state, 0 state differs, 0 missing from the binary, 0 missing from the chains",
 		"1 of 4 fell back to the chain",
-		"  " + ids[1] + ": " + ids[1] + ": CANNOT RUN - narc did not build | second line",
+		"  " + fellID + ": " + fellID + ": CANNOT RUN - narc did not build | second line",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("report lacks %q:\n%s", want, got)
@@ -304,7 +319,7 @@ func TestAGateWhoseBinaryFailsRecordsTheChainsAnswerAndReportsTheFallbacks(t *te
 	// A shadow that waits for a seal that never comes gives up in seconds, so a
 	// lane that forgot to seal fails this test instead of hanging it.
 	shadowRun, shadowGrace, shadowTimeout = defaultShadow, 20*time.Second, 5*time.Second
-	ids := atoms.StageIDs(checks.StageOrbit)
+	ids := atoms.StageIDs("")
 	shadowToday = func(context.Context, *FoundryTools, string, string, string) ([]checks.Verdict, error) {
 		var vs []checks.Verdict
 		for _, id := range ids {
@@ -321,12 +336,14 @@ func TestAGateWhoseBinaryFailsRecordsTheChainsAnswerAndReportsTheFallbacks(t *te
 	engine.withTree(bareTree)
 	engine.stdout(`"rev-parse","HEAD^{tree}"`, fakeTree+"\n")
 	m := &FoundryTools{Source: dag.Directory(), Repo: "http://door:8215/rob/ares.git", Sha: buildSha}
-	rec, err := m.Gate(context.Background(), fakeTree, gatePin, "base-sha", checks.StageOrbit)
+	rec, err := m.Gate(context.Background(), fakeTree, gatePin, "base-sha", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	recordedOn(t, rec, "0", chainMark+"orbit:contracts")
-	if want := "4 of 4 fell back to the chain"; !strings.Contains(report.String(), want) || !strings.Contains(report.String(), "OOM") {
+	recordedOn(t, rec, "0", chainMark+"fleet:check-yaml")
+	listed, _ := reverseIDs("", false)
+	n := len(listed)
+	if want := fmt.Sprintf("%d of %d fell back to the chain", n, n); !strings.Contains(report.String(), want) || !strings.Contains(report.String(), "OOM") {
 		t.Errorf("report %q lacks %q and the binary's reason", report.String(), want)
 	}
 }

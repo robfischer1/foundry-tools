@@ -68,11 +68,6 @@ func TestEveryToolAtomExecsAListedProgram(t *testing.T) {
 	trees := map[string]map[string]string{
 		"fleet:opengrep-sast": {"rules/sast/a.yml": "x"},
 		"fleet:hadolint":      {"Dockerfile": "FROM x\n"},
-		"ops:shell":           {"flux/x.yaml": "a: 1", "run.sh": "#!/bin/bash\n"},
-		"ops:chezmoi":         {"dot_zshrc": "x", "dot_a.tmpl": "x"},
-		"ops:flux":            {"flux/kustomization.yaml": "x", "flux/clusters/a/k.yaml": "x"},
-		"compose:config":      {"compose.yaml": "services: {}\n"},
-		"wit:validate":        {"wit/a.wit": "x", "justfile": "validate:\n  true\n"},
 	}
 	for id, files := range trees {
 		t.Run(id, func(t *testing.T) {

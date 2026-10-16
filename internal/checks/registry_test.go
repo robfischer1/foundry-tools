@@ -393,32 +393,28 @@ func TestTheNamedCheckSetsAreTheFleets(t *testing.T) {
 // of these, so an atom that exits 0 in silence is indistinguishable from a scan
 // that found nothing.
 func TestEveryRehomedCadenceAtomCanRefuseAndAnnounceAbsence(t *testing.T) {
-	src := parseLaneFiles(t)
-	runners := src.runnerNames()
-	bodies := src.funcBodies()
+	root := moduleRoot(t)
 
 	// These two came home from the deleted sweep (CA F18). Each still finds a
-	// surface most repos do not have — flux/ and ci-matrix.toml — so each must
-	// still be able to say ABSENT rather than pass by accident.
-	for _, a := range []AtomDef{AtomByID("ops:kube-linter"), AtomByID("template:render-matrix")} {
-		fnName, ok := runners[a.ID]
-		if !ok {
-			t.Errorf("atom %q has no registered runner to read", a.ID)
-			continue
+	// surface most repos do not have - flux/ and ci-matrix.toml - so each must
+	// still be able to say ABSENT rather than pass by accident. They live in
+	// their own files now (atoms/<ns>/<name>/<name>.go), and the file is read.
+	for id, file := range map[string]string{
+		"ops:kube-linter":        "atoms/ops/kube-linter/kube-linter.go",
+		"template:render-matrix": "atoms/template/render-matrix/render-matrix.go",
+	} {
+		f, err := parser.ParseFile(token.NewFileSet(), filepath.Join(root, file), nil, 0)
+		if err != nil {
+			t.Fatalf("%s: %v", file, err)
 		}
-		fn, ok := bodies[fnName]
-		if !ok {
-			t.Errorf("atom %q registers %s, which is not a function in any atoms_*.go", a.ID, fnName)
-			continue
-		}
-		lits := strings.Join(stringLiterals(fn), "\x00")
+		lits := strings.Join(stringLiterals(f), "\x00")
 		if !strings.Contains(lits, "CANNOT RUN") {
-			t.Errorf("sweep atom %q (%s) names no CANNOT RUN of its own — an unattended check that "+
-				"cannot refuse will report a clean fleet it never examined", a.ID, fnName)
+			t.Errorf("sweep atom %q (%s) names no CANNOT RUN of its own - an unattended check that "+
+				"cannot refuse will report a clean fleet it never examined", id, file)
 		}
 		if !strings.Contains(lits, "ABSENT") {
 			t.Errorf("sweep atom %q (%s) never reports ABSENT; on a repo with no surface it would "+
-				"answer 0 in silence, which is indistinguishable from a scan that found nothing", a.ID, fnName)
+				"answer 0 in silence, which is indistinguishable from a scan that found nothing", id, file)
 		}
 	}
 }

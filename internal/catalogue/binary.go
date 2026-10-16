@@ -25,6 +25,14 @@ var votesInBinaryByHistory = map[string]bool{
 	"dies:resource-referents": true,
 	"dies:grants-stamp":       true,
 	"dies:refusal-codes":      true,
+	"ops:ansible":             true,
+	"ops:declaration":         true,
+	"ops:dup":                 true,
+	"ops:metrics":             true,
+	"ops:specs":               true,
+	"ops:star-sa":             true,
+	"ops:world-patches":       true,
+	"template:render-matrix":  true,
 }
 
 // votesInBinary says whether the atoms binary carries d.

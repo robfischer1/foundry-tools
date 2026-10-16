@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -15,6 +17,22 @@ import (
 	"dagger/foundry-tools/internal/catalogue"
 	"dagger/foundry-tools/internal/checks"
 )
+
+// chainVerdicts is the chains' answer to the reverse shadow: the verdicts of the
+// atoms it reports on (the pull path's binary atoms that have a chain), each as
+// the binary voted it.
+func chainVerdicts(t *testing.T) ([]checks.Verdict, error) {
+	t.Helper()
+	vs, err := checks.ParseVector(binaryVector(t, ""))
+	ids, _ := reverseIDs("", false)
+	var out []checks.Verdict
+	for _, v := range vs {
+		if slices.Contains(ids, v.Atom) {
+			out = append(out, v)
+		}
+	}
+	return out, err
+}
 
 // reverseRun is the lane of a gate-stage run whose binary voted and whose chains
 // are the comparator: the chains side answers as the test says, and the report
@@ -36,10 +54,11 @@ func reverseRun(t *testing.T, chainSide func(ctx context.Context) ([]checks.Verd
 	casting(t, voterBinary)
 	engine.reset()
 	engine.withTree(bareTree)
+	engine.portedPass()
 	engine.stdout(`"rev-parse","HEAD^{tree}"`, fakeTree+"\n")
 	m := &FoundryTools{Source: dag.Directory(), Repo: "http://door:8215/rob/ares.git", Sha: buildSha}
 	start := time.Now()
-	record, err := m.Gate(soon(t), fakeTree, gatePin, "base-sha", checks.StageOrbit)
+	record, err := m.Gate(soon(t), fakeTree, gatePin, "base-sha", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,13 +68,12 @@ func reverseRun(t *testing.T, chainSide func(ctx context.Context) ([]checks.Verd
 // The chains agree with the vote: the report says the binary voted and that
 // everything compared was identical.
 func TestTheReverseShadowReportsWhoVotedAndWhoAgreed(t *testing.T) {
-	same := func(context.Context) ([]checks.Verdict, error) {
-		vs, err := checks.ParseVector(binaryVector(t, checks.StageOrbit))
-		return vs, err
-	}
+	same := func(context.Context) ([]checks.Verdict, error) { return chainVerdicts(t) }
 	record, report, _ := reverseRun(t, same, time.Minute)
-	recordedOn(t, record, "0", votedMark+"orbit:contracts")
-	if want := "shadow atoms (binary voted): 4 compared, 4 identical, 0 same state, 0 state differs"; !strings.Contains(report.String(), want) {
+	recordedOn(t, record, "0", votedMark+"fleet:check-yaml")
+	ids, _ := reverseIDs("", false)
+	n := len(ids)
+	if want := fmt.Sprintf("shadow atoms (binary voted): %d compared, %d identical, 0 same state, 0 state differs", n, n); !strings.Contains(report.String(), want) {
 		t.Errorf("report %q lacks %q", report.String(), want)
 	}
 }
@@ -64,9 +82,7 @@ func TestTheReverseShadowReportsWhoVotedAndWhoAgreed(t *testing.T) {
 // the one a lane with no shadow records, and the report says what happened.
 func TestAFailingHangingOrPanickingReverseShadowChangesNothing(t *testing.T) {
 	baseline, _, _ := func() (string, *bytes.Buffer, time.Duration) {
-		return reverseRun(t, func(context.Context) ([]checks.Verdict, error) {
-			return checks.ParseVector(binaryVector(t, checks.StageOrbit))
-		}, time.Minute)
+		return reverseRun(t, func(context.Context) ([]checks.Verdict, error) { return chainVerdicts(t) }, time.Minute)
 	}()
 	stuck := make(chan struct{})
 	t.Cleanup(func() { close(stuck) })
@@ -83,16 +99,22 @@ func TestAFailingHangingOrPanickingReverseShadowChangesNothing(t *testing.T) {
 			"no answer within"},
 		{"the chains disagree on every atom", func(context.Context) ([]checks.Verdict, error) {
 			var vs []checks.Verdict
-			for _, id := range atoms.StageIDs(checks.StageOrbit) {
+			ids, _ := reverseIDs("", false)
+			for _, id := range ids {
 				vs = append(vs, checks.VerdictOf(checks.AtomByID(id), 1, "chain finds something"))
 			}
 			return vs, nil
-		}, "4 state differs"},
+		}, fmt.Sprintf("%d state differs", len(mustIDs()))},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			record, report, took := reverseRun(t, tc.chain, 100*time.Millisecond)
-			if record != baseline {
-				t.Errorf("the record moved:\n got %.300s\nwant %.300s", record, baseline)
+			if got, want := scrubTimes(record), scrubTimes(baseline); got != want {
+				i := 0
+				for i < min(len(got), len(want)) && got[i] == want[i] {
+					i++
+				}
+				from := max(i-150, 0)
+				t.Errorf("the record moved at byte %d:\n got ...%.400s\nwant ...%.400s", i, got[from:], want[from:])
 			}
 			if !strings.Contains(report.String(), tc.want) {
 				t.Errorf("report %q lacks %q", report.String(), tc.want)
@@ -137,7 +159,8 @@ func TestTheReverseShadowLeavesTheWitnessChainOut(t *testing.T) {
 	if !skipped || slices.Contains(ids, "fleet:witness") || len(ids) != chained-1 {
 		t.Errorf("ids %v skipped %v", ids, skipped)
 	}
-	if ids, skipped := reverseIDs(checks.StageOrbit, false); skipped || len(ids) != 4 {
+	// an atom that lives in its own file has no chain to hold against
+	if ids, skipped := reverseIDs(checks.StageOrbit, false); skipped || len(ids) != 0 {
 		t.Errorf("orbit: ids %v skipped %v", ids, skipped)
 	}
 	if ids, skipped := reverseIDs(checks.StagePrepush, true); skipped || !slices.Contains(ids, "fleet:witness") {
@@ -182,3 +205,18 @@ func TestTheDryShadowNamesTheChainsAsVoters(t *testing.T) {
 		t.Errorf("report %q", got)
 	}
 }
+
+// mustIDs are the atoms the reverse shadow reports on over the pull path.
+func mustIDs() []string {
+	ids, _ := reverseIDs("", false)
+	return ids
+}
+
+// scrubTimes blanks the clock a record carries for each atom: an atom that runs
+// in the lane (the ones that live in their own files and have no binary vote)
+// stamps its own start and finish, and two runs never stamp alike.
+func scrubTimes(record string) string {
+	return timesRE.ReplaceAllString(record, `"$1":""`)
+}
+
+var timesRE = regexp.MustCompile(`"(started_at|finished_at)":"[^"]*"`)

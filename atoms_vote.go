@@ -390,11 +390,19 @@ func renderReverse(ids []string, skipped bool, chains []checks.Verdict, chainsEr
 // binary could not run it, with the binary's reason, in the stage's order, and a
 // count on top. Empty when none fell back.
 func renderFallbacks(ids []string, fell map[string]string) string {
-	if len(fell) == 0 {
+	// Only the atoms the report lists count: an atom that lives in its own file has
+	// no chain of its own to be held against, and is not among ids.
+	n := 0
+	for _, id := range ids {
+		if _, ok := fell[id]; ok {
+			n++
+		}
+	}
+	if n == 0 {
 		return ""
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "\n%d of %d fell back to the chain (the binary settled could-not-run; the chain's answer is the vote):\n", len(fell), len(ids))
+	fmt.Fprintf(&b, "\n%d of %d fell back to the chain (the binary settled could-not-run; the chain's answer is the vote):\n", n, len(ids))
 	for _, id := range ids {
 		if reason, ok := fell[id]; ok {
 			fmt.Fprintf(&b, "  %s: %s\n", id, atoms.Clip(reason))

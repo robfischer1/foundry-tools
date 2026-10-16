@@ -1,8 +1,6 @@
 package atoms
 
 import (
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -99,29 +97,23 @@ func TestFleetWitTopics(t *testing.T) {
 // layer carries is a could-not-run on every shadow, and looks like a finding
 // about the binary.
 func TestEveryPythonAtomExecsAListedProgram(t *testing.T) {
-	provision(t, nil)
-	r := &renderer{t: t, render: okRender()}
 	for _, tc := range []struct {
 		id     string
 		files  map[string]string
 		answer func(Cmd) (string, int)
 	}{
 		{"fleet:wit-topics", map[string]string{"prime/a.yaml": "x", witTopicsChecker: "x"}, nil},
-		{"ops:dup", map[string]string{"flux/x.yaml": "a: 1\n", "tools/dup-check": "x"}, nil},
-		{"ops:declaration", map[string]string{"flux/x.yaml": "a: 1\n", "tools/declaration-integrity": "x"}, nil},
-		{"ops:metrics", map[string]string{"flux/x.yaml": "a: 1\n", "tools/metric-allowlist": "x"}, nil},
-		{"ops:star-sa", map[string]string{"flux/x.yaml": "a: 1\n", "tools/star-sa-list": "x"}, nil},
-		{"ops:world-patches", map[string]string{"flux/x.yaml": "a: 1\n", "tools/world-patches": "x"}, nil},
-		{"ops:ansible", ansibleFiles(), nil},
-		{"template:render-matrix", templateFiles(matrixTOML), r.answer},
 	} {
 		t.Run(tc.id, func(t *testing.T) {
-			in, f := toolTree(t, tc.files, opsPyAnswer(tc.answer))
-			if tc.id == "ops:dup" {
-				if err := os.Chmod(filepath.Join(in.Root, "tools/dup-check"), 0o755); err != nil {
-					t.Fatal(err)
+			in, f := toolTree(t, tc.files, func(c Cmd) (string, int) {
+				if len(c.Args) == 1 && c.Args[0] == "--version" {
+					return "Python 3.14.0", 0
 				}
-			}
+				if tc.answer == nil {
+					return "", 0
+				}
+				return tc.answer(c)
+			})
 			if v := runAtom(t, tc.id, in); v.Result == absent {
 				t.Fatalf("%s was absent on a tree built to run it: %s", tc.id, v.Reason)
 			}

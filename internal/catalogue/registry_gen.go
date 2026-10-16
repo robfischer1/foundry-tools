@@ -3,6 +3,9 @@
 package catalogue
 
 import (
+	composeconfig "dagger/foundry-tools/atoms/compose/config"
+	composenotrackedsecrets "dagger/foundry-tools/atoms/compose/no-tracked-secrets"
+	composethirdpartypins "dagger/foundry-tools/atoms/compose/third-party-pins"
 	diesadmissiondogfood "dagger/foundry-tools/atoms/dies/admission-dogfood"
 	diescanaryvisibility "dagger/foundry-tools/atoms/dies/canary-visibility"
 	diescanonical "dagger/foundry-tools/atoms/dies/canonical"
@@ -30,6 +33,26 @@ import (
 	lawbudget "dagger/foundry-tools/atoms/law/budget"
 	lawlint "dagger/foundry-tools/atoms/law/lint"
 	lawverbliveness "dagger/foundry-tools/atoms/law/verb-liveness"
+	opsansible "dagger/foundry-tools/atoms/ops/ansible"
+	opschezmoi "dagger/foundry-tools/atoms/ops/chezmoi"
+	opsdeclaration "dagger/foundry-tools/atoms/ops/declaration"
+	opsdup "dagger/foundry-tools/atoms/ops/dup"
+	opsflux "dagger/foundry-tools/atoms/ops/flux"
+	opsimmutable "dagger/foundry-tools/atoms/ops/immutable"
+	opskubelinter "dagger/foundry-tools/atoms/ops/kube-linter"
+	opsmetrics "dagger/foundry-tools/atoms/ops/metrics"
+	opsorbitcomposed "dagger/foundry-tools/atoms/ops/orbit-composed"
+	opsorbitsidecars "dagger/foundry-tools/atoms/ops/orbit-sidecars"
+	opsrecordlanes "dagger/foundry-tools/atoms/ops/record-lanes"
+	opsshell "dagger/foundry-tools/atoms/ops/shell"
+	opsspecs "dagger/foundry-tools/atoms/ops/specs"
+	opsstarsa "dagger/foundry-tools/atoms/ops/star-sa"
+	opsworldpatches "dagger/foundry-tools/atoms/ops/world-patches"
+	opsyaml "dagger/foundry-tools/atoms/ops/yaml"
+	orbitcontracts "dagger/foundry-tools/atoms/orbit/contracts"
+	orbitrepo "dagger/foundry-tools/atoms/orbit/repo"
+	orbitsidecars "dagger/foundry-tools/atoms/orbit/sidecars"
+	orbitsurface "dagger/foundry-tools/atoms/orbit/surface"
 	pythonforgetestkitassertionfree "dagger/foundry-tools/atoms/python/forge-testkit-assertion-free"
 	pythonforgetestkitfakeplacement "dagger/foundry-tools/atoms/python/forge-testkit-fake-placement"
 	pythonforgetestkitschemabudget "dagger/foundry-tools/atoms/python/forge-testkit-schema-budget"
@@ -39,12 +62,17 @@ import (
 	pythonruffformat "dagger/foundry-tools/atoms/python/ruff-format"
 	rustcargoclippy "dagger/foundry-tools/atoms/rust/cargo-clippy"
 	rustcargotest "dagger/foundry-tools/atoms/rust/cargo-test"
+	templaterendermatrix "dagger/foundry-tools/atoms/template/render-matrix"
 	tsbungate "dagger/foundry-tools/atoms/ts/bun-gate"
+	witvalidate "dagger/foundry-tools/atoms/wit/validate"
 	"dagger/foundry-tools/internal/atomkit"
 )
 
 // Defs is every logic atom, sorted by id.
 var Defs = []*atomkit.Def{
+	&composeconfig.Def,
+	&composenotrackedsecrets.Def,
+	&composethirdpartypins.Def,
 	&diesadmissiondogfood.Def,
 	&diescanaryvisibility.Def,
 	&diescanonical.Def,
@@ -72,6 +100,26 @@ var Defs = []*atomkit.Def{
 	&lawbudget.Def,
 	&lawlint.Def,
 	&lawverbliveness.Def,
+	&opsansible.Def,
+	&opschezmoi.Def,
+	&opsdeclaration.Def,
+	&opsdup.Def,
+	&opsflux.Def,
+	&opsimmutable.Def,
+	&opskubelinter.Def,
+	&opsmetrics.Def,
+	&opsorbitcomposed.Def,
+	&opsorbitsidecars.Def,
+	&opsrecordlanes.Def,
+	&opsshell.Def,
+	&opsspecs.Def,
+	&opsstarsa.Def,
+	&opsworldpatches.Def,
+	&opsyaml.Def,
+	&orbitcontracts.Def,
+	&orbitrepo.Def,
+	&orbitsidecars.Def,
+	&orbitsurface.Def,
 	&pythonforgetestkitassertionfree.Def,
 	&pythonforgetestkitfakeplacement.Def,
 	&pythonforgetestkitschemabudget.Def,
@@ -81,7 +129,9 @@ var Defs = []*atomkit.Def{
 	&pythonruffformat.Def,
 	&rustcargoclippy.Def,
 	&rustcargotest.Def,
+	&templaterendermatrix.Def,
 	&tsbungate.Def,
+	&witvalidate.Def,
 }
 
 // ManifestSources is every command atom's manifest, sorted by path.
