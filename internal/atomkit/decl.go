@@ -23,7 +23,7 @@ type Def struct {
 	Group, Desc string
 	Surface     string        // root:<f> | any:<glob> | all:<f>,<f>
 	Toolchain   string        // a tools.toml [toolchain.<name>] key, or "none"
-	Needs       []string      // dies | svid | tool:<name> | service:<name>
+	Needs       []string      // dies | svid | pytools | tool:<name> | service:<name>
 	Timeout     time.Duration // 0 = 10 min
 	// Deadline, when set, is how long this atom may take over this input; the run
 	// gives the atom the longer of it and Timeout. An atom whose honest worst case
@@ -114,8 +114,8 @@ func Validate(d Def) error {
 		return errors.New("toolchain is empty")
 	}
 	for _, n := range d.Needs {
-		if n != "dies" && n != "svid" && !strings.HasPrefix(n, "tool:") && !strings.HasPrefix(n, "service:") {
-			return fmt.Errorf("need %s is not dies, svid, tool:<name> or service:<name>", n)
+		if n != "dies" && n != "svid" && n != "pytools" && !strings.HasPrefix(n, "tool:") && !strings.HasPrefix(n, "service:") {
+			return fmt.Errorf("need %s is not dies, svid, pytools, tool:<name> or service:<name>", n)
 		}
 	}
 	if d.History != "" && d.History != "shallow" && d.History != "full" {

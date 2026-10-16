@@ -18,7 +18,7 @@ import (
 func run(in atoms.Input) checks.Verdict { return check(context.Background(), in) }
 
 func TestTheDeclarationIsTheRowItReplaced(t *testing.T) {
-	atomtest.DeclaresItsRow(t, Def, "prepush", "python")
+	atomtest.DeclaresItsRow(t, Def, "prepush", "none")
 	if Def.ID != id {
 		t.Errorf("%+v", Def)
 	}
