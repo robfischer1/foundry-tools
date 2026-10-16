@@ -10,9 +10,9 @@ import (
 
 // stubEveryChain answers every registered atom PASS without running it, and
 // counts the asks — so a test of the planner sees which atoms reached a runner.
-func stubEveryChain(t *testing.T) *chainCalls {
+func stubEveryChain(t *testing.T) *reaskCalls {
 	t.Helper()
-	calls := &chainCalls{n: map[string]int{}}
+	calls := &reaskCalls{n: map[string]int{}}
 	for id, orig := range registry {
 		t.Cleanup(func() { registry[id] = orig })
 		registry[id] = func(_ context.Context, _ *run) checks.Verdict {

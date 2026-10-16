@@ -50,7 +50,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, now func(
 		return 2
 	}
 	// THE STAGE SELECTS WHAT RUNS, the way the module's AtomsForStage selects
-	// what a lane grades, so a lane's shadow compares exactly its own atoms.
+	// what a lane grades, so a lane runs exactly its own atoms.
 	reg, err = reg.ForStage(*stage)
 	if err != nil {
 		fmt.Fprintln(stderr, "atoms:", err)

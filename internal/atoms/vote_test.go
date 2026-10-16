@@ -34,27 +34,3 @@ func TestExecuteGivesAnAtomItsOwnLongerDeadline(t *testing.T) {
 		t.Errorf("a deadline SHORTER than the run's shortened the atom's: %+v", got[2])
 	}
 }
-
-func TestRenderSaysWhichSideVoted(t *testing.T) {
-	for _, tc := range []struct {
-		voter, want string
-	}{
-		{"binary", "shadow atoms (binary voted): 0 compared"},
-		{"chains", "shadow atoms (chains voted): 0 compared"},
-		{"", "shadow atoms: 0 compared"},
-	} {
-		if got := (Report{Voter: tc.voter}).Render(); !strings.HasPrefix(got, tc.want) {
-			t.Errorf("voter %q: report %q lacks %q", tc.voter, got, tc.want)
-		}
-	}
-}
-
-// Clip is the report's clip for the lines other packages write beside it.
-func TestExportedClipIsTheReportsClip(t *testing.T) {
-	if got := Clip("a\nb"); got != "a | b" {
-		t.Errorf("clip %q", got)
-	}
-	if got := Clip(strings.Repeat("x", 400)); len(got) != 303 || !strings.HasSuffix(got, "...") {
-		t.Errorf("a long reason clipped to %d bytes: %q", len(got), got[len(got)-5:])
-	}
-}

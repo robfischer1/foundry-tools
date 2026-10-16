@@ -19,18 +19,11 @@ import (
 //
 // THE RIDER CANNOT TOUCH THE GATE. It grades on a copy of the module, in a
 // goroutine that recovers a panic, and it is waited on only after the gate's
-// record is posted and its shadow reported, for at most rideGrace. Nothing it
+// record is posted, for at most rideGrace. Nothing it
 // does reaches the gate's record, file, error or exit; it adds lines of its own,
 // each prefixed `ride <lane>:`, after the gate's. What it CAN add is time: at
-// worst shadowGrace (30s) + rideGrace (60s) + the rider's post (sendRecord's
-// 15s), about 105s, on a gate whose record is already posted — and the gate's
+// worst rideGrace (60s) + the rider's post (sendRecord's 15s), about 75s, on a gate whose record is already posted — and the gate's
 // settle waits on the Job's exit.
-//
-// A RIDING ORBIT RUNS NO SHADOW. A standalone orbit gate-file runs the F5a
-// reverse shadow (shadowLanes); the rider does not, because the shadow's box is
-// the gate's. So once orbit rides, its chain-vs-binary comparison is no longer
-// reported. Accepted: orbit's four atoms are report-only (orbit is in no ask's
-// expected set) and the gate's own shadow still covers every footgun atom. When F5b deletes the chains this note goes with them.
 
 // rideLanes are the lanes allowed to ride, by laneOf. Orbit only, for now:
 // mutation runs under a different service account and a far longer deadline,
@@ -38,7 +31,7 @@ import (
 var rideLanes = map[string]bool{"orbit": true}
 
 // rideGrace is how long the gate waits for its rider AFTER the gate's own record
-// is posted and its shadow has reported. The rider started before the gate
+// is posted. The rider started before the gate
 // graded, so the grace is only the tail; past it the rider is abandoned unposted
 // and the gate returns, and the rider's lane settles however the door settles a
 // lane that sent no record.
@@ -81,9 +74,8 @@ func rideRefusal(stage, ride string, token *dagger.Secret) string {
 // With no ride it does nothing at all: no goroutine, no line.
 //
 // THE RIDER GRADES A COPY OF m. Its fields are the gate's (the same fetched
-// tree, the same spire socket) EXCEPT the ballot box, which belongs to the
-// gate's shadow: a rider casting into it would put orbit's votes in the gate's
-// shadow report. The reuse lookup is the mutation lane's and is dropped too.
+// tree, the same spire socket) EXCEPT the reuse lookup, which is the mutation
+// lane's and is dropped.
 func (m *FoundryTools) startRide(ctx context.Context, tree, stage, ride, base string, token *dagger.Secret) *rideHandle {
 	if ride == "" {
 		return nil
@@ -93,7 +85,7 @@ func (m *FoundryTools) startRide(ctx context.Context, tree, stage, ride, base st
 		return nil
 	}
 	rider := *m
-	rider.box, rider.lookup, rider.audit = nil, nil, false
+	rider.lookup, rider.audit = nil, false
 	h := &rideHandle{lane: laneOf(ride), repo: m.Repo, token: token, grace: rideGrace, done: make(chan *StageResult, 1)}
 	ctx, h.cancel = context.WithCancel(ctx)
 	// Buffered: an abandoned rider can still answer and its goroutine end.

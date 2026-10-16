@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"io"
 	"slices"
 	"strings"
 	"sync"
@@ -75,53 +74,5 @@ func TestAVoteTheLaneCannotWaitForIsACouldNotRun(t *testing.T) {
 	v, ok := p.vote(ctx, "fleet:check-yaml")
 	if !ok || v.State != 2 || v.Atom != "fleet:check-yaml" || !strings.Contains(v.Reason, "the lane ended before the atoms binary answered") {
 		t.Errorf("verdict %+v (%v)", v, ok)
-	}
-}
-
-// The record is settled: a shadow still waiting for a vote is told none is
-// coming, so it does not sit out the grace.
-func TestFinishTellsTheShadowNoVoteIsComing(t *testing.T) {
-	origRun, origGrace, origOut := shadowRun, shadowGrace, shadowOut
-	t.Cleanup(func() { shadowRun, shadowGrace, shadowOut = origRun, origGrace, origOut })
-	casting(t, voterBinary)
-	shadowRun = func(ctx context.Context, m *FoundryTools, _, _ string) string {
-		_, _, err := m.box.wait(ctx)
-		if err == nil {
-			return "a vote came"
-		}
-		return "waited: " + err.Error()
-	}
-	shadowGrace = 8 * time.Second
-	var buf strings.Builder
-	shadowOut = func() io.Writer { return &buf }
-	h := (&FoundryTools{}).startShadow(soon(t), "", "b")
-	start := time.Now()
-	h.finish()
-	if got := buf.String(); !strings.Contains(got, "waited: the lane settled without casting a vote") || time.Since(start) > 4*time.Second {
-		t.Errorf("report %q after %v", got, time.Since(start))
-	}
-}
-
-// With the chains voting there is no ballot box, and the shadow is the dry one,
-// which says the chains voted.
-func TestTheShadowOfAChainVotedLaneIsTheDryOne(t *testing.T) {
-	origToday, origBinary := shadowToday, shadowBinary
-	t.Cleanup(func() { shadowToday, shadowBinary = origToday, origBinary })
-	yaml := checks.AtomByID("fleet:check-yaml")
-	vec := []checks.Verdict{checks.VerdictOf(yaml, 0, "")}
-	shadowToday = func(context.Context, *FoundryTools, string, string, string) ([]checks.Verdict, error) {
-		return vec, nil
-	}
-	shadowBinary = func(context.Context, *FoundryTools, string, string) (string, error) {
-		return `[{"atom":"fleet:check-yaml","stage":"precommit","lane":"any","state":0,"result":"pass","logs":null}]`, nil
-	}
-	got := defaultShadow(soon(t), &FoundryTools{}, "", "b")
-	// every atom the binary carries lives in its own file: there is no chain to
-	// hold a vote against.
-	if ids := chainedIDs(""); len(ids) != 0 {
-		t.Fatalf("chained atoms %v: the report below no longer holds", ids)
-	}
-	if !strings.Contains(got, "nothing to compare") {
-		t.Errorf("report %q", got)
 	}
 }

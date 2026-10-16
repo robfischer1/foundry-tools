@@ -68,9 +68,6 @@ type FoundryTools struct {
 	// registrySvid is the audience of the JWT-SVID the visual push logs in
 	// with — set by GateFile under --registry-svid; used only with spire.
 	registrySvid string
-	// box carries the binary's votes to the lane's reverse shadow — set by
-	// startShadow when the binary votes, nil otherwise (atoms_vote.go).
-	box *ballotBox
 }
 
 // New binds the module to the caller's repository — the tree it is standing
@@ -337,12 +334,6 @@ func (m *FoundryTools) Verdicts(
 // chains.
 func (m *FoundryTools) vector(ctx context.Context, stage, only, base string) ([]checks.Verdict, error) {
 	return m.graded(ctx, stage, only, base, atomsVoter)
-}
-
-// chainVector is vector with every atom answered by its chain, whoever votes:
-// the comparator the reverse shadow runs, and the old shadow's "today".
-func (m *FoundryTools) chainVector(ctx context.Context, stage, only, base string) ([]checks.Verdict, error) {
-	return m.graded(ctx, stage, only, base, voterChains)
 }
 
 // graded is the vector with the named side voting for the atoms the binary

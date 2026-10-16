@@ -1,11 +1,9 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"slices"
 	"strings"
 	"sync"
@@ -20,23 +18,23 @@ import (
 // chainMark opens the reason of every verdict a stubbed chain answers.
 const chainMark = "answered by the chain: "
 
-// chainCalls counts, by atom, how often a stubbed chain was asked.
-type chainCalls struct {
+// reaskCalls counts, by atom, how often a stubbed chain was asked.
+type reaskCalls struct {
 	mu sync.Mutex
 	n  map[string]int
 }
 
-func (c *chainCalls) of(id string) int {
+func (c *reaskCalls) of(id string) int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.n[id]
 }
 
-// stubChains replaces the chain of every atom the binary registers with one that
+// stubReasks replaces the chain every atom is re-asked through with one that
 // counts its asks and answers a pass marked as the chain's; restored after.
-func stubChains(t *testing.T) *chainCalls {
+func stubReasks(t *testing.T) *reaskCalls {
 	t.Helper()
-	calls := &chainCalls{n: map[string]int{}}
+	calls := &reaskCalls{n: map[string]int{}}
 	// the atoms the binary carries, and the ported ones it does not (a python
 	// atom runs through the adapter alone: it is its own chain)
 	var ids []string
@@ -63,12 +61,6 @@ func stubChains(t *testing.T) *chainCalls {
 	return calls
 }
 
-// votingBox gives the module the ballot box a gate lane would, and answers it.
-func votingBox(m *FoundryTools) *ballotBox {
-	m.box = newBallotBox(nil)
-	return m.box
-}
-
 // binarySays stubs the binary's answer for a stage: the given states by atom id,
 // a pass for the rest.
 func binarySays(t *testing.T, states map[string]int) {
@@ -89,28 +81,25 @@ func binarySays(t *testing.T, states map[string]int) {
 }
 
 // A BINARY-WIDE FAILURE DOES NOT TURN THE LANE RED: every atom is asked once of
-// its chain, the chain's answer is the vote, and each fallback is counted with
-// the binary's reason.
+// its chain, and the chain's answer is the vote.
 func TestABinaryWideFailureIsAnsweredByTheChainsAndCounted(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		out  string
 		err  error
-		want string
 	}{
-		{"the run failed", "", errors.New("the engine went away"), "the atoms binary did not answer: the engine went away"},
-		{"the binary was OOM killed", "", errors.New("the atoms binary exited 137: Killed"), "exited 137"},
-		{"the output is not a vector", "panic: oops", nil, "the module's output is not a verdict vector"},
-		{"every atom is left out", "[]", nil, "returned no verdict for this atom"},
+		{"the run failed", "", errors.New("the engine went away")},
+		{"the binary was OOM killed", "", errors.New("the atoms binary exited 137: Killed")},
+		{"the output is not a vector", "panic: oops", nil},
+		{"every atom is left out", "[]", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			casting(t, voterBinary)
 			castBinary = func(context.Context, *FoundryTools, string, string) (string, error) { return tc.out, tc.err }
-			calls := stubChains(t)
+			calls := stubReasks(t)
 			engine.reset()
 			engine.withTree(bareTree)
 			m := bareModule()
-			box := votingBox(m)
 			vs, err := m.vector(soon(t), checks.StageOrbit, "", "")
 			ids := atoms.StageIDs(checks.StageOrbit)
 			if err != nil || len(vs) != len(ids) {
@@ -123,12 +112,6 @@ func TestABinaryWideFailureIsAnsweredByTheChainsAndCounted(t *testing.T) {
 				if n := calls.of(v.Atom); n != 1 {
 					t.Errorf("%s: the chain was asked %d times, want once", v.Atom, n)
 				}
-				if reason := box.fell[v.Atom]; !strings.Contains(reason, tc.want) {
-					t.Errorf("%s: fallback noted as %q, want the binary's %q", v.Atom, reason, tc.want)
-				}
-			}
-			if len(box.fell) != len(ids) {
-				t.Errorf("%d fallbacks counted, want %d", len(box.fell), len(ids))
 			}
 		})
 	}
@@ -139,11 +122,10 @@ func TestOneCouldNotRunAtomIsAskedOfItsChainOnce(t *testing.T) {
 	casting(t, voterBinary)
 	ids := atoms.StageIDs(checks.StageOrbit)
 	binarySays(t, map[string]int{ids[1]: 2})
-	calls := stubChains(t)
+	calls := stubReasks(t)
 	engine.reset()
 	engine.withTree(bareTree)
 	m := bareModule()
-	box := votingBox(m)
 	vs, err := m.vector(soon(t), checks.StageOrbit, "", "")
 	if err != nil {
 		t.Fatal(err)
@@ -157,9 +139,6 @@ func TestOneCouldNotRunAtomIsAskedOfItsChainOnce(t *testing.T) {
 			t.Errorf("%s: the chain was asked %d times", v.Atom, n)
 		}
 	}
-	if len(box.fell) != 1 || !strings.Contains(box.fell[ids[1]], "a tool layer did not build") {
-		t.Errorf("fallbacks %v", box.fell)
-	}
 }
 
 // A FINDING IS A VERDICT: state 1 is never asked again.
@@ -167,11 +146,10 @@ func TestAFindingIsNeverReAsked(t *testing.T) {
 	casting(t, voterBinary)
 	ids := atoms.StageIDs(checks.StageOrbit)
 	binarySays(t, map[string]int{ids[0]: 1, ids[2]: 1})
-	calls := stubChains(t)
+	calls := stubReasks(t)
 	engine.reset()
 	engine.withTree(bareTree)
 	m := bareModule()
-	box := votingBox(m)
 	vs, err := m.vector(soon(t), checks.StageOrbit, "", "")
 	if err != nil {
 		t.Fatal(err)
@@ -181,8 +159,8 @@ func TestAFindingIsNeverReAsked(t *testing.T) {
 			t.Errorf("%s was re-asked or not the binary's: %+v", v.Atom, v)
 		}
 	}
-	if vs[0].State != 1 || vs[2].State != 1 || len(box.fell) != 0 {
-		t.Errorf("states %d %d, fallbacks %v", vs[0].State, vs[2].State, box.fell)
+	if vs[0].State != 1 || vs[2].State != 1 {
+		t.Errorf("states %d %d", vs[0].State, vs[2].State)
 	}
 }
 
@@ -192,20 +170,19 @@ func TestAFallbackThatCannotBeAskedLeavesTheBinarysTwo(t *testing.T) {
 	casting(t, voterBinary)
 	ids := atoms.StageIDs(checks.StageOrbit)
 	binarySays(t, map[string]int{ids[0]: 2})
-	stubChains(t)
+	stubReasks(t)
 	orig := registry[ids[0]]
 	delete(registry, ids[0])
 	t.Cleanup(func() { registry[ids[0]] = orig })
 	engine.reset()
 	engine.withTree(bareTree)
 	m := bareModule()
-	box := votingBox(m)
 	vs, err := m.vector(soon(t), checks.StageOrbit, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if vs[0].State != 2 || !strings.HasPrefix(vs[0].Reason, votedMark) || len(box.fell) != 0 {
-		t.Errorf("verdict %+v, fallbacks %v", vs[0], box.fell)
+	if vs[0].State != 2 || !strings.HasPrefix(vs[0].Reason, votedMark) {
+		t.Errorf("verdict %+v", vs[0])
 	}
 }
 
@@ -222,7 +199,6 @@ func TestALaneThatEndsBeforeTheBinaryFallsBackToTheChain(t *testing.T) {
 		return checks.VerdictOf(checks.AtomByID(id), 0, ""), nil
 	}
 	m := bareModule()
-	box := votingBox(m)
 	p := m.pollFor(voterBinary, checks.StagePrecommit, "", checks.AtomsForStage(checks.StagePrecommit), chain)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
@@ -230,8 +206,8 @@ func TestALaneThatEndsBeforeTheBinaryFallsBackToTheChain(t *testing.T) {
 	if chainCtxErr != nil {
 		t.Errorf("the chain was handed a context that had ended: %v", chainCtxErr)
 	}
-	if !ok || v.State != 0 || len(asked) != 1 || !strings.Contains(box.fell["fleet:check-yaml"], "the lane ended before the atoms binary answered") {
-		t.Errorf("verdict %+v (%v), asked %v, fallbacks %v", v, ok, asked, box.fell)
+	if !ok || v.State != 0 || len(asked) != 1 {
+		t.Errorf("verdict %+v (%v), asked %v", v, ok, asked)
 	}
 }
 
@@ -239,11 +215,10 @@ func TestALaneThatEndsBeforeTheBinaryFallsBackToTheChain(t *testing.T) {
 func TestAWitnessThatCouldNotAskFallsBackToTheChainsWitness(t *testing.T) {
 	casting(t, voterBinary)
 	binarySays(t, map[string]int{"fleet:witness": 2})
-	calls := stubChains(t)
+	calls := stubReasks(t)
 	engine.reset()
 	engine.withTree(bareTree)
 	m := bareModule()
-	box := votingBox(m)
 	vs, err := m.vector(soon(t), checks.StagePrepush, "", "")
 	if err != nil {
 		t.Fatal(err)
@@ -253,16 +228,13 @@ func TestAWitnessThatCouldNotAskFallsBackToTheChainsWitness(t *testing.T) {
 			t.Errorf("witness %+v, asked %d times", v, calls.of(v.Atom))
 		}
 	}
-	if _, ok := box.fell["fleet:witness"]; !ok || len(box.fell) != 1 {
-		t.Errorf("fallbacks %v", box.fell)
-	}
 }
 
 // The push sequence falls back the same way, and stops on what the chain finds.
 func TestThePushSequenceFallsBackToTheChain(t *testing.T) {
 	casting(t, voterBinary)
 	castBinary = func(context.Context, *FoundryTools, string, string) (string, error) { return "", errors.New("boom") }
-	calls := stubChains(t)
+	calls := stubReasks(t)
 	engine.reset()
 	engine.withTree(bareTree)
 	vs, unreached, err := bareModule().sequence(soon(t), checks.StagePrepush, "")
@@ -281,56 +253,12 @@ func TestThePushSequenceFallsBackToTheChain(t *testing.T) {
 	}
 }
 
-// THE REPORT COUNTS THE FALLBACKS WITH THE BINARY'S REASON, and an atom that fell
-// back is not "compared": its vote is its chain.
-func TestTheReverseShadowReportCountsFallbacks(t *testing.T) {
-	ids := atoms.StageIDs(checks.StageOrbit)
-	var chains []checks.Verdict
-	voted := map[string]checks.Verdict{}
-	for _, id := range ids {
-		v := checks.VerdictOf(checks.AtomByID(id), 0, "")
-		chains, voted[id] = append(chains, v), v
-	}
-	const fellID = "orbit:surface"
-	fell := map[string]string{fellID: "orbit:surface: CANNOT RUN - narc did not build\nsecond line"}
-	got := renderReverse(ids, chains, nil, voted, fell, nil, 0)
-	for _, want := range []string{
-		"shadow atoms (binary voted): 3 compared, 3 identical, 0 same state, 0 state differs, 0 missing from the binary, 0 missing from the chains",
-		"1 of 4 fell back to the chain",
-		"  " + fellID + ": " + fellID + ": CANNOT RUN - narc did not build | second line",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("report lacks %q:\n%s", want, got)
-		}
-	}
-	if none := renderReverse(ids, chains, nil, voted, nil, nil, 0); strings.Contains(none, "fell back") {
-		t.Errorf("a clean run reported fallbacks:\n%s", none)
-	}
-}
-
 // End to end through the gate: a binary that answers nothing leaves the record
-// the chains' record, and the line on stderr counts the fallbacks.
-func TestAGateWhoseBinaryFailsRecordsTheChainsAnswerAndReportsTheFallbacks(t *testing.T) {
-	origRun, origToday, origGrace, origOut, origLimit := shadowRun, shadowToday, shadowGrace, shadowOut, shadowTimeout
-	t.Cleanup(func() {
-		shadowRun, shadowToday, shadowGrace, shadowOut, shadowTimeout = origRun, origToday, origGrace, origOut, origLimit
-	})
-	// A shadow that waits for a seal that never comes gives up in seconds, so a
-	// lane that forgot to seal fails this test instead of hanging it.
-	shadowRun, shadowGrace, shadowTimeout = defaultShadow, 20*time.Second, 5*time.Second
-	ids := atoms.StageIDs("")
-	shadowToday = func(context.Context, *FoundryTools, string, string, string) ([]checks.Verdict, error) {
-		var vs []checks.Verdict
-		for _, id := range ids {
-			vs = append(vs, checks.VerdictOf(checks.AtomByID(id), 0, ""))
-		}
-		return vs, nil
-	}
-	var report bytes.Buffer
-	shadowOut = func() io.Writer { return &report }
+// the chains' record.
+func TestAGateWhoseBinaryFailsRecordsTheChainsAnswer(t *testing.T) {
 	casting(t, voterBinary)
 	castBinary = func(context.Context, *FoundryTools, string, string) (string, error) { return "", errors.New("OOM") }
-	stubChains(t)
+	stubReasks(t)
 	engine.reset()
 	engine.withTree(bareTree)
 	engine.stdout(`"rev-parse","HEAD^{tree}"`, fakeTree+"\n")
@@ -340,14 +268,6 @@ func TestAGateWhoseBinaryFailsRecordsTheChainsAnswerAndReportsTheFallbacks(t *te
 		t.Fatal(err)
 	}
 	recordedOn(t, rec, "0", chainMark+"fleet:check-yaml")
-	// every atom the binary carries lives in its own file: no chain is left to
-	// fall back to, and the report says there is nothing to compare.
-	if listed := chainedIDs(""); len(listed) != 0 {
-		t.Fatalf("chained atoms %v: the report below no longer holds", listed)
-	}
-	if !strings.Contains(report.String(), "nothing to compare") {
-		t.Errorf("report %q", report.String())
-	}
 }
 
 // A PANIC IN THE BINARY'S RUN, or in reading what it printed, is an error for
@@ -355,25 +275,18 @@ func TestAGateWhoseBinaryFailsRecordsTheChainsAnswerAndReportsTheFallbacks(t *te
 func TestAPanickingBinaryRunFallsEveryAtomBackToItsChain(t *testing.T) {
 	casting(t, voterBinary)
 	castBinary = func(context.Context, *FoundryTools, string, string) (string, error) { panic("index out of range") }
-	calls := stubChains(t)
+	calls := stubReasks(t)
 	engine.reset()
 	engine.withTree(bareTree)
 	m := bareModule()
-	box := votingBox(m)
 	vs, err := m.vector(soon(t), checks.StageOrbit, "", "")
 	ids := atoms.StageIDs(checks.StageOrbit)
 	if err != nil || len(vs) != len(ids) {
 		t.Fatalf("vector %v, err %v", vs, err)
 	}
 	for _, v := range vs {
-		if !strings.HasPrefix(v.Reason, chainMark) || calls.of(v.Atom) != 1 || !strings.Contains(box.fell[v.Atom], "the atoms binary's run panicked: index out of range") {
-			t.Errorf("%s: %+v, chain asked %d times, fallback %q", v.Atom, v, calls.of(v.Atom), box.fell[v.Atom])
+		if !strings.HasPrefix(v.Reason, chainMark) || calls.of(v.Atom) != 1 {
+			t.Errorf("%s: %+v, chain asked %d times", v.Atom, v, calls.of(v.Atom))
 		}
-	}
-	// The shadow is told too, or it would report "no vote was cast".
-	box.mu.Lock()
-	defer box.mu.Unlock()
-	if len(box.votes) != len(ids) {
-		t.Errorf("the box holds %d of the %d failed votes", len(box.votes), len(ids))
 	}
 }

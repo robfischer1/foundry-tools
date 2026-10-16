@@ -1,38 +1,24 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/fluxpin"
 )
 
-// NO TEST RUNS THE REAL SHADOW BY ACCIDENT. This init is the seam's other half:
-// the variables it overrides are documented in atoms_shadow.go (shadowRun and
-// shadowOut). Gate calls startShadow, and the real shadow asks the paper engine for the whole vector and a binary run, which
-// would add queries to every gate test's record and print a report into its
-// stderr. The tests that mean the shadow set their own.
-func init() {
-	// The legacy tests grade through the chains; the ones that mean the vote flip it
-	// back (vote_test.go) and restore it.
-	atomsVoter = voterChains
-	shadowRun = func(context.Context, *FoundryTools, string, string) string { return "" }
-	shadowOut = func() io.Writer { return io.Discard }
-}
+// The legacy tests grade through the chains; the ones that mean the vote flip it
+// back (atoms_vote_test.go) and restore it.
+func init() { atomsVoter = voterChains }
 
 // coveredBy says whether the include list reaches dir: by its own entry, or by a
 // directory entry above it.
@@ -105,172 +91,6 @@ func TestAtomsSourceCoversImports(t *testing.T) {
 	}
 }
 
-func TestRenderShadow(t *testing.T) {
-	yaml := checks.AtomByID("fleet:check-yaml")
-	today := []checks.Verdict{checks.VerdictOf(yaml, 0, "")}
-	agree, _ := json.Marshal(today)
-	differ, _ := json.Marshal([]checks.Verdict{checks.VerdictOf(yaml, 2, "binary could not")})
-	for _, tc := range []struct {
-		name     string
-		today    []checks.Verdict
-		todayErr error
-		raw      string
-		rawErr   error
-		want     string
-	}{
-		{"the chains did not answer", nil, errors.New("engine gone"), string(agree), nil, "not compared - the chains did not answer: engine gone"},
-		{"the binary did not answer", today, nil, "", errors.New("exit 1"), "not compared - the binary did not answer: exit 1"},
-		{"the binary printed something that is not a vector", today, nil, "panic: oops", nil, "not compared - the module's output is not a verdict vector"},
-		{"agreement", today, nil, string(agree), nil, "shadow atoms: 1 compared, 1 identical, 0 same state, 0 state differs"},
-		{"disagreement", today, nil, string(differ), nil, "fleet:check-yaml: STATE DIFFERS"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := renderShadow(tc.today, tc.todayErr, tc.raw, tc.rawErr, 0); !strings.Contains(got, tc.want) {
-				t.Errorf("report %q lacks %q", got, tc.want)
-			}
-		})
-	}
-}
-
-// The chains' error wins when both sides failed: it is the one whose absence
-// makes the comparison meaningless, and the report names one cause.
-func TestRenderShadowNamesTheChainsFirst(t *testing.T) {
-	got := renderShadow(nil, errors.New("a"), "", errors.New("b"), 0)
-	if !strings.Contains(got, "the chains did not answer: a") || strings.Contains(got, "binary") {
-		t.Errorf("report %q", got)
-	}
-}
-
-// THE SHADOW CANNOT VOTE. Whatever it does - hang past its deadline, panic,
-// answer an error line, answer nothing - the record Gate returns is the bytes it
-// returns without a shadow, and the call returns no error.
-func TestAShadowThatMisbehavesChangesNothingTheGateAnswers(t *testing.T) {
-	origRun, origGrace, origOut := shadowRun, shadowGrace, shadowOut
-	t.Cleanup(func() { shadowRun, shadowGrace, shadowOut = origRun, origGrace, origOut })
-	shadowOut = func() io.Writer { return io.Discard }
-	shadowRun = func(context.Context, *FoundryTools, string, string) string { return "" }
-	m := gateOn(t, redVector)
-	want := runGate(t, m, "")
-
-	stuck := make(chan struct{})
-	t.Cleanup(func() { close(stuck) })
-	for _, tc := range []struct {
-		name string
-		run  func(context.Context, *FoundryTools, string, string) string
-		said string
-	}{
-		{"hangs", func(context.Context, *FoundryTools, string, string) string { <-stuck; return "late" }, "no answer within the 50ms grace"},
-		{"panics", func(context.Context, *FoundryTools, string, string) string { panic("shadow bug") }, "the shadow panicked: shadow bug"},
-		{"errors", func(context.Context, *FoundryTools, string, string) string {
-			return "shadow atoms: not compared - boom"
-		}, "not compared - boom"},
-		{"says nothing", func(context.Context, *FoundryTools, string, string) string { return "" }, ""},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var buf bytes.Buffer
-			shadowOut = func() io.Writer { return &buf }
-			// Only the hang needs a short grace; the others answer at once and a
-			// short one would let a stalled node abandon them.
-			shadowGrace = 10 * time.Second
-			if tc.name == "hangs" {
-				shadowGrace = 50 * time.Millisecond
-			}
-			shadowRun = tc.run
-			m := gateOn(t, redVector)
-			got, err := m.Gate(context.Background(), fakeTree, gatePin, "base-sha", "")
-			if err != nil {
-				t.Fatalf("a shadow turned the gate into an error: %v", err)
-			}
-			if got != want {
-				t.Errorf("the record moved.\nwith:    %s\nwithout: %s", got, want)
-			}
-			if !strings.Contains(buf.String(), tc.said) {
-				t.Errorf("stderr report %q lacks %q", buf.String(), tc.said)
-			}
-		})
-	}
-}
-
-// The shadow runs for the gate and the orbit lane and nowhere else, runs exactly
-// once, and is told the stage it compares.
-func TestTheShadowRunsOnTheGateAndOrbitLanesOnly(t *testing.T) {
-	origRun, origOut := shadowRun, shadowOut
-	t.Cleanup(func() { shadowRun, shadowOut = origRun, origOut })
-	shadowOut = func() io.Writer { return io.Discard }
-	for stage, want := range map[string]int{"": 1, "prepush": 1, "orbit": 1, "precommit": 0, "mutation": 0, "mutation-bg": 0, "visual": 0} {
-		var told []string
-		shadowRun = func(_ context.Context, _ *FoundryTools, stage, _ string) string {
-			told = append(told, stage)
-			return "r"
-		}
-		(&FoundryTools{}).startShadow(context.Background(), stage, "b").finish()
-		if len(told) != want {
-			t.Errorf("stage %q: shadow ran %d times, want %d", stage, len(told), want)
-		}
-		if want == 1 && told[0] != stage {
-			t.Errorf("stage %q: the shadow was told %q", stage, told[0])
-		}
-	}
-}
-
-// ShadowAtoms asks the chains for exactly the atoms the stage grades that the
-// binary carries, in its order, at that stage, and holds the two answers against
-// each other. The orbit lane's report compares the orbit lane's atoms and the
-// gate's never carries one.
-func TestShadowAtomsAsksTheChainsForTheStagesAtoms(t *testing.T) {
-	origToday, origBinary := shadowToday, shadowBinary
-	t.Cleanup(func() { shadowToday, shadowBinary = origToday, origBinary })
-	yaml := checks.AtomByID("fleet:check-yaml")
-	vec := []checks.Verdict{checks.VerdictOf(yaml, 0, "")}
-	raw, _ := json.Marshal(vec)
-	for _, tc := range []struct {
-		stage    string
-		only     string
-		notOnly  string
-		compared bool
-	}{
-		// every atom of the pull path lives in its own file: no chain to hold it against
-		{"prepush", "", "", false},
-		{"orbit", "", "", false},
-		{"", "", "", false},
-		{"mutation", "", "", false},
-	} {
-		t.Run("stage "+tc.stage, func(t *testing.T) {
-			var gotOnly, gotBase, binBase, todayStage, binStage string
-			shadowToday = func(_ context.Context, _ *FoundryTools, stage, only, base string) ([]checks.Verdict, error) {
-				gotOnly, gotBase, todayStage = only, base, stage
-				return vec, nil
-			}
-			shadowBinary = func(_ context.Context, _ *FoundryTools, stage, base string) (string, error) {
-				binBase, binStage = base, stage
-				return string(raw), nil
-			}
-			report := (&FoundryTools{}).ShadowAtoms(context.Background(), "b4se", tc.stage)
-			if !tc.compared {
-				if !strings.Contains(report, "nothing to compare") || gotOnly != "" || binBase != "" {
-					t.Errorf("a stage with no atom in the binary compared something: %q (%q)", report, gotOnly)
-				}
-				return
-			}
-			if !strings.Contains(gotOnly, tc.only) || (tc.stage != "" && gotOnly != tc.only) {
-				t.Errorf("chains asked for %q, want %q", gotOnly, tc.only)
-			}
-			if tc.notOnly != "" && strings.Contains(gotOnly, tc.notOnly) && tc.stage == "orbit" {
-				t.Errorf("the orbit lane's shadow asked for %q: %q", tc.notOnly, gotOnly)
-			}
-			if tc.stage == "" && strings.Contains(gotOnly, tc.notOnly) {
-				t.Errorf("the gate's shadow asked for an orbit atom: %q", gotOnly)
-			}
-			if gotBase != "b4se" || binBase != "b4se" || todayStage != tc.stage || binStage != tc.stage {
-				t.Errorf("base reached the chains as %q and the binary as %q; stage %q and %q, want %q", gotBase, binBase, todayStage, binStage, tc.stage)
-			}
-			if !strings.Contains(report, "1 compared, 1 identical") {
-				t.Errorf("report %q", report)
-			}
-		})
-	}
-}
-
 func TestAtomsBinaryIsBuiltFromTheFilteredSourceInTheGoToolchain(t *testing.T) {
 	engine.reset()
 	if _, err := dag.Container().From("scratch").WithFile("/b", atomsBinary()).Stdout(context.Background()); err != nil {
@@ -298,7 +118,7 @@ func TestAtomsBinaryIsBuiltFromTheFilteredSourceInTheGoToolchain(t *testing.T) {
 	}
 }
 
-func TestAtomsVectorRunsTheBinaryInTheToolsContainer(t *testing.T) {
+func TestAtomsRunRunsTheBinaryInTheToolsContainer(t *testing.T) {
 	const argv = `"/usr/local/bin/atoms","-root","/src","-base","abc","-origin","http://door/rob/x.git","-stage","","-timeout","4m","-dies","/dies"`
 	m := &FoundryTools{Source: dag.Directory(), Repo: "http://door/rob/x.git", Sha: buildSha}
 	for _, tc := range []struct {
@@ -315,7 +135,7 @@ func TestAtomsVectorRunsTheBinaryInTheToolsContainer(t *testing.T) {
 			engine.reset()
 			engine.withTree(map[string]string{"go.mod": "module x\n"})
 			tc.script()
-			got, err := m.atomsVector(context.Background(), "", "abc")
+			got, err := m.atomsRun(context.Background(), "", "abc")
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 					t.Fatalf("error %v, want one containing %q", err, tc.wantErr)
@@ -338,7 +158,7 @@ func TestAtomsVectorRunsTheBinaryInTheToolsContainer(t *testing.T) {
 // execs costs nothing once cached, and a stage-shaped container would be a
 // second container to build). What a stage changes is the one input that is not
 // a tool: foundry-dies is mounted for the stages with an atom that reads it.
-func TestAtomsVectorCarriesTheToolsForEveryStage(t *testing.T) {
+func TestAtomsRunCarriesTheToolsForEveryStage(t *testing.T) {
 	m := &FoundryTools{Source: dag.Directory(), Repo: "http://door/rob/x.git", Sha: buildSha}
 	for _, tc := range []struct {
 		stage string
@@ -353,7 +173,7 @@ func TestAtomsVectorCarriesTheToolsForEveryStage(t *testing.T) {
 			engine.reset()
 			engine.withTree(map[string]string{"go.mod": "module x\n"})
 			engine.stdout(`"/usr/local/bin/atoms"`, "[]")
-			if _, err := m.atomsVector(context.Background(), tc.stage, "abc"); err != nil {
+			if _, err := m.atomsRun(context.Background(), tc.stage, "abc"); err != nil {
 				t.Fatal(err)
 			}
 			c := engine.chain(tc.argv)
@@ -379,76 +199,10 @@ func TestAtomsVectorCarriesTheToolsForEveryStage(t *testing.T) {
 	}
 }
 
-// The gate does not wait out a shadow that hangs: its wall time is the vector's
-// plus at most the grace. The vector takes 200ms here; the shadow never answers.
-func TestAHangingShadowCostsTheGateAtMostTheGrace(t *testing.T) {
-	origRun, origGrace, origOut := shadowRun, shadowGrace, shadowOut
-	t.Cleanup(func() { shadowRun, shadowGrace, shadowOut = origRun, origGrace, origOut })
-	stuck := make(chan struct{})
-	t.Cleanup(func() { close(stuck) })
-	shadowRun = func(context.Context, *FoundryTools, string, string) string { <-stuck; return "late" }
-	shadowGrace = 100 * time.Millisecond
-	var buf bytes.Buffer
-	shadowOut = func() io.Writer { return &buf }
-
-	const vectorTime = 200 * time.Millisecond
-	m := gateOn(t, cleanVector)
-	slow := gateVector
-	gateVector = func(ctx context.Context, m *FoundryTools, s, b string) (string, error) {
-		time.Sleep(vectorTime)
-		return slow(ctx, m, s, b)
-	}
-	start := time.Now()
-	if _, err := m.Gate(context.Background(), fakeTree, gatePin, "base-sha", ""); err != nil {
-		t.Fatal(err)
-	}
-	elapsed := time.Since(start)
-	if elapsed < vectorTime {
-		t.Fatalf("the gate returned in %v, before its own vector (%v)", elapsed, vectorTime)
-	}
-	if limit := vectorTime + shadowGrace + 2*time.Second; elapsed > limit {
-		t.Errorf("the gate took %v with a hung shadow; vector %v + grace %v allows %v", elapsed, vectorTime, shadowGrace, limit)
-	}
-	if !strings.Contains(buf.String(), "no answer within") {
-		t.Errorf("stderr %q", buf.String())
-	}
-}
-
-// A shadow that answers before the gate settles costs the gate nothing.
-func TestAShadowThatFinishesFirstIsReportedWithoutWaiting(t *testing.T) {
-	origRun, origGrace, origOut := shadowRun, shadowGrace, shadowOut
-	t.Cleanup(func() { shadowRun, shadowGrace, shadowOut = origRun, origGrace, origOut })
-	shadowRun = func(context.Context, *FoundryTools, string, string) string { return "report" }
-	shadowGrace = time.Hour
-	var buf bytes.Buffer
-	shadowOut = func() io.Writer { return &buf }
-	h := (&FoundryTools{}).startShadow(context.Background(), "", "b")
-	start := time.Now()
-	h.finish()
-	if time.Since(start) > 30*time.Second || buf.String() != "report\n" {
-		t.Errorf("waited %v, stderr %q", time.Since(start), buf.String())
-	}
-	var nilHandle *shadowHandle
-	nilHandle.finish() // a lane with no shadow
-}
-
-// The shadow's own wall time rides on its headline, and an unmeasured one is not printed.
-func TestRenderShadowReportsItsWallTime(t *testing.T) {
-	yaml := checks.AtomByID("fleet:check-yaml")
-	vec := []checks.Verdict{checks.VerdictOf(yaml, 0, "")}
-	raw, _ := json.Marshal(vec)
-	if got := renderShadow(vec, nil, string(raw), nil, 1234*time.Millisecond+400*time.Microsecond); !strings.Contains(got, "missing from the chains, took 1.234s\n") {
-		t.Errorf("report %q", got)
-	}
-	if got := renderShadow(vec, nil, string(raw), nil, 0); strings.Contains(got, "took") {
-		t.Errorf("an unmeasured run printed a time: %q", got)
-	}
-}
-
 // THE BINARY'S EXEC IS KEYED AFRESH ON EVERY CALL. Its inputs are the same on
 // every run of one tree, so without CA_REASK the engine would serve the first
 // answer for the atoms that read the network. Two calls never share a value.
-func TestAtomsVectorCarriesAPerCallReask(t *testing.T) {
+func TestAtomsRunCarriesAPerCallReask(t *testing.T) {
 	m := &FoundryTools{Source: dag.Directory(), Repo: "http://door/rob/x.git", Sha: buildSha}
 	// THE CALL'S OWN VALUE, in either argument order. The fake engine renders a
 	// call's arguments in map order, so CA_REASK's withEnvVariable reads
@@ -465,7 +219,7 @@ func TestAtomsVectorCarriesAPerCallReask(t *testing.T) {
 		// Each call has a base of its own, and the chain is matched on it: the fake
 		// engine is shared, and another goroutine's binary query must not be read.
 		base := "abc-" + strconv.Itoa(i)
-		if _, err := m.atomsVector(context.Background(), "", base); err != nil {
+		if _, err := m.atomsRun(context.Background(), "", base); err != nil {
 			t.Fatal(err)
 		}
 		c := engine.chain(`"/usr/local/bin/atoms"`, `"-base","`+base+`"`)
@@ -481,12 +235,12 @@ func TestAtomsVectorCarriesAPerCallReask(t *testing.T) {
 }
 
 // foundry-dies is mounted only for a stage with an atom that reads it.
-func TestAtomsVectorMountsDiesOnlyWhereAnAtomReadsIt(t *testing.T) {
+func TestAtomsRunMountsDiesOnlyWhereAnAtomReadsIt(t *testing.T) {
 	m := &FoundryTools{Source: dag.Directory(), Repo: "http://door/rob/x.git", Sha: buildSha}
 	engine.reset()
 	engine.withTree(map[string]string{"go.mod": "module x\n"})
 	engine.stdout(`"/usr/local/bin/atoms"`, "[]")
-	if _, err := m.atomsVector(context.Background(), checks.StagePrecommit, "abc"); err != nil {
+	if _, err := m.atomsRun(context.Background(), checks.StagePrecommit, "abc"); err != nil {
 		t.Fatal(err)
 	}
 	c := engine.chain(`"-stage","precommit"`)
@@ -495,20 +249,18 @@ func TestAtomsVectorMountsDiesOnlyWhereAnAtomReadsIt(t *testing.T) {
 	}
 }
 
-// THE SHADOW'S WITNESS IS DRY, ALWAYS, and mounts no socket: a real ask doubles
-// the load on narcissus for every pull that touches .go/.py. The flag rides on
-// exactly the stages with fleet:witness, whether or not the lane forwarded a
-// socket.
-func TestAtomsVectorAlwaysRunsTheWitnessDryAndMountsNoSocket(t *testing.T) {
+// THE WITNESS ASKS FOR REAL, never dry: the socket is mounted and -spire passed
+// exactly for the stages with fleet:witness when the lane forwarded one.
+func TestAtomsRunAsksTheWitnessForRealAndMountsTheSocketWhereItIsCarried(t *testing.T) {
 	for _, tc := range []struct {
-		stage string
-		spire bool
-		dry   bool
+		stage  string
+		spire  bool
+		socket bool
 	}{
 		{"prepush", true, true},
-		{"prepush", false, true},
+		{"prepush", false, false},
 		{"", true, true},
-		{"", false, true},
+		{"", false, false},
 		{"precommit", true, false},
 		{"orbit", true, false},
 	} {
@@ -520,15 +272,15 @@ func TestAtomsVectorAlwaysRunsTheWitnessDryAndMountsNoSocket(t *testing.T) {
 			engine.reset()
 			engine.withTree(map[string]string{"go.mod": "module x\n"})
 			engine.stdout(`"/usr/local/bin/atoms"`, "[]")
-			if _, err := m.atomsVector(context.Background(), tc.stage, "abc"); err != nil {
+			if _, err := m.atomsRun(context.Background(), tc.stage, "abc"); err != nil {
 				t.Fatal(err)
 			}
 			c := engine.chain(`"/usr/local/bin/atoms"`)
-			if got := strings.Contains(c, `"-witness-dry"`); got != tc.dry {
-				t.Errorf("-witness-dry passed: %v, want %v\n%s", got, tc.dry, c)
+			if strings.Contains(c, `"-witness-dry"`) {
+				t.Errorf("the binary was told to run the witness dry:\n%s", c)
 			}
-			if strings.Contains(c, `"-spire"`) || strings.Contains(c, "withUnixSocket") {
-				t.Errorf("the dry shadow was given a socket:\n%s", c)
+			if got := strings.Contains(c, `"-spire"`) && strings.Contains(c, "withUnixSocket"); got != tc.socket {
+				t.Errorf("socket mounted: %v, want %v\n%s", got, tc.socket, c)
 			}
 		})
 	}
@@ -548,13 +300,13 @@ func TestAtomsVectorAlwaysRunsTheWitnessDryAndMountsNoSocket(t *testing.T) {
 	})
 }
 
-func TestAtomsVectorMountsNarcForTheOrbitStageFromTheLivePin(t *testing.T) {
+func TestAtomsRunMountsNarcForTheOrbitStageFromTheLivePin(t *testing.T) {
 	m := &FoundryTools{Source: dag.Directory(), Repo: "http://door/rob/x.git", Sha: buildSha}
 	t.Run("a readable pin is mounted", func(t *testing.T) {
 		engine.reset()
 		engine.withTree(laneDies(map[string]string{"go.mod": "module x\n"}))
 		engine.stdout(`"/usr/local/bin/atoms"`, "[]")
-		if _, err := m.atomsVector(context.Background(), "orbit", "abc"); err != nil {
+		if _, err := m.atomsRun(context.Background(), "orbit", "abc"); err != nil {
 			t.Fatal(err)
 		}
 		c := engine.chain(`"/usr/local/bin/atoms"`)
@@ -566,7 +318,7 @@ func TestAtomsVectorMountsNarcForTheOrbitStageFromTheLivePin(t *testing.T) {
 		engine.reset()
 		engine.withTree(laneDies(map[string]string{"go.mod": "module x\n", "/flux/" + fluxpin.File: "images: []\n"}))
 		engine.stdout(`"/usr/local/bin/atoms"`, "[]")
-		if _, err := m.atomsVector(context.Background(), "orbit", "abc"); err != nil {
+		if _, err := m.atomsRun(context.Background(), "orbit", "abc"); err != nil {
 			t.Fatal(err)
 		}
 		c := engine.chain(`"/usr/local/bin/atoms"`)
@@ -578,7 +330,7 @@ func TestAtomsVectorMountsNarcForTheOrbitStageFromTheLivePin(t *testing.T) {
 		engine.reset()
 		engine.withTree(laneDies(map[string]string{"go.mod": "module x\n"}))
 		engine.stdout(`"/usr/local/bin/atoms"`, "[]")
-		if _, err := m.atomsVector(context.Background(), "prepush", "abc"); err != nil {
+		if _, err := m.atomsRun(context.Background(), "prepush", "abc"); err != nil {
 			t.Fatal(err)
 		}
 		if c := engine.chain(`"/usr/local/bin/atoms"`); strings.Contains(c, "narc") {
@@ -590,12 +342,12 @@ func TestAtomsVectorMountsNarcForTheOrbitStageFromTheLivePin(t *testing.T) {
 // THE BASE IS FETCHED ONCE PER RUN, by the module, for the binary's one change
 // set: not once per change-reading atom. fleet:witness and ops:immutable read
 // Input.Changed and Input.Base and fetch nothing themselves.
-func TestAtomsVectorFetchesTheBaseOnce(t *testing.T) {
+func TestAtomsRunFetchesTheBaseOnce(t *testing.T) {
 	m := &FoundryTools{Source: dag.Directory(), Repo: "http://door/rob/x.git", Sha: buildSha}
 	engine.reset()
 	engine.withTree(map[string]string{"go.mod": "module x\n"})
 	engine.stdout(`"/usr/local/bin/atoms"`, "[]")
-	if _, err := m.atomsVector(context.Background(), "prepush", "abc"); err != nil {
+	if _, err := m.atomsRun(context.Background(), "prepush", "abc"); err != nil {
 		t.Fatal(err)
 	}
 	c := engine.chain(`"/usr/local/bin/atoms"`)
@@ -634,7 +386,7 @@ func TestNoAtomExecsGitFetch(t *testing.T) {
 }
 
 // A FORK IS NAMED TO THE BINARY (-fork) by its record; a star is not.
-func TestAtomsVectorNamesAForkToTheBinary(t *testing.T) {
+func TestAtomsRunNamesAForkToTheBinary(t *testing.T) {
 	for name, tc := range map[string]struct {
 		kind string
 		want bool
@@ -645,7 +397,7 @@ func TestAtomsVectorNamesAForkToTheBinary(t *testing.T) {
 			engine.withTree(map[string]string{"go.mod": "module x\n"})
 			engine.withTree(map[string]string{"/dies/fleet/repos/gravity.json": `{"name":"gravity","kind":"` + tc.kind + `","repo":"forks/gravity"}`})
 			engine.stdout(`"/usr/local/bin/atoms"`, "[]")
-			if _, err := m.atomsVector(context.Background(), checks.StagePrecommit, "abc"); err != nil {
+			if _, err := m.atomsRun(context.Background(), checks.StagePrecommit, "abc"); err != nil {
 				t.Fatal(err)
 			}
 			c := engine.chain(`"-stage","precommit"`)

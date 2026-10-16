@@ -3,9 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"maps"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -13,19 +11,16 @@ import (
 	"dagger/foundry-tools/internal/checks"
 )
 
-// THE VOTE. The atoms binary (internal/atoms) carries the cheap fleet atoms.
-// Until F5a it ran beside their chains and could not vote (atoms_shadow.go);
-// from here the verdict the door reads for each atom it registers is the
-// BINARY'S, run once for the lane in the tools container, and the chains of
-// those atoms are the non-voting comparator (reverseShadow). The atoms it does
-// not register (the toolchain tier: go, python, rust, ts, kube-linter, and
-// mutation) keep the chain path unchanged.
+// THE VOTE. The atoms binary (internal/atoms) carries the cheap fleet atoms:
+// the verdict the door reads for each atom it registers is the BINARY'S, run
+// once for the lane in the tools container. The atoms it does not register (the
+// toolchain tier: go, python, rust, ts, and mutation) keep the chain path
+// unchanged.
 //
 // THE SWITCH IS atomsVoter's default, defaultVoter, and it is the only line a
-// rollback changes: voterChains puts every atom back on its chain and the
-// binary back to the dry, non-voting shadow it was.
+// rollback changes: voterChains puts every atom back on its chain.
 
-// voter names a side of the comparison.
+// voter names a side that can vote.
 type voter string
 
 const (
@@ -36,8 +31,7 @@ const (
 )
 
 // defaultVoter is THE SWITCH. Set it to voterChains and commit to roll the cutover
-// back: the vector, the push sequence and the local hook read the chains again,
-// the shadow is the binary's dry run, and the report says "chains voted".
+// back: the vector, the push sequence and the local hook read the chains again.
 const defaultVoter = voterBinary
 
 // atomsVoter is who votes. A variable so a test can flip it; nothing else sets it.
@@ -131,7 +125,6 @@ func (p *poll) start(ctx context.Context) {
 			defer func() {
 				if r := recover(); r != nil {
 					p.votes = failedVotes(p.want, fmt.Errorf("the atoms binary's run panicked: %v", r))
-					p.m.box.put(p.votes)
 				}
 			}()
 			p.votes = p.m.cast(ctx, p.run, p.stage, p.base, p.want)
@@ -188,7 +181,6 @@ func (p *poll) vote(ctx context.Context, id string) (checks.Verdict, bool) {
 	if err != nil {
 		return v, true
 	}
-	p.m.box.fall(id, v.Reason)
 	return cv, true
 }
 
@@ -222,175 +214,5 @@ func (m *FoundryTools) cast(ctx context.Context, run castFunc, stage, base strin
 		}
 		votes[a.ID] = v
 	}
-	m.box.put(votes)
 	return votes
-}
-
-// ballotBox hands the voter's verdicts to the reverse shadow. The shadow starts
-// before grading and the vote arrives during it, so they meet here: the binary's
-// raw votes are put once, each atom that fell back to its chain is noted with the
-// binary's reason, and the lane seals the box when its record is settled. The
-// shadow reads the box only after the seal, so its report counts every fallback.
-//
-// IT ALSO CARRIES THE SHADOW'S OWN INPUTS, copied when the lane starts: the
-// chain side. An abandoned shadow outlives the call that
-// started it, and reading a package variable from it would race with whatever
-// the next call (or test) writes there; startShadow's rule is that the
-// goroutine reads copies, and these are the copies.
-type ballotBox struct {
-	mu       sync.Mutex
-	votes    map[string]checks.Verdict
-	fell     map[string]string
-	sealOnce sync.Once
-	sealed   chan struct{}
-	// chains answers the comparator's vector: every atom of `only` by its chain.
-	chains chainSide
-}
-
-// chainSide is how the comparator asks the chains for a vector (shadowToday).
-type chainSide func(ctx context.Context, m *FoundryTools, stage, only, base string) ([]checks.Verdict, error)
-
-func newBallotBox(chains chainSide) *ballotBox {
-	return &ballotBox{sealed: make(chan struct{}), fell: map[string]string{}, chains: chains}
-}
-
-// put files the binary's raw votes; the first filing stands. A nil box files nothing.
-func (b *ballotBox) put(votes map[string]checks.Verdict) {
-	if b == nil {
-		return
-	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.votes == nil {
-		b.votes = votes
-	}
-}
-
-// fall notes an atom the binary could not run and its chain answered, with the
-// binary's reason. A nil box notes nothing.
-func (b *ballotBox) fall(id, reason string) {
-	if b == nil {
-		return
-	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.fell[id] = reason
-}
-
-// seal says the lane's record is settled: no vote and no fallback is coming. A
-// nil box seals nothing.
-func (b *ballotBox) seal() {
-	if b == nil {
-		return
-	}
-	b.sealOnce.Do(func() { close(b.sealed) })
-}
-
-// wait answers the raw votes and the fallbacks once the lane has sealed the box,
-// or why there are none: the context ended, or the lane settled without casting.
-func (b *ballotBox) wait(ctx context.Context) (map[string]checks.Verdict, map[string]string, error) {
-	if b == nil {
-		return nil, nil, fmt.Errorf("no ballot box: the lane is not voting with the binary")
-	}
-	select {
-	case <-b.sealed:
-	case <-ctx.Done():
-		return nil, nil, fmt.Errorf("the lane had not settled before the shadow's deadline: %w", ctx.Err())
-	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.votes == nil {
-		return nil, nil, fmt.Errorf("the lane settled without casting a vote")
-	}
-	return b.votes, maps.Clone(b.fell), nil
-}
-
-// THE REVERSE SHADOW: the chains of the atoms the binary registers, run beside
-// the vote and held against it. It is startShadow's shadow with the roles
-// swapped, so it inherits what makes that one unable to vote: it starts before
-// grading, returns text and no error, writes stderr only, recovers a panic into
-// a line of the report and is abandoned at most shadowGrace after the record
-// settles. Nothing in this file is read by a gate except the votes themselves.
-
-// reverseShadow runs the chains of the stage's binary atoms and holds them
-// against the verdicts the lane voted. NON-VOTING: it returns text.
-func (m *FoundryTools) reverseShadow(ctx context.Context, stage, base string) string {
-	if m.box == nil || m.box.chains == nil {
-		return "shadow atoms (binary voted): not compared - the lane gave the shadow no chain side to ask"
-	}
-	ids := chainedIDs(stage)
-	if len(ids) == 0 {
-		return fmt.Sprintf("shadow atoms (binary voted): nothing to compare - the binary carries no atom of the stage %q", stage)
-	}
-	started := time.Now()
-	chains, chainsErr := m.box.chains(ctx, m, stage, strings.Join(ids, ","), base)
-	votes, fell, votesErr := m.box.wait(ctx)
-	return renderReverse(ids, chains, chainsErr, votes, fell, votesErr, time.Since(started))
-}
-
-// renderReverse is the report from the two sides' answers. It is pure so the
-// ways either side can fail are tested without an engine.
-func renderReverse(ids []string, chains []checks.Verdict, chainsErr error, votes map[string]checks.Verdict, fell map[string]string, votesErr error, elapsed time.Duration) string {
-	const head = "shadow atoms (binary voted): not compared - "
-	if chainsErr != nil {
-		return head + "the chains did not answer: " + chainsErr.Error()
-	}
-	if votesErr != nil {
-		return head + "the binary's vote is missing: " + votesErr.Error()
-	}
-	// An atom that fell back has no binary verdict to hold against its chain: its
-	// vote IS the chain's, so comparing them would be an agreement of a thing with
-	// itself. It is counted below instead.
-	var voted, chained []checks.Verdict
-	for _, id := range ids {
-		if _, fellBack := fell[id]; fellBack {
-			continue
-		}
-		if v, ok := votes[id]; ok {
-			voted = append(voted, v)
-		}
-	}
-	for _, c := range chains {
-		if _, fellBack := fell[c.Atom]; !fellBack {
-			chained = append(chained, c)
-		}
-	}
-	rep := atoms.Compare(chained, voted)
-	rep.Voter, rep.Elapsed = string(voterBinary), elapsed
-	return rep.Render() + renderFallbacks(ids, fell)
-}
-
-// renderFallbacks is the line per atom whose vote is its chain's because the
-// binary could not run it, with the binary's reason, in the stage's order, and a
-// count on top. Empty when none fell back.
-func renderFallbacks(ids []string, fell map[string]string) string {
-	// Only the atoms the report lists count: an atom that lives in its own file has
-	// no chain of its own to be held against, and is not among ids.
-	n := 0
-	for _, id := range ids {
-		if _, ok := fell[id]; ok {
-			n++
-		}
-	}
-	if n == 0 {
-		return ""
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "\n%d of %d fell back to the chain (the binary settled could-not-run; the chain's answer is the vote):\n", n, len(ids))
-	for _, id := range ids {
-		if reason, ok := fell[id]; ok {
-			fmt.Fprintf(&b, "  %s: %s\n", id, atoms.Clip(reason))
-		}
-	}
-	return b.String()
-}
-
-// defaultShadow is the shadow a gate or orbit lane starts, by who votes: the
-// reverse shadow when the binary does (startShadow gave the lane a ballot box),
-// the binary's dry run beside the chains when the chains do.
-func defaultShadow(ctx context.Context, m *FoundryTools, stage, base string) string {
-	if m.box != nil {
-		return m.reverseShadow(ctx, stage, base)
-	}
-	return m.shadowAtoms(ctx, base, stage, voterChains)
 }
