@@ -3,7 +3,6 @@ package fleetwitness
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -83,8 +82,6 @@ var cannot = checks.StateCannotRun.String()
 
 // stateOf is a table's plain int as the catalogue's State.
 func stateOf(n int) checks.State { return checks.State(n) }
-
-var errBoom = errors.New("boom")
 
 // narcissus is a stand-in for the witness's MCP port: it records every request
 // and answers per file, by the path the request names.
