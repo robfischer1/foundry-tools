@@ -2,6 +2,7 @@ package fleetrenovatelockstep
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -104,6 +105,15 @@ func deadDoor(t *testing.T) checks.Door {
 	return checks.Door{Base: base}
 }
 
+// missingRoot is an input over a directory that is not there: the atoms that
+// open with the root's listing settle 2.
+func missingRoot(t *testing.T) atomkit.In {
+	t.Helper()
+	return atomkit.In{Root: t.TempDir() + "/not-there", Now: time.Now()}
+}
+
+var errBoom = errors.New("boom")
+
 func TestRenovateLockstep(t *testing.T) {
 	ref := "ghcr.io/renovatebot/renovate:43.261.4@sha256:" + strings.Repeat("a", 64)
 	other := "ghcr.io/renovatebot/renovate:43.262.0@sha256:" + strings.Repeat("b", 64)
@@ -138,6 +148,12 @@ func TestRenovateLockstep(t *testing.T) {
 		in.Files = append(in.Files, "renovate/renovate.yaml") // listed, and not on disk
 		expect(t, run(t, in), stateOf(2), cannot, "renovate/renovate.yaml would not read")
 	})
+}
+
+func TestRenovateLockstepRefusesATreeThatWouldNotEnumerate(t *testing.T) {
+	in := missingRoot(t)
+	in.FilesErr = errBoom
+	expect(t, run(t, in), stateOf(2), cannot, "the tree would not enumerate")
 }
 
 // A tree that IS flux is judged on itself; the door is not asked.
