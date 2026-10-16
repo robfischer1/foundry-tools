@@ -613,13 +613,19 @@ func TestTheRustLaneCarriesTheFleetsPython(t *testing.T) {
 	c := engine.chains()
 	joined := strings.Join(c, "\n")
 	for _, want := range []string{
-		`"uv","python","install","--default","` + checks.FleetPythonVersion + `"`,
-		`UV_PYTHON_BIN_DIR`,
+		`"tar","xzf","/tmp/python.tar.gz","-C","` + pythonInstallDir + `"`,
+		`"ln","-sf","` + pythonInstallDir + `/bin/python3","/usr/local/bin/python3"`,
+		`UV_PYTHON_DOWNLOADS`,
 		`"python3","--version"`,
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("the rust lane must provision the fleet's python; missing %s", want)
 		}
+	}
+	// uv resolves versions only from its compiled-in manifest; a pin ahead of
+	// it is CANNOT RUN on every rust lane (foundry-tools #326).
+	if strings.Contains(joined, `"uv","python","install"`) {
+		t.Error("the rust lane must not ask uv to install python")
 	}
 }
 

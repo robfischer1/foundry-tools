@@ -170,6 +170,27 @@ func pythonInterpreter(ctx context.Context, base *dagger.Container) (*dagger.Con
 	return ctr, nil
 }
 
+// withPythonStandalone unpacks checks.PythonStandaloneURL into pythonInstallDir
+// and links python, python3 and python3.<minor> onto /usr/local/bin. `ln` is an
+// exec, not a shell (TestNoAtomExecsAShell). A URL with no pin fails closed.
+func withPythonStandalone(ctr *dagger.Container) *dagger.Container {
+	f, ok := pinnedFile(checks.ToolSHA256, checks.PythonStandaloneURL)
+	if !ok {
+		return ctr.WithExec([]string{"/bin/false"}) // no checksum pinned: the lane must not provision it
+	}
+	minor := "python" + checks.FleetPython
+	ctr = ctr.
+		WithFile("/tmp/python.tar.gz", f).
+		// install -d, not mkdir -p: the rust mutation lane refuses any "-p" in its chain.
+		WithExec([]string{"install", "-d", pythonInstallDir}).
+		WithExec([]string{"tar", "xzf", "/tmp/python.tar.gz", "-C", pythonInstallDir, "--strip-components=1"}).
+		WithoutFile("/tmp/python.tar.gz")
+	for _, name := range []string{"python", "python3", minor} {
+		ctr = ctr.WithExec([]string{"ln", "-sf", pythonInstallDir + "/bin/python3", "/usr/local/bin/" + name})
+	}
+	return ctr
+}
+
 // ansibleCollections installs the declared collections into the stage, and
 // answers the directory they landed in.
 //
