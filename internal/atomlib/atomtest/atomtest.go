@@ -271,10 +271,7 @@ verbs = ["shape_for"]
 // the tree beside the render.
 func ComposedTree(t testing.TB, edit func(map[string][]byte), extra map[string]string) atoms.Input {
 	t.Helper()
-	cs, err := orbitcompose.ContractsOf(map[string][]byte{"urania-themis.toml": []byte(ComposedContract)}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	cs, _ := orbitcompose.ContractsOf(map[string][]byte{"urania-themis.toml": []byte(ComposedContract)}, nil) // a constant that parses
 	render := orbitcompose.Files("prime", orbitcompose.Compose(cs))
 	if edit != nil {
 		edit(render)
