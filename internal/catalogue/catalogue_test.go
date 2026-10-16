@@ -215,7 +215,14 @@ func TestTheBinaryCarriesTheNoneToolchainAtoms(t *testing.T) {
 	for _, a := range Atoms() {
 		ids = append(ids, a.ID)
 	}
-	if want := []string{"fleet:check-merge-conflict", "fleet:manifest-one-command"}; !slices.Equal(ids, want) {
+	var want []string
+	for _, d := range Defs {
+		if d.Toolchain == "none" || votesInBinaryByHistory[d.ID] {
+			want = append(want, d.ID)
+		}
+	}
+	slices.Sort(want)
+	if len(want) == 0 || !slices.Equal(ids, want) {
 		t.Fatalf("got %v, want %v", ids, want)
 	}
 	if !slices.Contains(atoms.StageIDs("precommit"), "fleet:check-merge-conflict") {
@@ -225,7 +232,7 @@ func TestTheBinaryCarriesTheNoneToolchainAtoms(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reg.IDs()) != 2 {
+	if len(reg.IDs()) != len(want) {
 		t.Errorf("ids %v", reg.IDs())
 	}
 }
@@ -329,5 +336,20 @@ func TestTheCommitAndPushStagesHoldTheirAtoms(t *testing.T) {
 	}
 	if got := ids(checks.StagePrepush); got != push {
 		t.Errorf("push stage\n got %s\nwant %s", got, push)
+	}
+}
+
+// The declared set names Defs that exist and are not already toolchain none.
+func TestTheDeclaredBinaryVotersAreRealPythonAtoms(t *testing.T) {
+	for id := range votesInBinaryByHistory {
+		e, ok := Lookup(id)
+		if !ok || e.Def == nil || e.Def.Toolchain != "python" {
+			t.Errorf("%s: %+v", id, e.Def)
+		}
+	}
+	none := atomkit.Def{ID: "st:none", Toolchain: "none"}
+	py := atomkit.Def{ID: "st:py", Toolchain: "python"}
+	if !votesInBinary(&none) || votesInBinary(&py) {
+		t.Error("only toolchain none, or a declared id, votes in the binary")
 	}
 }

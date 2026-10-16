@@ -19,7 +19,7 @@ func TestStageIDs(t *testing.T) {
 	orbit := []string{"orbit:contracts", "orbit:surface", "orbit:sidecars", "orbit:repo"}
 	prepush := []string{
 		"fleet:orbit-drift", "fleet:dagger-lockstep", "fleet:renovate-lockstep", "fleet:node-kinds-declared", "fleet:consumed-events-emitted", "fleet:witness",
-		"dies:data-keys", "dies:admission-dogfood", "dies:canary-visibility", "dies:grants-stamp", "ops:orbit-composed", "ops:orbit-sidecars", "ops:immutable",
+		"ops:orbit-composed", "ops:orbit-sidecars", "ops:immutable",
 		"template:render-matrix", "wit:validate",
 	}
 	precommit := []string{
@@ -27,9 +27,6 @@ func TestStageIDs(t *testing.T) {
 		"fleet:sast-ruleset-lanes", "fleet:copier-answers-intact", "fleet:ourea-config-retired-keys", "fleet:retired-verbs",
 		"fleet:opengrep-sast", "fleet:hadolint", "fleet:wit-topics", "fleet:pdp-wired", "fleet:kafka-flows",
 		"compose:no-tracked-secrets", "compose:third-party-pins", "compose:config",
-		"dies:canonical", "dies:refusal-codes", "dies:opa-test",
-		"dies:contracts", "dies:contract-copies", "dies:schema", "dies:findings", "dies:schemas",
-		"dies:wit-regenerated", "dies:schema-rendered", "dies:wire-grammar", "dies:resource-referents", "dies:capabilities-served", "law:lint", "law:verb-liveness", "law:budget",
 		"ops:yaml", "ops:shell", "ops:chezmoi", "ops:flux", "ops:dup", "ops:declaration", "ops:specs", "ops:metrics", "ops:star-sa", "ops:world-patches", "ops:record-lanes", "ops:ansible",
 	}
 	for _, tc := range []struct {

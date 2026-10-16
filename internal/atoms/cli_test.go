@@ -33,14 +33,14 @@ func TestRunPrintsTheVectorAndExitsZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The pull path: the 58 atoms of precommit and prepush this package carries,
+	// The pull path: the 38 atoms of precommit and prepush this package carries,
 	// none of the orbit lane's and none of the ones that live in their own files
 	// (atoms/<ns>/<name>); a tree with no surface for them is absent or clean in
 	// all of them.
 	want := StageIDs("")
 	wantState := map[string]int{}
-	if len(vector) != 58 || len(vector) != len(want) {
-		t.Fatalf("%d verdicts, want 58", len(vector))
+	if len(vector) != 38 || len(vector) != len(want) {
+		t.Fatalf("%d verdicts, want 38", len(vector))
 	}
 	for i, v := range vector {
 		if v.Atom != want[i] || v.State != wantState[v.Atom] {

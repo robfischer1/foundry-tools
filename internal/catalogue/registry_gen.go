@@ -3,9 +3,29 @@
 package catalogue
 
 import (
+	diesadmissiondogfood "dagger/foundry-tools/atoms/dies/admission-dogfood"
+	diescanaryvisibility "dagger/foundry-tools/atoms/dies/canary-visibility"
+	diescanonical "dagger/foundry-tools/atoms/dies/canonical"
+	diescapabilitiesserved "dagger/foundry-tools/atoms/dies/capabilities-served"
+	diescontractcopies "dagger/foundry-tools/atoms/dies/contract-copies"
+	diescontracts "dagger/foundry-tools/atoms/dies/contracts"
+	diesdatakeys "dagger/foundry-tools/atoms/dies/data-keys"
+	diesfindings "dagger/foundry-tools/atoms/dies/findings"
+	diesgrantsstamp "dagger/foundry-tools/atoms/dies/grants-stamp"
+	diesopatest "dagger/foundry-tools/atoms/dies/opa-test"
+	diesrefusalcodes "dagger/foundry-tools/atoms/dies/refusal-codes"
+	diesresourcereferents "dagger/foundry-tools/atoms/dies/resource-referents"
+	diesschema "dagger/foundry-tools/atoms/dies/schema"
+	diesschemarendered "dagger/foundry-tools/atoms/dies/schema-rendered"
+	diesschemas "dagger/foundry-tools/atoms/dies/schemas"
+	dieswiregrammar "dagger/foundry-tools/atoms/dies/wire-grammar"
+	dieswitregenerated "dagger/foundry-tools/atoms/dies/wit-regenerated"
 	fleetcheckmergeconflict "dagger/foundry-tools/atoms/fleet/check-merge-conflict"
 	fleetmanifestonecommand "dagger/foundry-tools/atoms/fleet/manifest-one-command"
 	gogofmt "dagger/foundry-tools/atoms/go/gofmt"
+	lawbudget "dagger/foundry-tools/atoms/law/budget"
+	lawlint "dagger/foundry-tools/atoms/law/lint"
+	lawverbliveness "dagger/foundry-tools/atoms/law/verb-liveness"
 	pythonforgetestkitassertionfree "dagger/foundry-tools/atoms/python/forge-testkit-assertion-free"
 	pythonforgetestkitfakeplacement "dagger/foundry-tools/atoms/python/forge-testkit-fake-placement"
 	pythonforgetestkitschemabudget "dagger/foundry-tools/atoms/python/forge-testkit-schema-budget"
@@ -19,9 +39,29 @@ import (
 
 // Defs is every logic atom, sorted by id.
 var Defs = []*atomkit.Def{
+	&diesadmissiondogfood.Def,
+	&diescanaryvisibility.Def,
+	&diescanonical.Def,
+	&diescapabilitiesserved.Def,
+	&diescontractcopies.Def,
+	&diescontracts.Def,
+	&diesdatakeys.Def,
+	&diesfindings.Def,
+	&diesgrantsstamp.Def,
+	&diesopatest.Def,
+	&diesrefusalcodes.Def,
+	&diesresourcereferents.Def,
+	&diesschema.Def,
+	&diesschemarendered.Def,
+	&diesschemas.Def,
+	&dieswiregrammar.Def,
+	&dieswitregenerated.Def,
 	&fleetcheckmergeconflict.Def,
 	&fleetmanifestonecommand.Def,
 	&gogofmt.Def,
+	&lawbudget.Def,
+	&lawlint.Def,
+	&lawverbliveness.Def,
 	&pythonforgetestkitassertionfree.Def,
 	&pythonforgetestkitfakeplacement.Def,
 	&pythonforgetestkitschemabudget.Def,

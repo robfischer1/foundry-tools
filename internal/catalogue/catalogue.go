@@ -153,12 +153,13 @@ func needsManifest(lane checks.Lane, surface string) bool {
 }
 
 // Atoms are the in-process atoms the atoms binary carries: every logic atom
-// whose toolchain is none. They run in its one process, from the same package
+// whose toolchain is none and the declared ones that were in-process before
+// they moved (binary.go). They run in its one process, from the same package
 // the adapter compiles, so no atom exists twice.
 func Atoms() []atoms.Atom {
 	var out []atoms.Atom
 	for _, e := range entries {
-		if d := e.Def; d != nil && d.Toolchain == "none" {
+		if d := e.Def; d != nil && votesInBinary(d) {
 			out = append(out, inProcess(*d))
 		}
 	}

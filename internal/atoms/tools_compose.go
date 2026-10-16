@@ -34,7 +34,7 @@ func privateCopy(dir, root string, tracked, stubs []string) error {
 		}
 	}
 	for _, s := range stubs {
-		if err := place(filepath.Join(dir, strings.TrimPrefix(path.Clean("/"+s), "/")), nil); err != nil {
+		if err := Place(filepath.Join(dir, strings.TrimPrefix(path.Clean("/"+s), "/")), nil); err != nil {
 			return err
 		}
 	}

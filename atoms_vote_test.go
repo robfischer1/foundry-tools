@@ -202,7 +202,16 @@ func TestThePushSequenceVotesFromTheBinaryOnce(t *testing.T) {
 		t.Errorf("the sequence took %v from the binary, want %v", voted, ids)
 	}
 
-	// The third atom finds something: the sequence stops there and names the rest.
+	// The third atom finds something: the sequence stops there and names the rest,
+	// the atoms that live in files of their own and the chains among them (a bare
+	// tree reaches the ones of any lane).
+	var seq []string
+	for _, a := range checks.AtomsForStage(checks.StagePrepush) {
+		if a.Lane == checks.LaneAny {
+			seq = append(seq, a.ID)
+		}
+	}
+	tail := seq[slices.Index(seq, ids[2])+1:]
 	castBinary = func(context.Context, *FoundryTools, string, string) (string, error) {
 		var out []checks.Verdict
 		for _, id := range ids {
@@ -213,9 +222,9 @@ func TestThePushSequenceVotesFromTheBinaryOnce(t *testing.T) {
 	}
 	vs, unreached, err = bareModule().sequence(soon(t), checks.StagePrepush, "")
 	stopped := slices.IndexFunc(vs, func(v checks.Verdict) bool { return v.Atom == ids[2] })
-	reached := slices.IndexFunc(vs, func(v checks.Verdict) bool { return v.Atom == ids[3] })
-	if err != nil || !slices.Equal(unreached, ids[3:]) || stopped < 0 || vs[stopped].State != 1 || reached >= 0 {
-		t.Errorf("unreached %v, stopped at %d, reached %d, err %v; want the tail %v", unreached, stopped, reached, err, ids[3:])
+	reached := slices.IndexFunc(vs, func(v checks.Verdict) bool { return v.Atom == tail[0] })
+	if err != nil || !slices.Equal(unreached, tail) || stopped < 0 || vs[stopped].State != 1 || reached >= 0 {
+		t.Errorf("unreached %v, stopped at %d, reached %d, err %v; want the tail %v", unreached, stopped, reached, err, tail)
 	}
 }
 
