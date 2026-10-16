@@ -124,8 +124,15 @@ func check(d Def, in In) checks.Verdict {
 
 // cannotRun is the verdict for an atom that could not judge (E6).
 func cannotRun(d Def, reason string) checks.Verdict {
+	return CannotRun(d.ID, d.Stage, d.Lane, reason)
+}
+
+// CannotRun is cannotRun for a caller that holds an atom's identity and not its
+// Def: the Dagger adapter, which answers it when an atom did not compile or
+// wrote no verdict.
+func CannotRun(id, stage string, lane checks.Lane, reason string) checks.Verdict {
 	return checks.Verdict{
-		Atom: d.ID, Stage: d.Stage, Lane: string(d.Lane),
+		Atom: id, Stage: stage, Lane: string(lane),
 		State: int(checks.StateCannotRun), Result: checks.StateCannotRun.String(),
 		Reason: oneLine(reason), Logs: []string{},
 	}
@@ -147,7 +154,8 @@ func oneLine(s string) string {
 
 // LoadIn is the Input an atom reads (lld.md FN-080): from the tree facts
 // ATOM_TREE names when it is set, else computed from the checkout at root
-// when git is on PATH.
+// when git is on PATH, with ATOM_BASE, ATOM_ORIGIN and ATOM_FORK as the
+// change set's base, the origin URL and the fork record (all optional).
 func LoadIn(root string) (In, error) {
 	var in In
 	if p := os.Getenv("ATOM_TREE"); p != "" {
@@ -165,7 +173,10 @@ func LoadIn(root string) (In, error) {
 		if _, err := exec.LookPath("git"); err != nil {
 			return In{}, errors.New("no tree facts and no git")
 		}
-		in = atoms.Collect(context.Background(), root, "", "", now())
+		// No tree facts: the checkout is read here, against the base, origin and
+		// fork the caller named (the Dagger adapter has no tree@1 to hand over).
+		in = atoms.Collect(context.Background(), root, os.Getenv("ATOM_BASE"), os.Getenv("ATOM_ORIGIN"), now())
+		in.Fork = os.Getenv("ATOM_FORK")
 	}
 	in.Dies = os.Getenv("ATOM_DIES")
 	in.Spire = strings.TrimPrefix(os.Getenv("SPIFFE_ENDPOINT_SOCKET"), "unix://")

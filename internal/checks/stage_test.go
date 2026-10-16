@@ -137,34 +137,3 @@ func TestLogTailKeepsTheEndAndSaysWhatItDropped(t *testing.T) {
 		t.Errorf("tail %q", got)
 	}
 }
-
-// THE STAGES, PINNED. Rob, 2026-09-17: the commit runs the basic checks and the
-// language checks — format, lint, tests; the push runs the complex checks —
-// staticcheck, vulncheck, build — beside mutation. A change to this table is a
-// change to what a commit costs and what a push proves.
-func TestTheCommitAndPushStagesHoldTheirAtoms(t *testing.T) {
-	ids := func(stage string) string {
-		var out []string
-		for _, a := range AtomsForStage(stage) {
-			out = append(out, a.ID)
-		}
-		return strings.Join(out, ",")
-	}
-	commit := "fleet:check-yaml,fleet:check-added-large-files,fleet:check-merge-conflict,fleet:stop-justifications," +
-		"fleet:sast-ruleset-lanes,fleet:copier-answers-intact,fleet:ourea-config-retired-keys,fleet:wit-topics,fleet:pdp-wired,fleet:renovate-config,fleet:retired-verbs,fleet:opengrep-sast,fleet:kafka-flows,fleet:hadolint," +
-		"ops:shell,ops:chezmoi,ops:yaml,ops:dup,ops:declaration,ops:specs,ops:metrics,ops:star-sa,ops:world-patches,ops:record-lanes,ops:ansible,ops:flux,ops:kube-linter," +
-		"go:gofmt,go:vet,go:test," +
-		"python:ruff-check,python:ruff-format,python:forge-testkit-assertion-free,python:forge-testkit-fake-placement,python:forge-testkit-schema-budget,python:mypy,python:pytest," +
-		"rust:cargo-fmt,rust:cargo-clippy,rust:cargo-test," +
-		"ts:bun-gate," +
-		"compose:config,compose:no-tracked-secrets,compose:third-party-pins," +
-		"dies:opa-test,dies:contracts,dies:contract-copies,dies:schema,dies:findings,dies:schemas,dies:wit-regenerated,dies:schema-rendered,dies:canonical,dies:refusal-codes,dies:wire-grammar,dies:resource-referents,dies:capabilities-served,law:lint,law:verb-liveness,law:budget"
-	push := "fleet:orbit-drift,fleet:dagger-lockstep,fleet:renovate-lockstep,fleet:node-kinds-declared,fleet:consumed-events-emitted,ops:immutable,ops:orbit-sidecars,ops:orbit-composed,template:render-matrix,wit:validate,go:staticcheck,go:govulncheck,go:build,go:release,go:test-race,go:diff-coverage,python:pip-audit,python:release,rust:release,rust:cargo-audit,rust:wit-guest,rust:wit-compose,ts:bun-audit,ts:regen,ts:release," +
-		"dies:admission-dogfood,dies:data-keys,dies:canary-visibility,fleet:witness,dies:grants-stamp"
-	if got := ids(StagePrecommit); got != commit {
-		t.Errorf("commit stage\n got %s\nwant %s", got, commit)
-	}
-	if got := ids(StagePrepush); got != push {
-		t.Errorf("push stage\n got %s\nwant %s", got, push)
-	}
-}

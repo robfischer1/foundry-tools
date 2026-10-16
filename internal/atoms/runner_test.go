@@ -19,7 +19,7 @@ import (
 func ids(n int) []string {
 	out := make([]string, n)
 	for i := range out {
-		out[i] = checks.Atoms[i].ID
+		out[i] = checks.Atoms()[i].ID
 	}
 	return out
 }
@@ -70,7 +70,7 @@ func TestBuiltinIsThePortedAtomsInOrder(t *testing.T) {
 	// the ten that exec a pinned tool among them by family, and the thirteen that
 	// run python among those, by family.
 	want := []string{
-		"fleet:check-yaml", "fleet:check-added-large-files", "fleet:check-merge-conflict", "fleet:stop-justifications",
+		"fleet:check-yaml", "fleet:check-added-large-files", "fleet:stop-justifications",
 		"fleet:sast-ruleset-lanes", "fleet:copier-answers-intact", "fleet:ourea-config-retired-keys", "fleet:retired-verbs",
 		"fleet:orbit-drift", "fleet:dagger-lockstep", "fleet:renovate-lockstep", "fleet:node-kinds-declared", "fleet:consumed-events-emitted",
 		"fleet:opengrep-sast", "fleet:hadolint", "fleet:wit-topics", "fleet:pdp-wired", "fleet:kafka-flows", "fleet:witness",
@@ -127,7 +127,7 @@ func TestExecuteRunsAtomsConcurrently(t *testing.T) {
 		n       int
 	}{
 		{"an explicit pool", 4, 4},
-		{"the default pool is GOMAXPROCS", 0, min(runtime.GOMAXPROCS(0), len(checks.Atoms))},
+		{"the default pool is GOMAXPROCS", 0, min(runtime.GOMAXPROCS(0), len(checks.Atoms()))},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Every atom waits for every other to be running. A serial runner
@@ -334,5 +334,18 @@ func TestExecuteStampsStartAndFinishFromTheClock(t *testing.T) {
 func TestExecuteOfNothingIsNothing(t *testing.T) {
 	if got := Execute(context.Background(), registry(t), Input{}, Options{}); len(got) != 0 {
 		t.Errorf("an empty registry answered %d verdicts", len(got))
+	}
+}
+
+// UseExtra adds the atoms that live in their own files after the ones written
+// here, in the order given.
+func TestUseExtraAppendsThePortedAtoms(t *testing.T) {
+	old := ported
+	t.Cleanup(func() { ported = old })
+	extra := Atom{ID: "fleet:check-yaml", Scope: ScopeTree}
+	UseExtra(func() []Atom { return []Atom{extra} })
+	got := Builtin()
+	if last := got[len(got)-1]; last.ID != extra.ID {
+		t.Errorf("the last atom is %s, want the extra", last.ID)
 	}
 }

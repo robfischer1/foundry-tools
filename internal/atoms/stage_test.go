@@ -23,7 +23,7 @@ func TestStageIDs(t *testing.T) {
 		"template:render-matrix", "wit:validate",
 	}
 	precommit := []string{
-		"fleet:check-yaml", "fleet:check-added-large-files", "fleet:check-merge-conflict", "fleet:stop-justifications",
+		"fleet:check-yaml", "fleet:check-added-large-files", "fleet:stop-justifications",
 		"fleet:sast-ruleset-lanes", "fleet:copier-answers-intact", "fleet:ourea-config-retired-keys", "fleet:retired-verbs",
 		"fleet:opengrep-sast", "fleet:hadolint", "fleet:wit-topics", "fleet:pdp-wired", "fleet:kafka-flows",
 		"compose:no-tracked-secrets", "compose:third-party-pins", "compose:config",

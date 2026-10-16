@@ -55,8 +55,20 @@ func TestWriteFileLeavesNoTempOnFailure(t *testing.T) {
 
 func TestWriteFileErrors(t *testing.T) {
 	dir := t.TempDir()
-	if err := WriteFile(filepath.Join(dir, "no", "such", "x.json"), RP1()); err == nil {
-		t.Fatal("write into a missing directory succeeded")
+	// the directory is made, as the pod's /work/out is by whoever runs first
+	made := filepath.Join(dir, "no", "such", "x.json")
+	if err := WriteFile(made, RP1()); err != nil {
+		t.Fatalf("write into a missing directory: %v", err)
+	}
+	if _, err := os.Stat(made); err != nil {
+		t.Fatal(err)
+	}
+	// a file where a directory is needed cannot be made into one
+	if err := os.WriteFile(filepath.Join(dir, "file"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFile(filepath.Join(dir, "file", "x.json"), RP1()); err == nil {
+		t.Fatal("write beneath a regular file succeeded")
 	}
 	// a directory at the target makes the rename fail, and the temp file is cleaned up
 	target := filepath.Join(dir, "d")

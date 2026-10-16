@@ -154,44 +154,6 @@ func TestTSBunGateRefusesATreeWithNoTestFile(t *testing.T) {
 		"could not be enumerated", "unknown rather than empty")
 }
 
-// THE REGISTRY IS NAMED, AND IT IS npmjs.org. `bun audit` scans nothing
-// locally — it posts the lockfile's package set to the registry's bulk
-// advisory endpoint — and a Nexus mirror serves packages, not that API.
-func TestTSBunAuditNamesTheRegistryAndReadsBunsExit(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-
-	wantState(t, runAtom(t, "ts:bun-audit", ""), 0)
-
-	c := engine.chain(`"bun","audit"`, "exitCode")
-	wantCalls(t, c,
-		[]string{"withEnvVariable", `name:"BUN_CONFIG_REGISTRY"`, `value:"https://registry.npmjs.org/"`},
-		[]string{"withMountedCache", `path:"/root/.bun/install/cache"`},
-		[]string{"withMountedDirectory", `path:"/src"`},
-		[]string{"withExec", `expect:ANY`, `args:["bun","audit","--audit-level=high"]`},
-	)
-	if strings.Contains(c, `"bun","install"`) {
-		t.Errorf("nothing is installed here; the audit reads the lockfile:\n%s", c)
-	}
-	if strings.Contains(c, "GATE_BASE") {
-		t.Errorf("ts:bun-audit must not read GATE_BASE:\n%s", c)
-	}
-
-	// bun exits 1 when something at or above the threshold is reported, and
-	// that 1 is the finding.
-	engine.exitCode(`"bun","audit"`, 1)
-	engine.stdout(`"bun","audit"`, "1 high severity vulnerability: GHSA-xxxx")
-	wantState(t, runAtom(t, "ts:bun-audit", ""), 1, "GHSA-xxxx")
-
-	engine.exitCode(`"bun","audit"`, 127)
-	wantState(t, runAtom(t, "ts:bun-audit", ""), 2)
-
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.fail(`"bun","audit"`, "dial tcp: connection refused")
-	wantState(t, runAtom(t, "ts:bun-audit", ""), 2, "never ran", "connection refused")
-}
-
 // ts:mutation's needles: each exec the atom runs, by the words only it has.
 const (
 	tsBaseNeedle    = `"git","rev-parse","--verify","--quiet","abc123^{commit}"`

@@ -34,7 +34,6 @@ func init() {
 	register("python:forge-testkit-schema-budget", forgeTestkitLint("schema-budget", "src/**/*.py"))
 	register("python:mypy", pythonMypy)
 	register("python:pytest", pythonPytest)
-	register("python:pip-audit", pythonPipAudit)
 	register("python:mutation", pythonMutation)
 }
 
@@ -280,16 +279,6 @@ func pythonPytest(ctx context.Context, r *run) checks.Verdict {
 		return checks.VerdictOf(a, state, a.ID+": FINDINGS - "+reason)
 	}
 	return checks.VerdictOf(a, state, out)
-}
-
-// pip-audit reports no known vulnerability.
-func pythonPipAudit(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("python:pip-audit")
-	return audit(ctx, a, r.lane(checks.ImagePython).
-		WithExec([]string{"uv", "--version"}).
-		// --with rather than a dependency of the repo: the auditor is the
-		// fleet's tool, and a repo that did not declare it is still audited.
-		WithExec([]string{"uv", "run", "--with", checks.PythonWith("pip-audit"), "pip-audit"}, anyExit))
 }
 
 // Every mutant cosmic-ray makes of this pull's changes to the declared

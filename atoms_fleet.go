@@ -26,7 +26,6 @@ import (
 func init() {
 	register("fleet:check-yaml", fleetCheckYAML)
 	register("fleet:check-added-large-files", fleetCheckAddedLargeFiles)
-	register("fleet:check-merge-conflict", fleetCheckMergeConflict)
 	register("fleet:stop-justifications", fleetStopJustifications)
 	register("fleet:sast-ruleset-lanes", fleetSastRulesetLanes)
 	register("fleet:orbit-drift", fleetOrbitDrift)
@@ -147,54 +146,6 @@ func fleetCheckAddedLargeFiles(ctx context.Context, r *run) checks.Verdict {
 			a.ID, code, out))
 	}
 	return checks.VerdictOf(a, 0, fmt.Sprintf("fleet:check-added-large-files: nothing over %d KB", largeFileLimitKB))
-}
-
-// conflictMarkers is checks.ConflictMarkers, which says why it matches only the
-// two anchored markers.
-const conflictMarkers = checks.ConflictMarkers
-
-// No conflict markers were committed.
-//
-// OVER THE COMMITTABLE FILES, not the directory. A conflict marker inside a
-// gitignored build artifact was never committed, and no --exclude-dir list can
-// name every generator (target/, .venv/, dist/, …).
-//
-// grep IS THREE-VALUED AND xargs COLLAPSES TWO OF THE THREE, which is the one
-// piece of judgement in this atom and now the one tested piece:
-// checks.GrepThroughXargsState carries the mapping and the reasoning. The shell
-// it replaces had `|| true`, which read a grep that died exactly as it read a
-// grep that found nothing.
-//
-// WHAT output() HANDS THE MAPPING is stdout, plus stderr when the exec exited
-// non-zero. A grep diagnostic therefore arrives as if it were a hit and lands
-// as a FINDING rather than a could-not-run — visible, carrying the diagnostic
-// text, and never a pass, which is the direction that matters.
-func fleetCheckMergeConflict(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("fleet:check-merge-conflict")
-
-	files, err := r.population(ctx)
-	if err != nil {
-		return cannotEnumerate(a, err)
-	}
-	if len(files) == 0 {
-		return checks.VerdictOf(a, 0, "fleet:check-merge-conflict: no conflict markers")
-	}
-
-	out, code, err := output(ctx, withFileList(r.lane(checks.ImageFleet), files).
-		WithExec(xargsExec("grep", "-In", "-E", conflictMarkers), anyExit))
-	if err != nil {
-		return neverRan(a, err)
-	}
-	switch state := checks.GrepThroughXargsState(code, out); state {
-	case int(checks.StatePass):
-		return checks.VerdictOf(a, 0, "fleet:check-merge-conflict: no conflict markers")
-	case int(checks.StateFindings):
-		return checks.VerdictOf(a, 1, out)
-	default:
-		return checks.VerdictOf(a, 2, fmt.Sprintf(
-			"%s: CANNOT RUN - the conflict-marker scan did not complete (xargs exit %d) and printed nothing. A scan that did not run is not a tree with no markers.",
-			a.ID, code))
-	}
 }
 
 // No silent suppression of any gate — a suppression carries a tool-conflict line.

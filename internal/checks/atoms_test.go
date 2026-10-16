@@ -62,7 +62,7 @@ func TestTheGoTestAtomsCarryTheFleetRecordTree(t *testing.T) {
 	// no go:test-race shares its run, and in the gate it reads the one suite
 	// both atoms share — the same /dies, so no second clone.
 	var asked []string
-	for _, a := range Atoms {
+	for _, a := range Atoms() {
 		if a.NeedsDies {
 			asked = append(asked, a.ID)
 		}
@@ -161,5 +161,61 @@ func TestTheUnitSuiteStandsDownWhenTheRaceSuiteRunsBeside(t *testing.T) {
 	commit, none := Subsumed(AtomsForStage(StagePrecommit))
 	if len(none) != 0 || !strings.Contains(","+ids(commit)+",", ",go:test,") {
 		t.Errorf("the commit stage runs its own unit suite: covered %v", ids(none))
+	}
+}
+
+// Every atom of the catalogue has a place in catalogueOrder, once: the order is
+// the push stage's fail-fast sequence, and an atom outside it would sort last.
+func TestEveryCatalogueIDHasAPlace(t *testing.T) {
+	seen := map[string]bool{}
+	for _, id := range catalogueOrder {
+		if seen[id] {
+			t.Errorf("%s is placed twice", id)
+		}
+		seen[id] = true
+	}
+	for _, a := range Atoms() {
+		if !seen[a.ID] {
+			t.Errorf("%s has no place in catalogueOrder", a.ID)
+		}
+	}
+}
+
+func TestOrderedKeepsThePlacesAndSortsTheRestByID(t *testing.T) {
+	rows := []AtomDef{{ID: "z:last"}, {ID: "go:vet"}, {ID: "a:first"}, {ID: "fleet:check-yaml"}}
+	got := ordered(rows)
+	want := []string{"fleet:check-yaml", "go:vet", "a:first", "z:last"}
+	for i, r := range got {
+		if r.ID != want[i] {
+			t.Fatalf("slot %d is %s, want %s", i, r.ID, want[i])
+		}
+	}
+}
+
+// UseDefs joins the rows of the atoms in their own files to the table, in the
+// catalogue's order; an id the table still holds, or one given twice, panics at
+// load rather than answering two atoms for one id.
+func TestUseDefsJoinsTheRowsAndRefusesADuplicate(t *testing.T) {
+	old := atoms
+	t.Cleanup(func() { atoms = old })
+
+	UseDefs([]AtomDef{{ID: "x:new"}, {ID: "go:vet"}})
+	if got := AtomByID("go:vet"); got.ID != "go:vet" {
+		t.Fatalf("go:vet is not resolved: %+v", got)
+	}
+	last := Atoms()[len(Atoms())-1]
+	if last.ID != "x:new" {
+		t.Errorf("an id with no place sorts last, got %s", last.ID)
+	}
+
+	for _, rows := range [][]AtomDef{{{ID: "fleet:check-yaml"}}, {{ID: "x:a"}, {ID: "x:a"}}} {
+		func() {
+			defer func() {
+				if r := recover(); r == nil || !strings.Contains(r.(string), "catalogued twice") {
+					t.Errorf("rows %v: recovered %v", rows, r)
+				}
+			}()
+			UseDefs(rows)
+		}()
 	}
 }

@@ -13,7 +13,7 @@ import (
 type atomFn func(ctx context.Context, r *run) checks.Verdict
 
 // registry maps a catalogue id to its runner. Each atoms_<lane>.go registers
-// its own in an init(); the catalogue row (checks.Atoms) stays the ONE
+// its own in an init(); the catalogue row (checks.Atoms()) stays the ONE
 // definition of what exists, and this is the ONE definition of how it runs.
 var registry = map[string]atomFn{}
 

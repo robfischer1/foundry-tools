@@ -25,7 +25,7 @@ Caused by:
   -> An`
 
 func TestAuditVerdictReadsANetworkFaultAsCouldNotRun(t *testing.T) {
-	a := AtomByID("python:pip-audit")
+	a := AtomDef{ID: "python:pip-audit", Stage: StagePrepush, Lane: LanePython}
 
 	v := AuditVerdict(a, 1, pipAuditTimeout)
 	if v.State != int(StateCannotRun) {
@@ -53,7 +53,7 @@ func TestAuditVerdictReadsANetworkFaultAsCouldNotRun(t *testing.T) {
 }
 
 func TestAuditVerdictKeepsARealFindingAndACleanRun(t *testing.T) {
-	a := AtomByID("python:pip-audit")
+	a := AtomDef{ID: "python:pip-audit", Stage: StagePrepush, Lane: LanePython}
 
 	// A finding is a table, and it exits 1 without a fault in sight.
 	finding := "Found 1 known vulnerability in 1 package\nName    Version ID             Fix Versions\nurllib3 2.2.0   GHSA-34jh-p97f 2.2.2\n"

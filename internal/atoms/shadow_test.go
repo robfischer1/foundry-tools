@@ -23,11 +23,11 @@ func TestRenderCarriesTheShadowsWallTime(t *testing.T) {
 }
 
 func TestCompare(t *testing.T) {
-	const a, b, c = "fleet:check-yaml", "fleet:check-added-large-files", "fleet:check-merge-conflict"
-	today := []checks.Verdict{verdict(a, 0, ""), verdict(b, 1, "files over 2048 KB:\nx"), verdict(c, 0, "fleet:check-merge-conflict: no conflict markers")}
+	const a, b, c = "fleet:check-yaml", "fleet:check-added-large-files", "fleet:sast-ruleset-lanes"
+	today := []checks.Verdict{verdict(a, 0, ""), verdict(b, 1, "files over 2048 KB:\nx"), verdict(c, 0, "fleet:sast-ruleset-lanes: nothing to report")}
 	// Timing is the one thing two runs never share.
 	today[0].StartedAt, today[0].FinishedAt = "2026-10-08T00:00:00.000Z", "2026-10-08T00:00:01.000Z"
-	shadow := []checks.Verdict{verdict(a, 0, ""), verdict(b, 1, "files over 2048 KB:\nx"), verdict(c, 0, "fleet:check-merge-conflict: no conflict markers")}
+	shadow := []checks.Verdict{verdict(a, 0, ""), verdict(b, 1, "files over 2048 KB:\nx"), verdict(c, 0, "fleet:sast-ruleset-lanes: nothing to report")}
 	shadow[0].StartedAt, shadow[0].FinishedAt = "2026-10-08T05:00:00.000Z", "2026-10-08T05:00:09.000Z"
 
 	rep := Compare(today, shadow)
@@ -75,10 +75,10 @@ func TestCompareNamesTheFieldsThatDiffer(t *testing.T) {
 
 func TestCompareMissingOnEitherSide(t *testing.T) {
 	rep := Compare(
-		[]checks.Verdict{verdict("fleet:check-yaml", 0, ""), verdict("fleet:check-merge-conflict", 0, "")},
+		[]checks.Verdict{verdict("fleet:check-yaml", 0, ""), verdict("fleet:sast-ruleset-lanes", 0, "")},
 		[]checks.Verdict{verdict("fleet:check-yaml", 0, ""), verdict("fleet:stop-justifications", 0, "")},
 	)
-	if len(rep.Agree) != 1 || len(rep.MissingShadow) != 1 || rep.MissingShadow[0] != "fleet:check-merge-conflict" ||
+	if len(rep.Agree) != 1 || len(rep.MissingShadow) != 1 || rep.MissingShadow[0] != "fleet:sast-ruleset-lanes" ||
 		len(rep.MissingToday) != 1 || rep.MissingToday[0] != "fleet:stop-justifications" {
 		t.Errorf("report %+v", rep)
 	}
@@ -87,7 +87,7 @@ func TestCompareMissingOnEitherSide(t *testing.T) {
 func TestRender(t *testing.T) {
 	const a, b = "fleet:check-yaml", "fleet:check-added-large-files"
 	rep := Compare(
-		[]checks.Verdict{verdict(a, 1, "chain says\nso"), verdict(b, 0, "same"), verdict("fleet:check-merge-conflict", 0, "x")},
+		[]checks.Verdict{verdict(a, 1, "chain says\nso"), verdict(b, 0, "same"), verdict("fleet:sast-ruleset-lanes", 0, "x")},
 		[]checks.Verdict{verdict(a, 2, "binary says"), verdict(b, 0, "same"), verdict("fleet:stop-justifications", 0, "y")},
 	)
 	got := rep.Render()
@@ -96,7 +96,7 @@ func TestRender(t *testing.T) {
 		"fleet:check-yaml: STATE DIFFERS (state, result, reason, logs",
 		"chain  state=1 fleet:check-yaml: FINDINGS (exit 1) | chain says | so",
 		"binary state=2 fleet:check-yaml: CANNOT RUN",
-		"fleet:check-merge-conflict: the chain answered and the binary did not",
+		"fleet:sast-ruleset-lanes: the chain answered and the binary did not",
 		"fleet:stop-justifications: the binary answered and the chain did not",
 	} {
 		if !strings.Contains(got, want) {

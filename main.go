@@ -242,8 +242,8 @@ func manifestState(entries []string, l checks.Lane) string {
 // Catalogue lists every atom this module carries — id, stage, lane and
 // description — as the catalogue rows nereus holds for them.
 func (m *FoundryTools) Catalogue(ctx context.Context) (string, error) {
-	rows := make([]map[string]string, 0, len(checks.Atoms))
-	for _, a := range checks.Atoms {
+	rows := make([]map[string]string, 0, len(checks.Atoms()))
+	for _, a := range checks.Atoms() {
 		rows = append(rows, map[string]string{
 			"atom":        a.ID,
 			"stage":       a.Stage,

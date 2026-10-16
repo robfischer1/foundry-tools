@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -188,7 +189,7 @@ func TestEveryCatalogueIDIsRegisteredExactlyOnce(t *testing.T) {
 	registered := src.registrations(t)
 
 	catalogued := map[string]bool{}
-	for _, a := range Atoms {
+	for _, a := range Atoms() {
 		catalogued[a.ID] = true
 	}
 
@@ -217,8 +218,8 @@ func TestEveryCatalogueIDIsRegisteredExactlyOnce(t *testing.T) {
 	if len(extra) > 0 {
 		t.Errorf("registered but not in the catalogue: %v — register() panics on this at load", extra)
 	}
-	if len(registered) != len(Atoms) {
-		t.Errorf("%d ids registered, %d rows catalogued", len(registered), len(Atoms))
+	if len(registered) != len(Atoms()) {
+		t.Errorf("%d ids registered, %d rows catalogued", len(registered), len(Atoms()))
 	}
 }
 
@@ -353,6 +354,12 @@ func TestNoAtomReadsARepoAuthoredConfigSurface(t *testing.T) {
 func TestTheNamedCheckSetsAreTheFleets(t *testing.T) {
 	src := parseLaneFiles(t)
 	lits := strings.Join(src.allLiterals(), "\x00")
+	// go:staticcheck is a manifest now: its argv carries the set.
+	if raw, err := os.ReadFile("../../atoms/go/staticcheck.toml"); err != nil {
+		t.Fatal(err)
+	} else {
+		lits += "\x00" + string(raw)
+	}
 
 	const staticcheckSet = "all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-ST1023"
 	if !strings.Contains(lits, staticcheckSet) {

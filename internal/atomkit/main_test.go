@@ -296,6 +296,22 @@ func TestUT_463_LoadInComputesTheTreeWhenNoneIsGiven(t *testing.T) {
 	}
 }
 
+// TestLoadInComputesTheTreeAgainstTheEnvironment: with no tree@1 the adapter
+// names the change set's origin and fork through the environment.
+func TestLoadInComputesTheTreeAgainstTheEnvironment(t *testing.T) {
+	dir := fx3(t)
+	t.Setenv("ATOM_TREE", "")
+	t.Setenv("ATOM_ORIGIN", "http://door.test/rob/nyx.git")
+	t.Setenv("ATOM_FORK", "gravity")
+	in, err := LoadIn(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in.Origin != "http://door.test/rob/nyx.git" || in.Fork != "gravity" {
+		t.Fatalf("origin %q fork %q", in.Origin, in.Fork)
+	}
+}
+
 func TestUT_464_LoadInWithNoTreeAndNoGit(t *testing.T) {
 	t.Setenv("ATOM_TREE", "")
 	t.Setenv("PATH", "/nonexistent")

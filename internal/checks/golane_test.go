@@ -68,7 +68,7 @@ func TestGoModuleDirsFindsEveryModuleTheGoCommandWouldBuild(t *testing.T) {
 }
 
 func TestFoldModulesLetsAFindingOutrankACannotRun(t *testing.T) {
-	a := AtomByID("go:vet")
+	a := AtomDef{ID: "go:vet", Stage: StagePrecommit, Lane: LaneGo}
 	pass := VerdictOf(a, 0, "")
 	finding := VerdictOf(a, 1, "x.go:3: unreachable code")
 	cannot := VerdictOf(a, 2, "proxy 502")
@@ -102,5 +102,22 @@ func TestFoldModulesLetsAFindingOutrankACannotRun(t *testing.T) {
 	v = FoldModules(a, []ModuleVerdict{{".", pass}, {"styx", pass}})
 	if v.State != int(StatePass) || v.Result != "pass" || !strings.Contains(v.Reason, "PASS in 2 Go modules (., styx)") {
 		t.Errorf("all passing = %+v", v)
+	}
+}
+
+func TestArgvChunksKeepOrderAndFitTheBudget(t *testing.T) {
+	if got := ArgvChunks(nil); len(got) != 0 {
+		t.Errorf("no files, got %v", got)
+	}
+	half := strings.Repeat("a", argvBudget/2-1) // 1 byte for its NUL: two fit exactly
+	got := ArgvChunks([]string{half, half, "b", strings.Repeat("c", argvBudget+1), "d"})
+	want := [][]string{{half, half}, {"b"}, {strings.Repeat("c", argvBudget+1)}, {"d"}}
+	if len(got) != len(want) {
+		t.Fatalf("%d runs, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if len(got[i]) != len(want[i]) {
+			t.Errorf("run %d holds %d files, want %d", i, len(got[i]), len(want[i]))
+		}
 	}
 }

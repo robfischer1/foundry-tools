@@ -4,7 +4,7 @@ stage = "prepush"
 lane = "python"
 group = "language"
 desc = "pip-audit reports no known vulnerability."
-surface = "any:**/*.py"
+surface = "root:pyproject.toml"
 toolchain = "python"
 argv = ["uv", "run", "--with", "pip-audit==2.10.1", "pip-audit"]
 per_module = false

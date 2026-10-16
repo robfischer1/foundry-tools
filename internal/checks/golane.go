@@ -193,3 +193,26 @@ func goModules(n int) string {
 	}
 	return fmt.Sprintf("%d Go modules", n)
 }
+
+// ArgvChunks splits a file list into runs that each fit the argv budget, in
+// order, so a tool is exec'd once per run with the files as arguments. A single
+// path over the budget is a run of its own. It is the in-process form of what
+// NeedsArgFile's xargs fallback did: one program, fixed flags, the list
+// appended in as many invocations as the budget takes, and no shell.
+func ArgvChunks(files []string) [][]string {
+	var chunks [][]string
+	var run []string
+	n := 0
+	for _, f := range files {
+		if len(run) > 0 && n+len(f)+1 > argvBudget {
+			chunks = append(chunks, run)
+			run, n = nil, 0
+		}
+		run = append(run, f)
+		n += len(f) + 1
+	}
+	if len(run) > 0 {
+		chunks = append(chunks, run)
+	}
+	return chunks
+}

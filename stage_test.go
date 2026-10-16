@@ -79,7 +79,7 @@ func TestStageResultExitEndsOnItsState(t *testing.T) {
 func TestPushStopsTheSequenceAtTheFirstRedAndStillRunsMutation(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	engine.exitCode(`"staticcheck"`, 1)
+	engine.exitCode(`"staticcheck","-checks"`, 1)
 	m := &FoundryTools{Source: dag.Directory()}
 	res, err := m.Push(context.Background(), "", "")
 	if err != nil {

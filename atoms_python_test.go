@@ -466,48 +466,6 @@ func TestPythonPytestFindsTestsWithoutATestsDirectory(t *testing.T) {
 // pipAuditNeedle finds the audit exec in a chain: the pinned requirement, then the program.
 const pipAuditNeedle = `"pip-audit==` + checks.PipAuditVersion + `","pip-audit"`
 
-func TestPythonPipAuditRunsTheFleetsAuditorNotTheReposDependency(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-
-	wantState(t, runAtom(t, "python:pip-audit", "base-sha"), 0)
-
-	c := engine.chain(pipAuditNeedle, "exitCode")
-	if !strings.Contains(c, checks.ImagePython) {
-		t.Errorf("python:pip-audit must run in the python lane image:\n%s", c)
-	}
-	wantCalls(t, c,
-		[]string{"withMountedCache", `path:"/opt/uv-cache"`},
-		[]string{"withMountedDirectory", `path:"/src"`},
-		[]string{"withExec", `args:["uv","--version"]`},
-		// --with rather than a dependency of the repo: a repo that did not
-		// declare the auditor is still audited.
-		[]string{"withExec", `expect:ANY`, `args:["uv","run","--with","pip-audit==` + checks.PipAuditVersion + `","pip-audit"]`},
-	)
-	if hasCall(c, "withExec", `args:["uv","--version"]`, `expect:ANY`) {
-		t.Errorf("the uv probe is provisioning and must run under the default Expect:\n%s", c)
-	}
-	if strings.Contains(c, "GATE_BASE") {
-		t.Errorf("python:pip-audit must not read GATE_BASE:\n%s", c)
-	}
-
-	engine.exitCode(pipAuditNeedle, 1)
-	engine.stdout(pipAuditNeedle, "Found 1 known vulnerability in 1 package")
-	wantState(t, runAtom(t, "python:pip-audit", ""), 1, "known vulnerability")
-
-	// A 127 is a missing binary and a 137 is an OOM kill; neither is a
-	// finding and neither is a pass.
-	for _, code := range []int{2, 127, 137} {
-		engine.exitCode(pipAuditNeedle, code)
-		wantState(t, runAtom(t, "python:pip-audit", ""), 2)
-	}
-
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.fail(`"uv","--version"`, "image would not pull")
-	wantState(t, runAtom(t, "python:pip-audit", ""), 2, "never ran", "image would not pull")
-}
-
 // ---- mutation ----
 
 // python:mutation's needles: each exec the atom runs, by the words only it has.

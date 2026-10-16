@@ -71,7 +71,7 @@ func TestStateStringsAreStable(t *testing.T) {
 // carries an error whose text names the state, so a red check says which of the
 // two reds it is.
 func TestAnswerIsNilOnlyForAPass(t *testing.T) {
-	a := AtomByID("go:staticcheck")
+	a := AtomDef{ID: "go:staticcheck", Stage: StagePrepush, Lane: LaneGo}
 
 	if _, err := VerdictOf(a, 0, "").Answer(); err != nil {
 		t.Fatalf("exit 0 must answer nil, got %v", err)

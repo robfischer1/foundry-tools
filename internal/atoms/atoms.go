@@ -157,7 +157,7 @@ type Registry struct {
 }
 
 // NewRegistry validates the atoms and keeps their order. An id missing from
-// the catalogue (internal/checks.Atoms), a duplicate id and a nil function are
+// the catalogue (internal/checks.Atoms()), a duplicate id and a nil function are
 // errors here, at construction, rather than a panic or a hole in a vector on
 // some later gate.
 func NewRegistry(atoms ...Atom) (*Registry, error) {
@@ -167,7 +167,7 @@ func NewRegistry(atoms ...Atom) (*Registry, error) {
 		def, ok := lookup(a.ID)
 		switch {
 		case !ok:
-			return nil, fmt.Errorf("atom %q is not in the catalogue (internal/checks.Atoms)", a.ID)
+			return nil, fmt.Errorf("atom %q is not in the catalogue (internal/checks.Atoms())", a.ID)
 		case seen[a.ID]:
 			return nil, fmt.Errorf("atom %q is registered twice", a.ID)
 		case a.Run == nil:
@@ -191,13 +191,23 @@ func (r *Registry) IDs() []string {
 // lookup is checks.AtomByID without the panic: this package validates ids and
 // reports, it does not crash a gate on an authoring error.
 func lookup(id string) (checks.AtomDef, bool) {
-	for _, a := range checks.Atoms {
+	for _, a := range checks.Atoms() {
 		if a.ID == id {
 			return a, true
 		}
 	}
 	return checks.AtomDef{}, false
 }
+
+// ported is how the atoms that moved into their own files
+// (atoms/<ns>/<name>/<name>.go, toolchain none) reach the registry. Those
+// packages import this one, so it cannot import them: the package that holds
+// the generated registry calls UseExtra at init.
+var ported = func() []Atom { return nil }
+
+// UseExtra sets the in-process atoms that live in their own files. They follow
+// the atoms written here, in the order given.
+func UseExtra(f func() []Atom) { ported = f }
 
 // Builtin is the atoms this package carries, in the order the vector lists
 // them. Registration is explicit rather than init()-time so the set a binary
@@ -209,6 +219,11 @@ func lookup(id string) (checks.AtomDef, bool) {
 // also re-lists the diff locally, unfiltered and with deletions, which the change
 // set (added, modified, renamed) leaves out.
 func Builtin() []Atom {
+	return append(builtin(), ported()...)
+}
+
+// builtin is the atoms still written in this package.
+func builtin() []Atom {
 	tree := func(id string, run RunFunc) Atom { return Atom{ID: id, Scope: ScopeTree, Run: run} }
 	// An atom whose tool is a pinned layer of the container the binary runs in
 	// (atoms_tools.go) carries no marker: the tool is on PATH wherever the
@@ -217,7 +232,6 @@ func Builtin() []Atom {
 	return []Atom{
 		tree("fleet:check-yaml", checkYAML),
 		tree("fleet:check-added-large-files", checkAddedLargeFiles),
-		tree("fleet:check-merge-conflict", checkMergeConflict),
 		tree("fleet:stop-justifications", stopJustifications),
 		tree("fleet:sast-ruleset-lanes", sastRulesetLanes),
 		tree("fleet:copier-answers-intact", copierAnswersIntact),

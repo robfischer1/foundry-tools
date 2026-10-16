@@ -131,7 +131,31 @@ const (
 // ForkReasons is every value NotOnForks may take.
 var ForkReasons = []string{ForkFleetStyle, ForkChangeBar}
 
-var Atoms = atomTable()
+// atoms is the catalogue: the rows still in atomTable() and, once a package
+// above the atoms has called UseDefs, the atoms that moved into files.
+var atoms = atomTable()
+
+// Atoms answers the catalogue. It is a function because the ported atoms join
+// it through UseDefs; a caller that ranged over a variable would miss them.
+func Atoms() []AtomDef { return atoms }
+
+// UseDefs adds the catalogue rows of the atoms that live in their own files
+// (atoms/<ns>/<name>/<name>.go and atoms/<ns>/<name>.toml). internal/checks
+// cannot import those packages, since they import it, so the package that
+// holds the generated registry hands the rows down here at init, ahead of
+// every other init in a binary that links it. An id the table still holds, or
+// one given twice, is an authoring error and panics at load.
+func UseDefs(rows []AtomDef) {
+	merged := append(atomTable(), rows...)
+	seen := map[string]bool{}
+	for _, a := range merged {
+		if seen[a.ID] {
+			panic("checks: atom " + a.ID + " is catalogued twice")
+		}
+		seen[a.ID] = true
+	}
+	atoms = ordered(merged)
+}
 
 // atomTable builds the table inside a function, and that is deliberate:
 // Go instruments coverage counters in function bodies only, so a
@@ -151,10 +175,6 @@ func atomTable() []AtomDef {
 		{
 			ID: "fleet:check-added-large-files", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
 			Desc: "No file in the tree exceeds 2 MB.",
-		},
-		{
-			ID: "fleet:check-merge-conflict", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "No conflict markers were committed.",
 		},
 		{
 			ID: "fleet:stop-justifications", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet, NotOnForks: ForkFleetStyle,
@@ -336,14 +356,6 @@ func atomTable() []AtomDef {
 
 		// ---- go ----
 		{
-			ID: "go:gofmt", Stage: StagePrecommit, Lane: LaneGo, Image: ImageGo, NotOnForks: ForkFleetStyle,
-			Desc: "Every Go file is gofmt-clean.",
-		},
-		{
-			ID: "go:vet", Stage: StagePrecommit, Lane: LaneGo, Image: ImageGo, NotOnForks: ForkFleetStyle,
-			Desc: "go vet ./... reports nothing.",
-		},
-		{
 			ID: "go:test", Stage: StagePrecommit, Lane: LaneGo, Image: ImageGo,
 			Desc:       "go test ./... passes — the unit suite, no race detector and no database.",
 			NeedsDies:  true,
@@ -355,16 +367,8 @@ func atomTable() []AtomDef {
 		// that answers in seconds must not wait behind a suite that answers in
 		// minutes.
 		{
-			ID: "go:staticcheck", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo, NotOnForks: ForkFleetStyle,
-			Desc: "staticcheck ./... reports nothing.",
-		},
-		{
 			ID: "go:govulncheck", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo,
 			Desc: "govulncheck ./... reports no known vulnerability.",
-		},
-		{
-			ID: "go:build", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo,
-			Desc: "go build ./... succeeds.",
 		},
 		{
 			ID: "go:release", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo,
@@ -437,15 +441,6 @@ func atomTable() []AtomDef {
 			Desc: "pytest passes, and there is something for it to pass.",
 		},
 		{
-			ID: "python:pip-audit", Stage: StagePrepush, Lane: LanePython, Image: ImagePython,
-			Desc: "pip-audit reports no known vulnerability.",
-			// It audits DECLARED dependencies. A tree of loose .py declares
-			// none, so without the manifest it would examine nothing and
-			// report a pass — the exact failure StateCannotRun exists to make
-			// unrepresentable.
-			NeedsManifest: true,
-		},
-		{
 			ID: "python:release", Stage: StagePrepush, Lane: LanePython, Image: ImagePython,
 			Desc: "The venv the image will carry builds from the star's lock on the image's own python base — for a Dockerfile on foundry/base-images/python that copies from release/; any other image is absent.",
 			// The build lane, and the one Rob named: a release builds from the
@@ -454,10 +449,6 @@ func atomTable() []AtomDef {
 		},
 
 		// ---- rust ----
-		{
-			ID: "rust:cargo-fmt", Stage: StagePrecommit, Lane: LaneRust, Image: ImageRust,
-			Desc: "cargo fmt --all --check is clean.",
-		},
 		{
 			ID: "rust:cargo-clippy", Stage: StagePrecommit, Lane: LaneRust, Image: ImageRust, NotOnForks: ForkFleetStyle,
 			Desc: "cargo clippy is clean under the fleet's lint set, warnings denied.",
@@ -469,10 +460,6 @@ func atomTable() []AtomDef {
 		{
 			ID: "rust:release", Stage: StagePrepush, Lane: LaneRust, Image: ImageRust,
 			Desc: "The release binaries the image will carry compile under cargo's release profile — for a Dockerfile that copies from release/; one that compiles itself is built by the build lane, and this is absent.",
-		},
-		{
-			ID: "rust:cargo-audit", Stage: StagePrepush, Lane: LaneRust, Image: ImageRust,
-			Desc: "cargo audit reports no known vulnerability.",
 		},
 		{
 			ID: "rust:wit-guest", Stage: StagePrepush, Lane: LaneRust, Image: ImageRust,
@@ -489,10 +476,6 @@ func atomTable() []AtomDef {
 		{
 			ID: "ts:bun-gate", Stage: StagePrecommit, Lane: LaneTS, Image: ImageTS,
 			Desc: "bun run gate passes against a frozen lockfile under the fleet's eslint config, and the tree carries tests for it to run.",
-		},
-		{
-			ID: "ts:bun-audit", Stage: StagePrepush, Lane: LaneTS, Image: ImageTS,
-			Desc: "bun audit reports nothing at high or above.",
 		},
 		{
 			ID: "ts:regen", Stage: StagePrepush, Lane: LaneTS, Image: ImageTS,
@@ -722,7 +705,7 @@ func atomTable() []AtomDef {
 // does not resolve is an authoring error caught by this repo's own tests, not a
 // runtime condition.
 func AtomByID(id string) AtomDef {
-	for _, a := range Atoms {
+	for _, a := range atoms {
 		if a.ID == id {
 			return a
 		}
@@ -766,8 +749,8 @@ func PullPathAtoms() []AtomDef {
 // AtomsForStage selects the atoms for one stage; the empty stage selects every
 // PULL-PATH atom, never the sweep. See IsPullPath for why that is the default.
 func AtomsForStage(stage string) []AtomDef {
-	out := make([]AtomDef, 0, len(Atoms))
-	for _, a := range Atoms {
+	out := make([]AtomDef, 0, len(atoms))
+	for _, a := range atoms {
 		if stage == "" {
 			if !IsPullPath(a.Stage) {
 				continue
@@ -848,7 +831,7 @@ func Select(from []AtomDef, ids string) ([]AtomDef, error) {
 
 // AtomExists reports whether the table carries this id, without panicking.
 func AtomExists(id string) bool {
-	for _, a := range Atoms {
+	for _, a := range atoms {
 		if a.ID == id {
 			return true
 		}

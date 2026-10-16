@@ -281,82 +281,6 @@ func TestFleetLargeFilesEngineFailures(t *testing.T) {
 
 // ---- fleet:check-merge-conflict ----
 
-func TestFleetMergeConflictGrepsOnlyTheAnchoredMarkers(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-
-	wantState(t, runAtom(t, "fleet:check-merge-conflict", ""), 0)
-
-	c := engine.chain(`"grep","-In"`, "exitCode")
-	wantCalls(t, c,
-		[]string{"withNewFile", `path:"/tmp/files0"`},
-		[]string{"withExec", `expect:ANY`, `args:["xargs","-0","-a","/tmp/files0","grep","-In","-E","^(<<<<<<< |>>>>>>> )"]`},
-	)
-	// The bare row of equals signs is a setext heading in Markdown and a table
-	// rule in reStructuredText; matching it turns every docs repo red.
-	if strings.Contains(c, "=======") {
-		t.Errorf("the bare ======= row must not be matched:\n%s", c)
-	}
-}
-
-// grep is three-valued and xargs collapses two of the three, so the OUTPUT
-// decides and the code only confirms.
-func TestFleetMergeConflictReadsTheOutputBeforeTheCode(t *testing.T) {
-	const tool = `"grep","-In"`
-	hit := "README.md:12:<<<<<<< HEAD"
-
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.stdout(tool, hit)
-	engine.exitCode(tool, 0)
-	wantState(t, runAtom(t, "fleet:check-merge-conflict", ""), 1, hit)
-
-	// The ordinary large-repo run: one chunk matched, another did not.
-	engine.exitCode(tool, 123)
-	wantState(t, runAtom(t, "fleet:check-merge-conflict", ""), 1, hit)
-
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	for _, code := range []int{0, 1, 123} {
-		engine.exitCode(tool, code)
-		wantState(t, runAtom(t, "fleet:check-merge-conflict", ""), 0)
-	}
-
-	// A scan that was killed or whose binary was not there has not found
-	// nothing — it has not looked.
-	for _, code := range []int{2, 124, 125, 126, 127} {
-		engine.exitCode(tool, code)
-		wantState(t, runAtom(t, "fleet:check-merge-conflict", ""), 2,
-			"the conflict-marker scan did not complete", "printed nothing")
-	}
-	engine.exitCode(tool, 126)
-	wantState(t, runAtom(t, "fleet:check-merge-conflict", ""), 2, "xargs exit 126")
-
-	// xargs itself killed (137) never reaches the mapping: no Expect covers the
-	// signal range, so the engine errors and the atom never ran.
-	engine.exitCode(tool, 137)
-	wantState(t, runAtom(t, "fleet:check-merge-conflict", ""), 2, "exit code: 137")
-}
-
-func TestFleetMergeConflictWithNoCommittableFileNeverBuildsAContainer(t *testing.T) {
-	engine.reset()
-	engine.withTree(map[string]string{"vendor/a/b.go": ""})
-	wantState(t, runAtom(t, "fleet:check-merge-conflict", ""), 0)
-	fleetNoContainer(t, "an empty population")
-}
-
-func TestFleetMergeConflictEngineFailures(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.fail(`"grep","-In"`, "exit code: 125: the image would not pull")
-	wantState(t, runAtom(t, "fleet:check-merge-conflict", ""), 2, "the atom never ran", "would not pull")
-
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.fail(`glob(pattern:"**")`, "the tree went away")
-	wantState(t, runAtom(t, "fleet:check-merge-conflict", ""), 2, "the tree would not enumerate")
-}
-
 // ---- fleet:stop-justifications ----
 
 // The needles for the two questions the atom asks git.
@@ -1412,7 +1336,7 @@ func TestFleetProbesNeverCarryAnyExit(t *testing.T) {
 		`"opengrep","--version"`,
 		`"hadolint","--version"`,
 	}
-	for _, a := range checks.Atoms {
+	for _, a := range checks.Atoms() {
 		if !strings.HasPrefix(a.ID, "fleet:") {
 			continue
 		}

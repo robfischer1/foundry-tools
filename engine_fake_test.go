@@ -70,8 +70,9 @@ type fakeEngine struct {
 type paperTree map[string]string
 
 type script struct {
-	match string // substring of the query text; "" matches every query
-	leaf  string // which leaf this answers: exitCode, stdout, stderr, sync, any ("" = any)
+	match string   // substring of the query text; "" matches every query
+	also  []string // further substrings the same query must contain
+	leaf  string   // which leaf this answers: exitCode, stdout, stderr, sync, any ("" = any)
 	value any
 	fail  string // when set, the query answers a GraphQL error with this message
 }
@@ -131,6 +132,31 @@ func (e *fakeEngine) fail(match, message string) { e.script(script{match: match,
 // one container, and each read is its own chance for the engine to go away.
 func (e *fakeEngine) failLeaf(match, leaf, message string) {
 	e.script(script{match: match, leaf: leaf, fail: message})
+}
+
+// matches says whether the script answers this query: its match, and every
+// further needle, sit in the query's text.
+func (s script) matches(q string) bool {
+	if !strings.Contains(q, s.match) {
+		return false
+	}
+	for _, n := range s.also {
+		if !strings.Contains(q, n) {
+			return false
+		}
+	}
+	return true
+}
+
+// exitCodeAll scripts the exit code of every exec whose query text contains
+// every needle: how a test tells one module's run of a tool from another's.
+func (e *fakeEngine) exitCodeAll(code int, needles ...string) {
+	e.script(script{match: needles[0], also: needles[1:], leaf: "exitCode", value: code})
+}
+
+// stdoutAll is exitCodeAll for what the exec printed.
+func (e *fakeEngine) stdoutAll(out string, needles ...string) {
+	e.script(script{match: needles[0], also: needles[1:], leaf: "stdout", value: out})
 }
 
 func (e *fakeEngine) script(s script) {
@@ -406,7 +432,7 @@ func (e *fakeEngine) answer(q string) (data any, errMsg string) {
 
 	leaf := fields[len(fields)-1]
 	for _, s := range scripts {
-		if s.fail != "" && strings.Contains(q, s.match) && (s.leaf == "" || s.leaf == leaf.name) {
+		if s.fail != "" && s.matches(q) && (s.leaf == "" || s.leaf == leaf.name) {
 			return nil, s.fail
 		}
 	}
@@ -414,7 +440,7 @@ func (e *fakeEngine) answer(q string) (data any, errMsg string) {
 		var v any
 		found := false
 		for _, s := range scripts { // last matching script wins
-			if s.fail == "" && s.leaf == name && strings.Contains(q, s.match) {
+			if s.fail == "" && s.leaf == name && s.matches(q) {
 				v, found = s.value, true
 			}
 		}
@@ -613,7 +639,7 @@ func (e *fakeEngine) execError(q string) map[string]any {
 	ext := map[string]any{"_type": "EXEC_ERROR", "stdout": "", "stderr": ""}
 	code := -1
 	for _, s := range scripts { // last matching script wins, as in answer
-		if s.fail != "" || !strings.Contains(q, s.match) {
+		if s.fail != "" || !s.matches(q) {
 			continue
 		}
 		switch s.leaf {

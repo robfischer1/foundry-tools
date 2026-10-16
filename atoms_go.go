@@ -15,18 +15,15 @@ import (
 	"dagger/foundry-tools/internal/dagger"
 )
 
-// THE GO LANE, AS CHAINS. go:vet and go:test-race are the exemplar every other
-// lane's port follows; read runtime.go's rules first, then these two, then the
-// rest of the lane below them.
+// THE GO LANE, AS CHAINS. go:test-race is the exemplar every other lane's chain
+// follows; read runtime.go's rules first, then it, then the rest of the lane
+// below it. go:gofmt, go:vet, go:build and go:staticcheck are no longer chains:
+// they are files (atoms/go), run by the adapter (atom_adapter.go).
 
 func init() {
-	register("go:gofmt", goGofmt)
-	register("go:vet", goVet)
-	register("go:build", goBuild)
 	register("go:release", goRelease)
 	register("go:test", goTest)
 	register("go:test-race", goTestRace)
-	register("go:staticcheck", goStaticcheck)
 	register("go:govulncheck", goGovulncheck)
 	register("go:mutation", goMutation)
 }
@@ -102,34 +99,6 @@ func (r *run) eachModule(ctx context.Context, a checks.AtomDef, one func(dir str
 		mods = append(mods, checks.ModuleVerdict{Dir: dir, Verdict: one(dir)})
 	}
 	return checks.FoldModules(a, mods)
-}
-
-// goBuilt is goModules with the module compiled once: `go build ./...` under
-// anyExit, so the shared GOCACHE volume holds every package the tree and its
-// dependencies need before the analysers read them.
-//
-// ONE COMPILE, SHARED BY CONTENT. The build, vet, staticcheck and govulncheck
-// atoms all branch from this container; the engine keys the exec on its
-// inputs, so the four atoms (and the warm-up they would each have paid for)
-// cost one build, not four concurrent ones racing to fill the same cache.
-// vet, staticcheck and govulncheck then run side by side against a warm cache.
-// The race suite stays beside them rather than behind: it compiles with -race,
-// which a plain build does not warm.
-//
-// THE WARM-UP CANNOT MOVE A VERDICT. It runs under anyExit, so a build that
-// fails (a compile error, a finding for the build atom) lets the chain carry on, and
-// vet still reports the compile error it always did. Only go:build reads this
-// exec's exit code.
-func (r *run) goBuilt(dir string) *dagger.Container {
-	return r.goModules(dir).WithExec([]string{"go", "build", "./..."}, anyExit)
-}
-
-// go vet ./... reports nothing.
-func goVet(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("go:vet")
-	return r.eachModule(ctx, a, func(dir string) checks.Verdict {
-		return verdict(ctx, a, r.goBuilt(dir).WithExec([]string{"go", "vet", "./..."}, anyExit))
-	})
 }
 
 // go test -race ./... passes, and there is something for it to pass.
@@ -388,80 +357,6 @@ func bindTestBrokers(ctr *dagger.Container, brokers []checks.TestBroker, scope s
 		ctr = ctr.WithServiceBinding(b.AliasFor(scope), svc).WithEnvVariable(b.Env, b.AddrFor(scope))
 	}
 	return ctr
-}
-
-// Every Go file is gofmt-clean.
-//
-// THE POPULATION IS THE GATE'S, NOT A find(1) WALK. The old script listed
-// `find . -path ./vendor -prune -o -name '*.go' -print`, which sweeps in every
-// generated and gitignored .go a developer happens to have on disk — the same
-// shape that turned fleet:check-added-large-files into 40+ findings under
-// target/ on tongs (2026-09-09). r.population is the engine's own gitignore
-// filter with the fleet exclude applied in Go, and that exclude already carries
-// `(^|/)vendor/`, so the prune this script spelled by hand is the FLEET's rule
-// here rather than this atom's private one.
-//
-// NO `go mod download`. gofmt parses and prints; it never resolves an import.
-// So this atom starts from the bare lane rather than from goModules(), and a
-// proxy's bad hour cannot reach it at all.
-//
-// GOFMT'S EXIT CODE IS NOT THE VERDICT — ITS STDOUT IS. `gofmt -l` exits 0
-// whether it listed every file in the tree or none of them, so the answer has
-// to be read off the listing. DELIBERATELY CHANGED: the old script read the
-// listing and threw away BOTH the exit code and stderr (`2>/dev/null`), so a
-// file gofmt could not parse listed nothing, said nothing, and rendered as
-// "go:gofmt: clean". A file that was not examined is not a file that is
-// formatted, so a non-zero gofmt is a 2 here.
-func goGofmt(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("go:gofmt")
-
-	files, err := r.population(ctx, "**/*.go")
-	if err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+err.Error())
-	}
-	if len(files) == 0 {
-		return checks.VerdictOf(a, 0, "go:gofmt: no Go files")
-	}
-
-	ctr := r.laneCode(checks.ImageGo)
-	args := append([]string{"gofmt", "-l"}, files...)
-	if checks.NeedsArgFile(files) {
-		// A list longer than one argv may carry goes in as a NUL-joined file
-		// and xargs re-splits it. That is still one typed exec of one program;
-		// it is not a shell, and rule 7 holds.
-		ctr = ctr.WithNewFile(gofmtArgFile, strings.Join(files, "\x00"))
-		args = []string{"xargs", "-0", "-a", gofmtArgFile, "gofmt", "-l"}
-	}
-
-	listed, code, err := output(ctx, ctr.WithExec(args, anyExit))
-	if err != nil {
-		return checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
-	}
-	if code != 0 {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - gofmt exited "+strconv.Itoa(code)+
-			"; a file it could not parse is a file it did not check.\n"+listed)
-	}
-	if listed != "" {
-		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - gofmt needed on:\n"+listed)
-	}
-	return checks.VerdictOf(a, 0, a.ID+": clean")
-}
-
-// gofmtArgFile is where the population goes when it will not fit in an argv.
-const gofmtArgFile = "/tmp/gofmt-files0"
-
-// go build ./... succeeds.
-//
-// THE MODULES ARE PROVISIONED BEFORE THE TOOLCHAIN SPEAKS, for the reason
-// goModules states: `go build` exits 1 for a module the proxy would not serve
-// exactly as it exits 1 for a compile error, and an atom that reads exit 1 as
-// FINDINGS turns a proxy's bad hour into a terminal red the sweep will not
-// re-ask (measured 2026-09-11 17:26Z, foundry-tools#29).
-func goBuild(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("go:build")
-	return r.eachModule(ctx, a, func(dir string) checks.Verdict {
-		return verdict(ctx, a, r.goBuilt(dir))
-	})
 }
 
 // THE RELEASE BUILD, AND IT IS THE ONE THE IMAGE CARRIES. Rob's four stages:
@@ -746,44 +641,6 @@ func (r *run) releaseBuild(ctx context.Context, plan checks.ReleasePlan, version
 	}
 	return ctr, nil
 }
-
-// staticcheck ./... reports nothing.
-//
-// THE BINARY IS A LAYER OF THE LANE (provision: `go install` at the pin, then
-// on PATH). The old script ran `go install honnef.co/go/tools/cmd/staticcheck@latest`
-// first — a compile of the whole analysis suite, on every atom, on every
-// gate — and `@latest` meant the gate's check set was whatever honnef
-// published that morning rather than what the pin declared. The version
-// probe below checks the layer: its own exec under the DEFAULT Expect, so a
-// lane that lost the binary is state 2. The engine ends the "CANNOT RUN when not
-// installed locally" branch this check has carried since it was a pre-push
-// hook — the toolchain is the module's now — but it does not end it by letting
-// an absent tool answer "fine".
-//
-// THE CHECK SET IS NAMED ON THE COMMAND LINE. staticcheck reads a
-// staticcheck.conf from the tree when there is one, and -checks overrides it;
-// naming the fleet's set here means a conf a repo adds later changes nothing in
-// the gate. Measured 2026-09-11: no repo carries one today.
-//
-// THE DEFAULT IS EIGHT EXCLUSIONS, NOT SEVEN. The first cut listed -ST1000 …
-// -ST1022 and left out -ST1023 (redundant type in a declaration), which
-// staticcheck's own default config also disables — so the first Go pull through
-// it (ourea #127) went red on a pre-existing `var fs billy.Filesystem = …` in a
-// test file. What is spelled below is staticcheck's shipped default, verbatim;
-// a stricter fleet set is a decision to make on purpose, not by omission.
-func goStaticcheck(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("go:staticcheck")
-	return r.eachModule(ctx, a, func(dir string) checks.Verdict {
-		return verdict(ctx, a, r.goBuilt(dir).
-			WithExec([]string{"staticcheck", "-version"}).
-			WithExec([]string{"staticcheck", "-checks", staticcheckChecks, "./..."}, anyExit))
-	})
-}
-
-// staticcheckChecks is staticcheck's shipped default set, spelled out so the
-// gate's answer does not depend on a file any repository could add. Eight
-// exclusions — see goStaticcheck for why -ST1023 is the eighth.
-const staticcheckChecks = "all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-ST1023"
 
 // govulncheck ./... reports no known vulnerability.
 //
