@@ -1,0 +1,11 @@
+schema = "command-atom@1"
+id = "go:build"
+stage = "prepush"
+lane = "go"
+group = "language"
+desc = "go build ./... succeeds."
+surface = "any:**/go.mod"
+toolchain = "go"
+argv = ["go", "build", "./..."]
+per_module = true
+judge = "exit"

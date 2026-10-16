@@ -1,0 +1,16 @@
+schema = "lane@1"
+lane = "publish"
+
+[[phase]]
+name = "release"
+kind = "fanout"
+atoms = ["go:release", "python:release", "rust:release", "ts:release"]
+
+# ca-publish-lane is RECIPE_JOB_LANES.publish.secrets in flux
+# prime/daedalus-jobs.yaml (the PyPI and npm tokens).
+[[phase]]
+name = "publish"
+kind = "sequence"
+capability = "publish"
+after = ["release"]
+secrets = ["ca-publish-lane"]

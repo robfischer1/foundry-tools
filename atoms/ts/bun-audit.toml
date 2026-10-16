@@ -1,0 +1,14 @@
+schema = "command-atom@1"
+id = "ts:bun-audit"
+stage = "prepush"
+lane = "ts"
+group = "language"
+desc = "bun audit reports nothing at high or above."
+surface = "root:package.json"
+toolchain = "bun"
+argv = ["bun", "audit", "--audit-level=high"]
+per_module = false
+judge = "exit"
+
+[env]
+BUN_CONFIG_REGISTRY = "https://registry.npmjs.org/"

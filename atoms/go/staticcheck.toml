@@ -1,0 +1,13 @@
+schema = "command-atom@1"
+id = "go:staticcheck"
+stage = "prepush"
+lane = "go"
+group = "language"
+desc = "staticcheck ./... reports nothing."
+surface = "any:**/go.mod"
+toolchain = "go"
+argv = ["staticcheck", "-checks", "all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-ST1023", "./..."]
+per_module = true
+judge = "exit"
+needs = ["tool:staticcheck"]
+not_on_forks = "it holds code to the fleet's own lint set, style and conventions, which upstream-owned code does not follow"

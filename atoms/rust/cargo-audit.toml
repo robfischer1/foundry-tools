@@ -1,0 +1,12 @@
+schema = "command-atom@1"
+id = "rust:cargo-audit"
+stage = "prepush"
+lane = "rust"
+group = "language"
+desc = "cargo audit reports no known vulnerability."
+surface = "root:Cargo.toml"
+toolchain = "rust"
+argv = ["cargo", "audit"]
+per_module = false
+judge = "exit"
+needs = ["tool:cargo-audit"]

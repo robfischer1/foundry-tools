@@ -1,0 +1,24 @@
+schema = "lane@1"
+lane = "bundle"
+
+[[phase]]
+name = "build"
+kind = "fanout"
+atoms = ["stage:prepush"]
+
+# The KMS signature rides the projected service-account token (E10), not a
+# secret, so this phase names none.
+[[phase]]
+name = "sign"
+kind = "sequence"
+capability = "kms-sign"
+after = ["build"]
+
+# ca-bundle-lane carries REGISTRY_TOKEN (RECIPE_JOB_LANES.bundle.secrets in flux
+# prime/daedalus-jobs.yaml), which only the push uses.
+[[phase]]
+name = "push"
+kind = "sequence"
+capability = "push-bundle"
+after = ["sign"]
+secrets = ["ca-bundle-lane"]

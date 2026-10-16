@@ -1,0 +1,7 @@
+schema = "lane@1"
+lane = "atoms"
+
+[[phase]]
+name = "build"
+kind = "sequence"
+capability = "build-atoms"

@@ -1,0 +1,29 @@
+schema = "lane@1"
+lane = "build"
+
+# There is no release stage (the release atoms sit in prepush), so the phase
+# names its atoms.
+[[phase]]
+name = "release"
+kind = "fanout"
+atoms = ["go:release", "python:release", "rust:release", "ts:release"]
+
+[[phase]]
+name = "assemble"
+kind = "sequence"
+capability = "assemble"
+after = ["release"]
+
+[[phase]]
+name = "scan"
+kind = "sequence"
+capability = "scan"
+after = ["assemble"]
+
+# ca-build-registry is BUILD_JOB_SECRETS in flux prime/daedalus-jobs.yaml.
+[[phase]]
+name = "publish"
+kind = "sequence"
+capability = "publish"
+after = ["scan"]
+secrets = ["ca-build-registry"]

@@ -1,0 +1,14 @@
+schema = "lane@1"
+lane = "dev"
+stages = ["dev"]
+
+[[phase]]
+name = "dev"
+kind = "fanout"
+atoms = ["stage:dev"]
+
+[[phase]]
+name = "out"
+kind = "sequence"
+capability = "dev-output"
+after = ["dev"]
