@@ -41,7 +41,7 @@ func (e *Env) pythonPins(src *goSource, out map[string][]byte) (func(context.Con
 		return nil, err
 	}
 	lines := strings.Split(string(in), "\n")
-	stale := false
+	stale := e.Relock
 	var held []string // name==version lines the lock must carry
 	for i, line := range lines {
 		m := pinLine.FindStringSubmatch(line)

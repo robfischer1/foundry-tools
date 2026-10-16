@@ -88,6 +88,10 @@ type Env struct {
 	Log       io.Writer
 	// RunLock runs the lock's recorded `uv pip compile …` in dir.
 	RunLock func(ctx context.Context, dir string, args []string) error
+	// Relock regenerates the python lock even when no coupled pin moved: the
+	// post-upgrade task for renovate's pip_requirements, which bumps a lock
+	// line in place under its predecessor's hashes.
+	Relock bool
 }
 
 // Result is what a run changed (or, without Write, would change), as paths
