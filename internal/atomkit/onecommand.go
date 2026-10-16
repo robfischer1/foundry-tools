@@ -17,6 +17,19 @@ var (
 	chainTokens  = []string{"&&", "||", ";", "|", "&"}
 )
 
+// Breach is one way an argv is more than one command: the slug a finding
+// groups on, and the text with no path prefix and no R46 ending.
+type Breach struct{ Cause, Text string }
+
+// The causes of a breach, one slug per rule (IF-050).
+const (
+	CauseShellAsCommand = "shell-as-command"
+	CauseInlineScript   = "inline-script"
+	CauseMultiLine      = "multi-line-argument"
+	CauseHeredoc        = "heredoc-marker"
+	CauseChained        = "chained-command"
+)
+
 // OneCommand answers the breaches of "a manifest runs exactly one command"
 // (IF-050 rules 3 to 6) as texts with no path prefix and no R46 ending, in
 // rule order. A shell as the command (rule 3.1) is worded "argv runs <name>
@@ -24,38 +37,47 @@ var (
 // same code, so the run-time refusal and the CI check cannot disagree.
 func OneCommand(argv []string, env map[string]string) []string {
 	var out []string
+	for _, b := range OneCommandBreaches(argv, env) {
+		out = append(out, b.Text)
+	}
+	return out
+}
+
+// OneCommandBreaches is OneCommand with each breach's cause.
+func OneCommandBreaches(argv []string, env map[string]string) []Breach {
+	var out []Breach
 	inline := inlineScript(argv)
 	if len(argv) > 0 && shells[path.Base(argv[0])] && inline == "" {
-		out = append(out, fmt.Sprintf("argv runs %s (R33)", path.Base(argv[0])))
+		out = append(out, Breach{CauseShellAsCommand, fmt.Sprintf("argv runs %s (R33)", path.Base(argv[0]))})
 	}
 	return append(out, scriptBreaches(argv, env)...)
 }
 
 // scriptBreaches is rules 3.2 and 4 to 6: an inline script, a multi-line
 // argument or env value, a heredoc marker, a chaining token.
-func scriptBreaches(argv []string, env map[string]string) []string {
-	var out []string
+func scriptBreaches(argv []string, env map[string]string) []Breach {
+	var out []Breach
 	if msg := inlineScript(argv); msg != "" {
-		out = append(out, msg)
+		out = append(out, Breach{CauseInlineScript, msg})
 	}
 	for i, a := range argv {
 		if strings.ContainsAny(a, "\n\r") {
-			out = append(out, fmt.Sprintf("argv[%d] is a multi-line argument", i))
+			out = append(out, Breach{CauseMultiLine, fmt.Sprintf("argv[%d] is a multi-line argument", i)})
 		}
 	}
 	for _, k := range sortedKeys(env) {
 		if strings.ContainsAny(env[k], "\n\r") {
-			out = append(out, fmt.Sprintf("env %s is a multi-line argument", k))
+			out = append(out, Breach{CauseMultiLine, fmt.Sprintf("env %s is a multi-line argument", k)})
 		}
 	}
 	for i, a := range argv {
 		if strings.Contains(a, "<<") {
-			out = append(out, fmt.Sprintf("argv[%d] carries a heredoc marker", i))
+			out = append(out, Breach{CauseHeredoc, fmt.Sprintf("argv[%d] carries a heredoc marker", i)})
 		}
 	}
 	for i, a := range argv {
 		if slices.Contains(chainTokens, a) {
-			out = append(out, fmt.Sprintf("argv[%d] %q chains a second command", i, a))
+			out = append(out, Breach{CauseChained, fmt.Sprintf("argv[%d] %q chains a second command", i, a)})
 		}
 	}
 	return out

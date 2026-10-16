@@ -31,10 +31,8 @@ import (
 // the door re-asks, not a finding the committer is told to fix.
 
 func init() {
-	register("rust:cargo-fmt", rustCargoFmt)
 	register("rust:cargo-clippy", rustCargoClippy)
 	register("rust:cargo-test", rustCargoTest)
-	register("rust:cargo-audit", rustCargoAudit)
 	register("rust:mutation", rustMutation)
 	register("rust:release", rustRelease)
 }
@@ -53,12 +51,6 @@ func cargoVerdict(ctx context.Context, a checks.AtomDef, ctr *dagger.Container) 
 	return checks.VerdictOf(a, checks.CargoExit(code), out)
 }
 
-// cargo fmt --all --check is clean.
-//
-// --check IS THE WHOLE ATOM: rustfmt rewrites nothing and exits 1 for a file it
-// would have rewritten, so there is nothing to provision, nothing to count and
-// nothing to parse. --all is the workspace, not the crate the manifest happens
-// to point at first.
 // cargoDeps is the rust lane's provisioned base: the lane container with the
 // dependency graph fetched. See the file header for the measurement behind it.
 //
@@ -176,11 +168,6 @@ func moldRun(argv []string) []string {
 // re-mounts /src stamps AFTER it.
 func stampFresh(ctr *dagger.Container) *dagger.Container {
 	return ctr.WithExec(checks.Unstale())
-}
-
-func rustCargoFmt(ctx context.Context, r *run) checks.Verdict {
-	return cargoVerdict(ctx, checks.AtomByID("rust:cargo-fmt"),
-		r.lane(checks.ImageRust).WithExec([]string{"cargo", "fmt", "--all", "--check"}, anyExit))
 }
 
 // cargo clippy is clean under the fleet's lint set, warnings denied.
@@ -345,28 +332,6 @@ func rustCargoTest(ctx context.Context, r *run) checks.Verdict {
 		}
 	}
 	return last
-}
-
-// cargo audit reports no known vulnerability.
-//
-// CARGO-AUDIT IS A LAYER OF THE LANE (provision: upstream's release binary at
-// its pin, checks.CargoAuditURL). The body this ports ran `cargo install cargo-audit --locked`
-// first — a no-op for an installed binary that still resolved the whole
-// registry index before deciding so. The check is now the PROBE:
-// `cargo audit --version` under the default Expect, so a lane that lost the
-// binary is state 2 with the exec's own error rather than a green from a tool
-// that never ran.
-//
-// The tool's exit code reaches the verdict unmapped, unlike the three cargo
-// subcommands above: `cargo audit` is an external subcommand cargo execs and
-// whose status it passes through, so a 1 here is cargo-audit's own "there is
-// an advisory" and a 101 is cargo failing to run it at all — which is a
-// could-not-run and should read as one.
-func rustCargoAudit(ctx context.Context, r *run) checks.Verdict {
-	return audit(ctx, checks.AtomByID("rust:cargo-audit"),
-		r.cargoDeps().
-			WithExec([]string{"cargo", "audit", "--version"}).
-			WithExec([]string{"cargo", "audit"}, anyExit))
 }
 
 // Every viable mutant cargo-mutants makes of this pull's changes to the

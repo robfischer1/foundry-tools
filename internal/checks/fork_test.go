@@ -14,9 +14,6 @@ import (
 var forkInert = map[string]string{
 	"fleet:stop-justifications":           ForkFleetStyle,
 	"fleet:witness":                       ForkFleetStyle,
-	"go:gofmt":                            ForkFleetStyle,
-	"go:vet":                              ForkFleetStyle,
-	"go:staticcheck":                      ForkFleetStyle,
 	"python:ruff-check":                   ForkFleetStyle,
 	"python:ruff-format":                  ForkFleetStyle,
 	"python:mypy":                         ForkFleetStyle,
@@ -33,7 +30,7 @@ var forkInert = map[string]string{
 
 func TestTheForkLaneIsTheCatalogueRowsThatSaySo(t *testing.T) {
 	got := map[string]string{}
-	for _, a := range Atoms {
+	for _, a := range Atoms() {
 		if a.NotOnForks == "" {
 			continue
 		}
@@ -59,11 +56,11 @@ func TestTheForkLaneIsTheCatalogueRowsThatSaySo(t *testing.T) {
 // command (arcjet/gravity's ci.yml runs `cargo fmt --all --check`).
 func TestAForkKeepsItsBuildTestsAuditsAndSAST(t *testing.T) {
 	for _, id := range []string{
-		"rust:cargo-fmt", "rust:cargo-test", "rust:cargo-audit", "rust:release",
-		"go:build", "go:test", "go:test-race", "go:govulncheck", "go:release",
-		"python:pytest", "python:pip-audit", "python:release",
-		"ts:bun-gate", "ts:bun-audit", "ts:release",
-		"fleet:opengrep-sast", "fleet:check-added-large-files", "fleet:check-merge-conflict",
+		"rust:cargo-test", "rust:release",
+		"go:test", "go:test-race", "go:govulncheck", "go:release",
+		"python:pytest", "python:release",
+		"ts:bun-gate", "ts:release",
+		"fleet:opengrep-sast", "fleet:check-added-large-files",
 		"compose:no-tracked-secrets",
 	} {
 		if a := AtomByID(id); a.NotOnForks != "" {

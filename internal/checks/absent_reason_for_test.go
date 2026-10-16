@@ -20,7 +20,7 @@ func TestUT_493_ForkReasonFor(t *testing.T) {
 // TestUT_494_TheWrappersCallTheFunctions: for every row, the sentence the row's
 // verdict carries is the sentence the function states.
 func TestUT_494_TheWrappersCallTheFunctions(t *testing.T) {
-	for _, a := range Atoms {
+	for _, a := range Atoms() {
 		if got, want := absentReason(a), AbsentReasonFor(a.ID, a.Lane, a.NeedsManifest); got != want {
 			t.Errorf("%s: absentReason %q, AbsentReasonFor %q", a.ID, got, want)
 		}

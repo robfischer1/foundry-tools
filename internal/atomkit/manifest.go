@@ -79,7 +79,7 @@ func ParseManifest(b []byte) (Manifest, error) {
 // order, and a shell as argv[0] last (DEF-8-028).
 func oneCommand(m Manifest) error {
 	if b := scriptBreaches(m.Argv, m.Env); len(b) > 0 {
-		return errors.New(b[0])
+		return errors.New(b[0].Text)
 	}
 	if name := path.Base(m.Argv[0]); shells[name] {
 		return fmt.Errorf("argv[0] %s is not allowed", name)

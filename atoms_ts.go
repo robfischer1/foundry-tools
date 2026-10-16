@@ -19,7 +19,6 @@ import (
 
 func init() {
 	register("ts:bun-gate", tsBunGate)
-	register("ts:bun-audit", tsBunAudit)
 	register("ts:mutation", tsMutation)
 }
 
@@ -100,32 +99,6 @@ func tsGate(ctx context.Context, r *run, id string) checks.Verdict {
 	// The script's exit is its failing tool's: tsc's 2 is a finding, not a
 	// could-not-run (checks.BunGateExit says why).
 	return checks.VerdictOf(a, checks.BunGateExit(code), out)
-}
-
-// bun audit reports nothing at high or above.
-//
-// THE REGISTRY IS NAMED, AND IT IS npmjs.org. The override was in this atom's
-// body from the day it was written and it carried no comment (checked back to
-// d15427c, the commit that introduced the 28 atoms) — so the REASONING here is
-// reconstructed from the mechanism, not quoted from a measurement. `bun audit`
-// scans nothing locally: it posts the lockfile's package set to the registry's
-// bulk advisory endpoint and reports what comes back. A proxy mirror serves
-// packages, not that API, and the fleet mirrors its package managers through
-// Nexus wherever it can (measured for cargo — checks.CachesFor leaves
-// /usr/local/cargo/config.toml uncovered precisely so the Nexus route
-// survives). Against a mirror this atom would ask a host that cannot answer
-// and report a clean audit it never performed, which is the zero-file scan
-// this module exists to delete. Naming the registry for this one command
-// points the question at the host that can answer it; nothing is installed
-// here, so no mirror's job is affected.
-//
-// --audit-level=high is the fleet's threshold: bun exits 1 when something at or
-// above it is reported, and that 1 is the finding.
-func tsBunAudit(ctx context.Context, r *run) checks.Verdict {
-	return audit(ctx, checks.AtomByID("ts:bun-audit"),
-		r.lane(checks.ImageTS).
-			WithEnvVariable("BUN_CONFIG_REGISTRY", "https://registry.npmjs.org/").
-			WithExec([]string{"bun", "audit", "--audit-level=high"}, anyExit))
 }
 
 // Every mutant StrykerJS makes of this pull's changes to the declared critical

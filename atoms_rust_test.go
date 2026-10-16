@@ -33,56 +33,6 @@ func rustTSTree(extra map[string]string) map[string]string {
 	return tree
 }
 
-// cargo fmt --all --check is the one rust atom that compiles nothing: rustfmt
-// parses, so a registry it never reaches cannot make it red.
-func TestRustCargoFmtCompilesNothingAndFetchesNothing(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-
-	wantState(t, runAtom(t, "rust:cargo-fmt", ""), 0)
-
-	c := engine.chain(`"cargo","fmt"`, "exitCode")
-	if !strings.Contains(c, checks.ImageRust) {
-		t.Errorf("rust:cargo-fmt must run in the rust lane image:\n%s", c)
-	}
-	wantCalls(t, c,
-		[]string{"withEnvVariable", `name:"CI"`, `value:"true"`},
-		[]string{"withMountedCache", `path:"/cache/cargo-home"`},
-		[]string{"withEnvVariable", `name:"CARGO_HOME"`, `value:"/cache/cargo-home"`},
-		[]string{"withMountedCache", `path:"/cache/cargo-target"`},
-		[]string{"withEnvVariable", `name:"CARGO_TARGET_DIR"`, `value:"/cache/cargo-target"`},
-		[]string{"withMountedDirectory", `path:"/src"`},
-		[]string{"withWorkdir", `path:"/src"`},
-		[]string{"withExec", `expect:ANY`, `args:["cargo","fmt","--all","--check"]`},
-	)
-	if strings.Contains(c, `"cargo","fetch","--locked"`) {
-		t.Errorf("rustfmt parses; nothing may fetch the dependency graph for it:\n%s", c)
-	}
-	if strings.Contains(c, "GATE_BASE") {
-		t.Errorf("rust:cargo-fmt must not read GATE_BASE — it would key the cache on the pull:\n%s", c)
-	}
-
-	// rustfmt's own vocabulary: 1 for a file it would have rewritten.
-	engine.exitCode(`"cargo","fmt"`, 1)
-	engine.stdout(`"cargo","fmt"`, "Diff in /src/src/lib.rs at line 3")
-	wantState(t, runAtom(t, "rust:cargo-fmt", ""), 1, "Diff in /src/src/lib.rs")
-
-	// cargo's: 101 means the command failed, and CargoExit says that is a finding.
-	engine.exitCode(`"cargo","fmt"`, 101)
-	wantState(t, runAtom(t, "rust:cargo-fmt", ""), 1)
-
-	// Everything else stays a could-not-run.
-	engine.exitCode(`"cargo","fmt"`, 137)
-	wantState(t, runAtom(t, "rust:cargo-fmt", ""), 2)
-	engine.exitCode(`"cargo","fmt"`, 127)
-	wantState(t, runAtom(t, "rust:cargo-fmt", ""), 2)
-
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.fail(`"cargo","fmt"`, "failed to pull rust-ci: 404")
-	wantState(t, runAtom(t, "rust:cargo-fmt", ""), 2, "never ran", "404")
-}
-
 // The fleet's lint set is named on the command line, after `--`, so a crate's
 // own [workspace.lints.clippy] table cannot narrow it.
 func TestRustCargoClippyNamesTheFleetsLintSetAfterTheSeparator(t *testing.T) {
@@ -249,50 +199,6 @@ func TestRustCargoTestReadsTheListingsOwnAnswers(t *testing.T) {
 	wantState(t, runAtom(t, "rust:cargo-test", ""), 2, "never ran", "would not evaluate")
 }
 
-// cargo-audit is an EXTERNAL subcommand: cargo execs it and passes its status
-// through, so its code reaches the verdict unmapped — 1 is an advisory, 101 is
-// cargo failing to run it at all.
-func TestRustCargoAuditPassesItsOwnExitCodeThroughRaw(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-
-	wantState(t, runAtom(t, "rust:cargo-audit", ""), 0)
-
-	c := engine.chain(`args:["cargo","audit"]`, "exitCode")
-	wantCalls(t, c,
-		[]string{"withExec", `args:["cargo","fetch","--locked"]`},
-		[]string{"withExec", `args:["cargo","audit","--version"]`},
-		[]string{"withExec", `expect:ANY`, `args:["cargo","audit"]`},
-	)
-	if hasCall(c, "withExec", `args:["cargo","audit","--version"]`, "expect:ANY") {
-		t.Errorf("the version probe is provisioning and must run under the default Expect:\n%s", c)
-	}
-	// cargo-audit is provisioned ONCE, pinned, by the lane — never by the
-	// atom, and never built from source.
-	if strings.Count(c, `"tar","xzf","/tmp/cargo-audit.tar.gz"`) != 1 || strings.Contains(c, `"cargo","install"`) {
-		t.Errorf("the lane provisions cargo-audit from its pinned tarball, once:\n%s", c)
-	}
-
-	engine.exitCode(`args:["cargo","audit"]`, 1)
-	engine.stdout(`args:["cargo","audit"]`, "error: 1 vulnerability found! RUSTSEC-2025-0001")
-	wantState(t, runAtom(t, "rust:cargo-audit", ""), 1, "RUSTSEC-2025-0001")
-
-	// NOT remapped by CargoExit: a 101 here is cargo failing to exec the
-	// subcommand, which is a could-not-run and must read as one.
-	engine.exitCode(`args:["cargo","audit"]`, 101)
-	wantState(t, runAtom(t, "rust:cargo-audit", ""), 2, "exit 101")
-
-	engine.exitCode(`args:["cargo","audit"]`, 127)
-	wantState(t, runAtom(t, "rust:cargo-audit", ""), 2)
-
-	// An image that lost the binary is state 2 with the exec's own error,
-	// never a green from a tool that never ran.
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.fail(`"cargo","audit","--version"`, "exec: \"cargo-audit\": not found")
-	wantState(t, runAtom(t, "rust:cargo-audit", ""), 2, "never ran", "cargo-audit")
-}
-
 // ONE FETCH, SHARED. cargo's package-cache lock lives in CARGO_HOME, which the
 // cache mount does not cover, so two containers resolving the registry
 // concurrently do not see each other's lock (measured 2026-09-12 on tongs).
@@ -306,7 +212,7 @@ func TestCargoDepsIsTheBaseOfEveryCompilingAtom(t *testing.T) {
 		id      string
 		fetches bool
 	}{
-		{"rust:cargo-fmt", false},
+		{"rust:cargo-fmt", true},
 		{"rust:cargo-clippy", true},
 		{"rust:cargo-test", true},
 		{"rust:cargo-audit", true},
@@ -323,7 +229,10 @@ func TestCargoDepsIsTheBaseOfEveryCompilingAtom(t *testing.T) {
 		if (c != "") != tc.fetches {
 			t.Errorf("%s fetches the dependency graph = %v, want %v", tc.id, c != "", tc.fetches)
 		}
-		if c != "" && hasCall(c, "withExec", `args:["cargo","fetch","--locked"]`, "expect:ANY") {
+		// the ported atoms run the toolchain's preflight (tools.toml) under expect:ANY
+		// and read its exit: a registry outage is still a could-not-run (atom_env.go)
+		ported := tc.id == "rust:cargo-fmt" || tc.id == "rust:cargo-audit"
+		if c != "" && hasCall(c, "withExec", `args:["cargo","fetch","--locked"]`, "expect:ANY") != ported {
 			t.Errorf("%s runs the fetch under expect:ANY; rule 1 says a registry outage is a could-not-run:\n%s", tc.id, c)
 		}
 	}

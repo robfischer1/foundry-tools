@@ -88,7 +88,7 @@ func TestEveryAtomIsWellFormed(t *testing.T) {
 	lanes := map[Lane]bool{LaneAny: true, LaneGo: true, LanePython: true, LaneRust: true, LaneTS: true}
 	stages := map[string]bool{StagePrecommit: true, StagePrepush: true, StageMutation: true, StageOrbit: true, StageVisual: true}
 
-	for _, a := range Atoms {
+	for _, a := range Atoms() {
 		if seen[a.ID] {
 			t.Errorf("duplicate atom id %q", a.ID)
 		}

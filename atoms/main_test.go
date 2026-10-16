@@ -2,8 +2,22 @@ package main
 
 import (
 	"os"
+	"slices"
 	"testing"
+
+	"dagger/foundry-tools/internal/atoms"
 )
+
+// The binary links the catalogue, so the atoms that live in their own files are
+// among the ones it votes for.
+func TestTheBinaryCarriesThePortedAtoms(t *testing.T) {
+	ids := atoms.StageIDs("precommit")
+	for _, id := range []string{"fleet:check-merge-conflict", "fleet:manifest-one-command"} {
+		if !slices.Contains(ids, id) {
+			t.Errorf("%s is not among the precommit atoms the binary carries: %v", id, ids)
+		}
+	}
+}
 
 // main exits with what atoms.Run answers: an unknown flag is a usage error.
 func TestMainExitsWithTheRunsCode(t *testing.T) {

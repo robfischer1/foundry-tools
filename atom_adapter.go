@@ -1,0 +1,150 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"dagger/foundry-tools/internal/atomkit"
+	"dagger/foundry-tools/internal/catalogue"
+	"dagger/foundry-tools/internal/checks"
+	"dagger/foundry-tools/internal/dagger"
+)
+
+// THE DAGGER ADAPTER (lld.md FN-087). An atom that lives in its own file
+// (atoms/<ns>/<name>/<name>.go, or atoms/<ns>/<name>.toml) is run by this file
+// and by the in-pod executor, and by nothing else: the chain it replaced is
+// deleted, so no atom exists twice (R35, R36).
+//
+//   - A LOGIC atom is compiled from its file with the stub (atomkit.Stub), in the
+//     go toolchain container, from the module's source; the engine caches the
+//     build by that source. It then runs in the container its chain ran in (the
+//     atom's ENVIRONMENT, atom_env.go) with ATOM_OUT naming where it writes its
+//     verdict, and the verdict is read back from there.
+//   - A COMMAND atom is its manifest's one command, run per module directory by
+//     atomkit.RunCommand, after the toolchain's preflight from tools.toml.
+//
+// The atoms of toolchain none also vote in the atoms binary's one process
+// (catalogue.Atoms); the adapter is their re-ask when that binary could not run
+// them, and the way `dagger check <atom>` and the local hook reach them.
+
+func init() {
+	for _, e := range catalogue.Entries() {
+		register(e.ID, adapterFor(e.ID))
+	}
+}
+
+// adapterFor is the runner registered for a ported atom's id.
+func adapterFor(id string) atomFn {
+	return func(ctx context.Context, r *run) checks.Verdict {
+		e, ok := catalogue.Lookup(id)
+		if !ok {
+			return atomkit.CannotRun(id, "", checks.LaneAny, "atom "+id+" is not in the generated registry")
+		}
+		return runAtomOnDagger(ctx, r, e)
+	}
+}
+
+// runAtomOnDagger runs one ported atom over the run's tree and answers its
+// verdict. It never returns an error: an atom that could not run answers
+// state 2 and says why.
+func runAtomOnDagger(ctx context.Context, r *run, e catalogue.Entry) checks.Verdict {
+	if e.Manifest != nil {
+		return runManifest(ctx, r, e)
+	}
+	return runLogic(ctx, r, e)
+}
+
+// atomStubInclude is the source one atom is compiled from: go.mod, go.sum, the
+// atom's own directory and the module's packages every stub imports. An edit to
+// another atom does not key this build. TestAtomStubSourceCoversImports holds
+// the list to the import closure in both directions.
+func atomStubInclude(importPath string) []string {
+	own := strings.TrimPrefix(importPath, "dagger/foundry-tools/") + "/**"
+	return append([]string{"go.mod", "go.sum", own}, atomRuntimeDirs...)
+}
+
+// atomRuntimeDirs are the module's packages a stub imports besides the atom's
+// own: atomkit and what it and the atoms import in turn.
+var atomRuntimeDirs = []string{
+	"internal/atomkit/**",
+	"internal/atoms/**",
+	"internal/checks/**",
+	"internal/execmem/**",
+	"internal/govlaw/**",
+	"internal/unitkey/**",
+	"internal/orbitcompose/**",
+	"internal/orbitlane/**",
+	"internal/retiredverbs/**",
+}
+
+// atomStubDir is where the stub sits in the module, the place daedalus'
+// atombuild puts it too, so both runners build the same main package path and
+// -trimpath makes the bytes the same. The leading underscore keeps it out of ./...
+func atomStubDir(id string) string { return "_atoms/" + strings.Replace(id, ":", "/", 1) }
+
+// atomCompile builds a logic atom's binary: the stub in _atoms/<ns>/<name>,
+// compiled with the reproducible flags (-trimpath, no VCS stamp, no build id)
+// and the environment the pod's builder uses, so the bytes are those it makes.
+// The exec carries expect:ANY: a compile failure is the atom's could-not-run,
+// read off the exit code.
+func atomCompile(e catalogue.Entry) *dagger.Container {
+	dir := atomStubDir(e.ID)
+	src := dag.CurrentModule().Source().
+		Filter(dagger.DirectoryFilterOpts{Include: atomStubInclude(e.ImportPath), Exclude: []string{"**/*_test.go"}}).
+		WithNewFile(dir+"/main.go", string(atomkit.Stub(e.ImportPath)))
+	return goToolchain().
+		WithEnvVariable("GOOS", "linux").
+		WithEnvVariable("GOARCH", "amd64").
+		WithEnvVariable("GOFLAGS", "-mod=mod").
+		WithMountedDirectory("/m", src).
+		WithWorkdir("/m").
+		WithExec([]string{"go", "build", "-trimpath", "-buildvcs=false", "-ldflags=-s -w -buildid=", "-o", "/out/atom", "./" + dir}, anyExit)
+}
+
+// runLogic compiles a logic atom and runs it in its environment.
+func runLogic(ctx context.Context, r *run, e catalogue.Entry) checks.Verdict {
+	a := checks.AtomByID(e.ID)
+	built := atomCompile(e)
+	code, err := exitCodeOf(ctx, built)
+	if err != nil {
+		return cannotRun(a, "atom "+e.ID+" did not compile: "+err.Error())
+	}
+	if code != 0 {
+		stderr, _ := built.Stderr(ctx)
+		return cannotRun(a, "atom "+e.ID+" did not compile: "+lastLines(strings.TrimSpace(stderr), 10))
+	}
+
+	out := "/work/out/" + atomkit.EscapeID(e.ID) + ".json"
+	ran := r.atomEnvironment(ctx, e).
+		WithFile("/atom", built.File("/out/atom"), dagger.ContainerWithFileOpts{Permissions: 0o755}).
+		WithEnvVariable("ATOM_OUT", out).
+		WithExec([]string{"/atom", "/src"}, anyExit)
+	return readVerdict(ctx, a, ran, out)
+}
+
+// readVerdict reads the verdict an atom wrote at out. An atom that wrote none
+// could not judge: the exit it left and the last line it said are the reason.
+func readVerdict(ctx context.Context, a checks.AtomDef, ran *dagger.Container, out string) checks.Verdict {
+	code, err := exitCodeOf(ctx, ran)
+	if err != nil {
+		return cannotRun(a, "the atom never ran: "+err.Error())
+	}
+	raw, err := ran.File(out).Contents(ctx)
+	if err != nil {
+		stderr, _ := ran.Stderr(ctx)
+		return cannotRun(a, fmt.Sprintf("exit %d: %s", code, lastLine(stderr)))
+	}
+	var v checks.Verdict
+	if err := json.Unmarshal([]byte(raw), &v); err != nil {
+		return cannotRun(a, "the atom's verdict is not atom-verdict@1: "+err.Error())
+	}
+	return v
+}
+
+// cannotRun is an atom's could-not-run verdict, worded as the pod's executor
+// words it (E6): one line, the identity from the catalogue row.
+func cannotRun(a checks.AtomDef, reason string) checks.Verdict {
+	return atomkit.CannotRun(a.ID, a.Stage, a.Lane, reason)
+}

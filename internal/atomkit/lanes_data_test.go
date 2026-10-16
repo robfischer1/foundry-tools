@@ -77,8 +77,9 @@ func TestUT_613_ReleasePhasesNameTheFourReleaseAtoms(t *testing.T) {
 // catalogue, and every stage a lane or a stage:<s> names is a stage one has.
 // govern:resolve-tags is the one the catalogue does not hold yet (DEF-B3-002).
 func TestLaneAtomsAreCatalogueAtoms(t *testing.T) {
-	have := map[string]bool{"govern:resolve-tags": true}
-	for _, a := range checks.Atoms {
+	have := portedIDs(t)
+	have["govern:resolve-tags"] = true
+	for _, a := range checks.Atoms() {
 		have[a.ID] = true
 	}
 	for name, d := range landedLanes(t) {

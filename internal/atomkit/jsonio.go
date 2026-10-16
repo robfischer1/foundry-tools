@@ -29,6 +29,9 @@ func WriteFile(path string, v any) (err error) {
 	if err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
+	if err = os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
 	tmp := fmt.Sprintf("%s.tmp.%d", path, os.Getpid())
 	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {

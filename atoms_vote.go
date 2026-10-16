@@ -324,7 +324,7 @@ var reverseShadowWitness = false
 // binary atoms, less fleet:witness unless withWitness. skipped says whether the
 // witness was left out.
 func reverseIDs(stage string, withWitness bool) (ids []string, skipped bool) {
-	for _, id := range atoms.StageIDs(stage) {
+	for _, id := range chainedIDs(stage) {
 		if id == "fleet:witness" && !withWitness {
 			skipped = true
 			continue

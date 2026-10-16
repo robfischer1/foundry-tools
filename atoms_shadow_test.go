@@ -231,7 +231,7 @@ func TestShadowAtomsAsksTheChainsForTheStagesAtoms(t *testing.T) {
 	}{
 		{"prepush", "fleet:orbit-drift,fleet:dagger-lockstep,fleet:renovate-lockstep,fleet:node-kinds-declared,fleet:consumed-events-emitted,fleet:witness,dies:data-keys,dies:admission-dogfood,dies:canary-visibility,dies:grants-stamp,ops:orbit-composed,ops:orbit-sidecars,ops:immutable,template:render-matrix,wit:validate", "fleet:check-yaml", true},
 		{"orbit", "orbit:contracts,orbit:surface,orbit:sidecars,orbit:repo", "fleet:", true},
-		{"", "fleet:check-yaml,fleet:check-added-large-files,fleet:check-merge-conflict,fleet:stop-justifications,", "orbit:", true},
+		{"", "fleet:check-yaml,fleet:check-added-large-files,fleet:stop-justifications,", "orbit:", true},
 		{"mutation", "", "", false},
 	} {
 		t.Run("stage "+tc.stage, func(t *testing.T) {

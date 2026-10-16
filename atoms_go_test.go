@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -13,43 +12,6 @@ import (
 // Each atom gets: its happy path, the decision(s) it makes about the tool's
 // answer, and the engine-error path. Read the chain back to hold the module's
 // own rules — the image, the caches, which exec carries expect:ANY.
-
-func TestGoVetBuildsTheModulesChainAndReadsTheExit(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-
-	v := runAtom(t, "go:vet", "")
-	wantState(t, v, 0)
-
-	c := engine.chain(`"go","vet"`, "exitCode")
-	if !strings.Contains(c, checks.ImageGo) {
-		t.Errorf("go:vet must run in the go lane image:\n%s", c)
-	}
-	wantCalls(t, c,
-		[]string{"withEnvVariable", `name:"CI"`, `value:"true"`},
-		[]string{"withMountedCache", `path:"/go/pkg/mod"`},
-		[]string{"withMountedCache", `path:"/opt/go-build-cache"`},
-		[]string{"withMountedDirectory", `path:"/src"`},
-		[]string{"withWorkdir", `path:"/src"`},
-		[]string{"withExec", `args:["go","mod","download"]`},
-		[]string{"withExec", `expect:ANY`, `args:["go","vet","./..."]`},
-	)
-	if hasCall(c, "withExec", `args:["go","mod","download"]`, `expect:ANY`) {
-		t.Errorf("the download is provisioning and must run under the default Expect:\n%s", c)
-	}
-	if strings.Contains(c, "GATE_BASE") {
-		t.Errorf("go:vet must not read GATE_BASE — it would key the cache on the pull:\n%s", c)
-	}
-
-	engine.exitCode(`"go","vet"`, 1)
-	engine.stdout(`"go","vet"`, "x.go:3: unreachable code")
-	wantState(t, runAtom(t, "go:vet", ""), 1, "unreachable code")
-
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.fail(`"go","mod","download"`, "exit code: 1: proxy 502")
-	wantState(t, runAtom(t, "go:vet", ""), 2, "never ran", "proxy 502")
-}
 
 func TestGoLaneIsAbsentWithoutAGoMod(t *testing.T) {
 	engine.reset()
@@ -62,58 +24,7 @@ func TestGoLaneIsAbsentWithoutAGoMod(t *testing.T) {
 		t.Errorf("want absent without go.mod, got %+v", v)
 	}
 	if len(engine.chains()) != 1 {
-		t.Errorf("an absent lane must cost one entries read, not a container: %d queries", len(engine.chains()))
-	}
-}
-
-func TestGoBuild(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	wantState(t, runAtom(t, "go:build", ""), 0)
-	c := engine.chain(`"go","build"`, "exitCode")
-	wantCalls(t, c, []string{"withExec", `args:["go","mod","download"]`}, []string{"withExec", `expect:ANY`, `args:["go","build","./..."]`})
-	engine.exitCode(`"go","build"`, 1)
-	wantState(t, runAtom(t, "go:build", ""), 1)
-	engine.exitCode(`"go","build"`, 137)
-	wantState(t, runAtom(t, "go:build", ""), 2)
-}
-
-func TestGoGofmtReadsTheListingNotTheExit(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	wantState(t, runAtom(t, "go:gofmt", ""), 0)
-	c := engine.chain(`"gofmt","-l"`)
-	if strings.Contains(c, "go\",\"mod\",\"download") {
-		t.Errorf("gofmt is syntactic and must not download modules:\n%s", c)
-	}
-	if !strings.Contains(c, `"main.go"`) || strings.Contains(c, `vendor/`) {
-		t.Errorf("gofmt must be handed the population, root files included, vendor excluded:\n%s", c)
-	}
-
-	engine.stdout(`"gofmt","-l"`, "main.go\n")
-	wantState(t, runAtom(t, "go:gofmt", ""), 1, "main.go")
-
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.exitCode(`"gofmt","-l"`, 2)
-	engine.stderr(`"gofmt","-l"`, "main.go:1:1: expected 'package'")
-	wantState(t, runAtom(t, "go:gofmt", ""), 2, "expected 'package'")
-
-	engine.reset()
-	engine.withTree(map[string]string{"go.mod": "module x\n"})
-	wantState(t, runAtom(t, "go:gofmt", ""), 0)
-	if engine.chain(`"gofmt"`) != "" {
-		t.Errorf("no Go files means no container")
-	}
-}
-
-func TestGoGofmtExcludesVendorThroughThePopulation(t *testing.T) {
-	engine.reset()
-	engine.withTree(map[string]string{"go.mod": "module x\n", "vendor/a/b.go": "package a\n", "cmd/x.go": "package main\n"})
-	wantState(t, runAtom(t, "go:gofmt", ""), 0)
-	c := engine.chain(`"gofmt","-l"`)
-	if !strings.Contains(c, `"cmd/x.go"`) || strings.Contains(c, "vendor") {
-		t.Errorf("population must carry cmd/x.go and not vendor/:\n%s", c)
+		t.Errorf("an absent lane must cost one entries read, not a container: %d queries\n%s", len(engine.chains()), strings.Join(engine.chains(), "\n"))
 	}
 }
 
@@ -386,24 +297,11 @@ func TestGoMutationCompilesTheTreesDBTags(t *testing.T) {
 	}
 }
 
-func TestGoStaticcheckAndGovulncheckUseTheBakedBinaries(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	wantState(t, runAtom(t, "go:staticcheck", ""), 0)
-	c := engine.chain(`"staticcheck","-checks"`, "exitCode")
-	// staticcheck is provisioned ONCE, pinned, by the lane — never by the
-	// atom, and never at @latest.
-	if n := strings.Count(c, `"go","install"`); n != 4 || !strings.Contains(c, checks.StaticcheckModule) || !strings.Contains(c, checks.MutationGateModule) || strings.Contains(c, "@latest") {
-		t.Errorf("the lane provisions gremlins, mutation-gate, staticcheck and govulncheck at their pins, and nothing else installs:\n%s", c)
-	}
-	wantCalls(t, c, []string{"withExec", `args:["staticcheck","-version"]`}, []string{"withExec", `expect:ANY`, `-ST1023`})
-	engine.exitCode(`"staticcheck","-checks"`, 1)
-	wantState(t, runAtom(t, "go:staticcheck", ""), 1)
-
+func TestGoGovulncheckUsesTheBakedBinary(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	wantState(t, runAtom(t, "go:govulncheck", ""), 0)
-	c = engine.chain(`"govulncheck","./..."`, "exitCode")
+	c := engine.chain(`"govulncheck","./..."`, "exitCode")
 	wantCalls(t, c, []string{"withExec", `args:["govulncheck","-version"]`}, []string{"withExec", `args:["go","mod","download"]`})
 	// govulncheck answers 3, not 1, when it finds a vulnerability; the old
 	// script's `|| exit 1` hid that, and the first typed cut filed it as
@@ -754,7 +652,7 @@ func TestGoMutationStandsDownOrCannotRun(t *testing.T) {
 // container of its own. Every other atom's cache key is a function of the tree
 // alone.
 func TestOnlyWitnessAndMutationReadGateBase(t *testing.T) {
-	for _, a := range checks.Atoms {
+	for _, a := range checks.Atoms() {
 		engine.reset()
 		engine.withTree(everyLaneTree)
 		runAtom(t, a.ID, "base-sha")
@@ -775,7 +673,7 @@ func TestOnlyWitnessAndMutationReadGateBase(t *testing.T) {
 // every lane, and never a panic — the paper engine answers exit 0 for every
 // exec, so this is each atom's happy path end to end.
 func TestEveryAtomAnswersForItsOwnID(t *testing.T) {
-	for _, a := range checks.Atoms {
+	for _, a := range checks.Atoms() {
 		engine.reset()
 		engine.withTree(everyLaneTree)
 		v := runAtom(t, a.ID, "")
@@ -790,7 +688,7 @@ func TestEveryAtomAnswersForItsOwnID(t *testing.T) {
 
 // Rule 7, on the wire: no exec anywhere runs a shell.
 func TestNoAtomExecsAShell(t *testing.T) {
-	for _, a := range checks.Atoms {
+	for _, a := range checks.Atoms() {
 		engine.reset()
 		engine.withTree(everyLaneTree)
 		runAtom(t, a.ID, "")
@@ -800,22 +698,6 @@ func TestNoAtomExecsAShell(t *testing.T) {
 			}
 		}
 	}
-}
-
-func TestGoGofmtHandsAHugePopulationInAsAFile(t *testing.T) {
-	engine.reset()
-	tree := map[string]string{"go.mod": "module x\n"}
-	for i := 0; i < 2000; i++ {
-		tree[fmt.Sprintf("pkg%04d/a_rather_long_file_name_to_fill_the_argv_budget_quickly_%04d.go", i, i)] = "package p\n"
-	}
-	engine.withTree(tree)
-	wantState(t, runAtom(t, "go:gofmt", ""), 0)
-	c := engine.chain(`"xargs","-0","-a"`)
-	if c == "" || !hasCall(c, "withNewFile", `path:"`+gofmtArgFile+`"`) || !hasCall(c, "withExec", `expect:ANY`, `"gofmt","-l"`) {
-		t.Errorf("a population over the argv budget goes in as a NUL file through xargs:\n%s", c)
-	}
-	engine.stdout(`"xargs","-0","-a"`, "pkg0001/x.go\n")
-	wantState(t, runAtom(t, "go:gofmt", ""), 1, "pkg0001/x.go")
 }
 
 // ── every module, not only the root's (2026-09-16, Rob: fleet wide) ─────────
@@ -842,9 +724,10 @@ func TestGoLaneRunsInANestedModuleWithNoRootGoMod(t *testing.T) {
 	c := engine.chain(`"go","vet"`, "exitCode")
 	wantCalls(t, c,
 		[]string{"withWorkdir", `path:"/src/tools/forge"`},
-		[]string{"withExec", `args:["go","mod","download"]`},
 		[]string{"withExec", `expect:ANY`, `args:["go","vet","./..."]`},
 	)
+	// the toolchain's preflight runs in the same module directory
+	wantCalls(t, engine.chain(`"go","mod","download"`, "exitCode"), []string{"withWorkdir", `path:"/src/tools/forge"`})
 	if strings.Contains(c, "vendor") || strings.Contains(c, "testdata") {
 		t.Errorf("a vendored or testdata go.mod is not a module:\n%s", c)
 	}
@@ -871,42 +754,6 @@ func TestGoLaneIsAbsentWhenEveryGoModIsOneGoWouldNotBuild(t *testing.T) {
 	}
 	if engine.chain(`"go","build"`) != "" {
 		t.Error("an absent lane builds no container")
-	}
-}
-
-// A root module and a nested one each get their own run, and a finding in
-// either is the atom's.
-func TestGoAtomsRunInEveryModuleAndAFindingInOneIsTheAtoms(t *testing.T) {
-	tree := map[string]string{}
-	for k, v := range everyLaneTree {
-		tree[k] = v
-	}
-	tree["styx/go.mod"] = "module styx\n"
-	tree["styx/styx.go"] = "package styx\n"
-
-	for _, atom := range []struct{ id, exec string }{
-		{"go:vet", `"go","vet"`},
-		{"go:build", `"go","build"`},
-		{"go:staticcheck", `"staticcheck","-checks"`},
-		{"go:govulncheck", `"govulncheck","./..."`},
-	} {
-		engine.reset()
-		engine.withTree(tree)
-		wantState(t, runAtom(t, atom.id, ""), 0, atom.id+": PASS in 2 Go modules (., styx)")
-		roots := 0
-		for _, q := range engine.chains() {
-			if strings.Contains(q, atom.exec) && strings.Contains(q, "exitCode") && !strings.Contains(q, `/src/styx`) {
-				roots++
-			}
-		}
-		if roots != 1 {
-			t.Errorf("%s: want one run at the root, in /src alone; got %d", atom.id, roots)
-		}
-		wantCalls(t, engine.chain(atom.exec, `/src/styx`, "exitCode"), []string{"withWorkdir", `path:"/src/styx"`})
-
-		engine.exitCode(`/src/styx`, 1)
-		engine.stdout(`/src/styx`, "styx.go:1: a finding")
-		wantState(t, runAtom(t, atom.id, ""), 1, "FINDINGS in 1 of 2 Go modules (styx)", "── module styx ──")
 	}
 }
 
@@ -1643,35 +1490,6 @@ func TestTheStatementOperatorIsNotDisabledByAccident(t *testing.T) {
 	}
 	if strings.Contains(goMutationDisable, "INCREMENT_DECREMENT") {
 		t.Errorf("goMutationDisable %q contains INCREMENT_DECREMENT as a substring of some other entry", goMutationDisable)
-	}
-}
-
-// The go lane compiles once and the compiling analysers branch from that build:
-// vet and staticcheck each carry the same `go build ./...` — under anyExit, so
-// a compile error stays vet's to report (the fake engine matches a script by
-// substring of the whole chain, so that cannot be shown by scripting the
-// build's exit here) — between the download and their own tool, and go:build is
-// the one atom whose verdict reads it. govulncheck gains nothing from the warm
-// build (measured 8.4s alone, 13.2s behind it), so it branches from the
-// download.
-func TestGoAnalysersBranchFromOneWarmBuild(t *testing.T) {
-	for _, tc := range []struct{ id, exec string }{
-		{"go:vet", `"go","vet"`},
-		{"go:staticcheck", `"staticcheck","-checks"`},
-	} {
-		engine.reset()
-		engine.withTree(everyLaneTree)
-		wantState(t, runAtom(t, tc.id, ""), 0)
-		c := engine.chain(tc.exec, "exitCode")
-		download := lastCall(c, "withExec", `args:["go","mod","download"]`)
-		build := lastCall(c, "withExec", `expect:ANY`, `args:["go","build","./..."]`)
-		tool := lastCall(c, "withExec", tc.exec)
-		if download < 0 || build < 0 || tool < 0 || download >= build || build >= tool {
-			t.Errorf("%s: want download, then the warm build, then the tool (got %d, %d, %d):\n%s", tc.id, download, build, tool, c)
-		}
-		if n := strings.Count(c, `"go","build"`); n != 1 {
-			t.Errorf("%s: the chain builds %d times, want once:\n%s", tc.id, n, c)
-		}
 	}
 }
 

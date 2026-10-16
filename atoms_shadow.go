@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"dagger/foundry-tools/internal/atoms"
+	"dagger/foundry-tools/internal/catalogue"
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
 )
@@ -43,6 +44,8 @@ var atomsSourceInclude = []string{
 	"go.mod", "go.sum",
 	"atoms/**",
 	"internal/atoms/**",
+	"internal/atomkit/**",
+	"internal/catalogue/**",
 	"internal/checks/**",
 	"internal/execmem/**",
 	"internal/govlaw/**",
@@ -100,7 +103,7 @@ func (m *FoundryTools) ShadowAtoms(
 // names none, as the public verb does (it votes on nothing). The lane's shadow
 // under a chain-voted rollback names the chains.
 func (m *FoundryTools) shadowAtoms(ctx context.Context, base, stage string, voted voter) string {
-	ids := atoms.StageIDs(stage)
+	ids := chainedIDs(stage)
 	if len(ids) == 0 {
 		return fmt.Sprintf("shadow atoms: nothing to compare - the binary carries no atom of the stage %q", stage)
 	}
@@ -108,6 +111,19 @@ func (m *FoundryTools) shadowAtoms(ctx context.Context, base, stage string, vote
 	today, todayErr := shadowToday(ctx, m, stage, strings.Join(ids, ","), base)
 	raw, rawErr := shadowBinary(ctx, m, stage, base)
 	return renderShadowAs(voted, today, todayErr, raw, rawErr, time.Since(started))
+}
+
+// chainedIDs is the atoms of a stage the binary carries AND a chain also
+// answers: an atom that lives in its own file has no chain to hold it against
+// (the adapter runs the same code), so the shadow leaves it out.
+func chainedIDs(stage string) []string {
+	var ids []string
+	for _, id := range atoms.StageIDs(stage) {
+		if !catalogue.Ported(id) {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 // The two sides of the comparison, as variables so a test names what each

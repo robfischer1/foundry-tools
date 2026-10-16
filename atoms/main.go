@@ -11,6 +11,9 @@ import (
 	"time"
 
 	"dagger/foundry-tools/internal/atoms"
+	// The atoms that live in their own files vote here too: linking the
+	// catalogue is what registers them (internal/catalogue, in its init).
+	_ "dagger/foundry-tools/internal/catalogue"
 )
 
 // exit is os.Exit, and a variable so main_test.go can run main: go:mutation

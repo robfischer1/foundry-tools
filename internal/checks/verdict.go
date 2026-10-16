@@ -276,6 +276,13 @@ var laneDeclaredByFiles = map[Lane]string{
 	LanePython: ".py file",
 }
 
+// LaneDeclaredByFiles reports whether a lane is declared by its files (a go.mod
+// or a .py anywhere) rather than by its root manifest alone.
+func LaneDeclaredByFiles(l Lane) bool {
+	_, ok := laneDeclaredByFiles[l]
+	return ok
+}
+
 func reasonFor(id string, s State, exit int, output string) string {
 	switch s {
 	case StatePass:

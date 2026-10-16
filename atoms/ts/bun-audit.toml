@@ -10,5 +10,11 @@ argv = ["bun", "audit", "--audit-level=high"]
 per_module = false
 judge = "exit"
 
+# THE REGISTRY IS NAMED, AND IT IS npmjs.org. `bun audit` scans nothing locally:
+# it posts the lockfile's package set to the registry's bulk advisory endpoint.
+# A proxy mirror serves packages, not that API, so against a mirror the audit
+# would ask a host that cannot answer and report a clean audit it never
+# performed. Naming the registry for this one command points the question at
+# the host that can.
 [env]
 BUN_CONFIG_REGISTRY = "https://registry.npmjs.org/"

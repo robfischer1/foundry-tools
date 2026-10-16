@@ -103,7 +103,7 @@ func TestEveryAtomRunsInAListedImage(t *testing.T) {
 	for _, img := range LaneImages {
 		listed[img] = true
 	}
-	for _, a := range Atoms {
+	for _, a := range Atoms() {
 		if a.Image == "" {
 			t.Errorf("atom %q names no image", a.ID)
 			continue

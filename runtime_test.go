@@ -89,13 +89,6 @@ func TestEveryLaneDisablesTheOTelSDKAndTrustsTheEnginesCA(t *testing.T) {
 	}
 }
 
-func TestPopulationThatCannotBeEnumeratedIsACannotRun(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.fail(`glob(pattern:"**/*.go")`, "the engine could not walk the tree")
-	wantState(t, runAtom(t, "go:gofmt", ""), 2, "could not enumerate", "could not walk the tree")
-}
-
 func TestOutputSeparatesTheEnginesErrorFromTheToolsCode(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
@@ -106,8 +99,8 @@ func TestOutputSeparatesTheEnginesErrorFromTheToolsCode(t *testing.T) {
 
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	engine.fail(`"gofmt","-l"`, "exec never started")
-	wantState(t, runAtom(t, "go:gofmt", ""), 2, "exec never started")
+	engine.fail(`"go","vet"`, "exec never started")
+	wantState(t, runAtom(t, "go:vet", ""), 2, "exec never started")
 }
 
 func TestGitReadyRebuildsALinkedWorktreeAndNamesItsOrigin(t *testing.T) {
@@ -553,7 +546,7 @@ func TestTheReleaseCacheIsPerRepoAndPrivate(t *testing.T) {
 func TestToolchainAtomsMountTheNarrowedTreeAndGitAtomsDoNot(t *testing.T) {
 	narrowed := `filter(exclude:["` + strings.Join(checks.InertPaths, `","`) + `"])`
 
-	for _, id := range []string{"go:vet", "go:build", "go:gofmt", "go:test", "go:staticcheck", "go:govulncheck"} {
+	for _, id := range []string{"go:vet", "go:build", "go:test", "go:staticcheck", "go:govulncheck"} {
 		engine.reset()
 		engine.withTree(everyLaneTree)
 		engine.stdout(`"go","list","-f"`, "11\n")

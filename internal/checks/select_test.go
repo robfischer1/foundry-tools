@@ -59,7 +59,7 @@ func TestSelectRefusesAnEmptyChoice(t *testing.T) {
 }
 
 func TestAtomExistsAgreesWithTheTable(t *testing.T) {
-	for _, a := range Atoms {
+	for _, a := range Atoms() {
 		if !AtomExists(a.ID) {
 			t.Errorf("AtomExists(%q) = false for an atom in the table", a.ID)
 		}

@@ -33,13 +33,14 @@ func TestRunPrintsTheVectorAndExitsZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The pull path: the 59 atoms of precommit and prepush, none of the orbit
-	// lane's. The first four are the first cut, and the only one with a finding;
-	// a tree with no surface for the rest is absent or clean in all of them.
+	// The pull path: the 58 atoms of precommit and prepush this package carries,
+	// none of the orbit lane's and none of the ones that live in their own files
+	// (atoms/<ns>/<name>); a tree with no surface for them is absent or clean in
+	// all of them.
 	want := StageIDs("")
-	wantState := map[string]int{"fleet:check-merge-conflict": 1}
-	if len(vector) != 59 || len(vector) != len(want) {
-		t.Fatalf("%d verdicts, want 59", len(vector))
+	wantState := map[string]int{}
+	if len(vector) != 58 || len(vector) != len(want) {
+		t.Fatalf("%d verdicts, want 58", len(vector))
 	}
 	for i, v := range vector {
 		if v.Atom != want[i] || v.State != wantState[v.Atom] {
@@ -70,7 +71,7 @@ func TestRunOutsideARepositoryStillAnswersAVector(t *testing.T) {
 	// cannot say anything about a tree git would not read, and only could-not-run
 	// is honest. The ones that read the directory itself have a directory to read.
 	gitBound := map[string]bool{
-		"fleet:check-yaml": true, "fleet:check-added-large-files": true, "fleet:check-merge-conflict": true,
+		"fleet:check-yaml": true, "fleet:check-added-large-files": true,
 		"fleet:stop-justifications": true, "fleet:dagger-lockstep": true, "fleet:renovate-lockstep": true, "fleet:node-kinds-declared": true,
 		"fleet:consumed-events-emitted": true, "compose:no-tracked-secrets": true, "compose:third-party-pins": true,
 		"ops:yaml": true,
