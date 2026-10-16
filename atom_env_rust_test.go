@@ -283,3 +283,27 @@ func TestTheWitAtomsDeclareNoOrderAgainstEachOther(t *testing.T) {
 		}
 	}
 }
+
+// A tool that will not fetch is left off the container, and the atom's own
+// version probe settles 2 on it: the lane still builds.
+func TestAWitToolThatWillNotFetchIsLeftOff(t *testing.T) {
+	for _, tc := range []struct {
+		id, needle, url string
+		onPath          func(c string) bool
+	}{
+		{"rust:wit-guest", witGuestNeedle, checks.WasmToolsURL,
+			func(c string) bool { return hasCall(c, "withFile", `path:"/tmp/wasm-tools.tar.gz"`) }},
+		{"rust:wit-compose", witComposeNeedle, checks.WacURL,
+			func(c string) bool { return hasCall(c, "withFile", `path:"/usr/local/bin/wac"`) }},
+	} {
+		engine.reset()
+		engine.withTree(everyLaneTree)
+		engine.contents(tc.needle, witVerdict(tc.id))
+		engine.fail(checks.ToolMirrorURL(checks.ToolSHA256[tc.url]), "mirror-cause")
+		engine.fail(tc.url, "github-cause")
+		wantState(t, runAtom(t, tc.id, ""), 0)
+		if c := engine.chain(tc.needle, "contents"); tc.onPath(c) {
+			t.Errorf("%s: %s was not fetched and is on PATH:\n%s", tc.id, tc.url, c)
+		}
+	}
+}

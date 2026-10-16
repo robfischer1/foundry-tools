@@ -25,6 +25,8 @@ type rule struct {
 // from its rules, first match wins; anything else exits 0. The replay host's
 // build leaves the host where cargo would.
 type fake struct {
+	// after runs once the host's build has left the host, to sabotage what follows
+	after func()
 	rules []rule
 	runs  []string
 	envs  map[string][]string
@@ -46,6 +48,9 @@ func (f *fake) exec(_ context.Context, c atoms.Cmd) (string, int) {
 		host := filepath.Join(c.Args[i+1], "release", "replay")
 		_ = os.MkdirAll(filepath.Dir(host), 0o755)
 		_ = os.WriteFile(host, []byte("host"), 0o644)
+		if f.after != nil {
+			f.after()
+		}
 	}
 	return "", 0
 }
@@ -290,5 +295,29 @@ func TestTheRedTapesRideAfterTheWorldTapes(t *testing.T) {
 	in = input(t, f, tree(map[string]string{"tests/red/tail.json": "{}"}))
 	if v := check(t.Context(), in); v.State != 1 || !strings.Contains(v.Reason, "[replay]") {
 		t.Errorf("%+v", v)
+	}
+}
+
+// An output that cannot be cleared before the build, or carried out after it, is
+// the atom's could-not-run: it never judged the tree.
+func TestAnOutputThatCannotBeClearedOrCarriedIsACouldNotRun(t *testing.T) {
+	f := &fake{}
+	in := input(t, f, tree(nil))
+	built := filepath.Join(os.Getenv("CARGO_TARGET_DIR"), checks.WitReplayDir, "release", "replay")
+	if err := os.MkdirAll(filepath.Join(built, "x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	v := check(t.Context(), in)
+	if v.State != 2 || !strings.Contains(v.Reason, "could not clear") || f.ran(hostBuild) {
+		t.Errorf("%+v ran %v", v, f.runs)
+	}
+
+	f = &fake{}
+	in = input(t, f, tree(nil))
+	host := filepath.Join(os.Getenv("ATOM_WORK"), checks.WitReplayDir, "replay")
+	f.after = func() { _ = os.MkdirAll(filepath.Join(host, "x"), 0o755) }
+	v = check(t.Context(), in)
+	if v.State != 2 || !strings.Contains(v.Reason, "[replay host]") || !strings.Contains(v.Reason, "would not copy out") || f.ran(compose) {
+		t.Errorf("%+v ran %v", v, f.runs)
 	}
 }

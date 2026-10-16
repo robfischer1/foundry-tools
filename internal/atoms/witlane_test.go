@@ -36,6 +36,17 @@ func TestWitProvisionAddsTheTargetThenProbesEachTool(t *testing.T) {
 		t.Errorf("%v", ran)
 	}
 
+	// a tool that will not answer its version is the atom never running too
+	in.Exec = func(_ context.Context, c Cmd) (string, int) {
+		if c.Name == "wac" {
+			return "no such file", 127
+		}
+		return "", 0
+	}
+	if v := WitProvision(t.Context(), in, checks.AtomDef{ID: "x:y"}, "wasm32-unknown-unknown", "wasm-tools", "wac"); v == nil || v.State != 2 || !strings.Contains(v.Reason, "wac --version") {
+		t.Errorf("%+v", v)
+	}
+
 	// a target that will not add is the atom never running; no tool is probed after it
 	ran = nil
 	in.Exec = func(_ context.Context, c Cmd) (string, int) {
@@ -94,6 +105,9 @@ func TestClearOutputAndCarryOut(t *testing.T) {
 	}
 	if err := CarryOut(src, filepath.Join(dir, "d")); err == nil {
 		t.Error("a destination that is a directory cannot be written")
+	}
+	if err := CarryOut(filepath.Join(src, "under-a-file"), dst); err == nil {
+		t.Error("a source under a file cannot be opened")
 	}
 	if err := CarryOut(filepath.Join(dir, "d"), dst); err == nil {
 		t.Error("a source that is a directory cannot be copied")

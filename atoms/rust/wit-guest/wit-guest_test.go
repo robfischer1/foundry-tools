@@ -24,6 +24,8 @@ type rule struct {
 // from its rules, first match wins; anything else exits 0. A cargo build leaves
 // the module where cargo would, so the atom has one to carry out.
 type fake struct {
+	// after runs once a cargo build has left its module, to sabotage what follows
+	after func()
 	rules []rule
 	runs  []string
 	envs  map[string][]string
@@ -45,6 +47,9 @@ func (f *fake) exec(_ context.Context, c atoms.Cmd) (string, int) {
 		module := filepath.Join(c.Args[i+1], checks.WitGuestTarget, "release", "stellar_core.wasm")
 		_ = os.MkdirAll(filepath.Dir(module), 0o755)
 		_ = os.WriteFile(module, []byte("\x00asm"), 0o644)
+		if f.after != nil {
+			f.after()
+		}
 	}
 	return "", 0
 }
@@ -371,5 +376,31 @@ func TestTheStampPrecedesEveryCargoRun(t *testing.T) {
 		if strings.HasPrefix(r, "cargo") && i < stamp {
 			t.Errorf("cargo ran before the stamp: %v", f.runs)
 		}
+	}
+}
+
+// An output that cannot be cleared before the build, or carried out after it, is
+// the atom's could-not-run: it never judged the tree.
+func TestAnOutputThatCannotBeClearedOrCarriedIsACouldNotRun(t *testing.T) {
+	// a module path that is a non-empty directory cannot be cleared
+	f := &fake{}
+	in := input(t, f, one)
+	blocked := filepath.Join(os.Getenv("ATOM_WORK"), "wit-guest.wasm")
+	if err := os.MkdirAll(filepath.Join(blocked, "x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	v := check(t.Context(), in)
+	if v.State != 2 || !strings.Contains(v.Reason, "could not clear") || f.ran(build) {
+		t.Errorf("%+v ran %v", v, f.runs)
+	}
+
+	// a module path that becomes a non-empty directory under the build cannot be written
+	f = &fake{}
+	in = input(t, f, one)
+	blocked = filepath.Join(os.Getenv("ATOM_WORK"), "wit-guest.wasm")
+	f.after = func() { _ = os.MkdirAll(filepath.Join(blocked, "x"), 0o755) }
+	v = check(t.Context(), in)
+	if v.State != 2 || !strings.Contains(v.Reason, "the module would not copy out") || !strings.Contains(v.Reason, "[world wit-guest, build]") || f.ran(lift) {
+		t.Errorf("%+v ran %v", v, f.runs)
 	}
 }
