@@ -31,7 +31,7 @@ import (
 var Programs = []string{
 	"git", "tar", "opa", "orbitparse",
 	"opengrep", "hadolint", "shellcheck", "chezmoi", "kubectl", "kubeconform",
-	"docker-compose", "wasm-tools", "just",
+	"docker-compose", "wasm-tools", "just", "kube-linter",
 	"python3", "python", "copier", "ansible-playbook", "ansible-lint", "ansible-galaxy",
 	"witnesscall", "narc",
 }
@@ -41,6 +41,9 @@ var Programs = []string{
 // top of the layers (the module's withAtomNarc), so a bump of that pin rebuilds
 // nothing under it.
 var MountedPerRun = []string{"narc"}
+
+// indent is a tool's output set in from the line that introduced it.
+var indent = checks.Indent
 
 // tempSeq numbers the scratch paths of one process. The atoms run at once, so
 // a name made from the pid alone is shared between two of them.
@@ -56,29 +59,4 @@ func tempPath(kind, ext string) string {
 // chains filed as "the atom never ran": a 2, with the reason.
 func neverRan(a checks.AtomDef, why string) checks.Verdict {
 	return checks.VerdictOf(a, int(checks.StateCannotRun), "the atom never ran: "+why)
-}
-
-// unprovisioned is the verdict for a tool that did not pass its version probe,
-// in the wording the ops atoms use for it.
-func unprovisioned(a checks.AtomDef, why string) checks.Verdict {
-	return checks.VerdictOf(a, int(checks.StateCannotRun), fmt.Sprintf("%s: CANNOT RUN - the phase's tool could not be provisioned: %s", a.ID, why))
-}
-
-// opsSettled is a phase's state and report from its tools' exit and output.
-func opsSettled(phase string, rc int, out string) (int, string) {
-	state, line := checks.OpsSettle(phase, rc, out)
-	if line != "" {
-		out += "\n" + line
-	}
-	return state, out
-}
-
-// opsSettledPython is opsSettled for a python checker: an uncaught exception
-// (a missing dependency, a crash) is could-not-run, not a finding.
-func opsSettledPython(phase string, rc int, out string) (int, string) {
-	state, line := checks.OpsSettlePython(phase, rc, out)
-	if line != "" {
-		out += "\n" + line
-	}
-	return state, out
 }

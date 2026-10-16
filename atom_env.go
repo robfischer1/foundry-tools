@@ -43,6 +43,19 @@ type atomEnv struct {
 	// tests ask for. It reads the tree with the same questions the atom asks and
 	// judges nothing; nil adds nothing.
 	bind func(ctx context.Context, r *run, ctr *dagger.Container) *dagger.Container
+	// origin says the atom reads the URL the repository came from
+	// (ATOM_ORIGIN) and nothing else of the change: its cache key is the
+	// tree's and the origin's, not the pull's base.
+	origin bool
+	// tools says the atom runs in the tools container the atoms binary votes in
+	// (atomsTools), not in a lane: the container that carries the pinned
+	// programs and the python venv its question execs. The chain provisioned
+	// them one run at a time; the container has them already.
+	tools bool
+	// narc says the atom execs narcissus's analyzer: it is mounted from the pin
+	// flux holds live, and a pin that could not be read reaches the atom as
+	// ATOM_NARC_ERR, which it settles 2 with.
+	narc bool
 }
 
 // atomEnvironments are the atoms whose chain did not run in the plain lane
@@ -68,6 +81,29 @@ var atomEnvironments = map[string]atomEnv{
 	// target and then run them, so they hold it LOCKED (withLockedCargoTarget)
 	"rust:cargo-clippy": {container: (*run).cargoDeps, factsWhen: rustScoped},
 	"rust:cargo-test":   {container: rustTestLane, factsWhen: rustScoped},
+
+	// The ops, orbit, compose, wit and template atoms that exec a program: the
+	// tools container, as the binary's vote runs them.
+	"compose:config":         {tools: true},
+	"ops:chezmoi":            {tools: true},
+	"ops:flux":               {tools: true},
+	"ops:kube-linter":        {tools: true},
+	"ops:orbit-sidecars":     {tools: true},
+	"ops:shell":              {tools: true},
+	"orbit:sidecars":         {tools: true},
+	"wit:validate":           {tools: true},
+	"ops:ansible":            {tools: true},
+	"ops:declaration":        {tools: true},
+	"ops:dup":                {tools: true},
+	"ops:metrics":            {tools: true},
+	"ops:specs":              {tools: true},
+	"ops:star-sa":            {tools: true},
+	"ops:world-patches":      {tools: true},
+	"template:render-matrix": {tools: true},
+	// ... and the ones that judge the change or the origin are also handed them.
+	"ops:immutable": {tools: true, facts: true},
+	"orbit:repo":    {origin: true},
+	"orbit:surface": {tools: true, origin: true, narc: true},
 }
 
 // rustTestLane is the fetched rust lane with the per-repo target held LOCKED, the
@@ -91,9 +127,12 @@ func goCodeLane(r *run) *dagger.Container { return r.laneCode(checks.ImageGo) }
 func (r *run) atomEnvironment(ctx context.Context, e catalogue.Entry) *dagger.Container {
 	env, ok := atomEnvironments[e.ID]
 	var ctr *dagger.Container
-	if ok && env.container != nil {
+	switch {
+	case ok && env.tools:
+		ctr = r.onTools(atomsTools(ctx))
+	case ok && env.container != nil:
 		ctr = env.container(r)
-	} else {
+	default:
 		ctr = r.lane(checks.AtomByID(e.ID).Image)
 	}
 	needs := needsOf(e)
@@ -103,8 +142,17 @@ func (r *run) atomEnvironment(ctx context.Context, e catalogue.Entry) *dagger.Co
 	if slices.Contains(needs, "svid") && r.spire != nil {
 		ctr = ctr.WithUnixSocket(atomsSpirePath, r.spire).WithEnvVariable("SPIFFE_ENDPOINT_SOCKET", "unix://"+atomsSpirePath)
 	}
+	if env.narc {
+		var err error
+		if ctr, err = r.withNarc(ctx, ctr); err != nil {
+			ctr = ctr.WithEnvVariable("ATOM_NARC_ERR", err.Error())
+		}
+	}
 	if e.Def == nil {
 		return ctr
+	}
+	if env.origin {
+		ctr = ctr.WithEnvVariable("ATOM_ORIGIN", r.repo)
 	}
 	if env.facts || (ok && env.factsWhen != nil && env.factsWhen(ctx, r)) {
 		ctr = r.withBase(ctr).

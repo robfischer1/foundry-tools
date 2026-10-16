@@ -80,6 +80,7 @@ var pinnedTools = []pinnedTool{
 	{name: "kubectl", moves: 2, url: checks.KubectlURL},
 	{name: "opa", moves: 2, url: checks.OpaURL},
 	{name: "kubeconform", moves: 3, image: checks.ImageKubeconform, imagePath: "/kubeconform"},
+	{name: "kube-linter", moves: 3, image: checks.ImageKubeLinter, imagePath: "/kube-linter"},
 	{name: "opengrep", moves: 3, url: checks.OpengrepURL},
 	{name: "orbitparse", moves: 4, build: orbitParse},
 	// witnesscall is built from source like orbitparse, so its count is the days

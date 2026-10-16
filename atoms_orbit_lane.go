@@ -7,28 +7,14 @@ import (
 	"path"
 	"strings"
 
-	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
 	"dagger/foundry-tools/internal/fluxpin"
-	"dagger/foundry-tools/internal/orbitcompose"
-	"dagger/foundry-tools/internal/orbitlane"
 )
 
-// THE ORBIT LANE'S ATOMS (stage `orbit`, run by `gate-file --stage=orbit` as
-// a lane of its own). Each is a separate atom so a red names what broke. The
-// judgements are internal/orbitlane's; this file reads the trees — the repo
-// under test, and foundry-dies at main for a star's pull — and narcissus's
-// analyzer's answers, and hands them over.
-//
-// REPORT-ONLY until Rob flips orbitlane.Enforce: a would-be violation is
-// recorded as drifted and the atom stays state 0.
-
-func init() {
-	register("orbit:contracts", orbitContracts)
-	register("orbit:surface", orbitSurface)
-	register("orbit:sidecars", orbitSidecars)
-	register("orbit:repo", orbitRepo)
-}
+// THE ORBIT LANE'S ATOMS (stage `orbit`) live in atoms/orbit/<name>; what stays
+// here is what the module itself still reads: narcissus's analyzer image (the
+// atoms binary's per-run mount of narc) and the roster foundry-dies carries (the
+// orbit bundle's star set).
 
 // NarcissusImage names the image that carries `narc`, narcissus's own
 // analyzer. The lane runs the star's reader, never a port of it: `narc scan` is
@@ -49,44 +35,6 @@ func narcissusRef(ctx context.Context, r *run) (string, error) {
 		return "", fmt.Errorf("foundry/flux %s could not be read: %v", fluxpin.File, err)
 	}
 	return fluxpin.Ref([]byte(body), NarcissusImage)
-}
-
-// orbitVerdict settles an atom's findings into its vector element.
-func orbitVerdict(id string, found []checks.Finding) checks.Verdict {
-	state, reason, settled := orbitlane.Settle(id, found)
-	v := checks.VerdictOf(checks.AtomByID(id), state, reason)
-	v.Findings = settled
-	return v
-}
-
-// orbitAbsent is an atom with no surface in this tree, saying why.
-func orbitAbsent(id, why string) checks.Verdict {
-	return checks.VerdictOf(checks.AtomByID(id), 0, id+": ABSENT - "+why)
-}
-
-// orbitCannot is an atom that could not look.
-func orbitCannot(id string, err error) checks.Verdict {
-	return checks.VerdictOf(checks.AtomByID(id), 2, id+": CANNOT RUN - "+err.Error())
-}
-
-// filesIn is filesByName (ops:orbit-composed's reader) naming the pattern
-// it could not read.
-func filesIn(ctx context.Context, dir *dagger.Directory, pattern string) (map[string][]byte, error) {
-	out, err := filesByName(ctx, dir, pattern)
-	if err != nil {
-		return nil, fmt.Errorf("%s could not be read: %v", pattern, err)
-	}
-	return out, nil
-}
-
-// hasContract reports whether a directory's files hold any contract.
-func hasContract(files map[string][]byte) bool {
-	for name := range files {
-		if strings.HasSuffix(name, ".toml") {
-			return true
-		}
-	}
-	return false
 }
 
 // roster answers each repo on dir's fleet catalog (fleet/repos/<name>.json) and
@@ -125,155 +73,3 @@ func starSet(prefixes map[string]string) map[string]bool {
 	}
 	return out
 }
-
-// fleetContracts answers the contracts on foundry-dies main that parse, and a
-// finding for each that does not: one bad file is a finding about that file,
-// never the directory's could-not-run. Names split against foundry-dies' own
-// roster, so a hyphenated star (blade-runner) is one party.
-func (r *run) fleetContracts(ctx context.Context) ([]orbitcompose.Contract, []checks.Finding, error) {
-	files, err := filesIn(ctx, r.dies, "orbits/*.toml")
-	if err != nil {
-		return nil, nil, fmt.Errorf("foundry-dies: %v", err)
-	}
-	prefixes, err := roster(ctx, r.dies)
-	if err != nil {
-		return nil, nil, fmt.Errorf("foundry-dies: %v", err)
-	}
-	cs, bad, err := orbitcompose.ParseAll(files, starSet(prefixes))
-	if err != nil {
-		return nil, nil, fmt.Errorf("foundry-dies/orbits does not compose: %v", err)
-	}
-	return cs, orbitlane.Unreadable(bad), nil
-}
-
-// orbit:contracts — every contract parses, names two stars on the roster,
-// and carries the one status a rendered fact has, approved.
-func orbitContracts(ctx context.Context, r *run) checks.Verdict {
-	const id = "orbit:contracts"
-	const notHere = "this tree is not the contracts' repository (it needs orbits/*.toml beside fleet/repos/)"
-	files, err := filesIn(ctx, r.src, "orbits/*")
-	if err != nil {
-		return orbitCannot(id, err)
-	}
-	if !hasContract(files) {
-		return orbitAbsent(id, notHere)
-	}
-	stars, err := roster(ctx, r.src)
-	if err != nil {
-		return orbitCannot(id, err)
-	}
-	if len(stars) == 0 {
-		return orbitAbsent(id, notHere)
-	}
-	return orbitVerdict(id, orbitlane.Contracts(files, starSet(stars)))
-}
-
-// orbit:repo — a laid orbit.toml is what the contracts compose to for this
-// star (fleet:orbit-drift's digest comparison, plus the edge set).
-func orbitRepo(ctx context.Context, r *run) checks.Verdict {
-	const id = "orbit:repo"
-	laid, ok, err := fileIn(ctx, r.src, "orbit.toml")
-	if err != nil {
-		return orbitCannot(id, err)
-	}
-	if !ok {
-		return orbitAbsent(id, "this repository carries no root orbit.toml (it is laid from the data/orbits die)")
-	}
-	cs, bad, err := r.fleetContracts(ctx)
-	if err != nil {
-		return orbitCannot(id, err)
-	}
-	return orbitVerdict(id, append(orbitlane.Repo(starOf(r.repo), []byte(laid), cs), bad...))
-}
-
-// orbit:surface — the star's code against its contracts, from narcissus's
-// analyzer run over the checkout.
-func orbitSurface(ctx context.Context, r *run) checks.Verdict {
-	const id = "orbit:surface"
-	own, err := filesIn(ctx, r.src, "orbits/*")
-	if err != nil {
-		return orbitCannot(id, err)
-	}
-	if hasContract(own) {
-		return orbitAbsent(id, "the contracts' repository: each contract is checked against the code in its producer's and consumer's own orbit lane, where the checkout is the code")
-	}
-	star := starOf(r.repo)
-	cs, bad, err := r.fleetContracts(ctx)
-	if err != nil {
-		return orbitCannot(id, err)
-	}
-	if !party(star, cs) {
-		return orbitAbsent(id, star+" takes part in no contracted seam in foundry-dies/orbits")
-	}
-	prefixes, err := roster(ctx, r.dies)
-	if err != nil {
-		return orbitCannot(id, fmt.Errorf("foundry-dies: %v", err))
-	}
-	narcRef, err := narcissusRef(ctx, r)
-	if err != nil {
-		return orbitCannot(id, err)
-	}
-	ctr := r.lane(checks.ImageFleet).
-		WithFile("/usr/local/bin/narc", dag.Container().From(narcRef).File("/narc"), dagger.ContainerWithFileOpts{Permissions: 0o755})
-	// STDOUT ALONE, AND ANY EXIT. narc exits 2 when a site could not be
-	// followed and still prints its whole JSON report — the hole is part of
-	// the answer — and with --json - the report is its only stdout, so
-	// stderr is never folded in (output() would, on a non-zero exit).
-	reports := map[string][]byte{}
-	for _, scan := range []string{"surface", "orbits"} {
-		out, err := ctr.WithExec([]string{"narc", "scan", scan, "--json", "-", "/src"}, anyExit).Stdout(ctx)
-		if err != nil {
-			return orbitCannot(id, fmt.Errorf("narc scan %s never ran: %v", scan, err))
-		}
-		reports[scan] = []byte(out)
-	}
-	found, err := orbitlane.Surface(orbitlane.SurfaceInput{
-		Star: star, Contracts: cs, Prefixes: prefixes, Surface: reports["surface"], Orbits: reports["orbits"],
-	})
-	if err != nil {
-		return orbitCannot(id, err)
-	}
-	return orbitVerdict(id, append(found, bad...))
-}
-
-// party reports whether star is either side of any contract.
-func party(star string, cs []orbitcompose.Contract) bool {
-	for _, c := range cs {
-		if c.Producer == star || c.Consumer == star {
-			return true
-		}
-	}
-	return false
-}
-
-// orbit:sidecars — what the contracts compose to is what flux carries, and it
-// parses with the reader a star refuses to boot without. On a flux tree it is
-// the two gate atoms that already say so (ops:orbit-composed's -check and
-// ops:orbit-sidecars' policy.ParseACL), run here as findings; the gate keeps
-// them until this lane blocks.
-func orbitSidecars(ctx context.Context, r *run) checks.Verdict {
-	const id = "orbit:sidecars"
-	rendered, err := r.src.Glob(ctx, "prime/orbits/*"+orbitcompose.SidecarSuffix)
-	if err != nil {
-		return orbitCannot(id, err)
-	}
-	if len(rendered) == 0 {
-		return orbitAbsent(id, "this tree renders no orbit sidecars (no prime/orbits/*.orbit.toml)")
-	}
-	var found []checks.Finding
-	for _, sub := range []string{"ops:orbit-composed", "ops:orbit-sidecars"} {
-		v := registry[sub](ctx, r)
-		switch v.State {
-		case int(checks.StateCannotRun):
-			return orbitCannot(id, fmt.Errorf("%s could not run: %s", sub, v.Reason))
-		case int(checks.StateFindings):
-			found = append(found, checks.Finding{Verdict: checks.VerdictViolated, Subject: "prime/orbits", Cause: sub, Detail: oneLine(v.Reason)})
-		default:
-			found = append(found, checks.Finding{Verdict: checks.VerdictHolds, Subject: "prime/orbits", Cause: sub, Detail: oneLine(v.Reason)})
-		}
-	}
-	return orbitVerdict(id, found)
-}
-
-// oneLine is a reason folded onto one line, for a finding's detail.
-func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }

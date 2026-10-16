@@ -179,6 +179,7 @@ func LoadIn(root string) (In, error) {
 		in.Fork = os.Getenv("ATOM_FORK")
 	}
 	in.Dies = os.Getenv("ATOM_DIES")
+	in.NarcErr = os.Getenv("ATOM_NARC_ERR")
 	in.Spire = strings.TrimPrefix(os.Getenv("SPIFFE_ENDPOINT_SOCKET"), "unix://")
 	in.Now = now()
 	in.Door = checks.Door{Base: os.Getenv("ATOM_DOOR")}

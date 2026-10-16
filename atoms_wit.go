@@ -21,7 +21,6 @@ import (
 // failure is a could-not-run, never a finding about the tree.
 
 func init() {
-	register("wit:validate", witValidate)
 	register("rust:wit-guest", rustWitGuest)
 	register("rust:wit-compose", rustWitCompose)
 }
@@ -44,50 +43,6 @@ func withTarballBinary(ctx context.Context, ctr *dagger.Container, url, member, 
 		WithFile(tgz, f).
 		WithExec(args).
 		WithExec([]string{bin, "--version"}), nil
-}
-
-// The repository's own `just validate` passes.
-//
-// ABSENT UNLESS THE TREE TRACKS WIT AND A VALIDATE RECIPE. wit/*.wit says there
-// is an interface to resolve; a root justfile defining `validate` says the
-// repository has its own answer for what resolving means (for stellar-core,
-// `wasm-tools component wit` over every package). A repository that vendors a
-// WIT copy and defines no such recipe — stellar-core-rust — is not graded
-// twice: its guest build reads that copy at compile time.
-//
-// THE RECIPE'S OWN EXIT IS THE VERDICT: 0 pass, 1 findings (just passes the
-// failing command's code through), anything else could-not-run. The fleet
-// image carries bash, which the recipe's shebang names; wasm-tools and just
-// are the two pinned fetches.
-func witValidate(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("wit:validate")
-
-	files, err := r.population(ctx, "wit/**/*.wit", "justfile")
-	if err != nil {
-		return cannotEnumerate(a, err)
-	}
-	if !checks.HasWitFiles(files) {
-		return checks.VerdictOf(a, 0, a.ID+": ABSENT - this repository tracks no wit/*.wit, so it declares no interface for wasm-tools to resolve")
-	}
-	if !slices.Contains(files, "justfile") {
-		return checks.VerdictOf(a, 0, a.ID+": ABSENT - the repository tracks WIT but no root justfile, so it declares no validate recipe to run")
-	}
-	text, err := r.src.File("justfile").Contents(ctx)
-	if err != nil {
-		return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - the justfile would not read: %v", a.ID, err))
-	}
-	if !checks.HasJustValidate(text) {
-		return checks.VerdictOf(a, 0, a.ID+": ABSENT - the justfile defines no validate recipe, so the repository declares no check of its WIT for the gate to run")
-	}
-
-	ctr, err := withTarballBinary(ctx, r.lane(checks.ImageFleet), checks.WasmToolsURL, checks.WasmToolsMember, "wasm-tools", 1)
-	if err == nil {
-		ctr, err = withTarballBinary(ctx, ctr, checks.JustURL, checks.JustMember, "just", 0)
-	}
-	if err != nil {
-		return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - %v. WIT that was never resolved is not WIT that passed.", a.ID, err))
-	}
-	return verdict(ctx, a, ctr.WithExec([]string{"just", "validate"}, anyExit))
 }
 
 // Every wit-guest-<world> feature of the crate builds for wasm32-unknown-unknown,

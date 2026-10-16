@@ -244,116 +244,6 @@ func atomTable() []AtomDef {
 			Desc: "Every Dockerfile in the tree passes hadolint under the fleet's ruleset.",
 		},
 
-		// ---- ops: the trees the cluster and the hosts converge to ----
-		// Ported off Tekton's ci-ops-pipeline (retired 2026-09-09); the body is
-		// foundry-stocks ci/lib/ops/ops.sh, now one phase per atom in Go.
-		// Every one is ABSENT on a repo with no ops shape (checks.IsOpsTree).
-		{
-			ID: "ops:shell", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "Every tracked shell script passes shellcheck at severity error; the warning count is reported, not gated.",
-		},
-		{
-			ID: "ops:chezmoi", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "Every tracked chezmoi *.tmpl renders with `chezmoi execute-template` — the one check a dotfiles source tree has.",
-		},
-		{
-			ID: "ops:yaml", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "No tracked YAML carries a duplicate key — the defect a YAML loader resolves last-wins and never reports; a repo with its own tools/yaml-strict (infra) runs that.",
-		},
-		{
-			ID: "ops:dup", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "The repo's own tools/dup-check (infra) finds no blocking duplicate; ABSENT where the tree has no such tool.",
-		},
-		{
-			ID: "ops:declaration", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "The repo's own tools/declaration-integrity (infra) holds: every declared host file has its payload and every payload is declared.",
-		},
-		{
-			ID: "ops:specs", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "The repo's own tools/console-specs (infra): the console ConfigMap's read-model specs follow the stacks' emits, or it names which drifted.",
-		},
-		{
-			ID: "ops:metrics", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "The repo's own tools/metric-allowlist (flux): every kube_*/container_* name a rule or dashboard reads is on a keep-list some job ingests, or it names which are not.",
-		},
-		{
-			ID: "ops:star-sa", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "The repo's own tools/star-sa-list (flux): the star-SA admission policy's generated SA list is the ClusterSPIFFEID CRs' SA list, or it names the drift (a stale list makes star-sa-guard fail open).",
-		},
-		{
-			ID: "ops:world-patches", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "The repo's own tools/world-patches (flux): every pistis.star patch in prime reaches Worlds as JSON6902, and no World writes out what a patch adds, or it names the drift (a World's pod freezes otherwise).",
-		},
-		{
-			ID: "ops:record-lanes", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "Flux's RECORD_LANES (prime/daedalus-jobs.yaml) and record_lanes (the TOML in prime/ourea-config.yaml) are the same set, and each holds every EXECUTOR_LANES lane plus atoms and dev - a lane that owes a record to one reader and not the other settles differently depending on who asks.",
-		},
-		{
-			ID: "ops:ansible", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "Every playbook under ansible/playbooks passes ansible-playbook --syntax-check and ansible-lint at profile min; the basic-profile count is reported, not gated.",
-		},
-		{
-			ID: "ops:flux", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "Every Flux Kustomization under flux/ builds with kubectl kustomize — a duplicate resource id, a missing base or a bad patch is a finding before flux meets it, and so is a namespaced object that names no namespace under a CR that sets no targetNamespace.",
-		},
-		// CAME HOME FROM THE SWEEP 2026-09-23 (CA F18). It was sweep:kube-linter,
-		// on a clock, because F9 read it as a question about a REPOSITORY. The
-		// surface it needs is flux/, which one repo in eighty has, so the clock
-		// walked 80 repos to ask infra one question. `ops` already claims that
-		// exact tree, so the question now runs in infra's own pull path, where
-		// whoever broke a workload is the one who is told.
-		{
-			ID: "ops:kube-linter", Stage: StagePrecommit, Lane: LaneAny, Image: ImageKubeLinter,
-			Desc: "Every workload under flux/ passes kube-linter's default checks.",
-		},
-		// THE LIVE-OBJECT QUESTION, which ops:flux cannot ask: it judges the head
-		// alone. Added 2026-10-02 after flux #206 froze foundry with a Job
-		// template edit the API server refused.
-		{
-			ID: "ops:immutable", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
-			Desc: "No pull edits a field the API server refuses to change on a live object (Job template, workload selector, StatefulSet claims, binding roleRef, pinned clusterIP, PVC spec, immutable ConfigMap/Secret) — core kinds only, CRD rules are out of reach.",
-		},
-		// THE STAR'S OWN READER, BEFORE FLUX. A composed orbit sidecar that does
-		// not parse refuses a witness-mode star's boot (stellar-core-go policy),
-		// so every one an ops tree tracks is parsed by that parser — imported,
-		// not re-implemented — before it can reach a mount. Constellation Mesh
-		// W3, 2026-10-03.
-		{
-			ID: "ops:orbit-sidecars", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
-			Desc: "Every composed orbit sidecar (*.orbit.toml) an ops tree tracks parses with stellar-core-go policy.ParseACL, the reader a witness-mode star refuses to boot without.",
-		},
-		// THE RENDER IS NOT STALE. orbitcompose writes prime/orbits from
-		// foundry-dies/orbits and nothing runs it, so a contract change sat
-		// unrendered until someone remembered (Task #104.1). This composes
-		// the dies at main and refuses a render a re-run would change.
-		{
-			ID: "ops:orbit-composed", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
-			Desc: "The orbit sidecars a tree renders (prime/orbits) are exactly what orbitcompose composes from foundry-dies/orbits at main — nothing a re-render would write or remove.",
-		},
-
-		// ---- template: the copier templates ----
-		//
-		// CAME HOME FROM THE SWEEP 2026-09-23 (CA F18), and this one was the
-		// inversion worth naming. F9's acceptance criterion was that no sweep
-		// atom appears in a pull's path — which is also why a template could
-		// break its own ci-matrix.toml and nothing noticed until Sunday. It is
-		// prepush rather than precommit because rendering the whole matrix with
-		// copier is the slow half of a template's gate.
-		{
-			ID: "template:render-matrix", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
-			Desc: "Every case in this template's ci-matrix.toml still renders.",
-		},
-
-		// ---- wit: interface repos ----
-		//
-		// An interface repo carries WIT and a tape and no language, so no lane
-		// graded it (rob/stellar-core#13761). Its own `just validate` is the
-		// check; this runs it. ABSENT without wit/*.wit and a validate recipe.
-		{
-			ID: "wit:validate", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet,
-			Desc: "The repository's own `just validate` passes — wasm-tools resolves every WIT package the tree carries.",
-		},
-
 		// ---- go ----
 		// THE PUSH STAGE'S ROWS ARE IN THE ORDER IT RUNS THEM, cheapest first:
 		// the sequence fails fast (Rob, 2026-09-17: "Each stage fails fast, and
@@ -403,51 +293,11 @@ func atomTable() []AtomDef {
 		},
 
 		// ---- compose: the host stacks. Ported off the act-runner's validate.yml ----
-		//
-		// nas01-stacks and llm01-stacks ARE the boxes: every compose spec, the
-		// Caddyfile, the runner config. Their `validate.yml` was the only thing that
-		// had ever validated any of it, and the act-runner it ran on is being
-		// removed — so these three atoms are what "validated by the gate or not at
-		// all" means for those repos.
-		//
-		// WHAT A GREEN HERE MEANS, kept from the workflow's own header: "this parses
-		// and its schema is valid", nothing stronger. It does not say the file
-		// matches what is RUNNING on the box; that is drift, not syntax, and no gate
-		// can see it from here.
-		{
-			ID: "compose:config", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "Every tracked compose spec parses and its schema validates.",
-		},
-		{
-			ID: "compose:no-tracked-secrets", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "No credential-shaped file is tracked in a repository that ships compose specs.",
-		},
-		{
-			ID: "compose:third-party-pins", Stage: StagePrecommit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "Zero ${PIN_} image interpolations — the BP6b ratchet stays closed.",
-		},
 		{
 			ID: "fleet:witness", Stage: StagePrepush, Lane: LaneAny, Image: ImageFleet, NotOnForks: ForkFleetStyle,
 			Desc: "Every changed .py/.go source file is shown to the code witness (narcissus), never a test: a canonical-class or Standard match is a finding, a Convention is advisory, novel is clean.",
 		},
 
-		// ---- orbit: the orbit lane, asked for by name (StageOrbit) ----
-		{
-			ID: "orbit:contracts", Stage: StageOrbit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "Every seam contract in foundry-dies/orbits parses, names two stars on the roster, and carries the one status a rendered fact has, approved.",
-		},
-		{
-			ID: "orbit:surface", Stage: StageOrbit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "A star's code matches its contracts (narcissus's analyzer over the checkout): every contracted verb it serves is registered, every verb it dials is on that pair's contract.",
-		},
-		{
-			ID: "orbit:sidecars", Stage: StageOrbit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "flux prime/orbits is what the contracts compose to and every sidecar parses with policy.ParseACL.",
-		},
-		{
-			ID: "orbit:repo", Stage: StageOrbit, Lane: LaneAny, Image: ImageFleet,
-			Desc: "A star's laid orbit.toml names every seam the contracts give it, each pinned to the contract's current version and digest.",
-		},
 		// ---- visual: the visual lane, asked for by name (StageVisual) ----
 		{
 			ID: "ts:visual", Stage: StageVisual, Lane: LaneTS, Image: ImageTS, NeedsManifest: true,

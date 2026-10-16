@@ -45,6 +45,8 @@ var atomsSourceInclude = []string{
 	"atoms/**",
 	"internal/atoms/**",
 	"internal/atomkit/**",
+	"internal/atomlib/**",
+	"internal/orbitkit/**",
 	"internal/catalogue/**",
 	"internal/checks/**",
 	"internal/execmem/**",
@@ -199,9 +201,19 @@ func (r *run) withAtomNarc(ctx context.Context, ctr *dagger.Container, stage str
 	if !stageHas(stage, "orbit:surface") {
 		return ctr, nil
 	}
-	ref, err := narcissusRef(ctx, r)
+	ctr, err := r.withNarc(ctx, ctr)
 	if err != nil {
 		return ctr, []string{"-narc-err", err.Error()}
+	}
+	return ctr, nil
+}
+
+// withNarc mounts narcissus's analyzer: the image flux pins live, resolved per
+// call. The error is why the pin could not be read; the container is unchanged.
+func (r *run) withNarc(ctx context.Context, ctr *dagger.Container) (*dagger.Container, error) {
+	ref, err := narcissusRef(ctx, r)
+	if err != nil {
+		return ctr, err
 	}
 	return ctr.WithFile("/usr/local/bin/narc", dag.Container().From(ref).File("/narc"), dagger.ContainerWithFileOpts{Permissions: 0o755}), nil
 }

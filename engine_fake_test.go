@@ -43,6 +43,8 @@ import (
 	"sync"
 	"testing"
 
+	"dagger/foundry-tools/internal/atomkit"
+	"dagger/foundry-tools/internal/catalogue"
 	"dagger/foundry-tools/internal/checks"
 )
 
@@ -113,6 +115,17 @@ func (e *fakeEngine) stderr(match, out string) {
 // control's JSON report, which the container wrote and no tree holds.
 func (e *fakeEngine) contents(match, out string) {
 	e.script(script{match: match, leaf: "contents", value: out})
+}
+
+// portedPass scripts every logic atom that lives in its own file to write a
+// passing verdict: the push sequence stops at its first red, and an atom whose
+// verdict file the paper engine never served is a could-not-run.
+func (e *fakeEngine) portedPass() {
+	for _, en := range catalogue.Entries() {
+		if en.Def != nil {
+			e.contents(atomkit.EscapeID(en.ID)+".json", `{"atom":"`+en.ID+`","state":0,"result":"pass","logs":[]}`)
+		}
+	}
 }
 
 // label scripts an image label read off every chain whose query text contains

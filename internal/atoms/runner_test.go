@@ -73,10 +73,6 @@ func TestBuiltinIsThePortedAtomsInOrder(t *testing.T) {
 		"fleet:sast-ruleset-lanes", "fleet:copier-answers-intact", "fleet:ourea-config-retired-keys", "fleet:retired-verbs",
 		"fleet:orbit-drift", "fleet:dagger-lockstep", "fleet:renovate-lockstep", "fleet:node-kinds-declared", "fleet:consumed-events-emitted",
 		"fleet:opengrep-sast", "fleet:hadolint", "fleet:wit-topics", "fleet:pdp-wired", "fleet:kafka-flows", "fleet:witness",
-		"compose:no-tracked-secrets", "compose:third-party-pins", "compose:config",
-		"orbit:contracts", "orbit:surface", "orbit:sidecars", "orbit:repo",
-		"ops:orbit-composed", "ops:orbit-sidecars", "ops:immutable", "ops:yaml", "ops:shell", "ops:chezmoi", "ops:flux", "ops:dup", "ops:declaration", "ops:specs", "ops:metrics", "ops:star-sa", "ops:world-patches", "ops:record-lanes", "ops:ansible",
-		"template:render-matrix", "wit:validate",
 	}
 	if got := reg.IDs(); fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("ids %q, want %q", got, want)

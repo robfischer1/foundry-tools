@@ -79,6 +79,7 @@ func TestStageResultExitEndsOnItsState(t *testing.T) {
 func TestPushStopsTheSequenceAtTheFirstRedAndStillRunsMutation(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
+	engine.portedPass()
 	engine.exitCode(`"staticcheck","-checks"`, 1)
 	m := &FoundryTools{Source: dag.Directory()}
 	res, err := m.Push(context.Background(), "", "")
@@ -169,6 +170,7 @@ func TestPushAnswersTheErrorWhenAnAtomCannotBeDispatched(t *testing.T) {
 	}
 	delete(registry, "go:staticcheck")
 	defer func() { registry["go:staticcheck"] = fn }()
+	engine.portedPass()
 
 	res, err := (&FoundryTools{Source: dag.Directory()}).Push(context.Background(), "", "")
 	if err == nil || !strings.Contains(err.Error(), "go:staticcheck") {
@@ -420,6 +422,7 @@ func TestThePushSequenceNeverDispatchesALaneTheTreeDoesNotHave(t *testing.T) {
 	// reaches the audits — which is exactly how the first version of this test
 	// passed against the very bug it was written for.
 	engine.stdout(`"go","list"`, "11\n")
+	engine.portedPass()
 
 	var mu sync.Mutex
 	dispatched := map[string]bool{}

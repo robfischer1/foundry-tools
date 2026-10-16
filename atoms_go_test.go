@@ -515,9 +515,10 @@ func TestGoMutationStandsDownOrCannotRun(t *testing.T) {
 
 // Rule 8: GATE_BASE reaches only the atoms that judge the change — the
 // witness, dies:grants-stamp (its checker compares the rendered documents with
-// the merge base's), the mutation lane and go:diff-coverage, whose diff is asked
-// on a container of its own. Every other atom's cache key is a function of the tree
-// alone.
+// the merge base's), the mutation lane, go:diff-coverage, whose diff is asked
+// on a container of its own, and ops:immutable, which renders the tree at the
+// pull's base (its environment hands it the base). Every other atom's cache key
+// is a function of the tree alone.
 func TestOnlyWitnessAndMutationReadGateBase(t *testing.T) {
 	for _, a := range checks.Atoms() {
 		engine.reset()
@@ -529,7 +530,7 @@ func TestOnlyWitnessAndMutationReadGateBase(t *testing.T) {
 				reads = true
 			}
 		}
-		want := a.ID == "fleet:witness" || a.ID == "dies:grants-stamp" || a.ID == "go:diff-coverage" || a.Stage == checks.StageMutation
+		want := a.ID == "fleet:witness" || a.ID == "dies:grants-stamp" || a.ID == "go:diff-coverage" || a.ID == "ops:immutable" || a.Stage == checks.StageMutation
 		if reads != want {
 			t.Errorf("%s reads GATE_BASE=%v, want %v", a.ID, reads, want)
 		}

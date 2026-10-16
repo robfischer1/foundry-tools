@@ -54,7 +54,6 @@ func TestAForkKeepsItsBuildTestsAuditsAndSAST(t *testing.T) {
 		"python:release",
 		"ts:release",
 		"fleet:opengrep-sast", "fleet:check-added-large-files",
-		"compose:no-tracked-secrets",
 	} {
 		if a := AtomByID(id); a.NotOnForks != "" {
 			t.Errorf("%s stands down on a fork (%q); a fork keeps it", id, a.NotOnForks)

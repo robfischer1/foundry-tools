@@ -57,16 +57,19 @@ func runAtomOnDagger(ctx context.Context, r *run, e catalogue.Entry) checks.Verd
 }
 
 // atomStubInclude is the source one atom is compiled from: go.mod, go.sum, the
-// atom's own directory and the module's packages every stub imports. An edit to
-// another atom does not key this build. TestAtomStubSourceCoversImports holds
-// the list to the import closure in both directions.
+// atom's own directory, the module's packages every stub imports and the ones
+// this atom's family imports besides (atomLibraries). An edit to another atom
+// does not key this build. TestAtomStubSourceCoversImports holds the list to the
+// import closure in both directions.
 func atomStubInclude(importPath string) []string {
-	own := strings.TrimPrefix(importPath, "dagger/foundry-tools/") + "/**"
-	return append([]string{"go.mod", "go.sum", own}, atomRuntimeDirs...)
+	rel := strings.TrimPrefix(importPath, "dagger/foundry-tools/")
+	own := rel + "/**"
+	id := strings.Replace(strings.TrimPrefix(rel, "atoms/"), "/", ":", 1)
+	return append(append([]string{"go.mod", "go.sum", own}, atomRuntimeDirs...), atomLibraries[id]...)
 }
 
-// atomRuntimeDirs are the module's packages a stub imports besides the atom's
-// own: atomkit and what it and the atoms import in turn.
+// atomRuntimeDirs are the module's packages every stub imports besides the
+// atom's own: atomkit and what it and internal/atoms import in turn.
 var atomRuntimeDirs = []string{
 	"internal/atomkit/**",
 	"internal/atoms/**",
@@ -74,9 +77,42 @@ var atomRuntimeDirs = []string{
 	"internal/execmem/**",
 	"internal/govlaw/**",
 	"internal/unitkey/**",
-	"internal/orbitcompose/**",
-	"internal/orbitlane/**",
 	"internal/retiredverbs/**",
+}
+
+// The packages the atoms of a family share (internal/atomlib, internal/orbitkit)
+// and the judgements the orbit family reads.
+var (
+	libraryDirs = []string{"internal/atomlib/**"}
+	orbitDirs   = []string{"internal/atomlib/**", "internal/orbitkit/**", "internal/orbitcompose/**", "internal/orbitlane/**"}
+)
+
+// atomLibraries are the packages an atom imports that not every atom does, by
+// atom id. An atom that is not here imports nothing beyond atomRuntimeDirs.
+var atomLibraries = map[string][]string{
+	"compose:config":             libraryDirs,
+	"compose:no-tracked-secrets": libraryDirs,
+	"compose:third-party-pins":   libraryDirs,
+	"ops:ansible":                libraryDirs,
+	"ops:chezmoi":                libraryDirs,
+	"ops:declaration":            libraryDirs,
+	"ops:dup":                    libraryDirs,
+	"ops:flux":                   libraryDirs,
+	"ops:metrics":                libraryDirs,
+	"ops:orbit-composed":         orbitDirs,
+	"ops:orbit-sidecars":         orbitDirs,
+	"ops:record-lanes":           libraryDirs,
+	"ops:shell":                  libraryDirs,
+	"ops:specs":                  libraryDirs,
+	"ops:star-sa":                libraryDirs,
+	"ops:world-patches":          libraryDirs,
+	"ops:yaml":                   libraryDirs,
+	"orbit:contracts":            orbitDirs,
+	"orbit:repo":                 orbitDirs,
+	"orbit:sidecars":             orbitDirs,
+	"orbit:surface":              orbitDirs,
+	"template:render-matrix":     libraryDirs,
+	"wit:validate":               libraryDirs,
 }
 
 // atomStubDir is where the stub sits in the module, the place daedalus'

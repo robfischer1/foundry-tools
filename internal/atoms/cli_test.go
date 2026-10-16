@@ -73,8 +73,7 @@ func TestRunOutsideARepositoryStillAnswersAVector(t *testing.T) {
 	gitBound := map[string]bool{
 		"fleet:check-yaml": true, "fleet:check-added-large-files": true,
 		"fleet:stop-justifications": true, "fleet:dagger-lockstep": true, "fleet:renovate-lockstep": true, "fleet:node-kinds-declared": true,
-		"fleet:consumed-events-emitted": true, "compose:no-tracked-secrets": true, "compose:third-party-pins": true,
-		"ops:yaml": true,
+		"fleet:consumed-events-emitted": true,
 	}
 	for _, v := range vector {
 		if gitBound[v.Atom] && v.State != 2 {

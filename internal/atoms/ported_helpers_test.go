@@ -6,8 +6,6 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -119,17 +117,4 @@ func (f failingFS) ReadDir(name string) ([]fs.DirEntry, error) {
 		return nil, errBoom
 	}
 	return fs.ReadDir(f.FS, name)
-}
-
-// brokenLink makes a file the glob lists and nothing can read: a symlink to
-// nowhere.
-func brokenLink(t *testing.T, root, rel string) {
-	t.Helper()
-	p := filepath.Join(root, rel)
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(filepath.Join(root, "nowhere"), p); err != nil {
-		t.Fatal(err)
-	}
 }
