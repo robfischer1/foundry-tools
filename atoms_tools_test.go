@@ -565,3 +565,23 @@ func TestAPythonStageThatFailsIsLeftOutWithTheOnesAboveIt(t *testing.T) {
 		})
 	}
 }
+
+// The CONTAINER the atoms run in, not only the stage that built the venv, reads
+// the system store: an atom that falls back to uv or opens a socket from python
+// refused the engine's CA (UnknownIssuer) while the stage's variables stayed on
+// the stage.
+func TestTheToolsContainerTrustsTheSystemStore(t *testing.T) {
+	engine.reset()
+	capturedLog(t)
+	if _, err := atomsTools(context.Background()).Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	c := engine.chain(`path:"/usr/local/bin/atoms"`)
+	for _, name := range []string{"SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "PIP_CERT", "NODE_EXTRA_CA_CERTS"} {
+		wantCalls(t, c, []string{"withEnvVariable", `name:"` + name + `"`, `value:"` + systemCABundle + `"`})
+	}
+	wantCalls(t, c, []string{"withEnvVariable", `name:"UV_NATIVE_TLS"`, `value:"1"`})
+	if strings.Index(c, `name:"SSL_CERT_FILE"`) > strings.Index(c, `path:"/usr/local/bin/atoms"`) {
+		t.Errorf("the CA is set above the binary, so it is not the base's:\n%s", c)
+	}
+}
