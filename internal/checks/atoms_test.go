@@ -1,6 +1,7 @@
 package checks
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -139,5 +140,25 @@ func TestUseDefsJoinsTheRowsAndRefusesADuplicate(t *testing.T) {
 			}()
 			UseDefs(rows)
 		}()
+	}
+}
+
+// THE TABLE HOLDS THE UNPORTED SET AND NOTHING ELSE (lld FN-090 step 3): the
+// twelve atoms whose chains stay on Dagger (DEF-B3-035, DEF-B3-044). Every
+// other catalogue id comes from a file under atoms/.
+func TestAtomTableHoldsExactlyTheUnportedAtoms(t *testing.T) {
+	want := []string{
+		"go:mutation", "go:release",
+		"python:mutation", "python:release",
+		"rust:mutation", "rust:release", "rust:wit-compose", "rust:wit-guest",
+		"ts:mutation", "ts:regen", "ts:release", "ts:visual",
+	}
+	var got []string
+	for _, a := range atomTable() {
+		got = append(got, a.ID)
+	}
+	slices.Sort(got)
+	if !slices.Equal(got, want) {
+		t.Errorf("atomTable() ids = %v, want %v", got, want)
 	}
 }

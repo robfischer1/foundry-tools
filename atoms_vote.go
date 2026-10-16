@@ -233,7 +233,7 @@ func (m *FoundryTools) cast(ctx context.Context, run castFunc, stage, base strin
 // shadow reads the box only after the seal, so its report counts every fallback.
 //
 // IT ALSO CARRIES THE SHADOW'S OWN INPUTS, copied when the lane starts: the
-// chain side and the witness switch. An abandoned shadow outlives the call that
+// chain side. An abandoned shadow outlives the call that
 // started it, and reading a package variable from it would race with whatever
 // the next call (or test) writes there; startShadow's rule is that the
 // goroutine reads copies, and these are the copies.
@@ -245,15 +245,13 @@ type ballotBox struct {
 	sealed   chan struct{}
 	// chains answers the comparator's vector: every atom of `only` by its chain.
 	chains chainSide
-	// witness says whether the chain's fleet:witness runs in the comparator.
-	witness bool
 }
 
 // chainSide is how the comparator asks the chains for a vector (shadowToday).
 type chainSide func(ctx context.Context, m *FoundryTools, stage, only, base string) ([]checks.Verdict, error)
 
-func newBallotBox(chains chainSide, witness bool) *ballotBox {
-	return &ballotBox{sealed: make(chan struct{}), fell: map[string]string{}, chains: chains, witness: witness}
+func newBallotBox(chains chainSide) *ballotBox {
+	return &ballotBox{sealed: make(chan struct{}), fell: map[string]string{}, chains: chains}
 }
 
 // put files the binary's raw votes; the first filing stands. A nil box files nothing.
@@ -314,45 +312,25 @@ func (b *ballotBox) wait(ctx context.Context) (map[string]checks.Verdict, map[st
 // a line of the report and is abandoned at most shadowGrace after the record
 // settles. Nothing in this file is read by a gate except the votes themselves.
 
-// reverseShadowWitness says whether the chain's fleet:witness runs in the
-// reverse shadow (copied into the lane's ballot box when it starts). It does not: the voter asks narcissus for real, and the
-// chain's witness asks for real too, so running both doubles the load on a
-// service that saturated on 2026-10-07. The report names the atom as not compared.
-var reverseShadowWitness = false
-
-// reverseIDs are the atoms the reverse shadow runs the chains of: the stage's
-// binary atoms, less fleet:witness unless withWitness. skipped says whether the
-// witness was left out.
-func reverseIDs(stage string, withWitness bool) (ids []string, skipped bool) {
-	for _, id := range chainedIDs(stage) {
-		if id == "fleet:witness" && !withWitness {
-			skipped = true
-			continue
-		}
-		ids = append(ids, id)
-	}
-	return ids, skipped
-}
-
 // reverseShadow runs the chains of the stage's binary atoms and holds them
 // against the verdicts the lane voted. NON-VOTING: it returns text.
 func (m *FoundryTools) reverseShadow(ctx context.Context, stage, base string) string {
 	if m.box == nil || m.box.chains == nil {
 		return "shadow atoms (binary voted): not compared - the lane gave the shadow no chain side to ask"
 	}
-	ids, skipped := reverseIDs(stage, m.box.witness)
+	ids := chainedIDs(stage)
 	if len(ids) == 0 {
 		return fmt.Sprintf("shadow atoms (binary voted): nothing to compare - the binary carries no atom of the stage %q", stage)
 	}
 	started := time.Now()
 	chains, chainsErr := m.box.chains(ctx, m, stage, strings.Join(ids, ","), base)
 	votes, fell, votesErr := m.box.wait(ctx)
-	return renderReverse(ids, skipped, chains, chainsErr, votes, fell, votesErr, time.Since(started))
+	return renderReverse(ids, chains, chainsErr, votes, fell, votesErr, time.Since(started))
 }
 
 // renderReverse is the report from the two sides' answers. It is pure so the
 // ways either side can fail are tested without an engine.
-func renderReverse(ids []string, skipped bool, chains []checks.Verdict, chainsErr error, votes map[string]checks.Verdict, fell map[string]string, votesErr error, elapsed time.Duration) string {
+func renderReverse(ids []string, chains []checks.Verdict, chainsErr error, votes map[string]checks.Verdict, fell map[string]string, votesErr error, elapsed time.Duration) string {
 	const head = "shadow atoms (binary voted): not compared - "
 	if chainsErr != nil {
 		return head + "the chains did not answer: " + chainsErr.Error()
@@ -379,11 +357,7 @@ func renderReverse(ids []string, skipped bool, chains []checks.Verdict, chainsEr
 	}
 	rep := atoms.Compare(chained, voted)
 	rep.Voter, rep.Elapsed = string(voterBinary), elapsed
-	out := rep.Render() + renderFallbacks(ids, fell)
-	if skipped {
-		out += "\nfleet:witness: not compared - the binary asked narcissus for real and the chain was not run, so it is asked once\n"
-	}
-	return out
+	return rep.Render() + renderFallbacks(ids, fell)
 }
 
 // renderFallbacks is the line per atom whose vote is its chain's because the

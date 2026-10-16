@@ -116,14 +116,12 @@ func TestTheShadowOfAChainVotedLaneIsTheDryOne(t *testing.T) {
 		return `[{"atom":"fleet:check-yaml","stage":"precommit","lane":"any","state":0,"result":"pass","logs":null}]`, nil
 	}
 	got := defaultShadow(soon(t), &FoundryTools{}, "", "b")
-	if len(chainedIDs("")) == 0 {
-		// every atom lives in its own file: there is no chain to hold a vote against
-		if !strings.Contains(got, "nothing to compare") {
-			t.Errorf("report %q", got)
-		}
-		return
+	// every atom the binary carries lives in its own file: there is no chain to
+	// hold a vote against.
+	if ids := chainedIDs(""); len(ids) != 0 {
+		t.Fatalf("chained atoms %v: the report below no longer holds", ids)
 	}
-	if !strings.Contains(got, "shadow atoms (chains voted): 1 compared") {
+	if !strings.Contains(got, "nothing to compare") {
 		t.Errorf("report %q", got)
 	}
 }

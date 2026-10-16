@@ -118,7 +118,10 @@ func (m *FoundryTools) shadowAtoms(ctx context.Context, base, stage string, vote
 // chainedIDs is the atoms of a stage the binary carries AND a chain also
 // answers: an atom that lives in its own file has no chain to hold it against
 // (the adapter runs the same code), so the shadow leaves it out.
-func chainedIDs(stage string) []string {
+//
+// A variable so a test names a chained atom: none is left in the binary, and the
+// comparison below would otherwise have nothing to run against.
+var chainedIDs = func(stage string) []string {
 	var ids []string
 	for _, id := range atoms.StageIDs(stage) {
 		if !catalogue.Ported(id) {
@@ -378,7 +381,7 @@ func (m *FoundryTools) startShadow(ctx context.Context, stage, base string) *sha
 	if voting {
 		// The vote reaches the shadow through the box, set BEFORE the goroutine
 		// starts and before the lane grades.
-		h.box = newBallotBox(shadowToday, reverseShadowWitness)
+		h.box = newBallotBox(shadowToday)
 		m.box = h.box
 	}
 	ctx, h.cancel = context.WithTimeout(ctx, timeout)

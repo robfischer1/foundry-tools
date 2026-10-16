@@ -5,9 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -22,7 +20,7 @@ import (
 func chainVerdicts(t *testing.T) ([]checks.Verdict, error) {
 	t.Helper()
 	vs, err := checks.ParseVector(binaryVector(t, ""))
-	ids, _ := reverseIDs("", false)
+	ids := chainedIDs("")
 	var out []checks.Verdict
 	for _, v := range vs {
 		if slices.Contains(ids, v.Atom) {
@@ -69,78 +67,24 @@ func TestTheReverseShadowReportsWhoVotedAndWhoAgreed(t *testing.T) {
 	same := func(context.Context) ([]checks.Verdict, error) { return chainVerdicts(t) }
 	record, report, _ := reverseRun(t, same, time.Minute)
 	recordedOn(t, record, "0", votedMark+"fleet:check-yaml")
-	ids, _ := reverseIDs("", false)
-	n := len(ids)
-	if n == 0 {
-		// every atom lives in its own file: there is no chain to hold a vote against
-		if !strings.Contains(report.String(), "nothing to compare") {
-			t.Errorf("report %q", report.String())
-		}
-		return
+	// every atom the binary carries lives in its own file, and the twelve that
+	// still run as chains are not in the binary: nothing is left to hold a vote
+	// against, and the report says so.
+	if ids := chainedIDs(""); len(ids) != 0 {
+		t.Fatalf("the shadow has chained atoms %v: the report below no longer holds", ids)
 	}
-	if want := fmt.Sprintf("shadow atoms (binary voted): %d compared, %d identical, 0 same state, 0 state differs", n, n); !strings.Contains(report.String(), want) {
-		t.Errorf("report %q lacks %q", report.String(), want)
-	}
-}
-
-// (b) A CHAIN SIDE THAT FAILS, PANICS OR HANGS CHANGES NOTHING: the record is
-// the one a lane with no shadow records, and the report says what happened.
-func TestAFailingHangingOrPanickingReverseShadowChangesNothing(t *testing.T) {
-	if !haveChains(t) {
-		return
-	}
-	baseline, _, _ := func() (string, *bytes.Buffer, time.Duration) {
-		return reverseRun(t, func(context.Context) ([]checks.Verdict, error) { return chainVerdicts(t) }, time.Minute)
-	}()
-	stuck := make(chan struct{})
-	t.Cleanup(func() { close(stuck) })
-	for _, tc := range []struct {
-		name  string
-		chain func(context.Context) ([]checks.Verdict, error)
-		want  string
-	}{
-		{"the chains fail", func(context.Context) ([]checks.Verdict, error) { return nil, errors.New("engine gone") },
-			"not compared - the chains did not answer: engine gone"},
-		{"the chains panic", func(context.Context) ([]checks.Verdict, error) { panic("boom") },
-			"the shadow panicked: boom"},
-		{"the chains hang", func(context.Context) ([]checks.Verdict, error) { <-stuck; return nil, nil },
-			"no answer within"},
-		{"the chains disagree on every atom", func(context.Context) ([]checks.Verdict, error) {
-			var vs []checks.Verdict
-			ids, _ := reverseIDs("", false)
-			for _, id := range ids {
-				vs = append(vs, checks.VerdictOf(checks.AtomByID(id), 1, "chain finds something"))
-			}
-			return vs, nil
-		}, fmt.Sprintf("%d state differs", len(mustIDs()))},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			record, report, took := reverseRun(t, tc.chain, 100*time.Millisecond)
-			if got, want := scrubTimes(record), scrubTimes(baseline); got != want {
-				i := 0
-				for i < min(len(got), len(want)) && got[i] == want[i] {
-					i++
-				}
-				from := max(i-150, 0)
-				t.Errorf("the record moved at byte %d:\n got ...%.400s\nwant ...%.400s", i, got[from:], want[from:])
-			}
-			if !strings.Contains(report.String(), tc.want) {
-				t.Errorf("report %q lacks %q", report.String(), tc.want)
-			}
-			if took > 10*time.Second {
-				t.Errorf("the lane waited %v on its comparator", took)
-			}
-		})
+	if !strings.Contains(report.String(), "nothing to compare") {
+		t.Errorf("report %q", report.String())
 	}
 }
 
 // A lane that settles without ever casting a vote (a refused tree) does not wait
 // out the grace for one: it says so.
 func TestAReverseShadowDoesNotWaitForAVoteThatCannotCome(t *testing.T) {
-	m := &FoundryTools{box: newBallotBox(nil, false)}
+	m := &FoundryTools{box: newBallotBox(nil)}
 	m.box.seal()
 	_, _, waitErr := m.box.wait(soon(t))
-	got := renderReverse([]string{"fleet:check-yaml"}, false, nil, nil, nil, nil, waitErr, 0)
+	got := renderReverse([]string{"fleet:check-yaml"}, nil, nil, nil, nil, waitErr, 0)
 	if !strings.Contains(got, "the binary's vote is missing: the lane settled without casting a vote") {
 		t.Errorf("report %q", got)
 	}
@@ -149,48 +93,34 @@ func TestAReverseShadowDoesNotWaitForAVoteThatCannotCome(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(soon(t))
 	cancel()
-	if _, _, err := newBallotBox(nil, false).wait(ctx); err == nil || !errors.Is(err, context.Canceled) {
+	if _, _, err := newBallotBox(nil).wait(ctx); err == nil || !errors.Is(err, context.Canceled) {
 		t.Errorf("a box nobody filled answered %v", err)
 	}
 }
 
-// fleet:witness lives in its own file, so no chain of it exists to run beside the
-// voter's real asks: the reverse shadow never asks for one, whichever way the
-// switch is set.
-func TestTheReverseShadowAsksForNoWitnessChain(t *testing.T) {
-	for _, with := range []bool{false, true} {
-		ids, skipped := reverseIDs(checks.StagePrepush, with)
-		if skipped || slices.Contains(ids, "fleet:witness") {
-			t.Errorf("witness switch %v: ids %v skipped %v", with, ids, skipped)
+// No chain of any atom the binary carries exists to run beside the voter's real
+// asks (fleet:witness among them), so the reverse shadow never asks the chains
+// for anything.
+func TestTheReverseShadowAsksForNoChain(t *testing.T) {
+	asked := false
+	m := &FoundryTools{box: newBallotBox(func(context.Context, *FoundryTools, string, string, string) ([]checks.Verdict, error) {
+		asked = true
+		return nil, nil
+	})}
+	m.box.put(map[string]checks.Verdict{})
+	m.box.seal()
+	for _, stage := range []string{"", checks.StagePrecommit, checks.StagePrepush, checks.StageOrbit, checks.StageMutation} {
+		if got := m.reverseShadow(soon(t), stage, ""); !strings.Contains(got, "nothing to compare") {
+			t.Errorf("stage %q: a stage with no chained atom compared something: %q", stage, got)
 		}
 	}
-	for _, with := range []bool{false, true} {
-		var only string
-		m := &FoundryTools{box: newBallotBox(func(_ context.Context, _ *FoundryTools, _, o, _ string) ([]checks.Verdict, error) {
-			only = o
-			return nil, nil
-		}, with)}
-		m.box.put(map[string]checks.Verdict{})
-		m.box.seal()
-		m.reverseShadow(soon(t), checks.StagePrepush, "")
-		if strings.Contains(only, "fleet:witness") {
-			t.Errorf("witness switch %v: the chains were asked for %q", with, only)
-		}
+	if asked {
+		t.Error("the chains were asked")
 	}
-	for _, m := range []*FoundryTools{{}, {box: newBallotBox(nil, false)}} {
+	for _, m := range []*FoundryTools{{}, {box: newBallotBox(nil)}} {
 		if got := m.reverseShadow(soon(t), checks.StagePrepush, ""); !strings.Contains(got, "no chain side") {
 			t.Errorf("a shadow with no chain side answered %q", got)
 		}
-	}
-	out := renderReverse([]string{"fleet:check-yaml"}, true, nil, nil, map[string]checks.Verdict{}, nil, nil, 0)
-	if !strings.Contains(out, "fleet:witness: not compared") || !strings.HasPrefix(out, "shadow atoms (binary voted): 0 compared") {
-		t.Errorf("report %q", out)
-	}
-	noChains := func(context.Context, *FoundryTools, string, string, string) ([]checks.Verdict, error) {
-		return nil, nil
-	}
-	if got := (&FoundryTools{box: newBallotBox(noChains, false)}).reverseShadow(soon(t), checks.StageMutation, ""); !strings.Contains(got, "nothing to compare") {
-		t.Errorf("a stage with no binary atom compared something: %q", got)
 	}
 }
 
@@ -204,25 +134,34 @@ func TestTheDryShadowNamesTheChainsAsVoters(t *testing.T) {
 	}
 }
 
-// mustIDs are the atoms the reverse shadow reports on over the pull path.
-func mustIDs() []string {
-	ids, _ := reverseIDs("", false)
-	return ids
-}
-
-// scrubTimes blanks the clock a record carries for each atom: an atom that runs
-// in the lane (the ones that live in their own files and have no binary vote)
-// stamps its own start and finish, and two runs never stamp alike.
-func scrubTimes(record string) string {
-	return timesRE.ReplaceAllString(record, `"$1":""`)
-}
-
-var timesRE = regexp.MustCompile(`"(started_at|finished_at)":"[^"]*"`)
-
-// haveChains says whether a test of the shadow machinery has a chain to hold the
-// binary's vote against: once every atom lives in its own file none does, and
-// the test has nothing to say.
-func haveChains(t *testing.T) bool {
-	t.Helper()
-	return len(chainedIDs("")) > 0
+// The comparison itself, over one atom named as chained: the chains' verdict is
+// held against the binary's vote, and a failing chain side is reported, not raised.
+func TestTheReverseShadowComparesAChainedAtom(t *testing.T) {
+	orig := chainedIDs
+	chainedIDs = func(string) []string { return []string{"fleet:check-yaml"} }
+	t.Cleanup(func() { chainedIDs = orig })
+	yaml := checks.VerdictOf(checks.AtomByID("fleet:check-yaml"), 0, "")
+	for name, tc := range map[string]struct {
+		chain func(context.Context, *FoundryTools, string, string, string) ([]checks.Verdict, error)
+		want  string
+	}{
+		"agree": {func(_ context.Context, _ *FoundryTools, _, only, _ string) ([]checks.Verdict, error) {
+			if only != "fleet:check-yaml" {
+				t.Errorf("the chains were asked for %q", only)
+			}
+			return []checks.Verdict{yaml}, nil
+		}, "shadow atoms (binary voted): 1 compared, 1 identical"},
+		"chains fail": {func(context.Context, *FoundryTools, string, string, string) ([]checks.Verdict, error) {
+			return nil, errors.New("engine gone")
+		}, "the chains did not answer: engine gone"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := &FoundryTools{box: newBallotBox(tc.chain)}
+			m.box.put(map[string]checks.Verdict{"fleet:check-yaml": yaml})
+			m.box.seal()
+			if got := m.reverseShadow(soon(t), "", ""); !strings.Contains(got, tc.want) {
+				t.Errorf("report %q lacks %q", got, tc.want)
+			}
+		})
+	}
 }

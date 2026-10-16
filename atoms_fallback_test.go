@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"slices"
 	"strings"
@@ -66,7 +65,7 @@ func stubChains(t *testing.T) *chainCalls {
 
 // votingBox gives the module the ballot box a gate lane would, and answers it.
 func votingBox(m *FoundryTools) *ballotBox {
-	m.box = newBallotBox(nil, false)
+	m.box = newBallotBox(nil)
 	return m.box
 }
 
@@ -294,7 +293,7 @@ func TestTheReverseShadowReportCountsFallbacks(t *testing.T) {
 	}
 	const fellID = "orbit:surface"
 	fell := map[string]string{fellID: "orbit:surface: CANNOT RUN - narc did not build\nsecond line"}
-	got := renderReverse(ids, false, chains, nil, voted, fell, nil, 0)
+	got := renderReverse(ids, chains, nil, voted, fell, nil, 0)
 	for _, want := range []string{
 		"shadow atoms (binary voted): 3 compared, 3 identical, 0 same state, 0 state differs, 0 missing from the binary, 0 missing from the chains",
 		"1 of 4 fell back to the chain",
@@ -304,7 +303,7 @@ func TestTheReverseShadowReportCountsFallbacks(t *testing.T) {
 			t.Errorf("report lacks %q:\n%s", want, got)
 		}
 	}
-	if none := renderReverse(ids, false, chains, nil, voted, nil, nil, 0); strings.Contains(none, "fell back") {
+	if none := renderReverse(ids, chains, nil, voted, nil, nil, 0); strings.Contains(none, "fell back") {
 		t.Errorf("a clean run reported fallbacks:\n%s", none)
 	}
 }
@@ -341,17 +340,13 @@ func TestAGateWhoseBinaryFailsRecordsTheChainsAnswerAndReportsTheFallbacks(t *te
 		t.Fatal(err)
 	}
 	recordedOn(t, rec, "0", chainMark+"fleet:check-yaml")
-	listed, _ := reverseIDs("", false)
-	n := len(listed)
-	if n == 0 {
-		// every atom lives in its own file: no chain is left to fall back to
-		if !strings.Contains(report.String(), "nothing to compare") {
-			t.Errorf("report %q", report.String())
-		}
-		return
+	// every atom the binary carries lives in its own file: no chain is left to
+	// fall back to, and the report says there is nothing to compare.
+	if listed := chainedIDs(""); len(listed) != 0 {
+		t.Fatalf("chained atoms %v: the report below no longer holds", listed)
 	}
-	if want := fmt.Sprintf("%d of %d fell back to the chain", n, n); !strings.Contains(report.String(), want) || !strings.Contains(report.String(), "OOM") {
-		t.Errorf("report %q lacks %q and the binary's reason", report.String(), want)
+	if !strings.Contains(report.String(), "nothing to compare") {
+		t.Errorf("report %q", report.String())
 	}
 }
 

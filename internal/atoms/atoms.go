@@ -219,12 +219,8 @@ func UseExtra(f func() []Atom) { ported = f }
 // also re-lists the diff locally, unfiltered and with deletions, which the change
 // set (added, modified, renamed) leaves out.
 func Builtin() []Atom {
-	return append(builtin(), ported()...)
+	return ported()
 }
-
-// builtin is the atoms still written in this package: none. Every atom lives in
-// its own file (atoms/<ns>/<name>) and joins through UseExtra.
-func builtin() []Atom { return nil }
 
 // admittedBy is the set of catalogue ids a stage grades.
 func admittedBy(stage string) map[string]bool {
