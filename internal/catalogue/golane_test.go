@@ -44,6 +44,11 @@ func TestTheGoTestAtomsCarryTheFleetRecordTree(t *testing.T) {
 	// suite by cadence — the commit's unit run is the same `go test` over the
 	// same packages, so the same goldens refuse without the mount.
 	// go:diff-coverage makes four: it runs that same go:test-race suite itself.
+	//
+	// AND FOUR MORE, FOR ANOTHER REASON: ops:orbit-composed, orbit:repo,
+	// orbit:sidecars and orbit:surface read foundry-dies' contracts and roster
+	// (Input.Dies), the one input of theirs that is not the tree; their chains
+	// mounted it from the run, and their Defs now ask for it by need.
 	var asked []string
 	for _, a := range checks.Atoms() {
 		if a.NeedsDies {
@@ -51,9 +56,9 @@ func TestTheGoTestAtomsCarryTheFleetRecordTree(t *testing.T) {
 		}
 	}
 	sort.Strings(asked)
-	if strings.Join(asked, ",") != "go:diff-coverage,go:mutation,go:test,go:test-race" {
-		t.Errorf("NeedsDies is declared by %v; go:test, go:test-race, go:diff-coverage and go:mutation are expected — "+
-			"the four atoms that run a repo's `go test`. Adding one is fine — say why "+
+	if strings.Join(asked, ",") != "go:diff-coverage,go:mutation,go:test,go:test-race,ops:orbit-composed,orbit:repo,orbit:sidecars,orbit:surface" {
+		t.Errorf("NeedsDies is declared by %v; go:test, go:test-race, go:diff-coverage and go:mutation (the four atoms that run a repo's `go test`) "+
+			"and the four orbit atoms that read foundry-dies' contracts are expected. Adding one is fine — say why "+
 			"here, because each one is another clone of foundry-dies on every gate "+
 			"run in the fleet.", asked)
 	}
