@@ -613,13 +613,19 @@ func TestTheRustLaneCarriesTheFleetsPython(t *testing.T) {
 	c := engine.chains()
 	joined := strings.Join(c, "\n")
 	for _, want := range []string{
-		`"uv","python","install","--default","` + checks.FleetPythonVersion + `"`,
-		`UV_PYTHON_BIN_DIR`,
+		`"tar","xzf","/tmp/python.tar.gz","-C","` + pythonInstallDir + `"`,
+		`"ln","-sf","` + pythonInstallDir + `/bin/python3","/usr/local/bin/python3"`,
+		`UV_PYTHON_DOWNLOADS`,
 		`"python3","--version"`,
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("the rust lane must provision the fleet's python; missing %s", want)
 		}
+	}
+	// uv resolves versions only from its compiled-in manifest; a pin ahead of
+	// it is CANNOT RUN on every rust lane (foundry-tools #326).
+	if strings.Contains(joined, `"uv","python","install"`) {
+		t.Error("the rust lane must not ask uv to install python")
 	}
 }
 
@@ -683,5 +689,19 @@ func TestCargoFetchSweepsStaleLocksFirstAndLocksNothing(t *testing.T) {
 	}
 	if strings.Contains(c, "sharing:LOCKED") && mountSharingAt(c, "/cache/cargo-home", atomExec) == "LOCKED" {
 		t.Errorf("the cargo home must not be LOCKED:\n%s", c)
+	}
+}
+
+// A python pin with no sum is not fetched unverified: the rust lane gets an exec
+// that cannot succeed, the same fail-closed rule as every other pinned tool.
+func TestTheRustLanesPythonWithoutAPinnedSumFailsClosed(t *testing.T) {
+	engine.reset()
+	engine.fail(`"/bin/false"`, "exit code: 1")
+	c := withPythonStandalone(dag.Container().From("x"), map[string]string{})
+	if _, err := c.Sync(t.Context()); err == nil {
+		t.Error("a rust lane with no pinned python sum provisioned anyway")
+	}
+	if engine.chain(`http(`, checks.PythonStandaloneURL) != "" {
+		t.Error("python was fetched with nothing to verify it against")
 	}
 }

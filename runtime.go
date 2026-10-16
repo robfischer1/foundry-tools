@@ -353,10 +353,10 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 		// and the fleet standardised on 3.14; a repo whose cargo tests spawn
 		// its own python hooks (cerberus' memory_plugin.rs) ran them through
 		// that 3.11 and met a SyntaxError on syntax the fleet's own formatter
-		// had emitted. Installed with uv rather than apt because no Debian
-		// suite packages 3.14 yet, and symlinked over `python3` because the
-		// spawning code names the interpreter and not a path — see
-		// checks.FleetPython for the measurement.
+		// had emitted. Not from apt because no Debian suite packages 3.14
+		// yet, and linked over `python3` because the spawning code names the
+		// interpreter and not a path — see checks.FleetPython for the
+		// measurement.
 		//
 		// rust:bookworm carries cargo, git, curl and bash. rustfmt and
 		// clippy are rustup components; cargo-audit is upstream's release
@@ -372,13 +372,16 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 			WithExec([]string{"apt-get", "update"}).
 			WithExec([]string{"apt-get", "install", "-y", "--no-install-recommends", "mold"}).
 			WithExec([]string{"rm", "-rf", "/var/lib/apt/lists"}).
-			WithFile("/usr/local/bin/uv", rustUV.File("/uv")).
-			// --default WRITES THE SHIMS, so no `ln -s` and so no shell: uv
-			// lays python/python3/python3.14 into UV_PYTHON_BIN_DIR itself.
-			// TestNoAtomExecsAShell is right to refuse the alternative, and
-			// this repo spent a lot of effort getting off `sh -c`.
-			WithEnvVariable("UV_PYTHON_BIN_DIR", "/usr/local/bin").
-			WithExec([]string{"uv", "python", "install", "--default", checks.FleetPythonVersion}).
+			WithFile("/usr/local/bin/uv", rustUV.File("/uv"))
+		// THE INTERPRETER IS THE PINNED STANDALONE RELEASE, NOT `uv python
+		// install`: uv resolves a version only through the download manifest
+		// compiled into it, so a renovate bump of FleetPythonVersion ahead of
+		// the uv image (3.14.8, foundry-tools #326, 2026-10-16) made every
+		// rust lane CANNOT RUN with "No download found". The python layer
+		// moved off uv for the same class of reason (atoms_tools_python.go);
+		// this follows it, and uv is told never to fetch one.
+		ctr = withPythonStandalone(ctr, checks.ToolSHA256).
+			WithEnvVariable("UV_PYTHON_DOWNLOADS", "never").
 			WithExec([]string{"python3", "--version"}).
 			WithExec([]string{"rustup", "component", "add", "rustfmt", "clippy"})
 		return withCargoTarball(withOpengrep(ctr), checks.ToolSHA256, checks.CargoAuditURL, checks.CargoAuditMember).
