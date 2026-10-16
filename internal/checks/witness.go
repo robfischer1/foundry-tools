@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"path"
 	"regexp"
@@ -561,26 +560,3 @@ func SleepContext(ctx context.Context, d time.Duration) error {
 // witnessTimeout bounds one ask. An answer takes 30-40 s; a port that does not
 // answer in two minutes is could-not-consult for that file.
 const witnessTimeout = time.Duration(120e9) // 120 s, spelled with no operator a mutant could flip
-
-// PostWitness posts one JSON-RPC request to an MCP endpoint and answers the
-// HTTP status, content type and body, or the error that kept it from asking.
-func PostWitness(ctx context.Context, url, body string) (int, string, string, error) {
-	ctx, cancel := context.WithTimeout(ctx, witnessTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(body))
-	if err != nil {
-		return 0, "", "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json, text/event-stream")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return 0, "", "", err
-	}
-	defer resp.Body.Close()
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, "", "", err
-	}
-	return resp.StatusCode, resp.Header.Get("Content-Type"), string(b), nil
-}

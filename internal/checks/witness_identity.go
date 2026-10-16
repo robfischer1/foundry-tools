@@ -2,28 +2,25 @@ package checks
 
 import (
 	"errors"
-	"fmt"
-	"log/slog"
 	"strconv"
 	"strings"
 )
 
 // WitnessMTLSURL is narcissus's mTLS door: the plaintext port plus one, as
-// every star's DualListener serves it. fleet:witness asks here when the lane
-// forwarded its SPIRE socket, presenting the run's SVID
-// (spiffe://notusmi.com/job/<lane>/<job>); a bare name for the reason
-// WitnessURL gives.
+// every star's DualListener serves it. fleet:witness asks here, and only here, when the lane
+// has, presenting the run's SVID (spiffe://notusmi.com/job/<lane>/<job>); a
+// bare name for the reason WitnessURL gives. It is the ONLY door an ask goes to:
+// WitnessURL is read for /ready and nothing else.
 const WitnessMTLSURL = "https://narcissus:8201/mcp"
 
 // WitnessNoAnswerExit is witnesscall's exit when the identified request WENT
 // OUT and the witness gave no answer in time (deadline, or an answer cut
-// short). Unlike a failure to ask, repeating it in the clear cannot help: the
-// witness is slow, and the retry only doubles its load and files an anonymous
-// record. The atom settles it could-not-consult instead.
+// short). Repeating it cannot help: the witness is slow, and the retry only
+// doubles its load. The atom settles it could-not-consult instead.
 const WitnessNoAnswerExit = 4
 
 // ErrWitnessNoAnswer marks an identified ask the witness left unanswered. It
-// is never retried and never repeated in the clear.
+// is never retried.
 var ErrWitnessNoAnswer = errors.New("the witness did not answer the identified ask in time")
 
 // ParseWitnessCall reads witnesscall post's stdout: "HTTP <status>", the
@@ -40,29 +37,8 @@ func ParseWitnessCall(out string) (int, string, string, error) {
 	return status, ctype, body, nil
 }
 
-// WitnessAskedAs is the atom's identity line when it asked as the lane's
-// SVID; fell of asked asks went to the clear port after the identified ask
-// failed.
-func WitnessAskedAs(id string, fell, asked int64) string {
-	line := "identity: asked as " + id + " at " + WitnessMTLSURL
-	if fell > 0 {
-		line += fmt.Sprintf(" (%d of %d ask(s) fell back to %s in the clear)", fell, asked, WitnessURL)
-	}
-	return line
-}
-
-// WitnessInTheClear is the atom's identity line when it asked with no
-// identity, and why. Never a finding: stars are in witness mode.
-func WitnessInTheClear(why string) string {
-	return "identity: none — asked " + WitnessURL + " in the clear: " + why
-}
-
-// WarnWitnessInTheClear logs, loudly, that fleet:witness is about to ask
-// narcissus on its plaintext port, and why. The fallback stays (it never
-// changes a verdict), but every ask that takes it files an `unidentified`
-// caller at narcissus, so each one must be visible in the pod log, not only
-// in the atom's output line. why is the reason the fallback was taken.
-func WarnWitnessInTheClear(why string) {
-	slog.Warn("fleet:witness asking narcissus in the clear: no identity",
-		"url", WitnessURL, "reason", why)
+// WitnessAskedAs is the atom's identity line: the lane's SVID and the door it
+// was presented at. There is no other line; an ask with no identity is never made.
+func WitnessAskedAs(id string) string {
+	return "identity: asked as " + id + " at " + WitnessMTLSURL
 }

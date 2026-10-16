@@ -126,8 +126,8 @@ func (m *FoundryTools) GateFile(
 	// The SPIRE agent's workload socket, forwarded by the lane pod
 	// (--spire=/run/spire/agent/public/api.sock). fleet:witness asks narcissus
 	// over its mTLS door as the SVID it issues — the lane's own run,
-	// spiffe://notusmi.com/job/<lane>/<job>. Absent, the witness asks in the
-	// clear exactly as before and says so.
+	// spiffe://notusmi.com/job/<lane>/<job>. Absent, fleet:witness settles
+	// could-not-run: it never asks in the clear.
 	// +optional
 	spire *dagger.Socket,
 	// The registry credential the visual lane pushes its artifact with — the
