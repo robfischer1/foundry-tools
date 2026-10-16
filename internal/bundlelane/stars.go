@@ -9,6 +9,7 @@ import (
 	"path"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -103,7 +104,9 @@ type FluxFact struct {
 	// Interface is the protocols the star's Service port names imply, sorted:
 	// a port named mcp is "mcp", a port named http is "http", a port named
 	// otlp-http or otlp-grpc is "otlp", a port named openapi is "openapi" (hades
-	// then routes the star over REST; removing the port reverts it to MCP). Absent
+	// then routes the star over REST; removing the port reverts it to MCP), a port
+	// named openapi-http is "openapi-http:<port>" (the plaintext REST listener's
+	// Service port, the address hades dials in place of the mTLS door). Absent
 	// when no Service port carries one of those names.
 	Interface []string `json:"interface,omitempty"`
 	DB        []string `json:"db,omitempty"`
@@ -149,7 +152,8 @@ func Clusters(manifests map[string]string) (map[string]bool, error) {
 // (mnemosyne-redis, tron-redis, ourea's git).
 //
 // INTERFACE is the set of protocols those names imply: mcp -> "mcp", http ->
-// "http", otlp-http or otlp-grpc -> "otlp", openapi -> "openapi", over every Service of the star (the
+// "http", otlp-http or otlp-grpc -> "otlp", openapi -> "openapi", openapi-http ->
+// "openapi-http:<port>", over every Service of the star (the
 // same selection as PORTS). The name is the declaration: a star that serves
 // plain HTTP names its port http, and a collector that serves OTLP names its
 // ports for it. The listen port of an OTLP star is the one named otlp-http
@@ -375,6 +379,14 @@ func interfacesOf(svcs []manifest) []string {
 				// A marker, never an address: hades routes the star through
 				// its OpenAPI translator (the REST surface on the mtls port).
 				seen["openapi"] = true
+			case "openapi-http":
+				// A marker that carries its port: the plaintext REST listener
+				// (STELLAR_REST_PLAINTEXT_PORT) lives on a port of its own, and
+				// the roster address names only the mTLS door. A port the
+				// manifest does not state as a number names nothing.
+				if port.Port > 0 {
+					seen["openapi-http:"+strconv.Itoa(port.Port)] = true
+				}
 			}
 		}
 	}

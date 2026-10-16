@@ -911,3 +911,37 @@ spec:
 		t.Fatalf("FluxFacts[x] = %s, want %s", a, b)
 	}
 }
+
+// A port named openapi-http declares the plaintext REST listener: it adds
+// "openapi-http:<service port>" beside the rest and moves neither the listen nor
+// the mtls port. A star without it emits nothing new.
+func TestOpenAPIHTTPPortDeclaresThePlaintextRESTListener(t *testing.T) {
+	doc := `kind: Service
+metadata: {name: x}
+spec:
+  ports:
+    - {name: mcp, port: 8000}
+    - {name: mtls, port: 8001}
+    - {name: openapi, port: 8002, targetPort: 8001}
+    - {name: openapi-http, port: 8003, targetPort: 8004}
+`
+	got, err := FluxFacts(map[string]string{"prime/star-x.yaml": doc}, map[string]bool{"x": true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := FluxFact{Ports: &Ports{Listen: 8000, MTLS: 8001}, Interface: []string{"mcp", "openapi", "openapi-http:8003"}}
+	if !reflect.DeepEqual(got["x"], want) {
+		a, _ := json.Marshal(got["x"])
+		b, _ := json.Marshal(want)
+		t.Fatalf("FluxFacts[x] = %s, want %s", a, b)
+	}
+	// Removing the port reverts to exactly today's facts.
+	off := strings.Replace(doc, "    - {name: openapi-http, port: 8003, targetPort: 8004}\n", "", 1)
+	got, err = FluxFacts(map[string]string{"prime/star-x.yaml": off}, map[string]bool{"x": true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"mcp", "openapi"}; !reflect.DeepEqual(got["x"].Interface, want) {
+		t.Fatalf("without the port: Interface = %v, want %v", got["x"].Interface, want)
+	}
+}
