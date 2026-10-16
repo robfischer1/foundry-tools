@@ -63,14 +63,21 @@ func TestTSRegenHoldsAWorldToItsPinsAndToTheShippedBytes(t *testing.T) {
 	}
 	wantCalls(t, b,
 		[]string{"withExec", `"rustup","target","add","wasm32-unknown-unknown"`},
-		[]string{"withExec", `"cargo","install","wasm-tools","--locked","--version","1.250.0"`},
-		[]string{"withMountedFile", `path:"/inner.sh"`},
-		[]string{"withWorkdir", `path:"/src"`},
+		// wasm-tools is the pinned release asset, not a compile; the script's own
+		// install line is dropped so cargo does not compile over it.
+		[]string{"withExec", `"tar","xzf","/tmp/wasm-tools.tar.gz"`, `wasm-tools-1.250.0-x86_64-linux/wasm-tools`},
+		[]string{"withExec", `"wasm-tools","--version"`},
 		[]string{"withEnvVariable", `name:"WASM_TOOLS_VERSION"`, `value:"1.250.0"`},
 		[]string{"withEnvVariable", `name:"CARGO_TARGET_DIR"`, `value:"/tmp/target"`},
+		[]string{"withFile", `path:"/inner.sh"`},
+		[]string{"withWorkdir", `path:"/src"`},
+		[]string{"withExec", `"sed","-i"`, `cargo install wasm-tools`, `"/inner.sh"`},
 		[]string{"withExec", `"sh","/inner.sh"`},
 		[]string{"directory", `path:"/out"`},
 	)
+	if strings.Contains(b, `"cargo","install"`) {
+		t.Errorf("a pinned release must not be compiled:\n%s", b)
+	}
 	// Transpiled by the star's own script with the pinned jco.
 	j := engine.chain(checks.ImageNode, `.jco-version`)
 	wantCalls(t, j,
