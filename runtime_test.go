@@ -46,8 +46,8 @@ func TestEveryLaneDisablesTheOTelSDKAndTrustsTheEnginesCA(t *testing.T) {
 	for atom, probe := range map[string]string{
 		"go:vet":            `"go","vet"`,
 		"rust:cargo-clippy": `"cargo","clippy"`,
-		"python:pytest":     `"pytest","-q"`,
-		"ts:bun-gate":       `"bun","run","gate"`,
+		"python:pip-audit":  `"pip-audit"`,
+		"ts:bun-audit":      `"bun","audit"`,
 		"fleet:witness":     `"git","--version"`,
 	} {
 		engine.reset()
@@ -281,8 +281,8 @@ func TestLanesProvisionTheirToolsPinnedAndInVolatilityOrder(t *testing.T) {
 
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	runAtom(t, "python:ruff-check", "")
-	c = engine.chain(`"ruff","check"`, "exitCode")
+	runAtom(t, "python:pip-audit", "")
+	c = engine.chain(`"pip-audit"`, "exitCode")
 	order(t, c, `from(address:"`+checks.ImagePython+`")`, `"apt-get","install"`, `"git"`, `path:"/usr/local/bin/uv"`, `path:"/usr/local/bin/uvx"`,
 		`"uv","tool","install","ruff==`+checks.RuffVersion+`"`, `"uv","tool","install","cosmic-ray==`+checks.CosmicRayVersion+`"`,
 		`path:"/usr/local/bin/opengrep"`, `withMountedCache`)
@@ -325,7 +325,7 @@ func TestEveryLaneVerifiesOpengrepAgainstItsPin(t *testing.T) {
 	}
 	for _, tc := range []struct{ atom, needle string }{
 		{"go:vet", `"go","vet"`},
-		{"python:ruff-check", `"ruff","check"`},
+		{"python:pip-audit", `"pip-audit"`},
 		{"rust:cargo-fmt", `"cargo","fmt"`},
 		{"ts:bun-audit", `"bun","audit"`},
 	} {
