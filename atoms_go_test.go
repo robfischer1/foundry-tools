@@ -28,123 +28,6 @@ func TestGoLaneIsAbsentWithoutAGoMod(t *testing.T) {
 	}
 }
 
-func TestGoTestRaceCountsTestFilesBeforeRunning(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.stdout(`"go","list"`, "11\n00\n")
-	wantState(t, runAtom(t, "go:test-race", ""), 0)
-	c := engine.chain(`"go","test","-race"`, "exitCode")
-	wantCalls(t, c,
-		[]string{"withMountedDirectory", `path:"/dies"`},
-		[]string{"withEnvVariable", `name:"FOUNDRY_DIES"`, `value:"/dies"`},
-		[]string{"withExec", `expect:ANY`, `args:["go","test","-race","-coverprofile","/tmp/go-test-race.cover","./..."]`},
-	)
-
-	engine.stdout(`"go","list"`, "00\n00\n")
-	wantState(t, runAtom(t, "go:test-race", ""), 1, "no test file in any package")
-
-	engine.stdout(`"go","list"`, "11\n")
-	engine.exitCode(`"go","test","-race"`, 1)
-	wantState(t, runAtom(t, "go:test-race", ""), 1)
-
-	engine.exitCode(`"go","list"`, 1)
-	engine.stderr(`"go","list"`, "go: cannot find main module")
-	wantState(t, runAtom(t, "go:test-race", ""), 1, "cannot be counted", "cannot find main module")
-
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.fail(`"go","list"`, "engine went away")
-	wantState(t, runAtom(t, "go:test-race", ""), 2, "engine went away")
-}
-
-// THE COMMIT'S SUITE IS THE UNIT SUITE: the same packages, no race detector,
-// no database binding and no build tags — so a DB-gated suite does not even
-// compile in. The push's go:test-race is the one that brings both.
-func TestGoTestIsTheUnitSuiteWithoutRaceOrADatabase(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.withTree(map[string]string{".copier-answers.yml": "service_name: x\n"})
-	engine.stdout(`"go","list"`, "11\n")
-	wantState(t, runAtom(t, "go:test", ""), 0, "unit suite")
-	c := engine.chain(`"go","test","./..."`, "exitCode")
-	wantCalls(t, c, []string{"withExec", `expect:ANY`, `args:["go","test","./..."]`})
-	if hasCall(c, "withServiceBinding") {
-		t.Errorf("the commit's suite binds no database:\n%s", c)
-	}
-	// It counts tests exactly as the push's run does.
-	engine.stdout(`"go","list"`, "00\n00\n")
-	wantState(t, runAtom(t, "go:test", ""), 1, "no test file in any package")
-}
-
-// THE TREE SAYS WHICH TAGS, THE LANE BRINGS THE DATABASE (checks/testdb.go). Before this the DB-gated suites never compiled
-// and every DB-touching line read NOT COVERED (foundry-tools#8608).
-func TestGoTestRaceBringsTheTreesDatabases(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.withTree(map[string]string{".copier-answers.yml": "service_name: x\n"})
-	engine.stdout(`"go","list"`, "11\n")
-	engine.stdout(`"grep","-rhoE"`, "//go:build live_db\n//go:build live_db_novector\n//go:build integration\n")
-
-	wantState(t, runAtom(t, "go:test-race", ""), 0,
-		"live_db → TEST_DATABASE_URL", "live_db_novector → TEST_NOVECTOR_DATABASE_URL", "uncompiled", "integration")
-	c := engine.chain(`"go","test","-race"`, "exitCode")
-	wantCalls(t, c,
-		[]string{"withServiceBinding", `alias:"db"`},
-		[]string{"withServiceBinding", `alias:"db-novector"`},
-		[]string{"withEnvVariable", `name:"TEST_DATABASE_URL"`, `value:"` + checks.TestDBs[0].DSN() + `"`},
-		[]string{"withEnvVariable", `name:"TEST_NOVECTOR_DATABASE_URL"`, `value:"` + checks.TestDBs[1].DSN() + `"`},
-		// The vocabulary's two tags, in its order, and one database at a time.
-		[]string{"withExec", `expect:ANY`, `args:["go","test","-race","-tags","live_db,live_db_novector","-p","1","-coverprofile","/tmp/go-test-race.cover","./..."]`},
-	)
-	// The servers are the pinned images, run as services on their port.
-	for _, img := range []string{checks.ImagePgvector, checks.ImagePostgres} {
-		if engine.chain(img, "asService") == "" {
-			t.Errorf("no service chain runs %s:\n%v", img, engine.chains())
-		}
-	}
-	// go:test-race KEEPS THE SHARED SERVER — it runs in the sequence, so it
-	// contends with nothing. Its service must carry no lane word, or it would be
-	// a third database nobody asked for.
-	if hasCall(engine.chain(checks.ImagePgvector, "asService"), "withEnvVariable", `name:"FOUNDRY_TEST_DB_LANE"`) {
-		t.Error("go:test-race took a lane-scoped server; it shares by design")
-	}
-	if !hasCall(engine.chain(checks.ImagePgvector, "asService"), "withExposedPort", "5432") {
-		t.Errorf("the pgvector service must expose 5432:\n%v", engine.chains())
-	}
-	// AND RUNS NON-DURABLE, BUILT THE WAY A SERVICE BECOMES READY: the server
-	// flags as the container's default args, started through the entrypoint.
-	// A WithExec service never reads ready (checks.TestBroker.StartArgs), so
-	// the args must ride withDefaultArgs and asService must carry useEntrypoint.
-	for _, d := range checks.TestDBs {
-		svc := engine.chain(d.Image, "asService")
-		args := `args:["` + strings.Join(d.ServerArgs(), `","`) + `"]`
-		if !hasCall(svc, "withDefaultArgs", args) {
-			t.Errorf("the %s service is not started with ServerArgs:\n%s", d.Tag, svc)
-		}
-		if !hasCall(svc, "asService", "useEntrypoint:true") {
-			t.Errorf("the %s service must start through the image's entrypoint:\n%s", d.Tag, svc)
-		}
-		if strings.Contains(svc, "withExec") {
-			t.Errorf("the %s service carries a withExec and will never read ready:\n%s", d.Tag, svc)
-		}
-	}
-	// The tag enumeration is one grep, in the lane, off the tree — not a
-	// judgement: the exec runs under ANY because "no match" is exit 1.
-	if !hasCall(engine.chain(`"grep","-rhoE"`, "exitCode"), "withExec", "expect:ANY", `--include=*_test.go`) {
-		t.Errorf("the build-tag read must tolerate grep's exit 1:\n%v", engine.chains())
-	}
-
-	// NO TAGGED SUITE: nothing is bound, no tag is compiled, and the scope
-	// line says why. grep exits 1 for no match, which is an answer.
-	engine.stdout(`"grep","-rhoE"`, "")
-	engine.exitCode(`"grep","-rhoE"`, 1)
-	wantState(t, runAtom(t, "go:test-race", ""), 0, "test databases: none", "no test file sits behind a tag")
-	c = engine.chain(`"go","test","-race"`, "exitCode")
-	if hasCall(c, "withServiceBinding") || !hasCall(c, "withExec", `args:["go","test","-race","-coverprofile","/tmp/go-test-race.cover","./..."]`) {
-		t.Errorf("a tree with no tagged suite binds nothing and compiles no tag:\n%s", c)
-	}
-}
-
 // The go:mutation needles, each in one exec's chain.
 const (
 	goMutantsNeedle = `"-output","mutation-go.json"`
@@ -295,23 +178,6 @@ func TestGoMutationCompilesTheTreesDBTags(t *testing.T) {
 	if list := engine.chain(goMainListNeedle, "stdout"); strings.Contains(list, `"-tags"`) {
 		t.Errorf("a tree with no tagged suite tagged the misgraded-file listing:\n%s", list)
 	}
-}
-
-func TestGoGovulncheckUsesTheBakedBinary(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	wantState(t, runAtom(t, "go:govulncheck", ""), 0)
-	c := engine.chain(`"govulncheck","./..."`, "exitCode")
-	wantCalls(t, c, []string{"withExec", `args:["govulncheck","-version"]`}, []string{"withExec", `args:["go","mod","download"]`})
-	// govulncheck answers 3, not 1, when it finds a vulnerability; the old
-	// script's `|| exit 1` hid that, and the first typed cut filed it as
-	// could-not-run — caught here, on the paper engine, 2026-09-12.
-	engine.exitCode(`"govulncheck","./..."`, 3)
-	wantState(t, runAtom(t, "go:govulncheck", ""), 1)
-	engine.exitCode(`"govulncheck","./..."`, 2)
-	wantState(t, runAtom(t, "go:govulncheck", ""), 2)
-	engine.fail(`"govulncheck","-version"`, "not found")
-	wantState(t, runAtom(t, "go:govulncheck", ""), 2, "not found")
 }
 
 // The gate measures the pull's diff in Go: the knobs on the argv, the canary,
@@ -756,22 +622,6 @@ func TestGoLaneIsAbsentWhenEveryGoModIsOneGoWouldNotBuild(t *testing.T) {
 	if engine.chain(`"go","build"`) != "" {
 		t.Error("an absent lane builds no container")
 	}
-}
-
-func TestGoTestRaceCountsAndRunsEachModule(t *testing.T) {
-	engine.reset()
-	engine.withTree(nestedTree)
-	engine.stdout(`"go","list"`, "10\n")
-	wantState(t, runAtom(t, "go:test-race", ""), 0, "PASS in 1 Go module (tools/forge)")
-	c := engine.chain(`"go","test","-race"`, "exitCode")
-	wantCalls(t, c,
-		[]string{"withMountedDirectory", `path:"/dies"`},
-		[]string{"withWorkdir", `path:"/src/tools/forge"`},
-		[]string{"withExec", `args:["go","mod","download"]`},
-	)
-
-	engine.stdout(`"go","list"`, "00\n")
-	wantState(t, runAtom(t, "go:test-race", ""), 1, "no test file in any package", "── module tools/forge ──")
 }
 
 // gremlins in a nested module reads its diff relative to the module, and the
@@ -1392,54 +1242,6 @@ func TestGoMutationCannotMeasureWithoutTheMisgradedSet(t *testing.T) {
 	}
 }
 
-// allowedVulnReport is govulncheck's own text shape for the advisory the gate
-// currently allows (internal/checks/vulnallow.go).
-const allowedVulnReport = `=== Symbol Results ===
-
-Vulnerability #1: GO-2026-6508
-  More info: https://pkg.go.dev/vuln/GO-2026-6508
-    Found in: go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc@v0.19.0
-    Fixed in: go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc@v0.21.0
-
-Your code is affected by 1 vulnerability from 1 module.
-`
-
-// THE ALLOWANCE IS APPLIED BY THE ATOM, not merely available to it — which is
-// the half checks' own tests cannot see, because they never run the atom.
-//
-// EVERY CASE ANSWERS A SURVIVING MUTANT reported on 68432ba: atoms_go.go:638
-// (the exit == 1 guard) LIVED, and :640 (the reason joined to the output) was
-// NOT COVERED — nothing executed the allowance branch at all.
-func TestTheGovulncheckAtomAppliesTheGatesAllowance(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-
-	// An ALLOWED advisory on a findings exit passes — loudly, with govulncheck's
-	// own report still attached as evidence.
-	engine.exitCode(`"govulncheck","./..."`, 3)
-	engine.stdout(`"govulncheck","./..."`, allowedVulnReport)
-	v := runAtom(t, "go:govulncheck", "")
-	wantState(t, v, 0, "GO-2026-6508", "ALLOWED", "not a clean scan", "dagger/otel-go")
-	// AND THE REPORT IS STILL THE EVIDENCE. The reason says what was allowed;
-	// govulncheck's own output stays as the atom's lines, exactly as a red
-	// run's would, so the allowance can be checked rather than taken on trust.
-	if !strings.Contains(strings.Join(v.Logs, "\n"), "Fixed in") {
-		t.Errorf("the scan's own report must survive as the atom's lines:\n%v", v.Logs)
-	}
-
-	// An advisory NOBODY allowed still reds, whatever it arrived beside.
-	engine.stdout(`"govulncheck","./..."`, allowedVulnReport+"\nVulnerability #2: GO-2026-9999\n")
-	wantState(t, runAtom(t, "go:govulncheck", ""), 1)
-
-	// AND AN ALLOWANCE NEVER RESCUES A COULD-NOT-RUN. exit 2 is the advisory
-	// database not answering; a scan that did not complete has found nothing to
-	// allow, and reading one as a pass would turn a substrate fault into a
-	// clean bill of health — the exact conflation AuditVerdict exists to stop.
-	engine.exitCode(`"govulncheck","./..."`, 2)
-	engine.stdout(`"govulncheck","./..."`, allowedVulnReport)
-	wantState(t, runAtom(t, "go:govulncheck", ""), 2)
-}
-
 // THE ARGV'S EXCLUSION SET AND THE RATIFIED TABLE ARE ONE DECISION, and this is
 // what makes them one. goMutationDisable is what the lane actually passes;
 // checks.RatifiedMutators is what Rob signed. They live in different packages
@@ -1491,15 +1293,5 @@ func TestTheStatementOperatorIsNotDisabledByAccident(t *testing.T) {
 	}
 	if strings.Contains(goMutationDisable, "INCREMENT_DECREMENT") {
 		t.Errorf("goMutationDisable %q contains INCREMENT_DECREMENT as a substring of some other entry", goMutationDisable)
-	}
-}
-
-// govulncheck does not wait on the warm build.
-func TestGoGovulncheckDoesNotBranchFromTheWarmBuild(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	wantState(t, runAtom(t, "go:govulncheck", ""), 0)
-	if c := engine.chain(`"govulncheck","./..."`, "exitCode"); strings.Contains(c, `"go","build"`) {
-		t.Errorf("govulncheck carries the warm build:\n%s", c)
 	}
 }

@@ -95,7 +95,10 @@ func TestOutputSeparatesTheEnginesErrorFromTheToolsCode(t *testing.T) {
 	// The exit code answers but the stdout read fails: that is the engine's
 	// error, and the atom never ran.
 	engine.script(script{match: `"go","list"`, leaf: "stdout", fail: "stdout vanished"})
-	wantState(t, runAtom(t, "go:test-race", ""), 2, "stdout vanished")
+	_, code, err := output(t.Context(), dag.Container().From("x").WithExec([]string{"go", "list"}, anyExit))
+	if err == nil || code != 0 || !strings.Contains(err.Error(), "stdout vanished") {
+		t.Errorf("a stdout the engine would not read is its error, not the tool's code: code %d, err %v", code, err)
+	}
 
 	engine.reset()
 	engine.withTree(everyLaneTree)

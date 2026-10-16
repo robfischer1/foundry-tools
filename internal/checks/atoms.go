@@ -355,36 +355,15 @@ func atomTable() []AtomDef {
 		},
 
 		// ---- go ----
-		{
-			ID: "go:test", Stage: StagePrecommit, Lane: LaneGo, Image: ImageGo,
-			Desc:       "go test ./... passes — the unit suite, no race detector and no database.",
-			NeedsDies:  true,
-			SubsumedBy: "go:test-race",
-		},
 		// THE PUSH STAGE'S ROWS ARE IN THE ORDER IT RUNS THEM, cheapest first:
 		// the sequence fails fast (Rob, 2026-09-17: "Each stage fails fast, and
 		// returns the cumulative logs up until the failing step"), so a lint
 		// that answers in seconds must not wait behind a suite that answers in
-		// minutes.
-		{
-			ID: "go:govulncheck", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo,
-			Desc: "govulncheck ./... reports no known vulnerability.",
-		},
+		// minutes. (The order is catalogueOrder's now: go:test, go:test-race and the
+		// rest of the go lane live in atoms/go.)
 		{
 			ID: "go:release", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo,
 			Desc: "The release binaries the image will carry compile, with the image's own flags — for a Dockerfile that copies from release/; one that compiles itself is built by the build lane, and this is absent.",
-		},
-		{
-			ID: "go:test-race", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo,
-			Desc:      "go test -race ./... passes against the live databases the record declares.",
-			NeedsDies: true,
-		},
-		// NeedsDies BECAUSE IT RUNS THE SUITE when go:test-race is not in the
-		// same run to share it with (raceSuite) — the same `go test` the armed
-		// goldens need /dies for.
-		{
-			ID: "go:diff-coverage", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo, NeedsDies: true, NotOnForks: ForkChangeBar,
-			Desc: "Every line this pull changes in non-test, non-generated Go that holds code ran under go:test-race's suite — NOT COVERED, read off its coverage profile.",
 		},
 
 		// ---- python ----

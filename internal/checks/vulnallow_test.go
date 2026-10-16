@@ -204,7 +204,7 @@ func TestOneExpiredEntryAmongSeveralStillReds(t *testing.T) {
 // says what it allowed. VerdictOf would have answered "<id>: PASS" here and
 // made a suppressed vulnerability read exactly like a clean scan.
 func TestAnAllowedVerdictPassesAndStillSaysWhatItAllowed(t *testing.T) {
-	a := AtomByID("go:govulncheck")
+	a := AtomDef{ID: "go:govulncheck", Stage: StagePrepush, Lane: LaneGo}
 	v := AllowedVulnVerdict(a, "1 known vulnerability(ies) found and ALLOWED", "Vulnerability #1: GO-2026-6508\nFixed in: v0.21.0\n")
 
 	if v.State != int(StatePass) {
@@ -232,7 +232,7 @@ func TestAnAllowedVerdictPassesAndStillSaysWhatItAllowed(t *testing.T) {
 // list: "this printed nothing" is a different fact from "nobody set this
 // field", which is the rule every atom in this package follows.
 func TestAnAllowedVerdictNeverCarriesANilLogList(t *testing.T) {
-	v := AllowedVulnVerdict(AtomByID("go:govulncheck"), "allowed", "")
+	v := AllowedVulnVerdict(AtomDef{ID: "go:govulncheck", Stage: StagePrepush, Lane: LaneGo}, "allowed", "")
 	if v.Logs == nil {
 		t.Fatal("an allowed verdict carries [], never nil")
 	}

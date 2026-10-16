@@ -16,7 +16,6 @@ var forkInert = map[string]string{
 	"fleet:stop-justifications": ForkFleetStyle,
 	"fleet:witness":             ForkFleetStyle,
 	"rust:cargo-clippy":         ForkFleetStyle,
-	"go:diff-coverage":          ForkChangeBar,
 	"go:mutation":               ForkChangeBar,
 	"python:mutation":           ForkChangeBar,
 	"rust:mutation":             ForkChangeBar,
@@ -52,7 +51,7 @@ func TestTheForkLaneIsTheCatalogueRowsThatSaySo(t *testing.T) {
 func TestAForkKeepsItsBuildTestsAuditsAndSAST(t *testing.T) {
 	for _, id := range []string{
 		"rust:cargo-test", "rust:release",
-		"go:test", "go:test-race", "go:govulncheck", "go:release",
+		"go:release",
 		"python:release",
 		"ts:release",
 		"fleet:opengrep-sast", "fleet:check-added-large-files",
