@@ -379,3 +379,20 @@ func TestKitsDeclaredWithoutBlocksAreFine(t *testing.T) {
 }
 
 var errBoom = errors.New("i/o error")
+
+func TestLintGradesAUserScopeDocumentAgainstItsForgeSpans(t *testing.T) {
+	const doc, spansP = "renders/h/claude/.claude/CLAUDE.md", "renders/h/claude/.claude/forge/spans.json"
+	good := `[{"slug":"alpha","start_byte":0,"end_byte":10}]`
+	user := func(spans string) Tree {
+		return renderTree(`[{"slug":"alpha","start_byte":0,"end_byte":10}]`, goodDoc, map[string]string{doc: goodDoc, spansP: spans})
+	}
+	want(t, Lint(user(good)), StatePass, "2 span map(s) are sound")
+	want(t, Lint(user(`[{"slug":"alpha","start_byte":0,"end_byte":99}]`)), StateFindings, spansP+": span 1 (alpha) ends at byte 99")
+	want(t, Lint(user(`[{"slug":"ghost","start_byte":0,"end_byte":10}]`)), StateFindings, `names block "ghost"`)
+	// No map beside a document with text is a finding that names the user-scope path.
+	r := Lint(without(user(good), spansP))
+	want(t, r, StateFindings, doc+": has text and no .claude/forge/spans.json beside it")
+	wantNot(t, r, ".furnace/spans.json beside")
+	// A map with no document is a finding too.
+	want(t, Lint(without(user(good), doc)), StateFindings, spansP+": maps a context document that is not here ("+doc+")")
+}

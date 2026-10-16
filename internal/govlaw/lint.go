@@ -21,6 +21,12 @@ var slugRe = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 var spansPathRe = regexp.MustCompile(`^renders/([^/]+)/([^/]+)/` + regexp.QuoteMeta(spansFileInside) + `$`)
 
+// The user-scope pair: .claude/CLAUDE.md with its map at .claude/forge/spans.json
+// (nomos's assemble/userscope.go and inscribe/locate.go spansFor).
+var userSpansPathRe = regexp.MustCompile(`^renders/([^/]+)/([^/]+)/` + regexp.QuoteMeta(userSpansInside) + `$`)
+
+var userDocPathRe = regexp.MustCompile(`^renders/([^/]+)/([^/]+)/` + regexp.QuoteMeta(userDocName) + `$`)
+
 var contextPathRe = regexp.MustCompile(`^renders/([^/]+)/([^/]+)/` + regexp.QuoteMeta(contextDocName) + `$`)
 
 // Lint grades the law tree's structure: the block library, the kit tables and
@@ -114,7 +120,8 @@ func Lint(t Tree) Result {
 
 func (t Tree) countSpans() int {
 	paths, _ := t.matching(spansPathRe)
-	return len(paths)
+	user, _ := t.matching(userSpansPathRe)
+	return len(paths) + len(user)
 }
 
 // bundleNames is the names in bundles.toml; the file is optional.
@@ -176,14 +183,34 @@ func includeCycles(graph map[string][]string) [][]string {
 
 // lintRenders grades every render's span map and every render's lack of one.
 func (t Tree) lintRenders(stems []string) ([]string, *Result) {
-	docs, groups := t.matching(contextPathRe)
-	spanPaths, spanGroups := t.matching(spansPathRe)
+	var findings []string
+	for _, set := range []struct {
+		doc, spans *regexp.Regexp
+		docName    string
+		spansName  string
+	}{
+		{contextPathRe, spansPathRe, contextDocName, spansFileInside},
+		{userDocPathRe, userSpansPathRe, userDocName, userSpansInside},
+	} {
+		f, res := t.lintRenderSet(stems, set.doc, set.spans, set.docName, set.spansName)
+		if res != nil {
+			return nil, res
+		}
+		findings = append(findings, f...)
+	}
+	return findings, nil
+}
+
+// lintRenderSet grades one document kind's span maps and its lack of one.
+func (t Tree) lintRenderSet(stems []string, docRe, spansRe *regexp.Regexp, docName, spansName string) ([]string, *Result) {
+	docs, groups := t.matching(docRe)
+	spanPaths, spanGroups := t.matching(spansRe)
 	var findings []string
 	seen := map[string]bool{}
 	for _, p := range spanPaths {
 		key := renderKey(spanGroups[p][0], spanGroups[p][1])
 		seen[key] = true
-		doc := "renders/" + key + "/" + contextDocName
+		doc := "renders/" + key + "/" + docName
 		if !t.has(doc) {
 			findings = append(findings, p+": maps a context document that is not here ("+doc+")")
 			continue
@@ -211,7 +238,7 @@ func (t Tree) lintRenders(stems []string) ([]string, *Result) {
 			return nil, &r
 		}
 		if strings.TrimSpace(text) != "" {
-			findings = append(findings, p+": has text and no "+spansFileInside+" beside it, so no byte of it is attributed to a block")
+			findings = append(findings, p+": has text and no "+spansName+" beside it, so no byte of it is attributed to a block")
 		}
 	}
 	return findings, nil
