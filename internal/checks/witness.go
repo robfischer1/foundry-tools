@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"path"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -459,48 +458,6 @@ func WitnessSkipTail(skipped, vendored, tests []string) string {
 		clauses = append(clauses, fmt.Sprintf("; skipped %d test file(s)", len(tests)))
 	}
 	return strings.Join(clauses, "")
-}
-
-var (
-	skippedRE  = regexp.MustCompile(`skipped (\d+) file\(s\) in languages`)
-	vendoredRE = regexp.MustCompile(`skipped (\d+) vendored file\(s\)`)
-	testsRE    = regexp.MustCompile(`skipped (\d+) test file\(s\)`)
-)
-
-// WitnessSkipCounts reads the counts WitnessSkipTail wrote into a reason; a
-// clause that is not there is 0.
-func WitnessSkipCounts(reason string) (skipped, vendored, tests int) {
-	count := func(re *regexp.Regexp) int {
-		m := re.FindStringSubmatch(reason)
-		if m == nil {
-			return 0
-		}
-		n, _ := strconv.Atoi(m[1])
-		return n
-	}
-	return count(skippedRE), count(vendoredRE), count(testsRE)
-}
-
-// WitnessedPaths reads the files a WitnessSummary table names, in its order: the
-// first cell of each row after the header. Text the table does not hold (the
-// reason line above it, the footgun bullets below) is not a row.
-func WitnessedPaths(text string) []string {
-	var out []string
-	rows := false
-	for _, ln := range strings.Split(text, "\n") {
-		switch {
-		case strings.HasPrefix(ln, "| file | verdict"):
-			rows = true
-		case strings.HasPrefix(ln, "|---"):
-			// The rule under the header; outside a table it ends nothing.
-		case rows && strings.HasPrefix(ln, "| "):
-			cell, _, _ := strings.Cut(strings.TrimPrefix(ln, "| "), " | ")
-			out = append(out, cell)
-		default:
-			rows = false
-		}
-	}
-	return out
 }
 
 // StarName is the star a checkout's origin URL names: its last path segment,
