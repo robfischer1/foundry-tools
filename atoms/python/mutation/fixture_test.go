@@ -39,6 +39,8 @@ type pull struct {
 	work  string
 	// scopeOut is what scope writes to GITHUB_OUTPUT.
 	scopeOut string
+	// failSyncFrom, when set, fails the nth uv sync and every one after it.
+	failSyncFrom, syncs int
 }
 
 func putFile(t *testing.T, root, rel, body string) {
@@ -87,6 +89,13 @@ func (p *pull) exec(_ context.Context, c atoms.Cmd) (string, int) {
 	p.runs = append(p.runs, filepath.Base(c.Dir)+": "+line)
 	p.cmds = append(p.cmds, c)
 	rules := p.rules
+	if strings.Contains(line, "uv sync") {
+		p.syncs++
+		if p.failSyncFrom > 0 && p.syncs >= p.failSyncFrom {
+			p.mu.Unlock()
+			return "error: no wheel for a worker", 2
+		}
+	}
 	p.mu.Unlock()
 	for _, r := range rules {
 		if strings.Contains(line, r.needle) {

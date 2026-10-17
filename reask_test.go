@@ -66,7 +66,3 @@ func TestOnlyACouldNotRunIsAskedAgain(t *testing.T) {
 		}
 	}
 }
-
-// goAllTimedOutReport is a report whose only mutant TIMED OUT: 100% over the
-// 10% budget, which GoMutationVerdict settles as could-not-run.
-const goAllTimedOutReport = `{"elapsed_time":1,"files":[{"file_name":"a.go","mutations":[{"type":"T","status":"TIMED OUT","line":1,"column":1}]}]}`

@@ -1,6 +1,7 @@
 package atoms
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -97,24 +98,18 @@ func CopyTree(src, dst string, skip ...string) error {
 		}
 		rel, _ := filepath.Rel(src, p) // p is under src, so Rel cannot fail
 		to := filepath.Join(dst, rel)
-		info, err := d.Info()
-		if err != nil {
-			return err
+		perm := fs.FileMode(0o644)
+		if info, err := d.Info(); err == nil {
+			perm = info.Mode().Perm()
 		}
 		switch {
 		case d.IsDir():
-			return os.MkdirAll(to, info.Mode().Perm()|0o700)
+			return os.MkdirAll(to, perm|0o700)
 		case d.Type()&fs.ModeSymlink != 0:
-			target, err := os.Readlink(p)
-			if err != nil {
-				return err
-			}
+			target, _ := os.Readlink(p) // a link that will not read is made empty, and Symlink refuses it
 			return os.Symlink(target, to)
 		}
-		body, err := os.ReadFile(p)
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(to, body, info.Mode().Perm()|0o200)
+		body, rerr := os.ReadFile(p)
+		return errors.Join(rerr, os.WriteFile(to, body, perm|0o200))
 	})
 }

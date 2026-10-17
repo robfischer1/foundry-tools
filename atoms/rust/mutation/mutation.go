@@ -65,6 +65,9 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 	return g.grade(ctx)
 }
 
+// workingTree is atoms.WorkingTree, a variable so a test can say the copy fails.
+var workingTree = atoms.WorkingTree
+
 // grading is one ask of the atom.
 type grading struct {
 	in    atomkit.In
@@ -137,7 +140,7 @@ func (g *grading) grade(ctx context.Context) checks.Verdict {
 func (g *grading) mutate(ctx context.Context, since, diff string, specs []string) checks.Verdict {
 	in := g.in
 	g.work = filepath.Join(atoms.WorkDir(), "rust")
-	tree, _, err := atoms.WorkingTree(in.Root, g.work)
+	tree, _, err := workingTree(in.Root, g.work)
 	if err != nil {
 		return g.settle(2, "CANNOT RUN - the tree could not be copied to build in: "+err.Error())
 	}

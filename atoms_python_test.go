@@ -2,7 +2,6 @@ package main
 
 import (
 	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -20,25 +19,6 @@ import (
 const pipAuditNeedle = `"pip-audit==` + checks.PipAuditVersion + `","pip-audit"`
 
 // ---- mutation ----
-
-// python:mutation's needles: each exec the atom runs, by the words only it has.
-const (
-	pyBaseNeedle      = `"git","rev-parse","--verify","--quiet","abc123^{commit}"`
-	pyNamesNeedle     = `"--name-only","--diff-filter=AM"`
-	pyDiffNeedle      = `"git","diff","-M","--unified=0","since0","HEAD"`
-	pySyncNeedle      = `args:["uv","sync","--all-extras","--locked"]`
-	pyInitNeedle      = `"cosmic-ray","init"`
-	pyScopeNeedle     = `"forge-testkit-mutation","scope"`
-	pyPluginNeedle    = `"forge-testkit-mutation","plugin"`
-	pyPlanNeedle      = `"forge-testkit-mutation","plan"`
-	pyMeasureNeedle   = `"coverage==` + checks.CoverageVersion + `"`
-	pyMapNeedle       = `"forge-testkit-mutation","map"`
-	pyPartitionNeedle = `"forge-testkit-mutation","partition"`
-	pyExecNeedle      = `"cosmic-ray","exec"`
-	pyMergeNeedle     = `"forge-testkit-mutation","merge"`
-	pySelectionNeedle = `"forge-testkit-mutation","selection"`
-	pyReportNeedle    = `"forge-testkit-mutation","report"`
-)
 
 // AN AUDIT THAT COULD NOT REACH ITS ADVISORIES IS ASKED AGAIN, NOT FILED. The
 // first ask times out against pypi.org and exits 1; read as a finding that
@@ -153,16 +133,6 @@ func TestPythonMypyStandsDownWithoutAManifestWhileLintStillRuns(t *testing.T) {
 			t.Errorf("%s: a .py-declared lane still lints and tests, got %+v", want.id, v)
 		}
 	}
-}
-
-// pythonExcludes is the --exclude-operator pairs the Python rows put on the
-// scope argv, as the engine renders them.
-func pythonExcludes() string {
-	var parts []string
-	for _, op := range checks.SkippedMutators(checks.MutatorPython) {
-		parts = append(parts, `"--exclude-operator",`+strconv.Quote(op))
-	}
-	return strings.Join(parts, ",")
 }
 
 // THE PYTHON LANE'S TOOLS ARE INSTALLED ONCE, AT EXACT VERSIONS, IN THE

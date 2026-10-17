@@ -360,6 +360,14 @@ func failing(t *testing.T, op, needle string) {
 			}
 			return oldCopy(src, dst, skip...)
 		}
+	case "mkdir":
+		mkdirAll = func(p string, m os.FileMode) error {
+			if strings.HasSuffix(p, needle) {
+				return os.ErrPermission
+			}
+			return os.MkdirAll(p, m)
+		}
+		t.Cleanup(func() { mkdirAll = os.MkdirAll })
 	case "write":
 		writeFile = func(p string, b []byte, m os.FileMode) error {
 			if strings.HasSuffix(p, needle) {
@@ -386,6 +394,7 @@ func TestPythonMutationCannotRunWhereItCannotWrite(t *testing.T) {
 	}{
 		{"the work directory cannot be cleared", "remove", "/python", "uv sync"},
 		{"the tree cannot be copied", "copy", "/python/src", "uv sync"},
+		{"a directory for the config cannot be made", "mkdir", "/python", "cosmic-ray init"},
 		{"the config cannot be written", "write", "/python/pr.diff", "cosmic-ray init"},
 		{"the scope output cannot be made", "write", "/python/scope.out", "forge-testkit-mutation scope"},
 		{"a worker's tree cannot be copied", "copy", "/python/w1", "uv run --with coverage"},
@@ -407,5 +416,16 @@ func TestPythonMutationCannotRunWhereItCannotWrite(t *testing.T) {
 				t.Errorf("went on to %s", tc.never)
 			}
 		})
+	}
+}
+
+// A worker whose environment will not sync cannot measure anything, and the
+// verdict says so in the sync's words.
+func TestPythonMutationCannotRunWhenAWorkerWillNotSync(t *testing.T) {
+	p := newPull(t, "")
+	p.failSyncFrom = 2 // the primary synced; the workers do not
+	v := p.run()
+	if v.State != 2 || !strings.Contains(said(v), "uv sync --all-extras --locked exited 2") || p.ran("uv run --with coverage") {
+		t.Errorf("%s", said(v))
 	}
 }

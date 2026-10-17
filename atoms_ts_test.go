@@ -11,19 +11,6 @@ import (
 // left here is ts:mutation. ts:bun-gate lives in atoms/ts/bun-gate and is
 // tested beside its file.
 
-// ts:mutation's needles: each exec the atom runs, by the words only it has.
-const (
-	tsBaseNeedle    = `"git","rev-parse","--verify","--quiet","abc123^{commit}"`
-	tsDiffNeedle    = `"git","diff","--unified=0","since0","HEAD"`
-	tsInstallNeedle = `args:["bun","install","--frozen-lockfile"]`
-	tsFindNeedle    = `"find","/src","-type","f"`
-	tsStrykerNeedle = `"--reporters","clear-text,json"`
-	tsGlobNeedle    = `glob(pattern:"**/*stryker.con*")`
-	tsDiff          = "diff --git a/src/gate.ts b/src/gate.ts\n--- a/src/gate.ts\n+++ b/src/gate.ts\n@@ -1,0 +2,2 @@\n+a\n+b"
-)
-
-const tsKilled = `{"status":"Killed","mutatorName":"BooleanLiteral","testsCompleted":1,"location":{"start":{"line":2}}}`
-
 // A repo with no package.json never reaches a runner: the lane is a fact about
 // the tree, the PLANNER reads that fact once before anything starts
 // (run.plan), and the atom answers absent without a container.

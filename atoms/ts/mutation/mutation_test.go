@@ -279,7 +279,7 @@ func TestTSMutationPatchesTheBrokenVitestRunnerAndSaysIt(t *testing.T) {
 	// A search that cannot run is the same silence wearing a different hat.
 	u := newPull(t, "")
 	broken(u, "5.0.0")
-	walk = func(string, fs.WalkDirFunc) error { return os.ErrPermission }
+	walk = func(root string, fn fs.WalkDirFunc) error { return fn(root, nil, os.ErrPermission) }
 	t.Cleanup(func() { walk = filepath.WalkDir })
 	v = u.run()
 	if v.State != 2 || !strings.Contains(said(v), "find could not enumerate "+u.in.Root) || !strings.Contains(said(v), "permission denied") {

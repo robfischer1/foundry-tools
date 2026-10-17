@@ -71,18 +71,6 @@ func TestCargoDepsIsTheBaseOfEveryCompilingAtom(t *testing.T) {
 	}
 }
 
-// rust:mutation's needles: each exec the atom runs, by the words only it has.
-const (
-	rustBaseNeedle    = `"git","rev-parse","--verify","--quiet","abc123^{commit}"`
-	rustDiffNeedle    = `"--relative","since0","HEAD"`
-	rustFilesNeedle   = `"--name-only","-z"`
-	rustMetaNeedle    = `"cargo","metadata","--no-deps"`
-	rustMutantsNeedle = `"-D","/tmp/mutation/pr.diff"`
-	// rustOneCrate is cargo metadata for a single-package crate at /src.
-	rustOneCrate = `{"packages":[{"name":"x","id":"x","manifest_path":"/src/Cargo.toml"}],"workspace_members":["x"]}`
-	rustDiff     = "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-fn f() -> i32 { 1 }\n+fn f() -> i32 { 2 }"
-)
-
 // A repo with no Cargo.toml never reaches a runner: the lane is a fact about
 // the tree, the PLANNER reads that fact once before anything starts
 // (run.plan), and the atom answers absent without a container.

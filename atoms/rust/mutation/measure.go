@@ -43,6 +43,13 @@ const (
 	rustTestRunner = "prlimit --data=4294967296 --"
 )
 
+// The disk and the link, as the atom touches them: variables so a test can say
+// they fail.
+var (
+	writeFile  = os.WriteFile
+	linkHelper = atoms.LinkHelper
+)
+
 // moldAvailable says the linker the lane drives every mutant's link through is
 // installed. The Dagger lane image carries it; the executor's toolchain image is
 // upstream's rust, which does not, and the verdict does not depend on it: only
@@ -92,10 +99,10 @@ func (g *grading) measure(ctx context.Context, diff string, packages []string, k
 			return g.settle(2, "CANNOT RUN - the atom never ran: "+err.Error())
 		}
 	}
-	if err := os.WriteFile(diffFile, []byte(diff+"\n"), 0o644); err != nil {
+	if err := writeFile(diffFile, []byte(diff+"\n"), 0o644); err != nil {
 		return g.settle(2, "CANNOT RUN - the atom never ran: "+err.Error())
 	}
-	exe, err := atoms.LinkHelper(filepath.Join(g.work, "bin"), "execmem")
+	exe, err := linkHelper(filepath.Join(g.work, "bin"), "execmem")
 	if err != nil {
 		return g.settle(2, "CANNOT RUN - the atom never ran: "+err.Error())
 	}

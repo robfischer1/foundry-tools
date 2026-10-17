@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"dagger/foundry-tools/internal/atomkit"
+	"dagger/foundry-tools/internal/atoms"
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/unitkey"
 )
@@ -495,5 +496,51 @@ func TestALockedTreeIsBuiltInACopy(t *testing.T) {
 	}
 	if info, err := os.Stat(filepath.Join(c.Dir, "src/lib.rs")); err != nil || info.Mode().Perm()&0o200 == 0 {
 		t.Errorf("the copy is not writable: %v %v", info, err)
+	}
+}
+
+var realMold = moldAvailable
+
+// The lane image's linker is found on the PATH, and a PATH without it has none.
+func TestMoldIsFoundOnThePath(t *testing.T) {
+	bin := t.TempDir()
+	t.Setenv("PATH", bin)
+	if realMold() {
+		t.Error("mold found on an empty PATH")
+	}
+	putFile(t, bin, "mold", "#!/bin/sh\n")
+	if err := os.Chmod(filepath.Join(bin, "mold"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !realMold() {
+		t.Error("mold not found")
+	}
+}
+
+// What the atom writes or links to run cargo mutants, and cannot, is its
+// could-not-run — and cargo mutants does not run.
+func TestRustMutationCannotRunWhereItCannotLinkWriteOrCopy(t *testing.T) {
+	for name, set := range map[string]func(t *testing.T){
+		"the diff cannot be written": func(t *testing.T) {
+			writeFile = func(string, []byte, os.FileMode) error { return os.ErrPermission }
+			t.Cleanup(func() { writeFile = os.WriteFile })
+		},
+		"execmem cannot be linked": func(t *testing.T) {
+			linkHelper = func(string, string) (string, error) { return "", os.ErrPermission }
+			t.Cleanup(func() { linkHelper = atoms.LinkHelper })
+		},
+		"the tree cannot be copied": func(t *testing.T) {
+			workingTree = func(string, string) (string, bool, error) { return "", false, os.ErrPermission }
+			t.Cleanup(func() { workingTree = atoms.WorkingTree })
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := newPull(t, "")
+			set(t)
+			v := p.run()
+			if v.State != 2 || !strings.Contains(said(v), "CANNOT RUN") || !strings.Contains(said(v), "permission denied") || p.ran("cargo mutants --colors") {
+				t.Errorf("%s", said(v))
+			}
+		})
 	}
 }

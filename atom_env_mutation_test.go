@@ -86,7 +86,7 @@ func TestGateFileArmsTheLookupUnderReuse(t *testing.T) {
 	}
 }
 
-// go:mutation runs beside go:test-race and binds servers of its own, under the
+// The go lane's mutation atom runs beside go:test-race and binds servers of its own, under the
 // lane's alias, and is keyed afresh on every ask (it re-asks its own modules, so
 // the whole-atom re-ask's nonce is its).
 func TestGoMutationBindsItsOwnServersAndIsKeyedAfresh(t *testing.T) {

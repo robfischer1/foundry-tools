@@ -134,3 +134,9 @@ func TestRunProgramSplitsStderrAndDropsWhatIsUnset(t *testing.T) {
 		t.Errorf("%s", out)
 	}
 }
+
+func TestAnEmptyTreeIsNotLocked(t *testing.T) {
+	if locked(t.TempDir()) {
+		t.Error("a tree with no file is locked")
+	}
+}

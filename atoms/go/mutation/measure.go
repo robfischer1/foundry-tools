@@ -193,7 +193,7 @@ func (m *module) misgraded(ctx context.Context, tags []string) (checks.GoMisgrad
 // and never fired (internal/pgroupps has the measurement). The atom's own binary
 // answers as that ps, through a link first on PATH for this exec only.
 func (m *module) mutate(ctx context.Context, report, cache, since string, tags, scope []string) (atoms.Cmd, string, int) {
-	bin, err := atoms.LinkHelper(filepath.Join(atoms.WorkDir(), "bin"), "ps")
+	bin, err := linkHelper(filepath.Join(atoms.WorkDir(), "bin"), "ps")
 	if err != nil {
 		return atoms.Cmd{Name: "gomutants"}, "the ps for gomutants' memory cap could not be made: " + err.Error(), -1
 	}
@@ -243,6 +243,9 @@ func (m *module) classify(ctx context.Context, report string) (out, errOut strin
 	}
 	return out, stderr
 }
+
+// linkHelper is atoms.LinkHelper, a variable so a test can say it cannot link.
+var linkHelper = atoms.LinkHelper
 
 // put writes a file under dir, making its directories.
 func put(dir, rel, body string) error {

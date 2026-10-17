@@ -49,11 +49,6 @@ const id = "go:mutation"
 // row is the part of the catalogue row a verdict reads: its identity.
 var row = checks.AtomDef{ID: id, Stage: checks.StageMutation, Lane: checks.LaneGo}
 
-// mutationDBLane names the mutation gate's own test-server binding. Any
-// non-empty word works; this one reads in a service alias (db-mutation) and in
-// the DSN the suite is handed. The environment binds the servers under it.
-const mutationDBLane = "mutation"
-
 // noBase is the stand-down for a run with no change set.
 const noBase = "no usable PR base sha — the diff-scoped gate did not run"
 
@@ -126,7 +121,7 @@ func commit(in atomkit.In) string {
 	if sha := os.Getenv(atoms.EnvSha); sha != "" {
 		return sha
 	}
-	out, code := atoms.Git(context.Background(), in.Root, "rev-parse", "HEAD")
+	out, code := atoms.RunCmd(context.Background(), in, atoms.Cmd{Dir: in.Root, Name: "git", Args: []string{"rev-parse", "HEAD"}})
 	if code != 0 {
 		return ""
 	}
