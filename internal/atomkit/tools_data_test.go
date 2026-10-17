@@ -84,7 +84,7 @@ var goPins = map[string]string{
 
 // imagePins are the tools that are an image, and the toolchains and services.
 var imagePins = map[string]string{
-	"uv": checks.ImageUV, "trivy": checks.ImageTrivy, "syft": checks.ImageSyft, "cosign": checks.ImageCosign,
+	"uv": checks.ImageUV, "python": checks.ImagePython, "trivy": checks.ImageTrivy, "syft": checks.ImageSyft, "cosign": checks.ImageCosign,
 	"signing-tools": checks.ImageSigningTools, "kubeconform": checks.ImageKubeconform,
 	"kube-linter": checks.ImageKubeLinter, "static": checks.ImageStatic, "debian": checks.ImageTools,
 }

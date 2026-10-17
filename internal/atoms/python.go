@@ -26,6 +26,25 @@ const (
 	AnsibleCollectionsDir = "/opt/ansible-collections"
 )
 
+// The two variables that move the venv and the collections. On the executor the
+// python container is a bare interpreter and the venv is built into the node's
+// cache, wherever the key puts it (daedalus internal/runner/provision, from
+// pytools/requirements.txt at the run's catalogue sha); the atom's environment
+// names it. On Dagger neither is set and the directories above are the tools
+// container's.
+const (
+	PyBinEnv              = "ATOMS_PY_BIN"
+	AnsibleCollectionsEnv = "ATOMS_ANSIBLE_COLLECTIONS"
+)
+
+// EnvOr is the value getenv answers for key, or def when it answers nothing.
+func EnvOr(getenv func(string) string, key, def string) string {
+	if v := getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
 // pythonEnv keeps python from writing __pycache__ beside the scripts it imports:
 // a checker that imports its sibling modules (tools/check_wit_regenerated.py
 // imports wit_from_schema) would otherwise leave tools/__pycache__ in the tree

@@ -25,7 +25,8 @@ var Def = atomkit.Def{
 	Group:     checks.GroupLanguage,
 	Desc:      "Every case in this template's ci-matrix.toml still renders.",
 	Surface:   "any:**",
-	Toolchain: "python",
+	Toolchain: "none",
+	Needs:     []string{"pytools"},
 	Check:     check,
 }
 

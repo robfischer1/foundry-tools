@@ -437,3 +437,40 @@ func TestIT_285_EveryCatalogueIDIsOneFileOrTheUnportedSet(t *testing.T) {
 		t.Errorf("ids with no file under atoms/ = %v, want the unported set %v", rowOnly, unported)
 	}
 }
+
+// pyOpsAtoms are the eight python ops and template atoms that vote in the atoms
+// binary on Dagger, with the tools container's prebuilt venv, and ran on the
+// executor in a bare interpreter (DEF-B3-047): pyyaml, copier and the ansible
+// collections were not there.
+var pyOpsAtoms = []string{
+	"ops:ansible", "ops:declaration", "ops:dup", "ops:metrics", "ops:specs",
+	"ops:star-sa", "ops:world-patches", "template:render-matrix",
+}
+
+// TestDEF_B3_047_ThePythonOpsAtomsNeedThePytoolsVenv: each of the eight asks for
+// the venv the executor builds from pytools/requirements.txt, and runs in lead
+// (toolchain none: git there, python from the image tool) and votes in the binary.
+func TestDEF_B3_047_ThePythonOpsAtomsNeedThePytoolsVenv(t *testing.T) {
+	for _, id := range pyOpsAtoms {
+		e, ok := Lookup(id)
+		if !ok || e.Def == nil || e.Def.Toolchain != "none" || !slices.Contains(e.Def.Needs, "pytools") || !votesInBinary(e.Def) {
+			t.Errorf("%s: %+v", id, e.Def)
+		}
+	}
+}
+
+// TestDEF_B3_047_NoBinaryVotingPythonAtomRunsOnABareInterpreter: an atom that
+// votes in the binary by history and runs python on the executor names where its
+// packages come from: the venv (pytools) or uv (`uv run --with`).
+func TestDEF_B3_047_NoBinaryVotingPythonAtomRunsOnABareInterpreter(t *testing.T) {
+	for id := range votesInBinaryByHistory {
+		e, ok := Lookup(id)
+		if !ok || e.Def == nil {
+			t.Errorf("%s: no Def", id)
+			continue
+		}
+		if !slices.Contains(e.Def.Needs, "pytools") && !slices.Contains(e.Def.Needs, "tool:uv") {
+			t.Errorf("%s votes in the binary and needs neither pytools nor tool:uv: %v", id, e.Def.Needs)
+		}
+	}
+}
