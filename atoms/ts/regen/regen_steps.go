@@ -118,6 +118,7 @@ func (w *world) build(core string) (built, error) {
 		"WASM_TOOLS_VERSION=" + w.prov.Tools.WasmTools,
 		"CARGO_TARGET_DIR=" + w.target(),
 		"RUSTUP_HOME=" + rustup,
+		"CARGO_BUILD_RUSTFLAGS=" + checks.RegenRemapFlags(core, w.target(), os.Getenv("CARGO_HOME"), rustup),
 		"PATH=" + pathWith(wasmDir, cargoBin()),
 	}
 	if _, err := w.do(core, env, []string{script}, false); err != nil {

@@ -293,6 +293,7 @@ func TestTSRegenRunsEachStepAsAProgramWithItsArguments(t *testing.T) {
 		w + "/stellar-core-rust: git archive --format=tar --output=" + w + "/core.tar " + rgCore,
 		w + ": tar -xf " + w + "/core.tar -C " + w + "/core",
 		os.TempDir() + ": cp -a /usr/local/rustup/. $W/ts-regen-tools/rustup",
+		os.TempDir() + ": rustup target add wasm32-unknown-unknown",
 		os.TempDir() + ": tar -xzf $W/ts-regen-tools/wasm-tools-1.250.0.tar.gz -C $W/ts-regen-tools/wasm-tools-1.250.0 --strip-components=1 wasm-tools-1.250.0-x86_64-linux/wasm-tools",
 		os.TempDir() + ": $W/ts-regen-tools/wasm-tools-1.250.0/wasm-tools --version",
 		w + "/core: " + w + "/stamp-core-inner.sh",
@@ -351,6 +352,9 @@ func TestTSRegenGivesTheScriptsTheirPinsAndTheirOwnDirectories(t *testing.T) {
 	if b["WASM_TOOLS_VERSION"] != "1.250.0" || b["CARGO_TARGET_DIR"] != target+"/ts-regen-stamp" || b["RUSTUP_HOME"] != work+"/ts-regen-tools/rustup" ||
 		b["PATH"] != work+"/ts-regen-tools/wasm-tools-1.250.0:/cargo/bin:/usr/bin" || build.Dir != w+"/core" {
 		t.Errorf("build env %v dir %s", b, build.Dir)
+	}
+	if want := "--remap-path-prefix=" + w + "/core=/src --remap-path-prefix=" + target + "/ts-regen-stamp=/tmp/target --remap-path-prefix=/cargo=/usr/local/cargo --remap-path-prefix=" + work + "/ts-regen-tools/rustup=/usr/local/rustup"; b["CARGO_BUILD_RUSTFLAGS"] != want {
+		t.Errorf("the guest is built as if it were where it was recorded: %q", b["CARGO_BUILD_RUSTFLAGS"])
 	}
 	if tr["JCO_VERSION"] != "1.35.0" || tr["NODE_EXTRA_CA_CERTS"] != "/etc/ssl/certs/ca-certificates.crt" || tr["npm_config_prefix"] != w+"/npm" ||
 		tr["npm_config_cache"] != work+"/ts-regen-tools/npm-cache" || tr["PATH"] != w+"/npm/bin:"+work+"/ts-regen-tools/node/bin:/usr/bin" {
@@ -589,6 +593,7 @@ func TestTSRegenCannotRunWhenAStepWillNotRun(t *testing.T) {
 		{"core archive", "git archive", "core @" + rgCore},
 		{"core unpack", "tar -xf", "core @" + rgCore},
 		{"rustup", "cp -a", "rustup home"},
+		{"rustup target", "rustup target add", "rustup home"},
 		{"build", "stamp-core-inner.sh", "the build of stamp"},
 		{"node", "node --version", "node 24.21.0"},
 		{"transpile", "transpile-stamp-inner.sh", "the transpile of stamp"},

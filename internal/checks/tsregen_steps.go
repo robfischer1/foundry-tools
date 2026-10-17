@@ -59,6 +59,36 @@ func RegenTar(file, dir string, gz bool, strip int, member string) []string {
 // links kept: rustup's home, so `rustup target add` has a place it may write.
 func RegenCopyTree(from, to string) []string { return []string{"cp", "-a", from + "/.", to} }
 
+// RegenRustupTarget adds the guest's compile target to the toolchain.
+func RegenRustupTarget() []string {
+	return []string{"rustup", "target", "add", "wasm32-unknown-unknown"}
+}
+
+// The directories the recorded guests were built in. A guest's bytes carry the
+// paths of the sources it was built from (panic locations, debug info), so a
+// build somewhere else is a different file; the paths are remapped back to
+// where the chain built (the core mounted at /src, the target at /tmp/target,
+// cargo and rustup at the image's own homes), which makes the bytes the same
+// wherever the pod put the directories.
+const (
+	regenSrc       = "/src"
+	regenTarget    = "/tmp/target"
+	regenCargoHome = "/usr/local/cargo"
+	regenRustup    = "/usr/local/rustup"
+)
+
+// RegenRemapFlags is the rustc flags that remap this run's directories to the
+// ones the guests were recorded in; a directory that already is one is left.
+func RegenRemapFlags(core, target, cargoHome, rustupHome string) string {
+	var flags []string
+	for _, m := range [][2]string{{core, regenSrc}, {target, regenTarget}, {cargoHome, regenCargoHome}, {rustupHome, regenRustup}} {
+		if m[0] != "" && m[0] != m[1] {
+			flags = append(flags, "--remap-path-prefix="+m[0]+"="+m[1])
+		}
+	}
+	return strings.Join(flags, " ")
+}
+
 // RegenDiff compares every regenerated file with what the tree ships, byte for
 // byte, less the provenance that records the diff and jco's version stamp.
 func RegenDiff(gen, shipped string) []string {

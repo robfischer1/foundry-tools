@@ -31,6 +31,7 @@ func TestRegenStepArgvGolden(t *testing.T) {
 			[]string{"tar", "-xzf", "/w/t.tgz", "-C", "/w/bin", "--strip-components=1", "wasm-tools-1.250.0-x86_64-linux/wasm-tools"}},
 		{"unpack node whole", RegenTar("/w/n.tgz", "/w/node", true, 1, ""), []string{"tar", "-xzf", "/w/n.tgz", "-C", "/w/node", "--strip-components=1"}},
 		{"copy rustup", RegenCopyTree("/usr/local/rustup", "/w/rustup"), []string{"cp", "-a", "/usr/local/rustup/.", "/w/rustup"}},
+		{"add the target", RegenRustupTarget(), []string{"rustup", "target", "add", "wasm32-unknown-unknown"}},
 		{"diff", RegenDiff("/w/gen", "/src/src/xcore-gen"), []string{"diff", "-r", "-q", "-x", "provenance.json", "-x", ".jco-version", "/w/gen", "/src/src/xcore-gen"}},
 	} {
 		if !reflect.DeepEqual(c.got, c.want) {
@@ -196,5 +197,16 @@ func TestFetchPinnedRefusesWhatCannotBeRequestedOrWritten(t *testing.T) {
 func TestSHA256FileOfADirectoryHasNoDigest(t *testing.T) {
 	if _, err := SHA256File(t.TempDir()); err == nil {
 		t.Error("a directory has no bytes to hash")
+	}
+}
+
+func TestRegenRemapFlagsPutTheGuestBackWhereItWasRecorded(t *testing.T) {
+	got := RegenRemapFlags("/w/core", "/w/t", "/cache/cargo-home", "/w/rustup")
+	want := "--remap-path-prefix=/w/core=/src --remap-path-prefix=/w/t=/tmp/target --remap-path-prefix=/cache/cargo-home=/usr/local/cargo --remap-path-prefix=/w/rustup=/usr/local/rustup"
+	if got != want {
+		t.Errorf("got %q", got)
+	}
+	if got := RegenRemapFlags("/src", "/tmp/target", "", "/usr/local/rustup"); got != "" {
+		t.Errorf("a directory already where it was recorded is not remapped: %q", got)
 	}
 }
