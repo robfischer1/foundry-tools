@@ -283,3 +283,44 @@ func TestGoSuiteRunsTheSuiteWithoutThePodsAtomVariables(t *testing.T) {
 		}
 	}
 }
+
+// DEF-B4-PERF-3: `-p 1` serialises the COMPILE and LINK of every package as
+// well as the test runs, so a cold build cache paid the whole race build on one
+// core (glaucus: 112 s serial, 28 s at the machine's width). The race run is
+// preceded by a build-only pass over the same flags that fills the cache in
+// parallel — `-exec true` compiles and links every test binary and runs none, so
+// no database is touched and no result is cached. Its outcome is not the atom's:
+// a build that fails fails again, with go test's own words, in the real run.
+func TestDEF_B4_PERF_3_RaceRunIsPrecededByAParallelBuildOnlyPass(t *testing.T) {
+	f := &golaneFake{rules: []golaneRule{
+		{"go list", "11\n", 0},
+		{"grep -rhoE", "//go:build live_db\n", 0},
+	}}
+	v := gosuiteVerdict(t, f, map[string]string{"go.mod": gosuiteGo}, true)
+	if v.State != 0 {
+		t.Fatalf("%+v", v)
+	}
+	n := len(f.runs)
+	warm, real := f.runs[n-2], f.runs[n-1]
+	if !strings.HasSuffix(warm, ": go test -race -tags live_db -cover -exec true ./...") {
+		t.Errorf("the pass before the suite is %q", warm)
+	}
+	if !strings.Contains(real, "-p 1 -coverprofile") {
+		t.Errorf("the suite is %q", real)
+	}
+
+	// A failing build-only pass is not the verdict: the suite's own run is.
+	f = &golaneFake{rules: []golaneRule{{"-exec true", "build failed", 1}, {"go list", "11\n", 0}, {"grep -rhoE", "", 1}}}
+	if v = gosuiteVerdict(t, f, map[string]string{"go.mod": gosuiteGo}, true); v.State != 0 || strings.Contains(v.Reason, "build failed") {
+		t.Errorf("the pass leaked into the verdict: %+v", v)
+	}
+
+	// The commit's unit suite builds what it runs: no pass.
+	f = &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}}}
+	gosuiteVerdict(t, f, map[string]string{"go.mod": gosuiteGo}, false)
+	for _, r := range f.runs {
+		if strings.Contains(r, "-exec true") {
+			t.Errorf("the unit suite warmed a cache it does not use: %q", r)
+		}
+	}
+}
