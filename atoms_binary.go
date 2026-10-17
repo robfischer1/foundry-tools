@@ -41,6 +41,7 @@ var atomsSourceInclude = []string{
 	"internal/witnesscall/**",
 	"internal/orbitcompose/**",
 	"internal/orbitlane/**",
+	"internal/regenlane/**",
 	"internal/retiredverbs/**",
 }
 

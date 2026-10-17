@@ -115,6 +115,7 @@ var atomLibraries = map[string][]string{
 	"orbit:sidecars":             orbitDirs,
 	"orbit:surface":              orbitDirs,
 	"template:render-matrix":     libraryDirs,
+	"ts:regen":                   {"internal/regenlane/**"},
 	"wit:validate":               libraryDirs,
 }
 

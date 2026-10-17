@@ -77,6 +77,9 @@ func scan(atomsDir string) (dirs, manifests []string, err error) {
 				if _, err := os.Stat(filepath.Join(atomsDir, ns.Name(), n.Name(), n.Name()+".go")); err != nil {
 					return nil, nil, fmt.Errorf("atoms/%s/%s holds no %s.go: %w", ns.Name(), n.Name(), n.Name(), err)
 				}
+				if err := onlyItsOwnFile(filepath.Join(atomsDir, ns.Name(), n.Name()), n.Name()); err != nil {
+					return nil, nil, err
+				}
 				dirs = append(dirs, ns.Name()+"/"+n.Name())
 			case strings.HasSuffix(n.Name(), ".toml"):
 				manifests = append(manifests, "atoms/"+ns.Name()+"/"+n.Name())
@@ -95,4 +98,23 @@ func packageOf(file string) (string, error) {
 		return "", err
 	}
 	return f.Name.Name, nil
+}
+
+// onlyItsOwnFile holds an atom's directory to the atom law: <name>.go and its
+// _test.go files, and no other Go file. One atom per file; what two atoms share
+// lives in an internal package, and what one atom alone needs but cannot hold
+// in its file lives in one of its own (the daedalus atom builder refuses the
+// directory otherwise, and the atom index freezes).
+func onlyItsOwnFile(dir, name string) error {
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, f := range files {
+		n := f.Name()
+		if strings.HasSuffix(n, ".go") && !strings.HasSuffix(n, "_test.go") && n != name+".go" {
+			return fmt.Errorf("%s holds %s beside %s.go: an atom's directory holds its own file and its tests only", dir, n, name)
+		}
+	}
+	return nil
 }
