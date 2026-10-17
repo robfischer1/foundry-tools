@@ -8,11 +8,6 @@ import (
 	"dagger/foundry-tools/internal/checks"
 )
 
-// failMirror makes the in-cluster mirror's copy of a pinned asset unfetchable.
-func failMirror(url string) {
-	engine.fail(checks.ToolMirrorURL(checks.ToolSHA256[url]), "502 from mirror")
-}
-
 // failBoth makes BOTH sources of a pinned asset unfetchable, the mirror's blob
 // and the asset's own URL: the fetch is then an error, as the lone upstream
 // failure was before the mirror.
