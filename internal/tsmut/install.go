@@ -89,8 +89,8 @@ func (g *grading) patchVitestRunners() checks.VitestRunnerReport {
 		// A search that fails patches nothing, and now says so: the survivors it
 		// produces are a fact about this search, not about the pull's tests.
 		return checks.VitestRunnerReport{
-			Note: "@stryker-mutator/vitest-runner: the search of " + root + " failed",
-			Blocked: "find could not enumerate " + root +
+			Note: "@stryker-mutator/vitest-runner: the search of " + g.shown(root) + " failed",
+			Blocked: "find could not enumerate " + g.shown(root) +
 				" for installed copies of @stryker-mutator/vitest-runner, so no copy was inspected and none patched:\n" + err.Error(),
 		}
 	}
@@ -106,7 +106,7 @@ func (g *grading) patchVitestRunners() checks.VitestRunnerReport {
 			files[i] = read(filepath.Join(dir, f))
 		}
 		c := checks.VitestRunnerCopy{
-			Dir:    dir,
+			Dir:    g.shown(dir),
 			Runner: checks.PackageVersion(read(pkg)),
 			Vitest: checks.PackageVersion(read(filepath.Join(dir, "../../vitest/package.json"))),
 		}
@@ -121,5 +121,16 @@ func (g *grading) patchVitestRunners() checks.VitestRunnerReport {
 		}
 		copies = append(copies, c)
 	}
-	return checks.ReportVitestRunners(root, copies)
+	return checks.ReportVitestRunners(g.shown(root), copies)
+}
+
+// shown is p as the tree's own path: the verdict's words must not depend on where
+// the copy sits (/src on the Dagger runner, a directory of /work on the executor),
+// so a path under the working copy is said under the tree's root.
+func (g *grading) shown(p string) string {
+	rel, err := filepath.Rel(g.tree, p)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, "../") {
+		return p
+	}
+	return filepath.Join(g.in.Root, rel)
 }
