@@ -64,7 +64,7 @@ var urlPins = []struct {
 	{"hadolint", checks.HadolintURL, checks.HadolintVersion},
 	{"kubectl", checks.KubectlURL, checks.KubectlVersion},
 	{"chezmoi", checks.ChezmoiURL, checks.ChezmoiVersion},
-	{"compose", checks.ComposeURL, checks.ComposeVersion},
+	{"docker-compose", checks.ComposeURL, checks.ComposeVersion},
 	{"wasm-tools", checks.WasmToolsURL, checks.WasmToolsVersion},
 	{"wac", checks.WacURL, checks.WacVersion},
 	{"just", checks.JustURL, checks.JustVersion},
