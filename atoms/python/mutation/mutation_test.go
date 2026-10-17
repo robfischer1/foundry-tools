@@ -15,7 +15,7 @@ func TestTheDeclarationValidatesAndNamesItsRow(t *testing.T) {
 	}
 	if Def.ID != pymut.ID || Def.Stage != checks.StageMutation || Def.Lane != checks.LanePython || Def.Group != checks.GroupOf(Def.ID) ||
 		Def.Toolchain != "python" || Def.Surface != "root:pyproject.toml" || Def.NotOnForks != checks.ForkChangeBar ||
-		Def.History != "full" || !Def.NeedsManifest || Def.WritesTree || strings.Join(Def.Needs, ",") != "tool:uv" {
+		Def.History != "full" || !Def.NeedsManifest || Def.WritesTree || strings.Join(Def.Needs, ",") != "tool:git,tool:uv" {
 		t.Errorf("%+v", Def)
 	}
 }
