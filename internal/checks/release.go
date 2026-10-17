@@ -49,6 +49,12 @@ type ReleaseBinary struct {
 	Name string
 	// Package is the main package it is built from, e.g. ./cmd/blade-controller.
 	Package string
+	// Cgo, Tags and Ldflags are what a release.toml declares (releasekit's
+	// manifest). Zero for a binary derived from the Dockerfile, which builds
+	// as the fleet always did: CGO_ENABLED=0 and the fleet's ldflags, no tags.
+	Cgo     bool
+	Tags    []string
+	Ldflags string
 }
 
 // ReleasePlan is a repo's whole release build.
@@ -63,6 +69,9 @@ type ReleasePlan struct {
 	// only build modifier the fleet varies. Go only; cargo resolves from its
 	// lock.
 	Vendored bool
+	// Manifest is whether the binaries were declared by the tree's release.toml
+	// rather than derived from the Dockerfile's COPY lines.
+	Manifest bool
 }
 
 // GoReleasePlan derives a Go repo's release build: the binaries the Dockerfile
@@ -236,17 +245,34 @@ func GoReleaseArgsTo(out string, b ReleaseBinary, vendored bool, module, version
 		args = append(args, "-mod=vendor")
 	}
 	flags := slices.Clone(ReleaseFlags)
+	x := ""
 	if version != "" {
-		if x, err := ReleaseStamp(module, version); err == nil {
-			for i, f := range flags {
-				if strings.HasPrefix(f, "-ldflags=") {
-					flags[i] = f + " " + x
-				}
-			}
+		if s, err := ReleaseStamp(module, version); err == nil {
+			x = " " + s
 		}
+	}
+	for i, f := range flags {
+		if strings.HasPrefix(f, "-ldflags=") {
+			if b.Ldflags != "" {
+				f = "-ldflags=" + b.Ldflags
+			}
+			flags[i] = f + x
+		}
+	}
+	if len(b.Tags) > 0 {
+		flags = append(flags, "-tags="+strings.Join(b.Tags, ","))
 	}
 	args = append(args, flags...)
 	return append(args, "-o", path.Join(out, b.Name), b.Package)
+}
+
+// ReleaseCgo is the CGO_ENABLED value one binary compiles under: "0", the
+// fleet's, unless its release.toml declares cgo.
+func ReleaseCgo(b ReleaseBinary) string {
+	if b.Cgo {
+		return "1"
+	}
+	return "0"
 }
 
 // RustReleaseTarget is where a Rust release build writes: the repository's
@@ -289,6 +315,10 @@ func ReleaseScope(p ReleasePlan) string {
 	for _, b := range p.Binaries {
 		names = append(names, b.Name)
 	}
+	from := "the Dockerfile's COPY lines"
+	if p.Manifest {
+		from = "release.toml"
+	}
 	how := "the module resolves its dependencies"
 	switch {
 	case p.Lane == LaneRust:
@@ -296,7 +326,7 @@ func ReleaseScope(p ReleasePlan) string {
 	case p.Vendored:
 		how = "the module vendors (vendor/ is tracked, so -mod=vendor)"
 	}
-	return fmt.Sprintf("release build: %s, from the Dockerfile's COPY lines; %s", strings.Join(names, ", "), how)
+	return fmt.Sprintf("release build: %s, from %s; %s", strings.Join(names, ", "), from, how)
 }
 
 // RepoKey is the custody key a clone URL names — `rob/hephaestus` for

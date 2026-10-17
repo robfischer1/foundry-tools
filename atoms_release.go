@@ -161,9 +161,9 @@ func (r *run) releaseBuild(ctx context.Context, plan checks.ReleasePlan, version
 			return nil, err
 		}
 	}
-	ctr := base.WithEnvVariable("CGO_ENABLED", "0")
+	ctr := base
 	for _, b := range plan.Binaries {
-		ctr = ctr.WithExec(checks.GoReleaseStampedArgs(b, plan.Vendored, module, version), anyExit)
+		ctr = ctr.WithEnvVariable("CGO_ENABLED", checks.ReleaseCgo(b)).WithExec(checks.GoReleaseStampedArgs(b, plan.Vendored, module, version), anyExit)
 	}
 	return ctr, nil
 }
