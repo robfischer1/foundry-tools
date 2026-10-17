@@ -13,14 +13,15 @@ import (
 
 // Def is the atom. It runs the repository's own suite, which may shell out to
 // git, so it runs on a checkout git can read (the Dagger adapter and the pod
-// both make one).
+// both make one) and needs tool:git: the python image has no git, and the
+// Dagger container installs it with apt.
 var Def = atomkit.Def{
 	ID: "python:pytest", Stage: checks.StagePrecommit, Lane: checks.LanePython,
 	Group:     checks.GroupLanguage,
 	Desc:      "pytest passes, and there is something for it to pass.",
 	Surface:   "any:**/*.py",
 	Toolchain: "python",
-	Needs:     []string{"tool:uv"},
+	Needs:     []string{"tool:git", "tool:uv"},
 	Timeout:   30 * time.Minute,
 	Check:     check,
 }
