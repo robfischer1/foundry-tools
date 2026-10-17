@@ -270,7 +270,7 @@ func TestUT_460_LoadInFromTreeFacts(t *testing.T) {
 	tf := TF1()
 	tf.Fork = "gravity"
 	treeFile(t, tf)
-	in, err := LoadIn("/ignored")
+	in, err := LoadIn("/src")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,6 +278,29 @@ func TestUT_460_LoadInFromTreeFacts(t *testing.T) {
 		in.Base != "" || in.Origin != "http://door.test/rob/nyx.git" || in.Fork != "gravity" ||
 		in.FilesErr != nil || in.TrackedErr != nil || in.ChangedErr != nil {
 		t.Fatalf("%+v", in)
+	}
+}
+
+// DEF-B4-writes-tree-root: the root argument is where the atom reads and writes,
+// whatever root the tree facts were collected at. The executor gives a
+// writes_tree atom a private copy at /work/<id>/src as argv[1] while tree.json
+// (collected once, over /src) still says /src, which is read-only there.
+func TestDEF_B4_writes_tree_root_argument_wins(t *testing.T) {
+	treeFile(t, TF1()) // Root "/src"
+	in, err := LoadIn("/work/rust__cargo-clippy/src")
+	if err != nil || in.Root != "/work/rust__cargo-clippy/src" || len(in.Files) != 2 {
+		t.Fatalf("%+v %v", in, err)
+	}
+}
+
+func TestDEF_B4_writes_tree_check_sees_the_copy(t *testing.T) {
+	var got string
+	d := defWith(func(_ context.Context, in In) checks.Verdict { got = in.Root; return checks.Verdict{} })
+	treeFile(t, TF1())
+	t.Setenv("ATOM_OUT", filepath.Join(t.TempDir(), "x.json"))
+	run(d, []string{"atom", "/work/st__w/src"})
+	if got != "/work/st__w/src" {
+		t.Fatalf("check read %q", got)
 	}
 }
 

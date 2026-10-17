@@ -21,7 +21,7 @@ var Def = atomkit.Def{
 	Desc:      "policy/grants and policy/principals are renders, not hand edits: both carry rendered_from graph:policy and one tx, and a document changed against the pull's merge base carries a strictly higher tx and a contracts_tx that did not fall.",
 	Surface:   "any:**",
 	Toolchain: "python",
-	Needs:     []string{"tool:uv"},
+	Needs:     []string{"tool:git", "tool:uv"},
 	Check:     check,
 }
 

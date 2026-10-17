@@ -58,7 +58,7 @@ func TestTheDeclarationValidatesAndKeepsTheRowItReplaces(t *testing.T) {
 	if Def.ID != id || Def.Stage != checks.StagePrecommit || Def.Lane != checks.LaneTS || Def.Group != checks.GroupOf(id) ||
 		Def.Toolchain != "bun" || Def.NotOnForks != "" || Def.NeedsManifest || Def.Surface != "root:package.json" || !Def.WritesTree ||
 		Def.Desc != "bun run gate passes against a frozen lockfile under the fleet's eslint config, and the tree carries tests for it to run." ||
-		Def.Timeout != 30*time.Minute {
+		Def.Timeout != 30*time.Minute || strings.Join(Def.Needs, ",") != "tool:node" {
 		t.Errorf("%+v", Def)
 	}
 }
