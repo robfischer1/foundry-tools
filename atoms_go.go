@@ -254,10 +254,20 @@ func bindTestKubes(ctr *dagger.Container, kubes []checks.TestKube, scope string)
 			names = append(names, name)
 		}
 		slices.Sort(names)
+		lane := checks.LaneName(scope)
 		for _, name := range names {
-			// 0644: the API server's user is the image's, and a throwaway key
-			// that cannot be read is a server that never starts.
-			api = api.WithNewFile(checks.KubeFilesDir+"/"+name, files[name], dagger.ContainerWithNewFileOpts{Permissions: 0o644})
+			// 0644 and 0444: the API server's user is the image's, and a
+			// throwaway key that cannot be read is a server that never starts.
+			dest := checks.KubeFilesDir + "/" + name
+			if checks.KubeSecretFiles[name] {
+				// DAGGER LOGS A withNewFile's CONTENTS AND A withEnvVariable's VALUE
+				// (gate run 2685 showed the token in the transcript twice). A secret's
+				// plaintext is scrubbed from the log by value, so redaction does not
+				// depend on a scrubber recognising the word "Bearer".
+				api = api.WithMountedSecret(dest, dag.SetSecret("test-kube-"+name+"-"+lane, files[name]), dagger.ContainerWithMountedSecretOpts{Mode: 0o444})
+				continue
+			}
+			api = api.WithNewFile(dest, files[name], dagger.ContainerWithNewFileOpts{Permissions: 0o644})
 		}
 		apiSvc := api.WithServiceBinding(k.EtcdAliasFor(scope), etcdSvc).
 			WithExposedPort(checks.KubeAPIPort).
@@ -266,9 +276,9 @@ func bindTestKubes(ctr *dagger.Container, kubes []checks.TestKube, scope string)
 		ctr = ctr.WithServiceBinding(k.AliasFor(scope), apiSvc).
 			WithNewFile(checks.KubeCAFile, pki.CA).
 			WithEnvVariable(k.URLEnv, k.URLFor(scope)).
-			WithEnvVariable(k.TokenEnv, pki.Token).
+			WithSecretVariable(k.TokenEnv, dag.SetSecret("test-kube-token-"+lane, pki.Token)).
 			WithEnvVariable(k.CAEnv, checks.KubeCAFile).
-			WithNewFile(checks.KubeAuthHeaderFile, pki.AuthHeader()).
+			WithMountedSecret(checks.KubeAuthHeaderFile, dag.SetSecret("test-kube-auth-header-"+lane, pki.AuthHeader()), dagger.ContainerWithMountedSecretOpts{Mode: 0o444}).
 			WithExec(k.WaitArgs(scope))
 	}
 	return ctr

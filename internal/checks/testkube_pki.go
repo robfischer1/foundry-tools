@@ -174,6 +174,11 @@ func (p KubePKI) Files() map[string]string {
 	}
 }
 
+// KubeSecretFiles are the files in Files() that hold a credential, so reach the
+// service as secrets and never as a file whose contents the engine logs: the
+// admin token's line, the serving key and the service-account signing key.
+var KubeSecretFiles = map[string]bool{"tokens.csv": true, "tls.key": true, "sa.key": true}
+
 // AuthHeader is the admin token's header line, the contents of the file curl
 // reads with -H @file (KubeAuthHeaderFile): the credential lives in a file the
 // lane mounted, not on an argv the engine logs.
