@@ -41,7 +41,7 @@ var URLPins = []URLPin{
 	{"hadolint", "HadolintURL", "HadolintVersion"},
 	{"kubectl", "KubectlURL", "KubectlVersion"},
 	{"chezmoi", "ChezmoiURL", "ChezmoiVersion"},
-	{"compose", "ComposeURL", "ComposeVersion"},
+	{"docker-compose", "ComposeURL", "ComposeVersion"},
 	{"wasm-tools", "WasmToolsURL", "WasmToolsVersion"},
 	{"wac", "WacURL", "WacVersion"},
 	{"just", "JustURL", "JustVersion"},
