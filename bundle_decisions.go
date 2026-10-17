@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"dagger/foundry-tools/internal/buildlane"
@@ -30,18 +29,21 @@ import (
 // derived.
 func (l *bundleLane) decisions(ctx context.Context, tools *dagger.Container) (*dagger.Container, gateResult) {
 	src := l.m.Source
-	_, ok, err := fileIn(ctx, src, bundlelane.DecisionsDerive)
-	if err != nil {
-		return nil, couldNotRun("%s could not be probed: %v", bundlelane.DecisionsDerive, err)
+	present, g := probe(ctx, src, bundlelane.DecisionsDerive, bundlelane.DecisionsPath, "fleet/data.json", "fleet/derive.rego")
+	if g.code != buildlane.Clean {
+		return nil, g
 	}
-	if !ok {
+	if !present[bundlelane.DecisionsDerive] {
 		bundleSay("policy: no %s — the die carries no decision table; decide answers by the rules", bundlelane.DecisionsDerive)
 		return tools, clean()
 	}
-	if _, committed, err := fileIn(ctx, src, bundlelane.DecisionsPath); err != nil {
-		return nil, couldNotRun("%s could not be probed: %v", bundlelane.DecisionsPath, err)
-	} else if committed {
+	if present[bundlelane.DecisionsPath] {
 		return nil, findings(bundlelane.DecisionsPath + " is committed, and the lane derives it — a committed table would be served as if derived from this commit")
+	}
+	for _, f := range []string{"fleet/data.json", "fleet/derive.rego"} {
+		if !present[f] {
+			return nil, findings(f + " is absent — the decision table's roster cannot be staged")
+		}
 	}
 	bundleSay("── policy: derive the decision table ──")
 	roster, g := l.decisionsRoster(ctx)
@@ -80,35 +82,22 @@ func (l *bundleLane) decisionsRoster(ctx context.Context) (*dagger.Directory, ga
 	if err != nil {
 		return nil, findings(err.Error())
 	}
-	for _, f := range []string{"fleet/data.json", "fleet/derive.rego"} {
-		if _, ok, err := fileIn(ctx, src, f); err != nil {
-			return nil, couldNotRun("%s could not be probed: %v", f, err)
-		} else if !ok {
-			return nil, findings(fmt.Sprintf("%s is absent — the decision table's roster cannot be staged", f))
-		}
-	}
 	return dag.Directory().
 		WithFile("fleet/data.json", src.File("fleet/data.json")).
 		WithFile("fleet/derive.rego", src.File("fleet/derive.rego")).
 		WithNewFile(bundlelane.DeclaredPath, bundlelane.Stage(docs)), clean()
 }
 
-// decisionsReached gates the built die: when the tree derived a table, the
-// artifact's data.json carries it under data.grants.decisions.
-func decisionsReached(ctx context.Context, built *dagger.Container, derived bool) gateResult {
-	data, g := member(ctx, built, "bundle.tar.gz", "/data.json")
-	if g.code != buildlane.Clean {
-		return g
+// probe answers which of paths the tree carries; a tree that cannot be read
+// is a could-not-run.
+func probe(ctx context.Context, src *dagger.Directory, paths ...string) (map[string]bool, gateResult) {
+	present := map[string]bool{}
+	for _, p := range paths {
+		found, err := src.Glob(ctx, p)
+		if err != nil {
+			return nil, couldNotRun("%s could not be probed: %v", p, err)
+		}
+		present[p] = len(found) > 0
 	}
-	n, err := bundlelane.BuiltDecisions(data)
-	if err != nil {
-		return findings(err.Error())
-	}
-	if derived && n == 0 {
-		return findings("the decision table was derived but the built die carries no data.grants.decisions — decide would answer every call by the rules")
-	}
-	if derived {
-		bundleSay("policy: the built die carries the decision table (%d keys)", n)
-	}
-	return clean()
+	return present, clean()
 }

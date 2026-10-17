@@ -76,16 +76,19 @@ func Decisions(raw string) (DecisionsStats, error) {
 			s.Cells += len(verbs)
 		}
 	}
+	s.Gzipped = gzipped(raw)
+	return s, nil
+}
+
+// gzipped is how many bytes raw gzips to: what the table adds to the die on
+// the wire. A gzip.Writer over a bytes.Buffer cannot fail — the buffer's
+// Write never returns an error — so there is no error to carry.
+func gzipped(raw string) int {
 	var buf bytes.Buffer
 	w := gzip.NewWriter(&buf)
-	if _, err := w.Write([]byte(raw)); err != nil {
-		return DecisionsStats{}, fmt.Errorf("gzip: %w", err)
-	}
-	if err := w.Close(); err != nil {
-		return DecisionsStats{}, fmt.Errorf("gzip: %w", err)
-	}
-	s.Gzipped = buf.Len()
-	return s, nil
+	_, _ = w.Write([]byte(raw)) // a bytes.Buffer's Write never fails
+	_ = w.Close()               // nor, then, the flush
+	return buf.Len()
 }
 
 // DecisionsArgs is the `opa eval` argv that derives the table: the policy,
@@ -95,20 +98,25 @@ func DecisionsArgs(stage string) []string {
 	return []string{"opa", "eval", "-d", "policy", "-d", DecisionsDeriveDir, "-d", stage, "--format", "raw", DecisionsQuery}
 }
 
-// BuiltDecisions answers how many keys the built policy die's data.json
-// carries under data.grants.decisions: the table has to reach the artifact,
-// not only the tree it was built from.
-func BuiltDecisions(dataJSON string) (int, error) {
+// BuiltDecisions grades the built policy die's data.json: when the lane
+// derived a table, the artifact carries it under data.grants.decisions — the
+// table has to reach the die, not only the tree it was built from. It answers
+// the keys the die carries, and a problem ("" when it holds).
+func BuiltDecisions(dataJSON string, derived bool) (int, string) {
 	var d struct {
 		Grants struct {
 			Decisions *decisionsDoc `json:"decisions"`
 		} `json:"grants"`
 	}
 	if err := json.Unmarshal([]byte(dataJSON), &d); err != nil {
-		return 0, fmt.Errorf("the built bundle's data.json is not JSON: %w", err)
+		return 0, "the built bundle's data.json is not JSON: " + err.Error()
 	}
-	if d.Grants.Decisions == nil {
-		return 0, nil
+	n := 0
+	if d.Grants.Decisions != nil {
+		n = len(d.Grants.Decisions.Keys)
 	}
-	return len(d.Grants.Decisions.Keys), nil
+	if derived && n == 0 {
+		return 0, "the decision table was derived but the built die carries no data.grants.decisions — decide would answer every call by the rules"
+	}
+	return n, ""
 }

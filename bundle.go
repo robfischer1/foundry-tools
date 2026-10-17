@@ -450,9 +450,6 @@ func (l *bundleLane) policy(ctx context.Context, tools *dagger.Container) (*dagg
 	if g := twin(ctx, built, "bundle.tar.gz", "bundle-signed.tar.gz", "the signed bundle"); g.code != buildlane.Clean {
 		return nil, g
 	}
-	if g := decisionsReached(ctx, built, l.table); g.code != buildlane.Clean {
-		return nil, g
-	}
 	if kms := l.kmsTwin("bundle-signed.tar.gz"); kms != "" && kms != "bundle-signed.tar.gz" {
 		if g := twin(ctx, built, "bundle.tar.gz", kms, "the KMS-signed bundle"); g.code != buildlane.Clean {
 			return nil, g
@@ -468,6 +465,11 @@ func (l *bundleLane) policy(ctx context.Context, tools *dagger.Container) (*dagg
 		return nil, findings(fmt.Sprintf("the built bundle's data.json is not JSON: %v", err))
 	} else if stars == 0 {
 		return nil, findings("the built bundle has an empty star_only — publishing it would make every verb visible to every principal")
+	}
+	if n, problem := bundlelane.BuiltDecisions(data, l.table); problem != "" {
+		return nil, findings(problem)
+	} else if l.table {
+		bundleSay("policy: the built die carries the decision table (%d keys)", n)
 	}
 	canary := checks.DiesCanary(data)
 	if canary == "" {

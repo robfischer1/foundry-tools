@@ -116,3 +116,34 @@ func TestACommittedDecisionTableIsRefused(t *testing.T) {
 	settledOn(t, "1", "is committed, and the lane derives it")
 	nothingPushed(t)
 }
+
+// Every way the derive's inputs can be missing or unreadable stops the lane
+// before anything is built from them: a tree the engine cannot read or a derive
+// it cannot run is could-not-run, a roster the tree does not hold is a finding.
+func TestTheDeriveNeedsItsRosterAndAnEngine(t *testing.T) {
+	for name, tc := range map[string]struct {
+		tree map[string]string
+		fail string
+		code string
+		want string
+	}{
+		"the derive cannot be probed": {nil, `"` + bundlelane.DecisionsDerive + `"`, "2", "could not be probed"},
+		"the catalog cannot be read":  {nil, `"` + bundlelane.DeclaredGlob + `"`, "2", ""},
+		"the derive never ran":        {nil, `"` + bundlelane.DecisionsQuery + `"`, "2", "the decision table's derive never ran"},
+		"no fleet/derive.rego":        {map[string]string{"fleet/derive.rego": ""}, "", "1", "fleet/derive.rego is absent"},
+		"a catalog entry misnamed":    {map[string]string{"fleet/repos/ares.json": `{"name":"zeus"}`}, "", "1", "name must be"},
+		"no fleet/data.json to stage": {map[string]string{"fleet/data.json": ""}, "", "1", "fleet/data.json is absent"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := withDerive(t, tc.tree)
+			scriptAGreenBundle()
+			scriptTheDerive(derivedTable, policyDataWithTable)
+			if tc.fail != "" {
+				engine.fail(tc.fail, "engine went away")
+			}
+			bundles(t, m)
+			settledOn(t, tc.code, tc.want)
+			nothingPushed(t)
+		})
+	}
+}

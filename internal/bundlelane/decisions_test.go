@@ -48,14 +48,16 @@ func TestDecisionsArgsLoadThePolicyTheDeriveAndTheRoster(t *testing.T) {
 }
 
 func TestBuiltDecisionsReadsTheTableOutOfTheArtifact(t *testing.T) {
-	n, err := BuiltDecisions(`{"grants":{"rows":[],"decisions":` + table + `}}`)
-	if err != nil || n != 2 {
-		t.Errorf("%d %v", n, err)
+	if n, why := BuiltDecisions(`{"grants":{"rows":[],"decisions":`+table+`}}`, true); why != "" || n != 2 {
+		t.Errorf("%d %s", n, why)
 	}
-	if n, err := BuiltDecisions(`{"grants":{"rows":[]}}`); err != nil || n != 0 {
-		t.Errorf("no table: %d %v", n, err)
+	if n, why := BuiltDecisions(`{"grants":{"rows":[]}}`, false); why != "" || n != 0 {
+		t.Errorf("no table, none derived: %d %s", n, why)
 	}
-	if _, err := BuiltDecisions(`nope`); err == nil {
-		t.Error("not json read as a table")
+	if _, why := BuiltDecisions(`{"grants":{"rows":[]}}`, true); !strings.Contains(why, "carries no data.grants.decisions") {
+		t.Errorf("a derived table the die lost: %q", why)
+	}
+	if _, why := BuiltDecisions(`nope`, false); !strings.Contains(why, "not JSON") {
+		t.Errorf("not json: %q", why)
 	}
 }
