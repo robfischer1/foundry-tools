@@ -310,6 +310,14 @@ const (
 	RustWasmClippyURL     = "https://static.rust-lang.org/dist/clippy-1.90.0-x86_64-unknown-linux-gnu.tar.gz"
 	RustWasmRustfmtURL    = "https://static.rust-lang.org/dist/rustfmt-1.90.0-x86_64-unknown-linux-gnu.tar.gz"
 
+	// MOLD, THE RUST ATOMS' LINKER (`mold -run`, MoldRun). The Dagger lane gets it
+	// from bookworm's package, mold 1.10.1; the executor's upstream rust images
+	// carry none, so the same release is pinned here as upstream's own tarball.
+	// MoldRelease is bookworm's version and must not float: the thread cap
+	// (RustGateMoldThreadsFlag) is measured against it. A test holds the URL to it.
+	MoldRelease = "1.10.1"
+	MoldURL     = "https://github.com/rui314/mold/releases/download/v1.10.1/mold-1.10.1-x86_64-linux.tar.gz"
+
 	// SccacheMember is the binary inside the tarball.
 	SccacheMember = "sccache-v0.18.0-x86_64-unknown-linux-musl/sccache"
 )
