@@ -246,7 +246,7 @@ const (
 	// SDK's otel pins break on (import cycle in otel/internal/global).
 	//
 	// renovate: datasource=go depName=git.notusmi.com/rob/stellar-core-go
-	OrbitparseModule = "git.notusmi.com/rob/stellar-core-go/cmd/orbitparse@v0.222.0"
+	OrbitparseModule = "git.notusmi.com/rob/stellar-core-go/cmd/orbitparse@v0.223.0"
 	// renovate: datasource=crate depName=cargo-audit
 	CargoAuditVersion = "0.22.2"
 	// renovate: datasource=crate depName=cargo-mutants

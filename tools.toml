@@ -268,7 +268,7 @@ image = "registry.notusmi.com/rob/narcissus:1792198596-053bba4@sha256:1923ebea17
 [tool.orbitparse]
 kind = "go"
 spec = "git.notusmi.com/rob/stellar-core-go/cmd/orbitparse"
-version = "v0.222.0"
+version = "v0.223.0"
 
 [tool.static]
 kind = "image"
