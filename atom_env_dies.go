@@ -13,7 +13,8 @@ import (
 // of the ones that need no tool. The four that grade the policy with opa run in
 // that image with the pinned opa laid on PATH, the way the chain that preceded
 // them provisioned it; the atom itself proves the binary is the pinned one.
-// dies:grants-stamp judges the change, so it is handed the pull's base.
+// dies:grants-stamp judges the change, so it is handed the pull's base, and so
+// is dies:render-author, which reads who made the pull's commits since it.
 
 func init() {
 	opa := atomEnv{container: func(r *run) *dagger.Container { return withPinnedOpa(r.lane(checks.ImageFleet)) }}
@@ -23,6 +24,8 @@ func init() {
 	// dies:authz-grid judges the change too: its Rego against the base's, so it is handed the base.
 	atomEnvironments["dies:authz-grid"] = atomEnv{container: opa.container, facts: true}
 	atomEnvironments["dies:grants-stamp"] = atomEnv{container: func(r *run) *dagger.Container { return r.lane(checks.ImageFleet) }, facts: true}
+	// dies:render-author asks git only, as ops:immutable does: the tools container.
+	atomEnvironments["dies:render-author"] = atomEnv{tools: true, facts: true}
 }
 
 // withPinnedOpa puts opa on PATH from its pinned release asset, VERIFIED BY THE
