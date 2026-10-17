@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 
-	"dagger/foundry-tools/internal/buildlane"
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
 )
@@ -28,7 +27,6 @@ import (
 // the door re-asks, not a finding the committer is told to fix.
 
 func init() {
-	register("rust:release", rustRelease)
 }
 
 // cargoVerdict is verdict() with CARGO'S EXIT VOCABULARY TRANSLATED FIRST
@@ -144,110 +142,4 @@ func (r *run) rustMutationLane() *dagger.Container {
 		WithoutEnvVariable("CARGO_TARGET_DIR").
 		WithoutMount("/cache/cargo-target").
 		WithExec(checks.StaleCargoLocks())
-}
-
-// THE RELEASE BUILD, AND IT IS THE ONE THE IMAGE CARRIES — go:release's
-// contract for the Rust lane (atoms_go.go carries the reasoning; this file
-// follows it). The Gate compiles the star's binary with the release profile,
-// the engine caches that exec by its inputs, and F14's Build asks Release()
-// for the same directory and gets the compile it already paid for.
-//
-// WHAT IT BUILDS IS DERIVED, NOT DECLARED: `cargo build --release -p <star>`
-// from a workspace whose binary crate is named for the star, which is the one
-// shape the fleet's Rust Dockerfiles and rust-repo-template pour
-// (checks.RustReleasePlan carries the measurement). A record speaks only for
-// a repo that ships more than its own name.
-//
-// THE THREE ABSENCES ARE go:release's, IN ITS ORDER: no tracked Dockerfile
-// (no image, no release build); no star (a repo with Dockerfiles and no
-// .copier-answers.yml builds through other lanes); a Dockerfile that compiles
-// itself (buildlane.CopiesRelease is false, so the build lane builds it as
-// before and the fleet flips one star at a time).
-//
-// THE EXIT IS READ AFTER EACH BINARY, in cargo's vocabulary (cargoVerdict:
-// 101 is findings, not could-not-run), so a binary that did not compile is
-// reported with the compiler's own words rather than by the one after it.
-func rustRelease(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("rust:release")
-	files, err := r.population(ctx)
-	if err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the tree could not be read: "+err.Error())
-	}
-	if len(checks.DockerfilePopulation(files)) == 0 {
-		return checks.VerdictOf(a, 0, a.ID+": ABSENT - this repository tracks no Dockerfile or Containerfile, so it ships no image and has no release build")
-	}
-	star, err := r.starName(ctx)
-	if err != nil && !isNotAStar(err) {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+err.Error())
-	}
-	if err != nil {
-		return checks.VerdictOf(a, 0, a.ID+": ABSENT - "+err.Error()+", so this is not a star image and there is no star release build")
-	}
-	asking, dockerfile, err := r.releaseDockerfile(ctx, checks.DockerfilePopulation(files))
-	if err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+err.Error())
-	}
-	if asking == "" {
-		return checks.VerdictOf(a, 0, a.ID+": ABSENT - no tracked Dockerfile copies from "+buildlane.ReleaseDir+"/, so this image compiles itself: its build is the build lane's, and there is no release build to make here")
-	}
-	plan, why := rustReleasePlan(star, dockerfile)
-	if why != "" {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+why)
-	}
-	_, v := r.rustReleaseBuild(ctx, a, plan)
-	v.Reason = checks.ReleaseScope(plan) + "\n" + v.Reason
-	return v
-}
-
-// rustReleasePlan derives what the star's release build produces: the
-// binaries its Dockerfile copies out of release/, each the workspace package
-// of that name. A COPY with no workspace package behind it fails `cargo build
-// -p` as a finding about the tree. Every refusal is about the repository and
-// settles as a could-not-run.
-func rustReleasePlan(star, dockerfile string) (checks.ReleasePlan, string) {
-	plan, err := checks.RustReleasePlan(star, buildlane.ReleaseCopies(dockerfile))
-	if err != nil {
-		return checks.ReleasePlan{}, err.Error()
-	}
-	return plan, ""
-}
-
-// rustReleaseBuild is the compile itself: the provisioned lane under the
-// Unstale stamp (cargoFresh), the target directory on the repository's release
-// cache volume (checks.RustReleaseTarget says why), one exec per binary that
-// copies the binary out of the volume as it finishes. It answers the container
-// the binaries are in and the verdict of the last exec that ran — the first
-// failure stops the chain, so the verdict names the binary that did not build.
-//
-// THE STAMP IS WHAT MAKES THE VOLUME SAFE. Every tree of a repo mounts at
-// /src, so the workspace's crates have one artifact each in the volume, and
-// cargo judges them by mtime: without Unstale a later tree links what an
-// earlier one built (checks.Unstale has the measurement). Under it the
-// workspace rebuilds and only the registry crates come back Fresh.
-func (r *run) rustReleaseBuild(ctx context.Context, a checks.AtomDef, plan checks.ReleasePlan) (*dagger.Container, checks.Verdict) {
-	ctr := r.withReleaseCache(r.cargoFresh()).WithEnvVariable("CARGO_TARGET_DIR", checks.RustReleaseTarget)
-	v := checks.VerdictOf(a, 0, "")
-	for _, b := range plan.Binaries {
-		ctr = ctr.WithExec(copiedOut(checks.RustReleaseArgs(b), checks.RustReleaseBuilt(b)+"="+checks.RustReleaseBinary(b)), anyExit)
-		if v = cargoVerdict(ctx, a, ctr); v.State != 0 {
-			return ctr, v
-		}
-	}
-	return ctr, v
-}
-
-// rustReleaseDir is the release build's binaries as a directory — what F14
-// copies onto the base image: each binary read from where its build copied
-// it out of the volume (checks.RustReleaseBinary), under its own name at the
-// root. Lazy, as the
-// Go path's ctr.Directory(ReleaseOut) is: a binary the build did not leave
-// (a record naming a package that builds no [[bin]]) surfaces where the
-// directory is first used — the image build's context — as the engine's own
-// "no such file" for that path, which the build lane files as findings.
-func rustReleaseDir(ctr *dagger.Container, plan checks.ReleasePlan) *dagger.Directory {
-	out := dag.Directory()
-	for _, b := range plan.Binaries {
-		out = out.WithFile(b.Name, ctr.File(checks.RustReleaseBinary(b)))
-	}
-	return out
 }

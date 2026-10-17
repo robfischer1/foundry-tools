@@ -14,20 +14,9 @@ import (
 	"dagger/foundry-tools/internal/checks"
 )
 
-var padRows sync.Once
-
 // ids are real catalogue rows: a registration names one, so the fakes borrow
 // the names of the first rows and bring their own functions.
 func ids(n int) []string {
-	padRows.Do(func() {
-		// The table holds only the atoms that still have a chain; the pool tests
-		// want more rows than that, and any row will do.
-		var rows []checks.AtomDef
-		for i := range 16 {
-			rows = append(rows, checks.AtomDef{ID: fmt.Sprintf("pad:row-%02d", i), Stage: checks.StagePrepush, Lane: checks.LaneAny})
-		}
-		checks.UseDefs(rows)
-	})
 	out := make([]string, n)
 	for i := range out {
 		out[i] = checks.Atoms()[i].ID
@@ -151,13 +140,13 @@ func TestExecuteRunsAtomsConcurrently(t *testing.T) {
 
 func TestExecuteBoundsThePool(t *testing.T) {
 	// The first two atoms wait for each other, so two ARE in flight at once
-	// (the floor is certain); the other four and the 20ms hold give a pool
+	// (the floor is certain); the other three and the 20ms hold give a pool
 	// that is too wide every chance to show a third.
 	var inFlight, peak atomic.Int32
 	var pair sync.WaitGroup
 	pair.Add(2)
 	var atoms []Atom
-	for i, id := range ids(6) {
+	for i, id := range ids(5) {
 		atoms = append(atoms, Atom{ID: id, Run: func(_ context.Context, a checks.AtomDef, _ Input) checks.Verdict {
 			n := inFlight.Add(1)
 			for {

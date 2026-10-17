@@ -74,11 +74,9 @@ func Main(args []string, stdout, stderr io.Writer) int {
 // command's own exit code (128 plus a signal, 127 when it did not start), or
 // CopyFailed when an output would not copy.
 func Run(pairs []Pair, cmd []string, stdout, stderr io.Writer) int {
-	for _, p := range pairs {
-		if err := os.Remove(p.Src); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			fmt.Fprintf(stderr, "copyout: could not clear %s before the build: %v\n", p.Src, err)
-			return CopyFailed
-		}
+	if err := Clear(pairs); err != nil {
+		fmt.Fprintf(stderr, "copyout: %v\n", err)
+		return CopyFailed
 	}
 	c := exec.Command(cmd[0], cmd[1:]...)
 	c.Stdin, c.Stdout, c.Stderr = os.Stdin, stdout, stderr
@@ -89,13 +87,34 @@ func Run(pairs []Pair, cmd []string, stdout, stderr io.Writer) int {
 	if code := exitCode(c.Wait()); code != 0 {
 		return code
 	}
-	for _, p := range pairs {
-		if err := copyFile(p.Src, p.Dst); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			fmt.Fprintf(stderr, "copyout: could not copy %s to %s: %v\n", p.Src, p.Dst, err)
-			return CopyFailed
-		}
+	if err := Carry(pairs); err != nil {
+		fmt.Fprintf(stderr, "copyout: %v\n", err)
+		return CopyFailed
 	}
 	return 0
+}
+
+// Clear removes every source, so a file the build did not produce this time is
+// absent and not the copy a previous tree left behind.
+func Clear(pairs []Pair) error {
+	for _, p := range pairs {
+		if err := os.Remove(p.Src); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("could not clear %s before the build: %w", p.Src, err)
+		}
+	}
+	return nil
+}
+
+// Carry copies each source that exists to its destination; an absent source is
+// skipped (the caller reads the destination lazily). It is the post-build half
+// of Run, for a caller that runs the build itself.
+func Carry(pairs []Pair) error {
+	for _, p := range pairs {
+		if err := copyFile(p.Src, p.Dst); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("could not copy %s to %s: %w", p.Src, p.Dst, err)
+		}
+	}
+	return nil
 }
 
 // copyFile copies src to dst as an executable (0755: every output carried is

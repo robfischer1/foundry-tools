@@ -5,18 +5,34 @@ import (
 	"testing"
 )
 
+// mutationRows are the four mutation atoms' rows, which the catalogue gives the
+// whole module and this package (which cannot import the atoms) is given here.
+func mutationRows(t *testing.T) {
+	t.Helper()
+	old := atoms
+	t.Cleanup(func() { atoms = old })
+	UseDefs([]AtomDef{
+		{ID: "go:mutation", Stage: StageMutation, Lane: LaneGo},
+		{ID: "python:mutation", Stage: StageMutation, Lane: LanePython},
+		{ID: "rust:mutation", Stage: StageMutation, Lane: LaneRust},
+		{ID: "ts:mutation", Stage: StageMutation, Lane: LaneTS},
+	})
+}
+
 func TestSelectNarrowsToTheNamedAtoms(t *testing.T) {
-	got, err := Select(AtomsForStage(StagePrepush), "go:release")
+	mutationRows(t)
+	got, err := Select(AtomsForStage(StageMutation), "go:mutation")
 	if err != nil {
 		t.Fatalf("Select: %v", err)
 	}
-	if len(got) != 1 || got[0].ID != "go:release" {
-		t.Fatalf("Select chose %v, want just go:release", ids(got))
+	if len(got) != 1 || got[0].ID != "go:mutation" {
+		t.Fatalf("Select chose %v, want just go:mutation", ids(got))
 	}
 }
 
 func TestSelectTakesAListAndTolerantWhitespace(t *testing.T) {
-	got, err := Select(AtomsForStage(StagePrepush), " go:release , rust:release ")
+	mutationRows(t)
+	got, err := Select(AtomsForStage(StageMutation), " go:mutation , python:mutation ")
 	if err != nil {
 		t.Fatalf("Select: %v", err)
 	}
@@ -40,12 +56,13 @@ func TestSelectRefusesAnUnknownAtom(t *testing.T) {
 }
 
 // The other half of the same trap: a REAL atom that this stage does not admit.
-// The govulncheck atom is prepush; naming it in a precommit selector must say
+// The mutation atom is not precommit; naming it in a precommit selector must say
 // so rather than answer an empty vector.
 func TestSelectRefusesAnAtomTheStageDoesNotAdmit(t *testing.T) {
-	_, err := Select(AtomsForStage(StagePrecommit), "go:release")
+	mutationRows(t)
+	_, err := Select(AtomsForStage(StagePrecommit), "go:mutation")
 	if err == nil {
-		t.Fatal("a prepush atom was admitted into a precommit vector")
+		t.Fatal("a mutation atom was admitted into a precommit vector")
 	}
 	if !strings.Contains(err.Error(), "does not admit") {
 		t.Fatalf("the error must distinguish 'wrong stage' from 'no such atom': %v", err)

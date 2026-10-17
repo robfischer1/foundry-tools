@@ -83,7 +83,7 @@ type run struct {
 	spire *dagger.Socket
 	// artifactAuth, when set, is the registry credential the visual atom
 	// pushes its artifact with, and sha the commit that artifact is tagged by
-	// (atoms_ts_visual.go); nil pushes nothing.
+	// (atom_env_ts.go); nil pushes nothing.
 	artifactAuth *dagger.Secret
 	sha          string
 	// registrySvid, with spire, replaces artifactAuth: the audience of the
@@ -610,21 +610,6 @@ func (r *run) population(ctx context.Context, patterns ...string) ([]string, err
 	}
 	sort.Strings(files)
 	return checks.GatePopulation(files), nil
-}
-
-// verdict is the one place a chain becomes a verdict. It evaluates the chain:
-// a provisioning exec that failed, an image that would not pull, an engine
-// that went away all surface as the error — state 2, could not run, never a
-// pass. Otherwise the last exec's exit code is the state and its output is
-// the result.
-func verdict(ctx context.Context, a checks.AtomDef, ctr *dagger.Container) checks.Verdict {
-	code, err := exitCodeOf(ctx, ctr)
-	if err != nil {
-		return checks.VerdictOf(a, 2, fmt.Sprintf("the atom never ran: %v", err))
-	}
-	stdout, _ := ctr.Stdout(ctx)
-	stderr, _ := ctr.Stderr(ctx)
-	return checks.VerdictOf(a, code, stdout+stderr)
 }
 
 // output evaluates a chain whose last exec is a QUESTION rather than the

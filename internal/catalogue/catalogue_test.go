@@ -371,7 +371,7 @@ func TestTheCommitAndPushStagesHoldTheirAtoms(t *testing.T) {
 		"compose:config,compose:no-tracked-secrets,compose:third-party-pins," +
 		"dies:opa-test,dies:contracts,dies:contract-copies,dies:schema,dies:findings,dies:schemas,dies:wit-regenerated,dies:schema-rendered,dies:canonical,dies:refusal-codes,dies:wire-grammar,dies:resource-referents,dies:capabilities-served,law:lint,law:verb-liveness,law:budget"
 	push := "fleet:orbit-drift,fleet:dagger-lockstep,fleet:renovate-lockstep,fleet:node-kinds-declared,fleet:consumed-events-emitted,ops:immutable,ops:orbit-sidecars,ops:orbit-composed,template:render-matrix,wit:validate,go:staticcheck,go:govulncheck,go:build,go:release,go:test-race,go:diff-coverage,python:pip-audit,python:release,rust:release,rust:cargo-audit,rust:wit-guest,rust:wit-compose,ts:bun-audit,ts:regen,ts:release," +
-		"dies:admission-dogfood,dies:data-keys,dies:canary-visibility,fleet:witness,dies:grants-stamp"
+		"dies:admission-dogfood,dies:data-keys,dies:canary-visibility,fleet:witness,dies:grants-stamp,dies:authz-grid"
 	if got := ids(checks.StagePrecommit); got != commit {
 		t.Errorf("commit stage\n got %s\nwant %s", got, commit)
 	}
@@ -395,15 +395,10 @@ func TestTheDeclaredBinaryVotersAreRealPythonAtoms(t *testing.T) {
 	}
 }
 
-// unported is the five atoms that stay Dagger chains with a table row in
+// unported is the no atom that stay Dagger chains with a table row in
 // checks.atomTable (DEF-B3-035, DEF-B3-044): release for each language, and the
 // ones whose chain is a multi-container pipeline.
-var unported = []string{
-	"go:release",
-	"python:release",
-	"rust:release",
-	"ts:release", "ts:visual",
-}
+var unported = []string{}
 
 // TestIT_285_EveryCatalogueIDIsOneFileOrTheUnportedSet (lld FN-090 step 3): the
 // catalogue ids that no file declares are exactly the unported set, and every

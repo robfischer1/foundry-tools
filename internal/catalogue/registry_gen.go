@@ -7,6 +7,7 @@ import (
 	composenotrackedsecrets "dagger/foundry-tools/atoms/compose/no-tracked-secrets"
 	composethirdpartypins "dagger/foundry-tools/atoms/compose/third-party-pins"
 	diesadmissiondogfood "dagger/foundry-tools/atoms/dies/admission-dogfood"
+	diesauthzgrid "dagger/foundry-tools/atoms/dies/authz-grid"
 	diescanaryvisibility "dagger/foundry-tools/atoms/dies/canary-visibility"
 	diescanonical "dagger/foundry-tools/atoms/dies/canonical"
 	diescapabilitiesserved "dagger/foundry-tools/atoms/dies/capabilities-served"
@@ -48,6 +49,7 @@ import (
 	gogofmt "dagger/foundry-tools/atoms/go/gofmt"
 	gogovulncheck "dagger/foundry-tools/atoms/go/govulncheck"
 	gomutation "dagger/foundry-tools/atoms/go/mutation"
+	gorelease "dagger/foundry-tools/atoms/go/release"
 	gotest "dagger/foundry-tools/atoms/go/test"
 	gotestrace "dagger/foundry-tools/atoms/go/test-race"
 	lawbudget "dagger/foundry-tools/atoms/law/budget"
@@ -79,17 +81,21 @@ import (
 	pythonmutation "dagger/foundry-tools/atoms/python/mutation"
 	pythonmypy "dagger/foundry-tools/atoms/python/mypy"
 	pythonpytest "dagger/foundry-tools/atoms/python/pytest"
+	pythonrelease "dagger/foundry-tools/atoms/python/release"
 	pythonruffcheck "dagger/foundry-tools/atoms/python/ruff-check"
 	pythonruffformat "dagger/foundry-tools/atoms/python/ruff-format"
 	rustcargoclippy "dagger/foundry-tools/atoms/rust/cargo-clippy"
 	rustcargotest "dagger/foundry-tools/atoms/rust/cargo-test"
 	rustmutation "dagger/foundry-tools/atoms/rust/mutation"
+	rustrelease "dagger/foundry-tools/atoms/rust/release"
 	rustwitcompose "dagger/foundry-tools/atoms/rust/wit-compose"
 	rustwitguest "dagger/foundry-tools/atoms/rust/wit-guest"
 	templaterendermatrix "dagger/foundry-tools/atoms/template/render-matrix"
 	tsbungate "dagger/foundry-tools/atoms/ts/bun-gate"
 	tsmutation "dagger/foundry-tools/atoms/ts/mutation"
 	tsregen "dagger/foundry-tools/atoms/ts/regen"
+	tsrelease "dagger/foundry-tools/atoms/ts/release"
+	tsvisual "dagger/foundry-tools/atoms/ts/visual"
 	witvalidate "dagger/foundry-tools/atoms/wit/validate"
 	"dagger/foundry-tools/internal/atomkit"
 )
@@ -100,6 +106,7 @@ var Defs = []*atomkit.Def{
 	&composenotrackedsecrets.Def,
 	&composethirdpartypins.Def,
 	&diesadmissiondogfood.Def,
+	&diesauthzgrid.Def,
 	&diescanaryvisibility.Def,
 	&diescanonical.Def,
 	&diescapabilitiesserved.Def,
@@ -141,6 +148,7 @@ var Defs = []*atomkit.Def{
 	&gogofmt.Def,
 	&gogovulncheck.Def,
 	&gomutation.Def,
+	&gorelease.Def,
 	&gotest.Def,
 	&gotestrace.Def,
 	&lawbudget.Def,
@@ -172,17 +180,21 @@ var Defs = []*atomkit.Def{
 	&pythonmutation.Def,
 	&pythonmypy.Def,
 	&pythonpytest.Def,
+	&pythonrelease.Def,
 	&pythonruffcheck.Def,
 	&pythonruffformat.Def,
 	&rustcargoclippy.Def,
 	&rustcargotest.Def,
 	&rustmutation.Def,
+	&rustrelease.Def,
 	&rustwitcompose.Def,
 	&rustwitguest.Def,
 	&templaterendermatrix.Def,
 	&tsbungate.Def,
 	&tsmutation.Def,
 	&tsregen.Def,
+	&tsrelease.Def,
+	&tsvisual.Def,
 	&witvalidate.Def,
 }
 

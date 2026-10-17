@@ -108,7 +108,7 @@ func TestUseDefsJoinsTheRowsAndRefusesADuplicate(t *testing.T) {
 		t.Errorf("an id with no place sorts last, got %s", last.ID)
 	}
 
-	for _, rows := range [][]AtomDef{{{ID: "go:release"}}, {{ID: "x:a"}, {ID: "x:a"}}} {
+	for _, rows := range [][]AtomDef{{{ID: "x:a"}, {ID: "x:a"}}} {
 		func() {
 			defer func() {
 				if r := recover(); r == nil || !strings.Contains(r.(string), "catalogued twice") {
@@ -121,15 +121,10 @@ func TestUseDefsJoinsTheRowsAndRefusesADuplicate(t *testing.T) {
 }
 
 // THE TABLE HOLDS THE UNPORTED SET AND NOTHING ELSE (lld FN-090 step 3): the
-// five atoms whose chains stay on Dagger (DEF-B3-035, DEF-B3-044). Every
+// no atom whose chain stays on Dagger (DEF-B3-035, DEF-B3-044). Every
 // other catalogue id comes from a file under atoms/.
 func TestAtomTableHoldsExactlyTheUnportedAtoms(t *testing.T) {
-	want := []string{
-		"go:release",
-		"python:release",
-		"rust:release",
-		"ts:release", "ts:visual",
-	}
+	want := []string{}
 	var got []string
 	for _, a := range atomTable() {
 		got = append(got, a.ID)
