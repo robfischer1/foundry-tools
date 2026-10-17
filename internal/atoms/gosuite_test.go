@@ -356,3 +356,17 @@ func TestTheTestServerScopeLinesSayWhyOnEveryBranch(t *testing.T) {
 		t.Errorf("the scope:\n%s", scope)
 	}
 }
+
+// AN INPUT WITH NO ENVIRONMENT OF ITS OWN READS THE PROCESS'S: the adapter binds
+// the three variables on the container the atom runs in, so that is where the
+// real atom finds them; a set Getenv wins over it.
+func TestInputGetenvReadsTheProcessUnlessTold(t *testing.T) {
+	t.Setenv("TEST_KUBE_URL", "https://kube:6443")
+	if got := (Input{}).getenv("TEST_KUBE_URL"); got != "https://kube:6443" {
+		t.Errorf("the process's variable = %q", got)
+	}
+	in := Input{Getenv: func(string) string { return "told" }}
+	if got := in.getenv("TEST_KUBE_URL"); got != "told" {
+		t.Errorf("a set Getenv = %q", got)
+	}
+}
