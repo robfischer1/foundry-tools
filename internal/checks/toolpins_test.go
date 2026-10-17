@@ -9,13 +9,13 @@ import (
 // Every URL the tools container fetches has a checksum, and it is a SHA-256.
 func TestEveryToolPinHasAChecksum(t *testing.T) {
 	hex := regexp.MustCompile(`^[0-9a-f]{64}$`)
-	for _, url := range []string{OpaURL, OpengrepURL, HadolintURL, KubectlURL, ChezmoiURL, ComposeURL, WasmToolsURL, WasmTools1250URL, WacURL, JustURL, ShellcheckURL, PythonStandaloneURL, CargoAuditURL, CargoNextestURL, OrasURL} {
+	for _, url := range []string{OpaURL, OpengrepURL, HadolintURL, KubectlURL, ChezmoiURL, ComposeURL, WasmToolsURL, WasmTools1250URL, WacURL, JustURL, ShellcheckURL, PythonStandaloneURL, CargoAuditURL, CargoNextestURL, OrasURL, SccacheURL} {
 		sum, ok := ToolSHA256[url]
 		if !ok || !hex.MatchString(sum) {
 			t.Errorf("%s has no SHA-256 in ToolSHA256 (got %q)", url, sum)
 		}
 	}
-	if len(ToolSHA256) != 15 {
+	if len(ToolSHA256) != 16 {
 		t.Errorf("ToolSHA256 holds %d entries; a stale line for a URL nothing fetches is a pin nobody checks", len(ToolSHA256))
 	}
 }
@@ -40,6 +40,18 @@ func TestCargoToolPinsAgree(t *testing.T) {
 	// refuses the gnu cargo-audit, so it is the static musl build.
 	if !strings.Contains(CargoAuditURL, "x86_64-unknown-linux-musl") || !strings.Contains(CargoNextestURL, "x86_64-unknown-linux-gnu") {
 		t.Errorf("the cargo tool assets moved off the builds measured to run in ImageRust: %s, %s", CargoAuditURL, CargoNextestURL)
+	}
+}
+
+// The sccache tarball names the pinned version in its tag and its asset, and
+// the member is the binary inside it. The asset is the static musl build.
+func TestSccachePinAgrees(t *testing.T) {
+	want := "https://github.com/mozilla/sccache/releases/download/v" + SccacheVersion + "/sccache-v" + SccacheVersion + "-x86_64-unknown-linux-musl.tar.gz"
+	if SccacheURL != want {
+		t.Errorf("SccacheURL %q, want %q", SccacheURL, want)
+	}
+	if SccacheMember != "sccache-v"+SccacheVersion+"-x86_64-unknown-linux-musl/sccache" {
+		t.Errorf("member %q does not match v%s", SccacheMember, SccacheVersion)
 	}
 }
 
