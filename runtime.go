@@ -323,11 +323,15 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 		// atoms: foundry-stocks' bash hooks parse their payload with jq, so
 		// their pytest suite cannot exercise a hook in a lane without it —
 		// measured 2026-10-08, every hook behaviour test red on `which jq`.
+		// libjq1 is pinned beside it: jq= pins only jq, so an image whose apt
+		// also sees bookworm-security picks libjq1 deb12u3 there and refuses
+		// the pair as held broken packages (2026-10-17). The pinned revision
+		// is the one bookworm main carries, so every lane image resolves it.
 		uv := dag.Container().From(checks.ImageUV)
 		ctr = ctr.
 			WithExec([]string{"apt-get", "update"}).
 			WithExec([]string{"apt-get", "install", "-y", "--no-install-recommends", "git", "curl", "ca-certificates"}).
-			WithExec([]string{"apt-get", "install", "-y", "--no-install-recommends", "jq=" + checks.JqDebVersion}).
+			WithExec([]string{"apt-get", "install", "-y", "--no-install-recommends", "jq=" + checks.JqDebVersion, "libjq1=" + checks.JqDebVersion}).
 			WithExec([]string{"rm", "-rf", "/var/lib/apt/lists"}).
 			WithExec([]string{"jq", "--version"}).
 			WithFile("/usr/local/bin/uv", uv.File("/uv")).
