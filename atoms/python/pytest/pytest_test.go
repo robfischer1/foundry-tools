@@ -48,7 +48,7 @@ func TestTheDeclarationValidatesAndKeepsTheRowItReplaces(t *testing.T) {
 		t.Fatal(err)
 	}
 	if Def.ID != id || Def.Stage != checks.StagePrecommit || Def.Lane != checks.LanePython || Def.Group != checks.GroupOf(id) ||
-		Def.Toolchain != "python" || Def.NotOnForks != "" || Def.NeedsManifest || Def.Surface != "any:**/*.py" ||
+		Def.Toolchain != "python" || Def.NotOnForks != "" || Def.NeedsManifest || !Def.WritesTree || Def.Surface != "any:**/*.py" ||
 		Def.Desc != "pytest passes, and there is something for it to pass." ||
 		!slices.Equal(Def.Needs, []string{"tool:git", "tool:uv"}) || Def.Timeout != 30*time.Minute {
 		t.Errorf("%+v", Def)
