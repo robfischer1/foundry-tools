@@ -196,22 +196,16 @@ func bindTestBrokers(ctr *dagger.Container, brokers []checks.TestBroker, scope s
 	return ctr
 }
 
-// testCaches is which caches the suites need, and the scope line: the tree's
-// `//go:build live_redis` files and nothing else. A tree without one is bound
-// nothing, so a lane that does not ask pays nothing. It binds no service
-// (testDatabases says why the reads and the binding are apart).
-func (r *run) testCaches(ctx context.Context, ctr *dagger.Container) ([]checks.TestCache, string) {
-	out, code, err := output(ctx, ctr.WithExec([]string{
+// testCaches is which caches the suites need: the tree's `//go:build live_redis`
+// files and nothing else. A tree without one, or whose tags would not read (the
+// read answers nothing then), is bound nothing, so a lane that does not ask pays
+// nothing. The atom prints the scope line itself (atoms.GoTestServers); this
+// binds no service (testDatabases says why the reads and the binding are apart).
+func (r *run) testCaches(ctx context.Context, ctr *dagger.Container) []checks.TestCache {
+	out, _, _ := output(ctx, ctr.WithExec([]string{
 		"grep", "-rhoE", `^//go:build [A-Za-z0-9_]+$`, "--include=*_test.go", ".",
 	}, anyExit))
-	if err != nil || code > 1 {
-		return nil, checks.TestCacheScope(nil, "the tree's build tags could not be read")
-	}
-	caches := checks.TestCachesFor(checks.GoBuildTags(out))
-	if len(caches) == 0 {
-		return nil, checks.TestCacheScope(nil, "no test file sits behind a tag the fleet names")
-	}
-	return caches, checks.TestCacheScope(caches, "")
+	return checks.TestCachesFor(checks.GoBuildTags(out))
 }
 
 // bindTestCaches binds each cache's server to ctr under scope's alias.
