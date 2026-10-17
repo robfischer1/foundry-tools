@@ -31,7 +31,8 @@ func TestGoTestRaceBindsAKubeAPIServerForALiveKubeTree(t *testing.T) {
 		[]string{"withEnvVariable", `name:"TEST_KUBE_URL"`, `value:"` + k.URLFor("") + `"`},
 		[]string{"withEnvVariable", `name:"TEST_KUBE_TOKEN"`},
 		[]string{"withEnvVariable", `name:"TEST_KUBE_CA_FILE"`, `value:"/run/test-kube/ca.crt"`},
-		[]string{"withExec", `"curl","--fail"`, "https://kube:6443/readyz", "--cacert", "/run/test-kube/ca.crt", "Authorization: Bearer "},
+		[]string{"withNewFile", `path:"/k/auth-header"`, "Authorization: Bearer "},
+		[]string{"withExec", `"curl","--fail"`, "https://kube:6443/readyz", "--cacert", "/run/test-kube/ca.crt", `"-H","@/k/auth-header"`, "%{onerror}kube-apiserver (lane shared) not ready after KubeBootSeconds=120s: GET /readyz"},
 		[]string{"withExec", `expect:ANY`, `args:["/atom","/src"]`},
 	)
 	// the token the suite is handed is 64 hex characters, and not the empty string
@@ -45,9 +46,14 @@ func TestGoTestRaceBindsAKubeAPIServerForALiveKubeTree(t *testing.T) {
 	tok := lastCall(c, "withEnvVariable", `name:"TEST_KUBE_TOKEN"`)
 	ca := lastCall(c, "withEnvVariable", `name:"TEST_KUBE_CA_FILE"`)
 	wait := lastCall(c, "withExec", `"curl","--fail"`, "/readyz")
+	header := lastCall(c, "withNewFile", `path:"/k/auth-header"`)
 	run := lastCall(c, "withExec", `args:["/atom","/src"]`)
-	if !(url < wait && tok < wait && ca < wait && wait < run) {
-		t.Errorf("wrong order: url %d token %d ca %d wait %d atom %d:\n%s", url, tok, ca, wait, run, c)
+	if !(url < wait && tok < wait && ca < wait && header < wait && wait < run) {
+		t.Errorf("wrong order: url %d token %d ca %d header %d wait %d atom %d:\n%s", url, tok, ca, header, wait, run, c)
+	}
+	// NO CREDENTIAL ON ARGV: the wait names the header file, and no exec carries a bearer line
+	if hasCall(c, "withExec", "Bearer") {
+		t.Errorf("a credential is on an exec's argv:\n%s", c)
 	}
 	if hasCall(c, "withServiceBinding", `alias:"db"`) || hasCall(c, "withServiceBinding", `alias:"broker"`) {
 		t.Errorf("only the tags the tree carries are bound:\n%s", c)

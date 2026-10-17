@@ -246,17 +246,20 @@ func containsString(list []string, s string) bool {
 // ---- THE WAIT -----------------------------------------------------------
 
 // THE LANE WAITS FOR /readyz, and the wait is bounded and shell-free: curl's own
-// retry loop, whose failure carries an argv naming the service.
-func TestKubeWaitArgsAreBoundedShellFreeAndNameTheService(t *testing.T) {
+// retry loop. The bearer header is read from a mounted file (-H @file), so no
+// credential is on argv, and a timeout prints, through curl's own %{onerror},
+// the line that names the service and the lane.
+func TestKubeWaitArgsAreBoundedShellFreeAndKeepTheCredentialOffArgv(t *testing.T) {
 	k := TestKubes[0]
-	got := k.WaitArgs("mutation", "tok123")
+	got := k.WaitArgs("mutation")
 	want := []string{
 		"curl", "--fail", "--silent", "--show-error", "--output", "/dev/null",
 		"--retry", "120", "--retry-delay", "1", "--retry-max-time", "120",
 		"--retry-all-errors", "--retry-connrefused",
 		"--connect-timeout", "5", "--max-time", "10",
 		"--cacert", "/run/test-kube/ca.crt",
-		"--header", "Authorization: Bearer tok123",
+		"-H", "@/k/auth-header",
+		"--write-out", "%{onerror}kube-apiserver (lane mutation) not ready after KubeBootSeconds=120s: GET /readyz\n",
 		"https://kube-mutation:6443/readyz",
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -265,11 +268,48 @@ func TestKubeWaitArgsAreBoundedShellFreeAndNameTheService(t *testing.T) {
 	if got[0] == "sh" || got[0] == "bash" {
 		t.Error("the wait is a shell")
 	}
+	for _, a := range got {
+		if strings.Contains(a, "Bearer") {
+			t.Errorf("a credential is on argv: %q", a)
+		}
+	}
 	if KubeBootSeconds != 120 {
 		t.Errorf("KubeBootSeconds = %d", KubeBootSeconds)
 	}
-	if shared := k.WaitArgs("", "x"); shared[len(shared)-1] != "https://kube:6443/readyz" {
-		t.Errorf("shared URL = %q", shared[len(shared)-1])
+	if KubeAuthHeaderFile != KubeFilesDir+"/auth-header" {
+		t.Errorf("KubeAuthHeaderFile = %q", KubeAuthHeaderFile)
+	}
+	shared := k.WaitArgs("")
+	if shared[len(shared)-1] != "https://kube:6443/readyz" || !strings.Contains(strings.Join(shared, " "), "(lane shared)") {
+		t.Errorf("the shared wait = %v", shared)
+	}
+}
+
+// THE HEADER FILE is curl's header line for the admin token, and nothing else.
+func TestKubeAuthHeaderIsTheBearerLine(t *testing.T) {
+	p := KubePKI{Token: "tok123"}
+	if got := p.AuthHeader(); got != "Authorization: Bearer tok123\n" {
+		t.Errorf("AuthHeader = %q", got)
+	}
+}
+
+// ---- WHAT THE ATOM IS HANDED ---------------------------------------------
+
+// MissingEnv names, in the vocabulary's order, the variables a suite environment
+// leaves empty; the refusal's detail is one line that names them.
+func TestKubeMissingEnvAndTheRefusalDetail(t *testing.T) {
+	k := TestKubes[0]
+	env := map[string]string{"TEST_KUBE_URL": "u", "TEST_KUBE_CA_FILE": ""}
+	got := k.MissingEnv(func(n string) string { return env[n] })
+	if !reflect.DeepEqual(got, []string{"TEST_KUBE_TOKEN", "TEST_KUBE_CA_FILE"}) {
+		t.Errorf("MissingEnv = %v", got)
+	}
+	if got := k.MissingEnv(func(string) string { return "x" }); len(got) != 0 {
+		t.Errorf("MissingEnv with all bound = %v", got)
+	}
+	want := "live_kube: TEST_KUBE_TOKEN, TEST_KUBE_CA_FILE not bound on this lane (the pod path binds no kube-apiserver; see atoms/go/test-race Needs)"
+	if got := k.NotBound([]string{"TEST_KUBE_TOKEN", "TEST_KUBE_CA_FILE"}); got != want {
+		t.Errorf("NotBound = %q", got)
 	}
 }
 

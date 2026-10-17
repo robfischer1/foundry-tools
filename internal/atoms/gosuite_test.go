@@ -124,18 +124,90 @@ func TestGoSuiteRaceCompilesABrokerOnlyTreesTag(t *testing.T) {
 	}
 }
 
+// kubeEnv is a suite environment that answers the named variables and nothing else.
+func kubeEnv(pairs ...string) func(string) string {
+	m := map[string]string{}
+	for i := 0; i+1 < len(pairs); i += 2 {
+		m[pairs[i]] = pairs[i+1]
+	}
+	return func(k string) string { return m[k] }
+}
+
+func gosuiteVerdictEnv(t *testing.T, f *golaneFake, getenv func(string) string, race bool) checks.Verdict {
+	t.Helper()
+	in := gosuiteIn(t, f, map[string]string{"go.mod": gosuiteGo})
+	in.Getenv = getenv
+	return GoSuite(t.Context(), in, GoRaceRow, ".", race)
+}
+
+var kubeBound = []string{"TEST_KUBE_URL", "https://kube:6443", "TEST_KUBE_TOKEN", "tok", "TEST_KUBE_CA_FILE", "/run/test-kube/ca.crt"}
+
 // AN API SERVER ALONE STILL TAGS AND SERIALISES the race run, and the reason says
-// which variables the suite was handed.
-func TestGoSuiteRaceCompilesAKubeOnlyTreesTag(t *testing.T) {
+// which variables the suite was handed, WHEN THE LANE BOUND ALL THREE.
+func TestGoSuiteRaceCompilesAKubeOnlyTreesTagWhenAllThreeVariablesAreBound(t *testing.T) {
 	f := &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}, {"grep -rhoE", "//go:build live_kube\n", 0}}}
-	v := gosuiteVerdict(t, f, map[string]string{"go.mod": gosuiteGo}, true)
+	v := gosuiteVerdictEnv(t, f, kubeEnv(kubeBound...), true)
 	last := f.runs[len(f.runs)-1]
 	if v.State != 0 || !strings.Contains(v.Reason, "test kubes: live_kube → TEST_KUBE_URL, TEST_KUBE_TOKEN, TEST_KUBE_CA_FILE") ||
-		!strings.Contains(last, "go test -race -tags live_kube -p 1 -coverprofile") {
+		!strings.HasSuffix(last, ": go test -race -tags live_kube -p 1 -coverprofile "+checks.GoCoverProfile+" ./...") {
 		t.Errorf("%+v ran %q", v, last)
 	}
 	if strings.Contains(v.Reason, "uncompiled") {
 		t.Errorf("the scope line calls a compiled tag uncompiled:\n%s", v.Reason)
+	}
+}
+
+// A TREE THAT CARRIES live_kube ON A LANE THAT BOUND NO API SERVER CANNOT RUN: the
+// atom never compiles the suite with nothing behind it (the pod path binds no
+// kube-apiserver), and the detail names exactly the variables that are absent.
+func TestGoSuiteRaceCannotRunLiveKubeWhereAVariableIsNotBound(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		env     []string
+		missing string
+	}{
+		{"none bound", nil, "TEST_KUBE_URL, TEST_KUBE_TOKEN, TEST_KUBE_CA_FILE"},
+		{"the URL missing", []string{"TEST_KUBE_TOKEN", "tok", "TEST_KUBE_CA_FILE", "/ca"}, "TEST_KUBE_URL"},
+		{"the token missing", []string{"TEST_KUBE_URL", "u", "TEST_KUBE_CA_FILE", "/ca"}, "TEST_KUBE_TOKEN"},
+		{"the CA missing", []string{"TEST_KUBE_URL", "u", "TEST_KUBE_TOKEN", "tok"}, "TEST_KUBE_CA_FILE"},
+		{"one set but empty", []string{"TEST_KUBE_URL", "u", "TEST_KUBE_TOKEN", "", "TEST_KUBE_CA_FILE", "/ca"}, "TEST_KUBE_TOKEN"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}, {"grep -rhoE", "//go:build live_kube\n", 0}}}
+			v := gosuiteVerdictEnv(t, f, kubeEnv(tc.env...), true)
+			want := "go:test-race: CANNOT RUN - live_kube: " + tc.missing + " not bound on this lane (the pod path binds no kube-apiserver; see atoms/go/test-race Needs)"
+			if v.State != 2 || !strings.Contains(v.Reason, want) {
+				t.Errorf("%+v\nwant %q", v, want)
+			}
+			for _, r := range f.runs {
+				if strings.Contains(r, "go test") {
+					t.Errorf("the suite ran with nothing bound: %v", f.runs)
+				}
+			}
+		})
+	}
+}
+
+// NO live_kube IN THE TREE: the variables are not read for a tag nothing carries,
+// so a lane that binds all three adds no tag, and one that binds none is not refused.
+func TestGoSuiteRaceAddsNoKubeTagWhenTheTreeCarriesNone(t *testing.T) {
+	for _, env := range [][]string{kubeBound, nil} {
+		f := &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}, {"grep -rhoE", "", 1}}}
+		v := gosuiteVerdictEnv(t, f, kubeEnv(env...), true)
+		last := f.runs[len(f.runs)-1]
+		if v.State != 0 || strings.Contains(last, "live_kube") || strings.Contains(last, "-tags") ||
+			!strings.Contains(v.Reason, "test kubes: none — no test file sits behind a tag the fleet names") {
+			t.Errorf("env %v: %+v ran %q", env, v, last)
+		}
+	}
+}
+
+// THE UNIT RUN (the commit's go:test) reads no variables and compiles no tag.
+func TestGoSuiteUnitRunIgnoresTheKubeVariables(t *testing.T) {
+	f := &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}}}
+	v := gosuiteVerdictEnv(t, f, kubeEnv(), false)
+	if v.State != 0 || strings.Contains(f.runs[len(f.runs)-1], "-tags") {
+		t.Errorf("%+v ran %v", v, f.runs)
 	}
 }
 
