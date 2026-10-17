@@ -29,6 +29,15 @@ type fakeRegistry struct {
 	// challenge, when set, answers an unauthenticated request with a Bearer
 	// challenge naming this realm, and issues token for a Basic request to it.
 	realm, token string
+	// abort drops the connection of a request whose "METHOD path" starts with
+	// a key; badLocation answers an upload Location that is not a URL;
+	// tokenStatus and tokenBody replace the realm's answer; noRealm leaves the
+	// challenge without one.
+	abort       map[string]bool
+	badLocation bool
+	tokenStatus int
+	tokenBody   string
+	noRealm     bool
 }
 
 func newFake() *fakeRegistry {
@@ -45,14 +54,31 @@ func (f *fakeRegistry) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
+		if f.tokenStatus != 0 {
+			w.WriteHeader(f.tokenStatus)
+			return
+		}
+		if f.tokenBody != "" {
+			_, _ = io.WriteString(w, f.tokenBody)
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]string{"token": f.token})
 		return
 	}
 	f.auths = append(f.auths, auth)
 	if f.realm != "" && auth != "Bearer "+f.token {
-		w.Header().Set("Www-Authenticate", `Bearer realm="`+f.realm+`",service="registry",scope="repository:foundry/visual/gijmo-ui:push,pull"`)
+		challenge := `Bearer realm="` + f.realm + `",service="registry",scope="repository:foundry/visual/gijmo-ui:push,pull"`
+		if f.noRealm {
+			challenge = `Bearer service="registry"`
+		}
+		w.Header().Set("Www-Authenticate", challenge)
 		w.WriteHeader(http.StatusUnauthorized)
 		return
+	}
+	for prefix := range f.abort {
+		if strings.HasPrefix(r.Method+" "+r.URL.Path, prefix) {
+			panic(http.ErrAbortHandler)
+		}
 	}
 	for prefix, code := range f.fail {
 		if strings.HasPrefix(r.Method+" "+r.URL.Path, prefix) {
@@ -71,6 +97,9 @@ func (f *fakeRegistry) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		loc := repo + "/blobs/uploads/session-1"
 		if !f.relative {
 			loc = "http://" + r.Host + loc
+		}
+		if f.badLocation {
+			loc = "http://[::1"
 		}
 		w.Header().Set("Location", loc)
 		w.WriteHeader(http.StatusAccepted)
@@ -294,5 +323,72 @@ func TestUT_VIS_PushRefPushesToTheReferencesRepositoryAndTag(t *testing.T) {
 	}
 	if err := r.PushRef(context.Background(), "no-tag", nil); err == nil {
 		t.Error("a reference with no tag pushed")
+	}
+}
+
+// Every stage of a push that can lose its connection says so, and a registry
+// that answers nonsense is named for it.
+func TestUT_VIS_PushSurvivesNoStageAndNamesEachFailure(t *testing.T) {
+	const repo = "/v2/foundry/visual/gijmo-ui"
+	a, b := layerOf(t, "a", "A"), layerOf(t, "b", "B")
+	for name, c := range map[string]struct {
+		set  func(*fakeRegistry)
+		want string
+	}{
+		"head dropped":          {func(f *fakeRegistry) { f.abort = map[string]bool{"HEAD ": true} }, "HEAD"},
+		"upload start dropped":  {func(f *fakeRegistry) { f.abort = map[string]bool{"POST ": true} }, "POST"},
+		"upload finish dropped": {func(f *fakeRegistry) { f.abort = map[string]bool{"PUT " + repo + "/blobs/": true} }, "PUT"},
+		"manifest dropped":      {func(f *fakeRegistry) { f.abort = map[string]bool{"PUT " + repo + "/manifests/": true} }, "PUT"},
+		"bad location":          {func(f *fakeRegistry) { f.badLocation = true }, "not a URL"},
+	} {
+		f := newFake()
+		c.set(f)
+		srv := httptest.NewServer(f)
+		err := pusher(srv, Credential{Bearer: "jwt"}).Push(context.Background(), "foundry/visual/gijmo-ui", "t", []Layer{a, b})
+		srv.Close()
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v, want %q", name, err, c.want)
+		}
+	}
+	// the second blob is the one that fails: the config went through
+	f := newFake()
+	f.fail = map[string]int{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut && r.URL.Query().Get("digest") == a.Digest {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		f.ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+	err := pusher(srv, Credential{Bearer: "jwt"}).Push(context.Background(), "foundry/visual/gijmo-ui", "t", []Layer{a, b})
+	if err == nil || !strings.Contains(err.Error(), "400") {
+		t.Errorf("a layer upload the registry refuses: %v", err)
+	}
+}
+
+// Logging in with a password goes through the realm, and every way the realm
+// can fail is the push's cause.
+func TestUT_VIS_PushNamesWhyTheRealmLoginFailed(t *testing.T) {
+	for name, c := range map[string]struct {
+		set  func(f *fakeRegistry, realm string)
+		want string
+	}{
+		"no realm":      {func(f *fakeRegistry, _ string) { f.noRealm = true }, "named no realm"},
+		"realm not url": {func(f *fakeRegistry, _ string) { f.realm = "http://[::1" }, "not a URL"},
+		"realm refuses": {func(f *fakeRegistry, _ string) { f.tokenStatus = 403 }, "refused the login: 403"},
+		"realm garbage": {func(f *fakeRegistry, _ string) { f.tokenBody = "not json" }, "answered no token"},
+		"realm gone":    {func(f *fakeRegistry, _ string) { f.realm = "http://127.0.0.1:1/token" }, "GET"},
+	} {
+		f := newFake()
+		f.token = "tok"
+		srv := httptest.NewServer(f)
+		f.realm = srv.URL + "/token"
+		c.set(f, srv.URL)
+		err := pusher(srv, Credential{User: "u", Password: "p"}).Push(context.Background(), "foundry/visual/gijmo-ui", "t", []Layer{layerOf(t, "a", "A")})
+		srv.Close()
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v, want %q", name, err, c.want)
+		}
 	}
 }

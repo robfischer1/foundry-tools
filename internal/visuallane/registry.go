@@ -71,10 +71,7 @@ func (r Registry) PushRef(ctx context.Context, ref string, layers []Layer) error
 // manifest last, so a push that fails part-way leaves no tag behind.
 func (r Registry) Push(ctx context.Context, repo, tag string, layers []Layer) error {
 	c := &session{Registry: r}
-	cfg, err := imageConfig(layers)
-	if err != nil {
-		return err
-	}
+	cfg := imageConfig(layers)
 	cfgSum := sha256.Sum256(cfg)
 	cfgDigest := "sha256:" + hex.EncodeToString(cfgSum[:])
 	if err := c.blob(ctx, repo, cfgDigest, cfg); err != nil {
@@ -87,13 +84,11 @@ func (r Registry) Push(ctx context.Context, repo, tag string, layers []Layer) er
 		}
 		descs = append(descs, descriptor{MediaType: mediaLayer, Digest: l.Digest, Size: len(l.Data)})
 	}
-	manifest, err := json.Marshal(imageManifest{
+	// A struct of strings and integers always encodes.
+	manifest, _ := json.Marshal(imageManifest{
 		SchemaVersion: 2, MediaType: mediaManifest,
 		Config: descriptor{MediaType: mediaConfig, Digest: cfgDigest, Size: len(cfg)}, Layers: descs,
 	})
-	if err != nil {
-		return fmt.Errorf("the manifest did not encode: %w", err)
-	}
 	resp, err := c.do(ctx, http.MethodPut, r.Base+"/v2/"+repo+"/manifests/"+tag, mediaManifest, manifest)
 	if err != nil {
 		return err
@@ -116,15 +111,17 @@ type imageManifest struct {
 
 // imageConfig is the minimal image config the layers' diff ids make: an image
 // registries and clients accept, with nothing to run.
-func imageConfig(layers []Layer) ([]byte, error) {
+func imageConfig(layers []Layer) []byte {
 	diffs := make([]string, 0, len(layers))
 	for _, l := range layers {
 		diffs = append(diffs, l.DiffID)
 	}
-	return json.Marshal(map[string]any{
+	// A map of strings always encodes.
+	b, _ := json.Marshal(map[string]any{
 		"architecture": "amd64", "os": "linux", "config": map[string]any{},
 		"rootfs": map[string]any{"type": "layers", "diff_ids": diffs},
 	})
+	return b
 }
 
 // session is one push's state: the registry, and the bearer token a Basic
