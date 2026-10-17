@@ -104,7 +104,7 @@ func (w *world) script(name, out, in string, dropInstall bool) (string, error) {
 // build runs the star's build script over the core, under the pinned wasm-tools
 // and the toolchain's rustup, and measures what it leaves.
 func (w *world) build(core string) (built, error) {
-	rustup, err := w.p.rustupHome(w.exec)
+	rustup, err := w.p.rustupHome(w.ctx, w.exec)
 	if err != nil {
 		return built{}, err
 	}

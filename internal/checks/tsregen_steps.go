@@ -59,11 +59,6 @@ func RegenTar(file, dir string, gz bool, strip int, member string) []string {
 // links kept: rustup's home, so `rustup target add` has a place it may write.
 func RegenCopyTree(from, to string) []string { return []string{"cp", "-a", from + "/.", to} }
 
-// RegenRustupTarget adds the guest's compile target to the toolchain.
-func RegenRustupTarget() []string {
-	return []string{"rustup", "target", "add", "wasm32-unknown-unknown"}
-}
-
 // The directories the recorded guests were built in. A guest's bytes carry the
 // paths of the sources it was built from (panic locations, debug info), so a
 // build somewhere else is a different file; the paths are remapped back to
@@ -164,6 +159,20 @@ func SHA256File(path string) (string, error) {
 const (
 	Node24Version = "24.21.0"
 	NodeRegenURL  = "https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-x64.tar.gz"
+)
+
+// THE GUEST'S COMPILE TARGET. The star's build script runs `rustup target add
+// wasm32-unknown-unknown`, which downloads the standard library from
+// static.rust-lang.org; a pod's egress is closed, so the atom brings the same
+// component as a pinned dist tarball (ToolSources: the mirror first, upstream
+// second), lays it into its copy of the rustup home and registers it, and the
+// script's own add finds it installed. The version is the rust-wasm image's
+// (RustWasmComponentsTag); a test holds the two together. Member is the
+// component's tree inside the tarball: lib/ and manifest.in.
+const (
+	RustStdWasmComponent = "rust-std-wasm32-unknown-unknown"
+	RustStdWasmURL       = "https://static.rust-lang.org/dist/rust-std-1.90.0-wasm32-unknown-unknown.tar.gz"
+	RustStdWasmMember    = "rust-std-1.90.0-wasm32-unknown-unknown/" + RustStdWasmComponent
 )
 
 // FetchPinned writes the first source that serves bytes of the pinned sha256 to

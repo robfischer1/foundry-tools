@@ -60,8 +60,9 @@ func step(exec execFunc, env []string, argv ...string) error {
 // rustupHome is a copy of the toolchain image's rustup home that this run may
 // write to: `rustup target add wasm32-unknown-unknown`, the first line of every
 // star's build script, writes into the toolchain's own directory, which the
-// image's is not writable to a pod's user.
-func (p *provision) rustupHome(exec execFunc) (string, error) {
+// image's is not writable to a pod's user. The target is laid in it already
+// (layStd): the add would otherwise download it.
+func (p *provision) rustupHome(ctx context.Context, exec execFunc) (string, error) {
 	return p.rustup.do(func() (string, error) {
 		from := os.Getenv("RUSTUP_HOME")
 		if from == "" {
@@ -74,11 +75,11 @@ func (p *provision) rustupHome(exec execFunc) (string, error) {
 		if err := step(exec, nil, checks.RegenCopyTree(from, to)...); err != nil {
 			return "", fmt.Errorf("rustup home: %v", err)
 		}
-		// THE TARGET IS ADDED HERE, ONCE. The star's script adds it too, and
+		// THE TARGET IS LAID HERE, ONCE. The star's script adds it too, and
 		// worlds that build side by side would add it to one home at once,
-		// racing on its downloads and its installed files; with it present the
-		// script's own add finds nothing to do.
-		if err := step(exec, []string{"RUSTUP_HOME=" + to}, checks.RegenRustupTarget()...); err != nil {
+		// racing on its installed files; with it registered the script's own
+		// add finds nothing to do, and reaches for no network.
+		if err := p.layStd(ctx, exec, to); err != nil {
 			return "", fmt.Errorf("rustup home: %v", err)
 		}
 		return to, nil
