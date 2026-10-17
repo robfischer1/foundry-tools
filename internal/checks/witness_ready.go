@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -34,8 +32,8 @@ const (
 	WitnessReadyPause    = time.Duration(3e9) // 3 s, spelled with no operator a mutant could flip
 )
 
-// witnessReadyTimeout bounds one probe: /ready answers from memory.
-const witnessReadyTimeout = time.Duration(10e9)
+// WitnessReadyTimeout bounds one probe: /ready answers from memory.
+const WitnessReadyTimeout = time.Duration(10e9)
 
 // WitnessReadyURL is the readiness endpoint beside an MCP endpoint: same host,
 // path /ready. "" when the URL does not parse.
@@ -51,26 +49,6 @@ func WitnessReadyURL(mcpURL string) string {
 // WitnessProbe is one GET of the readiness endpoint: status and body, or the
 // error that kept it from asking.
 type WitnessProbe func(ctx context.Context, url string) (int, string, error)
-
-// GetWitnessReady is the production WitnessProbe.
-func GetWitnessReady(ctx context.Context, u string) (int, string, error) {
-	ctx, cancel := context.WithTimeout(ctx, witnessReadyTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return 0, "", err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return 0, "", err
-	}
-	defer resp.Body.Close()
-	b, err := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
-	if err != nil {
-		return 0, "", err
-	}
-	return resp.StatusCode, string(b), nil
-}
 
 // WitnessReadiness asks whether the witness can answer. ok is true when it said
 // ready, and ALSO when the probe could not read an answer it understands (a 404

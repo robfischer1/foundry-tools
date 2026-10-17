@@ -45,23 +45,6 @@ const id = "fleet:witness"
 // row is the part of the catalogue row a verdict reads: its identity.
 var row = checks.AtomDef{ID: id, Stage: checks.StagePrepush, Lane: checks.LaneAny}
 
-// probe is the witness's /ready reader; nil is checks.GetWitnessReady.
-func probe(w atoms.Witness) checks.WitnessProbe {
-	if w.Probe == nil {
-		return checks.GetWitnessReady
-	}
-	return w.Probe
-}
-
-// url is the port the witness's /ready is read on; "" is checks.WitnessURL.
-// It is only ever probed, never asked: an ask goes to checks.WitnessMTLSURL.
-func url(w atoms.Witness) string {
-	if w.URL == "" {
-		return checks.WitnessURL
-	}
-	return w.URL
-}
-
 // sleep is the pause between attempts; nil is checks.SleepContext.
 func sleep(w atoms.Witness) func(context.Context, time.Duration) error {
 	if w.Sleep == nil {
@@ -85,8 +68,9 @@ func call(w atoms.Witness) atoms.Exec {
 // asking is how one run asks narcissus: ask posts one request, and say is the
 // line the atom's output carries about the identity it asked as.
 type asking struct {
-	ask func(context.Context, string) (int, string, string, error)
-	say func() string
+	ask   func(context.Context, string) (int, string, string, error)
+	ready checks.WitnessProbe
+	say   func() string
 }
 
 // asker answers how this run asks narcissus, or why it cannot.
@@ -116,7 +100,26 @@ func asker(ctx context.Context, in atomkit.In) (asking, string) {
 		return checks.AskWitnessRetried(ctx, identifiedPost(in, env), body,
 			checks.WitnessAttempts, checks.WitnessRetryPause, sleep(in.Witness))
 	}
-	return asking{ask: ask, say: func() string { return checks.WitnessAskedAs(who) }}, ""
+	return asking{ask: ask, ready: readyProbe(in, env), say: func() string { return checks.WitnessAskedAs(who) }}, ""
+}
+
+// readyProbe reads the witness's /ready through the helper, at the mTLS door
+// beside the ask and as the same SVID: the clear port is never dialled, so the
+// star can close it. Whatever kept the helper from an answer (narcissus down,
+// refusing, or silent past the probe's timeout) is the probe's error, which
+// checks.WitnessReadiness words as "unreachable" exactly as it did a refused
+// dial.
+func readyProbe(in atomkit.In, env []string) checks.WitnessProbe {
+	return func(ctx context.Context, u string) (int, string, error) {
+		ctx, cancel := context.WithTimeout(ctx, checks.WitnessReadyTimeout)
+		defer cancel()
+		out, code := call(in.Witness)(ctx, atoms.Cmd{Dir: in.Root, Name: "witnesscall", Args: []string{"get", u}, Env: env})
+		if code != 0 {
+			return 0, "", errors.New(out)
+		}
+		status, _, body, err := checks.ParseWitnessCall(out)
+		return status, body, err
+	}
 }
 
 // identifiedPost posts one request through witnesscall at narcissus's mTLS door.
@@ -175,7 +178,7 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 		return settle(state, reason, nil)
 	}
 	// NO IDENTITY, NO ASK, AND NO NETWORK: this is settled before the witness's
-	// /ready is read, so a lane without a socket touches nothing.
+	// /ready is read (over the same mTLS door), so a lane without a socket touches nothing.
 	via, why := asker(ctx, in)
 	if why != "" {
 		return settle(int(checks.StateCannotRun), "CANNOT RUN - "+why+". No file was asked.", nil)
@@ -184,7 +187,7 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 	// THE TARGET MAY BE THE THING THE CHANGE REPAIRS. A witness that does not say
 	// ready is a could-not-run about narcissus, named so, with no ask sent
 	// (checks/witness_ready.go says why).
-	if ok, detail := checks.WitnessReadiness(ctx, probe(in.Witness), url(in.Witness),
+	if ok, detail := checks.WitnessReadiness(ctx, via.ready, checks.WitnessMTLSURL,
 		checks.WitnessReadyAttempts, checks.WitnessReadyPause, sleep(in.Witness)); !ok {
 		return settle(int(checks.StateCannotRun), checks.WitnessNotReadyReason(detail), nil)
 	}
