@@ -124,6 +124,7 @@ var atomLibraries = map[string][]string{
 	"rust:release":               rustReleaseDirs,
 	"ts:release":                 releaseDirs,
 	"template:render-matrix":     libraryDirs,
+	"ts:regen":                   {"internal/regenlane/**"},
 	"wit:validate":               libraryDirs,
 }
 

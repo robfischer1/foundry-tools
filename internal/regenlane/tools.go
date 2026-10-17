@@ -1,4 +1,4 @@
-package tsregen
+package regenlane
 
 import (
 	"context"
