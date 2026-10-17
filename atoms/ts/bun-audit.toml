@@ -10,6 +10,11 @@ argv = ["bun", "audit", "--audit-level=high"]
 per_module = false
 judge = "exit"
 
+# bun audit opens package.json read-write, and the pod mounts /src read-only:
+# the audit runs on the atom's own copy of the tree (EACCES on /src/package.json
+# otherwise). Dagger's /src is writable, so the verdict is the same on both.
+writes_tree = true
+
 # THE REGISTRY IS NAMED, AND IT IS npmjs.org. `bun audit` scans nothing locally:
 # it posts the lockfile's package set to the registry's bulk advisory endpoint.
 # A proxy mirror serves packages, not that API, so against a mirror the audit
