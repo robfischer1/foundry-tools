@@ -189,7 +189,7 @@ func TestRecordRepoAndStarOfRecordPath(t *testing.T) {
 		"fleet/data.json":                  "",
 		"fleet/repos/.json":                "",
 		"fleet/stars/hephaestus/slag.json": "",
-		"policy/authz_grants/data.json":    "",
+		"policy/grants/data.json":          "",
 	} {
 		if got := StarOfRecordPath(p); got != want {
 			t.Errorf("StarOfRecordPath(%q) = %q, want %q", p, got, want)

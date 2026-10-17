@@ -239,11 +239,16 @@ func OpaAllowed(doc string) ([]string, error) {
 // asserted PRESENT and NON-EMPTY, by name, because an empty or partial data
 // document is the silent fail-open the bundle gate exists to catch.
 //
+// grants and principals are the two documents `themis grants render` writes from the
+// grant facts: every authz_v2 answer (decision, decide, the act packages, the door's
+// path locks, alias resolution) reads them, and nothing else carries a grant since the
+// legacy v1 tables were deleted (stark42 S3).
+//
 // capabilities (Capabilities S1) is the declared-capability root authz_v2.decide
 // reads first: an empty one denies every call to every star, so its absence from
 // the built bundle is a fail-CLOSED outage rather than a fail-open, and just as
 // silent at every source-tree gate.
-var DiesRequiredDataRoots = []string{"authz_audience", "authz_grants", "authz_meta", "path_grants", "subject_aliases", "capabilities"}
+var DiesRequiredDataRoots = []string{"authz_audience", "grants", "principals", "capabilities"}
 
 // DiesDataKeys grades the BUILT bundle's data.json: which required roots are
 // missing or empty, and how many stars the star_only roster carried through the

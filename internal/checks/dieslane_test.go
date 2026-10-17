@@ -176,10 +176,8 @@ func TestOpaAllowedReadsTheVerbList(t *testing.T) {
 
 const fullDataJSON = `{
   "authz_audience": {"star_only": {"chaos": ["graph_write", "graph_gc"], "eros": ["eros_index"]}},
-  "authz_grants": {"a": 1},
-  "authz_meta": {"b": 2},
-  "path_grants": {"c": 3},
-  "subject_aliases": {"d": 4},
+  "grants": {"a": 1},
+  "principals": {"b": 2},
   "capabilities": {"stars": {"athena": {"prefix": "plan", "verbs": ["task_read"], "tier": {"task_read": "default"}}}}
 }`
 
@@ -210,12 +208,12 @@ func TestDiesDataKeysTreatsEmptyAsMissing(t *testing.T) {
 		t.Errorf("got %d stars, want 0", stars)
 	}
 
-	partial := `{"authz_audience":{"star_only":{}},"authz_grants":{},"authz_meta":{"b":2},"path_grants":[],"subject_aliases":null}`
+	partial := `{"authz_audience":{"star_only":{}},"grants":{},"principals":null}`
 	missing, _, err = DiesDataKeys(partial)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := []string{"authz_grants", "path_grants", "subject_aliases", "capabilities"}
+	want := []string{"grants", "principals", "capabilities"}
 	if !reflect.DeepEqual(missing, want) {
 		t.Errorf("got %v, want %v", missing, want)
 	}
