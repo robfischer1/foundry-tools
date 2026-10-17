@@ -86,8 +86,8 @@ type run struct {
 	// (atom_env_ts.go); nil pushes nothing.
 	artifactAuth *dagger.Secret
 	sha          string
-	// registrySvid, with spire, replaces artifactAuth: the audience of the
-	// JWT-SVID the artifact push logs in with (registrysvid.go).
+	// registrySvid is the audience GateFile was given; ts:visual no longer
+	// logs in with it (the pod's push-visual phase holds the identity).
 	registrySvid string
 
 	dies *dagger.Directory

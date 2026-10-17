@@ -58,6 +58,3 @@ func (r *run) withRegistrySvid(audience string) *run {
 	r.registrySvid = audience
 	return r
 }
-
-// svid is the run's registry identity login; on() says whether it applies.
-func (r *run) svid() svidLogin { return svidLogin{audience: r.registrySvid, spire: r.spire} }
