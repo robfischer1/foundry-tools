@@ -159,7 +159,7 @@ func TestGoSuiteRequiresTheRegenTestsOfPackagesThatOptedIn(t *testing.T) {
 		t.Fatalf("%+v", v)
 	}
 	env := strings.Join(f.envs[len(f.envs)-1], " ")
-	if env != "CLASSESCORE_REGEN_REQUIRED=1 STAMP_REGEN_REQUIRED=1" {
+	if env != "CLASSESCORE_REGEN_REQUIRED=1 STAMP_REGEN_REQUIRED=1 "+strings.Join(suiteScrub, " ") {
 		t.Errorf("the suite's exec carries %q", env)
 	}
 	for _, e := range f.envs[:len(f.envs)-1] {
@@ -265,5 +265,21 @@ func TestTheTestServerScopeLinesSayWhyOnEveryBranch(t *testing.T) {
 	in := Input{Root: t.TempDir(), FilesErr: errTreeGone, Exec: (&golaneFake{rules: []golaneRule{{"grep", "", 1}}}).exec}
 	if _, _, scope := GoTestServers(t.Context(), in, in.Root); !strings.Contains(scope, "test brokers: none — the tree's kafka flows could not be read (the tree would not enumerate: gone)") {
 		t.Errorf("the scope:\n%s", scope)
+	}
+}
+
+// The suite's exec blanks the pod's per-atom variables: with ATOM_WORK set,
+// WorkDir ignores TMPDIR and a test that makes TMPDIR unwritable ("a copy that
+// cannot be made is a could-not-run") passed instead of failing as designed.
+func TestGoSuiteRunsTheSuiteWithoutThePodsAtomVariables(t *testing.T) {
+	f := &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}}}
+	if v := gosuiteVerdict(t, f, map[string]string{"go.mod": gosuiteGo}, false); v.State != 0 {
+		t.Fatalf("%+v", v)
+	}
+	got := strings.Join(f.envs[len(f.envs)-1], " ")
+	for _, k := range []string{"ATOM_WORK=", "ATOM_OUT=", "ATOM_TREE="} {
+		if !strings.Contains(got, k) {
+			t.Errorf("%s is not blanked: %q", k, got)
+		}
 	}
 }

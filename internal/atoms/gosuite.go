@@ -29,6 +29,9 @@ import (
 // file sits outside the tree. NO -coverpkg, so each package's coverage is its
 // own tests' — exactly the profile gomutants gathers, which is what keeps the
 // two NOT COVERED signals agreeing.
+// suiteScrub blanks the executor's per-atom variables for the unit suite.
+var suiteScrub = []string{"ATOM_WORK=", "ATOM_OUT=", "ATOM_TREE="}
+
 func GoSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race bool) checks.Verdict {
 	cwd := GoModuleRoot(in, dir)
 	if v, ok := Provision(ctx, in, a, cwd, "go", "mod", "download"); !ok {
@@ -60,6 +63,11 @@ func GoSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race b
 	for _, g := range plan.Regens {
 		env = append(env, g.Env+"=1")
 	}
+	// THE SUITE RUNS AS A DEVELOPER RUNS IT: the pod's per-atom variables name
+	// the atom's work directory, which tests that provoke an unwritable
+	// TMPDIR would otherwise be redirected around (WorkDir). An empty value
+	// reads as unset to every os.Getenv(...) != "" test.
+	env = append(env, suiteScrub...)
 	args := []string{"test"}
 	scope := "unit suite: no race detector and no database — go:test-race runs those at the push"
 	if race {
