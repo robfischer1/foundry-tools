@@ -8,10 +8,10 @@ import (
 	"dagger/foundry-tools/internal/checks"
 )
 
-// The four dies atoms that grade the policy run in the fleet lane with the
+// The five dies atoms that grade the policy run in the fleet lane with the
 // pinned opa laid on PATH: the file placed is the pinned release asset.
 func TestTheOpaAtomsRunInTheFleetLaneWithThePinnedOpa(t *testing.T) {
-	for _, id := range []string{"dies:opa-test", "dies:admission-dogfood", "dies:data-keys", "dies:canary-visibility"} {
+	for _, id := range []string{"dies:opa-test", "dies:admission-dogfood", "dies:data-keys", "dies:canary-visibility", "dies:authz-grid"} {
 		t.Run(id, func(t *testing.T) {
 			engine.reset()
 			engine.withTree(everyLaneTree)
