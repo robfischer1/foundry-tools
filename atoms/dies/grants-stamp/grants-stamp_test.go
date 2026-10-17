@@ -20,7 +20,7 @@ func TestUT_485_TheDeclarationIsTheRowItReplaced(t *testing.T) {
 		t.Fatal(err)
 	}
 	if Def.ID != id || Def.Stage != checks.StagePrepush || Def.Lane != checks.LaneAny || Def.Group != checks.GroupOf(id) ||
-		Def.Toolchain != "python" || Def.Surface != "any:**" || strings.Join(Def.Needs, ",") != "tool:uv" {
+		Def.Toolchain != "python" || Def.Surface != "any:**" || strings.Join(Def.Needs, ",") != "tool:git,tool:uv" {
 		t.Errorf("%+v", Def)
 	}
 }

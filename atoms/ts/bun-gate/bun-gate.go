@@ -23,6 +23,7 @@ var Def = atomkit.Def{
 	Desc:       "bun run gate passes against a frozen lockfile under the fleet's eslint config, and the tree carries tests for it to run.",
 	Surface:    "root:package.json",
 	Toolchain:  "bun",
+	Needs:      []string{"tool:node"},
 	Timeout:    30 * time.Minute,
 	WritesTree: true,
 	Check:      check,

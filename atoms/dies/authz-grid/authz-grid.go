@@ -20,7 +20,7 @@ var Def = atomkit.Def{
 	Desc:      "A pull that changes policy Rego moves no answer of the authz_v2 decision, decide or endpoint_decision grids: the pull's Rego and the base's are asked every cell over the head's data with time.now_ns pinned, and the first cells that moved are listed unless a commit carries an Authz-Semantics-Change trailer. A pull that touches no Rego passes unevaluated.",
 	Surface:   "any:**",
 	Toolchain: "python",
-	Needs:     []string{"tool:opa", "tool:uv"},
+	Needs:     []string{"tool:git", "tool:opa", "tool:uv"},
 	Check:     check,
 }
 
