@@ -95,7 +95,7 @@ func TestEveryPinnedToolHasOneVerifiedSource(t *testing.T) {
 	// the tools, the python layer's interpreter, and the rust lane's two cargo
 	// tool tarballs (runtime.go withCargoTarball) and oras, plus the regen lane's wasm-tools and node,
 	// and the executor's sccache and cargo-mutants (provisioned into the node cache, not by the engine).
-	fetched := []string{checks.PythonStandaloneURL, checks.CargoAuditURL, checks.CargoNextestURL, checks.SccacheURL, checks.CargoMutantsURL, checks.MoldURL, checks.RustClippyURL, checks.RustRustfmtURL, checks.RustWasmClippyURL, checks.RustWasmRustfmtURL, checks.WacURL, checks.OrasURL, checks.WasmTools1250URL, checks.NodeRegenURL, checks.RustStdWasmURL}
+	fetched := []string{checks.PythonStandaloneURL, checks.CargoAuditURL, checks.CargoNextestURL, checks.SccacheURL, checks.CargoMutantsURL, checks.MoldURL, checks.RustClippyURL, checks.RustRustfmtURL, checks.RustWasmClippyURL, checks.RustWasmRustfmtURL, checks.WacURL, checks.OrasURL, checks.WasmTools1250URL, checks.NodeRegenURL, checks.RustStdWasmURL, checks.RustStdURL}
 	for _, tool := range pinnedTools {
 		if tool.url != "" {
 			fetched = append(fetched, tool.url)

@@ -154,6 +154,9 @@ func (f *fake) homeSkeleton(home string) {
 	} else if !f.omit["components"] {
 		write(f.t, filepath.Join(rl, "components"), "cargo-x\nrust-std-x\nrustc-x\n")
 	}
+	if f.omit["std-present"] { // serve laid it already
+		write(f.t, filepath.Join(rl, "manifest-"+checks.RustStdWasmComponent), stdManifest)
+	}
 	if !f.omit["multirust-config.toml"] {
 		write(f.t, filepath.Join(rl, "multirust-config.toml"), "config_version = \"1\"\n")
 	}
@@ -909,5 +912,24 @@ func TestTheToolchainIsTheOneTheHomeHolds(t *testing.T) {
 	put(t, home, "toolchains/b/x", "")
 	if _, err := toolchainOf(home); err == nil || !strings.Contains(err.Error(), "2 toolchains") {
 		t.Errorf("two toolchains: %v", err)
+	}
+}
+
+// A home that already carries the std (serve composed it) is not laid again: no
+// fetch of the tarball, and the component is listed once.
+func TestTSRegenLeavesAStdTheHomeAlreadyCarries(t *testing.T) {
+	f, in, fetched := withFake(t, star(t, "1.250.0", "stamp"))
+	f.omit["std-present"] = true
+	if v := Check(t.Context(), in); v.State != 0 {
+		t.Fatalf("%+v", v)
+	}
+	for _, u := range *fetched {
+		if u == checks.RustStdWasmURL {
+			t.Errorf("the std was fetched again: %v", *fetched)
+		}
+	}
+	rl := filepath.Join(os.Getenv("ATOM_WORK"), "ts-regen-tools", "rustup", "toolchains", toolchain, "lib", "rustlib", "components")
+	if b, _ := os.ReadFile(rl); strings.Contains(string(b), checks.RustStdWasmComponent) {
+		t.Errorf("the component was listed again: %q", b)
 	}
 }
