@@ -6,12 +6,12 @@ import (
 )
 
 func TestSelectNarrowsToTheNamedAtoms(t *testing.T) {
-	got, err := Select(AtomsForStage(StagePrepush), "ts:regen")
+	got, err := Select(AtomsForStage(StageMutation), "go:mutation")
 	if err != nil {
 		t.Fatalf("Select: %v", err)
 	}
-	if len(got) != 1 || got[0].ID != "ts:regen" {
-		t.Fatalf("Select chose %v, want just ts:regen", ids(got))
+	if len(got) != 1 || got[0].ID != "go:mutation" {
+		t.Fatalf("Select chose %v, want just go:mutation", ids(got))
 	}
 }
 
@@ -40,12 +40,12 @@ func TestSelectRefusesAnUnknownAtom(t *testing.T) {
 }
 
 // The other half of the same trap: a REAL atom that this stage does not admit.
-// The govulncheck atom is prepush; naming it in a precommit selector must say
+// The mutation atom is not precommit; naming it in a precommit selector must say
 // so rather than answer an empty vector.
 func TestSelectRefusesAnAtomTheStageDoesNotAdmit(t *testing.T) {
-	_, err := Select(AtomsForStage(StagePrecommit), "ts:regen")
+	_, err := Select(AtomsForStage(StagePrecommit), "go:mutation")
 	if err == nil {
-		t.Fatal("a prepush atom was admitted into a precommit vector")
+		t.Fatal("a mutation atom was admitted into a precommit vector")
 	}
 	if !strings.Contains(err.Error(), "does not admit") {
 		t.Fatalf("the error must distinguish 'wrong stage' from 'no such atom': %v", err)

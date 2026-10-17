@@ -231,7 +231,7 @@ func TestRunHandsTheSocketAndTheNarcReasonToTheAtoms(t *testing.T) {
 	put(t, dir, "a.txt", "a\n")
 	commitAll(t, dir, "c1")
 	build := func() (*Registry, error) {
-		return NewRegistry(Atom{ID: "ts:regen", Run: func(_ context.Context, a checks.AtomDef, in Input) checks.Verdict {
+		return NewRegistry(Atom{ID: "go:release", Run: func(_ context.Context, a checks.AtomDef, in Input) checks.Verdict {
 			return checks.VerdictOf(a, 0, "seen "+in.Spire+"|"+in.NarcErr)
 		}})
 	}
