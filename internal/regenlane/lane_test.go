@@ -393,6 +393,56 @@ func TestTSRegenGivesTheScriptsTheirPinsAndTheirOwnDirectories(t *testing.T) {
 	}
 }
 
+// THE POD'S TRUST: the executor pod reaches the registry through the fleet cache,
+// whose certificate the cache CA signs, and daedalus names that CA in the
+// container's environment. The transpile (npm install -g jco) must carry the
+// names through as given, not pin the system bundle over them; unset, it keeps
+// the system bundle as the Dagger container has it.
+func TestTSRegenTranspileCarriesTheContainersTrust(t *testing.T) {
+	trust := map[string]string{
+		"NODE_EXTRA_CA_CERTS": "/etc/ssl/fleet/ca.crt", "SSL_CERT_FILE": "/etc/ssl/fleet/ca.crt",
+		"REQUESTS_CA_BUNDLE": "/etc/ssl/fleet/ca.crt", "PIP_CERT": "/etc/ssl/fleet/ca.crt", "UV_NATIVE_TLS": "1",
+		"CARGO_HTTP_CAINFO": "/etc/ssl/fleet/ca.crt", "GIT_SSL_CAINFO": "/etc/ssl/fleet/ca.crt",
+	}
+	for _, tc := range []struct {
+		name string
+		set  map[string]string
+		want map[string]string
+	}{
+		{"set by the pod", trust, trust},
+		{"unset, the system bundle", map[string]string{}, map[string]string{"NODE_EXTRA_CA_CERTS": "/etc/ssl/certs/ca-certificates.crt"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, in, _ := withFake(t, star(t, "1.250.0", "stamp"))
+			for k := range trust {
+				t.Setenv(k, tc.set[k])
+				if tc.set[k] == "" {
+					os.Unsetenv(k)
+				}
+			}
+			if v := Check(t.Context(), in); v.State != 0 {
+				t.Fatalf("%+v", v)
+			}
+			var transpile atoms.Cmd
+			for _, c := range f.calls {
+				if strings.HasSuffix(c.Name, "transpile-stamp-inner.sh") {
+					transpile = c
+				}
+			}
+			got := map[string]string{}
+			for _, e := range transpile.Env {
+				k, v, _ := strings.Cut(e, "=")
+				got[k] = v
+			}
+			for k := range trust {
+				if got[k] != tc.want[k] {
+					t.Errorf("%s = %q, want %q (env %v)", k, got[k], tc.want[k], transpile.Env)
+				}
+			}
+		})
+	}
+}
+
 const installLine = `cargo install wasm-tools --locked --version "$WASM_TOOLS_VERSION"`
 
 // THE SCRIPT AS LAID: the star's own, on this run's directories. With the
