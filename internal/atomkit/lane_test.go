@@ -70,7 +70,7 @@ func TestEveryKnownLaneAccepted(t *testing.T) {
 }
 
 func TestEveryCapabilityAccepted(t *testing.T) {
-	for _, c := range []string{"release", "assemble", "scan", "kms-sign", "publish", "push-bundle", "layer-cast", "build-atoms", "dev-output"} {
+	for _, c := range []string{"release", "assemble", "scan", "kms-sign", "publish", "push-bundle", "layer-cast", "build-atoms", "dev-output", "push-visual"} {
 		src := "schema = \"lane@1\"\nlane = \"build\"\n\n[[phase]]\nname = \"p\"\nkind = \"fanout\"\ncapability = \"" + c + "\"\n"
 		if _, err := ParseLane([]byte(src)); err != nil {
 			t.Errorf("capability %s: %v", c, err)

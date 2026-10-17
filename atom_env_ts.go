@@ -31,13 +31,14 @@ func visualLane(r *run) *dagger.Container {
 }
 
 // visualBind hands the atom the commit its artifact is tagged by and, when the
-// lane has no identity to push with, the static login (--artifact-auth). The
-// atom blanks both for everything the tree runs.
+// Dagger runner's static login (--artifact-auth), the one thing it pushes with:
+// the pod has no login and stages its layers for the push-visual phase. The atom
+// blanks both for everything the tree runs.
 func visualBind(_ context.Context, r *run, ctr *dagger.Container) *dagger.Container {
 	if r.sha != "" {
 		ctr = ctr.WithEnvVariable("ATOM_SHA", r.sha)
 	}
-	if r.artifactAuth != nil && !r.svid().on() {
+	if r.artifactAuth != nil {
 		ctr = ctr.WithSecretVariable("VISUAL_ARTIFACT_AUTH", r.artifactAuth)
 	}
 	return ctr

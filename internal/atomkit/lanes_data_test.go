@@ -120,10 +120,14 @@ func TestLaneShapes(t *testing.T) {
 	if g := lanes["gate"]; !slices.Equal(g.Stages, []string{"precommit", "prepush"}) || g.Rider != "orbit" || len(g.Phases) != 0 {
 		t.Errorf("gate: %+v", g)
 	}
-	for l, stage := range map[string]string{"check": "precommit", "orbit": "orbit", "visual": "visual", "mutation": "mutation", "mutation-bg": "mutation"} {
+	for l, stage := range map[string]string{"check": "precommit", "orbit": "orbit", "mutation": "mutation", "mutation-bg": "mutation"} {
 		if d := lanes[l]; !slices.Equal(d.Stages, []string{stage}) || len(d.Phases) != 0 || d.Rider != "" {
 			t.Errorf("%s: %+v", l, d)
 		}
+	}
+	if v := lanes["visual"]; !slices.Equal(v.Stages, []string{"visual"}) || len(v.Phases) != 2 || v.Phases[0].Atoms[0] != "stage:visual" ||
+		v.Phases[1].Capability != "push-visual" || !slices.Equal(v.Phases[1].After, []string{"visual"}) || len(v.Phases[1].Secrets) != 0 || v.Rider != "" {
+		t.Errorf("visual: %+v", v)
 	}
 	if a := lanes["atoms"]; len(a.Phases) != 1 || a.Phases[0].Capability != "build-atoms" {
 		t.Errorf("atoms: %+v", a)
