@@ -164,7 +164,7 @@ func (m *module) neverRan(c atoms.Cmd, code int, out string) checks.Verdict {
 func (m *module) grade(ctx context.Context) checks.Verdict {
 	// THE SERVERS' SCOPE LINE is read here and rides every verdict, an empty
 	// change set's included. The servers themselves are the environment's.
-	dbs, brokers, scope := atoms.GoTestServers(ctx, m.in, m.cwd)
+	dbs, brokers, caches, scope := atoms.GoTestServers(ctx, m.in, m.cwd)
 	m.scope = scope
 	if m.in.Base == "" {
 		return m.settle(0, noBase)
@@ -197,8 +197,8 @@ func (m *module) grade(ctx context.Context) checks.Verdict {
 		return m.settle(2, fmt.Sprintf("CANNOT RUN - preflight `go mod download` exited %d: %s", code, atoms.LastLine(out)))
 	}
 	var tags []string
-	if len(dbs) > 0 || len(brokers) > 0 {
-		tags = []string{"-tags", checks.BuildTags(dbs, brokers)}
+	if len(dbs) > 0 || len(brokers) > 0 || len(caches) > 0 {
+		tags = []string{"-tags", checks.BuildTags(dbs, brokers, caches)}
 	}
 	return m.measure(ctx, since, changed, tags)
 }

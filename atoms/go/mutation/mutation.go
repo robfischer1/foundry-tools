@@ -31,7 +31,7 @@ var Def = atomkit.Def{
 	Desc:       "Every mutant gremlins makes of this pull's changed Go is killed by the tests.",
 	Surface:    "any:**/go.mod",
 	Toolchain:  "go",
-	Needs:      []string{"dies", "service:postgres", "service:pgvector", "service:redpanda", "tool:gomutants", "tool:mutation-gate"},
+	Needs:      []string{"dies", "service:postgres", "service:pgvector", "service:redpanda", "service:redis", "tool:gomutants", "tool:mutation-gate"},
 	NotOnForks: checks.ForkChangeBar,
 	History:    "full",
 	ReasksOwn:  true,

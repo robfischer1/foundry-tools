@@ -122,9 +122,55 @@ func TestGoTestRaceBindsABrokerForAKafkaTree(t *testing.T) {
 	wantCalls(t, c,
 		[]string{"withServiceBinding", `alias:"broker"`},
 		[]string{"withEnvVariable", `name:"KAFKA_BOOTSTRAP"`, `value:"` + checks.TestBrokers[0].AddrFor("") + `"`},
+		// the same address under the TEST_* family's name: one broker, two names
+		[]string{"withEnvVariable", `name:"TEST_KAFKA_BROKERS"`, `value:"` + checks.TestBrokers[0].AddrFor("") + `"`},
 	)
 	if hasCall(c, "withServiceBinding", `alias:"db"`) {
 		t.Errorf("only the tags the tree carries are bound:\n%s", c)
+	}
+}
+
+// A REDIS TREE BINDS A REDIS, AND ONLY A REDIS: a live_redis suite gets the
+// cache under its alias, the variable the suite reads, and nothing else. The
+// server is the pinned image, started through its entrypoint with the throwaway
+// flags, the way every lane service becomes ready. go:test-race keeps the SHARED
+// server, so it carries no lane word.
+func TestGoTestRaceBindsARedisForALiveRedisTree(t *testing.T) {
+	c := raceRun(t, nil, "//go:build live_redis\n")
+	wantCalls(t, c,
+		[]string{"withServiceBinding", `alias:"redis"`},
+		[]string{"withEnvVariable", `name:"TEST_REDIS_URL"`, `value:"redis://redis:6379"`},
+	)
+	for _, other := range []string{`alias:"db"`, `alias:"db-novector"`, `alias:"broker"`} {
+		if hasCall(c, "withServiceBinding", other) {
+			t.Errorf("only the tags the tree carries are bound (%s):\n%s", other, c)
+		}
+	}
+	svc := engine.chain(checks.ImageRedis, "asService")
+	if svc == "" {
+		t.Fatalf("no service chain runs %s:\n%v", checks.ImageRedis, engine.chains())
+	}
+	args := `args:["` + strings.Join(checks.TestCaches[0].ServerArgs(6379), `","`) + `"]`
+	if !hasCall(svc, "withDefaultArgs", args) || !hasCall(svc, "asService", "useEntrypoint:true") {
+		t.Errorf("the redis service is not started through its entrypoint with ServerArgs:\n%s", svc)
+	}
+	if !hasCall(svc, "withExposedPort", "6379") {
+		t.Errorf("the redis service must expose 6379:\n%s", svc)
+	}
+	if strings.Contains(svc, "withExec") {
+		t.Errorf("a withExec service never reads ready:\n%s", svc)
+	}
+	if hasCall(svc, "withEnvVariable", `name:"FOUNDRY_TEST_CACHE_LANE"`) {
+		t.Error("go:test-race took a lane-scoped cache; it shares by design")
+	}
+}
+
+// A tree with no live_redis suite is not handed a Redis: nothing is bound, so a
+// lane that does not ask pays nothing.
+func TestGoTestRaceBindsNoRedisForATreeWithoutALiveRedisSuite(t *testing.T) {
+	c := raceRun(t, nil, "//go:build live_db\n//go:build integration\n")
+	if hasCall(c, "withServiceBinding", `alias:"redis"`) || strings.Contains(c, "TEST_REDIS_URL") {
+		t.Errorf("a redis was bound for a tree that does not ask for one:\n%s", c)
 	}
 }
 
@@ -207,7 +253,7 @@ func TestGoDiffCoverageRunsOnItsOwnServersAndJudgesTheChange(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	engine.withTree(map[string]string{".copier-answers.yml": "service_name: x\n", "flows.go": oneKafkaFlow})
-	engine.stdout(goTagsNeedle, "//go:build live_db\n//go:build live_kafka\n")
+	engine.stdout(goTagsNeedle, "//go:build live_db\n//go:build live_kafka\n//go:build live_redis\n")
 	engine.contents(goCovNeedle, goVerdict("go:diff-coverage", "prepush"))
 	runAtom(t, "go:diff-coverage", "abc123")
 	c := engine.chain(goCovNeedle, "contents")
@@ -216,18 +262,25 @@ func TestGoDiffCoverageRunsOnItsOwnServersAndJudgesTheChange(t *testing.T) {
 		[]string{"withServiceBinding", `alias:"broker-diffcov"`},
 		[]string{"withEnvVariable", `name:"TEST_DATABASE_URL"`, `value:"` + checks.TestDBs[0].DSNFor("diffcov") + `"`},
 		[]string{"withEnvVariable", `name:"KAFKA_BOOTSTRAP"`, `value:"` + checks.TestBrokers[0].AddrFor("diffcov") + `"`},
+		[]string{"withEnvVariable", `name:"TEST_KAFKA_BROKERS"`, `value:"` + checks.TestBrokers[0].AddrFor("diffcov") + `"`},
+		[]string{"withServiceBinding", `alias:"redis-diffcov"`},
+		[]string{"withEnvVariable", `name:"TEST_REDIS_URL"`, `value:"` + checks.TestCaches[0].URLFor("diffcov") + `"`},
 		[]string{"withEnvVariable", `name:"ATOM_BASE"`, `value:"abc123"`},
 		[]string{"withEnvVariable", `name:"ATOM_ORIGIN"`},
 		[]string{"withEnvVariable", `name:"ATOM_FORK"`},
 		[]string{"withEnvVariable", `name:"GATE_BASE"`, `value:"abc123"`},
 		[]string{"withMountedDirectory", `path:"/dies"`},
 	)
-	if hasCall(c, "withServiceBinding", `alias:"db"`) || hasCall(c, "withServiceBinding", `alias:"broker"`) {
+	if hasCall(c, "withServiceBinding", `alias:"db"`) || hasCall(c, "withServiceBinding", `alias:"broker"`) || hasCall(c, "withServiceBinding", `alias:"redis"`) {
 		t.Errorf("go:diff-coverage took go:test-race's servers:\n%s", c)
 	}
 	svc := engine.chain(checks.ImagePgvector, "asService", "diffcov")
 	if !hasCall(svc, "withEnvVariable", `name:"FOUNDRY_TEST_DB_LANE"`, `value:"diffcov"`) {
 		t.Errorf("the lane's server is defined identically to the shared one:\n%s", svc)
+	}
+	cache := engine.chain(checks.ImageRedis, "asService", "diffcov")
+	if !hasCall(cache, "withEnvVariable", `name:"FOUNDRY_TEST_CACHE_LANE"`, `value:"diffcov"`) {
+		t.Errorf("the lane's Redis is defined identically to the shared one, so two lanes would flush one keyspace:\n%s", cache)
 	}
 	narrowed := `filter(exclude:["` + strings.Join(checks.InertPaths, `","`) + `"])`
 	if strings.Contains(c, narrowed) {

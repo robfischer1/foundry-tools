@@ -48,6 +48,9 @@ image = "docker.io/pgvector/pgvector:pg18@sha256:1d50c689b0a6511b9ea0a15615281c8
 [service.redpanda]
 image = "docker.notusmi.com/redpandadata/redpanda@sha256:6d627e3ebdc05438d1e8e3b55695ac1a7a0f79e7d5ca90b3b0f12dc984633e83"
 
+[service.redis]
+image = "docker.io/library/redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499"
+
 [tool.opa]
 kind = "url"
 spec = "https://openpolicyagent.org/downloads/v1.21.2/opa_linux_amd64_static"

@@ -108,7 +108,7 @@ func (r *run) testDatabases(ctx context.Context, ctr *dagger.Container) ([]check
 	if len(dbs) == 0 {
 		return nil, checks.TestDBScope(nil, nil, "no test file sits behind a tag the fleet names")
 	}
-	return dbs, checks.TestDBScope(dbs, checks.UncompiledTags(tags, dbs, checks.TestBrokers), "")
+	return dbs, checks.TestDBScope(dbs, checks.UncompiledTags(tags, dbs, checks.TestBrokers, checks.TestCaches), "")
 }
 
 // bindTestDatabases binds each database's server to ctr under scope's alias.
@@ -188,7 +188,44 @@ func bindTestBrokers(ctr *dagger.Container, brokers []checks.TestBroker, scope s
 			WithExposedPort(b.Port).
 			WithDefaultArgs(b.StartArgs(scope)).
 			AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true})
-		ctr = ctr.WithServiceBinding(b.AliasFor(scope), svc).WithEnvVariable(b.Env, b.AddrFor(scope))
+		ctr = ctr.WithServiceBinding(b.AliasFor(scope), svc)
+		for _, env := range b.Envs() {
+			ctr = ctr.WithEnvVariable(env, b.AddrFor(scope))
+		}
+	}
+	return ctr
+}
+
+// testCaches is which caches the suites need: the tree's `//go:build live_redis`
+// files and nothing else. A tree without one, or whose tags would not read (the
+// read answers nothing then), is bound nothing, so a lane that does not ask pays
+// nothing. The atom prints the scope line itself (atoms.GoTestServers); this
+// binds no service (testDatabases says why the reads and the binding are apart).
+func (r *run) testCaches(ctx context.Context, ctr *dagger.Container) []checks.TestCache {
+	out, _, _ := output(ctx, ctr.WithExec([]string{
+		"grep", "-rhoE", `^//go:build [A-Za-z0-9_]+$`, "--include=*_test.go", ".",
+	}, anyExit))
+	return checks.TestCachesFor(checks.GoBuildTags(out))
+}
+
+// bindTestCaches binds each cache's server to ctr under scope's alias.
+func bindTestCaches(ctr *dagger.Container, caches []checks.TestCache, scope string) *dagger.Container {
+	for _, c := range caches {
+		base := dag.Container().From(c.Image)
+		if scope != "" {
+			// THE DEFINITION HAS TO DIFFER, not just the alias: dagger
+			// content-addresses services, so the mutation lane and the complex
+			// checks, running at once, would be handed ONE Redis and FLUSHDB
+			// each other's keys (checks.TestCache says why, and
+			// bindTestDatabases measured the same failure in a schema).
+			base = base.WithEnvVariable("FOUNDRY_TEST_CACHE_LANE", scope)
+		}
+		// Through the entrypoint with default args, never WithExec: a service
+		// built on a WithExec never reads ready (TestBroker.StartArgs).
+		svc := base.WithExposedPort(c.Port).
+			WithDefaultArgs(c.ServerArgs(c.Port)).
+			AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true})
+		ctr = ctr.WithServiceBinding(c.AliasFor(scope), svc).WithEnvVariable(c.Env, c.URLFor(scope))
 	}
 	return ctr
 }

@@ -54,14 +54,17 @@ func goServersLane(scope string) func(context.Context, *run, *dagger.Container) 
 		}
 		var dbs []checks.TestDB
 		var brokers []checks.TestBroker
+		var caches []checks.TestCache
 		for _, dir := range dirs {
 			module := inModule(ctr, dir)
 			found, _ := r.testDatabases(ctx, module)
 			dbs = append(dbs, found...)
 			wanted, _ := r.testBrokers(ctx, module)
 			brokers = append(brokers, wanted...)
+			caches = append(caches, r.testCaches(ctx, module)...)
 		}
-		return bindTestBrokers(bindTestDatabases(ctr, vocabularyDBs(dbs), scope), vocabularyBrokers(brokers), scope)
+		bound := bindTestBrokers(bindTestDatabases(ctr, vocabularyDBs(dbs), scope), vocabularyBrokers(brokers), scope)
+		return bindTestCaches(bound, vocabularyCaches(caches), scope)
 	}
 }
 
@@ -83,6 +86,17 @@ func vocabularyBrokers(found []checks.TestBroker) []checks.TestBroker {
 	for _, b := range checks.TestBrokers {
 		if slices.ContainsFunc(found, func(f checks.TestBroker) bool { return f.Tag == b.Tag }) {
 			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// vocabularyCaches is the caches found, each once, in the vocabulary's order.
+func vocabularyCaches(found []checks.TestCache) []checks.TestCache {
+	var out []checks.TestCache
+	for _, c := range checks.TestCaches {
+		if slices.ContainsFunc(found, func(f checks.TestCache) bool { return f.Tag == c.Tag }) {
+			out = append(out, c)
 		}
 	}
 	return out
