@@ -75,6 +75,7 @@ var atomRuntimeDirs = []string{
 	"internal/atoms/**",
 	"internal/checks/**",
 	"internal/execmem/**",
+	"internal/pgroupps/**",
 	"internal/govlaw/**",
 	"internal/unitkey/**",
 	"internal/retiredverbs/**",
@@ -183,4 +184,10 @@ func readVerdict(ctx context.Context, a checks.AtomDef, ran *dagger.Container, o
 // words it (E6): one line, the identity from the catalogue row.
 func cannotRun(a checks.AtomDef, reason string) checks.Verdict {
 	return atomkit.CannotRun(a.ID, a.Stage, a.Lane, reason)
+}
+
+// lastLines is the last n lines of s.
+func lastLines(s string, n int) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	return strings.Join(lines[max(0, len(lines)-n):], "\n")
 }

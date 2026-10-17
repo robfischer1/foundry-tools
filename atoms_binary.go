@@ -35,6 +35,7 @@ var atomsSourceInclude = []string{
 	"internal/catalogue/**",
 	"internal/checks/**",
 	"internal/execmem/**",
+	"internal/pgroupps/**",
 	"internal/govlaw/**",
 	"internal/unitkey/**",
 	"internal/orbitcompose/**",
