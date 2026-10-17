@@ -151,7 +151,7 @@ func TestAtomTableHoldsExactlyTheUnportedAtoms(t *testing.T) {
 		"go:mutation", "go:release",
 		"python:mutation", "python:release",
 		"rust:mutation", "rust:release",
-		"ts:mutation", "ts:regen", "ts:release", "ts:visual",
+		"ts:mutation", "ts:release", "ts:visual",
 	}
 	var got []string
 	for _, a := range atomTable() {

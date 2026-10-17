@@ -196,11 +196,6 @@ func atomTable() []AtomDef {
 
 		// ---- ts ----
 		{
-			ID: "ts:regen", Stage: StagePrepush, Lane: LaneTS, Image: ImageTS,
-			Desc:          "Each core the justfile's regen-check names regenerates byte-identical from its pinned WIT, core commit and tool versions (the star's own build and transpile scripts, run on the engine); absent where the justfile calls no scripts/regen-check.sh.",
-			NeedsManifest: true,
-		},
-		{
 			ID: "ts:release", Stage: StagePrepush, Lane: LaneTS, Image: ImageTS,
 			Desc: "The record's release steps leave the image's files under release/, run on the image's own bun base — for a Dockerfile on foundry/base-images/bun that copies from release/; any other image is absent.",
 		},
