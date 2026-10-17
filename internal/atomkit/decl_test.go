@@ -204,3 +204,19 @@ func TestIT_128_130_DescribeExitsTwo(t *testing.T) {
 		}
 	}
 }
+
+// An atom that re-asks its own work says so in its index entry, so a runner that
+// re-asks a could-not-run atom whole leaves it alone; every other entry is
+// unchanged (the field is absent unless set).
+func TestDescribeCarriesReasksOwnOnlyWhenSet(t *testing.T) {
+	plain, err := Describe(goDef())
+	if err != nil || strings.Contains(string(plain), "reasks_own") {
+		t.Fatalf("%s %v", plain, err)
+	}
+	d := goDef()
+	d.ReasksOwn = true
+	own, err := Describe(d)
+	if err != nil || !strings.Contains(string(own), `"reasks_own":true`) {
+		t.Fatalf("%s %v", own, err)
+	}
+}

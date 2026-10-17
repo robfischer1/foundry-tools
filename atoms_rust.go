@@ -2,13 +2,10 @@ package main
 
 import (
 	"context"
-	"errors"
-	"strconv"
 	"strings"
 
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
-	"dagger/foundry-tools/internal/unitkey"
 )
 
 // THE RUST LANE, AS TYPED CHAINS. Read runtime.go's eight rules and
@@ -30,7 +27,6 @@ import (
 // the door re-asks, not a finding the committer is told to fix.
 
 func init() {
-	register("rust:mutation", rustMutation)
 }
 
 // cargoVerdict is verdict() with CARGO'S EXIT VOCABULARY TRANSLATED FIRST
@@ -134,312 +130,16 @@ func stampFresh(ctr *dagger.Container) *dagger.Container {
 	return ctr.WithExec(checks.Unstale())
 }
 
-// Every viable mutant cargo-mutants makes of this pull's changes to the
-// declared critical modules is killed by the tests.
-//
-// THE COPIES BUILD IN THEIR OWN TARGET DIRECTORIES, NOT THE GATE'S CACHE.
-// cargo-mutants copies the tree once per job and mutates each copy under
-// /tmp/mutation/tmp/cargo-mutants-src-*; with CARGO_TARGET_DIR exported by
-// the lane (checks.CachesFor) every copy AND the gate's cargo-test built into
-// one /cache/cargo-target. cargo's artifact hash is the package id RELATIVE
-// TO THE WORKSPACE ROOT, so two copies of one crate at two paths name the
-// same deps/<crate>-<hash> — measured 2026-09-13 with cargo 1.97.1: two
-// copies, one target dir, one artifact `oracle-3bf3bdcccbbc7eb8` — and the
-// dep-info that decides freshness lists the OTHER copy's absolute source
-// paths, so a copy whose own source changed still reads fresh and runs the
-// sibling's binary (the same oracle: a copy's f() changed, no Compiling
-// line, the sibling's test passed for it). That is foundry-tools#8869 as
-// seen across gavel #21, furnace #33, bellows #25/#26: `String + &str`
-// mutants reported VIABLE, a same-file unit test reported MISSED, the gate
-// red on NotFound with a mutants copy baked into CARGO_MANIFEST_DIR.
-//
-// WITHOUT THE VARIABLE cargo builds each copy under its own `target`, which
-// cargo-mutants creates per job ("one build directory per job"). Correct
-// and slower: the dependency graph compiles once per run instead of once
-// per volume; the registry volume still serves the sources. The mount goes
-// too, so nothing in this container can reach the gate's artifacts by
-// accident. The job count is two, not rust.sh's four: two copies is two
-// concurrent cargo builds, and the engine's exec tree is bounded at 6G with
-// two steps in flight (infra#8830) — four copies at a rustc each is the
-// shape that gets a compile killed and the atom filed as could-not-run.
-//
-// THE MEASUREMENT IS PLAIN EXECS, SETTLED IN GO. foundry-stocks'
-// ci/lib/mutation/rust.sh ran here as three bash phases that wrote a verdict
-// file; git, cargo metadata and cargo mutants now run as their own execs and
-// checks.RustMutationVerdict reads what they left.
-//
-// THE HISTORY IS THERE IN THE LANE THAT MATTERS. The mutation Job clones the
-// repository whole, so the base resolves and the diff is real. A local
-// pre-push hands the engine a linked worktree, which gitReady turns into a
-// throwaway repository with no history: the base does not resolve, the atom
-// stands down 0 saying so, and the door's Job is the one that measures.
-func rustMutation(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("rust:mutation")
-	// critical_modules is read in Go off the tree, before any container runs.
-	// A missing answers file is an empty declaration.
-	answers, _, _ := fileIfPresent(ctx, r.src, ".copier-answers.yml")
-	mods := checks.CriticalModules(answers)
-	scope := checks.MutationScope(a.ID, mods)
-	settle := func(state int, reason string) checks.Verdict {
-		v := checks.VerdictOf(a, state, a.ID+": "+reason)
-		v.Reason = scope + "\n" + v.Reason
-		return v
-	}
-	neverRan := func(err error) checks.Verdict { return settle(2, "CANNOT RUN - the atom never ran: "+err.Error()) }
-
-	const noBase = "no usable PR base sha — the diff-scoped mutation gate did not run"
-	if r.base == "" {
-		return settle(0, noBase)
-	}
-	// THE CHANGE SET IS KNOWN BEFORE ANYTHING IS PROVISIONED. The merge base
-	// and the diff are git questions, asked of the gate's own rust lane — the
-	// layers every rust atom already shares — with the base fetched in. Only a
-	// pull that adds lines to a critical module gets the mutation tools and the
-	// dependency fetch. MEASURED 2026-10-09: of 107 mutation runs, 20 graded
-	// nothing and paid ~110 CPU-s each provisioning for it, and a cerberus run
-	// spent 995 CPU-s building cargo-mutants and cargo-nextest to mutate nothing.
-	pre := r.gitReady(ctx, r.withBase(r.lane(checks.ImageRust)))
-
-	// The change set starts at the merge base, not at the base the door named
-	// (run.changeBase): main's tip moves under an open pull.
-	since, err := r.changeBase(ctx, pre)
-	if err != nil {
-		return settle(2, "CANNOT RUN - "+err.Error())
-	}
-	if since == "" {
-		return settle(r.missingBase(noBase))
-	}
-
-	// HEAD AS CHECKED OUT: cargo-mutants verifies the diff's `+` lines against
-	// the files on disk and hard-errors when they disagree (exit 5), so the only
-	// safe head side is the tree this run holds. --relative, because the paths
-	// are matched against the tree cargo runs in.
-	specs := append([]string{"--"}, checks.RustMutationSpecs(mods)...)
-	diff, code, err := output(ctx, pre.WithExec(append([]string{"git", "diff", "--relative", since, "HEAD"}, specs...), anyExit))
-	if err != nil {
-		return neverRan(err)
-	}
-	if code != 0 {
-		return settle(2, "CANNOT RUN - git could not diff the pull against its base "+since+": "+diff)
-	}
-	if diff == "" {
-		return settle(0, "this pull touched none of the critical modules — nothing to mutate")
-	}
-	if !checks.DiffAddsLines(diff) {
-		return settle(0, "this pull only REMOVED lines from the critical modules — nothing to mutate")
-	}
-
-	// SOMETHING WILL BE MUTATED: the mutation lane, its dependencies fetched.
-	ctr := r.gitReady(ctx, r.withBase(cargoFetch(r.rustMutationLane()).
-		WithoutEnvVariable("CARGO_TARGET_DIR").
-		WithoutMount("/cache/cargo-target"))).
-		// Provisioning, under the default Expect: an image without cargo-mutants
-		// is a Dagger error, and the first exec read below files it as never ran.
-		WithExec([]string{"cargo", "mutants", "--version"})
-
-	// EVERY WORKSPACE MEMBER THE PULL TOUCHED, each passed as -p
-	// (checks.RustTouchedMembers). A metadata read that fails is could-not-run,
-	// never a run over the root package alone.
-	//
-	// --no-renames, and no --diff-filter=d: a file moved from crate A to crate
-	// B lists only B's path under default rename detection, and A, which lost it
-	// and may no longer compile, would go unmutated. Without renames the move is
-	// a deletion in A plus an addition in B, and the deletion must stay listed
-	// so A is named (RustTouchedMembers maps by path; the file need not exist).
-	files, code, err := output(ctx, ctr.WithExec(append([]string{"git", "diff", "--relative", "--no-renames", "--name-only", "-z", since, "HEAD"}, specs...), anyExit))
-	if err != nil {
-		return neverRan(err)
-	}
-	if code != 0 {
-		return settle(2, "CANNOT RUN - git could not list the files the pull changed: "+files)
-	}
-	meta, code, err := output(ctx, ctr.WithExec([]string{"cargo", "metadata", "--no-deps", "--format-version", "1"}, anyExit))
-	if err != nil {
-		return neverRan(err)
-	}
-	if code != 0 {
-		return settle(2, "CANNOT RUN - cargo metadata failed, so which workspace members the pull touched is unknown: "+meta)
-	}
-	packages, err := checks.RustTouchedMembers([]byte(meta), "/src", strings.Split(files, "\x00"))
-	if err != nil {
-		return settle(2, "CANNOT RUN - could not map the diff onto the workspace members: "+err.Error())
-	}
-
-	// THE KEYS of the units the diff touched, for the run's gradings. Reading
-	// them cannot change the verdict (mutation_keys.go).
-	config, _ := r.src.File(".cargo/mutants.toml").Contents(ctx)
-	keys, owner := rustGradingKeys(ctx, ctr, diff, files, meta, config)
-
-	// MUTATE. The copies go under TMPDIR, outside the tree being mutated.
-	//
-	// THE PER-MUTANT COST, measured on bellows #31a47b3 (2026-09-18, 169
-	// mutants): 14s build + 30s test each, two at a time — an hour's lane.
-	// Three things below are that cost, not the gate:
-	//   mold -run          every mutant relinks the test binaries; mold takes
-	//                      the link through LD_PRELOAD for the whole process
-	//                      tree, so no RUSTFLAGS are overridden and a star's
-	//                      own .cargo/config.toml still applies.
-	//   debug = 0          the dev profile's line tables are most of what the
-	//                      linker moves; a mutant's outcome does not need them
-	//                      (a panic's file:line is a compile-time Location).
-	//                      Set through the environment, not the star's
-	//                      Cargo.toml — the lane's profile is the lane's.
-	//   --test-tool nextest one process per test, and a duration on every
-	//                      PASS/FAIL line in the baseline log, which is what
-	//                      RustMutationVerdict reads to name the ten tests the
-	//                      test half is made of. Seven Rust stars, none with a
-	//                      nextest config or serial_test, checked before this.
-	// The job count stays two: the engine is shared by every lane in flight,
-	// and two copies at a rustc each is what fits beside them.
-	//
-	// EVERY TEST PROCESS RUNS UNDER RLIMIT_DATA (2026-10-02). A mutant can turn
-	// a bounded loop into an unbounded allocation: paneless d988b9b grew one
-	// test binary to 16.4G and the engine's per-exec memory.max killed it, on
-	// dev01 and llm01 within a minute. The verdict survived, but a lane did the
-	// work of a kernel OOM kill and paged as one. cargo-mutants has no memory
-	// flag, so the cap rides cargo's target runner, which nextest honours: the
-	// test binaries run under prlimit, and rustc, the linker and build scripts
-	// do not. The runaway mutant now dies with "memory allocation failed", its
-	// test fails, and the mutant is CAUGHT, which is the honest outcome.
-	//
-	// DATA, NOT AS. RLIMIT_AS counts reservations: 64 idle threads hold 4.3G
-	// of address space (stacks + glibc's 64M arenas) on 2.6M of RSS, so an AS
-	// cap fails thread-heavy tests that use nothing. RLIMIT_DATA counts
-	// writable private memory: measured in this image, 256 threads ran under
-	// a 1G data cap while a 256M-chunk grower aborted at it. The unmutated
-	// baseline runs under the same runner, so a real test that needs more than
-	// this fails the baseline loudly rather than skewing any verdict.
-	//
-	// EVERY GRADED MUTANT PRINTS A LINE (--caught --unviable, 2026-10-02). An
-	// exec the engine kills takes mutants.out with it, and the output its error
-	// carries is all that is left (checks.RustMutationKilled). Without these
-	// two, cargo-mutants prints only MISSED and TIMEOUT, and a killed run could
-	// name its survivors but not how far it got.
-	args := []string{"mold", "-run", "cargo", "mutants", "--colors", "never", "--caught", "--unviable", "-j", strconv.Itoa(rustMutationJobs),
-		"--build-timeout", rustBuildTimeout, "--minimum-test-timeout", rustMinTestTimeout, "--test-tool", "nextest"}
-	for _, m := range strings.Fields(mods) {
-		args = append(args, "-f", m)
-	}
-	for _, p := range packages {
-		args = append(args, "-p", p)
-	}
-	// THE FLEET'S SKIPPED CLASSES, as cargo-mutants names its mutants
-	// (checks.RatifiedMutators): never generated, so never graded or printed.
-	for _, re := range checks.SkippedMutators(checks.MutatorRust) {
-		args = append(args, "--exclude-re", re)
-	}
-	//
-	// UNDER execmem (2026-10-02, foundry-tools #13052). A kill takes the exec
-	// and everything that could be read from it afterwards, so the cgroup's
-	// memory is printed WHILE the run goes — peak, cap, OOM-kill count — and
-	// the last reading before a kill rides the error's stderr into
-	// checks.RustMutationKilled. internal/execmem says why not after the run.
-	mutated := ctr.
-		WithFile(execMemPath, execMemBinary()).
-		WithNewFile(rustMutationDiff, diff+"\n").
-		WithDirectory(mutationDir+"/tmp", dag.Directory()).
-		WithEnvVariable("TMPDIR", mutationDir+"/tmp").
-		WithEnvVariable("CARGO_PROFILE_DEV_DEBUG", "0").
-		WithEnvVariable("CARGO_PROFILE_TEST_DEBUG", "0").
-		WithEnvVariable(rustTestRunnerEnv, rustTestRunner).
-		WithEnvVariable("CARGO_BUILD_JOBS", strconv.Itoa(rustMutantCores)).
-		WithEnvVariable("CARGO_BUILD_RUSTFLAGS", rustMoldThreadsFlag).
-		WithEnvVariable("NEXTEST_TEST_THREADS", strconv.Itoa(rustMutantCores)).
-		WithExec(append(append([]string{execMemPath, "--"}, args...), "-D", rustMutationDiff), anyExit)
-	log, status, err := outputBoth(ctx, mutated)
-	// A KILLED RUN RAN. The engine answers an exec that ended in the signal
-	// range (137: SIGKILL) with an error, not a code, and the error carries
-	// what the exec printed: the outcomes graded before the kill are in it.
-	var killed *dagger.ExecError
-	if errors.As(err, &killed) && killed.ExitCode > 128 {
-		state, reason, found := checks.RustMutationKilled(killed.ExitCode, joinOutput(killed.Stdout, killed.Stderr))
-		v := settle(state, reason)
-		v.Findings = found
-		return v
-	}
-	if err != nil {
-		return neverRan(err)
-	}
-	// cargo mutants writes no list for an outcome it never reached; a list that
-	// does not read is an empty one, and the exit decides the verdict.
-	list := func(name string) string {
-		s, _ := mutated.File("/src/mutants.out/" + name + ".txt").Contents(ctx)
-		return s
-	}
-	// The baseline's own log: the unmutated build and test run, where nextest
-	// stamped every test with its wall time.
-	baseline, _ := mutated.File("/src/mutants.out/log/baseline.log").Contents(ctx)
-	missed, caught, unviable, timeout := list("missed"), list("caught"), list("unviable"), list("timeout")
-	state, reason, found := checks.RustMutationVerdict(checks.RustMutationRun{
-		Status: status, Log: log,
-		Missed: missed, Caught: caught, Unviable: unviable, Timeout: timeout,
-		Baseline: baseline,
-	})
-	v := settle(state, reason)
-	v.Gradings = checks.BuildGradings(string(unitkey.Rust), rustMutationEngine(), keys, owner,
-		checks.RustScored(missed, caught, unviable, timeout), state < 2)
-	// THE FINDINGS COME FROM THE OUTCOME LISTS, as go:mutation's come from its
-	// score: FindingsOf parses no mutation report, and a timed-out mutant's
-	// finding rides a PASSING atom too — an exclusion nobody can read is a
-	// suppression (findings.schema.json).
-	v.Findings = found
-	return v
-}
-
 // rustMutationLane is the rust lane with the tree mounted, plus the two tools
-// only this atom runs (provisionRustMutation): the gate's other rust atoms
-// never wait on, or pay for, cargo-mutants and cargo-nextest.
+// only rust:mutation runs (provisionRustMutation): the gate's other rust atoms
+// never wait on, or pay for, cargo-mutants and cargo-nextest. It is the
+// atom's environment (atom_env.go), with the shared cargo target dropped: the
+// copies cargo-mutants makes each build in a target of their own.
 func (r *run) rustMutationLane() *dagger.Container {
 	return r.laneBaseWith(checks.ImageRust, provisionRustMutation).
 		WithMountedDirectory("/src", r.src).
-		WithWorkdir("/src")
+		WithWorkdir("/src").
+		WithoutEnvVariable("CARGO_TARGET_DIR").
+		WithoutMount("/cache/cargo-target").
+		WithExec(checks.StaleCargoLocks())
 }
-
-// execMemPath is where execmem sits in the lane's container.
-const execMemPath = "/usr/local/bin/execmem"
-
-// execMemBinary is internal/execmem's process.
-func execMemBinary() *dagger.File { return helperBinary("execmem") }
-
-// joinOutput is an ExecError's stdout then its stderr, each kept whole: the
-// error's streams carry no trailing newline, and a line must not run into the
-// next stream's first.
-func joinOutput(stdout, stderr string) string {
-	if stdout == "" || stderr == "" || strings.HasSuffix(stdout, "\n") {
-		return stdout + stderr
-	}
-	return stdout + "\n" + stderr
-}
-
-const (
-	// rustMutationDiff is the pull's diff as cargo mutants -D reads it.
-	rustMutationDiff = mutationDir + "/pr.diff"
-	rustMutationJobs = 2
-	// THE LANE'S CPU SHARE, about 8 cores: rustMutationJobs mutants at
-	// rustMutantCores each. Measured 2026-10-12 01:46Z on dev01 (24 cores):
-	// load average 96, CPU PSI some ~0.70, seven 24-thread mold processes at
-	// once. Each mutant's cargo ran at -j nproc, mold linked at a thread per
-	// core and nextest ran a test per core, so one lane saturated the node
-	// while daedalus priced it as a few units (flux #3051). Three knobs, all
-	// documented, all set on the one exec so the baseline obeys them too:
-	//   CARGO_BUILD_JOBS      cargo's build.jobs, rustc invocations per mutant
-	//   NEXTEST_TEST_THREADS  nextest's --test-threads, tests per mutant
-	//   --thread-count        mold 1.10.1 (bookworm) has no environment knob
-	//                         for it (only MOLD_REPRO/MOLD_DEBUG/MOLD_PATH), so
-	//                         it rides rustc's link args; verified in the lane
-	//                         image that the flag reaches mold and a bad value
-	//                         fails the link.
-	// The link flag rides CARGO_BUILD_RUSTFLAGS (build.rustflags), the lowest
-	// of cargo's rustflags sources: it never overrides a star's RUSTFLAGS or
-	// target rustflags, and a star that sets those loses only the mold cap.
-	rustMutantCores = 4
-	// rustMoldThreadsFlag is the link arg that carries rustMutantCores to mold.
-	rustMoldThreadsFlag = "-C link-arg=-Wl,--thread-count=4"
-	// rustTestRunnerEnv keys cargo's runner by the host triple; every engine
-	// node is x86_64 (measured 2026-10-02).
-	rustTestRunnerEnv = "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER"
-	// rustTestRunner caps each test process at 4GiB of data. A mutant's test
-	// that needs more than that is a runaway; the 16G per-exec memory.max
-	// stays as the backstop behind it.
-	rustTestRunner = "prlimit --data=4294967296 --"
-)

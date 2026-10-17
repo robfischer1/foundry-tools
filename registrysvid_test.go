@@ -220,10 +220,6 @@ func TestGateFileKeepsTheRegistrySvidAudience(t *testing.T) {
 	if _, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "visual", nil, false, nil, nil, "", nil, svidAudience); err != nil || m.registrySvid != svidAudience {
 		t.Fatalf("registrySvid %q err %v", m.registrySvid, err)
 	}
-	again := newRun(dag.Directory(), "", "").withRegistrySvid(svidAudience).reaskedAgain("n")
-	if again.registrySvid != svidAudience {
-		t.Error("a re-asked run dropped the audience")
-	}
 }
 
 // A bundle with the flag and the socket needs no registry token; oras and

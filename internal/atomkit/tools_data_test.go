@@ -27,7 +27,7 @@ func landedTools(t *testing.T) ToolsFile {
 // IT-174 and exactly the two preflights.
 func TestUT_621_IT_174_TheLandedToolsFile(t *testing.T) {
 	f := landedTools(t)
-	for _, k := range []string{"go", "python", "rust", "rust-wasm", "bun", "node", "renovate"} {
+	for _, k := range []string{"go", "python", "rust", "rust-trixie", "rust-wasm", "bun", "node", "renovate"} {
 		if f.Toolchains[k] == "" {
 			t.Errorf("toolchain %s missing", k)
 		}
@@ -72,6 +72,7 @@ var urlPins = []struct {
 	{"oras", checks.OrasURL, checks.OrasVersion},
 	{"cargo-audit", checks.CargoAuditURL, checks.CargoAuditVersion},
 	{"cargo-nextest", checks.CargoNextestURL, checks.CargoNextestVersion},
+	{"cargo-mutants", checks.CargoMutantsURL, checks.CargoMutantsVersion},
 	{"sccache", checks.SccacheURL, checks.SccacheVersion},
 	{"rust-clippy", checks.RustClippyURL, checks.RustComponentsTag},
 	{"rust-rustfmt", checks.RustRustfmtURL, checks.RustComponentsTag},
@@ -94,7 +95,7 @@ var imagePins = map[string]string{
 }
 
 var toolchainPins = map[string]string{
-	"go": checks.ImageGo, "python": checks.ImagePython, "rust": checks.ImageRust, "rust-wasm": checks.ImageRustWasm,
+	"go": checks.ImageGo, "python": checks.ImagePython, "rust": checks.ImageRust, "rust-trixie": checks.ImageRustTrixie, "rust-wasm": checks.ImageRustWasm,
 	"bun": checks.ImageTS, "node": checks.ImageNode, "renovate": checks.ImageRenovate,
 }
 

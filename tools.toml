@@ -20,6 +20,9 @@ image = "docker.io/library/python:3.14-slim-bookworm@sha256:9ab8d9c8514b44f90cf0
 image = "docker.io/library/rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e75fea57e2a2a5c3073"
 preflight = ["cargo", "fetch", "--locked"]
 
+[toolchain.rust-trixie]
+image = "docker.io/library/rust:1.97.0-trixie@sha256:b92b8c8574f8f3b207fcb0912fb3e2de4041580b5934d90312d53938c9a038a9"
+
 [toolchain.rust-wasm]
 image = "docker.io/library/rust:1.90.0-bookworm@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f"
 
@@ -152,6 +155,12 @@ kind = "url"
 spec = "https://static.rust-lang.org/dist/rustfmt-1.90.0-x86_64-unknown-linux-gnu.tar.gz"
 version = "1.90.0"
 sha256 = "61407015edaeafa9b61b3ffefb5077624cd4017ac50be05e246bcadafbb56d99"
+
+[tool.cargo-mutants]
+kind = "url"
+spec = "https://github.com/sourcefrog/cargo-mutants/releases/download/v27.1.0/cargo-mutants-x86_64-unknown-linux-gnu.tar.gz"
+version = "27.1.0"
+sha256 = "dfe6dc37d0342c891d2829b5a695aa57c2d0edecef7e7d0399a30cc6e206411e"
 
 [tool.python-standalone]
 kind = "url"

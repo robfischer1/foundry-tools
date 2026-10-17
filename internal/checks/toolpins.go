@@ -75,6 +75,7 @@ var ToolSHA256 = map[string]string{
 	// cargo-mutants), computed from the assets 2026-10-09.
 	CargoAuditURL:   "7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428",
 	CargoNextestURL: "32aa82416099eb12fffae9cf1a279ad201fecbd3f74826c613e32e9006b29867",
+	CargoMutantsURL: "dfe6dc37d0342c891d2829b5a695aa57c2d0edecef7e7d0399a30cc6e206411e",
 
 	// The rust containers' compile cache wrapper (images.go SccacheURL).
 	SccacheURL: "45f1447fbe231e3037bde351ef70677dd212216c8d62ae7ca409fecc4d6acc89",

@@ -38,7 +38,7 @@ func TestAnAtomsAuditFoldsOverItsModules(t *testing.T) {
 			t.Errorf("FoldAudits(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
-	v := FoldModules(AtomByID("go:mutation"), []ModuleVerdict{{Dir: ".", Verdict: Verdict{Audit: AuditMatch}}, {Dir: "x", Verdict: Verdict{Audit: "mismatch: x/y"}}})
+	v := FoldModules(AtomDef{ID: "go:mutation", Stage: StageMutation, Lane: LaneGo}, []ModuleVerdict{{Dir: ".", Verdict: Verdict{Audit: AuditMatch}}, {Dir: "x", Verdict: Verdict{Audit: "mismatch: x/y"}}})
 	if v.Audit != "mismatch: x/y" {
 		t.Fatalf("fold = %q", v.Audit)
 	}

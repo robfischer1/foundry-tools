@@ -65,8 +65,15 @@ const (
 	// atom says "rustc: got X, pinned Y" until this follows. The bookworm variant
 	// is the fleet's Debian; the script's own `rust:1.90` is a different Debian,
 	// and MEASURED 2026-10-07 the stamp guest is byte-identical from both.
-	ImageRustWasm = "docker.io/library/rust:1.90.0-bookworm@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f"
-	ImageTS       = "docker.io/oven/bun:1.4-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61"
+	// ImageRustTrixie is the compiler of ImageRust on Debian trixie (glibc 2.41),
+	// used by rust:mutation alone on the executor: upstream publishes cargo-mutants
+	// as a gnu build only, and it needs GLIBC_2.39, which bookworm (2.36) refuses
+	// (objdump -T on the v27.1.0 asset, 2026-10-17). Same rustc 1.97.0, so a
+	// mutant compiles to the same thing; the Dagger lane keeps ImageRust and
+	// builds cargo-mutants from source.
+	ImageRustTrixie = "docker.io/library/rust:1.97.0-trixie@sha256:b92b8c8574f8f3b207fcb0912fb3e2de4041580b5934d90312d53938c9a038a9"
+	ImageRustWasm   = "docker.io/library/rust:1.90.0-bookworm@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f"
+	ImageTS         = "docker.io/oven/bun:1.4-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61"
 	// The fleet atoms run in the python lane: they are python and shell, and
 	// three of them provision with uvx.
 	ImageFleet = ImagePython
@@ -269,6 +276,13 @@ const (
 	CargoNextestURL    = "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.145/cargo-nextest-0.9.145-x86_64-unknown-linux-gnu.tar.gz"
 	CargoNextestMember = "cargo-nextest"
 
+	// cargo-mutants' gnu release, for ImageRustTrixie (the executor's copy of the
+	// rust:mutation toolchain). The tag carries the version; the binary is at the
+	// archive's root. The checksum equals the release API's own digest for the
+	// asset (sha256:dfe6dc37…).
+	CargoMutantsURL    = "https://github.com/sourcefrog/cargo-mutants/releases/download/v27.1.0/cargo-mutants-x86_64-unknown-linux-gnu.tar.gz"
+	CargoMutantsMember = "cargo-mutants"
+
 	// sccache is the rust containers' RUSTC_WRAPPER (daedalus' in-pod executor
 	// points it at the node's L1 claim, or at S3 behind one setting). Upstream's
 	// static musl build: it runs on any libc, so the same asset serves rust and
@@ -315,7 +329,7 @@ var PlaywrightImages = map[string]string{
 // rather than derived from Atoms because an image nothing currently references
 // is still an image this module would ship.
 var LaneImages = []string{
-	ImageGo, ImagePython, ImageRust, ImageRustWasm, ImageTS, ImageFleet,
+	ImageGo, ImagePython, ImageRust, ImageRustTrixie, ImageRustWasm, ImageTS, ImageFleet,
 	ImageUV, ImageNode, ImageTools,
 	ImageKubeconform, ImageKubeLinter, ImageRenovate,
 	ImagePgvector, ImagePostgres,
