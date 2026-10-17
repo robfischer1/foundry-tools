@@ -389,14 +389,15 @@ func TestTheDeclaredBinaryVotersAreRealPythonAtoms(t *testing.T) {
 	}
 }
 
-// unported is the twelve atoms that stay Dagger chains with a table row in
-// checks.atomTable (DEF-B3-035, DEF-B3-044): release and mutation for each
-// language, and the ones whose chain is a multi-container pipeline.
+// unported is the eight atoms that stay Dagger chains with a table row in
+// checks.atomTable (DEF-B3-035, DEF-B3-044): mutation for each language, and the
+// ones whose chain is a multi-container pipeline. The four release atoms are
+// files since step 4.
 var unported = []string{
-	"go:mutation", "go:release",
-	"python:mutation", "python:release",
-	"rust:mutation", "rust:release",
-	"ts:mutation", "ts:release", "ts:visual",
+	"go:mutation",
+	"python:mutation",
+	"rust:mutation",
+	"ts:mutation", "ts:visual",
 }
 
 // TestIT_285_EveryCatalogueIDIsOneFileOrTheUnportedSet (lld FN-090 step 3): the

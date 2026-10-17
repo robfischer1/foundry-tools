@@ -42,6 +42,9 @@ var atomsSourceInclude = []string{
 	"internal/orbitcompose/**",
 	"internal/orbitlane/**",
 	"internal/retiredverbs/**",
+	"internal/releasekit/**",
+	"internal/buildlane/**",
+	"internal/copyout/**",
 }
 
 // atomsBinPath is where the binary sits in the fleet lane's container.

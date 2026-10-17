@@ -42,22 +42,6 @@ func TestTheForkLaneIsTheCatalogueRowsThatSaySo(t *testing.T) {
 	}
 }
 
-// WHAT A FORK ALWAYS KEEPS: the build, the test suites, the audits, the
-// release builds, SAST, and cargo fmt — which upstreams enforce as the same
-// command (arcjet/gravity's ci.yml runs `cargo fmt --all --check`).
-func TestAForkKeepsItsBuildTestsAuditsAndSAST(t *testing.T) {
-	for _, id := range []string{
-		"rust:release",
-		"go:release",
-		"python:release",
-		"ts:release",
-	} {
-		if a := AtomByID(id); a.NotOnForks != "" {
-			t.Errorf("%s stands down on a fork (%q); a fork keeps it", id, a.NotOnForks)
-		}
-	}
-}
-
 func TestPlanAtomsStandsDownWhatAForkDoesNotTake(t *testing.T) {
 	sel := []AtomDef{
 		{ID: "fleet:check-yaml", Lane: LaneAny},

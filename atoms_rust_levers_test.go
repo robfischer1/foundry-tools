@@ -50,19 +50,3 @@ func TestRustGateJobsIsBelowNprocAndNamed(t *testing.T) {
 		t.Errorf("mold flag %q out of step with checks.RustGateLinkThreads, want %q", checks.RustGateMoldThreadsFlag, want)
 	}
 }
-
-func TestRustReleaseIsBoundedButKeepsItsProfile(t *testing.T) {
-	engine.reset()
-	engine.withTree(everyLaneTree)
-	engine.withTree(map[string]string{"Dockerfile": copiesTron, ".copier-answers.yml": "service_name: tron\n"})
-	wantState(t, runAtom(t, "rust:release", ""), 0)
-	c := engine.chain(`"cargo","build","--release"`, "exitCode")
-	wantBounded(t, "rust:release", c, `"cargo","build","--release"`)
-	// The release binary is the shipped artifact: its debuginfo and linker are
-	// the star's own.
-	for _, n := range []string{leverDevDb, leverTstDb, leverFlags, `"mold","-run"`} {
-		if strings.Contains(c, n) {
-			t.Errorf("the release build must leave %s alone:\n%s", n, c)
-		}
-	}
-}

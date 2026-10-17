@@ -13,6 +13,7 @@ import (
 	"dagger/foundry-tools/internal/buildlane"
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
+	"dagger/foundry-tools/internal/releasekit"
 )
 
 // THE STAGES (CA master-plan F11–F16). A stage is a set of atoms settled as one
@@ -480,7 +481,8 @@ func (m *FoundryTools) Release(
 	version string,
 ) (*dagger.Directory, error) {
 	r := newRun(m.Source, m.Repo, "")
-	star, err := r.starName(ctx)
+	tree := runTree{r}
+	star, err := releasekit.StarName(ctx, tree, releasekit.Origin(r.repo, r.origin))
 	if err != nil {
 		return nil, err
 	}
@@ -501,7 +503,7 @@ func (m *FoundryTools) Release(
 		return nil, err
 	}
 	if lane == checks.LaneRust {
-		plan, why := rustReleasePlan(star, dockerfile)
+		plan, why := releasekit.RustPlan(releasekit.Subject{Star: star, Body: dockerfile})
 		if why != "" {
 			return nil, errors.New(why)
 		}
@@ -514,7 +516,7 @@ func (m *FoundryTools) Release(
 		}
 		return rustReleaseDir(ctr, plan), nil
 	}
-	plan, why := r.releasePlan(ctx, star, dockerfile)
+	plan, why := releasekit.GoPlan(ctx, tree, releasekit.Subject{Star: star, Body: dockerfile})
 	if why != "" {
 		return nil, errors.New(why)
 	}
