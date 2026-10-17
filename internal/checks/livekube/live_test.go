@@ -150,7 +150,7 @@ func TestServiceAccountTokenIsReviewedAsItsServiceAccount(t *testing.T) {
 	if v := field(t, review, "status", "authenticated"); v != true {
 		t.Fatalf("the token was not authenticated: %v", review["status"])
 	}
-	want := "system:serviceaccount:default:" + sa
+	want := "system:serviceaccount:default:negative-control-" + sa
 	if v := field(t, review, "status", "user", "username"); v != want {
 		t.Errorf("username = %v, want %s", v, want)
 	}
