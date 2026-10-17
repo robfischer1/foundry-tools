@@ -87,6 +87,11 @@ var (
 	// witnessDirs: fleet:witness asks as the pod's SVID in its own process.
 	witnessDirs = []string{"internal/hadescall/**", "internal/witnesscall/**"}
 	orbitDirs   = []string{"internal/atomlib/**", "internal/orbitkit/**", "internal/orbitcompose/**", "internal/orbitlane/**"}
+	// releaseDirs are what the release atoms share: the release build's one
+	// implementation and the Dockerfile's reading of release/; the Rust compile
+	// adds the copy that carries a binary out of its target.
+	releaseDirs     = []string{"internal/releasekit/**", "internal/buildlane/**"}
+	rustReleaseDirs = []string{"internal/releasekit/**", "internal/buildlane/**", "internal/copyout/**"}
 )
 
 // atomLibraries are the packages an atom imports that not every atom does, by
@@ -110,11 +115,17 @@ var atomLibraries = map[string][]string{
 	"ops:star-sa":                libraryDirs,
 	"ops:world-patches":          libraryDirs,
 	"ops:yaml":                   libraryDirs,
+	"go:release":                 releaseDirs,
 	"orbit:contracts":            orbitDirs,
 	"orbit:repo":                 orbitDirs,
 	"orbit:sidecars":             orbitDirs,
 	"orbit:surface":              orbitDirs,
+	"python:release":             releaseDirs,
+	"rust:release":               rustReleaseDirs,
+	"ts:release":                 releaseDirs,
 	"template:render-matrix":     libraryDirs,
+	"ts:regen":                   {"internal/regenlane/**"},
+	"ts:visual":                  {"internal/visuallane/**", "internal/buildlane/**", "internal/svidcred/**"},
 	"wit:validate":               libraryDirs,
 }
 

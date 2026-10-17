@@ -17,7 +17,8 @@ var Def = atomkit.Def{
 	Group:     checks.GroupLanguage,
 	Desc:      "The repo's own tools/world-patches (flux): every pistis.star patch in prime reaches Worlds as JSON6902, and no World writes out what a patch adds, or it names the drift (a World's pod freezes otherwise).",
 	Surface:   "any:**",
-	Toolchain: "python",
+	Toolchain: "none",
+	Needs:     []string{"pytools"},
 	Check:     check,
 }
 

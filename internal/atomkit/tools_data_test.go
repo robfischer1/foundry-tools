@@ -73,6 +73,10 @@ var urlPins = []struct {
 	{"cargo-audit", checks.CargoAuditURL, checks.CargoAuditVersion},
 	{"cargo-nextest", checks.CargoNextestURL, checks.CargoNextestVersion},
 	{"sccache", checks.SccacheURL, checks.SccacheVersion},
+	{"rust-clippy", checks.RustClippyURL, checks.RustComponentsTag},
+	{"rust-rustfmt", checks.RustRustfmtURL, checks.RustComponentsTag},
+	{"rust-wasm-clippy", checks.RustWasmClippyURL, checks.RustWasmComponentsTag},
+	{"rust-wasm-rustfmt", checks.RustWasmRustfmtURL, checks.RustWasmComponentsTag},
 	{"python-standalone", checks.PythonStandaloneURL, checks.FleetPythonVersion},
 }
 
@@ -84,14 +88,23 @@ var goPins = map[string]string{
 
 // imagePins are the tools that are an image, and the toolchains and services.
 var imagePins = map[string]string{
-	"uv": checks.ImageUV, "trivy": checks.ImageTrivy, "syft": checks.ImageSyft, "cosign": checks.ImageCosign,
-	"signing-tools": checks.ImageSigningTools, "kubeconform": checks.ImageKubeconform,
+	"uv": checks.ImageUV, "python": checks.ImagePython, "trivy": checks.ImageTrivy, "syft": checks.ImageSyft, "cosign": checks.ImageCosign,
+	"signing-tools": checks.ImageSigningTools, "bun": checks.ImageTS, "kubeconform": checks.ImageKubeconform,
 	"kube-linter": checks.ImageKubeLinter, "static": checks.ImageStatic, "debian": checks.ImageTools,
 }
 
 var toolchainPins = map[string]string{
 	"go": checks.ImageGo, "python": checks.ImagePython, "rust": checks.ImageRust, "rust-wasm": checks.ImageRustWasm,
 	"bun": checks.ImageTS, "node": checks.ImageNode, "renovate": checks.ImageRenovate,
+}
+
+// playwrightPins are the per-version Playwright toolchains.
+func playwrightPins() map[string]string {
+	out := map[string]string{}
+	for v, img := range checks.PlaywrightImages {
+		out["playwright."+v] = img
+	}
+	return out
 }
 
 var servicePins = map[string]string{
@@ -104,8 +117,12 @@ var servicePins = map[string]string{
 // fails here. The constants stay the source until the adapter slice.
 func TestToolsTomlMatchesGo(t *testing.T) {
 	f := landedTools(t)
-	if !mapsEqual(f.Toolchains, toolchainPins) {
-		t.Errorf("toolchains %v, want %v", f.Toolchains, toolchainPins)
+	wantToolchains := playwrightPins()
+	for k, v := range toolchainPins {
+		wantToolchains[k] = v
+	}
+	if !mapsEqual(f.Toolchains, wantToolchains) {
+		t.Errorf("toolchains %v, want %v", f.Toolchains, wantToolchains)
 	}
 	if !mapsEqual(f.Services, servicePins) {
 		t.Errorf("services %v, want %v", f.Services, servicePins)

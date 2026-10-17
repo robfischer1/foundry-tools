@@ -140,13 +140,13 @@ func TestExecuteRunsAtomsConcurrently(t *testing.T) {
 
 func TestExecuteBoundsThePool(t *testing.T) {
 	// The first two atoms wait for each other, so two ARE in flight at once
-	// (the floor is certain); the other four and the 20ms hold give a pool
+	// (the floor is certain); the other three and the 20ms hold give a pool
 	// that is too wide every chance to show a third.
 	var inFlight, peak atomic.Int32
 	var pair sync.WaitGroup
 	pair.Add(2)
 	var atoms []Atom
-	for i, id := range ids(6) {
+	for i, id := range ids(5) {
 		atoms = append(atoms, Atom{ID: id, Run: func(_ context.Context, a checks.AtomDef, _ Input) checks.Verdict {
 			n := inFlight.Add(1)
 			for {

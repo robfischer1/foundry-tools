@@ -64,6 +64,7 @@ var ToolSHA256 = map[string]string{
 	ComposeURL:       "40343e21ca777173e69cff5dbafeb37c6f81f3b0d57d9e597f036e95eb63e76a",
 	WasmToolsURL:     "655b8df67d54c3ef9b52fc237c4e94bbfbb5f5f43825245cb0940a7002a9ed65",
 	WasmTools1250URL: "b746c34e7c4162b8812eb29397ebe076834e496a8c46fe68d793379a2741eb50",
+	NodeRegenURL:     "6e1db87ef58b8819e5d5402eff1536491b18edd8eb7bee5ef7897876e88dc5ff",
 	WacURL:           "7cd490edbd452221ef89e6750fc43eacc9b71b1242095eb577cb9a3bf0d3beda",
 	JustURL:          "409044617b6f06517c1035e55ca38c8c856ff8b650e41bc2aa1ef82d5903a23e",
 	ShellcheckURL:    "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198",
@@ -77,6 +78,12 @@ var ToolSHA256 = map[string]string{
 
 	// The rust containers' compile cache wrapper (images.go SccacheURL).
 	SccacheURL: "45f1447fbe231e3037bde351ef70677dd212216c8d62ae7ca409fecc4d6acc89",
+
+	// The rust containers' clippy and rustfmt (images.go RustClippyURL).
+	RustClippyURL:      "b3fe2a650456f055f4163e7de8c230609a5daf72c204a4a64cc6b51b5eb72e3e",
+	RustRustfmtURL:     "7b5d4b02c8d0f7c3be64d3bc2e0738ccb06dc0492f81a93c4fcb223ff93f8b38",
+	RustWasmClippyURL:  "0e1db6adef940dd21896dbd7a051e25056df2fede90591c583552f94e913af22",
+	RustWasmRustfmtURL: "61407015edaeafa9b61b3ffefb5077624cd4017ac50be05e246bcadafbb56d99",
 
 	// The oras client the build, bundle, cast and govern lanes push with: the
 	// publisher's own oras_1.3.4_checksums.txt line, equal to the asset's sum

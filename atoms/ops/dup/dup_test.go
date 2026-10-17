@@ -15,7 +15,7 @@ import (
 func run(in atoms.Input) checks.Verdict { return check(context.Background(), in) }
 
 func TestTheDeclarationIsTheRowItReplaced(t *testing.T) {
-	atomtest.DeclaresItsRow(t, Def, "precommit", "python")
+	atomtest.DeclaresItsRow(t, Def, "precommit", "none")
 	if Def.ID != id {
 		t.Errorf("%+v", Def)
 	}

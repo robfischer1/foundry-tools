@@ -164,3 +164,30 @@ func TestAMissingVenvIsNamedNotLeftToThePathError(t *testing.T) {
 		}
 	})
 }
+
+// DEF-B3-047: on the executor the venv is wherever the node's cache built it;
+// the atoms binary finds it by the environment, and on Dagger by the fixed
+// directory the tools container installs it in.
+func TestDEF_B3_047_TheVenvIsFoundByTheEnvironment(t *testing.T) {
+	env := map[string]string{}
+	get := func(k string) string { return env[k] }
+	if got := EnvOr(get, PyBinEnv, PythonBinDir); got != PythonBinDir {
+		t.Errorf("unset: %q", got)
+	}
+	env[PyBinEnv] = "/cache/tools/pytools@k/venv/bin"
+	if got := EnvOr(get, PyBinEnv, PythonBinDir); got != "/cache/tools/pytools@k/venv/bin" {
+		t.Errorf("set: %q", got)
+	}
+	env[PyBinEnv] = ""
+	if got := EnvOr(get, PyBinEnv, PythonBinDir); got != PythonBinDir {
+		t.Errorf("empty: %q", got)
+	}
+	// The package reads the process environment when it loads.
+	t.Setenv(PyBinEnv, "/x")
+	if got := EnvOr(os.Getenv, PyBinEnv, PythonBinDir); got != "/x" {
+		t.Errorf("process: %q", got)
+	}
+	if PyBinEnv != "ATOMS_PY_BIN" || AnsibleCollectionsEnv != "ATOMS_ANSIBLE_COLLECTIONS" {
+		t.Errorf("the executor sets %s and %s", PyBinEnv, AnsibleCollectionsEnv)
+	}
+}

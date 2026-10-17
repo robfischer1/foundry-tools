@@ -365,7 +365,7 @@ func TestTheCommitAndPushStagesHoldTheirAtoms(t *testing.T) {
 		"compose:config,compose:no-tracked-secrets,compose:third-party-pins," +
 		"dies:opa-test,dies:contracts,dies:contract-copies,dies:schema,dies:findings,dies:schemas,dies:wit-regenerated,dies:schema-rendered,dies:canonical,dies:refusal-codes,dies:wire-grammar,dies:resource-referents,dies:capabilities-served,law:lint,law:verb-liveness,law:budget"
 	push := "fleet:orbit-drift,fleet:dagger-lockstep,fleet:renovate-lockstep,fleet:node-kinds-declared,fleet:consumed-events-emitted,ops:immutable,ops:orbit-sidecars,ops:orbit-composed,template:render-matrix,wit:validate,go:staticcheck,go:govulncheck,go:build,go:release,go:test-race,go:diff-coverage,python:pip-audit,python:release,rust:release,rust:cargo-audit,rust:wit-guest,rust:wit-compose,ts:bun-audit,ts:regen,ts:release," +
-		"dies:admission-dogfood,dies:data-keys,dies:canary-visibility,fleet:witness,dies:grants-stamp"
+		"dies:admission-dogfood,dies:data-keys,dies:canary-visibility,fleet:witness,dies:grants-stamp,dies:authz-grid"
 	if got := ids(checks.StagePrecommit); got != commit {
 		t.Errorf("commit stage\n got %s\nwant %s", got, commit)
 	}
@@ -389,14 +389,15 @@ func TestTheDeclaredBinaryVotersAreRealPythonAtoms(t *testing.T) {
 	}
 }
 
-// unported is the twelve atoms that stay Dagger chains with a table row in
-// checks.atomTable (DEF-B3-035, DEF-B3-044): release and mutation for each
-// language, and the ones whose chain is a multi-container pipeline.
+// unported is the eight atoms that stay Dagger chains with a table row in
+// checks.atomTable (DEF-B3-035, DEF-B3-044): mutation for each language, and the
+// ones whose chain is a multi-container pipeline. The four release atoms are
+// files since step 4.
 var unported = []string{
-	"go:mutation", "go:release",
-	"python:mutation", "python:release",
-	"rust:mutation", "rust:release",
-	"ts:mutation", "ts:regen", "ts:release", "ts:visual",
+	"go:mutation",
+	"python:mutation",
+	"rust:mutation",
+	"ts:mutation",
 }
 
 // TestIT_285_EveryCatalogueIDIsOneFileOrTheUnportedSet (lld FN-090 step 3): the
@@ -435,5 +436,42 @@ func TestIT_285_EveryCatalogueIDIsOneFileOrTheUnportedSet(t *testing.T) {
 	slices.Sort(rowOnly)
 	if !slices.Equal(rowOnly, unported) {
 		t.Errorf("ids with no file under atoms/ = %v, want the unported set %v", rowOnly, unported)
+	}
+}
+
+// pyOpsAtoms are the eight python ops and template atoms that vote in the atoms
+// binary on Dagger, with the tools container's prebuilt venv, and ran on the
+// executor in a bare interpreter (DEF-B3-047): pyyaml, copier and the ansible
+// collections were not there.
+var pyOpsAtoms = []string{
+	"ops:ansible", "ops:declaration", "ops:dup", "ops:metrics", "ops:specs",
+	"ops:star-sa", "ops:world-patches", "template:render-matrix",
+}
+
+// TestDEF_B3_047_ThePythonOpsAtomsNeedThePytoolsVenv: each of the eight asks for
+// the venv the executor builds from pytools/requirements.txt, and runs in lead
+// (toolchain none: git there, python from the image tool) and votes in the binary.
+func TestDEF_B3_047_ThePythonOpsAtomsNeedThePytoolsVenv(t *testing.T) {
+	for _, id := range pyOpsAtoms {
+		e, ok := Lookup(id)
+		if !ok || e.Def == nil || e.Def.Toolchain != "none" || !slices.Contains(e.Def.Needs, "pytools") || !votesInBinary(e.Def) {
+			t.Errorf("%s: %+v", id, e.Def)
+		}
+	}
+}
+
+// TestDEF_B3_047_NoBinaryVotingPythonAtomRunsOnABareInterpreter: an atom that
+// votes in the binary by history and runs python on the executor names where its
+// packages come from: the venv (pytools) or uv (`uv run --with`).
+func TestDEF_B3_047_NoBinaryVotingPythonAtomRunsOnABareInterpreter(t *testing.T) {
+	for id := range votesInBinaryByHistory {
+		e, ok := Lookup(id)
+		if !ok || e.Def == nil {
+			t.Errorf("%s: no Def", id)
+			continue
+		}
+		if !slices.Contains(e.Def.Needs, "pytools") && !slices.Contains(e.Def.Needs, "tool:uv") {
+			t.Errorf("%s votes in the binary and needs neither pytools nor tool:uv: %v", id, e.Def.Needs)
+		}
 	}
 }

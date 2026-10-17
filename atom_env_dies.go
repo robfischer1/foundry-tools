@@ -20,6 +20,8 @@ func init() {
 	for _, id := range []string{"dies:opa-test", "dies:admission-dogfood", "dies:data-keys", "dies:canary-visibility"} {
 		atomEnvironments[id] = opa
 	}
+	// dies:authz-grid judges the change too: its Rego against the base's, so it is handed the base.
+	atomEnvironments["dies:authz-grid"] = atomEnv{container: opa.container, facts: true}
 	atomEnvironments["dies:grants-stamp"] = atomEnv{container: func(r *run) *dagger.Container { return r.lane(checks.ImageFleet) }, facts: true}
 }
 

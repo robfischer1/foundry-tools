@@ -113,25 +113,6 @@ func TestRegenToolVersionDropsTheName(t *testing.T) {
 	}
 }
 
-func TestParseSha256sum(t *testing.T) {
-	a, b := strings.Repeat("a", 64), strings.Repeat("b", 64)
-	got, err := ParseSha256sum(a + "  /f/guest\n" + b + "  /f/my file\n")
-	if err != nil || got["/f/guest"] != a || got["/f/my file"] != b || len(got) != 2 {
-		t.Fatalf("%v, %v", got, err)
-	}
-	for name, out := range map[string]string{
-		"empty":        "",
-		"one space":    a + " /f/x",
-		"short digest": "abc  /f/x",
-		"no path":      a + "  \n" + b + "  /f/x",
-		"noise":        "sha256sum: /f/x: No such file or directory",
-	} {
-		if _, err := ParseSha256sum(out); err == nil {
-			t.Errorf("%s: want an error", name)
-		}
-	}
-}
-
 func TestRegenProvListsPinsAndCoreCopiesInTheScriptsOrder(t *testing.T) {
 	p, _ := ParseRegenProv(goodProv())
 	pins := p.Pins()

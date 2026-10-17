@@ -27,7 +27,8 @@ var Def = atomkit.Def{
 	Group:     checks.GroupLanguage,
 	Desc:      "Every playbook under ansible/playbooks passes ansible-playbook --syntax-check and ansible-lint at profile min; the basic-profile count is reported, not gated.",
 	Surface:   "any:**",
-	Toolchain: "python",
+	Toolchain: "none",
+	Needs:     []string{"pytools"},
 	Check:     check,
 }
 
@@ -36,9 +37,10 @@ const id = "ops:ansible"
 // row is the part of the catalogue row a verdict reads: its identity.
 var row = checks.AtomDef{ID: id, Stage: checks.StagePrecommit, Lane: checks.LaneAny}
 
-// ansibleCollectionsDir is where the container's collections are; a variable so a
+// ansibleCollectionsDir is where the container's collections are (the tools
+// container's, or the directory AnsibleCollectionsEnv names); a variable so a
 // test lays a directory of its own.
-var ansibleCollectionsDir = atoms.AnsibleCollectionsDir
+var ansibleCollectionsDir = atoms.EnvOr(os.Getenv, atoms.AnsibleCollectionsEnv, atoms.AnsibleCollectionsDir)
 
 // collectionRef is one collection a tree's requirements.yml declares.
 type collectionRef struct {
