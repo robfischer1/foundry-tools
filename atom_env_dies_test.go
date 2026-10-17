@@ -8,10 +8,10 @@ import (
 	"dagger/foundry-tools/internal/checks"
 )
 
-// The five dies atoms that grade the policy run in the fleet lane with the
+// The four dies atoms that grade the policy run in the fleet lane with the
 // pinned opa laid on PATH: the file placed is the pinned release asset.
 func TestTheOpaAtomsRunInTheFleetLaneWithThePinnedOpa(t *testing.T) {
-	for _, id := range []string{"dies:opa-test", "dies:admission-dogfood", "dies:data-keys", "dies:canary-visibility", "dies:authz-grid"} {
+	for _, id := range []string{"dies:opa-test", "dies:admission-dogfood", "dies:data-keys", "dies:canary-visibility"} {
 		t.Run(id, func(t *testing.T) {
 			engine.reset()
 			engine.withTree(everyLaneTree)
@@ -65,4 +65,22 @@ func TestGrantsStampIsHandedThePullsBase(t *testing.T) {
 		[]string{"withEnvVariable", `name:"ATOM_BASE"`, `value:"abc123"`},
 		[]string{"withEnvVariable", `name:"ATOM_ORIGIN"`, `value:"rob/nyx"`},
 		[]string{"withEnvVariable", `name:"ATOM_FORK"`})
+}
+
+// dies:authz-grid asks the pull's Rego against the base's: it runs in the fleet lane
+// with the pinned opa AND is handed the pull's base.
+func TestAuthzGridIsHandedThePullsBaseAndRunsWithTheOpa(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.contents("dies__authz-grid.json", `{"atom":"dies:authz-grid","state":0,"result":"pass","logs":[]}`)
+	r := newRun(dag.Directory(), "rob/nyx", "abc123")
+	e, _ := catalogue.Lookup("dies:authz-grid")
+	wantState(t, runAtomOnDagger(t.Context(), r, e), 0)
+	run := engine.chain("dies__authz-grid.json", "contents")
+	if !strings.Contains(run, checks.ImageFleet) {
+		t.Errorf("it runs in the fleet lane image:\n%s", run)
+	}
+	wantCalls(t, run,
+		[]string{"withFile", `path:"/usr/local/bin/opa"`, "permissions:493"},
+		[]string{"withEnvVariable", `name:"ATOM_BASE"`, `value:"abc123"`})
 }

@@ -10,16 +10,18 @@ import (
 // atom asks is in its own file.
 //
 // The fleet lane image (python, with uv) is the default of the python atoms and
-// of the ones that need no tool. The five that grade the policy with opa run in
+// of the ones that need no tool. The four that grade the policy with opa run in
 // that image with the pinned opa laid on PATH, the way the chain that preceded
 // them provisioned it; the atom itself proves the binary is the pinned one.
 // dies:grants-stamp judges the change, so it is handed the pull's base.
 
 func init() {
 	opa := atomEnv{container: func(r *run) *dagger.Container { return withPinnedOpa(r.lane(checks.ImageFleet)) }}
-	for _, id := range []string{"dies:opa-test", "dies:admission-dogfood", "dies:data-keys", "dies:canary-visibility", "dies:authz-grid"} {
+	for _, id := range []string{"dies:opa-test", "dies:admission-dogfood", "dies:data-keys", "dies:canary-visibility"} {
 		atomEnvironments[id] = opa
 	}
+	// dies:authz-grid judges the change too: its Rego against the base's, so it is handed the base.
+	atomEnvironments["dies:authz-grid"] = atomEnv{container: opa.container, facts: true}
 	atomEnvironments["dies:grants-stamp"] = atomEnv{container: func(r *run) *dagger.Container { return r.lane(checks.ImageFleet) }, facts: true}
 }
 

@@ -530,7 +530,7 @@ func TestOnlyWitnessAndMutationReadGateBase(t *testing.T) {
 				reads = true
 			}
 		}
-		want := a.ID == "fleet:witness" || a.ID == "dies:grants-stamp" || a.ID == "go:diff-coverage" || a.ID == "ops:immutable" || a.Stage == checks.StageMutation
+		want := a.ID == "fleet:witness" || a.ID == "dies:grants-stamp" || a.ID == "dies:authz-grid" || a.ID == "go:diff-coverage" || a.ID == "ops:immutable" || a.Stage == checks.StageMutation
 		if reads != want {
 			t.Errorf("%s reads GATE_BASE=%v, want %v", a.ID, reads, want)
 		}
