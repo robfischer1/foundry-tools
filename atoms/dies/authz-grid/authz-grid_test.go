@@ -17,7 +17,7 @@ func TestTheDeclarationValidates(t *testing.T) {
 		t.Fatal(err)
 	}
 	if Def.ID != id || Def.Stage != checks.StagePrepush || Def.Lane != checks.LaneAny || Def.Group != checks.GroupOf(id) ||
-		Def.Toolchain != "python" || Def.Surface != "any:**" || strings.Join(Def.Needs, ",") != "tool:git,tool:opa,tool:uv" {
+		Def.Toolchain != "python" || Def.Surface != "any:**" || strings.Join(Def.Needs, ",") != "tool:git,tool:opa,tool:uv" || !Def.WritesTree {
 		t.Errorf("%+v", Def)
 	}
 }
