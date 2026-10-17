@@ -16,7 +16,7 @@ func TestSelectNarrowsToTheNamedAtoms(t *testing.T) {
 }
 
 func TestSelectTakesAListAndTolerantWhitespace(t *testing.T) {
-	got, err := Select(AtomsForStage(StagePrepush), " ts:regen , rust:wit-guest ")
+	got, err := Select(AtomsForStage(StageMutation), " go:mutation , python:mutation ")
 	if err != nil {
 		t.Fatalf("Select: %v", err)
 	}
