@@ -18,6 +18,7 @@ import (
 	diesgrantsstamp "dagger/foundry-tools/atoms/dies/grants-stamp"
 	diesopatest "dagger/foundry-tools/atoms/dies/opa-test"
 	diesrefusalcodes "dagger/foundry-tools/atoms/dies/refusal-codes"
+	diesrenderauthor "dagger/foundry-tools/atoms/dies/render-author"
 	diesresourcereferents "dagger/foundry-tools/atoms/dies/resource-referents"
 	diesschema "dagger/foundry-tools/atoms/dies/schema"
 	diesschemarendered "dagger/foundry-tools/atoms/dies/schema-rendered"
@@ -113,6 +114,7 @@ var Defs = []*atomkit.Def{
 	&diesgrantsstamp.Def,
 	&diesopatest.Def,
 	&diesrefusalcodes.Def,
+	&diesrenderauthor.Def,
 	&diesresourcereferents.Def,
 	&diesschema.Def,
 	&diesschemarendered.Def,
