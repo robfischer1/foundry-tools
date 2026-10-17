@@ -494,9 +494,9 @@ func TestAWorktreePushWithAnOriginGradesTheRealChangeSet(t *testing.T) {
 	// …and it is the .git of the tree the mutation atom runs in: the snapshot
 	// less its dangling .git file, the fetched .git in its place, then the
 	// snapshot committed on top of the base. No throwaway repository.
-	c := engine.chain(`"git","merge-base","abc123","HEAD"`)
+	c := engine.chain(goMutationNeedle)
 	if c == "" {
-		t.Fatalf("the mutation atom never asked for the merge base:\n%v", engine.chains())
+		t.Fatalf("the mutation atom never ran:\n%v", engine.chains())
 	}
 	// The querybuilder spells withDirectory's two arguments in either order,
 	// and each spelling is its own id here, so the mount is matched against

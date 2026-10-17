@@ -47,6 +47,7 @@ import (
 	godiffcoverage "dagger/foundry-tools/atoms/go/diff-coverage"
 	gogofmt "dagger/foundry-tools/atoms/go/gofmt"
 	gogovulncheck "dagger/foundry-tools/atoms/go/govulncheck"
+	gomutation "dagger/foundry-tools/atoms/go/mutation"
 	gotest "dagger/foundry-tools/atoms/go/test"
 	gotestrace "dagger/foundry-tools/atoms/go/test-race"
 	lawbudget "dagger/foundry-tools/atoms/law/budget"
@@ -75,14 +76,17 @@ import (
 	pythonforgetestkitassertionfree "dagger/foundry-tools/atoms/python/forge-testkit-assertion-free"
 	pythonforgetestkitfakeplacement "dagger/foundry-tools/atoms/python/forge-testkit-fake-placement"
 	pythonforgetestkitschemabudget "dagger/foundry-tools/atoms/python/forge-testkit-schema-budget"
+	pythonmutation "dagger/foundry-tools/atoms/python/mutation"
 	pythonmypy "dagger/foundry-tools/atoms/python/mypy"
 	pythonpytest "dagger/foundry-tools/atoms/python/pytest"
 	pythonruffcheck "dagger/foundry-tools/atoms/python/ruff-check"
 	pythonruffformat "dagger/foundry-tools/atoms/python/ruff-format"
 	rustcargoclippy "dagger/foundry-tools/atoms/rust/cargo-clippy"
 	rustcargotest "dagger/foundry-tools/atoms/rust/cargo-test"
+	rustmutation "dagger/foundry-tools/atoms/rust/mutation"
 	templaterendermatrix "dagger/foundry-tools/atoms/template/render-matrix"
 	tsbungate "dagger/foundry-tools/atoms/ts/bun-gate"
+	tsmutation "dagger/foundry-tools/atoms/ts/mutation"
 	witvalidate "dagger/foundry-tools/atoms/wit/validate"
 	"dagger/foundry-tools/internal/atomkit"
 )
@@ -133,6 +137,7 @@ var Defs = []*atomkit.Def{
 	&godiffcoverage.Def,
 	&gogofmt.Def,
 	&gogovulncheck.Def,
+	&gomutation.Def,
 	&gotest.Def,
 	&gotestrace.Def,
 	&lawbudget.Def,
@@ -161,14 +166,17 @@ var Defs = []*atomkit.Def{
 	&pythonforgetestkitassertionfree.Def,
 	&pythonforgetestkitfakeplacement.Def,
 	&pythonforgetestkitschemabudget.Def,
+	&pythonmutation.Def,
 	&pythonmypy.Def,
 	&pythonpytest.Def,
 	&pythonruffcheck.Def,
 	&pythonruffformat.Def,
 	&rustcargoclippy.Def,
 	&rustcargotest.Def,
+	&rustmutation.Def,
 	&templaterendermatrix.Def,
 	&tsbungate.Def,
+	&tsmutation.Def,
 	&witvalidate.Def,
 }
 

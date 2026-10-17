@@ -15,10 +15,11 @@ import (
 const (
 	// goRaceOut and the others are the files the adapter reads each atom's
 	// verdict from.
-	goRaceNeedle = "go__test-race.json"
-	goCovNeedle  = "go__diff-coverage.json"
-	goTestNeedle = "go__test.json"
-	goVulnNeedle = "go__govulncheck.json"
+	goRaceNeedle     = "go__test-race.json"
+	goCovNeedle      = "go__diff-coverage.json"
+	goTestNeedle     = "go__test.json"
+	goVulnNeedle     = "go__govulncheck.json"
+	goMutationNeedle = "go__mutation.json"
 	// goTagsNeedle is the one recursive read of the tree's build constraints
 	// that decides the servers.
 	goTagsNeedle = `"grep","-rhoE"`
@@ -27,6 +28,10 @@ const (
 )
 
 // goVerdict is the verdict an atom of the go lane wrote.
+// oneKafkaFlow is a source file that states one Kafka flow, which is what binds
+// a broker for the suites behind a broker tag.
+const oneKafkaFlow = "package x\nimport \"git.notusmi.com/rob/stellar-core-go/kafkatopics\"\nfunc p() { kafkatopics.Record(kafkatopics.TopicSessionTurns, nil) }\n"
+
 func goVerdict(id, stage string) string {
 	return `{"atom":"` + id + `","stage":"` + stage + `","lane":"go","state":0,"result":"pass","logs":[]}`
 }

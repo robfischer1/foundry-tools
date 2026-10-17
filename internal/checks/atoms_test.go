@@ -31,29 +31,6 @@ import (
 // the catalogue as the whole module sees it, rows of atoms in files included:
 // internal/catalogue/golane_test.go holds them.)
 
-// The mutation stage is four atoms, one per lane, and it is asked for BY NAME:
-// the default vector (a pull's gate) must never carry one, and neither may the
-// sweep. Each runs the canonical script at its one home, so each must mount
-// foundry-stocks.
-func TestTheMutationStageIsFourLanesAskedForByName(t *testing.T) {
-	got := MutationAtoms()
-	want := map[string]Lane{"go:mutation": LaneGo, "python:mutation": LanePython, "rust:mutation": LaneRust, "ts:mutation": LaneTS}
-	if len(got) != len(want) {
-		t.Fatalf("mutation stage has %d atoms, want %d", len(got), len(want))
-	}
-	for _, a := range got {
-		lane, ok := want[a.ID]
-		if !ok || a.Lane != lane {
-			t.Errorf("%s: lane %q, want a mutation atom per lane", a.ID, a.Lane)
-		}
-	}
-	for _, a := range PullPathAtoms() {
-		if a.Stage == StageMutation {
-			t.Errorf("%s: a mutation atom in the default vector — the gate would run it", a.ID)
-		}
-	}
-}
-
 // NO TESTS IS A FINDING, NOT AN ABSENCE. Rob, 2026-09-11: "absent tests red
 // the PR and refuse the publish. We don't build anything without tests."
 // Each language's test atom used to read green on a tree with nothing to run —
@@ -144,14 +121,14 @@ func TestUseDefsJoinsTheRowsAndRefusesADuplicate(t *testing.T) {
 }
 
 // THE TABLE HOLDS THE UNPORTED SET AND NOTHING ELSE (lld FN-090 step 3): the
-// twelve atoms whose chains stay on Dagger (DEF-B3-035, DEF-B3-044). Every
+// eight atoms whose chains stay on Dagger (DEF-B3-035, DEF-B3-044). Every
 // other catalogue id comes from a file under atoms/.
 func TestAtomTableHoldsExactlyTheUnportedAtoms(t *testing.T) {
 	want := []string{
-		"go:mutation", "go:release",
-		"python:mutation", "python:release",
-		"rust:mutation", "rust:release", "rust:wit-compose", "rust:wit-guest",
-		"ts:mutation", "ts:regen", "ts:release", "ts:visual",
+		"go:release",
+		"python:release",
+		"rust:release", "rust:wit-compose", "rust:wit-guest",
+		"ts:regen", "ts:release", "ts:visual",
 	}
 	var got []string
 	for _, a := range atomTable() {

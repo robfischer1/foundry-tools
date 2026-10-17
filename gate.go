@@ -157,8 +157,7 @@ func (m *FoundryTools) GateFile(
 	registrySvid string,
 ) (*dagger.File, error) {
 	if reuse && recordToken != nil {
-		m.lookup = lookupVia(m.Repo, recordToken)
-		m.audit = auditSampled(m.Sha)
+		m.mutantsToken = recordToken
 	}
 	m.spire = spire
 	m.artifactAuth = artifactAuth

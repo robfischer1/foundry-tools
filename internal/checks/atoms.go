@@ -222,67 +222,6 @@ func atomTable() []AtomDef {
 			ID: "ts:visual", Stage: StageVisual, Lane: LaneTS, Image: ImageTS, NeedsManifest: true,
 			Desc: "Every Playwright screenshot suite visual.toml declares matches its committed baselines, rendered in the lane's pinned image.",
 		},
-		// ---- mutation: a pull's change set, mutated ----
-		//
-		// ONE VERDICT, FOUR LANGUAGES. Each atom mutates in DIFF mode against
-		// GATE_BASE — the pull's merge base as the door names it — and answers 0
-		// clean, 1 survivors, 2 could not measure. Each runs its tools as plain
-		// execs and settles in Go (GoMutationVerdict, RustMutationVerdict,
-		// TSMutationVerdict, PythonReportVerdict); a tool the engine never ran
-		// is could-not-run, never a pass.
-		//
-		// THE HISTORY IS THERE IN THE LANE THAT MATTERS. The mutation Job clones
-		// the repository whole and checks the head out, so the base resolves and
-		// the diff is real. A local pre-push run hands the engine a linked
-		// worktree, which r.gitReady turns into a throwaway repository with no
-		// history: the atom then stands down 0 with "no usable PR base sha", and
-		// the door's Job is the one that measures.
-		//
-		// critical_modules IS THE REPO'S DECLARATION for python, rust and ts,
-		// read off .copier-answers.yml where the template question puts it — the
-		// same string the retired mutation.yml rendered into its `modules` input.
-		// AN EMPTY LIST IS NOT AN OPT-OUT: a repo that declares nothing gets the
-		// whole diff as its scope, and the atom says so rather than going ABSENT
-		// (Rob, 2026-09-11 — nothing with tests goes un-mutation-tested). Go
-		// needs none: gremlins scopes to the diff itself, exactly as mutation-go
-		// did.
-		//
-		// A REPO HAS NO SAY. The first cut of these atoms sourced a repo-root
-		// ci/mutation.env — MUT_* knobs standing in for the retired workflow's
-		// inputs — and Rob asked why a repo should have a say in anything
-		// (2026-09-11). It should not: the scripts honour MUT_GATE=false, so that
-		// file was a one-line switch to turn a fleet gate off, the exact shape
-		// stop-justifications exists to refuse (Rule #2: one canonical gate,
-		// always the latest, a red is the committer's to fix). It is gone. The
-		// one repo fact the lane reads is critical_modules — a declaration of
-		// WHAT matters, not a dial on HOW hard to look. Everything else is the
-		// fleet's default.
-		//
-		// NeedsDies ON go:mutation FOR THE SAME REASON go:test-race CARRIES IT:
-		// gremlins gathers coverage by running the repo's `go test`, and an atom
-		// that runs a repo's `go test` runs its armed goldens
-		// (TestTheGoTestAtomCarriesTheFleetRecordTree holds both).
-		{
-			ID: "go:mutation", Stage: StageMutation, Lane: LaneGo, Image: ImageGo, NeedsDies: true, NotOnForks: ForkChangeBar,
-			Desc: "Every mutant gremlins makes of this pull's changed Go is killed by the tests.",
-		},
-		{
-			ID: "python:mutation", Stage: StageMutation, Lane: LanePython, Image: ImagePython, NotOnForks: ForkChangeBar,
-			Desc: "Every mutant cosmic-ray makes of this pull's changes to the declared critical modules is killed by the tests.",
-			// Its scope is critical_modules off .copier-answers.yml and it
-			// runs cosmic-ray against the project — neither of which a tree
-			// with no manifest has. Rob, 2026-09-25: "Leave mutation off for
-			// now." Off is this line; the lane's lint and test still run.
-			NeedsManifest: true,
-		},
-		{
-			ID: "rust:mutation", Stage: StageMutation, Lane: LaneRust, Image: ImageRust, NotOnForks: ForkChangeBar,
-			Desc: "Every viable mutant cargo-mutants makes of this pull's changes to the declared critical modules is killed by the tests.",
-		},
-		{
-			ID: "ts:mutation", Stage: StageMutation, Lane: LaneTS, Image: ImageTS, NotOnForks: ForkChangeBar,
-			Desc: "Every mutant StrykerJS makes of this pull's changes to the declared critical modules is killed by the tests.",
-		},
 	}
 }
 

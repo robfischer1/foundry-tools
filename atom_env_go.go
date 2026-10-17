@@ -37,6 +37,15 @@ func goSuiteLane(scope string, servers bool) func(context.Context, *run, *dagger
 		if !servers {
 			return ctr
 		}
+		return goServersLane(scope)(ctx, r, ctr)
+	}
+}
+
+// goServersLane binds the test servers the tree's suites name under a lane's own
+// alias and nothing else: go:mutation grades by running the suite, and stages no
+// generator of its own.
+func goServersLane(scope string) func(context.Context, *run, *dagger.Container) *dagger.Container {
+	return func(ctx context.Context, r *run, ctr *dagger.Container) *dagger.Container {
 		// every module is read in its own directory, as its suite is run there;
 		// the lane binds what any of them asks for
 		dirs, err := r.goModuleDirs(ctx)
