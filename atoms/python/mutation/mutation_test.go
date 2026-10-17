@@ -18,7 +18,4 @@ func TestTheDeclarationValidatesAndNamesItsRow(t *testing.T) {
 		Def.History != "full" || !Def.NeedsManifest || Def.WritesTree || strings.Join(Def.Needs, ",") != "tool:uv" {
 		t.Errorf("%+v", Def)
 	}
-	if pymut.Row().ID != pymut.ID || pymut.Row().Stage != Def.Stage || pymut.Row().Lane != Def.Lane || !pymut.Row().NeedsManifest {
-		t.Errorf("the verdict's pymut.Row() is not the declaration's: %+v", pymut.Row())
-	}
 }

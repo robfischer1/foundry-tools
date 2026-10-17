@@ -279,3 +279,13 @@ func TestTheScopeIsTheUnitsItGradesThatTheModuleCanMutate(t *testing.T) {
 		})
 	}
 }
+
+// A tree whose HEAD cannot be read names no commit, and so is never sampled for
+// the audit.
+func TestAnUnreadableHeadIsNoCommit(t *testing.T) {
+	p := newPull(t, ".")
+	p.first(rule{"rev-parse HEAD", "fatal: no HEAD", 128, ""})
+	if got := commit(p.in); got != "" {
+		t.Errorf("commit = %q", got)
+	}
+}

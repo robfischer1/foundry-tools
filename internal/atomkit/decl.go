@@ -34,6 +34,12 @@ type Def struct {
 	WritesTree bool
 	SubsumedBy string
 	NotOnForks string
+	// ReasksOwn says the atom asks again, itself, the part of its work that could
+	// not run (go:mutation, per module), so a runner that re-asks a could-not-run
+	// atom whole does not re-ask this one: a mutation module that graded is the
+	// costliest answer in the fleet to throw away. The index carries it as
+	// reasks_own, and only when it is set.
+	ReasksOwn bool
 	// NeedsManifest is checks.AtomDef.NeedsManifest: the atom's subject is the
 	// lane's root manifest, and its absent sentence says so.
 	NeedsManifest bool
@@ -65,6 +71,7 @@ type described struct {
 	WritesTree   bool     `json:"writes_tree"`
 	SubsumedBy   string   `json:"subsumed_by"`
 	NotOnForks   string   `json:"not_on_forks"`
+	ReasksOwn    bool     `json:"reasks_own,omitempty"`
 	AbsentReason string   `json:"absent_reason"`
 	ForkReason   string   `json:"fork_reason"`
 }
@@ -79,7 +86,7 @@ func Describe(d Def) ([]byte, error) {
 		ID: d.ID, Stage: d.Stage, Lane: string(d.Lane), Group: d.Group, Desc: d.Desc,
 		Surface: d.Surface, Toolchain: d.Toolchain, Needs: append([]string{}, d.Needs...),
 		TimeoutS: int(d.Timeout / time.Second), History: d.History, WritesTree: d.WritesTree,
-		SubsumedBy: d.SubsumedBy, NotOnForks: d.NotOnForks,
+		SubsumedBy: d.SubsumedBy, NotOnForks: d.NotOnForks, ReasksOwn: d.ReasksOwn,
 		AbsentReason: checks.AbsentReasonFor(d.ID, d.Lane, d.NeedsManifest),
 	}
 	slices.Sort(e.Needs)

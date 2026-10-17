@@ -17,7 +17,4 @@ func TestTheDeclarationValidatesAndNamesItsRow(t *testing.T) {
 		Def.History != "full" || Def.WritesTree || len(Def.Needs) != 0 {
 		t.Errorf("%+v", Def)
 	}
-	if tsmut.Row().ID != tsmut.ID || tsmut.Row().Stage != Def.Stage || tsmut.Row().Lane != Def.Lane {
-		t.Errorf("the verdict's tsmut.Row() is not the declaration's: %+v", tsmut.Row())
-	}
 }

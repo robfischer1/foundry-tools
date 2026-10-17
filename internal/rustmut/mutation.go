@@ -17,11 +17,8 @@ import (
 
 const id = "rust:mutation"
 
-// ID and Row are the atom's identity, for the declaration in atoms/rust/mutation.
+// ID is the atom's identity, for the declaration in atoms/rust/mutation.
 const ID = id
-
-// Row is the part of the catalogue row a verdict reads.
-func Row() checks.AtomDef { return row }
 
 // row is the part of the catalogue row a verdict reads: its identity.
 var row = checks.AtomDef{ID: id, Stage: checks.StageMutation, Lane: checks.LaneRust}

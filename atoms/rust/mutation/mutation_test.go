@@ -18,7 +18,4 @@ func TestTheDeclarationValidatesAndNamesItsRow(t *testing.T) {
 		Def.History != "full" || Def.WritesTree || strings.Join(Def.Needs, ",") != "tool:cargo-mutants,tool:cargo-nextest" {
 		t.Errorf("%+v", Def)
 	}
-	if rustmut.Row().ID != rustmut.ID || rustmut.Row().Stage != Def.Stage || rustmut.Row().Lane != Def.Lane {
-		t.Errorf("the verdict's rustmut.Row() is not the declaration's: %+v", rustmut.Row())
-	}
 }

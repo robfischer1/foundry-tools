@@ -34,6 +34,7 @@ var Def = atomkit.Def{
 	Needs:      []string{"dies", "service:postgres", "service:pgvector", "service:redpanda", "tool:gomutants", "tool:mutation-gate"},
 	NotOnForks: checks.ForkChangeBar,
 	History:    "full",
+	ReasksOwn:  true,
 	Timeout:    75 * time.Minute,
 	Check:      gomut.Check,
 }
