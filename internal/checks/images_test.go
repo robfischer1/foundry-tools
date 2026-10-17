@@ -183,7 +183,7 @@ func TestTheProvisionedToolsArePinnedAndTheReleaseURLCarriesTheVersion(t *testin
 // A SERVICE ADDRESS IN THIS MODULE NAMES NO NAMESPACE, and this test is the
 // whole lesson of 2026-09-25 written down.
 //
-// GoProxy read ourea.default.svc.cluster.local and WitnessURL read
+// GoProxy read ourea.default.svc.cluster.local and the witness URL read
 // narcissus.default.svc.cluster.local. When the constellation moved to the
 // `prime` namespace those FQDNs pointed at an empty namespace, and the
 // measured result was that EVERY repo's gate lane failed could-not-run —
@@ -198,8 +198,8 @@ func TestTheProvisionedToolsArePinnedAndTheReleaseURLCarriesTheVersion(t *testin
 // would be the same bug with a fresher spelling.
 func TestNoServiceAddressNamesANamespace(t *testing.T) {
 	for name, addr := range map[string]string{
-		"GoProxy":    GoProxy,
-		"WitnessURL": WitnessURL,
+		"GoProxy":        GoProxy,
+		"WitnessMTLSURL": WitnessMTLSURL,
 	} {
 		if strings.Contains(addr, ".svc.cluster.local") {
 			t.Errorf("%s pins a namespace: %q — a bare service name resolves in any namespace", name, addr)

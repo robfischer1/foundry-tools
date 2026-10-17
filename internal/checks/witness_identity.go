@@ -9,8 +9,11 @@ import (
 // WitnessMTLSURL is narcissus's mTLS door: the plaintext port plus one, as
 // every star's DualListener serves it. fleet:witness asks here, and only here, when the lane
 // has, presenting the run's SVID (spiffe://notusmi.com/job/<lane>/<job>); a
-// bare name for the reason WitnessURL gives. It is the ONLY door an ask goes to:
-// WitnessURL is read for /ready and nothing else.
+// bare name, deliberately: it named the `default` namespace until 2026-09-25 and
+// broke when the fleet moved to `prime`; a bare name resolves through the
+// client's own search path in any namespace (see checks.GoProxy). It is the
+// ONLY door narcissus is reached at: the asks AND the /ready read before them.
+// The clear port (:8200) is never dialled.
 const WitnessMTLSURL = "https://narcissus:8201/mcp"
 
 // WitnessNoAnswerExit is witnesscall's exit when the identified request WENT
