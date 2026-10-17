@@ -1,6 +1,7 @@
 package checks
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -296,5 +297,41 @@ func TestReleaseStampRefusesWhatSplitsLdflags(t *testing.T) {
 func TestGoModulePathReadsTheModuleLine(t *testing.T) {
 	if got := GoModulePath("// c\nmodule git.notusmi.com/rob/x\n\ngo 1.22\n"); got != "git.notusmi.com/rob/x" {
 		t.Errorf("%q", got)
+	}
+}
+
+// A binary that declares nothing builds exactly as the fleet's always did: the
+// declared settings only ever add to the argv.
+func TestAPlainBinaryKeepsTheFleetsArgvAndEnv(t *testing.T) {
+	b := ReleaseBinary{Name: "hades", Package: "./cmd/hades"}
+	if got := strings.Join(GoReleaseArgsTo("/out", b, false, "", ""), " "); got != "go build -trimpath -ldflags=-s -w -o /out/hades ./cmd/hades" {
+		t.Errorf("argv %q", got)
+	}
+	if ReleaseCgo(b) != "0" {
+		t.Errorf("cgo %q", ReleaseCgo(b))
+	}
+}
+
+// THE DECLARED BINARY: tags, ldflags and cgo are the release.toml's, and the
+// stamp still lands inside the declared ldflags.
+func TestADeclaredBinaryCarriesItsTagsLdflagsAndCgo(t *testing.T) {
+	b := ReleaseBinary{Name: "narc", Package: "./cmd/narc", Cgo: true, Tags: []string{"netgo", "osusergo"}, Ldflags: `-s -w -extldflags "-static"`}
+	want := `go build -trimpath -ldflags=-s -w -extldflags "-static" -tags=netgo,osusergo -o /out/narc ./cmd/narc`
+	if got := strings.Join(GoReleaseArgsTo("/out", b, false, "", ""), " "); got != want {
+		t.Errorf("argv %q, want %q", got, want)
+	}
+	if ReleaseCgo(b) != "1" {
+		t.Errorf("cgo %q", ReleaseCgo(b))
+	}
+	stamped := GoReleaseArgsTo("/out", b, true, "git.notusmi.com/rob/narcissus", "v1.2.3")
+	if !slices.Contains(stamped, "-mod=vendor") || !strings.Contains(strings.Join(stamped, " "), `-extldflags "-static" -X main.Version=v1.2.3`) {
+		t.Errorf("stamped %q", stamped)
+	}
+}
+
+func TestTheScopeNamesTheManifestWhenTheNamesCameFromIt(t *testing.T) {
+	p := ReleasePlan{Star: "narcissus", Lane: LaneGo, Binaries: []ReleaseBinary{{Name: "narc", Package: "./cmd/narc"}}, Manifest: true}
+	if s := ReleaseScope(p); !strings.Contains(s, "release.toml") || strings.Contains(s, "COPY lines") {
+		t.Errorf("scope %q", s)
 	}
 }

@@ -80,10 +80,11 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 			return v
 		}
 	}
-	env := []string{"CGO_ENABLED=0", "GOFLAGS=" + strings.TrimSpace(os.Getenv("GOFLAGS")+" -buildvcs=false")}
+	goflags := "GOFLAGS=" + strings.TrimSpace(os.Getenv("GOFLAGS")+" -buildvcs=false")
 	v := checks.VerdictOf(row, int(checks.StatePass), "")
 	for _, b := range plan.Binaries {
 		argv := checks.GoReleaseArgsTo(out, b, plan.Vendored, "", "")
+		env := []string{"CGO_ENABLED=" + checks.ReleaseCgo(b), goflags}
 		o, code, bad := atoms.RunTool(ctx, in, row, atoms.Cmd{Dir: in.Root, Name: argv[0], Args: argv[1:], Env: env, Both: true})
 		if bad != nil {
 			return *bad
