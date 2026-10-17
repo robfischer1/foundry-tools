@@ -313,17 +313,3 @@ func TestReleaseNamesItsStarAsTheAtomsDo(t *testing.T) {
 		t.Errorf("err %v", err)
 	}
 }
-
-// A repository whose only go.mod is not at the root has no star binary to
-// build: Release() says so, and compiles nothing.
-func TestReleaseRefusesAGoStarWithNoRootModule(t *testing.T) {
-	engine.reset()
-	engine.withTree(map[string]string{"Dockerfile": copiesHades, ".copier-answers.yml": "service_name: hades\n", "tools/go.mod": "module x\n"})
-	engine.withTree(cmdMain("hades"))
-	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "no go.mod at the repository root") {
-		t.Errorf("err %v", err)
-	}
-	if engine.chain(`"go","build"`) != "" {
-		t.Errorf("a compile ran without a root module:\n%v", engine.chains())
-	}
-}

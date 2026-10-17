@@ -141,9 +141,8 @@ func (r *run) releaseOnBase(ctx context.Context) (*dagger.Directory, string, err
 // "dev"). THE TREE ONLY, NO .git (laneRelease): neither compile reads git, and
 // go build stamps vcs.revision from it by default.
 func (r *run) releaseBuild(ctx context.Context, plan checks.ReleasePlan, version string) (*dagger.Container, error) {
-	if err := releasekit.GoRoot(ctx, runTree{r}); err != nil {
-		return nil, err
-	}
+	// The root module is Release()'s releaseLane, which only reaches here for a
+	// root go.mod; the atom, which has no lane to lean on, asks releasekit.GoRoot.
 	// A VENDORED MODULE IS PROVISIONED BY ITS vendor/, AND NOTHING IS
 	// DOWNLOADED (the atom's check says why).
 	base := r.laneRelease(checks.ImageGo)
