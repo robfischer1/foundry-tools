@@ -144,6 +144,12 @@ func TestToolsTomlMatchesGo(t *testing.T) {
 			t.Errorf("tool %s: %+v, want %s", name, got, module)
 		}
 	}
+	// gravity is the prebuilt the Dagger lane fetches (checks.GravityPrebuilt),
+	// pinned here for the pod by the same rev and sha256, from the same mirror.
+	seen["gravity"] = true
+	if g := f.Tools["gravity"]; g.Kind != "url" || checks.GravityPrebuilt[g.Version] != g.SHA256 || g.SHA256 == "" || g.Spec != checks.ToolMirrorURL(g.SHA256) {
+		t.Errorf("tool gravity: %+v, want the url tool GravityPrebuilt names", g)
+	}
 	for _, u := range checks.PythonLaneTools {
 		seen[u.Name] = true
 		if got := f.Tools[u.Name]; got.Kind != "uv" || got.Spec != u.Name || got.Version != u.Version {

@@ -261,6 +261,15 @@ image = "ghcr.io/yannh/kubeconform:v0.7.0-alpine@sha256:8f0eeaaa96ba27ba1500b0e4
 kind = "image"
 image = "docker.io/stackrox/kube-linter:v0.8.3-alpine@sha256:b8311611c27032d4922bc67719225e373e4a0ab0c767bbdcf5f20a9306b1a3bb"
 
+# gravity at the rev stellar-core-go's provenance.json pins (checks.GravityPrebuilt):
+# the binary `cargo install` builds, seeded in the tool mirror under its sha256.
+# The regen tests of go:test, go:test-race and go:diff-coverage find it on PATH.
+[tool.gravity]
+kind = "url"
+spec = "https://registry.notusmi.com/v2/foundry/tool/mirror/blobs/sha256:db5a9f0bec3976e9fe84ae8e6f4d6afa2409c0fb556d9646f489b44e96afa395"
+version = "68d8146b88e53e619bfbc0a36b9d70ef9c3bcf06"
+sha256 = "db5a9f0bec3976e9fe84ae8e6f4d6afa2409c0fb556d9646f489b44e96afa395"
+
 [tool.narc]
 kind = "image"
 image = "registry.notusmi.com/rob/narcissus:1792198596-053bba4@sha256:1923ebea1773595a6ef19358e273738f504b65cc50f600666bcf99870ecf0fe2"
