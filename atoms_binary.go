@@ -36,7 +36,9 @@ var atomsSourceInclude = []string{
 	"internal/checks/**",
 	"internal/execmem/**",
 	"internal/govlaw/**",
+	"internal/hadescall/**",
 	"internal/unitkey/**",
+	"internal/witnesscall/**",
 	"internal/orbitcompose/**",
 	"internal/orbitlane/**",
 	"internal/retiredverbs/**",
@@ -102,7 +104,7 @@ func stageHas(stage, id string) bool { return slices.Contains(atoms.StageIDs(sta
 // container for the stage that carries fleet:witness, so the binary asks
 // narcissus as the same SVID the chain does (through the witnesscall layer).
 // Without a socket (a local run, a lane that forwarded none) nothing is mounted,
-// the flag is not passed and the atom asks in the clear and says so. The owner is
+// the flag is not passed and the atom settles could-not-run, loudly. The owner is
 // root, the tools container's user: the chain's nonroot owner belonged to the
 // static base its helper ran on.
 func (r *run) withAtomSpire(ctr *dagger.Container, stage string) (*dagger.Container, []string) {

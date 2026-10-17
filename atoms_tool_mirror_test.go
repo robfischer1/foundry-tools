@@ -8,11 +8,6 @@ import (
 	"dagger/foundry-tools/internal/checks"
 )
 
-// failMirror makes the in-cluster mirror's copy of a pinned asset unfetchable.
-func failMirror(url string) {
-	engine.fail(checks.ToolMirrorURL(checks.ToolSHA256[url]), "502 from mirror")
-}
-
 // failBoth makes BOTH sources of a pinned asset unfetchable, the mirror's blob
 // and the asset's own URL: the fetch is then an error, as the lone upstream
 // failure was before the mirror.
@@ -130,7 +125,8 @@ func TestFetchPinnedToolFailsClosedWithoutAPin(t *testing.T) {
 // would otherwise hide a lane that kept the bare upstream fetch.
 func TestWitLanesFetchTheirToolsMirrorFirst(t *testing.T) {
 	engine.reset()
-	engine.withTree(witComposeTree(nil))
+	engine.withTree(everyLaneTree)
+	engine.contents(witComposeNeedle, witVerdict("rust:wit-compose"))
 	wantState(t, runAtom(t, "rust:wit-compose", ""), 0)
 	for _, url := range []string{checks.WasmToolsURL, checks.WacURL} {
 		m := indexOfFetch(checks.ToolMirrorURL(checks.ToolSHA256[url]))

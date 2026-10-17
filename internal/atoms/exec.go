@@ -52,7 +52,7 @@ type Exec func(ctx context.Context, c Cmd) (out string, code int)
 var pythonBinDir = PythonBinDir
 
 // pythonPrograms are the programs the venv provides. They are found there by
-// path and not by the container's PATH: a shadow measured on cerberus
+// path and not by the container's PATH: a run measured on cerberus
 // (gate-cerberus-038a512-tth5v) reported `exec: "python3": executable file not
 // found in $PATH` while the venv was installed, so nothing here depends on the
 // PATH the container was left with.

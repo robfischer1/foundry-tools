@@ -80,7 +80,7 @@ type run struct {
 	// and holds the answered gradings against the cold ones (mutation_reuse.go).
 	audit bool
 	// spire, when set, is the lane pod's SPIRE socket: fleet:witness asks as
-	// the SVID it issues (witness_identity.go); nil asks in the clear.
+	// the SVID it issues (witness_identity.go); nil cannot ask: the atom settles could-not-run.
 	spire *dagger.Socket
 	// artifactAuth, when set, is the registry credential the visual atom
 	// pushes its artifact with, and sha the commit that artifact is tagged by
@@ -353,10 +353,10 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 		// and the fleet standardised on 3.14; a repo whose cargo tests spawn
 		// its own python hooks (cerberus' memory_plugin.rs) ran them through
 		// that 3.11 and met a SyntaxError on syntax the fleet's own formatter
-		// had emitted. Installed with uv rather than apt because no Debian
-		// suite packages 3.14 yet, and symlinked over `python3` because the
-		// spawning code names the interpreter and not a path — see
-		// checks.FleetPython for the measurement.
+		// had emitted. Not from apt because no Debian suite packages 3.14
+		// yet, and linked over `python3` because the spawning code names the
+		// interpreter and not a path — see checks.FleetPython for the
+		// measurement.
 		//
 		// rust:bookworm carries cargo, git, curl and bash. rustfmt and
 		// clippy are rustup components; cargo-audit is upstream's release
@@ -372,13 +372,16 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 			WithExec([]string{"apt-get", "update"}).
 			WithExec([]string{"apt-get", "install", "-y", "--no-install-recommends", "mold"}).
 			WithExec([]string{"rm", "-rf", "/var/lib/apt/lists"}).
-			WithFile("/usr/local/bin/uv", rustUV.File("/uv")).
-			// --default WRITES THE SHIMS, so no `ln -s` and so no shell: uv
-			// lays python/python3/python3.14 into UV_PYTHON_BIN_DIR itself.
-			// TestNoAtomExecsAShell is right to refuse the alternative, and
-			// this repo spent a lot of effort getting off `sh -c`.
-			WithEnvVariable("UV_PYTHON_BIN_DIR", "/usr/local/bin").
-			WithExec([]string{"uv", "python", "install", "--default", checks.FleetPythonVersion}).
+			WithFile("/usr/local/bin/uv", rustUV.File("/uv"))
+		// THE INTERPRETER IS THE PINNED STANDALONE RELEASE, NOT `uv python
+		// install`: uv resolves a version only through the download manifest
+		// compiled into it, so a renovate bump of FleetPythonVersion ahead of
+		// the uv image (3.14.8, foundry-tools #326, 2026-10-16) made every
+		// rust lane CANNOT RUN with "No download found". The python layer
+		// moved off uv for the same class of reason (atoms_tools_python.go);
+		// this follows it, and uv is told never to fetch one.
+		ctr = withPythonStandalone(ctr, checks.ToolSHA256).
+			WithEnvVariable("UV_PYTHON_DOWNLOADS", "never").
 			WithExec([]string{"python3", "--version"}).
 			WithExec([]string{"rustup", "component", "add", "rustfmt", "clippy"})
 		return withCargoTarball(withOpengrep(ctr), checks.ToolSHA256, checks.CargoAuditURL, checks.CargoAuditMember).
@@ -542,19 +545,6 @@ func (r *run) withLockedCargoTarget(ctr *dagger.Container) *dagger.Container {
 		}
 	}
 	return ctr
-}
-
-// withLockedReleaseVolume remounts the repo's release volume LOCKED, for the
-// execs that build into it and then run what they built (the wit guest's
-// native test in wit-guest-test). The same race and the
-// same reason as withLockedCargoTarget (foundry-tools#16916: rust:wit-guest
-// "could not execute process /cache/cargo-release/wit-guest-test/debug/deps/
-// classes_tier3-... No such file or directory"); the volume's SHARED default
-// (checks.ReleaseCacheFor) stands for the builds that copy their output out
-// in the same exec, where the gap is the copy itself.
-func (r *run) withLockedReleaseVolume(ctr *dagger.Container) *dagger.Container {
-	c := checks.ReleaseCacheFor(r.repo)
-	return ctr.WithMountedCache(c.Path, dag.CacheVolume(c.Key), dagger.ContainerWithMountedCacheOpts{Sharing: dagger.CacheSharingModeLocked})
 }
 
 // copyOutPath is where copyout sits in a lane's container.

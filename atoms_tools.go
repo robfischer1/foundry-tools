@@ -125,11 +125,33 @@ func toolsPlan() []layer {
 // slim image lacks: git (the change set, the bundle revision), ca-certificates
 // (the engine installs its CA into the store that package creates) and xz-utils
 // (shellcheck ships as .tar.xz). The lists are removed in the same layer.
+//
+// THE CA IS SET HERE, ON THE BASE, not on a stage. The engine writes cache-ca
+// into the system store, but uv reads webpki's roots and the pinned python's
+// OpenSSL reads its build's path unless told otherwise (laneBase, runtime.go,
+// has the incidents). The python stages hand the container only directories,
+// so variables set on a stage never reached it: with the venv dropped,
+// fleet:wit-topics fell back to `uv run`, whose interpreter download refused
+// the cache's certificate (UnknownIssuer, flux e8cd9be, 2026-10-16).
 func toolsOS() *dagger.Container {
-	return dag.Container().From(checks.ImageTools).
+	return withSystemCA(dag.Container().From(checks.ImageTools).
 		WithExec([]string{"apt-get", "update"}).
 		WithExec([]string{"apt-get", "install", "-y", "--no-install-recommends", "git", "ca-certificates", "xz-utils"}).
-		WithExec([]string{"rm", "-rf", "/var/lib/apt/lists"})
+		WithExec([]string{"rm", "-rf", "/var/lib/apt/lists"}))
+}
+
+// systemCABundle is the store ca-certificates creates and the engine writes its CA into.
+const systemCABundle = "/etc/ssl/certs/ca-certificates.crt"
+
+// withSystemCA points every client that does not read the system store at it:
+// uv (UV_NATIVE_TLS), python's ssl and requests, pip, node.
+func withSystemCA(ctr *dagger.Container) *dagger.Container {
+	return ctr.
+		WithEnvVariable("UV_NATIVE_TLS", "1").
+		WithEnvVariable("SSL_CERT_FILE", systemCABundle).
+		WithEnvVariable("REQUESTS_CA_BUNDLE", systemCABundle).
+		WithEnvVariable("PIP_CERT", systemCABundle).
+		WithEnvVariable("NODE_EXTRA_CA_CERTS", systemCABundle)
 }
 
 // toolFile is the tool's program, fetched and VERIFIED, or why it is not
@@ -176,7 +198,7 @@ func toolFile(ctx context.Context, base *dagger.Container, t pinnedTool) (*dagge
 
 // toolFiles fetches and verifies every tool at once, in the plan's order. A
 // tool that is not available is nil: one tool that will not fetch must not take
-// the whole shadow's answer with it. Its absence is not silent: one stderr line
+// the whole tools container with it. Its absence is not silent: one stderr line
 // per dropped tool carries the fetch or verify error, because the atom that
 // needed it only says "executable file not found".
 func toolFiles(ctx context.Context, base *dagger.Container) map[string]*dagger.File {

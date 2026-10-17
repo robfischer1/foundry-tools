@@ -19,8 +19,8 @@ import (
 // LargeFileLimitKB is the fleet's file-size ceiling, in KB, measured against
 // the one file that ever crossed it (FilesOver has the measurement). It lives
 // here, not in package main, so the in-process atoms (internal/atoms) and the
-// Dagger-chain atom grade against ONE number: a shadow comparison between the
-// two is meaningless if they can disagree about the limit.
+// Dagger-chain atom grade against ONE number: the chain that answers when the
+// binary could not must not disagree about the limit.
 const LargeFileLimitKB = 2048
 
 // ConflictMarkers matches ONLY THE TWO ANCHORED MARKERS, not the bare row of

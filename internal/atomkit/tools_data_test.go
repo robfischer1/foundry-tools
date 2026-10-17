@@ -72,6 +72,7 @@ var urlPins = []struct {
 	{"oras", checks.OrasURL, checks.OrasVersion},
 	{"cargo-audit", checks.CargoAuditURL, checks.CargoAuditVersion},
 	{"cargo-nextest", checks.CargoNextestURL, checks.CargoNextestVersion},
+	{"sccache", checks.SccacheURL, checks.SccacheVersion},
 	{"python-standalone", checks.PythonStandaloneURL, checks.FleetPythonVersion},
 }
 

@@ -81,6 +81,8 @@ import (
 	pythonruffformat "dagger/foundry-tools/atoms/python/ruff-format"
 	rustcargoclippy "dagger/foundry-tools/atoms/rust/cargo-clippy"
 	rustcargotest "dagger/foundry-tools/atoms/rust/cargo-test"
+	rustwitcompose "dagger/foundry-tools/atoms/rust/wit-compose"
+	rustwitguest "dagger/foundry-tools/atoms/rust/wit-guest"
 	templaterendermatrix "dagger/foundry-tools/atoms/template/render-matrix"
 	tsbungate "dagger/foundry-tools/atoms/ts/bun-gate"
 	witvalidate "dagger/foundry-tools/atoms/wit/validate"
@@ -167,6 +169,8 @@ var Defs = []*atomkit.Def{
 	&pythonruffformat.Def,
 	&rustcargoclippy.Def,
 	&rustcargotest.Def,
+	&rustwitcompose.Def,
+	&rustwitguest.Def,
 	&templaterendermatrix.Def,
 	&tsbungate.Def,
 	&witvalidate.Def,

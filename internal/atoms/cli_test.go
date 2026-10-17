@@ -52,28 +52,24 @@ func TestRunPrintsTheVectorAndExitsZero(t *testing.T) {
 	}
 }
 
-// The witness flags reach the atoms through the input: the dry run is off unless
-// asked for (the voter asks for real), and the URL is the stand-in's when named.
+// The witness URL flag reaches the atoms through the input: empty is the
+// production port, and the stand-in's when named.
 func TestWitnessFlagsReachTheAtoms(t *testing.T) {
 	dir := newRepo(t)
 	put(t, dir, "a.txt", "a\n")
 	commitAll(t, dir, "c1")
-	var dry []bool
 	var urls []string
 	build := func() (*Registry, error) {
 		return NewRegistry(Atom{ID: "go:release", Run: func(_ context.Context, a checks.AtomDef, in Input) checks.Verdict {
-			dry, urls = append(dry, in.WitnessDry), append(urls, in.Witness.URL)
+			urls = append(urls, in.Witness.URL)
 			return checks.VerdictOf(a, 0, "")
 		}})
 	}
 	var out, errb strings.Builder
-	for _, args := range [][]string{{"-root", dir}, {"-root", dir, "-witness-dry", "-witness-url", "http://narcissus.invalid"}} {
+	for _, args := range [][]string{{"-root", dir}, {"-root", dir, "-witness-url", "http://narcissus.invalid"}} {
 		if code := run(context.Background(), args, &out, &errb, time.Now, build); code != 0 {
 			t.Fatalf("exit %d: %s", code, errb.String())
 		}
-	}
-	if len(dry) != 2 || dry[0] || !dry[1] {
-		t.Errorf("dry was %v for no flag and the flag; want false then true (the voter asks for real)", dry)
 	}
 	if len(urls) != 2 || urls[0] != "" || urls[1] != "http://narcissus.invalid" {
 		t.Errorf("witness URL was %q for no flag and the flag", urls)

@@ -77,12 +77,17 @@ func TestWitnessRunsWithTheHelperTheSocketAndTheChangesFacts(t *testing.T) {
 	engine.reset()
 	engine.withTree(everyLaneTree)
 	_, again := runFleetAtom(t, r, "fleet:witness")
+	// The key is the whole withEnvVariable call: the query prints its
+	// arguments in either order (`value:…, name:…` as often as `name:…,
+	// value:…`), so a window after the name missed the value half the time
+	// and two different keys read the same (foundry-tools#451's gate).
 	if key := func(c string) string {
 		i := strings.Index(c, `name:"WITNESS_RUN"`)
 		if i < 0 {
 			return ""
 		}
-		return c[i : i+60]
+		start := strings.LastIndex(c[:i], "withEnvVariable(")
+		return c[start : i+strings.Index(c[i:], ")")]
 	}; key(c) == "" || key(c) == key(again) {
 		t.Errorf("the witness's run key did not change between runs: %q %q", key(c), key(again))
 	}

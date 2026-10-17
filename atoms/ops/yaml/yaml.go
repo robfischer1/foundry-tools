@@ -33,7 +33,7 @@ var row = checks.AtomDef{ID: id, Stage: checks.StagePrecommit, Lane: checks.Lane
 // instead when the tree carries one, and that tool exists in no repository in
 // the fleet (infra, the one repo it was written for, does not have it): the
 // branch has never fired, so the binary has the parse alone, checks.OpsStrictYAML.
-// If a tree ever does carry one, the shadow will say so as a STATE difference.
+// If a tree ever does carry one, the binary will grade it differently from the chain.
 func check(_ context.Context, in atomkit.In) checks.Verdict {
 	if stop := atomlib.OpsSurface(row, in); stop != nil {
 		return *stop

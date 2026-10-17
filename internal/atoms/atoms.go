@@ -88,11 +88,8 @@ type Input struct {
 	// scan). Nil is the disk; a test says what a tree that will not walk does.
 	FS fs.FS
 	// Spire is the path of the SPIRE agent socket the lane pod forwarded, for
-	// fleet:witness's identified ask; "" names none and it asks in the clear.
+	// fleet:witness's identified ask; "" names none and it settles could-not-run: it never asks in the clear.
 	Spire string
-	// WitnessDry makes fleet:witness ask nothing: it lists what it would ask
-	// and settles 2 (the shadow's mode; the default asks for real).
-	WitnessDry bool
 	// Witness is how fleet:witness reaches narcissus; the zero value is the
 	// production port.
 	Witness Witness
@@ -235,7 +232,7 @@ func admittedBy(stage string) map[string]bool {
 // grades: the catalogue's own answer (checks.AtomsForStage, where "" is the
 // pull path, precommit and prepush) narrowed to what this binary carries. It
 // is the one definition of "the atoms of a stage", shared by the binary, which
-// runs them, and the shadow, which asks the chains for exactly those.
+// runs them, and the voter, which asks the chains for the rest.
 func StageIDs(stage string) []string {
 	admitted := admittedBy(stage)
 	var ids []string

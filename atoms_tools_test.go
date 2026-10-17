@@ -93,8 +93,9 @@ func TestEveryPinnedToolHasOneVerifiedSource(t *testing.T) {
 	}
 	// The set of checksummed URLs is exactly the set of release assets fetched:
 	// the tools, the python layer's interpreter, and the rust lane's two cargo
-	// tool tarballs (runtime.go withCargoTarball) and oras, plus the regen lane's wasm-tools.
-	fetched := []string{checks.PythonStandaloneURL, checks.CargoAuditURL, checks.CargoNextestURL, checks.WacURL, checks.OrasURL, checks.WasmTools1250URL}
+	// tool tarballs (runtime.go withCargoTarball) and oras, plus the regen lane's wasm-tools,
+	// and the executor's sccache (provisioned into the node cache, not by the engine).
+	fetched := []string{checks.PythonStandaloneURL, checks.CargoAuditURL, checks.CargoNextestURL, checks.SccacheURL, checks.WacURL, checks.OrasURL, checks.WasmTools1250URL}
 	for _, tool := range pinnedTools {
 		if tool.url != "" {
 			fetched = append(fetched, tool.url)
@@ -107,7 +108,7 @@ func TestEveryPinnedToolHasOneVerifiedSource(t *testing.T) {
 
 // EVERY PROGRAM THE ATOMS EXEC IS ON THE CONTAINER'S PATH: git and tar from the
 // base system, everything else a layer. An atom that execs a program no layer
-// carries is a could-not-run on every shadow, and looks like a finding about
+// carries is a could-not-run on every run, and looks like a finding about
 // the binary.
 func TestToolsContainerCarriesEveryProgram(t *testing.T) {
 	layered := map[string]bool{}
@@ -563,5 +564,25 @@ func TestAPythonStageThatFailsIsLeftOutWithTheOnesAboveIt(t *testing.T) {
 				t.Errorf("the log lacks the cause for %s: %q", tc.cause, line)
 			}
 		})
+	}
+}
+
+// The CONTAINER the atoms run in, not only the stage that built the venv, reads
+// the system store: an atom that falls back to uv or opens a socket from python
+// refused the engine's CA (UnknownIssuer) while the stage's variables stayed on
+// the stage.
+func TestTheToolsContainerTrustsTheSystemStore(t *testing.T) {
+	engine.reset()
+	capturedLog(t)
+	if _, err := atomsTools(context.Background()).Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	c := engine.chain(`path:"/usr/local/bin/atoms"`)
+	for _, name := range []string{"SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "PIP_CERT", "NODE_EXTRA_CA_CERTS"} {
+		wantCalls(t, c, []string{"withEnvVariable", `name:"` + name + `"`, `value:"` + systemCABundle + `"`})
+	}
+	wantCalls(t, c, []string{"withEnvVariable", `name:"UV_NATIVE_TLS"`, `value:"1"`})
+	if strings.Index(c, `name:"SSL_CERT_FILE"`) > strings.Index(c, `path:"/usr/local/bin/atoms"`) {
+		t.Errorf("the CA is set above the binary, so it is not the base's:\n%s", c)
 	}
 }

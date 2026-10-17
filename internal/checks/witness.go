@@ -5,11 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"path"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -461,78 +459,6 @@ func WitnessSkipTail(skipped, vendored, tests []string) string {
 	return strings.Join(clauses, "")
 }
 
-var (
-	skippedRE  = regexp.MustCompile(`skipped (\d+) file\(s\) in languages`)
-	vendoredRE = regexp.MustCompile(`skipped (\d+) vendored file\(s\)`)
-	testsRE    = regexp.MustCompile(`skipped (\d+) test file\(s\)`)
-)
-
-// WitnessSkipCounts reads the counts WitnessSkipTail wrote into a reason; a
-// clause that is not there is 0.
-func WitnessSkipCounts(reason string) (skipped, vendored, tests int) {
-	count := func(re *regexp.Regexp) int {
-		m := re.FindStringSubmatch(reason)
-		if m == nil {
-			return 0
-		}
-		n, _ := strconv.Atoi(m[1])
-		return n
-	}
-	return count(skippedRE), count(vendoredRE), count(testsRE)
-}
-
-// WitnessedPaths reads the files a WitnessSummary table names, in its order: the
-// first cell of each row after the header. Text the table does not hold (the
-// reason line above it, the footgun bullets below) is not a row.
-func WitnessedPaths(text string) []string {
-	var out []string
-	rows := false
-	for _, ln := range strings.Split(text, "\n") {
-		switch {
-		case strings.HasPrefix(ln, "| file | verdict"):
-			rows = true
-		case strings.HasPrefix(ln, "|---"):
-			// The rule under the header; outside a table it ends nothing.
-		case rows && strings.HasPrefix(ln, "| "):
-			cell, _, _ := strings.Cut(strings.TrimPrefix(ln, "| "), " | ")
-			out = append(out, cell)
-		default:
-			rows = false
-		}
-	}
-	return out
-}
-
-// WitnessDryMark opens the reason of a dry run, which asked nothing.
-const WitnessDryMark = "DRY - not asked:"
-
-// witnessWouldAsk prefixes each line of a dry run's list.
-const witnessWouldAsk = "would ask: "
-
-// WitnessDryText is a dry run's reason: what it would have asked, in order, each
-// file with the language and the caller the request would carry, then the
-// skipped clauses (WitnessSkipTail). Asking is the only thing it leaves out.
-func WitnessDryText(sources []string, caller string, skipped, vendored, tests []string) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "%s would ask the witness about %d file(s)%s", WitnessDryMark, len(sources), WitnessSkipTail(skipped, vendored, tests))
-	for _, p := range sources {
-		fmt.Fprintf(&b, "\n%s%s | %s | %s", witnessWouldAsk, p, WitnessLanguage(p), caller)
-	}
-	return b.String()
-}
-
-// WitnessDryPaths reads the files a WitnessDryText names, in its order.
-func WitnessDryPaths(text string) []string {
-	var out []string
-	for _, ln := range strings.Split(text, "\n") {
-		if rest, ok := strings.CutPrefix(ln, witnessWouldAsk); ok {
-			p, _, _ := strings.Cut(rest, " | ")
-			out = append(out, p)
-		}
-	}
-	return out
-}
-
 // StarName is the star a checkout's origin URL names: its last path segment,
 // less .git; "unknown" when there is none.
 func StarName(originURL string) string {
@@ -634,26 +560,3 @@ func SleepContext(ctx context.Context, d time.Duration) error {
 // witnessTimeout bounds one ask. An answer takes 30-40 s; a port that does not
 // answer in two minutes is could-not-consult for that file.
 const witnessTimeout = time.Duration(120e9) // 120 s, spelled with no operator a mutant could flip
-
-// PostWitness posts one JSON-RPC request to an MCP endpoint and answers the
-// HTTP status, content type and body, or the error that kept it from asking.
-func PostWitness(ctx context.Context, url, body string) (int, string, string, error) {
-	ctx, cancel := context.WithTimeout(ctx, witnessTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(body))
-	if err != nil {
-		return 0, "", "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json, text/event-stream")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return 0, "", "", err
-	}
-	defer resp.Body.Close()
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, "", "", err
-	}
-	return resp.StatusCode, resp.Header.Get("Content-Type"), string(b), nil
-}

@@ -57,7 +57,7 @@ type pythonLayers struct {
 const pythonInstallDir = "/opt/python"
 
 // toolsLog is where the build says what it left out. A variable so a test reads
-// it; stderr in the module, where the shadow's own report goes. The tools are
+// it; stderr in the module. The tools are
 // fetched at once, so the lines are written under a lock: a line is whole.
 var (
 	toolsLog   io.Writer = os.Stderr
@@ -88,20 +88,11 @@ func buildPython(ctx context.Context, base *dagger.Container) (out pythonLayers)
 		return
 	}
 	interp = interp.
-		// uv verifies against the platform store the engine's CA is in (laneBase
-		// says why this is not its default). It never fetches an interpreter: the
-		// one it is handed below is the pinned one.
-		WithEnvVariable("UV_NATIVE_TLS", "1").
+		// The CA variables come from the OS layer (withSystemCA): without
+		// SSL_CERT_FILE ansible-galaxy answered CERTIFICATE_VERIFY_FAILED and the
+		// collections were left out of every container since #328 (2026-10-09).
+		// uv never fetches an interpreter: the one it is handed below is pinned.
 		WithEnvVariable("UV_PYTHON_DOWNLOADS", "never").
-		// AND THE PYTHON READERS, as laneBase hands every lane (runtime.go):
-		// the pinned interpreter's OpenSSL looks for roots where its build put
-		// them, not in the system store the engine writes its CA into, so
-		// ansible-galaxy answered CERTIFICATE_VERIFY_FAILED "unable to get local
-		// issuer" on both tries and the collections were left out of every
-		// container since #328 (measured 2026-10-09, shadow on infra:
-		// ops:ansible settled 2, "the container carries none").
-		WithEnvVariable("SSL_CERT_FILE", "/etc/ssl/certs/ca-certificates.crt").
-		WithEnvVariable("REQUESTS_CA_BUNDLE", "/etc/ssl/certs/ca-certificates.crt").
 		WithFile(toolsBinDir+"uv", uv, dagger.ContainerWithFileOpts{Permissions: 0o755}).
 		WithExec([]string{"uv", "--version"}).
 		WithExec([]string{"uv", "venv", venv, "--python", pythonInstallDir + "/bin/python3", "--verbose"}).
@@ -168,6 +159,27 @@ func pythonInterpreter(ctx context.Context, base *dagger.Container) (*dagger.Con
 		return nil, fmt.Errorf("%s did not verify and unpack: %w", url, withExecEvidence(err))
 	}
 	return ctr, nil
+}
+
+// withPythonStandalone unpacks checks.PythonStandaloneURL into pythonInstallDir
+// and links python, python3 and python3.<minor> onto /usr/local/bin. `ln` is an
+// exec, not a shell (TestNoAtomExecsAShell). A URL with no pin fails closed.
+func withPythonStandalone(ctr *dagger.Container, sums map[string]string) *dagger.Container {
+	f, ok := pinnedFile(sums, checks.PythonStandaloneURL)
+	if !ok {
+		return ctr.WithExec([]string{"/bin/false"}) // no checksum pinned: the lane must not provision it
+	}
+	minor := "python" + checks.FleetPython
+	ctr = ctr.
+		WithFile("/tmp/python.tar.gz", f).
+		// install -d, not mkdir -p: the rust mutation lane refuses any "-p" in its chain.
+		WithExec([]string{"install", "-d", pythonInstallDir}).
+		WithExec([]string{"tar", "xzf", "/tmp/python.tar.gz", "-C", pythonInstallDir, "--strip-components=1"}).
+		WithoutFile("/tmp/python.tar.gz")
+	for _, name := range []string{"python", "python3", minor} {
+		ctr = ctr.WithExec([]string{"ln", "-sf", pythonInstallDir + "/bin/python3", "/usr/local/bin/" + name})
+	}
+	return ctr
 }
 
 // ansibleCollections installs the declared collections into the stage, and

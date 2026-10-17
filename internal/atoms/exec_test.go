@@ -14,7 +14,7 @@ import (
 	"testing"
 )
 
-// THE VENV'S PROGRAMS ARE FOUND BY PATH, NOT BY THE CONTAINER'S PATH. A shadow
+// THE VENV'S PROGRAMS ARE FOUND BY PATH, NOT BY THE CONTAINER'S PATH. A run
 // on cerberus reported `exec: "python3": executable file not found in $PATH`
 // while the chain passed: whatever PATH the container was left with, the venv's
 // programs run from the venv.

@@ -4,9 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -303,43 +300,7 @@ func TestStarNameAndRequest(t *testing.T) {
 	}
 }
 
-func TestPostWitness(t *testing.T) {
-	var got struct{ method, contentType, accept, body string }
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		b, _ := io.ReadAll(r.Body)
-		got.method, got.contentType, got.accept, got.body = r.Method, r.Header.Get("Content-Type"), r.Header.Get("Accept"), string(b)
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.WriteHeader(202)
-		_, _ = w.Write([]byte("data: {}\n"))
-	}))
-	defer srv.Close()
-
-	status, contentType, body, err := PostWitness(context.Background(), srv.URL+"/mcp", `{"x":1}`)
-	if err != nil || status != 202 || contentType != "text/event-stream" || body != "data: {}\n" {
-		t.Errorf("answer (%d, %q, %q, %v)", status, contentType, body, err)
-	}
-	if got.method != "POST" || got.contentType != "application/json" || got.accept != "application/json, text/event-stream" || got.body != `{"x":1}` {
-		t.Errorf("request %+v", got)
-	}
-
-	// A body that breaks off mid-read is an error, not a short answer.
-	cut := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Length", "100")
-		_, _ = w.Write([]byte("short"))
-	}))
-	defer cut.Close()
-	if _, _, _, err := PostWitness(context.Background(), cut.URL, "{}"); err == nil {
-		t.Error("a truncated body must be an error")
-	}
-	// A URL that is not one, and a port nothing listens on, are errors.
-	if _, _, _, err := PostWitness(context.Background(), "http://bad host/", "{}"); err == nil {
-		t.Error("an invalid URL must be an error")
-	}
-	closed := httptest.NewServer(http.NotFoundHandler())
-	closed.Close()
-	if _, _, _, err := PostWitness(context.Background(), closed.URL, "{}"); err == nil {
-		t.Error("a port nothing answers must be an error")
-	}
+func TestWitnessTimeoutBoundsOneAsk(t *testing.T) {
 	if witnessTimeout != 2*time.Minute {
 		t.Errorf("the ask is bounded at two minutes, not %v", witnessTimeout)
 	}
@@ -442,30 +403,6 @@ func TestAskWitnessRetriedDoesNotRepeatANoAnswer(t *testing.T) {
 	}
 }
 
-func TestWitnessSummaryAndDryTextReadBack(t *testing.T) {
-	rows := []WitnessRow{{Path: "a.go", Class: "clean", Verdict: "novel", Reason: "x | y"}, {Path: "b.py", Class: "finding", Verdict: "standard", Reason: "z"}}
-	text := "reason line\n\n" + WitnessSummary(rows) + "- tail bullet | with bars\n"
-	if got := strings.Join(WitnessedPaths(text), ","); got != "a.go,b.py" {
-		t.Errorf("paths %q", got)
-	}
-	if got := WitnessedPaths("no table here\n| not a row\n"); len(got) != 0 {
-		t.Errorf("paths %v from text with no table", got)
-	}
-	dry := WitnessDryText([]string{"a.go", "b.py"}, "ci:gate:x@HEAD", []string{"s.rs"}, []string{"v"}, []string{"t", "u"})
-	if got := strings.Join(WitnessDryPaths(dry), ","); got != "a.go,b.py" {
-		t.Errorf("dry paths %q", got)
-	}
-	if s, v, tt := WitnessSkipCounts(dry); s != 1 || v != 1 || tt != 2 {
-		t.Errorf("counts %d %d %d", s, v, tt)
-	}
-	if s, v, tt := WitnessSkipCounts("clean"); s+v+tt != 0 {
-		t.Errorf("counts from nothing: %d %d %d", s, v, tt)
-	}
-	if !strings.HasPrefix(dry, WitnessDryMark+" would ask the witness about 2 file(s)") {
-		t.Errorf("dry text %q", dry)
-	}
-}
-
 func TestWitnessSkipTailNamesEachKindAlone(t *testing.T) {
 	one := []string{"x"}
 	for _, tc := range []struct {
@@ -481,24 +418,6 @@ func TestWitnessSkipTailNamesEachKindAlone(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := WitnessSkipTail(tc.skipped, tc.vendored, tc.tests); got != tc.want {
-				t.Errorf("got %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestWitnessedPathsReadsTheTableAndNothingAroundIt(t *testing.T) {
-	for _, tc := range []struct {
-		name, text, want string
-	}{
-		{"rows after the header and its rule", "| file | verdict | class | reason |\n|---|---|---|---|\n| a.go | x | y | z |\n| b.go | x | y | z |\n", "a.go,b.go"},
-		{"a header with no rows", "| file | verdict | class | reason |\n|---|---|---|---|\n", ""},
-		{"a row-shaped line after the table is prose", "| file | verdict | class | reason |\n|---|---|---|---|\n| a.go | x | y | z |\n- bullet\n| c.go | x | y | z |\n", "a.go"},
-		{"a row-shaped line before the table is prose", "| c.go | x | y | z |\n| file | verdict | class | reason |\n|---|---|---|---|\n| a.go | x | y | z |\n", "a.go"},
-		{"a second table is read too", "| file | verdict | class | reason |\n|---|---|---|---|\n| a.go | x | y | z |\n\n| file | verdict | class | reason |\n|---|---|---|---|\n| b.go | x | y | z |\n", "a.go,b.go"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := strings.Join(WitnessedPaths(tc.text), ","); got != tc.want {
 				t.Errorf("got %q, want %q", got, tc.want)
 			}
 		})

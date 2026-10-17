@@ -69,33 +69,8 @@ func TestBuildThenRunExecsMountTheirCargoVolumeLocked(t *testing.T) {
 		t.Errorf("rust:cargo-clippy runs no binary and must stay shared:\n%s", c)
 	}
 
-	// rust:wit-guest: the native test locks the release volume; the guest build
-	// (copied out in its own exec) keeps SHARED.
-	engine.reset()
-	engine.withTree(map[string]string{"Cargo.toml": witTwoWorlds})
-	engine.stdout(`"component","wit"`, "world w")
-	wantState(t, runAtom(t, "rust:wit-guest", ""), 0)
-	// One native test, every world's feature on it.
-	c = engine.chain(`"cargo","test"`, `"--no-default-features"`, combinedFeat, "exitCode")
-	if got := mountSharingAt(c, release, `"cargo","test"`); got != "LOCKED" {
-		t.Errorf("rust:wit-guest test: release volume is %q, want LOCKED:\n%s", got, c)
-	}
-	if got := mountSharingAt(c, release, `"cargo","build"`); got == "LOCKED" {
-		t.Errorf("rust:wit-guest build copies out in-exec and stays SHARED, got %q", got)
-	}
-
-	// rust:wit-compose stays SHARED throughout: its compose exec would wait
-	// silently behind the same gate's LOCKED wit-guest tests.
-	engine.reset()
-	engine.withTree(witComposeTree(nil))
-	engine.stdout(composeReplay, "TOTAL 1371 pass, 0 fail")
-	wantState(t, runAtom(t, "rust:wit-compose", ""), 0)
-	c = engine.chain(composeReplay, "exitCode")
-	for _, needle := range []string{composeBuildHost, composeRun, composeReplay} {
-		if got := mountSharingAt(c, release, needle); got != "SHARED" {
-			t.Errorf("rust:wit-compose %s: release volume is %q, want SHARED:\n%s", needle, got, c)
-		}
-	}
+	// rust:wit-guest and rust:wit-compose keep volumes of their own, and the
+	// guest's native test locks its (atom_env_rust_test.go).
 }
 
 // The locked remount names the same volume the lane mounted — per repo, never
@@ -122,15 +97,5 @@ func TestLockedCargoVolumesKeepTheirPerRepoKey(t *testing.T) {
 	dkey := checks.CachesForDev(checks.ImageRust, "cerberus", "/w/one")[1].Key
 	if c := engine.chain(`"cargo","test"`); engine.chain(`cacheVolume(`, `key:"`+dkey+`"`) == "" || mountSharingAt(c, "/cache/cargo-target", `"cargo","test"`) != "LOCKED" {
 		t.Errorf("dev keeps its tree key %s, LOCKED:\n%s", dkey, c)
-	}
-
-	engine.reset()
-	rel := newRun(dag.Directory(), "http://door/x.git", "")
-	if _, err := rel.withLockedReleaseVolume(rel.withReleaseCache(rel.cargoDeps())).WithExec([]string{"cargo", "test"}).Sync(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	rk := checks.ReleaseCacheFor(rel.repo).Key
-	if c := engine.chain(`"cargo","test"`); engine.chain(`cacheVolume(`, `key:"`+rk+`"`) == "" || mountSharingAt(c, "/cache/cargo-release", `"cargo","test"`) != "LOCKED" {
-		t.Errorf("want %s mounted LOCKED:\n%s", rk, c)
 	}
 }

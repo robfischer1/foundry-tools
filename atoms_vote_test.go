@@ -272,9 +272,6 @@ func TestTheVoterAsksTheWitnessForRealAndMountsTheSocket(t *testing.T) {
 				t.Fatal(err)
 			}
 			c := engine.chain(`"/usr/local/bin/atoms"`)
-			if strings.Contains(c, "-witness-dry") {
-				t.Errorf("the voter was told to ask nothing:\n%s", c)
-			}
 			if got := strings.Contains(c, `"-spire","`+atomsSpirePath+`"`) && strings.Contains(c, "withUnixSocket"); got != tc.socket {
 				t.Errorf("socket mounted and named: %v, want %v\n%s", got, tc.socket, c)
 			}
@@ -300,7 +297,7 @@ func TestTheLanesVoteRunsTheVotingBinary(t *testing.T) {
 	if err != nil || len(vs) != 1 || !strings.HasPrefix(vs[0].Reason, votedMark) {
 		t.Fatalf("vector %+v, err %v", vs, err)
 	}
-	if c := engine.chain(`"/usr/local/bin/atoms"`); !strings.Contains(c, "withUnixSocket") || strings.Contains(c, "-witness-dry") {
+	if c := engine.chain(`"/usr/local/bin/atoms"`); !strings.Contains(c, "withUnixSocket") {
 		t.Errorf("the voter's chain:\n%s", c)
 	}
 }
