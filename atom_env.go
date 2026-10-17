@@ -87,6 +87,10 @@ var atomEnvironments = map[string]atomEnv{
 	// target and then run them, so they hold it LOCKED (withLockedCargoTarget)
 	"rust:cargo-clippy": {container: (*run).cargoDeps, factsWhen: rustScoped},
 	"rust:cargo-test":   {container: rustTestLane, factsWhen: rustScoped},
+	// the wit atoms: each its own release volumes and the pinned tools it execs
+	// (atom_env_rust.go); neither reads the other's output
+	"rust:wit-guest":   {container: witGuestLane, bind: witTools(false)},
+	"rust:wit-compose": {container: witComposeLane, bind: witTools(true)},
 
 	// The ops, orbit, compose, wit and template atoms that exec a program: the
 	// tools container, as the binary's vote runs them.

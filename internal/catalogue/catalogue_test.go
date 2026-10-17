@@ -395,7 +395,7 @@ func TestTheDeclaredBinaryVotersAreRealPythonAtoms(t *testing.T) {
 var unported = []string{
 	"go:mutation", "go:release",
 	"python:mutation", "python:release",
-	"rust:mutation", "rust:release", "rust:wit-compose", "rust:wit-guest",
+	"rust:mutation", "rust:release",
 	"ts:mutation", "ts:regen", "ts:release", "ts:visual",
 }
 
