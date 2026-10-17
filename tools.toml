@@ -132,6 +132,12 @@ spec = "https://github.com/mozilla/sccache/releases/download/v0.18.0/sccache-v0.
 version = "0.18.0"
 sha256 = "45f1447fbe231e3037bde351ef70677dd212216c8d62ae7ca409fecc4d6acc89"
 
+[tool.mold]
+kind = "url"
+spec = "https://github.com/rui314/mold/releases/download/v1.10.1/mold-1.10.1-x86_64-linux.tar.gz"
+version = "1.10.1"
+sha256 = "7524fe67f917d5287b2f7a7d6401e2625fa3f5f84bc6b8d9b487d6cb08876488"
+
 [tool.rust-clippy]
 kind = "url"
 spec = "https://static.rust-lang.org/dist/clippy-1.97.0-x86_64-unknown-linux-gnu.tar.gz"

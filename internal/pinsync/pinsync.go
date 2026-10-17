@@ -51,6 +51,7 @@ var URLPins = []URLPin{
 	{"cargo-nextest", "CargoNextestURL", "CargoNextestVersion"},
 	{"cargo-mutants", "CargoMutantsURL", "CargoMutantsVersion"},
 	{"sccache", "SccacheURL", "SccacheVersion"},
+	{"mold", "MoldURL", "MoldRelease"},
 	{"rust-clippy", "RustClippyURL", "RustComponentsTag"},
 	{"rust-rustfmt", "RustRustfmtURL", "RustComponentsTag"},
 	{"rust-wasm-clippy", "RustWasmClippyURL", "RustWasmComponentsTag"},
