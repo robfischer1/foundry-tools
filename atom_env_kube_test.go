@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -29,24 +30,19 @@ func TestGoTestRaceBindsAKubeAPIServerForALiveKubeTree(t *testing.T) {
 		[]string{"withServiceBinding", `alias:"kube"`},
 		[]string{"withNewFile", `path:"/run/test-kube/ca.crt"`, "BEGIN CERTIFICATE"},
 		[]string{"withEnvVariable", `name:"TEST_KUBE_URL"`, `value:"` + k.URLFor("") + `"`},
-		[]string{"withEnvVariable", `name:"TEST_KUBE_TOKEN"`},
+		[]string{"withSecretVariable", `name:"TEST_KUBE_TOKEN"`},
 		[]string{"withEnvVariable", `name:"TEST_KUBE_CA_FILE"`, `value:"/run/test-kube/ca.crt"`},
-		[]string{"withNewFile", `path:"/k/auth-header"`, "Authorization: Bearer "},
+		[]string{"withMountedSecret", `path:"/k/auth-header"`},
 		[]string{"withExec", `"curl","--fail"`, "https://kube:6443/readyz", "--cacert", "/run/test-kube/ca.crt", `"-H","@/k/auth-header"`, "%{onerror}kube-apiserver (lane shared) not ready after KubeBootSeconds=120s: GET /readyz"},
 		[]string{"withExec", `expect:ANY`, `args:["/atom","/src"]`},
 	)
-	// the token the suite is handed is 64 hex characters, and not the empty string
-	i := strings.Index(c, `name:"TEST_KUBE_TOKEN"`)
-	if i < 0 || !strings.Contains(c[i:i+200], `value:"`) {
-		t.Fatalf("no token value in the chain:\n%s", c)
-	}
 	// ORDER: the variables and the CA file are in place BEFORE the wait reads them,
 	// and the wait runs BEFORE the atom — a suite never meets a server that is not ready.
 	url := lastCall(c, "withEnvVariable", `name:"TEST_KUBE_URL"`)
-	tok := lastCall(c, "withEnvVariable", `name:"TEST_KUBE_TOKEN"`)
+	tok := lastCall(c, "withSecretVariable", `name:"TEST_KUBE_TOKEN"`)
 	ca := lastCall(c, "withEnvVariable", `name:"TEST_KUBE_CA_FILE"`)
 	wait := lastCall(c, "withExec", `"curl","--fail"`, "/readyz")
-	header := lastCall(c, "withNewFile", `path:"/k/auth-header"`)
+	header := lastCall(c, "withMountedSecret", `path:"/k/auth-header"`)
 	run := lastCall(c, "withExec", `args:["/atom","/src"]`)
 	if !(url < wait && tok < wait && ca < wait && header < wait && wait < run) {
 		t.Errorf("wrong order: url %d token %d ca %d header %d wait %d atom %d:\n%s", url, tok, ca, header, wait, run, c)
@@ -93,14 +89,67 @@ func TestTheKubeServicesAreBuiltTheWayAServiceBecomesReady(t *testing.T) {
 	if !hasCall(api, "withServiceBinding", `alias:"kube-etcd"`) {
 		t.Errorf("the API server does not reach etcd under its alias:\n%s", api)
 	}
+	// the three private files are mounted secrets, the three public ones plain files
 	for _, f := range serviceFiles {
-		if !hasCall(api, "withNewFile", `path:"/k/`+f+`"`) {
-			t.Errorf("the API server is not handed /k/%s:\n%s", f, api)
+		call := "withNewFile"
+		if slices.Contains(secretServiceFiles, f) {
+			call = "withMountedSecret"
+		}
+		if !hasCall(api, call, `path:"/k/`+f+`"`) {
+			t.Errorf("the API server is not handed /k/%s through %s:\n%s", f, call, api)
 		}
 	}
-	// the files are what the argv reads: the token file carries the admin line
-	if !hasCall(api, "withNewFile", `path:"/k/tokens.csv"`, `,admin,admin,system:masters\n`) {
-		t.Errorf("tokens.csv does not grant the admin identity:\n%s", api)
+}
+
+// secretServiceFiles are the files that hold a credential: the token the API
+// server grants cluster-admin to, and the two private keys.
+var secretServiceFiles = []string{"tokens.csv", "sa.key", "tls.key"}
+
+// callsNamed is the argument text of every call of that name in the chain.
+func callsNamed(chain, name string) []string {
+	var out []string
+	for i := 0; ; {
+		k := strings.Index(chain[i:], name+"(")
+		if k < 0 {
+			return out
+		}
+		start := i + k + len(name)
+		end := start + matching(chain[start:], '(', ')')
+		out = append(out, chain[start:end+1])
+		i = end + 1
+	}
+}
+
+// NO CREDENTIAL IS A PLAIN VALUE IN THE RECORDED CALLS. Dagger logs a
+// withEnvVariable's value and a withNewFile's contents, so a token set that way
+// is in the CI transcript (gate run 2685 showed TEST_KUBE_TOKEN=<64 hex> once per
+// lane). The token, the auth header and the API server's private keys are
+// delivered as secrets; only the public halves may be plain files.
+func TestNoKubeCredentialIsALoggedValue(t *testing.T) {
+	var made checks.KubePKI
+	was := newKubePKI
+	t.Cleanup(func() { newKubePKI = was })
+	newKubePKI = func(hosts []string, now time.Time) (checks.KubePKI, error) {
+		p, err := was(hosts, now)
+		made = p
+		return p, err
+	}
+	c := raceRun(t, nil, kubeTag)
+	api := engine.chain(checks.ImageKubeAPIServer, "asService")
+	if made.Token == "" || api == "" {
+		t.Fatalf("no credentials were made or no API server was built (token %q)", made.Token)
+	}
+	secrets := []string{made.Token, made.Key, made.SAKey}
+	for name, chain := range map[string]string{"lane": c, "api": api} {
+		for _, call := range []string{"withEnvVariable", "withNewFile", "withExec", "withDefaultArgs"} {
+			for _, args := range callsNamed(chain, call) {
+				for _, s := range secrets {
+					if strings.Contains(args, s) {
+						t.Errorf("the %s chain logs a credential in %s", name, call)
+					}
+				}
+			}
+		}
 	}
 }
 
