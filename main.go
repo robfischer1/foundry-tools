@@ -63,8 +63,8 @@ type FoundryTools struct {
 	// under --artifact-auth, nil otherwise; ts:visual pushes its artifact
 	// with it.
 	artifactAuth *dagger.Secret
-	// registrySvid is the audience of the JWT-SVID the visual push logs in
-	// with — set by GateFile under --registry-svid; used only with spire.
+	// registrySvid is the audience set by GateFile under --registry-svid; the
+	// visual atom no longer pushes with it.
 	registrySvid string
 }
 

@@ -2,6 +2,7 @@ package tsvisual
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"errors"
@@ -19,7 +20,6 @@ import (
 	"dagger/foundry-tools/internal/atomkit"
 	"dagger/foundry-tools/internal/atoms"
 	"dagger/foundry-tools/internal/checks"
-	"dagger/foundry-tools/internal/svidcred"
 	"dagger/foundry-tools/internal/visuallane"
 )
 
@@ -52,7 +52,6 @@ type world struct {
 	pushed    []pushCall
 	pushErr   error
 	env       map[string]string
-	svidErr   error
 }
 
 type pushCall struct {
@@ -152,7 +151,7 @@ func layerFiles(t *testing.T, l visuallane.Layer) map[string]string {
 func gijmo(t *testing.T, extra map[string]string) *world {
 	t.Helper()
 	w := &world{
-		t: t, root: t.TempDir(), report: passReport, env: map[string]string{"ATOM_SHA": sha, "SPIFFE_ENDPOINT_SOCKET": "unix:///run/spire/agent/public/api.sock"},
+		t: t, root: t.TempDir(), report: passReport, env: map[string]string{"ATOM_SHA": sha, "VISUAL_ARTIFACT_AUTH": authJSON},
 	}
 	t.Setenv("ATOM_WORK", t.TempDir())
 	tree := map[string]string{
@@ -170,7 +169,7 @@ func gijmo(t *testing.T, extra map[string]string) *world {
 			put(t, w.root, k, v)
 		}
 	}
-	oldGetenv, oldPush, oldFetch := getenv, push, fetchSVID
+	oldGetenv, oldPush := getenv, push
 	getenv = func(k string) string { return w.env[k] }
 	push = func(_ context.Context, cred visuallane.Credential, r string, layers []visuallane.Layer) error {
 		p := pushCall{cred: cred, ref: r, layers: map[string]map[string]string{}}
@@ -180,8 +179,7 @@ func gijmo(t *testing.T, extra map[string]string) *world {
 		w.pushed = append(w.pushed, p)
 		return w.pushErr
 	}
-	fetchSVID = func(context.Context, string, string) (string, error) { return "svid-jwt", w.svidErr }
-	t.Cleanup(func() { getenv, push, fetchSVID = oldGetenv, oldPush, oldFetch })
+	t.Cleanup(func() { getenv, push = oldGetenv, oldPush })
 	return w
 }
 
@@ -218,7 +216,7 @@ func TestTheDeclarationValidatesAndKeepsTheRowItReplaces(t *testing.T) {
 	}
 	if Def.ID != "ts:visual" || Def.Stage != checks.StageVisual || Def.Lane != checks.LaneTS || Def.Group != checks.GroupOf(id) ||
 		Def.Toolchain != "playwright" || !Def.NeedsManifest || Def.Surface != "root:package.json" || !Def.WritesTree ||
-		Def.NotOnForks != "" || Def.SubsumedBy != "" || !slices.Equal(Def.Needs, []string{"svid", "tool:bun"}) ||
+		Def.NotOnForks != "" || Def.SubsumedBy != "" || !slices.Equal(Def.Needs, []string{"tool:bun"}) ||
 		Def.Desc != "Every Playwright screenshot suite visual.toml declares matches its committed baselines, rendered in the lane's pinned image." ||
 		Def.Timeout != 30*time.Minute {
 		t.Errorf("%+v", Def)
@@ -392,8 +390,8 @@ func TestTSVisualPushesTheDiffsAndTheBaselinesItWouldAccept(t *testing.T) {
 		t.Fatalf("%+v", w.pushed)
 	}
 	p := w.pushed[0]
-	if p.cred.Bearer != "svid-jwt" || p.cred.User != "" {
-		t.Errorf("the pod's identity is the credential: %+v", p.cred)
+	if p.cred != (visuallane.Credential{User: "publisher", Password: "pw"}) {
+		t.Errorf("the Dagger runner's static login is the credential: %+v", p.cred)
 	}
 	if got := p.layers["0"]; len(got) != 1 || got["results/apps/gallery/g/dusk-diff.png"] != "diff-bytes" {
 		t.Errorf("results layer %v", got)
@@ -405,19 +403,6 @@ func TestTSVisualPushesTheDiffsAndTheBaselinesItWouldAccept(t *testing.T) {
 	}
 }
 
-// The Dagger runner hands a static login in place of an identity.
-func TestTSVisualPushesWithTheStaticLoginTheDaggerRunnerHands(t *testing.T) {
-	w := gijmo(t, nil)
-	w.env["VISUAL_ARTIFACT_AUTH"] = authJSON
-	w.env["SPIFFE_ENDPOINT_SOCKET"] = ""
-	w.report = failReport
-	w.exits = map[string]int{"--update-snapshots=none": 1}
-	want(t, w.run(), 1, "artifact "+ref)
-	if len(w.pushed) != 1 || w.pushed[0].cred != (visuallane.Credential{User: "publisher", Password: "pw"}) {
-		t.Errorf("%+v", w.pushed)
-	}
-}
-
 // The artifact never changes the verdict; why it was not pushed is said.
 func TestTSVisualSaysWhyItPushedNothing(t *testing.T) {
 	for name, c := range map[string]struct {
@@ -426,10 +411,9 @@ func TestTSVisualSaysWhyItPushedNothing(t *testing.T) {
 		want string
 	}{
 		"no sha":        {map[string]string{"ATOM_SHA": ""}, nil, "artifact: not pushed — the run names no commit sha"},
-		"no credential": {map[string]string{"SPIFFE_ENDPOINT_SOCKET": ""}, nil, "artifact: not pushed — the lane was given no --artifact-auth"},
+		"no credential": {map[string]string{"VISUAL_ARTIFACT_AUTH": ""}, func(w *world) { w.t.Setenv("ATOM_WORK", "") }, "artifact: not pushed — the lane was given no --artifact-auth"},
 		"bad json":      {map[string]string{"VISUAL_ARTIFACT_AUTH": "nope"}, nil, "artifact: not pushed — the registry credential is not a docker config JSON"},
 		"push refused":  {nil, func(w *world) { w.pushErr = errors.New("denied") }, "artifact: not pushed — denied"},
-		"no identity":   {nil, func(w *world) { w.svidErr = errors.New("no agent") }, "artifact: not pushed — the registry JWT-SVID did not fetch: no agent"},
 	} {
 		w := gijmo(t, nil)
 		w.report = failReport
@@ -547,22 +531,8 @@ func TestWorkDirIsTheAtomsOwnOrATemporaryOne(t *testing.T) {
 	}
 }
 
-// The seams the atom ships with: the identity comes from the agent, and the
-// push reaches the registry's API.
-func TestTheShippedSeamsFetchTheIdentityAndPushToTheRegistry(t *testing.T) {
-	oldFetch := svidcred.Fetch
-	defer func() { svidcred.Fetch = oldFetch }()
-	svidcred.Fetch = func(_ context.Context, socket, audience string) (string, string, error) {
-		if socket != "unix:///s" || audience != "registry.notusmi.com" {
-			t.Errorf("asked %q for %q", socket, audience)
-		}
-		return "spiffe://notusmi.com/ci/x", "jwt", nil
-	}
-	tok, err := fetchSVID(context.Background(), "unix:///s", registry)
-	if err != nil || tok != "jwt" {
-		t.Fatalf("%q %v", tok, err)
-	}
-
+// The seam the atom ships with: the push reaches the registry's API.
+func TestTheShippedPushReachesTheRegistry(t *testing.T) {
 	var mu sync.Mutex
 	var seen []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -596,4 +566,126 @@ func TestTheShippedSeamsFetchTheIdentityAndPushToTheRegistry(t *testing.T) {
 	if last != "PUT /v2/foundry/visual/gijmo-ui/manifests/"+sha+" Bearer jwt" {
 		t.Errorf("%v", seen)
 	}
+}
+
+// ---- the pod: the atom stages, the push phase pushes
+
+// podWorld is the same run with no login, as the pod runs it: nothing in the
+// atom's environment can push.
+func podWorld(t *testing.T, extra map[string]string) *world {
+	t.Helper()
+	w := gijmo(t, extra)
+	w.env["VISUAL_ARTIFACT_AUTH"] = ""
+	w.report = failReport
+	w.results = map[string]string{"g/dusk-diff.png": "diff-bytes"}
+	w.snapshots = map[string]string{"gallery.spec.ts-snapshots/dusk-linux.png": "regenerated"}
+	w.exits = map[string]int{"--update-snapshots=none": 1}
+	return w
+}
+
+func (w *world) staged() string {
+	return filepath.Join(filepath.Dir(os.Getenv("ATOM_WORK")), "visual-artifact")
+}
+
+// THE ATOM HOLDS NO IDENTITY, so it cannot push: it leaves the layers where the
+// push phase's container reads them, in manifest order, and the push phase says
+// where the artifact is. The verdict's reason carries no artifact line.
+func TestTSVisualStagesTheLayersForThePushPhaseInThePod(t *testing.T) {
+	w := podWorld(t, nil)
+	v := w.run()
+	want(t, v, 1, "apps/gallery: 2 passed, 1 failed")
+	if strings.Contains(v.Reason, "artifact") {
+		t.Errorf("the reason speaks of an artifact the push phase owns:\n%s", v.Reason)
+	}
+	if len(w.pushed) != 0 {
+		t.Error("the atom pushed")
+	}
+	read := func(name string) map[string]string {
+		raw, err := os.ReadFile(filepath.Join(w.staged(), name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		zr, err := gzip.NewReader(bytes.NewReader(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		tr := tar.NewReader(zr)
+		out := map[string]string{}
+		for {
+			h, err := tr.Next()
+			if err != nil {
+				return out
+			}
+			b, _ := io.ReadAll(tr)
+			out[h.Name] = string(b)
+		}
+	}
+	if got := read("layer-00.tar.gz"); got["results/apps/gallery/g/dusk-diff.png"] != "diff-bytes" {
+		t.Errorf("results layer %v", got)
+	}
+	if got := read("layer-01.tar.gz"); got["baselines/apps/gallery/gallery.spec.ts-snapshots/dusk-linux.png"] != "regenerated" {
+		t.Errorf("baselines layer %v", got)
+	}
+	if entries, _ := os.ReadDir(w.staged()); len(entries) != 2 {
+		t.Errorf("%d staged files", len(entries))
+	}
+}
+
+// A stage left by an earlier run of the pod is not this run's artifact.
+func TestTSVisualReplacesAStaleStage(t *testing.T) {
+	w := podWorld(t, nil)
+	put(t, w.staged(), "layer-07.tar.gz", "stale")
+	w.run()
+	if _, err := os.Stat(filepath.Join(w.staged(), "layer-07.tar.gz")); err == nil {
+		t.Error("a stale layer survived")
+	}
+}
+
+// Nothing to carry, or a pass, stages nothing.
+func TestTSVisualStagesNothingWhenThereIsNothingToCarry(t *testing.T) {
+	w := podWorld(t, nil)
+	w.report = passReport
+	w.exits = nil
+	want(t, w.run(), 0)
+	w = podWorld(t, nil)
+	w.exits = map[string]int{"turbo run build": 2}
+	v := w.run()
+	want(t, v, 1, "what the suite imports did not build")
+	if strings.Contains(v.Reason, "artifact") {
+		t.Errorf("%s", v.Reason)
+	}
+	for _, w := range []*world{w} {
+		if entries, _ := os.ReadDir(w.staged()); len(entries) != 0 {
+			t.Errorf("staged %d files", len(entries))
+		}
+	}
+}
+
+// A stage that cannot be written, or baselines that were never made, are said:
+// the push phase then finds nothing and the verdict is unchanged.
+func TestTSVisualSaysWhyItStagedNothing(t *testing.T) {
+	w := podWorld(t, nil)
+	w.exits["--update-snapshots=changed"] = -1
+	w.outs = map[string]string{"--update-snapshots=changed": "killed"}
+	want(t, w.run(), 1, "artifact: not staged — the update run never ran: killed")
+
+	w = podWorld(t, nil)
+	old := writeLayer
+	writeLayer = func(string, []byte, os.FileMode) error { return errors.New("disk full") }
+	defer func() { writeLayer = old }()
+	want(t, w.run(), 1, "artifact: not staged — disk full")
+	writeLayer = old
+
+	w = podWorld(t, nil)
+	if err := os.MkdirAll(filepath.Dir(w.staged()), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(w.staged()); err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Dir(w.staged()), "visual-artifact", "a file where the stage goes")
+	oldRemove := removeStage
+	removeStage = func(string) error { return nil }
+	defer func() { removeStage = oldRemove }()
+	want(t, w.run(), 1, "artifact: not staged — ")
 }

@@ -49,9 +49,8 @@ func TestVisualInstallsNoBrowsersWithoutAPlaywrightPin(t *testing.T) {
 	}
 }
 
-// The atom is handed the commit its artifact is tagged by and the origin it
-// takes the repository name from; the static login only when the lane has no
-// identity to push with.
+// The atom is handed the commit its artifact is tagged by, the origin it takes
+// the repository name from and, from the Dagger runner, the static login.
 func TestVisualIsHandedTheCommitTheOriginAndTheLogin(t *testing.T) {
 	sha := strings.Repeat("a", 40)
 	auth := dag.SetSecret("visual-artifact-auth", `{"auths":{}}`)
@@ -64,16 +63,6 @@ func TestVisualIsHandedTheCommitTheOriginAndTheLogin(t *testing.T) {
 		[]string{"withEnvVariable", `name:"ATOM_SHA"`, `value:"` + sha + `"`},
 		[]string{"withSecretVariable", `name:"VISUAL_ARTIFACT_AUTH"`},
 	)
-
-	engine.reset()
-	engine.withTree(map[string]string{"package.json": "{}", "bun.lock": visualLockTree})
-	r = newRun(dag.Directory(), "http://door/rob/gijmo-ui.git", "").withArtifacts(auth, sha).
-		withSpire(dag.LoadSocketFromID("spire-agent-socket")).withRegistrySvid("registry.notusmi.com")
-	_, c = runFleetAtom(t, r, "ts:visual")
-	if strings.Contains(c, "VISUAL_ARTIFACT_AUTH") {
-		t.Errorf("an identity stands in for the login, yet the login was handed over:\n%s", c)
-	}
-	wantCalls(t, c, []string{"withUnixSocket", `path:"` + atomsSpirePath + `"`})
 
 	engine.reset()
 	engine.withTree(map[string]string{"package.json": "{}", "bun.lock": visualLockTree})
