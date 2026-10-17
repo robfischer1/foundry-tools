@@ -18,11 +18,6 @@ import (
 // needWords are the Needs that are not tools.toml keys (atomkit.Def.Needs).
 var needWords = []string{"dies", "svid", "pytools"}
 
-// builtNeeds are programs the Dagger gate builds or mounts per run rather than
-// pins, so tools.toml cannot name them yet. The executor cannot provision them
-// (proposed DEF-B4-orbit-tools); each is a hole to close, not a naming choice.
-var builtNeeds = []string{"tool:orbitparse", "tool:narc"}
-
 func needsOf(e Entry) []string {
 	if e.Def != nil {
 		return e.Def.Needs
@@ -47,7 +42,7 @@ func TestDEF_B3_050_EveryNeedResolvesToAToolsKey(t *testing.T) {
 		for _, n := range needsOf(e) {
 			kind, name, _ := strings.Cut(n, ":")
 			switch {
-			case slices.Contains(needWords, n), slices.Contains(builtNeeds, n):
+			case slices.Contains(needWords, n):
 			case kind == "tool":
 				if _, ok := f.Tools[name]; !ok {
 					t.Errorf("%s: need %q is not a [tool.*] key of tools.toml", e.ID, n)

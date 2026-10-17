@@ -261,6 +261,15 @@ image = "ghcr.io/yannh/kubeconform:v0.7.0-alpine@sha256:8f0eeaaa96ba27ba1500b0e4
 kind = "image"
 image = "docker.io/stackrox/kube-linter:v0.8.3-alpine@sha256:b8311611c27032d4922bc67719225e373e4a0ab0c767bbdcf5f20a9306b1a3bb"
 
+[tool.narc]
+kind = "image"
+image = "registry.notusmi.com/rob/narcissus:1792198596-053bba4@sha256:1923ebea1773595a6ef19358e273738f504b65cc50f600666bcf99870ecf0fe2"
+
+[tool.orbitparse]
+kind = "go"
+spec = "git.notusmi.com/rob/stellar-core-go/cmd/orbitparse"
+version = "v0.223.0"
+
 [tool.static]
 kind = "image"
 image = "gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab"
