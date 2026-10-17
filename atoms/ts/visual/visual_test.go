@@ -279,8 +279,8 @@ func TestTSVisualPassesAndBuildsTheChainInOrder(t *testing.T) {
 	if said := strings.Join(v.Logs, "\n"); !strings.Contains(said, "apps/gallery: 3 passed, 0 failed, 0 flaky, 0 skipped") {
 		t.Errorf("logs:\n%s", said)
 	}
-	checkLine := "bunx playwright test --reporter=list,json --update-snapshots=none --output=" + filepath.Join(os.Getenv("ATOM_WORK"), "visual", "0", "results")
-	wantOrder := []string{"bun install --frozen-lockfile", "bunx turbo run build --filter=@gijmo/gallery^...", checkLine}
+	checkLine := "bun x playwright test --reporter=list,json --update-snapshots=none --output=" + filepath.Join(os.Getenv("ATOM_WORK"), "visual", "0", "results")
+	wantOrder := []string{"bun install --frozen-lockfile", "bun x turbo run build --filter=@gijmo/gallery^...", checkLine}
 	if !slices.Equal(w.argvs(), wantOrder) {
 		t.Fatalf("%v\nwant %v", w.argvs(), wantOrder)
 	}
@@ -385,7 +385,7 @@ func TestTSVisualPushesTheDiffsAndTheBaselinesItWouldAccept(t *testing.T) {
 	}
 	// the update run is its own run, after every check run
 	last := w.argvs()[len(w.calls)-1]
-	if !strings.HasPrefix(last, "bunx playwright test --reporter=list --update-snapshots=changed --output=") || w.calls[len(w.calls)-1].Dir != filepath.Join(w.root, "apps", "gallery") {
+	if !strings.HasPrefix(last, "bun x playwright test --reporter=list --update-snapshots=changed --output=") || w.calls[len(w.calls)-1].Dir != filepath.Join(w.root, "apps", "gallery") {
 		t.Errorf("the update run: %s in %s", last, w.calls[len(w.calls)-1].Dir)
 	}
 	if len(w.pushed) != 1 || w.pushed[0].ref != ref {
