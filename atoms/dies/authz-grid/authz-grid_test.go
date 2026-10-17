@@ -131,3 +131,20 @@ func TestRefusesBeforeRunningAnythingItCannotGrade(t *testing.T) {
 		})
 	}
 }
+
+// A base the history does not reach is a could-not-run, and the checker never
+// runs: a comparison nobody made is not one that passed.
+func TestABaseTheHistoryDoesNotReachCouldNotRun(t *testing.T) {
+	in, f := atomtest.UVTree(t, files(), func(c atoms.Cmd) (string, int) {
+		if c.Name == "git" {
+			return "", 1
+		}
+		return atomtest.PinnedOpa(), 0
+	})
+	in.Base = "origin/main"
+	atomtest.Expect(t, check(context.Background(), in), checks.StateCannotRun, atomtest.Cannot,
+		"the base origin/main is not in this history (git merge-base exited 1)")
+	if got := strings.Join(f.Ran(), "|"); got != "opa|git" {
+		t.Errorf("ran %q, want the opa probe and the merge-base alone", got)
+	}
+}
