@@ -3,6 +3,7 @@ package atomkit
 import (
 	"context"
 	"testing"
+	"time"
 
 	"dagger/foundry-tools/internal/atoms"
 	"dagger/foundry-tools/internal/checks"
@@ -39,6 +40,13 @@ func TestDEF_B3_079_TheIndexCarriesTheAtomsOwnStandDownSentence(t *testing.T) {
 		if got := described2(t, anyDef(c.check))["absent_reason"]; got != c.want {
 			t.Errorf("%s: %q, want %q", name, got, c.want)
 		}
+	}
+	// An atom that does not answer is not waited for.
+	probeBudget = 20 * time.Millisecond
+	t.Cleanup(func() { probeBudget = 10 * time.Second })
+	hang := anyDef(func(ctx context.Context, _ In) checks.Verdict { <-ctx.Done(); return checks.Verdict{} })
+	if got := described2(t, hang)["absent_reason"]; got != generic {
+		t.Errorf("a hanging check: %q", got)
 	}
 	// A lane atom is stood down by its lane, never by asking it.
 	asked := false

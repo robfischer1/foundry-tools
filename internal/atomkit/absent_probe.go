@@ -11,7 +11,7 @@ import (
 
 // probeBudget bounds the probe: an atom that does not stand down over an empty
 // tree is not asked further.
-const probeBudget = 10 * time.Second
+var probeBudget = 10 * time.Second
 
 // absentSentence is the sentence the index carries for an atom the planner
 // stands down on its surface (lld.md FN-082).
@@ -27,10 +27,7 @@ func absentSentence(d Def) string {
 	if d.Lane != checks.LaneAny || d.Check == nil {
 		return generic
 	}
-	root, err := os.MkdirTemp("", "describe-")
-	if err != nil {
-		return generic
-	}
+	root, _ := os.MkdirTemp("", "describe-") // a root that could not be made is an empty one: the atoms read nothing there either
 	defer func() { _ = os.RemoveAll(root) }()
 	ctx, cancel := context.WithTimeout(context.Background(), probeBudget)
 	defer cancel()
