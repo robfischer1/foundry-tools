@@ -9,8 +9,9 @@ import (
 // not gomutants' would have gone.
 var execve = syscall.Exec
 
-// Run is `ps` on the Go mutation exec's PATH, as a process: gomutants' question
-// is answered from /proc, every other question is handed to the real ps, and a
+// Run is `ps` on the mutation atoms' PATH, as a process: gomutants' question (a
+// process group's resident set) and Stryker's (a process's children) are answered
+// from /proc, every other question is handed to the real ps, and a
 // ps that cannot be run exits 127 as a shell does for a missing command. args
 // are ps's own, without the program name.
 //
@@ -21,6 +22,9 @@ var execve = syscall.Exec
 func Run(args []string) int {
 	if pgid, ok := Group(args); ok {
 		return Answer("/proc", pgid, int64(os.Getpagesize()/1024), os.Stdout, os.Stderr)
+	}
+	if ppid, ok := Parent(args); ok {
+		return AnswerChildren("/proc", ppid, os.Stdout, os.Stderr)
 	}
 	err := execve(RealPS, append([]string{"ps"}, args...), os.Environ())
 	_, _ = os.Stderr.WriteString("ps (pgroupps): " + RealPS + ": " + err.Error() + "\n")

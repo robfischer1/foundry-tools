@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"dagger/foundry-tools/internal/atoms"
 )
 
 // ts:mutation runs git, bun and the package's own stryker as plain execs, and no
@@ -415,5 +417,30 @@ func TestTSMutationCannotRunWhereItCannotWrite(t *testing.T) {
 	}
 	if p.ran("--reporters") {
 		t.Error("stryker ran without its config")
+	}
+}
+
+// Stryker's tree-kill asks ps for a process's children; the images carry none,
+// so the atom's binary is the ps first on stryker's PATH, and an atom that cannot
+// make one does not run stryker without it.
+func TestStrykerFindsAPSOnItsPath(t *testing.T) {
+	p := newPull(t, "")
+	if v := p.run(); v.State != 0 {
+		t.Fatalf("%s", said(v))
+	}
+	c, _ := p.call("--reporters clear-text,json")
+	bin := filepath.Join(os.Getenv("ATOM_WORK"), "bin")
+	if len(c.Env) != 1 || !strings.HasPrefix(c.Env[0], "PATH="+bin+string(os.PathListSeparator)) {
+		t.Errorf("stryker's environment: %q", c.Env)
+	}
+	if target, err := os.Readlink(filepath.Join(bin, "ps")); err != nil || target == "" {
+		t.Errorf("ps is not linked: %v", err)
+	}
+	q := newPull(t, "")
+	linkHelper = func(string, string) (string, error) { return "", os.ErrPermission }
+	t.Cleanup(func() { linkHelper = atoms.LinkHelper })
+	v := q.run()
+	if v.State != 2 || !strings.Contains(said(v), "the ps for stryker could not be made: permission denied") || q.ran("--reporters") {
+		t.Errorf("%s", said(v))
 	}
 }

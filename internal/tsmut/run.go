@@ -12,13 +12,23 @@ import (
 // runPackages runs Stryker in each planned package, in the order the diff first
 // names them, and settles them as one verdict.
 func (g *grading) runPackages(ctx context.Context, plan []checks.StrykerPackage, owned map[string]string) checks.Verdict {
+	// STRYKER TEARS ITS TEST-RUNNER PROCESSES DOWN WITH tree-kill, which spawns
+	// `ps -o pid --no-headers --ppid <pid>`. With no ps on PATH the spawn's
+	// unhandled ENOENT kills Stryker right after the dry run (theia #57), and the
+	// executor's bun and node images carry none: the atom's own binary answers as
+	// ps, through a link first on PATH for this exec only.
+	bin, err := linkHelper(filepath.Join(atoms.WorkDir(), "bin"), "ps")
+	if err != nil {
+		return g.settle(2, "CANNOT RUN - the atom never ran: the ps for stryker could not be made: "+err.Error())
+	}
+	path := "PATH=" + filepath.Dir(bin) + string(os.PathListSeparator) + os.Getenv("PATH")
 	runs := make([]checks.StrykerRun, 0, len(plan))
 	for _, pkg := range plan {
 		dir := filepath.Join(g.tree, pkg.Dir)
-		bin := filepath.Join(g.tree, "node_modules/.bin/stryker")
+		strykerBin := filepath.Join(g.tree, "node_modules/.bin/stryker")
 		for _, c := range checks.StrykerBinCandidates(pkg.Dir) {
 			if _, err := os.Lstat(filepath.Join(g.tree, c)); err == nil {
-				bin = filepath.Join(g.tree, c)
+				strykerBin = filepath.Join(g.tree, c)
 				break
 			}
 		}
@@ -28,7 +38,7 @@ func (g *grading) runPackages(ctx context.Context, plan []checks.StrykerPackage,
 		if err := writeFile(filepath.Join(dir, checks.StrykerOverrideFile), []byte(override), 0o644); err != nil {
 			return g.settle(2, "CANNOT RUN - the atom never ran: "+err.Error())
 		}
-		s := g.do(ctx, dir, bin, "run", checks.StrykerOverrideFile, "--mutate", pkg.Mutate(), "--concurrency", "4", "--reporters", "clear-text,json")
+		s := g.doWith(ctx, dir, []string{path}, strykerBin, "run", checks.StrykerOverrideFile, "--mutate", pkg.Mutate(), "--concurrency", "4", "--reporters", "clear-text,json")
 		if !atoms.ToolRan(s.code) {
 			return g.neverRan(s)
 		}
