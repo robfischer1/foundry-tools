@@ -73,6 +73,11 @@ type fake struct {
 	busy    int // "text file busy" answers before a script runs
 }
 
+const (
+	stdManifest = "file:lib/rustlib/wasm32-unknown-unknown/lib/libcore-0.rlib\n"
+	toolchain   = "1.90.0-x86_64-unknown-linux-gnu"
+)
+
 func newFake(t *testing.T) *fake {
 	return &fake{t: t, bodies: map[string]string{}, fail: map[string]string{}, exit: map[string]int{}, omit: map[string]bool{},
 		coreWit: "wit text", rustc: "rustc 1.90.0 (1159e78c4 2025-09-14)\n", wasmVer: "wasm-tools 1.250.0\n", jco: "1.35.0\n"}
@@ -108,6 +113,13 @@ func (f *fake) run(_ context.Context, c atoms.Cmd) (string, int) {
 		return "", write(f.t, strings.TrimPrefix(c.Args[2], "--output="), "tar")
 	case strings.HasPrefix(line, "tar -xf "):
 		f.unpackCore(c.Args[3])
+	case strings.HasPrefix(line, "cp -a ") && strings.HasSuffix(c.Args[2], "/rustup"):
+		f.homeSkeleton(c.Args[2])
+	case strings.HasPrefix(line, "tar -xzf ") && strings.HasSuffix(c.Args[3], checks.RustStdWasmComponent):
+		write(f.t, filepath.Join(c.Args[3], "lib/rustlib/wasm32-unknown-unknown/lib/libcore-0.rlib"), "rlib")
+		if !f.omit["manifest.in"] {
+			write(f.t, filepath.Join(c.Args[3], "manifest.in"), stdManifest)
+		}
 	case strings.HasPrefix(line, "tar -xzf "):
 		name := "wasm-tools"
 		if strings.HasSuffix(c.Args[3], "node") {
@@ -120,6 +132,31 @@ func (f *fake) run(_ context.Context, c atoms.Cmd) (string, int) {
 		return f.diff, f.diffEx
 	}
 	return "", 0
+}
+
+// homeSkeleton is what the copy of the image's rustup home holds that the std
+// is registered in: the one toolchain, its component list and rustup's config.
+func (f *fake) homeSkeleton(home string) {
+	if f.omit["toolchain"] {
+		return
+	}
+	rl := filepath.Join(home, "toolchains", toolchain, "lib", "rustlib")
+	if f.omit["rustlib"] {
+		if err := os.MkdirAll(filepath.Join(home, "toolchains", toolchain), 0o755); err != nil {
+			f.t.Fatal(err)
+		}
+		return
+	}
+	if f.omit["components-dir"] {
+		if err := os.MkdirAll(filepath.Join(rl, "components"), 0o755); err != nil {
+			f.t.Fatal(err)
+		}
+	} else if !f.omit["components"] {
+		write(f.t, filepath.Join(rl, "components"), "cargo-x\nrust-std-x\nrustc-x\n")
+	}
+	if !f.omit["multirust-config.toml"] {
+		write(f.t, filepath.Join(rl, "multirust-config.toml"), "config_version = \"1\"\n")
+	}
 }
 
 // show is `git show <commit>:<path>`: the text the provenance was made from.
@@ -280,7 +317,8 @@ func TestTSRegenRunsEachStepAsAProgramWithItsArguments(t *testing.T) {
 		w + "/stellar-core-rust: git archive --format=tar --output=" + w + "/core.tar " + rgCore,
 		w + ": tar -xf " + w + "/core.tar -C " + w + "/core",
 		os.TempDir() + ": cp -a /usr/local/rustup/. $W/ts-regen-tools/rustup",
-		os.TempDir() + ": rustup target add wasm32-unknown-unknown",
+		os.TempDir() + ": tar -xzf $W/ts-regen-tools/rust-std-wasm32-unknown-unknown.tar.gz -C $W/ts-regen-tools/rust-std-wasm32-unknown-unknown --strip-components=2 " + checks.RustStdWasmMember,
+		os.TempDir() + ": cp -a $W/ts-regen-tools/rust-std-wasm32-unknown-unknown/lib/. $W/ts-regen-tools/rustup/toolchains/" + toolchain + "/lib",
 		os.TempDir() + ": tar -xzf $W/ts-regen-tools/wasm-tools-1.250.0.tar.gz -C $W/ts-regen-tools/wasm-tools-1.250.0 --strip-components=1 wasm-tools-1.250.0-x86_64-linux/wasm-tools",
 		os.TempDir() + ": $W/ts-regen-tools/wasm-tools-1.250.0/wasm-tools --version",
 		w + "/core: " + w + "/stamp-core-inner.sh",
@@ -293,7 +331,7 @@ func TestTSRegenRunsEachStepAsAProgramWithItsArguments(t *testing.T) {
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("the steps:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
-	if len(*fetched) != 2 || !strings.Contains((*fetched)[0], "wasm-tools-1.250.0") || (*fetched)[1] != checks.NodeRegenURL {
+	if len(*fetched) != 3 || (*fetched)[0] != checks.RustStdWasmURL || !strings.Contains((*fetched)[1], "wasm-tools-1.250.0") || (*fetched)[2] != checks.NodeRegenURL {
 		t.Errorf("fetched %v", *fetched)
 	}
 	for _, c := range f.calls {
@@ -355,6 +393,56 @@ func TestTSRegenGivesTheScriptsTheirPinsAndTheirOwnDirectories(t *testing.T) {
 	}
 }
 
+// THE POD'S TRUST: the executor pod reaches the registry through the fleet cache,
+// whose certificate the cache CA signs, and daedalus names that CA in the
+// container's environment. The transpile (npm install -g jco) must carry the
+// names through as given, not pin the system bundle over them; unset, it keeps
+// the system bundle as the Dagger container has it.
+func TestTSRegenTranspileCarriesTheContainersTrust(t *testing.T) {
+	trust := map[string]string{
+		"NODE_EXTRA_CA_CERTS": "/etc/ssl/fleet/ca.crt", "SSL_CERT_FILE": "/etc/ssl/fleet/ca.crt",
+		"REQUESTS_CA_BUNDLE": "/etc/ssl/fleet/ca.crt", "PIP_CERT": "/etc/ssl/fleet/ca.crt", "UV_NATIVE_TLS": "1",
+		"CARGO_HTTP_CAINFO": "/etc/ssl/fleet/ca.crt", "GIT_SSL_CAINFO": "/etc/ssl/fleet/ca.crt",
+	}
+	for _, tc := range []struct {
+		name string
+		set  map[string]string
+		want map[string]string
+	}{
+		{"set by the pod", trust, trust},
+		{"unset, the system bundle", map[string]string{}, map[string]string{"NODE_EXTRA_CA_CERTS": "/etc/ssl/certs/ca-certificates.crt"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, in, _ := withFake(t, star(t, "1.250.0", "stamp"))
+			for k := range trust {
+				t.Setenv(k, tc.set[k])
+				if tc.set[k] == "" {
+					os.Unsetenv(k)
+				}
+			}
+			if v := Check(t.Context(), in); v.State != 0 {
+				t.Fatalf("%+v", v)
+			}
+			var transpile atoms.Cmd
+			for _, c := range f.calls {
+				if strings.HasSuffix(c.Name, "transpile-stamp-inner.sh") {
+					transpile = c
+				}
+			}
+			got := map[string]string{}
+			for _, e := range transpile.Env {
+				k, v, _ := strings.Cut(e, "=")
+				got[k] = v
+			}
+			for k := range trust {
+				if got[k] != tc.want[k] {
+					t.Errorf("%s = %q, want %q (env %v)", k, got[k], tc.want[k], transpile.Env)
+				}
+			}
+		})
+	}
+}
+
 const installLine = `cargo install wasm-tools --locked --version "$WASM_TOOLS_VERSION"`
 
 // THE SCRIPT AS LAID: the star's own, on this run's directories. With the
@@ -394,8 +482,8 @@ func TestTSRegenWithoutAPinnedReleaseLeavesTheScriptToCompileWasmTools(t *testin
 			t.Errorf("no release directory is put on PATH: %v", c.Env)
 		}
 	}
-	if len(*fetched) != 1 || (*fetched)[0] != checks.NodeRegenURL {
-		t.Errorf("only node is fetched: %v", *fetched)
+	if len(*fetched) != 2 || (*fetched)[0] != checks.RustStdWasmURL || (*fetched)[1] != checks.NodeRegenURL {
+		t.Errorf("only the std and node are fetched: %v", *fetched)
 	}
 }
 
@@ -531,12 +619,12 @@ func TestTSRegenProvisionsOnceForManyWorlds(t *testing.T) {
 	if v := Check(t.Context(), in); v.State != 0 {
 		t.Fatalf("%+v", v)
 	}
-	if len(*fetched) != 2 {
-		t.Errorf("fetched %v; one wasm-tools and one node", *fetched)
+	if len(*fetched) != 3 {
+		t.Errorf("fetched %v; one std, one wasm-tools and one node", *fetched)
 	}
 	var copies, nodes int
 	for _, c := range f.calls {
-		if c.Name == "cp" {
+		if c.Name == "cp" && strings.HasSuffix(c.Args[2], "/rustup") {
 			copies++
 		}
 		if strings.HasSuffix(c.Name, "node") {
@@ -580,7 +668,8 @@ func TestTSRegenCannotRunWhenAStepWillNotRun(t *testing.T) {
 		{"core archive", "git archive", "core @" + rgCore},
 		{"core unpack", "tar -xf", "core @" + rgCore},
 		{"rustup", "cp -a", "rustup home"},
-		{"rustup target", "rustup target add", "rustup home"},
+		{"std unpack", "rust-std-wasm32-unknown-unknown.tar.gz", "rustup home"},
+		{"std copy", "wasm32-unknown-unknown/lib/.", "rustup home"},
 		{"build", "stamp-core-inner.sh", "the build of stamp"},
 		{"node", "node --version", "node 24.21.0"},
 		{"transpile", "transpile-stamp-inner.sh", "the transpile of stamp"},
@@ -696,6 +785,7 @@ func TestTSRegenCannotRunWhenItsDirectoriesCannotBeMade(t *testing.T) {
 		"world":  "ts-regen",
 		"core":   "ts-regen/stamp/core",
 		"rustup": "ts-regen-tools/rustup",
+		"std":    "ts-regen-tools/rust-std-wasm32-unknown-unknown",
 		"node":   "ts-regen-tools/node",
 	} {
 		_, in, _ := withFake(t, star(t, "1.250.0", "stamp"))
@@ -746,5 +836,78 @@ func TestAnAssetWithNoPinIsNeverFetched(t *testing.T) {
 	_, in, _ := withFake(t, atomkit.In{})
 	if err := newProvision(in).fetch(t.Context(), "https://example.com/unpinned.tar.gz", filepath.Join(t.TempDir(), "x")); err == nil {
 		t.Error("an asset nothing vouches for must not be fetched")
+	}
+}
+
+// THE STD IS REGISTERED, not only laid: the star's own `rustup target add` must
+// find the component installed, because a pod has no network to fetch it.
+func TestTSRegenRegistersTheStdWithRustup(t *testing.T) {
+	_, in, _ := withFake(t, star(t, "1.250.0", "stamp"))
+	if v := Check(t.Context(), in); v.State != 0 {
+		t.Fatalf("%+v", v)
+	}
+	rl := filepath.Join(os.Getenv("ATOM_WORK"), "ts-regen-tools", "rustup", "toolchains", toolchain, "lib", "rustlib")
+	read := func(name string) string {
+		b, err := os.ReadFile(filepath.Join(rl, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	if got := read("manifest-" + checks.RustStdWasmComponent); got != stdManifest {
+		t.Errorf("manifest %q", got)
+	}
+	if got := read("components"); got != "cargo-x\nrust-std-x\nrustc-x\n"+checks.RustStdWasmComponent+"\n" {
+		t.Errorf("components %q", got)
+	}
+	want := "config_version = \"1\"\n\n[[components]]\npkg = \"rust-std\"\ntarget = \"wasm32-unknown-unknown\"\nis_extension = false\n"
+	if got := read("multirust-config.toml"); got != want {
+		t.Errorf("config %q", got)
+	}
+}
+
+func TestTSRegenCannotRunWhenTheStdWillNotRegister(t *testing.T) {
+	for _, c := range []struct{ name, omit, want string }{
+		{"no toolchain", "toolchain", "rustup home: open "},
+		{"no component list", "components", "rustup home: chmod "},
+		{"no rustup config", "multirust-config.toml", "rustup home: chmod "},
+		{"no manifest", "manifest.in", "rustup home: open "},
+		{"no rustlib", "rustlib", "rustup home: open "},
+		{"a component list that is a directory", "components-dir", "rustup home: open "},
+	} {
+		f, in, _ := withFake(t, star(t, "1.250.0", "stamp"))
+		f.omit[c.omit] = true
+		if v := Check(t.Context(), in); v.State != 2 || !strings.Contains(v.Reason, c.want) {
+			t.Errorf("%s: %+v", c.name, v)
+		}
+	}
+}
+
+func TestTSRegenCannotRunWhenTheStdWillNotArrive(t *testing.T) {
+	_, in, _ := withFake(t, star(t, "1.250.0", "stamp"))
+	good := fetchPinned
+	fetchPinned = func(ctx context.Context, c *http.Client, sources []string, sum, dest string) error {
+		if strings.Contains(sources[len(sources)-1], "rust-std") {
+			return errors.New("static.rust-lang.org is down")
+		}
+		return good(ctx, c, sources, sum, dest)
+	}
+	if v := Check(t.Context(), in); v.State != 2 || !strings.Contains(v.Reason, "rust-std 1.90.0: static.rust-lang.org is down") {
+		t.Errorf("%+v", v)
+	}
+}
+
+func TestTheToolchainIsTheOneTheHomeHolds(t *testing.T) {
+	home := t.TempDir()
+	if _, err := toolchainOf(home); err == nil {
+		t.Error("a home with no toolchains directory")
+	}
+	put(t, home, "toolchains/a/x", "")
+	if got, err := toolchainOf(home); err != nil || got != filepath.Join(home, "toolchains", "a") {
+		t.Errorf("%q %v", got, err)
+	}
+	put(t, home, "toolchains/b/x", "")
+	if _, err := toolchainOf(home); err == nil || !strings.Contains(err.Error(), "2 toolchains") {
+		t.Errorf("two toolchains: %v", err)
 	}
 }

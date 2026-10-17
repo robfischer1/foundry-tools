@@ -14,7 +14,9 @@ import (
 	"dagger/foundry-tools/internal/checks/dieskit"
 )
 
-// Def is the atom.
+// Def is the atom. It writes the tree: the checker lays copies of it and unlinks
+// files in them (base_tree), and shutil.copytree keeps modes, so a read-only
+// tree would give it read-only copies.
 var Def = atomkit.Def{
 	ID: "dies:authz-grid", Stage: checks.StagePrepush, Lane: checks.LaneAny,
 	Group:     checks.GroupLanguage,
@@ -25,8 +27,9 @@ var Def = atomkit.Def{
 	// The comparison is against the pull's merge base, which no fixed depth
 	// reaches: the runner is asked for the whole history, and a clone that is
 	// shallow anyway is deepened here (reach).
-	History: "full",
-	Check:   check,
+	History:    "full",
+	WritesTree: true,
+	Check:      check,
 }
 
 const id = "dies:authz-grid"

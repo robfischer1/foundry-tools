@@ -31,7 +31,8 @@ func TestRegenStepArgvGolden(t *testing.T) {
 			[]string{"tar", "-xzf", "/w/t.tgz", "-C", "/w/bin", "--strip-components=1", "wasm-tools-1.250.0-x86_64-linux/wasm-tools"}},
 		{"unpack node whole", RegenTar("/w/n.tgz", "/w/node", true, 1, ""), []string{"tar", "-xzf", "/w/n.tgz", "-C", "/w/node", "--strip-components=1"}},
 		{"copy rustup", RegenCopyTree("/usr/local/rustup", "/w/rustup"), []string{"cp", "-a", "/usr/local/rustup/.", "/w/rustup"}},
-		{"add the target", RegenRustupTarget(), []string{"rustup", "target", "add", "wasm32-unknown-unknown"}},
+		{"unpack the std member", RegenTar("/w/s.tgz", "/w/std", true, 2, RustStdWasmMember),
+			[]string{"tar", "-xzf", "/w/s.tgz", "-C", "/w/std", "--strip-components=2", RustStdWasmMember}},
 		{"diff", RegenDiff("/w/gen", "/src/src/xcore-gen"), []string{"diff", "-r", "-q", "-x", "provenance.json", "-x", ".jco-version", "/w/gen", "/src/src/xcore-gen"}},
 	} {
 		if !reflect.DeepEqual(c.got, c.want) {
@@ -208,5 +209,19 @@ func TestRegenRemapFlagsPutTheGuestBackWhereItWasRecorded(t *testing.T) {
 	}
 	if got := RegenRemapFlags("/src", "/tmp/target", "", "/usr/local/rustup"); got != "" {
 		t.Errorf("a directory already where it was recorded is not remapped: %q", got)
+	}
+}
+
+// The wasm32 standard library the build script would `rustup target add` is the
+// compiler's own, pinned: the guest's bytes are a function of it.
+func TestRustStdWasmPinAgrees(t *testing.T) {
+	if want := "https://static.rust-lang.org/dist/rust-std-" + RustWasmComponentsTag + "-wasm32-unknown-unknown.tar.gz"; RustStdWasmURL != want {
+		t.Errorf("RustStdWasmURL %q, want %q", RustStdWasmURL, want)
+	}
+	if want := "rust-std-" + RustWasmComponentsTag + "-wasm32-unknown-unknown/" + RustStdWasmComponent; RustStdWasmMember != want {
+		t.Errorf("RustStdWasmMember %q, want %q", RustStdWasmMember, want)
+	}
+	if !sha256Hex.MatchString(ToolSHA256[RustStdWasmURL]) {
+		t.Errorf("no checksum: %q", ToolSHA256[RustStdWasmURL])
 	}
 }
