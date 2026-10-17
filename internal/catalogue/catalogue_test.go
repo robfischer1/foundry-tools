@@ -397,7 +397,7 @@ var unported = []string{
 	"go:mutation",
 	"python:mutation",
 	"rust:mutation",
-	"ts:mutation", "ts:visual",
+	"ts:mutation",
 }
 
 // TestIT_285_EveryCatalogueIDIsOneFileOrTheUnportedSet (lld FN-090 step 3): the

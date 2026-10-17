@@ -91,6 +91,7 @@ import (
 	tsbungate "dagger/foundry-tools/atoms/ts/bun-gate"
 	tsregen "dagger/foundry-tools/atoms/ts/regen"
 	tsrelease "dagger/foundry-tools/atoms/ts/release"
+	tsvisual "dagger/foundry-tools/atoms/ts/visual"
 	witvalidate "dagger/foundry-tools/atoms/wit/validate"
 	"dagger/foundry-tools/internal/atomkit"
 )
@@ -185,6 +186,7 @@ var Defs = []*atomkit.Def{
 	&tsbungate.Def,
 	&tsregen.Def,
 	&tsrelease.Def,
+	&tsvisual.Def,
 	&witvalidate.Def,
 }
 

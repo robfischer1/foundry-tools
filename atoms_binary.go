@@ -46,6 +46,9 @@ var atomsSourceInclude = []string{
 	"internal/releasekit/**",
 	"internal/buildlane/**",
 	"internal/copyout/**",
+	// ts:visual's: the artifact's push and the login it pushes with
+	"internal/visuallane/**",
+	"internal/svidcred/**",
 }
 
 // atomsBinPath is where the binary sits in the fleet lane's container.

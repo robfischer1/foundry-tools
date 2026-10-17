@@ -140,6 +140,10 @@ var atomEnvironments = map[string]atomEnv{
 	"fleet:wit-topics":          {tools: true},
 	"fleet:witness":             {tools: true, facts: true, bind: witnessRun},
 	"fleet:renovate-config":     {container: renovateLane, nogit: true},
+
+	// the ts lane with the lockfile's browsers, the commit its artifact is tagged
+	// by and, for the Dagger runner, the login it pushes with
+	"ts:visual": {container: visualLane, origin: true, bind: visualBind},
 }
 
 // rustTestLane is the fetched rust lane with the per-repo target held LOCKED, the

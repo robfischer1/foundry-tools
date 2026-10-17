@@ -125,6 +125,7 @@ var atomLibraries = map[string][]string{
 	"ts:release":                 releaseDirs,
 	"template:render-matrix":     libraryDirs,
 	"ts:regen":                   {"internal/regenlane/**"},
+	"ts:visual":                  {"internal/visuallane/**", "internal/buildlane/**", "internal/svidcred/**"},
 	"wit:validate":               libraryDirs,
 }
 

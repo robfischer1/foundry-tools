@@ -84,7 +84,7 @@ type run struct {
 	spire *dagger.Socket
 	// artifactAuth, when set, is the registry credential the visual atom
 	// pushes its artifact with, and sha the commit that artifact is tagged by
-	// (atoms_ts_visual.go); nil pushes nothing.
+	// (atom_env_ts.go); nil pushes nothing.
 	artifactAuth *dagger.Secret
 	sha          string
 	// registrySvid, with spire, replaces artifactAuth: the audience of the

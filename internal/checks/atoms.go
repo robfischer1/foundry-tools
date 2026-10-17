@@ -183,11 +183,6 @@ func atomTable() []AtomDef {
 
 		// ---- compose: the host stacks. Ported off the act-runner's validate.yml ----
 
-		// ---- visual: the visual lane, asked for by name (StageVisual) ----
-		{
-			ID: "ts:visual", Stage: StageVisual, Lane: LaneTS, Image: ImageTS, NeedsManifest: true,
-			Desc: "Every Playwright screenshot suite visual.toml declares matches its committed baselines, rendered in the lane's pinned image.",
-		},
 		// ---- mutation: a pull's change set, mutated ----
 		//
 		// ONE VERDICT, FOUR LANGUAGES. Each atom mutates in DIFF mode against
