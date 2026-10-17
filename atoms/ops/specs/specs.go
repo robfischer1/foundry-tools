@@ -17,7 +17,8 @@ var Def = atomkit.Def{
 	Group:     checks.GroupLanguage,
 	Desc:      "The repo's own tools/console-specs (infra): the console ConfigMap's read-model specs follow the stacks' emits, or it names which drifted.",
 	Surface:   "any:**",
-	Toolchain: "python",
+	Toolchain: "none",
+	Needs:     []string{"pytools"},
 	Check:     check,
 }
 

@@ -56,9 +56,10 @@ type Cmd struct {
 // sits beside it that a test cannot reach.
 type Exec func(ctx context.Context, c Cmd) (out string, code int)
 
-// pythonBinDir is the venv's bin as RunProgram looks for it; a variable so a
-// test can say where the venv is.
-var pythonBinDir = PythonBinDir
+// pythonBinDir is the venv's bin as RunProgram looks for it: the tools
+// container's, or the one PyBinEnv names; a variable so a test can say where
+// the venv is.
+var pythonBinDir = EnvOr(os.Getenv, PyBinEnv, PythonBinDir)
 
 // pythonPrograms are the programs the venv provides. They are found there by
 // path and not by the container's PATH: a run measured on cerberus

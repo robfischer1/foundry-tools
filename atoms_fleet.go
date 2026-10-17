@@ -2,13 +2,11 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"sync"
 
 	"golang.org/x/sync/errgroup"
 
-	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
 )
 
@@ -16,13 +14,6 @@ import (
 // it is written in, live in their own files (atoms/fleet/<name>/<name>.go) and
 // the Dagger adapter (atom_adapter.go) runs them. What stays here is what the
 // chains of the other lanes still read.
-
-// cannotEnumerate is the verdict when the TREE ITSELF would not answer. It is a
-// could-not-run about the repository rather than a finding about it: the atom
-// never got as far as having an opinion.
-func cannotEnumerate(a checks.AtomDef, err error) checks.Verdict {
-	return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - the tree would not enumerate: %v", a.ID, err))
-}
 
 // fileRead is one file's contents, or why it would not read.
 type fileRead struct {

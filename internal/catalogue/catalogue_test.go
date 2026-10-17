@@ -395,14 +395,14 @@ func TestTheDeclaredBinaryVotersAreRealPythonAtoms(t *testing.T) {
 	}
 }
 
-// unported is the eight atoms that stay Dagger chains with a table row in
+// unported is the five atoms that stay Dagger chains with a table row in
 // checks.atomTable (DEF-B3-035, DEF-B3-044): release for each language, and the
 // ones whose chain is a multi-container pipeline.
 var unported = []string{
 	"go:release",
 	"python:release",
-	"rust:release", "rust:wit-compose", "rust:wit-guest",
-	"ts:regen", "ts:release", "ts:visual",
+	"rust:release",
+	"ts:release", "ts:visual",
 }
 
 // TestIT_285_EveryCatalogueIDIsOneFileOrTheUnportedSet (lld FN-090 step 3): the
@@ -463,6 +463,43 @@ func TestTheMutationStageIsFourLanesAskedForByName(t *testing.T) {
 	for _, a := range checks.PullPathAtoms() {
 		if a.Stage == checks.StageMutation {
 			t.Errorf("%s: a mutation atom in the default vector — the gate would run it", a.ID)
+		}
+	}
+}
+
+// pyOpsAtoms are the eight python ops and template atoms that vote in the atoms
+// binary on Dagger, with the tools container's prebuilt venv, and ran on the
+// executor in a bare interpreter (DEF-B3-047): pyyaml, copier and the ansible
+// collections were not there.
+var pyOpsAtoms = []string{
+	"ops:ansible", "ops:declaration", "ops:dup", "ops:metrics", "ops:specs",
+	"ops:star-sa", "ops:world-patches", "template:render-matrix",
+}
+
+// TestDEF_B3_047_ThePythonOpsAtomsNeedThePytoolsVenv: each of the eight asks for
+// the venv the executor builds from pytools/requirements.txt, and runs in lead
+// (toolchain none: git there, python from the image tool) and votes in the binary.
+func TestDEF_B3_047_ThePythonOpsAtomsNeedThePytoolsVenv(t *testing.T) {
+	for _, id := range pyOpsAtoms {
+		e, ok := Lookup(id)
+		if !ok || e.Def == nil || e.Def.Toolchain != "none" || !slices.Contains(e.Def.Needs, "pytools") || !votesInBinary(e.Def) {
+			t.Errorf("%s: %+v", id, e.Def)
+		}
+	}
+}
+
+// TestDEF_B3_047_NoBinaryVotingPythonAtomRunsOnABareInterpreter: an atom that
+// votes in the binary by history and runs python on the executor names where its
+// packages come from: the venv (pytools) or uv (`uv run --with`).
+func TestDEF_B3_047_NoBinaryVotingPythonAtomRunsOnABareInterpreter(t *testing.T) {
+	for id := range votesInBinaryByHistory {
+		e, ok := Lookup(id)
+		if !ok || e.Def == nil {
+			t.Errorf("%s: no Def", id)
+			continue
+		}
+		if !slices.Contains(e.Def.Needs, "pytools") && !slices.Contains(e.Def.Needs, "tool:uv") {
+			t.Errorf("%s votes in the binary and needs neither pytools nor tool:uv: %v", id, e.Def.Needs)
 		}
 	}
 }

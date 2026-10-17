@@ -121,14 +121,14 @@ func TestUseDefsJoinsTheRowsAndRefusesADuplicate(t *testing.T) {
 }
 
 // THE TABLE HOLDS THE UNPORTED SET AND NOTHING ELSE (lld FN-090 step 3): the
-// eight atoms whose chains stay on Dagger (DEF-B3-035, DEF-B3-044). Every
+// five atoms whose chains stay on Dagger (DEF-B3-035, DEF-B3-044). Every
 // other catalogue id comes from a file under atoms/.
 func TestAtomTableHoldsExactlyTheUnportedAtoms(t *testing.T) {
 	want := []string{
 		"go:release",
 		"python:release",
-		"rust:release", "rust:wit-compose", "rust:wit-guest",
-		"ts:regen", "ts:release", "ts:visual",
+		"rust:release",
+		"ts:release", "ts:visual",
 	}
 	var got []string
 	for _, a := range atomTable() {

@@ -534,19 +534,6 @@ func (r *run) withLockedCargoTarget(ctr *dagger.Container) *dagger.Container {
 	return ctr
 }
 
-// withLockedReleaseVolume remounts the repo's release volume LOCKED, for the
-// execs that build into it and then run what they built (the wit guest's
-// native test in wit-guest-test). The same race and the
-// same reason as withLockedCargoTarget (foundry-tools#16916: rust:wit-guest
-// "could not execute process /cache/cargo-release/wit-guest-test/debug/deps/
-// classes_tier3-... No such file or directory"); the volume's SHARED default
-// (checks.ReleaseCacheFor) stands for the builds that copy their output out
-// in the same exec, where the gap is the copy itself.
-func (r *run) withLockedReleaseVolume(ctr *dagger.Container) *dagger.Container {
-	c := checks.ReleaseCacheFor(r.repo)
-	return ctr.WithMountedCache(c.Path, dag.CacheVolume(c.Key), dagger.ContainerWithMountedCacheOpts{Sharing: dagger.CacheSharingModeLocked})
-}
-
 // copyOutPath is where copyout sits in a lane's container.
 const copyOutPath = "/usr/local/bin/copyout"
 

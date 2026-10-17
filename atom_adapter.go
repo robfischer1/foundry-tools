@@ -93,6 +93,10 @@ var (
 // atomLibraries are the packages an atom imports that not every atom does, by
 // atom id. An atom that is not here imports nothing beyond atomRuntimeDirs.
 var atomLibraries = map[string][]string{
+	"go:mutation":                {"internal/gomut/**"},
+	"python:mutation":            {"internal/pymut/**"},
+	"rust:mutation":              {"internal/rustmut/**"},
+	"ts:mutation":                {"internal/tsmut/**"},
 	"compose:config":             libraryDirs,
 	"fleet:witness":              witnessDirs,
 	"compose:no-tracked-secrets": libraryDirs,

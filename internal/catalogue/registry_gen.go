@@ -84,9 +84,12 @@ import (
 	rustcargoclippy "dagger/foundry-tools/atoms/rust/cargo-clippy"
 	rustcargotest "dagger/foundry-tools/atoms/rust/cargo-test"
 	rustmutation "dagger/foundry-tools/atoms/rust/mutation"
+	rustwitcompose "dagger/foundry-tools/atoms/rust/wit-compose"
+	rustwitguest "dagger/foundry-tools/atoms/rust/wit-guest"
 	templaterendermatrix "dagger/foundry-tools/atoms/template/render-matrix"
 	tsbungate "dagger/foundry-tools/atoms/ts/bun-gate"
 	tsmutation "dagger/foundry-tools/atoms/ts/mutation"
+	tsregen "dagger/foundry-tools/atoms/ts/regen"
 	witvalidate "dagger/foundry-tools/atoms/wit/validate"
 	"dagger/foundry-tools/internal/atomkit"
 )
@@ -174,9 +177,12 @@ var Defs = []*atomkit.Def{
 	&rustcargoclippy.Def,
 	&rustcargotest.Def,
 	&rustmutation.Def,
+	&rustwitcompose.Def,
+	&rustwitguest.Def,
 	&templaterendermatrix.Def,
 	&tsbungate.Def,
 	&tsmutation.Def,
+	&tsregen.Def,
 	&witvalidate.Def,
 }
 

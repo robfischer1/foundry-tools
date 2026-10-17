@@ -17,7 +17,8 @@ var Def = atomkit.Def{
 	Group:     checks.GroupLanguage,
 	Desc:      "The repo's own tools/declaration-integrity (infra) holds: every declared host file has its payload and every payload is declared.",
 	Surface:   "any:**",
-	Toolchain: "python",
+	Toolchain: "none",
+	Needs:     []string{"pytools"},
 	Check:     check,
 }
 

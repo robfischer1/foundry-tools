@@ -11,6 +11,13 @@ import "dagger/foundry-tools/internal/atomkit"
 // package at run time) and a container on every repository's gate for atoms that
 // settle absent inside their own check. The adapter stays their re-ask.
 //
+// The eight python ops and template atoms (ops:ansible, ops:declaration,
+// ops:dup, ops:metrics, ops:specs, ops:star-sa, ops:world-patches and
+// template:render-matrix) are not here: they declare toolchain none and Needs
+// pytools. On the executor they run in lead, whose image has git and no python,
+// with the python and uv image tools and the venv daedalus builds from
+// pytools/requirements.txt (DEF-B3-047).
+//
 // The set is declared, not guessed: an atom is added here by the commit that
 // ports it from internal/atoms and for no other reason.
 var votesInBinaryByHistory = map[string]bool{
@@ -26,14 +33,6 @@ var votesInBinaryByHistory = map[string]bool{
 	"dies:resource-referents": true,
 	"dies:grants-stamp":       true,
 	"dies:refusal-codes":      true,
-	"ops:ansible":             true,
-	"ops:declaration":         true,
-	"ops:dup":                 true,
-	"ops:metrics":             true,
-	"ops:specs":               true,
-	"ops:star-sa":             true,
-	"ops:world-patches":       true,
-	"template:render-matrix":  true,
 }
 
 // votesInBinary says whether the atoms binary carries d.

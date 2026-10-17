@@ -14,9 +14,20 @@ import (
 	"dagger/foundry-tools/internal/checks"
 )
 
+var padRows sync.Once
+
 // ids are real catalogue rows: a registration names one, so the fakes borrow
 // the names of the first rows and bring their own functions.
 func ids(n int) []string {
+	padRows.Do(func() {
+		// The table holds only the atoms that still have a chain; the pool tests
+		// want more rows than that, and any row will do.
+		var rows []checks.AtomDef
+		for i := range 16 {
+			rows = append(rows, checks.AtomDef{ID: fmt.Sprintf("pad:row-%02d", i), Stage: checks.StagePrepush, Lane: checks.LaneAny})
+		}
+		checks.UseDefs(rows)
+	})
 	out := make([]string, n)
 	for i := range out {
 		out[i] = checks.Atoms()[i].ID

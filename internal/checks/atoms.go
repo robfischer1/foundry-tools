@@ -193,23 +193,8 @@ func atomTable() []AtomDef {
 			ID: "rust:release", Stage: StagePrepush, Lane: LaneRust, Image: ImageRust,
 			Desc: "The release binaries the image will carry compile under cargo's release profile — for a Dockerfile that copies from release/; one that compiles itself is built by the build lane, and this is absent.",
 		},
-		{
-			ID: "rust:wit-guest", Stage: StagePrepush, Lane: LaneRust, Image: ImageRust,
-			Desc:          "Each wit-guest-<world> feature (discovered from Cargo.toml) builds for wasm32-unknown-unknown, lifts to a component that validates, and passes its native cargo test; absent where the manifest declares none.",
-			NeedsManifest: true,
-		},
-		{
-			ID: "rust:wit-compose", Stage: StagePrepush, Lane: LaneRust, Image: ImageRust,
-			Desc:          "Every wit-guest world composes into one valid component through tools/compose/compose.sh, and every tests/tapes/<world>.json replays through it with the native core's answers, and every tests/red/*.json replays as red (the answer is its `today`, never its prior-art response); absent where the tree carries no composer or replay host.",
-			NeedsManifest: true,
-		},
 
 		// ---- ts ----
-		{
-			ID: "ts:regen", Stage: StagePrepush, Lane: LaneTS, Image: ImageTS,
-			Desc:          "Each core the justfile's regen-check names regenerates byte-identical from its pinned WIT, core commit and tool versions (the star's own build and transpile scripts, run on the engine); absent where the justfile calls no scripts/regen-check.sh.",
-			NeedsManifest: true,
-		},
 		{
 			ID: "ts:release", Stage: StagePrepush, Lane: LaneTS, Image: ImageTS,
 			Desc: "The record's release steps leave the image's files under release/, run on the image's own bun base — for a Dockerfile on foundry/base-images/bun that copies from release/; any other image is absent.",

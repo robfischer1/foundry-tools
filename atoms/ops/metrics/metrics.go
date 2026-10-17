@@ -17,7 +17,8 @@ var Def = atomkit.Def{
 	Group:     checks.GroupLanguage,
 	Desc:      "The repo's own tools/metric-allowlist (flux): every kube_*/container_* name a rule or dashboard reads is on a keep-list some job ingests, or it names which are not.",
 	Surface:   "any:**",
-	Toolchain: "python",
+	Toolchain: "none",
+	Needs:     []string{"pytools"},
 	Check:     check,
 }
 
