@@ -78,9 +78,13 @@ func GoSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race b
 		// `-p 1` for EITHER kind. The databases share one server and the suites
 		// reset its schema; one broker serves every package and its isolation
 		// unit is the topic. Parallel packages break both the same way.
+		var tagArgs []string
 		if len(dbs) > 0 || len(brokers) > 0 {
-			args = append(args, "-tags", checks.BuildTags(dbs, brokers), "-p", "1")
+			tagArgs = []string{"-tags", checks.BuildTags(dbs, brokers)}
+			args = append(args, tagArgs...)
+			args = append(args, "-p", "1")
 		}
+		warmBuildCache(ctx, in, cwd, tagArgs)
 		args = append(args, "-coverprofile", checks.GoCoverProfile)
 	}
 	args = append(args, "./...")
@@ -91,6 +95,21 @@ func GoSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race b
 	v := checks.VerdictOf(a, code, out)
 	v.Reason = scope + "\n" + plan.Scope + "\n" + v.Reason
 	return v
+}
+
+// warmBuildCache is the race run's parallel build (DEF-B4-PERF-3). `-p 1` caps
+// the go tool's concurrent build and link actions as well as the test binaries,
+// so on a cold build cache the suite compiled every package on one core (glaucus,
+// 16 cores: 112 s serial, 28 s at the machine's width). This pass has the suite's
+// flags less `-p`: `-exec true` compiles and links each test binary and runs
+// none, so no database is touched and no test result is cached, and `-cover` makes
+// it the same compile as the profile run's. Its outcome is dropped on purpose; a
+// tree that does not build builds no better here and says so, in go test's words,
+// in the run that follows.
+func warmBuildCache(ctx context.Context, in Input, cwd string, tagArgs []string) {
+	args := append([]string{"test", "-race"}, tagArgs...)
+	args = append(args, "-cover", "-exec", "true", "./...")
+	in.run(ctx, Cmd{Dir: cwd, Name: "go", Args: args})
 }
 
 // goTagRead is the tree's single-tag build constraints, read as the chain read

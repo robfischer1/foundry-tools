@@ -73,7 +73,8 @@ func TestTheRaceSuiteRunsInEveryModuleAgainstTheTreesDatabases(t *testing.T) {
 	}
 	var tests []string
 	for _, r := range f.runs {
-		if strings.Contains(r, ": go test") {
+		// the build-only pass before each suite (DEF-B4-PERF-3) is not a suite
+		if strings.Contains(r, ": go test") && !strings.Contains(r, "-exec true") {
 			tests = append(tests, r)
 		}
 	}
