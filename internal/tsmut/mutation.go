@@ -48,6 +48,7 @@ var (
 	removeFile = os.Remove
 	writeFile  = os.WriteFile
 	readFile   = os.ReadFile
+	linkHelper = atoms.LinkHelper
 )
 
 // grading is one ask of the atom.
@@ -81,7 +82,12 @@ type step struct {
 
 // do runs a program, stdout then stderr, with the tool's own exit code.
 func (g *grading) do(ctx context.Context, dir, name string, args ...string) step {
-	c := atoms.Cmd{Dir: dir, Name: name, Args: args, Both: true}
+	return g.doWith(ctx, dir, nil, name, args...)
+}
+
+// doWith is do with environment added to the program's.
+func (g *grading) doWith(ctx context.Context, dir string, env []string, name string, args ...string) step {
+	c := atoms.Cmd{Dir: dir, Name: name, Args: args, Env: env, Both: true}
 	out, code := atoms.RunCmd(ctx, g.in, c)
 	return step{out: out, code: code, cmd: c}
 }
