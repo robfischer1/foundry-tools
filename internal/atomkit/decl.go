@@ -80,7 +80,7 @@ func Describe(d Def) ([]byte, error) {
 		Surface: d.Surface, Toolchain: d.Toolchain, Needs: append([]string{}, d.Needs...),
 		TimeoutS: int(d.Timeout / time.Second), History: d.History, WritesTree: d.WritesTree,
 		SubsumedBy: d.SubsumedBy, NotOnForks: d.NotOnForks,
-		AbsentReason: checks.AbsentReasonFor(d.ID, d.Lane, d.NeedsManifest),
+		AbsentReason: absentSentence(d),
 	}
 	slices.Sort(e.Needs)
 	if d.Timeout == 0 {
