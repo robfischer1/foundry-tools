@@ -10,3 +10,9 @@ argv = ["uv", "run", "--with", "pip-audit==2.10.1", "pip-audit"]
 per_module = false
 judge = "exit"
 needs = ["tool:uv"]
+
+# uv run builds the project into its environment, which writes beside the
+# manifest (an egg-info for a setuptools project), and the pod mounts /src
+# read-only: the audit runs on the atom's own copy of the tree. Dagger's /src is
+# writable, so the verdict is the same on both.
+writes_tree = true

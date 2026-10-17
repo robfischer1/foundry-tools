@@ -225,7 +225,7 @@ var manifestRows = []manifestRow{
 	{"atoms/go/staticcheck.toml", "go:staticcheck", "prepush", "go", "any:**/go.mod", "go", staticcheckArgv, true, []string{"tool:staticcheck"}, nil, true, false, "staticcheck ./... reports nothing."},
 	{"atoms/rust/cargo-fmt.toml", "rust:cargo-fmt", "precommit", "rust", "root:Cargo.toml", "rust", []string{"cargo", "fmt", "--all", "--check"}, false, nil, nil, false, false, "cargo fmt --all --check is clean."},
 	{"atoms/rust/cargo-audit.toml", "rust:cargo-audit", "prepush", "rust", "root:Cargo.toml", "rust", []string{"cargo", "audit"}, false, []string{"tool:cargo-audit"}, nil, false, false, "cargo audit reports no known vulnerability."},
-	{"atoms/python/pip-audit.toml", "python:pip-audit", "prepush", "python", "root:pyproject.toml", "python", []string{"uv", "run", "--with", checks.PythonWith("pip-audit"), "pip-audit"}, false, []string{"tool:uv"}, nil, false, false, "pip-audit reports no known vulnerability."},
+	{"atoms/python/pip-audit.toml", "python:pip-audit", "prepush", "python", "root:pyproject.toml", "python", []string{"uv", "run", "--with", checks.PythonWith("pip-audit"), "pip-audit"}, false, []string{"tool:uv"}, nil, false, true, "pip-audit reports no known vulnerability."},
 	{"atoms/ts/bun-audit.toml", "ts:bun-audit", "prepush", "ts", "root:package.json", "bun", []string{"bun", "audit", "--audit-level=high"}, false, nil, map[string]string{"BUN_CONFIG_REGISTRY": "https://registry.npmjs.org/"}, false, true, "bun audit reports nothing at high or above."},
 }
 

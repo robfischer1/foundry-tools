@@ -25,7 +25,7 @@ func TestTheDeclarationValidatesAndKeepsTheRowItReplaces(t *testing.T) {
 		t.Fatal(err)
 	}
 	if Def.ID != id || Def.Stage != checks.StagePrecommit || Def.Lane != checks.LanePython || Def.Group != checks.GroupOf(id) ||
-		Def.Toolchain != "python" || Def.NotOnForks != checks.ForkFleetStyle || Def.NeedsManifest ||
+		Def.Toolchain != "python" || Def.NotOnForks != checks.ForkFleetStyle || Def.NeedsManifest || !Def.WritesTree ||
 		Def.Desc != "MCP verb descriptions stay inside the schema budget (forge-testkit)." || !slices.Equal(Def.Needs, []string{"tool:uv"}) {
 		t.Errorf("%+v", Def)
 	}

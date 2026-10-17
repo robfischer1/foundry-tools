@@ -19,6 +19,7 @@ var Def = atomkit.Def{
 	Toolchain:  "python",
 	Needs:      []string{"tool:uv"},
 	NotOnForks: checks.ForkFleetStyle,
+	WritesTree: true,
 	Check:      check,
 }
 
