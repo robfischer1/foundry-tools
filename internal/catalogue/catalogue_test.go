@@ -334,6 +334,12 @@ func TestTheForkLaneOfThePortedAtomsIsUnchanged(t *testing.T) {
 			t.Errorf("%s: NotOnForks %q", id, got)
 		}
 	}
+	// the mutation lane's four grade the change against the fleet's own bar
+	for _, id := range []string{"go:mutation", "python:mutation", "rust:mutation", "ts:mutation"} {
+		if got := checks.AtomByID(id).NotOnForks; got != checks.ForkChangeBar {
+			t.Errorf("%s: NotOnForks %q", id, got)
+		}
+	}
 	for _, id := range []string{"go:build", "rust:cargo-fmt", "rust:cargo-audit", "python:pip-audit", "python:pytest", "ts:bun-audit", "ts:bun-gate", "fleet:check-merge-conflict", "fleet:manifest-one-command", "fleet:opengrep-sast", "fleet:check-added-large-files"} {
 		if got := checks.AtomByID(id).NotOnForks; got != "" {
 			t.Errorf("%s stands down on a fork (%q); a fork keeps it", id, got)
@@ -389,16 +395,10 @@ func TestTheDeclaredBinaryVotersAreRealPythonAtoms(t *testing.T) {
 	}
 }
 
-// unported is the eight atoms that stay Dagger chains with a table row in
-// checks.atomTable (DEF-B3-035, DEF-B3-044): mutation for each language, and the
-// ones whose chain is a multi-container pipeline. The four release atoms are
-// files since step 4.
-var unported = []string{
-	"go:mutation",
-	"python:mutation",
-	"rust:mutation",
-	"ts:mutation",
-}
+// unported is the no atom that stay Dagger chains with a table row in
+// checks.atomTable (DEF-B3-035, DEF-B3-044): release for each language, and the
+// ones whose chain is a multi-container pipeline.
+var unported = []string{}
 
 // TestIT_285_EveryCatalogueIDIsOneFileOrTheUnportedSet (lld FN-090 step 3): the
 // catalogue ids that no file declares are exactly the unported set, and every
@@ -436,6 +436,29 @@ func TestIT_285_EveryCatalogueIDIsOneFileOrTheUnportedSet(t *testing.T) {
 	slices.Sort(rowOnly)
 	if !slices.Equal(rowOnly, unported) {
 		t.Errorf("ids with no file under atoms/ = %v, want the unported set %v", rowOnly, unported)
+	}
+}
+
+// The mutation stage is four atoms, one per lane, and it is asked for BY NAME:
+// the default vector (a pull's gate) must never carry one, and neither may the
+// sweep. (It lived in internal/checks while the rows did; the rows are the
+// atoms' own files now, so it is pinned where the whole catalogue is seen.)
+func TestTheMutationStageIsFourLanesAskedForByName(t *testing.T) {
+	got := checks.MutationAtoms()
+	want := map[string]checks.Lane{"go:mutation": checks.LaneGo, "python:mutation": checks.LanePython, "rust:mutation": checks.LaneRust, "ts:mutation": checks.LaneTS}
+	if len(got) != len(want) {
+		t.Fatalf("mutation stage has %d atoms, want %d", len(got), len(want))
+	}
+	for _, a := range got {
+		lane, ok := want[a.ID]
+		if !ok || a.Lane != lane {
+			t.Errorf("%s: lane %q, want a mutation atom per lane", a.ID, a.Lane)
+		}
+	}
+	for _, a := range checks.PullPathAtoms() {
+		if a.Stage == checks.StageMutation {
+			t.Errorf("%s: a mutation atom in the default vector — the gate would run it", a.ID)
+		}
 	}
 }
 

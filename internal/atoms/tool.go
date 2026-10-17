@@ -103,11 +103,16 @@ func WriteRuleset(name, body string) (string, error) {
 // with an error and no exit code. The reason reads as the chains' did: the atom
 // never ran, then the exit and the tail of what the tool said.
 func NeverRan(a checks.AtomDef, argv []string, code int, out string) checks.Verdict {
+	return checks.VerdictOf(a, int(checks.StateCannotRun), NeverRanReason(argv, code, out))
+}
+
+// NeverRanReason is NeverRan's sentence, for an atom that prefixes its own
+// (the mutation atoms settle "CANNOT RUN - " and keep their scope line).
+func NeverRanReason(argv []string, code int, out string) string {
 	if code < 0 {
-		return checks.VerdictOf(a, int(checks.StateCannotRun), "the atom never ran: "+out)
+		return "the atom never ran: " + out
 	}
-	return checks.VerdictOf(a, int(checks.StateCannotRun), fmt.Sprintf(
-		"the atom never ran: exit code: %d\nfailed: %s\n%s", code, strings.Join(argv, " "), lastN(out, 20)))
+	return fmt.Sprintf("the atom never ran: exit code: %d\nfailed: %s\n%s", code, strings.Join(argv, " "), lastN(out, 20))
 }
 
 // ToolRan reports whether an exit is one the tool answered: not a program that

@@ -38,8 +38,16 @@ const reasonCap = 2000
 
 // Main is every logic atom's main(): `atom --describe` prints its index entry,
 // and `atom [root]` runs its Check over the tree and writes the verdict to
-// ATOM_OUT. It exits with the verdict's state (lld.md FN-079).
-func Main(d Def) { exit(run(d, os.Args)) }
+// ATOM_OUT. It exits with the verdict's state (lld.md FN-079). Run through a link
+// named for one of the helpers the mutation atoms carry (atoms.RunHelper) it is
+// that helper instead.
+func Main(d Def) {
+	if code, ok := atoms.RunHelper(os.Args); ok {
+		exit(code)
+		return
+	}
+	exit(run(d, os.Args))
+}
 
 func run(d Def, args []string) int {
 	if len(args) > 1 && args[1] == "--describe" {

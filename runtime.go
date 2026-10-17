@@ -73,12 +73,11 @@ type run struct {
 	// layers, so every exec after it is keyed afresh and nothing the engine
 	// cached answers it (verdictFor's re-ask of a could-not-run).
 	reask string
-	// lookup, when set, is how the mutation atoms ask which of their units a
-	// stored grading already answers (mutation_reuse.go); nil grades every unit.
-	lookup gradingLookup
-	// audit, when set, grades every unit cold even where a lookup answered,
-	// and holds the answered gradings against the cold ones (mutation_reuse.go).
-	audit bool
+	// mutants, when set, is the run's record token, handed to the mutation atoms
+	// as ATOM_MUTANTS_TOKEN: they ask the door which of their units a stored
+	// grading already answers with it, and grade every unit when it is nil. The
+	// atom takes it out of its environment before it starts any other program.
+	mutants *dagger.Secret
 	// spire, when set, is the lane pod's SPIRE socket: fleet:witness asks as
 	// the SVID it issues (witness_identity.go); nil cannot ask: the atom settles could-not-run.
 	spire *dagger.Socket
@@ -119,18 +118,6 @@ func (r *run) fromOrigin(url string) *run {
 func (r *run) reasked(nonce string) *run {
 	r.reask = nonce
 	return r
-}
-
-// reaskedAgain is a fresh run over the same tree, keyed afresh, that keeps
-// what the caller armed it with — the reuse lookup and its audit, the SPIRE
-// socket, the artifact credential and the commit — for an atom that re-asks
-// one module of itself (reasksItsOwnModules). askedTwice's re-ask starts from
-// newRun and drops them; that is the gate's behaviour and stays it.
-func (r *run) reaskedAgain(nonce string) *run {
-	again := newRun(r.src, r.repo, r.base).fromOrigin(r.origin).reasked(nonce)
-	again.lookup, again.audit, again.spire = r.lookup, r.audit, r.spire
-	again.artifactAuth, again.sha, again.registrySvid = r.artifactAuth, r.sha, r.registrySvid
-	return again
 }
 
 func newRun(src *dagger.Directory, repo, base string) *run {
@@ -591,48 +578,6 @@ func (r *run) withBase(ctr *dagger.Container) *dagger.Container {
 	return ctr
 }
 
-// changeBase answers the commit a pull's change set is measured FROM: the
-// merge base of the door's base sha and HEAD. "" with a nil error is a base
-// the history does not reach, and the atom stands down as it does with no
-// base at all.
-//
-// THE BASE IS MAIN'S TIP AT DISPATCH, NOT THE BRANCH POINT. `git diff base
-// HEAD` compares two trees, so once main has moved past where the pull
-// branched, every landing since reads as the pull's own change, reversed.
-// MEASURED urania #63 (2026-09-18 00:52Z): the pull added hooks/ and an
-// answers file; main had retired src/urania/*.py in the meantime; the ten
-// deleted modules diffed as ADDED, python:mutation mutated the vestigial
-// package against its stale suite and settled FINDINGS at 68.9% on a pull
-// that changed no Python. go:mutation already diffed --merge-base; this is
-// the one resolve every diff-scoped atom reads, and the sha it answers is
-// what the tools that diff for themselves (gremlins --diff, forge-testkit
-// scope --base) are handed too, because they take a two-tree diff as well.
-//
-// rev-parse --verify --quiet first, not merge-base alone: a missing object is
-// exit 128 from merge-base, which the engine reports as its own error even
-// under Expect ANY (foundry-tools#63); rev-parse answers 1. A merge-base that
-// exits non-zero (unrelated histories) or answers nothing is an error the
-// atom settles as could-not-run — a change set with no origin is not a
-// change set nothing touched.
-func (r *run) changeBase(ctx context.Context, ctr *dagger.Container) (string, error) {
-	_, code, err := output(ctx, ctr.WithExec([]string{"git", "rev-parse", "--verify", "--quiet", r.base + "^{commit}"}, anyExit))
-	if err != nil {
-		return "", fmt.Errorf("the atom never ran: %w", err)
-	}
-	if code != 0 {
-		return "", nil
-	}
-	out, code, err := output(ctx, ctr.WithExec([]string{"git", "merge-base", r.base, "HEAD"}, anyExit))
-	if err != nil {
-		return "", fmt.Errorf("the atom never ran: %w", err)
-	}
-	since := strings.TrimSpace(out)
-	if code != 0 || since == "" {
-		return "", fmt.Errorf("git found no merge base between the base %s and HEAD (exit %d): %s", r.base, code, out)
-	}
-	return since, nil
-}
-
 // population is THE GATE'S OWN POPULATION: the files the repository would
 // commit, minus what the fleet excludes, matching the patterns given (every
 // file when none is given). Patterns are Dagger globs — "**/*.yml".
@@ -928,4 +873,19 @@ func execEvidence(cmd []string, stdout, stderr string) string {
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// pythonFiles is the tree's own python (checks.PythonFiles), read once per run
+// off the gate's own population — the same shape as goModuleDirs, because the
+// two lanes now answer the same question about themselves.
+func (r *run) pythonFiles(ctx context.Context) ([]string, error) {
+	r.pyFilesOnce.Do(func() {
+		files, err := r.population(ctx, "**/*.py")
+		if err != nil {
+			r.pyFilesErr = err
+			return
+		}
+		r.pyFiles = checks.PythonFiles(files)
+	})
+	return r.pyFiles, r.pyFilesErr
 }

@@ -5,7 +5,22 @@ import (
 	"testing"
 )
 
+// mutationRows are the four mutation atoms' rows, which the catalogue gives the
+// whole module and this package (which cannot import the atoms) is given here.
+func mutationRows(t *testing.T) {
+	t.Helper()
+	old := atoms
+	t.Cleanup(func() { atoms = old })
+	UseDefs([]AtomDef{
+		{ID: "go:mutation", Stage: StageMutation, Lane: LaneGo},
+		{ID: "python:mutation", Stage: StageMutation, Lane: LanePython},
+		{ID: "rust:mutation", Stage: StageMutation, Lane: LaneRust},
+		{ID: "ts:mutation", Stage: StageMutation, Lane: LaneTS},
+	})
+}
+
 func TestSelectNarrowsToTheNamedAtoms(t *testing.T) {
+	mutationRows(t)
 	got, err := Select(AtomsForStage(StageMutation), "go:mutation")
 	if err != nil {
 		t.Fatalf("Select: %v", err)
@@ -16,6 +31,7 @@ func TestSelectNarrowsToTheNamedAtoms(t *testing.T) {
 }
 
 func TestSelectTakesAListAndTolerantWhitespace(t *testing.T) {
+	mutationRows(t)
 	got, err := Select(AtomsForStage(StageMutation), " go:mutation , python:mutation ")
 	if err != nil {
 		t.Fatalf("Select: %v", err)
@@ -43,6 +59,7 @@ func TestSelectRefusesAnUnknownAtom(t *testing.T) {
 // The mutation atom is not precommit; naming it in a precommit selector must say
 // so rather than answer an empty vector.
 func TestSelectRefusesAnAtomTheStageDoesNotAdmit(t *testing.T) {
+	mutationRows(t)
 	_, err := Select(AtomsForStage(StagePrecommit), "go:mutation")
 	if err == nil {
 		t.Fatal("a mutation atom was admitted into a precommit vector")

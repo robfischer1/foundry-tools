@@ -71,6 +71,16 @@ type atomEnv struct {
 	// flux holds live, and a pin that could not be read reaches the atom as
 	// ATOM_NARC_ERR, which it settles 2 with.
 	narc bool
+	// mutation says the atom grades the pull's mutants: it is handed the commit
+	// (ATOM_SHA) and, under --reuse, the run's record token (ATOM_MUTANTS_TOKEN)
+	// it asks the door what is already graded with. The atom removes the token
+	// from its own environment before it starts anything the tree wrote.
+	mutation bool
+	// fresh keys the atom's exec afresh on every ask (ATOM_ASK), so no earlier
+	// answer the engine cached stands in for this one. An atom that re-asks its
+	// own modules (reasksItsOwnModules) is asked once, whole: this is what the
+	// whole-atom re-ask's nonce was for.
+	fresh bool
 }
 
 // atomEnvironments are the atoms whose chain did not run in the plain lane
@@ -141,9 +151,32 @@ var atomEnvironments = map[string]atomEnv{
 	"fleet:witness":             {tools: true, facts: true, bind: witnessRun},
 	"fleet:renovate-config":     {container: renovateLane, nogit: true},
 
+	// The mutation lane's four atoms: each judges the change (the base) and is
+	// handed the commit and the lookup credential. go:mutation runs in the go lane
+	// with the dies and its own test servers (the union over the modules, bound
+	// under the lane's own alias: it runs beside go:test-race, and two suites that
+	// reset one schema per test tear it apart), and is keyed afresh on every ask.
+	// rust:mutation runs in the lane with cargo-mutants and nextest provisioned
+	// and no shared target (rustMutationLane). python and ts run in their lanes.
+	"go:mutation":     {facts: true, mutation: true, fresh: true, bind: goServersLane(mutationScope)},
+	"rust:mutation":   {container: (*run).rustMutationLane, facts: true, mutation: true},
+	"python:mutation": {facts: true, mutation: true},
+	"ts:mutation":     {facts: true, mutation: true},
 	// the ts lane with the lockfile's browsers, the commit its artifact is tagged
 	// by and, for the Dagger runner, the login it pushes with
 	"ts:visual": {container: visualLane, origin: true, bind: visualBind},
+}
+
+// mutationScope names the mutation gate's own test-server binding: any non-empty
+// word works; this one reads in a service alias (db-mutation) and in the DSN the
+// suite is handed.
+const mutationScope = "mutation"
+
+// withMutants arms a run's mutation atoms to reuse stored gradings under the
+// record token; nil grades every unit, as every run did before --reuse.
+func (r *run) withMutants(token *dagger.Secret) *run {
+	r.mutants = token
+	return r
 }
 
 // rustTestLane is the fetched rust lane with the per-repo target held LOCKED, the
@@ -201,6 +234,17 @@ func (r *run) atomEnvironment(ctx context.Context, e catalogue.Entry) *dagger.Co
 	}
 	if env.fork {
 		ctr = ctr.WithEnvVariable("ATOM_FORK", r.forkRecord(ctx))
+	}
+	if ok && env.mutation {
+		if r.sha != "" {
+			ctr = ctr.WithEnvVariable("ATOM_SHA", r.sha)
+		}
+		if r.mutants != nil {
+			ctr = ctr.WithSecretVariable("ATOM_MUTANTS_TOKEN", r.mutants)
+		}
+	}
+	if ok && env.fresh {
+		ctr = ctr.WithEnvVariable("ATOM_ASK", reaskNonce())
 	}
 	if env.facts || (ok && env.factsWhen != nil && env.factsWhen(ctx, r)) {
 		ctr = r.withBase(ctr).

@@ -97,11 +97,12 @@ func Ported(id string) bool {
 
 // toolchainImages are the lane images the toolchains name run in today.
 var toolchainImages = map[string]string{
-	"go":        checks.ImageGo,
-	"python":    checks.ImagePython,
-	"rust":      checks.ImageRust,
-	"rust-wasm": checks.ImageRustWasm,
-	"bun":       checks.ImageTS,
+	"go":          checks.ImageGo,
+	"python":      checks.ImagePython,
+	"rust":        checks.ImageRust,
+	"rust-trixie": checks.ImageRust, // the Dagger lane builds cargo-mutants from source on it
+	"rust-wasm":   checks.ImageRustWasm,
+	"bun":         checks.ImageTS,
 	// the pod runs ts:visual in a Playwright image; the Dagger runner installs the
 	// browsers into the ts lane
 	"playwright": checks.ImageTS,
