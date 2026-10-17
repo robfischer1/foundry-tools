@@ -157,6 +157,9 @@ type bundleLane struct {
 	// fleet die then derives data.fleet.stars and data.fleet.repos, and its
 	// suite runs beside the policy's.
 	derive bool
+	// table says the policy die carries a decision table this run derived
+	// (bundle_decisions.go): its built artifact is then gated for it.
+	table bool
 }
 
 // workDir is where the bundles are built, outside the mounted tree.
@@ -420,8 +423,13 @@ func (l *bundleLane) policy(ctx context.Context, tools *dagger.Container) (*dagg
 	}
 	bundleSay("policy: opa test clean, ouranos-self admits with 0 denials")
 
+	built, g := l.decisions(ctx, tools)
+	if g.code != buildlane.Clean {
+		return nil, g
+	}
+	l.table = built != tools
+
 	bundleSay("── policy: build the bundle and its SIGNED twin ──")
-	built := tools
 	for _, b := range [][]string{
 		{"opa", "build", "-b", "policy/", "-o", workDir + "/bundle.tar.gz", "--revision", l.m.Sha, "--ignore", "*_test.rego"},
 		{"opa", "build", "-b", "policy/", "-o", workDir + "/bundle-signed.tar.gz", "--revision", l.m.Sha, "--ignore", "*_test.rego", "--signing-key", "/run/opa/sign.key", "--signing-alg", "ES256"},
@@ -440,6 +448,9 @@ func (l *bundleLane) policy(ctx context.Context, tools *dagger.Container) (*dagg
 		return nil, g
 	}
 	if g := twin(ctx, built, "bundle.tar.gz", "bundle-signed.tar.gz", "the signed bundle"); g.code != buildlane.Clean {
+		return nil, g
+	}
+	if g := decisionsReached(ctx, built, l.table); g.code != buildlane.Clean {
 		return nil, g
 	}
 	if kms := l.kmsTwin("bundle-signed.tar.gz"); kms != "" && kms != "bundle-signed.tar.gz" {
