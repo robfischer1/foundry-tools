@@ -271,7 +271,8 @@ func bindTestKubes(ctr *dagger.Container, kubes []checks.TestKube, scope string)
 			WithEnvVariable(k.URLEnv, k.URLFor(scope)).
 			WithEnvVariable(k.TokenEnv, pki.Token).
 			WithEnvVariable(k.CAEnv, checks.KubeCAFile).
-			WithExec(k.WaitArgs(scope, pki.Token))
+			WithNewFile(checks.KubeAuthHeaderFile, pki.AuthHeader()).
+			WithExec(k.WaitArgs(scope))
 	}
 	return ctr
 }

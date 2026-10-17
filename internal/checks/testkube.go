@@ -43,6 +43,9 @@ const (
 	KubeEtcdPort = 2379
 	// KubeFilesDir is where the API server service finds its credentials.
 	KubeFilesDir = "/k"
+	// KubeAuthHeaderFile is the file the lane container finds the admin
+	// token's header line in, for curl's -H @file.
+	KubeAuthHeaderFile = KubeFilesDir + "/auth-header"
 	// KubeCAFile is where the lane container finds the CA the serving certificate
 	// verifies against; TEST_KUBE_CA_FILE names it.
 	KubeCAFile = "/run/test-kube/ca.crt"
@@ -128,6 +131,25 @@ func (k TestKube) APIServerArgs(scope string) []string {
 	}
 }
 
+// KubeService is the name the lane's failures give the API server.
+const KubeService = "kube-apiserver"
+
+// LaneName is the name a lane's failures give a scope: the empty scope is the
+// shared binding.
+func LaneName(scope string) string {
+	if scope == "" {
+		return "shared"
+	}
+	return scope
+}
+
+// NotReady is the line a lane that reaches KubeBootSeconds prints: it names the
+// service and the lane, so the failure reads without the argv.
+func (k TestKube) NotReady(scope string) string {
+	return KubeService + " (lane " + LaneName(scope) + ") not ready after KubeBootSeconds=" +
+		strconv.Itoa(KubeBootSeconds) + "s: GET /readyz"
+}
+
 // WaitArgs is the exec that holds the lane until the API server answers
 // GET /readyz with 200 under the admin token, bounded by KubeBootSeconds. A
 // service that is up (its port answers) is not a service that is ready: the
@@ -139,10 +161,13 @@ func (k TestKube) APIServerArgs(scope string) []string {
 // 500s /readyz answers while it boots into failures, and --retry-all-errors with
 // --retry-connrefused retries them, a second apart, until the bound. Past it the
 // exec fails — curl exits 22 for a status, 7 for a refused connection, 35 or 60
-// for a handshake that never verified — and the engine's error carries the whole
-// argv, whose URL names the service and the lane it belongs to. The bearer token
-// is in the argv; it is a throwaway the lane made and hands the suite anyway.
-func (k TestKube) WaitArgs(scope, token string) []string {
+// for a handshake that never verified — and curl's own %{onerror} write-out
+// prints NotReady on that failure alone, which the engine's error carries.
+//
+// NO CREDENTIAL ON ARGV: the bearer header is read from a file the lane
+// mounted (-H @file, KubeAuthHeaderFile), so the engine's error, which carries
+// the whole argv, never carries the token.
+func (k TestKube) WaitArgs(scope string) []string {
 	bound := strconv.Itoa(KubeBootSeconds)
 	return []string{
 		"curl", "--fail", "--silent", "--show-error", "--output", "/dev/null",
@@ -150,9 +175,30 @@ func (k TestKube) WaitArgs(scope, token string) []string {
 		"--retry-all-errors", "--retry-connrefused",
 		"--connect-timeout", "5", "--max-time", "10",
 		"--cacert", KubeCAFile,
-		"--header", "Authorization: Bearer " + token,
+		"-H", "@" + KubeAuthHeaderFile,
+		"--write-out", "%{onerror}" + k.NotReady(scope) + "\n",
 		k.URLFor(scope) + "/readyz",
 	}
+}
+
+// MissingEnv names, in the vocabulary's order, the variables getenv answers
+// empty for: the ones the lane did not bind.
+func (k TestKube) MissingEnv(getenv func(string) string) []string {
+	var out []string
+	for _, name := range []string{k.URLEnv, k.TokenEnv, k.CAEnv} {
+		if getenv(name) == "" {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// NotBound is the CANNOT RUN detail for a tree that carries k's tag on a lane
+// that did not bind its API server. The pod path is that lane today: it binds
+// the databases and the broker as sidecars and no kube-apiserver.
+func (k TestKube) NotBound(missing []string) string {
+	return k.Tag + ": " + strings.Join(missing, ", ") +
+		" not bound on this lane (the pod path binds no kube-apiserver; see atoms/go/test-race Needs)"
 }
 
 // TestKubesFor is the vocabulary's entries for the tags a tree carries, in

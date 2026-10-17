@@ -67,6 +67,17 @@ func GoSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race b
 		var brokers []checks.TestBroker
 		var kubes []checks.TestKube
 		dbs, brokers, kubes, scope = GoTestServers(ctx, in, cwd)
+		// A TREE THAT CARRIES live_kube NEEDS THE API SERVER THE LANE BINDS. The
+		// adapter binds one and sets the three variables; the pod path binds none.
+		// Compiling the suite with nothing behind it would fail every test on a
+		// missing URL, so the atom says it cannot run, and names what is absent.
+		for _, k := range kubes {
+			if missing := k.MissingEnv(in.getenv); len(missing) > 0 {
+				v := checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+k.NotBound(missing))
+				v.Reason = scope + "\n" + v.Reason
+				return v
+			}
+		}
 		args = append(args, "-race")
 		// `-p 1` for ANY kind. The databases share one server and the suites
 		// reset its schema; one broker serves every package and its isolation

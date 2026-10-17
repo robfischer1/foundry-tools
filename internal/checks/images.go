@@ -127,9 +127,8 @@ const (
 	//
 	// Digests are the manifest-list digests registry.k8s.io answers
 	// (docker-content-digest for the tag, resolved 2026-10-16). registry.k8s.io
-	// is NOT yet one of the engine's mirrors: these constants fail
-	// TestEveryImageComesThroughTheFleetMirror until the engine's
-	// registries.mirrors maps registry.k8s.io through registry-proxy-k8s (infra).
+	// is one of the engine's mirrors since flux 8ce9e7f2 (merged 83e5cd24),
+	// which maps it through registry-k8s.notusmi.com; see MirroredRegistries.
 	ImageKubeAPIServer = "registry.k8s.io/kube-apiserver:v1.36.3@sha256:b4bc06c81fd76f81174e6c19ddacf477acdf1583e7a5846ebbd513493aef6e43"
 	ImageEtcd          = "registry.k8s.io/etcd:3.6.8-0@sha256:397189418d1a00e500c0605ad18d1baf3b541a1004d768448c367e48071622e5"
 
@@ -514,7 +513,14 @@ const (
 // image from any other registry is a pull the fleet does not mirror. What is
 // pulled from INSIDE a lane container names one of those alias hosts in full
 // instead (trivy's databases), because the engine's mirror config cannot see it.
-var MirroredRegistries = []string{"docker.io/", "ghcr.io/", "gcr.io/"}
+//
+// registry.k8s.io/ is the engine's declared config, not yet its running config:
+// flux 8ce9e7f2 (merged to flux main as 83e5cd24, "feat(dagger): declare
+// registry.k8s.io mirror in engine config") routes it through
+// registry-k8s.notusmi.com, and the live engine adopts the entry at the next
+// deliberate DaemonSet roll. Until then buildkit's documented upstream fallback
+// serves the pull, so the images below resolve either way.
+var MirroredRegistries = []string{"docker.io/", "ghcr.io/", "gcr.io/", "registry.k8s.io/"}
 
 // CRDSchema is the schema location the kubeconform atom adds to the default
 // store, and the probe URL that proves it is reachable.

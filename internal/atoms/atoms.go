@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"os"
 	"time"
 
 	"dagger/foundry-tools/internal/checks"
@@ -100,11 +101,23 @@ type Input struct {
 	// Exec runs a program for the atoms whose tool is a program (opa, uv,
 	// orbitparse). Nil is the real thing (RunProgram).
 	Exec Exec
+	// Getenv reads the suite's environment, for the atoms whose verdict depends
+	// on what the lane bound (go:test-race and the three variables a live_kube
+	// suite is handed). Nil is the process's own (os.Getenv).
+	Getenv func(string) string
 	// Fork is the name of the foundry-dies record that declares this
 	// repository a fork of an upstream (kind vendored); "" for every repository
 	// the fleet authors, and for any doubt. The caller reads the record
 	// (forkRecord in package main) and passes it as -fork.
 	Fork string
+}
+
+// getenv is the suite's environment: Getenv, or the process's when none is set.
+func (in Input) getenv(name string) string {
+	if in.Getenv != nil {
+		return in.Getenv(name)
+	}
+	return os.Getenv(name)
 }
 
 // RunFunc answers one atom's verdict. The AtomDef is resolved by the registry

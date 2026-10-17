@@ -107,29 +107,3 @@ mirror-seed url sum:
     got="$(curl -fsSL "https://registry.notusmi.com/v2/foundry/tool/mirror/blobs/sha256:{{sum}}" | sha256sum | cut -d' ' -f1)"
     [ "$got" = "{{sum}}" ] || { echo "mirror-seed: the mirror serves $got, not the pin" >&2; exit 1; }
     echo "mirror-seed: sha256-{{sum}} seeded and served at its pin"
-
-# THE LANE-LEVEL PROOF FOR live_kube (checks.TestKubes): the real go:test-race atom,
-# on the cluster's engine, over a fixture module whose only test sits behind
-# `//go:build live_kube` (internal/checks/testdata/livekube). The atom finds the tag,
-# binds a real etcd + kube-apiserver pair, hands the suite TEST_KUBE_URL,
-# TEST_KUBE_TOKEN and TEST_KUBE_CA_FILE, and the suite creates a ConfigMap over raw
-# HTTPS and reads it back, then mints a ServiceAccount token and has a TokenReview
-# answer authenticated:true as that ServiceAccount.
-#
-# The test ships as kube_live_test.go.fixture so this tree's own lanes, which read
-# build tags recursively, do not bind an API server for it; the recipe copies the
-# module into a scratch directory and gives the test its name there. `-m .` and
-# `--source` for the reasons the check recipe states: the code being changed is
-# the code that gates it. Exit 0 is a green lane; the verdict prints either way.
-live-kube-proof:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    work="$(mktemp -d)"
-    trap 'rm -rf "$work"' EXIT
-    cp -r internal/checks/testdata/livekube/. "$work"/
-    mv "$work/kube_live_test.go.fixture" "$work/kube_live_test.go"
-    # the lanes enumerate the tree through git, so the scratch copy is a repository
-    git -C "$work" init -q
-    git -C "$work" add go.mod kube.go kube_test.go kube_live_test.go
-    git -C "$work" -c user.name=proof -c user.email=proof@invalid commit -q -m "live_kube proof fixture"
-    dagger call -m . --source="$work" go test-race

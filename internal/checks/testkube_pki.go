@@ -173,3 +173,10 @@ func (p KubePKI) Files() map[string]string {
 		"tokens.csv": p.Token + ",admin,admin,system:masters\n",
 	}
 }
+
+// AuthHeader is the admin token's header line, the contents of the file curl
+// reads with -H @file (KubeAuthHeaderFile): the credential lives in a file the
+// lane mounted, not on an argv the engine logs.
+func (p KubePKI) AuthHeader() string {
+	return "Authorization: Bearer " + p.Token + "\n"
+}
