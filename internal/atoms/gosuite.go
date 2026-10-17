@@ -73,14 +73,15 @@ func GoSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race b
 	if race {
 		var dbs []checks.TestDB
 		var brokers []checks.TestBroker
-		dbs, brokers, scope = GoTestServers(ctx, in, cwd)
+		var caches []checks.TestCache
+		dbs, brokers, caches, scope = GoTestServers(ctx, in, cwd)
 		args = append(args, "-race")
 		// `-p 1` for EITHER kind. The databases share one server and the suites
 		// reset its schema; one broker serves every package and its isolation
 		// unit is the topic. Parallel packages break both the same way.
 		var tagArgs []string
-		if len(dbs) > 0 || len(brokers) > 0 {
-			tagArgs = []string{"-tags", checks.BuildTags(dbs, brokers)}
+		if len(dbs) > 0 || len(brokers) > 0 || len(caches) > 0 {
+			tagArgs = []string{"-tags", checks.BuildTags(dbs, brokers, caches)}
 			args = append(args, tagArgs...)
 			args = append(args, "-p", "1")
 		}
@@ -120,22 +121,31 @@ func goTagRead(ctx context.Context, in Input, cwd string) (out string, code int)
 
 // GoTestServers is which test servers a module's suites need, and the scope
 // line the atom prints either way: the databases (checks.TestDBsFor over the
-// tree's tags) and the brokers (checks.SelectBrokers over the tags and the
-// Kafka flows the tree's own code states). The tree states both; no record is
-// asked. The adapter binds the same servers off the same reads.
-func GoTestServers(ctx context.Context, in Input, cwd string) ([]checks.TestDB, []checks.TestBroker, string) {
+// tree's tags), the brokers (checks.SelectBrokers over the tags and the Kafka
+// flows the tree's own code states) and the caches (checks.TestCachesFor over
+// the tags). The tree states all three; no record is asked. The adapter binds
+// the same servers off the same reads.
+func GoTestServers(ctx context.Context, in Input, cwd string) ([]checks.TestDB, []checks.TestBroker, []checks.TestCache, string) {
 	out, code := goTagRead(ctx, in, cwd)
 	var dbs []checks.TestDB
-	var dbLine string
+	var caches []checks.TestCache
+	var dbLine, cacheLine string
 	if code > 1 || code < 0 {
 		dbLine = checks.TestDBScope(nil, nil, "the tree's build tags could not be read")
+		cacheLine = checks.TestCacheScope(nil, "the tree's build tags could not be read")
 	} else {
 		tags := checks.GoBuildTags(out)
 		dbs = checks.TestDBsFor(tags)
+		caches = checks.TestCachesFor(tags)
 		if len(dbs) == 0 {
 			dbLine = checks.TestDBScope(nil, nil, "no test file sits behind a tag the fleet names")
 		} else {
-			dbLine = checks.TestDBScope(dbs, checks.UncompiledTags(tags, dbs, checks.TestBrokers), "")
+			dbLine = checks.TestDBScope(dbs, checks.UncompiledTags(tags, dbs, checks.TestBrokers, checks.TestCaches), "")
+		}
+		if len(caches) == 0 {
+			cacheLine = checks.TestCacheScope(nil, "no test file sits behind a tag the fleet names")
+		} else {
+			cacheLine = checks.TestCacheScope(caches, "")
 		}
 	}
 	flows, flowsErr := goTreeFlows(in)
@@ -147,7 +157,7 @@ func GoTestServers(ctx context.Context, in Input, cwd string) ([]checks.TestDB, 
 		Tags: out, TagsErr: tagsErr, TagsCode: code,
 		Flows: flows, FlowsErr: flowsErr,
 	})
-	return dbs, brokers, dbLine + "\n" + brokerLine
+	return dbs, brokers, caches, dbLine + "\n" + brokerLine + "\n" + cacheLine
 }
 
 // goTreeFlows counts the non-family Kafka flows the tree's own code states. No

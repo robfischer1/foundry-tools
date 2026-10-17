@@ -54,7 +54,7 @@ func TestUT_485_TheDeclarationIsTheRowItReplaced(t *testing.T) {
 	}
 	if Def.ID != "go:test-race" || Def.Stage != checks.StagePrepush || Def.Lane != checks.LaneGo || Def.Group != checks.GroupOf(Def.ID) ||
 		Def.Toolchain != "go" || Def.Surface != "any:**/go.mod" || Def.SubsumedBy != "" || Def.NotOnForks != "" ||
-		strings.Join(Def.Needs, ",") != "dies,service:postgres,service:pgvector,service:redpanda,tool:gravity" {
+		strings.Join(Def.Needs, ",") != "dies,service:postgres,service:pgvector,service:redpanda,service:redis,tool:gravity" {
 		t.Errorf("%+v", Def)
 	}
 	if atoms.GoRaceRow.ID != Def.ID || atoms.GoRaceRow.Stage != Def.Stage || atoms.GoRaceRow.Lane != Def.Lane {

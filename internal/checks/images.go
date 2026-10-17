@@ -120,6 +120,13 @@ const (
 	// that fixture and onto the lane's service does not also change broker build.
 	ImageRedpanda = "docker.notusmi.com/redpandadata/redpanda@sha256:6d627e3ebdc05438d1e8e3b55695ac1a7a0f79e7d5ca90b3b0f12dc984633e83"
 
+	// THE TEST CACHE a Go star's Redis-gated suites run against (testdb.go's
+	// TestCaches, tag `live_redis`): upstream redis 7-alpine through docker.io, the tag
+	// forge-testkit-go's containers.Redis boots, pinned by the digest the Nexus
+	// alias serves for it (resolved 2026-10-17) so a suite moving off that
+	// fixture and onto the lane's service does not also change server build.
+	ImageRedis = "docker.io/library/redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499"
+
 	// THE BUILD LANE'S TOOLS, run by their own entrypoints: cosign signs the
 	// published image and attests its SBOM, syft reads that SBOM, and the
 	// empty static base runs the lane's own two binaries (verdict, hadescall).
@@ -350,7 +357,7 @@ var LaneImages = []string{
 	ImageGo, ImagePython, ImageRust, ImageRustTrixie, ImageRustWasm, ImageTS, ImageFleet,
 	ImageUV, ImageNode, ImageTools,
 	ImageKubeconform, ImageKubeLinter, ImageRenovate,
-	ImagePgvector, ImagePostgres,
+	ImagePgvector, ImagePostgres, ImageRedis,
 }
 
 // The go command's coordinates inside a lane container.

@@ -88,6 +88,24 @@ func TestGoSuiteStopsAtAFailedDownload(t *testing.T) {
 	}
 }
 
+// A REDIS SUITE ALONE COMPILES ITS TAG, SERIALLY. The cache is one server and
+// its isolation unit is the keyspace, so the packages of the run do not overlap;
+// and the tag is in the -tags word, or the suite would compile OUT and the lane
+// would report green over tests that never built.
+func TestGoSuiteRaceCompilesALiveRedisTagSerially(t *testing.T) {
+	f := &golaneFake{rules: []golaneRule{
+		{"go list", "11\n", 0},
+		{"grep -rhoE", "//go:build live_redis\n", 0},
+	}}
+	v := gosuiteVerdict(t, f, map[string]string{"go.mod": gosuiteGo, "x_test.go": "//go:build live_redis\n\npackage x\n"}, true)
+	if v.State != 0 || !strings.Contains(v.Reason, "test caches: live_redis → TEST_REDIS_URL") || strings.Contains(v.Reason, "uncompiled") {
+		t.Fatalf("%+v", v)
+	}
+	if last := f.runs[len(f.runs)-1]; !strings.HasSuffix(last, ": go test -race -tags live_redis -p 1 -coverprofile "+checks.GoCoverProfile+" ./...") {
+		t.Errorf("the suite ran as %q", last)
+	}
+}
+
 // THE PUSH'S RUN IS THE RACE RUN against the tree's databases, one at a time,
 // writing the profile go:diff-coverage reads.
 func TestGoSuiteRaceCompilesTheTreesTagsSeriallyAndWritesTheProfile(t *testing.T) {
@@ -218,30 +236,37 @@ func TestTheTestServerScopeLinesSayWhyOnEveryBranch(t *testing.T) {
 		grep   golaneRule
 		dbs    int
 		brokes int
+		caches int
 		lines  []string
 	}{
-		{"no tagged suite and no flow", map[string]string{"go.mod": gosuiteGo}, "", golaneRule{"grep", "", 1}, 0, 0, []string{
+		{"no tagged suite and no flow", map[string]string{"go.mod": gosuiteGo}, "", golaneRule{"grep", "", 1}, 0, 0, 0, []string{
 			"test databases: none — no test file sits behind a tag the fleet names",
 			"test brokers: none — the tree states no kafka flow",
+			"test caches: none — no test file sits behind a tag the fleet names",
 		}},
-		{"tags unreadable", map[string]string{"go.mod": gosuiteGo}, "", golaneRule{"grep", "grep: x: Permission denied", 2}, 0, 0, []string{
+		{"tags unreadable", map[string]string{"go.mod": gosuiteGo}, "", golaneRule{"grep", "grep: x: Permission denied", 2}, 0, 0, 0, []string{
+			"test databases: none — the tree's build tags could not be read",
+			"test brokers: none",
+			"test caches: none — the tree's build tags could not be read",
+		}},
+		{"grep would not start", map[string]string{"go.mod": gosuiteGo}, "", golaneRule{"grep", "exec: grep: not found", -1}, 0, 0, 0, []string{
 			"test databases: none — the tree's build tags could not be read",
 			"test brokers: none",
 		}},
-		{"grep would not start", map[string]string{"go.mod": gosuiteGo}, "", golaneRule{"grep", "exec: grep: not found", -1}, 0, 0, []string{
-			"test databases: none — the tree's build tags could not be read",
-			"test brokers: none",
-		}},
-		{"flows unreadable", map[string]string{"go.mod": gosuiteGo}, "gone.go", golaneRule{"grep", "", 1}, 0, 0, []string{
+		{"flows unreadable", map[string]string{"go.mod": gosuiteGo}, "gone.go", golaneRule{"grep", "", 1}, 0, 0, 0, []string{
 			"test brokers: none — the tree's kafka flows could not be read (gone.go (",
 		}},
-		{"flows without a tagged suite", map[string]string{"go.mod": gosuiteGo, "flows.go": gosuiteFlow}, "", golaneRule{"grep", "//go:build live_db\n", 0}, 1, 0, []string{
+		{"flows without a tagged suite", map[string]string{"go.mod": gosuiteGo, "flows.go": gosuiteFlow}, "", golaneRule{"grep", "//go:build live_db\n", 0}, 1, 0, 0, []string{
 			"test databases: live_db → TEST_DATABASE_URL",
 			"test brokers: none — the tree states kafka flows but no test file sits behind a tag the fleet names",
 		}},
-		{"both", map[string]string{"go.mod": gosuiteGo, "flows.go": gosuiteFlow}, "", golaneRule{"grep", "//go:build live_db\n//go:build live_kafka\n", 0}, 1, 1, []string{
+		{"both", map[string]string{"go.mod": gosuiteGo, "flows.go": gosuiteFlow}, "", golaneRule{"grep", "//go:build live_db\n//go:build live_kafka\n", 0}, 1, 1, 0, []string{
 			"test databases: live_db → TEST_DATABASE_URL",
-			"test brokers: live_kafka → KAFKA_BOOTSTRAP; one broker serves every package — mint unique topic and group names per test",
+			"test brokers: live_kafka → KAFKA_BOOTSTRAP, TEST_KAFKA_BROKERS; one broker serves every package — mint unique topic and group names per test",
+		}},
+		{"a redis suite alone", map[string]string{"go.mod": gosuiteGo}, "", golaneRule{"grep", "//go:build live_redis\n", 0}, 0, 0, 1, []string{
+			"test databases: none — no test file sits behind a tag the fleet names",
+			"test caches: live_redis → TEST_REDIS_URL; one server per lane",
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -250,9 +275,9 @@ func TestTheTestServerScopeLinesSayWhyOnEveryBranch(t *testing.T) {
 			if tc.listed != "" {
 				in.Files = append(in.Files, tc.listed)
 			}
-			dbs, brokers, scope := GoTestServers(t.Context(), in, in.Root)
-			if len(dbs) != tc.dbs || len(brokers) != tc.brokes {
-				t.Errorf("dbs %v brokers %v", dbs, brokers)
+			dbs, brokers, caches, scope := GoTestServers(t.Context(), in, in.Root)
+			if len(dbs) != tc.dbs || len(brokers) != tc.brokes || len(caches) != tc.caches {
+				t.Errorf("dbs %v brokers %v caches %v", dbs, brokers, caches)
 			}
 			for _, want := range tc.lines {
 				if !strings.Contains(scope, want) {
@@ -263,7 +288,7 @@ func TestTheTestServerScopeLinesSayWhyOnEveryBranch(t *testing.T) {
 	}
 	// a tree that would not enumerate has no flows to read
 	in := Input{Root: t.TempDir(), FilesErr: errTreeGone, Exec: (&golaneFake{rules: []golaneRule{{"grep", "", 1}}}).exec}
-	if _, _, scope := GoTestServers(t.Context(), in, in.Root); !strings.Contains(scope, "test brokers: none — the tree's kafka flows could not be read (the tree would not enumerate: gone)") {
+	if _, _, _, scope := GoTestServers(t.Context(), in, in.Root); !strings.Contains(scope, "test brokers: none — the tree's kafka flows could not be read (the tree would not enumerate: gone)") {
 		t.Errorf("the scope:\n%s", scope)
 	}
 }
