@@ -129,6 +129,30 @@ spec = "https://github.com/mozilla/sccache/releases/download/v0.18.0/sccache-v0.
 version = "0.18.0"
 sha256 = "45f1447fbe231e3037bde351ef70677dd212216c8d62ae7ca409fecc4d6acc89"
 
+[tool.rust-clippy]
+kind = "url"
+spec = "https://static.rust-lang.org/dist/clippy-1.97.0-x86_64-unknown-linux-gnu.tar.gz"
+version = "1.97.0"
+sha256 = "b3fe2a650456f055f4163e7de8c230609a5daf72c204a4a64cc6b51b5eb72e3e"
+
+[tool.rust-rustfmt]
+kind = "url"
+spec = "https://static.rust-lang.org/dist/rustfmt-1.97.0-x86_64-unknown-linux-gnu.tar.gz"
+version = "1.97.0"
+sha256 = "7b5d4b02c8d0f7c3be64d3bc2e0738ccb06dc0492f81a93c4fcb223ff93f8b38"
+
+[tool.rust-wasm-clippy]
+kind = "url"
+spec = "https://static.rust-lang.org/dist/clippy-1.90.0-x86_64-unknown-linux-gnu.tar.gz"
+version = "1.90.0"
+sha256 = "0e1db6adef940dd21896dbd7a051e25056df2fede90591c583552f94e913af22"
+
+[tool.rust-wasm-rustfmt]
+kind = "url"
+spec = "https://static.rust-lang.org/dist/rustfmt-1.90.0-x86_64-unknown-linux-gnu.tar.gz"
+version = "1.90.0"
+sha256 = "61407015edaeafa9b61b3ffefb5077624cd4017ac50be05e246bcadafbb56d99"
+
 [tool.python-standalone]
 kind = "url"
 spec = "https://github.com/astral-sh/python-build-standalone/releases/download/20261013/cpython-3.14.8%2B20261013-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
