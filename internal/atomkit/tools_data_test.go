@@ -73,6 +73,10 @@ var urlPins = []struct {
 	{"cargo-audit", checks.CargoAuditURL, checks.CargoAuditVersion},
 	{"cargo-nextest", checks.CargoNextestURL, checks.CargoNextestVersion},
 	{"sccache", checks.SccacheURL, checks.SccacheVersion},
+	{"rust-clippy", checks.RustClippyURL, checks.RustComponentsTag},
+	{"rust-rustfmt", checks.RustRustfmtURL, checks.RustComponentsTag},
+	{"rust-wasm-clippy", checks.RustWasmClippyURL, checks.RustWasmComponentsTag},
+	{"rust-wasm-rustfmt", checks.RustWasmRustfmtURL, checks.RustWasmComponentsTag},
 	{"python-standalone", checks.PythonStandaloneURL, checks.FleetPythonVersion},
 }
 

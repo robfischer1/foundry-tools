@@ -50,6 +50,10 @@ var URLPins = []URLPin{
 	{"cargo-audit", "CargoAuditURL", "CargoAuditVersion"},
 	{"cargo-nextest", "CargoNextestURL", "CargoNextestVersion"},
 	{"sccache", "SccacheURL", "SccacheVersion"},
+	{"rust-clippy", "RustClippyURL", "RustComponentsTag"},
+	{"rust-rustfmt", "RustRustfmtURL", "RustComponentsTag"},
+	{"rust-wasm-clippy", "RustWasmClippyURL", "RustWasmComponentsTag"},
+	{"rust-wasm-rustfmt", "RustWasmRustfmtURL", "RustWasmComponentsTag"},
 	{"python-standalone", "PythonStandaloneURL", "FleetPythonVersion"},
 }
 

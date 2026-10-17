@@ -79,6 +79,12 @@ var ToolSHA256 = map[string]string{
 	// The rust containers' compile cache wrapper (images.go SccacheURL).
 	SccacheURL: "45f1447fbe231e3037bde351ef70677dd212216c8d62ae7ca409fecc4d6acc89",
 
+	// The rust containers' clippy and rustfmt (images.go RustClippyURL).
+	RustClippyURL:      "b3fe2a650456f055f4163e7de8c230609a5daf72c204a4a64cc6b51b5eb72e3e",
+	RustRustfmtURL:     "7b5d4b02c8d0f7c3be64d3bc2e0738ccb06dc0492f81a93c4fcb223ff93f8b38",
+	RustWasmClippyURL:  "0e1db6adef940dd21896dbd7a051e25056df2fede90591c583552f94e913af22",
+	RustWasmRustfmtURL: "61407015edaeafa9b61b3ffefb5077624cd4017ac50be05e246bcadafbb56d99",
+
 	// The oras client the build, bundle, cast and govern lanes push with: the
 	// publisher's own oras_1.3.4_checksums.txt line, equal to the asset's sum
 	// read 2026-10-12, when every fetch began going through the mirror (which

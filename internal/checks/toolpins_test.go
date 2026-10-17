@@ -9,13 +9,13 @@ import (
 // Every URL the tools container fetches has a checksum, and it is a SHA-256.
 func TestEveryToolPinHasAChecksum(t *testing.T) {
 	hex := regexp.MustCompile(`^[0-9a-f]{64}$`)
-	for _, url := range []string{OpaURL, OpengrepURL, HadolintURL, KubectlURL, ChezmoiURL, ComposeURL, WasmToolsURL, WasmTools1250URL, NodeRegenURL, WacURL, JustURL, ShellcheckURL, PythonStandaloneURL, CargoAuditURL, CargoNextestURL, OrasURL, SccacheURL} {
+	for _, url := range []string{OpaURL, OpengrepURL, HadolintURL, KubectlURL, ChezmoiURL, ComposeURL, WasmToolsURL, WasmTools1250URL, NodeRegenURL, WacURL, JustURL, ShellcheckURL, PythonStandaloneURL, CargoAuditURL, CargoNextestURL, OrasURL, SccacheURL, RustClippyURL, RustRustfmtURL, RustWasmClippyURL, RustWasmRustfmtURL} {
 		sum, ok := ToolSHA256[url]
 		if !ok || !hex.MatchString(sum) {
 			t.Errorf("%s has no SHA-256 in ToolSHA256 (got %q)", url, sum)
 		}
 	}
-	if len(ToolSHA256) != 17 {
+	if len(ToolSHA256) != 21 {
 		t.Errorf("ToolSHA256 holds %d entries; a stale line for a URL nothing fetches is a pin nobody checks", len(ToolSHA256))
 	}
 }
@@ -52,6 +52,24 @@ func TestSccachePinAgrees(t *testing.T) {
 	}
 	if SccacheMember != "sccache-v"+SccacheVersion+"-x86_64-unknown-linux-musl/sccache" {
 		t.Errorf("member %q does not match v%s", SccacheMember, SccacheVersion)
+	}
+}
+
+// The rust component tarballs are the toolchain images' own version: a bump of
+// an image tag that leaves its clippy and rustfmt behind would lay components
+// of another compiler over the toolchain.
+func TestRustComponentPinsFollowTheImages(t *testing.T) {
+	for _, tc := range []struct{ image, version, clippy, rustfmt string }{
+		{ImageRust, RustComponentsTag, RustClippyURL, RustRustfmtURL},
+		{ImageRustWasm, RustWasmComponentsTag, RustWasmClippyURL, RustWasmRustfmtURL},
+	} {
+		if !strings.Contains(tc.image, "library/rust:"+tc.version+"-") {
+			t.Errorf("image %s is not rust %s", tc.image, tc.version)
+		}
+		base := "https://static.rust-lang.org/dist/"
+		if tc.clippy != base+"clippy-"+tc.version+"-x86_64-unknown-linux-gnu.tar.gz" || tc.rustfmt != base+"rustfmt-"+tc.version+"-x86_64-unknown-linux-gnu.tar.gz" {
+			t.Errorf("components %s %s are not %s's", tc.clippy, tc.rustfmt, tc.version)
+		}
 	}
 }
 
