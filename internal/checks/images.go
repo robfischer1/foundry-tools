@@ -268,6 +268,18 @@ const (
 	// cargo-nextest's tarball carries the binary at its root.
 	CargoNextestURL    = "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.145/cargo-nextest-0.9.145-x86_64-unknown-linux-gnu.tar.gz"
 	CargoNextestMember = "cargo-nextest"
+
+	// sccache is the rust containers' RUSTC_WRAPPER (daedalus' in-pod executor
+	// points it at the node's L1 claim, or at S3 behind one setting). Upstream's
+	// static musl build: it runs on any libc, so the same asset serves rust and
+	// rust-wasm. No upstream image carries it, so it is a url tool, provisioned
+	// into the node cache once and never fetched per run. The checksum equals the
+	// releases API's own digest for the asset and the downloaded bytes.
+	// renovate: datasource=github-releases depName=mozilla/sccache
+	SccacheVersion = "0.18.0"
+	SccacheURL     = "https://github.com/mozilla/sccache/releases/download/v0.18.0/sccache-v0.18.0-x86_64-unknown-linux-musl.tar.gz"
+	// SccacheMember is the binary inside the tarball.
+	SccacheMember = "sccache-v0.18.0-x86_64-unknown-linux-musl/sccache"
 )
 
 // LaneImages is every image an atom may run in, so a test can assert the ONE

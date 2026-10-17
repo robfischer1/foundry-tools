@@ -1,5 +1,5 @@
-git.notusmi.com/rob/stellar-core-go v0.175.0 h1:PJjsjuVu143D0X0fBE4er4VFtqHbSntQ4+OhTzh4BYE=
-git.notusmi.com/rob/stellar-core-go v0.175.0/go.mod h1:weFow3As5uCJ+daCNLqUyY30SKxB9giEZ/qeg4SAt5A=
+git.notusmi.com/rob/stellar-core-go v0.221.0 h1:awAfd2f4mrAxoum15ADI2zVHtEJtVr23jpQwzrr95Q8=
+git.notusmi.com/rob/stellar-core-go v0.221.0/go.mod h1:bg/GXXwTM+uneWWfpTl31Vd6L1YB/TJv15dchooRhJI=
 github.com/BurntSushi/toml v1.6.0 h1:dRaEfpa2VI55EwlIW72hMRHdWouJeRF7TPYhI+AUQjk=
 github.com/BurntSushi/toml v1.6.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
 github.com/Microsoft/go-winio v0.6.4 h1:kJF2pamtYCWXf0xAT8sAkwKC0pMl2HYBrRPHAqyUc+g=
@@ -158,5 +158,5 @@ google.golang.org/protobuf v1.36.12 h1:pJOKDDOyeXErUroCihFAd5LQuwXBSpVnKGrj5o/fw
 google.golang.org/protobuf v1.36.12/go.mod h1:HTf+CrKn2C3g5S8VImy6tdcUvCska2kB7j23XfzDpco=
 gopkg.in/ini.v1 v1.67.3 h1:iM9Lhz5MRSGhHVGGwCuzG9KO8PoirCXj/m/qTmOJJQw=
 gopkg.in/ini.v1 v1.67.3/go.mod h1:x/cyOwCgZqOkJoDIJ3c1KNHMo10+nLGAhh+kn3Zizss=
-oras.land/oras-go/v2 v2.6.3 h1:72z4K9YiDKVB5jieM8cuB1WSVnbZkkD2hd+NmO3HYVI=
-oras.land/oras-go/v2 v2.6.3/go.mod h1:imXEFiYkTZUVVYkfv/r5GVmWeiLkGtNQA8FU4F/sjKs=
+oras.land/oras-go/v2 v2.6.4 h1:l4uv+UT7QK4Hju+KOEZ/c8iOjq3iZH7cULoRpUnSDAU=
+oras.land/oras-go/v2 v2.6.4/go.mod h1:imXEFiYkTZUVVYkfv/r5GVmWeiLkGtNQA8FU4F/sjKs=

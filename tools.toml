@@ -119,6 +119,12 @@ spec = "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.
 version = "0.9.145"
 sha256 = "32aa82416099eb12fffae9cf1a279ad201fecbd3f74826c613e32e9006b29867"
 
+[tool.sccache]
+kind = "url"
+spec = "https://github.com/mozilla/sccache/releases/download/v0.18.0/sccache-v0.18.0-x86_64-unknown-linux-musl.tar.gz"
+version = "0.18.0"
+sha256 = "45f1447fbe231e3037bde351ef70677dd212216c8d62ae7ca409fecc4d6acc89"
+
 [tool.python-standalone]
 kind = "url"
 spec = "https://github.com/astral-sh/python-build-standalone/releases/download/20261013/cpython-3.14.8%2B20261013-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"

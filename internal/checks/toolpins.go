@@ -75,6 +75,9 @@ var ToolSHA256 = map[string]string{
 	CargoAuditURL:   "7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428",
 	CargoNextestURL: "32aa82416099eb12fffae9cf1a279ad201fecbd3f74826c613e32e9006b29867",
 
+	// The rust containers' compile cache wrapper (images.go SccacheURL).
+	SccacheURL: "45f1447fbe231e3037bde351ef70677dd212216c8d62ae7ca409fecc4d6acc89",
+
 	// The oras client the build, bundle, cast and govern lanes push with: the
 	// publisher's own oras_1.3.4_checksums.txt line, equal to the asset's sum
 	// read 2026-10-12, when every fetch began going through the mirror (which

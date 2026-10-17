@@ -88,7 +88,7 @@ type Input struct {
 	// scan). Nil is the disk; a test says what a tree that will not walk does.
 	FS fs.FS
 	// Spire is the path of the SPIRE agent socket the lane pod forwarded, for
-	// fleet:witness's identified ask; "" names none and it asks in the clear.
+	// fleet:witness's identified ask; "" names none and it settles could-not-run: it never asks in the clear.
 	Spire string
 	// Witness is how fleet:witness reaches narcissus; the zero value is the
 	// production port.

@@ -85,6 +85,8 @@ var atomRuntimeDirs = []string{
 // and the judgements the orbit family reads.
 var (
 	libraryDirs = []string{"internal/atomlib/**"}
+	// witnessDirs: fleet:witness asks as the pod's SVID in its own process.
+	witnessDirs = []string{"internal/hadescall/**", "internal/witnesscall/**"}
 	orbitDirs   = []string{"internal/atomlib/**", "internal/orbitkit/**", "internal/orbitcompose/**", "internal/orbitlane/**"}
 )
 
@@ -92,6 +94,7 @@ var (
 // atom id. An atom that is not here imports nothing beyond atomRuntimeDirs.
 var atomLibraries = map[string][]string{
 	"compose:config":             libraryDirs,
+	"fleet:witness":              witnessDirs,
 	"compose:no-tracked-secrets": libraryDirs,
 	"compose:third-party-pins":   libraryDirs,
 	"ops:ansible":                libraryDirs,
