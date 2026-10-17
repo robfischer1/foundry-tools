@@ -13,15 +13,18 @@ import (
 	"dagger/foundry-tools/internal/checks/dieskit"
 )
 
-// Def is the atom.
+// Def is the atom. It writes the tree: the checker lays copies of it and unlinks
+// files in them (base_tree), and shutil.copytree keeps modes, so a read-only
+// tree would give it read-only copies.
 var Def = atomkit.Def{
 	ID: "dies:authz-grid", Stage: checks.StagePrepush, Lane: checks.LaneAny,
-	Group:     checks.GroupLanguage,
-	Desc:      "A pull that changes policy Rego moves no answer of the authz_v2 decision, decide or endpoint_decision grids: the pull's Rego and the base's are asked every cell over the head's data with time.now_ns pinned, and the first cells that moved are listed unless a commit carries an Authz-Semantics-Change trailer. A pull that touches no Rego passes unevaluated.",
-	Surface:   "any:**",
-	Toolchain: "python",
-	Needs:     []string{"tool:git", "tool:opa", "tool:uv"},
-	Check:     check,
+	Group:      checks.GroupLanguage,
+	Desc:       "A pull that changes policy Rego moves no answer of the authz_v2 decision, decide or endpoint_decision grids: the pull's Rego and the base's are asked every cell over the head's data with time.now_ns pinned, and the first cells that moved are listed unless a commit carries an Authz-Semantics-Change trailer. A pull that touches no Rego passes unevaluated.",
+	Surface:    "any:**",
+	Toolchain:  "python",
+	Needs:      []string{"tool:git", "tool:opa", "tool:uv"},
+	WritesTree: true,
+	Check:      check,
 }
 
 const id = "dies:authz-grid"
