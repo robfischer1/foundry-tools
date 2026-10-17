@@ -19,6 +19,12 @@ func (p *provision) layStd(ctx context.Context, exec execFunc, to string) error 
 	if err != nil {
 		return err
 	}
+	// THE POD'S HOME MAY ALREADY CARRY IT: serve composes the rust containers'
+	// rustup home per run with the pinned std laid and registered (daedalus
+	// serve/rustup.go), and laying it twice would list the component twice.
+	if _, err := os.Stat(filepath.Join(tc, "lib", "rustlib", "manifest-"+checks.RustStdWasmComponent)); err == nil {
+		return nil
+	}
 	dir := filepath.Join(p.work, checks.RustStdWasmComponent)
 	if err := p.fetch(ctx, checks.RustStdWasmURL, dir+".tar.gz"); err != nil {
 		return fmt.Errorf("rust-std %s: %v", checks.RustWasmComponentsTag, err)

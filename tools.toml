@@ -150,6 +150,18 @@ spec = "https://static.rust-lang.org/dist/rustfmt-1.97.0-x86_64-unknown-linux-gn
 version = "1.97.0"
 sha256 = "7b5d4b02c8d0f7c3be64d3bc2e0738ccb06dc0492f81a93c4fcb223ff93f8b38"
 
+[tool.rust-std]
+kind = "url"
+spec = "https://static.rust-lang.org/dist/rust-std-1.97.0-wasm32-unknown-unknown.tar.gz"
+version = "1.97.0"
+sha256 = "ebb7e78290ac440be505d701ca99101e9450ac5b8f701722f9c6a020cfd9bc89"
+
+[tool.rust-wasm-std]
+kind = "url"
+spec = "https://static.rust-lang.org/dist/rust-std-1.90.0-wasm32-unknown-unknown.tar.gz"
+version = "1.90.0"
+sha256 = "cbcd4ea55884e9c3d8d72e1497c70e9ed18c4a824d4d0f049006a245229d11af"
+
 [tool.rust-wasm-clippy]
 kind = "url"
 spec = "https://static.rust-lang.org/dist/clippy-1.90.0-x86_64-unknown-linux-gnu.tar.gz"

@@ -77,6 +77,8 @@ var urlPins = []struct {
 	{"mold", checks.MoldURL, checks.MoldRelease},
 	{"rust-clippy", checks.RustClippyURL, checks.RustComponentsTag},
 	{"rust-rustfmt", checks.RustRustfmtURL, checks.RustComponentsTag},
+	{"rust-std", checks.RustStdURL, checks.RustComponentsTag},
+	{"rust-wasm-std", checks.RustStdWasmURL, checks.RustWasmComponentsTag},
 	{"rust-wasm-clippy", checks.RustWasmClippyURL, checks.RustWasmComponentsTag},
 	{"rust-wasm-rustfmt", checks.RustWasmRustfmtURL, checks.RustWasmComponentsTag},
 	{"python-standalone", checks.PythonStandaloneURL, checks.FleetPythonVersion},

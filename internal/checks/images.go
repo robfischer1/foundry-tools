@@ -316,6 +316,7 @@ const (
 	RustWasmComponentsTag = "1.90.0"
 	RustClippyURL         = "https://static.rust-lang.org/dist/clippy-1.97.0-x86_64-unknown-linux-gnu.tar.gz"
 	RustRustfmtURL        = "https://static.rust-lang.org/dist/rustfmt-1.97.0-x86_64-unknown-linux-gnu.tar.gz"
+	RustStdURL            = "https://static.rust-lang.org/dist/rust-std-1.97.0-wasm32-unknown-unknown.tar.gz"
 	RustWasmClippyURL     = "https://static.rust-lang.org/dist/clippy-1.90.0-x86_64-unknown-linux-gnu.tar.gz"
 	RustWasmRustfmtURL    = "https://static.rust-lang.org/dist/rustfmt-1.90.0-x86_64-unknown-linux-gnu.tar.gz"
 

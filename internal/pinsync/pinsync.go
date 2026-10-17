@@ -54,6 +54,8 @@ var URLPins = []URLPin{
 	{"mold", "MoldURL", "MoldRelease"},
 	{"rust-clippy", "RustClippyURL", "RustComponentsTag"},
 	{"rust-rustfmt", "RustRustfmtURL", "RustComponentsTag"},
+	{"rust-std", "RustStdURL", "RustComponentsTag"},
+	{"rust-wasm-std", "RustStdWasmURL", "RustWasmComponentsTag"},
 	{"rust-wasm-clippy", "RustWasmClippyURL", "RustWasmComponentsTag"},
 	{"rust-wasm-rustfmt", "RustWasmRustfmtURL", "RustWasmComponentsTag"},
 	{"python-standalone", "PythonStandaloneURL", "FleetPythonVersion"},
