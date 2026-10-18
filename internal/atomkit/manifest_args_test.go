@@ -215,3 +215,43 @@ func TestTheNewFieldsRoundTripAndStayOutOfTheGolden(t *testing.T) {
 		t.Fatalf("got %+v\nwant %+v", out, in)
 	}
 }
+
+// TestPackageLikeEveryShape runs each branch of packageLike and matches.
+func TestPackageLikeEveryShape(t *testing.T) {
+	for arg, want := range map[string]bool{
+		"-v": false, "--": false, "-o=./x": false,
+		".": true, "..": true, "./pkg": true, "../pkg": true, "pkg/...": true, "...": true,
+		"example.com/x/y": true, "example.com/x": true,
+		"TestX": false, "pkg": false, "pkg/sub": false, "": false,
+	} {
+		if got := packageLike(arg); got != want {
+			t.Errorf("packageLike(%q) = %v, want %v", arg, got, want)
+		}
+	}
+	for _, c := range []struct {
+		arg, tok string
+		want     bool
+	}{
+		{"example.com/x/y", PackageToken, true}, {"-v", PackageToken, false},
+		{"-p", "-p", true}, {"--package=foo", "--package", true}, {"-pfoo", "-p", true},
+		{"--profile", "-p", false}, {"-race", "-race", true}, {"-racer", "-race", false},
+	} {
+		if got := matches(c.arg, c.tok); got != c.want {
+			t.Errorf("matches(%q, %q) = %v, want %v", c.arg, c.tok, got, c.want)
+		}
+	}
+}
+
+// TestComposeTailWithoutItsMarker: a tail group that names an until marker the
+// caller never passed goes at the very end, after any earlier tail group.
+func TestComposeTailWithoutItsMarker(t *testing.T) {
+	m := Manifest{Argv: []string{"x"}, Args: "append", Default: []Default{
+		{Args: []string{"A"}, Tail: true, Until: "--"}, {Args: []string{"B"}, Tail: true, Until: "--"},
+	}}
+	if got := m.Compose([]string{"c"}); !slices.Equal(got, []string{"x", "c", "A", "B"}) {
+		t.Fatalf("%v", got)
+	}
+	if got := m.Compose([]string{"c", "--", "d"}); !slices.Equal(got, []string{"x", "c", "A", "B", "--", "d"}) {
+		t.Fatalf("%v", got)
+	}
+}

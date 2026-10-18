@@ -146,18 +146,10 @@ func stringList(v any) ([]string, bool) {
 // manifest can add to its argv on its own, which the script rules read too.
 func defaultArgs(v any) []string {
 	var out []string
-	switch tables := v.(type) {
-	case []map[string]any:
-		for _, t := range tables {
-			args, _ := stringList(t["args"])
-			out = append(out, args...)
-		}
-	case []any:
-		for _, e := range tables {
-			t, _ := e.(map[string]any)
-			args, _ := stringList(t["args"])
-			out = append(out, args...)
-		}
+	tables, _ := v.([]map[string]any)
+	for _, t := range tables {
+		args, _ := stringList(t["args"])
+		out = append(out, args...)
 	}
 	return out
 }
