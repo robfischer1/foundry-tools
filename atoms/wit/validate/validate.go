@@ -15,14 +15,16 @@ import (
 )
 
 // Def is the atom. wasm-tools and just are the pinned binaries the tools
-// container carries.
+// container carries. pytools is the venv the tools container carries on PATH: a
+// repository's validate recipe may shell out to python3 (stellar-core's `tapes`
+// imports jsonschema), and the executor's bare interpreter has no packages.
 var Def = atomkit.Def{
 	ID: "wit:validate", Stage: checks.StagePrepush, Lane: checks.LaneAny,
 	Group:     checks.GroupLanguage,
 	Desc:      "The repository's own `just validate` passes — wasm-tools resolves every WIT package the tree carries.",
 	Surface:   "any:**",
 	Toolchain: "none",
-	Needs:     []string{"tool:wasm-tools", "tool:just"},
+	Needs:     []string{"pytools", "tool:wasm-tools", "tool:just"},
 	Check:     check,
 }
 

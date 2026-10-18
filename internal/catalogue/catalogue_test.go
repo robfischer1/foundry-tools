@@ -483,6 +483,16 @@ func TestDEF_B3_047_ThePythonOpsAtomsNeedThePytoolsVenv(t *testing.T) {
 	}
 }
 
+// TestDEF_B4_WitValidateNeedsThePytoolsVenv: wit:validate runs the repository's
+// own `just validate`, and a recipe that shells out to python3 (stellar-core's
+// `tapes` wants jsonschema) found a bare interpreter on the executor.
+func TestDEF_B4_WitValidateNeedsThePytoolsVenv(t *testing.T) {
+	e, ok := Lookup("wit:validate")
+	if !ok || e.Def == nil || !slices.Contains(e.Def.Needs, "pytools") {
+		t.Errorf("wit:validate: %+v", e.Def)
+	}
+}
+
 // TestDEF_B3_047_NoBinaryVotingPythonAtomRunsOnABareInterpreter: an atom that
 // votes in the binary by history and runs python on the executor names where its
 // packages come from: the venv (pytools) or uv (`uv run --with`).
