@@ -88,6 +88,8 @@ var (
 	// witnessDirs: fleet:witness asks as the pod's SVID in its own process.
 	witnessDirs = []string{"internal/hadescall/**", "internal/witnesscall/**"}
 	orbitDirs   = []string{"internal/atomlib/**", "internal/orbitkit/**", "internal/orbitcompose/**", "internal/orbitlane/**"}
+	// witreplayDirs: rust:wit-compose and dev:rust-replay are one body.
+	witreplayDirs = []string{"internal/witreplay/**"}
 	// releaseDirs are what the release atoms share: the release build's one
 	// implementation and the Dockerfile's reading of release/; the Rust compile
 	// adds the copy that carries a binary out of its target.
@@ -130,6 +132,8 @@ var atomLibraries = map[string][]string{
 	"ts:release":                 releaseDirs,
 	"template:render-matrix":     libraryDirs,
 	"ts:regen":                   {"internal/regenlane/**"},
+	"rust:wit-compose":           witreplayDirs,
+	"dev:rust-replay":            witreplayDirs,
 	"ts:visual":                  {"internal/visuallane/**", "internal/buildlane/**"},
 	"wit:validate":               libraryDirs,
 }
