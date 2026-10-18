@@ -113,6 +113,8 @@ var atomEnvironments = map[string]atomEnv{
 	// dev:go-regen: the plain rust lane (its tree is a Go repo) with the tools it execs
 	// on PATH (atom_env_goregen.go)
 	"dev:go-regen": {bind: goRegenTools},
+	// dev:rust-replay is the same body: the same lane, volume and tools
+	"dev:rust-replay": {container: witComposeLane, bind: witTools(true)},
 
 	// The release atoms (atom_env_release.go): the lane, or the image's own base
 	// for the two that build on it, handed the tree as facts.
