@@ -78,6 +78,7 @@ var ToolSHA256 = map[string]string{
 	ComposeURL:       "40343e21ca777173e69cff5dbafeb37c6f81f3b0d57d9e597f036e95eb63e76a",
 	WasmToolsURL:     "655b8df67d54c3ef9b52fc237c4e94bbfbb5f5f43825245cb0940a7002a9ed65",
 	WasmTools1250URL: "b746c34e7c4162b8812eb29397ebe076834e496a8c46fe68d793379a2741eb50",
+	WasmTools1261URL: "ad62b2176037e93e1348cb65d6212d128ca9f097b63d155569f25215818ff7b1",
 	NodeRegenURL:     "6e1db87ef58b8819e5d5402eff1536491b18edd8eb7bee5ef7897876e88dc5ff",
 	RustStdWasmURL:   "cbcd4ea55884e9c3d8d72e1497c70e9ed18c4a824d4d0f049006a245229d11af",
 	RustStdURL:       "ebb7e78290ac440be505d701ca99101e9450ac5b8f701722f9c6a020cfd9bc89",
@@ -106,6 +107,18 @@ var ToolSHA256 = map[string]string{
 	RustRustfmtURL:     "7b5d4b02c8d0f7c3be64d3bc2e0738ccb06dc0492f81a93c4fcb223ff93f8b38",
 	RustWasmClippyURL:  "0e1db6adef940dd21896dbd7a051e25056df2fede90591c583552f94e913af22",
 	RustWasmRustfmtURL: "61407015edaeafa9b61b3ffefb5077624cd4017ac50be05e246bcadafbb56d99",
+
+	// dev:go-regen's formatter and the rust compilers it lays (goregen_pins.go):
+	// go.dev's and static.rust-lang.org's own sums, equal to the downloaded bytes.
+	GofmtURL:               "42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d",
+	RustDist1971RustcURL:   "1c441e430c1cca49dff54a8d59c41038bf6f79f7b8756596cb2f36511a015eba",
+	RustDist1971CargoURL:   "90cbeb8adfe8ca0fcbe01a18bd9b99d3e5e98fd29c003032828ebf3ffba0e4ed",
+	RustDist1971StdURL:     "45b927ecf776b9645ca2ed5b287fc6814824a073c30c7c5d5c0ad4425295ecee",
+	RustDist1971StdWasmURL: "13902d5573eeea50701d75acc774b6df2dfb4942ec88cdbe40bb07e448c307ea",
+	RustDist1990RustcURL:   "238e72b8617f79bc96f27a5bfeb1a208b5755fe1a48f8bc190fe403ef6d54ab8",
+	RustDist1990CargoURL:   "c2b8ba1f59e7a230aa5522684f3f7aa620b98e5ad37683a5e5cf9b41f534fa1e",
+	RustDist1990StdURL:     "1dcaa01beb6bc78fdb13815b4f15214719167c58e3d79fbdf214591f8c195ee1",
+	RustDist1990StdWasmURL: "4dffdca3c11a88f18a35021cea4ed0279b41650c0e3e2e98928ecc28958bceba",
 
 	// The oras client the build, bundle, cast and govern lanes push with: the
 	// publisher's own oras_1.3.4_checksums.txt line, equal to the asset's sum

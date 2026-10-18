@@ -83,6 +83,15 @@ var urlPins = []struct {
 	{"rust-wasm-rustfmt", checks.RustWasmRustfmtURL, checks.RustWasmComponentsTag},
 	{"python-standalone", checks.PythonStandaloneURL, checks.FleetPythonVersion},
 	{"python-3-15", checks.PythonStandalone315URL, checks.PythonStandalone315Release},
+	{"gofmt", checks.GofmtURL, checks.GofmtGoRelease},
+	{"rustc-1-97-1", checks.RustDist1971RustcURL, checks.RustDist1971Tag},
+	{"cargo-1-97-1", checks.RustDist1971CargoURL, checks.RustDist1971Tag},
+	{"rust-std-1-97-1", checks.RustDist1971StdURL, checks.RustDist1971Tag},
+	{"rust-std-wasm-1-97-1", checks.RustDist1971StdWasmURL, checks.RustDist1971Tag},
+	{"rustc-1-99-0", checks.RustDist1990RustcURL, checks.RustDist1990Tag},
+	{"cargo-1-99-0", checks.RustDist1990CargoURL, checks.RustDist1990Tag},
+	{"rust-std-1-99-0", checks.RustDist1990StdURL, checks.RustDist1990Tag},
+	{"rust-std-wasm-1-99-0", checks.RustDist1990StdWasmURL, checks.RustDist1990Tag},
 }
 
 // goPins are the `go install` tools, as the module@version constants.

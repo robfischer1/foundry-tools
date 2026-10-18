@@ -49,6 +49,10 @@ const (
 type Input struct {
 	// Root is the repository root on disk.
 	Root string
+	// Args are the arguments the atom was started with after the root: the dev
+	// request's arguments, for the dev atoms that take them (dev:go-regen). Nil
+	// for every other atom.
+	Args []string
 	// Files is the gate's population: what the repository would commit, less
 	// the fleet exclude (checks.GatePopulation), sorted, slash-separated and
 	// relative to Root.

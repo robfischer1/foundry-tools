@@ -264,12 +264,26 @@ const (
 	WasmTools1250Member  = "wasm-tools-1.250.0-x86_64-linux/wasm-tools"
 )
 
+// WasmTools1261* is the version the composed cores of stellar-core-go record
+// ("wasm-tools 1.261.0"): dev:go-regen composes with it, because a different
+// wasm-tools writes a different component around the very same core modules
+// (MEASURED on classescore: 1.262.0 left every embedded module and the bindings
+// byte-identical and changed guest.wasm). The sum is the asset's, seeded in the
+// tool mirror.
+const (
+	WasmTools1261Version = "1.261.0"
+	WasmTools1261URL     = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.261.0/wasm-tools-1.261.0-x86_64-linux.tar.gz"
+	WasmTools1261Member  = "wasm-tools-1.261.0-x86_64-linux/wasm-tools"
+)
+
 // WasmToolsRelease answers the release asset for a recorded wasm-tools version:
 // its URL and the tarball member, or ok false when none is pinned.
 func WasmToolsRelease(version string) (url, member string, ok bool) {
 	switch version {
 	case WasmTools1250Version:
 		return WasmTools1250URL, WasmTools1250Member, true
+	case WasmTools1261Version:
+		return WasmTools1261URL, WasmTools1261Member, true
 	case WasmToolsVersion:
 		return WasmToolsURL, WasmToolsMember, true
 	}

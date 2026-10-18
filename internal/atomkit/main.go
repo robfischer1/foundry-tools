@@ -37,8 +37,9 @@ const defaultRoot = "/src"
 const reasonCap = 2000
 
 // Main is every logic atom's main(): `atom --describe` prints its index entry,
-// and `atom [root]` runs its Check over the tree and writes the verdict to
-// ATOM_OUT. It exits with the verdict's state (lld.md FN-079). Run through a link
+// and `atom [root [arg...]]` runs its Check over the tree and writes the verdict
+// to ATOM_OUT. The arguments after the root are the dev request's, which a dev
+// atom reads from In.Args (PlanEntry.Args, appended to the command line). It exits with the verdict's state (lld.md FN-079). Run through a link
 // named for one of the helpers the mutation atoms carry (atoms.RunHelper) it is
 // that helper instead.
 func Main(d Def) {
@@ -67,7 +68,11 @@ func run(d Def, args []string) int {
 	if out == "" {
 		out = workRoot + "/out/" + EscapeID(d.ID) + ".json"
 	}
-	v := verdictFor(d, root)
+	var extra []string
+	if len(args) > 2 {
+		extra = args[2:]
+	}
+	v := verdictFor(d, root, extra)
 	if err := WriteVerdict(out, v); err != nil {
 		fmt.Fprintf(stderr, "atomkit: verdict unwritable: %v\n", err)
 		return 2
@@ -77,12 +82,13 @@ func run(d Def, args []string) int {
 
 // verdictFor loads the tree, runs the Check under its deadline and fills in
 // what the atom may leave empty: its identity, its lines and its times.
-func verdictFor(d Def, root string) checks.Verdict {
+func verdictFor(d Def, root string, args []string) checks.Verdict {
 	started := now()
 	var v checks.Verdict
 	if in, err := LoadIn(root); err != nil {
 		v = cannotRun(d, err.Error())
 	} else {
+		in.Args = args
 		v = check(d, in)
 	}
 	if v.Atom == "" {

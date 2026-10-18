@@ -110,6 +110,9 @@ var atomEnvironments = map[string]atomEnv{
 	// (atom_env_rust.go); neither reads the other's output
 	"rust:wit-guest":   {container: witGuestLane, bind: witTools(false)},
 	"rust:wit-compose": {container: witComposeLane, bind: witTools(true)},
+	// dev:go-regen: the plain rust lane (its tree is a Go repo) with the tools it execs
+	// on PATH (atom_env_goregen.go)
+	"dev:go-regen": {bind: goRegenTools},
 	// dev:rust-replay is the same body: the same lane, volume and tools
 	"dev:rust-replay": {container: witComposeLane, bind: witTools(true)},
 

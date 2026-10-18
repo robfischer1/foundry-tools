@@ -10,13 +10,13 @@ import (
 // Every URL the tools container fetches has a checksum, and it is a SHA-256.
 func TestEveryToolPinHasAChecksum(t *testing.T) {
 	hex := regexp.MustCompile(`^[0-9a-f]{64}$`)
-	for _, url := range []string{OpaURL, OpengrepURL, HadolintURL, KubectlURL, ChezmoiURL, ComposeURL, WasmToolsURL, WasmTools1250URL, NodeRegenURL, RustStdWasmURL, RustStdURL, WacURL, JustURL, ShellcheckURL, PythonStandaloneURL, PythonStandalone315URL, CargoAuditURL, CargoNextestURL, CargoMutantsURL, OrasURL, SccacheURL, RustClippyURL, RustRustfmtURL, RustWasmClippyURL, RustWasmRustfmtURL, MoldURL} {
+	for _, url := range []string{OpaURL, OpengrepURL, HadolintURL, KubectlURL, ChezmoiURL, ComposeURL, WasmToolsURL, WasmTools1250URL, WasmTools1261URL, NodeRegenURL, RustStdWasmURL, RustStdURL, WacURL, JustURL, ShellcheckURL, PythonStandaloneURL, PythonStandalone315URL, CargoAuditURL, CargoNextestURL, CargoMutantsURL, OrasURL, SccacheURL, RustClippyURL, RustRustfmtURL, RustWasmClippyURL, RustWasmRustfmtURL, MoldURL, GofmtURL, RustDist1971RustcURL, RustDist1971CargoURL, RustDist1971StdURL, RustDist1971StdWasmURL, RustDist1990RustcURL, RustDist1990CargoURL, RustDist1990StdURL, RustDist1990StdWasmURL} {
 		sum, ok := ToolSHA256[url]
 		if !ok || !hex.MatchString(sum) {
 			t.Errorf("%s has no SHA-256 in ToolSHA256 (got %q)", url, sum)
 		}
 	}
-	if len(ToolSHA256) != 26 {
+	if len(ToolSHA256) != 36 {
 		t.Errorf("ToolSHA256 holds %d entries; a stale line for a URL nothing fetches is a pin nobody checks", len(ToolSHA256))
 	}
 }
@@ -184,7 +184,7 @@ func TestFleetPythonVersionIsAPatchOfTheFleetsPython(t *testing.T) {
 // The regen lane's wasm-tools release asset names its own version, its member is
 // the binary, and an unpinned version has no release (the lane compiles it).
 func TestWasmToolsReleaseAgrees(t *testing.T) {
-	for _, v := range []string{WasmTools1250Version, WasmToolsVersion} {
+	for _, v := range []string{WasmTools1250Version, WasmTools1261Version, WasmToolsVersion} {
 		url, member, ok := WasmToolsRelease(v)
 		if !ok || !strings.Contains(url, "/v"+v+"/wasm-tools-"+v+"-x86_64-linux.tar.gz") || member != "wasm-tools-"+v+"-x86_64-linux/wasm-tools" {
 			t.Errorf("WasmToolsRelease(%q) = %q, %q, %v", v, url, member, ok)

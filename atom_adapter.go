@@ -131,7 +131,8 @@ var atomLibraries = map[string][]string{
 	"rust:release":               rustReleaseDirs,
 	"ts:release":                 releaseDirs,
 	"template:render-matrix":     libraryDirs,
-	"ts:regen":                   {"internal/regenlane/**"},
+	"ts:regen":                   {"internal/regenlane/**", "internal/regenkit/**"},
+	"dev:go-regen":               {"internal/goregen/**", "internal/regenkit/**"},
 	"rust:wit-compose":           witreplayDirs,
 	"dev:rust-replay":            witreplayDirs,
 	"ts:visual":                  {"internal/visuallane/**", "internal/buildlane/**"},
@@ -164,23 +165,37 @@ func atomCompile(e catalogue.Entry) *dagger.Container {
 
 // runLogic compiles a logic atom and runs it in its environment.
 func runLogic(ctx context.Context, r *run, e catalogue.Entry) checks.Verdict {
+	ran, out, v := logicRan(ctx, r, e)
+	if v != nil {
+		return *v
+	}
+	return readVerdict(ctx, checks.AtomByID(e.ID), ran, out)
+}
+
+// logicRan compiles a logic atom and starts it in its environment, over /src and
+// the run's arguments (a dev atom's; none for the gate's). It answers the
+// container after the atom, which holds the tree the atom wrote, and the path of
+// its verdict; or, for an atom that did not compile, the verdict that says so.
+func logicRan(ctx context.Context, r *run, e catalogue.Entry) (*dagger.Container, string, *checks.Verdict) {
 	a := checks.AtomByID(e.ID)
 	built := atomCompile(e)
 	code, err := exitCodeOf(ctx, built)
 	if err != nil {
-		return cannotRun(a, "atom "+e.ID+" did not compile: "+err.Error())
+		v := cannotRun(a, "atom "+e.ID+" did not compile: "+err.Error())
+		return nil, "", &v
 	}
 	if code != 0 {
 		stderr, _ := built.Stderr(ctx)
-		return cannotRun(a, "atom "+e.ID+" did not compile: "+lastLines(strings.TrimSpace(stderr), 10))
+		v := cannotRun(a, "atom "+e.ID+" did not compile: "+lastLines(strings.TrimSpace(stderr), 10))
+		return nil, "", &v
 	}
 
 	out := "/work/out/" + atomkit.EscapeID(e.ID) + ".json"
 	ran := r.atomEnvironment(ctx, e).
 		WithFile("/atom", built.File("/out/atom"), dagger.ContainerWithFileOpts{Permissions: 0o755}).
 		WithEnvVariable("ATOM_OUT", out).
-		WithExec([]string{"/atom", "/src"}, anyExit)
-	return readVerdict(ctx, a, ran, out)
+		WithExec(append([]string{"/atom", "/src"}, r.args...), anyExit)
+	return ran, out, nil
 }
 
 // readVerdict reads the verdict an atom wrote at out. An atom that wrote none

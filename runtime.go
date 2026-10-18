@@ -69,6 +69,9 @@ type run struct {
 	// the caller's worktree path, hashed into the key.
 	dev  bool
 	tree string
+	// args are the dev request's arguments, appended to the command line of a
+	// dev atom that takes them (dev:go-regen); nil for every gate run.
+	args []string
 	// reask, when set, is written into every lane container past its toolchain
 	// layers, so every exec after it is keyed afresh and nothing the engine
 	// cached answers it (verdictFor's re-ask of a could-not-run).

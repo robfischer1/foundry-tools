@@ -25,6 +25,7 @@ import (
 	"dagger/foundry-tools/internal/atomkit"
 	"dagger/foundry-tools/internal/atoms"
 	"dagger/foundry-tools/internal/checks"
+	"dagger/foundry-tools/internal/regenkit"
 )
 
 const id = "ts:regen"
@@ -99,10 +100,7 @@ func (w *world) run(c atoms.Cmd) (string, error) {
 }
 
 // tail is the last lines of a program's output: enough to say why, one line.
-func tail(s string) string {
-	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
-	return strings.Join(lines[max(0, len(lines)-6):], " | ")
-}
+func tail(s string) string { return regenkit.Tail(s) }
 
 // do runs argv in dir with env; argv[0] is the program.
 func (w *world) do(dir string, env []string, argv []string, stdoutOnly bool) (string, error) {
