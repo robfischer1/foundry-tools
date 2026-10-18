@@ -21,7 +21,10 @@ var devAtoms = []struct {
 }{
 	{"dev:go-build", "go", "root:go.mod", "go", false},
 	{"dev:go-vet", "go", "root:go.mod", "go", false},
-	{"dev:go-test", "go", "root:go.mod", "go", false},
+	{"dev:go-check", "go", "root:go.mod", "go", false},
+	{"dev:go-lint", "go", "root:go.mod", "go", false},
+	{"dev:go-update", "go", "root:go.mod", "go", true},
+	{"dev:go-test", "go", "root:go.mod", "go", true},
 	{"dev:go-fmt", "go", "root:go.mod", "go", true},
 	{"dev:go-tidy", "go", "root:go.mod", "go", true},
 	{"dev:go-vendor", "go", "root:go.mod", "go", true},
@@ -29,6 +32,7 @@ var devAtoms = []struct {
 	{"dev:rust-build", "rust", "root:Cargo.toml", "rust", false},
 	{"dev:rust-test", "rust", "root:Cargo.toml", "rust", false},
 	{"dev:rust-clippy", "rust", "root:Cargo.toml", "rust", false},
+	{"dev:rust-lint", "rust", "root:Cargo.toml", "rust", false},
 	{"dev:rust-fmt", "rust", "root:Cargo.toml", "rust", true},
 	{"dev:rust-lock", "rust", "root:Cargo.toml", "rust", true},
 	{"dev:rust-update", "rust", "root:Cargo.toml", "rust", true},
@@ -42,9 +46,10 @@ var devAtoms = []struct {
 	{"dev:ts-typecheck", "ts", "root:package.json", "bun", true},
 }
 
-// TestUT_514_TheDevAtomsKeepTheirShape: all 21 parse, sit in the dev stage with
-// the Dev surface's fields, and write the tree for the six rewriting go/rust
-// verbs, the two python and the four ts ones (a ts install lands in node_modules,
+// TestUT_514_TheDevAtomsKeepTheirShape: all 25 parse, sit in the dev stage with
+// the Dev surface's fields, and write the tree for the go test (it rewrites
+// goldens), the go update and the six rewriting go/rust verbs, the python fmt
+// and the four ts ones (a ts install lands in node_modules,
 // beside the tree, so every ts verb runs on its own copy).
 func TestUT_514_TheDevAtomsKeepTheirShape(t *testing.T) {
 	for _, tc := range devAtoms {
@@ -59,8 +64,8 @@ func TestUT_514_TheDevAtomsKeepTheirShape(t *testing.T) {
 			t.Errorf("%s: %+v", tc.id, m)
 		}
 	}
-	if got := len(devAtoms); got != 21 {
-		t.Errorf("%d dev atoms in the table, want 21", got)
+	if got := len(devAtoms); got != 25 {
+		t.Errorf("%d dev atoms in the table, want 25", got)
 	}
 }
 
@@ -124,6 +129,7 @@ func TestTheDevAtomsCoverEveryDevlaneVerb(t *testing.T) {
 var (
 	devNeeds = map[string][]string{
 		"dev:go-test":          {"dies"},
+		"dev:go-lint":          {"tool:staticcheck"},
 		"dev:python-test":      {"tool:git", "tool:uv", "tool:jq", "tool:curl"},
 		"dev:python-lint":      {"tool:ruff"},
 		"dev:python-fmt":       {"tool:ruff"},
@@ -200,6 +206,10 @@ func manifestOf(t *testing.T, id string) atomkit.Manifest {
 var todaysArgv = map[string][]string{
 	"dev:go-build":    {"go", "build", "./..."},
 	"dev:go-vet":      {"go", "vet", "./..."},
+	"dev:go-check":    {"go", "vet", "./..."},
+	"dev:go-lint":     {"staticcheck", "-checks", gateStaticcheckChecks, "./..."},
+	"dev:go-update":   {"go", "get", "-u", "./..."},
+	"dev:rust-lint":   {"cargo", "clippy", "--workspace", "--all-targets", "--", "-W", "clippy::all", "-D", "warnings"},
 	"dev:go-test":     {"go", "test", "-race", "./..."},
 	"dev:go-fmt":      {"go", "fmt", "./..."},
 	"dev:go-tidy":     {"go", "mod", "tidy"},
@@ -215,8 +225,8 @@ var todaysArgv = map[string][]string{
 
 // TestTheDevAtomsKeepTodaysArgvWithNoArguments: the byte-identical guarantee.
 func TestTheDevAtomsKeepTodaysArgvWithNoArguments(t *testing.T) {
-	if len(todaysArgv) != 13 {
-		t.Fatalf("%d rows, want 13", len(todaysArgv))
+	if len(todaysArgv) != 17 {
+		t.Fatalf("%d rows, want 17", len(todaysArgv))
 	}
 	for id, want := range todaysArgv {
 		m := manifestOf(t, id)
@@ -300,6 +310,12 @@ func TestTheDevAtomsDocumentedArguments(t *testing.T) {
 		{"dev:rust-clippy", []string{"-p", "foo"}, []string{"cargo", "clippy", "--all-targets", "-p", "foo", "--", "-W", "clippy::all", "-D", "warnings"}},
 		{"dev:rust-clippy", []string{"--lib"}, []string{"cargo", "clippy", "--workspace", "--lib", "--", "-W", "clippy::all", "-D", "warnings"}},
 		{"dev:rust-clippy", []string{"--", "-A", "dead_code"}, []string{"cargo", "clippy", "--workspace", "--all-targets", "--", "-A", "dead_code"}},
+		{"dev:go-check", []string{"./pkg"}, []string{"go", "vet", "./pkg"}},
+		{"dev:go-lint", []string{"./pkg"}, []string{"staticcheck", "-checks", gateStaticcheckChecks, "./pkg"}},
+		{"dev:go-update", []string{"golang.org/x/net@v0.40.0"}, []string{"go", "get", "golang.org/x/net@v0.40.0"}},
+		{"dev:go-update", []string{"-t"}, []string{"go", "get", "-u", "-t", "./..."}},
+		{"dev:go-update", []string{"-u=patch"}, []string{"go", "get", "-u=patch", "./..."}},
+		{"dev:rust-lint", []string{"-p", "foo"}, []string{"cargo", "clippy", "--all-targets", "-p", "foo", "--", "-W", "clippy::all", "-D", "warnings"}},
 		{"dev:go-fmt", []string{"./pkg"}, []string{"go", "fmt", "./pkg"}},
 		{"dev:go-tidy", []string{"-v"}, []string{"go", "mod", "tidy", "-v"}},
 		{"dev:go-vendor", []string{"-v"}, []string{"go", "mod", "vendor", "-v"}},
@@ -310,11 +326,13 @@ func TestTheDevAtomsDocumentedArguments(t *testing.T) {
 	}
 }
 
-// TestOnlyTheLockfileVerbsSkipThePreflight: dev:rust-lock and dev:rust-update
-// exist for a stale or missing Cargo.lock, which `cargo fetch --locked` refuses.
+// TestOnlyTheLockfileVerbsSkipThePreflight: dev:rust-lock, dev:rust-update and
+// dev:go-update exist for a stale or missing lockfile, which the toolchain's
+// preflight (`cargo fetch --locked`; `go mod download` over a go.mod that go get
+// is about to change) would refuse before the verb could mend it.
 func TestOnlyTheLockfileVerbsSkipThePreflight(t *testing.T) {
 	for _, tc := range devAtoms {
-		want := tc.id != "dev:rust-lock" && tc.id != "dev:rust-update"
+		want := tc.id != "dev:rust-lock" && tc.id != "dev:rust-update" && tc.id != "dev:go-update"
 		if got := manifestOf(t, tc.id).RunsPreflight(); got != want {
 			t.Errorf("%s: RunsPreflight %v, want %v", tc.id, got, want)
 		}
@@ -518,6 +536,53 @@ func TestTheReadOnlyPythonDevAtomsWriteOffTheTree(t *testing.T) {
 		for k, v := range m.Env {
 			if k != "PYTHONDONTWRITEBYTECODE" && !strings.Contains(v, "/tmp/") {
 				t.Errorf("%s: %s=%s is not under /tmp", tc.id, k, v)
+			}
+		}
+	}
+}
+
+// gateStaticcheckChecks is the -checks value go:staticcheck runs.
+const gateStaticcheckChecks = "all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-ST1023"
+
+// TestTheCheckLintAndUpdateVerbsAreTheirTwins: dev:go-check is go:vet's command
+// (the commit stage's compile-bearing go atom) and dev:go-vet's twin; dev:go-lint
+// is go:staticcheck's argv and need, flag for flag; dev:rust-lint is dev:rust-clippy
+// under the other name the refusal shim routes; dev:go-test writes the tree
+// (it rewrites goldens) and dev:go-update, which mends go.mod, skips the preflight.
+func TestTheCheckLintAndUpdateVerbsAreTheirTwins(t *testing.T) {
+	vet, check := manifestOf(t, "dev:go-vet"), manifestOf(t, "dev:go-check")
+	if !slices.Equal(vet.Compose(nil), check.Compose(nil)) || vet.Toolchain != check.Toolchain || !strings.Contains(check.Desc, "go:vet") {
+		t.Errorf("dev:go-check %v (%s) is not dev:go-vet %v", check.Compose(nil), check.Desc, vet.Compose(nil))
+	}
+	e, ok := Lookup("go:staticcheck")
+	if !ok || e.Manifest == nil {
+		t.Fatal("go:staticcheck has no manifest")
+	}
+	lint := manifestOf(t, "dev:go-lint")
+	if !slices.Equal(lint.Compose(nil), e.Manifest.Argv) || !slices.Equal(lint.Needs, e.Manifest.Needs) || lint.Toolchain != e.Manifest.Toolchain {
+		t.Errorf("dev:go-lint %v %v, go:staticcheck %v %v", lint.Compose(nil), lint.Needs, e.Manifest.Argv, e.Manifest.Needs)
+	}
+	clippy, rl := manifestOf(t, "dev:rust-clippy"), manifestOf(t, "dev:rust-lint")
+	if !slices.Equal(clippy.Compose(nil), rl.Compose(nil)) || !slices.Equal(clippy.Needs, rl.Needs) || clippy.Timeout != rl.Timeout {
+		t.Errorf("dev:rust-lint %v is not dev:rust-clippy %v", rl.Compose(nil), clippy.Compose(nil))
+	}
+	for _, id := range []string{"dev:go-test", "dev:go-update"} {
+		if !manifestOf(t, id).WritesTree {
+			t.Errorf("%s does not write the tree", id)
+		}
+	}
+}
+
+// TestEveryShimRouteHasAnAtom: the rob02 refusal shims send go and cargo
+// commands to ask dev verbs; each verb must exist for its language.
+func TestEveryShimRouteHasAnAtom(t *testing.T) {
+	for lang, verbs := range map[string][]string{
+		"go":   {"build", "test", "vet", "update", "tidy", "check", "lint"},
+		"rust": {"build", "check", "test", "clippy", "lint"},
+	} {
+		for _, v := range verbs {
+			if _, ok := Lookup("dev:" + lang + "-" + v); !ok {
+				t.Errorf("dev:%s-%s has no manifest", lang, v)
 			}
 		}
 	}

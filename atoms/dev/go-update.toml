@@ -1,0 +1,30 @@
+schema = "command-atom@1"
+id = "dev:go-update"
+stage = "dev"
+lane = "go"
+group = "language"
+desc = "go get -u ./... rewrites go.mod and go.sum in place; a named module@version replaces the default."
+surface = "root:go.mod"
+toolchain = "go"
+argv = ["go", "get"]
+args = "append"
+per_module = false
+judge = "exit"
+writes_tree = true
+preflight = false
+
+# preflight = false: the toolchain's `go mod download` reads go.mod and go.sum as
+# they stand, and this verb exists to change them (as dev:rust-update does for
+# Cargo.lock); go get fetches what it needs itself.
+#
+# With no module or package the caller means every dependency of the tree:
+# `go get -u ./...`. Naming one (golang.org/x/net@v0.40.0) replaces ./... and
+# drops -u, so only that module moves.
+[[default]]
+args = ["-u"]
+unless = ["-u", "@package"]
+
+[[default]]
+args = ["./..."]
+unless = ["@package"]
+tail = true

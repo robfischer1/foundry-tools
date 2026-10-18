@@ -139,8 +139,8 @@ func TestUT_718_NoManifestIsAbsent(t *testing.T) {
 func TestIT_349_TheLandedManifestsAreOneCommand(t *testing.T) {
 	root := "../../.."
 	paths, _ := filepath.Glob(filepath.Join(root, "atoms", "*", "*.toml"))
-	if len(paths) != 28 {
-		t.Fatalf("%d manifests, want 28", len(paths))
+	if len(paths) != 32 {
+		t.Fatalf("%d manifests, want 32", len(paths))
 	}
 	var files, want []string
 	for _, p := range paths {
