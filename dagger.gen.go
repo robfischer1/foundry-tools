@@ -1762,6 +1762,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*FoundryTools).Python(&parent), nil
+		case "RegenTs":
+			var parent FoundryTools
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var args []string
+			if inputArgs["args"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["args"]), &args)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg args", err))
+				}
+			}
+			var fresh bool
+			if inputArgs["fresh"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["fresh"]), &fresh)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg fresh", err))
+				}
+			}
+			return (*FoundryTools).RegenTs(&parent, ctx, args, fresh)
 		case "Release":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)

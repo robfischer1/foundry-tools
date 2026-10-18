@@ -151,35 +151,42 @@ func regenWorld(ctx context.Context, in atomkit.In, p *provision, name string) c
 // measure reads every pin, builds the guest, transpiles it and answers every
 // probe: a measurement and the pin it is held to.
 func (w *world) measure(gen string) ([]checks.RegenProbe, error) {
+	probes, _, err := w.measureBuilt(gen)
+	return probes, err
+}
+
+// measureBuilt is measure that also answers what the build left, for the twin
+// that writes the regenerated hashes down.
+func (w *world) measureBuilt(gen string) ([]checks.RegenProbe, built, error) {
 	var probes []checks.RegenProbe
 	pins, err := w.pins()
 	if err != nil {
-		return nil, err
+		return nil, built{}, err
 	}
 	probes = append(probes, pins...)
 	core, err := w.core()
 	if err != nil {
-		return nil, err
+		return nil, built{}, err
 	}
 	for _, c := range w.prov.CoreCopies() {
 		sum, err := checks.SHA256File(filepath.Join(core, c.Path))
 		if err != nil {
-			return nil, fmt.Errorf("core %s@%s: %v", c.Path, w.prov.Core.Commit, err)
+			return nil, built{}, fmt.Errorf("core %s@%s: %v", c.Path, w.prov.Core.Commit, err)
 		}
 		probes = append(probes, checks.RegenProbe{Label: "core " + c.Path + " (guest's own copy)", Got: sum, Pinned: c.SHA256})
 	}
-	built, err := w.build(core)
+	b, err := w.build(core)
 	if err != nil {
-		return nil, err
+		return nil, built{}, err
 	}
-	transpiled, err := w.transpile(built)
+	transpiled, err := w.transpile(b)
 	if err != nil {
-		return nil, err
+		return nil, built{}, err
 	}
 	return append(probes,
-		checks.RegenProbe{Label: "guest.wasm", Got: built.guest, Pinned: w.prov.GuestWasm.SHA256},
-		checks.RegenProbe{Label: w.name + ".component.wasm", Got: built.component, Pinned: w.prov.ComponentWasm.SHA256},
-		checks.RegenProbe{Label: "wasm-tools", Got: checks.RegenToolVersion(built.wasmTools), Pinned: w.prov.Tools.WasmTools},
-		checks.RegenProbe{Label: "rustc", Got: strings.TrimSpace(built.rustc), Pinned: w.prov.Core.Toolchain},
-		checks.RegenProbe{Label: "jco", Got: strings.TrimSpace(transpiled), Pinned: w.prov.Tools.JCO}), nil
+		checks.RegenProbe{Label: "guest.wasm", Got: b.guest, Pinned: w.prov.GuestWasm.SHA256},
+		checks.RegenProbe{Label: w.name + ".component.wasm", Got: b.component, Pinned: w.prov.ComponentWasm.SHA256},
+		checks.RegenProbe{Label: "wasm-tools", Got: checks.RegenToolVersion(b.wasmTools), Pinned: w.prov.Tools.WasmTools},
+		checks.RegenProbe{Label: "rustc", Got: strings.TrimSpace(b.rustc), Pinned: w.prov.Core.Toolchain},
+		checks.RegenProbe{Label: "jco", Got: strings.TrimSpace(transpiled), Pinned: w.prov.Tools.JCO}), b, nil
 }

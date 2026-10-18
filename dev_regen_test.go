@@ -107,3 +107,22 @@ func TestDevRegenNeedsTheAtomInTheRegistry(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
+
+func TestRegenTsRunsTheWriteTwinOverTheSource(t *testing.T) {
+	engine.reset()
+	engine.withTree(map[string]string{"package.json": "{}\n"})
+	engine.contents("dev__ts-regen.json", `{"atom":"dev:ts-regen","stage":"dev","lane":"ts","state":0,"result":"pass","logs":[]}`)
+	dir, err := (&FoundryTools{Source: dag.Directory()}).RegenTs(t.Context(), []string{"stamp", "tail"}, false)
+	if err != nil || dir == nil {
+		t.Fatalf("%v %v", dir, err)
+	}
+	wantCalls(t, engine.chain("dev__ts-regen.json", "contents"), []string{"withExec", "expect:ANY", `args:["/atom","/src","stamp","tail"]`})
+
+	engine.reset()
+	engine.withTree(map[string]string{"package.json": "{}\n"})
+	engine.contents("dev__ts-regen.json", `{"atom":"dev:ts-regen","stage":"dev","lane":"ts","state":1,"result":"fail","reason":"dev:ts-regen: pin moved","logs":[]}`)
+	engine.fail(`"/usr/local/bin/verdict"`, "exit code: 1")
+	if _, err := (&FoundryTools{Source: dag.Directory()}).RegenTs(t.Context(), nil, true); err == nil || !strings.Contains(err.Error(), "exit code: 1") {
+		t.Fatalf("%v", err)
+	}
+}

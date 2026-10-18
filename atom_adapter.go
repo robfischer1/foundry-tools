@@ -132,6 +132,7 @@ var atomLibraries = map[string][]string{
 	"ts:release":                 releaseDirs,
 	"template:render-matrix":     libraryDirs,
 	"ts:regen":                   {"internal/regenlane/**", "internal/regenkit/**"},
+	"dev:ts-regen":               {"internal/regenlane/**", "internal/regenkit/**"},
 	"dev:go-regen":               {"internal/goregen/**", "internal/regenkit/**"},
 	"rust:wit-compose":           witreplayDirs,
 	"dev:rust-replay":            witreplayDirs,
