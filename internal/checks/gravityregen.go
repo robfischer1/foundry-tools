@@ -174,3 +174,11 @@ var GravityPrebuilt = map[string]string{
 	"68d8146b88e53e619bfbc0a36b9d70ef9c3bcf06": "db5a9f0bec3976e9fe84ae8e6f4d6afa2409c0fb556d9646f489b44e96afa395",
 	"aeb03bfd4a6f14e29b1a91dcdfad05e02695db39": "7580e6e5e58efe11ec2427e79ad6e242397745778e418331e9de8365dc700253",
 }
+
+// GravitySHA256Env is the variable a regen test reads for the sha256 (lowercase
+// hex) of the gravity binary the lane staged. It is in the suite's environment
+// for ONE reason: go test keys a variable the test reads by value and never
+// sees a binary outside the module, so a changed generator is a re-run and not
+// a "(cached)" pass. The test also holds the binary to it. Unset means no
+// generator is staged (the test skips, or fails under <PACKAGE>_REGEN_REQUIRED).
+const GravitySHA256Env = "GRAVITY_SHA256"

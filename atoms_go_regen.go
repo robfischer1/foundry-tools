@@ -22,6 +22,11 @@ import (
 //   - sets <PACKAGE>_REGEN_REQUIRED=1, so the regenerate-and-diff test that
 //     skips when no gravity is on PATH fails instead.
 //
+// GRAVITY_SHA256 IS NOT SET HERE. The suite (internal/atoms GoSuite) hashes the
+// file it finds on PATH, or the one GRAVITY names, and exports the sum to go
+// test, so the value is the hash of the bytes staged on this runner and the
+// executor's alike, and the lane cannot disagree with a table.
+//
 // WHY BUILT AT THE REV AND NOT THE CAST. app/gravity:stable moves with gravity's
 // main, and the test refuses a binary whose --version does not carry the commit
 // provenance.json pins (gravity main is already past f450dd4). A cast tag names a
