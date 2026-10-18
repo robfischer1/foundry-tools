@@ -88,22 +88,22 @@ func TestLiveKubeIsCompiledNotUncompiled(t *testing.T) {
 	dbs := TestDBsFor(tags)
 	brokers := TestBrokersFor(tags)
 	kubes := TestKubesFor(tags)
-	if got := BuildTags(dbs, brokers, kubes); got != "live_db,live_kafka,live_kube" {
+	if got := BuildTags(dbs, brokers, nil, kubes); got != "live_db,live_kafka,live_kube" {
 		t.Errorf("BuildTags = %q", got)
 	}
-	if got := BuildTags(nil, nil, kubes); got != "live_kube" {
+	if got := BuildTags(nil, nil, nil, kubes); got != "live_kube" {
 		t.Errorf("BuildTags(kubes only) = %q", got)
 	}
-	if got := BuildTags(nil, nil, nil); got != "" {
+	if got := BuildTags(nil, nil, nil, nil); got != "" {
 		t.Errorf("BuildTags(nothing) = %q", got)
 	}
-	if got := UncompiledTags(tags, dbs, brokers, kubes); !reflect.DeepEqual(got, []string{"integration"}) {
+	if got := UncompiledTags(tags, dbs, brokers, nil, kubes); !reflect.DeepEqual(got, []string{"integration"}) {
 		t.Errorf("UncompiledTags = %v, want only the tag no vocabulary names", got)
 	}
 	// Told nothing about the kubes found, it is the VOCABULARY the caller passes
 	// (as it does for brokers), and the tag is still named when no vocabulary row
 	// is handed over.
-	if got := UncompiledTags([]string{"live_kube"}, nil, nil, nil); !reflect.DeepEqual(got, []string{"live_kube"}) {
+	if got := UncompiledTags([]string{"live_kube"}, nil, nil, nil, nil); !reflect.DeepEqual(got, []string{"live_kube"}) {
 		t.Errorf("UncompiledTags with an empty vocabulary = %v", got)
 	}
 }

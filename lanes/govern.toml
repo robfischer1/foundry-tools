@@ -2,16 +2,12 @@ schema = "lane@1"
 lane = "govern"
 stages = ["govern"]
 
-[[phase]]
-name = "resolve"
-kind = "fanout"
-atoms = ["govern:resolve-tags"]
-
+# One phase. The cast resolves and cosign-verifies each consumer channel itself
+# (govern.go / daedalus capability/governlane.go), so no atom precedes it.
 # ca-cast-lane is the secret the governance-cast CronJob mounts today
 # (flux forge/governance-cast.yaml).
 [[phase]]
 name = "cast"
 kind = "sequence"
 capability = "layer-cast"
-after = ["resolve"]
 secrets = ["ca-cast-lane"]

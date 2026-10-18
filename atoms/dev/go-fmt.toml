@@ -1,0 +1,19 @@
+schema = "command-atom@1"
+id = "dev:go-fmt"
+stage = "dev"
+lane = "go"
+group = "language"
+desc = "go fmt ./... rewrites the tree's Go files in place."
+surface = "root:go.mod"
+toolchain = "go"
+argv = ["go", "fmt"]
+args = "append"
+per_module = false
+judge = "exit"
+writes_tree = true
+
+[[default]]
+args = ["./..."]
+unless = ["@package"]
+tail = true
+until = "-args"

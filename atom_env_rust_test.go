@@ -17,9 +17,10 @@ import (
 const (
 	// rustClippyNeedle and rustTestNeedle are the files the adapter reads each
 	// atom's verdict from, and atomExec the exec that runs it.
-	rustClippyNeedle = "rust__cargo-clippy.json"
-	rustTestNeedle   = "rust__cargo-test.json"
-	atomExec         = `"/atom","/src"`
+	rustClippyNeedle   = "rust__cargo-clippy.json"
+	rustTestNeedle     = "rust__cargo-test.json"
+	rustMutationNeedle = "rust__mutation.json"
+	atomExec           = `"/atom","/src"`
 )
 
 // rustVerdict is the verdict an atom of the rust lane wrote.

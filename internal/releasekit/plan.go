@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	"dagger/foundry-tools/internal/buildlane"
 	"dagger/foundry-tools/internal/checks"
@@ -128,22 +129,52 @@ func GoPlan(ctx context.Context, t Tree, s Subject) (checks.ReleasePlan, string)
 	if entries, err := t.Entries(ctx); err == nil {
 		vendored = slices.Contains(entries, "vendor/")
 	}
-	plan, err := checks.GoReleasePlan(s.Star, buildlane.ReleaseCopies(s.Body), vendored)
-	if err != nil {
-		return checks.ReleasePlan{}, err.Error()
+	plan, why := goPlanOf(ctx, t, s, vendored)
+	if why != "" {
+		return checks.ReleasePlan{}, why
 	}
 	// A COPY with no main package behind it would ship a half image: say so
 	// here, by name, instead of as the compiler's "directory not found".
 	for _, b := range plan.Binaries {
-		ok, err := t.IsDir(ctx, "cmd/"+b.Name)
+		dir := strings.TrimPrefix(b.Package, "./")
+		ok, err := t.IsDir(ctx, dir)
 		if err != nil {
-			return checks.ReleasePlan{}, fmt.Sprintf("the tree could not be read for cmd/%s: %v", b.Name, err)
+			return checks.ReleasePlan{}, fmt.Sprintf("the tree could not be read for %s: %v", dir, err)
+		}
+		if !ok && plan.Manifest {
+			return checks.ReleasePlan{}, fmt.Sprintf("%s declares %s and the tree carries no %s to build it from", ManifestFile, b.Package, dir)
 		}
 		if !ok {
-			return checks.ReleasePlan{}, fmt.Sprintf("the Dockerfile copies release/%s and the tree carries no cmd/%s to build it from", b.Name, b.Name)
+			return checks.ReleasePlan{}, fmt.Sprintf("the Dockerfile copies release/%s and the tree carries no %s to build it from", b.Name, dir)
 		}
 	}
 	return plan, ""
+}
+
+// goPlanOf is the plan before the tree is checked: the tree's release.toml when
+// it carries one, else the Dockerfile's COPY lines. A manifest that does not
+// build a binary the Dockerfile copies is refused, so the image never copies a
+// file nothing made.
+func goPlanOf(ctx context.Context, t Tree, s Subject, vendored bool) (checks.ReleasePlan, string) {
+	copies := buildlane.ReleaseCopies(s.Body)
+	body, declared := t.Present(ctx, ManifestFile)
+	if !declared {
+		plan, err := checks.GoReleasePlan(s.Star, copies, vendored)
+		if err != nil {
+			return checks.ReleasePlan{}, err.Error()
+		}
+		return plan, ""
+	}
+	bins, err := ReadManifest(body)
+	if err != nil {
+		return checks.ReleasePlan{}, err.Error()
+	}
+	for _, c := range copies {
+		if !slices.ContainsFunc(bins, func(b checks.ReleaseBinary) bool { return b.Name == c }) {
+			return checks.ReleasePlan{}, fmt.Sprintf("the Dockerfile copies release/%s and %s declares no such binary", c, ManifestFile)
+		}
+	}
+	return checks.ReleasePlan{Star: s.Star, Lane: checks.LaneGo, Binaries: bins, Vendored: vendored, Manifest: true}, ""
 }
 
 // RustPlan derives what the star's Rust release build produces: the binaries

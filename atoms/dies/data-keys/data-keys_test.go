@@ -56,7 +56,7 @@ func TestGradesTheBuiltDataDocument(t *testing.T) {
 		needles []string
 	}{
 		{"every data root present passes", fakeOpa{version: pinned, tarOut: atomtest.GoodData}, checks.StatePass, atomtest.Pass, []string{"data roots ok; star_only carries 2 stars"}},
-		{"an empty root is the fail-open", fakeOpa{version: pinned, tarOut: `{"authz_audience":{},"authz_grants":{"a":1},"authz_meta":{"a":1},"path_grants":{"a":1},"subject_aliases":{"a":1},"capabilities":{"stars":{"athena":{"prefix":"plan","verbs":["task_read"],"tier":{"task_read":"default"}}}}}`},
+		{"an empty root is the fail-open", fakeOpa{version: pinned, tarOut: `{"authz_audience":{},"grants":{"a":1},"principals":{"a":1},"capabilities":{"stars":{"athena":{"prefix":"plan","verbs":["task_read"],"tier":{"task_read":"default"}}}}}`},
 			checks.StateFindings, atomtest.Findings, []string{"bundle data.json is missing/empty: [authz_audience]"}},
 		{"a bundle with no data.json member is a finding", fakeOpa{version: pinned, tarOut: "tar: /data.json: Not found in archive", tarCode: 2}, checks.StateFindings, atomtest.Findings,
 			[]string{"carries NO data.json member at all", "Not found in archive"}},

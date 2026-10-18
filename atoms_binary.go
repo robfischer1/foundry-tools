@@ -35,6 +35,11 @@ var atomsSourceInclude = []string{
 	"internal/catalogue/**",
 	"internal/checks/**",
 	"internal/execmem/**",
+	"internal/pgroupps/**",
+	"internal/gomut/**",
+	"internal/pymut/**",
+	"internal/rustmut/**",
+	"internal/tsmut/**",
 	"internal/govlaw/**",
 	"internal/hadescall/**",
 	"internal/unitkey/**",
@@ -48,7 +53,6 @@ var atomsSourceInclude = []string{
 	"internal/copyout/**",
 	// ts:visual's: the artifact's push and the login it pushes with
 	"internal/visuallane/**",
-	"internal/svidcred/**",
 }
 
 // atomsBinPath is where the binary sits in the fleet lane's container.

@@ -28,6 +28,7 @@ var Def = atomkit.Def{
 	Timeout:       30 * time.Minute,
 	NotOnForks:    checks.ForkFleetStyle,
 	NeedsManifest: true,
+	WritesTree:    true,
 	Check:         check,
 }
 

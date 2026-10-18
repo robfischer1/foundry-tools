@@ -31,7 +31,7 @@ func TestTheLandedTreeIsInStep(t *testing.T) {
 }
 
 // URLPins is every url tool in tools.toml, and every ToolSHA256 key is one of
-// them, or WasmTools1250URL and NodeRegenURL: the regen atom's fixed assets,
+// them, or WasmTools1250URL, and NodeRegenURL: the regen atom's fixed assets,
 // which have no renovate marker and so never move.
 func TestTheTablesCoverTheTree(t *testing.T) {
 	src, err := loadGoSource(filepath.Join(repoRoot, "internal", "checks"))
@@ -44,7 +44,11 @@ func TestTheTablesCoverTheTree(t *testing.T) {
 		if m := tomlString.FindStringSubmatch(line); m != nil && m[2] == "kind" && m[4] == "url" {
 			for j := i; j >= 0; j-- {
 				if h := tomlHeader.FindStringSubmatch(doc.lines[j]); h != nil {
-					inTOML = append(inTOML, strings.TrimPrefix(h[1], "tool."))
+					// gravity is a built-once binary pinned by checks.GravityPrebuilt
+					// (its rev and sha256), not a release asset renovate moves.
+					if name := strings.TrimPrefix(h[1], "tool."); name != "gravity" {
+						inTOML = append(inTOML, name)
+					}
 					break
 				}
 			}

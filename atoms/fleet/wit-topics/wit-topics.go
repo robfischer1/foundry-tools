@@ -10,6 +10,7 @@ import (
 	"dagger/foundry-tools/internal/atomkit"
 	"dagger/foundry-tools/internal/atoms"
 	"dagger/foundry-tools/internal/checks"
+	"dagger/foundry-tools/internal/checks/dieskit"
 )
 
 // Def is the atom. The checker is the tree's own python, run under uv with no
@@ -74,7 +75,7 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 	// is there (it resolves nothing at run time). Otherwise uv provides one.
 	name, args := "python3", []string{checker}
 	if _, code := in.Run(ctx, atoms.Cmd{Dir: in.Root, Name: "python3", Args: []string{"--version"}}); code != 0 {
-		name, args = "uv", []string{"run", "--no-project", "--quiet", "python3", checker}
+		name, args = "uv", append(append([]string{"run", "--no-project", "--quiet"}, dieskit.OwnPython...), "python3", checker)
 		if out, code := in.Run(ctx, atoms.Cmd{Dir: in.Root, Name: "uv", Args: []string{"--version"}}); code != 0 {
 			return checks.VerdictOf(row, int(checks.StateCannotRun), fmt.Sprintf("the atom never ran: uv --version exited %d: %s", code, out))
 		}

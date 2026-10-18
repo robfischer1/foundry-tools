@@ -187,39 +187,7 @@ func TestKubeServicesAreScopedPerLane(t *testing.T) {
 	}
 }
 
-// THE MUTATION LANE BINDS IT THE SAME WAY bindTestDatabases is bound for it: its
-// own pair, the tag compiled into every listing and the run, and the wait ahead of
-// the first mutant.
-func TestGoMutationBindsAKubeAPIServerOfItsOwn(t *testing.T) {
-	scriptGoMutation(map[string]string{".copier-answers.yml": "service_name: x\n"})
-	engine.stdout(`"grep","-rhoE"`, "//go:build live_db\n"+kubeTag)
-	wantState(t, runAtom(t, "go:mutation", "abc123"), 0, "live_kube → TEST_KUBE_URL")
-	c := engine.chain(goMutantsNeedle, "exitCode")
-	wantCalls(t, c,
-		[]string{"withServiceBinding", `alias:"kube-mutation"`},
-		[]string{"withEnvVariable", `name:"TEST_KUBE_URL"`, `value:"` + checks.TestKubes[0].URLFor("mutation") + `"`},
-		[]string{"withEnvVariable", `name:"TEST_KUBE_CA_FILE"`, `value:"/run/test-kube/ca.crt"`},
-		[]string{"withExec", `"curl","--fail"`, "https://kube-mutation:6443/readyz"},
-		[]string{"withExec", `"-changed-since","since0","-tags","live_db,live_kube","./..."`},
-	)
-	if hasCall(c, "withServiceBinding", `alias:"kube"`) {
-		t.Errorf("the mutation gate bound the shared API server it races:\n%s", c)
-	}
-	for _, img := range []string{checks.ImageEtcd, checks.ImageKubeAPIServer} {
-		if svc := engine.chain(img, "asService"); !hasCall(svc, "withEnvVariable", `name:"FOUNDRY_TEST_KUBE_LANE"`, `value:"mutation"`) {
-			t.Errorf("the mutation lane's %s is defined identically to the shared one:\n%s", img, svc)
-		}
-	}
-	// the listings carry the tag too: a tagged package is only in the set under it
-	for _, needle := range []string{goMainListNeedle, goPackagesNeedle, goSourceNeedle} {
-		if list := engine.chain(needle, "stdout"); !strings.Contains(list, `"-tags","live_db,live_kube"`) {
-			t.Errorf("a listing dropped the kube tag:\n%s", list)
-		}
-	}
-}
-
-// A TREE WITH NO live_kube BINDS NO API SERVER, and the mutation lane's argv
-// carries no tags for a tree with no tagged suite.
+// A TREE WITH NO live_kube BINDS NO API SERVER.
 func TestNoKubeIsBoundWithoutTheTag(t *testing.T) {
 	c := raceRun(t, nil, "//go:build live_db\n")
 	if hasCall(c, "withNewFile", `path:"/run/test-kube/ca.crt"`) || strings.Contains(c, "TEST_KUBE") {

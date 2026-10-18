@@ -358,3 +358,37 @@ func TestAReleaseDirectoryThatCannotBeMadeIsCouldNotRun(t *testing.T) {
 		t.Errorf("the compile ran with nowhere to put its binary: %v", f.Calls)
 	}
 }
+
+const narcToml = `[[binary]]
+package = "./cmd/narc"
+out = "release/narc"
+cgo = true
+tags = ["netgo", "osusergo"]
+ldflags = '-s -w -extldflags "-static"'
+`
+
+// A TREE WITH A release.toml IS BUILT AS IT DECLARES: cgo on, its tags, its
+// ldflags, and the declared binary rather than a guess from the COPY line.
+func TestAReleaseTomlDeclaresTheCompile(t *testing.T) {
+	files := merge(star("narcissus", "FROM x\nCOPY release/narc /narc\n", map[string]string{"release.toml": narcToml}), cmds("narc"))
+	v, f, out := run(t, files, nil)
+	atomtest.Expect(t, v, checks.StatePass, atomtest.Pass, "release build: narc", "release.toml")
+	build := f.Last()
+	want := `go build -trimpath -ldflags=-s -w -extldflags "-static" -tags=netgo,osusergo -o ` + filepath.Join(out, "narc") + " ./cmd/narc"
+	if line(build) != want {
+		t.Errorf("compile %q, want %q", line(build), want)
+	}
+	if !slices.Contains(build.Env, "CGO_ENABLED=1") || slices.Contains(build.Env, "CGO_ENABLED=0") || !slices.Contains(build.Env, "GOFLAGS=-buildvcs=false") {
+		t.Errorf("the compile's environment is %v", build.Env)
+	}
+}
+
+// A manifest that cannot be read is the repository's fault, said before any compile.
+func TestABrokenReleaseTomlIsCouldNotRun(t *testing.T) {
+	files := merge(star("narcissus", "FROM x\nCOPY release/narc /narc\n", map[string]string{"release.toml": "[[binary"}), cmds("narc"))
+	v, f, _ := run(t, files, nil)
+	atomtest.Expect(t, v, checks.StateCannotRun, atomtest.Cannot, "release.toml")
+	if len(f.Calls) != 0 {
+		t.Errorf("ran %v", f.Calls)
+	}
+}

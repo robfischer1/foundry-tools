@@ -104,7 +104,7 @@ func (w *world) script(name, out, in string, dropInstall bool) (string, error) {
 // build runs the star's build script over the core, under the pinned wasm-tools
 // and the toolchain's rustup, and measures what it leaves.
 func (w *world) build(core string) (built, error) {
-	rustup, err := w.p.rustupHome(w.exec)
+	rustup, err := w.p.rustupHome(w.ctx, w.exec)
 	if err != nil {
 		return built{}, err
 	}
@@ -152,18 +152,42 @@ func (w *world) transpile(b built) (string, error) {
 		return "", err
 	}
 	prefix := filepath.Join(w.dir, "npm")
-	env := []string{
-		"JCO_VERSION=" + w.prov.Tools.JCO,
-		"NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt",
-		"npm_config_prefix=" + prefix,
-		"npm_config_cache=" + filepath.Join(w.p.work, "npm-cache"),
-		"PATH=" + pathWith(filepath.Join(prefix, "bin"), filepath.Join(node, "bin")),
-	}
+	env := append(trustEnv(),
+		"JCO_VERSION="+w.prov.Tools.JCO,
+		"npm_config_prefix="+prefix,
+		"npm_config_cache="+filepath.Join(w.p.work, "npm-cache"),
+		"PATH="+pathWith(filepath.Join(prefix, "bin"), filepath.Join(node, "bin")))
 	if _, err := w.do(w.dir, env, []string{script}, false); err != nil {
 		return "", fmt.Errorf("the transpile of %s: %v", w.name, err)
 	}
 	jco, err := os.ReadFile(filepath.Join(gen, ".jco-version"))
 	return string(jco), wrap("the transpile's .jco-version", err)
+}
+
+// trustVars name the CA bundle each client reads. The pod's environment sets
+// them to the CA that signs the fleet cache's certificate (the registry is only
+// reachable through it); the Dagger container sets the system bundle.
+var trustVars = []string{
+	"NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "PIP_CERT",
+	"UV_NATIVE_TLS", "CARGO_HTTP_CAINFO", "GIT_SSL_CAINFO",
+}
+
+// systemCABundle is what node trusts when the environment names none.
+const systemCABundle = "/etc/ssl/certs/ca-certificates.crt"
+
+// trustEnv hands a program the trust the container was given, as given, rather
+// than a path of this code's choosing. node alone falls back to the system
+// bundle, since the transpile is the one step that installs from the registry.
+func trustEnv() []string {
+	var env []string
+	for _, k := range trustVars {
+		if v := os.Getenv(k); v != "" {
+			env = append(env, k+"="+v)
+		} else if k == "NODE_EXTRA_CA_CERTS" {
+			env = append(env, k+"="+systemCABundle)
+		}
+	}
+	return env
 }
 
 // wrap names what a read was for.

@@ -173,20 +173,23 @@ func TestDBsFor(tags []string) []TestDB {
 }
 
 // BuildTags is the -tags word for every service bound: comma-joined, databases
-// before brokers before API servers, "" when none.
+// before brokers before caches before API servers, "" when none.
 //
 // ONE FUNCTION FOR BOTH KINDS, deliberately. A second way to build this word is
 // how it ends up incomplete — and an incomplete -tags word does not fail, it
 // compiles the un-named suites OUT and the lane reports green over tests that
 // never built. That is the exact shape this file exists to end, so the word has
 // one author.
-func BuildTags(dbs []TestDB, brokers []TestBroker, kubes []TestKube) string {
-	tags := make([]string, 0, len(dbs)+len(brokers)+len(kubes))
+func BuildTags(dbs []TestDB, brokers []TestBroker, caches []TestCache, kubes []TestKube) string {
+	tags := make([]string, 0, len(dbs)+len(brokers)+len(caches)+len(kubes))
 	for _, d := range dbs {
 		tags = append(tags, d.Tag)
 	}
 	for _, b := range brokers {
 		tags = append(tags, b.Tag)
+	}
+	for _, c := range caches {
+		tags = append(tags, c.Tag)
 	}
 	for _, k := range kubes {
 		tags = append(tags, k.Tag)
@@ -196,20 +199,23 @@ func BuildTags(dbs []TestDB, brokers []TestBroker, kubes []TestKube) string {
 
 // UncompiledTags is what the tree carries that the vocabulary does not name.
 //
-// IT HAS TO SEE ALL THREE VOCABULARIES (databases, brokers, API servers). Told only about the databases, it reported
+// IT HAS TO SEE EVERY VOCABULARY (databases, brokers, caches, API servers). Told only about the databases, it reported
 // every broker tag as "not in the fleet's vocabulary" — on the same lane whose
 // very next line announced it had bound a broker for that tag. The word is built
 // from both (BuildTags), so the complement has to be taken against both, or the
 // scope line calls a compiled suite uncompiled. Measured on tartarus #87, whose
 // gate printed `tags left uncompiled ...: live_kafka` directly above
 // `test brokers: live_kafka -> KAFKA_BOOTSTRAP`.
-func UncompiledTags(tags []string, dbs []TestDB, brokers []TestBroker, kubes []TestKube) []string {
+func UncompiledTags(tags []string, dbs []TestDB, brokers []TestBroker, caches []TestCache, kubes []TestKube) []string {
 	named := map[string]bool{}
 	for _, d := range dbs {
 		named[d.Tag] = true
 	}
 	for _, b := range brokers {
 		named[b.Tag] = true
+	}
+	for _, c := range caches {
+		named[c.Tag] = true
 	}
 	for _, k := range kubes {
 		named[k.Tag] = true
@@ -269,6 +275,9 @@ type TestBroker struct {
 	Tag string
 	// Env is the variable the suite reads its bootstrap address from.
 	Env string
+	// Also are further names for the same address (Envs): the TEST_* family's
+	// name for a lane's server, beside the fleet's own.
+	Also []string
 	// Alias is the service's hostname inside the lane container, and the host
 	// the broker advertises to clients.
 	Alias string
@@ -280,8 +289,15 @@ type TestBroker struct {
 
 // TestBrokers is the vocabulary, in binding order.
 var TestBrokers = []TestBroker{
-	{Tag: "live_kafka", Env: "KAFKA_BOOTSTRAP", Alias: "broker", Image: ImageRedpanda, Port: 9092},
+	{Tag: "live_kafka", Env: "KAFKA_BOOTSTRAP", Also: []string{"TEST_KAFKA_BROKERS"}, Alias: "broker", Image: ImageRedpanda, Port: 9092},
 }
+
+// Envs is every variable the broker's host:port is handed out under, the
+// primary first. KAFKA_BOOTSTRAP is the fleet's name and tartarus reads it;
+// TEST_KAFKA_BROKERS is the TEST_* family's name for a lane server
+// (TEST_DATABASE_URL, TEST_REDIS_URL), so a suite finds the broker the way it
+// finds the others. One address, two names: neither is a second broker.
+func (b TestBroker) Envs() []string { return append([]string{b.Env}, b.Also...) }
 
 // AliasFor is the broker's hostname for one LANE, on the same rule as TestDB's.
 func (b TestBroker) AliasFor(scope string) string {
@@ -406,7 +422,7 @@ func TestBrokerScope(brokers []TestBroker, why string) string {
 	}
 	parts := make([]string, 0, len(brokers))
 	for _, b := range brokers {
-		parts = append(parts, b.Tag+" → "+b.Env)
+		parts = append(parts, b.Tag+" → "+strings.Join(b.Envs(), ", "))
 	}
 	return "test brokers: " + strings.Join(parts, ", ") +
 		"; one broker serves every package — mint unique topic and group names per test"
@@ -456,4 +472,101 @@ func SelectBrokers(r BrokerReads) ([]TestBroker, string) {
 		return nil, TestBrokerScope(nil, "the tree states kafka flows but no test file sits behind a tag the fleet names")
 	}
 	return brokers, TestBrokerScope(brokers, "")
+}
+
+// THE CACHE HALF OF THE SAME CONTRACT: the tree says which tag, the lane brings
+// the Redis, the suite reads TEST_REDIS_URL. A third table beside TestDBs and
+// TestBrokers rather than a row in either, on the broker's argument: a Postgres
+// DSN and a bootstrap address share nothing with a redis:// URL, and one table
+// with a kind switch in it would sit in the path every repo's gate runs.
+//
+// A REPO OPTS IN BY A TEST FILE, never by a knob: any *_test.go in the module
+// whose first constraint line is `//go:build live_redis` binds the server and
+// compiles the tag, exactly as live_db does for Postgres. A tree without one
+// pays nothing — no service, no variable, no start.
+//
+// ISOLATION IS THE KEYSPACE, and a lane needs its own server. Redis has no
+// topic to mint: forge-testkit-go's containers.Redis says a test that takes the
+// fixture starts EMPTY, by FLUSHDB. The push stage's complex checks and the
+// mutation gate run concurrently, and dagger content-addresses services, so two
+// lanes with byte-identical definitions would be handed ONE Redis and flush each
+// other's keys mid-assertion — the Postgres failure (deadlock detected), in a
+// keyspace. A scoped lane therefore perturbs its definition (FOUNDRY_TEST_CACHE_LANE,
+// atoms_go.go), because an alias alone is two names for one server.
+type TestCache struct {
+	// Tag is the `//go:build` tag the suite sits behind, and the -tags word.
+	Tag string
+	// Env is the variable the suite reads its redis:// URL from.
+	Env string
+	// Alias is the service's hostname inside the lane container.
+	Alias string
+	// Image is the pinned server image (images.go).
+	Image string
+	// Port is the redis wire, exposed and dialled.
+	Port int
+}
+
+// TestCaches is the vocabulary, in binding order.
+var TestCaches = []TestCache{
+	{Tag: "live_redis", Env: "TEST_REDIS_URL", Alias: "redis", Image: ImageRedis, Port: 6379},
+}
+
+// AliasFor is the cache's hostname for one LANE, on the same rule as TestDB's.
+func (c TestCache) AliasFor(scope string) string {
+	if scope == "" {
+		return c.Alias
+	}
+	return c.Alias + "-" + scope
+}
+
+// URLFor is the URL the suite is handed: redis://host:port, the form
+// forge-testkit-go's containers.Redis returns, so a suite that parses it for
+// its host reads either source alike. No credential and no database path: the
+// server is a throwaway and the suite selects its own DB.
+func (c TestCache) URLFor(scope string) string {
+	return "redis://" + c.AliasFor(scope) + ":" + strconv.Itoa(c.Port)
+}
+
+// ServerArgs is the server's start command, through the image's entrypoint
+// (docker-entrypoint.sh execs a leading `redis-server` as given), on the same
+// rule as StartArgs: WithDefaultArgs + AsService(UseEntrypoint), never WithExec.
+//
+//	--port N              the server's own port (the pod runs several servers on one loopback)
+//	--save ""             no RDB snapshot: nothing outlives the lane, nothing is written
+//	--appendonly no       no AOF
+//	--protected-mode no   protected mode refuses every non-loopback client of a
+//	                      password-less server, which is every client through a
+//	                      service binding; the server is reachable from nowhere else
+func (c TestCache) ServerArgs(port int) []string {
+	return []string{"redis-server", "--port", strconv.Itoa(port), "--save", "", "--appendonly", "no", "--protected-mode", "no"}
+}
+
+// TestCachesFor is the vocabulary's entries for the tags a tree carries, in
+// binding order.
+func TestCachesFor(tags []string) []TestCache {
+	has := map[string]bool{}
+	for _, t := range tags {
+		has[t] = true
+	}
+	var out []TestCache
+	for _, c := range TestCaches {
+		if has[c.Tag] {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// TestCacheScope is the line an atom prints about the caches it brought, printed
+// EITHER WAY on TestDBScope's rule: a lane that bound nothing says why.
+func TestCacheScope(caches []TestCache, why string) string {
+	if len(caches) == 0 {
+		return "test caches: none — " + why
+	}
+	parts := make([]string, 0, len(caches))
+	for _, c := range caches {
+		parts = append(parts, c.Tag+" → "+c.Env)
+	}
+	return "test caches: " + strings.Join(parts, ", ") +
+		"; one server per lane — a test that takes the fixture starts on an empty keyspace, so the tests of a package do not run in parallel"
 }

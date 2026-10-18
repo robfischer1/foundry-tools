@@ -82,5 +82,7 @@ func TestAuthzGridIsHandedThePullsBaseAndRunsWithTheOpa(t *testing.T) {
 	}
 	wantCalls(t, run,
 		[]string{"withFile", `path:"/usr/local/bin/opa"`, "permissions:493"},
-		[]string{"withEnvVariable", `name:"ATOM_BASE"`, `value:"abc123"`})
+		[]string{"withEnvVariable", `name:"ATOM_BASE"`, `value:"abc123"`},
+		[]string{"withMountedCache", `path:"/decisions-cache"`},
+		[]string{"withEnvVariable", `name:"AUTHZ_TABLE_CACHE"`, `value:"/decisions-cache"`})
 }

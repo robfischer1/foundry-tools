@@ -2,6 +2,7 @@ package atoms
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -63,4 +64,15 @@ func withOneAtom(t *testing.T) {
 			return checks.VerdictOf(a, int(checks.StatePass), "go:release: passes")
 		}}}
 	})
+}
+
+// The table is empty (every atom is a file under atoms/, which this package
+// cannot import). The tests that need an atom of the catalogue name go:release,
+// and the pool tests want more rows than that: any row will do.
+func init() {
+	rows := []checks.AtomDef{{ID: "go:release", Stage: checks.StagePrepush, Lane: checks.LaneGo, Image: checks.ImageGo}}
+	for i := range 16 {
+		rows = append(rows, checks.AtomDef{ID: fmt.Sprintf("pad:row-%02d", i), Stage: checks.StagePrepush, Lane: checks.LaneAny})
+	}
+	checks.UseDefs(rows)
 }

@@ -294,7 +294,7 @@ func Minted(status int, raw, staged string) (Result, int, string) {
 		return Result{}, buildlane.CouldNotRun, "could not run: hades did not derive a principal from the peer SVID, so the PDP was never consulted — check the deployed hades revision, not the policy"
 	}
 	if status == 403 {
-		return Result{}, buildlane.Findings, "findings: hades identified the caller and the policy refused it: the cast lane's SVID is not granted " + Verb + " — check policy/authz_grants in foundry-dies"
+		return Result{}, buildlane.Findings, "findings: hades identified the caller and the policy refused it: the cast lane's SVID is not granted " + Verb + " — check its grant facts (graph:policy, rendered to policy/grants in foundry-dies)"
 	}
 	if status == 401 {
 		return Result{}, buildlane.CouldNotRun, "could not run: hades rejected the caller at the door (401): the client certificate was not presented or did not verify against the SPIRE bundle"

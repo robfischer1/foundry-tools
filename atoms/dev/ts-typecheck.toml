@@ -1,0 +1,24 @@
+schema = "command-atom@1"
+id = "dev:ts-typecheck"
+stage = "dev"
+lane = "ts"
+group = "language"
+desc = "the repo's typecheck script is clean, run by hand from the dev lane."
+surface = "root:package.json"
+toolchain = "bun"
+argv = ["bun", "run", "typecheck"]
+args = "append"
+per_module = false
+judge = "exit"
+needs = ["tool:node"]
+timeout = "30m"
+writes_tree = true
+
+# THE GATE TWIN IS ts:bun-gate, which runs the repo's `gate` script; this runs
+# the repo's `typecheck` script, one of the scripts the gate script
+# chains. Same toolchain image (the pinned bun), same tool:node first on PATH,
+# and the install is the toolchain's own preflight (tools.toml [toolchain.bun]),
+# the gate's `bun install --frozen-lockfile`. The install writes node_modules,
+# so the verb runs on the atom's own copy of the tree. NOT SHARED: the gate lays
+# the fleet's eslint.config.mjs over the repo's before it runs; this verb reads
+# the repo's.

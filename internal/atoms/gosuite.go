@@ -29,6 +29,9 @@ import (
 // file sits outside the tree. NO -coverpkg, so each package's coverage is its
 // own tests' — exactly the profile gomutants gathers, which is what keeps the
 // two NOT COVERED signals agreeing.
+// suiteScrub blanks the executor's per-atom variables for the unit suite.
+var suiteScrub = []string{"ATOM_WORK=", "ATOM_OUT=", "ATOM_TREE="}
+
 func GoSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race bool) checks.Verdict {
 	cwd := GoModuleRoot(in, dir)
 	if v, ok := Provision(ctx, in, a, cwd, "go", "mod", "download"); !ok {
@@ -60,13 +63,19 @@ func GoSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race b
 	for _, g := range plan.Regens {
 		env = append(env, g.Env+"=1")
 	}
+	// THE SUITE RUNS AS A DEVELOPER RUNS IT: the pod's per-atom variables name
+	// the atom's work directory, which tests that provoke an unwritable
+	// TMPDIR would otherwise be redirected around (WorkDir). An empty value
+	// reads as unset to every os.Getenv(...) != "" test.
+	env = append(env, suiteScrub...)
 	args := []string{"test"}
 	scope := "unit suite: no race detector and no database — go:test-race runs those at the push"
 	if race {
 		var dbs []checks.TestDB
 		var brokers []checks.TestBroker
+		var caches []checks.TestCache
 		var kubes []checks.TestKube
-		dbs, brokers, kubes, scope = GoTestServers(ctx, in, cwd)
+		dbs, brokers, caches, kubes, scope = GoTestServers(ctx, in, cwd)
 		// A TREE THAT CARRIES live_kube NEEDS THE API SERVER THE LANE BINDS. The
 		// adapter binds one and sets the three variables; the pod path binds none.
 		// Compiling the suite with nothing behind it would fail every test on a
@@ -79,13 +88,16 @@ func GoSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race b
 			}
 		}
 		args = append(args, "-race")
-		// `-p 1` for ANY kind. The databases share one server and the suites
+		// `-p 1` for EITHER kind. The databases share one server and the suites
 		// reset its schema; one broker serves every package and its isolation
-		// unit is the topic; one API server serves every package and its
-		// objects are cluster-wide. Parallel packages break all three the same way.
-		if word := checks.BuildTags(dbs, brokers, kubes); word != "" {
-			args = append(args, "-tags", word, "-p", "1")
+		// unit is the topic. Parallel packages break both the same way.
+		var tagArgs []string
+		if word := checks.BuildTags(dbs, brokers, caches, kubes); word != "" {
+			tagArgs = []string{"-tags", word}
+			args = append(args, tagArgs...)
+			args = append(args, "-p", "1")
 		}
+		warmBuildCache(ctx, in, cwd, tagArgs)
 		args = append(args, "-coverprofile", checks.GoCoverProfile)
 	}
 	args = append(args, "./...")
@@ -98,6 +110,21 @@ func GoSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race b
 	return v
 }
 
+// warmBuildCache is the race run's parallel build (DEF-B4-PERF-3). `-p 1` caps
+// the go tool's concurrent build and link actions as well as the test binaries,
+// so on a cold build cache the suite compiled every package on one core (glaucus,
+// 16 cores: 112 s serial, 28 s at the machine's width). This pass has the suite's
+// flags less `-p`: `-exec true` compiles and links each test binary and runs
+// none, so no database is touched and no test result is cached, and `-cover` makes
+// it the same compile as the profile run's. Its outcome is dropped on purpose; a
+// tree that does not build builds no better here and says so, in go test's words,
+// in the run that follows.
+func warmBuildCache(ctx context.Context, in Input, cwd string, tagArgs []string) {
+	args := append([]string{"test", "-race"}, tagArgs...)
+	args = append(args, "-cover", "-exec", "true", "./...")
+	in.run(ctx, Cmd{Dir: cwd, Name: "go", Args: args})
+}
+
 // goTagRead is the tree's single-tag build constraints, read as the chain read
 // them: one recursive grep in the module, whose exit 1 is "no match", an answer.
 func goTagRead(ctx context.Context, in Input, cwd string) (out string, code int) {
@@ -106,23 +133,32 @@ func goTagRead(ctx context.Context, in Input, cwd string) (out string, code int)
 
 // GoTestServers is which test servers a module's suites need, and the scope
 // line the atom prints either way: the databases (checks.TestDBsFor over the
-// tree's tags), the brokers (checks.SelectBrokers over the tags and the
-// Kafka flows the tree's own code states) and the API servers
-// (checks.SelectKubes over the tags). The tree states all three; no record is
-// asked. The adapter binds the same servers off the same reads.
-func GoTestServers(ctx context.Context, in Input, cwd string) ([]checks.TestDB, []checks.TestBroker, []checks.TestKube, string) {
+// tree's tags), the brokers (checks.SelectBrokers over the tags and the Kafka
+// flows the tree's own code states), the caches (checks.TestCachesFor over
+// the tags) and the API servers (checks.SelectKubes over the tags). The tree
+// states all four; no record is asked. The adapter binds
+// the same servers off the same reads.
+func GoTestServers(ctx context.Context, in Input, cwd string) ([]checks.TestDB, []checks.TestBroker, []checks.TestCache, []checks.TestKube, string) {
 	out, code := goTagRead(ctx, in, cwd)
 	var dbs []checks.TestDB
-	var dbLine string
+	var caches []checks.TestCache
+	var dbLine, cacheLine string
 	if code > 1 || code < 0 {
 		dbLine = checks.TestDBScope(nil, nil, "the tree's build tags could not be read")
+		cacheLine = checks.TestCacheScope(nil, "the tree's build tags could not be read")
 	} else {
 		tags := checks.GoBuildTags(out)
 		dbs = checks.TestDBsFor(tags)
+		caches = checks.TestCachesFor(tags)
 		if len(dbs) == 0 {
 			dbLine = checks.TestDBScope(nil, nil, "no test file sits behind a tag the fleet names")
 		} else {
-			dbLine = checks.TestDBScope(dbs, checks.UncompiledTags(tags, dbs, checks.TestBrokers, checks.TestKubes), "")
+			dbLine = checks.TestDBScope(dbs, checks.UncompiledTags(tags, dbs, checks.TestBrokers, checks.TestCaches, checks.TestKubes), "")
+		}
+		if len(caches) == 0 {
+			cacheLine = checks.TestCacheScope(nil, "no test file sits behind a tag the fleet names")
+		} else {
+			cacheLine = checks.TestCacheScope(caches, "")
 		}
 	}
 	flows, flowsErr := goTreeFlows(in)
@@ -135,7 +171,7 @@ func GoTestServers(ctx context.Context, in Input, cwd string) ([]checks.TestDB, 
 		Flows: flows, FlowsErr: flowsErr,
 	})
 	kubes, kubeLine := checks.SelectKubes(out, code)
-	return dbs, brokers, kubes, dbLine + "\n" + brokerLine + "\n" + kubeLine
+	return dbs, brokers, caches, kubes, dbLine + "\n" + brokerLine + "\n" + cacheLine + "\n" + kubeLine
 }
 
 // goTreeFlows counts the non-family Kafka flows the tree's own code states. No

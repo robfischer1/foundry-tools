@@ -94,8 +94,8 @@ func TestEveryPinnedToolHasOneVerifiedSource(t *testing.T) {
 	// The set of checksummed URLs is exactly the set of release assets fetched:
 	// the tools, the python layer's interpreter, and the rust lane's two cargo
 	// tool tarballs (runtime.go withCargoTarball) and oras, plus the regen lane's wasm-tools and node,
-	// and the executor's sccache (provisioned into the node cache, not by the engine).
-	fetched := []string{checks.PythonStandaloneURL, checks.CargoAuditURL, checks.CargoNextestURL, checks.SccacheURL, checks.RustClippyURL, checks.RustRustfmtURL, checks.RustWasmClippyURL, checks.RustWasmRustfmtURL, checks.WacURL, checks.OrasURL, checks.WasmTools1250URL, checks.NodeRegenURL}
+	// and the executor's sccache and cargo-mutants (provisioned into the node cache, not by the engine).
+	fetched := []string{checks.PythonStandaloneURL, checks.CargoAuditURL, checks.CargoNextestURL, checks.SccacheURL, checks.CargoMutantsURL, checks.MoldURL, checks.RustClippyURL, checks.RustRustfmtURL, checks.RustWasmClippyURL, checks.RustWasmRustfmtURL, checks.WacURL, checks.OrasURL, checks.WasmTools1250URL, checks.NodeRegenURL, checks.RustStdWasmURL, checks.RustStdURL}
 	for _, tool := range pinnedTools {
 		if tool.url != "" {
 			fetched = append(fetched, tool.url)
@@ -493,7 +493,7 @@ func TestTheCollectionsAreExactReleases(t *testing.T) {
 		t.Fatal(err)
 	}
 	var doc struct {
-		Collections []struct{ Name, Version string }
+		Collections []struct{ Name, Version, URL, SHA256 string }
 	}
 	if err := yaml.Unmarshal(body, &doc); err != nil {
 		t.Fatal(err)
@@ -501,6 +501,15 @@ func TestTheCollectionsAreExactReleases(t *testing.T) {
 	got := map[string]string{}
 	for _, c := range doc.Collections {
 		got[c.Name] = c.Version
+		// The executor installs these offline from the tool mirror, so each
+		// names the artifact it is and the bytes it must be.
+		file := strings.ReplaceAll(c.Name, ".", "-") + "-" + c.Version + ".tar.gz"
+		if !strings.HasPrefix(c.URL, "https://galaxy.ansible.com/") || !strings.HasSuffix(c.URL, "/"+file) {
+			t.Errorf("%s: url %q is not galaxy's artifact %s", c.Name, c.URL, file)
+		}
+		if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(c.SHA256) {
+			t.Errorf("%s: sha256 %q is not a lowercase sha256", c.Name, c.SHA256)
+		}
 	}
 	want := map[string]string{"community.routeros": "3.22.0", "vyos.vyos": "6.0.0", "ansible.netcommon": "8.6.2", "ansible.utils": "6.1.0"}
 	if !reflect.DeepEqual(got, want) {

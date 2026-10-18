@@ -24,10 +24,10 @@ func landedTools(t *testing.T) ToolsFile {
 }
 
 // TestUT_621_IT_174_TheLandedToolsFile: it parses, holds the key sets of
-// IT-174 and exactly the two preflights.
+// IT-174 and exactly the three preflights.
 func TestUT_621_IT_174_TheLandedToolsFile(t *testing.T) {
 	f := landedTools(t)
-	for _, k := range []string{"go", "python", "rust", "rust-wasm", "bun", "node", "renovate"} {
+	for _, k := range []string{"go", "python", "rust", "rust-trixie", "rust-wasm", "bun", "node", "renovate"} {
 		if f.Toolchains[k] == "" {
 			t.Errorf("toolchain %s missing", k)
 		}
@@ -37,14 +37,14 @@ func TestUT_621_IT_174_TheLandedToolsFile(t *testing.T) {
 		svc = append(svc, k)
 	}
 	slices.Sort(svc)
-	if !slices.Equal(svc, []string{"etcd", "kube-apiserver", "pgvector", "postgres", "redpanda"}) {
+	if !slices.Equal(svc, []string{"etcd", "kube-apiserver", "pgvector", "postgres", "redis", "redpanda"}) {
 		t.Errorf("services %v", svc)
 	}
 	if f.Base.Go == "" || !strings.Contains(f.Base.Go, "base-images/go") {
 		t.Errorf("base go %q", f.Base.Go)
 	}
-	want := map[string][]string{"go": {"go", "mod", "download"}, "rust": {"cargo", "fetch", "--locked"}}
-	if len(f.Preflights) != 2 || !slices.Equal(f.Preflights["go"], want["go"]) || !slices.Equal(f.Preflights["rust"], want["rust"]) {
+	want := map[string][]string{"go": {"go", "mod", "download"}, "rust": {"cargo", "fetch", "--locked"}, "bun": {"bun", "install", "--frozen-lockfile"}}
+	if len(f.Preflights) != 3 || !slices.Equal(f.Preflights["go"], want["go"]) || !slices.Equal(f.Preflights["rust"], want["rust"]) || !slices.Equal(f.Preflights["bun"], want["bun"]) {
 		t.Errorf("preflights %v", f.Preflights)
 	}
 	for k, img := range f.Toolchains {
@@ -64,7 +64,7 @@ var urlPins = []struct {
 	{"hadolint", checks.HadolintURL, checks.HadolintVersion},
 	{"kubectl", checks.KubectlURL, checks.KubectlVersion},
 	{"chezmoi", checks.ChezmoiURL, checks.ChezmoiVersion},
-	{"compose", checks.ComposeURL, checks.ComposeVersion},
+	{"docker-compose", checks.ComposeURL, checks.ComposeVersion},
 	{"wasm-tools", checks.WasmToolsURL, checks.WasmToolsVersion},
 	{"wac", checks.WacURL, checks.WacVersion},
 	{"just", checks.JustURL, checks.JustVersion},
@@ -72,9 +72,13 @@ var urlPins = []struct {
 	{"oras", checks.OrasURL, checks.OrasVersion},
 	{"cargo-audit", checks.CargoAuditURL, checks.CargoAuditVersion},
 	{"cargo-nextest", checks.CargoNextestURL, checks.CargoNextestVersion},
+	{"cargo-mutants", checks.CargoMutantsURL, checks.CargoMutantsVersion},
 	{"sccache", checks.SccacheURL, checks.SccacheVersion},
+	{"mold", checks.MoldURL, checks.MoldRelease},
 	{"rust-clippy", checks.RustClippyURL, checks.RustComponentsTag},
 	{"rust-rustfmt", checks.RustRustfmtURL, checks.RustComponentsTag},
+	{"rust-std", checks.RustStdURL, checks.RustComponentsTag},
+	{"rust-wasm-std", checks.RustStdWasmURL, checks.RustWasmComponentsTag},
 	{"rust-wasm-clippy", checks.RustWasmClippyURL, checks.RustWasmComponentsTag},
 	{"rust-wasm-rustfmt", checks.RustWasmRustfmtURL, checks.RustWasmComponentsTag},
 	{"python-standalone", checks.PythonStandaloneURL, checks.FleetPythonVersion},
@@ -84,17 +88,18 @@ var urlPins = []struct {
 var goPins = map[string]string{
 	"staticcheck": checks.StaticcheckModule, "govulncheck": checks.GovulncheckModule,
 	"gomutants": checks.GomutantsModule, "mutation-gate": checks.MutationGateModule,
+	"orbitparse": checks.OrbitparseModule,
 }
 
 // imagePins are the tools that are an image, and the toolchains and services.
 var imagePins = map[string]string{
 	"uv": checks.ImageUV, "python": checks.ImagePython, "trivy": checks.ImageTrivy, "syft": checks.ImageSyft, "cosign": checks.ImageCosign,
-	"signing-tools": checks.ImageSigningTools, "bun": checks.ImageTS, "kubeconform": checks.ImageKubeconform,
-	"kube-linter": checks.ImageKubeLinter, "static": checks.ImageStatic, "debian": checks.ImageTools,
+	"signing-tools": checks.ImageSigningTools, "bun": checks.ImageTS, "git": checks.ImageGo, "node": checks.ImageNode, "kubeconform": checks.ImageKubeconform,
+	"kube-linter": checks.ImageKubeLinter, "narc": checks.ImageNarcissus, "static": checks.ImageStatic, "debian": checks.ImageTools,
 }
 
 var toolchainPins = map[string]string{
-	"go": checks.ImageGo, "python": checks.ImagePython, "rust": checks.ImageRust, "rust-wasm": checks.ImageRustWasm,
+	"go": checks.ImageGo, "python": checks.ImagePython, "rust": checks.ImageRust, "rust-trixie": checks.ImageRustTrixie, "rust-wasm": checks.ImageRustWasm,
 	"bun": checks.ImageTS, "node": checks.ImageNode, "renovate": checks.ImageRenovate,
 }
 
@@ -108,7 +113,7 @@ func playwrightPins() map[string]string {
 }
 
 var servicePins = map[string]string{
-	"postgres": checks.ImagePostgres, "pgvector": checks.ImagePgvector, "redpanda": checks.ImageRedpanda,
+	"postgres": checks.ImagePostgres, "pgvector": checks.ImagePgvector, "redpanda": checks.ImageRedpanda, "redis": checks.ImageRedis,
 	"kube-apiserver": checks.ImageKubeAPIServer, "etcd": checks.ImageEtcd,
 }
 
@@ -141,6 +146,12 @@ func TestToolsTomlMatchesGo(t *testing.T) {
 		if got.Kind != "go" || got.Spec+"@"+got.Version != module {
 			t.Errorf("tool %s: %+v, want %s", name, got, module)
 		}
+	}
+	// gravity is the prebuilt the Dagger lane fetches (checks.GravityPrebuilt),
+	// pinned here for the pod by the same rev and sha256, from the same mirror.
+	seen["gravity"] = true
+	if g := f.Tools["gravity"]; g.Kind != "url" || checks.GravityPrebuilt[g.Version] != g.SHA256 || g.SHA256 == "" || g.Spec != checks.ToolMirrorURL(g.SHA256) {
+		t.Errorf("tool gravity: %+v, want the url tool GravityPrebuilt names", g)
 	}
 	for _, u := range checks.PythonLaneTools {
 		seen[u.Name] = true

@@ -17,7 +17,7 @@ func TestTheDeclarationValidates(t *testing.T) {
 		t.Fatal(err)
 	}
 	if Def.ID != id || Def.Stage != checks.StagePrepush || Def.Lane != checks.LaneAny || Def.Group != checks.GroupOf(id) ||
-		Def.Toolchain != "python" || Def.Surface != "any:**" || strings.Join(Def.Needs, ",") != "tool:opa,tool:uv" {
+		Def.Toolchain != "python" || Def.Surface != "any:**" || strings.Join(Def.Needs, ",") != "tool:git,tool:opa,tool:uv" || !Def.WritesTree {
 		t.Errorf("%+v", Def)
 	}
 }
@@ -115,11 +115,14 @@ func TestRefusesBeforeRunningAnythingItCannotGrade(t *testing.T) {
 		{"no checker", files(checker), script(atomtest.PinnedOpa(), "", 0), checks.StateCannotRun, atomtest.Cannot, checker + " is absent", ""},
 		{"an opa that is not the pin", files(), script("Version: 0.1.0", "", 0), checks.StateCannotRun, atomtest.Cannot, "does not answer", "opa"},
 		{"a trailer log that fails", files(), func(c atoms.Cmd) (string, int) {
-			if c.Name == "git" {
+			if c.Name == "git" && len(c.Args) > 3 && c.Args[2] == "log" {
 				return "fatal: bad revision", 128
 			}
+			if c.Name == "git" {
+				return "abc123", 0
+			}
 			return atomtest.PinnedOpa(), 0
-		}, checks.StateCannotRun, atomtest.Cannot, "could not be read for a Authz-Semantics-Change trailer", "opa|git"},
+		}, checks.StateCannotRun, atomtest.Cannot, "could not be read for a Authz-Semantics-Change trailer", "opa|git|git"},
 		{"not the die's source", map[string]string{checker: "x"}, script(atomtest.PinnedOpa(), "", 0), checks.StatePass, atomtest.Absent, "not the policy die's source", ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -144,7 +147,128 @@ func TestABaseTheHistoryDoesNotReachCouldNotRun(t *testing.T) {
 	in.Base = "origin/main"
 	atomtest.Expect(t, check(context.Background(), in), checks.StateCannotRun, atomtest.Cannot,
 		"the base origin/main is not in this history (git merge-base exited 1)")
-	if got := strings.Join(f.Ran(), "|"); got != "opa|git" {
-		t.Errorf("ran %q, want the opa probe and the merge-base alone", got)
+	if got := strings.Join(f.Ran(), "|"); got != "opa|git|git" {
+		t.Errorf("ran %q, want the opa probe, the merge-base and the shallow probe alone", got)
+	}
+}
+
+// shallowClone answers git as a depth-1 clone: the merge base (or the tip's
+// parent) resolves only once fetched lands, every fetch answers fetchCode, and
+// opa and the checker pass.
+func shallowClone(fetchCode int) func(atoms.Cmd) (string, int) {
+	fetched := false
+	return func(c atoms.Cmd) (string, int) {
+		if c.Name != "git" {
+			if c.Name == "opa" {
+				return atomtest.PinnedOpa(), 0
+			}
+			return "grid said so", 0
+		}
+		switch flagged := strings.Join(c.Args, " "); {
+		case strings.Contains(flagged, "--is-shallow-repository"):
+			return "true\n", 0
+		case strings.Contains(flagged, " fetch "):
+			fetched = fetchCode == 0
+			return "fetch said so", fetchCode
+		case strings.Contains(flagged, "rev-parse HEAD") && !strings.Contains(flagged, "HEAD~1"):
+			return strings.Repeat("e", 40) + "\n", 0
+		case strings.Contains(flagged, "merge-base"), strings.Contains(flagged, "HEAD~1"):
+			if fetched {
+				return "abc123", 0
+			}
+			return "", 1
+		}
+		return "", 0
+	}
+}
+
+// A shallow clone still runs (stark42 #40): the base it lacks is fetched from
+// origin, at absolute depths, the tip and a sha base by name; and a fetch that
+// fails says the clone was shallow rather than that the base is not history.
+func TestAShallowCloneIsDeepenedBeforeTheBaseIsGivenUp(t *testing.T) {
+	base := strings.Repeat("b", 40)
+	in, f := atomtest.UVTree(t, files(), shallowClone(0))
+	in.Base = base
+	atomtest.Expect(t, check(context.Background(), in), checks.StatePass, atomtest.Pass)
+	atomtest.WantUV(t, f.Last(), in.Root, "", checker, "--first", listed, "--base", "abc123")
+	var fetch string
+	for _, c := range f.Calls {
+		if c.Name == "git" && strings.Contains(strings.Join(c.Args, " "), " fetch ") {
+			fetch = strings.Join(c.Args, " ")
+		}
+	}
+	if !strings.HasSuffix(fetch, "fetch --no-tags --depth=50 origin "+strings.Repeat("e", 40)+" "+base) {
+		t.Errorf("fetched %q", fetch)
+	}
+
+	in, _ = atomtest.UVTree(t, files(), shallowClone(0))
+	atomtest.Expect(t, check(context.Background(), in), checks.StatePass, atomtest.Pass)
+
+	in, _ = atomtest.UVTree(t, files(), shallowClone(128))
+	in.Base = base
+	atomtest.Expect(t, check(context.Background(), in), checks.StateCannotRun, atomtest.Cannot,
+		"this clone is shallow and the base "+base+" is not in it; deepening it from origin failed: git fetch --depth=50 exited 128")
+}
+
+func TestTheRunnerIsAskedForTheWholeHistory(t *testing.T) {
+	if Def.History != "full" {
+		t.Errorf("history %q: the merge base is not reached by a fixed depth", Def.History)
+	}
+}
+
+// gitAs answers git by the first of its rules whose needle the argv carries,
+// opa as the pin and the checker as passing.
+func gitAs(rules ...[3]string) func(atoms.Cmd) (string, int) {
+	return func(c atoms.Cmd) (string, int) {
+		if c.Name == "opa" {
+			return atomtest.PinnedOpa(), 0
+		}
+		if c.Name != "git" {
+			return "grid said so", 0
+		}
+		argv := strings.Join(c.Args, " ")
+		for _, r := range rules {
+			if strings.Contains(argv, r[0]) {
+				code := 0
+				if r[2] != "0" {
+					code = 1
+				}
+				return r[1], code
+			}
+		}
+		return "", 0
+	}
+}
+
+// What the base resolution says when it cannot: a tip with no parent in a whole
+// history, a shallow clone whose tip will not resolve, a fetch that deepens to
+// the root and still does not reach the base, and a shallow tip-only run whose
+// fetch fails.
+func TestEveryWayTheBaseStaysOutOfReachSaysWhy(t *testing.T) {
+	sha := strings.Repeat("b", 40)
+	for name, tc := range map[string]struct {
+		base  string
+		rules [][3]string
+		want  string
+	}{
+		"a whole history with no parent": {"", [][3]string{{"HEAD~1", "fatal: no parent", "1"}, {"--is-shallow-repository", "false", "0"}},
+			"the tip has no parent in this history (git rev-parse HEAD~1 exited 1): fatal: no parent"},
+		"a shallow tip that will not resolve": {sha, [][3]string{{"merge-base", "", "1"}, {"--is-shallow-repository", "true", "0"}, {"rev-parse HEAD", "fatal: bad HEAD", "1"}},
+			"deepening it from origin failed: the tip did not resolve (git rev-parse exited 1): fatal: bad HEAD"},
+		"deepened to the root and still unrelated": {sha, [][3]string{{"merge-base", "", "1"}, {"--is-shallow-repository", "true", "0"}, {"rev-parse HEAD", strings.Repeat("e", 40), "0"}, {"fetch", "", "0"}},
+			"the base " + sha + " is not in this history (git merge-base exited 1)"},
+		"a shallow run with no base whose fetch fails": {"", [][3]string{{"HEAD~1", "", "1"}, {"--is-shallow-repository", "true", "0"}, {"rev-parse HEAD", strings.Repeat("e", 40), "0"}, {"fetch", "refused", "1"}},
+			"this clone is shallow and the base HEAD~1 is not in it; deepening it from origin failed: git fetch --depth=50 exited 1: refused"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			in, f := atomtest.UVTree(t, files(), gitAs(tc.rules...))
+			in.Base = tc.base
+			atomtest.Expect(t, check(context.Background(), in), checks.StateCannotRun, atomtest.Cannot, tc.want)
+			for _, c := range f.Calls {
+				if c.Name != "git" && c.Name != "opa" {
+					t.Errorf("the checker ran: %v", c)
+				}
+			}
+		})
 	}
 }

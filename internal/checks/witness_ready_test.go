@@ -3,8 +3,6 @@ package checks
 import (
 	"context"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -12,7 +10,7 @@ import (
 
 func TestWitnessReadyURLKeepsTheHostAndReplacesThePath(t *testing.T) {
 	t.Parallel()
-	if got := WitnessReadyURL("http://narcissus:8200/mcp?x=1#f"); got != "http://narcissus:8200/ready" {
+	if got := WitnessReadyURL("https://narcissus:8201/mcp?x=1#f"); got != "https://narcissus:8201/ready" {
 		t.Fatalf("got %q", got)
 	}
 	if WitnessReadyURL("::not a url") != "" || WitnessReadyURL("/mcp") != "" {
@@ -50,14 +48,14 @@ func TestWitnessReadiness(t *testing.T) {
 			var n int
 			probe := func(_ context.Context, u string) (int, string, error) {
 				n++
-				if u != "http://narcissus:8200/ready" {
+				if u != "https://narcissus:8201/ready" {
 					t.Errorf("probed %q", u)
 				}
 				return c.answer(n)
 			}
 			var slept int
 			sleep := func(context.Context, time.Duration) error { slept++; return nil }
-			ok, detail := WitnessReadiness(t.Context(), probe, WitnessURL, 3, time.Second, sleep)
+			ok, detail := WitnessReadiness(t.Context(), probe, WitnessMTLSURL, 3, time.Second, sleep)
 			if ok != c.ok || n != c.calls || detail != c.detail {
 				t.Fatalf("ok=%v calls=%d detail=%q; want ok=%v calls=%d detail=%q", ok, n, detail, c.ok, c.calls, c.detail)
 			}
@@ -72,7 +70,7 @@ func TestWitnessReadinessStopsWhenTheContextEnds(t *testing.T) {
 	t.Parallel()
 	probe := func(context.Context, string) (int, string, error) { return 503, "", nil }
 	sleep := func(context.Context, time.Duration) error { return context.Canceled }
-	ok, detail := WitnessReadiness(t.Context(), probe, WitnessURL, 3, time.Second, sleep)
+	ok, detail := WitnessReadiness(t.Context(), probe, WitnessMTLSURL, 3, time.Second, sleep)
 	if ok || !strings.Contains(detail, "context canceled") {
 		t.Fatalf("ok=%v detail=%q", ok, detail)
 	}
@@ -93,39 +91,5 @@ func TestWitnessNotReadyReasonIsACouldNotRunAboutTheTarget(t *testing.T) {
 		if !strings.Contains(r, want) {
 			t.Errorf("%q missing from %q", want, r)
 		}
-	}
-}
-
-func TestGetWitnessReadyReadsStatusAndBody(t *testing.T) {
-	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/ready" {
-			t.Errorf("%s %s", r.Method, r.URL.Path)
-		}
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = w.Write([]byte(`{"store":"waiting"}`))
-	}))
-	defer srv.Close()
-	status, body, err := GetWitnessReady(t.Context(), srv.URL+"/ready")
-	if err != nil || status != 503 || body != `{"store":"waiting"}` {
-		t.Fatalf("status %d body %q err %v", status, body, err)
-	}
-}
-
-func TestGetWitnessReadyErrors(t *testing.T) {
-	t.Parallel()
-	if _, _, err := GetWitnessReady(t.Context(), "http://127.0.0.1:1/ready"); err == nil {
-		t.Error("an unreachable port answered")
-	}
-	if _, _, err := GetWitnessReady(t.Context(), "http://bad host/ready"); err == nil {
-		t.Error("an unparseable URL answered")
-	}
-	truncated := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Length", "100")
-		_, _ = w.Write([]byte("short"))
-	}))
-	defer truncated.Close()
-	if _, _, err := GetWitnessReady(t.Context(), truncated.URL); err == nil {
-		t.Error("a body that ends early answered")
 	}
 }

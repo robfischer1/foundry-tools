@@ -2,8 +2,10 @@ package atomkit
 
 import (
 	"fmt"
+	"path"
 	"regexp"
 	"sort"
+	"strings"
 )
 
 // ToolsSchema is the schema key of tools.toml.
@@ -22,6 +24,9 @@ type ToolPin struct {
 	Version string `json:"version,omitempty" toml:"version"`
 	SHA256  string `json:"sha256,omitempty" toml:"sha256"`
 	Image   string `json:"image,omitempty" toml:"image"`
+	// Bins are the programs of an image tool that go on an atom's PATH, as
+	// paths inside its image. Empty puts the image's bin directories on it.
+	Bins []string `json:"bins,omitempty" toml:"bins"`
 }
 
 // ToolsFile is tools@1 after the check: images by digest, tools by kind.
@@ -114,6 +119,9 @@ func checkTool(p ToolPin) error {
 	if err := pinned("tool", p.Name, p.Image); err != nil {
 		return err
 	}
+	if err := checkBins(p); err != nil {
+		return err
+	}
 	switch p.Kind {
 	case "url":
 		if p.Spec == "" || !hex64.MatchString(p.SHA256) {
@@ -129,6 +137,23 @@ func checkTool(p ToolPin) error {
 		}
 	default:
 		return fmt.Errorf("tool.%s: kind %s is not go, uv, url or image", p.Name, p.Kind)
+	}
+	return nil
+}
+
+// checkBins refuses bins on a tool that is not an image, and a bin that is not
+// a clean path to a file inside the image.
+func checkBins(p ToolPin) error {
+	if len(p.Bins) == 0 {
+		return nil
+	}
+	if p.Kind != "image" {
+		return fmt.Errorf("tool.%s: bins belong to an image tool", p.Name)
+	}
+	for _, b := range p.Bins {
+		if b == "" || path.IsAbs(b) || path.Clean(b) != b || b == ".." || strings.HasPrefix(b, "../") || strings.HasSuffix(b, "/") {
+			return fmt.Errorf("tool.%s: bins entry %q is not a clean path inside the image", p.Name, b)
+		}
 	}
 	return nil
 }

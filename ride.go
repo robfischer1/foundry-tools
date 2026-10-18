@@ -85,7 +85,7 @@ func (m *FoundryTools) startRide(ctx context.Context, tree, stage, ride, base st
 		return nil
 	}
 	rider := *m
-	rider.lookup, rider.audit = nil, false
+	rider.mutantsToken = nil
 	h := &rideHandle{lane: laneOf(ride), repo: m.Repo, token: token, grace: rideGrace, done: make(chan *StageResult, 1)}
 	ctx, h.cancel = context.WithCancel(ctx)
 	// Buffered: an abandoned rider can still answer and its goroutine end.

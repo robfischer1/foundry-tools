@@ -65,8 +65,15 @@ const (
 	// atom says "rustc: got X, pinned Y" until this follows. The bookworm variant
 	// is the fleet's Debian; the script's own `rust:1.90` is a different Debian,
 	// and MEASURED 2026-10-07 the stamp guest is byte-identical from both.
-	ImageRustWasm = "docker.io/library/rust:1.90.0-bookworm@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f"
-	ImageTS       = "docker.io/oven/bun:1.4-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61"
+	// ImageRustTrixie is the compiler of ImageRust on Debian trixie (glibc 2.41),
+	// used by rust:mutation alone on the executor: upstream publishes cargo-mutants
+	// as a gnu build only, and it needs GLIBC_2.39, which bookworm (2.36) refuses
+	// (objdump -T on the v27.1.0 asset, 2026-10-17). Same rustc 1.97.0, so a
+	// mutant compiles to the same thing; the Dagger lane keeps ImageRust and
+	// builds cargo-mutants from source.
+	ImageRustTrixie = "docker.io/library/rust:1.97.0-trixie@sha256:b92b8c8574f8f3b207fcb0912fb3e2de4041580b5934d90312d53938c9a038a9"
+	ImageRustWasm   = "docker.io/library/rust:1.90.0-bookworm@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f"
+	ImageTS         = "docker.io/oven/bun:1.4-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61"
 	// The fleet atoms run in the python lane: they are python and shell, and
 	// three of them provision with uvx.
 	ImageFleet = ImagePython
@@ -113,6 +120,13 @@ const (
 	// that fixture and onto the lane's service does not also change broker build.
 	ImageRedpanda = "docker.notusmi.com/redpandadata/redpanda@sha256:6d627e3ebdc05438d1e8e3b55695ac1a7a0f79e7d5ca90b3b0f12dc984633e83"
 
+	// THE TEST CACHE a Go star's Redis-gated suites run against (testdb.go's
+	// TestCaches, tag `live_redis`): upstream redis 7-alpine through docker.io, the tag
+	// forge-testkit-go's containers.Redis boots, pinned by the digest the Nexus
+	// alias serves for it (resolved 2026-10-17) so a suite moving off that
+	// fixture and onto the lane's service does not also change server build.
+	ImageRedis = "docker.io/library/redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499"
+
 	// THE TEST KUBERNETES API a Go star's kube-gated suites run against
 	// (testkube.go's TestKubes, tag `live_kube`): the real kube-apiserver the
 	// cluster runs, over a real etcd, bound as Dagger services. No test double
@@ -127,8 +141,8 @@ const (
 	//
 	// Digests are the manifest-list digests registry.k8s.io answers
 	// (docker-content-digest for the tag, resolved 2026-10-16). registry.k8s.io
-	// is one of the engine's mirrors since flux 8ce9e7f2 (merged 83e5cd24),
-	// which maps it through registry-k8s.notusmi.com; see MirroredRegistries.
+	// is one of the engine's mirrors (flux 8ce9e7f2, merged 83e5cd24, maps it
+	// through registry-k8s.notusmi.com); see MirroredRegistries.
 	ImageKubeAPIServer = "registry.k8s.io/kube-apiserver:v1.36.3@sha256:b4bc06c81fd76f81174e6c19ddacf477acdf1583e7a5846ebbd513493aef6e43"
 	ImageEtcd          = "registry.k8s.io/etcd:3.6.8-0@sha256:397189418d1a00e500c0605ad18d1baf3b541a1004d768448c367e48071622e5"
 
@@ -250,6 +264,15 @@ const (
 	// the honest verdict. So ScoreGoMutation's `ungraded` bucket is expected to
 	// stay EMPTY, and the control is what says so rather than this pin.
 	MutationGateModule = "git.notusmi.com/rob/forge-testkit-go/cmd/mutation-gate@v0.10.0"
+	// OrbitparseModule is the reader ops:orbit-sidecars and orbit:sidecars run:
+	// policy.ParseACL over each composed orbit sidecar, the parser a witness-mode
+	// star refuses to boot without. It ships in stellar-core-go beside the parser,
+	// so the check and the stars it protects version together. It cannot be a Go
+	// import of this module: stellar-core-go needs otel v1.47, which the dagger
+	// SDK's otel pins break on (import cycle in otel/internal/global).
+	//
+	// renovate: datasource=go depName=git.notusmi.com/rob/stellar-core-go
+	OrbitparseModule = "git.notusmi.com/rob/stellar-core-go/cmd/orbitparse@v0.223.0"
 	// renovate: datasource=crate depName=cargo-audit
 	CargoAuditVersion = "0.22.2"
 	// renovate: datasource=crate depName=cargo-mutants
@@ -288,6 +311,13 @@ const (
 	CargoNextestURL    = "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.145/cargo-nextest-0.9.145-x86_64-unknown-linux-gnu.tar.gz"
 	CargoNextestMember = "cargo-nextest"
 
+	// cargo-mutants' gnu release, for ImageRustTrixie (the executor's copy of the
+	// rust:mutation toolchain). The tag carries the version; the binary is at the
+	// archive's root. The checksum equals the release API's own digest for the
+	// asset (sha256:dfe6dc37…).
+	CargoMutantsURL    = "https://github.com/sourcefrog/cargo-mutants/releases/download/v27.1.0/cargo-mutants-x86_64-unknown-linux-gnu.tar.gz"
+	CargoMutantsMember = "cargo-mutants"
+
 	// sccache is the rust containers' RUSTC_WRAPPER (daedalus' in-pod executor
 	// points it at the node's L1 claim, or at S3 behind one setting). Upstream's
 	// static musl build: it runs on any libc, so the same asset serves rust and
@@ -312,8 +342,17 @@ const (
 	RustWasmComponentsTag = "1.90.0"
 	RustClippyURL         = "https://static.rust-lang.org/dist/clippy-1.97.0-x86_64-unknown-linux-gnu.tar.gz"
 	RustRustfmtURL        = "https://static.rust-lang.org/dist/rustfmt-1.97.0-x86_64-unknown-linux-gnu.tar.gz"
+	RustStdURL            = "https://static.rust-lang.org/dist/rust-std-1.97.0-wasm32-unknown-unknown.tar.gz"
 	RustWasmClippyURL     = "https://static.rust-lang.org/dist/clippy-1.90.0-x86_64-unknown-linux-gnu.tar.gz"
 	RustWasmRustfmtURL    = "https://static.rust-lang.org/dist/rustfmt-1.90.0-x86_64-unknown-linux-gnu.tar.gz"
+
+	// MOLD, THE RUST ATOMS' LINKER (`mold -run`, MoldRun). The Dagger lane gets it
+	// from bookworm's package, mold 1.10.1; the executor's upstream rust images
+	// carry none, so the same release is pinned here as upstream's own tarball.
+	// MoldRelease is bookworm's version and must not float: the thread cap
+	// (RustGateMoldThreadsFlag) is measured against it. A test holds the URL to it.
+	MoldRelease = "1.10.1"
+	MoldURL     = "https://github.com/rui314/mold/releases/download/v1.10.1/mold-1.10.1-x86_64-linux.tar.gz"
 
 	// SccacheMember is the binary inside the tarball.
 	SccacheMember = "sccache-v0.18.0-x86_64-unknown-linux-musl/sccache"
@@ -334,10 +373,10 @@ var PlaywrightImages = map[string]string{
 // rather than derived from Atoms because an image nothing currently references
 // is still an image this module would ship.
 var LaneImages = []string{
-	ImageGo, ImagePython, ImageRust, ImageRustWasm, ImageTS, ImageFleet,
+	ImageGo, ImagePython, ImageRust, ImageRustTrixie, ImageRustWasm, ImageTS, ImageFleet,
 	ImageUV, ImageNode, ImageTools,
 	ImageKubeconform, ImageKubeLinter, ImageRenovate,
-	ImagePgvector, ImagePostgres, ImageKubeAPIServer, ImageEtcd,
+	ImagePgvector, ImagePostgres, ImageRedis, ImageKubeAPIServer, ImageEtcd,
 }
 
 // The go command's coordinates inside a lane container.
@@ -516,6 +555,13 @@ const (
 	ImageKubeconform = "ghcr.io/yannh/kubeconform:v0.7.0-alpine@sha256:8f0eeaaa96ba27ba1500b0e4b1c215acc358d159c62a7ecae58d7a03403287b0"
 	// ImageKubeLinter — likewise alpine, and likewise held still.
 	ImageKubeLinter = "docker.io/stackrox/kube-linter:v0.8.3-alpine@sha256:b8311611c27032d4922bc67719225e373e4a0ab0c767bbdcf5f20a9306b1a3bb"
+	// ImageNarcissus names the image that carries narc (narcissus's analyzer, at
+	// /narc). THE PIN HERE IS ONLY THE NAME orbit:surface's tool:narc resolves
+	// to: both runners run narc at the build flux pins LIVE (prime/images/
+	// kustomization.yaml at flux main; Rob, 2026-10-03), the Dagger gate
+	// through fluxpin and the executor's dispatcher at dispatch, never this
+	// digest. It is held as a plain pin so the index validates the Need.
+	ImageNarcissus = "registry.notusmi.com/rob/narcissus:1792198596-053bba4@sha256:1923ebea1773595a6ef19358e273738f504b65cc50f600666bcf99870ecf0fe2"
 
 	// RenovateTag / ImageRenovate: the Renovate the fleet DEPLOYS, read from
 	// flux renovate/renovate.yaml on main 2026-10-12 (both containers carry this
@@ -542,12 +588,9 @@ const (
 // pulled from INSIDE a lane container names one of those alias hosts in full
 // instead (trivy's databases), because the engine's mirror config cannot see it.
 //
-// registry.k8s.io/ is the engine's declared config, not yet its running config:
-// flux 8ce9e7f2 (merged to flux main as 83e5cd24, "feat(dagger): declare
-// registry.k8s.io mirror in engine config") routes it through
-// registry-k8s.notusmi.com, and the live engine adopts the entry at the next
-// deliberate DaemonSet roll. Until then buildkit's documented upstream fallback
-// serves the pull, so the images below resolve either way.
+// registry.k8s.io/ is the fourth mirror: flux 8ce9e7f2 (merged to flux main as
+// 83e5cd24) routes it through registry-k8s.notusmi.com, and the engine adopted
+// the entry at its deliberate DaemonSet roll.
 var MirroredRegistries = []string{"docker.io/", "ghcr.io/", "gcr.io/", "registry.k8s.io/"}
 
 // CRDSchema is the schema location the kubeconform atom adds to the default

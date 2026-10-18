@@ -52,15 +52,6 @@ import (
 // tests. Tests in this package do not run in parallel.
 var engine = &fakeEngine{}
 
-// mergeBaseNeedle is run.changeBase's second exec for a pull based at abc123,
-// and sinceSha is what every diff-scoped fixture has it answer: the change
-// set's origin, distinct from the base the door named, so a test that reads
-// the base where the merge base belongs fails to match.
-const (
-	mergeBaseNeedle = `"git","merge-base","abc123","HEAD"`
-	sinceSha        = "since0"
-)
-
 type fakeEngine struct {
 	mu      sync.Mutex
 	tree    map[string]string // path -> contents; a directory exists when a file is under it
@@ -615,6 +606,10 @@ func (e *fakeEngine) answer(q string) (data any, errMsg string) {
 		}
 	case "id", "sync":
 		val = fakeID(q)
+	case "digest":
+		// A directory's content digest: a function of the chain that names it.
+		sum := sha256.Sum256([]byte(q))
+		val = "sha256:" + hex.EncodeToString(sum[:])
 	case "publish":
 		// The registry's answer to a push: the ref at the digest it minted.
 		// Scripted by a test that wants a particular digest; otherwise the

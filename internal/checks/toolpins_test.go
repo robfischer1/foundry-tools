@@ -9,13 +9,13 @@ import (
 // Every URL the tools container fetches has a checksum, and it is a SHA-256.
 func TestEveryToolPinHasAChecksum(t *testing.T) {
 	hex := regexp.MustCompile(`^[0-9a-f]{64}$`)
-	for _, url := range []string{OpaURL, OpengrepURL, HadolintURL, KubectlURL, ChezmoiURL, ComposeURL, WasmToolsURL, WasmTools1250URL, NodeRegenURL, WacURL, JustURL, ShellcheckURL, PythonStandaloneURL, CargoAuditURL, CargoNextestURL, OrasURL, SccacheURL, RustClippyURL, RustRustfmtURL, RustWasmClippyURL, RustWasmRustfmtURL} {
+	for _, url := range []string{OpaURL, OpengrepURL, HadolintURL, KubectlURL, ChezmoiURL, ComposeURL, WasmToolsURL, WasmTools1250URL, NodeRegenURL, RustStdWasmURL, RustStdURL, WacURL, JustURL, ShellcheckURL, PythonStandaloneURL, CargoAuditURL, CargoNextestURL, CargoMutantsURL, OrasURL, SccacheURL, RustClippyURL, RustRustfmtURL, RustWasmClippyURL, RustWasmRustfmtURL, MoldURL} {
 		sum, ok := ToolSHA256[url]
 		if !ok || !hex.MatchString(sum) {
 			t.Errorf("%s has no SHA-256 in ToolSHA256 (got %q)", url, sum)
 		}
 	}
-	if len(ToolSHA256) != 21 {
+	if len(ToolSHA256) != 25 {
 		t.Errorf("ToolSHA256 holds %d entries; a stale line for a URL nothing fetches is a pin nobody checks", len(ToolSHA256))
 	}
 }
@@ -55,6 +55,15 @@ func TestSccachePinAgrees(t *testing.T) {
 	}
 }
 
+// The wasm32 standard library of each toolchain is that image's own compiler
+// version: serve lays it so no atom runs `rustup target add`.
+func TestRustStdPinsFollowTheImages(t *testing.T) {
+	base := "https://static.rust-lang.org/dist/rust-std-"
+	if RustStdURL != base+RustComponentsTag+"-wasm32-unknown-unknown.tar.gz" || RustStdWasmURL != base+RustWasmComponentsTag+"-wasm32-unknown-unknown.tar.gz" {
+		t.Errorf("%s %s", RustStdURL, RustStdWasmURL)
+	}
+}
+
 // The rust component tarballs are the toolchain images' own version: a bump of
 // an image tag that leaves its clippy and rustfmt behind would lay components
 // of another compiler over the toolchain.
@@ -70,6 +79,14 @@ func TestRustComponentPinsFollowTheImages(t *testing.T) {
 		if tc.clippy != base+"clippy-"+tc.version+"-x86_64-unknown-linux-gnu.tar.gz" || tc.rustfmt != base+"rustfmt-"+tc.version+"-x86_64-unknown-linux-gnu.tar.gz" {
 			t.Errorf("components %s %s are not %s's", tc.clippy, tc.rustfmt, tc.version)
 		}
+	}
+}
+
+// mold is the version bookworm's package carries, which the Dagger lane has run
+// the rust atoms with: a pin that moved would re-measure the link thread cap.
+func TestMoldPinIsBookworms(t *testing.T) {
+	if MoldRelease != "1.10.1" || MoldURL != "https://github.com/rui314/mold/releases/download/v"+MoldRelease+"/mold-"+MoldRelease+"-x86_64-linux.tar.gz" {
+		t.Errorf("mold pin %s %s", MoldRelease, MoldURL)
 	}
 }
 

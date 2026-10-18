@@ -19,21 +19,21 @@ import (
 	"dagger/foundry-tools/internal/atoms"
 	"dagger/foundry-tools/internal/buildlane"
 	"dagger/foundry-tools/internal/checks"
-	"dagger/foundry-tools/internal/svidcred"
 	"dagger/foundry-tools/internal/visuallane"
 )
 
 // Def is the atom. It runs the suites in a Playwright image whose browsers are
 // the lockfile's version, installs the tree's packages and writes snapshots
-// into the suite, so it writes the tree. It needs the pod's identity for one
-// thing, the artifact push, and bun to run the tree's own scripts.
+// into the suite, so it writes the tree. It needs bun to run the tree's own
+// scripts and NO identity: in the pod the artifact is pushed by the push-visual
+// phase, a container of its own that alone holds the SPIRE socket.
 var Def = atomkit.Def{
 	ID: "ts:visual", Stage: checks.StageVisual, Lane: checks.LaneTS,
 	Group:         checks.GroupLanguage,
 	Desc:          "Every Playwright screenshot suite visual.toml declares matches its committed baselines, rendered in the lane's pinned image.",
 	Surface:       "root:package.json",
 	Toolchain:     "playwright",
-	Needs:         []string{"svid", "tool:bun"},
+	Needs:         []string{"tool:bun"},
 	Timeout:       30 * time.Minute,
 	WritesTree:    true,
 	NeedsManifest: true,
@@ -124,7 +124,9 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 	}
 	state, reason, found := fold(runs)
 	if state == 1 {
-		reason += "\n" + e.publish(ctx, runs)
+		if line := e.publish(ctx, runs); line != "" {
+			reason += "\n" + line
+		}
 	}
 	v := settle(state, reason)
 	v.Findings = found
@@ -274,11 +276,6 @@ var registryBase = "https://" + registry
 // The seams the push runs through, so a test pushes nowhere.
 var (
 	getenv = os.Getenv
-	// fetchSVID asks the SPIRE agent at socket for a JWT-SVID for audience.
-	fetchSVID = func(ctx context.Context, socket, audience string) (string, error) {
-		_, tok, err := svidcred.Fetch(ctx, socket, audience)
-		return tok, err
-	}
 	// push stores the layers at ref.
 	push = func(ctx context.Context, cred visuallane.Credential, ref string, layers []visuallane.Layer) error {
 		return visuallane.Registry{
@@ -291,11 +288,14 @@ var (
 // is, or why it is not. It never changes the verdict: the findings are the
 // finding, and the artifact is how a person reads them and accepts a change.
 func (e env) publish(ctx context.Context, runs []*suiteRun) string {
+	if dir := stageDir(); dir != "" {
+		return e.stage(dir, runs)
+	}
 	ref, err := visuallane.ArtifactRef(registry, e.in.Origin, getenv(envSha))
 	if err != nil {
 		return "artifact: not pushed — " + err.Error()
 	}
-	if getenv(envAuth) == "" && getenv(envSocket) == "" {
+	if getenv(envAuth) == "" {
 		return "artifact: not pushed — the lane was given no --artifact-auth"
 	}
 	// NOTHING TO CARRY IS NOT A PUSH. A suite that never ran, because what it
@@ -313,7 +313,7 @@ func (e env) publish(ctx context.Context, runs []*suiteRun) string {
 	if !carried {
 		return "artifact: not pushed — no suite ran far enough to write results or baselines"
 	}
-	cred, err := e.login(ctx)
+	cred, err := e.login()
 	if err != nil {
 		return "artifact: not pushed — " + err.Error()
 	}
@@ -325,6 +325,51 @@ func (e env) publish(ctx context.Context, runs []*suiteRun) string {
 		return "artifact: not pushed — " + err.Error()
 	}
 	return visuallane.FetchHint(ref)
+}
+
+// The seams staging writes through, so a test makes a disk that is full.
+var (
+	writeLayer  = os.WriteFile
+	removeStage = os.RemoveAll
+)
+
+// stageDir is where the pod's push phase reads the artifact's layers, and ""
+// where the atom pushes for itself. The pod is the run with an ATOM_WORK and no
+// login: the stage sits beside the atom's own work directory in the pod's
+// shared /work (the push-visual capability reads /work/visual-artifact).
+func stageDir() string {
+	w := os.Getenv("ATOM_WORK")
+	if w == "" || getenv(envAuth) != "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(w), "visual-artifact")
+}
+
+// stage leaves the artifact's layers in dir, in manifest order, for the push
+// phase. It answers "" when all is well — the push phase owns the line that
+// says where the artifact is — and why nothing was staged when it is not.
+// Nothing is staged where no suite ran far enough to write results: an image
+// with no layers is a manifest the registry refuses.
+func (e env) stage(dir string, runs []*suiteRun) string {
+	carried := false
+	for _, r := range runs {
+		carried = carried || r.ran
+	}
+	if !carried {
+		return ""
+	}
+	layers, err := e.layers(runs)
+	if err == nil {
+		// A stage left by an earlier run of the pod is not this run's artifact.
+		err = errors.Join(removeStage(dir), os.MkdirAll(dir, 0o755))
+	}
+	for i := 0; err == nil && i < len(layers); i++ {
+		err = writeLayer(filepath.Join(dir, fmt.Sprintf("layer-%02d.tar.gz", i)), layers[i].Data, 0o644)
+	}
+	if err != nil {
+		return "artifact: not staged — " + err.Error()
+	}
+	return ""
 }
 
 // layers are the artifact's: per suite, the check run's results under
@@ -368,17 +413,9 @@ func layerOf(prefix, root string, keep func([]string) []string) (visuallane.Laye
 	return visuallane.TarLayer(prefix, root, files)
 }
 
-// login is the push's credential: the Dagger runner's static login when it
-// handed one, else the pod's JWT-SVID, fetched now, right before the push (it
-// lives 15 minutes).
-func (e env) login(ctx context.Context) (visuallane.Credential, error) {
-	if auth := getenv(envAuth); auth != "" {
-		user, password, err := buildlane.RegistryLogin(auth, registry)
-		return visuallane.Credential{User: user, Password: password}, err
-	}
-	tok, err := fetchSVID(ctx, getenv(envSocket), registry)
-	if err != nil {
-		return visuallane.Credential{}, fmt.Errorf("the registry JWT-SVID did not fetch: %w", err)
-	}
-	return visuallane.Credential{Bearer: tok}, nil
+// login is the push's credential: the static login the Dagger runner hands
+// over (--artifact-auth).
+func (e env) login() (visuallane.Credential, error) {
+	user, password, err := buildlane.RegistryLogin(getenv(envAuth), registry)
+	return visuallane.Credential{User: user, Password: password}, err
 }

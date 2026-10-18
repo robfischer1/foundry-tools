@@ -143,10 +143,10 @@ func TestBundleSeparatesABrokenBuildFromAnEmptyArtifactAndStampsUnknown(t *testi
 func TestUVIsPython3UnderUVRunFromTheRootWithBothStreams(t *testing.T) {
 	c := dieskit.UV("/src", dieskit.WithTOML, "x.py", "--flag")
 	atomtest.WantUV(t, c, "/src", dieskit.WithTOML, "x.py", "--flag")
-	if got := strings.Join(c.Args, " "); got != "run --no-project --quiet --with tomli>=2.0 python3 x.py --flag" {
+	if got := strings.Join(c.Args, " "); got != "run --no-project --quiet --python python3 --with tomli>=2.0 python3 x.py --flag" {
 		t.Errorf("%s", got)
 	}
-	if got := strings.Join(dieskit.UV("/src", "", "x.py").Args, " "); got != "run --no-project --quiet python3 x.py" {
+	if got := strings.Join(dieskit.UV("/src", "", "x.py").Args, " "); got != "run --no-project --quiet --python python3 python3 x.py" {
 		t.Errorf("a program that needs no package is resolved with none: %s", got)
 	}
 }
@@ -171,7 +171,7 @@ func TestProbeImportsSettleAndVerdictRunTheProgramsTheyName(t *testing.T) {
 	t.Run("an import the resolver cannot supply is a 2", func(t *testing.T) {
 		in, f := atomtest.UVTree(t, atomtest.DieTree(nil), atomtest.Const0("ModuleNotFoundError: No module named 'jsonschema'", 1))
 		atomtest.Expect(t, *dieskit.Imports(ctx, row, in, dieskit.WithJSONSchema, "jsonschema"), checks.StateCannotRun, atomtest.Cannot,
-			"the atom never ran: exit code: 1", "failed: uv run --no-project --quiet --with jsonschema>=4.20 python3 -c import jsonschema", "No module named 'jsonschema'")
+			"the atom never ran: exit code: 1", "failed: uv run --no-project --quiet --python python3 --with jsonschema>=4.20 python3 -c import jsonschema", "No module named 'jsonschema'")
 		atomtest.WantUV(t, f.Last(), in.Root, dieskit.WithJSONSchema, "-c", "import jsonschema")
 		ok, _ := atomtest.UVTree(t, atomtest.DieTree(nil), nil)
 		if v := dieskit.Imports(ctx, row, ok, dieskit.WithJSONSchema, "jsonschema"); v != nil {
@@ -252,4 +252,18 @@ func TestInTheVenvThePythonIsTheVenvsOwnAndNothingIsResolved(t *testing.T) {
 			atomtest.WantUV(t, f.Last(), in.Root, dieskit.WithTOML, "x.py")
 		}
 	})
+}
+
+// A checker is foundry-dies' program, not the graded tree's: a tree pinning a
+// python the runner does not provide (ourea's .python-version 3.15 on a 3.14
+// pod) must not decide which interpreter runs it.
+func TestUVIgnoresTheGradedTreesPythonPin(t *testing.T) {
+	atomtest.SetVenv(t, false)
+	in, f := atomtest.UVTree(t, map[string]string{".python-version": "3.15\n", "x.py": "#"}, func(atoms.Cmd) (string, int) { return "ok", 0 })
+	row := checks.AtomDef{ID: "dies:pin", Stage: checks.StagePrecommit, Lane: checks.LaneAny}
+	dieskit.Settle(context.Background(), row, in, dieskit.WithTOML, "x.py")
+	argv := strings.Join(f.Last().Args, " ")
+	if !strings.Contains(argv, "--python python3 --with") {
+		t.Errorf("uv would honour the tree's pin: %s", argv)
+	}
 }

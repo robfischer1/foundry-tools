@@ -52,30 +52,6 @@ func TestRunPrintsTheVectorAndExitsZero(t *testing.T) {
 	}
 }
 
-// The witness URL flag reaches the atoms through the input: empty is the
-// production port, and the stand-in's when named.
-func TestWitnessFlagsReachTheAtoms(t *testing.T) {
-	dir := newRepo(t)
-	put(t, dir, "a.txt", "a\n")
-	commitAll(t, dir, "c1")
-	var urls []string
-	build := func() (*Registry, error) {
-		return NewRegistry(Atom{ID: "go:release", Run: func(_ context.Context, a checks.AtomDef, in Input) checks.Verdict {
-			urls = append(urls, in.Witness.URL)
-			return checks.VerdictOf(a, 0, "")
-		}})
-	}
-	var out, errb strings.Builder
-	for _, args := range [][]string{{"-root", dir}, {"-root", dir, "-witness-url", "http://narcissus.invalid"}} {
-		if code := run(context.Background(), args, &out, &errb, time.Now, build); code != 0 {
-			t.Fatalf("exit %d: %s", code, errb.String())
-		}
-	}
-	if len(urls) != 2 || urls[0] != "" || urls[1] != "http://narcissus.invalid" {
-		t.Errorf("witness URL was %q for no flag and the flag", urls)
-	}
-}
-
 func TestRunOutsideARepositoryStillAnswersAVector(t *testing.T) {
 	withOneAtom(t)
 	var stdout, stderr bytes.Buffer

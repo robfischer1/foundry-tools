@@ -1,0 +1,16 @@
+schema = "command-atom@1"
+id = "dev:go-vendor"
+stage = "dev"
+lane = "go"
+group = "language"
+desc = "go mod vendor rewrites vendor/ from go.mod."
+surface = "root:go.mod"
+toolchain = "go"
+argv = ["go", "mod", "vendor"]
+args = "append"
+per_module = false
+judge = "exit"
+writes_tree = true
+
+[env]
+GOFLAGS = "-mod=mod"

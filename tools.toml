@@ -20,11 +20,18 @@ image = "docker.io/library/python:3.14-slim-bookworm@sha256:9ab8d9c8514b44f90cf0
 image = "docker.io/library/rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e75fea57e2a2a5c3073"
 preflight = ["cargo", "fetch", "--locked"]
 
+[toolchain.rust-trixie]
+image = "docker.io/library/rust:1.97.0-trixie@sha256:b92b8c8574f8f3b207fcb0912fb3e2de4041580b5934d90312d53938c9a038a9"
+
 [toolchain.rust-wasm]
 image = "docker.io/library/rust:1.90.0-bookworm@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f"
 
+# The preflight is ts:bun-gate's own install, run before a command atom here
+# (the dev:ts-* verbs): a tree comes bare, with no node_modules, and the verbs run
+# the repo's scripts. ts:bun-audit audits the lockfile and opts out.
 [toolchain.bun]
 image = "docker.io/oven/bun:1.4-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61"
+preflight = ["bun", "install", "--frozen-lockfile"]
 
 [toolchain.node]
 image = "docker.io/library/node:24-bookworm-slim@sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553"
@@ -44,6 +51,9 @@ image = "docker.io/pgvector/pgvector:pg18@sha256:1d50c689b0a6511b9ea0a15615281c8
 
 [service.redpanda]
 image = "docker.notusmi.com/redpandadata/redpanda@sha256:6d627e3ebdc05438d1e8e3b55695ac1a7a0f79e7d5ca90b3b0f12dc984633e83"
+
+[service.redis]
+image = "docker.io/library/redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499"
 
 [service.kube-apiserver]
 image = "registry.k8s.io/kube-apiserver:v1.36.3@sha256:b4bc06c81fd76f81174e6c19ddacf477acdf1583e7a5846ebbd513493aef6e43"
@@ -77,11 +87,11 @@ sha256 = "65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8"
 
 [tool.chezmoi]
 kind = "url"
-spec = "https://github.com/twpayne/chezmoi/releases/download/v2.73.1/chezmoi-linux-amd64"
-version = "2.73.1"
-sha256 = "fbf312e45c5c1f629e1d994c201cdd666198bd556af38512f4432ae6d3952521"
+spec = "https://github.com/twpayne/chezmoi/releases/download/v2.73.2/chezmoi-linux-amd64"
+version = "2.73.2"
+sha256 = "6f5eb3ab10b0805ddfec5ddd3e9d575720b17bf065a581cff501170d3770479f"
 
-[tool.compose]
+[tool.docker-compose]
 kind = "url"
 spec = "https://github.com/docker/compose/releases/download/v5.6.0/docker-compose-linux-x86_64"
 version = "5.6.0"
@@ -135,6 +145,12 @@ spec = "https://github.com/mozilla/sccache/releases/download/v0.18.0/sccache-v0.
 version = "0.18.0"
 sha256 = "45f1447fbe231e3037bde351ef70677dd212216c8d62ae7ca409fecc4d6acc89"
 
+[tool.mold]
+kind = "url"
+spec = "https://github.com/rui314/mold/releases/download/v1.10.1/mold-1.10.1-x86_64-linux.tar.gz"
+version = "1.10.1"
+sha256 = "7524fe67f917d5287b2f7a7d6401e2625fa3f5f84bc6b8d9b487d6cb08876488"
+
 [tool.rust-clippy]
 kind = "url"
 spec = "https://static.rust-lang.org/dist/clippy-1.97.0-x86_64-unknown-linux-gnu.tar.gz"
@@ -147,6 +163,18 @@ spec = "https://static.rust-lang.org/dist/rustfmt-1.97.0-x86_64-unknown-linux-gn
 version = "1.97.0"
 sha256 = "7b5d4b02c8d0f7c3be64d3bc2e0738ccb06dc0492f81a93c4fcb223ff93f8b38"
 
+[tool.rust-std]
+kind = "url"
+spec = "https://static.rust-lang.org/dist/rust-std-1.97.0-wasm32-unknown-unknown.tar.gz"
+version = "1.97.0"
+sha256 = "ebb7e78290ac440be505d701ca99101e9450ac5b8f701722f9c6a020cfd9bc89"
+
+[tool.rust-wasm-std]
+kind = "url"
+spec = "https://static.rust-lang.org/dist/rust-std-1.90.0-wasm32-unknown-unknown.tar.gz"
+version = "1.90.0"
+sha256 = "cbcd4ea55884e9c3d8d72e1497c70e9ed18c4a824d4d0f049006a245229d11af"
+
 [tool.rust-wasm-clippy]
 kind = "url"
 spec = "https://static.rust-lang.org/dist/clippy-1.90.0-x86_64-unknown-linux-gnu.tar.gz"
@@ -158,6 +186,12 @@ kind = "url"
 spec = "https://static.rust-lang.org/dist/rustfmt-1.90.0-x86_64-unknown-linux-gnu.tar.gz"
 version = "1.90.0"
 sha256 = "61407015edaeafa9b61b3ffefb5077624cd4017ac50be05e246bcadafbb56d99"
+
+[tool.cargo-mutants]
+kind = "url"
+spec = "https://github.com/sourcefrog/cargo-mutants/releases/download/v27.1.0/cargo-mutants-x86_64-unknown-linux-gnu.tar.gz"
+version = "27.1.0"
+sha256 = "dfe6dc37d0342c891d2829b5a695aa57c2d0edecef7e7d0399a30cc6e206411e"
 
 [tool.python-standalone]
 kind = "url"
@@ -200,6 +234,26 @@ version = "8.7.0"
 kind = "image"
 image = "docker.io/oven/bun:1.4-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61"
 
+# git for a container whose image has none (python, bun, node, playwright's
+# noble has it): the golang image's own /usr/bin/git, the toolchain pin the go
+# containers already pull. Only git goes on PATH (bins); the rest of that image
+# stays behind the container's own tar, ps and sh. Local reads only (diff,
+# merge-base, log, cat-file, ls-tree): its git-core helpers and libcurl are not
+# the container's.
+[tool.git]
+kind = "image"
+image = "docker.io/library/golang:1.26.9-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c"
+bins = ["usr/bin/git"]
+
+# node for a container that has none or only bun's stand-in (the bun image puts
+# a bun symlink named node last on PATH): the node toolchain image's own binary,
+# first on PATH, so a package's `#!/usr/bin/env node` bin (Stryker, eslint) runs
+# under node on both runners.
+[tool.node]
+kind = "image"
+image = "docker.io/library/node:24-bookworm-slim@sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553"
+bins = ["usr/local/bin/node"]
+
 [tool.uv]
 kind = "image"
 image = "ghcr.io/astral-sh/uv:0.12.13@sha256:b485bd65cc2cf1c9a93b3554012c9c3778cf7b1b5fd3d3096ce9e1226c97e1e6"
@@ -231,6 +285,24 @@ image = "ghcr.io/yannh/kubeconform:v0.7.0-alpine@sha256:8f0eeaaa96ba27ba1500b0e4
 [tool.kube-linter]
 kind = "image"
 image = "docker.io/stackrox/kube-linter:v0.8.3-alpine@sha256:b8311611c27032d4922bc67719225e373e4a0ab0c767bbdcf5f20a9306b1a3bb"
+
+# gravity at the rev stellar-core-go's provenance.json pins (checks.GravityPrebuilt):
+# the binary `cargo install` builds, seeded in the tool mirror under its sha256.
+# The regen tests of go:test, go:test-race and go:diff-coverage find it on PATH.
+[tool.gravity]
+kind = "url"
+spec = "https://registry.notusmi.com/v2/foundry/tool/mirror/blobs/sha256:db5a9f0bec3976e9fe84ae8e6f4d6afa2409c0fb556d9646f489b44e96afa395"
+version = "68d8146b88e53e619bfbc0a36b9d70ef9c3bcf06"
+sha256 = "db5a9f0bec3976e9fe84ae8e6f4d6afa2409c0fb556d9646f489b44e96afa395"
+
+[tool.narc]
+kind = "image"
+image = "registry.notusmi.com/rob/narcissus:1792198596-053bba4@sha256:1923ebea1773595a6ef19358e273738f504b65cc50f600666bcf99870ecf0fe2"
+
+[tool.orbitparse]
+kind = "go"
+spec = "git.notusmi.com/rob/stellar-core-go/cmd/orbitparse"
+version = "v0.223.0"
 
 [tool.static]
 kind = "image"

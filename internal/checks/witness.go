@@ -37,16 +37,6 @@ import (
 // this size; novel is clean; refused (could not read) and unknown (an empty
 // corpus: "not looked at") are could-not-consult for that file.
 
-// WitnessURL is narcissus's plaintext MCP port. It answers any in-cluster
-// caller (stellar_core DualListener), measured 2026-09-10 from a container on
-// the fleet's dagger engine.
-// The name is BARE deliberately — it named the `default` namespace until
-// 2026-09-25 and broke when the fleet moved to `prime`. A bare name resolves
-// through the client's own search path and is correct in any namespace. See
-// checks.GoProxy for why a module-side constant cannot read an env var, and
-// where these addresses should eventually live instead.
-const WitnessURL = "http://narcissus:8200/mcp"
-
 // WitnessWorkers is how many files are asked about at once. One answer takes
 // 30-40 s (narcissus's latency log, 2026-09-14); serial, athena's 44-file
 // landing ran 20 minutes.

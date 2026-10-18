@@ -21,7 +21,7 @@ var Def = atomkit.Def{
 	Desc:       "go test ./... passes — the unit suite, no race detector and no database.",
 	Surface:    "any:**/go.mod",
 	Toolchain:  "go",
-	Needs:      []string{"dies"},
+	Needs:      []string{"dies", "tool:gravity"},
 	SubsumedBy: "go:test-race",
 	Timeout:    45 * time.Minute,
 	Check:      check,

@@ -10,12 +10,32 @@
 # ops:ansible compares what the tree declares with what this layer provisioned
 # and settles could-not-run, naming the difference, when they part; bump the two
 # together.
+#
+# EACH ENTRY NAMES THE ARTIFACT IT IS: `url` is galaxy's download address and
+# `sha256` the tarball's sum (galaxy's own v3 record of the version). The
+# executor installs NOTHING from galaxy at run time: galaxy redirects artifact
+# downloads to S3, which a pod's egress drops (CIEgressDropped, 22 SYNs to
+# 52.217.123.170:443), so the pod hung. Daedalus fetches each tarball through the
+# tool mirror first (the blob whose digest is the sha256, seeded with
+# `just mirror-seed <url> <sha256>`), holds it to the sum, and installs with
+# `ansible-galaxy collection install --offline`. The Dagger build above still
+# reads the name and version and asks galaxy, which it can reach; ansible-galaxy
+# ignores the two extra keys. A bump moves all four fields, and the seed.
+
 collections:
   - name: community.routeros
     version: "3.22.0"
+    url: https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/artifacts/community-routeros-3.22.0.tar.gz
+    sha256: 45e125b2ec14a336045f7de0d606c9b3678824050223c7fe405e3d229127a05a
   - name: vyos.vyos
     version: "6.0.0"
+    url: https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/artifacts/vyos-vyos-6.0.0.tar.gz
+    sha256: 96da7f7b22610567a516756b974ed4b927508604ddef8c986f4090027a5bd8d3
   - name: ansible.netcommon
     version: "8.6.2"
+    url: https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/artifacts/ansible-netcommon-8.6.2.tar.gz
+    sha256: 4040e782c26ddb97979e03a07f4894a2dc82f59c1e71e7f5c5cb2d5c6a31628a
   - name: ansible.utils
     version: "6.1.0"
+    url: https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/artifacts/ansible-utils-6.1.0.tar.gz
+    sha256: e29255d2a41e90b4de68524df4124100b51a0525167459e5e2def00deed97799

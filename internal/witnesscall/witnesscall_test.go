@@ -61,12 +61,12 @@ func TestTheDefaultsAreTheFleets(t *testing.T) {
 }
 
 func TestOnlyTheTwoCallsAreWellFormed(t *testing.T) {
-	for _, ok := range [][]string{{"whoami"}, {"post", "u", "f"}} {
+	for _, ok := range [][]string{{"whoami"}, {"post", "u", "f"}, {"get", "u"}} {
 		if !wellFormed(ok) {
 			t.Errorf("%v refused", ok)
 		}
 	}
-	for _, bad := range [][]string{nil, {"whoami", "x"}, {"post", "u"}, {"post", "u", "f", "g"}, {"get", "u", "f"}, {"x"}} {
+	for _, bad := range [][]string{nil, {"whoami", "x"}, {"post", "u"}, {"post", "u", "f", "g"}, {"get"}, {"get", "u", "f"}, {"x"}} {
 		if wellFormed(bad) {
 			t.Errorf("%v accepted", bad)
 		}
@@ -270,10 +270,10 @@ func (f *fakeIdentity) Close() error { f.closed = true; return nil }
 
 type fakeServer struct {
 	*httptest.Server
-	mu                        sync.Mutex
-	asked                     bool
-	path, body, ctype, accept string
-	peerURIs                  []string
+	mu                                sync.Mutex
+	asked                             bool
+	method, path, body, ctype, accept string
+	peerURIs                          []string
 }
 
 func newServer(t *testing.T, p *testPKI, serverID string, handler http.HandlerFunc) *fakeServer {
@@ -285,7 +285,7 @@ func newServer(t *testing.T, p *testPKI, serverID string, handler http.HandlerFu
 	s.Server = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		s.mu.Lock()
-		s.asked, s.path, s.body = true, r.URL.Path, string(b)
+		s.asked, s.method, s.path, s.body = true, r.Method, r.URL.Path, string(b)
 		s.ctype, s.accept = r.Header.Get("Content-Type"), r.Header.Get("Accept")
 		for _, u := range r.TLS.PeerCertificates[0].URIs {
 			s.peerURIs = append(s.peerURIs, u.String())
@@ -372,5 +372,43 @@ func TestB4MTLS_ExecPostPresentsTheCIIdentity(t *testing.T) {
 	out, code = execWith(id, nil, nil, "post", n.URL+"/mcp", file+".gone")
 	if code != CouldNotAsk || !strings.Contains(out, "no such file") {
 		t.Errorf("code %d out %q", code, out)
+	}
+}
+
+// B4-WITNESS-PROBE: the readiness probe rides the same mTLS client as an ask.
+func TestAGetPresentsTheLanesSVIDAndPrintsTheAnswer(t *testing.T) {
+	p := newPKI(t)
+	n := newServer(t, p, "spiffe://notusmi.com/star/narcissus", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"store":"waiting"}`))
+	})
+	const ci = "spiffe://notusmi.com/job/gate/gate-x-1"
+	id := &fakeIdentity{svid: p.svid(t, ci), bundle: x509bundle.FromX509Authorities(p.td, []*x509.Certificate{p.ca})}
+	code, stdout, stderr := run(id, nil, noEnv, noFile, "get", n.URL+"/ready")
+	if code != 0 || stdout != "HTTP 503\napplication/json\n{\"store\":\"waiting\"}" {
+		t.Fatalf("code %d stdout %q stderr %q", code, stdout, stderr)
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.method != http.MethodGet || n.path != "/ready" || n.body != "" {
+		t.Errorf("asked %s %q with body %q", n.method, n.path, n.body)
+	}
+	if len(n.peerURIs) != 1 || n.peerURIs[0] != ci {
+		t.Errorf("the witness saw the client as %v", n.peerURIs)
+	}
+}
+
+func TestAGetToAnImpostorOrABadAddressIsCouldNotAsk(t *testing.T) {
+	p := newPKI(t)
+	n := newServer(t, p, "spiffe://notusmi.com/star/impostor", func(http.ResponseWriter, *http.Request) {})
+	id := &fakeIdentity{svid: p.svid(t, "spiffe://notusmi.com/job/gate/g"), bundle: x509bundle.FromX509Authorities(p.td, []*x509.Certificate{p.ca})}
+	code, _, stderr := run(id, nil, noEnv, noFile, "get", n.URL+"/ready")
+	if code != CouldNotAsk || !strings.Contains(stderr, "did not answer") || n.asked {
+		t.Errorf("code %d stderr %q asked %v", code, stderr, n.asked)
+	}
+	var out, errOut bytes.Buffer
+	if code := get(context.Background(), http.DefaultClient, "::", &out, &errOut); code != CouldNotAsk || out.Len() != 0 {
+		t.Errorf("code %d out %q", code, out.String())
 	}
 }

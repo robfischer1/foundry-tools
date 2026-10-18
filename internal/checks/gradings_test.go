@@ -190,7 +190,7 @@ func TestSettleStageCarriesTheGradings(t *testing.T) {
 }
 
 func TestFoldModulesKeepsEveryModulesGradings(t *testing.T) {
-	a := AtomByID("go:mutation")
+	a := AtomDef{ID: "go:mutation", Stage: StageMutation, Lane: LaneGo}
 	v := FoldModules(a, []ModuleVerdict{
 		{Dir: ".", Verdict: Verdict{State: 0, Gradings: []Grading{{Unit: "x"}}}},
 		{Dir: "tools/forge", Verdict: Verdict{State: 0}},

@@ -60,11 +60,13 @@ var ToolSHA256 = map[string]string{
 	OpengrepURL:      "dbbe3c2058dbe600c449a8ba22ea79a1643a6660658400090d0323a8d0d31147",
 	HadolintURL:      "c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507",
 	KubectlURL:       "65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8",
-	ChezmoiURL:       "fbf312e45c5c1f629e1d994c201cdd666198bd556af38512f4432ae6d3952521",
+	ChezmoiURL:       "6f5eb3ab10b0805ddfec5ddd3e9d575720b17bf065a581cff501170d3770479f",
 	ComposeURL:       "40343e21ca777173e69cff5dbafeb37c6f81f3b0d57d9e597f036e95eb63e76a",
 	WasmToolsURL:     "655b8df67d54c3ef9b52fc237c4e94bbfbb5f5f43825245cb0940a7002a9ed65",
 	WasmTools1250URL: "b746c34e7c4162b8812eb29397ebe076834e496a8c46fe68d793379a2741eb50",
 	NodeRegenURL:     "6e1db87ef58b8819e5d5402eff1536491b18edd8eb7bee5ef7897876e88dc5ff",
+	RustStdWasmURL:   "cbcd4ea55884e9c3d8d72e1497c70e9ed18c4a824d4d0f049006a245229d11af",
+	RustStdURL:       "ebb7e78290ac440be505d701ca99101e9450ac5b8f701722f9c6a020cfd9bc89",
 	WacURL:           "7cd490edbd452221ef89e6750fc43eacc9b71b1242095eb577cb9a3bf0d3beda",
 	JustURL:          "409044617b6f06517c1035e55ca38c8c856ff8b650e41bc2aa1ef82d5903a23e",
 	ShellcheckURL:    "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198",
@@ -75,9 +77,14 @@ var ToolSHA256 = map[string]string{
 	// cargo-mutants), computed from the assets 2026-10-09.
 	CargoAuditURL:   "7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428",
 	CargoNextestURL: "32aa82416099eb12fffae9cf1a279ad201fecbd3f74826c613e32e9006b29867",
+	CargoMutantsURL: "dfe6dc37d0342c891d2829b5a695aa57c2d0edecef7e7d0399a30cc6e206411e",
 
 	// The rust containers' compile cache wrapper (images.go SccacheURL).
 	SccacheURL: "45f1447fbe231e3037bde351ef70677dd212216c8d62ae7ca409fecc4d6acc89",
+
+	// The rust atoms' linker (images.go MoldURL): upstream's tarball, equal to the
+	// asset downloaded 2026-10-17.
+	MoldURL: "7524fe67f917d5287b2f7a7d6401e2625fa3f5f84bc6b8d9b487d6cb08876488",
 
 	// The rust containers' clippy and rustfmt (images.go RustClippyURL).
 	RustClippyURL:      "b3fe2a650456f055f4163e7de8c230609a5daf72c204a4a64cc6b51b5eb72e3e",

@@ -75,6 +75,7 @@ var atomRuntimeDirs = []string{
 	"internal/atoms/**",
 	"internal/checks/**",
 	"internal/execmem/**",
+	"internal/pgroupps/**",
 	"internal/govlaw/**",
 	"internal/unitkey/**",
 	"internal/retiredverbs/**",
@@ -97,6 +98,10 @@ var (
 // atomLibraries are the packages an atom imports that not every atom does, by
 // atom id. An atom that is not here imports nothing beyond atomRuntimeDirs.
 var atomLibraries = map[string][]string{
+	"go:mutation":                {"internal/gomut/**"},
+	"python:mutation":            {"internal/pymut/**"},
+	"rust:mutation":              {"internal/rustmut/**"},
+	"ts:mutation":                {"internal/tsmut/**"},
 	"compose:config":             libraryDirs,
 	"fleet:witness":              witnessDirs,
 	"compose:no-tracked-secrets": libraryDirs,
@@ -125,7 +130,7 @@ var atomLibraries = map[string][]string{
 	"ts:release":                 releaseDirs,
 	"template:render-matrix":     libraryDirs,
 	"ts:regen":                   {"internal/regenlane/**"},
-	"ts:visual":                  {"internal/visuallane/**", "internal/buildlane/**", "internal/svidcred/**"},
+	"ts:visual":                  {"internal/visuallane/**", "internal/buildlane/**"},
 	"wit:validate":               libraryDirs,
 }
 
@@ -197,4 +202,10 @@ func readVerdict(ctx context.Context, a checks.AtomDef, ran *dagger.Container, o
 // words it (E6): one line, the identity from the catalogue row.
 func cannotRun(a checks.AtomDef, reason string) checks.Verdict {
 	return atomkit.CannotRun(a.ID, a.Stage, a.Lane, reason)
+}
+
+// lastLines is the last n lines of s.
+func lastLines(s string, n int) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	return strings.Join(lines[max(0, len(lines)-n):], "\n")
 }
