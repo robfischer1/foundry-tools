@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 // WHAT THE FOUR MUTATION ATOMS SHARE OF THEIR ENVIRONMENT. Where they put what
@@ -69,8 +70,12 @@ func WorkingTree(root, work string) (dir string, copied bool, err error) {
 	return dst, true, CopyTree(root, dst)
 }
 
-// locked says the tree's files cannot be written by their owner: its first
-// regular file at the top (a manifest, in a tree worth grading) lacks the bit.
+// locked says the atom cannot write the tree: its first regular file at the top
+// (a manifest, in a tree worth grading) lacks the owner's write bit, or is
+// another uid's and not writable to the caller through its group or other bits.
+// The executor lays the tree in git's modes (0644) as the fetching uid's, so the
+// owner bit is set and the atom still cannot write it, nor rename over it in a
+// sticky directory (Stryker's backup restore died EPERM, DEF-B4-059).
 func locked(root string) bool {
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -78,10 +83,35 @@ func locked(root string) bool {
 	}
 	for _, e := range entries {
 		if info, err := e.Info(); err == nil && info.Mode().IsRegular() {
-			return info.Mode().Perm()&0o200 == 0
+			uid, gid := ownerOf(info)
+			groups, _ := os.Getgroups()
+			return lockedTo(info.Mode().Perm(), uid, gid, os.Geteuid(), append(groups, os.Getegid()))
 		}
 	}
 	return false
+}
+
+// ownerOf is a file's uid and gid; -1 where the platform does not say.
+func ownerOf(info fs.FileInfo) (uid, gid int) {
+	if st, ok := info.Sys().(*syscall.Stat_t); ok {
+		return int(st.Uid), int(st.Gid)
+	}
+	return -1, -1
+}
+
+// lockedTo says a file of this mode, owner and group is not writable by the
+// caller (euid me, in groups). Root writes anything but a file with no owner bit
+// at all, which is how the old locked tree read (0444).
+func lockedTo(mode fs.FileMode, uid, gid, me int, groups []int) bool {
+	switch {
+	case mode&0o200 == 0:
+		return true
+	case me == 0 || uid == me || uid < 0:
+		return false
+	case slices.Contains(groups, gid):
+		return mode&0o020 == 0
+	}
+	return mode&0o002 == 0
 }
 
 // CopyTree copies src to dst without its .git, with the owner's write bit set on

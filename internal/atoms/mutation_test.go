@@ -2,6 +2,7 @@ package atoms
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -138,5 +139,35 @@ func TestRunProgramSplitsStderrAndDropsWhatIsUnset(t *testing.T) {
 func TestAnEmptyTreeIsNotLocked(t *testing.T) {
 	if locked(t.TempDir()) {
 		t.Error("a tree with no file is locked")
+	}
+}
+
+// DEF-B4-059: the executor lays the tree in git's modes (0644) but as another
+// uid's (fetch's, 65533; the atoms run as 65534). The owner bit is set and the
+// atom still cannot write the file, nor rename over it in a sticky directory
+// (Stryker's backup restore died EPERM), so a tree is locked to whoever cannot
+// write it, not only to a mode with no owner bit.
+func TestDef059ATreeIsLockedToWhoeverCannotWriteIt(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		mode   fs.FileMode
+		uid    int
+		gid    int
+		me     int
+		groups []int
+		want   bool
+	}{
+		{"own file, owner bit", 0o644, 65534, 65534, 65534, nil, false},
+		{"own file, no owner bit", 0o444, 65534, 65534, 65534, nil, true},
+		{"another uid's 0644, not in its group", 0o644, 65533, 65533, 65534, nil, true},
+		{"another uid's 0644, shared group, no group write", 0o644, 65533, 65534, 65534, []int{65534}, true},
+		{"another uid's 0664, shared group", 0o664, 65533, 65534, 65534, []int{65534}, false},
+		{"another uid's 0666", 0o666, 65533, 65533, 65534, nil, false},
+		{"root writes anything", 0o644, 65533, 65533, 0, nil, false},
+		{"root, no owner bit, is still the old rule", 0o444, 65533, 65533, 0, nil, true},
+	} {
+		if got := lockedTo(c.mode, c.uid, c.gid, c.me, c.groups); got != c.want {
+			t.Errorf("%s: lockedTo = %v, want %v", c.name, got, c.want)
+		}
 	}
 }
