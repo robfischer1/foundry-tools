@@ -75,10 +75,8 @@ func TestUT_613_ReleasePhasesNameTheFourReleaseAtoms(t *testing.T) {
 
 // TestLaneAtomsAreCatalogueAtoms: every atom a phase names is a row of the
 // catalogue, and every stage a lane or a stage:<s> names is a stage one has.
-// govern:resolve-tags is the one the catalogue does not hold yet (DEF-B3-002).
 func TestLaneAtomsAreCatalogueAtoms(t *testing.T) {
 	have := portedIDs(t)
-	have["govern:resolve-tags"] = true
 	for _, a := range checks.Atoms() {
 		have[a.ID] = true
 	}
@@ -135,7 +133,7 @@ func TestLaneShapes(t *testing.T) {
 	if d := lanes["dev"]; len(d.Phases) != 2 || d.Phases[0].Atoms[0] != "stage:dev" || d.Phases[1].Capability != "dev-output" {
 		t.Errorf("dev: %+v", d)
 	}
-	if g := lanes["govern"]; len(g.Phases) != 2 || g.Phases[0].Atoms[0] != "govern:resolve-tags" || g.Phases[1].Capability != "layer-cast" {
+	if g := lanes["govern"]; len(g.Phases) != 1 || g.Phases[0].Name != "cast" || g.Phases[0].Capability != "layer-cast" || len(g.Phases[0].Atoms) != 0 || len(g.Phases[0].After) != 0 {
 		t.Errorf("govern: %+v", g)
 	}
 }
