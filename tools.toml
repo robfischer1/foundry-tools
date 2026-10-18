@@ -55,6 +55,12 @@ image = "docker.notusmi.com/redpandadata/redpanda@sha256:6d627e3ebdc05438d1e8e3b
 [service.redis]
 image = "docker.io/library/redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499"
 
+[service.kube-apiserver]
+image = "registry.k8s.io/kube-apiserver:v1.36.3@sha256:b4bc06c81fd76f81174e6c19ddacf477acdf1583e7a5846ebbd513493aef6e43"
+
+[service.etcd]
+image = "registry.k8s.io/etcd:3.6.8-0@sha256:397189418d1a00e500c0605ad18d1baf3b541a1004d768448c367e48071622e5"
+
 [tool.opa]
 kind = "url"
 spec = "https://openpolicyagent.org/downloads/v1.21.2/opa_linux_amd64_static"

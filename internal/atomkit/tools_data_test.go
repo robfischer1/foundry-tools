@@ -37,7 +37,7 @@ func TestUT_621_IT_174_TheLandedToolsFile(t *testing.T) {
 		svc = append(svc, k)
 	}
 	slices.Sort(svc)
-	if !slices.Equal(svc, []string{"pgvector", "postgres", "redis", "redpanda"}) {
+	if !slices.Equal(svc, []string{"etcd", "kube-apiserver", "pgvector", "postgres", "redis", "redpanda"}) {
 		t.Errorf("services %v", svc)
 	}
 	if f.Base.Go == "" || !strings.Contains(f.Base.Go, "base-images/go") {
@@ -115,6 +115,7 @@ func playwrightPins() map[string]string {
 
 var servicePins = map[string]string{
 	"postgres": checks.ImagePostgres, "pgvector": checks.ImagePgvector, "redpanda": checks.ImageRedpanda, "redis": checks.ImageRedis,
+	"kube-apiserver": checks.ImageKubeAPIServer, "etcd": checks.ImageEtcd,
 }
 
 // TestToolsTomlMatchesGo holds tools.toml equal to the Go constants it was

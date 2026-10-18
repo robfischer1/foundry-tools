@@ -47,10 +47,10 @@ func TestTheVocabularyBindsInOrderAndNamesTheRest(t *testing.T) {
 	if len(dbs) != 2 || dbs[0].Tag != "live_db" || dbs[1].Tag != "live_db_novector" {
 		t.Fatalf("TestDBsFor = %+v", dbs)
 	}
-	if got := BuildTags(dbs, nil, nil); got != "live_db,live_db_novector" {
+	if got := BuildTags(dbs, nil, nil, nil); got != "live_db,live_db_novector" {
 		t.Errorf("BuildTags = %q", got)
 	}
-	if got := UncompiledTags(tags, dbs, nil, nil); !reflect.DeepEqual(got, []string{"integration"}) {
+	if got := UncompiledTags(tags, dbs, nil, nil, nil); !reflect.DeepEqual(got, []string{"integration"}) {
 		t.Errorf("UncompiledTags = %v", got)
 	}
 	// The DSN names the role twice (its credential is its name), the alias
@@ -93,7 +93,7 @@ func TestTheVocabularyBindsInOrderAndNamesTheRest(t *testing.T) {
 	if rev[0].Tag != "live_db" {
 		t.Errorf("binding order is the vocabulary's, not the tree's: %+v", rev)
 	}
-	if got := BuildTags(nil, nil, nil); got != "" {
+	if got := BuildTags(nil, nil, nil, nil); got != "" {
 		t.Errorf("no databases, no -tags word: %q", got)
 	}
 	// Every vocabulary entry points at a pinned image the fleet checks.
@@ -151,10 +151,10 @@ func TestTheBrokerVocabularyBindsAndAddressesItself(t *testing.T) {
 	if b.AdvertiseFor("") == b.AdvertiseFor("mutation") {
 		t.Error("two lanes must not build byte-identical broker definitions")
 	}
-	if got := BuildTags(nil, brokers, nil); got != "live_kafka" {
+	if got := BuildTags(nil, brokers, nil, nil); got != "live_kafka" {
 		t.Errorf("BuildTags(brokers only) = %q", got)
 	}
-	if got := BuildTags(TestDBs[:1], brokers, nil); got != "live_db,live_kafka" {
+	if got := BuildTags(TestDBs[:1], brokers, nil, nil); got != "live_db,live_kafka" {
 		t.Errorf("databases before brokers, one word: %q", got)
 	}
 	for _, e := range TestBrokers {
@@ -308,8 +308,8 @@ func TestTheScopeLineNeverCallsABoundTagUncompiled(t *testing.T) {
 	if len(dbs) == 0 || len(brokers) == 0 {
 		t.Fatalf("fixture needs one of each: dbs=%v brokers=%v", dbs, brokers)
 	}
-	compiled := strings.Split(BuildTags(dbs, brokers, nil), ",")
-	uncompiled := UncompiledTags(tags, dbs, brokers, nil)
+	compiled := strings.Split(BuildTags(dbs, brokers, nil, nil), ",")
+	uncompiled := UncompiledTags(tags, dbs, brokers, nil, TestKubes)
 	for _, c := range compiled {
 		for _, u := range uncompiled {
 			if c == u {
@@ -394,11 +394,11 @@ func TestTheCacheVocabularyBindsAndAddressesItself(t *testing.T) {
 	if !strings.Contains(c.Image, "@sha256:") || !strings.Contains(c.Image, "redis:7-alpine") {
 		t.Errorf("image is not redis 7-alpine pinned by digest: %s", c.Image)
 	}
-	if got := BuildTags(nil, nil, caches); got != "live_redis" {
+	if got := BuildTags(nil, nil, caches, nil); got != "live_redis" {
 		t.Errorf("BuildTags(caches only) = %q", got)
 	}
 	// databases, then brokers, then caches: one word, one author
-	if got := BuildTags(TestDBs[:1], TestBrokers, caches); got != "live_db,live_kafka,live_redis" {
+	if got := BuildTags(TestDBs[:1], TestBrokers, caches, nil); got != "live_db,live_kafka,live_redis" {
 		t.Errorf("BuildTags = %q", got)
 	}
 	if got := TestCachesFor(nil); len(got) != 0 {
@@ -444,11 +444,11 @@ func TestTestCacheScopeIsPrintedEitherWay(t *testing.T) {
 func TestTheScopeLineNeverCallsABoundCacheTagUncompiled(t *testing.T) {
 	tags := []string{"integration", "live_db", "live_kafka", "live_redis"}
 	dbs, brokers, caches := TestDBsFor(tags), TestBrokersFor(tags), TestCachesFor(tags)
-	uncompiled := UncompiledTags(tags, dbs, brokers, caches)
+	uncompiled := UncompiledTags(tags, dbs, brokers, caches, TestKubes)
 	if !reflect.DeepEqual(uncompiled, []string{"integration"}) {
 		t.Errorf("UncompiledTags = %v", uncompiled)
 	}
-	if got := strings.Split(BuildTags(dbs, brokers, caches), ","); !reflect.DeepEqual(got, []string{"live_db", "live_kafka", "live_redis"}) {
+	if got := strings.Split(BuildTags(dbs, brokers, caches, nil), ","); !reflect.DeepEqual(got, []string{"live_db", "live_kafka", "live_redis"}) {
 		t.Errorf("BuildTags = %v", got)
 	}
 }

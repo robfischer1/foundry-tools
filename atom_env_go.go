@@ -55,6 +55,7 @@ func goServersLane(scope string) func(context.Context, *run, *dagger.Container) 
 		var dbs []checks.TestDB
 		var brokers []checks.TestBroker
 		var caches []checks.TestCache
+		var kubes []checks.TestKube
 		for _, dir := range dirs {
 			module := inModule(ctr, dir)
 			found, _ := r.testDatabases(ctx, module)
@@ -62,9 +63,12 @@ func goServersLane(scope string) func(context.Context, *run, *dagger.Container) 
 			wanted, _ := r.testBrokers(ctx, module)
 			brokers = append(brokers, wanted...)
 			caches = append(caches, r.testCaches(ctx, module)...)
+			needed, _ := r.testKubes(ctx, module)
+			kubes = append(kubes, needed...)
 		}
 		bound := bindTestBrokers(bindTestDatabases(ctr, vocabularyDBs(dbs), scope), vocabularyBrokers(brokers), scope)
-		return bindTestCaches(bound, vocabularyCaches(caches), scope)
+		bound = bindTestCaches(bound, vocabularyCaches(caches), scope)
+		return bindTestKubes(bound, vocabularyKubes(kubes), scope)
 	}
 }
 
@@ -97,6 +101,17 @@ func vocabularyCaches(found []checks.TestCache) []checks.TestCache {
 	for _, c := range checks.TestCaches {
 		if slices.ContainsFunc(found, func(f checks.TestCache) bool { return f.Tag == c.Tag }) {
 			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// vocabularyKubes is the API servers found, each once, in the vocabulary's order.
+func vocabularyKubes(found []checks.TestKube) []checks.TestKube {
+	var out []checks.TestKube
+	for _, k := range checks.TestKubes {
+		if slices.ContainsFunc(found, func(f checks.TestKube) bool { return f.Tag == k.Tag }) {
+			out = append(out, k)
 		}
 	}
 	return out

@@ -142,13 +142,14 @@ trustedRegistries:
   - docker.io
   - ghcr.io
   - gcr.io
+  - registry.k8s.io
   - registry.notusmi.com
   - docker.notusmi.com
 `
 
 // HadolintTrustedRegistries is the FROM allowlist the config above carries,
 // as data, so a test can hold the YAML and the list in step.
-var HadolintTrustedRegistries = []string{"docker.io", "ghcr.io", "gcr.io", "registry.notusmi.com", "docker.notusmi.com"}
+var HadolintTrustedRegistries = []string{"docker.io", "ghcr.io", "gcr.io", "registry.k8s.io", "registry.notusmi.com", "docker.notusmi.com"}
 
 // DockerfilePopulation answers the Dockerfiles among the gate population —
 // the files hadolint is asked to read.

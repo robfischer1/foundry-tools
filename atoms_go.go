@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"path"
+	"slices"
 	"strings"
+	"time"
 
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
@@ -108,7 +110,7 @@ func (r *run) testDatabases(ctx context.Context, ctr *dagger.Container) ([]check
 	if len(dbs) == 0 {
 		return nil, checks.TestDBScope(nil, nil, "no test file sits behind a tag the fleet names")
 	}
-	return dbs, checks.TestDBScope(dbs, checks.UncompiledTags(tags, dbs, checks.TestBrokers, checks.TestCaches), "")
+	return dbs, checks.TestDBScope(dbs, checks.UncompiledTags(tags, dbs, checks.TestBrokers, checks.TestCaches, checks.TestKubes), "")
 }
 
 // bindTestDatabases binds each database's server to ctr under scope's alias.
@@ -226,6 +228,91 @@ func bindTestCaches(ctr *dagger.Container, caches []checks.TestCache, scope stri
 			WithDefaultArgs(c.ServerArgs(c.Port)).
 			AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true})
 		ctr = ctr.WithServiceBinding(c.AliasFor(scope), svc).WithEnvVariable(c.Env, c.URLFor(scope))
+	}
+	return ctr
+}
+
+// testKubes is the kube-gated suites' read, binding nothing (testDatabases says
+// why the read and the binding are apart). The decision is checks.SelectKubes'.
+func (r *run) testKubes(ctx context.Context, ctr *dagger.Container) ([]checks.TestKube, string) {
+	// NO BRANCH LIVES HERE (testBrokers says why): the engine's error is a fact
+	// handed to the decision, where a unit test reaches it.
+	out, code, err := output(ctx, ctr.WithExec([]string{
+		"grep", "-rhoE", `^//go:build [A-Za-z0-9_]+$`, "--include=*_test.go", ".",
+	}, anyExit))
+	return checks.SelectKubes(out, err, code)
+}
+
+// newKubePKI is the credentials' author; a test replaces it to reach the failure.
+var newKubePKI = checks.NewKubePKI
+
+// kubeLaneVar is what makes a scoped lane's two services DIFFERENT definitions.
+const kubeLaneVar = "FOUNDRY_TEST_KUBE_LANE"
+
+// bindTestKubes binds each API server, with its etcd, to ctr under scope's
+// alias, hands the container the three variables and the CA file, and holds it
+// until the server answers /readyz.
+func bindTestKubes(ctr *dagger.Container, kubes []checks.TestKube, scope string) *dagger.Container {
+	for _, k := range kubes {
+		pki, err := newKubePKI(k.Hosts(scope), time.Now())
+		if err != nil {
+			// A lane that cannot make its credentials runs nothing: every exec
+			// after this one fails, naming why, rather than a suite meeting an
+			// API server it cannot trust.
+			// (No shell, runtime.go rule 7: `false` ignores its argument, and the
+			// engine's error for the failed exec carries the argv that says why.)
+			return ctr.WithExec([]string{"false", "test-kube: " + k.Tag + ": the lane could not make its credentials: " + err.Error()})
+		}
+		// THE DEFINITIONS HAVE TO DIFFER PER LANE, not just the aliases:
+		// dagger content-addresses services, so two lanes that built
+		// byte-identical API servers were handed ONE (checks.TestDB.AliasFor
+		// carries the measurements for the database that tore itself apart). The
+		// advertised etcd URL and the serving certificate already differ with the
+		// alias; this variable says so in the definition, on both services, so
+		// the rule does not rest on a side effect.
+		etcd := dag.Container().From(checks.ImageEtcd)
+		api := dag.Container().From(checks.ImageKubeAPIServer)
+		if scope != "" {
+			etcd = etcd.WithEnvVariable(kubeLaneVar, scope)
+			api = api.WithEnvVariable(kubeLaneVar, scope)
+		}
+		// NOT WithExec, for TestBroker.StartArgs' reason: a WithExec service
+		// never reads ready. Default args through the entrypoint.
+		etcdSvc := etcd.WithExposedPort(checks.KubeEtcdPort).
+			WithDefaultArgs(k.EtcdArgs(scope)).
+			AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true})
+		files := pki.Files()
+		names := make([]string, 0, len(files))
+		for name := range files {
+			names = append(names, name)
+		}
+		slices.Sort(names)
+		lane := checks.LaneName(scope)
+		for _, name := range names {
+			// 0644 and 0444: the API server's user is the image's, and a
+			// throwaway key that cannot be read is a server that never starts.
+			dest := checks.KubeFilesDir + "/" + name
+			if checks.KubeSecretFiles[name] {
+				// DAGGER LOGS A withNewFile's CONTENTS AND A withEnvVariable's VALUE
+				// (gate run 2685 showed the token in the transcript twice). A secret's
+				// plaintext is scrubbed from the log by value, so redaction does not
+				// depend on a scrubber recognising the word "Bearer".
+				api = api.WithMountedSecret(dest, dag.SetSecret("test-kube-"+name+"-"+lane, files[name]), dagger.ContainerWithMountedSecretOpts{Mode: 0o444})
+				continue
+			}
+			api = api.WithNewFile(dest, files[name], dagger.ContainerWithNewFileOpts{Permissions: 0o644})
+		}
+		apiSvc := api.WithServiceBinding(k.EtcdAliasFor(scope), etcdSvc).
+			WithExposedPort(checks.KubeAPIPort).
+			WithDefaultArgs(k.APIServerArgs(scope)).
+			AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true})
+		ctr = ctr.WithServiceBinding(k.AliasFor(scope), apiSvc).
+			WithNewFile(checks.KubeCAFile, pki.CA).
+			WithEnvVariable(k.URLEnv, k.URLFor(scope)).
+			WithSecretVariable(k.TokenEnv, dag.SetSecret("test-kube-token-"+lane, pki.Token)).
+			WithEnvVariable(k.CAEnv, checks.KubeCAFile).
+			WithMountedSecret(checks.KubeAuthHeaderFile, dag.SetSecret("test-kube-auth-header-"+lane, pki.AuthHeader()), dagger.ContainerWithMountedSecretOpts{Mode: 0o444}).
+			WithExec(k.WaitArgs(scope))
 	}
 	return ctr
 }

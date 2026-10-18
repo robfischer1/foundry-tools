@@ -127,6 +127,25 @@ const (
 	// fixture and onto the lane's service does not also change server build.
 	ImageRedis = "docker.io/library/redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499"
 
+	// THE TEST KUBERNETES API a Go star's kube-gated suites run against
+	// (testkube.go's TestKubes, tag `live_kube`): the real kube-apiserver the
+	// cluster runs, over a real etcd, bound as Dagger services. No test double
+	// stands in for it (NotDoubles).
+	//
+	// ImageKubeAPIServer is the cluster's own version: the nodes run
+	// v1.36.3+k3s1, and the upstream component image carries the same release.
+	// ImageEtcd is the etcd that release ships against: 3.6.8-0 is
+	// DefaultEtcdVersion in kubernetes/kubernetes@v1.36.3
+	// cmd/kubeadm/app/constants/constants.go (line 334), so the API server is
+	// tested against the datastore its own release was qualified with.
+	//
+	// Digests are the manifest-list digests registry.k8s.io answers
+	// (docker-content-digest for the tag, resolved 2026-10-16). registry.k8s.io
+	// is one of the engine's mirrors (flux 8ce9e7f2, merged 83e5cd24, maps it
+	// through registry-k8s.notusmi.com); see MirroredRegistries.
+	ImageKubeAPIServer = "registry.k8s.io/kube-apiserver:v1.36.3@sha256:b4bc06c81fd76f81174e6c19ddacf477acdf1583e7a5846ebbd513493aef6e43"
+	ImageEtcd          = "registry.k8s.io/etcd:3.6.8-0@sha256:397189418d1a00e500c0605ad18d1baf3b541a1004d768448c367e48071622e5"
+
 	// THE BUILD LANE'S TOOLS, run by their own entrypoints: cosign signs the
 	// published image and attests its SBOM, syft reads that SBOM, and the
 	// empty static base runs the lane's own two binaries (verdict, hadescall).
@@ -357,7 +376,7 @@ var LaneImages = []string{
 	ImageGo, ImagePython, ImageRust, ImageRustTrixie, ImageRustWasm, ImageTS, ImageFleet,
 	ImageUV, ImageNode, ImageTools,
 	ImageKubeconform, ImageKubeLinter, ImageRenovate,
-	ImagePgvector, ImagePostgres, ImageRedis,
+	ImagePgvector, ImagePostgres, ImageRedis, ImageKubeAPIServer, ImageEtcd,
 }
 
 // The go command's coordinates inside a lane container.
@@ -568,7 +587,11 @@ const (
 // image from any other registry is a pull the fleet does not mirror. What is
 // pulled from INSIDE a lane container names one of those alias hosts in full
 // instead (trivy's databases), because the engine's mirror config cannot see it.
-var MirroredRegistries = []string{"docker.io/", "ghcr.io/", "gcr.io/"}
+//
+// registry.k8s.io/ is the fourth mirror: flux 8ce9e7f2 (merged to flux main as
+// 83e5cd24) routes it through registry-k8s.notusmi.com, and the engine adopted
+// the entry at its deliberate DaemonSet roll.
+var MirroredRegistries = []string{"docker.io/", "ghcr.io/", "gcr.io/", "registry.k8s.io/"}
 
 // CRDSchema is the schema location the kubeconform atom adds to the default
 // store, and the probe URL that proves it is reachable.
