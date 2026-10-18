@@ -80,6 +80,13 @@ func witTools(withWac bool) func(ctx context.Context, r *run, ctr *dagger.Contai
 // strip is how many leading path components the member carries. The extraction
 // is provisioning: a failure is a could-not-run, never a finding about the tree.
 func withTarballBinary(ctx context.Context, ctr *dagger.Container, url, member, bin string, strip int) (*dagger.Container, error) {
+	return withTarballBinaryProbe(ctx, ctr, url, member, bin, strip, []string{bin, "--version"}, "")
+}
+
+// withTarballBinaryProbe is withTarballBinary for a program that proves itself
+// some other way than `--version` (gofmt has no such flag): probe is its argv and
+// stdin what it reads.
+func withTarballBinaryProbe(ctx context.Context, ctr *dagger.Container, url, member, bin string, strip int, probe []string, stdin string) (*dagger.Container, error) {
 	f, err := fetchPinnedTool(ctx, url, checks.ToolSHA256)
 	if err != nil {
 		return nil, err
@@ -90,8 +97,9 @@ func withTarballBinary(ctx context.Context, ctr *dagger.Container, url, member, 
 		args = append(args, fmt.Sprintf("--strip-components=%d", strip))
 	}
 	args = append(args, member)
-	return ctr.
-		WithFile(tgz, f).
-		WithExec(args).
-		WithExec([]string{bin, "--version"}), nil
+	ctr = ctr.WithFile(tgz, f).WithExec(args)
+	if stdin != "" {
+		return ctr.WithExec(probe, dagger.ContainerWithExecOpts{Stdin: stdin}), nil
+	}
+	return ctr.WithExec(probe), nil
 }

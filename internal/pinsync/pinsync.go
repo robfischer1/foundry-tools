@@ -60,6 +60,15 @@ var URLPins = []URLPin{
 	{"rust-wasm-rustfmt", "RustWasmRustfmtURL", "RustWasmComponentsTag"},
 	{"python-standalone", "PythonStandaloneURL", "FleetPythonVersion"},
 	{"python-3-15", "PythonStandalone315URL", "PythonStandalone315Release"},
+	{"gofmt", "GofmtURL", "GofmtGoRelease"},
+	{"rustc-1-97-1", "RustDist1971RustcURL", "RustDist1971Tag"},
+	{"cargo-1-97-1", "RustDist1971CargoURL", "RustDist1971Tag"},
+	{"rust-std-1-97-1", "RustDist1971StdURL", "RustDist1971Tag"},
+	{"rust-std-wasm-1-97-1", "RustDist1971StdWasmURL", "RustDist1971Tag"},
+	{"rustc-1-99-0", "RustDist1990RustcURL", "RustDist1990Tag"},
+	{"cargo-1-99-0", "RustDist1990CargoURL", "RustDist1990Tag"},
+	{"rust-std-1-99-0", "RustDist1990StdURL", "RustDist1990Tag"},
+	{"rust-std-wasm-1-99-0", "RustDist1990StdWasmURL", "RustDist1990Tag"},
 }
 
 // Follower is a literal constant that carries a version constant's value.

@@ -478,3 +478,22 @@ func TestMainRunsAsAHelperWhenLinkedUnderItsName(t *testing.T) {
 		t.Errorf("exit %d, want ps's 1", got)
 	}
 }
+
+// TestTheArgumentsAfterTheRootReachTheCheck: a dev atom is started `atom /src
+// arg...` (PlanEntry.Args follow the root) and reads them from In.Args; an atom
+// started with the root alone sees none.
+func TestTheArgumentsAfterTheRootReachTheCheck(t *testing.T) {
+	var got []string
+	d := defWith(func(_ context.Context, in In) checks.Verdict {
+		got = in.Args
+		return checks.Verdict{Result: "pass"}
+	})
+	treeFile(t, TF1())
+	t.Setenv("ATOM_OUT", filepath.Join(t.TempDir(), "x.json"))
+	if code := run(d, []string{"atom", t.TempDir(), "alarm", "--new", "x"}); code != 0 || strings.Join(got, " ") != "alarm --new x" {
+		t.Fatalf("exit %d, args %q", code, got)
+	}
+	if code := run(d, []string{"atom", t.TempDir()}); code != 0 || got != nil {
+		t.Fatalf("exit %d, args %q", code, got)
+	}
+}

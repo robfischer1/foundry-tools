@@ -94,8 +94,12 @@ func TestEveryPinnedToolHasOneVerifiedSource(t *testing.T) {
 	// The set of checksummed URLs is exactly the set of release assets fetched:
 	// the tools, the python layer's interpreter, and the rust lane's two cargo
 	// tool tarballs (runtime.go withCargoTarball) and oras, plus the regen lane's wasm-tools and node,
-	// and the executor's sccache and cargo-mutants (provisioned into the node cache, not by the engine).
-	fetched := []string{checks.PythonStandaloneURL, checks.PythonStandalone315URL, checks.CargoAuditURL, checks.CargoNextestURL, checks.SccacheURL, checks.CargoMutantsURL, checks.MoldURL, checks.RustClippyURL, checks.RustRustfmtURL, checks.RustWasmClippyURL, checks.RustWasmRustfmtURL, checks.WacURL, checks.OrasURL, checks.WasmTools1250URL, checks.NodeRegenURL, checks.RustStdWasmURL, checks.RustStdURL}
+	// and the executor's sccache and cargo-mutants (provisioned into the node cache, not by the engine),
+	// and dev:go-regen's gofmt and the rust compilers it lays (checks.RustDists).
+	fetched := []string{checks.GofmtURL, checks.PythonStandaloneURL, checks.PythonStandalone315URL, checks.CargoAuditURL, checks.CargoNextestURL, checks.SccacheURL, checks.CargoMutantsURL, checks.MoldURL, checks.RustClippyURL, checks.RustRustfmtURL, checks.RustWasmClippyURL, checks.RustWasmRustfmtURL, checks.WacURL, checks.OrasURL, checks.WasmTools1250URL, checks.NodeRegenURL, checks.RustStdWasmURL, checks.RustStdURL}
+	for _, d := range checks.RustDists {
+		fetched = append(fetched, d.URLs...)
+	}
 	for _, tool := range pinnedTools {
 		if tool.url != "" {
 			fetched = append(fetched, tool.url)

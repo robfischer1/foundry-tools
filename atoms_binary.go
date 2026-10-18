@@ -47,6 +47,8 @@ var atomsSourceInclude = []string{
 	"internal/orbitcompose/**",
 	"internal/orbitlane/**",
 	"internal/regenlane/**",
+	"internal/regenkit/**",
+	"internal/goregen/**",
 	"internal/retiredverbs/**",
 	"internal/releasekit/**",
 	"internal/buildlane/**",

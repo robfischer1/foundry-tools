@@ -12,13 +12,14 @@ import (
 	"dagger/foundry-tools/internal/atomkit"
 	"dagger/foundry-tools/internal/atoms"
 	"dagger/foundry-tools/internal/checks"
+	"dagger/foundry-tools/internal/regenkit"
 )
 
 // fetchPinned is the checksummed download; a test replaces it.
-var fetchPinned = checks.FetchPinned
+var fetchPinned regenkit.FetchFunc = checks.FetchPinned
 
 // execFunc is the world's exec: what a program said and its exit code.
-type execFunc func(atoms.Cmd) (string, int)
+type execFunc = regenkit.ExecFunc
 
 // provision is what the worlds share and must not build twice: the rustup home
 // they may write to, the node, and a wasm-tools per recorded version. A pod's
@@ -50,11 +51,7 @@ func (m *once) do(f func() (string, error)) (string, error) {
 
 // step runs one provisioning program; a failure names it and what it said.
 func step(exec execFunc, env []string, argv ...string) error {
-	out, code := exec(atoms.Cmd{Dir: os.TempDir(), Name: argv[0], Args: argv[1:], Env: env})
-	if code == 0 {
-		return nil
-	}
-	return fmt.Errorf("%s exited %d: %s", strings.Join(argv, " "), code, tail(out))
+	return regenkit.Step(exec, env, argv...)
 }
 
 // rustupHome is a copy of the toolchain image's rustup home that this run may
@@ -141,9 +138,5 @@ func (p *provision) wasmTools(ctx context.Context, exec execFunc, version string
 // fetch downloads a pinned asset: the mirror first, upstream second, both held
 // to the pinned sum (checks.ToolSources).
 func (p *provision) fetch(ctx context.Context, url, dest string) error {
-	sources, sum, err := checks.ToolSources(url, checks.ToolSHA256)
-	if err != nil {
-		return err
-	}
-	return fetchPinned(ctx, nil, sources, sum, dest)
+	return regenkit.Fetch(ctx, fetchPinned, url, dest)
 }

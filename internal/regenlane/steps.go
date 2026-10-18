@@ -6,14 +6,14 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"dagger/foundry-tools/internal/checks"
+	"dagger/foundry-tools/internal/regenkit"
 )
 
 // gitEnv keeps git from asking a person for a credential nobody holds: both
 // repositories are read without one.
-var gitEnv = []string{"GIT_TERMINAL_PROMPT=0"}
+var gitEnv = regenkit.GitEnv
 
 // pins reads the WIT, the result WIT and the tape at their recorded commits of
 // stellar-core, and answers each with the pin it is held to. One shallow fetch
@@ -51,26 +51,7 @@ func (w *world) pins() ([]checks.RegenProbe, error) {
 
 // core unpacks stellar-core-rust at its recorded commit and answers where.
 func (w *world) core() (string, error) {
-	repo, tar, dir := filepath.Join(w.dir, "stellar-core-rust"), filepath.Join(w.dir, "core.tar"), filepath.Join(w.dir, "core")
-	commit := w.prov.Core.Commit
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
-	}
-	for _, step := range []struct {
-		dir  string
-		env  []string
-		argv []string
-	}{
-		{w.dir, nil, checks.RegenGitInit(repo)},
-		{repo, gitEnv, checks.RegenGitFetch(checks.TSRegenCoreGit, commit)},
-		{repo, nil, checks.RegenGitArchive(tar, commit)},
-		{w.dir, nil, checks.RegenTar(tar, dir, false, 0, "")},
-	} {
-		if _, err := w.do(step.dir, step.env, step.argv, false); err != nil {
-			return "", fmt.Errorf("core @%s: %v", commit, err)
-		}
-	}
-	return dir, nil
+	return regenkit.UnpackCore(func(dir string, env, argv []string) (string, error) { return w.do(dir, env, argv, false) }, w.dir, w.prov.Core.Commit)
 }
 
 // built is what the star's build script left: the module and component hashed
@@ -191,28 +172,10 @@ func trustEnv() []string {
 }
 
 // wrap names what a read was for.
-func wrap(what string, err error) error {
-	if err == nil {
-		return nil
-	}
-	return fmt.Errorf("%s: %v", what, err)
-}
+func wrap(what string, err error) error { return regenkit.Wrap(what, err) }
 
 // cargoBin is where `cargo install` leaves a program, when CARGO_HOME is named.
-func cargoBin() string {
-	if h := os.Getenv("CARGO_HOME"); h != "" {
-		return filepath.Join(h, "bin")
-	}
-	return ""
-}
+func cargoBin() string { return regenkit.CargoBin() }
 
 // pathWith is PATH with these directories in front (the empty ones skipped).
-func pathWith(dirs ...string) string {
-	var keep []string
-	for _, d := range dirs {
-		if d != "" {
-			keep = append(keep, d)
-		}
-	}
-	return strings.Join(append(keep, os.Getenv("PATH")), string(os.PathListSeparator))
-}
+func pathWith(dirs ...string) string { return regenkit.PathWith(dirs...) }

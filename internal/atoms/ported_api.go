@@ -21,3 +21,10 @@ func Git(ctx context.Context, root string, args ...string) (string, int) {
 // PythonEnv is the environment a python checker runs in: bytecode off, so the
 // tree under check is left as it was found.
 func PythonEnv() []string { return slices.Clone(pythonEnv) }
+
+// StagedGravity is the generator staged for a gravity commit: the file GRAVITY
+// names, else the prebuilt the pod provisions for that commit
+// (checks.GravityTool on PATH), else the `gravity` on PATH. The path is "" with
+// no error when none is staged; set is the GRAVITY value a program must be told,
+// "" when the environment already says which.
+func StagedGravity(rev string) (path, set string, err error) { return stagedGravity(rev) }
