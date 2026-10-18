@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 
 	"dagger/foundry-tools/internal/atomkit"
@@ -37,5 +38,18 @@ func TestCommandInRunsTheComposedArgvAndHonoursThePreflightOptOut(t *testing.T) 
 		if v.State != 0 || !slices.EqualFunc(ran, tc.want, slices.Equal) {
 			t.Errorf("preflight %s: state %d, ran %v, want %v", tc.name, v.State, ran, tc.want)
 		}
+	}
+}
+
+// TestAWritingManifestRunsOnTheTreeItsPreflightLeft: the pod runs the preflight
+// and the command on one copy of the tree, so the Dagger lane chains them too.
+// dev:ts-test's `bun install` writes node_modules, which `bun run test` reads.
+func TestAWritingManifestRunsOnTheTreeItsPreflightLeft(t *testing.T) {
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	wantState(t, runAtom(t, "dev:ts-test", ""), 0, "dev:ts-test: PASS")
+	c := engine.chain(`"bun","run","test"`, "exitCode")
+	if !strings.Contains(c, `"bun","install","--frozen-lockfile"`) {
+		t.Errorf("bun run test must be a step on the container that ran the frozen install:\n%s", c)
 	}
 }
