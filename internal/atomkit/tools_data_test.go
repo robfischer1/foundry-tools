@@ -82,6 +82,7 @@ var urlPins = []struct {
 	{"rust-wasm-clippy", checks.RustWasmClippyURL, checks.RustWasmComponentsTag},
 	{"rust-wasm-rustfmt", checks.RustWasmRustfmtURL, checks.RustWasmComponentsTag},
 	{"python-standalone", checks.PythonStandaloneURL, checks.FleetPythonVersion},
+	{"python-3-15", checks.PythonStandalone315URL, checks.PythonStandalone315Release},
 }
 
 // goPins are the `go install` tools, as the module@version constants.

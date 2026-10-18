@@ -59,6 +59,7 @@ var URLPins = []URLPin{
 	{"rust-wasm-clippy", "RustWasmClippyURL", "RustWasmComponentsTag"},
 	{"rust-wasm-rustfmt", "RustWasmRustfmtURL", "RustWasmComponentsTag"},
 	{"python-standalone", "PythonStandaloneURL", "FleetPythonVersion"},
+	{"python-3-15", "PythonStandalone315URL", "PythonStandalone315Release"},
 }
 
 // Follower is a literal constant that carries a version constant's value.

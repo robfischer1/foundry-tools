@@ -42,6 +42,20 @@ const (
 // download an interpreter of its own.
 const PythonStandaloneURL = "https://github.com/astral-sh/python-build-standalone/releases/download/20261013/cpython-3.14.8%2B20261013-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
 
+// PythonStandalone315URL is the CPython 3.15 interpreter an executor pod lays
+// for a tree that asks for it (tools.toml [tool.python-3-15]): the build uv
+// 0.12.13 (checks.ImageUV) resolves for a request of "3.15" (its
+// download-metadata.json, cpython-3.15.0rc2-linux-x86_64-gnu), the same
+// install_only_stripped asset as PythonStandaloneURL. The Dagger lanes' uv
+// downloads it at run time; a pod never fetches an interpreter, so the pod
+// fetches this pinned one, mirror first, and unpacks it as a uv-managed install.
+// The sum is the release's own SHA256SUMS line, equal to the asset's sum read
+// 2026-10-18. A new rc or the final 3.15.x is a new release tag and a new pair.
+const (
+	PythonStandalone315Release = "3.15.0rc2"
+	PythonStandalone315URL     = "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.15.0rc2%2B20260901-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+)
+
 // ToolSHA256 is the checksum of every pinned release asset the module fetches
 // (the tools container's, the lanes', the cargo tool tarballs', oras), hex. Every
 // one is served mirror-first (ToolSources), so every one is seeded
@@ -71,7 +85,8 @@ var ToolSHA256 = map[string]string{
 	JustURL:          "409044617b6f06517c1035e55ca38c8c856ff8b650e41bc2aa1ef82d5903a23e",
 	ShellcheckURL:    "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198",
 
-	PythonStandaloneURL: "d8faa1b588506b9e3e5a3f57807bb056d534a1641a6b10d15b6ea3f0b413b960",
+	PythonStandaloneURL:    "d8faa1b588506b9e3e5a3f57807bb056d534a1641a6b10d15b6ea3f0b413b960",
+	PythonStandalone315URL: "9549c3789acb25209da019cc8506ea5b1684b81fb4b471dc64cb47d1d04d6422",
 
 	// The rust lane's release binaries (images.go has why these two and not
 	// cargo-mutants), computed from the assets 2026-10-09.
