@@ -48,10 +48,10 @@ func TestEachStepOfTheBuildAndTheGeneratorNamesItsFailure(t *testing.T) {
 			s.breakAt("gravity-aeb03bf --version", func(atoms.Cmd) { mkdirAll(t, filepath.Join(work(), "alarm", "gen", "guest.wasm")) })
 		}, "generate", "is a directory"},
 		"a gen directory that vanishes": {func(s *scene) {
-			s.breakAt("--output", func(c atoms.Cmd) {
+			s.f.afterGravity = func() {
 				_ = os.RemoveAll(filepath.Join(work(), "alarm", "gen"))
 				writeFile(t, filepath.Join(work(), "alarm", "gen"), []byte("a file"))
-			})
+			}
 		}, "generate", "not a directory"},
 		"an output that is a directory": {func(s *scene) { s.f.gens["alarm"]["sub/inner.wasm"] = []byte("x") }, "generate", "is a directory"},
 	} {

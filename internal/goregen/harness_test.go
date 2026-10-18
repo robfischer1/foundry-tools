@@ -56,6 +56,8 @@ type fake struct {
 	remapped map[string][]byte
 	// onCall, when set, runs first on every program, to break the world under it.
 	onCall func(c atoms.Cmd)
+	// afterGravity runs when a generator run has written its files.
+	afterGravity func()
 	// artifactDir makes cargo leave a directory where the artifact goes.
 	artifactDir bool
 	// noCompose makes compose.sh exit 0 and write nothing.
@@ -239,6 +241,9 @@ func (f *fake) gravity(c atoms.Cmd) (string, int) {
 	}
 	for file, body := range f.gens[core] {
 		writeFile(f.t, filepath.Join(filepath.Dir(out), file), body)
+	}
+	if f.afterGravity != nil {
+		f.afterGravity()
 	}
 	return "", 0
 }

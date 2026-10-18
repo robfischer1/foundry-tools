@@ -159,11 +159,9 @@ type runner struct {
 	laid   map[string]toolchain
 	// wasm are the wasm-tools releases laid, by version.
 	wasm map[string]string
-	// native is the pod's rustc line, read once; wasmTarget says its wasm32
-	// standard library has been checked for.
-	native     string
-	nativeErr  *failure
-	wasmTarget bool
+	// native is the pod's rustc line, read once.
+	native    string
+	nativeErr *failure
 }
 
 // run runs a program: its output, or an error naming it, its exit and what it said.
@@ -325,16 +323,12 @@ func (r *runner) toolchain(record string) (toolchain, *failure) {
 	return t, nil
 }
 
-// wasmStd checks the container's compiler has the wasm32 standard library, once:
+// wasmStd checks the container's compiler has the wasm32 standard library (once: its line is cached):
 // the executor lays it into the rustup home, and anywhere else rustup adds it.
 func (r *runner) wasmStd() *failure {
-	if r.wasmTarget {
-		return nil
-	}
 	if v := atoms.WitProvision(r.ctx, r.in, row, checks.WitGuestTarget); v != nil {
 		return cannot("toolchain", "%s", v.Reason)
 	}
-	r.wasmTarget = true
 	return nil
 }
 
