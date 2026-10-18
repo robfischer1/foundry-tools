@@ -1,0 +1,21 @@
+schema = "command-atom@1"
+id = "dev:go-lint"
+stage = "dev"
+lane = "go"
+group = "language"
+desc = "staticcheck ./... reports nothing under the fleet's check set, run by hand from the dev lane."
+surface = "root:go.mod"
+toolchain = "go"
+argv = ["staticcheck", "-checks", "all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-ST1023"]
+args = "append"
+per_module = false
+judge = "exit"
+needs = ["tool:staticcheck"]
+
+# THE GATE TWIN IS go:staticcheck (atoms/go/staticcheck.toml): the same tool pin
+# and the same -checks flag. A caller's package replaces ./....
+[[default]]
+args = ["./..."]
+unless = ["@package"]
+tail = true
+until = "-args"

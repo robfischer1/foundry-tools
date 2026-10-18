@@ -12,6 +12,7 @@ per_module = false
 judge = "exit"
 needs = ["dies"]
 timeout = "30m"
+writes_tree = true
 
 [[default]]
 args = ["-race"]
@@ -23,3 +24,7 @@ args = ["./..."]
 unless = ["@package"]
 tail = true
 until = "-args"
+
+# The atom runs on its own copy of the tree (writes_tree), because a golden suite
+# rewrites its goldens under -update and /src is read-only; dev-output delivers
+# what the run changed back to the caller.
