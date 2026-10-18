@@ -25,14 +25,6 @@ func newbie(t *testing.T) *scene {
 	return s
 }
 
-const newArgs = "--new"
-
-func (s *scene) bootstrap(extra ...string) string {
-	s.t.Helper()
-	args := append([]string{"--new", "sqlport", "--rev", "v0.78.0", "--world", "aiws:sqlport/sqlport-core@0.2.0"}, extra...)
-	return s.check(args...).Reason
-}
-
 func TestANewCoreIsBuiltTheComposeWayAndItsFilesAreWritten(t *testing.T) {
 	s := newbie(t)
 	v := s.check("--new", "sqlport", "--rev", "v0.78.0", "--world", "aiws:sqlport/sqlport-core@0.2.0")

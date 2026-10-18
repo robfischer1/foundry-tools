@@ -14,10 +14,7 @@ import (
 )
 
 func TestTailIsTheLastSixLinesOnOneLine(t *testing.T) {
-	var lines []string
-	for _, l := range strings.Fields("l1 l2 l3 l4 l5 l6 l7 l8") {
-		lines = append(lines, l)
-	}
+	lines := strings.Fields("l1 l2 l3 l4 l5 l6 l7 l8")
 	if got := Tail(strings.Join(lines, "\n") + "\n"); got != "l3 | l4 | l5 | l6 | l7 | l8" {
 		t.Errorf("%q", got)
 	}
