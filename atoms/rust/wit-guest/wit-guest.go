@@ -6,7 +6,10 @@ package rustwitguest
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -28,7 +31,7 @@ import (
 var Def = atomkit.Def{
 	ID: "rust:wit-guest", Stage: checks.StagePrepush, Lane: checks.LaneRust,
 	Group:         checks.GroupLanguage,
-	Desc:          "Each wit-guest-<world> feature (discovered from Cargo.toml) builds for wasm32-unknown-unknown, lifts to a component that validates, and passes its native cargo test; absent where the manifest declares none.",
+	Desc:          "Each wit-guest-<world> feature (discovered from Cargo.toml) builds for wasm32-unknown-unknown, lifts to a component that validates, weighs no more than its byte budget in wit-guest-budgets.toml when the tree carries one, and passes its native cargo test; absent where the manifest declares none.",
 	Surface:       "root:Cargo.toml",
 	Toolchain:     "rust",
 	Needs:         []string{"tool:wasm-tools"},
@@ -60,6 +63,10 @@ var row = checks.AtomDef{ID: id, Stage: checks.StagePrepush, Lane: checks.LaneRu
 // `cargo test --no-default-features --features <world>`. The first failure
 // returns, and its reason and first log line NAME THE WORLD, so a red says
 // which one. A pass carries every world's lines, each prefixed with its name.
+//
+// AND ONE CHECK OVER ALL WORLDS between the builds and the test: each module's
+// bytes against the tree's wit-guest-budgets.toml (budget, below). Every pass
+// logs every world's size, budget or not.
 func check(ctx context.Context, in atomkit.In) checks.Verdict {
 	manifest, err := os.ReadFile(filepath.Join(in.Root, "Cargo.toml"))
 	if err != nil {
@@ -95,6 +102,7 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 	env := checks.CargoBoundedEnv()
 
 	var logs []string
+	sizes := map[string]int64{}
 	for _, world := range worlds {
 		// The module as this world's build left it, carried out of the target
 		// by the atom: the next world's build overwrites the one there.
@@ -117,7 +125,21 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 			}
 		}
 		logs = append(logs, prefixLines(world, v.Logs)...)
+		// The module the lift just read is weighed. One that will not stat was
+		// never there for the lift either (wasm-tools fails on it), so only a
+		// fake can reach the miss, and it is left unweighed.
+		if st, err := os.Stat(module); err == nil {
+			sizes[world] = st.Size()
+		}
 	}
+
+	// THE SIZE BUDGET, before the native test: it is the cheap answer, and a
+	// guest over budget needs no test run to say so (checks.WitGuestBudgetsFile).
+	sizeLines, v := budget(in.Root, sizes)
+	if v != nil {
+		return *v
+	}
+	logs = append(logs, sizeLines...)
 
 	// THE NATIVE TEST RUNS ONCE, WITH EVERY WORLD'S FEATURE ON. Each world
 	// gates only its own `pub mod wit;`, so the worlds are additive and their
@@ -135,6 +157,38 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 		return checks.VerdictOf(row, 0, strings.Join(logs, "\n"))
 	}
 	return attribute(ctx, in, env, worlds, testDir, tested)
+}
+
+// budget holds each world's module to the tree's budget file, when it carries
+// one, and answers the size lines the pass logs. A breach is a finding that
+// lists every world over (the delta and the budget), not only the first.
+func budget(root string, sizes map[string]int64) ([]string, *checks.Verdict) {
+	src, err := os.ReadFile(filepath.Join(root, checks.WitGuestBudgetsFile))
+	var budgets map[string]int64
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+	case err != nil:
+		v := checks.VerdictOf(row, 2, fmt.Sprintf("%s: CANNOT RUN - %s would not read: %v", id, checks.WitGuestBudgetsFile, err))
+		return nil, &v
+	default:
+		if budgets, err = checks.ParseWitGuestBudgets(src); err != nil {
+			v := checks.VerdictOf(row, 1, fmt.Sprintf("%s [size budget]: %s: %v", id, checks.WitGuestBudgetsFile, err))
+			return nil, &v
+		}
+	}
+	var lines []string
+	for _, w := range slices.Sorted(maps.Keys(sizes)) {
+		lines = append(lines, checks.WitGuestSizeLine(w, sizes[w], budgets[w]))
+	}
+	if budgets == nil {
+		return lines, nil
+	}
+	if found := checks.WitGuestBudgetFindings(sizes, budgets); len(found) > 0 {
+		v := checks.VerdictOf(row, 1, fmt.Sprintf("%s [size budget]: %d of %d worlds breach %s\n%s\n\nevery world:\n%s",
+			id, len(found), len(sizes), checks.WitGuestBudgetsFile, strings.Join(found, "\n"), strings.Join(lines, "\n")))
+		return nil, &v
+	}
+	return lines, nil
 }
 
 // buildWorld is one world's wasm32 build, and the module carried out of the target.

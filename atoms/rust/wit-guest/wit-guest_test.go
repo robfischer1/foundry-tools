@@ -404,3 +404,68 @@ func TestAnOutputThatCannotBeClearedOrCarriedIsACouldNotRun(t *testing.T) {
 		t.Errorf("%+v ran %v", v, f.runs)
 	}
 }
+
+// budgeted lays a wit-guest-budgets.toml in the tree the input names.
+func budgeted(t *testing.T, in atomkit.In, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(in.Root, checks.WitGuestBudgetsFile), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The fake's module is 4 bytes ("\x00asm"). Without a budget file every world's
+// size is logged and nothing is held to it; with one, a world over its budget is
+// a finding that names the world and the delta, and the native test never runs.
+func TestTheSizeBudget(t *testing.T) {
+	cases := []struct {
+		name, budgets string
+		state         int
+		want          []string
+		tested        bool
+	}{
+		{"no budget file", "", 0, []string{"size wit-guest-identity: 4 bytes (no budget)", "size wit-guest-reader: 4 bytes (no budget)"}, true},
+		{"within", "[budget]\nwit-guest-identity = 4\nwit-guest-reader = 10\n", 0,
+			[]string{"size wit-guest-identity: 4 bytes of 4 budget (0 headroom)", "size wit-guest-reader: 4 bytes of 10 budget (6 headroom)"}, true},
+		{"over", "[budget]\nwit-guest-identity = 3\nwit-guest-reader = 10\n", 1,
+			[]string{"1 of 2 worlds breach wit-guest-budgets.toml", "wit-guest-identity: 4 bytes, budget 3, OVER BY 1 bytes (+33.3%)", "size wit-guest-reader: 4 bytes of 10 budget"}, false},
+		{"unbudgeted world", "[budget]\nwit-guest-identity = 10\n", 1, []string{"wit-guest-reader: 4 bytes and no budget"}, false},
+		{"stale entry", "[budget]\nwit-guest-identity = 10\nwit-guest-reader = 10\nwit-guest-gone = 10\n", 1, []string{"wit-guest-gone: budgeted in wit-guest-budgets.toml, but Cargo.toml declares no such world"}, false},
+		{"malformed", "[budget]\nwit-guest-identity = \"big\"\n", 1, []string{"[size budget]: wit-guest-budgets.toml: not TOML"}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := &fake{}
+			in := input(t, f, two)
+			if c.budgets != "" {
+				budgeted(t, in, c.budgets)
+			}
+			v := check(t.Context(), in)
+			text := v.Reason + "\n" + strings.Join(v.Logs, "\n")
+			if v.State != c.state {
+				t.Fatalf("state %d, want %d: %+v", v.State, c.state, v)
+			}
+			for _, w := range c.want {
+				if !strings.Contains(text, w) {
+					t.Errorf("missing %q in\n%s", w, text)
+				}
+			}
+			if f.ran("cargo test") != c.tested {
+				t.Errorf("native test ran = %v, want %v: %v", f.ran("cargo test"), c.tested, f.runs)
+			}
+		})
+	}
+}
+
+// A budget file that will not read is the atom's could-not-run: it never judged
+// the sizes.
+func TestABudgetFileThatWillNotReadIsACouldNotRun(t *testing.T) {
+	f := &fake{}
+	in := input(t, f, two)
+	if err := os.MkdirAll(filepath.Join(in.Root, checks.WitGuestBudgetsFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	v := check(t.Context(), in)
+	if v.State != 2 || !strings.Contains(v.Reason, "wit-guest-budgets.toml would not read") || f.ran("cargo test") {
+		t.Errorf("%+v ran %v", v, f.runs)
+	}
+}
