@@ -43,6 +43,8 @@ func TestRecordLanesPass(t *testing.T) {
 			jobsYAML(`["gate","atoms","dev"]`, `["gate@stellar-core","gate@foundry/flux","gate@foundry-tools"]`), oureaYAML(`record_lanes = ["gate","atoms","dev"]`)),
 		"UT-681 a bare lane beside a canary of it": laneFiles(
 			jobsYAML(`["gate","check","atoms","dev"]`, `["check","gate@flux"]`), oureaYAML(`record_lanes = ["gate","check","atoms","dev"]`)),
+		"EX-1 exclusions contribute nothing": laneFiles(
+			jobsYAML(`["gate","check","atoms","dev"]`, `["atoms","check","gate","!gate@prometheus","!gate@foundry/nomos"]`), oureaYAML(`record_lanes = ["gate","check","atoms","dev"]`)),
 	} {
 		if state, report := RecordLanes(files); state != int(StatePass) {
 			t.Errorf("%s: state %d, want pass:\n%s", name, state, report)
@@ -89,7 +91,7 @@ func TestRecordLanesFindings(t *testing.T) {
 		{
 			"UT-683 malformed: no repo",
 			laneFiles(jobsYAML(`["gate","atoms","dev"]`, `["gate@"]`), oureaYAML(`record_lanes = ["gate","atoms","dev"]`)),
-			[]string{`EXECUTOR_LANES entry "gate@" is malformed (want lane or lane@repo, the repo with at most one '/')`},
+			[]string{`EXECUTOR_LANES entry "gate@" is malformed (want lane, lane@repo or !lane@repo, the repo with at most one '/')`},
 		},
 		{
 			"UT-683 malformed: no lane",
@@ -105,6 +107,36 @@ func TestRecordLanesFindings(t *testing.T) {
 			"UT-683 malformed: two slashes",
 			laneFiles(jobsYAML(`["gate","atoms","dev"]`, `["gate@a/b/c"]`), oureaYAML(`record_lanes = ["gate","atoms","dev"]`)),
 			[]string{`EXECUTOR_LANES entry "gate@a/b/c" is malformed`},
+		},
+		{
+			"EX-1 malformed: no repo",
+			laneFiles(jobsYAML(`["gate","atoms","dev"]`, `["gate","!gate"]`), oureaYAML(`record_lanes = ["gate","atoms","dev"]`)),
+			[]string{`EXECUTOR_LANES entry "!gate" is malformed`},
+		},
+		{
+			"EX-1 malformed: no lane",
+			laneFiles(jobsYAML(`["gate","atoms","dev"]`, `["gate","!@x"]`), oureaYAML(`record_lanes = ["gate","atoms","dev"]`)),
+			[]string{`EXECUTOR_LANES entry "!@x" is malformed`},
+		},
+		{
+			"EX-1 malformed: double bang",
+			laneFiles(jobsYAML(`["gate","atoms","dev"]`, `["gate","!!gate@x"]`), oureaYAML(`record_lanes = ["gate","atoms","dev"]`)),
+			[]string{`EXECUTOR_LANES entry "!!gate@x" is malformed`},
+		},
+		{
+			"EX-1 malformed: two slashes",
+			laneFiles(jobsYAML(`["gate","atoms","dev"]`, `["gate","!gate@a/b/c"]`), oureaYAML(`record_lanes = ["gate","atoms","dev"]`)),
+			[]string{`EXECUTOR_LANES entry "!gate@a/b/c" is malformed`},
+		},
+		{
+			"EX-1 exclusion without its bare lane",
+			laneFiles(jobsYAML(`["gate","atoms","dev"]`, `["!gate@x"]`), oureaYAML(`record_lanes = ["gate","atoms","dev"]`)),
+			[]string{`exclusion "!gate@x" has no bare lane`},
+		},
+		{
+			"EX-1 an exclusion does not owe its lane a record",
+			laneFiles(jobsYAML(`["atoms","dev"]`, `["!check@x"]`), oureaYAML(`record_lanes = ["atoms","dev"]`)),
+			[]string{`exclusion "!check@x" has no bare lane`},
 		},
 	} {
 		state, report := RecordLanes(tc.files)

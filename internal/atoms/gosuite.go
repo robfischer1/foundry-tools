@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"strings"
 
 	"dagger/foundry-tools/internal/checks"
 )
@@ -62,6 +63,23 @@ func GoSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race b
 	var env []string
 	for _, g := range plan.Regens {
 		env = append(env, g.Env+"=1")
+	}
+	if len(plan.Regens) > 0 {
+		bin, set, err := stagedGravity(plan.Rev)
+		if err == nil && bin == "" {
+			return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - the tree pins gravity %s and none is staged: the pod provisions the prebuilts of checks.GravityPrebuilt (%s), so a new rev needs `just mirror-seed` and a tools.toml [tool.%s]", a.ID, plan.Rev, strings.Join(checks.GravityNeeds(), ", "), checks.GravityTool(plan.Rev)))
+		}
+		var sum string
+		if err == nil {
+			sum, err = gravitySum(bin)
+		}
+		if err != nil {
+			return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the staged gravity could not be hashed: "+err.Error())
+		}
+		if set != "" {
+			env = append(env, "GRAVITY="+set)
+		}
+		env = append(env, checks.GravitySHA256Env+"="+sum)
 	}
 	// THE SUITE RUNS AS A DEVELOPER RUNS IT: the pod's per-atom variables name
 	// the atom's work directory, which tests that provoke an unwritable

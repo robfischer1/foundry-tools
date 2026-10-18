@@ -1,8 +1,12 @@
 package atoms
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -252,6 +256,12 @@ func TestGoSuiteReadsGoTestsExit(t *testing.T) {
 // THE REGEN TESTS RUN INSTEAD OF SKIPPING where the tree has packages gravity
 // generated: the variables ride the suite's exec, one per package that opted in.
 func TestGoSuiteRequiresTheRegenTestsOfPackagesThatOptedIn(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "gravity"), []byte("gravity-bytes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GRAVITY", "")
+	t.Setenv("PATH", dir)
 	f := &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}}}
 	v := gosuiteVerdict(t, f, map[string]string{
 		"go.mod":                      gosuiteGo,
@@ -265,7 +275,7 @@ func TestGoSuiteRequiresTheRegenTestsOfPackagesThatOptedIn(t *testing.T) {
 		t.Fatalf("%+v", v)
 	}
 	env := strings.Join(f.envs[len(f.envs)-1], " ")
-	if env != "CLASSESCORE_REGEN_REQUIRED=1 STAMP_REGEN_REQUIRED=1 "+strings.Join(suiteScrub, " ") {
+	if env != "CLASSESCORE_REGEN_REQUIRED=1 STAMP_REGEN_REQUIRED=1 GRAVITY_SHA256="+gosuiteSum("gravity-bytes")+" "+strings.Join(suiteScrub, " ") {
 		t.Errorf("the suite's exec carries %q", env)
 	}
 	for _, e := range f.envs[:len(f.envs)-1] {
@@ -451,5 +461,217 @@ func TestInputGetenvReadsTheProcessUnlessTold(t *testing.T) {
 	in := Input{Getenv: func(string) string { return "told" }}
 	if got := in.getenv("TEST_KUBE_URL"); got != "told" {
 		t.Errorf("a set Getenv = %q", got)
+	}
+}
+
+// gosuiteRegenTree is a tree with one package that opted in to the regen test.
+var gosuiteRegenTree = map[string]string{
+	"go.mod":                      gosuiteGo,
+	"classescore/provenance.json": gosuiteProv(gosuiteRegen),
+	"classescore/regen_test.go":   "package classescore\n",
+}
+
+func gosuiteSum(b string) string {
+	h := sha256.Sum256([]byte(b))
+	return hex.EncodeToString(h[:])
+}
+
+// UT-GRAVITY-SHA-1. THE STAGED GENERATOR ENTERS go test's CACHE KEY. go test
+// keys a variable the test reads by value, and never sees a binary outside the
+// module, so the suite's exec carries the sha256 of the bytes it will run:
+// the file on PATH, or the one GRAVITY names, hashed here and not trusted from
+// a table.
+func TestGoSuiteExportsTheHashOfTheStagedGravity(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "gravity"), []byte("gravity-bytes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(t.TempDir(), "gravity-elsewhere")
+	if err := os.WriteFile(other, []byte("other-bytes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ name, gravity, path, want string }{
+		{"on PATH", "", dir, gosuiteSum("gravity-bytes")},
+		{"GRAVITY names it", other, dir, gosuiteSum("other-bytes")},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("GRAVITY", c.gravity)
+			t.Setenv("PATH", c.path)
+			f := &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}}}
+			v := gosuiteVerdict(t, f, gosuiteRegenTree, false)
+			if v.State != 0 {
+				t.Fatalf("%+v", v)
+			}
+			env := f.envs[len(f.envs)-1]
+			if !slices.Contains(env, "GRAVITY_SHA256="+c.want) {
+				t.Errorf("the suite's exec carries %v, want GRAVITY_SHA256=%s", env, c.want)
+			}
+			for _, e := range f.envs[:len(f.envs)-1] {
+				if len(e) != 0 {
+					t.Errorf("only the suite's exec carries it: %v", e)
+				}
+			}
+		})
+	}
+}
+
+// UT-GRAVITY-SHA-2. A tree with no regen test pays nothing: the variable is not
+// set, so a star that does not use gravity keeps its cache key.
+func TestGoSuiteSetsNoGravityHashWithoutARegenTest(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "gravity"), []byte("gravity-bytes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GRAVITY", "")
+	t.Setenv("PATH", dir)
+	f := &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}}}
+	if v := gosuiteVerdict(t, f, map[string]string{"go.mod": gosuiteGo}, false); v.State != 0 {
+		t.Fatalf("%+v", v)
+	}
+	for _, e := range f.envs {
+		if strings.Contains(strings.Join(e, " "), "GRAVITY_SHA256") {
+			t.Errorf("a tree with no regen test got %v", e)
+		}
+	}
+}
+
+// UT-GRAVITY-SHA-3. A generator that resolves and cannot be read is a
+// could-not-run: running the suite without the hash would serve a stale
+// "(cached)" for a generator nobody hashed.
+func TestGoSuiteCannotRunWhenTheStagedGravityCannotBeRead(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "gravity"), []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GRAVITY", "")
+	t.Setenv("PATH", dir)
+	real := readStaged
+	readStaged = func(string) ([]byte, error) { return nil, errors.New("input/output error") }
+	t.Cleanup(func() { readStaged = real })
+	f := &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}}}
+	v := gosuiteVerdict(t, f, gosuiteRegenTree, false)
+	if v.State != 2 || !strings.Contains(v.Reason, "CANNOT RUN - the staged gravity could not be hashed: input/output error") {
+		t.Fatalf("%+v", v)
+	}
+	for _, r := range f.runs {
+		if strings.Contains(r, "go test") {
+			t.Errorf("the suite ran: %v", f.runs)
+		}
+	}
+}
+
+// gravityRevs are the prebuilts the tool mirror holds, one provisioned tool each.
+const (
+	gravityOld = "68d8146b88e53e619bfbc0a36b9d70ef9c3bcf06"
+	gravityNew = "aeb03bfd4a6f14e29b1a91dcdfad05e02695db39"
+)
+
+// stageGravities lays, in one PATH directory, the executor's provisioned
+// gravity tools (one per prebuilt rev, as tools.toml names them) and returns it.
+func stageGravities(t *testing.T, revs ...string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, rev := range revs {
+		if err := os.WriteFile(filepath.Join(dir, checks.GravityTool(rev)), []byte("bytes-of-"+rev), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func gosuiteRegenTreeAt(rev string) map[string]string {
+	return map[string]string{
+		"go.mod":                      gosuiteGo,
+		"classescore/provenance.json": gosuiteProv(rev),
+		"classescore/regen_test.go":   "package classescore\n",
+	}
+}
+
+// UT-GRAVITY-REV-1. THE GENERATOR IS THE TREE'S PIN, NOT THE POD'S: with both
+// prebuilts provisioned, a tree pinned at either runs that one. GRAVITY names it
+// for go test, and GRAVITY_SHA256 is the hash of those bytes.
+func TestGoSuiteStagesTheGravityTheTreeItselfPins(t *testing.T) {
+	for _, rev := range []string{gravityOld, gravityNew} {
+		t.Run(rev[:7], func(t *testing.T) {
+			dir := stageGravities(t, gravityOld, gravityNew)
+			t.Setenv("GRAVITY", "")
+			t.Setenv("PATH", dir)
+			f := &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}}}
+			v := gosuiteVerdict(t, f, gosuiteRegenTreeAt(rev), false)
+			if v.State != 0 {
+				t.Fatalf("%+v", v)
+			}
+			env := f.envs[len(f.envs)-1]
+			for _, want := range []string{"GRAVITY=" + filepath.Join(dir, checks.GravityTool(rev)), "GRAVITY_SHA256=" + gosuiteSum("bytes-of-"+rev)} {
+				if !slices.Contains(env, want) {
+					t.Errorf("the suite's exec carries %v, want %s", env, want)
+				}
+			}
+		})
+	}
+}
+
+// UT-GRAVITY-REV-2. A person's GRAVITY outranks the tool the pin would pick.
+func TestGoSuiteKeepsAGravityTheCallerNamed(t *testing.T) {
+	dir := stageGravities(t, gravityOld)
+	other := filepath.Join(t.TempDir(), "mine")
+	if err := os.WriteFile(other, []byte("mine"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GRAVITY", other)
+	t.Setenv("PATH", dir)
+	f := &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}}}
+	if v := gosuiteVerdict(t, f, gosuiteRegenTreeAt(gravityOld), false); v.State != 0 {
+		t.Fatalf("%+v", v)
+	}
+	env := f.envs[len(f.envs)-1]
+	if !slices.Contains(env, "GRAVITY_SHA256="+gosuiteSum("mine")) {
+		t.Errorf("the suite's exec carries %v", env)
+	}
+	for _, e := range env {
+		if strings.HasPrefix(e, "GRAVITY=") {
+			t.Errorf("the caller's GRAVITY is already in the environment, not re-set: %v", env)
+		}
+	}
+}
+
+// UT-GRAVITY-REV-3. A rev with no provisioned prebuilt and no gravity on PATH
+// is a could-not-run that says how to add it, and the suite never starts.
+func TestGoSuiteCannotRunWhenNoGravityIsStagedForThePinnedRev(t *testing.T) {
+	t.Setenv("GRAVITY", "")
+	t.Setenv("PATH", stageGravities(t, gravityOld, gravityNew))
+	f := &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}}}
+	v := gosuiteVerdict(t, f, gosuiteRegenTreeAt(gosuiteRegen), false)
+	if v.State != 2 || !strings.Contains(v.Reason, "CANNOT RUN - the tree pins gravity "+gosuiteRegen) || !strings.Contains(v.Reason, "checks.GravityPrebuilt") {
+		t.Fatalf("%+v", v)
+	}
+	for _, r := range f.runs {
+		if strings.Contains(r, "go test") {
+			t.Errorf("the suite ran: %v", f.runs)
+		}
+	}
+}
+
+// UT-GRAVITY-REV-4. THE DAGGER LANE STAGES ONE `gravity` at the tree's rev and
+// no per-rev tool: it is used as it is, GRAVITY left alone.
+func TestGoSuiteUsesTheGravityOnPathWhenNoPerRevToolIsThere(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "gravity"), []byte("staged"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GRAVITY", "")
+	t.Setenv("PATH", dir)
+	f := &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}}}
+	if v := gosuiteVerdict(t, f, gosuiteRegenTreeAt(gravityOld), false); v.State != 0 {
+		t.Fatalf("%+v", v)
+	}
+	env := f.envs[len(f.envs)-1]
+	if !slices.Contains(env, "GRAVITY_SHA256="+gosuiteSum("staged")) {
+		t.Errorf("the suite's exec carries %v", env)
+	}
+	for _, e := range env {
+		if strings.HasPrefix(e, "GRAVITY=") {
+			t.Errorf("GRAVITY set although the PATH one is the pin's: %v", env)
+		}
 	}
 }
