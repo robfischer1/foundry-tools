@@ -21,6 +21,7 @@ var Def = atomkit.Def{
 	Desc:       "cargo clippy is clean under the fleet's lint set, warnings denied.",
 	Surface:    "root:Cargo.toml",
 	Toolchain:  "rust",
+	Needs:      []string{"tool:python-standalone"},
 	NotOnForks: checks.ForkFleetStyle,
 	WritesTree: true,
 	Timeout:    45 * time.Minute,

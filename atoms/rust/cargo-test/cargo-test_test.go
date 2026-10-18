@@ -84,7 +84,7 @@ func TestTheDeclarationValidatesAndNamesItsRow(t *testing.T) {
 	}
 	if Def.ID != id || Def.Stage != checks.StagePrecommit || Def.Lane != checks.LaneRust || Def.Group != checks.GroupOf(id) ||
 		Def.Toolchain != "rust" || Def.Surface != "root:Cargo.toml" || Def.NotOnForks != "" ||
-		Def.SubsumedBy != "" || len(Def.Needs) != 0 || !Def.WritesTree {
+		Def.SubsumedBy != "" || !slices.Equal(Def.Needs, []string{"tool:python-standalone"}) || !Def.WritesTree {
 		t.Errorf("%+v", Def)
 	}
 }
