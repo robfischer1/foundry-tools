@@ -21,7 +21,7 @@ var Def = atomkit.Def{
 	Desc:      "go test -race ./... passes against the live databases the record declares.",
 	Surface:   "any:**/go.mod",
 	Toolchain: "go",
-	Needs:     []string{"dies", "service:postgres", "service:pgvector", "service:redpanda", "service:redis", "tool:gravity"},
+	Needs:     append([]string{"dies", "service:postgres", "service:pgvector", "service:redpanda", "service:redis"}, checks.GravityNeeds()...),
 	Timeout:   45 * time.Minute,
 	Check:     check,
 }

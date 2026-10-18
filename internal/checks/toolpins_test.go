@@ -2,6 +2,7 @@ package checks
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -203,6 +204,26 @@ func TestGravityPrebuiltIsPinned(t *testing.T) {
 		if !gravityRevRe.MatchString(rev) || !sha256Hex.MatchString(sum) {
 			t.Errorf("GravityPrebuilt[%q] = %q is not a commit and a sha256", rev, sum)
 		}
+	}
+}
+
+// Each prebuilt is one provisioned tool, named by its rev's first seven hex
+// digits, and the atoms that run a tree's regen tests need exactly those tools.
+func TestGravityToolsAreNamedByRevAndNeededTogether(t *testing.T) {
+	if got := GravityTool("68d8146b88e53e619bfbc0a36b9d70ef9c3bcf06"); got != "gravity-68d8146" {
+		t.Errorf("GravityTool = %q", got)
+	}
+	needs := GravityNeeds()
+	if len(needs) != len(GravityPrebuilt) {
+		t.Fatalf("GravityNeeds = %v for %d prebuilts", needs, len(GravityPrebuilt))
+	}
+	for rev := range GravityPrebuilt {
+		if !slices.Contains(needs, "tool:"+GravityTool(rev)) {
+			t.Errorf("GravityNeeds = %v lacks %s", needs, GravityTool(rev))
+		}
+	}
+	if !slices.IsSorted(needs) {
+		t.Errorf("GravityNeeds = %v is not in a stable order", needs)
 	}
 }
 

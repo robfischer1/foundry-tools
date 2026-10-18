@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -173,6 +174,26 @@ func PlanGravity(files map[string]string, regenTests []string) (GravityPlan, err
 var GravityPrebuilt = map[string]string{
 	"68d8146b88e53e619bfbc0a36b9d70ef9c3bcf06": "db5a9f0bec3976e9fe84ae8e6f4d6afa2409c0fb556d9646f489b44e96afa395",
 	"aeb03bfd4a6f14e29b1a91dcdfad05e02695db39": "7580e6e5e58efe11ec2427e79ad6e242397745778e418331e9de8365dc700253",
+}
+
+// GravityTool is the name tools.toml gives the prebuilt at rev, the program the
+// executor's pod provisions: gravity-<the rev's first seven hex digits>. One
+// tool per rev, because a tree is held to the generator its own provenance.json
+// pins and the pod cannot know which that is before it reads the tree.
+func GravityTool(rev string) string {
+	return "gravity-" + rev[:min(len(rev), 7)]
+}
+
+// GravityNeeds is the needs the atoms that run a tree's regen tests declare:
+// every prebuilt, in tool-name order, so adding a rev to GravityPrebuilt adds it
+// to each of them.
+func GravityNeeds() []string {
+	var out []string
+	for rev := range GravityPrebuilt {
+		out = append(out, "tool:"+GravityTool(rev))
+	}
+	slices.Sort(out)
+	return out
 }
 
 // GravitySHA256Env is the variable a regen test reads for the sha256 (lowercase
