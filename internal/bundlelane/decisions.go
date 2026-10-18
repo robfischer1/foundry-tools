@@ -28,7 +28,27 @@ const (
 	// DecisionsStage is the roster the derive reads, staged as the fleet die
 	// stages it (DeclaredPath), under the lane's work directory.
 	DecisionsStage = "decisions-stage"
+	// DecisionsCacheVolume is the engine volume derived tables are kept in, one
+	// file per content digest of the derive's inputs (the lane's DECISIONS_KEY).
+	DecisionsCacheVolume = "foundry-authz-decisions"
+	// DecisionsCacheDir is where that volume is mounted.
+	DecisionsCacheDir = "/decisions-cache"
 )
+
+// decisionsCacheScript serves the table from the cache when the key's file is
+// there and otherwise derives it ("$@") and keeps it. The derive is written to a
+// temp file and renamed in, so a derive that fails or is cut short never leaves
+// a half table under the key; a failed derive's output is passed on as it was.
+const decisionsCacheScript = `f="$DECISIONS_CACHE/$DECISIONS_KEY.json"
+if [ -s "$f" ]; then cat "$f"; exit 0; fi
+"$@" > "$f.tmp" || { c=$?; cat "$f.tmp"; rm -f "$f.tmp"; exit $c; }
+mv "$f.tmp" "$f" && cat "$f"`
+
+// DecisionsCachedArgs is DecisionsArgs behind the cache: the same derive argv,
+// run only when the cache holds no table for the inputs' digest.
+func DecisionsCachedArgs(stage string) []string {
+	return append([]string{"sh", "-c", decisionsCacheScript, "sh"}, DecisionsArgs(stage)...)
+}
 
 // DecisionsStats is what the lane logs and gates about a derived table.
 type DecisionsStats struct {

@@ -60,6 +60,11 @@ func TestTheDecisionTableIsDerivedAndBuiltIntoThePolicyDie(t *testing.T) {
 			t.Errorf("the derive chain lacks %s:\n%s", want, derive)
 		}
 	}
+	for _, want := range []string{`path:"` + bundlelane.DecisionsCacheDir + `"`, "DECISIONS_KEY"} {
+		if !strings.Contains(derive, want) {
+			t.Errorf("the derive chain lacks the cache (%s):\n%s", want, derive)
+		}
+	}
 	if build := engine.chain(`"/work/bundle-signed.tar.gz"`, `"--signing-key"`); srcMounts(build) != 2 {
 		t.Errorf("the signed twin was not built from the tree the table was laid in (%d mounts):\n%s", srcMounts(build), build)
 	}

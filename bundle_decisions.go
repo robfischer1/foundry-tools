@@ -2,10 +2,14 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"strings"
 	"time"
 
 	"dagger/foundry-tools/internal/buildlane"
 	"dagger/foundry-tools/internal/bundlelane"
+	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
 )
 
@@ -51,9 +55,16 @@ func (l *bundleLane) decisions(ctx context.Context, tools *dagger.Container) (*d
 		return nil, g
 	}
 	stage := workDir + "/" + bundlelane.DecisionsStage
-	ctr := tools.WithDirectory(stage, roster)
+	key, err := l.decisionsKey(ctx, roster)
+	if err != nil {
+		return nil, couldNotRun("the decision table's inputs could not be digested: %v", err)
+	}
+	ctr := tools.WithDirectory(stage, roster).
+		WithMountedCache(bundlelane.DecisionsCacheDir, dag.CacheVolume(bundlelane.DecisionsCacheVolume), dagger.ContainerWithMountedCacheOpts{Sharing: dagger.CacheSharingModeShared}).
+		WithEnvVariable("DECISIONS_CACHE", bundlelane.DecisionsCacheDir).
+		WithEnvVariable("DECISIONS_KEY", key)
 	began := time.Now()
-	out, code, g := exec(ctx, ctr, "the decision table's derive", bundlelane.DecisionsArgs(stage)...)
+	out, code, g := exec(ctx, ctr, "the decision table's derive", bundlelane.DecisionsCachedArgs(stage)...)
 	took := time.Since(began)
 	if g.code != buildlane.Clean {
 		return nil, g
@@ -67,6 +78,24 @@ func (l *bundleLane) decisions(ctx context.Context, tools *dagger.Container) (*d
 	}
 	bundleSay("policy: decision table derived in %.1fs — %s", took.Seconds(), stats)
 	return tools.WithMountedDirectory("/src", src.WithNewFile(bundlelane.DecisionsPath, out)), clean()
+}
+
+// decisionsKey is the content digest the derived table is cached by: the
+// directories the derive loads (the policy, the derive, the staged roster) and
+// the pinned opa that evaluates them. The table is a function of those alone, so
+// a commit that changes none of them (the base side of a pull, a docs commit)
+// reuses the table an earlier run derived.
+func (l *bundleLane) decisionsKey(ctx context.Context, roster *dagger.Directory) (string, error) {
+	h := sha256.New()
+	h.Write([]byte(checks.OpaURL + "\n"))
+	for _, d := range []*dagger.Directory{l.m.Source.Directory("policy"), l.m.Source.Directory(bundlelane.DecisionsDeriveDir), roster} {
+		dg, err := d.Digest(ctx)
+		if err != nil {
+			return "", err
+		}
+		h.Write([]byte(strings.TrimSpace(dg) + "\n"))
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // decisionsRoster is the catalog roster the derive reads: fleet/data.json and

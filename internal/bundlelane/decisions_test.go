@@ -1,6 +1,10 @@
 package bundlelane
 
 import (
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -59,5 +63,49 @@ func TestBuiltDecisionsReadsTheTableOutOfTheArtifact(t *testing.T) {
 	}
 	if _, why := BuiltDecisions(`nope`, false); !strings.Contains(why, "not JSON") {
 		t.Errorf("not json: %q", why)
+	}
+}
+
+// The cache wrapper runs the derive once per key and serves the file after, and
+// a failed derive caches nothing and passes its output and exit on.
+func TestDecisionsCachedArgsDeriveOncePerKey(t *testing.T) {
+	args := DecisionsCachedArgs("/work/decisions-stage")
+	if tail := args[len(args)-len(DecisionsArgs("/work/decisions-stage")):]; !slices.Equal(tail, DecisionsArgs("/work/decisions-stage")) {
+		t.Fatalf("the derive argv is not carried whole: %q", args)
+	}
+	dir := t.TempDir()
+	runs := filepath.Join(dir, "runs")
+	run := func(key string, derive ...string) (string, error) {
+		argv := append([]string{"-c", decisionsCacheScript, "sh"}, derive...)
+		cmd := exec.Command("sh", argv...)
+		cmd.Env = append(os.Environ(), "DECISIONS_CACHE="+dir, "DECISIONS_KEY="+key)
+		out, err := cmd.Output()
+		return string(out), err
+	}
+	derive := []string{"sh", "-c", "echo x >> " + runs + "; printf '%s' '{\"keys\":1}'"}
+	for i := 0; i < 3; i++ {
+		if out, err := run("k1", derive...); err != nil || out != `{"keys":1}` {
+			t.Fatalf("run %d: %q %v", i, out, err)
+		}
+	}
+	if b, _ := os.ReadFile(runs); strings.Count(string(b), "x") != 1 {
+		t.Errorf("the derive ran %d times for one key", strings.Count(string(b), "x"))
+	}
+	if _, err := run("k2", derive...); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(runs); strings.Count(string(b), "x") != 2 {
+		t.Error("another key did not derive")
+	}
+	out, err := run("k3", "sh", "-c", "printf 'boom'; exit 3")
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || ee.ExitCode() != 3 || out != "boom" {
+		t.Errorf("a failed derive: %q %v", out, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "k3.json")); err == nil {
+		t.Error("a failed derive left a cached table")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "k3.json.tmp")); err == nil {
+		t.Error("a failed derive left its temp file")
 	}
 }
