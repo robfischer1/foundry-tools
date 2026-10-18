@@ -131,3 +131,11 @@ func TestLeftForAHumanNamesWhatTheRegenerationCouldNotDerive(t *testing.T) {
 		t.Errorf("%q", got)
 	}
 }
+
+func TestAComposeLineStopsAtTheFirstWordThatIsNotAWorld(t *testing.T) {
+	text := strings.Replace(composeScript, "identity door >/dev/null", "identity --verbose door", 1)
+	g, err := ParseBuildGuest(text)
+	if err != nil || !reflect.DeepEqual(g.Compose, []string{"identity"}) {
+		t.Errorf("%+v %v", g, err)
+	}
+}

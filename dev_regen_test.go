@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"dagger/foundry-tools/internal/catalogue"
 	"dagger/foundry-tools/internal/checks"
 )
 
@@ -93,6 +94,16 @@ func TestDevRegenSettlesEvenWhenTheVerdictExecDoesNotFail(t *testing.T) {
 func TestDevRegenIsForAGoTree(t *testing.T) {
 	d := devOver(t, devRustTree, "", "")
 	if _, err := d.Regen(t.Context(), nil, false); err == nil || !strings.Contains(err.Error(), "Go tree") {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestDevRegenNeedsTheAtomInTheRegistry(t *testing.T) {
+	old := regenEntry
+	regenEntry = func(string) (catalogue.Entry, bool) { return catalogue.Entry{}, false }
+	t.Cleanup(func() { regenEntry = old })
+	d := devOver(t, devGoTree, "", "")
+	if _, err := d.Regen(t.Context(), nil, false); err == nil || !strings.Contains(err.Error(), "not in the generated registry") {
 		t.Fatalf("%v", err)
 	}
 }

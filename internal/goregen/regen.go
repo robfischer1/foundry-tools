@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 
 	"dagger/foundry-tools/internal/atomkit"
@@ -121,7 +120,13 @@ func fold(results []outcome) checks.Verdict {
 // regenerable lists the cores a tree can regenerate: a directory with a
 // provenance.json that names gravity as its generator and a build-guest.sh.
 func regenerable(root string) []string {
-	var cores []string
+	cores := slices.Sorted(maps.Keys(regenerableProvs(root)))
+	return cores
+}
+
+// regenerableProvs is regenerable with each core's parsed record.
+func regenerableProvs(root string) map[string]Prov {
+	cores := map[string]Prov{}
 	ents, _ := os.ReadDir(root) // an unreadable root lists none
 	for _, e := range ents {
 		if !e.IsDir() {
@@ -135,9 +140,8 @@ func regenerable(root string) []string {
 		if _, serr := os.Stat(filepath.Join(root, e.Name(), "build-guest.sh")); err != nil || serr != nil || !strings.HasPrefix(p.GenCommand, "gravity ") {
 			continue
 		}
-		cores = append(cores, e.Name())
+		cores[e.Name()] = p
 	}
-	sort.Strings(cores)
 	return cores
 }
 
@@ -430,9 +434,6 @@ func (r *runner) guest(core string, bg BuildGuest, src string, chain toolchain, 
 
 // homeNote words the cargo home the kept guest was built under.
 func homeNote(home string) string {
-	if home == "" {
-		return ""
-	}
 	return "; built under cargo home " + home
 }
 

@@ -16,6 +16,9 @@ import (
 // regenAtom is the logic atom the regen verb runs.
 const regenAtom = "dev:go-regen"
 
+// regenEntry is the catalogue lookup; a test replaces it.
+var regenEntry = catalogue.Lookup
+
 // Regen regenerates the tree's gravity-generated cores and answers the files it
 // wrote: `dagger call dev --source=. regen --args=alarm export --path=.`.
 //
@@ -41,7 +44,7 @@ func (d *Dev) Regen(ctx context.Context,
 	if d.Lang != devlane.Go {
 		return nil, fmt.Errorf("regen regenerates a Go tree's gravity cores: this source is %s", d.Lang)
 	}
-	e, ok := catalogue.Lookup(regenAtom)
+	e, ok := regenEntry(regenAtom)
 	if !ok {
 		return nil, fmt.Errorf("atom %s is not in the generated registry", regenAtom)
 	}

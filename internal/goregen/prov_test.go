@@ -167,3 +167,19 @@ func TestRecordedCargoHomeReadsTheRegistryPathOutOfTheGuest(t *testing.T) {
 		t.Errorf("two homes: %v", err)
 	}
 }
+
+func TestAProvenanceWhoseBlocksAreNotRecordsIsRefused(t *testing.T) {
+	const head = `{"core":{"commit":"x"},"generator":{"commit":"x","command":"gravity"},"guest_wasm":{"file":"g","sha256":"a","bytes":1},`
+	for name, text := range map[string]string{
+		"a core that is a string":      `{"core":"x","generator":{"commit":"x","command":"gravity"},"guest_wasm":{},"embedded_wasm":{}}`,
+		"an embedded that is a number": head + `"embedded_wasm":3}`,
+		"a bindings that is a number":  head + `"embedded_wasm":{"file":"e","sha256":"a","bytes":1},"bindings":3}`,
+	} {
+		if _, err := ParseProv(text); err == nil {
+			t.Errorf("%s: parsed", name)
+		}
+	}
+	if _, _, ok := objectSpan(`{"guest`, "guest_wasm"); ok {
+		t.Error("an unterminated key was read")
+	}
+}

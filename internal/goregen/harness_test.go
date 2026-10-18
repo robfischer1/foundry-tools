@@ -54,6 +54,10 @@ type fake struct {
 	// remapped is what a build under another cargo home leaves, by core: the
 	// guest a build with a --remap-path-prefix flag gives instead of guests[core].
 	remapped map[string][]byte
+	// onCall, when set, runs first on every program, to break the world under it.
+	onCall func(c atoms.Cmd)
+	// artifactDir makes cargo leave a directory where the artifact goes.
+	artifactDir bool
 	// noCompose makes compose.sh exit 0 and write nothing.
 	noCompose bool
 }
@@ -139,6 +143,9 @@ func (f *fake) run(_ context.Context, c atoms.Cmd) (string, int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, c)
+	if f.onCall != nil {
+		f.onCall(c)
+	}
 	l := line(c)
 	for key, out := range f.fail {
 		if strings.Contains(l, key) {
@@ -181,7 +188,12 @@ func (f *fake) run(_ context.Context, c atoms.Cmd) (string, int) {
 	case name == "cargo":
 		core := coreOf(c)
 		target, _ := envOf(c, "CARGO_TARGET_DIR")
-		if g, ok := f.buildOf(c, core); ok {
+		if g, ok := f.buildOf(c, core); ok && f.artifactDir {
+			_ = g
+			if err := os.MkdirAll(filepath.Join(target, "wasm32-unknown-unknown", "release", "stellar_core.wasm"), 0o755); err != nil {
+				f.t.Fatal(err)
+			}
+		} else if ok {
 			writeFile(f.t, filepath.Join(target, "wasm32-unknown-unknown", "release", "stellar_core.wasm"), g)
 		}
 	case name == "compose.sh":

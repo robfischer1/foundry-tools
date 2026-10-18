@@ -212,14 +212,8 @@ func (r *runner) newToolchain() (toolchain, *failure) {
 // agree on. A tree with none to read, or a tie, has no answer.
 func (r *runner) gravityRev() (string, *failure) {
 	count := map[string]int{}
-	for _, core := range regenerable(r.in.Root) {
-		text, err := os.ReadFile(filepath.Join(r.in.Root, core, "provenance.json"))
-		if err != nil {
-			continue
-		}
-		if p, err := ParseProv(string(text)); err == nil {
-			count[p.GenCommit]++
-		}
+	for _, p := range regenerableProvs(r.in.Root) {
+		count[p.GenCommit]++
 	}
 	revs := slices.Sorted(maps.Keys(count))
 	if len(revs) == 0 {
