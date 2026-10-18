@@ -455,3 +455,17 @@ func TestTheSizeBudget(t *testing.T) {
 		})
 	}
 }
+
+// A budget file that will not read is the atom's could-not-run: it never judged
+// the sizes.
+func TestABudgetFileThatWillNotReadIsACouldNotRun(t *testing.T) {
+	f := &fake{}
+	in := input(t, f, two)
+	if err := os.MkdirAll(filepath.Join(in.Root, checks.WitGuestBudgetsFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	v := check(t.Context(), in)
+	if v.State != 2 || !strings.Contains(v.Reason, "wit-guest-budgets.toml would not read") || f.ran("cargo test") {
+		t.Errorf("%+v ran %v", v, f.runs)
+	}
+}

@@ -125,13 +125,11 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 			}
 		}
 		logs = append(logs, prefixLines(world, v.Logs)...)
-		// A module the build did not leave is the lift's to fail on (buildWorld);
-		// one that is there is weighed.
-		switch st, err := os.Stat(module); {
-		case err == nil:
+		// The module the lift just read is weighed. One that will not stat was
+		// never there for the lift either (wasm-tools fails on it), so only a
+		// fake can reach the miss, and it is left unweighed.
+		if st, err := os.Stat(module); err == nil {
 			sizes[world] = st.Size()
-		case !errors.Is(err, fs.ErrNotExist):
-			return checks.VerdictOf(row, 2, fmt.Sprintf("%s: CANNOT RUN - world %s's module would not stat: %v", id, world, err))
 		}
 	}
 
