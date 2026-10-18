@@ -10,6 +10,10 @@ argv = ["bun", "audit", "--audit-level=high"]
 per_module = false
 judge = "exit"
 
+# The bun toolchain's preflight is the frozen install the dev:ts-* verbs need.
+# An audit posts the lockfile and reads no node_modules.
+preflight = false
+
 # bun audit opens package.json read-write, and the pod mounts /src read-only:
 # the audit runs on the atom's own copy of the tree (EACCES on /src/package.json
 # otherwise). Dagger's /src is writable, so the verdict is the same on both.

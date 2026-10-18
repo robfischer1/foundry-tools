@@ -310,7 +310,11 @@ func runManifest(ctx context.Context, r *run, e catalogue.Entry) checks.Verdict 
 	var exec atomkit.ExecFunc
 	one := func(dir string) checks.Verdict {
 		if exec == nil {
-			exec = execIn(manifestContainer(ctx, r, e, m))
+			if m.PerModule {
+				exec = execIn(manifestContainer(ctx, r, e, m))
+			} else {
+				exec = execChained(manifestContainer(ctx, r, e, m))
+			}
 		}
 		return commandIn(ctx, a, m, tools.Preflights[m.Toolchain], exec, path.Join("/src", dir))
 	}
@@ -341,13 +345,15 @@ func manifestContainer(ctx context.Context, r *run, e catalogue.Entry, m atomkit
 // commandIn runs the preflight and then the manifest's argv in dir, and judges
 // the exit.
 func commandIn(ctx context.Context, a checks.AtomDef, m atomkit.Manifest, preflight []string, exec atomkit.ExecFunc, dir string) checks.Verdict {
-	if len(preflight) > 0 {
+	if len(preflight) > 0 && m.RunsPreflight() {
 		if res := exec(ctx, preflight, dir); res.Code != 0 {
 			return cannotRun(a, fmt.Sprintf("%s: CANNOT RUN - preflight `%s` exited %d: %s",
 				a.ID, strings.Join(preflight, " "), res.Code, lastLine(res.Stderr)))
 		}
 	}
-	res := exec(ctx, m.Argv, dir)
+	// Compose(nil): the head defaults are part of the command (a dev verb run
+	// with no caller arguments), as the pod executor runs it.
+	res := exec(ctx, m.Compose(nil), dir)
 	if res.NotRun {
 		return checks.VerdictOf(a, int(checks.StateCannotRun), res.Stderr)
 	}
@@ -391,13 +397,37 @@ func auditJudge(a checks.AtomDef, res atomkit.ExecResult) checks.Verdict {
 // not an exit code.
 func execIn(ctr *dagger.Container) atomkit.ExecFunc {
 	return func(ctx context.Context, argv []string, dir string) atomkit.ExecResult {
-		ran := ctr.WithWorkdir(dir).WithExec(argv, anyExit)
-		code, err := exitCodeOf(ctx, ran)
-		if err != nil {
-			return atomkit.ExecResult{Code: -1, Stderr: fmt.Sprintf("the atom never ran: %v", err), NotRun: true}
-		}
-		stdout, _ := ran.Stdout(ctx)
-		stderr, _ := ran.Stderr(ctx)
-		return atomkit.ExecResult{Code: code, Stdout: stdout, Stderr: stderr}
+		res, _ := execOn(ctx, ctr, argv, dir)
+		return res
 	}
+}
+
+// execChained is execIn where each exec starts from the container the last one
+// left, so a preflight's writes to the tree reach the command that follows. The
+// pod runs both on one copy of the tree; dev:ts-* depends on it (`bun install`
+// writes node_modules, `bun run test` reads them). Sequential, for one module.
+func execChained(ctr *dagger.Container) atomkit.ExecFunc {
+	var mu sync.Mutex
+	return func(ctx context.Context, argv []string, dir string) atomkit.ExecResult {
+		mu.Lock()
+		defer mu.Unlock()
+		res, ran := execOn(ctx, ctr, argv, dir)
+		if ran != nil {
+			ctr = ran
+		}
+		return res
+	}
+}
+
+// execOn runs argv in dir on ctr and answers the result and the container after
+// it (nil when the exec never ran).
+func execOn(ctx context.Context, ctr *dagger.Container, argv []string, dir string) (atomkit.ExecResult, *dagger.Container) {
+	ran := ctr.WithWorkdir(dir).WithExec(argv, anyExit)
+	code, err := exitCodeOf(ctx, ran)
+	if err != nil {
+		return atomkit.ExecResult{Code: -1, Stderr: fmt.Sprintf("the atom never ran: %v", err), NotRun: true}, nil
+	}
+	stdout, _ := ran.Stdout(ctx)
+	stderr, _ := ran.Stderr(ctx)
+	return atomkit.ExecResult{Code: code, Stdout: stdout, Stderr: stderr}, ran
 }

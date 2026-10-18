@@ -26,8 +26,12 @@ image = "docker.io/library/rust:1.97.0-trixie@sha256:b92b8c8574f8f3b207fcb0912fb
 [toolchain.rust-wasm]
 image = "docker.io/library/rust:1.90.0-bookworm@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f"
 
+# The preflight is ts:bun-gate's own install, run before a command atom here
+# (the dev:ts-* verbs): a tree comes bare, with no node_modules, and the verbs run
+# the repo's scripts. ts:bun-audit audits the lockfile and opts out.
 [toolchain.bun]
 image = "docker.io/oven/bun:1.4-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61"
+preflight = ["bun", "install", "--frozen-lockfile"]
 
 [toolchain.node]
 image = "docker.io/library/node:24-bookworm-slim@sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553"
