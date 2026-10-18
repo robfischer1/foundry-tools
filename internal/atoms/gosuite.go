@@ -63,6 +63,15 @@ func GoSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race b
 	for _, g := range plan.Regens {
 		env = append(env, g.Env+"=1")
 	}
+	if len(plan.Regens) > 0 {
+		sum, err := stagedGravitySum()
+		if err != nil {
+			return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the staged gravity could not be hashed: "+err.Error())
+		}
+		if sum != "" {
+			env = append(env, checks.GravitySHA256Env+"="+sum)
+		}
+	}
 	// THE SUITE RUNS AS A DEVELOPER RUNS IT: the pod's per-atom variables name
 	// the atom's work directory, which tests that provoke an unwritable
 	// TMPDIR would otherwise be redirected around (WorkDir). An empty value

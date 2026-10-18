@@ -1,8 +1,12 @@
 package atoms
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -164,6 +168,8 @@ func TestGoSuiteReadsGoTestsExit(t *testing.T) {
 // THE REGEN TESTS RUN INSTEAD OF SKIPPING where the tree has packages gravity
 // generated: the variables ride the suite's exec, one per package that opted in.
 func TestGoSuiteRequiresTheRegenTestsOfPackagesThatOptedIn(t *testing.T) {
+	t.Setenv("GRAVITY", "")
+	t.Setenv("PATH", t.TempDir()) // no gravity staged: no GRAVITY_SHA256
 	f := &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}}}
 	v := gosuiteVerdict(t, f, map[string]string{
 		"go.mod":                      gosuiteGo,
@@ -346,6 +352,102 @@ func TestDEF_B4_PERF_3_RaceRunIsPrecededByAParallelBuildOnlyPass(t *testing.T) {
 	for _, r := range f.runs {
 		if strings.Contains(r, "-exec true") {
 			t.Errorf("the unit suite warmed a cache it does not use: %q", r)
+		}
+	}
+}
+
+// gosuiteRegenTree is a tree with one package that opted in to the regen test.
+var gosuiteRegenTree = map[string]string{
+	"go.mod":                      gosuiteGo,
+	"classescore/provenance.json": gosuiteProv(gosuiteRegen),
+	"classescore/regen_test.go":   "package classescore\n",
+}
+
+func gosuiteSum(b string) string {
+	h := sha256.Sum256([]byte(b))
+	return hex.EncodeToString(h[:])
+}
+
+// UT-GRAVITY-SHA-1. THE STAGED GENERATOR ENTERS go test's CACHE KEY. go test
+// keys a variable the test reads by value, and never sees a binary outside the
+// module, so the suite's exec carries the sha256 of the bytes it will run:
+// the file on PATH, or the one GRAVITY names, hashed here and not trusted from
+// a table.
+func TestGoSuiteExportsTheHashOfTheStagedGravity(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "gravity"), []byte("gravity-bytes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(t.TempDir(), "gravity-elsewhere")
+	if err := os.WriteFile(other, []byte("other-bytes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ name, gravity, path, want string }{
+		{"on PATH", "", dir, gosuiteSum("gravity-bytes")},
+		{"GRAVITY names it", other, dir, gosuiteSum("other-bytes")},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("GRAVITY", c.gravity)
+			t.Setenv("PATH", c.path)
+			f := &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}}}
+			v := gosuiteVerdict(t, f, gosuiteRegenTree, false)
+			if v.State != 0 {
+				t.Fatalf("%+v", v)
+			}
+			env := f.envs[len(f.envs)-1]
+			if !slices.Contains(env, "GRAVITY_SHA256="+c.want) {
+				t.Errorf("the suite's exec carries %v, want GRAVITY_SHA256=%s", env, c.want)
+			}
+			for _, e := range f.envs[:len(f.envs)-1] {
+				if len(e) != 0 {
+					t.Errorf("only the suite's exec carries it: %v", e)
+				}
+			}
+		})
+	}
+}
+
+// UT-GRAVITY-SHA-2. A tree with no regen test pays nothing: the variable is not
+// set, so a star that does not use gravity keeps its cache key.
+func TestGoSuiteSetsNoGravityHashWithoutARegenTest(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "gravity"), []byte("gravity-bytes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GRAVITY", "")
+	t.Setenv("PATH", dir)
+	f := &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}}}
+	if v := gosuiteVerdict(t, f, map[string]string{"go.mod": gosuiteGo}, false); v.State != 0 {
+		t.Fatalf("%+v", v)
+	}
+	for _, e := range f.envs {
+		if strings.Contains(strings.Join(e, " "), "GRAVITY_SHA256") {
+			t.Errorf("a tree with no regen test got %v", e)
+		}
+	}
+}
+
+// UT-GRAVITY-SHA-3. A generator that resolves and cannot be read is a
+// could-not-run: running the suite without the hash would serve a stale
+// "(cached)" for a generator nobody hashed.
+func TestGoSuiteCannotRunWhenTheStagedGravityCannotBeRead(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "gravity"), []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GRAVITY", "")
+	t.Setenv("PATH", dir)
+	real := readStaged
+	readStaged = func(string) ([]byte, error) { return nil, errors.New("input/output error") }
+	t.Cleanup(func() { readStaged = real })
+	f := &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}}}
+	v := gosuiteVerdict(t, f, gosuiteRegenTree, false)
+	if v.State != 2 || !strings.Contains(v.Reason, "CANNOT RUN - the staged gravity could not be hashed: input/output error") {
+		t.Fatalf("%+v", v)
+	}
+	for _, r := range f.runs {
+		if strings.Contains(r, "go test") {
+			t.Errorf("the suite ran: %v", f.runs)
 		}
 	}
 }
