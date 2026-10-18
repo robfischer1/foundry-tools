@@ -22,7 +22,7 @@ var Def = atomkit.Def{
 	Desc:          "Every mutant cosmic-ray makes of this pull's changes to the declared critical modules is killed by the tests.",
 	Surface:       "root:pyproject.toml",
 	Toolchain:     "python",
-	Needs:         []string{"tool:git", "tool:uv"},
+	Needs:         []string{"tool:git", "tool:uv", "tool:jq", "tool:curl"},
 	NotOnForks:    checks.ForkChangeBar,
 	NeedsManifest: true,
 	History:       "full",

@@ -10,7 +10,7 @@ argv = ["bun", "run", "format"]
 args = "append"
 per_module = false
 judge = "exit"
-needs = ["tool:node"]
+needs = ["tool:node", "tool:curl"]
 writes_tree = true
 
 # THE GATE TWIN IS ts:bun-gate, whose script opens with `format:check`; this is

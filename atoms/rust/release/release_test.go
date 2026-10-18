@@ -92,7 +92,7 @@ func TestTheDeclarationValidatesAndKeepsTheRowItReplaces(t *testing.T) {
 	}
 	if Def.ID != id || Def.Stage != checks.StagePrepush || Def.Lane != checks.LaneRust || Def.Group != checks.GroupOf(id) ||
 		Def.Toolchain != "rust" || Def.NotOnForks != "" || Def.NeedsManifest || Def.Surface != "root:Cargo.toml" ||
-		!slices.Equal(Def.Needs, []string{"dies", "tool:python-standalone"}) || Def.Timeout != 45*time.Minute || !Def.WritesTree ||
+		!slices.Equal(Def.Needs, []string{"dies", "tool:python-standalone", "tool:uv"}) || Def.Timeout != 45*time.Minute || !Def.WritesTree ||
 		!strings.HasPrefix(Def.Desc, "The release binaries the image will carry compile under cargo's release profile") {
 		t.Errorf("%+v", Def)
 	}

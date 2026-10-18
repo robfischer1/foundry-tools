@@ -17,13 +17,15 @@ import (
 // Dagger container installs it with apt. It writes the tree: a suite copies
 // files with their modes and edits the copies (foundry-dies' tests do), and the
 // pod's /src is locked read-only, so the atom runs on its own writable copy.
+// jq and curl (tool:jq, tool:curl) are what the Dagger container apt-installs
+// beside git: foundry-stocks' bash hooks parse their payload with jq.
 var Def = atomkit.Def{
 	ID: "python:pytest", Stage: checks.StagePrecommit, Lane: checks.LanePython,
 	Group:      checks.GroupLanguage,
 	Desc:       "pytest passes, and there is something for it to pass.",
 	Surface:    "any:**/*.py",
 	Toolchain:  "python",
-	Needs:      []string{"tool:git", "tool:uv"},
+	Needs:      []string{"tool:git", "tool:uv", "tool:jq", "tool:curl"},
 	WritesTree: true,
 	Timeout:    30 * time.Minute,
 	Check:      check,

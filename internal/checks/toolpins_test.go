@@ -10,13 +10,13 @@ import (
 // Every URL the tools container fetches has a checksum, and it is a SHA-256.
 func TestEveryToolPinHasAChecksum(t *testing.T) {
 	hex := regexp.MustCompile(`^[0-9a-f]{64}$`)
-	for _, url := range []string{OpaURL, OpengrepURL, HadolintURL, KubectlURL, ChezmoiURL, ComposeURL, WasmToolsURL, WasmTools1250URL, WasmTools1261URL, NodeRegenURL, RustStdWasmURL, RustStdURL, WacURL, JustURL, ShellcheckURL, PythonStandaloneURL, PythonStandalone315URL, CargoAuditURL, CargoNextestURL, CargoMutantsURL, OrasURL, SccacheURL, RustClippyURL, RustRustfmtURL, RustWasmClippyURL, RustWasmRustfmtURL, MoldURL, GofmtURL, RustDist1971RustcURL, RustDist1971CargoURL, RustDist1971StdURL, RustDist1971StdWasmURL, RustDist1990RustcURL, RustDist1990CargoURL, RustDist1990StdURL, RustDist1990StdWasmURL} {
+	for _, url := range []string{OpaURL, OpengrepURL, HadolintURL, KubectlURL, ChezmoiURL, ComposeURL, WasmToolsURL, WasmTools1250URL, WasmTools1261URL, NodeRegenURL, RustStdWasmURL, RustStdURL, WacURL, JustURL, ShellcheckURL, PythonStandaloneURL, PythonStandalone315URL, CargoAuditURL, CargoNextestURL, CargoMutantsURL, OrasURL, SccacheURL, RustClippyURL, RustRustfmtURL, RustWasmClippyURL, RustWasmRustfmtURL, MoldURL, JqURL, CurlURL, GofmtURL, RustDist1971RustcURL, RustDist1971CargoURL, RustDist1971StdURL, RustDist1971StdWasmURL, RustDist1990RustcURL, RustDist1990CargoURL, RustDist1990StdURL, RustDist1990StdWasmURL} {
 		sum, ok := ToolSHA256[url]
 		if !ok || !hex.MatchString(sum) {
 			t.Errorf("%s has no SHA-256 in ToolSHA256 (got %q)", url, sum)
 		}
 	}
-	if len(ToolSHA256) != 36 {
+	if len(ToolSHA256) != 38 {
 		t.Errorf("ToolSHA256 holds %d entries; a stale line for a URL nothing fetches is a pin nobody checks", len(ToolSHA256))
 	}
 }
@@ -88,6 +88,29 @@ func TestRustComponentPinsFollowTheImages(t *testing.T) {
 func TestMoldPinIsBookworms(t *testing.T) {
 	if MoldRelease != "1.10.1" || MoldURL != "https://github.com/rui314/mold/releases/download/v"+MoldRelease+"/mold-"+MoldRelease+"-x86_64-linux.tar.gz" {
 		t.Errorf("mold pin %s %s", MoldRelease, MoldURL)
+	}
+}
+
+// jq is the release Debian's bookworm package is built from (JqDebVersion is
+// 1.6-2.1+deb12u2), as upstream's static binary: the Dagger python lane runs
+// foundry-stocks' hook suites under jq 1.6, and 1.7 changed number printing and
+// `@base32d`, so the executor's pin must not float to it.
+func TestJqPinIsDebiansUpstream(t *testing.T) {
+	if !strings.HasPrefix(JqDebVersion, JqRelease+"-") {
+		t.Errorf("JqRelease %s is not the upstream of JqDebVersion %s", JqRelease, JqDebVersion)
+	}
+	if JqURL != "https://github.com/jqlang/jq/releases/download/jq-"+JqRelease+"/jq-linux64" {
+		t.Errorf("JqURL %s does not carry jq-%s", JqURL, JqRelease)
+	}
+}
+
+// curl is the static musl build, which runs on both the bookworm python image
+// and the trixie bun image whatever libcurl each carries; its tag and asset both
+// name the version.
+func TestCurlPinAgrees(t *testing.T) {
+	if !strings.HasPrefix(CurlURL, "https://github.com/stunnel/static-curl/releases/download/"+CurlVersion+"/") ||
+		!strings.HasSuffix(CurlURL, "/curl-linux-x86_64-musl-"+CurlVersion+".tar.xz") || strings.Count(CurlURL, CurlVersion) != 2 {
+		t.Errorf("CurlURL %q does not carry version %s", CurlURL, CurlVersion)
 	}
 }
 

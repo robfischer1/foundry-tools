@@ -15,7 +15,7 @@ func TestTheDeclarationValidatesAndNamesItsRow(t *testing.T) {
 	}
 	if Def.ID != rustmut.ID || Def.Stage != checks.StageMutation || Def.Lane != checks.LaneRust || Def.Group != checks.GroupOf(Def.ID) ||
 		Def.Toolchain != "rust-trixie" || Def.Surface != "root:Cargo.toml" || Def.NotOnForks != checks.ForkChangeBar ||
-		Def.History != "full" || Def.WritesTree || strings.Join(Def.Needs, ",") != "tool:cargo-mutants,tool:cargo-nextest,tool:python-standalone" {
+		Def.History != "full" || Def.WritesTree || strings.Join(Def.Needs, ",") != "tool:cargo-mutants,tool:cargo-nextest,tool:python-standalone,tool:uv" {
 		t.Errorf("%+v", Def)
 	}
 }

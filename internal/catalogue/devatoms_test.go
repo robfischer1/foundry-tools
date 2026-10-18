@@ -124,14 +124,14 @@ func TestTheDevAtomsCoverEveryDevlaneVerb(t *testing.T) {
 var (
 	devNeeds = map[string][]string{
 		"dev:go-test":          {"dies"},
-		"dev:python-test":      {"tool:git", "tool:uv"},
+		"dev:python-test":      {"tool:git", "tool:uv", "tool:jq", "tool:curl"},
 		"dev:python-lint":      {"tool:ruff"},
 		"dev:python-fmt":       {"tool:ruff"},
 		"dev:python-typecheck": {"tool:uv"},
-		"dev:ts-test":          {"tool:node"},
-		"dev:ts-lint":          {"tool:node"},
-		"dev:ts-fmt":           {"tool:node"},
-		"dev:ts-typecheck":     {"tool:node"},
+		"dev:ts-test":          {"tool:node", "tool:curl"},
+		"dev:ts-lint":          {"tool:node", "tool:curl"},
+		"dev:ts-fmt":           {"tool:node", "tool:curl"},
+		"dev:ts-typecheck":     {"tool:node", "tool:curl"},
 	}
 	devEnv = map[string]map[string]string{
 		"dev:go-vendor": {"GOFLAGS": "-mod=mod"},
