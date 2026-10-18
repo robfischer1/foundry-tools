@@ -9,13 +9,13 @@ import (
 // Every URL the tools container fetches has a checksum, and it is a SHA-256.
 func TestEveryToolPinHasAChecksum(t *testing.T) {
 	hex := regexp.MustCompile(`^[0-9a-f]{64}$`)
-	for _, url := range []string{OpaURL, OpengrepURL, HadolintURL, KubectlURL, ChezmoiURL, ComposeURL, WasmToolsURL, WasmTools1250URL, NodeRegenURL, RustStdWasmURL, RustStdURL, WacURL, JustURL, ShellcheckURL, PythonStandaloneURL, CargoAuditURL, CargoNextestURL, CargoMutantsURL, OrasURL, SccacheURL, RustClippyURL, RustRustfmtURL, RustWasmClippyURL, RustWasmRustfmtURL, MoldURL} {
+	for _, url := range []string{OpaURL, OpengrepURL, HadolintURL, KubectlURL, ChezmoiURL, ComposeURL, WasmToolsURL, WasmTools1250URL, NodeRegenURL, RustStdWasmURL, RustStdURL, WacURL, JustURL, ShellcheckURL, PythonStandaloneURL, PythonStandalone315URL, CargoAuditURL, CargoNextestURL, CargoMutantsURL, OrasURL, SccacheURL, RustClippyURL, RustRustfmtURL, RustWasmClippyURL, RustWasmRustfmtURL, MoldURL} {
 		sum, ok := ToolSHA256[url]
 		if !ok || !hex.MatchString(sum) {
 			t.Errorf("%s has no SHA-256 in ToolSHA256 (got %q)", url, sum)
 		}
 	}
-	if len(ToolSHA256) != 25 {
+	if len(ToolSHA256) != 26 {
 		t.Errorf("ToolSHA256 holds %d entries; a stale line for a URL nothing fetches is a pin nobody checks", len(ToolSHA256))
 	}
 }
@@ -203,5 +203,25 @@ func TestGravityPrebuiltIsPinned(t *testing.T) {
 		if !gravityRevRe.MatchString(rev) || !sha256Hex.MatchString(sum) {
 			t.Errorf("GravityPrebuilt[%q] = %q is not a commit and a sha256", rev, sum)
 		}
+	}
+}
+
+// THE 3.15 INTERPRETER IS THE BUILD UV PICKS: a python-build-standalone
+// install_only_stripped x86_64 glibc asset whose file name carries the release
+// version, with a checksum, so an executor pod lays exactly what the Dagger lanes'
+// uv downloads for a tree that asks for "3.15".
+func TestPython315InterpreterIsPinnedAndVerified(t *testing.T) {
+	const host = "https://github.com/astral-sh/python-build-standalone/releases/download/"
+	if !strings.HasPrefix(PythonStandalone315URL, host) {
+		t.Errorf("PythonStandalone315URL %q is not a python-build-standalone release", PythonStandalone315URL)
+	}
+	if !strings.Contains(PythonStandalone315URL, "/cpython-"+PythonStandalone315Release+"%2B") || !strings.HasPrefix(PythonStandalone315Release, "3.15.") {
+		t.Errorf("PythonStandalone315URL %q does not carry release %s", PythonStandalone315URL, PythonStandalone315Release)
+	}
+	if !strings.HasSuffix(PythonStandalone315URL, "-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz") {
+		t.Errorf("PythonStandalone315URL %q is not the x86_64 glibc install_only_stripped build", PythonStandalone315URL)
+	}
+	if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(ToolSHA256[PythonStandalone315URL]) {
+		t.Errorf("PythonStandalone315URL has no SHA-256 in ToolSHA256")
 	}
 }

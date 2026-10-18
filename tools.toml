@@ -193,6 +193,15 @@ spec = "https://github.com/astral-sh/python-build-standalone/releases/download/2
 version = "3.14.8"
 sha256 = "d8faa1b588506b9e3e5a3f57807bb056d534a1641a6b10d15b6ea3f0b413b960"
 
+# CPython 3.15 for a pod whose tree asks for it: the build uv 0.12.13 picks for "3.15".
+# The executor lays it as a uv-managed install (daedalus internal/runner/serve/pyinterp.go);
+# the Dagger lanes' uv downloads the same build at run time.
+[tool.python-3-15]
+kind = "url"
+spec = "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.15.0rc2%2B20260901-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+version = "3.15.0rc2"
+sha256 = "9549c3789acb25209da019cc8506ea5b1684b81fb4b471dc64cb47d1d04d6422"
+
 [tool.staticcheck]
 kind = "go"
 spec = "honnef.co/go/tools/cmd/staticcheck"
