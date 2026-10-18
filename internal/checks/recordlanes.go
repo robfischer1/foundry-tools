@@ -94,8 +94,12 @@ func RecordLanes(files map[string]string) (int, string) {
 	}
 	oureaRecord := *cfg.RecordLanes
 
-	owed := sortedSet(append(append([]string{}, executor...), recordLanesAlways...))
+	executorNames, malformed := executorLaneNames(executor)
+	owed := sortedSet(append(append([]string{}, executorNames...), recordLanesAlways...))
 	var out []string
+	for _, e := range malformed {
+		out = append(out, fmt.Sprintf("  %s entry %q is malformed (want lane or lane@repo, the repo with at most one '/')", executorLanesKey, e))
+	}
 	for _, l := range owed {
 		if !slices.Contains(jobsRecord, l) {
 			out = append(out, fmt.Sprintf("  %s: missing from %s in %s", l, recordLanesKey, RecordLanesJobsFile))
@@ -149,6 +153,26 @@ func jsonLanes(data map[string]string, key string, required bool) ([]string, err
 		return nil, fmt.Errorf("%s is not a JSON list of lanes: %v", key, err)
 	}
 	return lanes, nil
+}
+
+// executorLaneNames is the lane each EXECUTOR_LANES entry names: a bare lane
+// is itself, `lane@repo` (a per-repo canary) is its lane. The shape is the one
+// daedalus refuses at load: exactly one '@', a non-empty lane and repo, and a
+// repo with at most one '/' (bare or owner/repo). Malformed entries come back
+// apart, contributing no lane.
+func executorLaneNames(entries []string) (names, malformed []string) {
+	for _, e := range entries {
+		lane, repo, canary := strings.Cut(e, "@")
+		switch {
+		case !canary:
+			names = append(names, e)
+		case lane == "" || repo == "" || strings.Contains(repo, "@") || strings.Count(repo, "/") > 1:
+			malformed = append(malformed, e)
+		default:
+			names = append(names, lane)
+		}
+	}
+	return names, malformed
 }
 
 func sortedSet(list []string) []string {
