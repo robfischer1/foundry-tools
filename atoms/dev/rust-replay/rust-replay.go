@@ -27,11 +27,11 @@ import (
 // the stamp changes no byte, so the dev lane delivers no change for it ("no
 // change", not a patch).
 //
-// NO CALLER ARGS. A logic atom is handed no arguments (atomkit.In carries none),
-// and the replay's worlds are declared, not chosen: compose.sh takes a world
-// subset (`compose.sh OUT <worlds>`) but the gate composes the whole fleet and a
-// subset would compose a different component than the one the gate grades, so
-// `ask dev replay` answers the gate's question and nothing narrower.
+// IT TAKES NO ARGUMENTS, BY DESIGN. The replay's worlds are declared, not chosen:
+// compose.sh takes a world subset (`compose.sh OUT <worlds>`), but the gate
+// composes the whole fleet, and a subset would compose a different component than
+// the one the gate grades. `ask dev replay` answers the gate's question and
+// nothing narrower; any arguments the request carries are ignored.
 var Def = atomkit.Def{
 	ID: id, Stage: stage, Lane: checks.LaneRust,
 	Group:         checks.GroupLanguage,
