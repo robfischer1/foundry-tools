@@ -6,7 +6,7 @@ group = "language"
 desc = "pytest passes, run by hand from the dev lane."
 surface = "root:pyproject.toml"
 toolchain = "python"
-argv = ["uv", "run", "--all-extras", "pytest"]
+argv = ["uv", "run", "--python", "python3", "--all-extras", "pytest"]
 args = "append"
 per_module = false
 judge = "exit"
@@ -16,8 +16,11 @@ timeout = "30m"
 # THE GATE TWIN IS python:pytest (atoms/python/pytest): the same toolchain, the
 # same tool:uv and tool:git pins, the same `uv run --all-extras pytest -q`
 # (checks.UvRun, project form; a tree with no pyproject.toml is not this
-# atom's). The interpreter is the toolchain's own: every atom's environment
-# carries UV_PYTHON_DOWNLOADS=never and UV_PYTHON_PREFERENCE=only-system.
+# atom's). ONE ADDITION: `--python python3`, the toolchain image's own
+# interpreter, which outranks a .python-version the image cannot satisfy
+# (svid-auth pins 3.15 against a 3.14 image; an executor never downloads one,
+# every atom's environment carries UV_PYTHON_DOWNLOADS=never). The twin does not
+# pass it, so on such a tree the twin cannot run in the pod and this verb does.
 #
 # /src IS READ-ONLY to an atom that does not write the tree, and uv, python and
 # pytest would each put something beside the sources: the project's .venv, the

@@ -6,7 +6,7 @@ group = "language"
 desc = "mypy is clean over src and tests, run by hand from the dev lane."
 surface = "root:pyproject.toml"
 toolchain = "python"
-argv = ["uv", "run", "--all-extras", "mypy"]
+argv = ["uv", "run", "--python", "python3", "--all-extras", "mypy"]
 args = "append"
 per_module = false
 judge = "exit"
@@ -15,7 +15,8 @@ timeout = "30m"
 
 # THE GATE TWIN IS python:mypy: the same toolchain, the same tool:uv pin, the
 # same `uv run --all-extras mypy` (checks.UvRun, project form), so the type check
-# is of the program with its optional dependencies installed. NOT SHARED: the
+# is of the program with its optional dependencies installed, plus the toolchain
+# image's own interpreter (`--python python3`, see dev:python-test). NOT SHARED: the
 # twin passes `--config-file <the fleet's strict mypy.ini>` (written into
 # ATOM_WORK from internal/checks/rulesets) and only the directories that carry
 # python; this verb reads the tree's own [tool.mypy] and takes the stars' own

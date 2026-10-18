@@ -323,10 +323,10 @@ func TestOnlyTheLockfileVerbsSkipThePreflight(t *testing.T) {
 
 // pytsArgv is each python and ts dev atom's argv with no caller arguments.
 var pytsArgv = map[string][]string{
-	"dev:python-test":      {"uv", "run", "--all-extras", "pytest", "-q"},
+	"dev:python-test":      {"uv", "run", "--python", "python3", "--all-extras", "pytest", "-q"},
 	"dev:python-lint":      {"ruff", "check"},
 	"dev:python-fmt":       {"ruff", "format"},
-	"dev:python-typecheck": {"uv", "run", "--all-extras", "mypy", "src", "tests"},
+	"dev:python-typecheck": {"uv", "run", "--python", "python3", "--all-extras", "mypy", "src", "tests"},
 	"dev:ts-test":          {"bun", "run", "test"},
 	"dev:ts-lint":          {"bun", "run", "lint"},
 	"dev:ts-fmt":           {"bun", "run", "format"},
@@ -370,18 +370,18 @@ func TestThePythonAndTSDevAtomsComposeWithCallerArguments(t *testing.T) {
 		args []string
 		want []string
 	}{
-		{"dev:python-test", []string{"tests/test_a.py"}, []string{"uv", "run", "--all-extras", "pytest", "-q", "tests/test_a.py"}},
-		{"dev:python-test", []string{"-k", "canon", "-x"}, []string{"uv", "run", "--all-extras", "pytest", "-q", "-k", "canon", "-x"}},
-		{"dev:python-test", []string{"-v"}, []string{"uv", "run", "--all-extras", "pytest", "-v"}},
-		{"dev:python-test", []string{"-vv", "tests/"}, []string{"uv", "run", "--all-extras", "pytest", "-vv", "tests/"}},
-		{"dev:python-test", []string{"--quiet"}, []string{"uv", "run", "--all-extras", "pytest", "--quiet"}},
+		{"dev:python-test", []string{"tests/test_a.py"}, []string{"uv", "run", "--python", "python3", "--all-extras", "pytest", "-q", "tests/test_a.py"}},
+		{"dev:python-test", []string{"-k", "canon", "-x"}, []string{"uv", "run", "--python", "python3", "--all-extras", "pytest", "-q", "-k", "canon", "-x"}},
+		{"dev:python-test", []string{"-v"}, []string{"uv", "run", "--python", "python3", "--all-extras", "pytest", "-v"}},
+		{"dev:python-test", []string{"-vv", "tests/"}, []string{"uv", "run", "--python", "python3", "--all-extras", "pytest", "-vv", "tests/"}},
+		{"dev:python-test", []string{"--quiet"}, []string{"uv", "run", "--python", "python3", "--all-extras", "pytest", "--quiet"}},
 		{"dev:python-lint", []string{"src/x.py"}, []string{"ruff", "check", "src/x.py"}},
 		{"dev:python-lint", []string{"--select", "E"}, []string{"ruff", "check", "--select", "E"}},
 		{"dev:python-fmt", []string{"--check"}, []string{"ruff", "format", "--check"}},
-		{"dev:python-typecheck", []string{"./src/pkg"}, []string{"uv", "run", "--all-extras", "mypy", "./src/pkg"}},
-		{"dev:python-typecheck", []string{"--strict"}, []string{"uv", "run", "--all-extras", "mypy", "--strict", "src", "tests"}},
-		{"dev:python-typecheck", []string{"-m", "pkg.mod"}, []string{"uv", "run", "--all-extras", "mypy", "-m", "pkg.mod"}},
-		{"dev:python-typecheck", []string{"--package=pkg"}, []string{"uv", "run", "--all-extras", "mypy", "--package=pkg"}},
+		{"dev:python-typecheck", []string{"./src/pkg"}, []string{"uv", "run", "--python", "python3", "--all-extras", "mypy", "./src/pkg"}},
+		{"dev:python-typecheck", []string{"--strict"}, []string{"uv", "run", "--python", "python3", "--all-extras", "mypy", "--strict", "src", "tests"}},
+		{"dev:python-typecheck", []string{"-m", "pkg.mod"}, []string{"uv", "run", "--python", "python3", "--all-extras", "mypy", "-m", "pkg.mod"}},
+		{"dev:python-typecheck", []string{"--package=pkg"}, []string{"uv", "run", "--python", "python3", "--all-extras", "mypy", "--package=pkg"}},
 		{"dev:ts-test", []string{"--filter=web"}, []string{"bun", "run", "test", "--filter=web"}},
 		{"dev:ts-fmt", []string{"--check"}, []string{"bun", "run", "format", "--check"}},
 	} {
@@ -455,10 +455,11 @@ func TestThePythonDevAtomsShareTheirGateTwinsResolution(t *testing.T) {
 	for id, tool := range map[string][]string{
 		"dev:python-test": {"pytest", "-q"}, "dev:python-typecheck": {"mypy"},
 	} {
-		want := checks.UvRun(project, tool[0], tool[1:]...)
+		// the gate's spelling plus the one addition, the image's own interpreter.
+		want := slices.Insert(checks.UvRun(project, tool[0], tool[1:]...), 2, "--python", "python3")
 		got := manifestOf(t, id).Compose(nil)
 		if !slices.Equal(got[:len(want)], want) {
-			t.Errorf("%s: %v does not start with the gate's %v", id, got, want)
+			t.Errorf("%s: %v does not start with the gate's %v plus --python python3", id, got, want)
 		}
 	}
 	for id, sub := range map[string]string{"dev:python-lint": "check", "dev:python-fmt": "format"} {
