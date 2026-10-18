@@ -77,9 +77,9 @@ sha256 = "65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8"
 
 [tool.chezmoi]
 kind = "url"
-spec = "https://github.com/twpayne/chezmoi/releases/download/v2.73.1/chezmoi-linux-amd64"
-version = "2.73.1"
-sha256 = "fbf312e45c5c1f629e1d994c201cdd666198bd556af38512f4432ae6d3952521"
+spec = "https://github.com/twpayne/chezmoi/releases/download/v2.73.2/chezmoi-linux-amd64"
+version = "2.73.2"
+sha256 = "6f5eb3ab10b0805ddfec5ddd3e9d575720b17bf065a581cff501170d3770479f"
 
 [tool.docker-compose]
 kind = "url"
