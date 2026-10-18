@@ -285,9 +285,9 @@ image = "docker.io/stackrox/kube-linter:v0.8.3-alpine@sha256:b8311611c27032d4922
 # The regen tests of go:test, go:test-race and go:diff-coverage find it on PATH.
 [tool.gravity]
 kind = "url"
-spec = "https://registry.notusmi.com/v2/foundry/tool/mirror/blobs/sha256:db5a9f0bec3976e9fe84ae8e6f4d6afa2409c0fb556d9646f489b44e96afa395"
-version = "68d8146b88e53e619bfbc0a36b9d70ef9c3bcf06"
-sha256 = "db5a9f0bec3976e9fe84ae8e6f4d6afa2409c0fb556d9646f489b44e96afa395"
+spec = "https://registry.notusmi.com/v2/foundry/tool/mirror/blobs/sha256:7580e6e5e58efe11ec2427e79ad6e242397745778e418331e9de8365dc700253"
+version = "aeb03bfd4a6f14e29b1a91dcdfad05e02695db39"
+sha256 = "7580e6e5e58efe11ec2427e79ad6e242397745778e418331e9de8365dc700253"
 
 [tool.narc]
 kind = "image"
