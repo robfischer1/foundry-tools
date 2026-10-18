@@ -111,6 +111,13 @@ const (
 	// Digests resolved 2026-09-13 (through the Nexus alias, byte-identical).
 	ImagePgvector = "docker.io/pgvector/pgvector:pg18@sha256:1d50c689b0a6511b9ea0a15615281c81a59fd04a08eb35057ec8646fb3a2118a"
 	ImagePostgres = "docker.io/library/postgres:18-bookworm@sha256:a10c981235b4f635e65df0cfb66a5598064628128505dbc6a3ed4ca303717521"
+	// ImageTimescale is `live_db_timescale`'s server: the SAME timescaledb-ha
+	// build the fleet's TimescaleDB clusters run (flux data/erebus-db.yaml's
+	// ImageCatalog, pg17), so a hypertable migration is proven on the build it
+	// meets. timescaledb is preloaded by the image's own config. Measured
+	// 2026-10-18 against this digest: POSTGRES_USER/PASSWORD/DB initialise the
+	// role as a superuser and ServerArgs' -c flags reach the server (fsync off).
+	ImageTimescale = "docker.io/timescale/timescaledb-ha:pg17@sha256:a693dd7fbb75b51c3d717507a9956501686edb123b48dd90b094fd5612d53abe"
 
 	// THE TEST BROKER a Go star's broker-gated suites run against (testdb.go's
 	// TestBrokers, tag `live_kafka`). Redpanda, NOT cp-kafka: the fleet's broker
@@ -397,7 +404,7 @@ var LaneImages = []string{
 	ImageGo, ImagePython, ImageRust, ImageRustTrixie, ImageRustWasm, ImageTS, ImageFleet,
 	ImageUV, ImageNode, ImageTools,
 	ImageKubeconform, ImageKubeLinter, ImageRenovate,
-	ImagePgvector, ImagePostgres, ImageRedis, ImageKubeAPIServer, ImageEtcd,
+	ImagePgvector, ImagePostgres, ImageTimescale, ImageRedis, ImageKubeAPIServer, ImageEtcd,
 }
 
 // The go command's coordinates inside a lane container.

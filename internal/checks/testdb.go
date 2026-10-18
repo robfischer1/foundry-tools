@@ -28,6 +28,9 @@ import (
 // Postgres WITHOUT pgvector installed (chaos's soft-vector mode); one DSN
 // cannot serve both, and a database on the pgvector server without the
 // extension created is not the same thing as a server that cannot create it.
+// live_db_timescale is the third (2026-10-18, mnemosyne-db): a hypertable,
+// a compression policy and a continuous aggregate need timescaledb preloaded,
+// which neither of the other two servers can be.
 type TestDB struct {
 	// Tag is the `//go:build` tag the suite sits behind, and the -tags word.
 	Tag string
@@ -43,6 +46,7 @@ type TestDB struct {
 var TestDBs = []TestDB{
 	{Tag: "live_db", Env: "TEST_DATABASE_URL", Alias: "db", Image: ImagePgvector},
 	{Tag: "live_db_novector", Env: "TEST_NOVECTOR_DATABASE_URL", Alias: "db-novector", Image: ImagePostgres},
+	{Tag: "live_db_timescale", Env: "TEST_TIMESCALE_DATABASE_URL", Alias: "db-timescale", Image: ImageTimescale},
 }
 
 // The one role and database every test server carries; the role's
