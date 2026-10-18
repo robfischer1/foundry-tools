@@ -401,16 +401,16 @@ func (r *runner) source(commit string) (string, *failure) {
 }
 
 // guest builds the core's guest under the cargo home its record implies, and
-// answers where it lies and the home it was built under ("" is the container's
-// own). A home the recorded guest shows in its bytes is the only candidate. Else
-// the guest is built in the container's own home and, when that is not the
-// recorded guest, again under the workstation's, and the build that is the
-// record is kept; when neither is, the first is kept and the line says it
-// differs.
+// answers its bytes and the home it was built under. A home the recorded guest
+// shows in its bytes is the only candidate. Else the candidates are the
+// canonical home (defaultCargoHome, the rust image's, remapped to when the run's
+// own differs, so the bytes do not depend on the runner) and then the
+// workstation's; the first that is the recorded guest is kept, and when neither
+// is, the canonical build is kept and the line names that home.
 func (r *runner) guest(core string, bg BuildGuest, src string, chain toolchain, visible, wasmDir, want string) ([]byte, string, *failure) {
 	homes := []string{visible}
 	if visible == "" {
-		homes = []string{"", workstationCargoHome}
+		homes = []string{defaultCargoHome, workstationCargoHome}
 	}
 	var first []byte
 	for i, home := range homes {
@@ -425,12 +425,12 @@ func (r *runner) guest(core string, bg BuildGuest, src string, chain toolchain, 
 			return body, home, nil
 		}
 	}
-	return first, "", nil
+	return first, defaultCargoHome, nil
 }
 
-// homeNote words a cargo home that is not the container's own.
+// homeNote words the cargo home the kept guest was built under.
 func homeNote(home string) string {
-	if home == "" || home == cargoHome() {
+	if home == "" {
 		return ""
 	}
 	return "; built under cargo home " + home

@@ -199,7 +199,7 @@ func (f *fake) run(_ context.Context, c atoms.Cmd) (string, int) {
 // was told to remap the cargo home and the scene has one, else the core's guest.
 func (f *fake) buildOf(c atoms.Cmd, core string) ([]byte, bool) {
 	if flags, set := envOf(c, "CARGO_ENCODED_RUSTFLAGS"); set {
-		if g, ok := f.remapped[core]; ok && strings.Contains(flags, "--remap-path-prefix=") {
+		if g, ok := f.remapped[core]; ok && strings.HasSuffix(flags, "="+workstationCargoHome) {
 			return g, true
 		}
 	}

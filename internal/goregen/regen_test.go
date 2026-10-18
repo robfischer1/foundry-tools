@@ -523,8 +523,8 @@ func TestACargoHomeIsSearchedForWhenTheRecordedGuestDoesNotShowOne(t *testing.T)
 	if s.f.count("cargo build") != 2 {
 		t.Errorf("%d builds:\n%s", s.f.count("cargo build"), s.f.dump())
 	}
-	if flags, _ := envOf(s.f.call("cargo build"), "CARGO_ENCODED_RUSTFLAGS"); flags != "" {
-		t.Errorf("the first build was remapped: %q", flags)
+	if _, set := envOf(s.f.call("cargo build"), "CARGO_ENCODED_RUSTFLAGS"); set {
+		t.Errorf("the first build was remapped in a run that already has the canonical home")
 	}
 
 	// the container's own home is the record: one build
@@ -535,14 +535,24 @@ func TestACargoHomeIsSearchedForWhenTheRecordedGuestDoesNotShowOne(t *testing.T)
 		t.Errorf("%d builds", same.f.count("cargo build"))
 	}
 
-	// neither is the record: the first build is kept, and the line says the guest moved
-	none := newScene(t)
-	none.add(coreSpec{name: "alarm"})
-	none.f.guests["alarm"] = []byte("natural")
-	none.f.remapped["alarm"] = []byte("workstation")
-	wantReason(t, none.check("alarm"), 0, "alarm: guest ")
-	if none.read("alarm/guest.wasm") != "natural" || strings.Contains(none.check("alarm").Reason, "built under cargo home") {
-		t.Errorf("the kept guest is %q", none.read("alarm/guest.wasm"))
+	// neither is the record: the canonical build is kept, whatever home the runner has,
+	// and the line names the home kept
+	for _, podHome := range []string{"/usr/local/cargo", "/work/cargo"} {
+		t.Setenv("CARGO_HOME", podHome)
+		none := newScene(t)
+		t.Setenv("CARGO_HOME", podHome)
+		none.add(coreSpec{name: "alarm"})
+		none.f.guests["alarm"] = []byte("natural")
+		none.f.remapped["alarm"] = []byte("workstation")
+		v := none.check("alarm")
+		wantReason(t, v, 0, "alarm: guest ", "built under cargo home /usr/local/cargo")
+		if none.read("alarm/guest.wasm") != "natural" || none.f.count("cargo build") != 2 {
+			t.Errorf("pod home %s: the kept guest is %q after %d builds", podHome, none.read("alarm/guest.wasm"), none.f.count("cargo build"))
+		}
+		flags, set := envOf(none.f.call("cargo build"), "CARGO_ENCODED_RUSTFLAGS")
+		if (podHome == "/work/cargo") != set || set && flags != "--remap-path-prefix=/work/cargo=/usr/local/cargo" {
+			t.Errorf("pod home %s: first build flags %q (%v)", podHome, flags, set)
+		}
 	}
 }
 
