@@ -40,6 +40,16 @@ const usage = "usage: <core>... | --new <core> --rev <tag-or-commit> --world <ai
 // concerned: the rust image's cargo home, the one classescore's record carries.
 const defaultCargoHome = "/usr/local/cargo"
 
+// workstationCargoHome is the other cargo home the recorded guests were built
+// under: the workstation's (rob02), where build-guest.sh ran on a person's
+// machine. A guest records its cargo home in its bytes only when a dependency's
+// panic location survives into them; one that does not still depends on it
+// (MEASURED: alarm's recorded guest names no registry path, and differs from a
+// build under /usr/local/cargo in nothing but the ThinLTO module hashes that
+// rustc appends to local symbols, `.llvm.<hash>`; remapped to this home it is
+// byte-identical to the record).
+const workstationCargoHome = "/home/rob/.cargo"
+
 // Check regenerates every core named and writes the result into the tree.
 func Check(ctx context.Context, in atomkit.In) checks.Verdict {
 	req, err := ParseArgs(in.Args)
@@ -50,7 +60,7 @@ func Check(ctx context.Context, in atomkit.In) checks.Verdict {
 		return checks.VerdictOf(row, 2, fmt.Sprintf("%s: CANNOT RUN - no core named (%s); the cores that can be regenerated here: %s",
 			id, usage, strings.Join(regenerable(in.Root), ", ")))
 	}
-	r := &runner{ctx: ctx, in: in, work: filepath.Join(atoms.WorkDir(), "go-regen"), sources: map[string]string{}, chains: map[string]toolchain{}, laid: map[string]toolchain{}}
+	r := &runner{ctx: ctx, in: in, work: filepath.Join(atoms.WorkDir(), "go-regen"), sources: map[string]string{}, chains: map[string]toolchain{}, laid: map[string]toolchain{}, wasm: map[string]string{}}
 	defer os.RemoveAll(r.work)
 	var results []outcome
 	for _, core := range req.Existing {
@@ -59,7 +69,10 @@ func Check(ctx context.Context, in atomkit.In) checks.Verdict {
 	for _, nc := range req.New {
 		results = append(results, r.bootstrap(nc))
 	}
-	return fold(results)
+	v := fold(results)
+	// the lines are the run's report: the engine and the pod keep an atom's stderr
+	fmt.Fprintln(os.Stderr, v.Reason)
+	return v
 }
 
 // outcome is one core's run: the line it answers with, or the step it failed.
@@ -140,6 +153,8 @@ type runner struct {
 	// the ones installed, by version.
 	chains map[string]toolchain
 	laid   map[string]toolchain
+	// wasm are the wasm-tools releases laid, by version.
+	wasm map[string]string
 	// native is the pod's rustc line, read once; wasmTarget says its wasm32
 	// standard library has been checked for.
 	native     string
@@ -221,12 +236,18 @@ func (r *runner) regenerate(core string) (string, *failure) {
 	if f != nil {
 		return "", f
 	}
+	var wasmDir string
+	if bg.Compose != nil {
+		if wasmDir, f = r.wasmTools(recorded(prov.CoreToolchain, "wasm-tools")); f != nil {
+			return "", f
+		}
+	}
 	oldGuest, _ := os.ReadFile(filepath.Join(dir, prov.Guest.File)) // a core with no guest yet has no recorded home
-	home, err := RecordedCargoHome(oldGuest)
+	visible, err := RecordedCargoHome(oldGuest)
 	if err != nil {
 		return "", finding("build", "%v", err)
 	}
-	guest, f := r.build(core, bg, src, chain, home)
+	guest, home, f := r.guest(core, bg, src, chain, visible, wasmDir, prov.Guest.SHA256)
 	if f != nil {
 		return "", f
 	}
@@ -234,7 +255,7 @@ func (r *runner) regenerate(core string) (string, *failure) {
 	if f != nil {
 		return "", f
 	}
-	return r.settle(core, dir, string(provText), prov, guest, gen, chain)
+	return r.settle(core, dir, string(provText), prov, guest, gen, chain, wasmDir, home)
 }
 
 // agree holds provenance.json's prose to build-guest.sh's commands: the script
@@ -379,15 +400,51 @@ func (r *runner) source(commit string) (string, *failure) {
 	return dir, nil
 }
 
+// guest builds the core's guest under the cargo home its record implies, and
+// answers where it lies and the home it was built under ("" is the container's
+// own). A home the recorded guest shows in its bytes is the only candidate. Else
+// the guest is built in the container's own home and, when that is not the
+// recorded guest, again under the workstation's, and the build that is the
+// record is kept; when neither is, the first is kept and the line says it
+// differs.
+func (r *runner) guest(core string, bg BuildGuest, src string, chain toolchain, visible, wasmDir, want string) ([]byte, string, *failure) {
+	homes := []string{visible}
+	if visible == "" {
+		homes = []string{"", workstationCargoHome}
+	}
+	var first []byte
+	for i, home := range homes {
+		body, f := r.build(core, bg, src, chain, home, wasmDir)
+		if f != nil {
+			return nil, "", f
+		}
+		if i == 0 {
+			first = body
+		}
+		if sum(body) == want || len(homes) == 1 {
+			return body, home, nil
+		}
+	}
+	return first, "", nil
+}
+
+// homeNote words a cargo home that is not the container's own.
+func homeNote(home string) string {
+	if home == "" || home == cargoHome() {
+		return ""
+	}
+	return "; built under cargo home " + home
+}
+
 // buildEnv is the environment of the guest's build: bounded jobs, a target
 // directory of the core's own, the compiler first on PATH, and, when the
 // recorded guest was built under another cargo home, the remap that puts the
 // dependencies' source paths (which enter the wasm in panic locations) where the
 // record has them.
-func (r *runner) buildEnv(chain toolchain, target, recordedHome string) []string {
+func (r *runner) buildEnv(chain toolchain, target, recordedHome, wasmDir string) []string {
 	env := append(checks.CargoBoundedEnv(), "CARGO_TARGET_DIR="+target)
-	if chain.dir != "" {
-		env = append(env, "PATH="+regenkit.PathWith(chain.dir))
+	if chain.dir != "" || wasmDir != "" {
+		env = append(env, "PATH="+regenkit.PathWith(wasmDir, chain.dir))
 	}
 	if home := cargoHome(); recordedHome != "" && recordedHome != home {
 		env = append(env, "CARGO_ENCODED_RUSTFLAGS=--remap-path-prefix="+home+"="+recordedHome)
@@ -407,42 +464,48 @@ func cargoHome() string {
 // where it lies: tools/compose/compose.sh OUT <worlds> from the revision's own
 // tree for a composed core, the recorded cargo argv (no shell) and the artifact
 // carried out of the target for a plain one.
-func (r *runner) build(core string, bg BuildGuest, src string, chain toolchain, recordedHome string) (string, *failure) {
+func (r *runner) build(core string, bg BuildGuest, src string, chain toolchain, recordedHome, wasmDir string) ([]byte, *failure) {
 	dir := filepath.Join(r.work, core)
 	target := filepath.Join(dir, "target")
 	defer os.RemoveAll(target)
 	guest := filepath.Join(dir, "guest.wasm")
 	if err := errors.Join(os.MkdirAll(dir, 0o755), atoms.ClearOutput(guest)); err != nil {
-		return "", cannot("build", "%v", err)
+		return nil, cannot("build", "%v", err)
 	}
-	env := r.buildEnv(chain, target, recordedHome)
+	env := r.buildEnv(chain, target, recordedHome, wasmDir)
 	if bg.Compose != nil {
 		argv := append([]string{filepath.Join(src, "tools", "compose", "compose.sh"), guest}, bg.Compose...)
 		if _, err := r.run(src, env, argv...); err != nil {
-			return "", cannot("build", "tools/compose/compose.sh %s under %s: %v", strings.Join(bg.Compose, " "), chain.line, err)
+			return nil, cannot("build", "tools/compose/compose.sh %s under %s: %v", strings.Join(bg.Compose, " "), chain.line, err)
 		}
-		return guest, nil
+		return read(guest, "tools/compose/compose.sh output")
 	}
 	manifest, err := os.ReadFile(filepath.Join(src, "Cargo.toml"))
 	if err != nil {
-		return "", cannot("build", "the core's Cargo.toml would not read: %v", err)
+		return nil, cannot("build", "the core's Cargo.toml would not read: %v", err)
 	}
 	artifact := checks.WitGuestArtifact(string(manifest))
 	if artifact == "" || filepath.Base(bg.Artifact) != artifact {
-		return "", finding("build", "build-guest.sh copies %s but Cargo.toml's crate builds %q", filepath.Base(bg.Artifact), artifact)
+		return nil, finding("build", "build-guest.sh copies %s but Cargo.toml's crate builds %q", filepath.Base(bg.Artifact), artifact)
 	}
 	cargo := slices.Clone(bg.Cargo)
 	cargo[0] = chain.bin(cargo[0])
 	if _, err := r.run(src, env, cargo...); err != nil {
-		return "", cannot("build", "%s under %s: %v", strings.Join(bg.Cargo, " "), chain.line, err)
+		return nil, cannot("build", "%s under %s: %v", strings.Join(bg.Cargo, " "), chain.line, err)
 	}
 	if err := atoms.CarryOut(filepath.Join(target, bg.Artifact), guest); err != nil {
-		return "", cannot("build", "the guest would not copy out of the target: %v", err)
+		return nil, cannot("build", "the guest would not copy out of the target: %v", err)
 	}
-	if _, err := os.Stat(guest); err != nil {
-		return "", cannot("build", "the build left no %s", bg.Artifact)
+	return read(guest, bg.Artifact)
+}
+
+// read is the guest a build left, or CANNOT RUN naming what it should have left.
+func read(guest, what string) ([]byte, *failure) {
+	body, err := os.ReadFile(guest)
+	if err != nil {
+		return nil, cannot("build", "the build left no %s", what)
 	}
-	return guest, nil
+	return body, nil
 }
 
 // generated is what the generator wrote: the directory and the files in it.
@@ -456,7 +519,7 @@ type generated struct {
 // the module files gravity writes beside the bindings land there too. The
 // generator is the prebuilt for the recorded commit, held to that commit by its
 // --version; gofmt is the staged Go's, which gravity reads through $GOFMT.
-func (r *runner) generate(core, coreDir, commit, command, guest string) (generated, *failure) {
+func (r *runner) generate(core, coreDir, commit, command string, guest []byte) (generated, *failure) {
 	bin, _, err := atoms.StagedGravity(commit)
 	if err != nil || bin == "" {
 		return generated{}, cannot("generate", "no gravity staged for %s (tool:%s is not on PATH, and GRAVITY names none): %v", commit, checks.GravityTool(commit), err)
@@ -487,11 +550,7 @@ func (r *runner) generate(core, coreDir, commit, command, guest string) (generat
 	if maps != 2 {
 		return generated{}, finding("generate", "generator.command %q does not name ./guest.wasm and ./zz_generated.go", command)
 	}
-	body, err := os.ReadFile(guest)
-	if err == nil {
-		err = os.WriteFile(filepath.Join(dir, "guest.wasm"), body, 0o644)
-	}
-	if err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "guest.wasm"), guest, 0o644); err != nil {
 		return generated{}, cannot("generate", "%v", err)
 	}
 	if _, err := r.run(coreDir, []string{"GOFMT=" + gofmt}, append([]string{bin}, args[1:]...)...); err != nil {
@@ -524,11 +583,7 @@ func short(s string) string { return s[:min(10, len(s))] }
 
 // settle puts the regenerated files in the tree, rewrites provenance.json's
 // hashes, and words what moved.
-func (r *runner) settle(core, dir, provText string, prov Prov, guest string, gen generated, chain toolchain) (string, *failure) {
-	guestBytes, err := os.ReadFile(guest)
-	if err != nil {
-		return "", cannot("write", "%v", err)
-	}
+func (r *runner) settle(core, dir, provText string, prov Prov, guestBytes []byte, gen generated, chain toolchain, wasmDir, home string) (string, *failure) {
 	bindingsFile := "zz_generated.go"
 	if prov.Bindings != nil {
 		bindingsFile = prov.Bindings.File
@@ -581,7 +636,7 @@ func (r *runner) settle(core, dir, provText string, prov Prov, guest string, gen
 		embedded = append(embedded, e.File+" "+delta(moved[e.File]))
 	}
 	return fmt.Sprintf("%s: guest %s; bindings %s; embedded %s; %s (%s)%s", core, delta(moved[prov.Guest.File]), delta(moved[bindingsFile]),
-		strings.Join(embedded, ", "), chain.line, chain.how, r.toolNote(prov)), nil
+		strings.Join(embedded, ", "), chain.line, chain.how, homeNote(home)+r.toolNote(prov, wasmDir)), nil
 }
 
 // write is a file to put in a core's directory.
@@ -601,16 +656,58 @@ func delta(m [2]string) string {
 // toolNote names the composing tools a composed core ran under beside the ones
 // its record names, so a byte difference that follows from them can be read off
 // the line. A plain core composes nothing and says nothing.
-func (r *runner) toolNote(prov Prov) string {
+func (r *runner) toolNote(prov Prov, wasmDir string) string {
 	if !strings.HasPrefix(prov.CoreBuild, "tools/compose/compose.sh") {
 		return ""
 	}
 	return fmt.Sprintf("; wasm-tools %s (recorded %s), wac %s (recorded %s)",
-		r.toolVersion("wasm-tools"), recorded(prov.CoreToolchain, "wasm-tools"), r.toolVersion("wac"), recorded(prov.CoreToolchain, "wac"))
+		r.toolVersion(wasmDir, "wasm-tools"), recorded(prov.CoreToolchain, "wasm-tools"), r.toolVersion("", "wac"), recorded(prov.CoreToolchain, "wac"))
 }
 
-// toolVersion is the semver a tool prints for --version, or "?".
-func (r *runner) toolVersion(name string) string {
+// wasmTools selects the wasm-tools a composed core is built with. The same
+// compiler on the same source gives the same core modules, but a different
+// wasm-tools wraps them in a different component (MEASURED: classescore under
+// 1.262.0 kept every embedded module and its bindings and changed guest.wasm),
+// so the version the record names is the one used: the container's when it is
+// that, else the pinned release of it laid under the work directory. A recorded
+// version with no release pinned is CANNOT RUN naming both; a record that names
+// none uses the container's. It answers the directory to put on PATH ("" for
+// the container's own).
+func (r *runner) wasmTools(want string) (string, *failure) {
+	have := r.toolVersion("", "wasm-tools")
+	if want == "unrecorded" || want == have {
+		return "", nil
+	}
+	if dir, ok := r.wasm[want]; ok {
+		return dir, nil
+	}
+	url, member, ok := checks.WasmToolsRelease(want)
+	if !ok {
+		return "", cannot("toolchain", "provenance.json records wasm-tools %s but the container has %s and no release of %s is pinned", want, have, want)
+	}
+	dir, tgz := filepath.Join(r.work, "wasm-tools-"+want), filepath.Join(r.work, "wasm-tools-"+want+".tar.gz")
+	if err := regenkit.Fetch(r.ctx, fetchPinned, url, tgz); err != nil {
+		return "", cannot("toolchain", "wasm-tools %s: %v", want, err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", cannot("toolchain", "wasm-tools %s: %v", want, err)
+	}
+	if err := regenkit.Step(r.exec, nil, checks.RegenTar(tgz, dir, true, strings.Count(member, "/"), member)...); err != nil {
+		return "", cannot("toolchain", "wasm-tools %s: %v", want, err)
+	}
+	if got := r.toolVersion(dir, "wasm-tools"); got != want {
+		return "", cannot("toolchain", "the wasm-tools laid for %s prints %s", want, got)
+	}
+	r.wasm[want] = dir
+	return dir, nil
+}
+
+// toolVersion is the semver a tool prints for --version, or "?": the one in dir,
+// or on PATH when dir is "".
+func (r *runner) toolVersion(dir, name string) string {
+	if dir != "" {
+		name = filepath.Join(dir, name)
+	}
 	out, err := r.run(r.in.Root, nil, name, "--version")
 	if err != nil {
 		return "?"

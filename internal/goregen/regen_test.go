@@ -123,10 +123,14 @@ func TestAComposedCoreRunsTheRevisionsComposeAndLaysItsRustc(t *testing.T) {
 		modules: map[string]string{"embedded_wasm": "door_core_1.wasm", "embedded_wasm_identity": "door_core_0.wasm"}})
 	v := s.check("door")
 	wantReason(t, v, 0, "door: guest unchanged", "embedded door_core_1.wasm unchanged ", ", door_core_0.wasm unchanged ", line1971+" (laid)",
-		"wasm-tools 1.262.0 (recorded 1.261.0), wac 0.12.0 (recorded 0.12.0)")
+		"wasm-tools 1.261.0 (recorded 1.261.0), wac 0.12.0 (recorded 0.12.0)")
 	dist, _ := checks.RegenRustDist("1.97.1", "")
-	if strings.Join(*urls, " ") != strings.Join(dist.URLs, " ") {
-		t.Errorf("fetched %v, want %v", *urls, dist.URLs)
+	want := append(append([]string{}, dist.URLs...), checks.WasmTools1261URL)
+	if strings.Join(*urls, " ") != strings.Join(want, " ") {
+		t.Errorf("fetched %v, want %v", *urls, want)
+	}
+	if !strings.HasPrefix(line(s.f.call("wasm-tools-1.261.0.tar.gz")), "tar -xzf ") || !strings.Contains(line(s.f.call("wasm-tools-1.261.0.tar.gz")), "--strip-components=1 wasm-tools-1.261.0-x86_64-linux/wasm-tools") {
+		t.Errorf("calls:\n%s", s.f.dump())
 	}
 	if s.f.count("install.sh --prefix=") != 4 || !s.f.has("--disable-ldconfig") {
 		t.Errorf("calls:\n%s", s.f.dump())
@@ -136,7 +140,7 @@ func TestAComposedCoreRunsTheRevisionsComposeAndLaysItsRustc(t *testing.T) {
 		t.Errorf("compose: %s", line(compose))
 	}
 	path, _ := envOf(compose, "PATH")
-	if !strings.HasPrefix(path, filepath.Join(os.Getenv("ATOM_WORK"), "go-regen", "rust-1.97.1", "bin")+":") {
+	if !strings.HasPrefix(path, filepath.Join(os.Getenv("ATOM_WORK"), "go-regen", "wasm-tools-1.261.0")+":"+filepath.Join(os.Getenv("ATOM_WORK"), "go-regen", "rust-1.97.1", "bin")+":") {
 		t.Errorf("the laid compiler is not first on PATH: %s", path)
 	}
 	if s.f.has("rustup") {
@@ -329,6 +333,14 @@ func TestABuildThatLeavesNoArtifactIsCannotRun(t *testing.T) {
 	wantReason(t, s.check("alarm"), 2, "alarm: FAILED at build", "the build left no wasm32-unknown-unknown/release/stellar_core.wasm")
 }
 
+func TestAComposeThatLeavesNoOutputIsCannotRun(t *testing.T) {
+	s := newScene(t)
+	s.add(coreSpec{name: "door", compose: []string{"door"}})
+	delete(s.f.guests, "door")
+	s.f.noCompose = true
+	wantReason(t, s.check("door"), 2, "door: FAILED at build", "the build left no tools/compose/compose.sh output")
+}
+
 func TestACrateWhoseArtifactIsNotTheOneTheScriptCopiesIsAFinding(t *testing.T) {
 	s := newScene(t)
 	s.add(coreSpec{name: "alarm"})
@@ -423,14 +435,115 @@ func TestTheRecordedCargoHomeIsRemappedToOnlyWhenTheRunsDiffers(t *testing.T) {
 func TestAToolVersionThatDoesNotReadIsAQuestionMark(t *testing.T) {
 	s := newScene(t)
 	s.add(coreSpec{name: "door", compose: []string{"door"}})
+	p := s.read("door/provenance.json")
+	// a record that names no wasm-tools uses the container's, whatever it prints
+	writeFile(t, filepath.Join(s.root, "door/provenance.json"), []byte(strings.Replace(p, ", wasm-tools 1.261.0", "", 1)))
 	s.f.toolVersions["wasm-tools"] = "wasm-tools dev"
 	s.f.toolVersions["wac"] = "wac 1.2"
-	wantReason(t, s.check("door"), 0, "wasm-tools ? (recorded 1.261.0), wac ? (recorded 0.12.0)")
+	wantReason(t, s.check("door"), 0, "wasm-tools ? (recorded unrecorded), wac ? (recorded 0.12.0)")
 	s.f.fail["wac --version"] = "wac: not found"
 	wantReason(t, s.check("door"), 0, "wac ? (recorded 0.12.0)")
-	p := s.read("door/provenance.json")
 	writeFile(t, filepath.Join(s.root, "door/provenance.json"), []byte(strings.Replace(p, ", wac 0.12.0", "", 1)))
 	wantReason(t, s.check("door"), 0, "(recorded unrecorded)")
+}
+
+func TestTheRecordedWasmToolsIsUsedWhenItIsTheContainersAndNotFetchedTwice(t *testing.T) {
+	s := newScene(t)
+	urls := fetchRecorder(t)
+	s.add(coreSpec{name: "door", compose: []string{"door"}})
+	s.f.toolVersions["wasm-tools"] = "wasm-tools 1.261.0 (abc 2026-08-01)"
+	wantReason(t, s.check("door"), 0, "wasm-tools 1.261.0 (recorded 1.261.0)")
+	if len(*urls) != 0 {
+		t.Errorf("fetched %v for the version the container has", *urls)
+	}
+	c := newScene(t)
+	urls = fetchRecorder(t)
+	c.add(coreSpec{name: "door", compose: []string{"door"}})
+	c.add(coreSpec{name: "fade", compose: []string{"fade"}})
+	wantReason(t, c.check("door", "fade"), 0, "2 core(s) regenerated")
+	if len(*urls) != 1 || (*urls)[0] != checks.WasmTools1261URL {
+		t.Errorf("fetched %v", *urls)
+	}
+}
+
+func TestARecordedWasmToolsThatCannotBeHadIsCannotRun(t *testing.T) {
+	s := newScene(t)
+	fetchRecorder(t)
+	s.add(coreSpec{name: "door", compose: []string{"door"}})
+	p := s.read("door/provenance.json")
+	writeFile(t, filepath.Join(s.root, "door/provenance.json"), []byte(strings.Replace(p, "wasm-tools 1.261.0", "wasm-tools 1.260.0", 1)))
+	wantReason(t, s.check("door"), 2, "door: FAILED at toolchain", "records wasm-tools 1.260.0", "container has 1.262.0", "no release of 1.260.0 is pinned")
+	if s.f.has("cargo") || s.f.has("compose.sh") {
+		t.Error("built with the wrong wasm-tools")
+	}
+
+	for name, tc := range map[string]struct {
+		arrange func(s *scene)
+		says    string
+	}{
+		"a release that will not download": {func(s *scene) {
+			fetchPinned = func(context.Context, *http.Client, []string, string, string) error {
+				return errors.New("sha256 mismatch")
+			}
+		}, "wasm-tools 1.261.0: sha256 mismatch"},
+		"a directory that cannot be made": {func(s *scene) {
+			fetchPinned = func(_ context.Context, _ *http.Client, sources []string, _, dest string) error {
+				if !strings.Contains(dest, "wasm-tools-1.261.0") {
+					writeFile(t, dest, []byte("tgz"))
+					return nil
+				}
+				writeFile(t, dest, []byte("tgz"))
+				writeFile(t, strings.TrimSuffix(dest, ".tar.gz"), []byte("a file where the directory goes"))
+				return nil
+			}
+		}, "wasm-tools 1.261.0"},
+		"an archive that will not unpack":      {func(s *scene) { fetchRecorder(t); s.f.fail["wasm-tools-1.261.0.tar.gz"] = "tar: bad archive" }, "bad archive"},
+		"a binary that prints another version": {func(s *scene) { fetchRecorder(t); s.f.laidWasm = "wasm-tools 1.262.0 (abc 2026-09-01)" }, "the wasm-tools laid for 1.261.0 prints 1.262.0"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			old := fetchPinned
+			t.Cleanup(func() { fetchPinned = old })
+			s := newScene(t)
+			s.add(coreSpec{name: "door", compose: []string{"door"}})
+			tc.arrange(s)
+			wantReason(t, s.check("door"), 2, "door: FAILED at toolchain", tc.says)
+		})
+	}
+}
+
+func TestACargoHomeIsSearchedForWhenTheRecordedGuestDoesNotShowOne(t *testing.T) {
+	// the build in the container's own home is not the record; the workstation's is
+	s := newScene(t)
+	s.add(coreSpec{name: "alarm"})
+	recorded := s.f.guests["alarm"]
+	s.f.guests["alarm"] = []byte("natural")
+	s.f.remapped["alarm"] = recorded
+	v := s.check("alarm")
+	wantReason(t, v, 0, "alarm: guest unchanged", "built under cargo home "+workstationCargoHome)
+	if s.f.count("cargo build") != 2 {
+		t.Errorf("%d builds:\n%s", s.f.count("cargo build"), s.f.dump())
+	}
+	if flags, _ := envOf(s.f.call("cargo build"), "CARGO_ENCODED_RUSTFLAGS"); flags != "" {
+		t.Errorf("the first build was remapped: %q", flags)
+	}
+
+	// the container's own home is the record: one build
+	same := newScene(t)
+	same.add(coreSpec{name: "alarm"})
+	wantReason(t, same.check("alarm"), 0, "alarm: guest unchanged")
+	if same.f.count("cargo build") != 1 {
+		t.Errorf("%d builds", same.f.count("cargo build"))
+	}
+
+	// neither is the record: the first build is kept, and the line says the guest moved
+	none := newScene(t)
+	none.add(coreSpec{name: "alarm"})
+	none.f.guests["alarm"] = []byte("natural")
+	none.f.remapped["alarm"] = []byte("workstation")
+	wantReason(t, none.check("alarm"), 0, "alarm: guest ")
+	if none.read("alarm/guest.wasm") != "natural" || strings.Contains(none.check("alarm").Reason, "built under cargo home") {
+		t.Errorf("the kept guest is %q", none.read("alarm/guest.wasm"))
+	}
 }
 
 func TestARecordTheTreeCannotWriteIsCannotRun(t *testing.T) {

@@ -47,15 +47,22 @@ type fake struct {
 	fail map[string]string
 	// gravityVersion is what the staged gravity prints for --version.
 	gravityVersion string
-	// toolVersions are what wasm-tools and wac print.
+	// toolVersions are what wasm-tools and wac print; laidWasm is what a wasm-tools
+	// laid from a release prints.
 	toolVersions map[string]string
+	laidWasm     string
+	// remapped is what a build under another cargo home leaves, by core: the
+	// guest a build with a --remap-path-prefix flag gives instead of guests[core].
+	remapped map[string][]byte
+	// noCompose makes compose.sh exit 0 and write nothing.
+	noCompose bool
 }
 
 func newFake(t *testing.T) *fake {
 	return &fake{
 		t: t, native: lineNat, laid: map[string]string{"1.97.1": line1971, "1.99.0": line1990},
 		tree:   map[string]string{"Cargo.toml": cargoToml, "tools/compose/compose.sh": "#!/usr/bin/env bash\n"},
-		guests: map[string][]byte{}, gens: map[string]map[string][]byte{}, fail: map[string]string{},
+		guests: map[string][]byte{}, gens: map[string]map[string][]byte{}, fail: map[string]string{}, remapped: map[string][]byte{}, laidWasm: "wasm-tools 1.261.0 (abc 2026-08-01)",
 		gravityVersion: "gravity 0.1.0 (" + gravRev + ")",
 		toolVersions:   map[string]string{"wasm-tools": "wasm-tools 1.262.0 (abc 2026-09-01)", "wac": "wac-cli 0.12.0"},
 	}
@@ -151,6 +158,8 @@ func (f *fake) run(_ context.Context, c atoms.Cmd) (string, int) {
 		return f.native, 0
 	case name == "rustup", name == "cargo" && len(c.Args) > 0 && c.Args[0] != "build":
 		return "", 0
+	case name == "wasm-tools" && strings.Contains(c.Name, "/wasm-tools-"):
+		return f.laidWasm, 0
 	case name == "wasm-tools" || name == "wac":
 		return f.toolVersions[name], 0
 	case name == "git" && c.Args[0] == "archive":
@@ -172,15 +181,30 @@ func (f *fake) run(_ context.Context, c atoms.Cmd) (string, int) {
 	case name == "cargo":
 		core := coreOf(c)
 		target, _ := envOf(c, "CARGO_TARGET_DIR")
-		if g, ok := f.guests[core]; ok {
+		if g, ok := f.buildOf(c, core); ok {
 			writeFile(f.t, filepath.Join(target, "wasm32-unknown-unknown", "release", "stellar_core.wasm"), g)
 		}
 	case name == "compose.sh":
-		writeFile(f.t, c.Args[0], f.guests[coreOf(c)])
+		if !f.noCompose {
+			g, _ := f.buildOf(c, coreOf(c))
+			writeFile(f.t, c.Args[0], g)
+		}
 	case strings.HasPrefix(name, "gravity"):
 		return f.gravity(c)
 	}
 	return "", 0
+}
+
+// buildOf is what a build of a core leaves: the remapped guest when the build
+// was told to remap the cargo home and the scene has one, else the core's guest.
+func (f *fake) buildOf(c atoms.Cmd, core string) ([]byte, bool) {
+	if flags, set := envOf(c, "CARGO_ENCODED_RUSTFLAGS"); set {
+		if g, ok := f.remapped[core]; ok && strings.Contains(flags, "--remap-path-prefix=") {
+			return g, true
+		}
+	}
+	g, ok := f.guests[core]
+	return g, ok
 }
 
 // gravity answers --version and writes what the recorded command generates: the

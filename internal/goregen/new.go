@@ -80,11 +80,11 @@ func (r *runner) bring(nc NewCore) (string, *failure) {
 	if f != nil {
 		return "", f
 	}
-	guest, f := r.build(nc.Core, BuildGuest{Rev: commit, Compose: []string{world.Pkg}}, src, chain, defaultCargoHome)
+	guestBytes, f := r.build(nc.Core, BuildGuest{Rev: commit, Compose: []string{world.Pkg}}, src, chain, defaultCargoHome, "")
 	if f != nil {
 		return "", f
 	}
-	gen, f := r.generate(nc.Core, r.in.Root, gravity, GeneratorCommand(nc.Core, world), guest)
+	gen, f := r.generate(nc.Core, r.in.Root, gravity, GeneratorCommand(nc.Core, world), guestBytes)
 	if f != nil {
 		return "", f
 	}
@@ -101,11 +101,7 @@ func (r *runner) bring(nc NewCore) (string, *failure) {
 	if _, ok := gen.files["zz_generated.go"]; !ok || module == "" {
 		return "", cannot("generate", "the generator wrote %s: want zz_generated.go and one module", strings.Join(slices.Sorted(maps.Keys(gen.files)), ", "))
 	}
-	guestBytes, err := os.ReadFile(guest)
-	if err != nil {
-		return "", cannot("write", "%v", err)
-	}
-	wasmTools, wac := r.toolVersion("wasm-tools"), r.toolVersion("wac")
+	wasmTools, wac := r.toolVersion("", "wasm-tools"), r.toolVersion("", "wac")
 	rec := func(file string, b []byte) Rec { return Rec{File: file, SHA256: sum(b), Bytes: len(b)} }
 	witSum := ""
 	if b, err := os.ReadFile(filepath.Join(src, "wit", "aiws-"+world.Pkg+".wit")); err == nil {
