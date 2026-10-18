@@ -126,6 +126,19 @@ func TestACommittedDecisionTableIsRefused(t *testing.T) {
 // before anything is built from them: a tree the engine cannot read or a derive
 // it cannot run is could-not-run, a roster the tree does not hold is a finding.
 func TestTheDeriveNeedsItsRosterAndAnEngine(t *testing.T) {
+	digestFails := func(t *testing.T, m *FoundryTools) {
+		t.Helper()
+		engine.failLeaf(`directory(path:"policy")`, "digest", "engine went away")
+		bundles(t, m)
+		settledOn(t, "2", "could not be digested")
+		nothingPushed(t)
+	}
+	t.Run("the inputs cannot be digested", func(t *testing.T) {
+		m := withDerive(t, nil)
+		scriptAGreenBundle()
+		scriptTheDerive(derivedTable, policyDataWithTable)
+		digestFails(t, m)
+	})
 	for name, tc := range map[string]struct {
 		tree map[string]string
 		fail string
