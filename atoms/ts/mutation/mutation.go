@@ -22,7 +22,7 @@ var Def = atomkit.Def{
 	Desc:       "Every mutant StrykerJS makes of this pull's changes to the declared critical modules is killed by the tests.",
 	Surface:    "root:package.json",
 	Toolchain:  "bun",
-	Needs:      []string{"tool:git", "tool:node"},
+	Needs:      []string{"tool:git", "tool:node", "tool:curl"},
 	NotOnForks: checks.ForkChangeBar,
 	History:    "full",
 	Timeout:    75 * time.Minute,

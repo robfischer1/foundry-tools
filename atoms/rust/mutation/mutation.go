@@ -22,7 +22,7 @@ var Def = atomkit.Def{
 	Desc:       "Every viable mutant cargo-mutants makes of this pull's changes to the declared critical modules is killed by the tests.",
 	Surface:    "root:Cargo.toml",
 	Toolchain:  "rust-trixie",
-	Needs:      []string{"tool:cargo-mutants", "tool:cargo-nextest", "tool:python-standalone"},
+	Needs:      []string{"tool:cargo-mutants", "tool:cargo-nextest", "tool:python-standalone", "tool:uv"},
 	NotOnForks: checks.ForkChangeBar,
 	History:    "full",
 	Timeout:    75 * time.Minute,

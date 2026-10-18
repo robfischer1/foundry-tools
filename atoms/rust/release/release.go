@@ -26,7 +26,7 @@ var Def = atomkit.Def{
 	Desc:       "The release binaries the image will carry compile under cargo's release profile — for a Dockerfile that copies from release/; one that compiles itself is built by the build lane, and this is absent.",
 	Surface:    "root:Cargo.toml",
 	Toolchain:  "rust",
-	Needs:      []string{"dies", "tool:python-standalone"},
+	Needs:      []string{"dies", "tool:python-standalone", "tool:uv"},
 	Timeout:    45 * time.Minute,
 	WritesTree: true,
 	Check:      check,

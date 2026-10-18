@@ -52,6 +52,8 @@ var URLPins = []URLPin{
 	{"cargo-mutants", "CargoMutantsURL", "CargoMutantsVersion"},
 	{"sccache", "SccacheURL", "SccacheVersion"},
 	{"mold", "MoldURL", "MoldRelease"},
+	{"jq", "JqURL", "JqRelease"},
+	{"curl", "CurlURL", "CurlVersion"},
 	{"rust-clippy", "RustClippyURL", "RustComponentsTag"},
 	{"rust-rustfmt", "RustRustfmtURL", "RustComponentsTag"},
 	{"rust-std", "RustStdURL", "RustComponentsTag"},
@@ -94,6 +96,7 @@ var Followers = []Follower{
 	{Const: "CargoMutantsURL", Version: "CargoMutantsVersion"},
 	{Const: "SccacheURL", Version: "SccacheVersion"},
 	{Const: "SccacheMember", Version: "SccacheVersion"},
+	{Const: "CurlURL", Version: "CurlVersion"},
 	{Const: "PythonStandaloneURL", Version: "FleetPythonVersion", Retag: true},
 }
 

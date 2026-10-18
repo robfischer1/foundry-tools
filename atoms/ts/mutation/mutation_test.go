@@ -15,7 +15,7 @@ func TestTheDeclarationValidatesAndNamesItsRow(t *testing.T) {
 	}
 	if Def.ID != tsmut.ID || Def.Stage != checks.StageMutation || Def.Lane != checks.LaneTS || Def.Group != checks.GroupOf(Def.ID) ||
 		Def.Toolchain != "bun" || Def.Surface != "root:package.json" || Def.NotOnForks != checks.ForkChangeBar ||
-		Def.History != "full" || Def.WritesTree || strings.Join(Def.Needs, ",") != "tool:git,tool:node" {
+		Def.History != "full" || Def.WritesTree || strings.Join(Def.Needs, ",") != "tool:git,tool:node,tool:curl" {
 		t.Errorf("%+v", Def)
 	}
 }

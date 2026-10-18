@@ -10,7 +10,7 @@ argv = ["bun", "run", "lint"]
 args = "append"
 per_module = false
 judge = "exit"
-needs = ["tool:node"]
+needs = ["tool:node", "tool:curl"]
 timeout = "30m"
 writes_tree = true
 

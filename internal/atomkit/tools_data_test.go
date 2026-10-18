@@ -75,6 +75,8 @@ var urlPins = []struct {
 	{"cargo-mutants", checks.CargoMutantsURL, checks.CargoMutantsVersion},
 	{"sccache", checks.SccacheURL, checks.SccacheVersion},
 	{"mold", checks.MoldURL, checks.MoldRelease},
+	{"jq", checks.JqURL, checks.JqRelease},
+	{"curl", checks.CurlURL, checks.CurlVersion},
 	{"rust-clippy", checks.RustClippyURL, checks.RustComponentsTag},
 	{"rust-rustfmt", checks.RustRustfmtURL, checks.RustComponentsTag},
 	{"rust-std", checks.RustStdURL, checks.RustComponentsTag},

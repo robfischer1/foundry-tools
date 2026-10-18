@@ -354,6 +354,27 @@ const (
 	MoldRelease = "1.10.1"
 	MoldURL     = "https://github.com/rui314/mold/releases/download/v1.10.1/mold-1.10.1-x86_64-linux.tar.gz"
 
+	// JQ AND CURL, THE PYTHON AND BUN CONTAINERS' MISSING PROGRAMS. The Dagger lane
+	// apt-installs both into python:slim (provision, ImagePython) and curl into
+	// bun:slim (ImageTS); the executor's upstream images carry neither, so a
+	// hook suite that execs jq (foundry-stocks' bash hooks) or a test that shells
+	// out to curl met ENOENT there and nowhere else. They are url tools the
+	// atoms that run the tree's tests name in Needs.
+	//
+	// JqRelease is the upstream of JqDebVersion (bookworm's 1.6-2.1+deb12u2) and
+	// must not float: jq 1.7 changed number output, so the hook suites would
+	// grade differently. Upstream's own static binary, a bare file placed as
+	// `jq`. CurlVersion is stunnel/static-curl's musl build, static so it runs on
+	// the bookworm python image and the trixie bun image alike (Debian's curl is
+	// not pinned on the Dagger side either: it floats with the suite).
+	// ps is not here: Stryker's tree-kill asks it one question and the atom's own
+	// binary answers it (internal/pgroupps, ts:mutation).
+	JqRelease = "1.6"
+	JqURL     = "https://github.com/jqlang/jq/releases/download/jq-1.6/jq-linux64"
+	// renovate: datasource=github-releases depName=stunnel/static-curl
+	CurlVersion = "8.23.0"
+	CurlURL     = "https://github.com/stunnel/static-curl/releases/download/8.23.0/curl-linux-x86_64-musl-8.23.0.tar.xz"
+
 	// SccacheMember is the binary inside the tarball.
 	SccacheMember = "sccache-v0.18.0-x86_64-unknown-linux-musl/sccache"
 )

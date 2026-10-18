@@ -151,6 +151,18 @@ spec = "https://github.com/rui314/mold/releases/download/v1.10.1/mold-1.10.1-x86
 version = "1.10.1"
 sha256 = "7524fe67f917d5287b2f7a7d6401e2625fa3f5f84bc6b8d9b487d6cb08876488"
 
+[tool.jq]
+kind = "url"
+spec = "https://github.com/jqlang/jq/releases/download/jq-1.6/jq-linux64"
+version = "1.6"
+sha256 = "af986793a515d500ab2d35f8d2aecd656e764504b789b66d7e1a0b727a124c44"
+
+[tool.curl]
+kind = "url"
+spec = "https://github.com/stunnel/static-curl/releases/download/8.23.0/curl-linux-x86_64-musl-8.23.0.tar.xz"
+version = "8.23.0"
+sha256 = "049f982cb7db34e745cc0be0bdce2246b51fbf7ef17fc95ce37980f711ca91bb"
+
 [tool.rust-clippy]
 kind = "url"
 spec = "https://static.rust-lang.org/dist/clippy-1.97.0-x86_64-unknown-linux-gnu.tar.gz"
