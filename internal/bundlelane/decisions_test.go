@@ -105,7 +105,7 @@ func TestDecisionsCachedArgsDeriveOncePerKey(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "k3.json")); err == nil {
 		t.Error("a failed derive left a cached table")
 	}
-	if _, err := os.Stat(filepath.Join(dir, "k3.json.tmp")); err == nil {
+	if left, _ := filepath.Glob(filepath.Join(dir, "*.tmp")); len(left) != 0 {
 		t.Error("a failed derive left its temp file")
 	}
 }

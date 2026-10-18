@@ -37,12 +37,14 @@ const (
 
 // decisionsCacheScript serves the table from the cache when the key's file is
 // there and otherwise derives it ("$@") and keeps it. The derive is written to a
-// temp file and renamed in, so a derive that fails or is cut short never leaves
-// a half table under the key; a failed derive's output is passed on as it was.
+// temp file of its own (the volume is shared, so two runs may derive one key at
+// once) and renamed in, so a derive that fails or is cut short never leaves a
+// half table under the key; a failed derive's output is passed on as it was.
 const decisionsCacheScript = `f="$DECISIONS_CACHE/$DECISIONS_KEY.json"
 if [ -s "$f" ]; then cat "$f"; exit 0; fi
-"$@" > "$f.tmp" || { c=$?; cat "$f.tmp"; rm -f "$f.tmp"; exit $c; }
-mv "$f.tmp" "$f" && cat "$f"`
+t="$f.$$.tmp"
+"$@" > "$t" || { c=$?; cat "$t"; rm -f "$t"; exit $c; }
+mv "$t" "$f" && cat "$f"`
 
 // DecisionsCachedArgs is DecisionsArgs behind the cache: the same derive argv,
 // run only when the cache holds no table for the inputs' digest.

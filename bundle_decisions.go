@@ -81,13 +81,14 @@ func (l *bundleLane) decisions(ctx context.Context, tools *dagger.Container) (*d
 }
 
 // decisionsKey is the content digest the derived table is cached by: the
-// directories the derive loads (the policy, the derive, the staged roster) and
-// the pinned opa that evaluates them. The table is a function of those alone, so
+// directories the derive loads (the policy, the derive, the staged roster), the
+// query it asks, and the pinned opa that evaluates them. The table is a function of those alone, so
 // a commit that changes none of them (the base side of a pull, a docs commit)
 // reuses the table an earlier run derived.
 func (l *bundleLane) decisionsKey(ctx context.Context, roster *dagger.Directory) (string, error) {
 	h := sha256.New()
 	h.Write([]byte(checks.OpaURL + "\n"))
+	h.Write([]byte(strings.Join(bundlelane.DecisionsArgs(bundlelane.DecisionsStage), "\x00") + "\n"))
 	for _, d := range []*dagger.Directory{l.m.Source.Directory("policy"), l.m.Source.Directory(bundlelane.DecisionsDeriveDir), roster} {
 		dg, err := d.Digest(ctx)
 		if err != nil {
