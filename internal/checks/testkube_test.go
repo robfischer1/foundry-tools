@@ -307,7 +307,7 @@ func TestKubeMissingEnvAndTheRefusalDetail(t *testing.T) {
 	if got := k.MissingEnv(func(string) string { return "x" }); len(got) != 0 {
 		t.Errorf("MissingEnv with all bound = %v", got)
 	}
-	want := "live_kube: TEST_KUBE_TOKEN, TEST_KUBE_CA_FILE not bound on this lane (the pod path binds no kube-apiserver; see atoms/go/test-race Needs)"
+	want := "live_kube: TEST_KUBE_TOKEN, TEST_KUBE_CA_FILE not bound on this lane (the pod path binds one for an atom whose Needs name service:etcd and service:kube-apiserver; see atoms/go/test-race Needs)"
 	if got := k.NotBound([]string{"TEST_KUBE_TOKEN", "TEST_KUBE_CA_FILE"}); got != want {
 		t.Errorf("NotBound = %q", got)
 	}

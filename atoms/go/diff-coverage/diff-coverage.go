@@ -29,7 +29,7 @@ var Def = atomkit.Def{
 	Desc:       "Every line this pull changes in non-test, non-generated Go that holds code ran under go:test-race's suite — NOT COVERED, read off its coverage profile.",
 	Surface:    "any:**/go.mod",
 	Toolchain:  "go",
-	Needs:      []string{"dies", "service:postgres", "service:pgvector", "service:redpanda", "service:redis", "tool:gravity"},
+	Needs:      []string{"dies", "service:postgres", "service:pgvector", "service:redpanda", "service:redis", "service:etcd", "service:kube-apiserver", "tool:gravity"},
 	NotOnForks: checks.ForkChangeBar,
 	Timeout:    45 * time.Minute,
 	Check:      check,

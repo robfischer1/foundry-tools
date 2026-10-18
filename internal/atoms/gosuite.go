@@ -77,7 +77,7 @@ func GoSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race b
 		var kubes []checks.TestKube
 		dbs, brokers, caches, kubes, scope = GoTestServers(ctx, in, cwd)
 		// A TREE THAT CARRIES live_kube NEEDS THE API SERVER THE LANE BINDS. The
-		// adapter binds one and sets the three variables; the pod path binds none.
+		// adapter binds one and sets the three variables; the pod binds one for an atom whose Needs name service:etcd and service:kube-apiserver.
 		// Compiling the suite with nothing behind it would fail every test on a
 		// missing URL, so the atom says it cannot run, and names what is absent.
 		for _, k := range kubes {
