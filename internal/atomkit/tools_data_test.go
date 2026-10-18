@@ -148,10 +148,15 @@ func TestToolsTomlMatchesGo(t *testing.T) {
 		}
 	}
 	// gravity is the prebuilt the Dagger lane fetches (checks.GravityPrebuilt),
-	// pinned here for the pod by the same rev and sha256, from the same mirror.
-	seen["gravity"] = true
-	if g := f.Tools["gravity"]; g.Kind != "url" || checks.GravityPrebuilt[g.Version] != g.SHA256 || g.SHA256 == "" || g.Spec != checks.ToolMirrorURL(g.SHA256) {
-		t.Errorf("tool gravity: %+v, want the url tool GravityPrebuilt names", g)
+	// pinned here for the pod by the same rev and sha256, from the same mirror:
+	// one tool per rev, because a tree is held to the generator its own
+	// provenance.json pins and the pod stages the one that tree names.
+	for rev, sum := range checks.GravityPrebuilt {
+		name := checks.GravityTool(rev)
+		seen[name] = true
+		if g := f.Tools[name]; g.Kind != "url" || g.Version != rev || g.SHA256 != sum || g.Spec != checks.ToolMirrorURL(sum) {
+			t.Errorf("tool %s: %+v, want the url tool GravityPrebuilt names", name, g)
+		}
 	}
 	for _, u := range checks.PythonLaneTools {
 		seen[u.Name] = true
