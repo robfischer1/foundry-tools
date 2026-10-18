@@ -83,20 +83,15 @@ func locked(root string) bool {
 	}
 	for _, e := range entries {
 		if info, err := e.Info(); err == nil && info.Mode().IsRegular() {
-			uid, gid := ownerOf(info)
+			uid, gid := -1, -1 // unknown where the platform does not say: not locked on that account
+			if st, ok := info.Sys().(*syscall.Stat_t); ok {
+				uid, gid = int(st.Uid), int(st.Gid)
+			}
 			groups, _ := os.Getgroups()
 			return lockedTo(info.Mode().Perm(), uid, gid, os.Geteuid(), append(groups, os.Getegid()))
 		}
 	}
 	return false
-}
-
-// ownerOf is a file's uid and gid; -1 where the platform does not say.
-func ownerOf(info fs.FileInfo) (uid, gid int) {
-	if st, ok := info.Sys().(*syscall.Stat_t); ok {
-		return int(st.Uid), int(st.Gid)
-	}
-	return -1, -1
 }
 
 // lockedTo says a file of this mode, owner and group is not writable by the
