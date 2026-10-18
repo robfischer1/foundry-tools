@@ -606,6 +606,10 @@ func (e *fakeEngine) answer(q string) (data any, errMsg string) {
 		}
 	case "id", "sync":
 		val = fakeID(q)
+	case "digest":
+		// A directory's content digest: a function of the chain that names it.
+		sum := sha256.Sum256([]byte(q))
+		val = "sha256:" + hex.EncodeToString(sum[:])
 	case "publish":
 		// The registry's answer to a push: the ref at the digest it minted.
 		// Scripted by a test that wants a particular digest; otherwise the

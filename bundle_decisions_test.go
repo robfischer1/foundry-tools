@@ -60,6 +60,11 @@ func TestTheDecisionTableIsDerivedAndBuiltIntoThePolicyDie(t *testing.T) {
 			t.Errorf("the derive chain lacks %s:\n%s", want, derive)
 		}
 	}
+	for _, want := range []string{`path:"` + bundlelane.DecisionsCacheDir + `"`, "DECISIONS_KEY"} {
+		if !strings.Contains(derive, want) {
+			t.Errorf("the derive chain lacks the cache (%s):\n%s", want, derive)
+		}
+	}
 	if build := engine.chain(`"/work/bundle-signed.tar.gz"`, `"--signing-key"`); srcMounts(build) != 2 {
 		t.Errorf("the signed twin was not built from the tree the table was laid in (%d mounts):\n%s", srcMounts(build), build)
 	}
@@ -121,6 +126,19 @@ func TestACommittedDecisionTableIsRefused(t *testing.T) {
 // before anything is built from them: a tree the engine cannot read or a derive
 // it cannot run is could-not-run, a roster the tree does not hold is a finding.
 func TestTheDeriveNeedsItsRosterAndAnEngine(t *testing.T) {
+	digestFails := func(t *testing.T, m *FoundryTools) {
+		t.Helper()
+		engine.failLeaf(`directory(path:"policy")`, "digest", "engine went away")
+		bundles(t, m)
+		settledOn(t, "2", "could not be digested")
+		nothingPushed(t)
+	}
+	t.Run("the inputs cannot be digested", func(t *testing.T) {
+		m := withDerive(t, nil)
+		scriptAGreenBundle()
+		scriptTheDerive(derivedTable, policyDataWithTable)
+		digestFails(t, m)
+	})
 	for name, tc := range map[string]struct {
 		tree map[string]string
 		fail string

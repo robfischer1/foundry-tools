@@ -1,6 +1,7 @@
 package main
 
 import (
+	"dagger/foundry-tools/internal/bundlelane"
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
 )
@@ -22,7 +23,16 @@ func init() {
 		atomEnvironments[id] = opa
 	}
 	// dies:authz-grid judges the change too: its Rego against the base's, so it is handed the base.
-	atomEnvironments["dies:authz-grid"] = atomEnv{container: opa.container, facts: true}
+	// It derives the decision table on both sides of a Rego pull, so it is handed the
+	// table cache the bundle lane keeps (bundlelane.DecisionsCacheVolume): the checker
+	// keeps each derived table under the digest of its inputs (tools/authz_table_stage.py,
+	// AUTHZ_TABLE_CACHE), the base side reuses the table main's run derived, and a
+	// pull derives each distinct input set once.
+	atomEnvironments["dies:authz-grid"] = atomEnv{container: func(r *run) *dagger.Container {
+		return opa.container(r).
+			WithMountedCache(bundlelane.DecisionsCacheDir, dag.CacheVolume(bundlelane.DecisionsCacheVolume), dagger.ContainerWithMountedCacheOpts{Sharing: dagger.CacheSharingModeShared}).
+			WithEnvVariable("AUTHZ_TABLE_CACHE", bundlelane.DecisionsCacheDir)
+	}, facts: true}
 	atomEnvironments["dies:grants-stamp"] = atomEnv{container: func(r *run) *dagger.Container { return r.lane(checks.ImageFleet) }, facts: true}
 	// dies:render-author asks git only, as ops:immutable does: the tools container.
 	atomEnvironments["dies:render-author"] = atomEnv{tools: true, facts: true}
