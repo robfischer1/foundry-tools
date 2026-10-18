@@ -270,6 +270,9 @@ func withFake(t *testing.T, in atomkit.In) (*fake, atomkit.In, *[]string) {
 	t.Setenv("RUSTUP_HOME", "")
 	t.Setenv("CARGO_TARGET_DIR", "")
 	t.Setenv("CARGO_HOME", "")
+	for _, k := range trustVars { // the pod names its CA here; no test may inherit it
+		t.Setenv(k, "")
+	}
 	var fetched []string
 	var fm sync.Mutex
 	old := fetchPinned
@@ -419,9 +422,6 @@ func TestTSRegenTranspileCarriesTheContainersTrust(t *testing.T) {
 			f, in, _ := withFake(t, star(t, "1.250.0", "stamp"))
 			for k := range trust {
 				t.Setenv(k, tc.set[k])
-				if tc.set[k] == "" {
-					os.Unsetenv(k)
-				}
 			}
 			if v := Check(t.Context(), in); v.State != 0 {
 				t.Fatalf("%+v", v)
