@@ -176,8 +176,9 @@ func TestGoSuiteRaceCompilesAKubeOnlyTreesTagWhenAllThreeVariablesAreBound(t *te
 }
 
 // A TREE THAT CARRIES live_kube ON A LANE THAT BOUND NO API SERVER CANNOT RUN: the
-// atom never compiles the suite with nothing behind it (the pod path binds no
-// kube-apiserver), and the detail names exactly the variables that are absent.
+// atom never compiles the suite with nothing behind it (a pod binds a
+// kube-apiserver only for an atom whose Needs name it), and the detail names
+// exactly the variables that are absent.
 func TestGoSuiteRaceCannotRunLiveKubeWhereAVariableIsNotBound(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -193,7 +194,7 @@ func TestGoSuiteRaceCannotRunLiveKubeWhereAVariableIsNotBound(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}, {"grep -rhoE", "//go:build live_kube\n", 0}}}
 			v := gosuiteVerdictEnv(t, f, kubeEnv(tc.env...), true)
-			want := "go:test-race: CANNOT RUN - live_kube: " + tc.missing + " not bound on this lane (the pod path binds no kube-apiserver; see atoms/go/test-race Needs)"
+			want := "go:test-race: CANNOT RUN - live_kube: " + tc.missing + " not bound on this lane (the pod path binds one for an atom whose Needs name service:etcd and service:kube-apiserver; see atoms/go/test-race Needs)"
 			if v.State != 2 || !strings.Contains(v.Reason, want) {
 				t.Errorf("%+v\nwant %q", v, want)
 			}

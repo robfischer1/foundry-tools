@@ -198,7 +198,7 @@ func (k TestKube) MissingEnv(getenv func(string) string) []string {
 // the databases and the broker as sidecars and no kube-apiserver.
 func (k TestKube) NotBound(missing []string) string {
 	return k.Tag + ": " + strings.Join(missing, ", ") +
-		" not bound on this lane (the pod path binds no kube-apiserver; see atoms/go/test-race Needs)"
+		" not bound on this lane (the pod path binds one for an atom whose Needs name service:etcd and service:kube-apiserver; see atoms/go/test-race Needs)"
 }
 
 // TestKubesFor is the vocabulary's entries for the tags a tree carries, in
