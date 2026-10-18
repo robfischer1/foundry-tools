@@ -34,6 +34,18 @@ import (
 var suiteScrub = []string{"ATOM_WORK=", "ATOM_OUT=", "ATOM_TREE="}
 
 func GoSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race bool) checks.Verdict {
+	return goSuite(ctx, in, a, dir, race, nil)
+}
+
+// GoSuiteFor is the push's race run for a caller who asked for it by hand
+// (dev:go-test-live): the same servers, tags and -p 1, with the caller's own
+// arguments folded in (SuiteArgs). It writes no coverage profile and skips the
+// parallel build warm-up, which exist for go:diff-coverage's sake.
+func GoSuiteFor(ctx context.Context, in Input, a checks.AtomDef, dir string, caller SuiteArgs) checks.Verdict {
+	return goSuite(ctx, in, a, dir, true, &caller)
+}
+
+func goSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race bool, caller *SuiteArgs) checks.Verdict {
 	cwd := GoModuleRoot(in, dir)
 	if v, ok := Provision(ctx, in, a, cwd, "go", "mod", "download"); !ok {
 		return v
@@ -106,19 +118,35 @@ func GoSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race b
 			}
 		}
 		args = append(args, "-race")
+		var callerNote string
+		var callerTags []string
+		if caller != nil {
+			callerTags = caller.Tags
+			callerNote = caller.Note(dbs, brokers, caches, kubes)
+			scope += callerNote
+		}
 		// `-p 1` for EITHER kind. The databases share one server and the suites
 		// reset its schema; one broker serves every package and its isolation
 		// unit is the topic. Parallel packages break both the same way.
 		var tagArgs []string
-		if word := checks.BuildTags(dbs, brokers, caches, kubes); word != "" {
+		if word := UnionTags(checks.BuildTags(dbs, brokers, caches, kubes), callerTags); word != "" {
 			tagArgs = []string{"-tags", word}
 			args = append(args, tagArgs...)
-			args = append(args, "-p", "1")
+			if caller == nil || !caller.P {
+				args = append(args, "-p", "1")
+			}
 		}
-		warmBuildCache(ctx, in, cwd, tagArgs)
-		args = append(args, "-coverprofile", checks.GoCoverProfile)
+		if caller == nil {
+			warmBuildCache(ctx, in, cwd, tagArgs)
+			args = append(args, "-coverprofile", checks.GoCoverProfile)
+		}
 	}
-	args = append(args, "./...")
+	if caller != nil {
+		args = append(args, caller.Rest...)
+	}
+	if caller == nil || !caller.Packages {
+		args = append(args, "./...")
+	}
 	out, code := in.run(ctx, Cmd{Dir: cwd, Name: "go", Args: args, Env: env, Both: true})
 	if code < 0 {
 		return CouldNotStart(a, out)

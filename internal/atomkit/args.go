@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"dagger/foundry-tools/internal/atoms"
 )
 
 // Default is one default argument group of a command atom that takes caller
@@ -108,23 +110,8 @@ func matches(arg, tok string) bool {
 	return len(tok) == 2 && tok[0] == '-' && tok[1] != '-' && strings.HasPrefix(arg, tok)
 }
 
-// packageLike says whether one argument names a Go package pattern: ".", "..",
-// "./x", "../x", "x/...", or a path whose first element is a host (a.b/c).
-// Flag-shaped arguments never are. The arguments of go's value flags
-// (-o ./bin/x) are not told apart from packages: see the dev lane's notes.
-func packageLike(arg string) bool {
-	if strings.HasPrefix(arg, "-") {
-		return false
-	}
-	switch {
-	case arg == "." || arg == "..":
-		return true
-	case strings.HasPrefix(arg, "./"), strings.HasPrefix(arg, "../"), strings.HasSuffix(arg, "..."):
-		return true
-	}
-	first, _, slashed := strings.Cut(arg, "/")
-	return slashed && strings.Contains(first, ".")
-}
+// packageLike says whether one argument names a Go package pattern (atoms.PackageLike).
+func packageLike(arg string) bool { return atoms.PackageLike(arg) }
 
 // checkDefaults is the parse-time rule over a manifest's default groups.
 func checkDefaults(m Manifest) error {
