@@ -57,19 +57,21 @@ func raceRun(t *testing.T, tree map[string]string, grep string) string {
 // Before this the DB-gated suites never compiled and every DB-touching line
 // read NOT COVERED (foundry-tools#8608).
 func TestGoTestRaceRunsWithTheFleetRecordsAndTheTreesDatabases(t *testing.T) {
-	c := raceRun(t, nil, "//go:build live_db\n//go:build live_db_novector\n//go:build integration\n")
+	c := raceRun(t, nil, "//go:build live_db\n//go:build live_db_novector\n//go:build live_db_timescale\n//go:build integration\n")
 	wantCalls(t, c,
 		[]string{"withMountedDirectory", `path:"/dies"`},
 		[]string{"withEnvVariable", `name:"FOUNDRY_DIES"`, `value:"/dies"`},
 		[]string{"withEnvVariable", `name:"ATOM_DIES"`, `value:"/dies"`},
 		[]string{"withServiceBinding", `alias:"db"`},
 		[]string{"withServiceBinding", `alias:"db-novector"`},
+		[]string{"withServiceBinding", `alias:"db-timescale"`},
 		[]string{"withEnvVariable", `name:"TEST_DATABASE_URL"`, `value:"` + checks.TestDBs[0].DSN() + `"`},
 		[]string{"withEnvVariable", `name:"TEST_NOVECTOR_DATABASE_URL"`, `value:"` + checks.TestDBs[1].DSN() + `"`},
+		[]string{"withEnvVariable", `name:"TEST_TIMESCALE_DATABASE_URL"`, `value:"` + checks.TestDBs[2].DSN() + `"`},
 		[]string{"withExec", `expect:ANY`, `args:["/atom","/src"]`},
 	)
 	// The servers are the pinned images, run as services on their port.
-	for _, img := range []string{checks.ImagePgvector, checks.ImagePostgres} {
+	for _, img := range []string{checks.ImagePgvector, checks.ImagePostgres, checks.ImageTimescale} {
 		if engine.chain(img, "asService") == "" {
 			t.Errorf("no service chain runs %s:\n%v", img, engine.chains())
 		}

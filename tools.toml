@@ -49,6 +49,9 @@ image = "docker.io/library/postgres:18-bookworm@sha256:a10c981235b4f635e65df0cfb
 [service.pgvector]
 image = "docker.io/pgvector/pgvector:pg18@sha256:1d50c689b0a6511b9ea0a15615281c81a59fd04a08eb35057ec8646fb3a2118a"
 
+[service.timescale]
+image = "docker.io/timescale/timescaledb-ha:pg17@sha256:a693dd7fbb75b51c3d717507a9956501686edb123b48dd90b094fd5612d53abe"
+
 [service.redpanda]
 image = "docker.notusmi.com/redpandadata/redpanda@sha256:6d627e3ebdc05438d1e8e3b55695ac1a7a0f79e7d5ca90b3b0f12dc984633e83"
 
