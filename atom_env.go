@@ -341,13 +341,15 @@ func manifestContainer(ctx context.Context, r *run, e catalogue.Entry, m atomkit
 // commandIn runs the preflight and then the manifest's argv in dir, and judges
 // the exit.
 func commandIn(ctx context.Context, a checks.AtomDef, m atomkit.Manifest, preflight []string, exec atomkit.ExecFunc, dir string) checks.Verdict {
-	if len(preflight) > 0 {
+	if len(preflight) > 0 && m.RunsPreflight() {
 		if res := exec(ctx, preflight, dir); res.Code != 0 {
 			return cannotRun(a, fmt.Sprintf("%s: CANNOT RUN - preflight `%s` exited %d: %s",
 				a.ID, strings.Join(preflight, " "), res.Code, lastLine(res.Stderr)))
 		}
 	}
-	res := exec(ctx, m.Argv, dir)
+	// Compose(nil): the head defaults are part of the command (a dev verb run
+	// with no caller arguments), as the pod executor runs it.
+	res := exec(ctx, m.Compose(nil), dir)
 	if res.NotRun {
 		return checks.VerdictOf(a, int(checks.StateCannotRun), res.Stderr)
 	}
