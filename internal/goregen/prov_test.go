@@ -1,6 +1,7 @@
 package goregen
 
 import (
+	"dagger/foundry-tools/internal/regenkit"
 	"strings"
 	"testing"
 )
@@ -94,59 +95,17 @@ func TestParseProvAnswersWithoutBindingsAndRefusesWhatIsNotAGravityCore(t *testi
 	}
 }
 
-func TestRewriteChangesOnlyTheHashesAndSizes(t *testing.T) {
+func TestRewriteWrapsRegenkitsAndLeavesUnchangedInputsAlone(t *testing.T) {
 	p, _ := ParseProv(alarmLike)
-	recs := p.Records()
-	// nothing moved: byte for byte the same
-	same, err := Rewrite(alarmLike, recs)
+	same, err := Rewrite(alarmLike, p.Records())
 	if err != nil || same != alarmLike {
 		t.Fatalf("unchanged inputs rewrote the file: %v\n%s", err, same)
 	}
-	recs[0].SHA256 = strings.Repeat("a", 64)
-	recs[0].Bytes = 12
-	recs[3].SHA256 = strings.Repeat("b", 64)
-	recs[3].Bytes = 99999
+	recs := p.Records()
+	recs[0].SHA256, recs[0].Bytes = strings.Repeat("a", 64), 12
 	got, err := Rewrite(alarmLike, recs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := strings.NewReplacer(
-		"25669e54a82bf93d443b25916c209bc5612f2cfed6726f0c714a6cb9d8694583", strings.Repeat("a", 64), "216841", "12",
-		"fa21e0704b947c5e9338f0182f9da07c584c5bf71b5c954d7d9eebb4428f9479", strings.Repeat("b", 64), "120774", "99999",
-	).Replace(alarmLike)
-	if got != want {
-		t.Errorf("rewrite differs from the expected text:\n%s", got)
-	}
-}
-
-func TestRewriteKeepsTheFilesOwnIndent(t *testing.T) {
-	tab := "{\n\t\"guest_wasm\": {\n\t\t\"file\": \"guest.wasm\",\n\t\t\"sha256\": \"" + strings.Repeat("0", 64) + "\",\n\t\t\"bytes\": 1\n\t}\n}"
-	got, err := Rewrite(tab, []Rec{{Key: "guest_wasm", File: "guest.wasm", SHA256: strings.Repeat("f", 64), Bytes: 22}})
-	if err != nil || !strings.Contains(got, "\t\t\"bytes\": 22\n") || !strings.Contains(got, strings.Repeat("f", 64)) || strings.HasSuffix(got, "\n") {
-		t.Errorf("%v\n%q", err, got)
-	}
-	compact := `{"guest_wasm":{"file":"g","sha256":"` + strings.Repeat("0", 64) + `","bytes":1},"x":[{"a":"}"}]}`
-	got, err = Rewrite(compact, []Rec{{Key: "guest_wasm", SHA256: strings.Repeat("1", 64), Bytes: 2}})
-	if err != nil || got != `{"guest_wasm":{"file":"g","sha256":"`+strings.Repeat("1", 64)+`","bytes":2},"x":[{"a":"}"}]}` {
-		t.Errorf("%v %s", err, got)
-	}
-}
-
-func TestRewriteSaysWhatItCouldNotFind(t *testing.T) {
-	for name, tc := range map[string]struct {
-		text string
-		rec  Rec
-		says string
-	}{
-		"a record the file lacks": {`{"a":{}}`, Rec{Key: "guest_wasm"}, "no guest_wasm record"},
-		"a record with no sha256": {`{"guest_wasm":{"bytes":1}}`, Rec{Key: "guest_wasm"}, "guest_wasm has no sha256"},
-		"a record with no bytes":  {`{"guest_wasm":{"sha256":"` + strings.Repeat("0", 64) + `"}}`, Rec{Key: "guest_wasm"}, "guest_wasm has no bytes"},
-		"text that is not json":   {`{"guest_wasm":{"file":"unterminated`, Rec{Key: "guest_wasm"}, "no guest_wasm record"},
-		"an unterminated object":  {`{"guest_wasm":{"file":"g"`, Rec{Key: "guest_wasm"}, "no guest_wasm record"},
-	} {
-		if _, err := Rewrite(tc.text, []Rec{tc.rec}); err == nil || !strings.Contains(err.Error(), tc.says) {
-			t.Errorf("%s: %v, want %q", name, err, tc.says)
-		}
+	if err != nil || !strings.Contains(got, strings.Repeat("a", 64)) || !strings.Contains(got, `"bytes": 12`) {
+		t.Errorf("%v\n%s", err, got)
 	}
 }
 
@@ -179,7 +138,7 @@ func TestAProvenanceWhoseBlocksAreNotRecordsIsRefused(t *testing.T) {
 			t.Errorf("%s: parsed", name)
 		}
 	}
-	if _, _, ok := objectSpan(`{"guest`, "guest_wasm"); ok {
+	if _, _, ok := regenkit.ObjectSpan(`{"guest`, "guest_wasm"); ok {
 		t.Error("an unterminated key was read")
 	}
 }

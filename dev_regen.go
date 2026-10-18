@@ -44,15 +44,44 @@ func (d *Dev) Regen(ctx context.Context,
 	if d.Lang != devlane.Go {
 		return nil, fmt.Errorf("regen regenerates a Go tree's gravity cores: this source is %s", d.Lang)
 	}
-	e, ok := regenEntry(regenAtom)
+	return regenOver(ctx, regenAtom, d.Source, d.Repo, true, d.Tree, args, fresh)
+}
+
+// tsRegenAtom is the logic atom the TypeScript regen verb runs.
+const tsRegenAtom = "dev:ts-regen"
+
+// RegenTs regenerates a stellar-core-ts tree's worlds and answers the files it
+// wrote: `dagger call -m . --source=. regen-ts --args=stamp,tail export --path=.`.
+// It is dev:ts-regen (atoms/dev/ts-regen), the write twin of ts:regen, compiled
+// from the same file the executor runs and run on the engine over this source.
+// Only what moved is answered (the source diffed against the tree after the
+// atom), and a pin that does not hold exits non-zero with the verdict's reason.
+//
+// +cache="never"
+func (m *FoundryTools) RegenTs(ctx context.Context,
+	// The worlds to regenerate: the <world> of src/<world>core-gen.
+	// +optional
+	args []string,
+	// Run past the engine's cache even on an unchanged tree.
+	// +optional
+	fresh bool,
+) (*dagger.Directory, error) {
+	return regenOver(ctx, tsRegenAtom, m.Source, m.Repo, false, "", args, fresh)
+}
+
+// regenOver runs one regen atom over a source with the arguments, and answers
+// the diff of the source against the tree the atom left. A verdict that is not a
+// pass ends the call with the verdict's exit code and its reason.
+func regenOver(ctx context.Context, atom string, src *dagger.Directory, repo string, dev bool, tree string, args []string, fresh bool) (*dagger.Directory, error) {
+	e, ok := regenEntry(atom)
 	if !ok {
-		return nil, fmt.Errorf("atom %s is not in the generated registry", regenAtom)
+		return nil, fmt.Errorf("atom %s is not in the generated registry", atom)
 	}
-	r := newRun(d.Source, d.Repo, "").reasked(devlane.Nonce(fresh, time.Now().UnixNano()))
-	r.dev, r.tree, r.args = true, d.Tree, args
+	r := newRun(src, repo, "").reasked(devlane.Nonce(fresh, time.Now().UnixNano()))
+	r.dev, r.tree, r.args = dev, tree, args
 	ran, out, v := logicRan(ctx, r, e)
 	if v == nil {
-		read := readVerdict(ctx, checks.AtomByID(regenAtom), ran, out)
+		read := readVerdict(ctx, checks.AtomByID(atom), ran, out)
 		v = &read
 	}
 	if v.State != 0 {
@@ -67,5 +96,5 @@ func (d *Dev) Regen(ctx context.Context,
 		}
 		return nil, errors.New(reason)
 	}
-	return d.Source.Diff(ran.Directory("/src")), nil
+	return src.Diff(ran.Directory("/src")), nil
 }

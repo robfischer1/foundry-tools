@@ -8,6 +8,7 @@ import (
 	composethirdpartypins "dagger/foundry-tools/atoms/compose/third-party-pins"
 	devgoregen "dagger/foundry-tools/atoms/dev/go-regen"
 	devrustreplay "dagger/foundry-tools/atoms/dev/rust-replay"
+	devtsregen "dagger/foundry-tools/atoms/dev/ts-regen"
 	diesadmissiondogfood "dagger/foundry-tools/atoms/dies/admission-dogfood"
 	diesauthzgrid "dagger/foundry-tools/atoms/dies/authz-grid"
 	diescanaryvisibility "dagger/foundry-tools/atoms/dies/canary-visibility"
@@ -110,6 +111,7 @@ var Defs = []*atomkit.Def{
 	&composethirdpartypins.Def,
 	&devgoregen.Def,
 	&devrustreplay.Def,
+	&devtsregen.Def,
 	&diesadmissiondogfood.Def,
 	&diesauthzgrid.Def,
 	&diescanaryvisibility.Def,
