@@ -1,0 +1,38 @@
+schema = "command-atom@1"
+id = "dev:python-test"
+stage = "dev"
+lane = "python"
+group = "language"
+desc = "pytest passes, run by hand from the dev lane."
+surface = "root:pyproject.toml"
+toolchain = "python"
+argv = ["uv", "run", "--all-extras", "pytest"]
+args = "append"
+per_module = false
+judge = "exit"
+needs = ["tool:git", "tool:uv"]
+timeout = "30m"
+
+# THE GATE TWIN IS python:pytest (atoms/python/pytest): the same toolchain, the
+# same tool:uv and tool:git pins, the same `uv run --all-extras pytest -q`
+# (checks.UvRun, project form; a tree with no pyproject.toml is not this
+# atom's). The interpreter is the toolchain's own: every atom's environment
+# carries UV_PYTHON_DOWNLOADS=never and UV_PYTHON_PREFERENCE=only-system.
+#
+# /src IS READ-ONLY to an atom that does not write the tree, and uv, python and
+# pytest would each put something beside the sources: the project's .venv, the
+# bytecode, .pytest_cache. They go to /tmp instead, so the verdict is the run's
+# and nothing is delivered from it. A setuptools project (vault-mcp) still
+# writes an egg-info beside its manifest when uv builds it; that one needs the
+# atom's own copy of the tree, which the gate twin takes and a dev run would
+# deliver from.
+[env]
+PYTHONDONTWRITEBYTECODE = "1"
+PYTEST_ADDOPTS = "-o cache_dir=/tmp/dev-python-test/pytest-cache"
+UV_PROJECT_ENVIRONMENT = "/tmp/dev-python-test/venv"
+
+# -q is the fleet's (the gate twin and every star's `just test`); a caller who
+# asks for their own verbosity replaces it.
+[[default]]
+args = ["-q"]
+unless = ["-q", "--quiet", "-v", "--verbose"]

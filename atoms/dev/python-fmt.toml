@@ -1,0 +1,21 @@
+schema = "command-atom@1"
+id = "dev:python-fmt"
+stage = "dev"
+lane = "python"
+group = "language"
+desc = "ruff format rewrites the tree's python in place."
+surface = "any:**/*.py"
+toolchain = "python"
+argv = ["ruff", "format"]
+args = "append"
+per_module = false
+judge = "exit"
+needs = ["tool:ruff"]
+writes_tree = true
+
+# THE GATE TWIN IS python:ruff-format, which runs `--check`; this is the rewrite
+# the twin refuses to be, on the atom's own copy of the tree. Same ruff, from the
+# same tool:ruff pin. With no path ruff formats the working directory. NOT
+# SHARED: the twin's `--config <fleet ruleset> --line-length <by lane>` and its
+# src/ + tests/ scope (checks.RuffFormatTargets); this verb takes the tree's own
+# ruff config. A caller who wants the twin's scope passes `src tests`.

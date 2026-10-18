@@ -24,7 +24,7 @@ func landedTools(t *testing.T) ToolsFile {
 }
 
 // TestUT_621_IT_174_TheLandedToolsFile: it parses, holds the key sets of
-// IT-174 and exactly the two preflights.
+// IT-174 and exactly the three preflights.
 func TestUT_621_IT_174_TheLandedToolsFile(t *testing.T) {
 	f := landedTools(t)
 	for _, k := range []string{"go", "python", "rust", "rust-trixie", "rust-wasm", "bun", "node", "renovate"} {
@@ -43,8 +43,8 @@ func TestUT_621_IT_174_TheLandedToolsFile(t *testing.T) {
 	if f.Base.Go == "" || !strings.Contains(f.Base.Go, "base-images/go") {
 		t.Errorf("base go %q", f.Base.Go)
 	}
-	want := map[string][]string{"go": {"go", "mod", "download"}, "rust": {"cargo", "fetch", "--locked"}}
-	if len(f.Preflights) != 2 || !slices.Equal(f.Preflights["go"], want["go"]) || !slices.Equal(f.Preflights["rust"], want["rust"]) {
+	want := map[string][]string{"go": {"go", "mod", "download"}, "rust": {"cargo", "fetch", "--locked"}, "bun": {"bun", "install", "--frozen-lockfile"}}
+	if len(f.Preflights) != 3 || !slices.Equal(f.Preflights["go"], want["go"]) || !slices.Equal(f.Preflights["rust"], want["rust"]) || !slices.Equal(f.Preflights["bun"], want["bun"]) {
 		t.Errorf("preflights %v", f.Preflights)
 	}
 	for k, img := range f.Toolchains {
