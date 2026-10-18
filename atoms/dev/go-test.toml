@@ -6,9 +6,20 @@ group = "language"
 desc = "go test -race ./... passes, run by hand from the dev lane."
 surface = "root:go.mod"
 toolchain = "go"
-argv = ["go", "test", "-race", "./..."]
+argv = ["go", "test"]
 args = "append"
 per_module = false
 judge = "exit"
 needs = ["dies"]
 timeout = "30m"
+
+[[default]]
+args = ["-race"]
+unless = ["-race", "--race"]
+until = "-args"
+
+[[default]]
+args = ["./..."]
+unless = ["@package"]
+tail = true
+until = "-args"

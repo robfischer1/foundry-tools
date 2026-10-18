@@ -72,8 +72,8 @@ func TestTheDevAtomsDoNotDriftFromDagger(t *testing.T) {
 			t.Fatal(err)
 		}
 		e, ok := Lookup(tc.id)
-		if !ok || !slices.Equal(e.Manifest.Argv, want) {
-			t.Errorf("%s: argv %v, devlane says %v", tc.id, e.Manifest.Argv, want)
+		if !ok || !slices.Equal(e.Manifest.Compose(nil), want) {
+			t.Errorf("%s: argv %v, devlane says %v", tc.id, e.Manifest.Compose(nil), want)
 		}
 	}
 	// the Go verbs devlane does not spell as argv: fmt and tidy/vendor are
@@ -81,8 +81,8 @@ func TestTheDevAtomsDoNotDriftFromDagger(t *testing.T) {
 	for id, want := range map[string][]string{
 		"dev:go-fmt": {"go", "fmt", "./..."}, "dev:go-tidy": {"go", "mod", "tidy"}, "dev:go-vendor": {"go", "mod", "vendor"},
 	} {
-		if e, _ := Lookup(id); !slices.Equal(e.Manifest.Argv, want) {
-			t.Errorf("%s: argv %v, want %v", id, e.Manifest.Argv, want)
+		if e, _ := Lookup(id); !slices.Equal(e.Manifest.Compose(nil), want) {
+			t.Errorf("%s: argv %v, want %v", id, e.Manifest.Compose(nil), want)
 		}
 	}
 }
@@ -144,4 +144,131 @@ func manifestOf(t *testing.T, id string) atomkit.Manifest {
 		t.Fatalf("%s: no manifest", id)
 	}
 	return *e.Manifest
+}
+
+// todaysArgv is each dev atom's argv with no caller arguments as the landed
+// manifests carried it before the argument rules (foundry-tools#503): the
+// proofs that ran on that shape depend on it staying byte-identical.
+var todaysArgv = map[string][]string{
+	"dev:go-build":    {"go", "build", "./..."},
+	"dev:go-vet":      {"go", "vet", "./..."},
+	"dev:go-test":     {"go", "test", "-race", "./..."},
+	"dev:go-fmt":      {"go", "fmt", "./..."},
+	"dev:go-tidy":     {"go", "mod", "tidy"},
+	"dev:go-vendor":   {"go", "mod", "vendor"},
+	"dev:rust-check":  {"cargo", "check", "--workspace"},
+	"dev:rust-build":  {"cargo", "build", "--workspace"},
+	"dev:rust-test":   {"cargo", "test", "--workspace"},
+	"dev:rust-clippy": {"cargo", "clippy", "--workspace", "--all-targets", "--", "-W", "clippy::all", "-D", "warnings"},
+	"dev:rust-fmt":    {"cargo", "fmt", "--all"},
+	"dev:rust-lock":   {"cargo", "generate-lockfile"},
+	"dev:rust-update": {"cargo", "update"},
+}
+
+// TestTheDevAtomsKeepTodaysArgvWithNoArguments: the byte-identical guarantee.
+func TestTheDevAtomsKeepTodaysArgvWithNoArguments(t *testing.T) {
+	if len(todaysArgv) != 13 {
+		t.Fatalf("%d rows, want 13", len(todaysArgv))
+	}
+	for id, want := range todaysArgv {
+		m := manifestOf(t, id)
+		for _, args := range [][]string{nil, {}} {
+			if got := m.Compose(args); !slices.Equal(got, want) {
+				t.Errorf("%s: argv %v, want %v", id, got, want)
+			}
+		}
+	}
+}
+
+// TestTheDevAtomsComposeAsDaggerDoes: with caller arguments the manifests give
+// devlane's own argv for every verb devlane spells (GoArgv, RustArgv).
+func TestTheDevAtomsComposeAsDaggerDoes(t *testing.T) {
+	goCalls := map[string][][]string{
+		"build": {{"./pkg"}, {"-v"}, {"-v", "./a/..."}, {"./a", "./b"}, {"."}, {"example.com/x/y"}, {"-tags", "x"}, {"-tags", "x", "./p"}},
+		"vet":   {{"./pkg"}, {"-v"}, {"-v", "./a/..."}, {"./a", "./b"}},
+		"test": {{"./pkg"}, {"-run", "TestCanon"}, {"-run", "TestX", "-count=1"}, {"-race=false"}, {"-race=false", "./p"}, {"-race"},
+			{"-args", "-v"}, {"./p", "-args", "./x"}, {"-run", "TestX", "./p"}, {"-v", "./..."}, {"-timeout", "5m", "./p"}},
+	}
+	for verb, calls := range goCalls {
+		m := manifestOf(t, "dev:go-"+verb)
+		for _, args := range calls {
+			want, err := devlane.GoArgv(verb, args, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := m.Compose(args); !slices.Equal(got, want) {
+				t.Errorf("go %s %v: manifest %v, devlane %v", verb, args, got, want)
+			}
+		}
+	}
+	rustCalls := map[string][][]string{
+		"check": {{"-p", "foo"}, {"--lib"}, {"--package=foo"}, {"-pfoo"}, {"--", "-A", "x"}, {"--workspace", "--exclude", "x"}, {"--manifest-path", "a/Cargo.toml"}, {"--profile", "release"}, {"foo_test"}},
+		"clippy": {{"-p", "foo"}, {"--lib"}, {"--", "-A", "dead_code"}, {"--no-deps"}, {"--tests", "-p", "foo"}, {"--all-targets"},
+			{"--manifest-path", "a/Cargo.toml"}, {"-p", "foo", "--", "-A", "x"}, {"--bin", "x"}, {"--examples"}, {"--workspace", "--"}},
+	}
+	rustCalls["build"], rustCalls["test"] = rustCalls["check"], rustCalls["check"]
+	for verb, calls := range rustCalls {
+		m := manifestOf(t, "dev:rust-"+verb)
+		for _, args := range calls {
+			want, err := devlane.RustArgv(verb, args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := m.Compose(args); !slices.Equal(got, want) {
+				t.Errorf("cargo %s %v: manifest %v, devlane %v", verb, args, got, want)
+			}
+		}
+	}
+	// the verbs with no default to replace append, as devlane does.
+	for _, tc := range []struct {
+		verb string
+		args []string
+		want []string
+	}{
+		{"fmt", []string{"--check"}, []string{"cargo", "fmt", "--all", "--check"}},
+		{"lock", []string{"--offline"}, []string{"cargo", "generate-lockfile", "--offline"}},
+		{"update", []string{"-p", "foo"}, []string{"cargo", "update", "-p", "foo"}},
+	} {
+		want, err := devlane.RustArgv(tc.verb, tc.args)
+		if err != nil || !slices.Equal(want, tc.want) {
+			t.Fatalf("devlane %s %v: %v, %v", tc.verb, tc.args, want, err)
+		}
+		if got := manifestOf(t, "dev:rust-"+tc.verb).Compose(tc.args); !slices.Equal(got, tc.want) {
+			t.Errorf("cargo %s %v: %v, want %v", tc.verb, tc.args, got, tc.want)
+		}
+	}
+}
+
+// TestTheDevAtomsDocumentedArguments: the worked examples of the change.
+func TestTheDevAtomsDocumentedArguments(t *testing.T) {
+	for _, tc := range []struct {
+		id   string
+		args []string
+		want []string
+	}{
+		{"dev:go-test", []string{"./pkg"}, []string{"go", "test", "-race", "./pkg"}},
+		{"dev:go-test", []string{"-run", "TestCanon"}, []string{"go", "test", "-race", "-run", "TestCanon", "./..."}},
+		{"dev:rust-test", []string{"-p", "foo"}, []string{"cargo", "test", "-p", "foo"}},
+		{"dev:rust-clippy", []string{"-p", "foo"}, []string{"cargo", "clippy", "--all-targets", "-p", "foo", "--", "-W", "clippy::all", "-D", "warnings"}},
+		{"dev:rust-clippy", []string{"--lib"}, []string{"cargo", "clippy", "--workspace", "--lib", "--", "-W", "clippy::all", "-D", "warnings"}},
+		{"dev:rust-clippy", []string{"--", "-A", "dead_code"}, []string{"cargo", "clippy", "--workspace", "--all-targets", "--", "-A", "dead_code"}},
+		{"dev:go-fmt", []string{"./pkg"}, []string{"go", "fmt", "./pkg"}},
+		{"dev:go-tidy", []string{"-v"}, []string{"go", "mod", "tidy", "-v"}},
+		{"dev:go-vendor", []string{"-v"}, []string{"go", "mod", "vendor", "-v"}},
+	} {
+		if got := manifestOf(t, tc.id).Compose(tc.args); !slices.Equal(got, tc.want) {
+			t.Errorf("%s %v: %v, want %v", tc.id, tc.args, got, tc.want)
+		}
+	}
+}
+
+// TestOnlyTheLockfileVerbsSkipThePreflight: dev:rust-lock and dev:rust-update
+// exist for a stale or missing Cargo.lock, which `cargo fetch --locked` refuses.
+func TestOnlyTheLockfileVerbsSkipThePreflight(t *testing.T) {
+	for _, tc := range devAtoms {
+		want := tc.id != "dev:rust-lock" && tc.id != "dev:rust-update"
+		if got := manifestOf(t, tc.id).RunsPreflight(); got != want {
+			t.Errorf("%s: RunsPreflight %v, want %v", tc.id, got, want)
+		}
+	}
 }

@@ -6,7 +6,13 @@ group = "language"
 desc = "go vet ./... reports nothing, run by hand from the dev lane."
 surface = "root:go.mod"
 toolchain = "go"
-argv = ["go", "vet", "./..."]
+argv = ["go", "vet"]
 args = "append"
 per_module = false
 judge = "exit"
+
+[[default]]
+args = ["./..."]
+unless = ["@package"]
+tail = true
+until = "-args"

@@ -48,7 +48,7 @@ const (
 // fields is command-atom@1's field set: a top-level key outside it declares a
 // second step (rule 1).
 var fields = []string{"schema", "id", "stage", "lane", "group", "desc", "surface", "toolchain", "argv", "per_module",
-	"judge", "needs", "timeout", "subsumed_by", "not_on_forks", "writes_tree", "args", "env"}
+	"judge", "needs", "timeout", "subsumed_by", "not_on_forks", "writes_tree", "args", "default", "preflight", "env"}
 
 // breach is one rule a manifest breaks, before its path and ending are added.
 type breach struct{ cause, text string }
@@ -118,6 +118,7 @@ func breachesOf(raw []byte) []breach {
 		out = append(out, breach{causeArgvShape, "argv must be one non-empty list of strings"})
 		argv = nil
 	}
+	argv = append(argv, defaultArgs(doc["default"])...)
 	for _, b := range atomkit.OneCommandBreaches(argv, envOf(doc["env"])) {
 		out = append(out, breach{b.Cause, b.Text})
 	}
@@ -139,6 +140,18 @@ func stringList(v any) ([]string, bool) {
 		out[i] = s
 	}
 	return out, true
+}
+
+// defaultArgs is the arguments of every [[default]] table, in order: what the
+// manifest can add to its argv on its own, which the script rules read too.
+func defaultArgs(v any) []string {
+	var out []string
+	tables, _ := v.([]map[string]any)
+	for _, t := range tables {
+		args, _ := stringList(t["args"])
+		out = append(out, args...)
+	}
+	return out
 }
 
 // envOf is the manifest's env table, its string values only: a value of any

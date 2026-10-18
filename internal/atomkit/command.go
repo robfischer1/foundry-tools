@@ -97,7 +97,7 @@ type ExecFunc func(ctx context.Context, argv []string, dir string) ExecResult
 type Command struct {
 	ID, Stage, Lane string
 	Manifest        Manifest
-	// Args are appended to argv when the manifest says args = "append".
+	// Args are the caller's arguments, composed into argv when the manifest says args = "append" (Manifest.Compose).
 	Args []string
 	// Preflight is the toolchain's preflight argv from tools.toml; nil is none.
 	Preflight []string
@@ -123,13 +123,10 @@ func RunCommand(ctx context.Context, c Command) checks.Verdict {
 			return c.verdict(checks.StatePass, "absent", "no "+moduleFileName(m.Toolchain)+" in the tree")
 		}
 	}
-	argv := m.Argv
-	if m.Args == "append" {
-		argv = append(append([]string{}, argv...), c.Args...)
-	}
+	argv := m.Compose(c.Args)
 	results := make([]dirResult, 0, len(dirs))
 	for _, d := range dirs {
-		if len(c.Preflight) > 0 {
+		if len(c.Preflight) > 0 && m.RunsPreflight() {
 			if out := c.Exec(ctx, c.Preflight, d); out.Code != 0 {
 				return c.cannotRun(fmt.Sprintf("%s: CANNOT RUN - preflight `%s` exited %d: %s",
 					c.ID, strings.Join(c.Preflight, " "), out.Code, lastLine(out.Stderr)))
