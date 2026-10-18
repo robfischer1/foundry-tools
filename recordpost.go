@@ -64,7 +64,7 @@ func postRecord(ctx context.Context, repo string, token *dagger.Secret, record s
 	if token != nil {
 		secret = token
 	}
-	_, _ = fmt.Fprintln(recordPostOut, "record post: "+recordPostOutcome(ctx, repo, secret, record))
+	_, _ = fmt.Fprintln(recordPostOut, "record post: "+recordPostOutcomeWith(ctx, repo, secret, record, sendRecordRetrying))
 }
 
 // recordPostOut is where postRecord's one line goes: the lane's stderr, the
@@ -75,11 +75,30 @@ var recordPostOut io.Writer = os.Stderr
 // the line a reader of the lane's log needs. A nil token is a lane whose call
 // declared none.
 func recordPostOutcome(ctx context.Context, repo string, token plaintexter, record string) string {
+	return recordPostOutcomeWith(ctx, repo, token, record, sendRecord)
+}
+
+// recordPostOutcomeWith is recordPostOutcome over a chosen sender: the lane's
+// own post retries a door that is rolling (sendRecordRetrying); the rider's
+// stays one attempt, because the gate holds its exit on the rider's post and
+// ride.go bounds that wait.
+func recordPostOutcomeWith(ctx context.Context, repo string, token plaintexter, record string, send sender) string {
 	if token == nil {
 		return "not posted: no record token"
 	}
-	return postRecordWith(ctx, repo, token, record)
+	endpoint, ok := recordEndpoint(repo)
+	if !ok {
+		return "not posted: no door to post to (the run was built with no repo URL)"
+	}
+	secret, err := token.Plaintext(ctx)
+	if err != nil {
+		return fmt.Sprintf("not posted: the record token could not be read: %v", err)
+	}
+	return send(ctx, endpoint, secret, record)
 }
+
+// sender makes the post and answers its line.
+type sender func(ctx context.Context, endpoint, secret, record string) string
 
 // plaintexter is the one thing postRecord needs a live engine for.
 //
@@ -92,18 +111,71 @@ type plaintexter interface {
 	Plaintext(context.Context) (string, error)
 }
 
-// postRecordWith is postRecord once the token is known to be there.
+// postRecordWith is postRecord once the token is known to be there, one attempt.
 func postRecordWith(ctx context.Context, repo string, token plaintexter, record string) string {
-	endpoint, ok := recordEndpoint(repo)
-	if !ok {
-		return "not posted: no door to post to (the run was built with no repo URL)"
-	}
-	secret, err := token.Plaintext(ctx)
-	if err != nil {
-		return fmt.Sprintf("not posted: the record token could not be read: %v", err)
-	}
-	return sendRecord(ctx, endpoint, secret, record)
+	return recordPostOutcomeWith(ctx, repo, token, record, sendRecord)
 }
+
+// recordRetrySchedule is the wait before each retry of a post the door could
+// not take now. The runner that takes the post rolls dozens of times a day and
+// its door relay answers 502/503 or nothing for the better part of a minute; a
+// lane whose record was posted into that gap settled could-not-run no_record
+// (41 rows in two days, measured in erebus). Twelve attempts over about three
+// minutes outlast a roll. A variable so a test can shorten it.
+var recordRetrySchedule = []time.Duration{
+	time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second,
+	15 * time.Second, 15 * time.Second, 15 * time.Second,
+	30 * time.Second, 30 * time.Second, 30 * time.Second, 30 * time.Second,
+}
+
+// recordUnknownTokenRetries bounds the retries of a 401: a runner that has just
+// started refuses a token it has not yet read back, but a token that is
+// genuinely unknown must not hold the lane.
+const recordUnknownTokenRetries = 3
+
+// recordSleep waits out a retry's delay, until ctx ends.
+var recordSleep = func(ctx context.Context, d time.Duration) {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+	case <-t.C:
+	}
+}
+
+// sendRecordRetrying is sendRecord, tried again while the door cannot take the
+// post: unreachable, a 5xx, a 429, and (a few times) a 401. A 400, 404 or 413
+// is the door's answer and ends it. Each retry is a line on the lane's stderr.
+func sendRecordRetrying(ctx context.Context, endpoint, secret, record string) string {
+	started := time.Now()
+	for attempt := 0; ; attempt++ {
+		line, status := sendRecordStatus(ctx, endpoint, secret, record)
+		if attempt >= len(recordRetrySchedule) || ctx.Err() != nil || !recordRetryable(status, attempt) {
+			if attempt > 0 {
+				line += fmt.Sprintf(" (attempt %d, %s after the first)", attempt+1, time.Since(started).Round(time.Second))
+			}
+			return line
+		}
+		_, _ = fmt.Fprintf(recordPostOut, "record post: attempt %d: %s - trying again in %s\n", attempt+1, line, recordRetrySchedule[attempt])
+		recordSleep(ctx, recordRetrySchedule[attempt])
+	}
+}
+
+// recordRetryable reports whether a post's status is worth another attempt:
+// 0 is no answer at all, notSentStatus a request that could not be built.
+func recordRetryable(status, attempt int) bool {
+	switch {
+	case status == notSentStatus:
+		return false
+	case status == 0, status >= 500, status == http.StatusTooManyRequests:
+		return true
+	case status == http.StatusUnauthorized:
+		return attempt < recordUnknownTokenRetries
+	}
+	return false
+}
+
+const notSentStatus = -1
 
 // sendRecord makes the request and answers what it got. It is postRecord
 // without the engine.
@@ -112,23 +184,30 @@ func postRecordWith(ctx context.Context, repo string, token plaintexter, record 
 // host only — recordEndpoint drops any userinfo), the status and at most one
 // line of the door's reply with the secret scrubbed out of it.
 func sendRecord(ctx context.Context, endpoint, secret, record string) string {
+	line, _ := sendRecordStatus(ctx, endpoint, secret, record)
+	return line
+}
+
+// sendRecordStatus is sendRecord that also answers the door's status (0: no
+// answer; notSentStatus: nothing was sent).
+func sendRecordStatus(ctx context.Context, endpoint, secret, record string) (string, int) {
 	if secret == "" {
-		return "not posted: the record token is empty"
+		return "not posted: the record token is empty", notSentStatus
 	}
 	if record == "" {
-		return "not posted: the record is empty"
+		return "not posted: the record is empty", notSentStatus
 	}
 	ctx, cancel := context.WithTimeout(ctx, recordPostTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(record))
 	if err != nil {
-		return fmt.Sprintf("not posted: no request could be built for %q: %v", endpoint, err)
+		return fmt.Sprintf("not posted: no request could be built for %q: %v", endpoint, err), notSentStatus
 	}
 	req.Header.Set("Authorization", "Bearer "+secret)
 	req.Header.Set("Content-Type", "application/octet-stream")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Sprintf("POST %s → could not reach the door: %v", endpoint, err)
+		return fmt.Sprintf("POST %s → could not reach the door: %v", endpoint, err), 0
 	}
 	defer func() { _ = resp.Body.Close() }()
 	// READ AT MOST recordReplyDrain, NEVER MORE. The reply is a status and at
@@ -136,7 +215,7 @@ func sendRecord(ctx context.Context, endpoint, secret, record string) string {
 	// the pool, and a door answering something enormous cannot make a lane
 	// read it.
 	reply, _ := io.ReadAll(io.LimitReader(resp.Body, recordReplyDrain))
-	return postAnswer(endpoint, resp.StatusCode, scrub(string(reply), secret))
+	return postAnswer(endpoint, resp.StatusCode, scrub(string(reply), secret)), resp.StatusCode
 }
 
 // postAnswer is the line for a post the door answered.
