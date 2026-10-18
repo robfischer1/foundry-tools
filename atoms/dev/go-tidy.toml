@@ -1,0 +1,13 @@
+schema = "command-atom@1"
+id = "dev:go-tidy"
+stage = "dev"
+lane = "go"
+group = "language"
+desc = "go mod tidy rewrites go.mod and go.sum in place."
+surface = "root:go.mod"
+toolchain = "go"
+argv = ["go", "mod", "tidy"]
+args = "append"
+per_module = false
+judge = "exit"
+writes_tree = true

@@ -1,0 +1,13 @@
+schema = "command-atom@1"
+id = "dev:rust-lock"
+stage = "dev"
+lane = "rust"
+group = "language"
+desc = "cargo generate-lockfile rewrites Cargo.lock in place."
+surface = "root:Cargo.toml"
+toolchain = "rust"
+argv = ["cargo", "generate-lockfile"]
+args = "append"
+per_module = false
+judge = "exit"
+writes_tree = true
