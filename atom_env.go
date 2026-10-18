@@ -110,6 +110,8 @@ var atomEnvironments = map[string]atomEnv{
 	// (atom_env_rust.go); neither reads the other's output
 	"rust:wit-guest":   {container: witGuestLane, bind: witTools(false)},
 	"rust:wit-compose": {container: witComposeLane, bind: witTools(true)},
+	// dev:rust-replay is the same body: the same lane, volume and tools
+	"dev:rust-replay": {container: witComposeLane, bind: witTools(true)},
 
 	// The release atoms (atom_env_release.go): the lane, or the image's own base
 	// for the two that build on it, handed the tree as facts.

@@ -47,6 +47,8 @@ var atomsSourceInclude = []string{
 	"internal/orbitcompose/**",
 	"internal/orbitlane/**",
 	"internal/regenlane/**",
+	// rust:wit-compose and dev:rust-replay share one body
+	"internal/witreplay/**",
 	"internal/retiredverbs/**",
 	"internal/releasekit/**",
 	"internal/buildlane/**",
