@@ -188,7 +188,7 @@ func GoTestServers(ctx context.Context, in Input, cwd string) ([]checks.TestDB, 
 		Tags: out, TagsErr: tagsErr, TagsCode: code,
 		Flows: flows, FlowsErr: flowsErr,
 	})
-	kubes, kubeLine := checks.SelectKubes(out, code)
+	kubes, kubeLine := checks.SelectKubes(out, tagsErr, code)
 	return dbs, brokers, caches, kubes, dbLine + "\n" + brokerLine + "\n" + cacheLine + "\n" + kubeLine
 }
 

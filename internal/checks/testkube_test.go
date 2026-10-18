@@ -126,18 +126,20 @@ func TestSelectKubes(t *testing.T) {
 	for _, c := range []struct {
 		name  string
 		tags  string
+		err   error
 		code  int
 		kubes int
 		line  string
 	}{
-		{"tagged", "//go:build live_db\n//go:build live_kube\n", 0, 1, "test kubes: live_kube → TEST_KUBE_URL, TEST_KUBE_TOKEN, TEST_KUBE_CA_FILE"},
-		{"no match is an answer", "", 1, 0, "test kubes: none — no test file sits behind a tag the fleet names"},
-		{"other tags only", "//go:build live_db\n", 0, 0, "test kubes: none — no test file sits behind a tag the fleet names"},
-		{"grep failed", "", 2, 0, "test kubes: none — the tree's build tags could not be read"},
-		{"could not start", "", -1, 0, "test kubes: none — the tree's build tags could not be read"},
-		{"a tag read despite a failed grep is not trusted", "//go:build live_kube\n", 2, 0, "test kubes: none — the tree's build tags could not be read"},
+		{"tagged", "//go:build live_db\n//go:build live_kube\n", nil, 0, 1, "test kubes: live_kube → TEST_KUBE_URL, TEST_KUBE_TOKEN, TEST_KUBE_CA_FILE"},
+		{"no match is an answer", "", nil, 1, 0, "test kubes: none — no test file sits behind a tag the fleet names"},
+		{"other tags only", "//go:build live_db\n", nil, 0, 0, "test kubes: none — no test file sits behind a tag the fleet names"},
+		{"grep failed", "", nil, 2, 0, "test kubes: none — the tree's build tags could not be read"},
+		{"could not start", "", nil, -1, 0, "test kubes: none — the tree's build tags could not be read"},
+		{"the engine failed the read", "", errors.New("mount would not evaluate"), 0, 0, "test kubes: none — the tree's build tags could not be read"},
+		{"a tag read despite a failed grep is not trusted", "//go:build live_kube\n", nil, 2, 0, "test kubes: none — the tree's build tags could not be read"},
 	} {
-		kubes, line := SelectKubes(c.tags, c.code)
+		kubes, line := SelectKubes(c.tags, c.err, c.code)
 		if len(kubes) != c.kubes || line != c.line {
 			t.Errorf("%s: SelectKubes = %d kubes, %q; want %d, %q", c.name, len(kubes), line, c.kubes, c.line)
 		}

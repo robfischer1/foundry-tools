@@ -235,13 +235,12 @@ func bindTestCaches(ctr *dagger.Container, caches []checks.TestCache, scope stri
 // testKubes is the kube-gated suites' read, binding nothing (testDatabases says
 // why the read and the binding are apart). The decision is checks.SelectKubes'.
 func (r *run) testKubes(ctx context.Context, ctr *dagger.Container) ([]checks.TestKube, string) {
+	// NO BRANCH LIVES HERE (testBrokers says why): the engine's error is a fact
+	// handed to the decision, where a unit test reaches it.
 	out, code, err := output(ctx, ctr.WithExec([]string{
 		"grep", "-rhoE", `^//go:build [A-Za-z0-9_]+$`, "--include=*_test.go", ".",
 	}, anyExit))
-	if err != nil {
-		code = -1
-	}
-	return checks.SelectKubes(out, code)
+	return checks.SelectKubes(out, err, code)
 }
 
 // newKubePKI is the credentials' author; a test replaces it to reach the failure.

@@ -236,10 +236,10 @@ func TestKubeScope(kubes []TestKube, why string) string {
 // reason: a guard inside the Dagger method is one no unit test can execute.
 //
 // grep exits 1 for no match, which is an ANSWER; 2 and up is grep failing, and a
-// negative code is the read that could not start. Neither is the same fact as an
+// negative code or an engine error is the read that could not start. Neither is the same fact as an
 // empty read, and the line says which.
-func SelectKubes(tags string, code int) ([]TestKube, string) {
-	if code < 0 || code > 1 {
+func SelectKubes(tags string, tagsErr error, code int) ([]TestKube, string) {
+	if tagsErr != nil || code < 0 || code > 1 {
 		return nil, TestKubeScope(nil, "the tree's build tags could not be read")
 	}
 	kubes := TestKubesFor(GoBuildTags(tags))
