@@ -6,7 +6,13 @@ group = "language"
 desc = "go build ./... succeeds, run by hand from the dev lane."
 surface = "root:go.mod"
 toolchain = "go"
-argv = ["go", "build", "./..."]
+argv = ["go", "build"]
 args = "append"
 per_module = false
 judge = "exit"
+
+[[default]]
+args = ["./..."]
+unless = ["@package"]
+tail = true
+until = "-args"

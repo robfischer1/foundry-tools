@@ -153,3 +153,43 @@ func TestIT_349_TheLandedManifestsAreOneCommand(t *testing.T) {
 		t.Fatalf("state %d\n%s", v.State, strings.Join(v.Logs, "\n"))
 	}
 }
+
+// withDefaults is the vet manifest with the argument rules and the preflight
+// opt-out the dev manifests use: still one command.
+const withDefaults = vet + `args = "append"
+preflight = false
+
+[[default]]
+args = ["--workspace"]
+unless = ["-p", "--workspace"]
+until = "--"
+
+[[default]]
+args = ["--", "-W", "clippy::all"]
+unless = ["--"]
+tail = true
+`
+
+func TestDefaultTablesAndPreflightAreOneCommand(t *testing.T) {
+	v := run(t, map[string]string{"atoms/dev/a.toml": withDefaults}, "atoms/dev/a.toml")
+	if v.State != 0 || len(v.Findings) != 0 || !slices.Equal(v.Logs, []string{"atoms/dev/a.toml: one command"}) {
+		t.Fatalf("%+v", v)
+	}
+}
+
+// TestADefaultCannotSmuggleASecondCommand: the rules read the composed argv, so
+// a chain, a heredoc or a multi-line argument in a default is a breach.
+func TestADefaultCannotSmuggleASecondCommand(t *testing.T) {
+	for _, tc := range []struct{ name, extra, cause, line string }{
+		{"chain", "[[default]]\nargs = [\"&&\", \"rm\"]\n", "chained-command", `chains a second command`},
+		{"heredoc", "[[default]]\nargs = [\"<<EOF\"]\n", "heredoc-marker", "carries a heredoc marker"},
+		{"multi-line", "[[default]]\nargs = [\"a\\nb\"]\n", "multi-line-argument", "is a multi-line argument"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			v := run(t, map[string]string{"atoms/dev/a.toml": vet + "args = \"append\"\n" + tc.extra}, "atoms/dev/a.toml")
+			if v.State != 1 || len(v.Findings) != 1 || v.Findings[0].Cause != tc.cause || !strings.Contains(v.Findings[0].Detail, tc.line) {
+				t.Fatalf("%+v", v)
+			}
+		})
+	}
+}
