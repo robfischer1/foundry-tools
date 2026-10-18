@@ -140,6 +140,9 @@ func Probe(ctx context.Context, in Input, a checks.AtomDef, name string, args ..
 // never ran answers its verdict instead, and the caller returns it.
 func RunTool(ctx context.Context, in Input, a checks.AtomDef, c Cmd) (string, int, *checks.Verdict) {
 	out, code := in.Runner()(ctx, c)
+	if v := interpreterRefused(ctx, in, a, c, out, code); v != nil {
+		return "", 0, v
+	}
 	if !ToolRan(code) {
 		v := NeverRan(a, append([]string{c.Name}, c.Args...), code, out)
 		return "", 0, &v
