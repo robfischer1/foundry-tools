@@ -1,0 +1,12 @@
+schema = "command-atom@1"
+id = "dev:go-build"
+stage = "dev"
+lane = "go"
+group = "language"
+desc = "go build ./... succeeds, run by hand from the dev lane."
+surface = "root:go.mod"
+toolchain = "go"
+argv = ["go", "build", "./..."]
+args = "append"
+per_module = false
+judge = "exit"
