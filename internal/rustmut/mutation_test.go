@@ -19,14 +19,75 @@ func TestTheRustEngineIsPinned(t *testing.T) {
 	}
 }
 
-// The three caps are one share: the flag's literal must track the constant, and
-// jobs x cores is the lane's whole budget.
+// The caps are one share: jobs x cores per mutant is the lane's whole budget
+// where the budget has room, and the flags are the same number in the linker's
+// own spelling.
 func TestRustMutationCPUShareIsAboutEightCores(t *testing.T) {
 	if rustMutantCores*rustMutationJobs != 8 {
 		t.Errorf("lane share = %d x %d cores, want 8", rustMutationJobs, rustMutantCores)
 	}
-	if want := "-C link-arg=-Wl,--thread-count=4"; rustMoldThreadsFlag != want {
-		t.Errorf("mold flag %q out of step with rustMutantCores, want %q", rustMoldThreadsFlag, want)
+}
+
+// buildEnv reads the environment cargo mutants ran with, under a CPU budget and
+// a toolchain.
+func buildEnv(t *testing.T, budget, toolchain string, mold bool) string {
+	t.Helper()
+	p := newPull(t, "critical_modules: src/lib.rs\n")
+	t.Setenv(checks.CPUsEnv, budget)
+	if toolchain != "" {
+		release, host, _ := strings.Cut(toolchain, "-")
+		p.first(rule{"rustc -vV", "host: " + host + "\nrelease: " + release + "\n", 0})
+	}
+	moldAvailable = func() bool { return mold }
+	if v := p.run(); v.State != 0 {
+		t.Fatalf("%s", said(v))
+	}
+	c, _ := p.call("cargo mutants --colors")
+	return strings.Join(c.Env, "\n")
+}
+
+// THE LANE FOLLOWS ITS CPU BUDGET, NOT THE NODE'S CORE COUNT (2026-10-19:
+// mutation-bg-stellar-core-rust held 11.9 of a 12-core limit on a 24-core node).
+// Where the budget covers jobs x cores the caps are what they always were; where
+// it does not each mutant gets its share, never less than one.
+func TestRustMutationCapsFollowTheCPUBudget(t *testing.T) {
+	for name, tc := range map[string]struct {
+		budget string
+		want   []string
+	}{
+		"the 12-core cap is the old four": {"12", []string{"CARGO_BUILD_JOBS=4", "NEXTEST_TEST_THREADS=4", "--thread-count=4"}},
+		"eight cores are the old four":    {"8", []string{"CARGO_BUILD_JOBS=4", "NEXTEST_TEST_THREADS=4", "--thread-count=4"}},
+		"four cores are two a mutant":     {"4", []string{"CARGO_BUILD_JOBS=2", "NEXTEST_TEST_THREADS=2", "--thread-count=2"}},
+		"one core is one a mutant":        {"1", []string{"CARGO_BUILD_JOBS=1", "NEXTEST_TEST_THREADS=1", "--thread-count=1"}},
+	} {
+		env := buildEnv(t, tc.budget, "", true)
+		for _, need := range tc.want {
+			if !strings.Contains(env, need) {
+				t.Errorf("%s: the environment lacks %s:\n%s", name, need, env)
+			}
+		}
+	}
+}
+
+// Without mold the executor's rust-lld sizes its own thread pool from the node
+// (17 threads a link on a 24-core node), so the budget rides the link args, but
+// only for a toolchain whose default linker is lld: another linker would fail
+// on the flag.
+func TestRustMutationCapsLLDWhereItIsTheDefaultLinker(t *testing.T) {
+	env := buildEnv(t, "4", "1.97.0-x86_64-unknown-linux-gnu", false)
+	if !strings.Contains(env, "CARGO_BUILD_RUSTFLAGS=-C link-arg=-Wl,--threads=2") {
+		t.Errorf("rust-lld is the linker and the link is uncapped:\n%s", env)
+	}
+	if strings.Contains(env, "thread-count") {
+		t.Errorf("mold's flag with no mold:\n%s", env)
+	}
+	for _, toolchain := range []string{"", "1.89.0-x86_64-unknown-linux-gnu", "1.97.0-aarch64-unknown-linux-gnu"} {
+		if env := buildEnv(t, "4", toolchain, false); strings.Contains(env, "CARGO_BUILD_RUSTFLAGS") {
+			t.Errorf("toolchain %q: a link flag for a linker not known to take it:\n%s", toolchain, env)
+		}
+	}
+	if env := buildEnv(t, "4", "1.97.0-x86_64-unknown-linux-gnu", true); !strings.Contains(env, "--thread-count=2") || strings.Contains(env, "--threads=") {
+		t.Errorf("mold is the linker and the flag is not its:\n%s", env)
 	}
 }
 
