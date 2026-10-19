@@ -82,9 +82,10 @@ func (l *publishLane) runNpm(ctx context.Context, hasNpmrc, turbo bool) (int, st
 	if err != nil {
 		return buildlane.CouldNotRun, "could not run: --npm-registry: " + err.Error()
 	}
+	l.begin("ts")
 	pkgs, code, reason := l.npmPackages(ctx)
 	if code != buildlane.Clean {
-		return code, reason
+		return l.stopArtifacts(code, reason)
 	}
 	// THE CREDENTIAL GOES TO ONE PLACE. A tree that names another registry would
 	// otherwise be handed the publisher's password for it.
@@ -135,11 +136,11 @@ func (l *publishLane) runNpm(ctx context.Context, hasNpmrc, turbo bool) (int, st
 		installed = ts.WithExec([]string{"bun", "install", "--frozen-lockfile"}, anyExit)
 		out, code, err := outputBoth(ctx, installed)
 		if err != nil {
-			return buildlane.CouldNotRun, fmt.Sprintf("could not run: bun install never ran: %v", err)
+			return l.stopArtifacts(buildlane.CouldNotRun, fmt.Sprintf("could not run: bun install never ran: %v", err))
 		}
 		fmt.Fprintln(os.Stderr, out)
 		if code != 0 {
-			return buildlane.ToolFailed("bun install --frozen-lockfile", out)
+			return l.stopArtifacts(buildlane.ToolFailed("bun install --frozen-lockfile", out))
 		}
 		break
 	}
@@ -151,11 +152,12 @@ func (l *publishLane) runNpm(ctx context.Context, hasNpmrc, turbo bool) (int, st
 	var failures []string
 	findings := false
 	for _, p := range absent {
-		code, reason := l.publishOne(ctx, installed, npmrc, p, turbo)
+		code, reason, inBuild := l.publishOne(ctx, installed, npmrc, p, turbo)
 		if code == buildlane.Clean {
 			published = append(published, p)
 			continue
 		}
+		l.packFailed(inBuild, code, reason)
 		failures = append(failures, reason)
 		findings = findings || code == buildlane.Findings
 	}
@@ -249,7 +251,7 @@ func (l *publishLane) npmManifest(ctx context.Context, dir string) (publishlane.
 // lifecycle scripts, because the script it would have run names a package
 // manager the lane need not carry (aglaia's says pnpm). Any other prepublishOnly
 // is the package's own to run, so bun runs it.
-func (l *publishLane) publishOne(ctx context.Context, installed *dagger.Container, npmrc func() (*dagger.Secret, int, string), p npmPackage, turbo bool) (int, string) {
+func (l *publishLane) publishOne(ctx context.Context, installed *dagger.Container, npmrc func() (*dagger.Secret, int, string), p npmPackage, turbo bool) (int, string, bool) {
 	workdir := path.Join("/src", p.dir)
 	ready := installed
 	args := []string{"bun", "publish", "--registry", l.npmRegistry}
@@ -261,17 +263,18 @@ func (l *publishLane) publishOne(ctx context.Context, installed *dagger.Containe
 		}
 		out, code, err := outputBoth(ctx, ready)
 		if err != nil {
-			return buildlane.CouldNotRun, fmt.Sprintf("could not run: the build of %s never ran: %v", p.what(), err)
+			return buildlane.CouldNotRun, fmt.Sprintf("could not run: the build of %s never ran: %v", p.what(), err), true
 		}
 		fmt.Fprintln(os.Stderr, out)
 		if code != 0 {
-			return buildlane.ToolFailed("the build of "+p.what(), out)
+			cls, why := buildlane.ToolFailed("the build of "+p.what(), out)
+			return cls, why, true
 		}
 		args = append(args, "--ignore-scripts")
 	}
 	rc, code, reason := npmrc()
 	if code != buildlane.Clean {
-		return code, reason
+		return code, reason, false
 	}
 	up := ready.
 		WithMountedSecret("/src/.npmrc", rc).
@@ -280,14 +283,15 @@ func (l *publishLane) publishOne(ctx context.Context, installed *dagger.Containe
 		WithExec(args, anyExit)
 	out, code, err := outputBoth(ctx, up)
 	if err != nil {
-		return buildlane.CouldNotRun, fmt.Sprintf("could not run: bun publish never ran for %s: %v", p.what(), err)
+		return buildlane.CouldNotRun, fmt.Sprintf("could not run: bun publish never ran for %s: %v", p.what(), err), false
 	}
 	fmt.Fprintln(os.Stderr, out)
 	if code != 0 {
-		return buildlane.ToolFailed("bun publish "+p.what(), out)
+		cls, why := buildlane.ToolFailed("bun publish "+p.what(), out)
+		return cls, why, false
 	}
 	publishSay("published %s", p.what())
-	return buildlane.Clean, ""
+	return buildlane.Clean, "", false
 }
 
 // npmReleased asks the registry's packument whether this version is released. A
