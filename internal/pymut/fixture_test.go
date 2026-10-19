@@ -57,6 +57,7 @@ func putFile(t *testing.T, root, rel, body string) {
 func newPull(t *testing.T, answers string) *pull {
 	t.Helper()
 	t.Setenv("ATOM_ORIGIN", "")
+	t.Setenv(checks.CPUsEnv, "12")
 	work := t.TempDir()
 	t.Setenv("ATOM_WORK", work)
 	root := t.TempDir()

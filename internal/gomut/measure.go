@@ -27,7 +27,7 @@ func (m *module) measure(ctx context.Context, since, changed string, tags []stri
 	}
 	misses := checks.Misses(keys, reused)
 	if len(reused) > 0 && len(misses) == 0 {
-		return m.folded(checks.GoMutationRun{Canary: checks.CanaryOK, MainCanary: checks.CanaryOK, Workers: goMutationWorkers},
+		return m.folded(checks.GoMutationRun{Canary: checks.CanaryOK, MainCanary: checks.CanaryOK, Workers: goWorkers()},
 			reused, reuseNote, misses, owner, nil)
 	}
 	// THE SCOPE IS THE UNITS IT GRADES, on every run (checks.GoMutationScope says
@@ -85,7 +85,7 @@ func (m *module) measure(ctx context.Context, since, changed string, tags []stri
 		classified, classifyErr = m.classify(ctx, report)
 	}
 	return m.folded(checks.GoMutationRun{
-		Status: status, Log: log, Report: raw, Profile: profile, Canary: canary, Workers: goMutationWorkers,
+		Status: status, Log: log, Report: raw, Profile: profile, Canary: canary, Workers: goWorkers(),
 		Classified: []byte(classified), ClassifyErr: classifyErr,
 		MainCanary: mainCanary, MisgradedFiles: misgraded, MisgradedFilesErr: misgradedErr,
 	}, reused, reuseNote, misses, owner, audited)
@@ -197,7 +197,7 @@ func (m *module) mutate(ctx context.Context, report, cache, since string, tags, 
 	if err != nil {
 		return atoms.Cmd{Name: "gomutants"}, "the ps for gomutants' memory cap could not be made: " + err.Error(), -1
 	}
-	args := []string{"-output", report, "-config", goMutationNoConfig, "-workers", strconv.Itoa(goMutationWorkers),
+	args := []string{"-output", report, "-config", goMutationNoConfig, "-workers", strconv.Itoa(goWorkers()),
 		"-disable", goMutationDisable, "-exclude-files", goMutationExclude, "-cache", cache, "-changed-since", since}
 	args = append(append(args, tags...), scope...)
 	env := append([]string{

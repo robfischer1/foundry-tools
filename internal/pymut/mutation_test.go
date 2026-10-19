@@ -414,3 +414,29 @@ func TestPythonMutationCannotRunWhenAWorkerWillNotSync(t *testing.T) {
 		t.Errorf("%s", said(v))
 	}
 }
+
+// A WORKER'S TEST RUN IS SIZED BY ITS SHARE OF THE CPU BUDGET. `pytest -n auto`
+// takes the node's core count, so each of the lane's workers would start a
+// process per node core (24 on dev01) inside a container capped at a few: the
+// share is told to xdist, in the measure and in the exec.
+func TestPythonMutationWorkersTellXdistTheirShareOfTheBudget(t *testing.T) {
+	for budget, want := range map[string]string{"8": "4", "4": "2", "3": "1", "1": "1"} {
+		p := newPull(t, "critical_modules: src/x.py\n")
+		t.Setenv(checks.CPUsEnv, budget)
+		if v := p.run(); v.State != 0 {
+			t.Fatalf("%s", said(v))
+		}
+		seen := 0
+		for j, cmd := range p.cmds {
+			if strings.Contains(p.runs[j], "uv run --with coverage") || strings.Contains(p.runs[j], "cosmic-ray exec") {
+				seen++
+				if env := strings.Join(cmd.Env, "\n"); !strings.Contains(env, "PYTEST_XDIST_AUTO_NUM_WORKERS="+want+"\n") && !strings.HasSuffix(env, "PYTEST_XDIST_AUTO_NUM_WORKERS="+want) {
+					t.Errorf("budget %s, %s: want xdist workers %s in\n%s", budget, p.runs[j], want, env)
+				}
+			}
+		}
+		if seen != 4 {
+			t.Errorf("budget %s: %d worker runs seen, want 2 measures and 2 execs", budget, seen)
+		}
+	}
+}

@@ -18,22 +18,27 @@ const (
 	// is shared by every lane in flight, and two copies at a rustc each is what
 	// fits beside them.
 	rustMutationJobs = 2
-	// THE LANE'S CPU SHARE, about 8 cores: rustMutationJobs mutants at
-	// rustMutantCores each. Measured 2026-10-12 01:46Z on dev01 (24 cores): load
-	// average 96, CPU PSI some ~0.70, seven 24-thread mold processes at once. Each
-	// mutant's cargo ran at -j nproc, mold linked at a thread per core and nextest
-	// ran a test per core, so one lane saturated the node while daedalus priced it
-	// as a few units (flux #3051). Three knobs, all set on the one exec so the
-	// baseline obeys them too:
+	// THE LANE'S CPU SHARE: at most about 8 cores, rustMutationJobs mutants at
+	// rustMutantCores each, and less where the atom's CPU budget (checks.CPUBudget:
+	// the executor's ATOM_CPUS, else the container's cpu.max, else the node) is
+	// smaller, so a container limited to 4 cores runs two mutants at two cores
+	// rather than eight cores of work throttled to four. Measured 2026-10-12
+	// 01:46Z on dev01 (24 cores): load average 96, CPU PSI some ~0.70, seven
+	// 24-thread mold processes at once. Each mutant's cargo ran at -j nproc, mold
+	// linked at a thread per core and nextest ran a test per core, so one lane
+	// saturated the node while daedalus priced it as a few units (flux #3051). And
+	// again 2026-10-19 on the executor, where there is no mold: a mutation-bg pod
+	// limited to 12 cores held 11.9 of them, four rust-lld links of 17 threads each
+	// (lld sizes its pool from the node, not the quota). Three knobs, all set on
+	// the one exec so the baseline obeys them too:
 	//   CARGO_BUILD_JOBS      cargo's build.jobs, rustc invocations per mutant
 	//   NEXTEST_TEST_THREADS  nextest's --test-threads, tests per mutant
 	//   --thread-count        mold 1.10.1 has no environment knob for it, so it
 	//                         rides rustc's link args (CARGO_BUILD_RUSTFLAGS, the
 	//                         lowest of cargo's rustflags sources: it never
-	//                         overrides a star's RUSTFLAGS or target rustflags)
+	//                         overrides a star's RUSTFLAGS or target rustflags);
+	//                         rust-lld takes --threads the same way
 	rustMutantCores = 4
-	// rustMoldThreadsFlag is the link arg that carries rustMutantCores to mold.
-	rustMoldThreadsFlag = "-C link-arg=-Wl,--thread-count=4"
 	// rustTestRunnerEnv keys cargo's runner by the host triple; every engine node
 	// is x86_64 (measured 2026-10-02).
 	rustTestRunnerEnv = "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER"
@@ -55,6 +60,17 @@ var (
 // upstream's rust, which does not, and the verdict does not depend on it: only
 // the link time does.
 var moldAvailable = func() bool { _, err := exec.LookPath("mold"); return err == nil }
+
+// toolchain is the rust toolchain as "<release>-<host>", "" when rustc would not
+// say: the flag it gates is an optimisation, and a probe that fails costs only
+// the cap.
+func (g *grading) toolchain(ctx context.Context) string {
+	out, code := g.run(ctx, g.tree, "rustc", "-vV")
+	if code != 0 {
+		return ""
+	}
+	return checks.RustcToolchain(out)
+}
 
 // measure runs cargo-mutants and settles what it left.
 //
@@ -107,14 +123,18 @@ func (g *grading) measure(ctx context.Context, diff string, packages []string, k
 		return g.settle(2, "CANNOT RUN - the atom never ran: "+err.Error())
 	}
 	args := []string{"--"}
+	cores := checks.CoresPerSlot(checks.CPUBudget(), rustMutationJobs, rustMutantCores)
 	env := []string{
 		"TMPDIR=" + tmp, "CARGO_PROFILE_DEV_DEBUG=0", "CARGO_PROFILE_TEST_DEBUG=0",
-		rustTestRunnerEnv + "=" + rustTestRunner, "CARGO_BUILD_JOBS=" + strconv.Itoa(rustMutantCores),
-		"NEXTEST_TEST_THREADS=" + strconv.Itoa(rustMutantCores),
+		rustTestRunnerEnv + "=" + rustTestRunner, "CARGO_BUILD_JOBS=" + strconv.Itoa(cores),
+		"NEXTEST_TEST_THREADS=" + strconv.Itoa(cores),
 	}
-	if moldAvailable() {
+	switch {
+	case moldAvailable():
 		args = append(args, "mold", "-run")
-		env = append(env, "CARGO_BUILD_RUSTFLAGS="+rustMoldThreadsFlag)
+		env = append(env, "CARGO_BUILD_RUSTFLAGS="+checks.MoldThreadsFlag(cores))
+	case checks.LLDIsDefault(g.toolchain(ctx)):
+		env = append(env, "CARGO_BUILD_RUSTFLAGS="+checks.LLDThreadsFlag(cores))
 	}
 	args = append(args, "cargo", "mutants", "--colors", "never", "--caught", "--unviable", "-j", strconv.Itoa(rustMutationJobs),
 		"--build-timeout", rustBuildTimeout, "--minimum-test-timeout", rustMinTestTimeout, "--test-tool", "nextest")

@@ -57,6 +57,8 @@ func putFile(t *testing.T, root, rel, body string) {
 func newPull(t *testing.T, answers string) *pull {
 	t.Helper()
 	t.Setenv("ATOM_ORIGIN", "")
+	// The caps follow the CPU budget; the default case is a quota with room.
+	t.Setenv(checks.CPUsEnv, "12")
 	work := t.TempDir()
 	t.Setenv("ATOM_WORK", work)
 	root := t.TempDir()

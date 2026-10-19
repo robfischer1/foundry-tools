@@ -34,6 +34,12 @@ const (
 	// the second run and every one of the nine came back KILLED; not one killed
 	// mutant flipped the other way. 4 is the number that measured clean, and it
 	// is the number gremlins' own config had settled on for the same reason.
+	//
+	// It is also a CPU knob, and the same contention applies when the container
+	// has fewer cores than workers: goWorkers is this, or the CPU budget if that
+	// is smaller. The workers stay at one core each (GOMAXPROCS=1 on the exec), so
+	// four workers is about four cores; the engine key (keys.go) names this
+	// constant, since a smaller count only removes contention.
 	goMutationWorkers = 4
 	// goMutationNoConfig IS WHAT MAKES THE ARGV THE WHOLE CONFIGURATION, and it
 	// closes a hole this lane shipped with.
@@ -133,3 +139,8 @@ const (
 // lane on Rob's decision, in each tool's words, so this is the Go rows joined
 // and nothing a session types.
 var goMutationDisable = strings.Join(checks.SkippedMutators(checks.MutatorGo), ",")
+
+// goWorkers is gomutants' -workers for this run: goMutationWorkers where the CPU
+// budget (checks.CPUBudget) covers one core each, and one per core where it does
+// not.
+func goWorkers() int { return checks.CoresPerSlot(checks.CPUBudget(), 1, goMutationWorkers) }
