@@ -103,6 +103,7 @@ var catalogueOrder = []string{
 	"dies:grants-stamp",
 	"dies:resource-referents",
 	"dies:capabilities-served",
+	"dies:tool-schemas-served",
 	"dies:render-author",
 	"dies:authz-grid",
 	"law:lint",

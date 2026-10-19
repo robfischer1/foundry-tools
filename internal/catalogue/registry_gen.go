@@ -27,6 +27,7 @@ import (
 	diesschema "dagger/foundry-tools/atoms/dies/schema"
 	diesschemarendered "dagger/foundry-tools/atoms/dies/schema-rendered"
 	diesschemas "dagger/foundry-tools/atoms/dies/schemas"
+	diestoolschemasserved "dagger/foundry-tools/atoms/dies/tool-schemas-served"
 	dieswiregrammar "dagger/foundry-tools/atoms/dies/wire-grammar"
 	dieswitregenerated "dagger/foundry-tools/atoms/dies/wit-regenerated"
 	fleetcheckaddedlargefiles "dagger/foundry-tools/atoms/fleet/check-added-large-files"
@@ -135,6 +136,7 @@ var Defs = []*atomkit.Def{
 	&diesschema.Def,
 	&diesschemarendered.Def,
 	&diesschemas.Def,
+	&diestoolschemasserved.Def,
 	&dieswiregrammar.Def,
 	&dieswitregenerated.Def,
 	&fleetcheckaddedlargefiles.Def,
