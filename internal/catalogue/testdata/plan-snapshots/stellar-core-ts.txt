@@ -79,6 +79,7 @@ run:
   bundle:orbits
   bundle:policy
   bundle:resign
+  dev:ts-check
   dev:ts-fmt
   dev:ts-lint
   dev:ts-regen
@@ -125,6 +126,7 @@ absent:
   dev:go-update
   dev:go-vendor
   dev:go-vet
+  dev:python-check
   dev:python-fmt
   dev:python-lint
   dev:python-test

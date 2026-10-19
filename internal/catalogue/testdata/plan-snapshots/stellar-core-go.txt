@@ -123,6 +123,7 @@ absent:
   python:mutation
   rust:mutation
   ts:mutation
+  dev:python-check
   dev:python-test
   dev:python-typecheck
   dev:rust-build
@@ -134,6 +135,7 @@ absent:
   dev:rust-replay
   dev:rust-test
   dev:rust-update
+  dev:ts-check
   dev:ts-fmt
   dev:ts-lint
   dev:ts-regen

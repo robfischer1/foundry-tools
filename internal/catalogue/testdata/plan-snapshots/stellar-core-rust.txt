@@ -132,8 +132,10 @@ absent:
   dev:go-update
   dev:go-vendor
   dev:go-vet
+  dev:python-check
   dev:python-test
   dev:python-typecheck
+  dev:ts-check
   dev:ts-fmt
   dev:ts-lint
   dev:ts-regen
