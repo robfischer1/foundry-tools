@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"dagger/foundry-tools/internal/checks"
 )
 
 const plainScript = `#!/bin/sh
@@ -137,5 +139,65 @@ func TestAComposeLineStopsAtTheFirstWordThatIsNotAWorld(t *testing.T) {
 	g, err := ParseBuildGuest(text)
 	if err != nil || !reflect.DeepEqual(g.Compose, []string{"identity"}) {
 		t.Errorf("%+v %v", g, err)
+	}
+}
+
+// withRustKit points the one setting somewhere else for a test.
+func withRustKit(t *testing.T, k checks.KitSource) {
+	t.Helper()
+	old := checks.RustKit
+	checks.RustKit = k
+	t.Cleanup(func() { checks.RustKit = old })
+}
+
+// THE DEFAULT SCRIPT IS TODAY'S, line for line.
+func TestRenderBuildGuestClonesTheKitsOwnRepositoryByDefault(t *testing.T) {
+	w := World{Pkg: "sqlport", Name: "sqlport-core", Version: "0.2.0"}
+	text := RenderBuildGuest(w, "0123456789abcdef0123456789abcdef01234567", "1.262.0", "0.12.0")
+	for _, want := range []string{
+		"git clone --quiet https://git.notusmi.com/stellar-core-rust.git \"$TMP/src\"\n",
+		"(cd \"$TMP/src\" && tools/compose/compose.sh \"$TMP/composed.wasm\" sqlport >/dev/null)\n",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("missing %q in\n%s", want, text)
+		}
+	}
+}
+
+func TestRenderBuildGuestFollowsTheOneSetting(t *testing.T) {
+	withRustKit(t, checks.KitSource{Repo: "rob/stellar-core", Subdir: "rust"})
+	w := World{Pkg: "sqlport", Name: "sqlport-core", Version: "0.2.0"}
+	text := RenderBuildGuest(w, "0123456789abcdef0123456789abcdef01234567", "1.262.0", "0.12.0")
+	for _, want := range []string{
+		"git clone --quiet https://git.notusmi.com/stellar-core.git \"$TMP/src\"\n",
+		"(cd \"$TMP/src/rust\" && tools/compose/compose.sh",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("missing %q in\n%s", want, text)
+		}
+	}
+	if g, err := ParseBuildGuest(text); err != nil || !reflect.DeepEqual(g.Compose, []string{"sqlport"}) {
+		t.Errorf("a script it wrote does not read back: %+v %v", g, err)
+	}
+}
+
+func TestRenderProvenanceNamesTheKitsRepositoryAndSubdirOnlyWhenThereIsOne(t *testing.T) {
+	in := NewProv{
+		Core: "sqlport", World: World{Pkg: "sqlport", Name: "sqlport-core", Version: "0.2.0"}, Commit: "0123456789abcdef0123456789abcdef01234567",
+		Rev: "v0.78.0", Toolchain: "rustc 1.99.0", GenCommit: "aeb03bfd4a6f14e29b1a91dcdfad05e02695db39", WitSHA256: strings.Repeat("c", 64),
+		Guest: Rec{File: "guest.wasm", SHA256: strings.Repeat("a", 64), Bytes: 1}, Embedded: Rec{File: "e.wasm", SHA256: strings.Repeat("b", 64), Bytes: 2},
+		Bindings: Rec{File: "zz_generated.go", SHA256: strings.Repeat("d", 64), Bytes: 3},
+	}
+	text := RenderProvenance(in)
+	if !strings.Contains(text, `"repo": "rob/stellar-core-rust"`) || strings.Contains(text, "subdir") {
+		t.Errorf("the default records today's repository and no subdir:\n%s", text)
+	}
+	withRustKit(t, checks.KitSource{Repo: "rob/stellar-core", Subdir: "rust"})
+	text = RenderProvenance(in)
+	if !strings.Contains(text, `"repo": "rob/stellar-core"`) || !strings.Contains(text, `"subdir": "rust"`) {
+		t.Errorf("\n%s", text)
+	}
+	if _, err := ParseProv(text); err != nil {
+		t.Errorf("a provenance with a subdir does not read back: %v", err)
 	}
 }

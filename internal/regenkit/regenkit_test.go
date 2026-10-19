@@ -98,7 +98,7 @@ func TestUnpackCoreFetchesOneCommitAndUnpacksItsArchive(t *testing.T) {
 	if err != nil || core != filepath.Join(base, "core") {
 		t.Fatalf("%q %v", core, err)
 	}
-	if len(lines) != 4 || !strings.HasPrefix(lines[0], "git init") || !strings.Contains(lines[1], checks.TSRegenCoreGit+" c0ffee") ||
+	if len(lines) != 4 || !strings.HasPrefix(lines[0], "git init") || !strings.Contains(lines[1], checks.RustKit.GitURL()+" c0ffee") ||
 		!strings.HasPrefix(lines[2], "git archive") || !strings.HasPrefix(lines[3], "tar -xf ") || dirs[1] != filepath.Join(base, "stellar-core-rust") {
 		t.Errorf("%q", lines)
 	}
@@ -116,5 +116,24 @@ func TestUnpackCoreFetchesOneCommitAndUnpacksItsArchive(t *testing.T) {
 	}
 	if _, err := UnpackCore(run, blocked, "c0ffee"); err == nil {
 		t.Error("a base that is a file was unpacked into")
+	}
+}
+
+// A kit in a subdirectory is archived from that subdirectory, so the core
+// unpacks with its crate at the root, as it does today.
+func TestUnpackCoreArchivesTheKitsSubdirectory(t *testing.T) {
+	old := checks.RustKit
+	checks.RustKit = checks.KitSource{Repo: "rob/stellar-core", Subdir: "rust"}
+	t.Cleanup(func() { checks.RustKit = old })
+	var lines []string
+	run := func(_ string, _, argv []string) (string, error) {
+		lines = append(lines, strings.Join(argv, " "))
+		return "", nil
+	}
+	if _, err := UnpackCore(run, t.TempDir(), "c0ffee"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(lines[1], "https://git.notusmi.com/stellar-core.git c0ffee") || !strings.HasSuffix(lines[2], " c0ffee:rust") {
+		t.Errorf("%q", lines)
 	}
 }

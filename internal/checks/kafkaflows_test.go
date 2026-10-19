@@ -411,3 +411,31 @@ func TestFetchKnownTopics(t *testing.T) {
 		t.Errorf("a closed door answered %v", err)
 	}
 }
+
+// The core's constants are read from the Go kit's one setting: today's repository
+// at its root, and the monorepo's subdirectory once the setting moves.
+func TestFetchKnownTopicsReadsTheGoKitsSetting(t *testing.T) {
+	var asked []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked = append(asked, r.URL.Query().Get("repo")+" "+r.URL.Query().Get("path"))
+		_, _ = w.Write([]byte("package p\n"))
+	}))
+	defer srv.Close()
+	door := Door{Base: srv.URL, Client: srv.Client()}
+	if _, err := FetchKnownTopics(context.Background(), door); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(asked, ","); got != "rob/stellar-core-go kafkatopics/topics.go,rob/stellar-core-go heartbeat/heartbeat.go" {
+		t.Errorf("by default the door is asked for %s", got)
+	}
+	old := GoKit
+	GoKit = KitSource{Repo: "rob/stellar-core", Subdir: "go"}
+	t.Cleanup(func() { GoKit = old })
+	asked = nil
+	if _, err := FetchKnownTopics(context.Background(), door); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(asked, ","); got != "rob/stellar-core go/kafkatopics/topics.go,rob/stellar-core go/heartbeat/heartbeat.go" {
+		t.Errorf("after the move the door is asked for %s", got)
+	}
+}

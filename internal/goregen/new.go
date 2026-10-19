@@ -143,7 +143,7 @@ func (r *runner) resolve(rev string) (string, *failure) {
 	if err := os.MkdirAll(r.work, 0o755); err != nil {
 		return "", cannot("resolve", "%v", err)
 	}
-	out, err := r.run(r.work, regenkit.GitEnv, "git", "ls-remote", checks.TSRegenCoreGit, "refs/tags/"+rev+"^{}", "refs/tags/"+rev)
+	out, err := r.run(r.work, regenkit.GitEnv, "git", "ls-remote", checks.RustKit.GitURL(), checks.RustKit.TagRef(rev)+"^{}", checks.RustKit.TagRef(rev))
 	if err != nil {
 		return "", cannot("resolve", "stellar-core-rust: %v", err)
 	}
@@ -152,9 +152,9 @@ func (r *runner) resolve(rev string) (string, *failure) {
 		sha, ref, ok := strings.Cut(strings.TrimSpace(l), "\t")
 		switch {
 		case !ok || !commitRE.MatchString(sha):
-		case ref == "refs/tags/"+rev+"^{}":
+		case ref == checks.RustKit.TagRef(rev)+"^{}":
 			return sha, nil
-		case ref == "refs/tags/"+rev:
+		case ref == checks.RustKit.TagRef(rev):
 			plain = sha
 		}
 	}

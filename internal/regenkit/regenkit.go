@@ -99,8 +99,8 @@ func UnpackCore(run Runner, base, commit string) (string, error) {
 		argv []string
 	}{
 		{base, nil, checks.RegenGitInit(repo)},
-		{repo, GitEnv, checks.RegenGitFetch(checks.TSRegenCoreGit, commit)},
-		{repo, nil, checks.RegenGitArchive(tar, commit)},
+		{repo, GitEnv, checks.RegenGitFetch(checks.RustKit.GitURL(), commit)},
+		{repo, nil, checks.RegenGitArchive(tar, checks.RustKit.Tree(commit))},
 		{base, nil, checks.RegenTar(tar, dir, false, 0, "")},
 	} {
 		if _, err := run(step.dir, step.env, step.argv); err != nil {

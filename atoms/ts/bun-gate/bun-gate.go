@@ -7,6 +7,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"dagger/foundry-tools/internal/atomkit"
@@ -83,13 +85,41 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 		return checks.VerdictOf(row, int(checks.StateFindings), id+": FINDINGS - no test file in the tree (bun's pattern: {.test,.spec,_test_,_spec_}.{js,ts,jsx,tsx}); nothing is built without tests")
 	}
 
-	out, code, bad = atoms.RunTool(ctx, in, row, atoms.Cmd{Dir: in.Root, Name: "bun", Args: []string{"run", "gate"}})
-	if bad != nil {
-		return *bad
+	// THE GATE RUNS WHERE THE SCRIPT IS. A bare workspace root (private, workspaces,
+	// no scripts: the monorepo's) has no gate script of its own, so each member's
+	// runs, in its directory, and the first that fails is the verdict. Any other
+	// root runs its own, exactly as before (checks.TSBareWorkspaceMembers).
+	dirs, bareRoot := []string{in.Root}, false
+	if manifest, err := os.ReadFile(filepath.Join(in.Root, "package.json")); err == nil {
+		if members, bare := checks.TSBareWorkspaceMembers(string(manifest), in.Files); bare {
+			if len(members) == 0 {
+				return checks.VerdictOf(row, int(checks.StateCannotRun), id+": CANNOT RUN - the root package.json is a bare workspace root and none of its workspaces matches a package.json in the tree, so there is no gate script to run")
+			}
+			dirs, bareRoot = nil, true
+			for _, m := range members {
+				dirs = append(dirs, filepath.Join(in.Root, filepath.FromSlash(m)))
+			}
+		}
 	}
-	// The script's exit is its failing tool's: tsc's 2 is a finding, not a
-	// could-not-run (checks.BunGateExit says why).
-	return checks.VerdictOf(row, checks.BunGateExit(code), out)
+	for _, dir := range dirs {
+		out, code, bad = atoms.RunTool(ctx, in, row, atoms.Cmd{Dir: dir, Name: "bun", Args: []string{"run", "gate"}})
+		if bad != nil {
+			return *bad
+		}
+		// The script's exit is its failing tool's: tsc's 2 is a finding, not a
+		// could-not-run (checks.BunGateExit says why).
+		if code != 0 {
+			v := checks.VerdictOf(row, checks.BunGateExit(code), out)
+			if bareRoot {
+				v.Reason = strings.Replace(v.Reason, id, id+" ["+filepath.Base(dir)+"]", 1)
+			}
+			return v
+		}
+	}
+	if bareRoot {
+		return checks.VerdictOf(row, 0, id+": PASS in "+strconv.Itoa(len(dirs))+" workspace members")
+	}
+	return checks.VerdictOf(row, 0, out)
 }
 
 // hasTests reports whether the population holds a file bun would run as a test.

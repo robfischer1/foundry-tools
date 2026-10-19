@@ -58,7 +58,7 @@ func TestACoreThatRegeneratesIdenticalLeavesTheTreeAsItWas(t *testing.T) {
 		}
 	}
 	// the chain: the commit fetched shallow, the recorded cargo argv with its own target, the recorded generator
-	if !s.f.has("git fetch --quiet --depth 1 "+checks.TSRegenCoreGit+" "+commitA) || !s.f.has("rustup target add wasm32-unknown-unknown") {
+	if !s.f.has("git fetch --quiet --depth 1 "+checks.RustKit.GitURL()+" "+commitA) || !s.f.has("rustup target add wasm32-unknown-unknown") {
 		t.Errorf("calls:\n%s", s.f.dump())
 	}
 	cargo := s.f.call("cargo build --locked --release --no-default-features --features wit-guest-alarm --target wasm32-unknown-unknown")

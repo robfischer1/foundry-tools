@@ -68,15 +68,23 @@ var row = checks.AtomDef{ID: id, Stage: checks.StagePrepush, Lane: checks.LaneRu
 // bytes against the tree's wit-guest-budgets.toml (budget, below). Every pass
 // logs every world's size, budget or not.
 func check(ctx context.Context, in atomkit.In) checks.Verdict {
-	manifest, err := os.ReadFile(filepath.Join(in.Root, "Cargo.toml"))
-	if err != nil {
-		return checks.VerdictOf(row, 2, fmt.Sprintf("%s: CANNOT RUN - Cargo.toml would not read: %v", id, err))
+	// THE FACADE: the root crate itself, or, when the root is a virtual
+	// workspace, the member that declares the wit-guest features, found through
+	// cargo metadata. ABSENT only when there truly is no such crate.
+	facade, bad := atoms.ResolveWitFacade(ctx, in, row)
+	if bad != nil {
+		return *bad
 	}
-	worlds := checks.WitGuestWorlds(string(manifest))
+	manifest := facade.Manifest
+	worlds := checks.WitGuestWorlds(manifest)
 	if len(worlds) == 0 {
+		if facade.Virtual {
+			return checks.VerdictOf(row, 0, id+": ABSENT - Cargo.toml is a virtual workspace and no member declares a "+checks.WitGuestPrefix+"<world> feature, so this repository exports no WIT guest to build")
+		}
 		return checks.VerdictOf(row, 0, id+": ABSENT - Cargo.toml declares no "+checks.WitGuestPrefix+"<world> feature, so this crate exports no WIT guest to build")
 	}
-	artifact := checks.WitGuestArtifact(string(manifest))
+	crate := facade.Abs(in.Root)
+	artifact := checks.WitGuestArtifact(manifest)
 	if artifact == "" {
 		return checks.VerdictOf(row, 2, id+": CANNOT RUN - Cargo.toml declares wit-guest features but names no [package] or [lib] name, so the guest's file name is unknown")
 	}
@@ -108,7 +116,7 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 		// by the atom: the next world's build overwrites the one there.
 		module := filepath.Join(work, world+".wasm")
 		component := filepath.Join(work, world+".component.wasm")
-		v := buildWorld(ctx, in, env, world, target, built, module)
+		v := buildWorld(ctx, in, crate, env, world, target, built, module)
 		if v.State != int(checks.StatePass) {
 			return namedWorld(v, world, "build")
 		}
@@ -135,7 +143,7 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 
 	// THE SIZE BUDGET, before the native test: it is the cheap answer, and a
 	// guest over budget needs no test run to say so (checks.WitGuestBudgetsFile).
-	sizeLines, v := budget(in.Root, sizes)
+	sizeLines, v := budget(crate, sizes)
 	if v != nil {
 		return *v
 	}
@@ -152,11 +160,11 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 	// of which compiled the crate's test binary again and re-ran every
 	// ungated lib test.
 	testDir := filepath.Join(target, checks.WitGuestTestDir)
-	tested := atoms.CargoRun(ctx, in, row, env, testArgv(strings.Join(worlds, ","), testDir)...)
+	tested := atoms.CargoRunIn(ctx, in, crate, row, env, testArgv(strings.Join(worlds, ","), testDir)...)
 	if tested.State == int(checks.StatePass) {
 		return checks.VerdictOf(row, 0, strings.Join(logs, "\n"))
 	}
-	return attribute(ctx, in, env, worlds, testDir, tested)
+	return attribute(ctx, in, crate, env, worlds, testDir, tested)
 }
 
 // budget holds each world's module to the tree's budget file, when it carries
@@ -194,13 +202,13 @@ func budget(root string, sizes map[string]int64) ([]string, *checks.Verdict) {
 // buildWorld is one world's wasm32 build, and the module carried out of the target.
 // The module is removed first, so a build that did not produce it leaves it
 // absent and the lift fails on it, never on an older tree's copy.
-func buildWorld(ctx context.Context, in atomkit.In, env []string, world, target, built, module string) checks.Verdict {
+func buildWorld(ctx context.Context, in atomkit.In, crate string, env []string, world, target, built, module string) checks.Verdict {
 	for _, p := range []string{built, module} {
 		if err := atoms.ClearOutput(p); err != nil {
 			return checks.VerdictOf(row, 2, fmt.Sprintf("%s: CANNOT RUN - %v", id, err))
 		}
 	}
-	v := atoms.CargoRun(ctx, in, row, env,
+	v := atoms.CargoRunIn(ctx, in, crate, row, env,
 		"cargo", "build", "--locked", "--release",
 		"--no-default-features", "--features", world,
 		"--target", checks.WitGuestTarget, "--target-dir", target)
@@ -219,9 +227,9 @@ func buildWorld(ctx context.Context, in atomkit.In, env []string, world, target,
 // the first that fails, as the per-world loop did. Only a red pays for this. A
 // red that no single world reproduces (the combination itself fails) is named
 // for the combination.
-func attribute(ctx context.Context, in atomkit.In, env, worlds []string, testDir string, combined checks.Verdict) checks.Verdict {
+func attribute(ctx context.Context, in atomkit.In, crate string, env, worlds []string, testDir string, combined checks.Verdict) checks.Verdict {
 	for _, world := range worlds {
-		if wv := atoms.CargoRun(ctx, in, row, env, testArgv(world, testDir)...); wv.State != int(checks.StatePass) {
+		if wv := atoms.CargoRunIn(ctx, in, crate, row, env, testArgv(world, testDir)...); wv.State != int(checks.StatePass) {
 			return namedWorld(wv, world, "test")
 		}
 	}
