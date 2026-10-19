@@ -32,10 +32,10 @@ func copyTree(src, dst string, skip func(rel string) bool) error {
 			return os.MkdirAll(target, 0o755)
 		case d.Type().IsRegular():
 			b, err := os.ReadFile(p)
-			if err != nil {
-				return err
+			if err == nil {
+				err = osWrite(target, b, 0o644)
 			}
-			return osWrite(target, b, 0o644)
+			return err
 		}
 		return nil // links and devices are not bundle data
 	})

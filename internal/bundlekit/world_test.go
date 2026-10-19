@@ -53,6 +53,10 @@ type world struct {
 	failEval                        map[string]int // by a needle in the eval's argv
 	gitDead, headEmpty              bool
 	fleetManifest                   string
+	dead                            []string // programs whose argv holds one of these never run
+	noOutput                        []string // builds whose -o holds one of these write nothing
+	noData, noManifest              bool
+	diffCode                        int
 	builtPolicyRoot, builtStageRoot string
 }
 
@@ -110,6 +114,11 @@ func (w *world) ran(needle string) int {
 func (w *world) answer(c atoms.Cmd) (string, int) {
 	w.calls = append(w.calls, append([]string{c.Name}, c.Args...))
 	args := strings.Join(c.Args, " ")
+	for _, d := range w.dead {
+		if strings.Contains(args, d) {
+			return c.Name + ": gone", -1
+		}
+	}
 	switch c.Name {
 	case "git":
 		if w.gitDead {
@@ -124,7 +133,7 @@ func (w *world) answer(c atoms.Cmd) (string, int) {
 		case strings.Contains(args, "rev-parse"):
 			return "", w.parent
 		case strings.Contains(args, "diff"):
-			return w.diff, 0
+			return w.diff, w.diffCode
 		}
 	case "opa":
 		return w.opa(c, args)
@@ -154,6 +163,17 @@ func (w *world) opa(c atoms.Cmd, args string) (string, int) {
 				files["/.manifest"] = w.fleetManifest
 			}
 			w.builtStageRoot = root
+		}
+		if w.noData {
+			delete(files, "/data.json")
+		}
+		if w.noManifest {
+			delete(files, "/.manifest")
+		}
+		for _, n := range w.noOutput {
+			if strings.Contains(out, n) {
+				return "", 0
+			}
 		}
 		if err := os.WriteFile(out, bundleOf(w.t, files, signed), 0o644); err != nil {
 			w.t.Fatal(err)

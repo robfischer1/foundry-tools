@@ -91,7 +91,6 @@ func TestOrbitsFilesystemFaults(t *testing.T) {
 	t.Setenv(OutEnv, filepath.Join(bad, "sub"))
 	expect(t, Orbits(context.Background(), w.run()), false, "could not be written")
 	// A roster entry that cannot be read is the lane's.
-	w = newWorld(t, nil)
 	if got, f := roster(func(string) []string { return []string{"fleet/repos/x.json"} },
 		func(string) (string, error) { return "", os.ErrPermission }); got != nil || f == nil {
 		t.Errorf("%v %v", got, f)
