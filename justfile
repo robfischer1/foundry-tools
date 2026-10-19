@@ -20,9 +20,11 @@ develop:
 # recipes the tracked hooks call: hooks/pre-commit is `just check`; hooks/pre-push
 # ran `just gate` until 2026-10-02 and now runs nothing (see `gate` below).
 #
-# `-m .`, never main: a module whose job is gating gates its own changes with the
-# code being changed. The fleet's copy of these two recipes (foundry-stocks,
-# speckit/stages.just) calls the module at main, and is otherwise the same.
+# `check` is the fleet's one line, `foundry-toolbox ask check`: the staged tree goes
+# to the door's refs/checks/<c> and lane check runs on the cluster (SYS-008), the
+# same as speckit/stages.just. That runs the DEPLOYED executor, not this tree's
+# atoms: to grade a change to the atoms themselves with the code being changed,
+# `just check-local` is the old `dagger call -m .` call.
 #
 # THE ENGINE IS A DEPENDENCY, DELIBERATELY. The stages run on the cluster's Dagger
 # engine, so a commit needs the cluster — which is where the git origin already
@@ -39,8 +41,13 @@ develop:
 # with origin/main, and only the atoms that grade a CHANGE read it; a repo with
 # no origin/main yet (a fresh birth) is gated without one.
 
-# The commit stage, on the engine — what hooks/pre-commit runs.
+# The commit stage, on the cluster — what hooks/pre-commit runs.
 check:
+    foundry-toolbox ask check
+
+# The commit stage on the engine with THIS tree's module (`-m .`, never main): a
+# module whose job is gating gates its own changes with the code being changed.
+check-local:
     dagger call -m . check exit
 
 # The push stage runs nothing since 2026-10-02 (Rob, "Option 1": the lanes are
