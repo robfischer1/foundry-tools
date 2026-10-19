@@ -102,13 +102,21 @@ func (m *FoundryTools) Publish(
 	// static tokens apply exactly as before.
 	// +optional
 	publishSvid bool,
+	// The run's record token (CA_RECORD_TOKEN), which authorises posting this
+	// run's record to the door it fetched the tree from. Absent and the lane
+	// posts nothing and settles on its exit code, exactly as it did before.
+	// A SECRET, NOT A STRING, for the reason cast's own parameter states.
+	// +optional
+	recordToken *dagger.Secret,
 ) error {
 	l := &publishLane{
 		m: m, token: token, npmToken: npmToken, spire: spire, publishSvid: publishSvid,
 		publishURL: publishURL, checkURL: checkURL, user: user, indexURL: indexURL, npmRegistry: npmRegistry, dryRun: dryRun,
-		stamp: strconv.FormatInt(time.Now().UnixNano(), 10),
+		stamp:  strconv.FormatInt(time.Now().UnixNano(), 10),
+		phases: newPhases(publishGroup, publishPhases("")),
 	}
 	code, reason := l.run(ctx)
+	l.post(ctx, recordToken, code, reason)
 	return settle(ctx, code, "publish: "+reason)
 }
 
@@ -123,6 +131,17 @@ type publishLane struct {
 	// holds is a fact about now, not about the tree, and an engine that
 	// answered either from its cache would answer last run's.
 	stamp string
+	// phases records what each step answered, for the run record (publish_record.go).
+	phases
+	// kind is the half the tree took, "python" or "ts"; halted is set when the
+	// build step ended the run, so the upload reads as never reached.
+	kind   string
+	halted bool
+	// packSealed is set once the build row is filed; packFailures are the npm
+	// builds that failed while their package was being published.
+	packSealed   bool
+	packFailures []string
+	packFindings bool
 }
 
 // distDir is where uv build writes: outside the mounted tree, so nothing the
@@ -177,6 +196,7 @@ func (l *publishLane) run(ctx context.Context) (int, string) {
 	}
 	publishSay("%s at %.12s%s", starOf(m.Repo), m.Sha, mode)
 
+	l.begin("python")
 	py := newRun(m.Source, m.Repo, "").lane(checks.ImagePython)
 	if l.indexURL != "" {
 		py = py.WithEnvVariable("UV_INDEX_URL", l.indexURL)
@@ -184,15 +204,15 @@ func (l *publishLane) run(ctx context.Context) (int, string) {
 	built := py.WithExec([]string{"uv", "build", "--out-dir", distDir}, anyExit)
 	out, code, err := outputBoth(ctx, built)
 	if err != nil {
-		return buildlane.CouldNotRun, fmt.Sprintf("could not run: uv build never ran: %v", err)
+		return l.stopArtifacts(buildlane.CouldNotRun, fmt.Sprintf("could not run: uv build never ran: %v", err))
 	}
 	fmt.Fprintln(os.Stderr, out)
 	if code != 0 {
-		return buildlane.ToolFailed("uv build", out)
+		return l.stopArtifacts(buildlane.ToolFailed("uv build", out))
 	}
 	files, err := built.Directory(distDir).Entries(ctx)
 	if err != nil {
-		return buildlane.CouldNotRun, fmt.Sprintf("could not run: what uv build wrote could not be read: %v", err)
+		return l.stopArtifacts(buildlane.CouldNotRun, fmt.Sprintf("could not run: what uv build wrote could not be read: %v", err))
 	}
 	var artifacts []publishlane.Artifact
 	for _, f := range files {
@@ -201,8 +221,9 @@ func (l *publishLane) run(ctx context.Context) (int, string) {
 		}
 	}
 	if len(artifacts) == 0 {
-		return buildlane.Findings, fmt.Sprintf("findings: uv build exited clean and wrote no wheel or sdist to %s (it wrote: %s)", distDir, strings.Join(files, ", "))
+		return l.stopArtifacts(buildlane.Findings, fmt.Sprintf("findings: uv build exited clean and wrote no wheel or sdist to %s (it wrote: %s)", distDir, strings.Join(files, ", ")))
 	}
+	l.sealArtifacts(buildlane.Clean, "uv build wrote "+strings.Join(files, ", "))
 
 	pages := map[string]string{}
 	var unguarded []string

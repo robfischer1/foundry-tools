@@ -68,7 +68,12 @@ func (p *phases) say(print func(string), line string) {
 // evidence — it is how the record says the scan ran and passed rather than
 // staying silent about it, and it is what lets Unreached mean "never ran"
 // instead of "said nothing".
-func (p *phases) seal(atom string, code int, reason string) {
+func (p *phases) seal(atom string, code int, reason string) { p.sealIn(p.group, atom, code, reason) }
+
+// sealIn is seal for an atom of another group than the lane's own: the publish
+// lane files its build under "language" and its upload under "capability", as
+// the executor's record does.
+func (p *phases) sealIn(group, atom string, code int, reason string) {
 	// EVERY SEAL IS TIMED, so no lane built on phases can settle without
 	// started_at/finished_at (ci_atom: build and cast posted none until this).
 	end := atomClock()
@@ -81,7 +86,7 @@ func (p *phases) seal(atom string, code int, reason string) {
 		StartedAt:  start.UTC().Format(checks.TimeLayout),
 		FinishedAt: end.UTC().Format(checks.TimeLayout),
 		Atom:       atom,
-		Group:      p.group,
+		Group:      group,
 		State:      code,
 		Result:     phaseResult(code),
 		Reason:     strings.TrimSpace(reason),

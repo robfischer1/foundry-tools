@@ -80,7 +80,7 @@ func theiaTree() map[string]string {
 
 func npmPublishWith(t *testing.T, m *FoundryTools, token *dagger.Secret, registry string, dryRun bool) {
 	t.Helper()
-	if err := m.Publish(context.Background(), nil, publishURL, checkURL, "publisher", buildIndex, token, registry, dryRun, nil, false); err != nil {
+	if err := m.Publish(context.Background(), nil, publishURL, checkURL, "publisher", buildIndex, token, registry, dryRun, nil, false, nil); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 }
