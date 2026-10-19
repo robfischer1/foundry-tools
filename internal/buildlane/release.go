@@ -73,6 +73,20 @@ func CopiesRelease(dockerfile string) bool {
 	return false
 }
 
+// CopiesReleaseUnder answers whether a Dockerfile copies from ReleaseDir/<sub>,
+// the directory a base of a repository of bases is staged in (D7): its sources
+// are release/<sub>/… or release/<sub> itself, not another sub or the release
+// directory at large.
+func CopiesReleaseUnder(dockerfile, sub string) bool {
+	dir := ReleaseDir + "/" + sub
+	for _, src := range releaseSources(dockerfile) {
+		if src == dir || strings.HasPrefix(src, dir+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 // ReleaseCopies names what a Dockerfile copies out of ReleaseDir, in file
 // order, each once: `COPY release/clio-consume /clio-consume` names
 // clio-consume. These ARE the image's binaries: the Dockerfile says which

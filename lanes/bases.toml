@@ -6,7 +6,7 @@ lane = "bases"
 [[phase]]
 name = "release"
 kind = "fanout"
-atoms = ["go:release", "python:release", "rust:release", "ts:release"]
+atoms = ["go:release", "python:release", "rust:release", "ts:release", "bases:release"]
 
 [[phase]]
 name = "assemble"

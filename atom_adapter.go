@@ -151,6 +151,7 @@ var atomLibraries = map[string][]string{
 	"python:release":             releaseDirs,
 	"rust:release":               rustReleaseDirs,
 	"ts:release":                 releaseDirs,
+	"bases:release":              releaseDirs,
 	"template:render-matrix":     libraryDirs,
 	"ts:regen":                   {"internal/regenlane/**", "internal/regenkit/**"},
 	"dev:ts-regen":               {"internal/regenlane/**", "internal/regenkit/**"},

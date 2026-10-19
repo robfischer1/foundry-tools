@@ -217,7 +217,7 @@ func TestTheBinaryCarriesTheNoneToolchainAtoms(t *testing.T) {
 	}
 	var want []string
 	for _, d := range Defs {
-		if d.Stage != checks.StageBundle && (d.Toolchain == "none" || votesInBinaryByHistory[d.ID]) {
+		if d.Stage != checks.StageBundle && d.Stage != checks.StageBases && (d.Toolchain == "none" || votesInBinaryByHistory[d.ID]) {
 			want = append(want, d.ID)
 		}
 	}

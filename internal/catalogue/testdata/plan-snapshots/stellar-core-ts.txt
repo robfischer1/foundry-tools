@@ -75,6 +75,7 @@ run:
   orbit:repo
   ts:visual
   ts:mutation
+  bases:release
   bundle:fleet
   bundle:orbits
   bundle:policy

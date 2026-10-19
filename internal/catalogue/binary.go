@@ -42,5 +42,5 @@ var votesInBinaryByHistory = map[string]bool{
 // atoms run only on the executor (stage bundle is in no stage the Dagger lanes
 // vote), from the per-atom binaries; the Dagger bundle lane builds the dies itself.
 func votesInBinary(d *atomkit.Def) bool {
-	return d.Stage != checks.StageBundle && (d.Toolchain == "none" || votesInBinaryByHistory[d.ID])
+	return d.Stage != checks.StageBundle && d.Stage != checks.StageBases && (d.Toolchain == "none" || votesInBinaryByHistory[d.ID])
 }
