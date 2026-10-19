@@ -129,6 +129,6 @@ func ForkSastVerdict(a AtomDef, record string, sets []SastRuleset, out string, c
 	if c := OpengrepFindingCount(out); c >= 0 {
 		n = strconv.Itoa(c)
 	}
-	v.Reason = fmt.Sprintf("%s: ADVISORY - %s; %s finding(s) in code this fork mostly inherits, reported and NOT blocking.\n%s", a.ID, scope, n, strings.TrimSpace(out))
+	v.Reason = fmt.Sprintf("%s: ADVISORY - %s; %s finding(s) in code this fork mostly inherits, reported and NOT blocking.\n%s", a.ID, scope, n, BoundOutput(strings.TrimSpace(out)))
 	return v
 }

@@ -288,9 +288,9 @@ func reasonFor(id string, s State, exit int, output string) string {
 	case StatePass:
 		return fmt.Sprintf("%s: PASS", id)
 	case StateFindings:
-		return fmt.Sprintf("%s: FINDINGS (exit 1)\n%s", id, output)
+		return fmt.Sprintf("%s: FINDINGS (exit 1)\n%s", id, BoundOutput(output))
 	default:
-		return fmt.Sprintf("%s: CANNOT RUN (exit %d) — a check that could not run is not a check that passed.\n%s", id, exit, output)
+		return fmt.Sprintf("%s: CANNOT RUN (exit %d) — a check that could not run is not a check that passed.\n%s", id, exit, BoundOutput(output))
 	}
 }
 
