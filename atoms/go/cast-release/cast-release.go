@@ -22,6 +22,7 @@ var Def = atomkit.Def{
 	Desc:      "The binaries a Go repo casts compile with the fleet's release flags: every main package under cmd/, one build each.",
 	Surface:   "root:go.mod",
 	Toolchain: "go",
+	Needs:     []string{"dies"}, // layer-cast reads the star's record in the pod's dies (DEF-B6-012)
 	Timeout:   45 * time.Minute,
 	Check:     check,
 }
