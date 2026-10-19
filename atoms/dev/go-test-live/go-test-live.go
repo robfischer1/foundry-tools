@@ -13,8 +13,8 @@ import (
 
 // Def is the atom. IT RUNS WHAT go:test-race RUNS (atoms.GoSuiteFor): the tags
 // the tree's own `//go:build` lines name in the fleet's vocabulary, -race, -p 1,
-// against the sidecars the pod binds for the Needs below — the SAME Needs as
-// go:test-race, because the pod binds a server per need and the suites read the
+// against the sidecars the pod binds for the Needs below — the SAME Needs as the
+// race atom's, because the pod binds a server per need and the suites read the
 // DSN it exports (TEST_DATABASE_URL for service:pgvector, TEST_NOVECTOR_DATABASE_URL
 // for service:postgres, KAFKA_BOOTSTRAP for service:redpanda).
 //

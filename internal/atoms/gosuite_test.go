@@ -736,3 +736,14 @@ func TestGoSuiteForKeepsTheCallersPAndWritesNoProfile(t *testing.T) {
 		}
 	}
 }
+
+func TestPackageLike(t *testing.T) {
+	for arg, want := range map[string]bool{
+		"-v": false, "-run": false, "TestX": false, ".": true, "..": true, "./x": true, "../x": true,
+		"x/...": true, "example.com/x": true, "internal/store": false,
+	} {
+		if got := PackageLike(arg); got != want {
+			t.Errorf("%q: %v, want %v", arg, got, want)
+		}
+	}
+}

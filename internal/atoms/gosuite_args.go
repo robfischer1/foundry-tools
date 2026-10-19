@@ -8,8 +8,8 @@ import (
 	"dagger/foundry-tools/internal/checks"
 )
 
-// THE CALLER'S ARGUMENTS TO THE RACE SUITE (dev:go-test-live). The atom runs what
-// go:test-race runs, so the tree decides the servers and the tags; a caller who
+// THE CALLER'S ARGUMENTS TO THE RACE SUITE (dev:go-test-live). The atom runs what the
+// race atom (go:test-race) runs, so the tree decides the servers and the tags; a caller who
 // asks for more is folded in, never fought:
 //
 //   - -race is implied: any spelling of it is dropped.
