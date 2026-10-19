@@ -56,6 +56,11 @@ const (
 	// stage: lanes/cast.toml names the two atoms, so a gate, a check or a push
 	// never runs a cast's compile.
 	StageCast = "cast"
+	// StagePublish is the publish lane's builds (b6): the wheels and sdists, the
+	// npm tarballs, which python:artifacts and ts:pack stage for the publish
+	// capability to upload. Like cast it is in no lane's stages: lanes/publish.toml
+	// names the two atoms, so no gate, check or push builds them.
+	StagePublish = "publish"
 )
 
 // AtomDef is one catalogued check, as code.

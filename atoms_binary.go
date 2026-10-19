@@ -54,6 +54,8 @@ var atomsSourceInclude = []string{
 	"internal/retiredverbs/**",
 	"internal/releasekit/**",
 	// the cast lane's compile (rust:cast-release, go:cast-release) and its decisions
+	"internal/publishpack/**",
+	"internal/publishlane/**",
 	"internal/castrelease/**",
 	"internal/castlane/**",
 	"internal/buildlane/**",

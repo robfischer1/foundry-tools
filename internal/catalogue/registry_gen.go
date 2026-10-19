@@ -81,6 +81,7 @@ import (
 	orbitrepo "dagger/foundry-tools/atoms/orbit/repo"
 	orbitsidecars "dagger/foundry-tools/atoms/orbit/sidecars"
 	orbitsurface "dagger/foundry-tools/atoms/orbit/surface"
+	pythonartifacts "dagger/foundry-tools/atoms/python/artifacts"
 	pythonforgetestkitassertionfree "dagger/foundry-tools/atoms/python/forge-testkit-assertion-free"
 	pythonforgetestkitfakeplacement "dagger/foundry-tools/atoms/python/forge-testkit-fake-placement"
 	pythonforgetestkitschemabudget "dagger/foundry-tools/atoms/python/forge-testkit-schema-budget"
@@ -100,6 +101,7 @@ import (
 	templaterendermatrix "dagger/foundry-tools/atoms/template/render-matrix"
 	tsbungate "dagger/foundry-tools/atoms/ts/bun-gate"
 	tsmutation "dagger/foundry-tools/atoms/ts/mutation"
+	tspack "dagger/foundry-tools/atoms/ts/pack"
 	tsregen "dagger/foundry-tools/atoms/ts/regen"
 	tsrelease "dagger/foundry-tools/atoms/ts/release"
 	tsvisual "dagger/foundry-tools/atoms/ts/visual"
@@ -187,6 +189,7 @@ var Defs = []*atomkit.Def{
 	&orbitrepo.Def,
 	&orbitsidecars.Def,
 	&orbitsurface.Def,
+	&pythonartifacts.Def,
 	&pythonforgetestkitassertionfree.Def,
 	&pythonforgetestkitfakeplacement.Def,
 	&pythonforgetestkitschemabudget.Def,
@@ -206,6 +209,7 @@ var Defs = []*atomkit.Def{
 	&templaterendermatrix.Def,
 	&tsbungate.Def,
 	&tsmutation.Def,
+	&tspack.Def,
 	&tsregen.Def,
 	&tsrelease.Def,
 	&tsvisual.Def,
