@@ -124,6 +124,14 @@ func TestLLDDefaultTracksTheToolchain(t *testing.T) {
 	}
 }
 
+func TestLLDIsDefaultRefusesAReleaseThatIsNotANumber(t *testing.T) {
+	for _, in := range []string{"x.y.z-x86_64-unknown-linux-gnu", "1.x.0", "one.97.0"} {
+		if LLDIsDefault(in) {
+			t.Errorf("LLDIsDefault(%q) = true", in)
+		}
+	}
+}
+
 func TestLLDThreadsFlag(t *testing.T) {
 	if got, want := LLDThreadsFlag(2), "-C link-arg=-Wl,--threads=2"; got != want {
 		t.Errorf("LLDThreadsFlag(2) = %q, want %q", got, want)
