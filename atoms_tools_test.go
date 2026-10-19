@@ -290,7 +290,7 @@ func TestToolFileRefusesWhatItCannotVerify(t *testing.T) {
 		want   string
 	}{
 		{"a release asset with no checksum", pinnedTool{name: "x", url: "https://example.invalid/x"}, func() {}, "has no checksum"},
-		{"an asset that will not fetch", toolNamed(t, "hadolint"), func() { failBothLeaf(checks.HadolintURL, "sync", "dial tcp: i/o timeout") }, "could not fetch"},
+		{"an asset that will not fetch", toolNamed(t, "hadolint"), func() { failToolLeaf(checks.HadolintURL, "sync", "dial tcp: i/o timeout") }, "could not fetch"},
 		{"an asset that fails its checksum", toolNamed(t, "hadolint"), func() { engine.failLeaf(sumFile(checks.HadolintURL), "sync", "sha256sum: FAILED") }, "did not verify against its pinned checksum"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -333,7 +333,7 @@ func TestADroppedToolIsLoggedWithItsCause(t *testing.T) {
 		cause string
 	}{
 		{"a checksum that does not match", "opa", func() { engine.failLeaf(sumFile(checks.OpaURL), "sync", "sha256sum: FAILED") }, "did not verify against its pinned checksum"},
-		{"an asset that will not fetch", "hadolint", func() { failBothLeaf(checks.HadolintURL, "sync", "dial tcp: i/o timeout") }, "could not fetch"},
+		{"an asset that will not fetch", "hadolint", func() { failToolLeaf(checks.HadolintURL, "sync", "dial tcp: i/o timeout") }, "could not fetch"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			engine.reset()
@@ -505,7 +505,7 @@ func TestTheCollectionsAreExactReleases(t *testing.T) {
 	got := map[string]string{}
 	for _, c := range doc.Collections {
 		got[c.Name] = c.Version
-		// The executor installs these offline from the tool mirror, so each
+		// The executor installs these offline from the pinned tarballs, so each
 		// names the artifact it is and the bytes it must be.
 		file := strings.ReplaceAll(c.Name, ".", "-") + "-" + c.Version + ".tar.gz"
 		if !strings.HasPrefix(c.URL, "https://galaxy.ansible.com/") || !strings.HasSuffix(c.URL, "/"+file) {

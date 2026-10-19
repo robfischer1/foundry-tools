@@ -401,7 +401,7 @@ func TestAGovernCastsInFullWhenTheHeadIsNotKnownCurrent(t *testing.T) {
 func TestAGovernWithNoOrasStillReachesTheStagingPush(t *testing.T) {
 	m := governOn(t, nil)
 	scriptAGovern()
-	failBoth(checks.OrasURL, "502 from upstream")
+	failTool(checks.OrasURL, "502 from upstream")
 	governs(t, m, "vault")
 	settledOn(t, "2", "oras could not be provisioned")
 	if engine.chain(mintNeedle) != "" {

@@ -36,7 +36,7 @@ func TestStepNamesTheProgramItsExitAndWhatItSaid(t *testing.T) {
 	}
 }
 
-func TestFetchTriesTheMirrorFirstAndHoldsThePinnedSum(t *testing.T) {
+func TestFetchAsksTheAssetsOwnURLAndHoldsThePinnedSum(t *testing.T) {
 	var sources []string
 	var sum string
 	fake := func(_ context.Context, c *http.Client, s []string, want, dest string) error {
@@ -49,7 +49,7 @@ func TestFetchTriesTheMirrorFirstAndHoldsThePinnedSum(t *testing.T) {
 	if err := Fetch(t.Context(), fake, checks.GofmtURL, "/x/dest"); err != nil {
 		t.Fatal(err)
 	}
-	if len(sources) != 2 || sources[1] != checks.GofmtURL || !strings.Contains(sources[0], sum) || sum != checks.ToolSHA256[checks.GofmtURL] {
+	if len(sources) != 1 || sources[0] != checks.GofmtURL || sum != checks.ToolSHA256[checks.GofmtURL] {
 		t.Errorf("%v %s", sources, sum)
 	}
 	if err := Fetch(t.Context(), fake, "https://example.com/unpinned.tar.gz", "/x/dest"); err == nil {

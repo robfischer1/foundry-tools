@@ -560,7 +560,7 @@ func TestGoSuiteCannotRunWhenTheStagedGravityCannotBeRead(t *testing.T) {
 	}
 }
 
-// gravityRevs are the prebuilts the tool mirror holds, one provisioned tool each.
+// gravityRevs are the prebuilts the registry holds, one provisioned tool each.
 const (
 	gravityOld = "68d8146b88e53e619bfbc0a36b9d70ef9c3bcf06"
 	gravityNew = "aeb03bfd4a6f14e29b1a91dcdfad05e02695db39"

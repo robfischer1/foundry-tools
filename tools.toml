@@ -213,7 +213,8 @@ sha256 = "ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5"
 # The rust compilers dev:go-regen lays for a core pinned to a rustc the rust image
 # does not carry (checks.RustDists): static.rust-lang.org's dist tarballs for the
 # compiler, cargo and the host and wasm32 standard libraries. The atom fetches them
-# itself, mirror first; they are url tools so the mirror holds them.
+# itself, from static.rust-lang.org, held to the sum; they are url tools so the
+# executor's pod provisions them too.
 
 [tool.rustc-1-97-1]
 kind = "url"
@@ -372,7 +373,8 @@ kind = "image"
 image = "docker.io/stackrox/kube-linter:v0.8.3-alpine@sha256:b8311611c27032d4922bc67719225e373e4a0ab0c767bbdcf5f20a9306b1a3bb"
 
 # gravity at each rev a tree's provenance.json may pin (checks.GravityPrebuilt):
-# the binary `cargo install` builds, seeded in the tool mirror under its sha256.
+# the binary `cargo install` builds, pushed to the registry under its sha256 (it
+# has no release assets: the registry blob is its own URL, checks.GravityBlobURL).
 # One tool per rev, named gravity-<first 7 of the rev> (checks.GravityTool); the
 # go suites (go:test, go:test-race, go:diff-coverage) need them all and run the
 # one the tree pins, GRAVITY naming it for the regen tests.

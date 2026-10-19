@@ -79,7 +79,7 @@ func goSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race b
 	if len(plan.Regens) > 0 {
 		bin, set, err := stagedGravity(plan.Rev)
 		if err == nil && bin == "" {
-			return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - the tree pins gravity %s and none is staged: the pod provisions the prebuilts of checks.GravityPrebuilt (%s), so a new rev needs `just mirror-seed` and a tools.toml [tool.%s]", a.ID, plan.Rev, strings.Join(checks.GravityNeeds(), ", "), checks.GravityTool(plan.Rev)))
+			return checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - the tree pins gravity %s and none is staged: the pod provisions the prebuilts of checks.GravityPrebuilt (%s), so a new rev needs its prebuilt pushed to the registry (checks.GravityBlobURL) and a tools.toml [tool.%s]", a.ID, plan.Rev, strings.Join(checks.GravityNeeds(), ", "), checks.GravityTool(plan.Rev)))
 		}
 		var sum string
 		if err == nil {

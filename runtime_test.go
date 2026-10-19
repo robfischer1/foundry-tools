@@ -154,22 +154,22 @@ func TestGitReadyRebuildsALinkedWorktreeAndNamesItsOrigin(t *testing.T) {
 	}
 }
 
-func TestFetchToolFetchesThePinnedAssetMirrorFirstAndFailsHonestly(t *testing.T) {
+func TestFetchToolFetchesThePinnedAssetFromItsURLAndFailsHonestly(t *testing.T) {
 	ctx := context.Background()
 	url := checks.OpaURL
 	engine.reset()
 	if _, err := fetchTool(ctx, url); err != nil {
-		t.Fatalf("mirror up: %v", err)
+		t.Fatalf("fetch: %v", err)
 	}
 	if pinnedFetch(url, "sync") == "" {
-		t.Errorf("the pinned asset must be fetched from the mirror at its pin, and synced:\n%v", engine.chains())
+		t.Errorf("the pinned asset must be fetched from its own URL at its pin, and synced:\n%v", engine.chains())
 	}
-	if indexOfFetch(url) != -1 {
-		t.Errorf("upstream was asked with the mirror up")
+	if registryAsked() {
+		t.Errorf("the retired mirror was asked:\n%v", engine.chains())
 	}
 
 	engine.reset()
-	failBoth(url, "timeout")
+	failTool(url, "timeout")
 	_, err := fetchTool(ctx, url)
 	if err == nil || !strings.Contains(err.Error(), "timeout") || !strings.Contains(err.Error(), url) {
 		t.Errorf("a failed fetch must be the error, naming the URL and the cause: %v", err)
@@ -274,7 +274,7 @@ func TestLanesProvisionTheirToolsPinnedAndInVolatilityOrder(t *testing.T) {
 	c := engine.chain(`"go","vet"`, "exitCode")
 	order(t, c, `from(address:"`+checks.ImageGo+`")`, `path:"/usr/local/bin/opengrep"`,
 		`"go","install","`+checks.GomutantsModule+`"`, `"go","install","`+checks.MutationGateModule+`"`, `"go","install","`+checks.StaticcheckModule+`"`, `"go","install","`+checks.GovulncheckModule+`"`, `withMountedCache`)
-	fetched(t, `url:"`+checks.ToolMirrorURL(checks.ToolSHA256[checks.OpengrepURL])+`"`)
+	fetched(t, `url:"`+checks.OpengrepURL+`"`)
 	noShell(t, c)
 	// The go lane scores mutation in Go: nothing it runs needs python3, and it
 	// installs no distro package.
@@ -338,10 +338,10 @@ func TestEveryLaneVerifiesOpengrepAgainstItsPin(t *testing.T) {
 		c := engine.chain(tc.needle, "exitCode")
 		// The fetch is its own query, referred to by id from the lane's chain.
 		if pinnedFetch(checks.OpengrepURL, "") == "" {
-			t.Errorf("%s: the engine was not asked to verify opengrep, from the mirror, against %s", tc.atom, sum)
+			t.Errorf("%s: the engine was not asked to verify opengrep, from its URL, against %s", tc.atom, sum)
 		}
-		if indexOfFetch(checks.OpengrepURL) != -1 {
-			t.Errorf("%s: upstream was asked for opengrep with the mirror up", tc.atom)
+		if registryAsked() {
+			t.Errorf("%s: the retired mirror was asked for opengrep", tc.atom)
 		}
 		wantCalls(t, c, []string{"withFile", `path:"/usr/local/bin/opengrep"`})
 		if strings.Contains(c, "sha256sum") {
@@ -386,10 +386,10 @@ func TestRustLaneInstallsCargoToolsFromPinnedTarballs(t *testing.T) {
 	engine.withTree(everyLaneTree)
 	runAtom(t, "rust:cargo-audit", "")
 	if pinnedFetch(checks.CargoAuditURL, "") == "" {
-		t.Error("the engine was not asked to verify cargo-audit, from the mirror, against its pin")
+		t.Error("the engine was not asked to verify cargo-audit, from its URL, against its pin")
 	}
-	if indexOfFetch(checks.CargoAuditURL) != -1 {
-		t.Error("upstream was asked for cargo-audit with the mirror up")
+	if registryAsked() {
+		t.Error("the retired mirror was asked for cargo-audit")
 	}
 	if pinnedFetch(checks.CargoNextestURL, "") != "" || indexOfFetch(checks.CargoNextestURL) != -1 {
 		t.Error("the gate's path fetched cargo-nextest, which only rust:mutation runs")
@@ -401,10 +401,10 @@ func TestRustLaneInstallsCargoToolsFromPinnedTarballs(t *testing.T) {
 	wantState(t, runAtom(t, "rust:mutation", "abc123"), 0)
 	c := engine.chain(rustMutationNeedle, "contents")
 	if pinnedFetch(checks.CargoNextestURL, "") == "" {
-		t.Error("the engine was not asked to verify cargo-nextest, from the mirror, against its pin")
+		t.Error("the engine was not asked to verify cargo-nextest, from its URL, against its pin")
 	}
-	if indexOfFetch(checks.CargoNextestURL) != -1 {
-		t.Error("upstream was asked for cargo-nextest with the mirror up")
+	if registryAsked() {
+		t.Error("the retired mirror was asked for cargo-nextest")
 	}
 	order(t, c, `from(address:"`+checks.ImageRust+`")`,
 		`path:"/tmp/cargo-audit.tar.gz"`,
@@ -427,7 +427,7 @@ func TestCargoTarballWithoutAPinnedSumFailsClosed(t *testing.T) {
 	if _, err := c.Sync(t.Context()); err == nil {
 		t.Error("a lane with no pinned cargo-nextest sum provisioned anyway")
 	}
-	if indexOfFetch(checks.CargoNextestURL) != -1 || indexOfFetch(checks.ToolMirrorURL(checks.ToolSHA256[checks.CargoNextestURL])) != -1 {
+	if indexOfFetch(checks.CargoNextestURL) != -1 {
 		t.Error("cargo-nextest was fetched with nothing to verify it against")
 	}
 }
@@ -450,9 +450,9 @@ var pinnedLaneAssets = []struct {
 	}, `path:"/usr/local/bin/opengrep"`},
 }
 
-// THE MIRROR ANSWERS: the lane's file is the mirror's blob at the pin, upstream
-// is never asked, and the file is the one the lane places.
-func TestLaneAssetsAreFetchedFromTheMirrorFirst(t *testing.T) {
+// MR1: every lane asset is fetched from its own URL at the pin, once, and the
+// retired mirror is never asked.
+func TestLaneAssetsAreFetchedFromTheirOwnURL(t *testing.T) {
 	for _, tc := range pinnedLaneAssets {
 		t.Run(tc.name, func(t *testing.T) {
 			engine.reset()
@@ -460,10 +460,10 @@ func TestLaneAssetsAreFetchedFromTheMirrorFirst(t *testing.T) {
 				t.Fatal(err)
 			}
 			if pinnedFetch(tc.url, "sync") == "" {
-				t.Errorf("the mirror was not fetched at the pin, and synced:\n%v", engine.chains())
+				t.Errorf("the asset was not fetched at the pin, and synced:\n%v", engine.chains())
 			}
-			if indexOfFetch(tc.url) != -1 {
-				t.Errorf("upstream was asked although the mirror answered:\n%v", engine.chains())
+			if registryAsked() {
+				t.Errorf("the retired mirror was asked:\n%v", engine.chains())
 			}
 			if engine.chain(tc.placed) == "" {
 				t.Errorf("the fetched file was not placed at %s:\n%v", tc.placed, engine.chains())
@@ -472,34 +472,7 @@ func TestLaneAssetsAreFetchedFromTheMirrorFirst(t *testing.T) {
 	}
 }
 
-// THE MIRROR IS DOWN, or serves bytes that fail the pin: upstream is asked
-// second, at the SAME pin, and the lane still provisions.
-func TestLaneAssetsFallBackToUpstreamAtTheSamePin(t *testing.T) {
-	for _, tc := range pinnedLaneAssets {
-		for _, cause := range []string{"502 from mirror", "digest mismatch: expected sha256:" + checks.ToolSHA256[tc.url]} {
-			t.Run(tc.name+"/"+cause[:3], func(t *testing.T) {
-				engine.reset()
-				engine.fail(`url:"`+checks.ToolMirrorURL(checks.ToolSHA256[tc.url])+`"`, cause)
-				if _, err := tc.provision().Sync(t.Context()); err != nil {
-					t.Fatalf("the fallback answered, so the lane must provision: %v", err)
-				}
-				m, u := indexOfFetch(checks.ToolMirrorURL(checks.ToolSHA256[tc.url])), indexOfFetch(tc.url)
-				if m < 0 || u < 0 || m >= u {
-					t.Errorf("the mirror must be asked first (at %d) and upstream second (at %d):\n%v", m, u, engine.chains())
-				}
-				sum := checks.ToolSHA256[tc.url]
-				if engine.chain(`http(`, `url:"`+tc.url+`"`, `checksum:"sha256:`+sum+`"`, "sync") == "" {
-					t.Errorf("the upstream fetch must carry the same sha256 pin:\n%v", engine.chains())
-				}
-				if engine.chain(tc.placed) == "" {
-					t.Errorf("the upstream file was not placed at %s:\n%v", tc.placed, engine.chains())
-				}
-			})
-		}
-	}
-}
-
-// BOTH SOURCES DOWN: the lane is not provisioned. The failure is the engine's,
+// THE SOURCE IS DOWN: the lane is not provisioned. The failure is the engine's,
 // raised where the file is read, and the file still carries the pin: an
 // unverified upstream fetch is never the last resort.
 func TestLaneAssetsWithNoSourceFailAtTheLanesOwnExec(t *testing.T) {
@@ -508,7 +481,7 @@ func TestLaneAssetsWithNoSourceFailAtTheLanesOwnExec(t *testing.T) {
 			engine.reset()
 			// The lazy upstream file is what the lane holds; reading it is the
 			// failure the lane's verdict files as state 2.
-			failBoth(tc.url, "502")
+			failTool(tc.url, "502")
 			if _, err := tc.provision().Sync(t.Context()); err == nil {
 				t.Error("a lane whose pinned asset no source serves provisioned anyway")
 			}

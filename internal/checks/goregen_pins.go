@@ -28,8 +28,8 @@ const (
 // ImageRust tag, RustComponentsTag) and a core pinned to another is built with
 // that one, laid by the atom from static.rust-lang.org's own dist tarballs: the
 // compiler, cargo, and the standard library for the host and for wasm32. Each is
-// served mirror-first and held to the sum below (ToolSources), and each version
-// is also a url tool in tools.toml so the mirror holds it. The sums are the
+// fetched from its URL and held to the sum below (ToolSources), and each version
+// is also a url tool in tools.toml. The sums are the
 // .sha256 files beside the tarballs, equal to the downloaded bytes.
 //
 // A version with no line here is CANNOT RUN (RegenRustLine), never the nearest

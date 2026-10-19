@@ -419,7 +419,7 @@ func provisionRustMutation(ctr *dagger.Container) *dagger.Container {
 const cargoBin = "/usr/local/cargo/bin"
 
 // withCargoTarball puts one member of a pinned release tarball into cargoBin,
-// MIRROR FIRST and VERIFIED BY THE ENGINE AT FETCH TIME against its pinned sum
+// fetched from its URL and VERIFIED BY THE ENGINE AT FETCH TIME against its pinned sum
 // (pinnedFile), exactly as withOpengrep fetches. The extraction is provisioning
 // under the default Expect, and the tarball leaves the layer once the member is
 // out.
@@ -443,14 +443,12 @@ func withCargoTarball(ctr *dagger.Container, sums map[string]string, url, member
 }
 
 // pinnedFile is a lane's pinned release asset for provisioning, resolved
-// EAGERLY so the registry mirror can be tried before GitHub: a lazy dag.HTTP
-// cannot fall back, because nothing syncs it until an exec reads it. The
-// sources and their one pin are checks.ToolSources'; fetchPinnedTool syncs them
-// in order. (A lane is built where there is no context to hand, so the sync
+// EAGERLY so a failed fetch is known at construction: a lazy dag.HTTP is only
+// read when an exec reads it. The source and its pin are checks.ToolSources';
+// fetchPinnedTool syncs it. (A lane is built where there is no context to hand, so the sync
 // runs under Background.)
 //
-// ok is false only for a URL with no usable pin: the caller fails closed. When
-// every source fails the file answered is the lazy upstream fetch at the same
+// ok is false only for a URL with no usable pin: the caller fails closed. When the source fails the file answered is the lazy upstream fetch at the same
 // pin, so the failure surfaces where it always has, as the lane's own exec
 // error (verdict() files state 2), rather than at construction.
 func pinnedFile(sums map[string]string, url string) (file *dagger.File, ok bool) {
@@ -782,14 +780,15 @@ func (r *run) gitReadyOn(ctx context.Context, ctr *dagger.Container, tree *dagge
 	return ctr
 }
 
-// fetchTool resolves a pinned binary the lane images do not carry: the
-// in-cluster mirror first, the tool's own public URL second, both held to its
-// checks.ToolSHA256 pin (fetchPinnedTool). THE ENGINE FETCHES IT, and the engine
-// is where the fleet's caching lives: inside the cluster the asset hosts resolve
-// to the transparent cache once the engine names the intercept face (infra
-// coredns-custom.yaml) and the engine trusts cache-ca. The mirror leads because
-// the transparent cache cannot serve a cold github.com 302, and github.com
-// answered 500 at gate time (runs 870, 907 of stellar-core-rust).
+// fetchTool resolves a pinned binary the lane images do not carry from its own
+// public URL, held to its checks.ToolSHA256 pin (fetchPinnedTool). THE ENGINE
+// FETCHES IT, and the engine is where the fleet's caching lives: inside the
+// cluster the asset hosts resolve to the transparent cache once the engine names
+// the intercept face (infra coredns-custom.yaml) and the engine trusts cache-ca,
+// which serves a cached entry stale on an upstream 5xx for 30 days. (The hop the
+// cache cannot cover is a cold github.com 302, which is not intercepted; that
+// is what the retired tool mirror was added for, runs 870 and 907 of
+// stellar-core-rust.)
 //
 // A FAILED FETCH IS THE ERROR — the caller files state 2 — never a
 // fallthrough: a spec that was never parsed and a policy suite that never ran
@@ -798,17 +797,13 @@ func fetchTool(ctx context.Context, url string) (*dagger.File, error) {
 	return fetchPinnedTool(ctx, url, checks.ToolSHA256)
 }
 
-// fetchPinnedTool resolves a pinned release asset from the in-cluster mirror
-// FIRST and from its own URL second, and holds BOTH to the same sha256 pin: the
-// engine verifies the bytes at fetch time (dag.HTTP's Checksum), so a mirror
-// that serves the wrong bytes is a failed source and the next is tried, never
-// an install. The mirror is the registry's blob of that digest
-// (checks.ToolMirrorURL); github.com answering 500 at gate time settled
-// stellar-core-rust's wit lanes could-not-run twice (runs 870, 907).
+// fetchPinnedTool resolves a pinned release asset from its own URL and holds it
+// to the sha256 pin: the engine verifies the bytes at fetch time (dag.HTTP's
+// Checksum), so a host that serves the wrong bytes is a failed fetch, never an
+// install.
 //
 // A URL with no pin is refused before any address is asked (fail closed). When
-// every source fails the error names each one and its cause, so the record
-// shows the mirror was tried and why it did not answer.
+// the fetch fails the error names the address and its cause.
 func fetchPinnedTool(ctx context.Context, url string, sums map[string]string) (*dagger.File, error) {
 	sources, sum, err := checks.ToolSources(url, sums)
 	if err != nil {
