@@ -64,7 +64,14 @@ func RunChecker(ctx context.Context, a checks.AtomDef, in atoms.Input, c Checker
 	if stop := ProbeTool(ctx, a, in, c.Python, "--version"); stop != nil {
 		return *stop
 	}
-	out, code := in.Run(ctx, atoms.Cmd{Dir: in.Root, Name: c.Python, Args: append([]string{"tools/" + c.Tool}, c.Args...), Env: atoms.PythonEnv(), Both: true})
+	cmd := atoms.Cmd{Dir: in.Root, Name: c.Python, Args: append([]string{"tools/" + c.Tool}, c.Args...), Env: atoms.PythonEnv(), Both: true}
+	run := func() (string, int) { return in.Run(ctx, cmd) }
+	// Two is the mark of a checker that reads a source over the network.
+	runIt := run
+	if c.Two != "" {
+		runIt = func() (string, int) { return runNet(run) }
+	}
+	out, code := runIt()
 	if code < 0 {
 		return NeverRan(a, out)
 	}
