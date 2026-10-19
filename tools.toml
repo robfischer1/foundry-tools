@@ -10,7 +10,7 @@ schema = "tools@1"
 go = "registry.notusmi.com/foundry/base-images/go:stable@sha256:99bd0b3b464b64dc0bee7a8d95c7107b8f0a456b3c45798323f4cd03d3f72bcd"
 
 [toolchain.go]
-image = "docker.io/library/golang:1.26.9-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c"
+image = "docker.io/library/golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61"
 preflight = ["go", "mod", "download"]
 
 [toolchain.python]
@@ -206,9 +206,9 @@ sha256 = "61407015edaeafa9b61b3ffefb5077624cd4017ac50be05e246bcadafbb56d99"
 # whose go/bin/gofmt gravity execs through $GOFMT (checks.GofmtURL).
 [tool.gofmt]
 kind = "url"
-spec = "https://go.dev/dl/go1.26.9.linux-amd64.tar.gz"
-version = "1.26.9"
-sha256 = "42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d"
+spec = "https://go.dev/dl/go1.27.2.linux-amd64.tar.gz"
+version = "1.27.2"
+sha256 = "ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5"
 
 # The rust compilers dev:go-regen lays for a core pinned to a rustc the rust image
 # does not carry (checks.RustDists): static.rust-lang.org's dist tarballs for the
@@ -287,12 +287,12 @@ sha256 = "9549c3789acb25209da019cc8506ea5b1684b81fb4b471dc64cb47d1d04d6422"
 [tool.staticcheck]
 kind = "go"
 spec = "honnef.co/go/tools/cmd/staticcheck"
-version = "2025.1.1"
+version = "2026.2.2"
 
 [tool.govulncheck]
 kind = "go"
 spec = "golang.org/x/vuln/cmd/govulncheck"
-version = "v1.1.4"
+version = "v1.9.0"
 
 [tool.gomutants]
 kind = "go"
@@ -327,7 +327,7 @@ image = "docker.io/oven/bun:1.4-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa8
 # the container's.
 [tool.git]
 kind = "image"
-image = "docker.io/library/golang:1.26.9-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c"
+image = "docker.io/library/golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61"
 bins = ["usr/bin/git"]
 
 # node for a container that has none or only bun's stand-in (the bun image puts

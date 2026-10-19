@@ -54,7 +54,7 @@ package checks
 // vendor registry) is a pull the fleet does not mirror, and the test says so.
 // The digests are content-addressed and did not move with the names.
 const (
-	ImageGo     = "docker.io/library/golang:1.26.9-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c"
+	ImageGo     = "docker.io/library/golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61"
 	ImagePython = "docker.io/library/python:3.14-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f"
 	ImageRust   = "docker.io/library/rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e75fea57e2a2a5c3073"
 	// ImageRustWasm is the toolchain stellar-core-ts's cores were BUILT with
@@ -230,8 +230,8 @@ const (
 	// renovate: datasource=deb depName=jq registryUrl=https://deb.debian.org/debian?suite=bookworm&components=main&binaryArch=amd64
 	JqDebVersion = "1.6-2.1+deb12u2"
 
-	StaticcheckModule = "honnef.co/go/tools/cmd/staticcheck@2025.1.1"
-	GovulncheckModule = "golang.org/x/vuln/cmd/govulncheck@v1.1.4"
+	StaticcheckModule = "honnef.co/go/tools/cmd/staticcheck@2026.2.2"
+	GovulncheckModule = "golang.org/x/vuln/cmd/govulncheck@v1.9.0"
 	// GomutantsModule is the Go mutation runner. It replaced gremlins v0.6.0 on
 	// 2026-09-29 and the flip was decided by measurement, on ourea's
 	// internal/gatejob at 5743c86 against 8d9f610 — the same tree and the same

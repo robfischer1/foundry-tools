@@ -12,13 +12,13 @@ import (
 // GOFMT. Gravity's `--gofmt` execs $GOFMT, else `gofmt` on PATH (forks/gravity
 // cmd/gravity/src/gofmt.rs at aeb03bfd), and that is the ONLY Go the regeneration
 // needs. The official linux-amd64 release is staged as a url tool (tools.toml
-// [tool.gofmt]) at the version of the Go toolchain image (ImageGo, go1.26.9), so
+// [tool.gofmt]) at the version of the Go toolchain image (ImageGo, go1.27.2), so
 // a regenerated binding is formatted by the formatter the gate's go:gofmt checks
 // it with. The sum is go.dev's own (https://go.dev/dl/?mode=json), equal to the
 // downloaded bytes. The tarball unpacks to go/, whose bin/ holds gofmt (and go).
 const (
-	GofmtGoRelease = "1.26.9"
-	GofmtURL       = "https://go.dev/dl/go1.26.9.linux-amd64.tar.gz"
+	GofmtGoRelease = "1.27.2"
+	GofmtURL       = "https://go.dev/dl/go1.27.2.linux-amd64.tar.gz"
 	// GofmtMember is the formatter inside that tarball.
 	GofmtMember = "go/bin/gofmt"
 )
