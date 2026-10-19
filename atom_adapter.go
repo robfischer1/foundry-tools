@@ -99,11 +99,15 @@ var (
 	// compile itself, the cast's decisions about the tree, the release
 	// directory's resolution and the exit vocabulary, and the copy that carries
 	// a binary out of its target.
+	castReleaseDirs = []string{"internal/castrelease/**", "internal/castlane/**", "internal/releasekit/**", "internal/buildlane/**", "internal/copyout/**"}
 	// publishPackDirs are what the publish lane's two build atoms share: the
 	// builds, the lane's decisions (artifact names, package selection), the
 	// release directory's resolution and the exit vocabulary.
 	publishPackDirs = []string{"internal/publishpack/**", "internal/publishlane/**", "internal/releasekit/**", "internal/buildlane/**"}
-	castReleaseDirs = []string{"internal/castrelease/**", "internal/castlane/**", "internal/releasekit/**", "internal/buildlane/**", "internal/copyout/**"}
+	// bundleDirs are what the bundle lane's four atoms share: the build and its
+	// gates, the lane's decisions about the dies, the KMS re-sign's byte work and
+	// the orbit dies' composition.
+	bundleDirs = []string{"internal/bundlekit/**", "internal/bundlelane/**", "internal/bundleresign/**", "internal/orbitcompose/**"}
 )
 
 // atomLibraries are the packages an atom imports that not every atom does, by
@@ -132,6 +136,10 @@ var atomLibraries = map[string][]string{
 	"ops:world-patches":          libraryDirs,
 	"ops:yaml":                   libraryDirs,
 	"go:release":                 releaseDirs,
+	"bundle:policy":              bundleDirs,
+	"bundle:fleet":               bundleDirs,
+	"bundle:orbits":              bundleDirs,
+	"bundle:resign":              bundleDirs,
 	"go:cast-release":            castReleaseDirs,
 	"python:artifacts":           publishPackDirs,
 	"ts:pack":                    publishPackDirs,

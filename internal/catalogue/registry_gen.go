@@ -3,6 +3,10 @@
 package catalogue
 
 import (
+	bundlefleet "dagger/foundry-tools/atoms/bundle/fleet"
+	bundleorbits "dagger/foundry-tools/atoms/bundle/orbits"
+	bundlepolicy "dagger/foundry-tools/atoms/bundle/policy"
+	bundleresign "dagger/foundry-tools/atoms/bundle/resign"
 	composeconfig "dagger/foundry-tools/atoms/compose/config"
 	composenotrackedsecrets "dagger/foundry-tools/atoms/compose/no-tracked-secrets"
 	composethirdpartypins "dagger/foundry-tools/atoms/compose/third-party-pins"
@@ -111,6 +115,10 @@ import (
 
 // Defs is every logic atom, sorted by id.
 var Defs = []*atomkit.Def{
+	&bundlefleet.Def,
+	&bundleorbits.Def,
+	&bundlepolicy.Def,
+	&bundleresign.Def,
 	&composeconfig.Def,
 	&composenotrackedsecrets.Def,
 	&composethirdpartypins.Def,

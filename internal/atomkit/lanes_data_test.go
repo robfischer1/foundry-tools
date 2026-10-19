@@ -46,15 +46,29 @@ func TestUT_612_TheFourteenLaneFilesParse(t *testing.T) {
 
 func TestUT_614_BundlePhases(t *testing.T) {
 	d := landedLanes(t)["bundle"]
-	if len(d.Phases) != 3 {
-		t.Fatalf("%+v", d.Phases)
+	var names []string
+	for _, p := range d.Phases {
+		names = append(names, p.Name)
 	}
-	sign, push := d.Phases[1], d.Phases[2]
-	if sign.Name != "sign" || sign.Capability != "kms-sign" || !slices.Equal(sign.After, []string{"build"}) {
-		t.Errorf("sign: %+v", sign)
+	if !slices.Equal(names, []string{"build", "policy", "fleet", "orbits", "sign", "resign", "push"}) {
+		t.Fatalf("%v", names)
 	}
-	if push.Name != "push" || push.Capability != "push-bundle" || !slices.Equal(push.After, []string{"sign"}) {
-		t.Errorf("push: %+v", push)
+	by := map[string]PhaseDef{}
+	for _, p := range d.Phases {
+		by[p.Name] = p
+	}
+	// The gates the Dagger lane re-runs, the four atoms that build, and the two
+	// capabilities that touch the KMS and the registry.
+	if !slices.Equal(by["build"].Atoms, []string{"dies:opa-test", "dies:admission-dogfood"}) ||
+		!slices.Equal(by["policy"].Atoms, []string{"bundle:policy"}) || !slices.Equal(by["fleet"].Atoms, []string{"bundle:fleet"}) ||
+		!slices.Equal(by["orbits"].Atoms, []string{"bundle:orbits"}) || !slices.Equal(by["resign"].Atoms, []string{"bundle:resign"}) {
+		t.Errorf("atoms: %+v", d.Phases)
+	}
+	if by["sign"].Capability != "kms-sign" || !slices.Equal(by["sign"].After, []string{"policy", "fleet"}) {
+		t.Errorf("sign: %+v", by["sign"])
+	}
+	if by["push"].Capability != "push-bundle" || !slices.Equal(by["push"].After, []string{"resign", "orbits"}) {
+		t.Errorf("push: %+v", by["push"])
 	}
 }
 
