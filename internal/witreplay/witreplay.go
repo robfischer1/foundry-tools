@@ -9,7 +9,6 @@ package witreplay
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -48,21 +47,34 @@ import (
 // has no ordering against that one and no volume shared with it (DEF-B4-wit-1).
 func Run(ctx context.Context, in atomkit.In, row checks.AtomDef) checks.Verdict {
 	id := row.ID
-	manifest, err := os.ReadFile(filepath.Join(in.Root, "Cargo.toml"))
-	if err != nil {
-		return checks.VerdictOf(row, 2, fmt.Sprintf("%s: CANNOT RUN - Cargo.toml would not read: %v", id, err))
+	// THE FACADE (checks.WitFacadeDir): the root crate, or the member of a
+	// virtual workspace that declares the wit-guest features. Every path below
+	// (composer, replay host, tapes) is resolved beside it and run from it.
+	facade, bad := atoms.ResolveWitFacade(ctx, in, row)
+	if bad != nil {
+		return *bad
 	}
-	if len(checks.WitGuestWorlds(string(manifest))) == 0 {
+	manifest := facade.Manifest
+	if len(checks.WitGuestWorlds(manifest)) == 0 {
+		if facade.Virtual {
+			return checks.VerdictOf(row, 0, id+": ABSENT - Cargo.toml is a virtual workspace and no member declares a "+checks.WitGuestPrefix+"<world> feature, so there is nothing to compose")
+		}
 		return checks.VerdictOf(row, 0, id+": ABSENT - Cargo.toml declares no "+checks.WitGuestPrefix+"<world> feature, so there is nothing to compose")
 	}
 	if in.FilesErr != nil {
 		return checks.CannotEnumerate(row, in.FilesErr)
 	}
-	files := in.Files
-	if !slices.Contains(files, checks.WitComposeScript) || !slices.Contains(files, checks.WitReplayManifest) {
-		return checks.VerdictOf(row, 0, id+": ABSENT - the tree carries no "+checks.WitComposeScript+" and "+checks.WitReplayManifest+", so it declares no composition to check")
+	// Files the facade owns, named relative to it (the tree lists them relative to the root).
+	var files []string
+	for _, f := range in.Files {
+		if rel, ok := facade.Within(f); ok {
+			files = append(files, rel)
+		}
 	}
-	tapes := checks.WitComposeTapes(string(manifest), files)
+	if !slices.Contains(files, checks.WitComposeScript) || !slices.Contains(files, checks.WitReplayManifest) {
+		return checks.VerdictOf(row, 0, id+": ABSENT - the tree carries no "+facade.Rel(checks.WitComposeScript)+" and "+facade.Rel(checks.WitReplayManifest)+", so it declares no composition to check")
+	}
+	tapes := checks.WitComposeTapes(manifest, files)
 	if len(tapes) == 0 {
 		return checks.VerdictOf(row, 2, id+": CANNOT RUN - no tests/tapes/<world>.json for any wit-guest world, so a composition would be built and answer nothing")
 	}
@@ -80,6 +92,7 @@ func Run(ctx context.Context, in atomkit.In, row checks.AtomDef) checks.Verdict 
 		return *v
 	}
 
+	crate := facade.Abs(in.Root)
 	target := atoms.CargoTargetDir()
 	work := atoms.WorkDir()
 	host := filepath.Join(work, checks.WitReplayDir, "replay")
@@ -106,7 +119,7 @@ func Run(ctx context.Context, in atomkit.In, row checks.AtomDef) checks.Verdict 
 		{"compose", []string{checks.WitComposeScript, composed}, nil},
 		{"replay", append([]string{host, composed}, tapes...), nil},
 	} {
-		v = atoms.SettleTool(ctx, in, row, atoms.Cmd{Dir: in.Root, Name: step.args[0], Args: step.args[1:], Env: env})
+		v = atoms.SettleTool(ctx, in, row, atoms.Cmd{Dir: crate, Name: step.args[0], Args: step.args[1:], Env: env})
 		if v.State == int(checks.StatePass) && step.then != nil {
 			if err := step.then(); err != nil {
 				v = checks.VerdictOf(row, 126, fmt.Sprintf("%s: the %s would not copy out of the target: %v", id, step.name, err))

@@ -7,7 +7,9 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 
 	"dagger/foundry-tools/internal/checks"
 )
@@ -85,9 +87,86 @@ func CarryOut(src, dst string) error {
 // in cargo's vocabulary (CargoVerdict). A program that would not start, or was
 // killed by a signal, is the atom's could-not-run.
 func CargoRun(ctx context.Context, in Input, a checks.AtomDef, env []string, argv ...string) checks.Verdict {
-	out, code, never := RunTool(ctx, in, a, Cmd{Dir: in.Root, Name: argv[0], Args: argv[1:], Env: env})
+	return CargoRunIn(ctx, in, in.Root, a, env, argv...)
+}
+
+// CargoRunIn is CargoRun in a directory of the tree other than its root: the
+// wit facade of a virtual workspace (WitFacade), where cargo finds the
+// workspace by walking up and the facade is the package the run is about.
+func CargoRunIn(ctx context.Context, in Input, dir string, a checks.AtomDef, env []string, argv ...string) checks.Verdict {
+	out, code, never := RunTool(ctx, in, a, Cmd{Dir: dir, Name: argv[0], Args: argv[1:], Env: env})
 	if never != nil {
 		return *never
 	}
 	return CargoVerdict(a, out, code)
+}
+
+// WitFacade is where the wit atoms find the crate they grade.
+type WitFacade struct {
+	// Dir is the facade's directory under the tree's root, slash-separated; ""
+	// when the root IS the crate (a package root: every repository today).
+	Dir string
+	// Manifest is the facade's Cargo.toml as written; "" when a virtual
+	// workspace has no facade.
+	Manifest string
+	// Virtual is true when the root Cargo.toml is a virtual workspace.
+	Virtual bool
+}
+
+// Abs is a directory of the tree: the facade's, for every cargo run and every
+// path the atoms resolve (tests/tapes, wit-guest-budgets.toml, the composer).
+func (f WitFacade) Abs(root string) string { return filepath.Join(root, filepath.FromSlash(f.Dir)) }
+
+// Within answers a tree file's path relative to the facade, and whether the
+// file is under it. For a package root every file is, unchanged.
+func (f WitFacade) Within(file string) (string, bool) {
+	if f.Dir == "" {
+		return file, true
+	}
+	rel, ok := strings.CutPrefix(file, f.Dir+"/")
+	return rel, ok
+}
+
+// Rel is a facade-relative file as the tree's file list names it.
+func (f WitFacade) Rel(file string) string { return path.Join(f.Dir, file) }
+
+// ResolveWitFacade finds the crate the wit atoms grade (checks.WitFacadeDir
+// says why). A root that is a package answers itself with NO program run, so a
+// single-package repository is graded exactly as before. A virtual root asks
+// `cargo metadata --no-deps`; a cargo that will not answer, or an answer that
+// will not parse, is the atom's could-not-run and never an ABSENT: a lane that
+// cannot find its subject must not pass on it. Only an answer with no member
+// declaring a wit-guest feature comes back with an empty Manifest, and that is
+// the one case the caller may report as absent.
+func ResolveWitFacade(ctx context.Context, in Input, a checks.AtomDef) (WitFacade, *checks.Verdict) {
+	root, err := os.ReadFile(filepath.Join(in.Root, "Cargo.toml"))
+	if err != nil {
+		v := checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - Cargo.toml would not read: %v", a.ID, err))
+		return WitFacade{}, &v
+	}
+	if !checks.IsVirtualWorkspace(string(root)) {
+		return WitFacade{Manifest: string(root)}, nil
+	}
+	out, code, never := RunTool(ctx, in, a, Cmd{Dir: in.Root, Name: "cargo", Args: []string{"metadata", "--no-deps", "--format-version", "1"}, StdoutOnly: true})
+	if never != nil {
+		return WitFacade{}, never
+	}
+	if code != 0 {
+		v := checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - cargo metadata exited %d, so the virtual workspace's facade is unknown", a.ID, code))
+		return WitFacade{}, &v
+	}
+	dir, found, err := checks.WitFacadeDir([]byte(out))
+	if err != nil {
+		v := checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - %v", a.ID, err))
+		return WitFacade{}, &v
+	}
+	if !found {
+		return WitFacade{Virtual: true}, nil
+	}
+	manifest, err := os.ReadFile(filepath.Join(in.Root, filepath.FromSlash(dir), "Cargo.toml"))
+	if err != nil {
+		v := checks.VerdictOf(a, 2, fmt.Sprintf("%s: CANNOT RUN - the facade's Cargo.toml would not read: %v", a.ID, err))
+		return WitFacade{}, &v
+	}
+	return WitFacade{Dir: dir, Manifest: string(manifest), Virtual: true}, nil
 }
