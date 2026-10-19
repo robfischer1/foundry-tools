@@ -27,6 +27,11 @@ import (
 // A tree without one is built exactly as before.
 const ManifestFile = "release.toml"
 
+// RootPackage spells the module root as a [[binary]] package, for a star whose
+// main package is the module itself (go build .). It is the only spelling:
+// "./" and "./." stay refused, and the root needs no directory to be checked.
+const RootPackage = "."
+
 type manifest struct {
 	Binary []struct {
 		Package string   `toml:"package"`
@@ -57,6 +62,8 @@ func ReadManifest(body string) ([]checks.ReleaseBinary, error) {
 		switch {
 		case b.Package == "":
 			return nil, fmt.Errorf("a [[binary]] in %s names no package", ManifestFile)
+		case b.Package == RootPackage:
+			// the module root itself: a star whose main package is the module
 		case pkg == b.Package || pkg == "" || path.Clean(pkg) != pkg || strings.HasPrefix(pkg, "../") || pkg == "..":
 			return nil, fmt.Errorf("%s package %q is not a ./ package inside the module", ManifestFile, b.Package)
 		}
