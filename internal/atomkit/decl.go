@@ -50,7 +50,7 @@ type Def struct {
 var idRE = regexp.MustCompile(`^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$`)
 
 // stages are the stages an atom may declare.
-var stages = []string{"precommit", "prepush", "mutation", "orbit", "visual", "dev", "cast"}
+var stages = []string{"precommit", "prepush", "mutation", "orbit", "visual", "dev", "cast", "publish"}
 
 // defaultTimeout is what Timeout 0 means.
 const defaultTimeout = 10 * time.Minute

@@ -63,10 +63,15 @@ func TestUT_614_BundlePhases(t *testing.T) {
 // stage does not exist, DEF-8-019, so they are named, not staged).
 func TestUT_613_ReleasePhasesNameTheFourReleaseAtoms(t *testing.T) {
 	want := []string{"go:release", "python:release", "rust:release", "ts:release"}
-	for _, l := range []string{"build", "bases", "publish"} {
+	for _, l := range []string{"build", "bases"} {
 		if got := landedLanes(t)[l].Phases[0].Atoms; !slices.Equal(got, want) {
 			t.Errorf("%s release: %v", l, got)
 		}
+	}
+	// The publish lane uploads packages, not images: it builds the wheels and
+	// the npm tarballs the capability uploads (python:artifacts, ts:pack).
+	if got := landedLanes(t)["publish"].Phases[0].Atoms; !slices.Equal(got, []string{"python:artifacts", "ts:pack"}) {
+		t.Errorf("publish release: %v", got)
 	}
 	// The cast is not an image's compile: it builds every binary a tree declares
 	// (rust:cast-release, go:cast-release), whatever a Dockerfile copies.

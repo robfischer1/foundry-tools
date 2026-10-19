@@ -99,6 +99,10 @@ var (
 	// compile itself, the cast's decisions about the tree, the release
 	// directory's resolution and the exit vocabulary, and the copy that carries
 	// a binary out of its target.
+	// publishPackDirs are what the publish lane's two build atoms share: the
+	// builds, the lane's decisions (artifact names, package selection), the
+	// release directory's resolution and the exit vocabulary.
+	publishPackDirs = []string{"internal/publishpack/**", "internal/publishlane/**", "internal/releasekit/**", "internal/buildlane/**"}
 	castReleaseDirs = []string{"internal/castrelease/**", "internal/castlane/**", "internal/releasekit/**", "internal/buildlane/**", "internal/copyout/**"}
 )
 
@@ -129,6 +133,8 @@ var atomLibraries = map[string][]string{
 	"ops:yaml":                   libraryDirs,
 	"go:release":                 releaseDirs,
 	"go:cast-release":            castReleaseDirs,
+	"python:artifacts":           publishPackDirs,
+	"ts:pack":                    publishPackDirs,
 	"rust:cast-release":          castReleaseDirs,
 	"orbit:contracts":            orbitDirs,
 	"orbit:repo":                 orbitDirs,

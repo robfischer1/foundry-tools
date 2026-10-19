@@ -4,7 +4,7 @@ lane = "publish"
 [[phase]]
 name = "release"
 kind = "fanout"
-atoms = ["go:release", "python:release", "rust:release", "ts:release"]
+atoms = ["python:artifacts", "ts:pack"]
 
 # ca-publish-lane is RECIPE_JOB_LANES.publish.secrets in flux
 # prime/daedalus-jobs.yaml (the PyPI and npm tokens).
