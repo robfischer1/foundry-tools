@@ -53,6 +53,22 @@ type VulnAllowance struct {
 // vulnAllowed is the whole list. It should be short, and empty is the goal.
 var vulnAllowed = []VulnAllowance{
 	{
+		ID:    "GO-2026-6225",
+		Until: time.Date(2026, time.November, 18, 0, 0, 0, 0, time.UTC),
+		Why: "Rob 2026-10-19, signing-tools fork; already in production, unfixed upstream. " +
+			"forks/cosign (cosign v3.1.3 for base-images signing-tools) reaches docker-credential-acr-env " +
+			"via cli.CleanCmd -> remote.Delete; govulncheck reports no fixed version. CLEARED BY an upstream fix " +
+			"(cosign or the acr credential helper) taken into forks/cosign, or cosign dropping the helper.",
+	},
+	{
+		ID:    "GO-2026-5932",
+		Until: time.Date(2026, time.November, 18, 0, 0, 0, 0, time.UTC),
+		Why: "Rob 2026-10-19, signing-tools fork; already in production, unfixed upstream. " +
+			"forks/cosign reaches the unmaintained golang.org/x/crypto/openpgp (x/crypto v0.57.0) via " +
+			"dsseEntry / NewProposedEntry; govulncheck reports no fixed version. CLEARED BY cosign/rekor moving off " +
+			"x/crypto/openpgp, taken into forks/cosign.",
+	},
+	{
 		ID:    "GO-2026-6508",
 		Until: time.Date(2026, time.December, 1, 0, 0, 0, 0, time.UTC),
 		Why: "otlploggrpc's fix is v0.21.0, whose otel/log API github.com/dagger/otel-go@v1.43.0 " +
