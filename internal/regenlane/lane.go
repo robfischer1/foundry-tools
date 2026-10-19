@@ -37,8 +37,54 @@ var row = checks.AtomDef{ID: id, Stage: checks.StagePrepush, Lane: checks.LaneTS
 // own width (plan@1 max_parallel), since each is a cargo build.
 const worldsParallel = 2
 
-// Check regenerates every world the justfile names and folds the answers.
+// Check regenerates every world the justfile names and folds the answers. A
+// bare workspace root (checks.TSBareWorkspaceMembers: the monorepo's, whose
+// justfile, scripts and cores are the member's) is checked member by member, each
+// as a tree of its own; any other root is checked as it always was.
 func Check(ctx context.Context, in atomkit.In) checks.Verdict {
+	manifest, err := os.ReadFile(filepath.Join(in.Root, "package.json"))
+	if err != nil {
+		return checkTree(ctx, in)
+	}
+	members, bare := checks.TSBareWorkspaceMembers(string(manifest), in.Files)
+	if !bare {
+		return checkTree(ctx, in)
+	}
+	if len(members) == 0 {
+		return checks.VerdictOf(row, 2, id+": CANNOT RUN - the root package.json is a bare workspace root and none of its workspaces matches a package.json in the tree, so there is no member to regenerate")
+	}
+	var worst int
+	var parts []string
+	for _, m := range members {
+		v := checkTree(ctx, memberInput(in, m))
+		if v.Result == "absent" {
+			continue
+		}
+		worst = max(worst, v.State)
+		parts = append(parts, "["+m+"] "+v.Reason)
+	}
+	if len(parts) == 0 {
+		return checks.VerdictOf(row, 0, id+": ABSENT - no workspace member's justfile has a `scripts/regen-check.sh <world>` line, so the star declares no core to regenerate")
+	}
+	return checks.VerdictOf(row, worst, strings.Join(parts, "\n"))
+}
+
+// memberInput is the tree of one workspace member: its directory is the root and
+// the file list is the member's, named relative to it.
+func memberInput(in atomkit.In, member string) atomkit.In {
+	sub := in
+	sub.Root = filepath.Join(in.Root, filepath.FromSlash(member))
+	sub.Files = nil
+	for _, f := range in.Files {
+		if rel, ok := strings.CutPrefix(f, member+"/"); ok {
+			sub.Files = append(sub.Files, rel)
+		}
+	}
+	return sub
+}
+
+// checkTree is the check of one tree whose root holds the justfile.
+func checkTree(ctx context.Context, in atomkit.In) checks.Verdict {
 	body, err := os.ReadFile(filepath.Join(in.Root, "justfile"))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return checks.VerdictOf(row, 2, fmt.Sprintf("%s: CANNOT RUN - the justfile would not read: %v", id, err))

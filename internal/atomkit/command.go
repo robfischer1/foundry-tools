@@ -64,6 +64,29 @@ func ModuleRoots(facts Tree, toolchain string) []string {
 	return kept
 }
 
+// bareWorkspaceMembers are the member directories (under /src) a script runner
+// runs in when the tree's root package.json is a bare workspace root
+// (checks.TSBareWorkspaceMembers): a private workspace declaration with no
+// scripts, which has no `test` or `format` for `bun run` to find. Only a
+// `bun run <script>` of the bun and node toolchains is redirected; `bun audit`
+// and every other command reads the root lockfile and stays at the root, and
+// every tree that is not bare answers nil, so nothing else changes.
+func bareWorkspaceMembers(facts Tree, toolchain string, argv []string) []string {
+	if (toolchain != "bun" && toolchain != "node") || len(argv) < 2 || argv[0] != "bun" || argv[1] != "run" {
+		return nil
+	}
+	manifest, err := os.ReadFile(filepath.Join(facts.Root, "package.json"))
+	if err != nil {
+		return nil
+	}
+	members, _ := checks.TSBareWorkspaceMembers(string(manifest), facts.Files)
+	dirs := make([]string, len(members))
+	for i, m := range members {
+		dirs[i] = path.Join(srcDir, m)
+	}
+	return dirs
+}
+
 // inside is true when dir lies under one of the roots.
 func inside(dir string, roots []string) bool {
 	for _, r := range roots {
@@ -124,6 +147,9 @@ func RunCommand(ctx context.Context, c Command) checks.Verdict {
 		}
 	}
 	argv := m.Compose(c.Args)
+	if members := bareWorkspaceMembers(c.Facts, m.Toolchain, argv); len(members) > 0 && !m.PerModule {
+		dirs = members
+	}
 	results := make([]dirResult, 0, len(dirs))
 	for _, d := range dirs {
 		if len(c.Preflight) > 0 && m.RunsPreflight() {
