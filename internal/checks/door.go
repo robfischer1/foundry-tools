@@ -2,10 +2,14 @@ package checks
 
 import (
 	"context"
+	"errors"
 	"io"
+	"math/rand/v2"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -34,6 +38,51 @@ type Door struct {
 	Base string
 	// Client makes the request; nil means a client bounded by DoorTimeout.
 	Client *http.Client
+	// NoRetry asks once and answers whatever came back. The zero value retries a
+	// transient failure (DoorWaits); a test of the failure itself sets this.
+	NoRetry bool
+}
+
+// DoorWaits are the waits between a read's attempts: 1, 2, 4 and 8 s, each moved
+// up to DoorJitter either way — the schedule daedalus#394 and foundry-tools#535
+// use. One transient answer from the door (a resolver a beat late, a pod
+// restarting) is not a verdict about the file, and settled a dies atom
+// CANNOT RUN (blade-runner 7bb21c6, 09:40Z).
+var DoorWaits = []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second}
+
+// DoorJitter is the fraction either way a wait moves.
+const DoorJitter = 0.3
+
+// The seams a test replaces: how a wait sleeps and the draw behind its jitter.
+var (
+	doorSleep = func(ctx context.Context, d time.Duration) {
+		t := time.NewTimer(d)
+		defer t.Stop()
+		select {
+		case <-ctx.Done():
+		case <-t.C:
+		}
+	}
+	doorRand = rand.Float64
+)
+
+// transientDoor says whether a read's outcome is worth asking again: a network
+// error (DNS, refused or reset, a timeout, a body cut short) or a 5xx. A 404, a
+// 400 or any other status is the door's answer and is final.
+func transientDoor(status int, err error) bool {
+	if err == nil {
+		return status >= 500
+	}
+	var dns *net.DNSError
+	var nerr net.Error
+	switch {
+	case errors.As(err, &dns), errors.Is(err, syscall.ECONNREFUSED), errors.Is(err, syscall.ECONNRESET),
+		errors.Is(err, io.ErrUnexpectedEOF), errors.Is(err, io.EOF), errors.Is(err, context.DeadlineExceeded):
+		return true
+	case errors.As(err, &nerr):
+		return nerr.Timeout()
+	}
+	return false
 }
 
 // NewDoor is the production door.
@@ -48,8 +97,23 @@ func (d Door) URL(repo, path string) string {
 
 // Get answers the HTTP status and body of one file, or the error that kept it
 // from asking. Redirects are followed. A status is returned whatever it is: the
-// caller decides what a 404 means, because it differs per atom.
+// caller decides what a 404 means, because it differs per atom. A transient
+// failure (transientDoor) is asked again after each of DoorWaits, and the last
+// answer stands; the caller's own cancelled context ends the asking at once.
 func (d Door) Get(ctx context.Context, repo, path string) (int, []byte, error) {
+	status, body, err := d.get(ctx, repo, path)
+	for _, w := range DoorWaits {
+		if d.NoRetry || ctx.Err() != nil || !transientDoor(status, err) {
+			break
+		}
+		doorSleep(ctx, time.Duration(float64(w)*(1+DoorJitter*(2*doorRand()-1))))
+		status, body, err = d.get(ctx, repo, path)
+	}
+	return status, body, err
+}
+
+// get is one ask.
+func (d Door) get(ctx context.Context, repo, path string) (int, []byte, error) {
 	client := d.Client
 	if client == nil {
 		client = &http.Client{Timeout: DoorTimeout}

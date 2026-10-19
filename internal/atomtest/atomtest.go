@@ -148,7 +148,7 @@ func DoorBreaking(t TB, answers map[string]string, breakOn string) checks.Door {
 		_, _ = w.Write([]byte(body))
 	}))
 	t.Cleanup(srv.Close)
-	return checks.Door{Base: srv.URL}
+	return checks.Door{Base: srv.URL, NoRetry: true}
 }
 
 // DeadDoor is a door nothing answers at: connection refused.
@@ -157,7 +157,7 @@ func DeadDoor(t TB) checks.Door {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	base := srv.URL
 	srv.Close()
-	return checks.Door{Base: base}
+	return checks.Door{Base: base, NoRetry: true}
 }
 
 // BrokenLink makes a file a listing shows and nothing can read: a symlink to
