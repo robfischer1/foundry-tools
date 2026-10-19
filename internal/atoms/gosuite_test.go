@@ -675,3 +675,75 @@ func TestGoSuiteUsesTheGravityOnPathWhenNoPerRevToolIsThere(t *testing.T) {
 		}
 	}
 }
+
+// THE CALLER'S ARGUMENTS fold into the race run (GoSuiteFor).
+func TestParseSuiteArgs(t *testing.T) {
+	for name, c := range map[string]struct {
+		in   []string
+		want SuiteArgs
+	}{
+		"none":             {nil, SuiteArgs{}},
+		"package":          {[]string{"./internal/store/"}, SuiteArgs{Packages: true, Rest: []string{"./internal/store/"}}},
+		"flags pass":       {[]string{"-run", "TestX", "-count=1", "-v"}, SuiteArgs{Rest: []string{"-run", "TestX", "-count=1", "-v"}}},
+		"race implied":     {[]string{"-race", "--race=true", "-v"}, SuiteArgs{Rest: []string{"-v"}}},
+		"tags separate":    {[]string{"-tags", "live,live_db"}, SuiteArgs{Tags: []string{"live", "live_db"}}},
+		"tags joined":      {[]string{"--tags=a b", "-tags=a"}, SuiteArgs{Tags: []string{"a", "b"}}},
+		"tags no value":    {[]string{"-tags"}, SuiteArgs{}},
+		"p is the callers": {[]string{"-p", "4", "./..."}, SuiteArgs{P: true, Packages: true, Rest: []string{"-p", "4", "./..."}}},
+		"args to binary":   {[]string{"./p", "-args", "-race", "./x", "-tags", "z"}, SuiteArgs{Packages: true, Rest: []string{"./p", "-args", "-race", "./x", "-tags", "z"}}},
+	} {
+		got := ParseSuiteArgs(c.in)
+		if !slices.Equal(got.Tags, c.want.Tags) || got.Packages != c.want.Packages || got.P != c.want.P || !slices.Equal(got.Rest, c.want.Rest) {
+			t.Errorf("%s: %+v, want %+v", name, got, c.want)
+		}
+	}
+}
+
+func TestUnionTags(t *testing.T) {
+	for _, c := range []struct {
+		word   string
+		caller []string
+		want   string
+	}{{"", nil, ""}, {"live_db", nil, "live_db"}, {"", []string{"live"}, "live"}, {"live_db,live_kafka", []string{"live", "live_db"}, "live_db,live_kafka,live"}} {
+		if got := UnionTags(c.word, c.caller); got != c.want {
+			t.Errorf("%q + %v = %q, want %q", c.word, c.caller, got, c.want)
+		}
+	}
+}
+
+func TestSuiteArgsNoteNamesTheUnboundTagsOnly(t *testing.T) {
+	s := SuiteArgs{Tags: []string{"live_db", "live_kafka", "live_redis", "live_kube", "live", "other"}}
+	got := s.Note(checks.TestDBs[:1], checks.TestBrokers[:1], checks.TestCaches[:1], checks.TestKubes[:1])
+	if !strings.Contains(got, "live, other") || strings.Contains(got, "live_db") || strings.Contains(got, "live_kafka") || strings.Contains(got, "live_redis") || strings.Contains(got, "live_kube") {
+		t.Errorf("%q", got)
+	}
+	if got := (SuiteArgs{Tags: []string{"live_db"}}).Note(checks.TestDBs[:1], nil, nil, nil); got != "" {
+		t.Errorf("bound tag noted: %q", got)
+	}
+}
+
+func TestGoSuiteForKeepsTheCallersPAndWritesNoProfile(t *testing.T) {
+	f := &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}, {"grep -rhoE", "//go:build live_db\n", 0}}}
+	in := gosuiteIn(t, f, map[string]string{"go.mod": gosuiteGo})
+	v := GoSuiteFor(t.Context(), in, GoRaceRow, ".", ParseSuiteArgs([]string{"-p", "2", "./a/..."}))
+	last := f.runs[len(f.runs)-1]
+	if v.State != 0 || !strings.HasSuffix(last, ": go test -race -tags live_db -p 2 ./a/...") {
+		t.Errorf("%+v ran %q", v, last)
+	}
+	for _, r := range f.runs {
+		if strings.Contains(r, "-exec true") || strings.Contains(r, "-coverprofile") {
+			t.Errorf("the gate's extras ran for a dev run: %q", r)
+		}
+	}
+}
+
+func TestPackageLike(t *testing.T) {
+	for arg, want := range map[string]bool{
+		"-v": false, "-run": false, "TestX": false, ".": true, "..": true, "./x": true, "../x": true,
+		"x/...": true, "example.com/x": true, "internal/store": false,
+	} {
+		if got := PackageLike(arg); got != want {
+			t.Errorf("%q: %v, want %v", arg, got, want)
+		}
+	}
+}

@@ -64,7 +64,7 @@ func TestTheGoTestAtomsCarryTheFleetRecordTree(t *testing.T) {
 		}
 	}
 	sort.Strings(asked)
-	if strings.Join(asked, ",") != "dev:go-test,go:diff-coverage,go:mutation,go:release,go:test,go:test-race,ops:orbit-composed,orbit:repo,orbit:sidecars,orbit:surface,python:release,rust:release,ts:release" {
+	if strings.Join(asked, ",") != "dev:go-test,dev:go-test-live,go:diff-coverage,go:mutation,go:release,go:test,go:test-race,ops:orbit-composed,orbit:repo,orbit:sidecars,orbit:surface,python:release,rust:release,ts:release" {
 		t.Errorf("NeedsDies is declared by %v; go:test, go:test-race, go:diff-coverage and go:mutation (the four atoms that run a repo's `go test`) "+
 			"and the four orbit atoms that read foundry-dies' contracts and the four release atoms that name a star by its record are expected. Adding one is fine — say why "+
 			"here, because each one is another clone of foundry-dies on every gate "+

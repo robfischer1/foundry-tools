@@ -7,6 +7,7 @@ import (
 	composenotrackedsecrets "dagger/foundry-tools/atoms/compose/no-tracked-secrets"
 	composethirdpartypins "dagger/foundry-tools/atoms/compose/third-party-pins"
 	devgoregen "dagger/foundry-tools/atoms/dev/go-regen"
+	devgotestlive "dagger/foundry-tools/atoms/dev/go-test-live"
 	devrustreplay "dagger/foundry-tools/atoms/dev/rust-replay"
 	devtsregen "dagger/foundry-tools/atoms/dev/ts-regen"
 	diesadmissiondogfood "dagger/foundry-tools/atoms/dies/admission-dogfood"
@@ -110,6 +111,7 @@ var Defs = []*atomkit.Def{
 	&composenotrackedsecrets.Def,
 	&composethirdpartypins.Def,
 	&devgoregen.Def,
+	&devgotestlive.Def,
 	&devrustreplay.Def,
 	&devtsregen.Def,
 	&diesadmissiondogfood.Def,
