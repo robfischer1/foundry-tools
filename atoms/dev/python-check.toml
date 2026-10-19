@@ -1,0 +1,43 @@
+schema = "command-atom@1"
+id = "dev:python-check"
+stage = "dev"
+lane = "python"
+group = "language"
+desc = "mypy is clean over src and tests, run by hand from the dev lane under its other name, `check` (dev:python-typecheck's twin)."
+surface = "root:pyproject.toml"
+toolchain = "python"
+argv = ["uv", "run", "--python", "python3", "--all-extras", "mypy"]
+args = "append"
+per_module = false
+judge = "exit"
+needs = ["tool:uv"]
+timeout = "30m"
+
+# `check` IS A LANGUAGE'S COMPILE-BEARING VERB (dev:go-check is go vet, dev:rust-check
+# is cargo check). Python has no compile step, so it is the type check: this is
+# dev:python-typecheck under the name the refusal shim routes, with its own cache
+# directories so two asks never share a venv.
+#
+# THE GATE TWIN IS python:mypy: the same toolchain, the same tool:uv pin, the
+# same `uv run --all-extras mypy` (checks.UvRun, project form), so the type check
+# is of the program with its optional dependencies installed, plus the toolchain
+# image's own interpreter (`--python python3`, see dev:python-test). NOT SHARED: the
+# twin passes `--config-file <the fleet's strict mypy.ini>` (written into
+# ATOM_WORK from internal/checks/rulesets) and only the directories that carry
+# python; this verb reads the tree's own [tool.mypy] and takes the stars' own
+# `mypy src tests`. The stars also run pyright (`just types`); no gate atom does,
+# so no dev atom either.
+#
+# mypy keeps .mypy_cache beside the sources; /src is read-only here.
+[env]
+MYPY_CACHE_DIR = "/tmp/dev-python-check/mypy-cache"
+PYTHONDONTWRITEBYTECODE = "1"
+UV_PROJECT_ENVIRONMENT = "/tmp/dev-python-check/venv"
+
+# A caller's target replaces src and tests. "@package" is args.go's path-shaped
+# argument (./src/pkg, src/pkg/...): a bare directory name is not told from an
+# option's value, so name it with its ./.
+[[default]]
+args = ["src", "tests"]
+unless = ["@package", "-m", "--module", "-p", "--package", "-c", "--command"]
+tail = true
