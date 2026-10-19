@@ -18,7 +18,7 @@ func svidSocket() *dagger.Socket { return dag.LoadSocketFromID("spire-agent-sock
 
 func publishSvid(t *testing.T, m *FoundryTools, token, npmToken *dagger.Secret, spire *dagger.Socket, flag bool) {
 	t.Helper()
-	if err := m.Publish(context.Background(), token, publishURL, checkURL, "publisher", buildIndex, npmToken, npmHosted, false, spire, flag); err != nil {
+	if err := m.Publish(context.Background(), token, publishURL, checkURL, "publisher", buildIndex, npmToken, npmHosted, false, spire, flag, nil); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 }

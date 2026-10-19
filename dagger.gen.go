@@ -1733,7 +1733,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg publishSvid", err))
 				}
 			}
-			return nil, (*FoundryTools).Publish(&parent, ctx, token, publishUrl, checkUrl, user, indexUrl, npmToken, npmRegistry, dryRun, spire, publishSvid)
+			var recordToken *dagger.Secret
+			if inputArgs["recordToken"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["recordToken"]), &recordToken)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg recordToken", err))
+				}
+			}
+			return nil, (*FoundryTools).Publish(&parent, ctx, token, publishUrl, checkUrl, user, indexUrl, npmToken, npmRegistry, dryRun, spire, publishSvid, recordToken)
 		case "Push":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)
