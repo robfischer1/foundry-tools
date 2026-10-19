@@ -1,18 +1,48 @@
 schema = "lane@1"
 lane = "bundle"
 
+# The bundle lane re-gates the policy with the two atoms the Dagger lane runs
+# (opa test, the admission dogfood) and builds the dies in atoms that write
+# /work/bundle (internal/bundlekit). The KMS and the registry are the
+# capabilities': kms-sign signs each OPA twin's signing input, bundle:resign
+# writes the signature in and verifies it, push-bundle pushes every die under its
+# immutable pin and signs each pushed digest.
 [[phase]]
 name = "build"
 kind = "fanout"
-atoms = ["stage:prepush"]
+atoms = ["dies:opa-test", "dies:admission-dogfood"]
 
-# The KMS signature rides the projected service-account token (E10), not a
-# secret, so this phase names none.
+[[phase]]
+name = "policy"
+kind = "fanout"
+atoms = ["bundle:policy"]
+after = ["build"]
+
+[[phase]]
+name = "fleet"
+kind = "fanout"
+atoms = ["bundle:fleet"]
+after = ["build"]
+
+[[phase]]
+name = "orbits"
+kind = "fanout"
+atoms = ["bundle:orbits"]
+after = ["build"]
+
+# The KMS signature rides the projected service-account token, not a secret, so
+# this phase names none.
 [[phase]]
 name = "sign"
 kind = "sequence"
 capability = "kms-sign"
-after = ["build"]
+after = ["policy", "fleet"]
+
+[[phase]]
+name = "resign"
+kind = "fanout"
+atoms = ["bundle:resign"]
+after = ["sign"]
 
 # ca-bundle-lane carries REGISTRY_TOKEN (RECIPE_JOB_LANES.bundle.secrets in flux
 # prime/daedalus-jobs.yaml), which only the push uses.
@@ -20,5 +50,5 @@ after = ["build"]
 name = "push"
 kind = "sequence"
 capability = "push-bundle"
-after = ["sign"]
+after = ["resign", "orbits"]
 secrets = ["ca-bundle-lane"]

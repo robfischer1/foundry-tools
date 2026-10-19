@@ -1,6 +1,9 @@
 package catalogue
 
-import "dagger/foundry-tools/internal/atomkit"
+import (
+	"dagger/foundry-tools/internal/atomkit"
+	"dagger/foundry-tools/internal/checks"
+)
 
 // THE ATOMS THE ATOMS BINARY VOTES FOR. Every atom of toolchain none, and the
 // ones below: atoms that were in-process (internal/atoms) before they moved to a
@@ -35,7 +38,9 @@ var votesInBinaryByHistory = map[string]bool{
 	"dies:refusal-codes":      true,
 }
 
-// votesInBinary says whether the atoms binary carries d.
+// votesInBinary says whether the atoms binary carries d. The bundle lane's
+// atoms run only on the executor (stage bundle is in no stage the Dagger lanes
+// vote), from the per-atom binaries; the Dagger bundle lane builds the dies itself.
 func votesInBinary(d *atomkit.Def) bool {
-	return d.Toolchain == "none" || votesInBinaryByHistory[d.ID]
+	return d.Stage != checks.StageBundle && (d.Toolchain == "none" || votesInBinaryByHistory[d.ID])
 }

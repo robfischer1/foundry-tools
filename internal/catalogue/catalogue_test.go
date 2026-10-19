@@ -217,7 +217,7 @@ func TestTheBinaryCarriesTheNoneToolchainAtoms(t *testing.T) {
 	}
 	var want []string
 	for _, d := range Defs {
-		if d.Toolchain == "none" || votesInBinaryByHistory[d.ID] {
+		if d.Stage != checks.StageBundle && (d.Toolchain == "none" || votesInBinaryByHistory[d.ID]) {
 			want = append(want, d.ID)
 		}
 	}
@@ -392,6 +392,10 @@ func TestTheDeclaredBinaryVotersAreRealPythonAtoms(t *testing.T) {
 	py := atomkit.Def{ID: "st:py", Toolchain: "python"}
 	if !votesInBinary(&none) || votesInBinary(&py) {
 		t.Error("only toolchain none, or a declared id, votes in the binary")
+	}
+	// The bundle lane's atoms are the executor's alone.
+	if votesInBinary(&atomkit.Def{ID: "bundle:policy", Stage: checks.StageBundle, Toolchain: "none"}) {
+		t.Error("a bundle-stage atom votes in the atoms binary")
 	}
 }
 

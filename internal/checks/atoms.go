@@ -61,6 +61,11 @@ const (
 	// capability to upload. Like cast it is in no lane's stages: lanes/publish.toml
 	// names the two atoms, so no gate, check or push builds them.
 	StagePublish = "publish"
+	// StageBundle is the bundle lane's build (b6): the dies foundry-dies
+	// publishes, built and gated by bundle:policy, bundle:fleet, bundle:orbits and
+	// bundle:resign. Like StageCast it is in no lane's stages: lanes/bundle.toml
+	// names the atoms, so a gate, a check or a push never builds a die.
+	StageBundle = "bundle"
 )
 
 // AtomDef is one catalogued check, as code.
