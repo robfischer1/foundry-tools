@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"dagger/foundry-tools/internal/atomkit"
@@ -17,7 +18,7 @@ func TestDEF_B6_cast_RustDeclarationValidatesAndRunsOnlyInTheCastStage(t *testin
 		t.Fatal(err)
 	}
 	if Def.ID != id || Def.Stage != checks.StageCast || checks.IsPullPath(Def.Stage) || Def.Lane != checks.LaneRust ||
-		Def.Toolchain != "rust" || Def.Surface != "root:Cargo.toml" || !Def.WritesTree || Def.NotOnForks != "" || len(Def.Needs) != 0 {
+		Def.Toolchain != "rust" || Def.Surface != "root:Cargo.toml" || !Def.WritesTree || Def.NotOnForks != "" || !slices.Equal(Def.Needs, []string{"dies", "tool:python-standalone", "tool:uv"}) {
 		t.Errorf("%+v", Def)
 	}
 }
@@ -46,5 +47,15 @@ func TestDEF_B6_cast_RustCheckCompilesTheWorkspace(t *testing.T) {
 	atomtest.Expect(t, check(context.Background(), in), checks.StatePass, atomtest.Pass, "tongs")
 	if _, err := os.Stat(filepath.Join(work, "release", "tongs")); err != nil {
 		t.Error(err)
+	}
+}
+
+// TestDEF_B6_012_NeedsDies: the pod lays foundry-dies only for a plan whose
+// atoms need it, and the cast's layer-cast reads the star's catalog entry
+// there; without it the gavel parity pod settled "no record for gavel could be
+// read at foundry-dies fleet/repos/gavel.json".
+func TestDEF_B6_012_NeedsDies(t *testing.T) {
+	if !slices.Contains(Def.Needs, "dies") {
+		t.Errorf("DEF-B6-012: %s needs %v, want dies among them", Def.ID, Def.Needs)
 	}
 }

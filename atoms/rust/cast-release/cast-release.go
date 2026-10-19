@@ -24,6 +24,7 @@ var Def = atomkit.Def{
 	Desc:       "The binaries a Cargo repo casts compile under cargo's release profile: every bin target of the workspace's default members, in one build.",
 	Surface:    "root:Cargo.toml",
 	Toolchain:  "rust",
+	Needs:      []string{"dies", "tool:python-standalone", "tool:uv"}, // dies: layer-cast reads the star's record there (DEF-B6-012); python and uv as rust:release (DEF-B4-106)
 	Timeout:    45 * time.Minute,
 	WritesTree: true,
 	Check:      check,
