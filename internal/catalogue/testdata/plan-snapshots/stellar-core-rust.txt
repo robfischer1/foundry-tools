@@ -83,6 +83,7 @@ run:
   orbit:sidecars
   orbit:repo
   rust:mutation
+  bases:release
   bundle:fleet
   bundle:orbits
   bundle:policy
