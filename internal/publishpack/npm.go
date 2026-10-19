@@ -38,6 +38,9 @@ import (
 // A package that will not build or pack does not strand the others, as the lane
 // does not.
 func TS(ctx context.Context, in atoms.Input, a checks.AtomDef) checks.Verdict {
+	// The executor builds at /src, which it gives this container as a tree of its
+	// own (releasekit.SrcEnv, DEF-B6-013): a bun bundle embeds its build directory.
+	in.Root = releasekit.SrcRoot(in.Root)
 	entries, err := atoms.RootEntries(in.Root)
 	if err != nil {
 		return cannot(a, fmt.Sprintf("could not run: the tree's root could not be listed: %v", err))

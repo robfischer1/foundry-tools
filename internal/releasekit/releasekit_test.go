@@ -512,3 +512,26 @@ func TestUT_AnExcludedFileIsLeftOutAndACopyThatCannotBeMadeIsAnError(t *testing.
 		t.Error("a file was copied over a directory")
 	}
 }
+
+// THE BUN BUILDS RUN AT /src WHEN THE EXECUTOR SAYS THE TREE THEY OWN IS THERE
+// (DEF-B6-013): a bun bundle embeds the absolute build directory, and the
+// engine's was /src. Unset, the build is the copy in the atom's work directory.
+func TestDEF_B6_bun_BuildRootIsTheCallersOrTheCopy(t *testing.T) {
+	t.Setenv("ATOM_WORK", "/work/ts__release")
+	t.Setenv(SrcEnv, "")
+	if dir, inPlace := BuildRoot(); dir != "/work/ts__release/release-src" || inPlace {
+		t.Errorf("%s %v", dir, inPlace)
+	}
+	t.Setenv(SrcEnv, "/src")
+	if dir, inPlace := BuildRoot(); dir != "/src" || !inPlace {
+		t.Errorf("%s %v", dir, inPlace)
+	}
+	t.Setenv(SrcEnv, "")
+	if got := SrcRoot("/work/ts__pack/src"); got != "/work/ts__pack/src" {
+		t.Error(got)
+	}
+	t.Setenv(SrcEnv, "/src")
+	if got := SrcRoot("/work/ts__pack/src"); got != "/src" {
+		t.Error(got)
+	}
+}

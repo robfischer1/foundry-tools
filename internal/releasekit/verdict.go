@@ -117,3 +117,29 @@ func AppDir() string {
 // BuildDir is where a bun release builds: a copy of the tree in the atom's work
 // directory, so the steps write into it and the checkout is left as it was.
 func BuildDir() string { return filepath.Join(atoms.WorkDir(), "release-src") }
+
+// SrcEnv names the directory a bun build runs in when the executor has given the
+// container a tree of its own to build in (DEF-B6-013). A bun bundle embeds the
+// absolute directory it was built in (node_modules paths), and the engine's was
+// /src, so for byte-equal bundles the executor's must be too. Unset, a bun
+// release builds in BuildDir, a copy, and leaves the checkout as it found it:
+// the Dagger path and the gate lane's release atoms are as they were.
+const SrcEnv = "ATOM_RELEASE_SRC"
+
+// BuildRoot is where a bun release builds, and whether that is the caller's own
+// tree (built in place, nothing copied) or the copy in the atom's work directory.
+func BuildRoot() (dir string, inPlace bool) {
+	if d := os.Getenv(SrcEnv); d != "" {
+		return d, true
+	}
+	return BuildDir(), false
+}
+
+// SrcRoot is the tree an atom that builds in the checkout reads and builds in:
+// SrcEnv's when the executor names one, else root, the tree the atom was handed.
+func SrcRoot(root string) string {
+	if d := os.Getenv(SrcEnv); d != "" {
+		return d
+	}
+	return root
+}

@@ -13,6 +13,7 @@ import (
 	"dagger/foundry-tools/internal/atoms"
 	"dagger/foundry-tools/internal/atomtest"
 	"dagger/foundry-tools/internal/checks"
+	"dagger/foundry-tools/internal/releasekit"
 )
 
 // bunStar is a bun star on the release path: its Dockerfile is the base and a
@@ -285,4 +286,20 @@ func TestAReleaseThatCannotBeCarriedOutIsCouldNotRun(t *testing.T) {
 	in, f := atomtest.ToolTree(t, bunStar(), b.answer)
 	f.Free = []string{"bun"}
 	atomtest.Expect(t, check(context.Background(), in), checks.StateCannotRun, atomtest.Cannot, "ts:release: CANNOT RUN - the release could not be carried out")
+}
+
+// BUILT IN PLACE when the executor owns /src for this container (DEF-B6-013): no
+// copy, the steps run in the named root, and release/ is read from it.
+func TestDEF_B6_bun_TSReleaseBuildsInPlaceWhenToldTheRoot(t *testing.T) {
+	b := &bun{}
+	root := t.TempDir()
+	t.Setenv(releasekit.SrcEnv, root)
+	v, f, out, _ := run(t, bunStar(), b)
+	atomtest.Expect(t, v, checks.StatePass, atomtest.Pass, "server.js")
+	if f.Calls[0].Dir != root || f.Calls[1].Dir != root {
+		t.Errorf("the steps ran in %s and %s, not in %s", f.Calls[0].Dir, f.Calls[1].Dir, root)
+	}
+	if got, err := os.ReadFile(filepath.Join(out, "server.js")); err != nil || string(got) != "//" {
+		t.Errorf("%q %v", got, err)
+	}
 }
