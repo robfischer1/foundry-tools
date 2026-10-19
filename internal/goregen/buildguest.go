@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"dagger/foundry-tools/internal/checks"
 )
 
 // BuildGuest is what a core's build-guest.sh does, read off the script: the
@@ -82,6 +84,12 @@ func ParseBuildGuest(text string) (BuildGuest, error) {
 // classescore's is: one world through the revision's own compose.sh, under the
 // rustc provenance.json records.
 func RenderBuildGuest(w World, commit, wasmTools, wac string) string {
+	// WHERE THE KIT IS comes from the one setting (checks.RustKit): a kit in a
+	// subdirectory is built from there.
+	kitDir := "$TMP/src"
+	if checks.RustKit.Subdir != "" {
+		kitDir += "/" + checks.RustKit.Subdir
+	}
 	return fmt.Sprintf(`#!/bin/sh
 # Build the component this package embeds: stellar-core-rust at the pinned
 # commit, the aiws:%[1]s world (feature wit-guest-%[1]s) made a component and
@@ -101,11 +109,11 @@ REV=%[3]s
 OUT=$(realpath -m "$1")
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-git clone --quiet https://git.notusmi.com/stellar-core-rust.git "$TMP/src"
+git clone --quiet %[6]s "$TMP/src"
 git -C "$TMP/src" checkout --quiet "$REV"
-(cd "$TMP/src" && tools/compose/compose.sh "$TMP/composed.wasm" %[1]s >/dev/null)
+(cd "%[7]s" && tools/compose/compose.sh "$TMP/composed.wasm" %[1]s >/dev/null)
 cp "$TMP/composed.wasm" "$OUT"
-`, w.Pkg, w.Name, commit, wasmTools, wac)
+`, w.Pkg, w.Name, commit, wasmTools, wac, checks.RustKit.GitURL(), kitDir)
 }
 
 // GeneratorCommand is the gravity command a composed core records: the world is
@@ -164,10 +172,13 @@ func RenderProvenance(p NewProv) string {
 		{"repo", q("rob/stellar-core")}, {"path", q("wit/aiws-" + pkg + ".wit")}, {"commit", q("")}, {"sha256", q(p.WitSHA256)},
 		{"note", q("written by dev:go-regen --new: the sha256 is of the WIT vendored in stellar-core-rust " + p.Rev + " (aiws:" + pkg + "@" + p.World.Version + "); the rob/stellar-core commit it was pinned at is for a person to fill")},
 	}, false)
-	block("core", [][2]string{
-		{"repo", q("rob/stellar-core-rust")}, {"commit", q(p.Commit)}, {"build", q(ComposeBuild(p.World))}, {"toolchain", q(p.Toolchain)},
-		{"note", q("stellar-core-rust " + p.Rev + " (" + p.Commit[:7] + "), aiws:" + pkg + "@" + p.World.Version + ", world " + p.World.Name + "; written by dev:go-regen --new")},
-	}, false)
+	core := [][2]string{{"repo", q(checks.RustKit.Repo)}}
+	if checks.RustKit.Subdir != "" {
+		core = append(core, [2]string{"subdir", q(checks.RustKit.Subdir)})
+	}
+	block("core", append(core,
+		[2]string{"commit", q(p.Commit)}, [2]string{"build", q(ComposeBuild(p.World))}, [2]string{"toolchain", q(p.Toolchain)},
+		[2]string{"note", q("stellar-core-rust " + p.Rev + " (" + p.Commit[:7] + "), aiws:" + pkg + "@" + p.World.Version + ", world " + p.World.Name + "; written by dev:go-regen --new")}), false)
 	block("generator", [][2]string{
 		{"repo", q("forks/gravity")}, {"commit", q(p.GenCommit)}, {"command", q(GeneratorCommand(p.Core, p.World))},
 	}, false)

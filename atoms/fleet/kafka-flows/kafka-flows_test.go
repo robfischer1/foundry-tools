@@ -148,8 +148,8 @@ func TestKafkaFlowsRecordsTheTreesFlows(t *testing.T) {
 		"a.go":   "package a\nimport \"git.notusmi.com/rob/stellar-core-go/kafkatopics\"\nfunc p() { kafkatopics.Record(kafkatopics.TopicSessionTurns, nil) }\n",
 	})
 	in.Door = doorOf(t, map[string]string{
-		checks.KafkaTopicsRepo + " kafkatopics/topics.go":  "package kafkatopics\nconst TopicSessionTurns = \"session-turns\"\n",
-		checks.KafkaTopicsRepo + " heartbeat/heartbeat.go": "package heartbeat\n",
+		checks.GoKit.Repo + " " + checks.GoKit.Path("kafkatopics/topics.go"):  "package kafkatopics\nconst TopicSessionTurns = \"session-turns\"\n",
+		checks.GoKit.Repo + " " + checks.GoKit.Path("heartbeat/heartbeat.go"): "package heartbeat\n",
 	})
 	v := run(t, in)
 	expect(t, v, stateOf(0), pass, "1 Kafka flow(s), 0 unresolved", "session-turns produce")

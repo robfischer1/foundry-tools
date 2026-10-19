@@ -192,9 +192,9 @@ func KafkaSourceFile(p string) bool {
 // answers nothing.
 type KnownTopics func(name string) (string, bool)
 
-// The core's topic constants live in stellar-core-go, at main: the contract
-// topics in kafkatopics, the heartbeat family's suffix in heartbeat.
-const KafkaTopicsRepo = "rob/stellar-core-go"
+// The core's topic constants live in the Go kit (GoKit: stellar-core-go today),
+// at main: the contract topics in kafkatopics, the heartbeat family's suffix in
+// heartbeat. Their location is the kit's one setting.
 
 // KnownTopicSources are the core files whose string constants resolve a name.
 var KnownTopicSources = []string{"kafkatopics/topics.go", "heartbeat/heartbeat.go"}
@@ -205,12 +205,12 @@ var KnownTopicSources = []string{"kafkatopics/topics.go", "heartbeat/heartbeat.g
 func FetchKnownTopics(ctx context.Context, door Door) (map[string]string, error) {
 	out := map[string]string{}
 	for _, p := range KnownTopicSources {
-		status, body, err := door.Get(ctx, KafkaTopicsRepo, p)
+		status, body, err := door.Get(ctx, GoKit.Repo, GoKit.Path(p))
 		switch {
 		case err != nil:
-			return nil, fmt.Errorf("the door is unreachable (%s): %w", door.URL(KafkaTopicsRepo, p), err)
+			return nil, fmt.Errorf("the door is unreachable (%s): %w", door.URL(GoKit.Repo, GoKit.Path(p)), err)
 		case status != http.StatusOK:
-			return nil, fmt.Errorf("the door answered HTTP %d for %s", status, door.URL(KafkaTopicsRepo, p))
+			return nil, fmt.Errorf("the door answered HTTP %d for %s", status, door.URL(GoKit.Repo, GoKit.Path(p)))
 		}
 		consts, err := ParseKnownTopics(string(body))
 		if err != nil {
