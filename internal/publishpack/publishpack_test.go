@@ -28,7 +28,6 @@ type shop struct {
 	wrote []string // files uv build writes into its --out-dir
 	skip  bool     // bun pm pack writes no tarball
 	calls []atoms.Cmd
-	dirs  []string // cwd of each call
 }
 
 func (s *shop) key(c atoms.Cmd) string {
