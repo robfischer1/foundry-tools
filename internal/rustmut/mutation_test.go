@@ -590,3 +590,18 @@ func TestRustMutationCannotRunWhereItCannotLinkWriteOrCopy(t *testing.T) {
 		})
 	}
 }
+
+// A rustc that will not say what it is costs the cap and nothing else: the
+// mutants still run, with no link flag.
+func TestRustMutationRunsWithoutTheCapWhenRustcWillNotSay(t *testing.T) {
+	p := newPull(t, "critical_modules: src/lib.rs\n")
+	moldAvailable = func() bool { return false }
+	p.first(rule{"rustc -vV", "rustc: broken", 1})
+	if v := p.run(); v.State != 0 {
+		t.Fatalf("%s", said(v))
+	}
+	c, _ := p.call("cargo mutants --colors")
+	if strings.Contains(strings.Join(c.Env, "\n"), "CARGO_BUILD_RUSTFLAGS") {
+		t.Errorf("a link flag with no toolchain: %q", c.Env)
+	}
+}
