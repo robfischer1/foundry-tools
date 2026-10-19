@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"dagger/foundry-tools/internal/checks"
 )
 
 // The gate measures the pull's diff in Go: the knobs on the argv, the canary,
@@ -319,5 +321,30 @@ func TestGoMutationIsAbsentWithoutAGoModule(t *testing.T) {
 	p.in.FilesErr = os.ErrPermission
 	if v := p.run(); v.State != 2 || !strings.Contains(v.Reason, "could not enumerate the tree's Go modules") {
 		t.Errorf("%+v", v)
+	}
+}
+
+// The workers follow the CPU budget: four where it has a core each, fewer where
+// it does not (a worker is GOMAXPROCS=1, so a worker is a core).
+func TestGoMutationWorkersFollowTheCPUBudget(t *testing.T) {
+	for budget, want := range map[string]string{"24": "4", "4": "4", "3": "3", "1": "1"} {
+		p := newPull(t, ".")
+		t.Setenv(checks.CPUsEnv, budget)
+		if v := p.run(); v.State != 0 {
+			t.Fatalf("%+v", v)
+		}
+		c, ok := p.call("-changed-since")
+		if !ok {
+			t.Fatalf("gomutants never ran: %v", p.runs)
+		}
+		var got string
+		for i, a := range c.Args {
+			if a == "-workers" {
+				got = c.Args[i+1]
+			}
+		}
+		if got != want {
+			t.Errorf("budget %s: -workers %s, want %s", budget, got, want)
+		}
 	}
 }

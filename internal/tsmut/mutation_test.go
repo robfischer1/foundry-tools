@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"dagger/foundry-tools/internal/atoms"
+	"dagger/foundry-tools/internal/checks"
 )
 
 // ts:mutation runs git, bun and the package's own stryker as plain execs, and no
@@ -442,5 +443,25 @@ func TestStrykerFindsAPSOnItsPath(t *testing.T) {
 	v := q.run()
 	if v.State != 2 || !strings.Contains(said(v), "the ps for stryker could not be made: permission denied") || q.ran("--reporters") {
 		t.Errorf("%s", said(v))
+	}
+}
+
+// STRYKER'S WORKERS FOLLOW THE CPU BUDGET (the lane runs four test runners where
+// the budget has room): a worker is a test-runner process, and one more worker
+// than the container has cores is throttled work and a timed-out mutant.
+func TestTSMutationConcurrencyFollowsTheCPUBudget(t *testing.T) {
+	for budget, want := range map[string]string{"24": "4", "12": "4", "4": "4", "3": "3", "1": "1"} {
+		p := newPull(t, "")
+		t.Setenv(checks.CPUsEnv, budget)
+		if v := p.run(); v.State != 0 {
+			t.Fatalf("%s", said(v))
+		}
+		c, ok := p.call("--reporters clear-text,json")
+		if !ok {
+			t.Fatalf("stryker never ran: %v", p.runs)
+		}
+		if got := strings.Join(c.Args, " "); !strings.Contains(got, " --concurrency "+want+" ") {
+			t.Errorf("budget %s: want --concurrency %s, got %q", budget, want, got)
+		}
 	}
 }

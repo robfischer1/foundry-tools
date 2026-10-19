@@ -25,7 +25,7 @@ func (g *grading) execute(ctx context.Context, workers int, sessions, selectEnv 
 		}
 		// Each worker selects into a log of its own; they are joined below.
 		// selectEnv ends with the joined log's name; the worker's own replaces it.
-		env := append(slicesClone(selectEnv[:len(selectEnv)-1]), "FORGE_MUT_SELECT_LOG="+selectLog+"."+strconv.Itoa(i+1), "FORGE_MUT_WORKER="+strconv.Itoa(i+1))
+		env := append(slicesClone(selectEnv[:len(selectEnv)-1]), "FORGE_MUT_SELECT_LOG="+selectLog+"."+strconv.Itoa(i+1), "FORGE_MUT_WORKER="+strconv.Itoa(i+1), xdistShare(workers))
 		return g.do(ctx, w, env, "uv", "run", "cosmic-ray", "exec", pythonMutationConfig, session)
 	})
 	status := 0

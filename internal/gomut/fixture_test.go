@@ -92,6 +92,7 @@ func putFile(t *testing.T, root, rel, body string) {
 func newPull(t *testing.T, module string) *pull {
 	t.Helper()
 	t.Setenv("ATOM_ORIGIN", "")
+	t.Setenv(checks.CPUsEnv, "12")
 	t.Setenv(atoms.EnvMutantsToken, "")
 	t.Setenv(atoms.EnvSha, "")
 	work := t.TempDir()

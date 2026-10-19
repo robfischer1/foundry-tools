@@ -4,10 +4,14 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"dagger/foundry-tools/internal/atoms"
 	"dagger/foundry-tools/internal/checks"
 )
+
+// strykerWorkers is Stryker's --concurrency where the CPU budget has room.
+const strykerWorkers = 4
 
 // runPackages runs Stryker in each planned package, in the order the diff first
 // names them, and settles them as one verdict.
@@ -22,6 +26,9 @@ func (g *grading) runPackages(ctx context.Context, plan []checks.StrykerPackage,
 		return g.settle(2, "CANNOT RUN - the atom never ran: the ps for stryker could not be made: "+err.Error())
 	}
 	path := "PATH=" + filepath.Dir(bin) + string(os.PathListSeparator) + os.Getenv("PATH")
+	// Four test runners where the CPU budget has room (the measured setting),
+	// fewer where it has not.
+	workers := strconv.Itoa(checks.CoresPerSlot(checks.CPUBudget(), 1, strykerWorkers))
 	runs := make([]checks.StrykerRun, 0, len(plan))
 	for _, pkg := range plan {
 		dir := filepath.Join(g.tree, pkg.Dir)
@@ -38,7 +45,7 @@ func (g *grading) runPackages(ctx context.Context, plan []checks.StrykerPackage,
 		if err := writeFile(filepath.Join(dir, checks.StrykerOverrideFile), []byte(override), 0o644); err != nil {
 			return g.settle(2, "CANNOT RUN - the atom never ran: "+err.Error())
 		}
-		s := g.doWith(ctx, dir, []string{path}, strykerBin, "run", checks.StrykerOverrideFile, "--mutate", pkg.Mutate(), "--concurrency", "4", "--reporters", "clear-text,json")
+		s := g.doWith(ctx, dir, []string{path}, strykerBin, "run", checks.StrykerOverrideFile, "--mutate", pkg.Mutate(), "--concurrency", workers, "--reporters", "clear-text,json")
 		if !atoms.ToolRan(s.code) {
 			return g.neverRan(s)
 		}

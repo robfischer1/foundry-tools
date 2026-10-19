@@ -130,6 +130,13 @@ func writeAll(files map[string]string) error {
 // worker is one copy of the tree and its own environment.
 func (g *grading) worker(i int) string { return filepath.Join(g.work, "w"+strconv.Itoa(i+1)) }
 
+// xdistShare is the environment that sizes `pytest -n auto` to one worker's share
+// of the CPU budget. Without it xdist takes the node's core count, per worker.
+func xdistShare(workers int) string {
+	budget := checks.CPUBudget()
+	return "PYTEST_XDIST_AUTO_NUM_WORKERS=" + strconv.Itoa(checks.CoresPerSlot(budget, workers, budget))
+}
+
 // fanOut measures and executes on the workers and scores the merged session.
 func (g *grading) fanOut(ctx context.Context, workers int, kept []string, plugin string) checks.Verdict {
 	// Each worker is a copy of the planned primary — its session and config come
@@ -159,7 +166,7 @@ func (g *grading) fanOut(ctx context.Context, workers int, kept []string, plugin
 	started := time.Now()
 	measured := concurrently(workers, func(i int) step {
 		env := append(slicesClone(pluginEnv), "FORGE_MUT_WORKER="+strconv.Itoa(i+1), "PYTHONDONTWRITEBYTECODE=1",
-			"FORGE_MUT_MEASURE="+measureDir, "FORGE_MUT_INCLUDE="+include)
+			"FORGE_MUT_MEASURE="+measureDir, "FORGE_MUT_INCLUDE="+include, xdistShare(workers))
 		return g.do(ctx, g.worker(i), env, "uv", append([]string{"run", "--with", checks.PythonWith("coverage")}, checks.PythonTestCommand...)...)
 	})
 	elapsed := int(time.Since(started).Seconds())
