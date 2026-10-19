@@ -603,8 +603,8 @@ const (
 	// ToolSHA256 line, no mirror seed) and no npm install to cache. It is pulled
 	// through the engine's ghcr.io mirror like every lane image, and the layers
 	// are cached by digest.
-	RenovateTag   = "43.261.4"
-	ImageRenovate = "ghcr.io/renovatebot/renovate:43.261.4@sha256:adc66d8ffba5d835b9ef27768bd3176d07e7ea98c8dba274b07f511beea5fe81"
+	RenovateTag   = "44.167.5"
+	ImageRenovate = "ghcr.io/renovatebot/renovate:44.167.5@sha256:c33150ec6407624a9399a2d827fd125becafdbe4519d7584488cbdd17f99081e"
 )
 
 // MirroredRegistries are the upstream registries the engine pulls through the
