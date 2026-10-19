@@ -159,3 +159,21 @@ func TestLaneShapes(t *testing.T) {
 		t.Errorf("govern: %+v", g)
 	}
 }
+
+// The bases lane validates between assemble and scan: bases:chairman holds the
+// assembled chairman layout to its fixed-file table before anything is scanned.
+func TestBasesPhasesValidateBetweenAssembleAndScan(t *testing.T) {
+	d := landedLanes(t)["bases"]
+	var names []string
+	by := map[string]PhaseDef{}
+	for _, p := range d.Phases {
+		names = append(names, p.Name)
+		by[p.Name] = p
+	}
+	if !slices.Equal(names, []string{"release", "assemble", "validate", "scan", "publish"}) {
+		t.Fatalf("%v", names)
+	}
+	if !slices.Equal(by["validate"].Atoms, []string{"bases:chairman"}) || !slices.Equal(by["validate"].After, []string{"assemble"}) || !slices.Equal(by["scan"].After, []string{"validate"}) {
+		t.Errorf("%+v", d.Phases)
+	}
+}
