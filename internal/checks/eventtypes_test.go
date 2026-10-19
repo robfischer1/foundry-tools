@@ -135,7 +135,7 @@ func fleetDoor(t *testing.T, fleet map[string]map[string]string, count *int) Doo
 		}
 	}))
 	t.Cleanup(srv.Close)
-	return Door{Base: srv.URL, Client: srv.Client()}
+	return Door{Base: srv.URL, Client: srv.Client(), NoRetry: true}
 }
 
 func TestFleetEmittersFindsEmittersAndSkipsSelfAndArchives(t *testing.T) {

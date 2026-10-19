@@ -98,7 +98,7 @@ func deadDoor(t *testing.T) checks.Door {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	base := srv.URL
 	srv.Close()
-	return checks.Door{Base: base}
+	return checks.Door{Base: base, NoRetry: true}
 }
 
 // missingRoot is an input over a directory that is not there: the atoms that
