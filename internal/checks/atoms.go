@@ -50,6 +50,12 @@ const (
 	// --stage=visual`) where the tree declares a suite, and waits on it or
 	// not by its own list (ourea cirun.AdvisoryLanes): advisory first.
 	StageVisual = "visual"
+	// StageCast is the cast lane's compile (b6, DEF-B56-013): the binaries a
+	// binary repo ships, built by rust:cast-release and go:cast-release. Like
+	// orbit and visual it is NOT in PullPathStages, and no lane asks for it by
+	// stage: lanes/cast.toml names the two atoms, so a gate, a check or a push
+	// never runs a cast's compile.
+	StageCast = "cast"
 )
 
 // AtomDef is one catalogued check, as code.

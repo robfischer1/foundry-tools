@@ -53,6 +53,9 @@ var atomsSourceInclude = []string{
 	"internal/witreplay/**",
 	"internal/retiredverbs/**",
 	"internal/releasekit/**",
+	// the cast lane's compile (rust:cast-release, go:cast-release) and its decisions
+	"internal/castrelease/**",
+	"internal/castlane/**",
 	"internal/buildlane/**",
 	"internal/copyout/**",
 	// ts:visual's: the artifact's push and the login it pushes with

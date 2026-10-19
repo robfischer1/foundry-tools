@@ -50,6 +50,7 @@ import (
 	fleetstopjustifications "dagger/foundry-tools/atoms/fleet/stop-justifications"
 	fleetwittopics "dagger/foundry-tools/atoms/fleet/wit-topics"
 	fleetwitness "dagger/foundry-tools/atoms/fleet/witness"
+	gocastrelease "dagger/foundry-tools/atoms/go/cast-release"
 	godiffcoverage "dagger/foundry-tools/atoms/go/diff-coverage"
 	gogofmt "dagger/foundry-tools/atoms/go/gofmt"
 	gogovulncheck "dagger/foundry-tools/atoms/go/govulncheck"
@@ -91,6 +92,7 @@ import (
 	pythonruffformat "dagger/foundry-tools/atoms/python/ruff-format"
 	rustcargoclippy "dagger/foundry-tools/atoms/rust/cargo-clippy"
 	rustcargotest "dagger/foundry-tools/atoms/rust/cargo-test"
+	rustcastrelease "dagger/foundry-tools/atoms/rust/cast-release"
 	rustmutation "dagger/foundry-tools/atoms/rust/mutation"
 	rustrelease "dagger/foundry-tools/atoms/rust/release"
 	rustwitcompose "dagger/foundry-tools/atoms/rust/wit-compose"
@@ -154,6 +156,7 @@ var Defs = []*atomkit.Def{
 	&fleetstopjustifications.Def,
 	&fleetwittopics.Def,
 	&fleetwitness.Def,
+	&gocastrelease.Def,
 	&godiffcoverage.Def,
 	&gogofmt.Def,
 	&gogovulncheck.Def,
@@ -195,6 +198,7 @@ var Defs = []*atomkit.Def{
 	&pythonruffformat.Def,
 	&rustcargoclippy.Def,
 	&rustcargotest.Def,
+	&rustcastrelease.Def,
 	&rustmutation.Def,
 	&rustrelease.Def,
 	&rustwitcompose.Def,
