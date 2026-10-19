@@ -535,3 +535,48 @@ func TestDEF_B6_bun_BuildRootIsTheCallersOrTheCopy(t *testing.T) {
 		t.Error(got)
 	}
 }
+
+// A base with a package.json and a Dockerfile that copies from release/<name>/
+// carries its own release root.
+func TestBaseRootsAreTheBasesThatCarryTheirOwnRelease(t *testing.T) {
+	t.Parallel()
+	layer := func(n string) string { return "FROM scratch\nCOPY release/" + n + "/ /\n" }
+	tree := mem{files: map[string]string{
+		"bases/layer-pi/Dockerfile": layer("layer-pi"), "bases/layer-pi/package.json": "{}", "bases/layer-pi/bun.lock": "",
+		"bases/layer-cc/Dockerfile": layer("layer-cc"), "bases/layer-cc/package.json": "{}",
+		"bases/layer-bun/Dockerfile": "FROM scratch\nCOPY bases/layer-bun/staged/ /\n", "bases/layer-bun/package.json": "{}",
+		"bases/bun/Dockerfile":   "FROM scratch\n",
+		"bases/wrong/Dockerfile": "FROM scratch\nCOPY release/other/ /\n", "bases/wrong/package.json": "{}",
+		"bases/nodockerfile/package.json": "{}",
+		"bases/deep/x/Dockerfile":         layer("x"), "bases/deep/x/package.json": "{}",
+		"package.json": "{}", "Dockerfile": "FROM scratch\n",
+	}}
+	roots, refused, err := BaseRoots(context.Background(), tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []BaseRoot{{"layer-cc", "bases/layer-cc/Dockerfile"}, {"layer-pi", "bases/layer-pi/Dockerfile"}}; !slices.Equal(roots, want) {
+		t.Errorf("roots %v", roots)
+	}
+	if len(refused) != 1 || !strings.Contains(refused[0], "bases/wrong/Dockerfile copies from release/ but not from release/wrong/") {
+		t.Errorf("refused %v", refused)
+	}
+	if roots[0].Dir() != "bases/layer-cc" {
+		t.Errorf("dir %s", roots[0].Dir())
+	}
+	// no bases, no roots
+	if roots, refused, err := BaseRoots(context.Background(), mem{files: map[string]string{"package.json": "{}"}}); err != nil || roots != nil || refused != nil {
+		t.Errorf("%v %v %v", roots, refused, err)
+	}
+}
+
+func TestBaseRootsNameWhatCouldNotBeRead(t *testing.T) {
+	t.Parallel()
+	if _, _, err := BaseRoots(context.Background(), mem{fail: map[string]error{"Population": errors.New("boom")}}); err == nil || err.Error() != "boom" {
+		t.Errorf("population: %v", err)
+	}
+	tree := mem{files: map[string]string{"bases/a/Dockerfile": "x", "bases/a/package.json": "{}"}, fail: map[string]error{"File:bases/a/Dockerfile": errors.New("gone")}}
+	if _, _, err := BaseRoots(context.Background(), tree); err == nil || !strings.Contains(err.Error(), "bases/a/Dockerfile could not be read: gone") {
+		t.Errorf("file: %v", err)
+	}
+}

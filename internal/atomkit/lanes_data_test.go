@@ -77,7 +77,8 @@ func TestUT_614_BundlePhases(t *testing.T) {
 // stage does not exist, DEF-8-019, so they are named, not staged).
 func TestUT_613_ReleasePhasesNameTheFourReleaseAtoms(t *testing.T) {
 	want := []string{"go:release", "python:release", "rust:release", "ts:release"}
-	for _, l := range []string{"build", "bases"} {
+	// The bases lane adds the per-base release of the layers that carry their own.
+	for l, want := range map[string][]string{"build": want, "bases": append(slices.Clone(want), "bases:release")} {
 		if got := landedLanes(t)[l].Phases[0].Atoms; !slices.Equal(got, want) {
 			t.Errorf("%s release: %v", l, got)
 		}

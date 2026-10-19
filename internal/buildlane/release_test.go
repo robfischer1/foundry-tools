@@ -90,3 +90,27 @@ func TestReleaseCopiesNamesWhatTheImageCarries(t *testing.T) {
 		}
 	}
 }
+
+// A base of a repository of bases is staged under release/<base>/, so its
+// Dockerfile copies from there and from nowhere else under release/.
+func TestCopiesReleaseUnderASubdirectory(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, df string
+		want     bool
+	}{
+		{"the base's directory", "FROM scratch\nCOPY release/layer-pi/ /\n", true},
+		{"with flags", "FROM scratch\nCOPY --chmod=0755 release/layer-pi/bin /bin\n", true},
+		{"the json form", "FROM scratch\nCOPY [\"release/layer-pi/\", \"/\"]\n", true},
+		{"the directory without a slash", "FROM scratch\nCOPY release/layer-pi /\n", true},
+		{"another base's directory", "FROM scratch\nCOPY release/layer-bun/ /\n", false},
+		{"a longer name", "FROM scratch\nCOPY release/layer-pi-x/ /\n", false},
+		{"release/ itself", "FROM scratch\nCOPY release/app /app\n", false},
+		{"a copy from a stage", "FROM scratch\nCOPY --from=build release/layer-pi/ /\n", false},
+		{"nothing", "FROM scratch\n", false},
+	} {
+		if got := CopiesReleaseUnder(tc.df, "layer-pi"); got != tc.want {
+			t.Errorf("%s: %v", tc.name, got)
+		}
+	}
+}
