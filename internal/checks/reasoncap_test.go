@@ -61,13 +61,20 @@ func TestTheMarkerCountsExactlyWhatWasElided(t *testing.T) {
 }
 
 func TestBoundOutputNeverSplitsARune(t *testing.T) {
-	out := strings.Repeat("é", ReasonCap) // one 2-byte rune, no newline anywhere
+	// 2-byte runes with no newline, offset by one ASCII byte at each end so
+	// both cuts (the head's and the tail's) land inside a rune.
+	out := "a" + strings.Repeat("é", ReasonCap) + "a"
 	got := BoundOutput(out)
 	if !utf8.ValidString(got) {
 		t.Error("the bounded output holds a broken rune")
 	}
 	if len(got) > ReasonCap+200 {
 		t.Errorf("%d bytes", len(got))
+	}
+	head, rest, _ := strings.Cut(got, "… ")
+	_, tail, _ := strings.Cut(rest, "…\n")
+	if !strings.HasPrefix(out, head) || !strings.HasSuffix(out, tail) || len(head) == 0 || len(tail) == 0 {
+		t.Error("the excerpt is not the output's own head and tail")
 	}
 }
 
