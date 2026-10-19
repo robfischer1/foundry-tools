@@ -93,3 +93,29 @@ func TestUT_GoPlanRefusesAManifestThatDisagreesWithTheTree(t *testing.T) {
 		}
 	}
 }
+
+const rootToml = "[[binary]]\npackage = \".\"\nout = \"release/skms\"\nldflags = '-s -w'\n"
+
+func TestUT_ReadManifestBuildsTheRootPackage(t *testing.T) {
+	got, err := ReadManifest(rootToml)
+	if err != nil || len(got) != 1 || got[0].Name != "skms" || got[0].Package != "." || got[0].Ldflags != "-s -w" {
+		t.Fatalf("%+v %v", got, err)
+	}
+	// Only "." spells the root: "./" is still not a package path.
+	for _, pkg := range []string{"./"} {
+		if _, err := ReadManifest("[[binary]]\npackage = \"" + pkg + "\"\nout = \"release/a\"\n"); err == nil || !strings.Contains(err.Error(), "not a ./ package") {
+			t.Errorf("%q: %v", pkg, err)
+		}
+	}
+}
+
+func TestUT_GoPlanBuildsTheRootPackageWithoutACmdDirectory(t *testing.T) {
+	ctx := context.Background()
+	sub := Subject{Star: "sigstore-kms-infisical", Body: "FROM scratch\nCOPY release/skms /usr/local/bin/skms\n"}
+	// The root is the module, which GoRoot already requires: no directory to look for.
+	tree := mem{files: map[string]string{"release.toml": rootToml}, fail: map[string]error{"IsDir": errBoom}}
+	plan, why := GoPlan(ctx, tree, sub)
+	if why != "" || len(plan.Binaries) != 1 || plan.Binaries[0].Package != "." || !plan.Manifest {
+		t.Fatalf("%+v %q", plan, why)
+	}
+}

@@ -136,6 +136,9 @@ func GoPlan(ctx context.Context, t Tree, s Subject) (checks.ReleasePlan, string)
 	// A COPY with no main package behind it would ship a half image: say so
 	// here, by name, instead of as the compiler's "directory not found".
 	for _, b := range plan.Binaries {
+		if b.Package == RootPackage {
+			continue // GoRoot already requires the root's go.mod
+		}
 		dir := strings.TrimPrefix(b.Package, "./")
 		ok, err := t.IsDir(ctx, dir)
 		if err != nil {
