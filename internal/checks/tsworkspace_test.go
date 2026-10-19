@@ -17,6 +17,7 @@ func TestTSBareWorkspaceMembers(t *testing.T) {
 		{"a double star takes everything below", `{"private": true, "workspaces": ["packages/**"]}`, []string{"packages/a", "packages/b", "packages/b/sub"}, true},
 		{"a leading ./ and a trailing / are the same glob", `{"private": true, "workspaces": ["./ts/"]}`, []string{"ts"}, true},
 		{"an empty scripts object is still bare", `{"private": true, "scripts": {}, "workspaces": ["ts"]}`, []string{"ts"}, true},
+		{"a negated glob excludes nothing the lane runs", `{"private": true, "workspaces": ["ts", "!ts"]}`, []string{"ts"}, true},
 		{"bare, and nothing matches: declared, and nothing to run", `{"private": true, "workspaces": ["apps/*"]}`, nil, true},
 		{"node_modules are never members", `{"private": true, "workspaces": ["*/*"]}`, []string{"packages/a", "packages/b", "tools/x"}, true},
 		// every shape that is NOT bare keeps running its root scripts

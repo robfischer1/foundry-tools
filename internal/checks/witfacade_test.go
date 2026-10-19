@@ -157,3 +157,49 @@ func TestWitGuestWorldsOfNames(t *testing.T) {
 		t.Errorf("%v", got)
 	}
 }
+
+// orderedMeta is metaOf with the packages in the order given, so a tie-break is
+// exercised in both directions and never by luck of map order.
+func orderedMeta(root string, members ...[2]string) []byte {
+	type pkg struct {
+		ID           string              `json:"id"`
+		ManifestPath string              `json:"manifest_path"`
+		Features     map[string][]string `json:"features"`
+	}
+	var packages []pkg
+	var ids []string
+	for _, m := range members {
+		manifest := root + "/Cargo.toml"
+		if m[0] != "" {
+			manifest = root + "/" + m[0] + "/Cargo.toml"
+		}
+		f := map[string][]string{}
+		for _, n := range strings.Fields(m[1]) {
+			f[n] = []string{}
+		}
+		packages = append(packages, pkg{ID: manifest, ManifestPath: manifest, Features: f})
+		ids = append(ids, manifest)
+	}
+	out, _ := json.Marshal(map[string]any{"packages": packages, "workspace_members": ids, "workspace_root": root})
+	return out
+}
+
+func TestWitFacadeDirTieBreaksNeverDependOnPackageOrder(t *testing.T) {
+	for name, tc := range map[string]struct {
+		members [][2]string
+		want    string
+	}{
+		"more worlds wins over fewer":            {[][2]string{{"a", "wit-guest-x"}, {"b", "wit-guest-y wit-guest-z"}}, "b"},
+		"more worlds wins, either order":         {[][2]string{{"b", "wit-guest-y wit-guest-z"}, {"a", "wit-guest-x"}}, "b"},
+		"shallower wins on equal worlds":         {[][2]string{{"x/y", "wit-guest-a"}, {"x", "wit-guest-b"}}, "x"},
+		"the root is the shallowest":             {[][2]string{{"x", "wit-guest-b"}, {"", "wit-guest-a"}}, ""},
+		"sorted dir wins at equal depth":         {[][2]string{{"z", "wit-guest-a"}, {"a", "wit-guest-b"}}, "a"},
+		"sorted dir wins, the other order":       {[][2]string{{"a", "wit-guest-b"}, {"z", "wit-guest-a"}}, "a"},
+		"the most worlds beats a covered subset": {[][2]string{{"a", "wit-guest-p wit-guest-q wit-guest-r"}, {"b", "wit-guest-x"}, {"c", "wit-guest-x wit-guest-y"}}, "a"},
+	} {
+		got, found, err := WitFacadeDir(orderedMeta("/w", tc.members...))
+		if err != nil || !found || got != tc.want {
+			t.Errorf("%s: %q %v %v, want %q", name, got, found, err, tc.want)
+		}
+	}
+}
