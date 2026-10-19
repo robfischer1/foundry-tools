@@ -95,6 +95,11 @@ var (
 	// adds the copy that carries a binary out of its target.
 	releaseDirs     = []string{"internal/releasekit/**", "internal/buildlane/**"}
 	rustReleaseDirs = []string{"internal/releasekit/**", "internal/buildlane/**", "internal/copyout/**"}
+	// castReleaseDirs are what the cast lane's two compile atoms share: the
+	// compile itself, the cast's decisions about the tree, the release
+	// directory's resolution and the exit vocabulary, and the copy that carries
+	// a binary out of its target.
+	castReleaseDirs = []string{"internal/castrelease/**", "internal/castlane/**", "internal/releasekit/**", "internal/buildlane/**", "internal/copyout/**"}
 )
 
 // atomLibraries are the packages an atom imports that not every atom does, by
@@ -123,6 +128,8 @@ var atomLibraries = map[string][]string{
 	"ops:world-patches":          libraryDirs,
 	"ops:yaml":                   libraryDirs,
 	"go:release":                 releaseDirs,
+	"go:cast-release":            castReleaseDirs,
+	"rust:cast-release":          castReleaseDirs,
 	"orbit:contracts":            orbitDirs,
 	"orbit:repo":                 orbitDirs,
 	"orbit:sidecars":             orbitDirs,

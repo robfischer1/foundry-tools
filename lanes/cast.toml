@@ -4,7 +4,7 @@ lane = "cast"
 [[phase]]
 name = "release"
 kind = "fanout"
-atoms = ["rust:release"]
+atoms = ["rust:cast-release", "go:cast-release"]
 
 # ca-cast-lane is RECIPE_JOB_LANES.cast.secrets in flux prime/daedalus-jobs.yaml.
 [[phase]]

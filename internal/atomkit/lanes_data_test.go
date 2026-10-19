@@ -68,7 +68,9 @@ func TestUT_613_ReleasePhasesNameTheFourReleaseAtoms(t *testing.T) {
 			t.Errorf("%s release: %v", l, got)
 		}
 	}
-	if got := landedLanes(t)["cast"].Phases[0].Atoms; !slices.Equal(got, []string{"rust:release"}) {
+	// The cast is not an image's compile: it builds every binary a tree declares
+	// (rust:cast-release, go:cast-release), whatever a Dockerfile copies.
+	if got := landedLanes(t)["cast"].Phases[0].Atoms; !slices.Equal(got, []string{"rust:cast-release", "go:cast-release"}) {
 		t.Errorf("cast release: %v", got)
 	}
 }
