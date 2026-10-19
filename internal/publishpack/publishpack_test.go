@@ -308,3 +308,22 @@ func TestDEF_B6_publish_TSSetupFailuresAreCouldNotRun(t *testing.T) {
 	in2 := atomtest.MissingRoot(t)
 	atomtest.Expect(t, TS(context.Background(), in2, tsRow), checks.StateCannotRun, atomtest.Cannot, "the tree's root could not be listed")
 }
+
+// BUILT AT THE ROOT THE EXECUTOR NAMES (DEF-B6-013): ts:pack reads, installs, builds
+// and packs there and not in the copy the lead made of the tree.
+func TestDEF_B6_bun_TSPackBuildsAtTheNamedRoot(t *testing.T) {
+	s := &shop{}
+	in, out := start(t, map[string]string{"package.json": `{"name":"@f/x","version":"1","scripts":{"prepublishOnly":"bun run build"}}`}, s)
+	src := t.TempDir()
+	s.put(filepath.Join(src, "package.json"), `{"name":"@f/y","version":"2","scripts":{"prepublishOnly":"bun run build"}}`)
+	t.Setenv("ATOM_RELEASE_SRC", src)
+	atomtest.Expect(t, TS(context.Background(), in, tsRow), checks.StatePass, atomtest.Pass, "@f/y@2")
+	for i, c := range s.calls {
+		if c.Dir != src {
+			t.Errorf("call %d ran in %s, not in %s", i, c.Dir, src)
+		}
+	}
+	if got := s.ran()[len(s.ran())-1]; got != "bun pm pack --ignore-scripts --destination "+filepath.Join(out, "npm", "_root") {
+		t.Error(got)
+	}
+}

@@ -48,7 +48,12 @@ var row = checks.AtomDef{ID: id, Stage: checks.StagePrepush, Lane: checks.LaneTS
 // package.json defines a "release" script, the same interface as its gate,
 // build and test scripts, and the fleet runs it after the frozen install.
 //
-// THE TREE IS COPIED, not built in place: what the steps write has to be read
+// IN THE EXECUTOR THE BUILD IS AT /src (DEF-B6-013): a bun bundle embeds the
+// absolute directory it was built in, so where the pod gives the container a
+// tree of its own at /src it sets releasekit.SrcEnv and the steps run there, with
+// nothing copied.
+//
+// OTHERWISE THE TREE IS COPIED, not built in place: what the steps write has to be read
 // back, and the copy leaves out a release/ a local `just image` left behind and
 // the node_modules the install makes. The first failure stops the chain, so its
 // verdict names the step that failed.
@@ -62,11 +67,13 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 	if stood != nil {
 		return *stood
 	}
-	build := releasekit.BuildDir()
-	// a build directory that cannot be cleared fails the copy below
-	_ = os.RemoveAll(build)
-	if err := releasekit.CopyTree(in.Root, build, releasekit.TSExcludes); err != nil {
-		return checks.VerdictOf(row, int(checks.StateCannotRun), id+": CANNOT RUN - the tree could not be copied: "+err.Error())
+	build, inPlace := releasekit.BuildRoot()
+	if !inPlace {
+		// a build directory that cannot be cleared fails the copy below
+		_ = os.RemoveAll(build)
+		if err := releasekit.CopyTree(in.Root, build, releasekit.TSExcludes); err != nil {
+			return checks.VerdictOf(row, int(checks.StateCannotRun), id+": CANNOT RUN - the tree could not be copied: "+err.Error())
+		}
 	}
 	v := releasekit.RunSteps(ctx, in, row, build, nil, releasekit.TSSteps())
 	if v.State != int(checks.StatePass) {
