@@ -37,6 +37,14 @@ const (
 // it grades.
 var pythonEnv = []string{"PYTHONDONTWRITEBYTECODE=1"}
 
+// OwnPython is the flag pair that makes uv run a checker on the interpreter the
+// pod provides (python3 on PATH), whatever the graded tree pins. A checker is
+// foundry-dies' program, not the tree's project: without it `uv run` finds the
+// tree's .python-version, asks for an interpreter the runner may not have and,
+// since an executor never fetches one, the atom CANNOT RUN. An explicit --python
+// outranks the version file, and a bare name is looked up on PATH only.
+var OwnPython = []string{"--python", "python3"}
+
 // VenvPresent says whether the tools container's prebuilt venv is there. It is a
 // variable so a test says which container it is in.
 var VenvPresent = atoms.HasVenv
@@ -51,7 +59,7 @@ func UV(dir, with string, args ...string) atoms.Cmd {
 	if VenvPresent() {
 		return atoms.Cmd{Dir: dir, Name: "python3", Args: args, Env: pythonEnv, Both: true}
 	}
-	argv := []string{"run", "--no-project", "--quiet"}
+	argv := append([]string{"run", "--no-project", "--quiet"}, OwnPython...)
 	if with != "" {
 		argv = append(argv, "--with", with)
 	}

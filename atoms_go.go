@@ -2,28 +2,23 @@ package main
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"path"
 	"slices"
-	"strconv"
 	"strings"
+	"time"
 
-	"dagger/foundry-tools/internal/buildlane"
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
+	"dagger/foundry-tools/internal/releasekit"
 )
 
-// THE GO LANE, AS CHAINS: go:release and go:mutation, which stay on Dagger (the
-// build, publish and cast lanes consume the release compile; the mutation lane's
-// reuse, re-ask and memo are the run's). Every other go atom is a file
+// THE GO LANE, AS A CHAIN: go:mutation, which stays on Dagger (the mutation
+// lane's reuse, re-ask and memo are the run's). Every other go atom is a file
 // (atoms/go), run by the adapter (atom_adapter.go) in the environment atom_env.go
-// and atom_env_go.go give it; this file keeps the helpers they and the two
-// chains share.
+// and atom_env_go.go give it; this file keeps the helpers they and the chain
+// share.
 
 func init() {
-	register("go:release", goRelease)
-	register("go:mutation", goMutation)
 }
 
 // goModules is the go lane's provisioned base: the lane container with the
@@ -115,7 +110,7 @@ func (r *run) testDatabases(ctx context.Context, ctr *dagger.Container) ([]check
 	if len(dbs) == 0 {
 		return nil, checks.TestDBScope(nil, nil, "no test file sits behind a tag the fleet names")
 	}
-	return dbs, checks.TestDBScope(dbs, checks.UncompiledTags(tags, dbs, checks.TestBrokers), "")
+	return dbs, checks.TestDBScope(dbs, checks.UncompiledTags(tags, dbs, checks.TestBrokers, checks.TestCaches, checks.TestKubes), "")
 }
 
 // bindTestDatabases binds each database's server to ctr under scope's alias.
@@ -195,170 +190,138 @@ func bindTestBrokers(ctr *dagger.Container, brokers []checks.TestBroker, scope s
 			WithExposedPort(b.Port).
 			WithDefaultArgs(b.StartArgs(scope)).
 			AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true})
-		ctr = ctr.WithServiceBinding(b.AliasFor(scope), svc).WithEnvVariable(b.Env, b.AddrFor(scope))
+		ctr = ctr.WithServiceBinding(b.AliasFor(scope), svc)
+		for _, env := range b.Envs() {
+			ctr = ctr.WithEnvVariable(env, b.AddrFor(scope))
+		}
 	}
 	return ctr
 }
 
-// THE RELEASE BUILD, AND IT IS THE ONE THE IMAGE CARRIES. Rob's four stages:
-// "Build - Copy the binary from the previous complex run (if green, which is a
-// prerequisite for getting here)". The Gate compiles it with the flags the
-// image needs, the engine caches that exec by its inputs, and F14's Build asks
-// for the same directory and gets the compile it already paid for.
-//
-// WHAT IT BUILDS IS DERIVED, NOT DECLARED — checks/release.go carries the
-// measurement (the fleet's 29 Go Dockerfiles: one flag set, always ./cmd/<X>,
-// -mod=vendor exactly where vendor/ is). A record speaks only for the two repos
-// that ship more than their own name.
-//
-// ROOT MODULE ONLY. The convention is the STAR's binary and a star is one
-// module; a repo whose root carries no go.mod has no image to build from it.
-func goRelease(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("go:release")
-	// A REPOSITORY THAT SHIPS NO IMAGE HAS NO RELEASE BUILD, and that is an
-	// ABSENCE, not a could-not-run. Measured the honest way, on this module's
-	// own gate (foundry-tools #99, 5d3e330): foundry-tools has no
-	// .copier-answers.yml because it publishes no image, and the first cut
-	// filed CANNOT RUN — a red about a build nobody asked for. The surface is
-	// a tracked Dockerfile, the same fact fleet:hadolint reads.
-	files, err := r.population(ctx)
-	if err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - the tree could not be read: "+err.Error())
-	}
-	if len(checks.DockerfilePopulation(files)) == 0 {
-		return checks.VerdictOf(a, 0, a.ID+": ABSENT - this repository tracks no Dockerfile or Containerfile, so it ships no image and has no release build")
-	}
-	star, err := r.starName(ctx)
-	if err != nil && !isNotAStar(err) {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+err.Error())
-	}
-	if err != nil {
-		// NOT A STAR, NOT A STAR IMAGE, ABSENT. Measured on foundry-stocks the
-		// afternoon this atom landed (Wonka17's record, 2026-09-17, nine gate
-		// runs on #205): the forge ships images — the CI bases, blade-base,
-		// forge-tools — but it is not copier-templated, carries no
-		// .copier-answers.yml, and names no star. The first cut read "names
-		// no star" as a could-not-run and wedged every landing there. A repo
-		// with Dockerfiles and no star identity builds its images through
-		// other lanes; the STAR release build has nothing to say about it, and
-		// says so the way python:* says it of a missing pyproject.toml.
-		return checks.VerdictOf(a, 0, a.ID+": ABSENT - "+err.Error()+", so this is not a star image and there is no star release build")
-	}
-	// THE COMPILE IS ASKED FOR BY THE DOCKERFILE, and a Dockerfile that does
-	// not ask is an ABSENCE. The build lane reads one contract off the
-	// Dockerfile (buildlane.CopiesRelease; build.go stageRelease): a COPY from
-	// release/ asks for the Gate's artifact, and a Dockerfile that carries its
-	// own build stage copies nothing from release/ and is built exactly as
-	// before. This atom reads the same contract, because a release build the
-	// image never copies is a compile nobody asked for — and it is the compile
-	// that reds a cgo star. Measured on narcissus (foundry-tools #10307,
-	// narrowed 2026-09-18): its analyzers are tree-sitter through cgo, built
-	// statically in its own build stage, and CGO_ENABLED=0 here fails on a
-	// binary its image never carries. Keyed on the fact the build lane keys
-	// on, so the two lanes cannot disagree about whose compile it is; and
-	// read AFTER the star's name, so a repo that is not a star still says so.
-	asking, dockerfile, err := r.releaseDockerfile(ctx, checks.DockerfilePopulation(files))
-	if err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+err.Error())
-	}
-	if asking == "" {
-		return checks.VerdictOf(a, 0, a.ID+": ABSENT - no tracked Dockerfile copies from "+buildlane.ReleaseDir+"/, so this image compiles itself: its build is the build lane's, and there is no release build to make here")
-	}
-	plan, why := r.releasePlan(ctx, star, dockerfile)
-	if why != "" {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+why)
-	}
-	ctr, err := r.releaseBuild(ctx, plan, "")
-	if err != nil {
-		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+err.Error())
-	}
-	v := verdict(ctx, a, ctr)
-	v.Reason = checks.ReleaseScope(plan) + "\n" + v.Reason
-	return v
+// testCaches is which caches the suites need: the tree's `//go:build live_redis`
+// files and nothing else. A tree without one, or whose tags would not read (the
+// read answers nothing then), is bound nothing, so a lane that does not ask pays
+// nothing. The atom prints the scope line itself (atoms.GoTestServers); this
+// binds no service (testDatabases says why the reads and the binding are apart).
+func (r *run) testCaches(ctx context.Context, ctr *dagger.Container) []checks.TestCache {
+	out, _, _ := output(ctx, ctr.WithExec([]string{
+		"grep", "-rhoE", `^//go:build [A-Za-z0-9_]+$`, "--include=*_test.go", ".",
+	}, anyExit))
+	return checks.TestCachesFor(checks.GoBuildTags(out))
 }
 
-// starName is the star this repository is — the key the record and the
-// release convention share. The answers file says it first; a repository
-// with none is named by ITS RECORD, the one in foundry-dies whose meta.repo
-// is this clone's custody key. hephaestus is the case (CA F17, Rob
-// 2026-09-19): not copier-templated, no .copier-answers.yml, and a catalog entry at
-// fleet/repos/hephaestus.json saying repo rob/hephaestus — the door
-// already routes its lanes by that record, so the release build reads the
-// same name. The clone URL is the door's (--repo) or the hook's (--origin);
-// a run given neither, and no answers file, is not a star: an error here is
-// "not a star", never "could not read".
-//
-// AN ANSWERS FILE WITH NO service_name FALLS BACK TO THE RECORD TOO. Only
-// the go, rust and python templates ask for one; the frontend template asks
-// for repo_name, which is not the star (demeter's is demeter-mcp, its catalog
-// entry fleet/repos/demeter.json). Measured on calliope #46, 2026-09-19: the push's
-// ts:release stood down ABSENT as "not a star image" and the build lane's
-// Release() failed on the same sentence — a star with a record, read as none.
-func (r *run) starName(ctx context.Context) (string, error) {
-	lacks := "no .copier-answers.yml"
-	if answers, present, _ := fileIfPresent(ctx, r.src, ".copier-answers.yml"); present {
-		if star := checks.ServiceName(answers); star != "" {
-			return star, nil
+// bindTestCaches binds each cache's server to ctr under scope's alias.
+func bindTestCaches(ctr *dagger.Container, caches []checks.TestCache, scope string) *dagger.Container {
+	for _, c := range caches {
+		base := dag.Container().From(c.Image)
+		if scope != "" {
+			// THE DEFINITION HAS TO DIFFER, not just the alias: dagger
+			// content-addresses services, so the mutation lane and the complex
+			// checks, running at once, would be handed ONE Redis and FLUSHDB
+			// each other's keys (checks.TestCache says why, and
+			// bindTestDatabases measured the same failure in a schema).
+			base = base.WithEnvVariable("FOUNDRY_TEST_CACHE_LANE", scope)
 		}
-		lacks = "no service_name in .copier-answers.yml"
+		// Through the entrypoint with default args, never WithExec: a service
+		// built on a WithExec never reads ready (TestBroker.StartArgs).
+		svc := base.WithExposedPort(c.Port).
+			WithDefaultArgs(c.ServerArgs(c.Port)).
+			AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true})
+		ctr = ctr.WithServiceBinding(c.AliasFor(scope), svc).WithEnvVariable(c.Env, c.URLFor(scope))
 	}
-	key := checks.RepoKey(r.repo)
-	if key == "" {
-		key = checks.RepoKey(r.origin)
-	}
-	if key == "" {
-		return "", notAStar(lacks + " and no clone URL to find a record by, so the repository names no star")
-	}
-	star, err := r.starOfRepo(ctx, key)
-	if err != nil {
-		return "", err
-	}
-	if star == "" {
-		return "", notAStar(fmt.Sprintf("%s, and no record in foundry-dies names repo %s, so the repository names no star", lacks, key))
-	}
-	return star, nil
+	return ctr
 }
 
-// notAStarError is starName's answer when the repository is not a star — an
-// ABSENCE to the release atoms, where a read fault (the dies unreadable) is a
-// could-not-run. errors.As tells them apart.
-type notAStarError struct{ why string }
-
-func notAStar(why string) error        { return &notAStarError{why: why} }
-func (e *notAStarError) Error() string { return e.why }
-
-// isNotAStar reports whether err is starName's "not a star".
-func isNotAStar(err error) bool {
-	var ns *notAStarError
-	return errors.As(err, &ns)
+// testKubes is the kube-gated suites' read, binding nothing (testDatabases says
+// why the read and the binding are apart). The decision is checks.SelectKubes'.
+func (r *run) testKubes(ctx context.Context, ctr *dagger.Container) ([]checks.TestKube, string) {
+	// NO BRANCH LIVES HERE (testBrokers says why): the engine's error is a fact
+	// handed to the decision, where a unit test reaches it.
+	out, code, err := output(ctx, ctr.WithExec([]string{
+		"grep", "-rhoE", `^//go:build [A-Za-z0-9_]+$`, "--include=*_test.go", ".",
+	}, anyExit))
+	return checks.SelectKubes(out, err, code)
 }
 
-// starOfRepo is the repo whose catalog entry says repo == key, or "" when no
-// entry does. The entries are read at their one home (r.dies,
-// fleet/repos/<name>.json, which every fleet repo has whether or not flux
-// deploys it); a tree that cannot be listed is an error, not "no star".
-func (r *run) starOfRepo(ctx context.Context, key string) (string, error) {
-	star, _, err := r.recordOfRepo(ctx, key)
-	return star, err
-}
+// newKubePKI is the credentials' author; a test replaces it to reach the failure.
+var newKubePKI = checks.NewKubePKI
 
-// recordOfRepo is starOfRepo with the entry itself: the record's name and its
-// JSON, or "" for both when no entry names key.
-func (r *run) recordOfRepo(ctx context.Context, key string) (string, string, error) {
-	paths, err := r.dies.Glob(ctx, "fleet/repos/*.json")
-	if err != nil {
-		return "", "", fmt.Errorf("the fleet's records could not be listed: %w", err)
-	}
-	for _, p := range paths {
-		slag, err := r.dies.File(p).Contents(ctx)
+// kubeLaneVar is what makes a scoped lane's two services DIFFERENT definitions.
+const kubeLaneVar = "FOUNDRY_TEST_KUBE_LANE"
+
+// bindTestKubes binds each API server, with its etcd, to ctr under scope's
+// alias, hands the container the three variables and the CA file, and holds it
+// until the server answers /readyz.
+func bindTestKubes(ctr *dagger.Container, kubes []checks.TestKube, scope string) *dagger.Container {
+	for _, k := range kubes {
+		pki, err := newKubePKI(k.Hosts(scope), time.Now())
 		if err != nil {
-			return "", "", fmt.Errorf("record %s could not be read: %w", p, err)
+			// A lane that cannot make its credentials runs nothing: every exec
+			// after this one fails, naming why, rather than a suite meeting an
+			// API server it cannot trust.
+			// (No shell, runtime.go rule 7: `false` ignores its argument, and the
+			// engine's error for the failed exec carries the argv that says why.)
+			return ctr.WithExec([]string{"false", "test-kube: " + k.Tag + ": the lane could not make its credentials: " + err.Error()})
 		}
-		if checks.RecordRepo(slag) == key {
-			return checks.StarOfRecordPath(p), slag, nil
+		// THE DEFINITIONS HAVE TO DIFFER PER LANE, not just the aliases:
+		// dagger content-addresses services, so two lanes that built
+		// byte-identical API servers were handed ONE (checks.TestDB.AliasFor
+		// carries the measurements for the database that tore itself apart). The
+		// advertised etcd URL and the serving certificate already differ with the
+		// alias; this variable says so in the definition, on both services, so
+		// the rule does not rest on a side effect.
+		etcd := dag.Container().From(checks.ImageEtcd)
+		api := dag.Container().From(checks.ImageKubeAPIServer)
+		if scope != "" {
+			etcd = etcd.WithEnvVariable(kubeLaneVar, scope)
+			api = api.WithEnvVariable(kubeLaneVar, scope)
 		}
+		// NOT WithExec, for TestBroker.StartArgs' reason: a WithExec service
+		// never reads ready. Default args through the entrypoint.
+		etcdSvc := etcd.WithExposedPort(checks.KubeEtcdPort).
+			WithDefaultArgs(k.EtcdArgs(scope)).
+			AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true})
+		files := pki.Files()
+		names := make([]string, 0, len(files))
+		for name := range files {
+			names = append(names, name)
+		}
+		slices.Sort(names)
+		lane := checks.LaneName(scope)
+		for _, name := range names {
+			// 0644 and 0444: the API server's user is the image's, and a
+			// throwaway key that cannot be read is a server that never starts.
+			dest := checks.KubeFilesDir + "/" + name
+			if checks.KubeSecretFiles[name] {
+				// DAGGER LOGS A withNewFile's CONTENTS AND A withEnvVariable's VALUE
+				// (gate run 2685 showed the token in the transcript twice). A secret's
+				// plaintext is scrubbed from the log by value, so redaction does not
+				// depend on a scrubber recognising the word "Bearer".
+				api = api.WithMountedSecret(dest, dag.SetSecret("test-kube-"+name+"-"+lane, files[name]), dagger.ContainerWithMountedSecretOpts{Mode: 0o444})
+				continue
+			}
+			api = api.WithNewFile(dest, files[name], dagger.ContainerWithNewFileOpts{Permissions: 0o644})
+		}
+		apiSvc := api.WithServiceBinding(k.EtcdAliasFor(scope), etcdSvc).
+			WithExposedPort(checks.KubeAPIPort).
+			WithDefaultArgs(k.APIServerArgs(scope)).
+			AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true})
+		ctr = ctr.WithServiceBinding(k.AliasFor(scope), apiSvc).
+			WithNewFile(checks.KubeCAFile, pki.CA).
+			WithEnvVariable(k.URLEnv, k.URLFor(scope)).
+			WithSecretVariable(k.TokenEnv, dag.SetSecret("test-kube-token-"+lane, pki.Token)).
+			WithEnvVariable(k.CAEnv, checks.KubeCAFile).
+			WithMountedSecret(checks.KubeAuthHeaderFile, dag.SetSecret("test-kube-auth-header-"+lane, pki.AuthHeader()), dagger.ContainerWithMountedSecretOpts{Mode: 0o444}).
+			WithExec(k.WaitArgs(scope))
 	}
-	return "", "", nil
+	return ctr
+}
+
+// recordOfRepo is the record whose repo is key: its name and its JSON, or ""
+// for both when no entry names key (releasekit.RecordOf, which the release
+// atoms name a star by too).
+func (r *run) recordOfRepo(ctx context.Context, key string) (string, string, error) {
+	return releasekit.RecordOf(ctx, runTree{r}, key)
 }
 
 // forkRecord is the name of the record that declares this repository a fork
@@ -398,728 +361,6 @@ func forkName(name, slag string) string {
 		return ""
 	}
 	return name
-}
-
-// releasePlan derives what the star's release build produces: the binaries
-// its Dockerfile copies out of release/, each from a ./cmd/<name> the tree
-// must carry, and whether the module vendors. Every refusal is about the
-// repository and settles as a could-not-run.
-func (r *run) releasePlan(ctx context.Context, star, dockerfile string) (checks.ReleasePlan, string) {
-	copies := buildlane.ReleaseCopies(dockerfile)
-	vendored := false
-	if entries, err := r.src.Entries(ctx); err == nil {
-		vendored = slices.Contains(entries, "vendor/")
-	}
-	plan, err := checks.GoReleasePlan(star, copies, vendored)
-	if err != nil {
-		return checks.ReleasePlan{}, err.Error()
-	}
-	// A COPY with no main package behind it would ship a half image: say so
-	// here, by name, instead of as the compiler's "directory not found".
-	for _, b := range plan.Binaries {
-		ok, err := r.src.Exists(ctx, "cmd/"+b.Name, dagger.DirectoryExistsOpts{ExpectedType: dagger.ExistsTypeDirectoryType})
-		if err != nil {
-			return checks.ReleasePlan{}, fmt.Sprintf("the tree could not be read for cmd/%s: %v", b.Name, err)
-		}
-		if !ok {
-			return checks.ReleasePlan{}, fmt.Sprintf("the Dockerfile copies release/%s and the tree carries no cmd/%s to build it from", b.Name, b.Name)
-		}
-	}
-	return plan, ""
-}
-
-// releaseBuild is the compile itself: one exec per binary, in the go lane, off
-// the root module. The container it answers carries /out, which is what F14
-// copies onto the base image.
-//
-// version "" IS THE GATE'S COMPILE and stamps nothing, so its exec is the same
-// one it always was. The build lane passes the stamp tag's version, which
-// exists only once the commit it builds does, and so compiles once more with
-// the version linked in (foundry-tools#18676: every star reported "dev").
-func (r *run) releaseBuild(ctx context.Context, plan checks.ReleasePlan, version string) (*dagger.Container, error) {
-	dirs, err := r.goModuleDirs(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("could not enumerate the tree's Go modules: %w", err)
-	}
-	if !slices.Contains(dirs, ".") {
-		return nil, fmt.Errorf("no go.mod at the repository root, so there is no star binary to build")
-	}
-	// A VENDORED MODULE IS PROVISIONED BY ITS vendor/, AND NOTHING IS
-	// DOWNLOADED. `go mod download` fills the module cache from the proxy
-	// whether or not vendor/ exists, and -mod=vendor then ignores the cache —
-	// so for a vendored module the download is pure network reach, and for
-	// ourea it is the reach the vendoring exists to remove: ourea IS the door,
-	// GONOPROXY routes its first-party module past Nexus to the door, and a
-	// release build that downloads needs a running ourea to build ourea
-	// (ourea internal/discipline TestImageBuildsWithoutReachingTheDoor, the
-	// guard that used to read this off the Dockerfile's build stage and now
-	// reads it off the release path). The compile is the image's; the gate's
-	// other atoms keep their download, which is F16's to move.
-	// THE TREE ONLY, NO .git (laneRelease): the gate's go:release and the build
-	// lane's Release() both land here, and the engine answers the second from
-	// the first only if their mounts are the same bytes. A first-ask gate run
-	// carries no CA_REASK; a re-ask after a could-not-run does, on purpose,
-	// and that keyed-afresh compile is the one the build lane must not reuse.
-	base := r.laneRelease(checks.ImageGo)
-	if plan.Vendored {
-		base = inModule(base, ".")
-	} else {
-		base = goDownload(base, ".")
-	}
-	module := ""
-	if version != "" {
-		// go.mod is there (the root-module check above); a body that names no
-		// module fails ReleaseStamp's module check below.
-		gomod, _, _ := fileIfPresent(ctx, r.src, "go.mod")
-		module = checks.GoModulePath(gomod)
-		if _, err := checks.ReleaseStamp(module, version); err != nil {
-			return nil, err
-		}
-	}
-	ctr := base.WithEnvVariable("CGO_ENABLED", "0")
-	for _, b := range plan.Binaries {
-		ctr = ctr.WithExec(checks.GoReleaseStampedArgs(b, plan.Vendored, module, version), anyExit)
-	}
-	return ctr, nil
-}
-
-// Every mutant gremlins makes of this pull's changed Go is killed by the tests.
-//
-// THE GATE IS GO, NOT A SCRIPT. It was foundry-stocks' ci/lib/mutation/go.sh,
-// run phase by phase, scored by go_score.py. The measurement is now plain execs
-// here — resolve, cover, the canary, gremlins — and the decision is
-// checks.GoMutationVerdict, in DIFF mode against GATE_BASE, the pull's merge
-// base as the door names it: 0 clean, 1 survivors, 2 did not measure. The
-// script's setup and teardown phases are gone with it: they ran MUT_SETUP and
-// MUT_TEARDOWN, which nothing had set since a repo stopped having a say.
-//
-// THE HISTORY IS THERE IN THE LANE THAT MATTERS. The mutation Job fetches the
-// repository and the base the door names, so `git cat-file -e <base>` answers
-// and the diff is real. A local pre-push run hands the engine a linked
-// worktree, which gitReady turns into a throwaway repository with no history:
-// resolve then stands down 0 with "no usable PR base sha", and the door's Job
-// is the one that measures.
-//
-// THE GATE OWNS ITS KNOBS, AND THEY HAVE ONE HOME. gremlins auto-loads a
-// .gremlins.yaml from the tree, and that file can set thresholds that turn a
-// healthy run into exit 10, so every run here reads a config the tree cannot
-// touch. That config is now forge-testkit-go's generated one, read at its own
-// repo through the door (checks.TestkitRepo) — A REPO STILL HAS NO SAY, because
-// the file does not come from the tree under test.
-//
-// What it replaces is a comment-only file this atom wrote itself. "Neutral"
-// meant "state nothing and inherit gremlins' defaults", so the fleet's gate was
-// whatever the tool happened to default to, written down in two places that
-// agreed by luck — and the mutator set nobody had stated was invisible to
-// anyone reading either one.
-//
-// THE COEFFICIENT COMES FROM THAT FILE NOW, not from a flag here. It is the knob
-// that decides whether the run is CORRECT: parallel mutants slow each other
-// down, trip the timeout computed from the unmutated suite, and are recorded
-// TIMED OUT — which counts as neither killed nor survived and silently shrinks
-// the population. MEASURED on a 30-mutant module, 16 cores, five runs each on an
-// unchanged tree: --workers 4 alone gave 15/12, 15/13, 14/14, 15/13, 14/9 — five
-// different answers — while --workers 4 with coefficient 10 gave 16/14 three
-// times. --workers stays a flag here because 4 is this LANE's deliberate
-// override of a config default of 1, which is what a repo with a loopback-bound
-// suite needs and a CI runner does not.
-//
-// THE CANARIES RUN FIRST AND DECIDE WHETHER THE REPORT IS A MEASUREMENT. A
-// harness that cannot start the test child scores every mutant KILLED; the
-// control is a module whose one mutant must LIVE (checks.GoMutationCanary). The
-// bound it existed for — gremlins v0.6.0 mangled --test-cpu into one argv word,
-// #7649 — is kept through the environment the child inherits: GOMAXPROCS caps
-// the test binary, GOFLAGS=-p caps concurrent builds.
-//
-// AND A SECOND CONTROL, FOR A SECOND WAY TO BE WRONG. gremlins resolves a
-// file's package from the PACKAGE CLAUSE, so a mutant in a `package main` is
-// graded against the module root (gremlins#268, open since Jan 2026; fix open at
-// #306). With no root package — 36 of the fleet's 38 Go repos — the run it
-// grades against fails and the mutant reads KILLED: a FALSE GREEN this gate
-// would publish. The package-main control is the same under-tested mutant in a
-// main package with nothing at the module root, and a `go list` names the files
-// it governs — the main packages BELOW the root, because a main package that IS
-// the root resolves to itself and is graded correctly. It is EXPECTED to come
-// back broken today, and while it does those
-// mutants are not counted (checks.GoMutationVerdict). Nobody has to remember to
-// undo that: the day a fixed gremlins lands the control answers OK and they
-// count again.
-//
-// GO NEEDS NO critical_modules. The python, rust and ts mutation atoms read
-// that declaration off .copier-answers.yml; gremlins scopes to the diff itself,
-// exactly as the retired mutation-go did.
-//
-// A REPO HAS NO SAY. The first cut of these atoms sourced a repo-root
-// ci/mutation.env — MUT_* knobs standing in for the retired workflow's inputs —
-// and Rob asked why a repo should have a say in anything (2026-09-11). It
-// should not: the scripts honour MUT_GATE=false, so that file was a one-line
-// switch to turn a fleet gate off, the exact shape stop-justifications exists
-// to refuse (Rule #2: one canonical gate, always the latest, a red is the
-// committer's to fix). It is gone, and nothing below reads the tree for a knob.
-//
-// GENERATED GO IS EXCLUDED BY DEFAULT, FLEET-WIDE, NOT PER REPO. MEASURED on
-// this stage's first live run (2026-09-11, foundry-tools' own diff): of 14
-// survivors, one was in dagger.gen.go — dagger's codegen, which no test of ours
-// covers and none should. The retired mutation-go.yml carried the same
-// exclusion per repo; here it is the atom's default, and it is the same for
-// every repo.
-//
-// NeedsDies FOR THE SAME REASON go:test-race CARRIES IT: gremlins gathers
-// coverage by running `go test`, and hephaestus's internal/slag goldens are
-// armed on CI=true — in a container with no /dies they refuse (FATAL, exit 1),
-// gremlins' coverage run dies, and the lane answers could-not-run on every
-// hephaestus pull. MEASURED 2026-09-11, hephaestus #53: "failed to gather
-// coverage: impossible to executeCoverage coverage: exit status 1". Any atom
-// that runs a repo's `go test` runs its armed goldens, and needs the tree they
-// read.
-func goMutation(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("go:mutation")
-	return r.eachModule(ctx, a, func(dir string) checks.Verdict {
-		// AN OVER-BUDGET TIMEOUT IS ASKED ONCE PER COMMIT (foundry-tools#16081,
-		// Rob's ruling). It is a deterministic result of the tree and the lane's
-		// config, so a second ask for the same sha is answered from the memo
-		// and the re-ask below is skipped; a new sha is a new tree and runs.
-		key := overBudgetKey(r.sha, dir)
-		if v, ok := overBudgetMemo.get(key); ok {
-			return v
-		}
-		first := goMutationIn(ctx, r, a, dir)
-		if checks.GoMutationOverBudget(first.State, first.Reason) {
-			overBudgetMemo.put(key, first)
-			return first
-		}
-		return reasked(first, func() checks.Verdict {
-			return goMutationIn(ctx, r.reaskedAgain(reaskNonce()), a, dir)
-		})
-	})
-}
-
-// goMutationIn is go:mutation in one module.
-//
-// A NESTED MODULE NEEDS diff.relative OR IT MEASURES NOTHING. gremlins scopes
-// to `git diff --merge-base <base>`, whose paths are relative to the
-// repository, and matches them against paths relative to the module. In
-// tools/forge nothing matched, and the run scored zero mutants on a pull that
-// changed three of its files. MEASURED 2026-09-16 on foundry-stocks #199
-// against its base: 0 killed, 0 lived without it; 15 killed, 0 lived with
-// diff.relative=true, which makes that diff print paths relative to the
-// working directory. At a repository's root the two are the same paths, so
-// every module carries it.
-// mutationDBLane names the mutation gate's own test-server binding. Any
-// non-empty word works; this one reads in a service alias (db-mutation) and in
-// the DSN the suite is handed.
-const mutationDBLane = "mutation"
-
-func goMutationIn(ctx context.Context, r *run, a checks.AtomDef, dir string) checks.Verdict {
-	// THE CHANGE SET IS KNOWN BEFORE ANYTHING IS PROVISIONED. The base, the
-	// merge base and the diff are git questions about the tree; the module
-	// download and the test servers are only for a run that will mutate
-	// something. MEASURED 2026-10-09: 20 of 107 mutation runs graded nothing
-	// and still paid ~110 CPU-s each for a Postgres, a broker and a `go mod
-	// download` they never used — every exec below ran on the bound container,
-	// so the first git question started the servers.
-	pre := inModule(r.gitReady(ctx, r.withBase(r.withDies(r.lane(checks.ImageGo)))), dir)
-	// THE RECORD'S DATABASE, as go:test-race brings it: the DB-gated suites are
-	// compiled for the coverage run and gremlins' (and serialised on the one
-	// database), and the servers are bound. Without this every DB-touching line
-	// read NOT COVERED by construction (foundry-tools#8608).
-	// ITS OWN SERVER, because this lane runs BESIDE the complex checks rather
-	// than after them, and go:test-race resets the same schema per test.
-	// READ HERE, BOUND BELOW: the scope line rides every verdict, an empty
-	// change set's included, and the reads start nothing.
-	dbs, scope := r.testDatabases(ctx, pre)
-	brokers, bscope := r.testBrokers(ctx, pre)
-	scope = scope + "\n" + bscope
-	// The scope line is set on the verdict, not folded into the output: a pass
-	// keeps no output (checks.VerdictOf), and the line is printed either way.
-	//
-	// A RUN THAT GRADED NOTHING RIDES BESIDE IT, for the same reason and only for
-	// that case. It settles 0, so its reason would be discarded exactly where it
-	// matters: a green that verified nothing, printed as an unqualified pass. The
-	// reason's first line is the headline (GoMutationVerdict builds it that way)
-	// and checks.GoMutationNothingGraded is the one string both ends agree on. A
-	// PARTIALLY ungraded run is not lifted - its viable mutants were measured, and
-	// the exclusion is in the summary the logs keep.
-	settle := func(state int, reason string) checks.Verdict {
-		v := checks.VerdictOf(a, state, a.ID+": "+reason)
-		note := scope
-		if state == 0 && strings.HasPrefix(reason, checks.GoMutationNothingGraded) {
-			note += "\n" + a.ID + ": " + strings.SplitN(reason, "\n", 2)[0]
-		}
-		v.Reason = note + "\n" + v.Reason
-		return v
-	}
-	neverRan := func(err error) checks.Verdict { return settle(2, "CANNOT RUN - the atom never ran: "+err.Error()) }
-
-	// RESOLVE: without a base the history reaches, there is no diff to scope
-	// to, and a full run is the nightly's, never a pull's.
-	const noBase = "no usable PR base sha — the diff-scoped gate did not run"
-	if r.base == "" {
-		return settle(0, noBase)
-	}
-	// The change set starts at the merge base, not at the base the door named
-	// (run.changeBase): main's tip moves under an open pull. This lane asked
-	// git for --merge-base already; gremlins' own --diff below did not.
-	since, err := r.changeBase(ctx, pre)
-	if err != nil {
-		return settle(2, "CANNOT RUN - "+err.Error())
-	}
-	if since == "" {
-		return settle(r.missingBase(noBase))
-	}
-	// AN EMPTY DIFF MEANS "MUTATE EVERYTHING" TO GREMLINS, written for "no
-	// --diff was given". A pull that changes no Go produces exactly that, so it
-	// stands down here instead of mutating the whole module.
-	changed, code, err := output(ctx, pre.WithExec([]string{"git", "diff", "--relative", since, "--name-only", "--", "*.go"}, anyExit))
-	if err != nil {
-		return neverRan(err)
-	}
-	if code != 0 {
-		return settle(2, "CANNOT RUN - git could not diff the pull against its base "+since+": "+changed)
-	}
-	if strings.TrimSpace(changed) == "" {
-		return settle(0, "this pull changes no Go file — nothing to mutate")
-	}
-
-	// SOMETHING WILL BE MUTATED: download the module, then bind the servers.
-	ctr := bindTestBrokers(bindTestDatabases(pre.WithExec([]string{"go", "mod", "download"}), dbs, mutationDBLane), brokers, mutationDBLane)
-
-	var tags []string
-	if len(dbs) > 0 || len(brokers) > 0 {
-		tags = []string{"-tags", checks.BuildTags(dbs, brokers)}
-	}
-	// NO CONFIG FILE IS FETCHED, AND NONE IS HONOURED. The knobs are the argv
-	// below and the consts beside it; goMutationNoConfig is what stops the tree's
-	// own .gomutants.yml joining them, and says why that is not optional.
-	base := ctr
-
-	// THE KEYS of the units this diff touches, and — under --reuse — which of
-	// them a stored grading already answers (mutation_reuse.go). Those are not
-	// graded again; with every unit answered, nothing below runs at all.
-	keys, owner := goGradingKeys(ctx, base, dir, since, changed, tags)
-	reused, reuseNote := r.reusable(ctx, "go", goMutationEngine(), keys)
-	// A SAMPLED RUN GRADES COLD ANYWAY, and audits what it would have reused.
-	var audited map[string]checks.ReusedGrading
-	if r.audit {
-		audited, reused = reused, nil
-	}
-	misses := checks.Misses(keys, reused)
-	if len(reused) > 0 && len(misses) == 0 {
-		return goFolded(settle, checks.GoMutationRun{Canary: checks.CanaryOK, MainCanary: checks.CanaryOK, Workers: goMutationWorkers},
-			dir, reused, reuseNote, misses, owner, nil)
-	}
-	// THE SCOPE IS THE UNITS IT GRADES, on every run (checks.GoMutationScope
-	// says why that loses no kill): the changed packages, less any a stored
-	// grading answered, as the module's own `go list` names them — never a
-	// nested module's directory or a package with no source, which `go test`
-	// would refuse and the whole run with it.
-	pkgArgs := []string{"go", "list", "-e", "-f", checks.GoSourcePackagesFormat}
-	if len(dbs) > 0 || len(brokers) > 0 {
-		pkgArgs = append(pkgArgs, "-tags", checks.BuildTags(dbs, brokers))
-	}
-	listed, _, _ := output(ctx, base.WithExec(append(pkgArgs, "./..."), anyExit))
-	mutateArgs := checks.GoMutationScope(dir, misses, listed, "/src")
-
-	// THE CANARY, in a module of its own.
-	canary := checks.CanaryUnknown
-	control := base.
-		WithNewFile(mutationDir+"/canary/go.mod", checks.GoMutationCanaryMod).
-		WithNewFile(mutationDir+"/canary/canary.go", checks.GoMutationCanaryCode).
-		WithNewFile(mutationDir+"/canary/canary_test.go", checks.GoMutationCanaryTest).
-		WithWorkdir(mutationDir+"/canary").
-		WithExec([]string{"go", "test", "-cover", "-coverprofile", goMutationProfile, "./..."}, anyExit)
-	if code, err := control.ExitCode(ctx); err == nil && code == 0 {
-		canary = canaryVerdict(ctx, control, mutationDir+"/canary")
-	}
-
-	// THE PACKAGE-MAIN CONTROL, in a module of its own, SHAPED LIKE THE BUG:
-	// one `package main` in a subdirectory and nothing at the module root. That
-	// shape was measured, not assumed (2026-09-24, gremlins 0.6.0, this config,
-	// the same code both ways): a main package AT the module root is graded
-	// correctly and answers LIVED, so a control shaped like the harness canary
-	// above is blind to #268. Only this shape sees it.
-	mainCanary := checks.CanaryUnknown
-	mainControl := base.
-		WithNewFile(mutationDir+"/maincanary/go.mod", checks.GoMutationMainCanaryMod).
-		WithNewFile(mutationDir+"/maincanary/cmd/tool/main.go", checks.GoMutationMainCanaryCode).
-		WithNewFile(mutationDir+"/maincanary/cmd/tool/main_test.go", checks.GoMutationMainCanaryTest).
-		WithWorkdir(mutationDir+"/maincanary").
-		WithExec([]string{"go", "test", "-cover", "-coverprofile", goMutationProfile, "./..."}, anyExit)
-	if code, err := mainControl.ExitCode(ctx); err == nil && code == 0 {
-		mainCanary = canaryVerdict(ctx, mainControl, mutationDir+"/maincanary")
-	}
-
-	// WHICH FILES THAT CONTROL GOVERNS — THE TOOLCHAIN ANSWERS, NOT A GREP.
-	// `go list` reports the package it actually resolved, so a testdata fixture
-	// whose first line reads `package main` is not named and a build-tagged file
-	// is placed by the same tags the cover step used. A grep would name the
-	// fixture and widen the exclusion — the direction that hides mutants.
-	// ParseGoMisgradedFiles then drops the module root's own main package, which
-	// #268 resolves to correctly; THIS repo is the reason that filter exists —
-	// its root is `package main`, and the first cut excluded 11 mutants of
-	// atoms_go.go, three of them LIVED, on the pull that added the exclusion.
-	// Failing to list them is carried, not swallowed: without the set there is
-	// nothing to exclude with, and the verdict makes that a could-not-measure.
-	misgraded := checks.GoMisgradedFiles{}
-	var misgradedErr string
-	listArgs := []string{"go", "list", "-e", "-f", checks.GoMainFilesFormat}
-	if len(dbs) > 0 || len(brokers) > 0 {
-		listArgs = append(listArgs, "-tags", checks.BuildTags(dbs, brokers))
-	}
-	switch out, code, err := output(ctx, base.WithExec(append(listArgs, "./..."), anyExit)); {
-	case err != nil:
-		misgradedErr = err.Error()
-	case code != 0:
-		misgradedErr = fmt.Sprintf("go list exited %d", code)
-	default:
-		misgraded = checks.ParseGoMisgradedFiles(out, path.Join("/src", dir))
-	}
-
-	// MUTATE.
-	args := append([]string{"gomutants", "-output", goMutationReport,
-		"-config", goMutationNoConfig,
-		"-workers", strconv.Itoa(goMutationWorkers),
-		"-disable", goMutationDisable,
-		"-exclude-files", goMutationExclude,
-		"-cache", goMutationCache,
-		"-changed-since", since}, tags...)
-	args = append(args, mutateArgs...)
-	// THE SCOPE IS THE CHANGED LINES, and gomutants reads them itself off
-	// `-changed-since` rather than being handed a file list. MEASURED
-	// 2026-09-29 on ourea internal/gatejob at 5743c86 against 8d9f610: the
-	// mutant population was gatejob.go 3083-3123 and watch.go 195-301 and
-	// NOTHING ELSE — exactly the two edits, in two files of a 40-file package.
-	//
-	// diff.context=0 IS KEPT ANYWAY, and it is cheap insurance rather than a
-	// measured need here. gremlins took each diff fragment as one contiguous
-	// range from its first addition, so three lines of git context merged two
-	// insertions six lines apart and dragged the untouched lines between them
-	// into scope (kairos e138f50, 2026-09-18: a red on code the pull did not
-	// write). gomutants was not observed doing that, but it reads the same git
-	// and nothing about context=0 can widen a scope.
-	//
-	// THE BASELINE IS NEVER CACHED, and this is the knob that decided whether
-	// gremlins was correct at all. It timed each mutant against a coverage
-	// gather Go's test cache answered in 1.09s for a module whose suite runs
-	// ~100s, making the per-mutant budget about eight seconds: MEASURED
-	// 2026-09-18 on ourea aeb9cd9, killed 72 / TIMED OUT 79 / honest 1 — half
-	// the population unanswered and the gate green over it. gomutants measures
-	// its own baseline as a phase and states the ceiling it derived ("baseline
-	// done (2.5s, ceiling: 25s)"), and -adaptive-timeout sizes each mutant off
-	// per-test durations; -count=1 keeps every run under it a real one.
-	//
-	// AND gomutants' MEMORY CAP GETS A ps THAT ANSWERS IT. Each mutant's test
-	// tree is meant to die at 2 GiB resident, read off `ps -o rss= -g <pgid>`
-	// — a process-group selector on BSD that procps reads as a session, so
-	// the cap read 0 and never fired, and a runaway mutant took the whole exec
-	// down at its 16 GiB cgroup instead (internal/pgroupps has the
-	// measurement). Prepended to PATH for this exec only.
-	mutated := base.
-		WithFile(pgroupPSDir+"/ps", helperBinary("pgroupps")).
-		WithEnvVariable("PATH", pgroupPSDir+":${PATH}", dagger.ContainerWithEnvVariableOpts{Expand: true}).
-		WithEnvVariable("GOMAXPROCS", "1").
-		WithEnvVariable("GOFLAGS", goMutationGoflags).
-		WithEnvVariable("GIT_CONFIG_COUNT", "2").
-		WithEnvVariable("GIT_CONFIG_KEY_0", "diff.relative").
-		WithEnvVariable("GIT_CONFIG_VALUE_0", "true").
-		WithEnvVariable("GIT_CONFIG_KEY_1", "diff.context").
-		WithEnvVariable("GIT_CONFIG_VALUE_1", "0").
-		WithExec(args, anyExit)
-	// THE LOG COMES BACK WITH THE EXIT CODE, so a run that could not measure can
-	// say why. outputBoth is what the Rust lane already uses for this; reading
-	// only the exit code is what made a flaky unit test settle as an
-	// unexplained "nothing was measured".
-	log, status, err := outputBoth(ctx, mutated)
-	if err != nil {
-		return neverRan(err)
-	}
-	// gremlins writes no report when it has nothing to report; a read that
-	// fails is that absence, and the verdict decides what it means.
-	report, _ := mutated.File(path.Join("/src", dir, goMutationReport)).Contents(ctx)
-	// THE PROFILE gomutants MEASURED, off its cache file (checks.GoCachedProfile):
-	// the lane's own cover step ran the same `go test -coverprofile` over the
-	// same packages first, and is gone.
-	cached, _ := mutated.File(goMutationCache).Contents(ctx)
-	profile := checks.GoCachedProfile(cached)
-
-	// NAME THE FILES FROM THE MODULE ROOT before anything reads them. gomutants
-	// writes file_name relative to the common import-path prefix of the packages
-	// it ran, so a module whose packages all live below cmd/<name> reports
-	// "answer.go" and the classifier, looking in the module root, refuses the
-	// whole report (checks.GoReportBase). The packages are listed with the
-	// patterns and tags the run itself was given, so the base is the run's own.
-	// A listing that fails leaves the report as it was: the classifier's own
-	// refusal then speaks.
-	classifyOn := mutated
-	if report != "" {
-		listPkgs := []string{"go", "list", "-e", "-f", checks.GoPackagesFormat}
-		if tags := checks.BuildTags(dbs, brokers); tags != "" {
-			listPkgs = append(listPkgs, "-tags", tags)
-		}
-		if out, code, err := output(ctx, base.WithExec(append(listPkgs, mutateArgs...), anyExit)); err == nil && code == 0 {
-			if rel := checks.GoReportBase(out, path.Join("/src", dir)); rel != "" {
-				if rebased, err := checks.RebaseGoReport([]byte(report), rel); err == nil {
-					report = string(rebased)
-					classifyOn = mutated.WithNewFile(path.Join("/src", dir, goMutationReport), report)
-				}
-			}
-		}
-	}
-
-	// CLASSIFY, IN THE LANE, WHERE THE SOURCE IS. forge-testkit-go's gate
-	// parses the tree to say which survivors no test could ever kill — a
-	// mutant in a top-level const or var has no coverage block — and answers
-	// them under -json for the scorer on the host to fold in. Its own exit
-	// code is not the verdict here (this atom holds the canary and the timeout
-	// budget); its stdout is. Nothing to write is nothing to classify.
-	var classified, classifyErr string
-	if report != "" {
-		classified, classifyErr, _ = classify(ctx, classifyOn.WithExec([]string{"mutation-gate", "-report", goMutationReport, "-C", ".", "-json"}, anyExit))
-	}
-
-	return goFolded(settle, checks.GoMutationRun{
-		Status: status, Log: log, Report: []byte(report), Profile: profile, Canary: canary, Workers: goMutationWorkers,
-		Classified: []byte(classified), ClassifyErr: classifyErr,
-		MainCanary: mainCanary, MisgradedFiles: misgraded, MisgradedFilesErr: misgradedErr,
-	}, dir, reused, reuseNote, misses, owner, audited)
-}
-
-// goFolded settles a Go mutation run: what it graded, folded with what it
-// reused (checks.GoMutationVerdictReusing — with nothing reused, the cold
-// verdict exactly), and the gradings of the units it graded itself.
-//
-// THE FINDINGS COME FROM THE SCORE, NOT FROM THE REASON. checks.VerdictOf
-// leaves them nil for this atom on purpose — FindingsOf does not parse the
-// mutation report, because the report is a RENDERING of the score and reading
-// it back would lose a distinction the score keeps (an ungraded LIVED mutant
-// and a missed LIVED mutant render identically).
-func goFolded(settle func(int, string) checks.Verdict, run checks.GoMutationRun, dir string,
-	reused map[string]checks.ReusedGrading, note string, misses []checks.UnitKey, owner func(string) (string, bool),
-	audited map[string]checks.ReusedGrading) checks.Verdict {
-	list := checks.Reused(reused)
-	f := checks.GoMutationVerdictReusing(run, dir, list)
-	v := settle(f.State, f.Reason)
-	// THE REUSE RIDES BESIDE THE VERDICT, like the scope line: a pass keeps no
-	// output, and what a pass did not grade itself is what its reader needs.
-	for _, line := range []string{note, checks.ReuseLine("go:mutation", list, len(list)+len(misses))} {
-		if line != "" {
-			v.Reason = line + "\n" + v.Reason
-		}
-	}
-	v.Findings = f.Findings
-	v.Gradings = checks.GoGradings(f.Fresh, dir, goMutationEngine(), checks.GoGradingTrusted(f.State, run.Canary), misses, owner)
-	if len(audited) > 0 {
-		v.Audit = checks.AuditGradings(checks.Reused(audited), v.Gradings)
-		v.Reason = "go:mutation: audit — the " + strconv.Itoa(len(audited)) + " unit(s) a lookup answered were graded cold again: " + v.Audit + "\n" + v.Reason
-	}
-	return v
-}
-
-// classify answers mutation-gate's stdout and stderr separately: the JSON is
-// the answer, and what it said when it had none is the reason the verdict
-// carries. An engine error is a reason too, never a silent empty answer.
-func classify(ctx context.Context, ctr *dagger.Container) (out, errOut string, code int) {
-	code, err := ctr.ExitCode(ctx)
-	if err != nil {
-		return "", fmt.Sprintf("the engine could not run mutation-gate: %v", err), 0
-	}
-	out, _ = ctr.Stdout(ctx)
-	errOut, _ = ctr.Stderr(ctx)
-	return out, errOut, code
-}
-
-const (
-	// mutationDir is where the canary module is written.
-	mutationDir = "/tmp/mutation"
-	// goMutationConfig is where the canonical config is written in the lane.
-	//
-	// SPELLED WHOLE, not mutationDir + "/…", and the reason is this gate's own.
-	// A `+` in a top-level const has NO COVERAGE BLOCK — Go's cover tool
-	// instruments function bodies — so gremlins reports its mutant NOT COVERED
-	// forever and no test that could ever be written would change that. This
-	// pull's first run proved it on this very line: 1 killed, 1 not covered,
-	// the uncovered one being the concatenation that used to be here.
-	//
-	// The concatenation bought nothing, so it is gone rather than forgiven.
-	// That is the same answer this gate gives every star: remove the operator
-	// when removing it costs nothing. (mutationDir is still shared by the
-	// canary and the python lane, where every use is inside a function body and
-	// its mutants are killable.)
-	// goMutationReport and goMutationProfile are what the run leaves in /src.
-	goMutationReport  = "mutation-go.json"
-	goMutationProfile = "mutation-cover.out"
-	// goMutationCache is gomutants' -cache file, and it is OUTSIDE THE TREE on
-	// purpose. Left to its default it is `.gomutants-cache.json` in the workdir
-	// — the tree under check — and gomutants answers any mutant whose package
-	// and covering tests hash the same as that file says from the file, not
-	// from a run: a repository that committed one would grade its own mutants.
-	// Here it starts empty on every run, so it answers nothing, and what it is
-	// for is the coverage profile gomutants writes into it (GoCachedProfile).
-	goMutationCache = "/tmp/gomutants-cache.json"
-	// pgroupPSDir holds the ps the mutation exec finds first (pgroupps).
-	pgroupPSDir = "/opt/pgroupps"
-	// goMutationWorkers is gomutants' -workers, and it is a CORRECTNESS knob,
-	// not a speed one. Parallel mutants slow each other's tests down and trip
-	// their own timeouts, and a TIMED OUT mutant answers neither killed nor
-	// survived — it leaves the population, quietly. MEASURED 2026-09-29, ourea
-	// internal/gatejob, the same 28-mutator run both ways:
-	//
-	//	-workers 16   killed 70, lived 22, TIMED OUT 15    148s
-	//	-workers  4   killed 83, lived 24, TIMED OUT  0     69s
-	//
-	// All 15 timeouts were contention. Nine of them had a comparable mutant in
-	// the second run and every one of the nine came back KILLED; not one killed
-	// mutant flipped the other way. 4 is the number that measured clean, and it
-	// is the number gremlins' own config had settled on for the same reason.
-	goMutationWorkers = 4
-	// goMutationNoConfig IS WHAT MAKES THE ARGV THE WHOLE CONFIGURATION, and it
-	// closes a hole this lane shipped with.
-	//
-	// gomutants DOES read a config file: -config defaults to `.gomutants.yml`
-	// and config.Load reads it from the WORKDIR — the tree under check — while
-	// answering Default(),nil when it is absent. That silence is why the flip
-	// landed without anyone noticing: no repo carries one (measured, 0 of 77
-	// checkouts on origin/main), so the lane behaved exactly as if no such file
-	// existed. It would have kept behaving that way until the first repo wrote
-	// four lines.
-	//
-	// A FLAG ONLY WINS WHERE THERE IS A FLAG. Config.ApplyFlags runs after Load,
-	// so every knob this lane passes overrides the file — and every knob it does
-	// NOT pass is taken from the file unopposed. `only` is the sharp one, because
-	// it disables every mutator it does not name. MEASURED 2026-09-29, this
-	// argv, the canary fixture:
-	//
-	//	no file                    24 types enabled, 2 mutants found
-	//	only: [INVERT_BITWISE]      1 type  enabled, 0 mutants found, exit 0
-	//	  + -config /dev/null      24 types enabled, 2 mutants found
-	//
-	// A population of zero has no survivors, so the gate goes green over a repo
-	// that graded nothing. exclude-calls, coverpkg, integration, test-flags and
-	// mutants.enabled are unopposed the same way.
-	//
-	// THE RULE IS THE RETIRED .gremlins.yaml's RULE — A REPO HAS NO SAY — and it
-	// used to be enforced by WRITING the canonical config over whatever the tree
-	// carried. The knobs moved onto this argv, which is the better shape, but the
-	// enforcement has to move with them: /dev/null is a file Load reads to empty
-	// bytes with no error, so it keeps its own defaults and the tree's file is
-	// never opened. Not a path that merely does not exist — absence is what was
-	// indistinguishable from safety in the first place.
-	//
-	// AND POINTING IT AT A CANONICAL FILE INSTEAD BUYS NOTHING, which was worth
-	// checking rather than assuming, because the obvious repair for a gate whose
-	// config is /dev/null is to give it a real one. MEASURED 2026-09-29 against
-	// `gomutants -h` at v0.6.1: EVERY knob the fleet's canonical config sets has
-	// a flag — -adaptive-timeout, -timeout-coefficient, -timeout-margin,
-	// -detect-equivalent, -disable — and two of the three beyond -disable are
-	// already the tool's own defaults (adaptive-timeout true, coefficient 10). So
-	// a file would have added a git clone of forge-testkit-go, a read that can
-	// fail, and a CANNOT RUN branch for when the door is unreachable, to express
-	// what this argv already expresses. The fleet's other rulesets answer the
-	// same way: hadolint's config is foundry-tools' at a path outside /src,
-	// staticcheck's and clippy's check sets are named on their command lines, and
-	// cosmic-ray's TOML is generated by checks.CosmicRayConfig. The canonical
-	// file in forge-testkit-go is for a human running gomutants by hand there —
-	// and fleet:stop-justifications grades ITS disable set too.
-	goMutationNoConfig = "/dev/null"
-	// goMutationExclude keeps generated Go out of the mutant population —
-	// vendored code, dagger's codegen, protobuf stubs and kubebuilder's
-	// zz_generated. See goMutation for the measurement.
-	goMutationExclude = checks.GoMutationExclude
-)
-
-// goMutationDisable is the mutator set, by exclusion. gomutants ships 28
-// operators; the first four perturb a NUMERIC LITERAL by one, and on this fleet's
-// Go they generate mutants no correct test can kill.
-//
-// MEASURED 2026-09-29 on ourea internal/gatejob — 25 survivors with all 28
-// enabled, 5 with these off, and the 20 that left were ALL of one shape:
-//
-//	18  `0` -> `1`/`-1` on the discarded value of `return 0, err`
-//	                    and `return false, 0`. Go's contract says the other
-//	                    returns are unspecified when the error is non-nil;
-//	                    a test asserting them pins what the API does not
-//	                    promise.
-//	 2  `64` -> `63`/`65` in `strconv.ParseFloat(q, 64)`. PROVEN equivalent,
-//	                    not argued: ParseFloat takes the 32-bit path only
-//	                    for bitSize 32, so 63, 64 and 65 return bit-identical
-//	                    results for every input including MaxFloat64.
-//	 2  `1e6` -> `999999.0` as a nanocore divisor under int64 truncation.
-//	                    Identical output at every realistic reading.
-//
-// The five that remain are real test gaps, and gremlins' five mutators
-// never GENERATED any of them. So this set is 19 operators wider than the
-// gate had before it, not narrower — the point is that it is STATED, which
-// is the same reason the retired .gremlins.yaml listed gremlins' five.
-//
-// INCREMENT_DECREMENT IS NOT IN HERE and must not be: it mutates `i++` to
-// `i--`, which is a real operator on a real statement, and it was one of
-// gremlins' five. These four are its numeric-literal namesakes.
-//
-// THE SET IS RATIFIED DATA, NOT A LITERAL A SESSION CHOSE, and since
-// 2026-09-29 something checks that. checks.RatifiedMutators carries one row
-// per operator with Rob's words and the shape each one generates;
-// TestTheDisabledOperatorsAreExactlyTheRatifiedSet refuses this string and
-// that table disagreeing in either direction, and fleet:stop-justifications
-// grades any .gomutants.yaml in any repository's tree against the same
-// table. A fifth operator now needs a signed row before it can reach either
-// surface — which is the rule every other suppression in the fleet already
-// answered to, and this one did not.
-//
-// AND SINCE 2026-10-06 THE STRING IS THE TABLE'S, not a literal beside it: the
-// low-value classes (boundary, arithmetic, loop control, error wrap) left every
-// lane on Rob's decision, in each tool's words, so this is the Go rows joined
-// and nothing a session types.
-var goMutationDisable = strings.Join(checks.SkippedMutators(checks.MutatorGo), ",")
-
-// canaryVerdict runs a control and reads its JSON REPORT, never its stdout.
-//
-// THE REPORT IS THE ONLY SURFACE WITH A CONTRACT. The old canary matched the
-// literal string "Killed: 0, Lived: 1" in gremlins' summary line, which tied a
-// control — the one thing in this lane that decides whether anything was
-// measured at all — to a tool's human-readable formatting AND to the exact
-// mutant COUNT. gomutants prints a multi-line block and found 2 mutants in the
-// same fixture (an ARITHMETIC_BASE and a RETURN_ZERO; RETURN_ZERO alone since
-// ARITHMETIC_BASE left the set on 2026-10-06), so that match would
-// silently answer `unknown` forever: a control that cannot fail is not a control.
-//
-// The honest verdict is unchanged and is now stated as a shape rather than a
-// string: the fixture's mutants are all under-tested on purpose, so a run that
-// GRADED them kills none and survives at least one. Killing them means the
-// runner is not running what it thinks it is.
-func canaryVerdict(ctx context.Context, control *dagger.Container, dir string) string {
-	run := control.WithExec([]string{"gomutants",
-		"-config", goMutationNoConfig,
-		"-workers", "1",
-		"-cache=off",
-		"-disable", goMutationDisable,
-		"-output", goMutationReport,
-		"./..."}, anyExit)
-	// ONE RETURN, AND THE REPORT IS THE ONLY THING THAT CARRIES A VERDICT. A run
-	// that did not exit 0 never has its report read, so report stays empty and
-	// GoMutationCanary answers unknown — the same answer it gives an empty or
-	// unparseable one, because they are the same fact: nothing was graded. Saying
-	// that once, there, beats saying it three times here.
-	//
-	// THE THREE EARLY RETURNS THIS REPLACED WERE UNKILLABLE, every one, and the
-	// tool this diff installs is what said so (2026-09-29: 13 mutants in this
-	// package, 6 survivors, all six in these branches). Nothing compares
-	// checks.CanaryUnknown anywhere — GoMutationVerdict tests only for CanaryOK
-	// and CanaryBroken — so `return CanaryUnknown` and `return ""` are the same
-	// program, and a branch whose body is deleted still falls through to the same
-	// answer. The fix is to stop naming it, not to forgive the mutants.
-	//
-	// EXIT 0 OR IT DID NOT RUN, measured rather than guessed (gomutants v0.6.1,
-	// these exact fixtures): the canary with TWO survivors exits 0, while an
-	// unbuildable package and a package that does not exist both exit 1.
-	// Survivors are not an error to this tool unless -threshold-efficacy asks,
-	// and the controls do not ask. The first cut read `code > 1`, which tolerated
-	// the exit 1 that means could-not-run and leaned on the report read to fail
-	// instead — right answer, false reasoning.
-	var report string
-	if code, err := run.ExitCode(ctx); err == nil && code == 0 {
-		report, _ = run.File(dir + "/" + goMutationReport).Contents(ctx)
-	}
-	return checks.GoMutationCanary(report)
 }
 
 // lastLine is the tail of a tool's output — the line a human reads first.

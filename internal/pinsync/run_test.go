@@ -289,6 +289,30 @@ func TestATreeInStepIsLeftAlone(t *testing.T) {
 	}
 }
 
+// -relock REGENERATES AN IN-STEP LOCK, and fetches nothing else: renovate's
+// pip_requirements moves a lock line under its predecessor's hashes, and this
+// is the run that gives it its own.
+func TestRelockRegeneratesTheLockWhenNothingMoved(t *testing.T) {
+	fixturePins(t)
+	root := writeTree(t, fixtureFiles())
+	web, lock := &fakeWeb{}, &lockRun{}
+	env, log := newEnv(root, web, lock, true)
+	env.Relock = true
+	res, err := env.Run(context.Background())
+	if err != nil {
+		t.Fatalf("%v; log:\n%s", err, log)
+	}
+	if lock.args == nil {
+		t.Fatalf("the lock was not regenerated; log:\n%s", log)
+	}
+	if len(web.asked) != 0 {
+		t.Errorf("a relock fetched %v", web.asked)
+	}
+	if !strings.Contains(strings.Join(res.Changed, " "), "requirements.txt") {
+		t.Errorf("changed %v, want the lock among them", res.Changed)
+	}
+}
+
 // bumped is the fixture after Renovate's regex manager: each version line
 // moved, nothing that follows it.
 func bumped() map[string]string {

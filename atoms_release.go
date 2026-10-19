@@ -3,93 +3,35 @@ package main
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"dagger/foundry-tools/internal/buildlane"
 	"dagger/foundry-tools/internal/checks"
 	"dagger/foundry-tools/internal/dagger"
+	"dagger/foundry-tools/internal/releasekit"
 )
 
-// THE BUN AND PYTHON RELEASES (CA master-plan F17). go:release and
-// rust:release compile a binary; a bun star's artifact is its bundle and a
-// python star's its venv. Both are built ON THE IMAGE'S OWN BASE — the base
-// the Dockerfile's runtime stage FROMs — so the runtime the artifact was made
-// with is the one that runs it (checks.PythonReleaseApp says what goes wrong
-// otherwise). The build lane stages the result at release/ exactly as it
-// stages a binary (build.go stageRelease), and the Dockerfile is a FROM and a
-// COPY.
+// THE RELEASE BUILDS THE BUILD AND CAST LANES CONSUME (CA master-plan F14/F17).
+// The go, python, rust and ts release atoms are files now
+// (atoms/<ns>/release), run by the adapter and by the executor; what each DECIDES
+// — whose image this is, what the build produces, which argv, what the exit
+// means — is internal/releasekit's, read through runTree here and through the
+// checkout in a pod. What stays in this file is the engine's half of the build
+// lanes' Release(): the compile as a WithExec chain whose Directory the image is
+// built from, until step 6's executor capability takes that over.
 //
-// THE IMAGE'S BASE DECIDES WHICH OF THEM RUNS. A tree can declare two
-// toolchains — mnemosyne carries a go.mod and the pyproject its Go port left
-// behind, on the go base — and planning runs every lane the tree declares.
-// So each of these atoms stands down unless the Dockerfile that asks for
-// release/ is on its own base (buildlane.BaseToolchain), and the go and rust
-// atoms, which predate this, are never asked about an image on the bun or
-// python base because no such tree carries a go.mod or a Cargo.toml.
-
-func init() {
-	register("ts:release", tsRelease)
-	register("python:release", pythonRelease)
-}
-
-// releaseBase is the release question every release atom asks first, for the
-// two that build on the image's base: whether this is a star image, whether
-// its Dockerfile asks for release/, and whether that Dockerfile is on the
-// base named `want`. It answers the base reference to build on, or the
-// verdict that stands the atom down — an absence where the image is not this
-// atom's, a could-not-run where the question itself could not be answered.
-func (r *run) releaseBase(ctx context.Context, a checks.AtomDef, want string) (string, *checks.Verdict) {
-	stand := func(state int, why string) (string, *checks.Verdict) {
-		v := checks.VerdictOf(a, state, why)
-		return "", &v
-	}
-	files, err := r.population(ctx)
-	if err != nil {
-		return stand(2, a.ID+": CANNOT RUN - the tree could not be read: "+err.Error())
-	}
-	dockerfiles := checks.DockerfilePopulation(files)
-	if len(dockerfiles) == 0 {
-		return stand(0, a.ID+": ABSENT - this repository tracks no Dockerfile or Containerfile, so it ships no image and has no release build")
-	}
-	if _, err := r.starName(ctx); err != nil {
-		if !isNotAStar(err) {
-			return stand(2, a.ID+": CANNOT RUN - "+err.Error())
-		}
-		return stand(0, a.ID+": ABSENT - "+err.Error()+", so this is not a star image and there is no star release build")
-	}
-	path, body, err := r.releaseDockerfile(ctx, dockerfiles)
-	if err != nil {
-		return stand(2, a.ID+": CANNOT RUN - "+err.Error())
-	}
-	if path == "" {
-		return stand(0, a.ID+": ABSENT - no tracked Dockerfile copies from "+buildlane.ReleaseDir+"/, so this image builds itself: its build is the build lane's, and there is no release build to make here")
-	}
-	ref, _, ok := buildlane.RuntimeBase(body)
-	if !ok || buildlane.BaseToolchain(ref) != want {
-		on := ref
-		if !ok {
-			on = "a base this lane cannot name"
-		}
-		return stand(0, a.ID+": ABSENT - "+path+" is built on "+on+", not "+buildlane.FleetBases+want+", so its release is another lane's")
-	}
-	return ref, nil
-}
-
-// releaseDockerfile is the first tracked Dockerfile that asks for release/,
-// with its body — "" when none asks. A Dockerfile that cannot be read is an
-// error, never "does not ask" (asksForRelease's rule).
-func (r *run) releaseDockerfile(ctx context.Context, dockerfiles []string) (string, string, error) {
-	for _, p := range dockerfiles {
-		body, err := r.src.File(p).Contents(ctx)
-		if err != nil {
-			return "", "", fmt.Errorf("%s could not be read: %w", p, err)
-		}
-		if buildlane.CopiesRelease(body) {
-			return p, body, nil
-		}
-	}
-	return "", "", nil
-}
+// Release() composes the same pieces the atoms do — releasekit.StarName,
+// ReleaseDockerfile, GoPlan, RustPlan, GoRoot, the argvs in checks/release.go,
+// the exclusions and the step verdicts — so the gate's verdict and the build
+// lane's artifact cannot disagree about whose compile it is. It does not share
+// the gate's engine exec any more: the atom runs its compile inside one atom
+// exec, where Release() runs its own chain.
+//
+// A bun star's artifact is its bundle and a python star's its venv. Both are
+// built ON THE IMAGE'S OWN BASE — the base the Dockerfile's runtime stage FROMs —
+// so the runtime the artifact was made with is the one that runs it
+// (checks.PythonReleaseApp says what goes wrong otherwise). The build lane stages
+// the result at release/ exactly as it stages a binary (build.go stageRelease),
+// and the Dockerfile is a FROM and a COPY.
 
 // onBase is the lane container for a release: the image's own base, with the
 // lane's environment (laneBase: CI, the cache CA's readers, telemetry off)
@@ -104,42 +46,17 @@ func (r *run) onBase(ref, cachePath, cacheKey, cacheEnv string) *dagger.Containe
 }
 
 // releaseStep runs one release step and reads it: the container after it, and the
-// verdict it settles (checks.ReleaseStepState — the tree's failure is a
-// finding, the substrate's and the run's a could-not-run). The step is named
-// in the reason, so a failure says which of the record's steps it was.
+// verdict it settles (releasekit.StepVerdict — the tree's failure is a finding,
+// the substrate's and the run's a could-not-run). The step is named in the
+// reason, so a failure says which of the record's steps it was.
 func releaseStep(ctx context.Context, a checks.AtomDef, ctr *dagger.Container, argv []string) (*dagger.Container, checks.Verdict) {
 	ctr = ctr.WithExec(argv, anyExit)
 	out, code, err := output(ctx, ctr)
 	if err != nil {
 		return ctr, checks.VerdictOf(a, 2, "the atom never ran: "+err.Error())
 	}
-	state := checks.ReleaseStepState(code, out)
-	if state == 0 {
-		return ctr, checks.VerdictOf(a, 0, out)
-	}
-	return ctr, checks.VerdictOf(a, state, fmt.Sprintf("`%s` exited %d\n%s", strings.Join(argv, " "), code, out))
-}
-
-// ---- ts:release ----
-
-// The repo's own `release` script leaves the image's files under release/,
-// run on the image's own bun base.
-func tsRelease(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("ts:release")
-	ref, stood := r.releaseBase(ctx, a, "bun")
-	if stood != nil {
-		return *stood
-	}
-	ctr, v := r.tsReleaseBuild(ctx, a, ref)
-	if v.State != 0 {
-		return v
-	}
-	made, err := ctr.Directory(checks.ReleaseTree + "/" + buildlane.ReleaseDir).Entries(ctx)
-	if err != nil || len(made) == 0 {
-		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - the release steps ran clean and left nothing under "+buildlane.ReleaseDir+"/ — the Dockerfile's COPY would have nothing to copy")
-	}
-	v.Reason = fmt.Sprintf("release build: `bun run release` on %s; release/ holds %s\n%s", ref, strings.Join(made, ", "), v.Reason)
-	return v
+	v, _ := releasekit.StepVerdict(a, argv, code, out)
+	return ctr, v
 }
 
 // tsReleaseBuild is the bun release: the tree COPIED into the container (not
@@ -148,43 +65,22 @@ func tsRelease(ctx context.Context, r *run) checks.Verdict {
 // node_modules, then the frozen install, then the repo's release script. The
 // first failure stops the chain, so its verdict names the step that failed.
 func (r *run) tsReleaseBuild(ctx context.Context, a checks.AtomDef, ref string) (*dagger.Container, checks.Verdict) {
-	tree := r.src.Filter(dagger.DirectoryFilterOpts{Exclude: []string{buildlane.ReleaseDir, "**/node_modules"}})
+	tree := r.src.Filter(dagger.DirectoryFilterOpts{Exclude: releasekit.TSExcludes})
 	ctr := r.onBase(ref, "/root/.bun/install/cache", "foundry-bun", "").
 		WithDirectory(checks.ReleaseTree, tree).
 		WithWorkdir(checks.ReleaseTree)
-	ctr, v := releaseStep(ctx, a, ctr, []string{"bun", "install", "--frozen-lockfile"})
+	ctr, v := releaseStep(ctx, a, ctr, releasekit.TSInstall)
 	if v.State != 0 {
 		return nil, v
 	}
 	return releaseStep(ctx, a, ctr, checks.TSReleaseArgs)
 }
 
-// ---- python:release ----
-
-// The venv the image will carry builds from the star's lock on the image's
-// own python base.
-func pythonRelease(ctx context.Context, r *run) checks.Verdict {
-	a := checks.AtomByID("python:release")
-	ref, stood := r.releaseBase(ctx, a, "python")
-	if stood != nil {
-		return *stood
-	}
-	ctr, v := r.pythonReleaseBuild(ctx, a, ref)
-	if v.State != 0 {
-		return v
-	}
-	if made, err := ctr.Directory(checks.PythonReleaseApp + "/.venv/bin").Entries(ctx); err != nil || len(made) == 0 {
-		return checks.VerdictOf(a, 1, a.ID+": FINDINGS - uv sync ran clean and left no "+checks.PythonReleaseApp+"/.venv — the Dockerfile's COPY would have no venv to copy")
-	}
-	v.Reason = fmt.Sprintf("release build: the venv, with no extras, on %s\n%s", ref, v.Reason)
-	return v
-}
-
 // pythonReleaseBuild is the python release: the tree copied to /app on the
 // image's base, without a local .venv or release/, then the sync that builds
 // /app/.venv from the star's lock (checks.PythonReleaseArgs).
 func (r *run) pythonReleaseBuild(ctx context.Context, a checks.AtomDef, ref string) (*dagger.Container, checks.Verdict) {
-	tree := r.src.Filter(dagger.DirectoryFilterOpts{Exclude: []string{".venv", buildlane.ReleaseDir, "**/__pycache__"}})
+	tree := r.src.Filter(dagger.DirectoryFilterOpts{Exclude: releasekit.PythonExcludes})
 	ctr := r.onBase(ref, "/opt/uv-cache", "foundry-uv", "UV_CACHE_DIR").
 		WithDirectory(checks.PythonReleaseApp, tree).
 		WithWorkdir(checks.PythonReleaseApp)
@@ -204,7 +100,7 @@ func (r *run) releaseOnBase(ctx context.Context) (*dagger.Directory, string, err
 	if err != nil {
 		return nil, "", fmt.Errorf("the tree could not be read: %w", err)
 	}
-	path, body, err := r.releaseDockerfile(ctx, checks.DockerfilePopulation(files))
+	path, body, err := releasekit.ReleaseDockerfile(ctx, runTree{r}, releasekit.Dockerfiles(files))
 	if err != nil || path == "" {
 		return nil, "", err
 	}
@@ -233,4 +129,81 @@ func (r *run) releaseOnBase(ctx context.Context) (*dagger.Directory, string, err
 		return nil, "", fmt.Errorf("the release build failed: %s", lastLine(v.Reason))
 	}
 	return out(), "", nil
+}
+
+// releaseBuild is the Go compile itself: one exec per binary, in the go lane,
+// off the root module. The container it answers carries /out, which is what F14
+// copies onto the base image.
+//
+// version "" IS THE GATE'S COMPILE and stamps nothing. The build lane passes the
+// stamp tag's version, which exists only once the commit it builds does, and so
+// compiles with the version linked in (foundry-tools#18676: every star reported
+// "dev"). THE TREE ONLY, NO .git (laneRelease): neither compile reads git, and
+// go build stamps vcs.revision from it by default.
+func (r *run) releaseBuild(ctx context.Context, plan checks.ReleasePlan, version string) (*dagger.Container, error) {
+	// The root module is Release()'s releaseLane, which only reaches here for a
+	// root go.mod; the atom, which has no lane to lean on, asks releasekit.GoRoot.
+	// A VENDORED MODULE IS PROVISIONED BY ITS vendor/, AND NOTHING IS
+	// DOWNLOADED (the atom's check says why).
+	base := r.laneRelease(checks.ImageGo)
+	if plan.Vendored {
+		base = inModule(base, ".")
+	} else {
+		base = goDownload(base, ".")
+	}
+	module := ""
+	if version != "" {
+		// go.mod is there (the root-module check above); a body that names no
+		// module fails ReleaseStamp's module check below.
+		gomod, _, _ := fileIfPresent(ctx, r.src, "go.mod")
+		module = checks.GoModulePath(gomod)
+		if _, err := checks.ReleaseStamp(module, version); err != nil {
+			return nil, err
+		}
+	}
+	ctr := base
+	for _, b := range plan.Binaries {
+		ctr = ctr.WithEnvVariable("CGO_ENABLED", checks.ReleaseCgo(b)).WithExec(checks.GoReleaseStampedArgs(b, plan.Vendored, module, version), anyExit)
+	}
+	return ctr, nil
+}
+
+// rustReleaseBuild is the compile itself: the provisioned lane under the
+// Unstale stamp (cargoFresh), the target directory on the repository's release
+// cache volume (checks.RustReleaseTarget says why), one exec per binary that
+// copies the binary out of the volume as it finishes. It answers the container
+// the binaries are in and the verdict of the last exec that ran — the first
+// failure stops the chain, so the verdict names the binary that did not build.
+//
+// THE STAMP IS WHAT MAKES THE VOLUME SAFE. Every tree of a repo mounts at
+// /src, so the workspace's crates have one artifact each in the volume, and
+// cargo judges them by mtime: without Unstale a later tree links what an
+// earlier one built (checks.Unstale has the measurement). Under it the
+// workspace rebuilds and only the registry crates come back Fresh.
+func (r *run) rustReleaseBuild(ctx context.Context, a checks.AtomDef, plan checks.ReleasePlan) (*dagger.Container, checks.Verdict) {
+	ctr := r.withReleaseCache(r.cargoFresh()).WithEnvVariable("CARGO_TARGET_DIR", checks.RustReleaseTarget)
+	v := checks.VerdictOf(a, 0, "")
+	for _, b := range plan.Binaries {
+		ctr = ctr.WithExec(copiedOut(checks.RustReleaseArgs(b), checks.RustReleaseBuilt(b)+"="+checks.RustReleaseBinary(b)), anyExit)
+		if v = cargoVerdict(ctx, a, ctr); v.State != 0 {
+			return ctr, v
+		}
+	}
+	return ctr, v
+}
+
+// rustReleaseDir is the release build's binaries as a directory — what F14
+// copies onto the base image: each binary read from where its build copied
+// it out of the volume (checks.RustReleaseBinary), under its own name at the
+// root. Lazy, as the
+// Go path's ctr.Directory(ReleaseOut) is: a binary the build did not leave
+// (a record naming a package that builds no [[bin]]) surfaces where the
+// directory is first used — the image build's context — as the engine's own
+// "no such file" for that path, which the build lane files as findings.
+func rustReleaseDir(ctr *dagger.Container, plan checks.ReleasePlan) *dagger.Directory {
+	out := dag.Directory()
+	for _, b := range plan.Binaries {
+		out = out.WithFile(b.Name, ctr.File(checks.RustReleaseBinary(b)))
+	}
+	return out
 }

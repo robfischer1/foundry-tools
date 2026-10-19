@@ -215,36 +215,10 @@ func bundleSvid(t *testing.T, m *FoundryTools, spire *dagger.Socket, token *dagg
 	}
 }
 
-func TestSvidAudienceReachesTheVisualPush(t *testing.T) {
-	visualTree(map[string]string{visualReport: visualFailReport})
-	engine.exitCode(visualCheckNeedle, 1)
-	engine.stdout(svidHelper+`,"get"`, svidGetAnswer+"\n")
-	r := newRun(dag.Directory(), visualRepo, "").withArtifacts(nil, visualSha).
-		withSpire(dag.LoadSocketFromID("spire-agent-socket")).withRegistrySvid(svidAudience)
-	v := registry["ts:visual"](context.Background(), r)
-	if strings.Contains(v.Reason, "no --artifact-auth") {
-		t.Fatalf("the svid did not stand in for --artifact-auth:\n%s", v.Reason)
-	}
-	if engine.chain("visual-registry-svid") == "" || engine.chain(svidHelper+`,"get"`) == "" {
-		t.Error("the artifact push did not take a fetched token")
-	}
-	// Flag with no socket: still not pushed.
-	visualTree(map[string]string{visualReport: visualFailReport})
-	engine.exitCode(visualCheckNeedle, 1)
-	r = newRun(dag.Directory(), visualRepo, "").withArtifacts(nil, visualSha).withRegistrySvid(svidAudience)
-	if v := registry["ts:visual"](context.Background(), r); !strings.Contains(v.Reason, "no --artifact-auth") {
-		t.Errorf("no socket, and the push was attempted:\n%s", v.Reason)
-	}
-}
-
 func TestGateFileKeepsTheRegistrySvidAudience(t *testing.T) {
 	m := gateOn(t, cleanVector)
 	if _, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "visual", nil, false, nil, nil, "", nil, svidAudience); err != nil || m.registrySvid != svidAudience {
 		t.Fatalf("registrySvid %q err %v", m.registrySvid, err)
-	}
-	again := newRun(dag.Directory(), "", "").withRegistrySvid(svidAudience).reaskedAgain("n")
-	if again.registrySvid != svidAudience {
-		t.Error("a re-asked run dropped the audience")
 	}
 }
 

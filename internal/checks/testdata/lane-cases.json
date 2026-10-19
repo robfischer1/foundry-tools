@@ -1,0 +1,14 @@
+{"cases":[
+{"name":"go star whose only python is golden testdata (narcissus)","files":["go.mod","main.go","tests/golden/analyzers/testdata/python/a.py"],"lanes":["go"]},
+{"name":"go star whose only python is nested testdata (nomos)","files":["go.mod","internal/assemble/testdata/x.py"],"lanes":["go"]},
+{"name":"a real .py declares python beside go","files":["go.mod","tools/x.py"],"lanes":["go","python"]},
+{"name":"pyproject at the root declares python with no .py","files":["pyproject.toml"],"lanes":["python"]},
+{"name":"a nested go.mod declares go","files":["tools/forge/go.mod","README.md"],"lanes":["go"]},
+{"name":"a vendored go.mod declares nothing","files":["vendor/x/go.mod","a.md"],"lanes":[]},
+{"name":"testdata go.mod beside a root go.mod is not a second module, the root still declares go","files":["go.mod","testdata/go.mod"],"lanes":["go"]},
+{"name":"underscore and dot directories are not the repository's","files":["_x/go.mod",".hidden/a.py","a/_b/c.py"],"lanes":[]},
+{"name":"the fleet exclude drops node_modules, vendor and .claude before any lane reads","files":["node_modules/foo/a.py","vendor/a.py",".claude/hooks/h.py"],"lanes":[]},
+{"name":"root Cargo.toml and package.json declare rust and ts","files":["Cargo.toml","package.json","src/lib.rs"],"lanes":["rust","ts"]},
+{"name":"a nested Cargo.toml declares nothing","files":["crates/a/Cargo.toml"],"lanes":[]},
+{"name":"python under a plain nested directory counts","files":["scripts/deep/er/a.py"],"lanes":["python"]}
+]}

@@ -16,13 +16,15 @@ import (
 )
 
 // Def is the atom. It writes the fleet's eslint config at the tree's root and
-// installs the tree's packages, so it writes the tree.
+// installs the tree's packages, so it writes the tree. It needs curl (tool:curl)
+// as the Dagger lane image has it beside git.
 var Def = atomkit.Def{
 	ID: "ts:bun-gate", Stage: checks.StagePrecommit, Lane: checks.LaneTS,
 	Group:      checks.GroupLanguage,
 	Desc:       "bun run gate passes against a frozen lockfile under the fleet's eslint config, and the tree carries tests for it to run.",
 	Surface:    "root:package.json",
 	Toolchain:  "bun",
+	Needs:      []string{"tool:node", "tool:curl"},
 	Timeout:    30 * time.Minute,
 	WritesTree: true,
 	Check:      check,

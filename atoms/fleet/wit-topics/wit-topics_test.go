@@ -176,7 +176,7 @@ func TestFleetWitTopics(t *testing.T) {
 			if c.Name != "uv" || c.Dir != in.Root || !c.Both || !slices.Contains(c.Env, "PYTHONDONTWRITEBYTECODE=1") {
 				t.Errorf("call %+v: want uv in %s with both streams and no bytecode", c, in.Root)
 			}
-			if got := flagged(c); got != "run --no-project --quiet python3 tools/wit-topics" {
+			if got := flagged(c); got != "run --no-project --quiet --python python3 python3 tools/wit-topics" {
 				t.Errorf("uv ran as %q: nothing is resolved with --with", got)
 			}
 		})

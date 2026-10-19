@@ -46,7 +46,7 @@ func WantUV(t TB, c atoms.Cmd, root, with string, args ...string) {
 	t.Helper()
 	program, want := "python3", args
 	if !dieskit.VenvPresent() {
-		program, want = "uv", []string{"run", "--no-project", "--quiet"}
+		program, want = "uv", append([]string{"run", "--no-project", "--quiet"}, dieskit.OwnPython...)
 		if with != "" {
 			want = append(want, "--with", with)
 		}

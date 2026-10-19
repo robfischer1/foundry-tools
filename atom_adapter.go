@@ -75,6 +75,7 @@ var atomRuntimeDirs = []string{
 	"internal/atoms/**",
 	"internal/checks/**",
 	"internal/execmem/**",
+	"internal/pgroupps/**",
 	"internal/govlaw/**",
 	"internal/unitkey/**",
 	"internal/retiredverbs/**",
@@ -84,13 +85,36 @@ var atomRuntimeDirs = []string{
 // and the judgements the orbit family reads.
 var (
 	libraryDirs = []string{"internal/atomlib/**"}
+	// witnessDirs: fleet:witness asks as the pod's SVID in its own process.
+	witnessDirs = []string{"internal/hadescall/**", "internal/witnesscall/**"}
 	orbitDirs   = []string{"internal/atomlib/**", "internal/orbitkit/**", "internal/orbitcompose/**", "internal/orbitlane/**"}
+	// witreplayDirs: rust:wit-compose and dev:rust-replay are one body.
+	witreplayDirs = []string{"internal/witreplay/**"}
+	// releaseDirs are what the release atoms share: the release build's one
+	// implementation and the Dockerfile's reading of release/; the Rust compile
+	// adds the copy that carries a binary out of its target.
+	releaseDirs     = []string{"internal/releasekit/**", "internal/buildlane/**"}
+	rustReleaseDirs = []string{"internal/releasekit/**", "internal/buildlane/**", "internal/copyout/**"}
+	// castReleaseDirs are what the cast lane's two compile atoms share: the
+	// compile itself, the cast's decisions about the tree, the release
+	// directory's resolution and the exit vocabulary, and the copy that carries
+	// a binary out of its target.
+	// publishPackDirs are what the publish lane's two build atoms share: the
+	// builds, the lane's decisions (artifact names, package selection), the
+	// release directory's resolution and the exit vocabulary.
+	publishPackDirs = []string{"internal/publishpack/**", "internal/publishlane/**", "internal/releasekit/**", "internal/buildlane/**"}
+	castReleaseDirs = []string{"internal/castrelease/**", "internal/castlane/**", "internal/releasekit/**", "internal/buildlane/**", "internal/copyout/**"}
 )
 
 // atomLibraries are the packages an atom imports that not every atom does, by
 // atom id. An atom that is not here imports nothing beyond atomRuntimeDirs.
 var atomLibraries = map[string][]string{
+	"go:mutation":                {"internal/gomut/**"},
+	"python:mutation":            {"internal/pymut/**"},
+	"rust:mutation":              {"internal/rustmut/**"},
+	"ts:mutation":                {"internal/tsmut/**"},
 	"compose:config":             libraryDirs,
+	"fleet:witness":              witnessDirs,
 	"compose:no-tracked-secrets": libraryDirs,
 	"compose:third-party-pins":   libraryDirs,
 	"ops:ansible":                libraryDirs,
@@ -107,11 +131,25 @@ var atomLibraries = map[string][]string{
 	"ops:star-sa":                libraryDirs,
 	"ops:world-patches":          libraryDirs,
 	"ops:yaml":                   libraryDirs,
+	"go:release":                 releaseDirs,
+	"go:cast-release":            castReleaseDirs,
+	"python:artifacts":           publishPackDirs,
+	"ts:pack":                    publishPackDirs,
+	"rust:cast-release":          castReleaseDirs,
 	"orbit:contracts":            orbitDirs,
 	"orbit:repo":                 orbitDirs,
 	"orbit:sidecars":             orbitDirs,
 	"orbit:surface":              orbitDirs,
+	"python:release":             releaseDirs,
+	"rust:release":               rustReleaseDirs,
+	"ts:release":                 releaseDirs,
 	"template:render-matrix":     libraryDirs,
+	"ts:regen":                   {"internal/regenlane/**", "internal/regenkit/**"},
+	"dev:ts-regen":               {"internal/regenlane/**", "internal/regenkit/**"},
+	"dev:go-regen":               {"internal/goregen/**", "internal/regenkit/**"},
+	"rust:wit-compose":           witreplayDirs,
+	"dev:rust-replay":            witreplayDirs,
+	"ts:visual":                  {"internal/visuallane/**", "internal/buildlane/**"},
 	"wit:validate":               libraryDirs,
 }
 
@@ -141,23 +179,37 @@ func atomCompile(e catalogue.Entry) *dagger.Container {
 
 // runLogic compiles a logic atom and runs it in its environment.
 func runLogic(ctx context.Context, r *run, e catalogue.Entry) checks.Verdict {
+	ran, out, v := logicRan(ctx, r, e)
+	if v != nil {
+		return *v
+	}
+	return readVerdict(ctx, checks.AtomByID(e.ID), ran, out)
+}
+
+// logicRan compiles a logic atom and starts it in its environment, over /src and
+// the run's arguments (a dev atom's; none for the gate's). It answers the
+// container after the atom, which holds the tree the atom wrote, and the path of
+// its verdict; or, for an atom that did not compile, the verdict that says so.
+func logicRan(ctx context.Context, r *run, e catalogue.Entry) (*dagger.Container, string, *checks.Verdict) {
 	a := checks.AtomByID(e.ID)
 	built := atomCompile(e)
 	code, err := exitCodeOf(ctx, built)
 	if err != nil {
-		return cannotRun(a, "atom "+e.ID+" did not compile: "+err.Error())
+		v := cannotRun(a, "atom "+e.ID+" did not compile: "+err.Error())
+		return nil, "", &v
 	}
 	if code != 0 {
 		stderr, _ := built.Stderr(ctx)
-		return cannotRun(a, "atom "+e.ID+" did not compile: "+lastLines(strings.TrimSpace(stderr), 10))
+		v := cannotRun(a, "atom "+e.ID+" did not compile: "+lastLines(strings.TrimSpace(stderr), 10))
+		return nil, "", &v
 	}
 
 	out := "/work/out/" + atomkit.EscapeID(e.ID) + ".json"
 	ran := r.atomEnvironment(ctx, e).
 		WithFile("/atom", built.File("/out/atom"), dagger.ContainerWithFileOpts{Permissions: 0o755}).
 		WithEnvVariable("ATOM_OUT", out).
-		WithExec([]string{"/atom", "/src"}, anyExit)
-	return readVerdict(ctx, a, ran, out)
+		WithExec(append([]string{"/atom", "/src"}, r.args...), anyExit)
+	return ran, out, nil
 }
 
 // readVerdict reads the verdict an atom wrote at out. An atom that wrote none
@@ -183,4 +235,10 @@ func readVerdict(ctx context.Context, a checks.AtomDef, ran *dagger.Container, o
 // words it (E6): one line, the identity from the catalogue row.
 func cannotRun(a checks.AtomDef, reason string) checks.Verdict {
 	return atomkit.CannotRun(a.ID, a.Stage, a.Lane, reason)
+}
+
+// lastLines is the last n lines of s.
+func lastLines(s string, n int) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	return strings.Join(lines[max(0, len(lines)-n):], "\n")
 }

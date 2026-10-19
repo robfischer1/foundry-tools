@@ -40,7 +40,21 @@ const (
 // and checked against ToolSHA256 (the publisher's own SHA256SUMS line, equal to
 // the asset's sum read 2026-10-08). The tools container's uv is told never to
 // download an interpreter of its own.
-const PythonStandaloneURL = "https://github.com/astral-sh/python-build-standalone/releases/download/20260623/cpython-3.14.6%2B20260623-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+const PythonStandaloneURL = "https://github.com/astral-sh/python-build-standalone/releases/download/20261013/cpython-3.14.8%2B20261013-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+
+// PythonStandalone315URL is the CPython 3.15 interpreter an executor pod lays
+// for a tree that asks for it (tools.toml [tool.python-3-15]): the build uv
+// 0.12.13 (checks.ImageUV) resolves for a request of "3.15" (its
+// download-metadata.json, cpython-3.15.0rc2-linux-x86_64-gnu), the same
+// install_only_stripped asset as PythonStandaloneURL. The Dagger lanes' uv
+// downloads it at run time; a pod never fetches an interpreter, so the pod
+// fetches this pinned one, mirror first, and unpacks it as a uv-managed install.
+// The sum is the release's own SHA256SUMS line, equal to the asset's sum read
+// 2026-10-18. A new rc or the final 3.15.x is a new release tag and a new pair.
+const (
+	PythonStandalone315Release = "3.15.0rc2"
+	PythonStandalone315URL     = "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.15.0rc2%2B20260901-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+)
 
 // ToolSHA256 is the checksum of every pinned release asset the module fetches
 // (the tools container's, the lanes', the cargo tool tarballs', oras), hex. Every
@@ -57,23 +71,60 @@ const PythonStandaloneURL = "https://github.com/astral-sh/python-build-standalon
 // at build time leaves the tool out of the container (its atom settles 2).
 var ToolSHA256 = map[string]string{
 	OpaURL:           "830ab11f61ffec760b5e19db0d7ad02bf037e13f5ef4d665faeaf17632177527",
-	OpengrepURL:      "a66aa3278457f02b287b985a45b6762aebcaba5000f2689245fd1ed86d1456c7",
+	OpengrepURL:      "dbbe3c2058dbe600c449a8ba22ea79a1643a6660658400090d0323a8d0d31147",
 	HadolintURL:      "c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507",
 	KubectlURL:       "65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8",
-	ChezmoiURL:       "4b42a0fb0dec69f37964c6701f89daa6bf6393aaeb92bbcbc8f3ee9f08a49bcd",
+	ChezmoiURL:       "6f5eb3ab10b0805ddfec5ddd3e9d575720b17bf065a581cff501170d3770479f",
 	ComposeURL:       "40343e21ca777173e69cff5dbafeb37c6f81f3b0d57d9e597f036e95eb63e76a",
-	WasmToolsURL:     "ad62b2176037e93e1348cb65d6212d128ca9f097b63d155569f25215818ff7b1",
+	WasmToolsURL:     "655b8df67d54c3ef9b52fc237c4e94bbfbb5f5f43825245cb0940a7002a9ed65",
 	WasmTools1250URL: "b746c34e7c4162b8812eb29397ebe076834e496a8c46fe68d793379a2741eb50",
+	WasmTools1261URL: "ad62b2176037e93e1348cb65d6212d128ca9f097b63d155569f25215818ff7b1",
+	NodeRegenURL:     "6e1db87ef58b8819e5d5402eff1536491b18edd8eb7bee5ef7897876e88dc5ff",
+	RustStdWasmURL:   "cbcd4ea55884e9c3d8d72e1497c70e9ed18c4a824d4d0f049006a245229d11af",
+	RustStdURL:       "ebb7e78290ac440be505d701ca99101e9450ac5b8f701722f9c6a020cfd9bc89",
 	WacURL:           "7cd490edbd452221ef89e6750fc43eacc9b71b1242095eb577cb9a3bf0d3beda",
-	JustURL:          "4a5cc2f53e6f0f8c59092a6cc38291eb729d46a7dd95d3ae582008881b84931d",
+	JustURL:          "409044617b6f06517c1035e55ca38c8c856ff8b650e41bc2aa1ef82d5903a23e",
 	ShellcheckURL:    "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198",
 
-	PythonStandaloneURL: "c172314f4a8ec137a8f605289010c3d19c8b56867d968f0095074cc68efa1d29",
+	PythonStandaloneURL:    "d8faa1b588506b9e3e5a3f57807bb056d534a1641a6b10d15b6ea3f0b413b960",
+	PythonStandalone315URL: "9549c3789acb25209da019cc8506ea5b1684b81fb4b471dc64cb47d1d04d6422",
 
 	// The rust lane's release binaries (images.go has why these two and not
 	// cargo-mutants), computed from the assets 2026-10-09.
 	CargoAuditURL:   "7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428",
 	CargoNextestURL: "32aa82416099eb12fffae9cf1a279ad201fecbd3f74826c613e32e9006b29867",
+	CargoMutantsURL: "dfe6dc37d0342c891d2829b5a695aa57c2d0edecef7e7d0399a30cc6e206411e",
+
+	// The rust containers' compile cache wrapper (images.go SccacheURL).
+	SccacheURL: "45f1447fbe231e3037bde351ef70677dd212216c8d62ae7ca409fecc4d6acc89",
+
+	// The rust atoms' linker (images.go MoldURL): upstream's tarball, equal to the
+	// asset downloaded 2026-10-17.
+	MoldURL: "7524fe67f917d5287b2f7a7d6401e2625fa3f5f84bc6b8d9b487d6cb08876488",
+
+	// The python and bun containers' jq and curl (images.go JqURL): jq's release
+	// binary and static-curl's musl tarball, equal to the assets downloaded
+	// 2026-10-18.
+	JqURL:   "af986793a515d500ab2d35f8d2aecd656e764504b789b66d7e1a0b727a124c44",
+	CurlURL: "049f982cb7db34e745cc0be0bdce2246b51fbf7ef17fc95ce37980f711ca91bb",
+
+	// The rust containers' clippy and rustfmt (images.go RustClippyURL).
+	RustClippyURL:      "b3fe2a650456f055f4163e7de8c230609a5daf72c204a4a64cc6b51b5eb72e3e",
+	RustRustfmtURL:     "7b5d4b02c8d0f7c3be64d3bc2e0738ccb06dc0492f81a93c4fcb223ff93f8b38",
+	RustWasmClippyURL:  "0e1db6adef940dd21896dbd7a051e25056df2fede90591c583552f94e913af22",
+	RustWasmRustfmtURL: "61407015edaeafa9b61b3ffefb5077624cd4017ac50be05e246bcadafbb56d99",
+
+	// dev:go-regen's formatter and the rust compilers it lays (goregen_pins.go):
+	// go.dev's and static.rust-lang.org's own sums, equal to the downloaded bytes.
+	GofmtURL:               "42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d",
+	RustDist1971RustcURL:   "1c441e430c1cca49dff54a8d59c41038bf6f79f7b8756596cb2f36511a015eba",
+	RustDist1971CargoURL:   "90cbeb8adfe8ca0fcbe01a18bd9b99d3e5e98fd29c003032828ebf3ffba0e4ed",
+	RustDist1971StdURL:     "45b927ecf776b9645ca2ed5b287fc6814824a073c30c7c5d5c0ad4425295ecee",
+	RustDist1971StdWasmURL: "13902d5573eeea50701d75acc774b6df2dfb4942ec88cdbe40bb07e448c307ea",
+	RustDist1990RustcURL:   "238e72b8617f79bc96f27a5bfeb1a208b5755fe1a48f8bc190fe403ef6d54ab8",
+	RustDist1990CargoURL:   "c2b8ba1f59e7a230aa5522684f3f7aa620b98e5ad37683a5e5cf9b41f534fa1e",
+	RustDist1990StdURL:     "1dcaa01beb6bc78fdb13815b4f15214719167c58e3d79fbdf214591f8c195ee1",
+	RustDist1990StdWasmURL: "4dffdca3c11a88f18a35021cea4ed0279b41650c0e3e2e98928ecc28958bceba",
 
 	// The oras client the build, bundle, cast and govern lanes push with: the
 	// publisher's own oras_1.3.4_checksums.txt line, equal to the asset's sum
@@ -112,7 +163,7 @@ const (
 	// (FleetPython is its minor line); `uv python install 3.14` took whatever
 	// patch uv's list held when the layer was built.
 	// renovate: datasource=python-version depName=python versioning=pep440
-	FleetPythonVersion = "3.14.6"
+	FleetPythonVersion = "3.14.8"
 )
 
 // UVTool is a python program the lane installs ONCE, into its own venv, in a

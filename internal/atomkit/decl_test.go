@@ -174,8 +174,8 @@ func TestValidateRules(t *testing.T) {
 		{"UT-476", "surface any: is not root:, any: or all:", func(d *Def) { d.Surface = "any:" }},
 		{"UT-476", "", func(d *Def) { d.Surface = "all:go.mod,go.sum" }},
 		{"UT-477", "toolchain is empty", func(d *Def) { d.Toolchain = "" }},
-		{"UT-478", "need net is not dies, svid, tool:<name> or service:<name>", func(d *Def) { d.Needs = []string{"net"} }},
-		{"UT-478", "", func(d *Def) { d.Needs = []string{"dies", "svid", "tool:uv", "service:postgres"} }},
+		{"UT-478", "need net is not dies, svid, pytools, tool:<name> or service:<name>", func(d *Def) { d.Needs = []string{"net"} }},
+		{"UT-478", "", func(d *Def) { d.Needs = []string{"dies", "svid", "pytools", "tool:uv", "service:postgres"} }},
 		{"UT-479", "history deep is not shallow or full", func(d *Def) { d.History = "deep" }},
 		{"UT-479", "", func(d *Def) { d.History = "full" }},
 		{"UT-480", "not_on_forks x is not one of checks.ForkReasons", func(d *Def) { d.NotOnForks = "x" }},
@@ -202,5 +202,21 @@ func TestIT_128_130_DescribeExitsTwo(t *testing.T) {
 		if code := run(d, []string{"atom", "--describe"}); code != 2 || out.Len() != 0 || errOut.Len() == 0 {
 			t.Errorf("%s: exit %d, stdout %q, stderr %q", name, code, out, errOut)
 		}
+	}
+}
+
+// An atom that re-asks its own work says so in its index entry, so a runner that
+// re-asks a could-not-run atom whole leaves it alone; every other entry is
+// unchanged (the field is absent unless set).
+func TestDescribeCarriesReasksOwnOnlyWhenSet(t *testing.T) {
+	plain, err := Describe(goDef())
+	if err != nil || strings.Contains(string(plain), "reasks_own") {
+		t.Fatalf("%s %v", plain, err)
+	}
+	d := goDef()
+	d.ReasksOwn = true
+	own, err := Describe(d)
+	if err != nil || !strings.Contains(string(own), `"reasks_own":true`) {
+		t.Fatalf("%s %v", own, err)
 	}
 }

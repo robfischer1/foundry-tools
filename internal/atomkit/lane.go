@@ -12,8 +12,8 @@ const LaneSchema = "lane@1"
 var KnownLanes = []string{"gate", "check", "orbit", "visual", "build", "mutation", "mutation-bg", "bundle", "publish", "bases", "cast", "govern", "atoms", "dev"}
 
 var (
-	knownStages = []string{"precommit", "prepush", "mutation", "orbit", "visual", "govern", "dev", "atoms"}
-	knownCaps   = []string{"release", "assemble", "scan", "kms-sign", "publish", "push-bundle", "layer-cast", "build-atoms", "dev-output"}
+	knownStages = []string{"precommit", "prepush", "mutation", "orbit", "visual", "govern", "dev", "atoms", "cast", "publish"}
+	knownCaps   = []string{"release", "assemble", "scan", "kms-sign", "publish", "push-bundle", "layer-cast", "build-atoms", "dev-output", "push-visual"}
 )
 
 // PhaseDef is a phase as a lane file declares it. A run plan holds the same shape.

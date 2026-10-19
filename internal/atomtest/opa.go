@@ -6,7 +6,7 @@ import (
 )
 
 // GoodData is a built bundle's data.json that carries every data root.
-const GoodData = `{"authz_audience":{"star_only":{"chaos":["v"],"nyx":["w"]}},"authz_grants":{"a":1},"authz_meta":{"a":1},"path_grants":{"a":1},"subject_aliases":{"a":1},"capabilities":{"stars":{"athena":{"prefix":"plan","verbs":["task_read"],"tier":{"task_read":"default"}}}}}`
+const GoodData = `{"authz_audience":{"star_only":{"chaos":["v"],"nyx":["w"]}},"grants":{"a":1},"principals":{"a":1},"capabilities":{"stars":{"athena":{"prefix":"plan","verbs":["task_read"],"tier":{"task_read":"default"}}}}}`
 
 // PinnedOpa is what the pinned opa answers to `opa version`.
 func PinnedOpa() string { return "Version: " + checks.OpaVersion }

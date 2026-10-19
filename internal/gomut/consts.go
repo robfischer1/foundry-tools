@@ -1,0 +1,146 @@
+package gomut
+
+import (
+	"strings"
+
+	"dagger/foundry-tools/internal/checks"
+)
+
+// THE KNOBS OF THE GO GATE. gomutants is handed its whole configuration on the
+// argv; a repo has no say in any of it. What each one measured is in its comment.
+
+const (
+	// goMutationReport and goMutationProfile are what the run leaves in /src.
+	goMutationReport  = "mutation-go.json"
+	goMutationProfile = "mutation-cover.out"
+	// goMutationCacheName is gomutants' -cache file, in the atom's work directory,
+	// and it is OUTSIDE THE TREE on purpose. Left to its default it is `.gomutants-cache.json` in the workdir
+	// — the tree under check — and gomutants answers any mutant whose package
+	// and covering tests hash the same as that file says from the file, not
+	// from a run: a repository that committed one would grade its own mutants.
+	// Here it starts empty on every run, so it answers nothing, and what it is
+	// for is the coverage profile gomutants writes into it (GoCachedProfile).
+	goMutationCacheName = "gomutants-cache.json"
+	// goMutationWorkers is gomutants' -workers, and it is a CORRECTNESS knob,
+	// not a speed one. Parallel mutants slow each other's tests down and trip
+	// their own timeouts, and a TIMED OUT mutant answers neither killed nor
+	// survived — it leaves the population, quietly. MEASURED 2026-09-29, ourea
+	// internal/gatejob, the same 28-mutator run both ways:
+	//
+	//	-workers 16   killed 70, lived 22, TIMED OUT 15    148s
+	//	-workers  4   killed 83, lived 24, TIMED OUT  0     69s
+	//
+	// All 15 timeouts were contention. Nine of them had a comparable mutant in
+	// the second run and every one of the nine came back KILLED; not one killed
+	// mutant flipped the other way. 4 is the number that measured clean, and it
+	// is the number gremlins' own config had settled on for the same reason.
+	//
+	// It is also a CPU knob, and the same contention applies when the container
+	// has fewer cores than workers: goWorkers is this, or the CPU budget if that
+	// is smaller. The workers stay at one core each (GOMAXPROCS=1 on the exec), so
+	// four workers is about four cores; the engine key (keys.go) names this
+	// constant, since a smaller count only removes contention.
+	goMutationWorkers = 4
+	// goMutationNoConfig IS WHAT MAKES THE ARGV THE WHOLE CONFIGURATION, and it
+	// closes a hole this lane shipped with.
+	//
+	// gomutants DOES read a config file: -config defaults to `.gomutants.yml`
+	// and config.Load reads it from the WORKDIR — the tree under check — while
+	// answering Default(),nil when it is absent. That silence is why the flip
+	// landed without anyone noticing: no repo carries one (measured, 0 of 77
+	// checkouts on origin/main), so the lane behaved exactly as if no such file
+	// existed. It would have kept behaving that way until the first repo wrote
+	// four lines.
+	//
+	// A FLAG ONLY WINS WHERE THERE IS A FLAG. Config.ApplyFlags runs after Load,
+	// so every knob this lane passes overrides the file — and every knob it does
+	// NOT pass is taken from the file unopposed. `only` is the sharp one, because
+	// it disables every mutator it does not name. MEASURED 2026-09-29, this
+	// argv, the canary fixture:
+	//
+	//	no file                    24 types enabled, 2 mutants found
+	//	only: [INVERT_BITWISE]      1 type  enabled, 0 mutants found, exit 0
+	//	  + -config /dev/null      24 types enabled, 2 mutants found
+	//
+	// A population of zero has no survivors, so the gate goes green over a repo
+	// that graded nothing. exclude-calls, coverpkg, integration, test-flags and
+	// mutants.enabled are unopposed the same way.
+	//
+	// THE RULE IS THE RETIRED .gremlins.yaml's RULE — A REPO HAS NO SAY — and it
+	// used to be enforced by WRITING the canonical config over whatever the tree
+	// carried. The knobs moved onto this argv, which is the better shape, but the
+	// enforcement has to move with them: /dev/null is a file Load reads to empty
+	// bytes with no error, so it keeps its own defaults and the tree's file is
+	// never opened. Not a path that merely does not exist — absence is what was
+	// indistinguishable from safety in the first place.
+	//
+	// AND POINTING IT AT A CANONICAL FILE INSTEAD BUYS NOTHING, which was worth
+	// checking rather than assuming, because the obvious repair for a gate whose
+	// config is /dev/null is to give it a real one. MEASURED 2026-09-29 against
+	// `gomutants -h` at v0.6.1: EVERY knob the fleet's canonical config sets has
+	// a flag — -adaptive-timeout, -timeout-coefficient, -timeout-margin,
+	// -detect-equivalent, -disable — and two of the three beyond -disable are
+	// already the tool's own defaults (adaptive-timeout true, coefficient 10). So
+	// a file would have added a git clone of forge-testkit-go, a read that can
+	// fail, and a CANNOT RUN branch for when the door is unreachable, to express
+	// what this argv already expresses. The fleet's other rulesets answer the
+	// same way: hadolint's config is foundry-tools' at a path outside /src,
+	// staticcheck's and clippy's check sets are named on their command lines, and
+	// cosmic-ray's TOML is generated by checks.CosmicRayConfig. The canonical
+	// file in forge-testkit-go is for a human running gomutants by hand there —
+	// and fleet:stop-justifications grades ITS disable set too.
+	goMutationNoConfig = "/dev/null"
+	// goMutationExclude keeps generated Go out of the mutant population —
+	// vendored code, dagger's codegen, protobuf stubs and kubebuilder's
+	// zz_generated. See goMutation for the measurement.
+	goMutationExclude = checks.GoMutationExclude
+)
+
+// goMutationDisable is the mutator set, by exclusion. gomutants ships 28
+// operators; the first four perturb a NUMERIC LITERAL by one, and on this fleet's
+// Go they generate mutants no correct test can kill.
+//
+// MEASURED 2026-09-29 on ourea internal/gatejob — 25 survivors with all 28
+// enabled, 5 with these off, and the 20 that left were ALL of one shape:
+//
+//	18  `0` -> `1`/`-1` on the discarded value of `return 0, err`
+//	                    and `return false, 0`. Go's contract says the other
+//	                    returns are unspecified when the error is non-nil;
+//	                    a test asserting them pins what the API does not
+//	                    promise.
+//	 2  `64` -> `63`/`65` in `strconv.ParseFloat(q, 64)`. PROVEN equivalent,
+//	                    not argued: ParseFloat takes the 32-bit path only
+//	                    for bitSize 32, so 63, 64 and 65 return bit-identical
+//	                    results for every input including MaxFloat64.
+//	 2  `1e6` -> `999999.0` as a nanocore divisor under int64 truncation.
+//	                    Identical output at every realistic reading.
+//
+// The five that remain are real test gaps, and gremlins' five mutators
+// never GENERATED any of them. So this set is 19 operators wider than the
+// gate had before it, not narrower — the point is that it is STATED, which
+// is the same reason the retired .gremlins.yaml listed gremlins' five.
+//
+// INCREMENT_DECREMENT IS NOT IN HERE and must not be: it mutates `i++` to
+// `i--`, which is a real operator on a real statement, and it was one of
+// gremlins' five. These four are its numeric-literal namesakes.
+//
+// THE SET IS RATIFIED DATA, NOT A LITERAL A SESSION CHOSE, and since
+// 2026-09-29 something checks that. checks.RatifiedMutators carries one row
+// per operator with Rob's words and the shape each one generates;
+// TestTheDisabledOperatorsAreExactlyTheRatifiedSet refuses this string and
+// that table disagreeing in either direction, and fleet:stop-justifications
+// grades any .gomutants.yaml in any repository's tree against the same
+// table. A fifth operator now needs a signed row before it can reach either
+// surface — which is the rule every other suppression in the fleet already
+// answered to, and this one did not.
+//
+// AND SINCE 2026-10-06 THE STRING IS THE TABLE'S, not a literal beside it: the
+// low-value classes (boundary, arithmetic, loop control, error wrap) left every
+// lane on Rob's decision, in each tool's words, so this is the Go rows joined
+// and nothing a session types.
+var goMutationDisable = strings.Join(checks.SkippedMutators(checks.MutatorGo), ",")
+
+// goWorkers is gomutants' -workers for this run: goMutationWorkers where the CPU
+// budget (checks.CPUBudget) covers one core each, and one per core where it does
+// not.
+func goWorkers() int { return checks.CoresPerSlot(checks.CPUBudget(), 1, goMutationWorkers) }

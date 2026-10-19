@@ -54,7 +54,7 @@ func TestUT_485_TheDeclarationIsTheRowItReplaced(t *testing.T) {
 	}
 	if Def.ID != "go:test-race" || Def.Stage != checks.StagePrepush || Def.Lane != checks.LaneGo || Def.Group != checks.GroupOf(Def.ID) ||
 		Def.Toolchain != "go" || Def.Surface != "any:**/go.mod" || Def.SubsumedBy != "" || Def.NotOnForks != "" ||
-		strings.Join(Def.Needs, ",") != "dies,service:postgres,service:pgvector,service:redpanda" {
+		strings.Join(Def.Needs, ",") != "dies,service:postgres,service:pgvector,service:redpanda,service:redis,service:etcd,service:kube-apiserver,service:timescale,"+strings.Join(checks.GravityNeeds(), ",") {
 		t.Errorf("%+v", Def)
 	}
 	if atoms.GoRaceRow.ID != Def.ID || atoms.GoRaceRow.Stage != Def.Stage || atoms.GoRaceRow.Lane != Def.Lane {
@@ -73,7 +73,8 @@ func TestTheRaceSuiteRunsInEveryModuleAgainstTheTreesDatabases(t *testing.T) {
 	}
 	var tests []string
 	for _, r := range f.runs {
-		if strings.Contains(r, ": go test") {
+		// the build-only pass before each suite (DEF-B4-PERF-3) is not a suite
+		if strings.Contains(r, ": go test") && !strings.Contains(r, "-exec true") {
 			tests = append(tests, r)
 		}
 	}

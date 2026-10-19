@@ -104,6 +104,8 @@ var catalogueOrder = []string{
 	"dies:resource-referents",
 	"dies:capabilities-served",
 	"dies:tool-schemas-served",
+	"dies:render-author",
+	"dies:authz-grid",
 	"law:lint",
 	"law:verb-liveness",
 	"law:budget",

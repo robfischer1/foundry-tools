@@ -6,7 +6,12 @@ import (
 	composeconfig "dagger/foundry-tools/atoms/compose/config"
 	composenotrackedsecrets "dagger/foundry-tools/atoms/compose/no-tracked-secrets"
 	composethirdpartypins "dagger/foundry-tools/atoms/compose/third-party-pins"
+	devgoregen "dagger/foundry-tools/atoms/dev/go-regen"
+	devgotestlive "dagger/foundry-tools/atoms/dev/go-test-live"
+	devrustreplay "dagger/foundry-tools/atoms/dev/rust-replay"
+	devtsregen "dagger/foundry-tools/atoms/dev/ts-regen"
 	diesadmissiondogfood "dagger/foundry-tools/atoms/dies/admission-dogfood"
+	diesauthzgrid "dagger/foundry-tools/atoms/dies/authz-grid"
 	diescanaryvisibility "dagger/foundry-tools/atoms/dies/canary-visibility"
 	diescanonical "dagger/foundry-tools/atoms/dies/canonical"
 	diescapabilitiesserved "dagger/foundry-tools/atoms/dies/capabilities-served"
@@ -17,6 +22,7 @@ import (
 	diesgrantsstamp "dagger/foundry-tools/atoms/dies/grants-stamp"
 	diesopatest "dagger/foundry-tools/atoms/dies/opa-test"
 	diesrefusalcodes "dagger/foundry-tools/atoms/dies/refusal-codes"
+	diesrenderauthor "dagger/foundry-tools/atoms/dies/render-author"
 	diesresourcereferents "dagger/foundry-tools/atoms/dies/resource-referents"
 	diesschema "dagger/foundry-tools/atoms/dies/schema"
 	diesschemarendered "dagger/foundry-tools/atoms/dies/schema-rendered"
@@ -45,9 +51,12 @@ import (
 	fleetstopjustifications "dagger/foundry-tools/atoms/fleet/stop-justifications"
 	fleetwittopics "dagger/foundry-tools/atoms/fleet/wit-topics"
 	fleetwitness "dagger/foundry-tools/atoms/fleet/witness"
+	gocastrelease "dagger/foundry-tools/atoms/go/cast-release"
 	godiffcoverage "dagger/foundry-tools/atoms/go/diff-coverage"
 	gogofmt "dagger/foundry-tools/atoms/go/gofmt"
 	gogovulncheck "dagger/foundry-tools/atoms/go/govulncheck"
+	gomutation "dagger/foundry-tools/atoms/go/mutation"
+	gorelease "dagger/foundry-tools/atoms/go/release"
 	gotest "dagger/foundry-tools/atoms/go/test"
 	gotestrace "dagger/foundry-tools/atoms/go/test-race"
 	lawbudget "dagger/foundry-tools/atoms/law/budget"
@@ -73,17 +82,30 @@ import (
 	orbitrepo "dagger/foundry-tools/atoms/orbit/repo"
 	orbitsidecars "dagger/foundry-tools/atoms/orbit/sidecars"
 	orbitsurface "dagger/foundry-tools/atoms/orbit/surface"
+	pythonartifacts "dagger/foundry-tools/atoms/python/artifacts"
 	pythonforgetestkitassertionfree "dagger/foundry-tools/atoms/python/forge-testkit-assertion-free"
 	pythonforgetestkitfakeplacement "dagger/foundry-tools/atoms/python/forge-testkit-fake-placement"
 	pythonforgetestkitschemabudget "dagger/foundry-tools/atoms/python/forge-testkit-schema-budget"
+	pythonmutation "dagger/foundry-tools/atoms/python/mutation"
 	pythonmypy "dagger/foundry-tools/atoms/python/mypy"
 	pythonpytest "dagger/foundry-tools/atoms/python/pytest"
+	pythonrelease "dagger/foundry-tools/atoms/python/release"
 	pythonruffcheck "dagger/foundry-tools/atoms/python/ruff-check"
 	pythonruffformat "dagger/foundry-tools/atoms/python/ruff-format"
 	rustcargoclippy "dagger/foundry-tools/atoms/rust/cargo-clippy"
 	rustcargotest "dagger/foundry-tools/atoms/rust/cargo-test"
+	rustcastrelease "dagger/foundry-tools/atoms/rust/cast-release"
+	rustmutation "dagger/foundry-tools/atoms/rust/mutation"
+	rustrelease "dagger/foundry-tools/atoms/rust/release"
+	rustwitcompose "dagger/foundry-tools/atoms/rust/wit-compose"
+	rustwitguest "dagger/foundry-tools/atoms/rust/wit-guest"
 	templaterendermatrix "dagger/foundry-tools/atoms/template/render-matrix"
 	tsbungate "dagger/foundry-tools/atoms/ts/bun-gate"
+	tsmutation "dagger/foundry-tools/atoms/ts/mutation"
+	tspack "dagger/foundry-tools/atoms/ts/pack"
+	tsregen "dagger/foundry-tools/atoms/ts/regen"
+	tsrelease "dagger/foundry-tools/atoms/ts/release"
+	tsvisual "dagger/foundry-tools/atoms/ts/visual"
 	witvalidate "dagger/foundry-tools/atoms/wit/validate"
 	"dagger/foundry-tools/internal/atomkit"
 )
@@ -93,7 +115,12 @@ var Defs = []*atomkit.Def{
 	&composeconfig.Def,
 	&composenotrackedsecrets.Def,
 	&composethirdpartypins.Def,
+	&devgoregen.Def,
+	&devgotestlive.Def,
+	&devrustreplay.Def,
+	&devtsregen.Def,
 	&diesadmissiondogfood.Def,
+	&diesauthzgrid.Def,
 	&diescanaryvisibility.Def,
 	&diescanonical.Def,
 	&diescapabilitiesserved.Def,
@@ -104,6 +131,7 @@ var Defs = []*atomkit.Def{
 	&diesgrantsstamp.Def,
 	&diesopatest.Def,
 	&diesrefusalcodes.Def,
+	&diesrenderauthor.Def,
 	&diesresourcereferents.Def,
 	&diesschema.Def,
 	&diesschemarendered.Def,
@@ -132,9 +160,12 @@ var Defs = []*atomkit.Def{
 	&fleetstopjustifications.Def,
 	&fleetwittopics.Def,
 	&fleetwitness.Def,
+	&gocastrelease.Def,
 	&godiffcoverage.Def,
 	&gogofmt.Def,
 	&gogovulncheck.Def,
+	&gomutation.Def,
+	&gorelease.Def,
 	&gotest.Def,
 	&gotestrace.Def,
 	&lawbudget.Def,
@@ -160,27 +191,65 @@ var Defs = []*atomkit.Def{
 	&orbitrepo.Def,
 	&orbitsidecars.Def,
 	&orbitsurface.Def,
+	&pythonartifacts.Def,
 	&pythonforgetestkitassertionfree.Def,
 	&pythonforgetestkitfakeplacement.Def,
 	&pythonforgetestkitschemabudget.Def,
+	&pythonmutation.Def,
 	&pythonmypy.Def,
 	&pythonpytest.Def,
+	&pythonrelease.Def,
 	&pythonruffcheck.Def,
 	&pythonruffformat.Def,
 	&rustcargoclippy.Def,
 	&rustcargotest.Def,
+	&rustcastrelease.Def,
+	&rustmutation.Def,
+	&rustrelease.Def,
+	&rustwitcompose.Def,
+	&rustwitguest.Def,
 	&templaterendermatrix.Def,
 	&tsbungate.Def,
+	&tsmutation.Def,
+	&tspack.Def,
+	&tsregen.Def,
+	&tsrelease.Def,
+	&tsvisual.Def,
 	&witvalidate.Def,
 }
 
 // ManifestSources is every command atom's manifest, sorted by path.
 var ManifestSources = []ManifestSource{
+	{Path: "atoms/dev/go-build.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:go-build\"\nstage = \"dev\"\nlane = \"go\"\ngroup = \"language\"\ndesc = \"go build ./... succeeds, run by hand from the dev lane.\"\nsurface = \"root:go.mod\"\ntoolchain = \"go\"\nargv = [\"go\", \"build\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\n\n[[default]]\nargs = [\"./...\"]\nunless = [\"@package\"]\ntail = true\nuntil = \"-args\"\n"},
+	{Path: "atoms/dev/go-check.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:go-check\"\nstage = \"dev\"\nlane = \"go\"\ngroup = \"language\"\ndesc = \"go vet ./... reports nothing: the commit stage's compile-bearing go atom (go:vet type-checks every package and its tests), run by hand as `check`.\"\nsurface = \"root:go.mod\"\ntoolchain = \"go\"\nargv = [\"go\", \"vet\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\n\n[[default]]\nargs = [\"./...\"]\nunless = [\"@package\"]\ntail = true\nuntil = \"-args\"\n"},
+	{Path: "atoms/dev/go-fmt.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:go-fmt\"\nstage = \"dev\"\nlane = \"go\"\ngroup = \"language\"\ndesc = \"go fmt ./... rewrites the tree's Go files in place.\"\nsurface = \"root:go.mod\"\ntoolchain = \"go\"\nargv = [\"go\", \"fmt\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\nwrites_tree = true\n\n[[default]]\nargs = [\"./...\"]\nunless = [\"@package\"]\ntail = true\nuntil = \"-args\"\n"},
+	{Path: "atoms/dev/go-lint.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:go-lint\"\nstage = \"dev\"\nlane = \"go\"\ngroup = \"language\"\ndesc = \"staticcheck ./... reports nothing under the fleet's check set, run by hand from the dev lane.\"\nsurface = \"root:go.mod\"\ntoolchain = \"go\"\nargv = [\"staticcheck\", \"-checks\", \"all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-ST1023\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\nneeds = [\"tool:staticcheck\"]\n\n# THE GATE TWIN IS go:staticcheck (atoms/go/staticcheck.toml): the same tool pin\n# and the same -checks flag. A caller's package replaces ./....\n[[default]]\nargs = [\"./...\"]\nunless = [\"@package\"]\ntail = true\nuntil = \"-args\"\n"},
+	{Path: "atoms/dev/go-test.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:go-test\"\nstage = \"dev\"\nlane = \"go\"\ngroup = \"language\"\ndesc = \"go test -race ./... passes, run by hand from the dev lane.\"\nsurface = \"root:go.mod\"\ntoolchain = \"go\"\nargv = [\"go\", \"test\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\nneeds = [\"dies\"]\ntimeout = \"30m\"\nwrites_tree = true\n\n[[default]]\nargs = [\"-race\"]\nunless = [\"-race\", \"--race\"]\nuntil = \"-args\"\n\n[[default]]\nargs = [\"./...\"]\nunless = [\"@package\"]\ntail = true\nuntil = \"-args\"\n\n# The atom runs on its own copy of the tree (writes_tree), because a golden suite\n# rewrites its goldens under -update and /src is read-only; dev-output delivers\n# what the run changed back to the caller.\n"},
+	{Path: "atoms/dev/go-tidy.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:go-tidy\"\nstage = \"dev\"\nlane = \"go\"\ngroup = \"language\"\ndesc = \"go mod tidy rewrites go.mod and go.sum in place.\"\nsurface = \"root:go.mod\"\ntoolchain = \"go\"\nargv = [\"go\", \"mod\", \"tidy\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\nwrites_tree = true\n"},
+	{Path: "atoms/dev/go-update.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:go-update\"\nstage = \"dev\"\nlane = \"go\"\ngroup = \"language\"\ndesc = \"go get -u ./... rewrites go.mod and go.sum in place; a named module@version replaces the default.\"\nsurface = \"root:go.mod\"\ntoolchain = \"go\"\nargv = [\"go\", \"get\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\nwrites_tree = true\npreflight = false\n\n# preflight = false: the toolchain's `go mod download` reads go.mod and go.sum as\n# they stand, and this verb exists to change them (as dev:rust-update does for\n# Cargo.lock); go get fetches what it needs itself.\n#\n# With no module or package the caller means every dependency of the tree:\n# `go get -u ./...`. Naming one (golang.org/x/net@v0.40.0) replaces ./... and\n# drops -u, so only that module moves.\n[[default]]\nargs = [\"-u\"]\nunless = [\"-u\", \"@package\"]\n\n[[default]]\nargs = [\"./...\"]\nunless = [\"@package\"]\ntail = true\n"},
+	{Path: "atoms/dev/go-vendor.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:go-vendor\"\nstage = \"dev\"\nlane = \"go\"\ngroup = \"language\"\ndesc = \"go mod vendor rewrites vendor/ from go.mod.\"\nsurface = \"root:go.mod\"\ntoolchain = \"go\"\nargv = [\"go\", \"mod\", \"vendor\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\nwrites_tree = true\n\n[env]\nGOFLAGS = \"-mod=mod\"\n"},
+	{Path: "atoms/dev/go-vet.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:go-vet\"\nstage = \"dev\"\nlane = \"go\"\ngroup = \"language\"\ndesc = \"go vet ./... reports nothing, run by hand from the dev lane.\"\nsurface = \"root:go.mod\"\ntoolchain = \"go\"\nargv = [\"go\", \"vet\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\n\n[[default]]\nargs = [\"./...\"]\nunless = [\"@package\"]\ntail = true\nuntil = \"-args\"\n"},
+	{Path: "atoms/dev/python-fmt.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:python-fmt\"\nstage = \"dev\"\nlane = \"python\"\ngroup = \"language\"\ndesc = \"ruff format rewrites the tree's python in place.\"\nsurface = \"any:**/*.py\"\ntoolchain = \"python\"\nargv = [\"ruff\", \"format\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\nneeds = [\"tool:ruff\"]\nwrites_tree = true\n\n# THE GATE TWIN IS python:ruff-format, which runs `--check`; this is the rewrite\n# the twin refuses to be, on the atom's own copy of the tree. Same ruff, from the\n# same tool:ruff pin. With no path ruff formats the working directory. NOT\n# SHARED: the twin's `--config <fleet ruleset> --line-length <by lane>` and its\n# src/ + tests/ scope (checks.RuffFormatTargets); this verb takes the tree's own\n# ruff config. A caller who wants the twin's scope passes `src tests`.\n"},
+	{Path: "atoms/dev/python-lint.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:python-lint\"\nstage = \"dev\"\nlane = \"python\"\ngroup = \"language\"\ndesc = \"ruff check is clean over the tree's python, run by hand from the dev lane.\"\nsurface = \"any:**/*.py\"\ntoolchain = \"python\"\nargv = [\"ruff\", \"check\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\nneeds = [\"tool:ruff\"]\n\n# THE GATE TWIN IS python:ruff-check: the same ruff, by name on PATH, from the\n# same tool:ruff pin (tools.toml [tool.ruff], checks.RuffVersion). With no path\n# ruff checks the working directory, so `ruff check` is the twin's `ruff check .`\n# and a caller's paths replace it rather than join it.\n#\n# NOT SHARED: the twin passes `--config <the fleet's ruleset>`, a file it writes\n# into ATOM_WORK from the //go:embed in internal/checks/rulesets before ruff\n# runs. A manifest has no step that lays a file, so this verb reads the tree's\n# own pyproject.toml / ruff.toml, as the star's `ruff check` does. The templates\n# pour a mirror of the fleet's ruleset, so the two agree until a star drifts.\n#\n# ruff keeps its cache beside the sources and /src is read-only here.\n[env]\nRUFF_CACHE_DIR = \"/tmp/dev-python-lint/ruff-cache\"\n"},
+	{Path: "atoms/dev/python-test.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:python-test\"\nstage = \"dev\"\nlane = \"python\"\ngroup = \"language\"\ndesc = \"pytest passes, run by hand from the dev lane.\"\nsurface = \"root:pyproject.toml\"\ntoolchain = \"python\"\nargv = [\"uv\", \"run\", \"--python\", \"python3\", \"--all-extras\", \"pytest\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\nneeds = [\"tool:git\", \"tool:uv\", \"tool:jq\", \"tool:curl\"]\ntimeout = \"30m\"\n\n# THE GATE TWIN IS python:pytest (atoms/python/pytest): the same toolchain, the\n# same tool:uv and tool:git pins, the same `uv run --all-extras pytest -q`\n# (checks.UvRun, project form; a tree with no pyproject.toml is not this\n# atom's). ONE ADDITION: `--python python3`, the toolchain image's own\n# interpreter, which outranks a .python-version the image cannot satisfy\n# (svid-auth pins 3.15 against a 3.14 image; an executor never downloads one,\n# every atom's environment carries UV_PYTHON_DOWNLOADS=never). The twin does not\n# pass it, so on such a tree the twin cannot run in the pod and this verb does.\n#\n# /src IS READ-ONLY to an atom that does not write the tree, and uv, python and\n# pytest would each put something beside the sources: the project's .venv, the\n# bytecode, .pytest_cache. They go to /tmp instead, so the verdict is the run's\n# and nothing is delivered from it. A setuptools project (vault-mcp) still\n# writes an egg-info beside its manifest when uv builds it; that one needs the\n# atom's own copy of the tree, which the gate twin takes and a dev run would\n# deliver from.\n[env]\nPYTHONDONTWRITEBYTECODE = \"1\"\nPYTEST_ADDOPTS = \"-o cache_dir=/tmp/dev-python-test/pytest-cache\"\nUV_PROJECT_ENVIRONMENT = \"/tmp/dev-python-test/venv\"\n\n# -q is the fleet's (the gate twin and every star's `just test`); a caller who\n# asks for their own verbosity replaces it.\n[[default]]\nargs = [\"-q\"]\nunless = [\"-q\", \"--quiet\", \"-v\", \"--verbose\"]\n"},
+	{Path: "atoms/dev/python-typecheck.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:python-typecheck\"\nstage = \"dev\"\nlane = \"python\"\ngroup = \"language\"\ndesc = \"mypy is clean over src and tests, run by hand from the dev lane.\"\nsurface = \"root:pyproject.toml\"\ntoolchain = \"python\"\nargv = [\"uv\", \"run\", \"--python\", \"python3\", \"--all-extras\", \"mypy\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\nneeds = [\"tool:uv\"]\ntimeout = \"30m\"\n\n# THE GATE TWIN IS python:mypy: the same toolchain, the same tool:uv pin, the\n# same `uv run --all-extras mypy` (checks.UvRun, project form), so the type check\n# is of the program with its optional dependencies installed, plus the toolchain\n# image's own interpreter (`--python python3`, see dev:python-test). NOT SHARED: the\n# twin passes `--config-file <the fleet's strict mypy.ini>` (written into\n# ATOM_WORK from internal/checks/rulesets) and only the directories that carry\n# python; this verb reads the tree's own [tool.mypy] and takes the stars' own\n# `mypy src tests`. The stars also run pyright (`just types`); no gate atom does,\n# so no dev atom either.\n#\n# mypy keeps .mypy_cache beside the sources; /src is read-only here.\n[env]\nMYPY_CACHE_DIR = \"/tmp/dev-python-typecheck/mypy-cache\"\nPYTHONDONTWRITEBYTECODE = \"1\"\nUV_PROJECT_ENVIRONMENT = \"/tmp/dev-python-typecheck/venv\"\n\n# A caller's target replaces src and tests. \"@package\" is args.go's path-shaped\n# argument (./src/pkg, src/pkg/...): a bare directory name is not told from an\n# option's value, so name it with its ./.\n[[default]]\nargs = [\"src\", \"tests\"]\nunless = [\"@package\", \"-m\", \"--module\", \"-p\", \"--package\", \"-c\", \"--command\"]\ntail = true\n"},
+	{Path: "atoms/dev/rust-build.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:rust-build\"\nstage = \"dev\"\nlane = \"rust\"\ngroup = \"language\"\ndesc = \"cargo build --workspace succeeds, run by hand from the dev lane.\"\nsurface = \"root:Cargo.toml\"\ntoolchain = \"rust\"\nargv = [\"cargo\", \"build\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\ntimeout = \"30m\"\n\n[[default]]\nargs = [\"--workspace\"]\nunless = [\"-p\", \"--package\", \"--workspace\", \"--all\", \"--manifest-path\"]\nuntil = \"--\"\n"},
+	{Path: "atoms/dev/rust-check.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:rust-check\"\nstage = \"dev\"\nlane = \"rust\"\ngroup = \"language\"\ndesc = \"cargo check --workspace succeeds, run by hand from the dev lane.\"\nsurface = \"root:Cargo.toml\"\ntoolchain = \"rust\"\nargv = [\"cargo\", \"check\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\n\n[[default]]\nargs = [\"--workspace\"]\nunless = [\"-p\", \"--package\", \"--workspace\", \"--all\", \"--manifest-path\"]\nuntil = \"--\"\n"},
+	{Path: "atoms/dev/rust-clippy.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:rust-clippy\"\nstage = \"dev\"\nlane = \"rust\"\ngroup = \"language\"\ndesc = \"cargo clippy is clean under the fleet's lint set, run by hand from the dev lane.\"\nsurface = \"root:Cargo.toml\"\ntoolchain = \"rust\"\nargv = [\"cargo\", \"clippy\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\n\n[[default]]\nargs = [\"--workspace\"]\nunless = [\"-p\", \"--package\", \"--workspace\", \"--all\", \"--manifest-path\"]\nuntil = \"--\"\n\n[[default]]\nargs = [\"--all-targets\"]\nunless = [\"--all-targets\", \"--lib\", \"--bins\", \"--bin\", \"--tests\", \"--test\", \"--benches\", \"--bench\", \"--examples\", \"--example\"]\nuntil = \"--\"\n\n[[default]]\nargs = [\"--\", \"-W\", \"clippy::all\", \"-D\", \"warnings\"]\nunless = [\"--\"]\ntail = true\n"},
+	{Path: "atoms/dev/rust-fmt.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:rust-fmt\"\nstage = \"dev\"\nlane = \"rust\"\ngroup = \"language\"\ndesc = \"cargo fmt --all rewrites the tree's Rust files in place.\"\nsurface = \"root:Cargo.toml\"\ntoolchain = \"rust\"\nargv = [\"cargo\", \"fmt\", \"--all\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\nwrites_tree = true\n"},
+	{Path: "atoms/dev/rust-lint.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:rust-lint\"\nstage = \"dev\"\nlane = \"rust\"\ngroup = \"language\"\ndesc = \"cargo clippy is clean under the fleet's lint set, run by hand from the dev lane under its other name, `lint`.\"\nsurface = \"root:Cargo.toml\"\ntoolchain = \"rust\"\nargv = [\"cargo\", \"clippy\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\n\n[[default]]\nargs = [\"--workspace\"]\nunless = [\"-p\", \"--package\", \"--workspace\", \"--all\", \"--manifest-path\"]\nuntil = \"--\"\n\n[[default]]\nargs = [\"--all-targets\"]\nunless = [\"--all-targets\", \"--lib\", \"--bins\", \"--bin\", \"--tests\", \"--test\", \"--benches\", \"--bench\", \"--examples\", \"--example\"]\nuntil = \"--\"\n\n[[default]]\nargs = [\"--\", \"-W\", \"clippy::all\", \"-D\", \"warnings\"]\nunless = [\"--\"]\ntail = true\n"},
+	{Path: "atoms/dev/rust-lock.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:rust-lock\"\nstage = \"dev\"\nlane = \"rust\"\ngroup = \"language\"\ndesc = \"cargo generate-lockfile rewrites Cargo.lock in place.\"\nsurface = \"root:Cargo.toml\"\ntoolchain = \"rust\"\nargv = [\"cargo\", \"generate-lockfile\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\nwrites_tree = true\npreflight = false\n"},
+	{Path: "atoms/dev/rust-test.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:rust-test\"\nstage = \"dev\"\nlane = \"rust\"\ngroup = \"language\"\ndesc = \"cargo test --workspace passes, run by hand from the dev lane.\"\nsurface = \"root:Cargo.toml\"\ntoolchain = \"rust\"\nargv = [\"cargo\", \"test\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\ntimeout = \"30m\"\n\n[[default]]\nargs = [\"--workspace\"]\nunless = [\"-p\", \"--package\", \"--workspace\", \"--all\", \"--manifest-path\"]\nuntil = \"--\"\n"},
+	{Path: "atoms/dev/rust-update.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:rust-update\"\nstage = \"dev\"\nlane = \"rust\"\ngroup = \"language\"\ndesc = \"cargo update rewrites Cargo.lock in place.\"\nsurface = \"root:Cargo.toml\"\ntoolchain = \"rust\"\nargv = [\"cargo\", \"update\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\nwrites_tree = true\npreflight = false\n"},
+	{Path: "atoms/dev/ts-fmt.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:ts-fmt\"\nstage = \"dev\"\nlane = \"ts\"\ngroup = \"language\"\ndesc = \"the repo's format script rewrites the tree in place.\"\nsurface = \"root:package.json\"\ntoolchain = \"bun\"\nargv = [\"bun\", \"run\", \"format\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\nneeds = [\"tool:node\", \"tool:curl\"]\nwrites_tree = true\n\n# THE GATE TWIN IS ts:bun-gate, whose script opens with `format:check`; this is\n# the rewrite, the repo's `format` script (prettier --write), on the atom's own\n# copy of the tree. Same toolchain image, same tool:node, same frozen install as\n# the toolchain's preflight (tools.toml [toolchain.bun]). A star without a\n# `format` script (stellar-core-ts) answers bun's missing-script error.\n"},
+	{Path: "atoms/dev/ts-lint.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:ts-lint\"\nstage = \"dev\"\nlane = \"ts\"\ngroup = \"language\"\ndesc = \"the repo's lint script is clean, run by hand from the dev lane.\"\nsurface = \"root:package.json\"\ntoolchain = \"bun\"\nargv = [\"bun\", \"run\", \"lint\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\nneeds = [\"tool:node\", \"tool:curl\"]\ntimeout = \"30m\"\nwrites_tree = true\n\n# THE GATE TWIN IS ts:bun-gate, which runs the repo's `gate` script; this runs\n# the repo's `lint` script, one of the scripts the gate script\n# chains. Same toolchain image (the pinned bun), same tool:node first on PATH,\n# and the install is the toolchain's own preflight (tools.toml [toolchain.bun]),\n# the gate's `bun install --frozen-lockfile`. The install writes node_modules,\n# so the verb runs on the atom's own copy of the tree. NOT SHARED: the gate lays\n# the fleet's eslint.config.mjs over the repo's before it runs; this verb reads\n# the repo's.\n"},
+	{Path: "atoms/dev/ts-test.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:ts-test\"\nstage = \"dev\"\nlane = \"ts\"\ngroup = \"language\"\ndesc = \"the repo's test script passes, run by hand from the dev lane.\"\nsurface = \"root:package.json\"\ntoolchain = \"bun\"\nargv = [\"bun\", \"run\", \"test\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\nneeds = [\"tool:node\", \"tool:curl\"]\ntimeout = \"30m\"\nwrites_tree = true\n\n# THE GATE TWIN IS ts:bun-gate, which runs the repo's `gate` script; this runs\n# the repo's `test` script, one of the scripts the gate script\n# chains. Same toolchain image (the pinned bun), same tool:node first on PATH,\n# and the install is the toolchain's own preflight (tools.toml [toolchain.bun]),\n# the gate's `bun install --frozen-lockfile`. The install writes node_modules,\n# so the verb runs on the atom's own copy of the tree. NOT SHARED: the gate lays\n# the fleet's eslint.config.mjs over the repo's before it runs; this verb reads\n# the repo's.\n"},
+	{Path: "atoms/dev/ts-typecheck.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:ts-typecheck\"\nstage = \"dev\"\nlane = \"ts\"\ngroup = \"language\"\ndesc = \"the repo's typecheck script is clean, run by hand from the dev lane.\"\nsurface = \"root:package.json\"\ntoolchain = \"bun\"\nargv = [\"bun\", \"run\", \"typecheck\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\nneeds = [\"tool:node\", \"tool:curl\"]\ntimeout = \"30m\"\nwrites_tree = true\n\n# THE GATE TWIN IS ts:bun-gate, which runs the repo's `gate` script; this runs\n# the repo's `typecheck` script, one of the scripts the gate script\n# chains. Same toolchain image (the pinned bun), same tool:node first on PATH,\n# and the install is the toolchain's own preflight (tools.toml [toolchain.bun]),\n# the gate's `bun install --frozen-lockfile`. The install writes node_modules,\n# so the verb runs on the atom's own copy of the tree. NOT SHARED: the gate lays\n# the fleet's eslint.config.mjs over the repo's before it runs; this verb reads\n# the repo's.\n"},
 	{Path: "atoms/go/build.toml", Body: "schema = \"command-atom@1\"\nid = \"go:build\"\nstage = \"prepush\"\nlane = \"go\"\ngroup = \"language\"\ndesc = \"go build ./... succeeds.\"\nsurface = \"any:**/go.mod\"\ntoolchain = \"go\"\nargv = [\"go\", \"build\", \"./...\"]\nper_module = true\njudge = \"exit\"\n"},
 	{Path: "atoms/go/staticcheck.toml", Body: "schema = \"command-atom@1\"\nid = \"go:staticcheck\"\nstage = \"prepush\"\nlane = \"go\"\ngroup = \"language\"\ndesc = \"staticcheck ./... reports nothing.\"\nsurface = \"any:**/go.mod\"\ntoolchain = \"go\"\nargv = [\"staticcheck\", \"-checks\", \"all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-ST1023\", \"./...\"]\nper_module = true\njudge = \"exit\"\nneeds = [\"tool:staticcheck\"]\nnot_on_forks = \"it holds code to the fleet's own lint set, style and conventions, which upstream-owned code does not follow\"\n"},
 	{Path: "atoms/go/vet.toml", Body: "schema = \"command-atom@1\"\nid = \"go:vet\"\nstage = \"precommit\"\nlane = \"go\"\ngroup = \"language\"\ndesc = \"go vet ./... reports nothing.\"\nsurface = \"any:**/go.mod\"\ntoolchain = \"go\"\nargv = [\"go\", \"vet\", \"./...\"]\nper_module = true\njudge = \"exit\"\nnot_on_forks = \"it holds code to the fleet's own lint set, style and conventions, which upstream-owned code does not follow\"\n"},
-	{Path: "atoms/python/pip-audit.toml", Body: "schema = \"command-atom@1\"\nid = \"python:pip-audit\"\nstage = \"prepush\"\nlane = \"python\"\ngroup = \"language\"\ndesc = \"pip-audit reports no known vulnerability.\"\nsurface = \"root:pyproject.toml\"\ntoolchain = \"python\"\nargv = [\"uv\", \"run\", \"--with\", \"pip-audit==2.10.1\", \"pip-audit\"]\nper_module = false\njudge = \"exit\"\nneeds = [\"tool:uv\"]\n"},
+	{Path: "atoms/python/pip-audit.toml", Body: "schema = \"command-atom@1\"\nid = \"python:pip-audit\"\nstage = \"prepush\"\nlane = \"python\"\ngroup = \"language\"\ndesc = \"pip-audit reports no known vulnerability.\"\nsurface = \"root:pyproject.toml\"\ntoolchain = \"python\"\nargv = [\"uv\", \"run\", \"--with\", \"pip-audit==2.10.1\", \"pip-audit\"]\nper_module = false\njudge = \"exit\"\nneeds = [\"tool:uv\"]\n\n# uv run builds the project into its environment, which writes beside the\n# manifest (an egg-info for a setuptools project), and the pod mounts /src\n# read-only: the audit runs on the atom's own copy of the tree. Dagger's /src is\n# writable, so the verdict is the same on both.\nwrites_tree = true\n"},
 	{Path: "atoms/rust/cargo-audit.toml", Body: "schema = \"command-atom@1\"\nid = \"rust:cargo-audit\"\nstage = \"prepush\"\nlane = \"rust\"\ngroup = \"language\"\ndesc = \"cargo audit reports no known vulnerability.\"\nsurface = \"root:Cargo.toml\"\ntoolchain = \"rust\"\nargv = [\"cargo\", \"audit\"]\nper_module = false\njudge = \"exit\"\nneeds = [\"tool:cargo-audit\"]\n"},
 	{Path: "atoms/rust/cargo-fmt.toml", Body: "schema = \"command-atom@1\"\nid = \"rust:cargo-fmt\"\nstage = \"precommit\"\nlane = \"rust\"\ngroup = \"language\"\ndesc = \"cargo fmt --all --check is clean.\"\nsurface = \"root:Cargo.toml\"\ntoolchain = \"rust\"\nargv = [\"cargo\", \"fmt\", \"--all\", \"--check\"]\nper_module = false\njudge = \"exit\"\n"},
-	{Path: "atoms/ts/bun-audit.toml", Body: "schema = \"command-atom@1\"\nid = \"ts:bun-audit\"\nstage = \"prepush\"\nlane = \"ts\"\ngroup = \"language\"\ndesc = \"bun audit reports nothing at high or above.\"\nsurface = \"root:package.json\"\ntoolchain = \"bun\"\nargv = [\"bun\", \"audit\", \"--audit-level=high\"]\nper_module = false\njudge = \"exit\"\n\n# THE REGISTRY IS NAMED, AND IT IS npmjs.org. `bun audit` scans nothing locally:\n# it posts the lockfile's package set to the registry's bulk advisory endpoint.\n# A proxy mirror serves packages, not that API, so against a mirror the audit\n# would ask a host that cannot answer and report a clean audit it never\n# performed. Naming the registry for this one command points the question at\n# the host that can.\n[env]\nBUN_CONFIG_REGISTRY = \"https://registry.npmjs.org/\"\n"},
+	{Path: "atoms/ts/bun-audit.toml", Body: "schema = \"command-atom@1\"\nid = \"ts:bun-audit\"\nstage = \"prepush\"\nlane = \"ts\"\ngroup = \"language\"\ndesc = \"bun audit reports nothing at high or above.\"\nsurface = \"root:package.json\"\ntoolchain = \"bun\"\nargv = [\"bun\", \"audit\", \"--audit-level=high\"]\nper_module = false\njudge = \"exit\"\n\n# The bun toolchain's preflight is the frozen install the dev:ts-* verbs need.\n# An audit posts the lockfile and reads no node_modules.\npreflight = false\n\n# bun audit opens package.json read-write, and the pod mounts /src read-only:\n# the audit runs on the atom's own copy of the tree (EACCES on /src/package.json\n# otherwise). Dagger's /src is writable, so the verdict is the same on both.\nwrites_tree = true\n\n# THE REGISTRY IS NAMED, AND IT IS npmjs.org. `bun audit` scans nothing locally:\n# it posts the lockfile's package set to the registry's bulk advisory endpoint.\n# A proxy mirror serves packages, not that API, so against a mirror the audit\n# would ask a host that cannot answer and report a clean audit it never\n# performed. Naming the registry for this one command points the question at\n# the host that can.\n[env]\nBUN_CONFIG_REGISTRY = \"https://registry.npmjs.org/\"\n"},
 }

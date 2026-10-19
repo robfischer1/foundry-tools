@@ -31,8 +31,8 @@ func TestTheLandedTreeIsInStep(t *testing.T) {
 }
 
 // URLPins is every url tool in tools.toml, and every ToolSHA256 key is one of
-// them, or WasmTools1250URL: the regen lane's fixed asset, which has no
-// renovate marker and so never moves.
+// them, or WasmTools1250URL, WasmTools1261URL, and NodeRegenURL: the regen atom's fixed assets,
+// which have no renovate marker and so never move.
 func TestTheTablesCoverTheTree(t *testing.T) {
 	src, err := loadGoSource(filepath.Join(repoRoot, "internal", "checks"))
 	if err != nil {
@@ -44,7 +44,11 @@ func TestTheTablesCoverTheTree(t *testing.T) {
 		if m := tomlString.FindStringSubmatch(line); m != nil && m[2] == "kind" && m[4] == "url" {
 			for j := i; j >= 0; j-- {
 				if h := tomlHeader.FindStringSubmatch(doc.lines[j]); h != nil {
-					inTOML = append(inTOML, strings.TrimPrefix(h[1], "tool."))
+					// each gravity-<rev> is a built-once binary pinned by checks.GravityPrebuilt
+					// (its rev and sha256), not a release asset renovate moves.
+					if name := strings.TrimPrefix(h[1], "tool."); !strings.HasPrefix(name, "gravity-") {
+						inTOML = append(inTOML, name)
+					}
 					break
 				}
 			}
@@ -64,7 +68,7 @@ func TestTheTablesCoverTheTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	for key := range maps.Keys(sums) {
-		if !slices.Contains(urls, key) && key != "WasmTools1250URL" {
+		if !slices.Contains(urls, key) && key != "WasmTools1250URL" && key != "WasmTools1261URL" && key != "NodeRegenURL" {
 			t.Errorf("ToolSHA256[%s] is no url pin's", key)
 		}
 	}

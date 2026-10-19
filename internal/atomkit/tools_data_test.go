@@ -24,10 +24,10 @@ func landedTools(t *testing.T) ToolsFile {
 }
 
 // TestUT_621_IT_174_TheLandedToolsFile: it parses, holds the key sets of
-// IT-174 and exactly the two preflights.
+// IT-174 and exactly the three preflights.
 func TestUT_621_IT_174_TheLandedToolsFile(t *testing.T) {
 	f := landedTools(t)
-	for _, k := range []string{"go", "python", "rust", "rust-wasm", "bun", "node", "renovate"} {
+	for _, k := range []string{"go", "python", "rust", "rust-trixie", "rust-wasm", "bun", "node", "renovate"} {
 		if f.Toolchains[k] == "" {
 			t.Errorf("toolchain %s missing", k)
 		}
@@ -37,14 +37,14 @@ func TestUT_621_IT_174_TheLandedToolsFile(t *testing.T) {
 		svc = append(svc, k)
 	}
 	slices.Sort(svc)
-	if !slices.Equal(svc, []string{"pgvector", "postgres", "redpanda"}) {
+	if !slices.Equal(svc, []string{"etcd", "kube-apiserver", "pgvector", "postgres", "redis", "redpanda", "timescale"}) {
 		t.Errorf("services %v", svc)
 	}
 	if f.Base.Go == "" || !strings.Contains(f.Base.Go, "base-images/go") {
 		t.Errorf("base go %q", f.Base.Go)
 	}
-	want := map[string][]string{"go": {"go", "mod", "download"}, "rust": {"cargo", "fetch", "--locked"}}
-	if len(f.Preflights) != 2 || !slices.Equal(f.Preflights["go"], want["go"]) || !slices.Equal(f.Preflights["rust"], want["rust"]) {
+	want := map[string][]string{"go": {"go", "mod", "download"}, "rust": {"cargo", "fetch", "--locked"}, "bun": {"bun", "install", "--frozen-lockfile"}}
+	if len(f.Preflights) != 3 || !slices.Equal(f.Preflights["go"], want["go"]) || !slices.Equal(f.Preflights["rust"], want["rust"]) || !slices.Equal(f.Preflights["bun"], want["bun"]) {
 		t.Errorf("preflights %v", f.Preflights)
 	}
 	for k, img := range f.Toolchains {
@@ -64,7 +64,7 @@ var urlPins = []struct {
 	{"hadolint", checks.HadolintURL, checks.HadolintVersion},
 	{"kubectl", checks.KubectlURL, checks.KubectlVersion},
 	{"chezmoi", checks.ChezmoiURL, checks.ChezmoiVersion},
-	{"compose", checks.ComposeURL, checks.ComposeVersion},
+	{"docker-compose", checks.ComposeURL, checks.ComposeVersion},
 	{"wasm-tools", checks.WasmToolsURL, checks.WasmToolsVersion},
 	{"wac", checks.WacURL, checks.WacVersion},
 	{"just", checks.JustURL, checks.JustVersion},
@@ -72,29 +72,62 @@ var urlPins = []struct {
 	{"oras", checks.OrasURL, checks.OrasVersion},
 	{"cargo-audit", checks.CargoAuditURL, checks.CargoAuditVersion},
 	{"cargo-nextest", checks.CargoNextestURL, checks.CargoNextestVersion},
+	{"cargo-mutants", checks.CargoMutantsURL, checks.CargoMutantsVersion},
+	{"sccache", checks.SccacheURL, checks.SccacheVersion},
+	{"mold", checks.MoldURL, checks.MoldRelease},
+	{"jq", checks.JqURL, checks.JqRelease},
+	{"curl", checks.CurlURL, checks.CurlVersion},
+	{"rust-clippy", checks.RustClippyURL, checks.RustComponentsTag},
+	{"rust-rustfmt", checks.RustRustfmtURL, checks.RustComponentsTag},
+	{"rust-std", checks.RustStdURL, checks.RustComponentsTag},
+	{"rust-wasm-std", checks.RustStdWasmURL, checks.RustWasmComponentsTag},
+	{"rust-wasm-clippy", checks.RustWasmClippyURL, checks.RustWasmComponentsTag},
+	{"rust-wasm-rustfmt", checks.RustWasmRustfmtURL, checks.RustWasmComponentsTag},
 	{"python-standalone", checks.PythonStandaloneURL, checks.FleetPythonVersion},
+	{"python-3-15", checks.PythonStandalone315URL, checks.PythonStandalone315Release},
+	{"gofmt", checks.GofmtURL, checks.GofmtGoRelease},
+	{"rustc-1-97-1", checks.RustDist1971RustcURL, checks.RustDist1971Tag},
+	{"cargo-1-97-1", checks.RustDist1971CargoURL, checks.RustDist1971Tag},
+	{"rust-std-1-97-1", checks.RustDist1971StdURL, checks.RustDist1971Tag},
+	{"rust-std-wasm-1-97-1", checks.RustDist1971StdWasmURL, checks.RustDist1971Tag},
+	{"rustc-1-99-0", checks.RustDist1990RustcURL, checks.RustDist1990Tag},
+	{"cargo-1-99-0", checks.RustDist1990CargoURL, checks.RustDist1990Tag},
+	{"rust-std-1-99-0", checks.RustDist1990StdURL, checks.RustDist1990Tag},
+	{"rust-std-wasm-1-99-0", checks.RustDist1990StdWasmURL, checks.RustDist1990Tag},
 }
 
 // goPins are the `go install` tools, as the module@version constants.
 var goPins = map[string]string{
 	"staticcheck": checks.StaticcheckModule, "govulncheck": checks.GovulncheckModule,
 	"gomutants": checks.GomutantsModule, "mutation-gate": checks.MutationGateModule,
+	"orbitparse": checks.OrbitparseModule,
 }
 
 // imagePins are the tools that are an image, and the toolchains and services.
 var imagePins = map[string]string{
-	"uv": checks.ImageUV, "trivy": checks.ImageTrivy, "syft": checks.ImageSyft, "cosign": checks.ImageCosign,
-	"signing-tools": checks.ImageSigningTools, "kubeconform": checks.ImageKubeconform,
-	"kube-linter": checks.ImageKubeLinter, "static": checks.ImageStatic, "debian": checks.ImageTools,
+	"uv": checks.ImageUV, "python": checks.ImagePython, "trivy": checks.ImageTrivy, "syft": checks.ImageSyft, "cosign": checks.ImageCosign,
+	"signing-tools": checks.ImageSigningTools, "bun": checks.ImageTS, "git": checks.ImageGo, "node": checks.ImageNode, "kubeconform": checks.ImageKubeconform,
+	"kube-linter": checks.ImageKubeLinter, "narc": checks.ImageNarcissus, "static": checks.ImageStatic, "debian": checks.ImageTools,
 }
 
 var toolchainPins = map[string]string{
-	"go": checks.ImageGo, "python": checks.ImagePython, "rust": checks.ImageRust, "rust-wasm": checks.ImageRustWasm,
+	"go": checks.ImageGo, "python": checks.ImagePython, "rust": checks.ImageRust, "rust-trixie": checks.ImageRustTrixie, "rust-wasm": checks.ImageRustWasm,
 	"bun": checks.ImageTS, "node": checks.ImageNode, "renovate": checks.ImageRenovate,
 }
 
+// playwrightPins are the per-version Playwright toolchains.
+func playwrightPins() map[string]string {
+	out := map[string]string{}
+	for v, img := range checks.PlaywrightImages {
+		out["playwright."+v] = img
+	}
+	return out
+}
+
 var servicePins = map[string]string{
-	"postgres": checks.ImagePostgres, "pgvector": checks.ImagePgvector, "redpanda": checks.ImageRedpanda,
+	"postgres": checks.ImagePostgres, "pgvector": checks.ImagePgvector, "redpanda": checks.ImageRedpanda, "redis": checks.ImageRedis,
+	"timescale":      checks.ImageTimescale,
+	"kube-apiserver": checks.ImageKubeAPIServer, "etcd": checks.ImageEtcd,
 }
 
 // TestToolsTomlMatchesGo holds tools.toml equal to the Go constants it was
@@ -102,8 +135,12 @@ var servicePins = map[string]string{
 // fails here. The constants stay the source until the adapter slice.
 func TestToolsTomlMatchesGo(t *testing.T) {
 	f := landedTools(t)
-	if !mapsEqual(f.Toolchains, toolchainPins) {
-		t.Errorf("toolchains %v, want %v", f.Toolchains, toolchainPins)
+	wantToolchains := playwrightPins()
+	for k, v := range toolchainPins {
+		wantToolchains[k] = v
+	}
+	if !mapsEqual(f.Toolchains, wantToolchains) {
+		t.Errorf("toolchains %v, want %v", f.Toolchains, wantToolchains)
 	}
 	if !mapsEqual(f.Services, servicePins) {
 		t.Errorf("services %v, want %v", f.Services, servicePins)
@@ -121,6 +158,17 @@ func TestToolsTomlMatchesGo(t *testing.T) {
 		got := f.Tools[name]
 		if got.Kind != "go" || got.Spec+"@"+got.Version != module {
 			t.Errorf("tool %s: %+v, want %s", name, got, module)
+		}
+	}
+	// gravity is the prebuilt the Dagger lane fetches (checks.GravityPrebuilt),
+	// pinned here for the pod by the same rev and sha256, from the same mirror:
+	// one tool per rev, because a tree is held to the generator its own
+	// provenance.json pins and the pod stages the one that tree names.
+	for rev, sum := range checks.GravityPrebuilt {
+		name := checks.GravityTool(rev)
+		seen[name] = true
+		if g := f.Tools[name]; g.Kind != "url" || g.Version != rev || g.SHA256 != sum || g.Spec != checks.ToolMirrorURL(sum) {
+			t.Errorf("tool %s: %+v, want the url tool GravityPrebuilt names", name, g)
 		}
 	}
 	for _, u := range checks.PythonLaneTools {

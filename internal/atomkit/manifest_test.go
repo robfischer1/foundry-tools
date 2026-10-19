@@ -195,8 +195,8 @@ func TestUT_511_AShellScriptManifestFailsTheWalk(t *testing.T) {
 
 func TestUT_512_TheLandedManifestsPass(t *testing.T) {
 	files, _ := filepath.Glob(filepath.Join(repoRoot, "atoms", "*", "*.toml"))
-	if len(files) != 7 {
-		t.Fatalf("%d manifests, want 7: %v", len(files), files)
+	if len(files) != 32 {
+		t.Fatalf("%d manifests, want 32 (7 checks, 25 dev): %v", len(files), files)
 	}
 	if got := manifestFailures(repoRoot); len(got) != 0 {
 		t.Fatalf("%v", got)
@@ -204,6 +204,8 @@ func TestUT_512_TheLandedManifestsPass(t *testing.T) {
 }
 
 // manifestRow is a row of lld.md SYS-004-MOD-002's table.
+// writesTree is true for a tool that opens its inputs writable (bun audit opens
+// package.json read-write): it runs on a private copy of the tree.
 type manifestRow struct {
 	file, id, stage, lane, surface, toolchain string
 	argv                                      []string
@@ -211,19 +213,20 @@ type manifestRow struct {
 	needs                                     []string
 	env                                       map[string]string
 	forkStyle                                 bool
+	writesTree                                bool
 	desc                                      string // the wording the catalogue row carried, held against the file (R20)
 }
 
 var staticcheckArgv = []string{"staticcheck", "-checks", "all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-ST1023", "./..."}
 
 var manifestRows = []manifestRow{
-	{"atoms/go/vet.toml", "go:vet", "precommit", "go", "any:**/go.mod", "go", []string{"go", "vet", "./..."}, true, nil, nil, true, "go vet ./... reports nothing."},
-	{"atoms/go/build.toml", "go:build", "prepush", "go", "any:**/go.mod", "go", []string{"go", "build", "./..."}, true, nil, nil, false, "go build ./... succeeds."},
-	{"atoms/go/staticcheck.toml", "go:staticcheck", "prepush", "go", "any:**/go.mod", "go", staticcheckArgv, true, []string{"tool:staticcheck"}, nil, true, "staticcheck ./... reports nothing."},
-	{"atoms/rust/cargo-fmt.toml", "rust:cargo-fmt", "precommit", "rust", "root:Cargo.toml", "rust", []string{"cargo", "fmt", "--all", "--check"}, false, nil, nil, false, "cargo fmt --all --check is clean."},
-	{"atoms/rust/cargo-audit.toml", "rust:cargo-audit", "prepush", "rust", "root:Cargo.toml", "rust", []string{"cargo", "audit"}, false, []string{"tool:cargo-audit"}, nil, false, "cargo audit reports no known vulnerability."},
-	{"atoms/python/pip-audit.toml", "python:pip-audit", "prepush", "python", "root:pyproject.toml", "python", []string{"uv", "run", "--with", checks.PythonWith("pip-audit"), "pip-audit"}, false, []string{"tool:uv"}, nil, false, "pip-audit reports no known vulnerability."},
-	{"atoms/ts/bun-audit.toml", "ts:bun-audit", "prepush", "ts", "root:package.json", "bun", []string{"bun", "audit", "--audit-level=high"}, false, nil, map[string]string{"BUN_CONFIG_REGISTRY": "https://registry.npmjs.org/"}, false, "bun audit reports nothing at high or above."},
+	{"atoms/go/vet.toml", "go:vet", "precommit", "go", "any:**/go.mod", "go", []string{"go", "vet", "./..."}, true, nil, nil, true, false, "go vet ./... reports nothing."},
+	{"atoms/go/build.toml", "go:build", "prepush", "go", "any:**/go.mod", "go", []string{"go", "build", "./..."}, true, nil, nil, false, false, "go build ./... succeeds."},
+	{"atoms/go/staticcheck.toml", "go:staticcheck", "prepush", "go", "any:**/go.mod", "go", staticcheckArgv, true, []string{"tool:staticcheck"}, nil, true, false, "staticcheck ./... reports nothing."},
+	{"atoms/rust/cargo-fmt.toml", "rust:cargo-fmt", "precommit", "rust", "root:Cargo.toml", "rust", []string{"cargo", "fmt", "--all", "--check"}, false, nil, nil, false, false, "cargo fmt --all --check is clean."},
+	{"atoms/rust/cargo-audit.toml", "rust:cargo-audit", "prepush", "rust", "root:Cargo.toml", "rust", []string{"cargo", "audit"}, false, []string{"tool:cargo-audit"}, nil, false, false, "cargo audit reports no known vulnerability."},
+	{"atoms/python/pip-audit.toml", "python:pip-audit", "prepush", "python", "root:pyproject.toml", "python", []string{"uv", "run", "--with", checks.PythonWith("pip-audit"), "pip-audit"}, false, []string{"tool:uv"}, nil, false, true, "pip-audit reports no known vulnerability."},
+	{"atoms/ts/bun-audit.toml", "ts:bun-audit", "prepush", "ts", "root:package.json", "bun", []string{"bun", "audit", "--audit-level=high"}, false, nil, map[string]string{"BUN_CONFIG_REGISTRY": "https://registry.npmjs.org/"}, false, true, "bun audit reports nothing at high or above."},
 }
 
 // TestUT_513_TheSevenManifestsAreTheTable: each file equals its row of the
@@ -240,7 +243,7 @@ func TestUT_513_TheSevenManifestsAreTheTable(t *testing.T) {
 			t.Fatalf("%s: %v", r.file, err)
 		}
 		got := []any{m.Schema, m.ID, m.Stage, m.Lane, m.Surface, m.Toolchain, m.PerModule, m.Judge, m.Args, m.Group, m.Desc, m.NotOnForks, m.WritesTree, m.SubsumedBy}
-		want := []any{"command-atom@1", r.id, r.stage, r.lane, r.surface, r.toolchain, r.perModule, "exit", "none", checks.GroupOf(r.id), r.desc, m.NotOnForks, false, ""}
+		want := []any{"command-atom@1", r.id, r.stage, r.lane, r.surface, r.toolchain, r.perModule, "exit", "none", checks.GroupOf(r.id), r.desc, m.NotOnForks, r.writesTree, ""}
 		if !slices.Equal(got, want) {
 			t.Errorf("%s:\n got %v\nwant %v", r.file, got, want)
 		}

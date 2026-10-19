@@ -47,10 +47,10 @@ func TestTheVocabularyBindsInOrderAndNamesTheRest(t *testing.T) {
 	if len(dbs) != 2 || dbs[0].Tag != "live_db" || dbs[1].Tag != "live_db_novector" {
 		t.Fatalf("TestDBsFor = %+v", dbs)
 	}
-	if got := BuildTags(dbs, nil); got != "live_db,live_db_novector" {
+	if got := BuildTags(dbs, nil, nil, nil); got != "live_db,live_db_novector" {
 		t.Errorf("BuildTags = %q", got)
 	}
-	if got := UncompiledTags(tags, dbs, nil); !reflect.DeepEqual(got, []string{"integration"}) {
+	if got := UncompiledTags(tags, dbs, nil, nil, nil); !reflect.DeepEqual(got, []string{"integration"}) {
 		t.Errorf("UncompiledTags = %v", got)
 	}
 	// The DSN names the role twice (its credential is its name), the alias
@@ -93,7 +93,7 @@ func TestTheVocabularyBindsInOrderAndNamesTheRest(t *testing.T) {
 	if rev[0].Tag != "live_db" {
 		t.Errorf("binding order is the vocabulary's, not the tree's: %+v", rev)
 	}
-	if got := BuildTags(nil, nil); got != "" {
+	if got := BuildTags(nil, nil, nil, nil); got != "" {
 		t.Errorf("no databases, no -tags word: %q", got)
 	}
 	// Every vocabulary entry points at a pinned image the fleet checks.
@@ -151,10 +151,10 @@ func TestTheBrokerVocabularyBindsAndAddressesItself(t *testing.T) {
 	if b.AdvertiseFor("") == b.AdvertiseFor("mutation") {
 		t.Error("two lanes must not build byte-identical broker definitions")
 	}
-	if got := BuildTags(nil, brokers); got != "live_kafka" {
+	if got := BuildTags(nil, brokers, nil, nil); got != "live_kafka" {
 		t.Errorf("BuildTags(brokers only) = %q", got)
 	}
-	if got := BuildTags(TestDBs[:1], brokers); got != "live_db,live_kafka" {
+	if got := BuildTags(TestDBs[:1], brokers, nil, nil); got != "live_db,live_kafka" {
 		t.Errorf("databases before brokers, one word: %q", got)
 	}
 	for _, e := range TestBrokers {
@@ -308,8 +308,8 @@ func TestTheScopeLineNeverCallsABoundTagUncompiled(t *testing.T) {
 	if len(dbs) == 0 || len(brokers) == 0 {
 		t.Fatalf("fixture needs one of each: dbs=%v brokers=%v", dbs, brokers)
 	}
-	compiled := strings.Split(BuildTags(dbs, brokers), ",")
-	uncompiled := UncompiledTags(tags, dbs, brokers)
+	compiled := strings.Split(BuildTags(dbs, brokers, nil, nil), ",")
+	uncompiled := UncompiledTags(tags, dbs, brokers, nil, TestKubes)
 	for _, c := range compiled {
 		for _, u := range uncompiled {
 			if c == u {
@@ -347,5 +347,108 @@ func TestTheTestServerRunsNonDurable(t *testing.T) {
 				t.Errorf("%s: ServerArgs lacks -c %s: %q", d.Tag, want, args)
 			}
 		}
+	}
+}
+
+// THE BROKER IS HANDED OUT UNDER TWO NAMES, one address. KAFKA_BOOTSTRAP is the
+// fleet's name and the one tartarus reads; TEST_KAFKA_BROKERS is the name the
+// TEST_* family (TEST_DATABASE_URL, TEST_REDIS_URL) gives a lane's server, so a
+// suite reaches the broker the way it reaches every other lane service. Both
+// carry the same host:port; a suite reads either.
+func TestTheBrokerIsHandedOutUnderBothNames(t *testing.T) {
+	b := TestBrokers[0]
+	if got := b.Envs(); !reflect.DeepEqual(got, []string{"KAFKA_BOOTSTRAP", "TEST_KAFKA_BROKERS"}) {
+		t.Errorf("Envs = %v", got)
+	}
+	if b.Env != "KAFKA_BOOTSTRAP" {
+		t.Errorf("the primary name moved: %q", b.Env)
+	}
+	line := TestBrokerScope(TestBrokers, "")
+	if !strings.Contains(line, "live_kafka → KAFKA_BOOTSTRAP, TEST_KAFKA_BROKERS") {
+		t.Errorf("the scope line does not name both variables: %q", line)
+	}
+}
+
+// THE CACHE VOCABULARY is the broker's twin: a tag the tree states, a variable
+// the suite reads, an alias the lane binds, a pinned image.
+func TestTheCacheVocabularyBindsAndAddressesItself(t *testing.T) {
+	caches := TestCachesFor([]string{"integration", "live_redis", "live_db"})
+	if len(caches) != 1 || caches[0].Tag != "live_redis" {
+		t.Fatalf("TestCachesFor = %+v", caches)
+	}
+	c := caches[0]
+	if c.Env != "TEST_REDIS_URL" {
+		t.Errorf("the variable is TEST_REDIS_URL, got %q", c.Env)
+	}
+	// redis://host:port, the shape forge-testkit-go's containers.Redis returns,
+	// so a suite that parses it for its host reads either source alike.
+	if got := c.URLFor(""); got != "redis://redis:6379" {
+		t.Errorf("URLFor(shared) = %q", got)
+	}
+	if got := c.URLFor("mutation"); got != "redis://redis-mutation:6379" {
+		t.Errorf("URLFor(lane) = %q", got)
+	}
+	if got := c.AliasFor("diffcov"); got != "redis-diffcov" {
+		t.Errorf("AliasFor = %q", got)
+	}
+	if !strings.Contains(c.Image, "@sha256:") || !strings.Contains(c.Image, "redis:7-alpine") {
+		t.Errorf("image is not redis 7-alpine pinned by digest: %s", c.Image)
+	}
+	if got := BuildTags(nil, nil, caches, nil); got != "live_redis" {
+		t.Errorf("BuildTags(caches only) = %q", got)
+	}
+	// databases, then brokers, then caches: one word, one author
+	if got := BuildTags(TestDBs[:1], TestBrokers, caches, nil); got != "live_db,live_kafka,live_redis" {
+		t.Errorf("BuildTags = %q", got)
+	}
+	if got := TestCachesFor(nil); len(got) != 0 {
+		t.Errorf("no tags, no cache: %v", got)
+	}
+}
+
+// A REDIS THE LANE BINDS IS A THROWAWAY: nothing persisted, reachable from the
+// lane's container (protected mode refuses every non-loopback client of a
+// password-less server, which is every client through a service binding), and
+// started through the image's entrypoint like the other two servers.
+func TestTheCacheServerIsThrowawayAndReachable(t *testing.T) {
+	args := TestCaches[0].ServerArgs(6379)
+	if len(args) == 0 || args[0] != "redis-server" {
+		t.Fatalf("ServerArgs must start the image's redis-server: %q", args)
+	}
+	joined := strings.Join(args, " ")
+	for _, want := range []string{"--port 6379", "--save  --appendonly no", "--protected-mode no"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("ServerArgs lacks %q: %q", want, args)
+		}
+	}
+	if !strings.Contains(strings.Join(TestCaches[0].ServerArgs(20016), " "), "--port 20016") {
+		t.Error("the port is the server's own")
+	}
+}
+
+func TestTestCacheScopeIsPrintedEitherWay(t *testing.T) {
+	none := TestCacheScope(nil, "no test file sits behind a tag the fleet names")
+	if !strings.HasPrefix(none, "test caches: none — ") || !strings.Contains(none, "no test file") {
+		t.Errorf("%q", none)
+	}
+	some := TestCacheScope(TestCaches, "")
+	for _, want := range []string{"live_redis → TEST_REDIS_URL"} {
+		if !strings.Contains(some, want) {
+			t.Errorf("%q lacks %q", some, want)
+		}
+	}
+}
+
+// A CACHE TAG IS NEVER CALLED UNCOMPILED: UncompiledTags is the complement of the
+// -tags word, so it is taken against all three vocabularies.
+func TestTheScopeLineNeverCallsABoundCacheTagUncompiled(t *testing.T) {
+	tags := []string{"integration", "live_db", "live_kafka", "live_redis"}
+	dbs, brokers, caches := TestDBsFor(tags), TestBrokersFor(tags), TestCachesFor(tags)
+	uncompiled := UncompiledTags(tags, dbs, brokers, caches, TestKubes)
+	if !reflect.DeepEqual(uncompiled, []string{"integration"}) {
+		t.Errorf("UncompiledTags = %v", uncompiled)
+	}
+	if got := strings.Split(BuildTags(dbs, brokers, caches, nil), ","); !reflect.DeepEqual(got, []string{"live_db", "live_kafka", "live_redis"}) {
+		t.Errorf("BuildTags = %v", got)
 	}
 }

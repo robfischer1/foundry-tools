@@ -51,13 +51,11 @@ type FoundryTools struct {
 	// (run.gitReadyOn). "" for a fetched tree and for a hook that named none.
 	// +private
 	Origin string
-	// lookup is how this call's mutation atoms ask what is already graded —
-	// set by GateFile under --reuse, nil otherwise. UNEXPORTED, so it is no
-	// part of the module's surface and does not outlive the call that set it.
-	lookup gradingLookup
-	// audit is whether this call's reuse run is one of the sampled few that
-	// grade cold anyway and audit what they would have reused (auditSampled).
-	audit bool
+	// mutantsToken is the record token the mutation atoms ask what is already
+	// graded under — set by GateFile under --reuse, nil otherwise. UNEXPORTED, so
+	// it is no part of the module's surface and does not outlive the call that
+	// set it.
+	mutantsToken *dagger.Secret
 	// spire is the lane pod's forwarded SPIRE socket — set by GateFile under
 	// --spire, nil otherwise; fleet:witness presents the SVID it issues.
 	spire *dagger.Socket
@@ -65,8 +63,8 @@ type FoundryTools struct {
 	// under --artifact-auth, nil otherwise; ts:visual pushes its artifact
 	// with it.
 	artifactAuth *dagger.Secret
-	// registrySvid is the audience of the JWT-SVID the visual push logs in
-	// with — set by GateFile under --registry-svid; used only with spire.
+	// registrySvid is the audience set by GateFile under --registry-svid; the
+	// visual atom no longer pushes with it.
 	registrySvid string
 }
 
@@ -352,7 +350,7 @@ func (m *FoundryTools) graded(ctx context.Context, stage, only, base string, sid
 	// An atom another SELECTED atom covers stands down here rather than in the
 	// runner, so the caller still gets its line (checks.Subsumed says why).
 	selected, covered := checks.Subsumed(selected)
-	r := newRun(m.Source, m.Repo, base).fromOrigin(m.Origin).withLookup(m.lookup).withAudit(m.audit).withSpire(m.spire).withArtifacts(m.artifactAuth, m.Sha).withRegistrySvid(m.registrySvid)
+	r := newRun(m.Source, m.Repo, base).fromOrigin(m.Origin).withMutants(m.mutantsToken).withSpire(m.spire).withArtifacts(m.artifactAuth, m.Sha).withRegistrySvid(m.registrySvid)
 	plan, absent, err := r.plan(ctx, selected)
 	if err != nil {
 		return nil, err

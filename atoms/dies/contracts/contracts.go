@@ -68,7 +68,10 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 		if code < 0 {
 			return checks.VerdictOf(row, int(checks.StateCannotRun), fmt.Sprintf("%s: CANNOT RUN - the %s fixture never ran: %s", id, f.Name, out))
 		}
-		line, isBad := checks.ContractFixtureVerdict(f.Name, f.ExpectFail, code)
+		line, isBad, toolFailed := checks.ContractFixtureVerdict(f.Name, f.ExpectFail, code)
+		if toolFailed {
+			return checks.VerdictOf(row, int(checks.StateCannotRun), fmt.Sprintf("%s: CANNOT RUN - the %s fixture's checker never reached a verdict (exit %d): %s", id, f.Name, code, out))
+		}
 		lines = append(lines, line)
 		bad = bad || isBad
 	}

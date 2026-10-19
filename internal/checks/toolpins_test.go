@@ -2,6 +2,7 @@ package checks
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -9,13 +10,13 @@ import (
 // Every URL the tools container fetches has a checksum, and it is a SHA-256.
 func TestEveryToolPinHasAChecksum(t *testing.T) {
 	hex := regexp.MustCompile(`^[0-9a-f]{64}$`)
-	for _, url := range []string{OpaURL, OpengrepURL, HadolintURL, KubectlURL, ChezmoiURL, ComposeURL, WasmToolsURL, WasmTools1250URL, WacURL, JustURL, ShellcheckURL, PythonStandaloneURL, CargoAuditURL, CargoNextestURL, OrasURL} {
+	for _, url := range []string{OpaURL, OpengrepURL, HadolintURL, KubectlURL, ChezmoiURL, ComposeURL, WasmToolsURL, WasmTools1250URL, WasmTools1261URL, NodeRegenURL, RustStdWasmURL, RustStdURL, WacURL, JustURL, ShellcheckURL, PythonStandaloneURL, PythonStandalone315URL, CargoAuditURL, CargoNextestURL, CargoMutantsURL, OrasURL, SccacheURL, RustClippyURL, RustRustfmtURL, RustWasmClippyURL, RustWasmRustfmtURL, MoldURL, JqURL, CurlURL, GofmtURL, RustDist1971RustcURL, RustDist1971CargoURL, RustDist1971StdURL, RustDist1971StdWasmURL, RustDist1990RustcURL, RustDist1990CargoURL, RustDist1990StdURL, RustDist1990StdWasmURL} {
 		sum, ok := ToolSHA256[url]
 		if !ok || !hex.MatchString(sum) {
 			t.Errorf("%s has no SHA-256 in ToolSHA256 (got %q)", url, sum)
 		}
 	}
-	if len(ToolSHA256) != 15 {
+	if len(ToolSHA256) != 38 {
 		t.Errorf("ToolSHA256 holds %d entries; a stale line for a URL nothing fetches is a pin nobody checks", len(ToolSHA256))
 	}
 }
@@ -40,6 +41,76 @@ func TestCargoToolPinsAgree(t *testing.T) {
 	// refuses the gnu cargo-audit, so it is the static musl build.
 	if !strings.Contains(CargoAuditURL, "x86_64-unknown-linux-musl") || !strings.Contains(CargoNextestURL, "x86_64-unknown-linux-gnu") {
 		t.Errorf("the cargo tool assets moved off the builds measured to run in ImageRust: %s, %s", CargoAuditURL, CargoNextestURL)
+	}
+}
+
+// The sccache tarball names the pinned version in its tag and its asset, and
+// the member is the binary inside it. The asset is the static musl build.
+func TestSccachePinAgrees(t *testing.T) {
+	want := "https://github.com/mozilla/sccache/releases/download/v" + SccacheVersion + "/sccache-v" + SccacheVersion + "-x86_64-unknown-linux-musl.tar.gz"
+	if SccacheURL != want {
+		t.Errorf("SccacheURL %q, want %q", SccacheURL, want)
+	}
+	if SccacheMember != "sccache-v"+SccacheVersion+"-x86_64-unknown-linux-musl/sccache" {
+		t.Errorf("member %q does not match v%s", SccacheMember, SccacheVersion)
+	}
+}
+
+// The wasm32 standard library of each toolchain is that image's own compiler
+// version: serve lays it so no atom runs `rustup target add`.
+func TestRustStdPinsFollowTheImages(t *testing.T) {
+	base := "https://static.rust-lang.org/dist/rust-std-"
+	if RustStdURL != base+RustComponentsTag+"-wasm32-unknown-unknown.tar.gz" || RustStdWasmURL != base+RustWasmComponentsTag+"-wasm32-unknown-unknown.tar.gz" {
+		t.Errorf("%s %s", RustStdURL, RustStdWasmURL)
+	}
+}
+
+// The rust component tarballs are the toolchain images' own version: a bump of
+// an image tag that leaves its clippy and rustfmt behind would lay components
+// of another compiler over the toolchain.
+func TestRustComponentPinsFollowTheImages(t *testing.T) {
+	for _, tc := range []struct{ image, version, clippy, rustfmt string }{
+		{ImageRust, RustComponentsTag, RustClippyURL, RustRustfmtURL},
+		{ImageRustWasm, RustWasmComponentsTag, RustWasmClippyURL, RustWasmRustfmtURL},
+	} {
+		if !strings.Contains(tc.image, "library/rust:"+tc.version+"-") {
+			t.Errorf("image %s is not rust %s", tc.image, tc.version)
+		}
+		base := "https://static.rust-lang.org/dist/"
+		if tc.clippy != base+"clippy-"+tc.version+"-x86_64-unknown-linux-gnu.tar.gz" || tc.rustfmt != base+"rustfmt-"+tc.version+"-x86_64-unknown-linux-gnu.tar.gz" {
+			t.Errorf("components %s %s are not %s's", tc.clippy, tc.rustfmt, tc.version)
+		}
+	}
+}
+
+// mold is the version bookworm's package carries, which the Dagger lane has run
+// the rust atoms with: a pin that moved would re-measure the link thread cap.
+func TestMoldPinIsBookworms(t *testing.T) {
+	if MoldRelease != "1.10.1" || MoldURL != "https://github.com/rui314/mold/releases/download/v"+MoldRelease+"/mold-"+MoldRelease+"-x86_64-linux.tar.gz" {
+		t.Errorf("mold pin %s %s", MoldRelease, MoldURL)
+	}
+}
+
+// jq is the release Debian's bookworm package is built from (JqDebVersion is
+// 1.6-2.1+deb12u2), as upstream's static binary: the Dagger python lane runs
+// foundry-stocks' hook suites under jq 1.6, and 1.7 changed number printing and
+// `@base32d`, so the executor's pin must not float to it.
+func TestJqPinIsDebiansUpstream(t *testing.T) {
+	if !strings.HasPrefix(JqDebVersion, JqRelease+"-") {
+		t.Errorf("JqRelease %s is not the upstream of JqDebVersion %s", JqRelease, JqDebVersion)
+	}
+	if JqURL != "https://github.com/jqlang/jq/releases/download/jq-"+JqRelease+"/jq-linux64" {
+		t.Errorf("JqURL %s does not carry jq-%s", JqURL, JqRelease)
+	}
+}
+
+// curl is the static musl build, which runs on both the bookworm python image
+// and the trixie bun image whatever libcurl each carries; its tag and asset both
+// name the version.
+func TestCurlPinAgrees(t *testing.T) {
+	if !strings.HasPrefix(CurlURL, "https://github.com/stunnel/static-curl/releases/download/"+CurlVersion+"/") ||
+		!strings.HasSuffix(CurlURL, "/curl-linux-x86_64-musl-"+CurlVersion+".tar.xz") || strings.Count(CurlURL, CurlVersion) != 2 {
+		t.Errorf("CurlURL %q does not carry version %s", CurlURL, CurlVersion)
 	}
 }
 
@@ -136,7 +207,7 @@ func TestFleetPythonVersionIsAPatchOfTheFleetsPython(t *testing.T) {
 // The regen lane's wasm-tools release asset names its own version, its member is
 // the binary, and an unpinned version has no release (the lane compiles it).
 func TestWasmToolsReleaseAgrees(t *testing.T) {
-	for _, v := range []string{WasmTools1250Version, WasmToolsVersion} {
+	for _, v := range []string{WasmTools1250Version, WasmTools1261Version, WasmToolsVersion} {
 		url, member, ok := WasmToolsRelease(v)
 		if !ok || !strings.Contains(url, "/v"+v+"/wasm-tools-"+v+"-x86_64-linux.tar.gz") || member != "wasm-tools-"+v+"-x86_64-linux/wasm-tools" {
 			t.Errorf("WasmToolsRelease(%q) = %q, %q, %v", v, url, member, ok)
@@ -156,5 +227,45 @@ func TestGravityPrebuiltIsPinned(t *testing.T) {
 		if !gravityRevRe.MatchString(rev) || !sha256Hex.MatchString(sum) {
 			t.Errorf("GravityPrebuilt[%q] = %q is not a commit and a sha256", rev, sum)
 		}
+	}
+}
+
+// Each prebuilt is one provisioned tool, named by its rev's first seven hex
+// digits, and the atoms that run a tree's regen tests need exactly those tools.
+func TestGravityToolsAreNamedByRevAndNeededTogether(t *testing.T) {
+	if got := GravityTool("68d8146b88e53e619bfbc0a36b9d70ef9c3bcf06"); got != "gravity-68d8146" {
+		t.Errorf("GravityTool = %q", got)
+	}
+	needs := GravityNeeds()
+	if len(needs) != len(GravityPrebuilt) {
+		t.Fatalf("GravityNeeds = %v for %d prebuilts", needs, len(GravityPrebuilt))
+	}
+	for rev := range GravityPrebuilt {
+		if !slices.Contains(needs, "tool:"+GravityTool(rev)) {
+			t.Errorf("GravityNeeds = %v lacks %s", needs, GravityTool(rev))
+		}
+	}
+	if !slices.IsSorted(needs) {
+		t.Errorf("GravityNeeds = %v is not in a stable order", needs)
+	}
+}
+
+// THE 3.15 INTERPRETER IS THE BUILD UV PICKS: a python-build-standalone
+// install_only_stripped x86_64 glibc asset whose file name carries the release
+// version, with a checksum, so an executor pod lays exactly what the Dagger lanes'
+// uv downloads for a tree that asks for "3.15".
+func TestPython315InterpreterIsPinnedAndVerified(t *testing.T) {
+	const host = "https://github.com/astral-sh/python-build-standalone/releases/download/"
+	if !strings.HasPrefix(PythonStandalone315URL, host) {
+		t.Errorf("PythonStandalone315URL %q is not a python-build-standalone release", PythonStandalone315URL)
+	}
+	if !strings.Contains(PythonStandalone315URL, "/cpython-"+PythonStandalone315Release+"%2B") || !strings.HasPrefix(PythonStandalone315Release, "3.15.") {
+		t.Errorf("PythonStandalone315URL %q does not carry release %s", PythonStandalone315URL, PythonStandalone315Release)
+	}
+	if !strings.HasSuffix(PythonStandalone315URL, "-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz") {
+		t.Errorf("PythonStandalone315URL %q is not the x86_64 glibc install_only_stripped build", PythonStandalone315URL)
+	}
+	if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(ToolSHA256[PythonStandalone315URL]) {
+		t.Errorf("PythonStandalone315URL has no SHA-256 in ToolSHA256")
 	}
 }

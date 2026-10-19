@@ -39,6 +39,12 @@ func TestRecordLanesPass(t *testing.T) {
 			jobsYAML(`["gate","check","atoms","dev"]`, `["check"]`), oureaYAML("door_url = \"x\"\nrecord_lanes = [\"atoms\",\"check\",\"dev\",\"gate\"]\n[[offsite_remotes]]\nname = \"a\"")),
 		"a comment naming a lane is inert": laneFiles(
 			jobsYAML(`["atoms","dev"]`, ""), oureaYAML("# record_lanes = [\"check\"]\nrecord_lanes = [\"atoms\",\"dev\"]")),
+		"UT-681 canary entries contribute their lane": laneFiles(
+			jobsYAML(`["gate","atoms","dev"]`, `["gate@stellar-core","gate@foundry/flux","gate@foundry-tools"]`), oureaYAML(`record_lanes = ["gate","atoms","dev"]`)),
+		"UT-681 a bare lane beside a canary of it": laneFiles(
+			jobsYAML(`["gate","check","atoms","dev"]`, `["check","gate@flux"]`), oureaYAML(`record_lanes = ["gate","check","atoms","dev"]`)),
+		"EX-1 exclusions contribute nothing": laneFiles(
+			jobsYAML(`["gate","check","atoms","dev"]`, `["atoms","check","gate","!gate@prometheus","!gate@foundry/nomos"]`), oureaYAML(`record_lanes = ["gate","check","atoms","dev"]`)),
 	} {
 		if state, report := RecordLanes(files); state != int(StatePass) {
 			t.Errorf("%s: state %d, want pass:\n%s", name, state, report)
@@ -76,6 +82,61 @@ func TestRecordLanesFindings(t *testing.T) {
 			"dev missing from one",
 			laneFiles(jobsYAML(`["gate","atoms"]`, ""), oureaYAML(`record_lanes = ["gate","atoms","dev"]`)),
 			[]string{"dev", "missing from RECORD_LANES in prime/daedalus-jobs.yaml"},
+		},
+		{ // UT-682
+			"a canary lane missing from the record lists",
+			laneFiles(jobsYAML(`["atoms","dev"]`, `["gate@flux"]`), oureaYAML(`record_lanes = ["atoms","dev"]`)),
+			[]string{"gate: missing from RECORD_LANES in prime/daedalus-jobs.yaml", "gate: missing from record_lanes in prime/ourea-config.yaml"},
+		},
+		{
+			"UT-683 malformed: no repo",
+			laneFiles(jobsYAML(`["gate","atoms","dev"]`, `["gate@"]`), oureaYAML(`record_lanes = ["gate","atoms","dev"]`)),
+			[]string{`EXECUTOR_LANES entry "gate@" is malformed (want lane, lane@repo or !lane@repo, the repo with at most one '/')`},
+		},
+		{
+			"UT-683 malformed: no lane",
+			laneFiles(jobsYAML(`["gate","atoms","dev"]`, `["@flux"]`), oureaYAML(`record_lanes = ["gate","atoms","dev"]`)),
+			[]string{`EXECUTOR_LANES entry "@flux" is malformed`},
+		},
+		{
+			"UT-683 malformed: two @",
+			laneFiles(jobsYAML(`["gate","atoms","dev"]`, `["gate@a@b"]`), oureaYAML(`record_lanes = ["gate","atoms","dev"]`)),
+			[]string{`EXECUTOR_LANES entry "gate@a@b" is malformed`},
+		},
+		{
+			"UT-683 malformed: two slashes",
+			laneFiles(jobsYAML(`["gate","atoms","dev"]`, `["gate@a/b/c"]`), oureaYAML(`record_lanes = ["gate","atoms","dev"]`)),
+			[]string{`EXECUTOR_LANES entry "gate@a/b/c" is malformed`},
+		},
+		{
+			"EX-1 malformed: no repo",
+			laneFiles(jobsYAML(`["gate","atoms","dev"]`, `["gate","!gate"]`), oureaYAML(`record_lanes = ["gate","atoms","dev"]`)),
+			[]string{`EXECUTOR_LANES entry "!gate" is malformed`},
+		},
+		{
+			"EX-1 malformed: no lane",
+			laneFiles(jobsYAML(`["gate","atoms","dev"]`, `["gate","!@x"]`), oureaYAML(`record_lanes = ["gate","atoms","dev"]`)),
+			[]string{`EXECUTOR_LANES entry "!@x" is malformed`},
+		},
+		{
+			"EX-1 malformed: double bang",
+			laneFiles(jobsYAML(`["gate","atoms","dev"]`, `["gate","!!gate@x"]`), oureaYAML(`record_lanes = ["gate","atoms","dev"]`)),
+			[]string{`EXECUTOR_LANES entry "!!gate@x" is malformed`},
+		},
+		{
+			"EX-1 malformed: two slashes",
+			laneFiles(jobsYAML(`["gate","atoms","dev"]`, `["gate","!gate@a/b/c"]`), oureaYAML(`record_lanes = ["gate","atoms","dev"]`)),
+			[]string{`EXECUTOR_LANES entry "!gate@a/b/c" is malformed`},
+		},
+		{
+			"EX-1 exclusion without its bare lane",
+			laneFiles(jobsYAML(`["gate","atoms","dev"]`, `["!gate@x"]`), oureaYAML(`record_lanes = ["gate","atoms","dev"]`)),
+			[]string{`exclusion "!gate@x" has no bare lane`},
+		},
+		{
+			"EX-1 an exclusion does not owe its lane a record",
+			laneFiles(jobsYAML(`["atoms","dev"]`, `["!check@x"]`), oureaYAML(`record_lanes = ["atoms","dev"]`)),
+			[]string{`exclusion "!check@x" has no bare lane`},
 		},
 	} {
 		state, report := RecordLanes(tc.files)

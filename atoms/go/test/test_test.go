@@ -55,7 +55,7 @@ func TestUT_485_TheDeclarationIsTheRowItReplaced(t *testing.T) {
 	}
 	if Def.ID != id || Def.Stage != checks.StagePrecommit || Def.Lane != checks.LaneGo || Def.Group != checks.GroupOf(id) ||
 		Def.Toolchain != "go" || Def.Surface != "any:**/go.mod" || Def.SubsumedBy != "go:test-race" || Def.NotOnForks != "" ||
-		strings.Join(Def.Needs, ",") != "dies" || Def.NeedsManifest {
+		strings.Join(Def.Needs, ",") != "dies,"+strings.Join(checks.GravityNeeds(), ",") || Def.NeedsManifest {
 		t.Errorf("%+v", Def)
 	}
 }

@@ -1,0 +1,30 @@
+schema = "command-atom@1"
+id = "dev:go-test"
+stage = "dev"
+lane = "go"
+group = "language"
+desc = "go test -race ./... passes, run by hand from the dev lane."
+surface = "root:go.mod"
+toolchain = "go"
+argv = ["go", "test"]
+args = "append"
+per_module = false
+judge = "exit"
+needs = ["dies"]
+timeout = "30m"
+writes_tree = true
+
+[[default]]
+args = ["-race"]
+unless = ["-race", "--race"]
+until = "-args"
+
+[[default]]
+args = ["./..."]
+unless = ["@package"]
+tail = true
+until = "-args"
+
+# The atom runs on its own copy of the tree (writes_tree), because a golden suite
+# rewrites its goldens under -update and /src is read-only; dev-output delivers
+# what the run changed back to the caller.

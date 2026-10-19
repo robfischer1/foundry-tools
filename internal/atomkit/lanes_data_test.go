@@ -63,22 +63,27 @@ func TestUT_614_BundlePhases(t *testing.T) {
 // stage does not exist, DEF-8-019, so they are named, not staged).
 func TestUT_613_ReleasePhasesNameTheFourReleaseAtoms(t *testing.T) {
 	want := []string{"go:release", "python:release", "rust:release", "ts:release"}
-	for _, l := range []string{"build", "bases", "publish"} {
+	for _, l := range []string{"build", "bases"} {
 		if got := landedLanes(t)[l].Phases[0].Atoms; !slices.Equal(got, want) {
 			t.Errorf("%s release: %v", l, got)
 		}
 	}
-	if got := landedLanes(t)["cast"].Phases[0].Atoms; !slices.Equal(got, []string{"rust:release"}) {
+	// The publish lane uploads packages, not images: it builds the wheels and
+	// the npm tarballs the capability uploads (python:artifacts, ts:pack).
+	if got := landedLanes(t)["publish"].Phases[0].Atoms; !slices.Equal(got, []string{"python:artifacts", "ts:pack"}) {
+		t.Errorf("publish release: %v", got)
+	}
+	// The cast is not an image's compile: it builds every binary a tree declares
+	// (rust:cast-release, go:cast-release), whatever a Dockerfile copies.
+	if got := landedLanes(t)["cast"].Phases[0].Atoms; !slices.Equal(got, []string{"rust:cast-release", "go:cast-release"}) {
 		t.Errorf("cast release: %v", got)
 	}
 }
 
 // TestLaneAtomsAreCatalogueAtoms: every atom a phase names is a row of the
 // catalogue, and every stage a lane or a stage:<s> names is a stage one has.
-// govern:resolve-tags is the one the catalogue does not hold yet (DEF-B3-002).
 func TestLaneAtomsAreCatalogueAtoms(t *testing.T) {
 	have := portedIDs(t)
-	have["govern:resolve-tags"] = true
 	for _, a := range checks.Atoms() {
 		have[a.ID] = true
 	}
@@ -120,10 +125,14 @@ func TestLaneShapes(t *testing.T) {
 	if g := lanes["gate"]; !slices.Equal(g.Stages, []string{"precommit", "prepush"}) || g.Rider != "orbit" || len(g.Phases) != 0 {
 		t.Errorf("gate: %+v", g)
 	}
-	for l, stage := range map[string]string{"check": "precommit", "orbit": "orbit", "visual": "visual", "mutation": "mutation", "mutation-bg": "mutation"} {
+	for l, stage := range map[string]string{"check": "precommit", "orbit": "orbit", "mutation": "mutation", "mutation-bg": "mutation"} {
 		if d := lanes[l]; !slices.Equal(d.Stages, []string{stage}) || len(d.Phases) != 0 || d.Rider != "" {
 			t.Errorf("%s: %+v", l, d)
 		}
+	}
+	if v := lanes["visual"]; !slices.Equal(v.Stages, []string{"visual"}) || len(v.Phases) != 2 || v.Phases[0].Atoms[0] != "stage:visual" ||
+		v.Phases[1].Capability != "push-visual" || !slices.Equal(v.Phases[1].After, []string{"visual"}) || len(v.Phases[1].Secrets) != 0 || v.Rider != "" {
+		t.Errorf("visual: %+v", v)
 	}
 	if a := lanes["atoms"]; len(a.Phases) != 1 || a.Phases[0].Capability != "build-atoms" {
 		t.Errorf("atoms: %+v", a)
@@ -131,7 +140,7 @@ func TestLaneShapes(t *testing.T) {
 	if d := lanes["dev"]; len(d.Phases) != 2 || d.Phases[0].Atoms[0] != "stage:dev" || d.Phases[1].Capability != "dev-output" {
 		t.Errorf("dev: %+v", d)
 	}
-	if g := lanes["govern"]; len(g.Phases) != 2 || g.Phases[0].Atoms[0] != "govern:resolve-tags" || g.Phases[1].Capability != "layer-cast" {
+	if g := lanes["govern"]; len(g.Phases) != 1 || g.Phases[0].Name != "cast" || g.Phases[0].Capability != "layer-cast" || len(g.Phases[0].Atoms) != 0 || len(g.Phases[0].After) != 0 {
 		t.Errorf("govern: %+v", g)
 	}
 }

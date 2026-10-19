@@ -12,14 +12,17 @@ import (
 	"dagger/foundry-tools/internal/checks"
 )
 
-// Def is the atom. It dates the tree (atoms.RustStamp), which a shared tree
-// would carry to every other atom, so it says it writes it.
+// Def is the atom. It runs under the fleet's python3 (tool:python-standalone), as
+// Dagger's rust lane links it, and has uv beside it (tool:uv), as that lane's
+// image does. It dates the tree (atoms.RustStamp), which a shared
+// tree would carry to every other atom, so it says it writes it.
 var Def = atomkit.Def{
 	ID: "rust:cargo-test", Stage: checks.StagePrecommit, Lane: checks.LaneRust,
 	Group:      checks.GroupLanguage,
 	Desc:       "cargo test --workspace passes, and there is something for it to pass.",
 	Surface:    "root:Cargo.toml",
 	Toolchain:  "rust",
+	Needs:      []string{"tool:python-standalone", "tool:uv"},
 	WritesTree: true,
 	Timeout:    45 * time.Minute,
 	Check:      check,

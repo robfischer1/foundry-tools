@@ -128,6 +128,8 @@ They exist because the **act-runner is being removed**, and what it validated is
 | `dies:opa-test` | foundry-dies' former ci workflow | the rego unit + invariant suite passes | not `policy/.manifest` + `fleet/repos/` |
 | `dies:admission-dogfood` | ″ | the admission domain admits our own star shape | ″ |
 | `dies:data-keys` | ″ | the **built bundle** carries every data root, non-empty | ″ |
+| `dies:authz-grid` | foundry-dies `tools/check_authz_grid.py` | a pull's Rego gives every authz_v2 grid cell the answer the base's Rego does, over the head's data and with `time.now_ns` pinned (no stored golden; each side is asked with the decision table it derives; a pull touching no `.rego` passes unevaluated; a deliberate change carries an `Authz-Semantics-Change` trailer naming the moved-cells digest) | ″ |
+| `dies:render-author` | themis render loop (S2) | a pull with a commit authored or committed as `themis@pantheon.foundry` changes only `policy/grants/data.json` and `policy/principals/data.json` | ″ |
 | `dies:canary-visibility` | ″ | the **built bundle** still hides a curated verb from a session principal | ″ |
 | `dies:contracts` | `contracts.yml` | every copy of every shared closed set agrees — after 7 fixtures fail and 3 controls pass | ″ |
 | `dies:contract-copies` | foundry-tools#15237 | every vendored copy **this tree holds** matches foundry-dies' authority (closed set and bytes), graded here instead of on the next dies pull | a tree that holds no copy `contracts.toml` declares; foundry-dies itself |

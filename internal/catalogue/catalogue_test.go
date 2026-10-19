@@ -334,6 +334,12 @@ func TestTheForkLaneOfThePortedAtomsIsUnchanged(t *testing.T) {
 			t.Errorf("%s: NotOnForks %q", id, got)
 		}
 	}
+	// the mutation lane's four grade the change against the fleet's own bar
+	for _, id := range []string{"go:mutation", "python:mutation", "rust:mutation", "ts:mutation"} {
+		if got := checks.AtomByID(id).NotOnForks; got != checks.ForkChangeBar {
+			t.Errorf("%s: NotOnForks %q", id, got)
+		}
+	}
 	for _, id := range []string{"go:build", "rust:cargo-fmt", "rust:cargo-audit", "python:pip-audit", "python:pytest", "ts:bun-audit", "ts:bun-gate", "fleet:check-merge-conflict", "fleet:manifest-one-command", "fleet:opengrep-sast", "fleet:check-added-large-files"} {
 		if got := checks.AtomByID(id).NotOnForks; got != "" {
 			t.Errorf("%s stands down on a fork (%q); a fork keeps it", id, got)
@@ -365,7 +371,7 @@ func TestTheCommitAndPushStagesHoldTheirAtoms(t *testing.T) {
 		"compose:config,compose:no-tracked-secrets,compose:third-party-pins," +
 		"dies:opa-test,dies:contracts,dies:contract-copies,dies:schema,dies:findings,dies:schemas,dies:wit-regenerated,dies:schema-rendered,dies:canonical,dies:refusal-codes,dies:wire-grammar,dies:resource-referents,dies:capabilities-served,dies:tool-schemas-served,law:lint,law:verb-liveness,law:budget"
 	push := "fleet:orbit-drift,fleet:dagger-lockstep,fleet:renovate-lockstep,fleet:node-kinds-declared,fleet:consumed-events-emitted,ops:immutable,ops:orbit-sidecars,ops:orbit-composed,template:render-matrix,wit:validate,go:staticcheck,go:govulncheck,go:build,go:release,go:test-race,go:diff-coverage,python:pip-audit,python:release,rust:release,rust:cargo-audit,rust:wit-guest,rust:wit-compose,ts:bun-audit,ts:regen,ts:release," +
-		"dies:admission-dogfood,dies:data-keys,dies:canary-visibility,fleet:witness,dies:grants-stamp"
+		"dies:admission-dogfood,dies:data-keys,dies:canary-visibility,fleet:witness,dies:grants-stamp,dies:render-author,dies:authz-grid"
 	if got := ids(checks.StagePrecommit); got != commit {
 		t.Errorf("commit stage\n got %s\nwant %s", got, commit)
 	}
@@ -389,15 +395,10 @@ func TestTheDeclaredBinaryVotersAreRealPythonAtoms(t *testing.T) {
 	}
 }
 
-// unported is the twelve atoms that stay Dagger chains with a table row in
-// checks.atomTable (DEF-B3-035, DEF-B3-044): release and mutation for each
-// language, and the ones whose chain is a multi-container pipeline.
-var unported = []string{
-	"go:mutation", "go:release",
-	"python:mutation", "python:release",
-	"rust:mutation", "rust:release", "rust:wit-compose", "rust:wit-guest",
-	"ts:mutation", "ts:regen", "ts:release", "ts:visual",
-}
+// unported is the no atom that stay Dagger chains with a table row in
+// checks.atomTable (DEF-B3-035, DEF-B3-044): release for each language, and the
+// ones whose chain is a multi-container pipeline.
+var unported = []string{}
 
 // TestIT_285_EveryCatalogueIDIsOneFileOrTheUnportedSet (lld FN-090 step 3): the
 // catalogue ids that no file declares are exactly the unported set, and every
@@ -435,5 +436,75 @@ func TestIT_285_EveryCatalogueIDIsOneFileOrTheUnportedSet(t *testing.T) {
 	slices.Sort(rowOnly)
 	if !slices.Equal(rowOnly, unported) {
 		t.Errorf("ids with no file under atoms/ = %v, want the unported set %v", rowOnly, unported)
+	}
+}
+
+// The mutation stage is four atoms, one per lane, and it is asked for BY NAME:
+// the default vector (a pull's gate) must never carry one, and neither may the
+// sweep. (It lived in internal/checks while the rows did; the rows are the
+// atoms' own files now, so it is pinned where the whole catalogue is seen.)
+func TestTheMutationStageIsFourLanesAskedForByName(t *testing.T) {
+	got := checks.MutationAtoms()
+	want := map[string]checks.Lane{"go:mutation": checks.LaneGo, "python:mutation": checks.LanePython, "rust:mutation": checks.LaneRust, "ts:mutation": checks.LaneTS}
+	if len(got) != len(want) {
+		t.Fatalf("mutation stage has %d atoms, want %d", len(got), len(want))
+	}
+	for _, a := range got {
+		lane, ok := want[a.ID]
+		if !ok || a.Lane != lane {
+			t.Errorf("%s: lane %q, want a mutation atom per lane", a.ID, a.Lane)
+		}
+	}
+	for _, a := range checks.PullPathAtoms() {
+		if a.Stage == checks.StageMutation {
+			t.Errorf("%s: a mutation atom in the default vector — the gate would run it", a.ID)
+		}
+	}
+}
+
+// pyOpsAtoms are the eight python ops and template atoms that vote in the atoms
+// binary on Dagger, with the tools container's prebuilt venv, and ran on the
+// executor in a bare interpreter (DEF-B3-047): pyyaml, copier and the ansible
+// collections were not there.
+var pyOpsAtoms = []string{
+	"ops:ansible", "ops:declaration", "ops:dup", "ops:metrics", "ops:specs",
+	"ops:star-sa", "ops:world-patches", "template:render-matrix",
+}
+
+// TestDEF_B3_047_ThePythonOpsAtomsNeedThePytoolsVenv: each of the eight asks for
+// the venv the executor builds from pytools/requirements.txt, and runs in lead
+// (toolchain none: git there, python from the image tool) and votes in the binary.
+func TestDEF_B3_047_ThePythonOpsAtomsNeedThePytoolsVenv(t *testing.T) {
+	for _, id := range pyOpsAtoms {
+		e, ok := Lookup(id)
+		if !ok || e.Def == nil || e.Def.Toolchain != "none" || !slices.Contains(e.Def.Needs, "pytools") || !votesInBinary(e.Def) {
+			t.Errorf("%s: %+v", id, e.Def)
+		}
+	}
+}
+
+// TestDEF_B4_WitValidateNeedsThePytoolsVenv: wit:validate runs the repository's
+// own `just validate`, and a recipe that shells out to python3 (stellar-core's
+// `tapes` wants jsonschema) found a bare interpreter on the executor.
+func TestDEF_B4_WitValidateNeedsThePytoolsVenv(t *testing.T) {
+	e, ok := Lookup("wit:validate")
+	if !ok || e.Def == nil || !slices.Contains(e.Def.Needs, "pytools") {
+		t.Errorf("wit:validate: %+v", e.Def)
+	}
+}
+
+// TestDEF_B3_047_NoBinaryVotingPythonAtomRunsOnABareInterpreter: an atom that
+// votes in the binary by history and runs python on the executor names where its
+// packages come from: the venv (pytools) or uv (`uv run --with`).
+func TestDEF_B3_047_NoBinaryVotingPythonAtomRunsOnABareInterpreter(t *testing.T) {
+	for id := range votesInBinaryByHistory {
+		e, ok := Lookup(id)
+		if !ok || e.Def == nil {
+			t.Errorf("%s: no Def", id)
+			continue
+		}
+		if !slices.Contains(e.Def.Needs, "pytools") && !slices.Contains(e.Def.Needs, "tool:uv") {
+			t.Errorf("%s votes in the binary and needs neither pytools nor tool:uv: %v", id, e.Def.Needs)
+		}
 	}
 }

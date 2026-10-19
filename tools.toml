@@ -20,17 +20,28 @@ image = "docker.io/library/python:3.14-slim-bookworm@sha256:9ab8d9c8514b44f90cf0
 image = "docker.io/library/rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e75fea57e2a2a5c3073"
 preflight = ["cargo", "fetch", "--locked"]
 
+[toolchain.rust-trixie]
+image = "docker.io/library/rust:1.97.0-trixie@sha256:b92b8c8574f8f3b207fcb0912fb3e2de4041580b5934d90312d53938c9a038a9"
+
 [toolchain.rust-wasm]
 image = "docker.io/library/rust:1.90.0-bookworm@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f"
 
+# The preflight is ts:bun-gate's own install, run before a command atom here
+# (the dev:ts-* verbs): a tree comes bare, with no node_modules, and the verbs run
+# the repo's scripts. ts:bun-audit audits the lockfile and opts out.
 [toolchain.bun]
 image = "docker.io/oven/bun:1.4-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61"
+preflight = ["bun", "install", "--frozen-lockfile"]
 
 [toolchain.node]
 image = "docker.io/library/node:24-bookworm-slim@sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553"
 
+# ts:visual's Playwright, one entry per version bun.lock may resolve (checks.PlaywrightImages).
+[toolchain."playwright.1.62.0"]
+image = "mcr.microsoft.com/playwright:v1.62.0-noble@sha256:baed2032d533817f3dbe6425de795788430ba345e819a1201337009ba17c9d07"
+
 [toolchain.renovate]
-image = "ghcr.io/renovatebot/renovate:43.261.4@sha256:adc66d8ffba5d835b9ef27768bd3176d07e7ea98c8dba274b07f511beea5fe81"
+image = "ghcr.io/renovatebot/renovate:44.167.5@sha256:c33150ec6407624a9399a2d827fd125becafdbe4519d7584488cbdd17f99081e"
 
 [service.postgres]
 image = "docker.io/library/postgres:18-bookworm@sha256:a10c981235b4f635e65df0cfb66a5598064628128505dbc6a3ed4ca303717521"
@@ -38,8 +49,20 @@ image = "docker.io/library/postgres:18-bookworm@sha256:a10c981235b4f635e65df0cfb
 [service.pgvector]
 image = "docker.io/pgvector/pgvector:pg18@sha256:1d50c689b0a6511b9ea0a15615281c81a59fd04a08eb35057ec8646fb3a2118a"
 
+[service.timescale]
+image = "docker.io/timescale/timescaledb-ha:pg17@sha256:a693dd7fbb75b51c3d717507a9956501686edb123b48dd90b094fd5612d53abe"
+
 [service.redpanda]
 image = "docker.notusmi.com/redpandadata/redpanda@sha256:6d627e3ebdc05438d1e8e3b55695ac1a7a0f79e7d5ca90b3b0f12dc984633e83"
+
+[service.redis]
+image = "docker.io/library/redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499"
+
+[service.kube-apiserver]
+image = "registry.k8s.io/kube-apiserver:v1.36.3@sha256:b4bc06c81fd76f81174e6c19ddacf477acdf1583e7a5846ebbd513493aef6e43"
+
+[service.etcd]
+image = "registry.k8s.io/etcd:3.6.8-0@sha256:397189418d1a00e500c0605ad18d1baf3b541a1004d768448c367e48071622e5"
 
 [tool.opa]
 kind = "url"
@@ -49,9 +72,9 @@ sha256 = "830ab11f61ffec760b5e19db0d7ad02bf037e13f5ef4d665faeaf17632177527"
 
 [tool.opengrep]
 kind = "url"
-spec = "https://github.com/opengrep/opengrep/releases/download/v1.30.2/opengrep_manylinux_x86"
-version = "v1.30.2"
-sha256 = "a66aa3278457f02b287b985a45b6762aebcaba5000f2689245fd1ed86d1456c7"
+spec = "https://github.com/opengrep/opengrep/releases/download/v1.31.0/opengrep_manylinux_x86"
+version = "v1.31.0"
+sha256 = "dbbe3c2058dbe600c449a8ba22ea79a1643a6660658400090d0323a8d0d31147"
 
 [tool.hadolint]
 kind = "url"
@@ -67,11 +90,11 @@ sha256 = "65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8"
 
 [tool.chezmoi]
 kind = "url"
-spec = "https://github.com/twpayne/chezmoi/releases/download/v2.73.0/chezmoi-linux-amd64"
-version = "2.73.0"
-sha256 = "4b42a0fb0dec69f37964c6701f89daa6bf6393aaeb92bbcbc8f3ee9f08a49bcd"
+spec = "https://github.com/twpayne/chezmoi/releases/download/v2.73.2/chezmoi-linux-amd64"
+version = "2.73.2"
+sha256 = "6f5eb3ab10b0805ddfec5ddd3e9d575720b17bf065a581cff501170d3770479f"
 
-[tool.compose]
+[tool.docker-compose]
 kind = "url"
 spec = "https://github.com/docker/compose/releases/download/v5.6.0/docker-compose-linux-x86_64"
 version = "5.6.0"
@@ -79,9 +102,9 @@ sha256 = "40343e21ca777173e69cff5dbafeb37c6f81f3b0d57d9e597f036e95eb63e76a"
 
 [tool.wasm-tools]
 kind = "url"
-spec = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.261.0/wasm-tools-1.261.0-x86_64-linux.tar.gz"
-version = "1.261.0"
-sha256 = "ad62b2176037e93e1348cb65d6212d128ca9f097b63d155569f25215818ff7b1"
+spec = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.262.0/wasm-tools-1.262.0-x86_64-linux.tar.gz"
+version = "1.262.0"
+sha256 = "655b8df67d54c3ef9b52fc237c4e94bbfbb5f5f43825245cb0940a7002a9ed65"
 
 [tool.wac]
 kind = "url"
@@ -91,9 +114,9 @@ sha256 = "7cd490edbd452221ef89e6750fc43eacc9b71b1242095eb577cb9a3bf0d3beda"
 
 [tool.just]
 kind = "url"
-spec = "https://github.com/casey/just/releases/download/1.58.0/just-1.58.0-x86_64-unknown-linux-musl.tar.gz"
-version = "1.58.0"
-sha256 = "4a5cc2f53e6f0f8c59092a6cc38291eb729d46a7dd95d3ae582008881b84931d"
+spec = "https://github.com/casey/just/releases/download/1.59.0/just-1.59.0-x86_64-unknown-linux-musl.tar.gz"
+version = "1.59.0"
+sha256 = "409044617b6f06517c1035e55ca38c8c856ff8b650e41bc2aa1ef82d5903a23e"
 
 [tool.shellcheck]
 kind = "url"
@@ -119,11 +142,147 @@ spec = "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.
 version = "0.9.145"
 sha256 = "32aa82416099eb12fffae9cf1a279ad201fecbd3f74826c613e32e9006b29867"
 
+[tool.sccache]
+kind = "url"
+spec = "https://github.com/mozilla/sccache/releases/download/v0.18.0/sccache-v0.18.0-x86_64-unknown-linux-musl.tar.gz"
+version = "0.18.0"
+sha256 = "45f1447fbe231e3037bde351ef70677dd212216c8d62ae7ca409fecc4d6acc89"
+
+[tool.mold]
+kind = "url"
+spec = "https://github.com/rui314/mold/releases/download/v1.10.1/mold-1.10.1-x86_64-linux.tar.gz"
+version = "1.10.1"
+sha256 = "7524fe67f917d5287b2f7a7d6401e2625fa3f5f84bc6b8d9b487d6cb08876488"
+
+[tool.jq]
+kind = "url"
+spec = "https://github.com/jqlang/jq/releases/download/jq-1.6/jq-linux64"
+version = "1.6"
+sha256 = "af986793a515d500ab2d35f8d2aecd656e764504b789b66d7e1a0b727a124c44"
+
+[tool.curl]
+kind = "url"
+spec = "https://github.com/stunnel/static-curl/releases/download/8.23.0/curl-linux-x86_64-musl-8.23.0.tar.xz"
+version = "8.23.0"
+sha256 = "049f982cb7db34e745cc0be0bdce2246b51fbf7ef17fc95ce37980f711ca91bb"
+
+[tool.rust-clippy]
+kind = "url"
+spec = "https://static.rust-lang.org/dist/clippy-1.97.0-x86_64-unknown-linux-gnu.tar.gz"
+version = "1.97.0"
+sha256 = "b3fe2a650456f055f4163e7de8c230609a5daf72c204a4a64cc6b51b5eb72e3e"
+
+[tool.rust-rustfmt]
+kind = "url"
+spec = "https://static.rust-lang.org/dist/rustfmt-1.97.0-x86_64-unknown-linux-gnu.tar.gz"
+version = "1.97.0"
+sha256 = "7b5d4b02c8d0f7c3be64d3bc2e0738ccb06dc0492f81a93c4fcb223ff93f8b38"
+
+[tool.rust-std]
+kind = "url"
+spec = "https://static.rust-lang.org/dist/rust-std-1.97.0-wasm32-unknown-unknown.tar.gz"
+version = "1.97.0"
+sha256 = "ebb7e78290ac440be505d701ca99101e9450ac5b8f701722f9c6a020cfd9bc89"
+
+[tool.rust-wasm-std]
+kind = "url"
+spec = "https://static.rust-lang.org/dist/rust-std-1.90.0-wasm32-unknown-unknown.tar.gz"
+version = "1.90.0"
+sha256 = "cbcd4ea55884e9c3d8d72e1497c70e9ed18c4a824d4d0f049006a245229d11af"
+
+[tool.rust-wasm-clippy]
+kind = "url"
+spec = "https://static.rust-lang.org/dist/clippy-1.90.0-x86_64-unknown-linux-gnu.tar.gz"
+version = "1.90.0"
+sha256 = "0e1db6adef940dd21896dbd7a051e25056df2fede90591c583552f94e913af22"
+
+[tool.rust-wasm-rustfmt]
+kind = "url"
+spec = "https://static.rust-lang.org/dist/rustfmt-1.90.0-x86_64-unknown-linux-gnu.tar.gz"
+version = "1.90.0"
+sha256 = "61407015edaeafa9b61b3ffefb5077624cd4017ac50be05e246bcadafbb56d99"
+
+# dev:go-regen's formatter: the official Go release (the Go of toolchain.go's image),
+# whose go/bin/gofmt gravity execs through $GOFMT (checks.GofmtURL).
+[tool.gofmt]
+kind = "url"
+spec = "https://go.dev/dl/go1.26.9.linux-amd64.tar.gz"
+version = "1.26.9"
+sha256 = "42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d"
+
+# The rust compilers dev:go-regen lays for a core pinned to a rustc the rust image
+# does not carry (checks.RustDists): static.rust-lang.org's dist tarballs for the
+# compiler, cargo and the host and wasm32 standard libraries. The atom fetches them
+# itself, mirror first; they are url tools so the mirror holds them.
+
+[tool.rustc-1-97-1]
+kind = "url"
+spec = "https://static.rust-lang.org/dist/rustc-1.97.1-x86_64-unknown-linux-gnu.tar.gz"
+version = "1.97.1"
+sha256 = "1c441e430c1cca49dff54a8d59c41038bf6f79f7b8756596cb2f36511a015eba"
+
+[tool.cargo-1-97-1]
+kind = "url"
+spec = "https://static.rust-lang.org/dist/cargo-1.97.1-x86_64-unknown-linux-gnu.tar.gz"
+version = "1.97.1"
+sha256 = "90cbeb8adfe8ca0fcbe01a18bd9b99d3e5e98fd29c003032828ebf3ffba0e4ed"
+
+[tool.rust-std-1-97-1]
+kind = "url"
+spec = "https://static.rust-lang.org/dist/rust-std-1.97.1-x86_64-unknown-linux-gnu.tar.gz"
+version = "1.97.1"
+sha256 = "45b927ecf776b9645ca2ed5b287fc6814824a073c30c7c5d5c0ad4425295ecee"
+
+[tool.rust-std-wasm-1-97-1]
+kind = "url"
+spec = "https://static.rust-lang.org/dist/rust-std-1.97.1-wasm32-unknown-unknown.tar.gz"
+version = "1.97.1"
+sha256 = "13902d5573eeea50701d75acc774b6df2dfb4942ec88cdbe40bb07e448c307ea"
+
+[tool.rustc-1-99-0]
+kind = "url"
+spec = "https://static.rust-lang.org/dist/rustc-1.99.0-x86_64-unknown-linux-gnu.tar.gz"
+version = "1.99.0"
+sha256 = "238e72b8617f79bc96f27a5bfeb1a208b5755fe1a48f8bc190fe403ef6d54ab8"
+
+[tool.cargo-1-99-0]
+kind = "url"
+spec = "https://static.rust-lang.org/dist/cargo-1.99.0-x86_64-unknown-linux-gnu.tar.gz"
+version = "1.99.0"
+sha256 = "c2b8ba1f59e7a230aa5522684f3f7aa620b98e5ad37683a5e5cf9b41f534fa1e"
+
+[tool.rust-std-1-99-0]
+kind = "url"
+spec = "https://static.rust-lang.org/dist/rust-std-1.99.0-x86_64-unknown-linux-gnu.tar.gz"
+version = "1.99.0"
+sha256 = "1dcaa01beb6bc78fdb13815b4f15214719167c58e3d79fbdf214591f8c195ee1"
+
+[tool.rust-std-wasm-1-99-0]
+kind = "url"
+spec = "https://static.rust-lang.org/dist/rust-std-1.99.0-wasm32-unknown-unknown.tar.gz"
+version = "1.99.0"
+sha256 = "4dffdca3c11a88f18a35021cea4ed0279b41650c0e3e2e98928ecc28958bceba"
+
+[tool.cargo-mutants]
+kind = "url"
+spec = "https://github.com/sourcefrog/cargo-mutants/releases/download/v27.1.0/cargo-mutants-x86_64-unknown-linux-gnu.tar.gz"
+version = "27.1.0"
+sha256 = "dfe6dc37d0342c891d2829b5a695aa57c2d0edecef7e7d0399a30cc6e206411e"
+
 [tool.python-standalone]
 kind = "url"
-spec = "https://github.com/astral-sh/python-build-standalone/releases/download/20260623/cpython-3.14.6%2B20260623-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
-version = "3.14.6"
-sha256 = "c172314f4a8ec137a8f605289010c3d19c8b56867d968f0095074cc68efa1d29"
+spec = "https://github.com/astral-sh/python-build-standalone/releases/download/20261013/cpython-3.14.8%2B20261013-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+version = "3.14.8"
+sha256 = "d8faa1b588506b9e3e5a3f57807bb056d534a1641a6b10d15b6ea3f0b413b960"
+
+# CPython 3.15 for a pod whose tree asks for it: the build uv 0.12.13 picks for "3.15".
+# The executor lays it as a uv-managed install (daedalus internal/runner/serve/pyinterp.go);
+# the Dagger lanes' uv downloads the same build at run time.
+[tool.python-3-15]
+kind = "url"
+spec = "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.15.0rc2%2B20260901-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+version = "3.15.0rc2"
+sha256 = "9549c3789acb25209da019cc8506ea5b1684b81fb4b471dc64cb47d1d04d6422"
 
 [tool.staticcheck]
 kind = "go"
@@ -155,9 +314,38 @@ kind = "uv"
 spec = "cosmic-ray"
 version = "8.7.0"
 
+# bun for a container that is not the bun toolchain (the Playwright image has none).
+[tool.bun]
+kind = "image"
+image = "docker.io/oven/bun:1.4-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61"
+
+# git for a container whose image has none (python, bun, node, playwright's
+# noble has it): the golang image's own /usr/bin/git, the toolchain pin the go
+# containers already pull. Only git goes on PATH (bins); the rest of that image
+# stays behind the container's own tar, ps and sh. Local reads only (diff,
+# merge-base, log, cat-file, ls-tree): its git-core helpers and libcurl are not
+# the container's.
+[tool.git]
+kind = "image"
+image = "docker.io/library/golang:1.26.9-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c"
+bins = ["usr/bin/git"]
+
+# node for a container that has none or only bun's stand-in (the bun image puts
+# a bun symlink named node last on PATH): the node toolchain image's own binary,
+# first on PATH, so a package's `#!/usr/bin/env node` bin (Stryker, eslint) runs
+# under node on both runners.
+[tool.node]
+kind = "image"
+image = "docker.io/library/node:24-bookworm-slim@sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553"
+bins = ["usr/local/bin/node"]
+
 [tool.uv]
 kind = "image"
 image = "ghcr.io/astral-sh/uv:0.12.13@sha256:b485bd65cc2cf1c9a93b3554012c9c3778cf7b1b5fd3d3096ce9e1226c97e1e6"
+
+[tool.python]
+kind = "image"
+image = "docker.io/library/python:3.14-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f"
 
 [tool.trivy]
 kind = "image"
@@ -182,6 +370,32 @@ image = "ghcr.io/yannh/kubeconform:v0.7.0-alpine@sha256:8f0eeaaa96ba27ba1500b0e4
 [tool.kube-linter]
 kind = "image"
 image = "docker.io/stackrox/kube-linter:v0.8.3-alpine@sha256:b8311611c27032d4922bc67719225e373e4a0ab0c767bbdcf5f20a9306b1a3bb"
+
+# gravity at each rev a tree's provenance.json may pin (checks.GravityPrebuilt):
+# the binary `cargo install` builds, seeded in the tool mirror under its sha256.
+# One tool per rev, named gravity-<first 7 of the rev> (checks.GravityTool); the
+# go suites (go:test, go:test-race, go:diff-coverage) need them all and run the
+# one the tree pins, GRAVITY naming it for the regen tests.
+[tool.gravity-68d8146]
+kind = "url"
+spec = "https://registry.notusmi.com/v2/foundry/tool/mirror/blobs/sha256:db5a9f0bec3976e9fe84ae8e6f4d6afa2409c0fb556d9646f489b44e96afa395"
+version = "68d8146b88e53e619bfbc0a36b9d70ef9c3bcf06"
+sha256 = "db5a9f0bec3976e9fe84ae8e6f4d6afa2409c0fb556d9646f489b44e96afa395"
+
+[tool.gravity-aeb03bf]
+kind = "url"
+spec = "https://registry.notusmi.com/v2/foundry/tool/mirror/blobs/sha256:7580e6e5e58efe11ec2427e79ad6e242397745778e418331e9de8365dc700253"
+version = "aeb03bfd4a6f14e29b1a91dcdfad05e02695db39"
+sha256 = "7580e6e5e58efe11ec2427e79ad6e242397745778e418331e9de8365dc700253"
+
+[tool.narc]
+kind = "image"
+image = "registry.notusmi.com/rob/narcissus:1792198596-053bba4@sha256:1923ebea1773595a6ef19358e273738f504b65cc50f600666bcf99870ecf0fe2"
+
+[tool.orbitparse]
+kind = "go"
+spec = "git.notusmi.com/rob/stellar-core-go/cmd/orbitparse"
+version = "v0.223.0"
 
 [tool.static]
 kind = "image"

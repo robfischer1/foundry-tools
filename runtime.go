@@ -69,26 +69,28 @@ type run struct {
 	// the caller's worktree path, hashed into the key.
 	dev  bool
 	tree string
+	// args are the dev request's arguments, appended to the command line of a
+	// dev atom that takes them (dev:go-regen); nil for every gate run.
+	args []string
 	// reask, when set, is written into every lane container past its toolchain
 	// layers, so every exec after it is keyed afresh and nothing the engine
 	// cached answers it (verdictFor's re-ask of a could-not-run).
 	reask string
-	// lookup, when set, is how the mutation atoms ask which of their units a
-	// stored grading already answers (mutation_reuse.go); nil grades every unit.
-	lookup gradingLookup
-	// audit, when set, grades every unit cold even where a lookup answered,
-	// and holds the answered gradings against the cold ones (mutation_reuse.go).
-	audit bool
+	// mutants, when set, is the run's record token, handed to the mutation atoms
+	// as ATOM_MUTANTS_TOKEN: they ask the door which of their units a stored
+	// grading already answers with it, and grade every unit when it is nil. The
+	// atom takes it out of its environment before it starts any other program.
+	mutants *dagger.Secret
 	// spire, when set, is the lane pod's SPIRE socket: fleet:witness asks as
-	// the SVID it issues (witness_identity.go); nil asks in the clear.
+	// the SVID it issues (witness_identity.go); nil cannot ask: the atom settles could-not-run.
 	spire *dagger.Socket
 	// artifactAuth, when set, is the registry credential the visual atom
 	// pushes its artifact with, and sha the commit that artifact is tagged by
-	// (atoms_ts_visual.go); nil pushes nothing.
+	// (atom_env_ts.go); nil pushes nothing.
 	artifactAuth *dagger.Secret
 	sha          string
-	// registrySvid, with spire, replaces artifactAuth: the audience of the
-	// JWT-SVID the artifact push logs in with (registrysvid.go).
+	// registrySvid is the audience GateFile was given; ts:visual no longer
+	// logs in with it (the pod's push-visual phase holds the identity).
 	registrySvid string
 
 	dies *dagger.Directory
@@ -119,18 +121,6 @@ func (r *run) fromOrigin(url string) *run {
 func (r *run) reasked(nonce string) *run {
 	r.reask = nonce
 	return r
-}
-
-// reaskedAgain is a fresh run over the same tree, keyed afresh, that keeps
-// what the caller armed it with — the reuse lookup and its audit, the SPIRE
-// socket, the artifact credential and the commit — for an atom that re-asks
-// one module of itself (reasksItsOwnModules). askedTwice's re-ask starts from
-// newRun and drops them; that is the gate's behaviour and stays it.
-func (r *run) reaskedAgain(nonce string) *run {
-	again := newRun(r.src, r.repo, r.base).fromOrigin(r.origin).reasked(nonce)
-	again.lookup, again.audit, again.spire = r.lookup, r.audit, r.spire
-	again.artifactAuth, again.sha, again.registrySvid = r.artifactAuth, r.sha, r.registrySvid
-	return again
 }
 
 func newRun(src *dagger.Directory, repo, base string) *run {
@@ -336,11 +326,15 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 		// atoms: foundry-stocks' bash hooks parse their payload with jq, so
 		// their pytest suite cannot exercise a hook in a lane without it —
 		// measured 2026-10-08, every hook behaviour test red on `which jq`.
+		// libjq1 is pinned beside it: jq= pins only jq, so an image whose apt
+		// also sees bookworm-security picks libjq1 deb12u3 there and refuses
+		// the pair as held broken packages (2026-10-17). The pinned revision
+		// is the one bookworm main carries, so every lane image resolves it.
 		uv := dag.Container().From(checks.ImageUV)
 		ctr = ctr.
 			WithExec([]string{"apt-get", "update"}).
 			WithExec([]string{"apt-get", "install", "-y", "--no-install-recommends", "git", "curl", "ca-certificates"}).
-			WithExec([]string{"apt-get", "install", "-y", "--no-install-recommends", "jq=" + checks.JqDebVersion}).
+			WithExec([]string{"apt-get", "install", "-y", "--no-install-recommends", "jq=" + checks.JqDebVersion, "libjq1=" + checks.JqDebVersion}).
 			WithExec([]string{"rm", "-rf", "/var/lib/apt/lists"}).
 			WithExec([]string{"jq", "--version"}).
 			WithFile("/usr/local/bin/uv", uv.File("/uv")).
@@ -353,10 +347,10 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 		// and the fleet standardised on 3.14; a repo whose cargo tests spawn
 		// its own python hooks (cerberus' memory_plugin.rs) ran them through
 		// that 3.11 and met a SyntaxError on syntax the fleet's own formatter
-		// had emitted. Installed with uv rather than apt because no Debian
-		// suite packages 3.14 yet, and symlinked over `python3` because the
-		// spawning code names the interpreter and not a path — see
-		// checks.FleetPython for the measurement.
+		// had emitted. Not from apt because no Debian suite packages 3.14
+		// yet, and linked over `python3` because the spawning code names the
+		// interpreter and not a path — see checks.FleetPython for the
+		// measurement.
 		//
 		// rust:bookworm carries cargo, git, curl and bash. rustfmt and
 		// clippy are rustup components; cargo-audit is upstream's release
@@ -372,13 +366,16 @@ func provision(ctr *dagger.Container, image string) *dagger.Container {
 			WithExec([]string{"apt-get", "update"}).
 			WithExec([]string{"apt-get", "install", "-y", "--no-install-recommends", "mold"}).
 			WithExec([]string{"rm", "-rf", "/var/lib/apt/lists"}).
-			WithFile("/usr/local/bin/uv", rustUV.File("/uv")).
-			// --default WRITES THE SHIMS, so no `ln -s` and so no shell: uv
-			// lays python/python3/python3.14 into UV_PYTHON_BIN_DIR itself.
-			// TestNoAtomExecsAShell is right to refuse the alternative, and
-			// this repo spent a lot of effort getting off `sh -c`.
-			WithEnvVariable("UV_PYTHON_BIN_DIR", "/usr/local/bin").
-			WithExec([]string{"uv", "python", "install", "--default", checks.FleetPythonVersion}).
+			WithFile("/usr/local/bin/uv", rustUV.File("/uv"))
+		// THE INTERPRETER IS THE PINNED STANDALONE RELEASE, NOT `uv python
+		// install`: uv resolves a version only through the download manifest
+		// compiled into it, so a renovate bump of FleetPythonVersion ahead of
+		// the uv image (3.14.8, foundry-tools #326, 2026-10-16) made every
+		// rust lane CANNOT RUN with "No download found". The python layer
+		// moved off uv for the same class of reason (atoms_tools_python.go);
+		// this follows it, and uv is told never to fetch one.
+		ctr = withPythonStandalone(ctr, checks.ToolSHA256).
+			WithEnvVariable("UV_PYTHON_DOWNLOADS", "never").
 			WithExec([]string{"python3", "--version"}).
 			WithExec([]string{"rustup", "component", "add", "rustfmt", "clippy"})
 		return withCargoTarball(withOpengrep(ctr), checks.ToolSHA256, checks.CargoAuditURL, checks.CargoAuditMember).
@@ -544,19 +541,6 @@ func (r *run) withLockedCargoTarget(ctr *dagger.Container) *dagger.Container {
 	return ctr
 }
 
-// withLockedReleaseVolume remounts the repo's release volume LOCKED, for the
-// execs that build into it and then run what they built (the wit guest's
-// native test in wit-guest-test). The same race and the
-// same reason as withLockedCargoTarget (foundry-tools#16916: rust:wit-guest
-// "could not execute process /cache/cargo-release/wit-guest-test/debug/deps/
-// classes_tier3-... No such file or directory"); the volume's SHARED default
-// (checks.ReleaseCacheFor) stands for the builds that copy their output out
-// in the same exec, where the gap is the copy itself.
-func (r *run) withLockedReleaseVolume(ctr *dagger.Container) *dagger.Container {
-	c := checks.ReleaseCacheFor(r.repo)
-	return ctr.WithMountedCache(c.Path, dag.CacheVolume(c.Key), dagger.ContainerWithMountedCacheOpts{Sharing: dagger.CacheSharingModeLocked})
-}
-
 // copyOutPath is where copyout sits in a lane's container.
 const copyOutPath = "/usr/local/bin/copyout"
 
@@ -601,48 +585,6 @@ func (r *run) withBase(ctr *dagger.Container) *dagger.Container {
 	return ctr
 }
 
-// changeBase answers the commit a pull's change set is measured FROM: the
-// merge base of the door's base sha and HEAD. "" with a nil error is a base
-// the history does not reach, and the atom stands down as it does with no
-// base at all.
-//
-// THE BASE IS MAIN'S TIP AT DISPATCH, NOT THE BRANCH POINT. `git diff base
-// HEAD` compares two trees, so once main has moved past where the pull
-// branched, every landing since reads as the pull's own change, reversed.
-// MEASURED urania #63 (2026-09-18 00:52Z): the pull added hooks/ and an
-// answers file; main had retired src/urania/*.py in the meantime; the ten
-// deleted modules diffed as ADDED, python:mutation mutated the vestigial
-// package against its stale suite and settled FINDINGS at 68.9% on a pull
-// that changed no Python. go:mutation already diffed --merge-base; this is
-// the one resolve every diff-scoped atom reads, and the sha it answers is
-// what the tools that diff for themselves (gremlins --diff, forge-testkit
-// scope --base) are handed too, because they take a two-tree diff as well.
-//
-// rev-parse --verify --quiet first, not merge-base alone: a missing object is
-// exit 128 from merge-base, which the engine reports as its own error even
-// under Expect ANY (foundry-tools#63); rev-parse answers 1. A merge-base that
-// exits non-zero (unrelated histories) or answers nothing is an error the
-// atom settles as could-not-run — a change set with no origin is not a
-// change set nothing touched.
-func (r *run) changeBase(ctx context.Context, ctr *dagger.Container) (string, error) {
-	_, code, err := output(ctx, ctr.WithExec([]string{"git", "rev-parse", "--verify", "--quiet", r.base + "^{commit}"}, anyExit))
-	if err != nil {
-		return "", fmt.Errorf("the atom never ran: %w", err)
-	}
-	if code != 0 {
-		return "", nil
-	}
-	out, code, err := output(ctx, ctr.WithExec([]string{"git", "merge-base", r.base, "HEAD"}, anyExit))
-	if err != nil {
-		return "", fmt.Errorf("the atom never ran: %w", err)
-	}
-	since := strings.TrimSpace(out)
-	if code != 0 || since == "" {
-		return "", fmt.Errorf("git found no merge base between the base %s and HEAD (exit %d): %s", r.base, code, out)
-	}
-	return since, nil
-}
-
 // population is THE GATE'S OWN POPULATION: the files the repository would
 // commit, minus what the fleet excludes, matching the patterns given (every
 // file when none is given). Patterns are Dagger globs — "**/*.yml".
@@ -675,21 +617,6 @@ func (r *run) population(ctx context.Context, patterns ...string) ([]string, err
 	}
 	sort.Strings(files)
 	return checks.GatePopulation(files), nil
-}
-
-// verdict is the one place a chain becomes a verdict. It evaluates the chain:
-// a provisioning exec that failed, an image that would not pull, an engine
-// that went away all surface as the error — state 2, could not run, never a
-// pass. Otherwise the last exec's exit code is the state and its output is
-// the result.
-func verdict(ctx context.Context, a checks.AtomDef, ctr *dagger.Container) checks.Verdict {
-	code, err := exitCodeOf(ctx, ctr)
-	if err != nil {
-		return checks.VerdictOf(a, 2, fmt.Sprintf("the atom never ran: %v", err))
-	}
-	stdout, _ := ctr.Stdout(ctx)
-	stderr, _ := ctr.Stderr(ctx)
-	return checks.VerdictOf(a, code, stdout+stderr)
 }
 
 // output evaluates a chain whose last exec is a QUESTION rather than the
@@ -953,4 +880,19 @@ func execEvidence(cmd []string, stdout, stderr string) string {
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// pythonFiles is the tree's own python (checks.PythonFiles), read once per run
+// off the gate's own population — the same shape as goModuleDirs, because the
+// two lanes now answer the same question about themselves.
+func (r *run) pythonFiles(ctx context.Context) ([]string, error) {
+	r.pyFilesOnce.Do(func() {
+		files, err := r.population(ctx, "**/*.py")
+		if err != nil {
+			r.pyFilesErr = err
+			return
+		}
+		r.pyFiles = checks.PythonFiles(files)
+	})
+	return r.pyFiles, r.pyFilesErr
 }

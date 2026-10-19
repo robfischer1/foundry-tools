@@ -1,0 +1,18 @@
+schema = "command-atom@1"
+id = "dev:go-vet"
+stage = "dev"
+lane = "go"
+group = "language"
+desc = "go vet ./... reports nothing, run by hand from the dev lane."
+surface = "root:go.mod"
+toolchain = "go"
+argv = ["go", "vet"]
+args = "append"
+per_module = false
+judge = "exit"
+
+[[default]]
+args = ["./..."]
+unless = ["@package"]
+tail = true
+until = "-args"

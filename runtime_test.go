@@ -115,11 +115,11 @@ func TestGitReadyRebuildsALinkedWorktreeAndNamesItsOrigin(t *testing.T) {
 	delete(tree, ".git/HEAD")
 	tree[".git"] = "gitdir: /home/rob/Forge/Outputs/tartarus/.git/worktrees/rowan\n"
 	engine.withTree(tree)
-	engine.stdout(`"git","merge-base","abc","HEAD"`, sinceSha+"\n")
-	// go:mutation's resolve is a git exec on the readied repository, so its
-	// chain carries everything gitReady did.
+	// go:mutation resolves its change set with git exec'd on the readied
+	// repository, so its chain carries everything gitReady did.
+	engine.contents(goMutationNeedle, goVerdict("go:mutation", "mutation"))
 	wantState(t, runAtom(t, "go:mutation", "abc"), 0)
-	c := engine.chain(`"git","rev-parse","--verify"`)
+	c := engine.chain(goMutationNeedle, "contents")
 	wantCalls(t, c,
 		[]string{"withNewFile", `path:"/etc/gitconfig"`, `directory = *`},
 		[]string{"withExec", `args:["git","init","-q","."]`},
@@ -136,9 +136,9 @@ func TestGitReadyRebuildsALinkedWorktreeAndNamesItsOrigin(t *testing.T) {
 	engine.reset()
 	tree[".git"] = "gitdir: /nowhere\n"
 	engine.withTree(tree)
-	engine.stdout(`"git","merge-base","abc","HEAD"`, sinceSha+"\n")
+	engine.contents(goMutationNeedle, goVerdict("go:mutation", "mutation"))
 	wantState(t, runAtom(t, "go:mutation", "abc"), 0)
-	c = engine.chain(`"git","rev-parse","--verify"`)
+	c = engine.chain(goMutationNeedle, "contents")
 	if hasCall(c, "withExec", `"remote","add","origin"`) || !hasCall(c, "withExec", `args:["git","init","-q","."]`) {
 		t.Errorf("no primary means init without an origin:\n%s", c)
 	}
@@ -146,9 +146,9 @@ func TestGitReadyRebuildsALinkedWorktreeAndNamesItsOrigin(t *testing.T) {
 	// A primary checkout (.git is a directory) is left alone.
 	engine.reset()
 	engine.withTree(everyLaneTree)
-	engine.stdout(`"git","merge-base","abc","HEAD"`, sinceSha+"\n")
+	engine.contents(goMutationNeedle, goVerdict("go:mutation", "mutation"))
 	wantState(t, runAtom(t, "go:mutation", "abc"), 0)
-	c = engine.chain(`"git","rev-parse","--verify"`)
+	c = engine.chain(goMutationNeedle, "contents")
 	if hasCall(c, "withExec", `args:["git","init","-q","."]`) || !hasCall(c, "withNewFile", `path:"/etc/gitconfig"`, `directory = *`) {
 		t.Errorf("a primary checkout keeps its repository and still gets safe.directory:\n%s", c)
 	}
@@ -395,9 +395,11 @@ func TestRustLaneInstallsCargoToolsFromPinnedTarballs(t *testing.T) {
 		t.Error("the gate's path fetched cargo-nextest, which only rust:mutation runs")
 	}
 
-	scriptRustMutation(map[string]string{".copier-answers.yml": "critical_modules: src/lib.rs\n"})
+	engine.reset()
+	engine.withTree(everyLaneTree)
+	engine.contents(rustMutationNeedle, rustVerdict("rust:mutation", "mutation"))
 	wantState(t, runAtom(t, "rust:mutation", "abc123"), 0)
-	c := engine.chain(rustMutantsNeedle, "exitCode")
+	c := engine.chain(rustMutationNeedle, "contents")
 	if pinnedFetch(checks.CargoNextestURL, "") == "" {
 		t.Error("the engine was not asked to verify cargo-nextest, from the mirror, against its pin")
 	}
@@ -568,8 +570,7 @@ func TestToolchainAtomsMountTheNarrowedTreeAndGitAtomsDoNot(t *testing.T) {
 	for _, id := range []string{"go:mutation", "fleet:witness"} {
 		engine.reset()
 		engine.withTree(everyLaneTree)
-		engine.stdout(`"git","merge-base","abc123","HEAD"`, "since0\n")
-		engine.stdout(`"git","diff","--relative"`, "a.go\n")
+		engine.contents(goMutationNeedle, goVerdict("go:mutation", "mutation"))
 		runAtom(t, id, "abc123")
 		if src := engine.chain(narrowed); src != "" {
 			t.Errorf("%s runs git against the mount and must see the whole tree, but built a narrowed one:\n%s", id, src)

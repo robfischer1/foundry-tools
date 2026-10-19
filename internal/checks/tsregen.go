@@ -104,27 +104,10 @@ func ParseRegenProv(body string) (RegenProv, error) {
 }
 
 // SHA256Hex is the digest of a string's bytes, as regen-check.sh's `sha256sum`.
-// FOR TEXT ONLY: a file read through the SDK as a string comes back as UTF-8, so
-// a binary (guest.wasm) hashed here reads as a different file. Binaries are
-// hashed by sha256sum in the engine (ParseSha256sum).
+// FOR TEXT ONLY: a binary (guest.wasm) is hashed by SHA256File, from its bytes.
 func SHA256Hex(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])
-}
-
-// ParseSha256sum reads `sha256sum` output (`<64 hex>  <path>` per line) into
-// path -> digest. A line that is not that shape is an error rather than a
-// skipped file: a digest that was not read is not a match.
-func ParseSha256sum(out string) (map[string]string, error) {
-	sums := map[string]string{}
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		sum, path, ok := strings.Cut(line, "  ")
-		if !ok || len(sum) != 64 || path == "" {
-			return nil, fmt.Errorf("sha256sum printed %q, not `<digest>  <path>`", line)
-		}
-		sums[path] = sum
-	}
-	return sums, nil
 }
 
 // RegenExpect compares a measurement with its pin the way the script's

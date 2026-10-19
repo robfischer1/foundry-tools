@@ -1,0 +1,20 @@
+schema = "command-atom@1"
+id = "dev:ts-fmt"
+stage = "dev"
+lane = "ts"
+group = "language"
+desc = "the repo's format script rewrites the tree in place."
+surface = "root:package.json"
+toolchain = "bun"
+argv = ["bun", "run", "format"]
+args = "append"
+per_module = false
+judge = "exit"
+needs = ["tool:node", "tool:curl"]
+writes_tree = true
+
+# THE GATE TWIN IS ts:bun-gate, whose script opens with `format:check`; this is
+# the rewrite, the repo's `format` script (prettier --write), on the atom's own
+# copy of the tree. Same toolchain image, same tool:node, same frozen install as
+# the toolchain's preflight (tools.toml [toolchain.bun]). A star without a
+# `format` script (stellar-core-ts) answers bun's missing-script error.

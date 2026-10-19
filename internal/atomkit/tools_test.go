@@ -98,3 +98,29 @@ func TestUT_695_Preflights(t *testing.T) {
 		t.Fatalf("Preflights = %v", got.Preflights)
 	}
 }
+
+// DEF-B4-git-node: an image tool names the programs it puts on an atom's PATH
+// (bins), so a whole root filesystem (the golang image, for its git) does not
+// shadow the container's own tar, ps and sh.
+func TestDEF_B4_git_node_ImageToolBins(t *testing.T) {
+	const img = "docker.io/library/golang:1.26.9-bookworm@sha256:" + "4444444444444444444444444444444444444444444444444444444444444444"
+	pin := func(bins string) string {
+		return "schema = \"tools@1\"\n[tool.git]\nkind = \"image\"\nimage = \"" + img + "\"\n" + bins
+	}
+	f, err := ParseTools([]byte(pin("bins = [\"usr/bin/git\"]\n")))
+	if err != nil || !reflect.DeepEqual(f.Tools["git"].Bins, []string{"usr/bin/git"}) {
+		t.Fatalf("%+v %v", f.Tools["git"], err)
+	}
+	for name, bad := range map[string]string{
+		"absolute": "bins = [\"/usr/bin/git\"]\n", "parent": "bins = [\"../git\"]\n", "empty": "bins = [\"\"]\n",
+		"unclean": "bins = [\"usr//bin/git\"]\n", "dir": "bins = [\"usr/bin/\"]\n",
+	} {
+		if _, err := ParseTools([]byte(pin(bad))); err == nil || !strings.Contains(err.Error(), "tool.git: bins entry") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	url := "schema = \"tools@1\"\n[tool.k]\nkind = \"url\"\nspec = \"https://x.test/k\"\nsha256 = \"" + strings.Repeat("9", 64) + "\"\nbins = [\"k\"]\n"
+	if _, err := ParseTools([]byte(url)); err == nil || !strings.Contains(err.Error(), "tool.k: bins belong to an image tool") {
+		t.Errorf("a url tool with bins: %v", err)
+	}
+}

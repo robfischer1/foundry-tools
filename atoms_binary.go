@@ -35,11 +35,33 @@ var atomsSourceInclude = []string{
 	"internal/catalogue/**",
 	"internal/checks/**",
 	"internal/execmem/**",
+	"internal/pgroupps/**",
+	"internal/gomut/**",
+	"internal/pymut/**",
+	"internal/rustmut/**",
+	"internal/tsmut/**",
 	"internal/govlaw/**",
+	"internal/hadescall/**",
 	"internal/unitkey/**",
+	"internal/witnesscall/**",
 	"internal/orbitcompose/**",
 	"internal/orbitlane/**",
+	"internal/regenlane/**",
+	"internal/regenkit/**",
+	"internal/goregen/**",
+	// rust:wit-compose and dev:rust-replay share one body
+	"internal/witreplay/**",
 	"internal/retiredverbs/**",
+	"internal/releasekit/**",
+	// the cast lane's compile (rust:cast-release, go:cast-release) and its decisions
+	"internal/publishpack/**",
+	"internal/publishlane/**",
+	"internal/castrelease/**",
+	"internal/castlane/**",
+	"internal/buildlane/**",
+	"internal/copyout/**",
+	// ts:visual's: the artifact's push and the login it pushes with
+	"internal/visuallane/**",
 }
 
 // atomsBinPath is where the binary sits in the fleet lane's container.
@@ -102,7 +124,7 @@ func stageHas(stage, id string) bool { return slices.Contains(atoms.StageIDs(sta
 // container for the stage that carries fleet:witness, so the binary asks
 // narcissus as the same SVID the chain does (through the witnesscall layer).
 // Without a socket (a local run, a lane that forwarded none) nothing is mounted,
-// the flag is not passed and the atom asks in the clear and says so. The owner is
+// the flag is not passed and the atom settles could-not-run, loudly. The owner is
 // root, the tools container's user: the chain's nonroot owner belonged to the
 // static base its helper ran on.
 func (r *run) withAtomSpire(ctr *dagger.Container, stage string) (*dagger.Container, []string) {

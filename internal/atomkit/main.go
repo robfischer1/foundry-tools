@@ -37,9 +37,18 @@ const defaultRoot = "/src"
 const reasonCap = 2000
 
 // Main is every logic atom's main(): `atom --describe` prints its index entry,
-// and `atom [root]` runs its Check over the tree and writes the verdict to
-// ATOM_OUT. It exits with the verdict's state (lld.md FN-079).
-func Main(d Def) { exit(run(d, os.Args)) }
+// and `atom [root [arg...]]` runs its Check over the tree and writes the verdict
+// to ATOM_OUT. The arguments after the root are the dev request's, which a dev
+// atom reads from In.Args (PlanEntry.Args, appended to the command line). It exits with the verdict's state (lld.md FN-079). Run through a link
+// named for one of the helpers the mutation atoms carry (atoms.RunHelper) it is
+// that helper instead.
+func Main(d Def) {
+	if code, ok := atoms.RunHelper(os.Args); ok {
+		exit(code)
+		return
+	}
+	exit(run(d, os.Args))
+}
 
 func run(d Def, args []string) int {
 	if len(args) > 1 && args[1] == "--describe" {
@@ -59,7 +68,11 @@ func run(d Def, args []string) int {
 	if out == "" {
 		out = workRoot + "/out/" + EscapeID(d.ID) + ".json"
 	}
-	v := verdictFor(d, root)
+	var extra []string
+	if len(args) > 2 {
+		extra = args[2:]
+	}
+	v := verdictFor(d, root, extra)
 	if err := WriteVerdict(out, v); err != nil {
 		fmt.Fprintf(stderr, "atomkit: verdict unwritable: %v\n", err)
 		return 2
@@ -69,12 +82,13 @@ func run(d Def, args []string) int {
 
 // verdictFor loads the tree, runs the Check under its deadline and fills in
 // what the atom may leave empty: its identity, its lines and its times.
-func verdictFor(d Def, root string) checks.Verdict {
+func verdictFor(d Def, root string, args []string) checks.Verdict {
 	started := now()
 	var v checks.Verdict
 	if in, err := LoadIn(root); err != nil {
 		v = cannotRun(d, err.Error())
 	} else {
+		in.Args = args
 		v = check(d, in)
 	}
 	if v.Atom == "" {
@@ -156,7 +170,8 @@ func oneLine(s string) string {
 }
 
 // LoadIn is the Input an atom reads (lld.md FN-080): from the tree facts
-// ATOM_TREE names when it is set, else computed from the checkout at root
+// ATOM_TREE names when it is set (its Root is replaced by root, the checkout
+// the atom runs over), else computed from the checkout at root
 // when git is on PATH, with ATOM_BASE, ATOM_ORIGIN and ATOM_FORK as the
 // change set's base, the origin URL and the fork record (all optional).
 func LoadIn(root string) (In, error) {
@@ -169,9 +184,11 @@ func LoadIn(root string) (In, error) {
 			return In{}, err
 		}
 		in = inOf(t)
-		if in.Root == "" {
-			in.Root = root
-		}
+		// The root the atom was run at is the tree it reads and writes. The facts
+		// were collected once over /src; a writes_tree atom runs over its own copy
+		// (/work/<id>/src) while /src is read-only (DEF-B4-writes-tree). The
+		// Dagger adapter runs at /src, which is the facts' root: nothing moves.
+		in.Root = root
 	} else {
 		if _, err := exec.LookPath("git"); err != nil {
 			return In{}, errors.New("no tree facts and no git")

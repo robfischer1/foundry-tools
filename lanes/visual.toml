@@ -1,3 +1,18 @@
 schema = "lane@1"
 lane = "visual"
 stages = ["visual"]
+
+[[phase]]
+name = "visual"
+kind = "fanout"
+atoms = ["stage:visual"]
+
+# The artifact is pushed from a container of its own. ts:visual runs the tree's
+# own scripts, so it holds no identity: it leaves the layers in /work, and this
+# phase's container alone mounts the SPIRE socket. The push is the pod's SVID,
+# so the phase names no secret.
+[[phase]]
+name = "push"
+kind = "sequence"
+capability = "push-visual"
+after = ["visual"]

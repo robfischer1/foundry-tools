@@ -9,7 +9,7 @@ import (
 
 // THE WIT ATOMS' JUDGEMENTS, as pure functions over strings — whether a tree
 // declares what each atom reads, and what the guest artifact is called. The
-// atoms themselves (atoms_wit.go) only fetch, mount and point.
+// atoms themselves (atoms/rust/wit-guest, atoms/rust/wit-compose) only run the tools.
 //
 // WHY THESE TWO EXIST (rob/stellar-core#13761). An interface repo that carries
 // only WIT and a tape has no language lane, so nothing graded its WIT: a file
@@ -48,7 +48,12 @@ const (
 	// features (E0432 on the kafka-topics items, then "Blocking waiting for
 	// file lock on build directory"). Three of five gate runs went red on a
 	// tree that passes. A feature set of its own needs a target of its own.
-	WitGuestTestTargetDir = ReleaseCachePath + "/wit-guest-test"
+	WitGuestTestTargetDir = ReleaseCachePath + "/" + WitGuestTestDir
+	// WitGuestTestDir is that directory's name under the atom's cargo target
+	// dir (CARGO_TARGET_DIR): the atom builds its native test in
+	// <target>/wit-guest-test wherever the target is, so the executor's per-pod
+	// target and the Dagger volume read the same.
+	WitGuestTestDir = "wit-guest-test"
 )
 
 // WasmToolsVersion / WasmToolsURL fetch the Bytecode Alliance's wasm-tools
@@ -69,17 +74,17 @@ const (
 // `component new` + `validate` accept the guest.
 const (
 	// renovate: datasource=github-releases depName=bytecodealliance/wasm-tools extractVersion=^v(?<version>.*)$
-	WasmToolsVersion = "1.261.0"
-	WasmToolsURL     = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.261.0/wasm-tools-1.261.0-x86_64-linux.tar.gz"
+	WasmToolsVersion = "1.262.0"
+	WasmToolsURL     = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.262.0/wasm-tools-1.262.0-x86_64-linux.tar.gz"
 	// WasmToolsMember is the binary inside that tarball.
-	WasmToolsMember = "wasm-tools-1.261.0-x86_64-linux/wasm-tools"
+	WasmToolsMember = "wasm-tools-1.262.0-x86_64-linux/wasm-tools"
 
 	// JustVersion / JustURL fetch `just`, the runner the repository's own
 	// validate recipe is written for. The musl build is static: it runs in the
 	// fleet lane image and the rust one alike.
 	// renovate: datasource=github-releases depName=casey/just
-	JustVersion = "1.58.0"
-	JustURL     = "https://github.com/casey/just/releases/download/1.58.0/just-1.58.0-x86_64-unknown-linux-musl.tar.gz"
+	JustVersion = "1.59.0"
+	JustURL     = "https://github.com/casey/just/releases/download/1.59.0/just-1.59.0-x86_64-unknown-linux-musl.tar.gz"
 	// JustMember is the binary inside that tarball (it sits at the root).
 	JustMember = "just"
 
@@ -92,15 +97,16 @@ const (
 	WacURL     = "https://github.com/bytecodealliance/wac/releases/download/v0.12.0/wac-cli-x86_64-unknown-linux-musl"
 
 	// WitComposeScript / WitReplayManifest are the two files rust:wit-compose
-	// needs the tree to track; WitComposedPath is where the composition lands
-	// and WitReplayTargetDir where the replay host builds, in the release
-	// volume but apart from the guest's target dir (the host is a workspace of
-	// its own). WitReplayHost is where that build copies the host out to.
+	// needs the tree to track; WitComposedName is the file the composition lands
+	// in (under the atom's work directory) and WitReplayDir the directory the
+	// replay host builds in, under the atom's cargo target dir but apart from
+	// the guest's target (the host is a workspace of its own).
+	// WitReplayTargetDir is that directory on the Dagger release volume.
 	WitComposeScript   = "tools/compose/compose.sh"
 	WitReplayManifest  = "tools/replay/Cargo.toml"
-	WitComposedPath    = "/tmp/fleet.component.wasm"
-	WitReplayTargetDir = "/cache/cargo-release/replay-host"
-	WitReplayHost      = "/tmp/replay-host/replay"
+	WitComposedName    = "fleet.component.wasm"
+	WitReplayDir       = "replay-host"
+	WitReplayTargetDir = ReleaseCachePath + "/" + WitReplayDir
 	// WitRedGlob is where a tree's red tapes live (F18): cases marked
 	// "expect": "red", replayed through the same composition. tools/replay
 	// judges them as red - a violated case passes only while the component
@@ -258,12 +264,26 @@ const (
 	WasmTools1250Member  = "wasm-tools-1.250.0-x86_64-linux/wasm-tools"
 )
 
+// WasmTools1261* is the version the composed cores of stellar-core-go record
+// ("wasm-tools 1.261.0"): dev:go-regen composes with it, because a different
+// wasm-tools writes a different component around the very same core modules
+// (MEASURED on classescore: 1.262.0 left every embedded module and the bindings
+// byte-identical and changed guest.wasm). The sum is the asset's, seeded in the
+// tool mirror.
+const (
+	WasmTools1261Version = "1.261.0"
+	WasmTools1261URL     = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.261.0/wasm-tools-1.261.0-x86_64-linux.tar.gz"
+	WasmTools1261Member  = "wasm-tools-1.261.0-x86_64-linux/wasm-tools"
+)
+
 // WasmToolsRelease answers the release asset for a recorded wasm-tools version:
 // its URL and the tarball member, or ok false when none is pinned.
 func WasmToolsRelease(version string) (url, member string, ok bool) {
 	switch version {
 	case WasmTools1250Version:
 		return WasmTools1250URL, WasmTools1250Member, true
+	case WasmTools1261Version:
+		return WasmTools1261URL, WasmTools1261Member, true
 	case WasmToolsVersion:
 		return WasmToolsURL, WasmToolsMember, true
 	}

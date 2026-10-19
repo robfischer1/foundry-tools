@@ -53,7 +53,7 @@ func TestTheDeclarationValidatesAndKeepsTheRowItReplaces(t *testing.T) {
 		t.Fatal(err)
 	}
 	if Def.ID != id || Def.Stage != checks.StagePrecommit || Def.Lane != checks.LanePython || Def.Group != checks.GroupOf(id) ||
-		Def.Toolchain != "python" || Def.NotOnForks != checks.ForkFleetStyle || !Def.NeedsManifest || Def.Surface != "root:pyproject.toml" ||
+		Def.Toolchain != "python" || Def.NotOnForks != checks.ForkFleetStyle || !Def.NeedsManifest || !Def.WritesTree || Def.Surface != "root:pyproject.toml" ||
 		Def.Desc != "mypy is clean over src and tests, under the fleet's strict configuration." ||
 		!slices.Equal(Def.Needs, []string{"tool:uv"}) || Def.Timeout != 30*time.Minute {
 		t.Errorf("%+v", Def)

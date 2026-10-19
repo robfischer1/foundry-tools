@@ -29,7 +29,9 @@ type Manifest struct {
 	SubsumedBy string            `json:"subsumed_by" toml:"subsumed_by"`
 	NotOnForks string            `json:"not_on_forks" toml:"not_on_forks"`
 	WritesTree bool              `json:"writes_tree" toml:"writes_tree"`
-	Args       string            `json:"args" toml:"args"` // none | append
+	Args       string            `json:"args" toml:"args"`                     // none | append
+	Default    []Default         `json:"default,omitempty" toml:"default"`     // args.go; omitted when empty
+	Preflight  *bool             `json:"preflight,omitempty" toml:"preflight"` // false opts out; unset is true
 	Env        map[string]string `json:"env,omitempty" toml:"env"`
 }
 
@@ -69,6 +71,9 @@ func ParseManifest(b []byte) (Manifest, error) {
 	if m.Args != "none" && m.Args != "append" {
 		return Manifest{}, fmt.Errorf("args %s is not none or append", m.Args)
 	}
+	if err := checkDefaults(m); err != nil {
+		return Manifest{}, err
+	}
 	if err := oneCommand(m); err != nil {
 		return Manifest{}, err
 	}
@@ -78,7 +83,7 @@ func ParseManifest(b []byte) (Manifest, error) {
 // oneCommand is R46 for a parsed manifest: the script rules first, in rule
 // order, and a shell as argv[0] last (DEF-8-028).
 func oneCommand(m Manifest) error {
-	if b := scriptBreaches(m.Argv, m.Env); len(b) > 0 {
+	if b := scriptBreaches(m.AllArgv(), m.Env); len(b) > 0 {
 		return errors.New(b[0].Text)
 	}
 	if name := path.Base(m.Argv[0]); shells[name] {

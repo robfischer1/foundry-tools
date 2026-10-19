@@ -9,7 +9,8 @@ import (
 	"time"
 )
 
-// Main is the command: pinsync [-C dir] [-n]. Exit 0 when the tree is in step
+// Main is the command: pinsync [-C dir] [-n] [-relock]. -relock regenerates the
+// python lock even when no coupled pin moved. Exit 0 when the tree is in step
 // or was brought into step, 1 when -n finds something to move, 2 when it could
 // not run (and then nothing it had not finished is written).
 func Main(ctx context.Context, args []string, getenv func(string) string, client *http.Client, stdout, stderr io.Writer) int {
@@ -17,8 +18,9 @@ func Main(ctx context.Context, args []string, getenv func(string) string, client
 	fs.SetOutput(stderr)
 	root := fs.String("C", ".", "the foundry-tools checkout")
 	dry := fs.Bool("n", false, "name what would move; write and fetch nothing")
+	relock := fs.Bool("relock", false, "regenerate the python lock even when no coupled pin moved")
 	if fs.Parse(args) != nil || fs.NArg() != 0 {
-		fmt.Fprintln(stderr, "usage: pinsync [-C dir] [-n]")
+		fmt.Fprintln(stderr, "usage: pinsync [-C dir] [-n] [-relock]")
 		return 2
 	}
 	token := getenv("GITHUB_TOKEN")
@@ -27,7 +29,7 @@ func Main(ctx context.Context, args []string, getenv func(string) string, client
 	}
 	e := &Env{
 		Root: *root, HTTP: client, GitHubAPI: "https://api.github.com", Token: token,
-		Write: !*dry, Log: stderr, RunLock: ExecLock,
+		Write: !*dry, Log: stderr, RunLock: ExecLock, Relock: *relock,
 	}
 	res, err := e.Run(ctx)
 	for _, f := range res.Changed {

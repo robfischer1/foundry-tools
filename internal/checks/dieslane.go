@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -238,11 +239,16 @@ func OpaAllowed(doc string) ([]string, error) {
 // asserted PRESENT and NON-EMPTY, by name, because an empty or partial data
 // document is the silent fail-open the bundle gate exists to catch.
 //
+// grants and principals are the two documents `themis grants render` writes from the
+// grant facts: every authz_v2 answer (decision, decide, the act packages, the door's
+// path locks, alias resolution) reads them, and nothing else carries a grant since the
+// legacy v1 tables were deleted (stark42 S3).
+//
 // capabilities (Capabilities S1) is the declared-capability root authz_v2.decide
 // reads first: an empty one denies every call to every star, so its absence from
 // the built bundle is a fail-CLOSED outage rather than a fail-open, and just as
 // silent at every source-tree gate.
-var DiesRequiredDataRoots = []string{"authz_audience", "authz_grants", "authz_meta", "path_grants", "subject_aliases", "capabilities"}
+var DiesRequiredDataRoots = []string{"authz_audience", "grants", "principals", "capabilities"}
 
 // DiesDataKeys grades the BUILT bundle's data.json: which required roots are
 // missing or empty, and how many stars the star_only roster carried through the
@@ -374,16 +380,25 @@ var ContractFixtures = []ContractFixture{
 // loop could be satisfied by a checker that simply fails everything — including
 // a pending entry whose grounds genuinely still hold, which is a legitimate
 // deferral. A gate that cannot fail is a gate that is not there.
-func ContractFixtureVerdict(name string, expectFail bool, code int) (line string, bad bool) {
+//
+// ONLY EXIT 0 AND EXIT 1 ARE THE CHECKER'S ANSWERS (pass, diverge). Any other
+// code is the runner's or uv's own failure (uv exits 2 when it cannot provision
+// an interpreter), and a tool that did not run is not a fixture that was
+// detected or a control that was invented: toolFailed is true, bad is false,
+// and the caller settles cannot-run instead of a finding.
+func ContractFixtureVerdict(name string, expectFail bool, code int) (line string, bad, toolFailed bool) {
+	if code != 0 && code != 1 {
+		return "::error::fixture '" + name + "' did not run to a verdict (exit " + strconv.Itoa(code) + ") - the tool failed, not the checker", false, true
+	}
 	passed := code == 0
 	if expectFail {
 		if passed {
-			return "::error::fixture '" + name + "' PASSED - the checker no longer detects it", true
+			return "::error::fixture '" + name + "' PASSED - the checker no longer detects it", true, false
 		}
-		return "  fixture " + name + ": correctly detected", false
+		return "  fixture " + name + ": correctly detected", false, false
 	}
 	if passed {
-		return "  control " + name + ": correctly passed", false
+		return "  control " + name + ": correctly passed", false, false
 	}
-	return "::error::control '" + name + "' FAILED - the checker invents divergence", true
+	return "::error::control '" + name + "' FAILED - the checker invents divergence", true, false
 }

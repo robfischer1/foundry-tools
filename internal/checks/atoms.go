@@ -50,6 +50,17 @@ const (
 	// --stage=visual`) where the tree declares a suite, and waits on it or
 	// not by its own list (ourea cirun.AdvisoryLanes): advisory first.
 	StageVisual = "visual"
+	// StageCast is the cast lane's compile (b6, DEF-B56-013): the binaries a
+	// binary repo ships, built by rust:cast-release and go:cast-release. Like
+	// orbit and visual it is NOT in PullPathStages, and no lane asks for it by
+	// stage: lanes/cast.toml names the two atoms, so a gate, a check or a push
+	// never runs a cast's compile.
+	StageCast = "cast"
+	// StagePublish is the publish lane's builds (b6): the wheels and sdists, the
+	// npm tarballs, which python:artifacts and ts:pack stage for the publish
+	// capability to upload. Like cast it is in no lane's stages: lanes/publish.toml
+	// names the two atoms, so no gate, check or push builds them.
+	StagePublish = "publish"
 )
 
 // AtomDef is one catalogued check, as code.
@@ -174,115 +185,15 @@ func atomTable() []AtomDef {
 		// that answers in seconds must not wait behind a suite that answers in
 		// minutes. (The order is catalogueOrder's now: go:test, go:test-race and the
 		// rest of the go lane live in atoms/go.)
-		{
-			ID: "go:release", Stage: StagePrepush, Lane: LaneGo, Image: ImageGo,
-			Desc: "The release binaries the image will carry compile, with the image's own flags — for a Dockerfile that copies from release/; one that compiles itself is built by the build lane, and this is absent.",
-		},
 
 		// ---- python ----
-		{
-			ID: "python:release", Stage: StagePrepush, Lane: LanePython, Image: ImagePython,
-			Desc: "The venv the image will carry builds from the star's lock on the image's own python base — for a Dockerfile on foundry/base-images/python that copies from release/; any other image is absent.",
-			// The build lane, and the one Rob named: a release builds from the
-			// star's lock, which is the manifest's own artifact.
-			NeedsManifest: true,
-		},
 
 		// ---- rust ----
-		{
-			ID: "rust:release", Stage: StagePrepush, Lane: LaneRust, Image: ImageRust,
-			Desc: "The release binaries the image will carry compile under cargo's release profile — for a Dockerfile that copies from release/; one that compiles itself is built by the build lane, and this is absent.",
-		},
-		{
-			ID: "rust:wit-guest", Stage: StagePrepush, Lane: LaneRust, Image: ImageRust,
-			Desc:          "Each wit-guest-<world> feature (discovered from Cargo.toml) builds for wasm32-unknown-unknown, lifts to a component that validates, and passes its native cargo test; absent where the manifest declares none.",
-			NeedsManifest: true,
-		},
-		{
-			ID: "rust:wit-compose", Stage: StagePrepush, Lane: LaneRust, Image: ImageRust,
-			Desc:          "Every wit-guest world composes into one valid component through tools/compose/compose.sh, and every tests/tapes/<world>.json replays through it with the native core's answers, and every tests/red/*.json replays as red (the answer is its `today`, never its prior-art response); absent where the tree carries no composer or replay host.",
-			NeedsManifest: true,
-		},
 
 		// ---- ts ----
-		{
-			ID: "ts:regen", Stage: StagePrepush, Lane: LaneTS, Image: ImageTS,
-			Desc:          "Each core the justfile's regen-check names regenerates byte-identical from its pinned WIT, core commit and tool versions (the star's own build and transpile scripts, run on the engine); absent where the justfile calls no scripts/regen-check.sh.",
-			NeedsManifest: true,
-		},
-		{
-			ID: "ts:release", Stage: StagePrepush, Lane: LaneTS, Image: ImageTS,
-			Desc: "The record's release steps leave the image's files under release/, run on the image's own bun base — for a Dockerfile on foundry/base-images/bun that copies from release/; any other image is absent.",
-		},
 
 		// ---- compose: the host stacks. Ported off the act-runner's validate.yml ----
 
-		// ---- visual: the visual lane, asked for by name (StageVisual) ----
-		{
-			ID: "ts:visual", Stage: StageVisual, Lane: LaneTS, Image: ImageTS, NeedsManifest: true,
-			Desc: "Every Playwright screenshot suite visual.toml declares matches its committed baselines, rendered in the lane's pinned image.",
-		},
-		// ---- mutation: a pull's change set, mutated ----
-		//
-		// ONE VERDICT, FOUR LANGUAGES. Each atom mutates in DIFF mode against
-		// GATE_BASE — the pull's merge base as the door names it — and answers 0
-		// clean, 1 survivors, 2 could not measure. Each runs its tools as plain
-		// execs and settles in Go (GoMutationVerdict, RustMutationVerdict,
-		// TSMutationVerdict, PythonReportVerdict); a tool the engine never ran
-		// is could-not-run, never a pass.
-		//
-		// THE HISTORY IS THERE IN THE LANE THAT MATTERS. The mutation Job clones
-		// the repository whole and checks the head out, so the base resolves and
-		// the diff is real. A local pre-push run hands the engine a linked
-		// worktree, which r.gitReady turns into a throwaway repository with no
-		// history: the atom then stands down 0 with "no usable PR base sha", and
-		// the door's Job is the one that measures.
-		//
-		// critical_modules IS THE REPO'S DECLARATION for python, rust and ts,
-		// read off .copier-answers.yml where the template question puts it — the
-		// same string the retired mutation.yml rendered into its `modules` input.
-		// AN EMPTY LIST IS NOT AN OPT-OUT: a repo that declares nothing gets the
-		// whole diff as its scope, and the atom says so rather than going ABSENT
-		// (Rob, 2026-09-11 — nothing with tests goes un-mutation-tested). Go
-		// needs none: gremlins scopes to the diff itself, exactly as mutation-go
-		// did.
-		//
-		// A REPO HAS NO SAY. The first cut of these atoms sourced a repo-root
-		// ci/mutation.env — MUT_* knobs standing in for the retired workflow's
-		// inputs — and Rob asked why a repo should have a say in anything
-		// (2026-09-11). It should not: the scripts honour MUT_GATE=false, so that
-		// file was a one-line switch to turn a fleet gate off, the exact shape
-		// stop-justifications exists to refuse (Rule #2: one canonical gate,
-		// always the latest, a red is the committer's to fix). It is gone. The
-		// one repo fact the lane reads is critical_modules — a declaration of
-		// WHAT matters, not a dial on HOW hard to look. Everything else is the
-		// fleet's default.
-		//
-		// NeedsDies ON go:mutation FOR THE SAME REASON go:test-race CARRIES IT:
-		// gremlins gathers coverage by running the repo's `go test`, and an atom
-		// that runs a repo's `go test` runs its armed goldens
-		// (TestTheGoTestAtomCarriesTheFleetRecordTree holds both).
-		{
-			ID: "go:mutation", Stage: StageMutation, Lane: LaneGo, Image: ImageGo, NeedsDies: true, NotOnForks: ForkChangeBar,
-			Desc: "Every mutant gremlins makes of this pull's changed Go is killed by the tests.",
-		},
-		{
-			ID: "python:mutation", Stage: StageMutation, Lane: LanePython, Image: ImagePython, NotOnForks: ForkChangeBar,
-			Desc: "Every mutant cosmic-ray makes of this pull's changes to the declared critical modules is killed by the tests.",
-			// Its scope is critical_modules off .copier-answers.yml and it
-			// runs cosmic-ray against the project — neither of which a tree
-			// with no manifest has. Rob, 2026-09-25: "Leave mutation off for
-			// now." Off is this line; the lane's lint and test still run.
-			NeedsManifest: true,
-		},
-		{
-			ID: "rust:mutation", Stage: StageMutation, Lane: LaneRust, Image: ImageRust, NotOnForks: ForkChangeBar,
-			Desc: "Every viable mutant cargo-mutants makes of this pull's changes to the declared critical modules is killed by the tests.",
-		},
-		{
-			ID: "ts:mutation", Stage: StageMutation, Lane: LaneTS, Image: ImageTS, NotOnForks: ForkChangeBar,
-			Desc: "Every mutant StrykerJS makes of this pull's changes to the declared critical modules is killed by the tests.",
-		},
 	}
 }
 

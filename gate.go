@@ -126,12 +126,12 @@ func (m *FoundryTools) GateFile(
 	// The SPIRE agent's workload socket, forwarded by the lane pod
 	// (--spire=/run/spire/agent/public/api.sock). fleet:witness asks narcissus
 	// over its mTLS door as the SVID it issues — the lane's own run,
-	// spiffe://notusmi.com/job/<lane>/<job>. Absent, the witness asks in the
-	// clear exactly as before and says so.
+	// spiffe://notusmi.com/job/<lane>/<job>. Absent, fleet:witness settles
+	// could-not-run: it never asks in the clear.
 	// +optional
 	spire *dagger.Socket,
 	// The registry credential the visual lane pushes its artifact with — the
-	// diff images and the regenerated baselines (atoms_ts_visual.go), a docker
+	// diff images and the regenerated baselines (atom_env_ts.go), a docker
 	// config JSON naming registry.notusmi.com. Only the visual stage reads it;
 	// absent, that lane grades exactly the same and says it pushed nothing.
 	// +optional
@@ -157,8 +157,7 @@ func (m *FoundryTools) GateFile(
 	registrySvid string,
 ) (*dagger.File, error) {
 	if reuse && recordToken != nil {
-		m.lookup = lookupVia(m.Repo, recordToken)
-		m.audit = auditSampled(m.Sha)
+		m.mutantsToken = recordToken
 	}
 	m.spire = spire
 	m.artifactAuth = artifactAuth

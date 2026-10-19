@@ -12,12 +12,7 @@ import (
 // loses NotOnForks changes what every fork is graded by, so the set is
 // spelled out here rather than derived. The atoms that live in their own files
 // are pinned in internal/catalogue, which sees them; this sees the table alone.
-var forkInert = map[string]string{
-	"go:mutation":     ForkChangeBar,
-	"python:mutation": ForkChangeBar,
-	"rust:mutation":   ForkChangeBar,
-	"ts:mutation":     ForkChangeBar,
-}
+var forkInert = map[string]string{}
 
 func TestTheForkLaneIsTheCatalogueRowsThatSaySo(t *testing.T) {
 	got := map[string]string{}
@@ -38,22 +33,6 @@ func TestTheForkLaneIsTheCatalogueRowsThatSaySo(t *testing.T) {
 	for id := range got {
 		if _, ok := forkInert[id]; !ok {
 			t.Errorf("%s stands down on a fork and the pin does not say so", id)
-		}
-	}
-}
-
-// WHAT A FORK ALWAYS KEEPS: the build, the test suites, the audits, the
-// release builds, SAST, and cargo fmt — which upstreams enforce as the same
-// command (arcjet/gravity's ci.yml runs `cargo fmt --all --check`).
-func TestAForkKeepsItsBuildTestsAuditsAndSAST(t *testing.T) {
-	for _, id := range []string{
-		"rust:release",
-		"go:release",
-		"python:release",
-		"ts:release",
-	} {
-		if a := AtomByID(id); a.NotOnForks != "" {
-			t.Errorf("%s stands down on a fork (%q); a fork keeps it", id, a.NotOnForks)
 		}
 	}
 }

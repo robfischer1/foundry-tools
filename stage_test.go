@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -494,9 +493,9 @@ func TestAWorktreePushWithAnOriginGradesTheRealChangeSet(t *testing.T) {
 	// …and it is the .git of the tree the mutation atom runs in: the snapshot
 	// less its dangling .git file, the fetched .git in its place, then the
 	// snapshot committed on top of the base. No throwaway repository.
-	c := engine.chain(`"git","merge-base","abc123","HEAD"`)
+	c := engine.chain(goMutationNeedle)
 	if c == "" {
-		t.Fatalf("the mutation atom never asked for the merge base:\n%v", engine.chains())
+		t.Fatalf("the mutation atom never ran:\n%v", engine.chains())
 	}
 	// The querybuilder spells withDirectory's two arguments in either order,
 	// and each spelling is its own id here, so the mount is matched against
@@ -774,13 +773,15 @@ func TestTheRecordFileNameIsTheNameTheDoorReads(t *testing.T) {
 	}
 }
 
-// THE GATE'S COMPILE AND THE BUILD LANE'S ARE ONE EXEC. go:release (the push)
-// and Release() (F14's Build) both reach releaseBuild, and the engine answers
-// the second from the first only when the chain it keys on is the same: the
-// tree-only mount (no .git, whose history differs between a pull head and the
-// merge commit and which go build stamps into the binary) and no CA_REASK (the
-// nonce a re-ask after a could-not-run carries, on purpose, to miss the cache).
-func TestTheGatesReleaseAndTheBuildLanesReleaseShareOneExecKey(t *testing.T) {
+// THE BUILD LANE'S COMPILE READS THE TREE AND NOT ITS HISTORY. Release() mounts
+// the code without .git, whose history differs between a pull head and the
+// merge commit and which go build stamps into the binary, and carries no
+// CA_REASK (the nonce a re-ask after a could-not-run carries, on purpose, to
+// miss the cache), so the same tree is the same exec whichever commit builds it.
+// (The gate's release atom no longer shares this exec: it runs its compile inside
+// its own, in a checkout with a .git of its own; the executor's release capability
+// replaces the sharing at step 6.)
+func TestTheBuildLanesReleaseCompilesTheCodeAndNotTheHistory(t *testing.T) {
 	tree := map[string]string{
 		"Dockerfile":          copiesHades,
 		".copier-answers.yml": "service_name: hades\n",
@@ -791,14 +792,6 @@ func TestTheGatesReleaseAndTheBuildLanesReleaseShareOneExecKey(t *testing.T) {
 
 	engine.reset()
 	engine.withTree(tree)
-	wantState(t, runAtom(t, "go:release", ""), 0, "release build: hades")
-	gate := engine.chain(compile, "exitCode")
-	if gate == "" {
-		t.Fatalf("the gate's release build never ran:\n%v", engine.chains())
-	}
-
-	engine.reset()
-	engine.withTree(tree)
 	if _, err := (&FoundryTools{Source: dag.Directory()}).Release(context.Background(), ""); err != nil {
 		t.Fatal(err)
 	}
@@ -806,33 +799,8 @@ func TestTheGatesReleaseAndTheBuildLanesReleaseShareOneExecKey(t *testing.T) {
 	if build == "" {
 		t.Fatalf("the build lane's release build never ran:\n%v", engine.chains())
 	}
-
-	// The exec's inputs, before the exit read: the gate's chain ends in
-	// exitCode, the build lane's in directory; everything up to the compile is
-	// the key. The fake prints a call's arguments in map order, so each call
-	// is compared with its characters sorted, and a withFile (a provisioned
-	// tool, whose id the fake mints afresh per call) is not compared.
-	canon := func(c string) []string {
-		// The compile's own call is cut whole: its arguments print in map
-		// order, so the needle may sit before or after expect:ANY.
-		head := c[:strings.Index(c, compile)]
-		calls := strings.Split(head[:strings.LastIndex(head, "withExec(")], "){")
-		for i, call := range calls {
-			if strings.HasPrefix(call, "withFile(") {
-				calls[i] = "withFile"
-				continue
-			}
-			rs := []rune(call)
-			sort.Slice(rs, func(a, b int) bool { return rs[a] < rs[b] })
-			calls[i] = string(rs)
-		}
-		return calls
-	}
-	if g, b := canon(gate), canon(build); !slices.Equal(g, b) {
-		t.Errorf("the two release compiles are keyed apart:\ngate:  %s\nbuild: %s", gate, build)
-	}
-	if strings.Contains(gate, "CA_REASK") || strings.Contains(build, "CA_REASK") {
-		t.Errorf("a first-ask release compile carries no re-ask nonce:\n%s", gate)
+	if strings.Contains(build, "CA_REASK") {
+		t.Errorf("a first-ask release compile carries no re-ask nonce:\n%s", build)
 	}
 	// The tree is the code and not the history: .git rides the exclude, ahead
 	// of the inert paths, on the directory the compile mounts.

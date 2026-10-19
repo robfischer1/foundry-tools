@@ -1,8 +1,6 @@
 package checks
 
 import (
-	"bytes"
-	"log/slog"
 	"strings"
 	"testing"
 )
@@ -36,28 +34,7 @@ func TestParseWitnessCallRefusesWhatIsNoStatusLine(t *testing.T) {
 }
 
 func TestTheIdentityLineSaysHowTheWitnessWasAsked(t *testing.T) {
-	if got := WitnessAskedAs("spiffe://notusmi.com/job/gate/g", 0, 3); got != "identity: asked as spiffe://notusmi.com/job/gate/g at https://narcissus:8201/mcp" {
+	if got := WitnessAskedAs("spiffe://notusmi.com/job/gate/g"); got != "identity: asked as spiffe://notusmi.com/job/gate/g at https://narcissus:8201/mcp" {
 		t.Errorf("%q", got)
-	}
-	if got := WitnessAskedAs("spiffe://x/job/gate/g", 1, 3); got != "identity: asked as spiffe://x/job/gate/g at https://narcissus:8201/mcp (1 of 3 ask(s) fell back to http://narcissus:8200/mcp in the clear)" {
-		t.Errorf("%q", got)
-	}
-	if got := WitnessInTheClear("no socket"); got != "identity: none — asked http://narcissus:8200/mcp in the clear: no socket" {
-		t.Errorf("%q", got)
-	}
-}
-
-func TestWarnWitnessInTheClearNamesTheReason(t *testing.T) {
-	var buf bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
-	defer slog.SetDefault(prev)
-
-	WarnWitnessInTheClear("the lane forwarded no --spire socket")
-	out := buf.String()
-	for _, want := range []string{"level=WARN", "in the clear", "the lane forwarded no --spire socket", WitnessURL} {
-		if !strings.Contains(out, want) {
-			t.Errorf("warning %q lacks %q", out, want)
-		}
 	}
 }

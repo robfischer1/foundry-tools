@@ -17,7 +17,8 @@ var Def = atomkit.Def{
 	Group:     checks.GroupLanguage,
 	Desc:      "The repo's own tools/star-sa-list (flux): the star-SA admission policy's generated SA list is the ClusterSPIFFEID CRs' SA list, or it names the drift (a stale list makes star-sa-guard fail open).",
 	Surface:   "any:**",
-	Toolchain: "python",
+	Toolchain: "none",
+	Needs:     []string{"pytools"},
 	Check:     check,
 }
 

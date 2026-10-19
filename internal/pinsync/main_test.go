@@ -18,8 +18,8 @@ func TestMainExitsWithWhatTheRunFound(t *testing.T) {
 		stdout string
 		stderr string
 	}{
-		{"an unknown flag", []string{"-x"}, 2, "", "usage: pinsync [-C dir] [-n]"},
-		{"an argument", []string{"-C", inStep, "extra"}, 2, "", "usage: pinsync [-C dir] [-n]"},
+		{"an unknown flag", []string{"-x"}, 2, "", "usage: pinsync [-C dir] [-n] [-relock]"},
+		{"an argument", []string{"-C", inStep, "extra"}, 2, "", "usage: pinsync [-C dir] [-n] [-relock]"},
 		{"in step", []string{"-C", inStep}, 0, "", ""},
 		{"in step, dry", []string{"-n", "-C", inStep}, 0, "", ""},
 		{"drift, dry", []string{"-n", "-C", drifted}, 1, "internal/checks/toolpins.go\ninternal/checks/witlane.go\npytools/requirements.in\ntools.toml\npytools/requirements.txt\n", "pinsync: WasmToolsURL"},

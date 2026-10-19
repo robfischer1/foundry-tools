@@ -270,7 +270,7 @@ func TestUT_460_LoadInFromTreeFacts(t *testing.T) {
 	tf := TF1()
 	tf.Fork = "gravity"
 	treeFile(t, tf)
-	in, err := LoadIn("/ignored")
+	in, err := LoadIn("/src")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,6 +278,29 @@ func TestUT_460_LoadInFromTreeFacts(t *testing.T) {
 		in.Base != "" || in.Origin != "http://door.test/rob/nyx.git" || in.Fork != "gravity" ||
 		in.FilesErr != nil || in.TrackedErr != nil || in.ChangedErr != nil {
 		t.Fatalf("%+v", in)
+	}
+}
+
+// DEF-B4-writes-tree-root: the root argument is where the atom reads and writes,
+// whatever root the tree facts were collected at. The executor gives a
+// writes_tree atom a private copy at /work/<id>/src as argv[1] while tree.json
+// (collected once, over /src) still says /src, which is read-only there.
+func TestDEF_B4_writes_tree_root_argument_wins(t *testing.T) {
+	treeFile(t, TF1()) // Root "/src"
+	in, err := LoadIn("/work/rust__cargo-clippy/src")
+	if err != nil || in.Root != "/work/rust__cargo-clippy/src" || len(in.Files) != 2 {
+		t.Fatalf("%+v %v", in, err)
+	}
+}
+
+func TestDEF_B4_writes_tree_check_sees_the_copy(t *testing.T) {
+	var got string
+	d := defWith(func(_ context.Context, in In) checks.Verdict { got = in.Root; return checks.Verdict{} })
+	treeFile(t, TF1())
+	t.Setenv("ATOM_OUT", filepath.Join(t.TempDir(), "x.json"))
+	run(d, []string{"atom", "/work/st__w/src"})
+	if got != "/work/st__w/src" {
+		t.Fatalf("check read %q", got)
 	}
 }
 
@@ -438,4 +461,39 @@ func fx3(t *testing.T) string {
 	put(t, dir, "notes.txt", "<<<<<<< HEAD\n")
 	commitAll(t, dir, "h")
 	return dir
+}
+
+// Started through a link named for one of the helpers an atom carries (ps, for
+// gomutants' memory cap), the process is that helper and not the atom.
+func TestMainRunsAsAHelperWhenLinkedUnderItsName(t *testing.T) {
+	args := os.Args
+	got := -1
+	old := exit
+	exit = func(code int) { got = code }
+	t.Cleanup(func() { exit, os.Args = old, args })
+	// a process group no process holds: ps's answer is exit 1 with nothing written
+	os.Args = []string{"/work/bin/ps", "-o", "rss=", "-g", "2147483646"}
+	Main(Def{ID: "x:y"})
+	if got != 1 {
+		t.Errorf("exit %d, want ps's 1", got)
+	}
+}
+
+// TestTheArgumentsAfterTheRootReachTheCheck: a dev atom is started `atom /src
+// arg...` (PlanEntry.Args follow the root) and reads them from In.Args; an atom
+// started with the root alone sees none.
+func TestTheArgumentsAfterTheRootReachTheCheck(t *testing.T) {
+	var got []string
+	d := defWith(func(_ context.Context, in In) checks.Verdict {
+		got = in.Args
+		return checks.Verdict{Result: "pass"}
+	})
+	treeFile(t, TF1())
+	t.Setenv("ATOM_OUT", filepath.Join(t.TempDir(), "x.json"))
+	if code := run(d, []string{"atom", t.TempDir(), "alarm", "--new", "x"}); code != 0 || strings.Join(got, " ") != "alarm --new x" {
+		t.Fatalf("exit %d, args %q", code, got)
+	}
+	if code := run(d, []string{"atom", t.TempDir()}); code != 0 || got != nil {
+		t.Fatalf("exit %d, args %q", code, got)
+	}
 }

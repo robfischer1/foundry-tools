@@ -49,6 +49,18 @@ func TestTheGoTestAtomsCarryTheFleetRecordTree(t *testing.T) {
 	// orbit:sidecars and orbit:surface read foundry-dies' contracts and roster
 	// (Input.Dies), the one input of theirs that is not the tree; their chains
 	// mounted it from the run, and their Defs now ask for it by need.
+	//
+	// AND FOUR MORE: go:release, rust:release, ts:release and python:release name
+	// the star by its record in foundry-dies when the tree's answers file does not
+	// (hephaestus has none; the frontend template's names repo_name, not the star).
+	// Their chains read the records lazily from the run's own dies; a pod has no
+	// run to read from, so the atom asks for the checkout.
+	// AND TWO MORE (b6, DEF-B6-012): go:cast-release and rust:cast-release, the
+	// cast lane's compile — only lane cast plans them, so no gate clones dies for
+	// them; the pod lays dies only for a plan that needs it and the cast's
+	// layer-cast reads the star's record there.
+	// AND ONE MORE: dev:go-test is the Dev surface's `go test -race ./...` as a
+	// manifest; Dagger's dev test mounts dies for the same goldens (dev.go planGo).
 	var asked []string
 	for _, a := range checks.Atoms() {
 		if a.NeedsDies {
@@ -56,9 +68,9 @@ func TestTheGoTestAtomsCarryTheFleetRecordTree(t *testing.T) {
 		}
 	}
 	sort.Strings(asked)
-	if strings.Join(asked, ",") != "go:diff-coverage,go:mutation,go:test,go:test-race,ops:orbit-composed,orbit:repo,orbit:sidecars,orbit:surface" {
+	if strings.Join(asked, ",") != "dev:go-test,dev:go-test-live,go:cast-release,go:diff-coverage,go:mutation,go:release,go:test,go:test-race,ops:orbit-composed,orbit:repo,orbit:sidecars,orbit:surface,python:release,rust:cast-release,rust:release,ts:release" {
 		t.Errorf("NeedsDies is declared by %v; go:test, go:test-race, go:diff-coverage and go:mutation (the four atoms that run a repo's `go test`) "+
-			"and the four orbit atoms that read foundry-dies' contracts are expected. Adding one is fine — say why "+
+			"and the four orbit atoms that read foundry-dies' contracts and the four release atoms that name a star by its record are expected. Adding one is fine — say why "+
 			"here, because each one is another clone of foundry-dies on every gate "+
 			"run in the fleet.", asked)
 	}

@@ -94,8 +94,15 @@ func RecordLanes(files map[string]string) (int, string) {
 	}
 	oureaRecord := *cfg.RecordLanes
 
-	owed := sortedSet(append(append([]string{}, executor...), recordLanesAlways...))
+	executorNames, malformed, unbacked := executorLaneNames(executor)
+	owed := sortedSet(append(append([]string{}, executorNames...), recordLanesAlways...))
 	var out []string
+	for _, e := range malformed {
+		out = append(out, fmt.Sprintf("  %s entry %q is malformed (want lane, lane@repo or !lane@repo, the repo with at most one '/')", executorLanesKey, e))
+	}
+	for _, e := range unbacked {
+		out = append(out, fmt.Sprintf("  %s exclusion %q has no bare lane beside it (it would mean nothing)", executorLanesKey, e))
+	}
 	for _, l := range owed {
 		if !slices.Contains(jobsRecord, l) {
 			out = append(out, fmt.Sprintf("  %s: missing from %s in %s", l, recordLanesKey, RecordLanesJobsFile))
@@ -149,6 +156,37 @@ func jsonLanes(data map[string]string, key string, required bool) ([]string, err
 		return nil, fmt.Errorf("%s is not a JSON list of lanes: %v", key, err)
 	}
 	return lanes, nil
+}
+
+// executorLaneNames is the lane each EXECUTOR_LANES entry names: a bare lane
+// is itself, `lane@repo` (a per-repo canary) is its lane. `!lane@repo` (keep
+// that repo on Dagger) names no lane of its own: it contributes nothing, and
+// its lane must be there bare (unbacked otherwise, as daedalus refuses it at
+// load). The shape is the one daedalus refuses at load: exactly one '@', a
+// non-empty lane without '!' and a repo with at most one '/' (bare or
+// owner/repo). Malformed entries come back apart, contributing no lane.
+func executorLaneNames(entries []string) (names, malformed, unbacked []string) {
+	var excluded [][2]string
+	for _, e := range entries {
+		body, exclusion := strings.CutPrefix(e, "!")
+		lane, repo, scoped := strings.Cut(body, "@")
+		switch {
+		case !scoped && !exclusion && !strings.Contains(e, "!"):
+			names = append(names, e)
+		case !scoped, lane == "" || repo == "" || strings.Contains(repo, "@") || strings.Contains(lane, "!") || strings.Count(repo, "/") > 1:
+			malformed = append(malformed, e)
+		case exclusion:
+			excluded = append(excluded, [2]string{e, lane})
+		default:
+			names = append(names, lane)
+		}
+	}
+	for _, x := range excluded {
+		if !slices.Contains(entries, x[1]) {
+			unbacked = append(unbacked, x[0])
+		}
+	}
+	return names, malformed, unbacked
 }
 
 func sortedSet(list []string) []string {

@@ -90,7 +90,7 @@ func TestRefusesWhatItCannotRunOrFind(t *testing.T) {
 			}
 			return "", 0
 		})
-		atomtest.Expect(t, check(context.Background(), in), checks.StateCannotRun, atomtest.Cannot, "the atom never ran: exit code: 1", "failed: uv run --no-project --quiet --with jsonschema>=4.20 python3 -c import jsonschema", "No module named 'jsonschema'")
+		atomtest.Expect(t, check(context.Background(), in), checks.StateCannotRun, atomtest.Cannot, "the atom never ran: exit code: 1", "failed: uv run --no-project --quiet --python python3 --with jsonschema>=4.20 python3 -c import jsonschema", "No module named 'jsonschema'")
 		if len(f.Calls) != 2 {
 			t.Errorf("the validator ran without its package: %v", f.Ran())
 		}

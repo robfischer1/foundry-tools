@@ -2,12 +2,24 @@ package atoms
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"dagger/foundry-tools/internal/checks"
 )
+
+// The tests here stand a prepush atom in the catalogue under the id go:release:
+// every real atom lives in a file the catalogue joins, and this package does not
+// link it. The id is a name, not the release atom; the tests ask for an atom of
+// the pull path to run and this is the one they ask for.
+func init() {
+	checks.UseDefs([]checks.AtomDef{{
+		ID: "go:release", Stage: checks.StagePrepush, Lane: checks.LaneGo, Image: checks.ImageGo,
+		Desc: "A stand-in for an atom of the pull path.",
+	}})
+}
 
 // A tree with no rules/sast is absent unless a fleet template stamped it.
 func TestTheTreeSaysWhatAnAbsentRulesetMeans(t *testing.T) {
@@ -52,4 +64,15 @@ func withOneAtom(t *testing.T) {
 			return checks.VerdictOf(a, int(checks.StatePass), "go:release: passes")
 		}}}
 	})
+}
+
+// The table is empty (every atom is a file under atoms/, which this package
+// cannot import). The tests that need an atom of the catalogue name go:release,
+// and the pool tests want more rows than that: any row will do.
+func init() {
+	rows := []checks.AtomDef{{ID: "go:release", Stage: checks.StagePrepush, Lane: checks.LaneGo, Image: checks.ImageGo}}
+	for i := range 16 {
+		rows = append(rows, checks.AtomDef{ID: fmt.Sprintf("pad:row-%02d", i), Stage: checks.StagePrepush, Lane: checks.LaneAny})
+	}
+	checks.UseDefs(rows)
 }

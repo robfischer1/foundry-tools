@@ -23,7 +23,7 @@ type Def struct {
 	Group, Desc string
 	Surface     string        // root:<f> | any:<glob> | all:<f>,<f>
 	Toolchain   string        // a tools.toml [toolchain.<name>] key, or "none"
-	Needs       []string      // dies | svid | tool:<name> | service:<name>
+	Needs       []string      // dies | svid | pytools | tool:<name> | service:<name>
 	Timeout     time.Duration // 0 = 10 min
 	// Deadline, when set, is how long this atom may take over this input; the run
 	// gives the atom the longer of it and Timeout. An atom whose honest worst case
@@ -34,6 +34,12 @@ type Def struct {
 	WritesTree bool
 	SubsumedBy string
 	NotOnForks string
+	// ReasksOwn says the atom asks again, itself, the part of its work that could
+	// not run (go:mutation, per module), so a runner that re-asks a could-not-run
+	// atom whole does not re-ask this one: a mutation module that graded is the
+	// costliest answer in the fleet to throw away. The index carries it as
+	// reasks_own, and only when it is set.
+	ReasksOwn bool
 	// NeedsManifest is checks.AtomDef.NeedsManifest: the atom's subject is the
 	// lane's root manifest, and its absent sentence says so.
 	NeedsManifest bool
@@ -44,7 +50,7 @@ type Def struct {
 var idRE = regexp.MustCompile(`^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$`)
 
 // stages are the stages an atom may declare.
-var stages = []string{"precommit", "prepush", "mutation", "orbit", "visual", "dev"}
+var stages = []string{"precommit", "prepush", "mutation", "orbit", "visual", "dev", "cast", "publish"}
 
 // defaultTimeout is what Timeout 0 means.
 const defaultTimeout = 10 * time.Minute
@@ -65,6 +71,7 @@ type described struct {
 	WritesTree   bool     `json:"writes_tree"`
 	SubsumedBy   string   `json:"subsumed_by"`
 	NotOnForks   string   `json:"not_on_forks"`
+	ReasksOwn    bool     `json:"reasks_own,omitempty"`
 	AbsentReason string   `json:"absent_reason"`
 	ForkReason   string   `json:"fork_reason"`
 }
@@ -79,8 +86,8 @@ func Describe(d Def) ([]byte, error) {
 		ID: d.ID, Stage: d.Stage, Lane: string(d.Lane), Group: d.Group, Desc: d.Desc,
 		Surface: d.Surface, Toolchain: d.Toolchain, Needs: append([]string{}, d.Needs...),
 		TimeoutS: int(d.Timeout / time.Second), History: d.History, WritesTree: d.WritesTree,
-		SubsumedBy: d.SubsumedBy, NotOnForks: d.NotOnForks,
-		AbsentReason: checks.AbsentReasonFor(d.ID, d.Lane, d.NeedsManifest),
+		SubsumedBy: d.SubsumedBy, NotOnForks: d.NotOnForks, ReasksOwn: d.ReasksOwn,
+		AbsentReason: absentSentence(d),
 	}
 	slices.Sort(e.Needs)
 	if d.Timeout == 0 {
@@ -114,8 +121,8 @@ func Validate(d Def) error {
 		return errors.New("toolchain is empty")
 	}
 	for _, n := range d.Needs {
-		if n != "dies" && n != "svid" && !strings.HasPrefix(n, "tool:") && !strings.HasPrefix(n, "service:") {
-			return fmt.Errorf("need %s is not dies, svid, tool:<name> or service:<name>", n)
+		if n != "dies" && n != "svid" && n != "pytools" && !strings.HasPrefix(n, "tool:") && !strings.HasPrefix(n, "service:") {
+			return fmt.Errorf("need %s is not dies, svid, pytools, tool:<name> or service:<name>", n)
 		}
 	}
 	if d.History != "" && d.History != "shallow" && d.History != "full" {

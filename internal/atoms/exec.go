@@ -39,6 +39,15 @@ type Cmd struct {
 	// output(): stdout, plus stderr only when the program exited non-zero,
 	// trimmed.
 	Both bool
+	// Stderr, when set, receives the program's stderr on its own, and the answer
+	// is stdout alone, untrimmed: the module's Container.Stdout and Stderr, read
+	// apart. The one reader is mutation-gate, whose stdout is the JSON and whose
+	// stderr is the reason when it wrote none. It outranks Both.
+	Stderr *string
+	// Unset names variables the program must not inherit: the process's own are
+	// dropped before Env is added. cargo-mutants must not see the CARGO_TARGET_DIR
+	// the executor sets for the atoms that share a target.
+	Unset []string
 }
 
 // Exec runs a Cmd and answers what it printed and how it exited. A program that
@@ -47,9 +56,10 @@ type Cmd struct {
 // sits beside it that a test cannot reach.
 type Exec func(ctx context.Context, c Cmd) (out string, code int)
 
-// pythonBinDir is the venv's bin as RunProgram looks for it; a variable so a
-// test can say where the venv is.
-var pythonBinDir = PythonBinDir
+// pythonBinDir is the venv's bin as RunProgram looks for it: the tools
+// container's, or the one PyBinEnv names; a variable so a test can say where
+// the venv is.
+var pythonBinDir = EnvOr(os.Getenv, PyBinEnv, PythonBinDir)
 
 // pythonPrograms are the programs the venv provides. They are found there by
 // path and not by the container's PATH: a run measured on cerberus
@@ -106,7 +116,7 @@ func RunProgram(ctx context.Context, c Cmd) (string, int) {
 	}
 	cmd := exec.CommandContext(ctx, programPath(c.Name), c.Args...)
 	cmd.Dir = c.Dir
-	cmd.Env = programEnv(c.Env)
+	cmd.Env = withoutKeys(programEnv(c.Env), c.Unset)
 	if c.Stdin != "" {
 		cmd.Stdin = strings.NewReader(c.Stdin)
 	}
@@ -121,6 +131,10 @@ func RunProgram(ctx context.Context, c Cmd) (string, int) {
 			return fmt.Sprintf("%s: %v", c.Name, err), -1
 		}
 		code = ee.ExitCode()
+	}
+	if c.Stderr != nil {
+		*c.Stderr = stderr.String()
+		return stdout.String(), code
 	}
 	if c.StdoutOnly {
 		return stdout.String(), code
@@ -149,4 +163,15 @@ func (in Input) door() checks.Door {
 		return checks.NewDoor()
 	}
 	return in.Door
+}
+
+// withoutKeys is env less every entry of the named variables.
+func withoutKeys(env, names []string) []string {
+	if len(names) == 0 {
+		return env
+	}
+	return slices.DeleteFunc(env, func(kv string) bool {
+		k, _, _ := strings.Cut(kv, "=")
+		return slices.Contains(names, k)
+	})
 }

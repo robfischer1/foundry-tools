@@ -16,9 +16,8 @@
 //
 // Exit codes: 0 narcissus answered (whatever it said), 2 could not ask,
 // 3 no identity, 4 the request went out and drew no answer in time (deadline,
-// or an answer cut short). The caller asks in the clear on 2 and 3 only: on 4
-// the witness is slow, and a clear retry doubles its load and records an
-// anonymous caller (2465 on 2026-10-07). The 0 is spelled as a literal: a
+// or an answer cut short). The caller retries on 2 and settles could-not-run on 3; on 4
+// the witness is slow and a retry doubles its load. Nothing asks in the clear. The 0 is spelled as a literal: a
 // named zero is a RETURN_ZERO mutant no test can kill.
 package witnesscall
 
@@ -41,6 +40,7 @@ import (
 
 const usage = `usage: witnesscall whoami
        witnesscall post <url> <request-file>
+       witnesscall get <url>
 
 Reads WITNESSCALL_SOCKET (unix:///run/spire/agent.sock),
 WITNESSCALL_SERVER_ID (spiffe://notusmi.com/star/narcissus) and
@@ -82,14 +82,15 @@ func or(v, d string) string {
 	return v
 }
 
-// wellFormed reports whether args is one of the two calls.
+// wellFormed reports whether args is one of the three calls.
 func wellFormed(args []string) bool {
-	return len(args) == 1 && args[0] == "whoami" || len(args) == 3 && args[0] == "post"
+	return len(args) == 1 && args[0] == "whoami" || len(args) == 3 && args[0] == "post" || len(args) == 2 && args[0] == "get"
 }
 
 // Run is the binary. whoami prints the SVID's id; post sends the request
 // file's bytes to the url and prints "HTTP <status>", the content type, then
-// the body, one per line.
+// the body, one per line; get does the same for a GET (the readiness probe
+// rides the mTLS door too, so the clear port is never read).
 func Run(ctx context.Context, args []string, env func(string) string, readFile func(string) ([]byte, error), stdout, stderr io.Writer) int {
 	if !wellFormed(args) {
 		fmt.Fprintln(stderr, usage)
@@ -117,6 +118,9 @@ func Run(ctx context.Context, args []string, env func(string) string, readFile f
 		fmt.Fprintln(stdout, svid.ID)
 		return 0
 	}
+	if args[0] == "get" {
+		return get(ctx, clientFor(id, cfg.serverID), args[1], stdout, stderr)
+	}
 	body, err := readFile(args[2])
 	if err != nil {
 		fmt.Fprintf(stderr, "witnesscall: %v\n", err)
@@ -143,6 +147,22 @@ func post(ctx context.Context, client *http.Client, url string, body []byte, std
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
+	return answer(client, req, stdout, stderr)
+}
+
+// get sends one GET and prints what came back, as post does.
+func get(ctx context.Context, client *http.Client, url string, stdout, stderr io.Writer) int {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		fmt.Fprintf(stderr, "witnesscall: %v\n", err)
+		return CouldNotAsk
+	}
+	return answer(client, req, stdout, stderr)
+}
+
+// answer sends the request and prints "HTTP <status>", the content type, then
+// the body.
+func answer(client *http.Client, req *http.Request, stdout, stderr io.Writer) int {
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Fprintf(stderr, "witnesscall: the witness did not answer: %v\n", err)

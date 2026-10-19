@@ -1,0 +1,18 @@
+schema = "command-atom@1"
+id = "dev:rust-test"
+stage = "dev"
+lane = "rust"
+group = "language"
+desc = "cargo test --workspace passes, run by hand from the dev lane."
+surface = "root:Cargo.toml"
+toolchain = "rust"
+argv = ["cargo", "test"]
+args = "append"
+per_module = false
+judge = "exit"
+timeout = "30m"
+
+[[default]]
+args = ["--workspace"]
+unless = ["-p", "--package", "--workspace", "--all", "--manifest-path"]
+until = "--"

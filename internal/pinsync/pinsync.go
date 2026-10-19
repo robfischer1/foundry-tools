@@ -41,7 +41,7 @@ var URLPins = []URLPin{
 	{"hadolint", "HadolintURL", "HadolintVersion"},
 	{"kubectl", "KubectlURL", "KubectlVersion"},
 	{"chezmoi", "ChezmoiURL", "ChezmoiVersion"},
-	{"compose", "ComposeURL", "ComposeVersion"},
+	{"docker-compose", "ComposeURL", "ComposeVersion"},
 	{"wasm-tools", "WasmToolsURL", "WasmToolsVersion"},
 	{"wac", "WacURL", "WacVersion"},
 	{"just", "JustURL", "JustVersion"},
@@ -49,7 +49,28 @@ var URLPins = []URLPin{
 	{"oras", "OrasURL", "OrasVersion"},
 	{"cargo-audit", "CargoAuditURL", "CargoAuditVersion"},
 	{"cargo-nextest", "CargoNextestURL", "CargoNextestVersion"},
+	{"cargo-mutants", "CargoMutantsURL", "CargoMutantsVersion"},
+	{"sccache", "SccacheURL", "SccacheVersion"},
+	{"mold", "MoldURL", "MoldRelease"},
+	{"jq", "JqURL", "JqRelease"},
+	{"curl", "CurlURL", "CurlVersion"},
+	{"rust-clippy", "RustClippyURL", "RustComponentsTag"},
+	{"rust-rustfmt", "RustRustfmtURL", "RustComponentsTag"},
+	{"rust-std", "RustStdURL", "RustComponentsTag"},
+	{"rust-wasm-std", "RustStdWasmURL", "RustWasmComponentsTag"},
+	{"rust-wasm-clippy", "RustWasmClippyURL", "RustWasmComponentsTag"},
+	{"rust-wasm-rustfmt", "RustWasmRustfmtURL", "RustWasmComponentsTag"},
 	{"python-standalone", "PythonStandaloneURL", "FleetPythonVersion"},
+	{"python-3-15", "PythonStandalone315URL", "PythonStandalone315Release"},
+	{"gofmt", "GofmtURL", "GofmtGoRelease"},
+	{"rustc-1-97-1", "RustDist1971RustcURL", "RustDist1971Tag"},
+	{"cargo-1-97-1", "RustDist1971CargoURL", "RustDist1971Tag"},
+	{"rust-std-1-97-1", "RustDist1971StdURL", "RustDist1971Tag"},
+	{"rust-std-wasm-1-97-1", "RustDist1971StdWasmURL", "RustDist1971Tag"},
+	{"rustc-1-99-0", "RustDist1990RustcURL", "RustDist1990Tag"},
+	{"cargo-1-99-0", "RustDist1990CargoURL", "RustDist1990Tag"},
+	{"rust-std-1-99-0", "RustDist1990StdURL", "RustDist1990Tag"},
+	{"rust-std-wasm-1-99-0", "RustDist1990StdWasmURL", "RustDist1990Tag"},
 }
 
 // Follower is a literal constant that carries a version constant's value.
@@ -72,6 +93,10 @@ var Followers = []Follower{
 	{Const: "CargoAuditURL", Version: "CargoAuditVersion"},
 	{Const: "CargoAuditMember", Version: "CargoAuditVersion"},
 	{Const: "CargoNextestURL", Version: "CargoNextestVersion"},
+	{Const: "CargoMutantsURL", Version: "CargoMutantsVersion"},
+	{Const: "SccacheURL", Version: "SccacheVersion"},
+	{Const: "SccacheMember", Version: "SccacheVersion"},
+	{Const: "CurlURL", Version: "CurlVersion"},
 	{Const: "PythonStandaloneURL", Version: "FleetPythonVersion", Retag: true},
 }
 
@@ -88,6 +113,10 @@ type Env struct {
 	Log       io.Writer
 	// RunLock runs the lock's recorded `uv pip compile …` in dir.
 	RunLock func(ctx context.Context, dir string, args []string) error
+	// Relock regenerates the python lock even when no coupled pin moved: the
+	// post-upgrade task for renovate's pip_requirements, which bumps a lock
+	// line in place under its predecessor's hashes.
+	Relock bool
 }
 
 // Result is what a run changed (or, without Write, would change), as paths

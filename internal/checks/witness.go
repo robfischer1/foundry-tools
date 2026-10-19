@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"path"
 	"regexp"
@@ -37,16 +36,6 @@ import (
 // because a trivial two-line function comes back "convention" against a corpus
 // this size; novel is clean; refused (could not read) and unknown (an empty
 // corpus: "not looked at") are could-not-consult for that file.
-
-// WitnessURL is narcissus's plaintext MCP port. It answers any in-cluster
-// caller (stellar_core DualListener), measured 2026-09-10 from a container on
-// the fleet's dagger engine.
-// The name is BARE deliberately — it named the `default` namespace until
-// 2026-09-25 and broke when the fleet moved to `prime`. A bare name resolves
-// through the client's own search path and is correct in any namespace. See
-// checks.GoProxy for why a module-side constant cannot read an env var, and
-// where these addresses should eventually live instead.
-const WitnessURL = "http://narcissus:8200/mcp"
 
 // WitnessWorkers is how many files are asked about at once. One answer takes
 // 30-40 s (narcissus's latency log, 2026-09-14); serial, athena's 44-file
@@ -561,26 +550,3 @@ func SleepContext(ctx context.Context, d time.Duration) error {
 // witnessTimeout bounds one ask. An answer takes 30-40 s; a port that does not
 // answer in two minutes is could-not-consult for that file.
 const witnessTimeout = time.Duration(120e9) // 120 s, spelled with no operator a mutant could flip
-
-// PostWitness posts one JSON-RPC request to an MCP endpoint and answers the
-// HTTP status, content type and body, or the error that kept it from asking.
-func PostWitness(ctx context.Context, url, body string) (int, string, string, error) {
-	ctx, cancel := context.WithTimeout(ctx, witnessTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(body))
-	if err != nil {
-		return 0, "", "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json, text/event-stream")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return 0, "", "", err
-	}
-	defer resp.Body.Close()
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, "", "", err
-	}
-	return resp.StatusCode, resp.Header.Get("Content-Type"), string(b), nil
-}

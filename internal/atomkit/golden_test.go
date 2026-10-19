@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"dagger/foundry-tools/internal/checks"
 )
 
 // goldenNames are the seven files testdata/SHA256SUMS lists (UT-446).
@@ -209,9 +211,9 @@ func TestIT_121_GoldensArePresent(t *testing.T) {
 }
 
 // goldenVerdict is daedalus wire.Verdict, the shape atom-verdict.json is
-// written in: findings and gradings are passed through as raw JSON. A
-// checks.Verdict writes the same keys; its findings and gradings carry the Go
-// names of their types, which is the shape the record keeps (lld.md E8).
+// written in. Its findings are checks.Finding, which has no JSON tags, so they
+// carry the Go field names (DEF-B3-007; FN-081 is authoritative); its gradings
+// are passed through as raw JSON.
 type goldenVerdict struct {
 	Atom          string            `json:"atom"`
 	Stage         string            `json:"stage"`
@@ -222,13 +224,29 @@ type goldenVerdict struct {
 	Logs          []string          `json:"logs"`
 	Truncated     bool              `json:"truncated,omitempty"`
 	OriginalBytes int               `json:"original_bytes,omitempty"`
-	Findings      []json.RawMessage `json:"findings,omitempty"`
+	Findings      []checks.Finding  `json:"findings,omitempty"`
 	StartedAt     string            `json:"started_at,omitempty"`
 	FinishedAt    string            `json:"finished_at,omitempty"`
 	Gradings      []json.RawMessage `json:"gradings,omitempty"`
 	Audit         string            `json:"audit,omitempty"`
 	CPUMs         *int64            `json:"cpu_ms,omitempty"`
 	MemPeakBytes  *int64            `json:"mem_peak_bytes,omitempty"`
+}
+
+// DEF-B3-007: the golden's findings are the bytes checks.Verdict writes, so a
+// record from the Dagger gates and one from the pod's executor agree.
+func TestDEF_B3_007_GoldenFindingsAreChecksFindings(t *testing.T) {
+	v := checks.Verdict{Findings: []checks.Finding{{Verdict: "violated", Subject: "main.go:3", Cause: "go:vet", Detail: "a<b && c", Probe: "go:vet"}}}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		t.Fatal(err)
+	}
+	want := `"findings":[{"Verdict":"violated","Subject":"main.go:3","Cause":"go:vet","Detail":"a<b && c","Probe":"go:vet"}]`
+	if !strings.Contains(buf.String(), want) || !strings.Contains(string(readGolden(t, "atom-verdict")), want) {
+		t.Errorf("checks.Verdict wrote %s; golden %s", buf.String(), readGolden(t, "atom-verdict"))
+	}
 }
 
 // surfaceCases is testdata/surface-cases.json, the table both repos run

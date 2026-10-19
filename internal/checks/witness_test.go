@@ -4,9 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -303,43 +300,7 @@ func TestStarNameAndRequest(t *testing.T) {
 	}
 }
 
-func TestPostWitness(t *testing.T) {
-	var got struct{ method, contentType, accept, body string }
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		b, _ := io.ReadAll(r.Body)
-		got.method, got.contentType, got.accept, got.body = r.Method, r.Header.Get("Content-Type"), r.Header.Get("Accept"), string(b)
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.WriteHeader(202)
-		_, _ = w.Write([]byte("data: {}\n"))
-	}))
-	defer srv.Close()
-
-	status, contentType, body, err := PostWitness(context.Background(), srv.URL+"/mcp", `{"x":1}`)
-	if err != nil || status != 202 || contentType != "text/event-stream" || body != "data: {}\n" {
-		t.Errorf("answer (%d, %q, %q, %v)", status, contentType, body, err)
-	}
-	if got.method != "POST" || got.contentType != "application/json" || got.accept != "application/json, text/event-stream" || got.body != `{"x":1}` {
-		t.Errorf("request %+v", got)
-	}
-
-	// A body that breaks off mid-read is an error, not a short answer.
-	cut := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Length", "100")
-		_, _ = w.Write([]byte("short"))
-	}))
-	defer cut.Close()
-	if _, _, _, err := PostWitness(context.Background(), cut.URL, "{}"); err == nil {
-		t.Error("a truncated body must be an error")
-	}
-	// A URL that is not one, and a port nothing listens on, are errors.
-	if _, _, _, err := PostWitness(context.Background(), "http://bad host/", "{}"); err == nil {
-		t.Error("an invalid URL must be an error")
-	}
-	closed := httptest.NewServer(http.NotFoundHandler())
-	closed.Close()
-	if _, _, _, err := PostWitness(context.Background(), closed.URL, "{}"); err == nil {
-		t.Error("a port nothing answers must be an error")
-	}
+func TestWitnessTimeoutBoundsOneAsk(t *testing.T) {
 	if witnessTimeout != 2*time.Minute {
 		t.Errorf("the ask is bounded at two minutes, not %v", witnessTimeout)
 	}
