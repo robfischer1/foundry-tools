@@ -205,3 +205,22 @@ func TestAbsentAndCannotRun(t *testing.T) {
 	f2.Free = []string{"bun"}
 	atomtest.Expect(t, check(context.Background(), in), checks.StateCannotRun, atomtest.Cannot, "release could not be carried out")
 }
+
+// A tree that cannot be copied to build in is the substrate's: the atom's work
+// directory is a file.
+func TestATreeThatCannotBeCopiedCannotRun(t *testing.T) {
+	work := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(work, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ATOM_WORK", work)
+	t.Setenv("ATOM_RELEASE_OUT", "")
+	t.Setenv("ATOM_RELEASE_SRC", "")
+	b := &bun{t: t}
+	in, f := atomtest.ToolTree(t, layers(), b.answer)
+	f.Free = []string{"bun"}
+	atomtest.Expect(t, check(context.Background(), in), checks.StateCannotRun, atomtest.Cannot, "the tree could not be copied")
+	if len(f.Calls) != 0 {
+		t.Errorf("a tree that could not be copied still built: %v", f.Calls)
+	}
+}
