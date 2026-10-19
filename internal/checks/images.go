@@ -111,6 +111,13 @@ const (
 	// Digests resolved 2026-09-13 (through the Nexus alias, byte-identical).
 	ImagePgvector = "docker.io/pgvector/pgvector:pg18@sha256:1d50c689b0a6511b9ea0a15615281c81a59fd04a08eb35057ec8646fb3a2118a"
 	ImagePostgres = "docker.io/library/postgres:18-bookworm@sha256:a10c981235b4f635e65df0cfb66a5598064628128505dbc6a3ed4ca303717521"
+	// ImageTimescale is `live_db_timescale`'s server: the SAME timescaledb-ha
+	// build the fleet's TimescaleDB clusters run (flux data/erebus-db.yaml's
+	// ImageCatalog, pg17), so a hypertable migration is proven on the build it
+	// meets. timescaledb is preloaded by the image's own config. Measured
+	// 2026-10-18 against this digest: POSTGRES_USER/PASSWORD/DB initialise the
+	// role as a superuser and ServerArgs' -c flags reach the server (fsync off).
+	ImageTimescale = "docker.io/timescale/timescaledb-ha:pg17@sha256:a693dd7fbb75b51c3d717507a9956501686edb123b48dd90b094fd5612d53abe"
 
 	// THE TEST BROKER a Go star's broker-gated suites run against (testdb.go's
 	// TestBrokers, tag `live_kafka`). Redpanda, NOT cp-kafka: the fleet's broker
@@ -397,7 +404,7 @@ var LaneImages = []string{
 	ImageGo, ImagePython, ImageRust, ImageRustTrixie, ImageRustWasm, ImageTS, ImageFleet,
 	ImageUV, ImageNode, ImageTools,
 	ImageKubeconform, ImageKubeLinter, ImageRenovate,
-	ImagePgvector, ImagePostgres, ImageRedis, ImageKubeAPIServer, ImageEtcd,
+	ImagePgvector, ImagePostgres, ImageTimescale, ImageRedis, ImageKubeAPIServer, ImageEtcd,
 }
 
 // The go command's coordinates inside a lane container.
@@ -585,7 +592,7 @@ const (
 	ImageNarcissus = "registry.notusmi.com/rob/narcissus:1792198596-053bba4@sha256:1923ebea1773595a6ef19358e273738f504b65cc50f600666bcf99870ecf0fe2"
 
 	// RenovateTag / ImageRenovate: the Renovate the fleet DEPLOYS, read from
-	// flux renovate/renovate.yaml on main 2026-10-12 (both containers carry this
+	// flux renovate/renovate.yaml on main 2026-10-19 (both containers carry this
 	// exact ref). fleet:renovate-config validates renovate-config's config.js with
 	// the validator inside it. A validator older than the deployed image rejects
 	// options the image accepts (42.99.0 reports postUpgradeTasks.installTools
@@ -596,8 +603,8 @@ const (
 	// ToolSHA256 line, no mirror seed) and no npm install to cache. It is pulled
 	// through the engine's ghcr.io mirror like every lane image, and the layers
 	// are cached by digest.
-	RenovateTag   = "43.261.4"
-	ImageRenovate = "ghcr.io/renovatebot/renovate:43.261.4@sha256:adc66d8ffba5d835b9ef27768bd3176d07e7ea98c8dba274b07f511beea5fe81"
+	RenovateTag   = "44.167.5"
+	ImageRenovate = "ghcr.io/renovatebot/renovate:44.167.5@sha256:c33150ec6407624a9399a2d827fd125becafdbe4519d7584488cbdd17f99081e"
 )
 
 // MirroredRegistries are the upstream registries the engine pulls through the
