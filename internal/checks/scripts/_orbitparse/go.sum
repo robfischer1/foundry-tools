@@ -1,5 +1,5 @@
-git.notusmi.com/rob/stellar-core-go v0.249.0 h1:uO27vhCPFTFKTcu79/U/X9a3X/jtnbUIVQr5vNSTD84=
-git.notusmi.com/rob/stellar-core-go v0.249.0/go.mod h1:gWbM8alHQudwnc9dfTa+GfKC9s6BDCTIiR5kMHzpevo=
+git.notusmi.com/rob/stellar-core-go v0.258.0 h1:fbwuC0I2wQqXb/k9CDQnhWAr33egiKlOfmnclzQEvGY=
+git.notusmi.com/rob/stellar-core-go v0.258.0/go.mod h1:gWbM8alHQudwnc9dfTa+GfKC9s6BDCTIiR5kMHzpevo=
 github.com/BurntSushi/toml v1.6.0 h1:dRaEfpa2VI55EwlIW72hMRHdWouJeRF7TPYhI+AUQjk=
 github.com/BurntSushi/toml v1.6.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
 github.com/Microsoft/go-winio v0.6.4 h1:kJF2pamtYCWXf0xAT8sAkwKC0pMl2HYBrRPHAqyUc+g=
