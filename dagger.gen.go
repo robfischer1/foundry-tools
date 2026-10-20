@@ -1029,13 +1029,6 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Fleet).OpengrepSast(&parent, ctx)
-		case "OrbitDrift":
-			var parent Fleet
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			return (*Fleet).OrbitDrift(&parent, ctx)
 		case "PdpWired":
 			var parent Fleet
 			err = json.Unmarshal(parentJSON, &parent)
@@ -1523,20 +1516,6 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg artifactAuth", err))
 				}
 			}
-			var ride string
-			if inputArgs["ride"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["ride"]), &ride)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg ride", err))
-				}
-			}
-			var rideToken *dagger.Secret
-			if inputArgs["rideToken"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["rideToken"]), &rideToken)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg rideToken", err))
-				}
-			}
 			var registrySvid string
 			if inputArgs["registrySvid"] != nil {
 				err = json.Unmarshal([]byte(inputArgs["registrySvid"]), &registrySvid)
@@ -1544,7 +1523,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registrySvid", err))
 				}
 			}
-			return (*FoundryTools).GateFile(&parent, ctx, tree, pin, base, stage, recordToken, reuse, spire, artifactAuth, ride, rideToken, registrySvid)
+			return (*FoundryTools).GateFile(&parent, ctx, tree, pin, base, stage, recordToken, reuse, spire, artifactAuth, registrySvid)
 		case "Go":
 			var parent FoundryTools
 			err = json.Unmarshal(parentJSON, &parent)

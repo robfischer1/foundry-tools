@@ -19,11 +19,6 @@ import (
 // and a gate that reads its raw API goes red the day it goes.
 const OureaDoor = "https://git.notusmi.com"
 
-// OrbitsRepo is the repository the canonical seam contracts live in, written
-// owner-qualified: a bare name that two owners hold is refused by the door
-// (400 and the candidates), and a refusal is not an answer about a contract.
-const OrbitsRepo = "foundry/foundry-dies"
-
 // DoorTimeout bounds one read. The same thirty seconds the script it replaced
 // allowed.
 const DoorTimeout = 30 * time.Second

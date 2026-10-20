@@ -20,7 +20,7 @@ func TestTheDoorURLIsTheArchiveReadWithLiteralSlashes(t *testing.T) {
 		{"https://git.notusmi.com", "https://git.notusmi.com/archive?repo=foundry/foundry-dies&path=orbits/a-b.toml"},
 		{"https://git.notusmi.com/", "https://git.notusmi.com/archive?repo=foundry/foundry-dies&path=orbits/a-b.toml"},
 	} {
-		if got := (Door{Base: tc.base}).URL(OrbitsRepo, "orbits/a-b.toml"); got != tc.want {
+		if got := (Door{Base: tc.base}).URL("foundry/foundry-dies", "orbits/a-b.toml"); got != tc.want {
 			t.Errorf("Base %q: got %s, want %s", tc.base, got, tc.want)
 		}
 	}
@@ -29,8 +29,8 @@ func TestTheDoorURLIsTheArchiveReadWithLiteralSlashes(t *testing.T) {
 	if got := (Door{Base: "http://d"}).URL("r", "a b&c=d"); got != "http://d/archive?repo=r&path=a+b%26c%3Dd" {
 		t.Errorf("unescaped path: %s", got)
 	}
-	if NewDoor().Base != "https://git.notusmi.com" || OrbitsRepo != "foundry/foundry-dies" {
-		t.Errorf("the production door is %q / %q", NewDoor().Base, OrbitsRepo)
+	if NewDoor().Base != "https://git.notusmi.com" {
+		t.Errorf("the production door is %q", NewDoor().Base)
 	}
 }
 

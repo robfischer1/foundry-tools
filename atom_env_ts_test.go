@@ -77,7 +77,7 @@ func TestVisualIsHandedTheCommitTheOriginAndTheLogin(t *testing.T) {
 func TestGateFileKeepsTheArtifactCredential(t *testing.T) {
 	m := gateOn(t, cleanVector)
 	auth := dag.SetSecret("visual-artifact-auth", `{"auths":{}}`)
-	if _, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "visual", nil, false, nil, auth, "", nil, ""); err != nil || m.artifactAuth != auth {
+	if _, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "visual", nil, false, nil, auth, ""); err != nil || m.artifactAuth != auth {
 		t.Fatalf("artifactAuth %v err %v", m.artifactAuth, err)
 	}
 	r := newRun(dag.Directory(), "", "").withArtifacts(auth, strings.Repeat("b", 40))

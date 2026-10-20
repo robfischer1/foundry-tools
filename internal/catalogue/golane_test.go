@@ -45,11 +45,6 @@ func TestTheGoTestAtomsCarryTheFleetRecordTree(t *testing.T) {
 	// same packages, so the same goldens refuse without the mount.
 	// go:diff-coverage makes four: it runs that same go:test-race suite itself.
 	//
-	// AND FOUR MORE, FOR ANOTHER REASON: ops:orbit-composed, orbit:repo,
-	// orbit:sidecars and orbit:surface read foundry-dies' contracts and roster
-	// (Input.Dies), the one input of theirs that is not the tree; their chains
-	// mounted it from the run, and their Defs now ask for it by need.
-	//
 	// AND FOUR MORE: go:release, rust:release, ts:release and python:release name
 	// the star by its record in foundry-dies when the tree's answers file does not
 	// (hephaestus has none; the frontend template's names repo_name, not the star).
@@ -68,9 +63,9 @@ func TestTheGoTestAtomsCarryTheFleetRecordTree(t *testing.T) {
 		}
 	}
 	sort.Strings(asked)
-	if strings.Join(asked, ",") != "dev:go-test,dev:go-test-live,go:cast-release,go:diff-coverage,go:mutation,go:release,go:test,go:test-race,ops:orbit-composed,orbit:repo,orbit:sidecars,orbit:surface,python:release,rust:cast-release,rust:release,ts:release" {
+	if strings.Join(asked, ",") != "dev:go-test,dev:go-test-live,go:cast-release,go:diff-coverage,go:mutation,go:release,go:test,go:test-race,python:release,rust:cast-release,rust:release,ts:release" {
 		t.Errorf("NeedsDies is declared by %v; go:test, go:test-race, go:diff-coverage and go:mutation (the four atoms that run a repo's `go test`) "+
-			"and the four orbit atoms that read foundry-dies' contracts and the four release atoms that name a star by its record are expected. Adding one is fine — say why "+
+			"and the four release atoms that name a star by its record are expected. Adding one is fine — say why "+
 			"here, because each one is another clone of foundry-dies on every gate "+
 			"run in the fleet.", asked)
 	}

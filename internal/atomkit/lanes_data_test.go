@@ -50,7 +50,7 @@ func TestUT_614_BundlePhases(t *testing.T) {
 	for _, p := range d.Phases {
 		names = append(names, p.Name)
 	}
-	if !slices.Equal(names, []string{"build", "policy", "fleet", "orbits", "sign", "resign", "push"}) {
+	if !slices.Equal(names, []string{"build", "policy", "fleet", "sign", "resign", "push"}) {
 		t.Fatalf("%v", names)
 	}
 	by := map[string]PhaseDef{}
@@ -61,13 +61,13 @@ func TestUT_614_BundlePhases(t *testing.T) {
 	// capabilities that touch the KMS and the registry.
 	if !slices.Equal(by["build"].Atoms, []string{"dies:opa-test", "dies:admission-dogfood"}) ||
 		!slices.Equal(by["policy"].Atoms, []string{"bundle:policy"}) || !slices.Equal(by["fleet"].Atoms, []string{"bundle:fleet"}) ||
-		!slices.Equal(by["orbits"].Atoms, []string{"bundle:orbits"}) || !slices.Equal(by["resign"].Atoms, []string{"bundle:resign"}) {
+		!slices.Equal(by["resign"].Atoms, []string{"bundle:resign"}) {
 		t.Errorf("atoms: %+v", d.Phases)
 	}
 	if by["sign"].Capability != "kms-sign" || !slices.Equal(by["sign"].After, []string{"policy", "fleet"}) {
 		t.Errorf("sign: %+v", by["sign"])
 	}
-	if by["push"].Capability != "push-bundle" || !slices.Equal(by["push"].After, []string{"resign", "orbits"}) {
+	if by["push"].Capability != "push-bundle" || !slices.Equal(by["push"].After, []string{"resign"}) {
 		t.Errorf("push: %+v", by["push"])
 	}
 }
@@ -137,10 +137,10 @@ func TestEachSecretIsNamedOnce(t *testing.T) {
 
 func TestLaneShapes(t *testing.T) {
 	lanes := landedLanes(t)
-	if g := lanes["gate"]; !slices.Equal(g.Stages, []string{"precommit", "prepush"}) || g.Rider != "orbit" || len(g.Phases) != 0 {
+	if g := lanes["gate"]; !slices.Equal(g.Stages, []string{"precommit", "prepush"}) || g.Rider != "" || len(g.Phases) != 0 {
 		t.Errorf("gate: %+v", g)
 	}
-	for l, stage := range map[string]string{"check": "precommit", "orbit": "orbit", "mutation": "mutation", "mutation-bg": "mutation"} {
+	for l, stage := range map[string]string{"check": "precommit", "mutation": "mutation", "mutation-bg": "mutation"} {
 		if d := lanes[l]; !slices.Equal(d.Stages, []string{stage}) || len(d.Phases) != 0 || d.Rider != "" {
 			t.Errorf("%s: %+v", l, d)
 		}

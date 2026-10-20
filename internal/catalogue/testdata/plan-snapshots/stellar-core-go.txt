@@ -13,7 +13,6 @@ run:
   fleet:pdp-wired
   fleet:renovate-config
   fleet:retired-verbs
-  fleet:orbit-drift
   fleet:dagger-lockstep
   fleet:renovate-lockstep
   fleet:node-kinds-declared
@@ -35,8 +34,6 @@ run:
   ops:flux
   ops:kube-linter
   ops:immutable
-  ops:orbit-sidecars
-  ops:orbit-composed
   template:render-matrix
   wit:validate
   go:gofmt
@@ -81,16 +78,11 @@ run:
   law:lint
   law:verb-liveness
   law:budget
-  orbit:contracts
-  orbit:surface
-  orbit:sidecars
-  orbit:repo
   go:mutation
   bases:chairman
   bases:go-release
   bases:release
   bundle:fleet
-  bundle:orbits
   bundle:policy
   bundle:resign
   dev:go-build

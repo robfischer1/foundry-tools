@@ -67,10 +67,6 @@ type atomEnv struct {
 	// asks git nothing, and its image runs as a user who cannot make a
 	// repository in /src (the Renovate image).
 	nogit bool
-	// narc says the atom execs narcissus's analyzer: it is mounted from the pin
-	// flux holds live, and a pin that could not be read reaches the atom as
-	// ATOM_NARC_ERR, which it settles 2 with.
-	narc bool
 	// mutation says the atom grades the pull's mutants: it is handed the commit
 	// (ATOM_SHA) and, under --reuse, the run's record token (ATOM_MUTANTS_TOKEN)
 	// it asks the door what is already graded with. The atom removes the token
@@ -123,15 +119,13 @@ var atomEnvironments = map[string]atomEnv{
 	"ts:release":     {containerCtx: baseReleaseLane("ts:release", "bun", "/root/.bun/install/cache", "foundry-bun", ""), tree: true},
 	"python:release": {containerCtx: baseReleaseLane("python:release", "python", "/opt/uv-cache", "foundry-uv", "UV_CACHE_DIR"), tree: true},
 
-	// The ops, orbit, compose, wit and template atoms that exec a program: the
+	// The ops, compose, wit and template atoms that exec a program: the
 	// tools container, as the binary's vote runs them.
 	"compose:config":         {tools: true},
 	"ops:chezmoi":            {tools: true},
 	"ops:flux":               {tools: true},
 	"ops:kube-linter":        {tools: true},
-	"ops:orbit-sidecars":     {tools: true},
 	"ops:shell":              {tools: true},
-	"orbit:sidecars":         {tools: true},
 	"wit:validate":           {tools: true},
 	"ops:ansible":            {tools: true},
 	"ops:declaration":        {tools: true},
@@ -143,8 +137,6 @@ var atomEnvironments = map[string]atomEnv{
 	"template:render-matrix": {tools: true},
 	// ... and the ones that judge the change or the origin are also handed them.
 	"ops:immutable": {tools: true, facts: true},
-	"orbit:repo":    {origin: true},
-	"orbit:surface": {tools: true, origin: true, narc: true},
 
 	// The fleet atoms. The ones that exec a program or read the tree with the
 	// tools container's venv run there, as the binary's vote runs them; the
@@ -221,12 +213,6 @@ func (r *run) atomEnvironment(ctx context.Context, e catalogue.Entry) *dagger.Co
 	}
 	if slices.Contains(needs, "svid") && r.spire != nil {
 		ctr = ctr.WithUnixSocket(atomsSpirePath, r.spire).WithEnvVariable("SPIFFE_ENDPOINT_SOCKET", "unix://"+atomsSpirePath)
-	}
-	if env.narc {
-		var err error
-		if ctr, err = r.withNarc(ctx, ctr); err != nil {
-			ctr = ctr.WithEnvVariable("ATOM_NARC_ERR", err.Error())
-		}
 	}
 	if e.Def == nil {
 		return ctr

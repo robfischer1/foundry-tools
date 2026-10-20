@@ -7,7 +7,6 @@ import (
 	basesgorelease "dagger/foundry-tools/atoms/bases/go-release"
 	basesrelease "dagger/foundry-tools/atoms/bases/release"
 	bundlefleet "dagger/foundry-tools/atoms/bundle/fleet"
-	bundleorbits "dagger/foundry-tools/atoms/bundle/orbits"
 	bundlepolicy "dagger/foundry-tools/atoms/bundle/policy"
 	bundleresign "dagger/foundry-tools/atoms/bundle/resign"
 	composeconfig "dagger/foundry-tools/atoms/compose/config"
@@ -48,7 +47,6 @@ import (
 	fleetmanifestonecommand "dagger/foundry-tools/atoms/fleet/manifest-one-command"
 	fleetnodekindsdeclared "dagger/foundry-tools/atoms/fleet/node-kinds-declared"
 	fleetopengrepsast "dagger/foundry-tools/atoms/fleet/opengrep-sast"
-	fleetorbitdrift "dagger/foundry-tools/atoms/fleet/orbit-drift"
 	fleetoureaconfigretiredkeys "dagger/foundry-tools/atoms/fleet/ourea-config-retired-keys"
 	fleetpdpwired "dagger/foundry-tools/atoms/fleet/pdp-wired"
 	fleetrenovateconfig "dagger/foundry-tools/atoms/fleet/renovate-config"
@@ -78,18 +76,12 @@ import (
 	opsimmutable "dagger/foundry-tools/atoms/ops/immutable"
 	opskubelinter "dagger/foundry-tools/atoms/ops/kube-linter"
 	opsmetrics "dagger/foundry-tools/atoms/ops/metrics"
-	opsorbitcomposed "dagger/foundry-tools/atoms/ops/orbit-composed"
-	opsorbitsidecars "dagger/foundry-tools/atoms/ops/orbit-sidecars"
 	opsrecordlanes "dagger/foundry-tools/atoms/ops/record-lanes"
 	opsshell "dagger/foundry-tools/atoms/ops/shell"
 	opsspecs "dagger/foundry-tools/atoms/ops/specs"
 	opsstarsa "dagger/foundry-tools/atoms/ops/star-sa"
 	opsworldpatches "dagger/foundry-tools/atoms/ops/world-patches"
 	opsyaml "dagger/foundry-tools/atoms/ops/yaml"
-	orbitcontracts "dagger/foundry-tools/atoms/orbit/contracts"
-	orbitrepo "dagger/foundry-tools/atoms/orbit/repo"
-	orbitsidecars "dagger/foundry-tools/atoms/orbit/sidecars"
-	orbitsurface "dagger/foundry-tools/atoms/orbit/surface"
 	pythonartifacts "dagger/foundry-tools/atoms/python/artifacts"
 	pythonforgetestkitassertionfree "dagger/foundry-tools/atoms/python/forge-testkit-assertion-free"
 	pythonforgetestkitfakeplacement "dagger/foundry-tools/atoms/python/forge-testkit-fake-placement"
@@ -124,7 +116,6 @@ var Defs = []*atomkit.Def{
 	&basesgorelease.Def,
 	&basesrelease.Def,
 	&bundlefleet.Def,
-	&bundleorbits.Def,
 	&bundlepolicy.Def,
 	&bundleresign.Def,
 	&composeconfig.Def,
@@ -165,7 +156,6 @@ var Defs = []*atomkit.Def{
 	&fleetmanifestonecommand.Def,
 	&fleetnodekindsdeclared.Def,
 	&fleetopengrepsast.Def,
-	&fleetorbitdrift.Def,
 	&fleetoureaconfigretiredkeys.Def,
 	&fleetpdpwired.Def,
 	&fleetrenovateconfig.Def,
@@ -195,18 +185,12 @@ var Defs = []*atomkit.Def{
 	&opsimmutable.Def,
 	&opskubelinter.Def,
 	&opsmetrics.Def,
-	&opsorbitcomposed.Def,
-	&opsorbitsidecars.Def,
 	&opsrecordlanes.Def,
 	&opsshell.Def,
 	&opsspecs.Def,
 	&opsstarsa.Def,
 	&opsworldpatches.Def,
 	&opsyaml.Def,
-	&orbitcontracts.Def,
-	&orbitrepo.Def,
-	&orbitsidecars.Def,
-	&orbitsurface.Def,
 	&pythonartifacts.Def,
 	&pythonforgetestkitassertionfree.Def,
 	&pythonforgetestkitfakeplacement.Def,

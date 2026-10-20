@@ -217,7 +217,7 @@ func bundleSvid(t *testing.T, m *FoundryTools, spire *dagger.Socket, token *dagg
 
 func TestGateFileKeepsTheRegistrySvidAudience(t *testing.T) {
 	m := gateOn(t, cleanVector)
-	if _, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "visual", nil, false, nil, nil, "", nil, svidAudience); err != nil || m.registrySvid != svidAudience {
+	if _, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "visual", nil, false, nil, nil, svidAudience); err != nil || m.registrySvid != svidAudience {
 		t.Fatalf("registrySvid %q err %v", m.registrySvid, err)
 	}
 }

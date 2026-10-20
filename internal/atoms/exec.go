@@ -15,7 +15,7 @@ import (
 )
 
 // Cmd is one program an atom runs: the few atoms whose tool is a program (opa,
-// uv, orbitparse, tar) and not a function. They run as plain execs with a fixed
+// uv, tar) and not a function. They run as plain execs with a fixed
 // argument vector, never a shell, exactly as the chains' WithExec calls did.
 type Cmd struct {
 	// Dir is the working directory: the repository root, where the chains'

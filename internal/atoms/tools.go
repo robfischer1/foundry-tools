@@ -29,18 +29,12 @@ import (
 // points directly, so no package is resolved when one runs. uv is in the
 // container (the build installs the venv with it) and no atom execs it.
 var Programs = []string{
-	"git", "tar", "opa", "orbitparse",
+	"git", "tar", "opa",
 	"opengrep", "hadolint", "shellcheck", "chezmoi", "kubectl", "kubeconform",
 	"docker-compose", "wasm-tools", "just", "kube-linter",
 	"python3", "python", "copier", "ansible-playbook", "ansible-lint", "ansible-galaxy",
-	"witnesscall", "narc",
+	"witnesscall",
 }
-
-// MountedPerRun is the programs in Programs that no layer carries: narc is the
-// image flux pins live for narcissus, resolved when the call runs and mounted on
-// top of the layers (the module's withAtomNarc), so a bump of that pin rebuilds
-// nothing under it.
-var MountedPerRun = []string{"narc"}
 
 // indent is a tool's output set in from the line that introduced it.
 var indent = checks.Indent

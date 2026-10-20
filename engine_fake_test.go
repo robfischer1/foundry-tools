@@ -775,7 +775,6 @@ var everyLaneTree = map[string]string{
 	"package.json":                     "{}",
 	"a.test.ts":                        "",
 	"rules/sast/go.yml":                "rules:\n  - languages: [go, python, rust, typescript]\n",
-	"orbit.toml":                       "",
 	"policy/.manifest":                 "",
 	"policy/admission/x.rego":          "",
 	"fleet/repos/x.json":               "{}\n",

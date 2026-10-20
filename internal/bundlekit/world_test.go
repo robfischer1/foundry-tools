@@ -62,18 +62,17 @@ type world struct {
 
 func newWorld(t *testing.T, extra map[string]string) *world {
 	t.Helper()
-	w := &world{t: t, failEval: map[string]int{}, diff: "policy/admission/a.rego\nfleet/data.json\norbits/x-y.toml\n",
+	w := &world{t: t, failEval: map[string]int{}, diff: "policy/admission/a.rego\nfleet/data.json\n",
 		dataJSON: `{"authz_audience":{"star_only":{"chaos":["graph_nodes"]}},"grants":{"g":1},"principals":{"p":1},"capabilities":{"c":1}}`,
 		allowed:  `{"result":[{"expressions":[{"value":["search"]}]}]}`,
 		deny:     `{"result":[{"expressions":[{"value":["fleet roster: a","fleet roster: b"]}]}]}`,
 	}
 	files := map[string]string{
-		"policy/.manifest":          `{"roots":["admission"]}`,
-		"policy/admission/a.rego":   "package admission\n",
-		"fleet/data.json":           `{"map":{"chaos":{}},"topics":{"t":{}}}`,
-		"fleet/repos/chaos.json":    `{"name":"chaos","kind":"go","verb_prefix":"chaos"}`,
-		"fleet/stars/old.slag":      "x",
-		"orbits/urania-themis.toml": contractBody,
+		"policy/.manifest":        `{"roots":["admission"]}`,
+		"policy/admission/a.rego": "package admission\n",
+		"fleet/data.json":         `{"map":{"chaos":{}},"topics":{"t":{}}}`,
+		"fleet/repos/chaos.json":  `{"name":"chaos","kind":"go","verb_prefix":"chaos"}`,
+		"fleet/stars/old.slag":    "x",
 	}
 	for k, v := range extra {
 		if v == "" {
@@ -309,15 +308,6 @@ func expect(t *testing.T, f *Fault, findings bool, needles ...string) {
 		}
 	}
 }
-
-const contractBody = `version = "1"
-status = "generated"
-verbs = ["shape_for", "neighbors"]
-
-[witness]
-calls = 3
-verbs = ["shape_for"]
-`
 
 const chaosManifest = `apiVersion: apps/v1
 kind: Deployment

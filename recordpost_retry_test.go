@@ -144,8 +144,8 @@ func TestARetryingPostStopsWhenTheLaneIsCancelled(t *testing.T) {
 	}
 }
 
-// THE LANE'S OWN POST RETRIES; THE RIDER'S STAYS ONE ATTEMPT (ride.go bounds
-// the gate's wait on it).
+// THE LANE'S OWN POST RETRIES; THE ONE-SHOT SENDER STAYS ONE ATTEMPT (sendRecord;
+// postRecordOutcome uses it).
 func TestOnlyTheLanesOwnPostRetries(t *testing.T) {
 	slept, _ := retryRig(t, 3)
 	srv, n := scriptedDoor(t, 503)

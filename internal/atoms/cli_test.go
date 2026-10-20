@@ -30,9 +30,8 @@ func TestRunPrintsTheVectorAndExitsZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The pull path: the atoms of precommit and prepush this package carries (none now: every one lives,
-	// none of the orbit lane's and none of the ones that live in their own files
-	// (atoms/<ns>/<name>); a tree with no surface for them is absent or clean in
+	// The pull path: the atoms of precommit and prepush this package carries (none now: every one lives in
+	// its own file, atoms/<ns>/<name>); a tree with no surface for them is absent or clean in
 	// all of them.
 	want := StageIDs("")
 	wantState := map[string]int{}

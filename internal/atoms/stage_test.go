@@ -20,7 +20,6 @@ func TestStageIDs(t *testing.T) {
 		stage string
 		want  []string
 	}{
-		{checks.StageOrbit, nil},
 		{checks.StagePrepush, prepush},
 		{checks.StagePrecommit, precommit},
 		// The pull path is both of its stages, in the registry's order, and never
@@ -53,7 +52,7 @@ func TestStageIDs(t *testing.T) {
 func TestEveryBuiltinAtomIsAtAStageABinaryLaneGrades(t *testing.T) {
 	for _, a := range Builtin() {
 		switch checks.AtomByID(a.ID).Stage {
-		case checks.StagePrecommit, checks.StagePrepush, checks.StageOrbit:
+		case checks.StagePrecommit, checks.StagePrepush:
 		default:
 			t.Errorf("%s is at stage %s, which no lane that starts the binary grades", a.ID, checks.AtomByID(a.ID).Stage)
 		}
@@ -106,17 +105,6 @@ func TestRegistryForStage(t *testing.T) {
 			}
 		})
 	}
-	t.Run("the pull path leaves the orbit lane's atoms out", func(t *testing.T) {
-		got, err := reg.ForStage("")
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, id := range got.IDs() {
-			if strings.HasPrefix(id, "orbit:") {
-				t.Errorf("the pull path carries %s", id)
-			}
-		}
-	})
 }
 
 // A stage no registered atom belongs to is a bad flag (2), not an empty vector.
@@ -225,22 +213,22 @@ func TestDoorDefault(t *testing.T) {
 	}
 }
 
-// -spire and -narc-err reach the atoms that read them.
-func TestRunHandsTheSocketAndTheNarcReasonToTheAtoms(t *testing.T) {
+// -spire reaches the atoms that read it.
+func TestRunHandsTheSocketToTheAtoms(t *testing.T) {
 	dir := newRepo(t)
 	put(t, dir, "a.txt", "a\n")
 	commitAll(t, dir, "c1")
 	build := func() (*Registry, error) {
 		return NewRegistry(Atom{ID: "go:release", Run: func(_ context.Context, a checks.AtomDef, in Input) checks.Verdict {
-			return checks.VerdictOf(a, 0, "seen "+in.Spire+"|"+in.NarcErr)
+			return checks.VerdictOf(a, 0, "seen "+in.Spire)
 		}})
 	}
 	var out, errb bytes.Buffer
-	args := []string{"-root", dir, "-spire", "/run/spire/agent.sock", "-narc-err", "the pin"}
+	args := []string{"-root", dir, "-spire", "/run/spire/agent.sock"}
 	if code := run(context.Background(), args, &out, &errb, time.Now, build); code != 0 {
 		t.Fatalf("exit %d: %s", code, errb.String())
 	}
-	if !strings.Contains(out.String(), "seen /run/spire/agent.sock|the pin") {
+	if !strings.Contains(out.String(), "seen /run/spire/agent.sock") {
 		t.Errorf("the atom did not see the flags:\n%s", out.String())
 	}
 }

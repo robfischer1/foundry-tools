@@ -1,4 +1,4 @@
-// Package atomlib is what the ported ops, orbit, compose and template atoms
+// Package atomlib is what the ported ops, compose and template atoms
 // (atoms/<ns>/<name>) share: the stand-downs, the tool probe, the settle rules
 // and the private tree. A helper two atoms use lives here, once; an atom's own
 // question is in its own file.

@@ -77,7 +77,7 @@ func TestGateFileArmsTheLookupUnderReuse(t *testing.T) {
 		if !c.token {
 			tok = nil
 		}
-		if _, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "mutation", tok, c.reuse, nil, nil, "", nil, ""); err != nil {
+		if _, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "mutation", tok, c.reuse, nil, nil, ""); err != nil {
 			t.Fatal(err)
 		}
 		if (m.mutantsToken != nil) != c.armed {

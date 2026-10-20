@@ -134,7 +134,7 @@ func flagged(c atoms.Cmd) string { return strings.Join(c.Args, " ") }
 // the checker the tree itself holds.
 func init() { toolchainPrograms = []string{"uv"} }
 
-var flux = map[string]string{"prime/orbits/a.yaml": "x", checker: "#!/usr/bin/env python3\n"}
+var flux = map[string]string{"prime/a.yaml": "x", checker: "#!/usr/bin/env python3\n"}
 
 // uvTree is toolTree for the atom: `uv --version` (the provisioning probe) is
 // answered, and every other call is the script. A nil script answers 0 and nothing.
@@ -219,7 +219,7 @@ func TestFleetWitTopics(t *testing.T) {
 		}
 	})
 	t.Run("flux's tree without the checker is a could-not-run naming it, never an absence", func(t *testing.T) {
-		in, f := uvTree(t, map[string]string{"prime/orbits/a.yaml": "x"}, nil)
+		in, f := uvTree(t, map[string]string{"prime/a.yaml": "x"}, nil)
 		expect(t, run(t, in), stateOf(2), cannot, checker+" is absent, so there is no checker to run")
 		if len(f.calls) != 0 {
 			t.Errorf("python ran with no checker: %v", f.ran())

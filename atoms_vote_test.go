@@ -97,7 +97,7 @@ func TestEveryAtomTheBinaryRegistersVotesFromTheBinary(t *testing.T) {
 	}
 	chainsAreOff(t)
 	seen := map[string]bool{}
-	for _, stage := range []string{"", checks.StagePrecommit, checks.StagePrepush, checks.StageOrbit} {
+	for _, stage := range []string{"", checks.StagePrecommit, checks.StagePrepush} {
 		t.Run("stage "+stage, func(t *testing.T) {
 			*ran = nil
 			engine.reset()
@@ -258,7 +258,6 @@ func TestTheVoterAsksTheWitnessForRealAndMountsTheSocket(t *testing.T) {
 		{"", true, true},
 		{"prepush", false, false},
 		{"precommit", true, false},
-		{"orbit", true, false},
 	} {
 		t.Run(tc.stage+map[bool]string{true: " with a socket", false: " without"}[tc.spire], func(t *testing.T) {
 			m := &FoundryTools{Source: dag.Directory(), Repo: "http://door/rob/x.git", Sha: buildSha}
@@ -266,7 +265,7 @@ func TestTheVoterAsksTheWitnessForRealAndMountsTheSocket(t *testing.T) {
 				m.spire = dag.LoadSocketFromID("spire-agent-socket")
 			}
 			engine.reset()
-			engine.withTree(laneDies(map[string]string{"go.mod": "module x\n"}))
+			engine.withTree(map[string]string{"go.mod": "module x\n"})
 			engine.stdout(`"/usr/local/bin/atoms"`, "[]")
 			if _, err := m.atomsBallot(soon(t), tc.stage, "abc"); err != nil {
 				t.Fatal(err)
@@ -291,7 +290,7 @@ func TestTheLanesVoteRunsTheVotingBinary(t *testing.T) {
 	}
 	m := &FoundryTools{Source: dag.Directory(), Repo: "http://door/rob/x.git", Sha: buildSha, spire: dag.LoadSocketFromID("spire-agent-socket")}
 	engine.reset()
-	engine.withTree(laneDies(bareTree))
+	engine.withTree(bareTree)
 	engine.stdout(`"/usr/local/bin/atoms"`, binaryVector(t, checks.StagePrepush))
 	vs, err := m.vector(soon(t), checks.StagePrepush, "fleet:witness", "abc")
 	if err != nil || len(vs) != 1 || !strings.HasPrefix(vs[0].Reason, votedMark) {

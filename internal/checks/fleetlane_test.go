@@ -280,8 +280,8 @@ func TestOpengrepZeroFiles(t *testing.T) {
 }
 
 func TestHasEntryTakesEitherShape(t *testing.T) {
-	entries := []string{"go.mod", "rules/", "orbit.toml", ".hadolint.yaml"}
-	for _, name := range []string{"go.mod", "rules", "orbit.toml", ".hadolint.yaml"} {
+	entries := []string{"go.mod", "rules/", "justfile", ".hadolint.yaml"}
+	for _, name := range []string{"go.mod", "rules", "justfile", ".hadolint.yaml"} {
 		if !HasEntry(entries, name) {
 			t.Errorf("HasEntry(%q) = false", name)
 		}

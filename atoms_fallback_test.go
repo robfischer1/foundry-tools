@@ -80,6 +80,17 @@ func binarySays(t *testing.T, states map[string]int) {
 	}
 }
 
+// verdictOf is the vector's verdict for one atom id; ok is false when the stage
+// does not grade it.
+func verdictOf(vs []checks.Verdict, id string) (checks.Verdict, bool) {
+	for _, v := range vs {
+		if v.Atom == id {
+			return v, true
+		}
+	}
+	return checks.Verdict{}, false
+}
+
 // A BINARY-WIDE FAILURE DOES NOT TURN THE LANE RED: every atom is asked once of
 // its chain, and the chain's answer is the vote.
 func TestABinaryWideFailureIsAnsweredByTheChainsAndCounted(t *testing.T) {
@@ -100,12 +111,15 @@ func TestABinaryWideFailureIsAnsweredByTheChainsAndCounted(t *testing.T) {
 			engine.reset()
 			engine.withTree(bareTree)
 			m := bareModule()
-			vs, err := m.vector(soon(t), checks.StageOrbit, "", "")
-			ids := atoms.StageIDs(checks.StageOrbit)
-			if err != nil || len(vs) != len(ids) {
+			vs, err := m.vector(soon(t), checks.StagePrepush, "", "")
+			ids := atoms.StageIDs(checks.StagePrepush)
+			if err != nil || len(vs) < len(ids) {
 				t.Fatalf("vector %v, err %v", vs, err)
 			}
 			for _, v := range vs {
+				if !slices.Contains(ids, v.Atom) {
+					continue // not carried by the binary: its chain answers it every time
+				}
 				if v.State != 0 || !strings.HasPrefix(v.Reason, chainMark) {
 					t.Errorf("%s was not answered by its chain: %+v", v.Atom, v)
 				}
@@ -120,17 +134,20 @@ func TestABinaryWideFailureIsAnsweredByTheChainsAndCounted(t *testing.T) {
 // ONE ATOM AT STATE 2 GETS EXACTLY ONE CHAIN ASK; the rest are the binary's.
 func TestOneCouldNotRunAtomIsAskedOfItsChainOnce(t *testing.T) {
 	casting(t, voterBinary)
-	ids := atoms.StageIDs(checks.StageOrbit)
+	ids := atoms.StageIDs(checks.StagePrepush)
 	binarySays(t, map[string]int{ids[1]: 2})
 	calls := stubReasks(t)
 	engine.reset()
 	engine.withTree(bareTree)
 	m := bareModule()
-	vs, err := m.vector(soon(t), checks.StageOrbit, "", "")
+	vs, err := m.vector(soon(t), checks.StagePrepush, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, v := range vs {
+		if !slices.Contains(ids, v.Atom) {
+			continue // not carried by the binary: its chain answers it every time
+		}
 		wantChain := v.Atom == ids[1]
 		if got := strings.HasPrefix(v.Reason, chainMark); got != wantChain {
 			t.Errorf("%s: chain-answered %v, want %v (%q)", v.Atom, got, wantChain, v.Reason)
@@ -144,23 +161,28 @@ func TestOneCouldNotRunAtomIsAskedOfItsChainOnce(t *testing.T) {
 // A FINDING IS A VERDICT: state 1 is never asked again.
 func TestAFindingIsNeverReAsked(t *testing.T) {
 	casting(t, voterBinary)
-	ids := atoms.StageIDs(checks.StageOrbit)
+	ids := atoms.StageIDs(checks.StagePrepush)
 	binarySays(t, map[string]int{ids[0]: 1, ids[2]: 1})
 	calls := stubReasks(t)
 	engine.reset()
 	engine.withTree(bareTree)
 	m := bareModule()
-	vs, err := m.vector(soon(t), checks.StageOrbit, "", "")
+	vs, err := m.vector(soon(t), checks.StagePrepush, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, v := range vs {
+		if !slices.Contains(ids, v.Atom) {
+			continue // not carried by the binary
+		}
 		if calls.of(v.Atom) != 0 || !strings.HasPrefix(v.Reason, votedMark) {
 			t.Errorf("%s was re-asked or not the binary's: %+v", v.Atom, v)
 		}
 	}
-	if vs[0].State != 1 || vs[2].State != 1 {
-		t.Errorf("states %d %d", vs[0].State, vs[2].State)
+	a, _ := verdictOf(vs, ids[0])
+	b, _ := verdictOf(vs, ids[2])
+	if a.State != 1 || b.State != 1 {
+		t.Errorf("states %d %d", a.State, b.State)
 	}
 }
 
@@ -168,7 +190,7 @@ func TestAFindingIsNeverReAsked(t *testing.T) {
 // nothing; a lane that is over still gets the chain's ask, and the chain's answer.
 func TestAFallbackThatCannotBeAskedLeavesTheBinarysTwo(t *testing.T) {
 	casting(t, voterBinary)
-	ids := atoms.StageIDs(checks.StageOrbit)
+	ids := atoms.StageIDs(checks.StagePrepush)
 	binarySays(t, map[string]int{ids[0]: 2})
 	stubReasks(t)
 	orig := registry[ids[0]]
@@ -177,12 +199,12 @@ func TestAFallbackThatCannotBeAskedLeavesTheBinarysTwo(t *testing.T) {
 	engine.reset()
 	engine.withTree(bareTree)
 	m := bareModule()
-	vs, err := m.vector(soon(t), checks.StageOrbit, "", "")
+	vs, err := m.vector(soon(t), checks.StagePrepush, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if vs[0].State != 2 || !strings.HasPrefix(vs[0].Reason, votedMark) {
-		t.Errorf("verdict %+v", vs[0])
+	if v, _ := verdictOf(vs, ids[0]); v.State != 2 || !strings.HasPrefix(v.Reason, votedMark) {
+		t.Errorf("verdict %+v", v)
 	}
 }
 
@@ -279,12 +301,15 @@ func TestAPanickingBinaryRunFallsEveryAtomBackToItsChain(t *testing.T) {
 	engine.reset()
 	engine.withTree(bareTree)
 	m := bareModule()
-	vs, err := m.vector(soon(t), checks.StageOrbit, "", "")
-	ids := atoms.StageIDs(checks.StageOrbit)
-	if err != nil || len(vs) != len(ids) {
+	vs, err := m.vector(soon(t), checks.StagePrepush, "", "")
+	ids := atoms.StageIDs(checks.StagePrepush)
+	if err != nil || len(vs) < len(ids) {
 		t.Fatalf("vector %v, err %v", vs, err)
 	}
 	for _, v := range vs {
+		if !slices.Contains(ids, v.Atom) {
+			continue
+		}
 		if !strings.HasPrefix(v.Reason, chainMark) || calls.of(v.Atom) != 1 {
 			t.Errorf("%s: %+v, chain asked %d times", v.Atom, v, calls.of(v.Atom))
 		}

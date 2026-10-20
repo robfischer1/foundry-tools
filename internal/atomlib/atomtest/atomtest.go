@@ -19,7 +19,6 @@ import (
 	"dagger/foundry-tools/internal/atomkit"
 	"dagger/foundry-tools/internal/atoms"
 	"dagger/foundry-tools/internal/checks"
-	"dagger/foundry-tools/internal/orbitcompose"
 )
 
 // GitIn runs git in dir and answers its trimmed stdout; a failure is fatal.
@@ -232,60 +231,6 @@ func DeclaresItsRow(t testing.TB, d atomkit.Def, stage, toolchain string) {
 	if d.Stage != stage || d.Toolchain != toolchain || d.Lane != checks.LaneAny || d.Surface != "any:**" || d.Group != checks.GroupOf(d.ID) {
 		t.Errorf("%+v", d)
 	}
-}
-
-// StarData is a roster shard: a star and its verb prefix.
-func StarData(prefix string) string { return `{"verb_prefix":"` + prefix + `"}` }
-
-// Contract is the smallest contract orbitcompose parses: it names its producer
-// and consumer by its file name, and a draft one is not yet approved.
-const Contract = "version = \"v1\"\nstatus = \"draft\"\nverbs = [\"a_verb\"]\n"
-
-// DiesAt is a foundry-dies checkout holding a roster, one contract between its
-// two stars, and the named files. (A directory of orbits that holds no contract
-// does not compose: that is a 2, and the atoms say so.) It answers the root.
-func DiesAt(t testing.TB, extra map[string]string) string {
-	t.Helper()
-	files := map[string]string{
-		"fleet/repos/a.json": StarData("a"), "fleet/repos/b.json": StarData("b"), "orbits/a-b.toml": Contract,
-	}
-	for k, v := range extra {
-		files[k] = v
-	}
-	return TreeIn(t, files).Root
-}
-
-// ComposedContract is a contract orbitcompose renders a sidecar pair from.
-const ComposedContract = `version = "1"
-status = "generated"
-verbs = ["shape_for"]
-
-[witness]
-calls = 1
-verbs = ["shape_for"]
-`
-
-// ComposedTree is a tree whose prime/orbits is the render a correct orbitcompose
-// run would write from foundry-dies' one contract, edited by edit (nil leaves
-// it), and the Input that names that foundry-dies. The extra files are added to
-// the tree beside the render.
-func ComposedTree(t testing.TB, edit func(map[string][]byte), extra map[string]string) atoms.Input {
-	t.Helper()
-	cs, _ := orbitcompose.ContractsOf(map[string][]byte{"urania-themis.toml": []byte(ComposedContract)}, nil) // a constant that parses
-	render := orbitcompose.Files("prime", orbitcompose.Compose(cs))
-	if edit != nil {
-		edit(render)
-	}
-	files := map[string]string{}
-	for name, raw := range render {
-		files["prime/orbits/"+name] = string(raw)
-	}
-	for k, v := range extra {
-		files[k] = v
-	}
-	in := TreeIn(t, files)
-	in.Dies = TreeIn(t, map[string]string{"orbits/urania-themis.toml": ComposedContract, "orbits/README.md": "not read"}).Root
-	return in
 }
 
 // ListTree is every file under dir, slash-separated and sorted.

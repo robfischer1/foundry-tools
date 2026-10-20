@@ -81,13 +81,11 @@ var atomRuntimeDirs = []string{
 	"internal/retiredverbs/**",
 }
 
-// The packages the atoms of a family share (internal/atomlib, internal/orbitkit)
-// and the judgements the orbit family reads.
+// The packages the atoms of a family share (internal/atomlib).
 var (
 	libraryDirs = []string{"internal/atomlib/**"}
 	// witnessDirs: fleet:witness asks as the pod's SVID in its own process.
 	witnessDirs = []string{"internal/hadescall/**", "internal/witnesscall/**"}
-	orbitDirs   = []string{"internal/atomlib/**", "internal/orbitkit/**", "internal/orbitcompose/**", "internal/orbitlane/**"}
 	// witreplayDirs: rust:wit-compose and dev:rust-replay are one body.
 	witreplayDirs = []string{"internal/witreplay/**"}
 	// releaseDirs are what the release atoms share: the release build's one
@@ -104,10 +102,9 @@ var (
 	// builds, the lane's decisions (artifact names, package selection), the
 	// release directory's resolution and the exit vocabulary.
 	publishPackDirs = []string{"internal/publishpack/**", "internal/publishlane/**", "internal/releasekit/**", "internal/buildlane/**"}
-	// bundleDirs are what the bundle lane's four atoms share: the build and its
-	// gates, the lane's decisions about the dies, the KMS re-sign's byte work and
-	// the orbit dies' composition.
-	bundleDirs = []string{"internal/bundlekit/**", "internal/bundlelane/**", "internal/bundleresign/**", "internal/orbitcompose/**"}
+	// bundleDirs are what the bundle lane's atoms share: the build and its
+	// gates, the lane's decisions about the dies and the KMS re-sign's byte work.
+	bundleDirs = []string{"internal/bundlekit/**", "internal/bundlelane/**", "internal/bundleresign/**"}
 )
 
 // atomLibraries are the packages an atom imports that not every atom does, by
@@ -127,8 +124,6 @@ var atomLibraries = map[string][]string{
 	"ops:dup":                    libraryDirs,
 	"ops:flux":                   libraryDirs,
 	"ops:metrics":                libraryDirs,
-	"ops:orbit-composed":         orbitDirs,
-	"ops:orbit-sidecars":         orbitDirs,
 	"ops:record-lanes":           libraryDirs,
 	"ops:shell":                  libraryDirs,
 	"ops:specs":                  libraryDirs,
@@ -138,16 +133,11 @@ var atomLibraries = map[string][]string{
 	"go:release":                 releaseDirs,
 	"bundle:policy":              bundleDirs,
 	"bundle:fleet":               bundleDirs,
-	"bundle:orbits":              bundleDirs,
 	"bundle:resign":              bundleDirs,
 	"go:cast-release":            castReleaseDirs,
 	"python:artifacts":           publishPackDirs,
 	"ts:pack":                    publishPackDirs,
 	"rust:cast-release":          castReleaseDirs,
-	"orbit:contracts":            orbitDirs,
-	"orbit:repo":                 orbitDirs,
-	"orbit:sidecars":             orbitDirs,
-	"orbit:surface":              orbitDirs,
 	"python:release":             releaseDirs,
 	"rust:release":               rustReleaseDirs,
 	"ts:release":                 releaseDirs,

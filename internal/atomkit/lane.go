@@ -9,10 +9,10 @@ import (
 const LaneSchema = "lane@1"
 
 // KnownLanes are the lanes the dispatcher knows how to run.
-var KnownLanes = []string{"gate", "check", "orbit", "visual", "build", "mutation", "mutation-bg", "bundle", "publish", "bases", "cast", "govern", "atoms", "dev"}
+var KnownLanes = []string{"gate", "check", "visual", "build", "mutation", "mutation-bg", "bundle", "publish", "bases", "cast", "govern", "atoms", "dev"}
 
 var (
-	knownStages = []string{"precommit", "prepush", "mutation", "orbit", "visual", "govern", "dev", "atoms", "cast", "publish", "bundle", "bases"}
+	knownStages = []string{"precommit", "prepush", "mutation", "visual", "govern", "dev", "atoms", "cast", "publish", "bundle", "bases"}
 	knownCaps   = []string{"release", "assemble", "scan", "kms-sign", "publish", "push-bundle", "layer-cast", "build-atoms", "dev-output", "push-visual"}
 )
 

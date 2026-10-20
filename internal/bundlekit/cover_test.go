@@ -33,7 +33,6 @@ func TestEveryProgramThatNeverRunsIsTheLanesFault(t *testing.T) {
 		{"fleet: the composition build", Fleet, nil, "--revision gate", "opa build never ran"},
 		{"fleet: the composition probe", Fleet, nil, "data.admission.deny", "the composition probe never ran"},
 		{"fleet: the diff", Fleet, nil, "diff", "the change set could not be read"},
-		{"orbits: the diff", Orbits, nil, "diff", "the change set could not be read"},
 	} {
 		w := newWorld(t, tc.files)
 		if tc.files != nil {
@@ -45,7 +44,7 @@ func TestEveryProgramThatNeverRunsIsTheLanesFault(t *testing.T) {
 }
 
 func TestAFailingDiffIsTheLanesFault(t *testing.T) {
-	for _, atom := range []atomFn{Policy, Fleet, Orbits} {
+	for _, atom := range []atomFn{Policy, Fleet} {
 		w := newWorld(t, nil)
 		w.diffCode = 128
 		expect(t, atom(context.Background(), w.run()), false, "the change set could not be read (exit 128)")
@@ -54,7 +53,7 @@ func TestAFailingDiffIsTheLanesFault(t *testing.T) {
 
 // The commit cannot be read for any of the three.
 func TestNoCommitIsTheLanesFault(t *testing.T) {
-	for _, atom := range []atomFn{Fleet, Orbits} {
+	for _, atom := range []atomFn{Fleet} {
 		w := newWorld(t, nil)
 		t.Setenv("ATOM_SHA", "")
 		w.gitDead = true
@@ -94,9 +93,6 @@ func TestUnreadableInputsAreTheLanesFault(t *testing.T) {
 	w = newWorld(t, nil)
 	broken(w.flux, "blades/bad.yaml")
 	expect(t, Fleet(context.Background(), w.run()), false, "could not be read")
-	w = newWorld(t, nil)
-	broken(w.in.Root, "fleet/repos/chaos.json")
-	expect(t, Orbits(context.Background(), w.run()), false, "could not be read")
 }
 
 // A build that left no file, or a file of the wrong shape, is the lane's fault or a finding.

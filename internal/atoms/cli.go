@@ -31,10 +31,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, now func(
 	root := fs.String("root", ".", "the repository root")
 	base := fs.String("base", "", "the change set's base sha; empty reads HEAD against its parent")
 	origin := fs.String("origin", "", "where the repository was fetched from; empty asks git for origin")
-	stage := fs.String("stage", "", "the stage whose atoms to run (precommit, prepush, orbit); empty is the pull path, precommit and prepush")
+	stage := fs.String("stage", "", "the stage whose atoms to run (precommit, prepush); empty is the pull path, precommit and prepush")
 	dies := fs.String("dies", "", "a checkout of foundry-dies at main, for the atoms that grade against the fleet's contracts")
 	spire := fs.String("spire", "", "the SPIRE agent socket the lane pod forwarded, for fleet:witness's identified ask; empty settles could-not-run (fleet:witness never asks in the clear)")
-	narcErr := fs.String("narc-err", "", "why narc was not provisioned; empty means it was")
 	fork := fs.String("fork", "", "the foundry-dies record that declares this repository a fork of an upstream; empty is not a fork")
 	timeout := fs.Duration("timeout", DefaultTimeout, "each atom's deadline")
 	workers := fs.Int("workers", 0, "worker pool size; 0 is GOMAXPROCS")
@@ -58,7 +57,6 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, now func(
 	in.Dies = *dies
 	in.Fork = *fork
 	in.Spire = *spire
-	in.NarcErr = *narcErr
 	// THE PROFILE SPANS THE ATOMS AND NOTHING ELSE (cpu.go): what each atom
 	// spent is read off it, and a profile that will not start is a CPU not
 	// known, never a verdict changed.

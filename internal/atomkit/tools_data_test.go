@@ -98,14 +98,13 @@ var urlPins = []struct {
 var goPins = map[string]string{
 	"staticcheck": checks.StaticcheckModule, "govulncheck": checks.GovulncheckModule,
 	"gomutants": checks.GomutantsModule, "mutation-gate": checks.MutationGateModule,
-	"orbitparse": checks.OrbitparseModule,
 }
 
 // imagePins are the tools that are an image, and the toolchains and services.
 var imagePins = map[string]string{
 	"uv": checks.ImageUV, "python": checks.ImagePython, "trivy": checks.ImageTrivy, "syft": checks.ImageSyft, "cosign": checks.ImageCosign,
 	"signing-tools": checks.ImageSigningTools, "bun": checks.ImageTS, "git": checks.ImageGo, "node": checks.ImageNode, "kubeconform": checks.ImageKubeconform,
-	"kube-linter": checks.ImageKubeLinter, "kubectl": checks.ImageKubectl, "narc": checks.ImageNarcissus, "static": checks.ImageStatic, "debian": checks.ImageTools,
+	"kube-linter": checks.ImageKubeLinter, "kubectl": checks.ImageKubectl, "static": checks.ImageStatic, "debian": checks.ImageTools,
 }
 
 var toolchainPins = map[string]string{

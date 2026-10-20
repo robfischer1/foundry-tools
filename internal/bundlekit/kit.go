@@ -1,5 +1,5 @@
 // Package bundlekit is the bundle lane's build, as the executor runs it: the
-// atoms bundle:policy, bundle:fleet, bundle:orbits and bundle:resign build and
+// atoms bundle:policy, bundle:fleet and bundle:resign build and
 // gate the dies foundry-dies publishes, and leave them in the bundle out
 // directory for the lane's capabilities to sign and push. The decisions are
 // internal/bundlelane's, which the Dagger bundle lane (bundle.go at the module
