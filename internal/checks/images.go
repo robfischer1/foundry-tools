@@ -690,5 +690,5 @@ const (
 const (
 	// renovate: datasource=github-releases depName=open-policy-agent/opa extractVersion=^v(?<version>.*)$
 	OpaVersion = "1.21.2"
-	OpaURL     = "https://openpolicyagent.org/downloads/v" + OpaVersion + "/opa_linux_amd64_static"
+	OpaURL     = "https://github.com/open-policy-agent/opa/releases/download/v" + OpaVersion + "/opa_linux_amd64_static"
 )

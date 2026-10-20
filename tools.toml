@@ -66,7 +66,7 @@ image = "registry.k8s.io/etcd:3.6.8-0@sha256:397189418d1a00e500c0605ad18d1baf3b5
 
 [tool.opa]
 kind = "url"
-spec = "https://openpolicyagent.org/downloads/v1.21.2/opa_linux_amd64_static"
+spec = "https://github.com/open-policy-agent/opa/releases/download/v1.21.2/opa_linux_amd64_static"
 version = "1.21.2"
 sha256 = "830ab11f61ffec760b5e19db0d7ad02bf037e13f5ef4d665faeaf17632177527"
 
