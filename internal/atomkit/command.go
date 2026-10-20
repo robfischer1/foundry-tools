@@ -7,6 +7,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -48,6 +49,9 @@ func ModuleRoots(facts Tree, toolchain string) []string {
 		}
 	}
 	sort.Strings(roots)
+	if manifest == "go.mod" {
+		return goRootsWithSource(roots, facts.Files)
+	}
 	if manifest != "Cargo.toml" {
 		return roots
 	}
@@ -62,6 +66,30 @@ func ModuleRoots(facts Tree, toolchain string) []string {
 		}
 	}
 	return kept
+}
+
+// goRootsWithSource drops the Go module roots (under /src) that have no Go
+// package to load (checks.GoModulesWithSource, DEF-B6-037).
+func goRootsWithSource(roots, files []string) []string {
+	rel := make([]string, len(roots))
+	for i, r := range roots {
+		rel[i] = strings.TrimPrefix(strings.TrimPrefix(r, srcDir), "/")
+		if rel[i] == "" {
+			rel[i] = "."
+		}
+	}
+	keep := checks.GoModulesWithSource(rel, files)
+	out := []string{}
+	for _, r := range roots {
+		d := strings.TrimPrefix(strings.TrimPrefix(r, srcDir), "/")
+		if d == "" {
+			d = "."
+		}
+		if slices.Contains(keep, d) {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // bareWorkspaceMembers are the member directories (under /src) a script runner

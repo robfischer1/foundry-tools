@@ -77,8 +77,12 @@ func TestUT_614_BundlePhases(t *testing.T) {
 // stage does not exist, DEF-8-019, so they are named, not staged).
 func TestUT_613_ReleasePhasesNameTheFourReleaseAtoms(t *testing.T) {
 	want := []string{"go:release", "python:release", "rust:release", "ts:release"}
-	// The bases lane adds the per-base release of the layers that carry their own.
-	for l, want := range map[string][]string{"build": want, "bases": append(slices.Clone(want), "bases:release", "bases:go-release")} {
+	// The build lane and the bases lane add the per-base release of the layers
+	// that carry their own: the door asks only build for a repository of bases
+	// (DEF-B6-035), and each of the three atoms is absent where the tree has no
+	// bases/ (its surface), so no other repository's build changes.
+	withBases := append(slices.Clone(want), "bases:release", "bases:go-release")
+	for l, want := range map[string][]string{"build": withBases, "bases": withBases} {
 		if got := landedLanes(t)[l].Phases[0].Atoms; !slices.Equal(got, want) {
 			t.Errorf("%s release: %v", l, got)
 		}
@@ -160,20 +164,25 @@ func TestLaneShapes(t *testing.T) {
 	}
 }
 
-// The bases lane validates between assemble and scan: bases:chairman holds the
-// assembled chairman layout to its fixed-file table before anything is scanned.
+// The build and bases lanes validate between assemble and scan: bases:chairman
+// holds the assembled chairman layout to its fixed-file table before anything is
+// scanned. The door asks the build lane for a repository of bases (DEF-B6-035),
+// so the build lane carries the same phases.
 func TestBasesPhasesValidateBetweenAssembleAndScan(t *testing.T) {
-	d := landedLanes(t)["bases"]
-	var names []string
-	by := map[string]PhaseDef{}
-	for _, p := range d.Phases {
-		names = append(names, p.Name)
-		by[p.Name] = p
-	}
-	if !slices.Equal(names, []string{"release", "assemble", "validate", "scan", "publish"}) {
-		t.Fatalf("%v", names)
-	}
-	if !slices.Equal(by["validate"].Atoms, []string{"bases:chairman"}) || !slices.Equal(by["validate"].After, []string{"assemble"}) || !slices.Equal(by["scan"].After, []string{"validate"}) {
-		t.Errorf("%+v", d.Phases)
+	lanes := landedLanes(t)
+	for _, l := range []string{"build", "bases"} {
+		d := lanes[l]
+		var names []string
+		by := map[string]PhaseDef{}
+		for _, p := range d.Phases {
+			names = append(names, p.Name)
+			by[p.Name] = p
+		}
+		if !slices.Equal(names, []string{"release", "assemble", "validate", "scan", "publish"}) {
+			t.Fatalf("%s: %v", l, names)
+		}
+		if !slices.Equal(by["validate"].Atoms, []string{"bases:chairman"}) || !slices.Equal(by["validate"].After, []string{"assemble"}) || !slices.Equal(by["scan"].After, []string{"validate"}) {
+			t.Errorf("%s: %+v", l, d.Phases)
+		}
 	}
 }

@@ -134,7 +134,7 @@ func TestAScanThatWouldNotStartNeverRan(t *testing.T) {
 // Every module is scanned in its own directory and folded, as the chain did.
 func TestEveryModuleIsScannedInItsOwnDirectory(t *testing.T) {
 	f := &fake{}
-	v := check(t.Context(), input(f, "go.mod", "styx/go.mod"))
+	v := check(t.Context(), input(f, "go.mod", "styx/go.mod", "styx/s.go"))
 	if v.State != 0 || !strings.Contains(v.Reason, "go:govulncheck: PASS in 2 Go modules (., styx)") {
 		t.Fatalf("%+v", v)
 	}

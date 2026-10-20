@@ -26,6 +26,14 @@ func (t tree) Entries(dir string) ([]string, error) { return t.entries(dir) }
 // Read answers a file's contents.
 func (t tree) Read(rel string) (string, error) { return t.read(rel) }
 
+// IsLink says whether rel is a symbolic link, by lstat: a link is never
+// followed, so a dangling one is no unreadable file. A path that cannot be
+// lstat'ed is not a link; reading it says why.
+func (t tree) IsLink(rel string) bool {
+	fi, err := os.Lstat(filepath.Join(t.root, rel))
+	return err == nil && fi.Mode()&os.ModeSymlink != 0
+}
+
 // Glob answers the paths a pattern matches, one path segment at a time.
 func (t tree) Glob(pattern string) []string { return t.glob(pattern) }
 

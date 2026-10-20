@@ -64,7 +64,7 @@ func TestUT_485_TheDeclarationIsTheRowItReplaced(t *testing.T) {
 func TestTheUnitSuiteRunsInEveryModule(t *testing.T) {
 	f := &fake{}
 	dir := tree(t, "go.mod", "styx/go.mod")
-	v := check(t.Context(), atomkit.In{Root: dir, Files: []string{"go.mod", "styx/go.mod"}, Exec: f.exec})
+	v := check(t.Context(), atomkit.In{Root: dir, Files: []string{"go.mod", "styx/go.mod", "styx/s.go"}, Exec: f.exec})
 	if v.State != 0 || !strings.Contains(v.Reason, "go:test: PASS in 2 Go modules (., styx)") || !strings.Contains(v.Reason, "unit suite") {
 		t.Fatalf("%+v", v)
 	}

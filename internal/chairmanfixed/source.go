@@ -420,7 +420,11 @@ func (s *source) checkSudo() {
 	}
 }
 
-// checkStatoverride holds dpkg's statoverride to the modes the COPYs give.
+// checkStatoverride holds dpkg's statoverride to the modes the COPYs give. Only
+// the dbus launcher has an entry: openssh-client's postinst chgrps and chmods
+// ssh-agent itself and adds none (bases/chairman measured against :stable, whose
+// statoverride is the dbus line alone), so ssh-agent's 2755 root:_ssh is the
+// COPY's --chmod and --chown, held by checkCommitted.
 func (s *source) checkStatoverride() {
 	s.checkCount++
 	body, ok := s.read("fixed/root/var/lib/dpkg/statoverride")
@@ -437,7 +441,6 @@ func (s *source) checkStatoverride() {
 	}
 	group, _ := s.accounts("fixed/root/etc/group")
 	for _, o := range []struct{ path, owner, mode, group string }{
-		{"/usr/bin/ssh-agent", "root", "2755", "_ssh"},
 		{"/usr/lib/dbus-1.0/dbus-daemon-launch-helper", "root", "4754", "messagebus"},
 	} {
 		if want := o.owner + " " + o.group + " " + o.mode; got[o.path] != want {

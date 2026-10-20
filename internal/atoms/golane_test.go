@@ -3,6 +3,8 @@ package atoms
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -50,7 +52,7 @@ func TestEachGoModuleFoldsEveryModuleAndLeavesALoneRootUntouched(t *testing.T) {
 		t.Errorf("a repository whose only module is its root gets that verdict back untouched: %+v", v)
 	}
 
-	nested := Input{Root: "/src", Files: []string{"go.mod", "styx/go.mod", "vendor/y/go.mod", "styx/testdata/go.mod"}}
+	nested := Input{Root: "/src", Files: []string{"go.mod", "styx/go.mod", "styx/s.go", "vendor/y/go.mod", "styx/testdata/go.mod"}}
 	var dirs []string
 	v = EachGoModule(nested, golaneRow, func(dir string) checks.Verdict {
 		dirs = append(dirs, dir)
@@ -60,7 +62,7 @@ func TestEachGoModuleFoldsEveryModuleAndLeavesALoneRootUntouched(t *testing.T) {
 		t.Errorf("a vendored or testdata module is not one: %v %+v", dirs, v)
 	}
 
-	v = EachGoModule(Input{Files: []string{"styx/go.mod"}}, golaneRow, func(dir string) checks.Verdict {
+	v = EachGoModule(Input{Files: []string{"styx/go.mod", "styx/s.go"}}, golaneRow, func(dir string) checks.Verdict {
 		return checks.VerdictOf(golaneRow, 1, "x.go:1: a finding")
 	})
 	if v.State != 1 || !strings.Contains(v.Reason, "FINDINGS in 1 of 1 Go module (styx)") || !strings.Contains(v.Reason, "── module styx ──") {
@@ -187,5 +189,39 @@ func TestRunCmdGoesThroughTheInputsSeam(t *testing.T) {
 	out, code := RunCmd(t.Context(), Input{Exec: f.exec}, Cmd{Dir: "/src", Name: "echo", Args: []string{"hi"}})
 	if out != "hi" || code != 0 || f.runs[0] != "/src: echo hi" {
 		t.Errorf("%q %d %v", out, code, f.runs)
+	}
+}
+
+// DEF-B6-037: a nested module with no tracked Go file has no package to load,
+// so no go atom runs in it (base-images' bases/layer-go/tools pins tools only).
+func TestEachGoModuleSkipsAModuleWithNoGoSource(t *testing.T) {
+	in := Input{Root: "/src", Files: []string{"go.mod", "main.go", "bases/layer-go/tools/go.mod", "bases/layer-go/tools/go.sum"}}
+	var dirs []string
+	v := EachGoModule(in, golaneRow, func(dir string) checks.Verdict {
+		dirs = append(dirs, dir)
+		return checks.VerdictOf(golaneRow, 0, "ok")
+	})
+	if strings.Join(dirs, ",") != "." || v.Reason != "go:x: PASS" {
+		t.Errorf("ran in %v: %+v", dirs, v)
+	}
+}
+
+// A link is told by lstat, never followed: a dangling one is a link, a plain
+// file or a missing path is not.
+func TestIsLinkIsByLstat(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "f"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for name, target := range map[string]string{"dangling": "/nowhere/at/all", "live": "f"} {
+		if err := os.Symlink(target, filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tr := Input{Root: dir}.Tree()
+	for rel, want := range map[string]bool{"dangling": true, "live": true, "f": false, "missing": false} {
+		if got := tr.IsLink(rel); got != want {
+			t.Errorf("IsLink(%q) = %v, want %v", rel, got, want)
+		}
 	}
 }

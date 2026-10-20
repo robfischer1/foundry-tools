@@ -151,6 +151,24 @@ func (m mem) failing(keys ...string) mem {
 	return m
 }
 
+// DEF-B6-037: a Dockerfile under bases/<b>/ that copies from release/ is
+// bases:release's and bases:go-release's, not the star release atoms': go:release
+// on base-images was a could-not-run (no go.mod at the root) once a base
+// carried a go.mod.
+func TestDEF_B6_037_AStarReleaseIgnoresTheDockerfilesOfBases(t *testing.T) {
+	ctx := context.Background()
+	answers := ".copier-answers.yml"
+	ask := "FROM scratch\nCOPY release/chairman/chairman-svid /usr/bin/chairman-svid\n"
+	basesOnly := mem{files: map[string]string{answers: "service_name: base-images\n", "bases/chairman/Dockerfile": ask, "bases/layer-pi/Dockerfile": ask}}
+	if _, v := Resolve(ctx, basesOnly, row("go:release"), "", Compiles); v == nil || v.State != 0 || !strings.Contains(v.Reason, "ABSENT - no tracked Dockerfile copies from release/") {
+		t.Errorf("a repository of bases: %+v", v)
+	}
+	both := mem{files: map[string]string{answers: "service_name: hades\n", "bases/b/Dockerfile": ask, "Dockerfile": "FROM x\nCOPY release/hades /hades\n"}}
+	if sub, v := Resolve(ctx, both, row("go:release"), "", Compiles); v != nil || sub.Dockerfile != "Dockerfile" {
+		t.Errorf("a star that also holds bases: %+v %+v", sub, v)
+	}
+}
+
 func TestUT_OnBaseStandsDownUnlessTheImageIsOnTheAsksBase(t *testing.T) {
 	a := row("ts:release")
 	for _, c := range []struct{ name, body, want string }{

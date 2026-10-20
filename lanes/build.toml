@@ -2,11 +2,15 @@ schema = "lane@1"
 lane = "build"
 
 # There is no release stage (the release atoms sit in prepush), so the phase
-# names its atoms.
+# names its atoms. The door asks only this lane for a repository of bases
+# (ourea laneForProduct), so the lane carries lanes/bases.toml's per-base
+# release atoms and its chairman validation (DEF-B6-035): each is ABSENT by its
+# own surface where the tree has no bases/, so no other repository's build
+# plans or runs one.
 [[phase]]
 name = "release"
 kind = "fanout"
-atoms = ["go:release", "python:release", "rust:release", "ts:release"]
+atoms = ["go:release", "python:release", "rust:release", "ts:release", "bases:release", "bases:go-release"]
 
 [[phase]]
 name = "assemble"
@@ -14,11 +18,19 @@ kind = "sequence"
 capability = "assemble"
 after = ["release"]
 
+# bases:chairman holds the assembled chairman layout to its fixed files before
+# anything is scanned or pushed (absent without bases/chairman).
+[[phase]]
+name = "validate"
+kind = "fanout"
+atoms = ["bases:chairman"]
+after = ["assemble"]
+
 [[phase]]
 name = "scan"
 kind = "sequence"
 capability = "scan"
-after = ["assemble"]
+after = ["validate"]
 
 # ca-build-registry is BUILD_JOB_SECRETS in flux prime/daedalus-jobs.yaml.
 [[phase]]

@@ -74,6 +74,9 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 		if err := ctx.Err(); err != nil {
 			return checks.Interrupted(row, err)
 		}
+		if in.Tree().IsLink(f) { // never followed: a dangling link is no unreadable file
+			continue
+		}
 		body, err := os.ReadFile(filepath.Join(in.Root, f))
 		if err != nil {
 			unread = append(unread, err.Error())

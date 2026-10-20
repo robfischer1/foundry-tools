@@ -22,10 +22,15 @@ type Subject struct {
 func Dockerfiles(files []string) []string { return checks.DockerfilePopulation(files) }
 
 // ReleaseDockerfile is the first tracked Dockerfile that asks for release/,
-// with its body — "" when none asks. A Dockerfile that cannot be read is an
+// with its body — "" when none asks. A Dockerfile under bases/ is not a star's. A Dockerfile that cannot be read is an
 // error, never "does not ask".
 func ReleaseDockerfile(ctx context.Context, t Tree, dockerfiles []string) (string, string, error) {
 	for _, p := range dockerfiles {
+		// A base's Dockerfile is the bases lane's: bases:release and
+		// bases:go-release build what it copies (DEF-B6-037).
+		if strings.HasPrefix(p, BasesDir+"/") {
+			continue
+		}
 		body, err := t.File(ctx, p)
 		if err != nil {
 			return "", "", fmt.Errorf("%s could not be read: %w", p, err)

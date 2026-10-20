@@ -152,3 +152,25 @@ func TestMergeConflictStopsWhenItsContextEnds(t *testing.T) {
 		t.Errorf("a stopped scan is not a verdict about the tree: state %d", v.State)
 	}
 }
+
+// DEF-B6-039: a symbolic link is skipped, never followed: a dangling one (the
+// chairman base's fixed tree holds 61) was a could-not-run, and a live one
+// pointing at a marker is not that link's content.
+func TestMergeConflictSkipsLinksDanglingOrNot(t *testing.T) {
+	dir := t.TempDir()
+	put(t, dir, "real.txt", "<<<<<<< HEAD\n")
+	put(t, dir, "ok.txt", "fine\n")
+	for name, target := range map[string]string{"dangling": "/nowhere/at/all", "live": "real.txt"} {
+		if err := os.Symlink(target, filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	v := check(context.Background(), atomkit.In{Root: dir, Files: []string{"dangling", "live", "ok.txt"}})
+	if v.State != 0 {
+		t.Fatalf("links are skipped: state %d: %s", v.State, v.Reason)
+	}
+	v = check(context.Background(), atomkit.In{Root: dir, Files: []string{"dangling", "real.txt"}})
+	if v.State != 1 || !strings.Contains(strings.Join(v.Logs, "\n"), "real.txt:1:<<<<<<< HEAD") {
+		t.Errorf("the real file is still scanned: state %d: %s", v.State, v.Reason)
+	}
+}

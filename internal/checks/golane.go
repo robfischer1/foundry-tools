@@ -103,6 +103,46 @@ func GoModuleDirs(files []string) []string {
 	return dirs
 }
 
+// GoModulesWithSource are the modules of dirs (GoModuleDirs' answer) that have
+// a Go package to load: the root, always (a repository declares the go lane by
+// it), and every nested module that owns a tracked .go file. A .go file belongs
+// to the nearest module above it, and one under vendor/, testdata/ or a hidden
+// directory belongs to none.
+//
+// DEF-B6-037. A go.mod and go.sum that only pin tools (base-images'
+// bases/layer-go/tools) hold no package, and `go vet ./...`, `go test ./...`
+// and govulncheck exit non-zero on a module with nothing to load: a verdict
+// about the tree's shape filed as a finding. files must be the whole
+// population; a listing narrowed to go.mod would drop every nested module.
+func GoModulesWithSource(dirs, files []string) []string {
+	isMod := make(map[string]bool, len(dirs))
+	for _, d := range dirs {
+		isMod[d] = true
+	}
+	owns := map[string]bool{}
+	for _, f := range files {
+		if !strings.HasSuffix(f, ".go") || vendoredOrHidden(path.Dir(f)) {
+			continue
+		}
+		for d := path.Dir(f); ; d = path.Dir(d) {
+			if isMod[d] {
+				owns[d] = true
+				break
+			}
+			if d == "." || d == "/" {
+				break
+			}
+		}
+	}
+	var out []string
+	for _, d := range dirs {
+		if d == "." || owns[d] {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
 // goBuildsUnder reports whether the go command would build a package in dir.
 func goBuildsUnder(dir string) bool { return !vendoredOrHidden(dir) }
 

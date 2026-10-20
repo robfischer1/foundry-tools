@@ -64,7 +64,7 @@ func newFixture(t *testing.T) *fixture {
 		{"etc/sudoers.d/agent", "f", "0440", "0:0", "", "agent ALL=(ALL) NOPASSWD:ALL\n"},
 		{"usr/bin/ssh-agent", "f", "2755", "0:102", "", "ssh-agent-bytes"},
 		{"usr/lib/dbus-1.0/dbus-daemon-launch-helper", "f", "4754", "0:101", "", "helper-bytes"},
-		{"var/lib/dpkg/statoverride", "f", "0644", "0:0", "", "root _ssh 2755 /usr/bin/ssh-agent\nroot messagebus 4754 /usr/lib/dbus-1.0/dbus-daemon-launch-helper\n"},
+		{"var/lib/dpkg/statoverride", "f", "0644", "0:0", "", "root messagebus 4754 /usr/lib/dbus-1.0/dbus-daemon-launch-helper\n"},
 		{"etc/profile.d/10-chairman-path.sh", "f", "0644", "0:0", "", "export PATH=/opt/go/bin:/usr/local/bin:/usr/bin\n"},
 		{"etc/machine-id", "f", "0644", "0:0", "", ""},
 		{"home/agent", "d", "0755", "1001:1001", "", ""},
@@ -374,9 +374,9 @@ func TestSourceChecksNameEachDisagreement(t *testing.T) {
 			f.flush()
 		}, "must include /etc/sudoers.d"},
 		"a statoverride that drifted": {func(f *fixture) {
-			f.write("fixed/root/var/lib/dpkg/statoverride", "root _ssh 0755 /usr/bin/ssh-agent\n")
+			f.write("fixed/root/var/lib/dpkg/statoverride", "root messagebus 0755 /usr/lib/dbus-1.0/dbus-daemon-launch-helper\n")
 			f.flush()
-		}, "statoverride: /usr/bin/ssh-agent"},
+		}, "statoverride: /usr/lib/dbus-1.0/dbus-daemon-launch-helper"},
 		"a committed machine id": {func(f *fixture) {
 			f.write("fixed/root/etc/machine-id", "0123456789abcdef\n")
 			f.flush()
