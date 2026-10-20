@@ -60,7 +60,6 @@ var URLPins = []URLPin{
 	{"rust-wasm-clippy", "RustWasmClippyURL", "RustWasmComponentsTag"},
 	{"rust-wasm-rustfmt", "RustWasmRustfmtURL", "RustWasmComponentsTag"},
 	{"python-standalone", "PythonStandaloneURL", "FleetPythonVersion"},
-	{"python-3-15", "PythonStandalone315URL", "PythonStandalone315Release"},
 	{"gofmt", "GofmtToolchainURL", "GofmtGoRelease"},
 	{"rustc-1-97-1", "RustDist1971RustcURL", "RustDist1971Tag"},
 	{"cargo-1-97-1", "RustDist1971CargoURL", "RustDist1971Tag"},
