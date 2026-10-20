@@ -1,0 +1,18 @@
+schema = "command-atom@1"
+id = "dev:ts-update"
+stage = "dev"
+lane = "ts"
+group = "language"
+desc = "bun update rewrites package.json ranges and bun.lock to the newest allowed versions."
+surface = "root:package.json"
+toolchain = "bun"
+argv = ["bun", "update"]
+args = "append"
+per_module = false
+judge = "exit"
+needs = ["tool:node", "tool:curl"]
+writes_tree = true
+preflight = false
+
+# preflight = false, as dev:ts-lock: the frozen install would refuse the stale
+# lock this verb exists to move. A package name narrows it.

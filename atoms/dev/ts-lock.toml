@@ -1,0 +1,18 @@
+schema = "command-atom@1"
+id = "dev:ts-lock"
+stage = "dev"
+lane = "ts"
+group = "language"
+desc = "bun install --lockfile-only rewrites bun.lock from package.json without installing."
+surface = "root:package.json"
+toolchain = "bun"
+argv = ["bun", "install", "--lockfile-only"]
+args = "append"
+per_module = false
+judge = "exit"
+needs = ["tool:node", "tool:curl"]
+writes_tree = true
+preflight = false
+
+# preflight = false: the toolchain's `bun install --frozen-lockfile` refuses a
+# stale bun.lock, which is the very thing this verb mends.

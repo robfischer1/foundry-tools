@@ -1,0 +1,21 @@
+schema = "command-atom@1"
+id = "dev:python-lock"
+stage = "dev"
+lane = "python"
+group = "language"
+desc = "uv lock rewrites uv.lock in place."
+surface = "root:pyproject.toml"
+toolchain = "python"
+argv = ["uv", "lock", "--python", "python3"]
+args = "append"
+per_module = false
+judge = "exit"
+needs = ["tool:uv"]
+writes_tree = true
+
+# The python twin of dev:rust-lock: resolve pyproject.toml afresh and write
+# uv.lock back to the tree, delivered as the diff of the atom's copy.
+# `--python python3` is the toolchain image's own interpreter (see
+# dev:python-test): a .python-version the image cannot satisfy must not stop a
+# lock, and no executor downloads one (UV_PYTHON_DOWNLOADS=never). `--check`
+# (a caller's argument) answers whether the lock is current without writing.

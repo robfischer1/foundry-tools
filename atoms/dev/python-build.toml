@@ -1,0 +1,17 @@
+schema = "command-atom@1"
+id = "dev:python-build"
+stage = "dev"
+lane = "python"
+group = "language"
+desc = "uv build produces the sdist and wheel, run by hand from the dev lane."
+surface = "root:pyproject.toml"
+toolchain = "python"
+argv = ["uv", "build", "--python", "python3"]
+args = "append"
+per_module = false
+judge = "exit"
+needs = ["tool:uv"]
+writes_tree = true
+timeout = "30m"
+
+# Builds on the atom's own copy of the tree: dist/ is written beside the sources.
