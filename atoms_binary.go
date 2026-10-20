@@ -57,6 +57,8 @@ var atomsSourceInclude = []string{
 	"internal/bundlekit/**",
 	"internal/bundlelane/**",
 	"internal/bundleresign/**",
+	// the chairman base's validation (bases:chairman)
+	"internal/chairmanfixed/**",
 	// the cast lane's compile (rust:cast-release, go:cast-release) and its decisions
 	"internal/publishpack/**",
 	"internal/publishlane/**",

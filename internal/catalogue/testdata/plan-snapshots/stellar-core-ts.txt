@@ -75,6 +75,7 @@ run:
   orbit:repo
   ts:visual
   ts:mutation
+  bases:chairman
   bases:release
   bundle:fleet
   bundle:orbits

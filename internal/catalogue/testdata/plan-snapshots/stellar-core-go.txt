@@ -85,6 +85,7 @@ run:
   orbit:sidecars
   orbit:repo
   go:mutation
+  bases:chairman
   bases:release
   bundle:fleet
   bundle:orbits
