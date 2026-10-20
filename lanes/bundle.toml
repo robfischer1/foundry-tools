@@ -24,12 +24,6 @@ kind = "fanout"
 atoms = ["bundle:fleet"]
 after = ["build"]
 
-[[phase]]
-name = "orbits"
-kind = "fanout"
-atoms = ["bundle:orbits"]
-after = ["build"]
-
 # The KMS signature rides the projected service-account token, not a secret, so
 # this phase names none.
 [[phase]]
@@ -50,5 +44,5 @@ after = ["sign"]
 name = "push"
 kind = "sequence"
 capability = "push-bundle"
-after = ["resign", "orbits"]
+after = ["resign"]
 secrets = ["ca-bundle-lane"]

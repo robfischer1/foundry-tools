@@ -86,9 +86,6 @@ func TestTreesAndVerdicts(t *testing.T) {
 	errs := try(t, func(tb testing.TB) { Expect(tb, v, StateOf(1), Findings, "absent word") })
 	wantErr(t, errs, "state 0")
 	wantErr(t, errs, `lack "absent word"`)
-	if StarData("a") != `{"verb_prefix":"a"}` || DiesAt(t, map[string]string{"x": "y"}) == "" {
-		t.Error("roster or dies")
-	}
 }
 
 func TestTheDeclarationCheck(t *testing.T) {
@@ -137,17 +134,6 @@ func TestPyTree(t *testing.T) {
 	in, _ = PyTree(t, map[string]string{"a": "x"}, func(atoms.Cmd) (string, int) { return "s", 4 })
 	if out, code := in.Exec(context.Background(), atoms.Cmd{Name: "python3", Args: []string{"x"}}); out != "s" || code != 4 {
 		t.Errorf("%q %d", out, code)
-	}
-}
-
-func TestComposedTree(t *testing.T) {
-	in := ComposedTree(t, nil, nil)
-	if in.Dies == "" || len(in.Committable) == 0 {
-		t.Errorf("%+v", in)
-	}
-	in = ComposedTree(t, func(m map[string][]byte) { m["x.orbit.toml"] = []byte("y") }, map[string]string{"extra": "e"})
-	if len(in.Committable) < 3 {
-		t.Errorf("%v", in.Committable)
 	}
 }
 

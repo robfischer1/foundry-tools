@@ -123,7 +123,7 @@ func TestToolsContainerCarriesEveryProgram(t *testing.T) {
 		}
 	}
 	for _, p := range atoms.Programs {
-		if p == "git" || p == "tar" || slices.Contains(atoms.MountedPerRun, p) {
+		if p == "git" || p == "tar" {
 			continue
 		}
 		if !layered[p] {
@@ -186,7 +186,7 @@ func TestAToolThatFailsItsChecksumIsLeftOut(t *testing.T) {
 	if strings.Contains(c, `path:"/usr/local/bin/opa"`) {
 		t.Errorf("opa was installed though its download did not verify")
 	}
-	for _, still := range []string{"hadolint", "opengrep", "orbitparse", "kubeconform"} {
+	for _, still := range []string{"hadolint", "opengrep", "witnesscall", "kubeconform"} {
 		if !strings.Contains(c, `path:"/usr/local/bin/`+still+`"`) {
 			t.Errorf("%s was dropped with it", still)
 		}
@@ -302,7 +302,7 @@ func TestToolFileRefusesWhatItCannotVerify(t *testing.T) {
 			}
 		})
 	}
-	for _, name := range []string{"kubeconform", "orbitparse"} {
+	for _, name := range []string{"kubeconform", "witnesscall"} {
 		t.Run(name+" needs no download", func(t *testing.T) {
 			engine.reset()
 			if f, err := toolFile(ctx, toolsOS(), toolNamed(t, name)); err != nil || f == nil {
@@ -420,7 +420,7 @@ func TestAtomsToolsBuildsThePythonLayersFromTheLock(t *testing.T) {
 
 	c := engine.chain(`path:"/usr/local/bin/atoms"`)
 	order := []string{
-		`path:"/usr/local/bin/orbitparse"`, `path:"/usr/local/bin/uv"`, `path:"/opt/python"`,
+		`path:"/usr/local/bin/witnesscall"`, `path:"/usr/local/bin/uv"`, `path:"/opt/python"`,
 		`path:"/opt/atoms-py"`, `path:"/opt/ansible-collections"`, `path:"/usr/local/bin/atoms"`,
 	}
 	prev = -1

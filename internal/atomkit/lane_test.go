@@ -12,11 +12,11 @@ func lane(extra string) string {
 }
 
 func TestUT_600_ParseLane(t *testing.T) {
-	got, err := ParseLane([]byte("schema = \"lane@1\"\nlane = \"gate\"\nstages = [\"precommit\",\"prepush\"]\nrider = \"orbit\"\n"))
+	got, err := ParseLane([]byte("schema = \"lane@1\"\nlane = \"gate\"\nstages = [\"precommit\",\"prepush\"]\nrider = \"visual\"\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := LaneDef{Schema: "lane@1", Lane: "gate", Stages: []string{"precommit", "prepush"}, Rider: "orbit"}
+	want := LaneDef{Schema: "lane@1", Lane: "gate", Stages: []string{"precommit", "prepush"}, Rider: "visual"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v", got)
 	}
@@ -51,7 +51,7 @@ func TestUT_603_AllStagesAccepted(t *testing.T) {
 	if _, err := ParseLane([]byte(src)); err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []string{"precommit", "prepush", "mutation", "orbit", "visual", "govern", "dev", "atoms"} {
+	for _, s := range []string{"precommit", "prepush", "mutation", "visual", "govern", "dev", "atoms"} {
 		if _, err := ParseLane([]byte(strings.Replace(lane(""), `["precommit"]`, `["`+s+`"]`, 1))); err != nil {
 			t.Errorf("stage %s: %v", s, err)
 		}
@@ -59,8 +59,8 @@ func TestUT_603_AllStagesAccepted(t *testing.T) {
 }
 
 func TestEveryKnownLaneAccepted(t *testing.T) {
-	if len(KnownLanes) != 14 {
-		t.Fatalf("KnownLanes has %d, want 14", len(KnownLanes))
+	if len(KnownLanes) != 13 {
+		t.Fatalf("KnownLanes has %d, want 13", len(KnownLanes))
 	}
 	for _, l := range KnownLanes {
 		if _, err := ParseLane([]byte(strings.Replace(lane(""), `"gate"`, `"`+l+`"`, 1))); err != nil {

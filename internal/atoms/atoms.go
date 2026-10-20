@@ -80,14 +80,11 @@ type Input struct {
 	Origin string
 	// Now is the clock the atoms read, so a test says what day it is.
 	Now time.Time
-	// Dies is a checkout of foundry-dies at main, for the atoms that grade a
-	// tree against the fleet's contracts (orbit:*, ops:orbit-composed). Empty
-	// names none, and those atoms settle 2: a contract that was not read
-	// agrees with nothing.
+	// Dies is a checkout of foundry-dies at main, for the atoms that read the
+	// fleet's roster or records. Empty names none, and those atoms settle 2.
 	Dies string
-	// Door reads single files from the git door (fleet:orbit-drift and the
-	// other atoms that ask what the fleet holds). The zero value is the
-	// production door.
+	// Door reads single files from the git door (the atoms that ask what the
+	// fleet holds). The zero value is the production door.
 	Door checks.Door
 	// FS is the root as a file system, for the whole-tree walk (the retired-verbs
 	// scan). Nil is the disk; a test says what a tree that will not walk does.
@@ -98,12 +95,8 @@ type Input struct {
 	// Witness is how fleet:witness reaches narcissus; the zero value is the
 	// production port.
 	Witness Witness
-	// NarcErr is why narc (narcissus's analyzer, mounted per run from the pin
-	// flux holds live) was not provisioned; "" means it was. orbit:surface
-	// settles 2 with it.
-	NarcErr string
-	// Exec runs a program for the atoms whose tool is a program (opa, uv,
-	// orbitparse). Nil is the real thing (RunProgram).
+	// Exec runs a program for the atoms whose tool is a program (opa, uv).
+	// Nil is the real thing (RunProgram).
 	Exec Exec
 	// Getenv reads the suite's environment, for the atoms whose verdict depends
 	// on what the lane bound (go:test-race and the three variables a live_kube

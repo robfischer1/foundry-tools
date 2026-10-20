@@ -35,24 +35,16 @@ const (
 	// foundry-stocks ci/lib/mutation/, and all four have since been ported
 	// here as plain execs settled in Go.
 	StageMutation = "mutation"
-	// StageOrbit is the orbit lane (Rob, 2026-10-03: "Ultimately want orbit
-	// validation to be a CI check/lane of its own"): the seam contracts, a
-	// star's code against them, the composed sidecars and a star's laid
-	// orbit.toml. Like mutation it is NOT in PullPathStages — the door asks
-	// for it by name, as its own lane (`gate-file --stage=orbit`), so it
-	// settles beside the gate and never inside it. It starts REPORT-ONLY
-	// (internal/orbitlane Enforce).
-	StageOrbit = "orbit"
 	// StageVisual is the visual lane (Rob, 2026-10-04: "Give 'em a cluster
 	// lane"): a tree's Playwright screenshot suites, run in the ts lane's
-	// pinned image against the baselines it commits. Like orbit it is NOT in
+	// pinned image against the baselines it commits. It is NOT in
 	// PullPathStages — the door asks for it by name (`gate-file
 	// --stage=visual`) where the tree declares a suite, and waits on it or
 	// not by its own list (ourea cirun.AdvisoryLanes): advisory first.
 	StageVisual = "visual"
 	// StageCast is the cast lane's compile (b6, DEF-B56-013): the binaries a
 	// binary repo ships, built by rust:cast-release and go:cast-release. Like
-	// orbit and visual it is NOT in PullPathStages, and no lane asks for it by
+	// visual it is NOT in PullPathStages, and no lane asks for it by
 	// stage: lanes/cast.toml names the two atoms, so a gate, a check or a push
 	// never runs a cast's compile.
 	StageCast = "cast"
@@ -62,7 +54,7 @@ const (
 	// names the two atoms, so no gate, check or push builds them.
 	StagePublish = "publish"
 	// StageBundle is the bundle lane's build (b6): the dies foundry-dies
-	// publishes, built and gated by bundle:policy, bundle:fleet, bundle:orbits and
+	// publishes, built and gated by bundle:policy, bundle:fleet and
 	// bundle:resign. Like StageCast it is in no lane's stages: lanes/bundle.toml
 	// names the atoms, so a gate, a check or a push never builds a die.
 	StageBundle = "bundle"

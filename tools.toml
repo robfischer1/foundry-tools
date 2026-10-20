@@ -388,15 +388,6 @@ spec = "https://registry.notusmi.com/v2/foundry/tool/mirror/blobs/sha256:7580e6e
 version = "aeb03bfd4a6f14e29b1a91dcdfad05e02695db39"
 sha256 = "7580e6e5e58efe11ec2427e79ad6e242397745778e418331e9de8365dc700253"
 
-[tool.narc]
-kind = "image"
-image = "registry.notusmi.com/rob/narcissus:1792198596-053bba4@sha256:1923ebea1773595a6ef19358e273738f504b65cc50f600666bcf99870ecf0fe2"
-
-[tool.orbitparse]
-kind = "go"
-spec = "git.notusmi.com/rob/stellar-core-go/cmd/orbitparse"
-version = "v0.223.0"
-
 [tool.static]
 kind = "image"
 image = "gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab"

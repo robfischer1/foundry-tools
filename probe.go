@@ -12,7 +12,7 @@ import (
 // logged the span as ERROR, and the lane transcript and Loki count it as one
 // ("Directory.file ERROR ! path .git is a directory, not a file", "! stat
 // .copier-answers.yml: no such file or directory"). Measured 2026-10-05 over
-// 60 lane pods: every gate, orbit, build and mutation run carried at least one
+// 60 lane pods: every gate, build and mutation run carried at least one
 // such line, ~170 an hour at detected_level=error, and none of them was a
 // failure.
 //

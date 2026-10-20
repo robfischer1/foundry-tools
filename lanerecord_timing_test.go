@@ -90,7 +90,7 @@ func assertTimed(t *testing.T, s *StageResult) {
 // This renders the record the door reads and checks the wire, so it holds for
 // a path no regex over the source would find (a `var a AtomResult`, a
 // make([]AtomResult, n), a checks.Verdict literal): the cannot-run vector was
-// exactly that, and settled untimed on the gate and orbit lanes.
+// exactly that, and settled untimed on the gate lane.
 func assertRecordTimed(t *testing.T, name string, s *StageResult) {
 	t.Helper()
 	rec, err := s.Record()
@@ -117,20 +117,17 @@ func assertRecordTimed(t *testing.T, name string, s *StageResult) {
 }
 
 // A GATE THAT COULD NOT GRADE (no repo, a tree the engine could not fetch, a
-// mismatched tree, a rider's panic) STILL SAYS WHEN IT TRIED.
+// mismatched tree) STILL SAYS WHEN IT TRIED.
 func TestCannotRunVectorsAreTimedOnTheRecord(t *testing.T) {
 	tickingClock(t)
 	m := &FoundryTools{}
-	for _, lane := range []string{"gate", "orbit", "check"} {
+	for _, lane := range []string{"gate", "check"} {
 		vector, state := m.gradeTree(t.Context(), lane, "tree", "", "")
 		if state != int(checks.StateCannotRun) {
 			t.Fatalf("%s: want cannot-run, got %d", lane, state)
 		}
 		assertRecordTimed(t, lane+" cannot-run", stageResult(checks.SettleStage(lane, vector)))
 	}
-	at := atomClock()
-	assertRecordTimed(t, "rider panic",
-		stageResult(checks.SettleStage("orbit", checks.CannotRunVector("orbit", "prepush", "panicked", at, at))))
 }
 
 // A GRADED VECTOR'S ATOMS ARE TIMED, the ones that ran; absent ones carry none.

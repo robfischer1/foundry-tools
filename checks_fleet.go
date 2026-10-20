@@ -24,16 +24,6 @@ func (f *Fleet) Witness(ctx context.Context) (string, error) {
 	return check(ctx, f.Source, "fleet:witness")
 }
 
-// This repo's declared seams still agree with the canonical contracts in
-// foundry-dies/orbits. Compares a CONTENT DIGEST, not a version integer; an
-// edge that pins nothing is a finding, and a door it could not reach is a
-// cannot-run.
-//
-// +check
-func (f *Fleet) OrbitDrift(ctx context.Context) (string, error) {
-	return check(ctx, f.Source, "fleet:orbit-drift")
-}
-
 // Every container in flux's prime/star-*.yaml that arms the stellar-core-go
 // policy PEP (STELLAR_PEP_MODE not off) also sets STELLAR_PDP_URL. Unset, the
 // PEP records would_consult{pdp_not_consulted}, consults nothing and, in

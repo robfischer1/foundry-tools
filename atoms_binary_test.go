@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	"dagger/foundry-tools/internal/checks"
-	"dagger/foundry-tools/internal/fluxpin"
 )
 
 // The legacy tests grade through the chains; the ones that mean the vote flip it
@@ -111,7 +110,7 @@ func TestAtomsBinaryIsBuiltFromTheFilteredSourceInTheGoToolchain(t *testing.T) {
 	if f == "" {
 		t.Fatalf("no filter query carried the include and exclude lists; the engine saw:\n%s", strings.Join(engine.chains(), "\n"))
 	}
-	for _, want := range []string{`"go.mod"`, `"go.sum"`, `"internal/atoms/**"`, `"internal/checks/**"`, `"internal/orbitlane/**"`, `"internal/retiredverbs/**"`} {
+	for _, want := range []string{`"go.mod"`, `"go.sum"`, `"internal/atoms/**"`, `"internal/checks/**"`, `"internal/retiredverbs/**"`} {
 		if !strings.Contains(f, want) {
 			t.Errorf("the filter lacks %s:\n%s", want, f)
 		}
@@ -119,7 +118,7 @@ func TestAtomsBinaryIsBuiltFromTheFilteredSourceInTheGoToolchain(t *testing.T) {
 }
 
 func TestAtomsRunRunsTheBinaryInTheToolsContainer(t *testing.T) {
-	const argv = `"/usr/local/bin/atoms","-root","/src","-base","abc","-origin","http://door/rob/x.git","-stage","","-timeout","4m","-dies","/dies"`
+	const argv = `"/usr/local/bin/atoms","-root","/src","-base","abc","-origin","http://door/rob/x.git","-stage","","-timeout","4m"`
 	m := &FoundryTools{Source: dag.Directory(), Repo: "http://door/rob/x.git", Sha: buildSha}
 	for _, tc := range []struct {
 		name    string
@@ -156,18 +155,15 @@ func TestAtomsRunRunsTheBinaryInTheToolsContainer(t *testing.T) {
 // THE STAGE REACHES THE BINARY, and the tools are the container's, the same for
 // every stage: each pinned tool is a layer whatever the stage (a layer nobody
 // execs costs nothing once cached, and a stage-shaped container would be a
-// second container to build). What a stage changes is the one input that is not
-// a tool: foundry-dies is mounted for the stages with an atom that reads it.
+// second container to build).
 func TestAtomsRunCarriesTheToolsForEveryStage(t *testing.T) {
 	m := &FoundryTools{Source: dag.Directory(), Repo: "http://door/rob/x.git", Sha: buildSha}
 	for _, tc := range []struct {
 		stage string
 		argv  string
-		dies  bool
 	}{
-		{"orbit", `"-stage","orbit","-timeout","4m","-dies","/dies"`, true},
-		{"prepush", `"-stage","prepush","-timeout","4m","-dies","/dies"`, true},
-		{"precommit", `"-stage","precommit","-timeout","4m"`, false},
+		{"prepush", `"-stage","prepush","-timeout","4m"`},
+		{"precommit", `"-stage","precommit","-timeout","4m"`},
 	} {
 		t.Run(tc.stage, func(t *testing.T) {
 			engine.reset()
@@ -188,9 +184,6 @@ func TestAtomsRunCarriesTheToolsForEveryStage(t *testing.T) {
 				if want := `path:"/usr/local/bin/` + l.name + `"`; !strings.Contains(c, want) {
 					t.Errorf("the run chain lacks the %s layer (%s):\n%s", l.name, want, c)
 				}
-			}
-			if got := strings.Contains(c, `path:"/dies"`); got != tc.dies {
-				t.Errorf("foundry-dies mounted: %v, want %v", got, tc.dies)
 			}
 			if strings.Contains(c, checks.ImageFleet) {
 				t.Errorf("the binary ran on the python fleet image:\n%s", c)
@@ -234,21 +227,6 @@ func TestAtomsRunCarriesAPerCallReask(t *testing.T) {
 	}
 }
 
-// foundry-dies is mounted only for a stage with an atom that reads it.
-func TestAtomsRunMountsDiesOnlyWhereAnAtomReadsIt(t *testing.T) {
-	m := &FoundryTools{Source: dag.Directory(), Repo: "http://door/rob/x.git", Sha: buildSha}
-	engine.reset()
-	engine.withTree(map[string]string{"go.mod": "module x\n"})
-	engine.stdout(`"/usr/local/bin/atoms"`, "[]")
-	if _, err := m.atomsRun(context.Background(), checks.StagePrecommit, "abc"); err != nil {
-		t.Fatal(err)
-	}
-	c := engine.chain(`"-stage","precommit"`)
-	if c == "" || strings.Contains(c, `path:"/dies"`) || strings.Contains(c, `"-dies"`) {
-		t.Errorf("a stage whose atoms never read foundry-dies mounted it (or ran no chain):\n%s", c)
-	}
-}
-
 // THE WITNESS ASKS FOR REAL, never dry: the socket is mounted and -spire passed
 // exactly for the stages with fleet:witness when the lane forwarded one.
 func TestAtomsRunAsksTheWitnessForRealAndMountsTheSocketWhereItIsCarried(t *testing.T) {
@@ -262,7 +240,6 @@ func TestAtomsRunAsksTheWitnessForRealAndMountsTheSocketWhereItIsCarried(t *test
 		{"", true, true},
 		{"", false, false},
 		{"precommit", true, false},
-		{"orbit", true, false},
 	} {
 		t.Run(tc.stage+map[bool]string{true: " with a socket", false: " without"}[tc.spire], func(t *testing.T) {
 			m := &FoundryTools{Source: dag.Directory(), Repo: "http://door/rob/x.git", Sha: buildSha}
@@ -293,45 +270,6 @@ func TestAtomsRunAsksTheWitnessForRealAndMountsTheSocketWhereItIsCarried(t *test
 		bare := newRun(dag.Directory(), "http://door/rob/x.git", "abc")
 		if ctr, flags := bare.withAtomSpire(dag.Container(), "prepush"); ctr == nil || len(flags) != 0 {
 			t.Errorf("a run with no socket got %v", flags)
-		}
-	})
-}
-
-func TestAtomsRunMountsNarcForTheOrbitStageFromTheLivePin(t *testing.T) {
-	m := &FoundryTools{Source: dag.Directory(), Repo: "http://door/rob/x.git", Sha: buildSha}
-	t.Run("a readable pin is mounted", func(t *testing.T) {
-		engine.reset()
-		engine.withTree(laneDies(map[string]string{"go.mod": "module x\n"}))
-		engine.stdout(`"/usr/local/bin/atoms"`, "[]")
-		if _, err := m.atomsRun(context.Background(), "orbit", "abc"); err != nil {
-			t.Fatal(err)
-		}
-		c := engine.chain(`"/usr/local/bin/atoms"`)
-		if !strings.Contains(c, `path:"/usr/local/bin/narc"`) || strings.Contains(c, "-narc-err") {
-			t.Errorf("the run chain lacks narc, or names an error:\n%s", c)
-		}
-	})
-	t.Run("a pin that cannot be read is passed on as the reason", func(t *testing.T) {
-		engine.reset()
-		engine.withTree(laneDies(map[string]string{"go.mod": "module x\n", "/flux/" + fluxpin.File: "images: []\n"}))
-		engine.stdout(`"/usr/local/bin/atoms"`, "[]")
-		if _, err := m.atomsRun(context.Background(), "orbit", "abc"); err != nil {
-			t.Fatal(err)
-		}
-		c := engine.chain(`"/usr/local/bin/atoms"`)
-		if !strings.Contains(c, `"-narc-err"`) || strings.Contains(c, `path:"/usr/local/bin/narc"`) {
-			t.Errorf("the pin could not be read and the chain says otherwise:\n%s", c)
-		}
-	})
-	t.Run("no other stage resolves the pin", func(t *testing.T) {
-		engine.reset()
-		engine.withTree(laneDies(map[string]string{"go.mod": "module x\n"}))
-		engine.stdout(`"/usr/local/bin/atoms"`, "[]")
-		if _, err := m.atomsRun(context.Background(), "prepush", "abc"); err != nil {
-			t.Fatal(err)
-		}
-		if c := engine.chain(`"/usr/local/bin/atoms"`); strings.Contains(c, "narc") {
-			t.Errorf("the prepush stage mounted narc:\n%s", c)
 		}
 	})
 }

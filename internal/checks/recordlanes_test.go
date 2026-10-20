@@ -70,8 +70,8 @@ func TestRecordLanesFindings(t *testing.T) {
 		},
 		{
 			"unequal lists",
-			laneFiles(jobsYAML(`["gate","atoms","dev","orbit"]`, ""), oureaYAML(`record_lanes = ["gate","atoms","dev","visual"]`)),
-			[]string{"orbit", "visual", "not equal"},
+			laneFiles(jobsYAML(`["gate","atoms","dev","mutation"]`, ""), oureaYAML(`record_lanes = ["gate","atoms","dev","visual"]`)),
+			[]string{"mutation", "visual", "not equal"},
 		},
 		{
 			"atoms missing from both",

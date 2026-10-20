@@ -79,9 +79,8 @@ func recordPostOutcome(ctx context.Context, repo string, token plaintexter, reco
 }
 
 // recordPostOutcomeWith is recordPostOutcome over a chosen sender: the lane's
-// own post retries a door that is rolling (sendRecordRetrying); the rider's
-// stays one attempt, because the gate holds its exit on the rider's post and
-// ride.go bounds that wait.
+// own post retries a door that is rolling (sendRecordRetrying); the plain
+// stays one attempt (sendRecord), for a caller that holds its exit on the post.
 func recordPostOutcomeWith(ctx context.Context, repo string, token plaintexter, record string, send sender) string {
 	if token == nil {
 		return "not posted: no record token"

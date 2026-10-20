@@ -31,7 +31,6 @@ var atomsSourceInclude = []string{
 	"internal/atoms/**",
 	"internal/atomkit/**",
 	"internal/atomlib/**",
-	"internal/orbitkit/**",
 	"internal/catalogue/**",
 	"internal/checks/**",
 	"internal/execmem/**",
@@ -44,8 +43,6 @@ var atomsSourceInclude = []string{
 	"internal/hadescall/**",
 	"internal/unitkey/**",
 	"internal/witnesscall/**",
-	"internal/orbitcompose/**",
-	"internal/orbitlane/**",
 	"internal/regenlane/**",
 	"internal/regenkit/**",
 	"internal/goregen/**",
@@ -53,7 +50,7 @@ var atomsSourceInclude = []string{
 	"internal/witreplay/**",
 	"internal/retiredverbs/**",
 	"internal/releasekit/**",
-	// the bundle lane's build (bundle:policy, :fleet, :orbits, :resign) and its decisions
+	// the bundle lane's build (bundle:policy, :fleet, :resign) and its decisions
 	"internal/bundlekit/**",
 	"internal/bundlelane/**",
 	"internal/bundleresign/**",
@@ -87,37 +84,9 @@ func atomsBinary() *dagger.File {
 		File("/out/atoms")
 }
 
-// atomsNeedingDies are the atoms that grade against foundry-dies main.
-var atomsNeedingDies = []string{"ops:orbit-composed", "orbit:contracts", "orbit:repo", "orbit:sidecars", "orbit:surface"}
-
 // reaskNonce keys the binary's exec afresh on every call; a variable so a test
 // can read what each call carried.
 var reaskNonce = func() string { return strconv.FormatInt(time.Now().UnixNano(), 10) }
-
-// atomsDiesPath is where the binary finds foundry-dies when an atom reads it.
-const atomsDiesPath = "/dies"
-
-// withAtomDies mounts, for the atoms of a stage, the one input that is not the
-// tree and not a tool: foundry-dies at main (the contracts). The tools the
-// atoms exec are layers of the tools container (atoms_tools.go), so a stage
-// mounts nothing else.
-//
-// foundry-dies is mounted only when a selected atom reads it, and only if it
-// fetched: listing the root first forces the clone, so a clone that fails is the
-// dies atoms' 2 and not the whole binary's "not compared". Without the flag the
-// atoms that need it say the checkout was not supplied.
-func (r *run) withAtomDies(ctx context.Context, ctr *dagger.Container, stage string) (*dagger.Container, []string) {
-	has := map[string]bool{}
-	for _, id := range atoms.StageIDs(stage) {
-		has[id] = true
-	}
-	if slices.ContainsFunc(atomsNeedingDies, func(id string) bool { return has[id] }) {
-		if _, err := r.dies.Entries(ctx); err == nil {
-			return ctr.WithMountedDirectory(atomsDiesPath, r.dies), []string{"-dies", atomsDiesPath}
-		}
-	}
-	return ctr, nil
-}
 
 // atomsSpirePath is where the lane pod's SPIRE socket sits in the binary's
 // container when the call forwarded one.
@@ -138,32 +107,6 @@ func (r *run) withAtomSpire(ctr *dagger.Container, stage string) (*dagger.Contai
 		return ctr, nil
 	}
 	return ctr.WithUnixSocket(atomsSpirePath, r.spire), []string{"-spire", atomsSpirePath}
-}
-
-// withAtomNarc mounts narcissus's analyzer for the stage that carries
-// orbit:surface: the image flux pins live (narcissusRef), resolved per call and
-// mounted on top of the layers, so a bump of that pin rebuilds nothing under it.
-// A pin that cannot be read is passed to the binary as the reason (-narc-err),
-// so the atom settles 2 in the chain's words.
-func (r *run) withAtomNarc(ctx context.Context, ctr *dagger.Container, stage string) (*dagger.Container, []string) {
-	if !stageHas(stage, "orbit:surface") {
-		return ctr, nil
-	}
-	ctr, err := r.withNarc(ctx, ctr)
-	if err != nil {
-		return ctr, []string{"-narc-err", err.Error()}
-	}
-	return ctr, nil
-}
-
-// withNarc mounts narcissus's analyzer: the image flux pins live, resolved per
-// call. The error is why the pin could not be read; the container is unchanged.
-func (r *run) withNarc(ctx context.Context, ctr *dagger.Container) (*dagger.Container, error) {
-	ref, err := narcissusRef(ctx, r)
-	if err != nil {
-		return ctr, err
-	}
-	return ctr.WithFile("/usr/local/bin/narc", dag.Container().From(ref).File("/narc"), dagger.ContainerWithFileOpts{Permissions: 0o755}), nil
 }
 
 // atomsBallot is the binary's run for a lane: fleet:witness makes its real asks,
@@ -195,12 +138,8 @@ func (m *FoundryTools) atomsRun(ctx context.Context, stage, base string) (string
 	// judges the change, fleet:witness and ops:immutable among them. Neither
 	// fetches it again; TestAtomsRunFetchesTheBaseOnce holds the count.
 	ctr := r.gitReady(ctx, r.withBase(r.onTools(atomsTools(ctx))))
-	ctr, flags := r.withAtomDies(ctx, ctr, stage)
 	// THE WITNESS ASKS FOR REAL, as the SVID the lane's socket issues.
-	ctr, spire := r.withAtomSpire(ctr, stage)
-	flags = append(flags, spire...)
-	ctr, narcFlags := r.withAtomNarc(ctx, ctr, stage)
-	flags = append(flags, narcFlags...)
+	ctr, flags := r.withAtomSpire(ctr, stage)
 	// A FORK IS NAMED TO THE BINARY BY ITS RECORD (-fork), read here as the
 	// planner reads it: the binary has no door to foundry-dies for it. Fleet
 	// atoms that scan a fork differently (fleet:opengrep-sast) read it off

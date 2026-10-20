@@ -115,8 +115,7 @@ func (m *FoundryTools) Bundle(
 		stamp: strconv.FormatInt(time.Now().UnixNano(), 10),
 	}
 	code, reason := l.run(ctx)
-	g := l.orbitDies(ctx, gateResult{code, reason})
-	return settle(ctx, g.code, "bundle: "+g.reason)
+	return settle(ctx, code, "bundle: "+reason)
 }
 
 type bundleLane struct {
@@ -144,10 +143,6 @@ type bundleLane struct {
 	// stamp is this run's, on every registry read and write: what a registry
 	// holds is a fact about now, and a push or a signature is an act.
 	stamp string
-	// built and changed are run's, for the orbit dies after it: the container
-	// the dies were built in, and the paths the landing touched (touched).
-	built   *dagger.Container
-	touched []string
 	// flux is foundry/flux at fluxSHA, the commit main resolved to when the
 	// lane began: every flux fact in the die is read from that one commit,
 	// and the die names it (data.fleet.flux_source).
@@ -261,7 +256,6 @@ func (l *bundleLane) run(ctx context.Context) (int, string) {
 		return g.code, g.reason
 	}
 	publishPolicy, publishFleet := bundlelane.Publishes(changed)
-	l.touched = changed
 
 	// EVERY GATE RUNS ON EVERY LANDING.
 	policy, g := l.policy(ctx, tools)
@@ -272,7 +266,6 @@ func (l *bundleLane) run(ctx context.Context) (int, string) {
 	if g.code != buildlane.Clean {
 		return g.code, g.reason
 	}
-	l.built = fleet
 
 	// THE FLEET DIE IS A FUNCTION OF TWO COMMITS, so its pin names both and a
 	// pin that does not stand yet is owed a publish whatever this landing

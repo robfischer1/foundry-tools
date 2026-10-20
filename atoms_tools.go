@@ -82,8 +82,7 @@ var pinnedTools = []pinnedTool{
 	{name: "kubeconform", moves: 3, image: checks.ImageKubeconform, imagePath: "/kubeconform"},
 	{name: "kube-linter", moves: 3, image: checks.ImageKubeLinter, imagePath: "/kube-linter"},
 	{name: "opengrep", moves: 3, url: checks.OpengrepURL},
-	{name: "orbitparse", moves: 4, build: orbitParse},
-	// witnesscall is built from source like orbitparse, so its count is the days
+	// witnesscall is built from source, so its count is the days
 	// with commits under witnesscall/, internal/witnesscall and internal/hadescall
 	// in the same window, not a pin line.
 	{name: "witnesscall", moves: 4, build: func() *dagger.File { return helperBinary("witnesscall") }},

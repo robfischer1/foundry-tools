@@ -24,8 +24,6 @@ const (
 	// aetherCluster is foundry/flux's data/aether-db.yaml, down to the Cluster.
 	aetherCluster = "apiVersion: postgresql.cnpg.io/v1\nkind: Cluster\nmetadata: {name: aether-db}\n"
 	// plantedDenied is the composition probe's answer when both guards fire.
-	// orbitContract is one seam contract in foundry-dies/orbits.
-	orbitContract = "version = \"1\"\nstatus = \"generated\"\nverbs = [\"neighbors\"]\n"
 	plantedDenied = `{"result":[{"expressions":[{"value":["seam to definitely-not-a-real-star is not in the fleet roster","topic not-a-registered-topic is not in the fleet roster"]}]}]}`
 )
 
@@ -42,8 +40,6 @@ func bundleOn(t *testing.T, tree map[string]string) *FoundryTools {
 		"fleet/repos/athena.json":            athenaEntry,
 		"fleet/repos/ares.json":              aresEntry,
 		"cosign.pub":                         "-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----\n",
-		"orbits/urania-themis.toml":          orbitContract,
-		"orbits/README.md":                   "the contracts",
 		"/flux/prime/star-athena.yaml":       athenaManifest,
 		"/flux/prime/star-svid-sidecar.yaml": "kind: Service\nmetadata: {name: svid-sidecar}\n",
 		"/flux/data/aether-db.yaml":          aetherCluster,

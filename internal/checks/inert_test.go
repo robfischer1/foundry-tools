@@ -30,7 +30,7 @@ func TestInertPathsAreRootAnchored(t *testing.T) {
 // MATCHING, not by name: a glob that would swallow one of these is the same
 // regression as naming it.
 func TestInertPathsKeepWhatTestsRead(t *testing.T) {
-	for _, keep := range []string{"Dockerfile", "nereus.melt", "migrations", "plugins", "go.mod", "go.sum", "vendor", "main.go", "orbit.toml", "copier.yml", ".git", "CLAUDE-INIT.md"} {
+	for _, keep := range []string{"Dockerfile", "nereus.melt", "migrations", "plugins", "go.mod", "go.sum", "vendor", "main.go", "copier.yml", ".git", "CLAUDE-INIT.md"} {
 		for _, p := range InertPaths {
 			if ok, err := path.Match(p, keep); err != nil || ok {
 				t.Errorf("%s is read by a test somewhere in the fleet and must not be inert, but %q excludes it", keep, p)

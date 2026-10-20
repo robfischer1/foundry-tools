@@ -271,15 +271,6 @@ const (
 	// the honest verdict. So ScoreGoMutation's `ungraded` bucket is expected to
 	// stay EMPTY, and the control is what says so rather than this pin.
 	MutationGateModule = "git.notusmi.com/rob/forge-testkit-go/cmd/mutation-gate@v0.10.0"
-	// OrbitparseModule is the reader ops:orbit-sidecars and orbit:sidecars run:
-	// policy.ParseACL over each composed orbit sidecar, the parser a witness-mode
-	// star refuses to boot without. It ships in stellar-core-go beside the parser,
-	// so the check and the stars it protects version together. It cannot be a Go
-	// import of this module: stellar-core-go needs otel v1.47, which the dagger
-	// SDK's otel pins break on (import cycle in otel/internal/global).
-	//
-	// renovate: datasource=go depName=git.notusmi.com/rob/stellar-core-go
-	OrbitparseModule = "git.notusmi.com/rob/stellar-core-go/cmd/orbitparse@v0.223.0"
 	// renovate: datasource=crate depName=cargo-audit
 	CargoAuditVersion = "0.22.2"
 	// renovate: datasource=crate depName=cargo-mutants
@@ -583,14 +574,6 @@ const (
 	ImageKubeconform = "ghcr.io/yannh/kubeconform:v0.7.0-alpine@sha256:8f0eeaaa96ba27ba1500b0e4b1c215acc358d159c62a7ecae58d7a03403287b0"
 	// ImageKubeLinter — likewise alpine, and likewise held still.
 	ImageKubeLinter = "docker.io/stackrox/kube-linter:v0.8.3-alpine@sha256:b8311611c27032d4922bc67719225e373e4a0ab0c767bbdcf5f20a9306b1a3bb"
-	// ImageNarcissus names the image that carries narc (narcissus's analyzer, at
-	// /narc). THE PIN HERE IS ONLY THE NAME orbit:surface's tool:narc resolves
-	// to: both runners run narc at the build flux pins LIVE (prime/images/
-	// kustomization.yaml at flux main; Rob, 2026-10-03), the Dagger gate
-	// through fluxpin and the executor's dispatcher at dispatch, never this
-	// digest. It is held as a plain pin so the index validates the Need.
-	ImageNarcissus = "registry.notusmi.com/rob/narcissus:1792198596-053bba4@sha256:1923ebea1773595a6ef19358e273738f504b65cc50f600666bcf99870ecf0fe2"
-
 	// RenovateTag / ImageRenovate: the Renovate the fleet DEPLOYS, read from
 	// flux renovate/renovate.yaml on main 2026-10-19 (both containers carry this
 	// exact ref). fleet:renovate-config validates renovate-config's config.js with

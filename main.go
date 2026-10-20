@@ -327,7 +327,7 @@ func (m *FoundryTools) Verdicts(
 
 // vector runs the atoms a stage (and an `only` list) selects, concurrently and
 // bounded, and answers their verdicts in selection order. It is the vector the
-// door, the orbit lane and the local hook read, so the atoms the binary carries
+// door and the local hook read, so the atoms the binary carries
 // take their verdicts from the binary (atoms_vote.go) and the rest from their
 // chains.
 func (m *FoundryTools) vector(ctx context.Context, stage, only, base string) ([]checks.Verdict, error) {

@@ -12,7 +12,6 @@ run:
   fleet:pdp-wired
   fleet:renovate-config
   fleet:retired-verbs
-  fleet:orbit-drift
   fleet:dagger-lockstep
   fleet:renovate-lockstep
   fleet:node-kinds-declared
@@ -34,8 +33,6 @@ run:
   ops:flux
   ops:kube-linter
   ops:immutable
-  ops:orbit-sidecars
-  ops:orbit-composed
   template:render-matrix
   wit:validate
   python:ruff-check
@@ -78,15 +75,10 @@ run:
   law:lint
   law:verb-liveness
   law:budget
-  orbit:contracts
-  orbit:surface
-  orbit:sidecars
-  orbit:repo
   rust:mutation
   bases:chairman
   bases:release
   bundle:fleet
-  bundle:orbits
   bundle:policy
   bundle:resign
   dev:python-fmt

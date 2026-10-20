@@ -68,27 +68,6 @@ func TestInTheDualSignWindowEveryDigestCarriesBothSignatures(t *testing.T) {
 	}
 }
 
-// The orbit dies are signed by both keys as well.
-func TestInTheDualSignWindowTheOrbitDiesCarryBothSignatures(t *testing.T) {
-	m := bundleOn(t, nil)
-	scriptAGreenBundle()
-	engine.stdout(`"--name-only"`, "orbits/urania-themis.toml\n")
-	said := sayings(t, func() { bundlesWithKMS(t, m, kmsSpec, dag.SetSecret("kms-token", saToken)) })
-	settledOn(t, "0", "published and signed "+bundlelane.ContractsDie)
-	for _, line := range []string{
-		"── orbit dies: second signature, " + kmsKeyRef + " (dual-sign window) ──",
-		"with " + kmsKeyRef,
-		"with the fleet key",
-	} {
-		if !strings.Contains(said, line) {
-			t.Errorf("the lane did not say %q:\n%s", line, said)
-		}
-	}
-	if engine.chain(`"sign"`, `"`+kmsKeyRef+`"`, `"--yes"`) == "" {
-		t.Error("the orbit dies did not get the KMS signature")
-	}
-}
-
 // Without --kms nothing changes: the fleet key alone, and no plugin anywhere.
 func TestWithoutKMSTheFleetKeySignsAlone(t *testing.T) {
 	m := bundleOn(t, nil)
