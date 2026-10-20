@@ -82,28 +82,41 @@ func TestPathWithAndCargoBinReadTheEnvironment(t *testing.T) {
 	}
 }
 
-func TestUnpackCoreFetchesOneCommitAndUnpacksItsArchive(t *testing.T) {
-	base := t.TempDir()
-	var lines []string
-	var dirs []string
-	run := func(dir string, env, argv []string) (string, error) {
-		lines = append(lines, strings.Join(argv, " "))
-		dirs = append(dirs, dir)
+// fakeUnpack answers every program, and the tar it is asked to unpack leaves the
+// kit's directory (as an archive of a commit holding it does) unless bare.
+func fakeUnpack(t *testing.T, lines, dirs *[]string, bare bool) Runner {
+	return func(dir string, env, argv []string) (string, error) {
+		*lines = append(*lines, strings.Join(argv, " "))
+		*dirs = append(*dirs, dir)
 		if len(argv) > 1 && argv[1] == "fetch" && (len(env) != 1 || env[0] != "GIT_TERMINAL_PROMPT=0") {
 			t.Errorf("fetch env %v", env)
 		}
+		if argv[0] == "tar" && !bare {
+			if err := os.MkdirAll(filepath.Join(argv[4], checks.RustKit.Subdir), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
 		return "", nil
 	}
-	core, err := UnpackCore(run, base, "c0ffee")
-	if err != nil || core != filepath.Join(base, "core") {
+}
+
+// THE WHOLE COMMIT IS ARCHIVED and the answer is the kit's directory in it:
+// stellar-core's workspace manifest and Cargo.lock are at the root, above rust/.
+func TestUnpackCoreArchivesTheWholeCommitAndAnswersTheKitsDirectory(t *testing.T) {
+	base := t.TempDir()
+	var lines, dirs []string
+	core, err := UnpackCore(fakeUnpack(t, &lines, &dirs, false), base, "c0ffee")
+	if err != nil || core != filepath.Join(base, "core", "rust") {
 		t.Fatalf("%q %v", core, err)
 	}
-	if len(lines) != 4 || !strings.HasPrefix(lines[0], "git init") || !strings.Contains(lines[1], checks.RustKit.GitURL()+" c0ffee") ||
-		!strings.HasPrefix(lines[2], "git archive") || !strings.HasPrefix(lines[3], "tar -xf ") || dirs[1] != filepath.Join(base, "stellar-core-rust") {
-		t.Errorf("%q", lines)
+	want := []string{
+		"git init --quiet " + filepath.Join(base, "kit"),
+		"git fetch --quiet --depth 1 https://git.notusmi.com/stellar-core.git c0ffee",
+		"git archive --format=tar --output=" + filepath.Join(base, "core.tar") + " c0ffee",
+		"tar -xf " + filepath.Join(base, "core.tar") + " -C " + filepath.Join(base, "core"),
 	}
-	if st, err := os.Stat(core); err != nil || !st.IsDir() {
-		t.Error("the core directory was not made")
+	if strings.Join(lines, "\n") != strings.Join(want, "\n") || dirs[1] != filepath.Join(base, "kit") {
+		t.Errorf("%q", lines)
 	}
 
 	failing := func(string, []string, []string) (string, error) { return "", errors.New("no such commit") }
@@ -114,26 +127,45 @@ func TestUnpackCoreFetchesOneCommitAndUnpacksItsArchive(t *testing.T) {
 	if err := os.WriteFile(blocked, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := UnpackCore(run, blocked, "c0ffee"); err == nil {
+	if _, err := UnpackCore(fakeUnpack(t, &lines, &dirs, false), blocked, "c0ffee"); err == nil {
 		t.Error("a base that is a file was unpacked into")
 	}
 }
 
-// A kit in a subdirectory is archived from that subdirectory, so the core
-// unpacks with its crate at the root, as it does today.
-func TestUnpackCoreArchivesTheKitsSubdirectory(t *testing.T) {
-	old := checks.RustKit
-	checks.RustKit = checks.KitSource{Repo: "rob/stellar-core", Subdir: "rust"}
-	t.Cleanup(func() { checks.RustKit = old })
-	var lines []string
-	run := func(_ string, _, argv []string) (string, error) {
-		lines = append(lines, strings.Join(argv, " "))
-		return "", nil
+// A commit with no rust/ is no kit: said, not built from an empty directory.
+func TestUnpackCoreRefusesACommitWithoutTheKitsDirectory(t *testing.T) {
+	var lines, dirs []string
+	_, err := UnpackCore(fakeUnpack(t, &lines, &dirs, true), t.TempDir(), "c0ffee")
+	if err == nil || err.Error() != "core @c0ffee: stellar-core c0ffee has no rust/" {
+		t.Errorf("%v", err)
 	}
-	if _, err := UnpackCore(run, t.TempDir(), "c0ffee"); err != nil {
+}
+
+// A PIN NAMING stellar-core-rust is fetched and archived as the commit it became.
+func TestUnpackCoreFetchesAStellarCoreRustPinAsTheCommitItBecame(t *testing.T) {
+	const old, moved = "01337847eb0e8e3ffd1caac7764d69f097e5983d", "c735c1f792013022e651986ca34e7ab8af0ef7f3"
+	var lines, dirs []string
+	if _, err := UnpackCore(fakeUnpack(t, &lines, &dirs, false), t.TempDir(), old); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(lines[1], "https://git.notusmi.com/stellar-core.git c0ffee") || !strings.HasSuffix(lines[2], " c0ffee:rust") {
+	if !strings.HasSuffix(lines[1], "stellar-core.git "+moved) || !strings.HasSuffix(lines[2], " "+moved) {
 		t.Errorf("%q", lines)
+	}
+	failing := func(string, []string, []string) (string, error) { return "", errors.New("no such commit") }
+	if _, err := UnpackCore(failing, t.TempDir(), old); err == nil || err.Error() != "core @"+old+" (stellar-core "+moved+"): no such commit" {
+		t.Errorf("%v", err)
+	}
+}
+
+// A KIT WITH A REPOSITORY OF ITS OWN is the archive's root.
+func TestUnpackCoreOfAKitWithItsOwnRepositoryAnswersTheRoot(t *testing.T) {
+	old := checks.RustKit
+	checks.RustKit = checks.KitSource{Repo: "rob/stellar-core-rust"}
+	t.Cleanup(func() { checks.RustKit = old })
+	var lines, dirs []string
+	base := t.TempDir()
+	core, err := UnpackCore(fakeUnpack(t, &lines, &dirs, false), base, "c0ffee")
+	if err != nil || core != filepath.Join(base, "core") || !strings.Contains(lines[1], "stellar-core-rust.git c0ffee") {
+		t.Errorf("%q %v %q", core, err, lines)
 	}
 }

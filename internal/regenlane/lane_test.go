@@ -176,6 +176,11 @@ func (f *fake) show(line string) string {
 // unpackCore is the core's tree: the WIT the guest is built against.
 func (f *fake) unpackCore(dir string) {
 	w := worldRe.FindStringSubmatch(dir)[1]
+	// the archive is the whole commit: the kit is its rust/
+	dir = filepath.Join(dir, checks.RustKit.Subdir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		f.t.Fatal(err)
+	}
 	if f.coreWit == "-" {
 		return
 	}
@@ -318,16 +323,16 @@ func TestTSRegenRunsEachStepAsAProgramWithItsArguments(t *testing.T) {
 		w + "/stellar-core: git show " + rgCommit + ":wit/aiws-stamp.wit",
 		w + "/stellar-core: git show " + rgCommit + ":wit/aiws-result.wit",
 		w + "/stellar-core: git show " + rgCommit + ":conformance/tapes/stamp.json",
-		w + ": git init --quiet " + w + "/stellar-core-rust",
-		w + "/stellar-core-rust: git fetch --quiet --depth 1 " + checks.RustKit.GitURL() + " " + rgCore,
-		w + "/stellar-core-rust: git archive --format=tar --output=" + w + "/core.tar " + rgCore,
+		w + ": git init --quiet " + w + "/kit",
+		w + "/kit: git fetch --quiet --depth 1 " + checks.RustKit.GitURL() + " " + rgCore,
+		w + "/kit: git archive --format=tar --output=" + w + "/core.tar " + rgCore,
 		w + ": tar -xf " + w + "/core.tar -C " + w + "/core",
 		os.TempDir() + ": cp -a /usr/local/rustup/. $W/ts-regen-tools/rustup",
 		os.TempDir() + ": tar -xzf $W/ts-regen-tools/rust-std-wasm32-unknown-unknown.tar.gz -C $W/ts-regen-tools/rust-std-wasm32-unknown-unknown --strip-components=2 " + checks.RustStdWasmMember,
 		os.TempDir() + ": cp -a $W/ts-regen-tools/rust-std-wasm32-unknown-unknown/lib/. $W/ts-regen-tools/rustup/toolchains/" + toolchain + "/lib",
 		os.TempDir() + ": tar -xzf $W/ts-regen-tools/wasm-tools-1.250.0.tar.gz -C $W/ts-regen-tools/wasm-tools-1.250.0 --strip-components=1 wasm-tools-1.250.0-x86_64-linux/wasm-tools",
 		os.TempDir() + ": $W/ts-regen-tools/wasm-tools-1.250.0/wasm-tools --version",
-		w + "/core: " + w + "/stamp-core-inner.sh",
+		w + "/core/rust: " + w + "/stamp-core-inner.sh",
 		os.TempDir() + ": tar -xzf $W/ts-regen-tools/node.tar.gz -C $W/ts-regen-tools/node --strip-components=1",
 		os.TempDir() + ": $W/ts-regen-tools/node/bin/node --version",
 		w + ": " + w + "/transpile-stamp-inner.sh",
@@ -381,10 +386,10 @@ func TestTSRegenGivesTheScriptsTheirPinsAndTheirOwnDirectories(t *testing.T) {
 	w := work + "/ts-regen/stamp"
 	b, tr := env(build), env(transpile)
 	if b["WASM_TOOLS_VERSION"] != "1.250.0" || b["CARGO_TARGET_DIR"] != target+"/ts-regen-stamp" || b["RUSTUP_HOME"] != work+"/ts-regen-tools/rustup" ||
-		b["PATH"] != work+"/ts-regen-tools/wasm-tools-1.250.0:/cargo/bin:/usr/bin" || build.Dir != w+"/core" {
+		b["PATH"] != work+"/ts-regen-tools/wasm-tools-1.250.0:/cargo/bin:/usr/bin" || build.Dir != w+"/core/rust" {
 		t.Errorf("build env %v dir %s", b, build.Dir)
 	}
-	if want := "--remap-path-prefix=" + w + "/core=/src --remap-path-prefix=" + target + "/ts-regen-stamp=/tmp/target --remap-path-prefix=/cargo=/usr/local/cargo --remap-path-prefix=" + work + "/ts-regen-tools/rustup=/usr/local/rustup"; b["CARGO_BUILD_RUSTFLAGS"] != want {
+	if want := "--remap-path-prefix=" + w + "/core/rust=/src --remap-path-prefix=" + target + "/ts-regen-stamp=/tmp/target --remap-path-prefix=/cargo=/usr/local/cargo --remap-path-prefix=" + work + "/ts-regen-tools/rustup=/usr/local/rustup"; b["CARGO_BUILD_RUSTFLAGS"] != want {
 		t.Errorf("the guest is built as if it were where it was recorded: %q", b["CARGO_BUILD_RUSTFLAGS"])
 	}
 	if tr["JCO_VERSION"] != "1.35.0" || tr["NODE_EXTRA_CA_CERTS"] != "/etc/ssl/certs/ca-certificates.crt" || tr["npm_config_prefix"] != w+"/npm" ||
@@ -667,7 +672,7 @@ func TestTSRegenCannotRunWhenAStepWillNotRun(t *testing.T) {
 		{"stellar-core init", "git init --quiet", "git init"},
 		{"stellar-core fetch", "git fetch --quiet --depth 1 " + checks.TSRegenWitGit, "wit/aiws-stamp.wit@" + rgCommit},
 		{"a pin", "git show " + rgCommit + ":conformance", "conformance/tapes/stamp.json@" + rgCommit},
-		{"core fetch", "git fetch --quiet --depth 1 " + checks.RustKit.GitURL(), "core @" + rgCore},
+		{"core fetch", "git fetch --quiet --depth 1 " + checks.RustKit.GitURL() + " " + rgCore, "core @" + rgCore},
 		{"core archive", "git archive", "core @" + rgCore},
 		{"core unpack", "tar -xf", "core @" + rgCore},
 		{"rustup", "cp -a", "rustup home"},

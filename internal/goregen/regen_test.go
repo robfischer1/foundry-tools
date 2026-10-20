@@ -58,11 +58,13 @@ func TestACoreThatRegeneratesIdenticalLeavesTheTreeAsItWas(t *testing.T) {
 		}
 	}
 	// the chain: the commit fetched shallow, the recorded cargo argv with its own target, the recorded generator
-	if !s.f.has("git fetch --quiet --depth 1 "+checks.RustKit.GitURL()+" "+commitA) || !s.f.has("rustup target add wasm32-unknown-unknown") {
+	// commitA is a real stellar-core-rust commit: it is fetched as the stellar-core commit it became
+	if !s.f.has("git fetch --quiet --depth 1 "+checks.RustKit.GitURL()+" "+checks.RustKit.Commit(commitA)) || !s.f.has("rustup target add wasm32-unknown-unknown") {
 		t.Errorf("calls:\n%s", s.f.dump())
 	}
 	cargo := s.f.call("cargo build --locked --release --no-default-features --features wit-guest-alarm --target wasm32-unknown-unknown")
-	if cargo.Name != "cargo" || !strings.HasSuffix(cargo.Dir, "core") && !strings.Contains(cargo.Dir, "core-"+commitA[:12]) {
+	// from the kit's directory of the whole commit unpacked: core/rust, where the workspace above it and its lock are
+	if cargo.Name != "cargo" || !strings.HasSuffix(cargo.Dir, "/core/rust") || !strings.Contains(cargo.Dir, "core-"+commitA[:12]) {
 		t.Errorf("cargo: %+v", cargo)
 	}
 	if target, _ := envOf(cargo, "CARGO_TARGET_DIR"); !strings.HasSuffix(target, "/go-regen/alarm/target") {
@@ -353,11 +355,30 @@ func TestACrateWhoseArtifactIsNotTheOneTheScriptCopiesIsAFinding(t *testing.T) {
 	wantReason(t, t2.check("alarm"), 1, "FAILED at build")
 }
 
+// A CORE PINNED AT A stellar-core-rust COMMIT builds the stellar-core commit it
+// became (the commit map), and its record keeps the commit it pins.
+func TestACorePinnedAtAStellarCoreRustCommitBuildsTheCommitItBecame(t *testing.T) {
+	const old, moved = "01337847eb0e8e3ffd1caac7764d69f097e5983d", "c735c1f792013022e651986ca34e7ab8af0ef7f3"
+	s := newScene(t)
+	s.add(coreSpec{name: "alarm", commit: old})
+	before := s.read("alarm/provenance.json")
+	wantReason(t, s.check("alarm"), 0, "alarm: guest unchanged")
+	if !s.f.has("git fetch --quiet --depth 1 "+checks.RustKit.GitURL()+" "+moved) || s.f.has(" "+old) {
+		t.Errorf("calls:\n%s", s.f.dump())
+	}
+	if !s.f.has("git archive --format=tar --output=") || !strings.HasSuffix(line(s.f.call("git archive")), " "+moved) {
+		t.Errorf("the archive is not the whole moved commit: %s", line(s.f.call("git archive")))
+	}
+	if s.read("alarm/provenance.json") != before {
+		t.Error("the record's pin moved")
+	}
+}
+
 func TestAnUnpackThatFailsIsCannotRunAtTheFetch(t *testing.T) {
 	s := newScene(t)
 	s.add(coreSpec{name: "alarm"})
 	s.f.fail["git fetch"] = "fatal: couldn't find remote ref"
-	wantReason(t, s.check("alarm"), 2, "alarm: FAILED at fetch", "stellar-core-rust", commitA, "couldn't find remote ref")
+	wantReason(t, s.check("alarm"), 2, "alarm: FAILED at fetch", "stellar-core", commitA, "couldn't find remote ref")
 }
 
 func TestTheContainersRustcThatWillNotAnswerIsCannotRun(t *testing.T) {
