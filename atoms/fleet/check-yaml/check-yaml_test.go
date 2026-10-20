@@ -249,3 +249,16 @@ func TestTheDeclarationIsTheRowItReplaced(t *testing.T) {
 		t.Errorf("needs %v", Def.Needs)
 	}
 }
+
+// DEF-B6-039: a link is skipped, never followed: a dangling .yml link is no
+// unreadable file.
+func TestCheckYAMLSkipsLinksDanglingOrNot(t *testing.T) {
+	dir := t.TempDir()
+	put(t, dir, "ok.yml", "a: 1\n")
+	if err := os.Symlink("/nowhere/at/all.yml", filepath.Join(dir, "dangling.yml")); err != nil {
+		t.Fatal(err)
+	}
+	if v := check(context.Background(), atomkit.In{Root: dir, Files: []string{"dangling.yml", "ok.yml"}}); v.State != 0 {
+		t.Errorf("state %d, want a pass\n%s", v.State, v.Reason)
+	}
+}

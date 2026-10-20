@@ -35,7 +35,8 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 	}
 	var wanted []string
 	for _, p := range in.Files {
-		if checks.EventSourceExt(p) {
+		// a link is never followed: a dangling one would not read
+		if checks.EventSourceExt(p) && !in.Tree().IsLink(p) {
 			wanted = append(wanted, p)
 		}
 	}

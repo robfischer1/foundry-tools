@@ -67,7 +67,7 @@ func TestUT_485_TheDeclarationIsTheRowItReplaced(t *testing.T) {
 func TestTheRaceSuiteRunsInEveryModuleAgainstTheTreesDatabases(t *testing.T) {
 	f := &fake{tags: "//go:build live_db\n"}
 	dir := tree(t, "go.mod", "styx/go.mod")
-	v := check(t.Context(), atomkit.In{Root: dir, Files: []string{"go.mod", "styx/go.mod"}, Exec: f.exec})
+	v := check(t.Context(), atomkit.In{Root: dir, Files: []string{"go.mod", "styx/go.mod", "styx/s.go"}, Exec: f.exec})
 	if v.State != 0 || !strings.Contains(v.Reason, "go:test-race: PASS in 2 Go modules (., styx)") || !strings.Contains(v.Reason, "test databases: live_db → TEST_DATABASE_URL") {
 		t.Fatalf("%+v", v)
 	}

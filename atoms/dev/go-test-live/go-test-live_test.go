@@ -93,7 +93,7 @@ func TestNoArgumentsIsTheRaceRunWithoutTheProfile(t *testing.T) {
 func TestEveryModuleRunsWhenNoPackageIsNamed(t *testing.T) {
 	f := &fake{}
 	dir := tree(t, "go.mod", "styx/go.mod")
-	v := check(t.Context(), atomkit.In{Root: dir, Files: []string{"go.mod", "styx/go.mod"}, Args: []string{"-run", "TestX"}, Exec: f.exec})
+	v := check(t.Context(), atomkit.In{Root: dir, Files: []string{"go.mod", "styx/go.mod", "styx/s.go"}, Args: []string{"-run", "TestX"}, Exec: f.exec})
 	got := suites(f)
 	if v.State != 0 || len(got) != 2 || !strings.HasSuffix(got[0], ": go test -race -run TestX ./...") || !strings.Contains(got[1], "/styx:") {
 		t.Fatalf("%+v ran %v", v, got)

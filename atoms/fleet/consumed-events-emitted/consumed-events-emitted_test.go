@@ -205,3 +205,14 @@ func TestTheDeclarationIsTheRowItReplaced(t *testing.T) {
 		t.Errorf("needs %v", Def.Needs)
 	}
 }
+
+// DEF-B6-039: a link is never followed: a dangling source link is no file that
+// would not read.
+func TestConsumedEventsEmittedSkipsDanglingLinks(t *testing.T) {
+	in := treeIn(t, map[string]string{"c.py": "x = 1"})
+	if err := os.Symlink("/nowhere/at/all.py", filepath.Join(in.Root, "dangling.py")); err != nil {
+		t.Fatal(err)
+	}
+	in.Files = append(in.Files, "dangling.py")
+	expect(t, run(t, in), stateOf(0), pass, "consumes no literal event_type")
+}

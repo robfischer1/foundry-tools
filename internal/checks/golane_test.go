@@ -121,3 +121,29 @@ func TestArgvChunksKeepOrderAndFitTheBudget(t *testing.T) {
 		}
 	}
 }
+
+// DEF-B6-037: a nested module is a module to vet, test and scan only when a
+// tracked .go file belongs to it; base-images' bases/layer-go/tools is a go.mod
+// and go.sum that pin tools, with no package, and `go vet`, `go test` and
+// govulncheck exit non-zero on a module with nothing to load.
+func TestGoModulesWithSourceDropsANestedModuleWithNoGoFile(t *testing.T) {
+	files := []string{
+		"go.mod", "main.go",
+		"bases/layer-go/tools/go.mod", "bases/layer-go/tools/go.sum",
+		"bases/chairman/svid/go.mod", "bases/chairman/svid/main_test.go",
+		"outer/go.mod", "outer/inner/go.mod", "outer/inner/i.go",
+		"empty/go.mod", "empty/vendor/v/v.go", "empty/testdata/t.go", "empty/_x/x.go",
+	}
+	got := GoModulesWithSource(GoModuleDirs(files), files)
+	want := []string{".", "bases/chairman/svid", "outer/inner"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("GoModulesWithSource = %v, want %v (outer's only .go belongs to inner)", got, want)
+	}
+	// the root stays whatever it holds: a repository declares the lane by it
+	if got := GoModulesWithSource([]string{"."}, []string{"go.mod"}); strings.Join(got, ",") != "." {
+		t.Errorf("a root with no .go file = %v, want it kept", got)
+	}
+	if got := GoModulesWithSource([]string{"tools"}, []string{"tools/go.mod"}); len(got) != 0 {
+		t.Errorf("a lone nested module with no source = %v, want none", got)
+	}
+}

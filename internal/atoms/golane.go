@@ -25,7 +25,7 @@ func goModuleDirs(in Input) ([]string, error) {
 	if in.FilesErr != nil {
 		return nil, in.FilesErr
 	}
-	return checks.GoModuleDirs(in.Files), nil
+	return checks.GoModulesWithSource(checks.GoModuleDirs(in.Files), in.Files), nil
 }
 
 // EachGoModule runs one go atom in every module the tree carries and folds the

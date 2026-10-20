@@ -84,7 +84,7 @@ func TestUT_700_NoPreflightRunsTheArgvAlone(t *testing.T) {
 func TestUT_701_PreflightRunsInEachModuleDirBeforeItsArgv(t *testing.T) {
 	f := &fakeExec{}
 	c := vetCommand(f, Manifest{PerModule: true})
-	c.Facts.Files = []string{"go.mod", "tools/go.mod"}
+	c.Facts.Files = []string{"go.mod", "tools/go.mod", "tools/t.go"}
 	c.Preflight = []string{"go", "mod", "download"}
 	RunCommand(context.Background(), c)
 	want := []call{
@@ -175,7 +175,7 @@ func TestUT_330_PerModuleFoldsToTheWorstAndPrefixesLogs(t *testing.T) {
 		return ExecResult{Stdout: "a\n"}
 	}}
 	c := vetCommand(f, Manifest{PerModule: true})
-	c.Facts.Files = []string{"go.mod", "tools/go.mod"}
+	c.Facts.Files = []string{"go.mod", "tools/go.mod", "tools/t.go"}
 	v := RunCommand(context.Background(), c)
 	if v.State != 1 || !slices.Equal(v.Logs, []string{".: a", "tools: b", "tools: c"}) {
 		t.Fatalf("%+v", v)
@@ -219,7 +219,10 @@ func TestModuleRoots(t *testing.T) {
 		toolchain string
 		want      []string
 	}{
-		{"UT-334", tf("a/b/go.mod", "go.mod", "tools/go.mod", "x.go"), "go", []string{"/src", "/src/a/b", "/src/tools"}},
+		{"UT-334", tf("a/b/go.mod", "go.mod", "tools/go.mod", "x.go", "a/b/b.go", "tools/t_test.go"), "go", []string{"/src", "/src/a/b", "/src/tools"}},
+		// DEF-B6-037: a nested module with no Go source has no package to vet
+		{"DEF-B6-037", tf("go.mod", "x.go", "bases/layer-go/tools/go.mod", "bases/layer-go/tools/go.sum"), "go", []string{"/src"}},
+		{"DEF-B6-037", tf("tools/go.mod"), "go", []string{}},
 		{"UT-335", tf("Cargo.toml", "crates/a/Cargo.toml"), "rust", []string{"/src"}},
 		{"UT-337", tf("pyproject.toml", "svc/pyproject.toml"), "python", []string{"/src", "/src/svc"}},
 		{"UT-337", tf("web/package.json"), "node", []string{"/src/web"}},

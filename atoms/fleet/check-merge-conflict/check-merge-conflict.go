@@ -53,6 +53,11 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 		if err := ctx.Err(); err != nil {
 			return checks.Interrupted(row, err)
 		}
+		// A link is not read: a dangling one (base-images' chairman tree holds 61)
+		// would fail the read, and a live one's target is scanned as itself.
+		if in.Tree().IsLink(f) {
+			continue
+		}
 		body, err := os.ReadFile(filepath.Join(in.Root, f))
 		if err != nil {
 			unread = append(unread, err.Error())
