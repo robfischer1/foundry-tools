@@ -3,6 +3,8 @@ package atoms
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -201,5 +203,25 @@ func TestEachGoModuleSkipsAModuleWithNoGoSource(t *testing.T) {
 	})
 	if strings.Join(dirs, ",") != "." || v.Reason != "go:x: PASS" {
 		t.Errorf("ran in %v: %+v", dirs, v)
+	}
+}
+
+// A link is told by lstat, never followed: a dangling one is a link, a plain
+// file or a missing path is not.
+func TestIsLinkIsByLstat(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "f"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for name, target := range map[string]string{"dangling": "/nowhere/at/all", "live": "f"} {
+		if err := os.Symlink(target, filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tr := Input{Root: dir}.Tree()
+	for rel, want := range map[string]bool{"dangling": true, "live": true, "f": false, "missing": false} {
+		if got := tr.IsLink(rel); got != want {
+			t.Errorf("IsLink(%q) = %v, want %v", rel, got, want)
+		}
 	}
 }

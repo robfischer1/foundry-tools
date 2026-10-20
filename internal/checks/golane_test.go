@@ -143,6 +143,10 @@ func TestGoModulesWithSourceDropsANestedModuleWithNoGoFile(t *testing.T) {
 	if got := GoModulesWithSource([]string{"."}, []string{"go.mod"}); strings.Join(got, ",") != "." {
 		t.Errorf("a root with no .go file = %v, want it kept", got)
 	}
+	// a .go file with no module above it belongs to none
+	if got := GoModulesWithSource([]string{"tools"}, []string{"x.go", "a/b.go", "tools/go.mod"}); len(got) != 0 {
+		t.Errorf("a stray .go file = %v, want none", got)
+	}
 	if got := GoModulesWithSource([]string{"tools"}, []string{"tools/go.mod"}); len(got) != 0 {
 		t.Errorf("a lone nested module with no source = %v, want none", got)
 	}
