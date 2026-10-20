@@ -1,0 +1,18 @@
+schema = "command-atom@1"
+id = "dev:ts-build"
+stage = "dev"
+lane = "ts"
+group = "language"
+desc = "the repo's build script succeeds, run by hand from the dev lane."
+surface = "root:package.json"
+toolchain = "bun"
+argv = ["bun", "run", "build"]
+args = "append"
+per_module = false
+judge = "exit"
+needs = ["tool:node", "tool:curl"]
+timeout = "30m"
+writes_tree = true
+
+# Same toolchain, tool:node and frozen install as dev:ts-test. A star without a
+# `build` script answers bun's missing-script error.

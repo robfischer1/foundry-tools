@@ -19,7 +19,7 @@ var Def = atomkit.Def{
 	ID: "fleet:renovate-config", Stage: checks.StagePrecommit, Lane: checks.LaneAny,
 	Group:     checks.GroupBasic,
 	Desc:      "A root config.js that is a Renovate global config passes renovate-config-validator --strict, run from the Renovate image the fleet deploys.",
-	Surface:   "any:**",
+	Surface:   "root:config.js",
 	Toolchain: "renovate",
 	Check:     check,
 }

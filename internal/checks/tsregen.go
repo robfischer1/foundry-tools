@@ -11,7 +11,7 @@ import (
 
 // The repositories a TypeScript core's regeneration reads: the WIT and the tape
 // come from stellar-core at the commits provenance.json records, the guest's
-// source from the Rust kit (RustKit: stellar-core-rust today) at its recorded
+// source from the Rust kit (RustKit: stellar-core rust/) at its recorded
 // commit. Both are read without credentials, as scripts/regen-check.sh's own `git clone` of them is.
 const (
 	TSRegenWitGit = "https://git.notusmi.com/stellar-core.git"

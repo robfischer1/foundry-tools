@@ -16,11 +16,11 @@
 # executor installs NOTHING from galaxy at run time: galaxy redirects artifact
 # downloads to S3, which a pod's egress drops (CIEgressDropped, 22 SYNs to
 # 52.217.123.170:443), so the pod hung. Daedalus fetches each tarball through the
-# tool mirror first (the blob whose digest is the sha256, seeded with
-# `just mirror-seed <url> <sha256>`), holds it to the sum, and installs with
+# its own URL (galaxy 302s to its S3 bucket, which the executor's egress names), holds it to
+# the sum, and installs with
 # `ansible-galaxy collection install --offline`. The Dagger build above still
 # reads the name and version and asks galaxy, which it can reach; ansible-galaxy
-# ignores the two extra keys. A bump moves all four fields, and the seed.
+# ignores the two extra keys. A bump moves all four fields.
 
 collections:
   - name: community.routeros

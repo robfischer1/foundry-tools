@@ -349,7 +349,7 @@ func TestWithNoPublishedBuildToCompareAgainstTheLaneBuilds(t *testing.T) {
 		script     func()
 	}{
 		{"oras cannot be provisioned", "oras could not be provisioned", func() {
-			failBoth(checks.OrasURL, "502 from upstream")
+			failTool(checks.OrasURL, "502 from upstream")
 		}},
 		{"the tags do not list", "registry.notusmi.com/rob/ares's tags did not list (exit 1)", func() {
 			engine.exitCode(tagsNeedle, 1)
@@ -844,7 +844,7 @@ var sbomFailures = []struct {
 	{"oras cannot be provisioned", "2", "oras could not be provisioned", func() {
 		// The fetch alone: the settle's reason names the URL, and a bare
 		// URL needle would fail the verdict exec too.
-		failBoth(checks.OrasURL, "502 from upstream")
+		failTool(checks.OrasURL, "502 from upstream")
 	}},
 	{"the SBOM cannot be read", "2", "syft did not run", func() {
 		engine.failLeaf(imageScanNeedle, "exitCode", "the engine went away")

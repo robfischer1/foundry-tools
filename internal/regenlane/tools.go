@@ -135,8 +135,7 @@ func (p *provision) wasmTools(ctx context.Context, exec execFunc, version string
 	return dir
 }
 
-// fetch downloads a pinned asset: the mirror first, upstream second, both held
-// to the pinned sum (checks.ToolSources).
+// fetch downloads a pinned asset from its own URL, held to the pinned sum (checks.ToolSources).
 func (p *provision) fetch(ctx context.Context, url, dest string) error {
 	return regenkit.Fetch(ctx, fetchPinned, url, dest)
 }

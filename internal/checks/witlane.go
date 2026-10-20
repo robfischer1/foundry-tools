@@ -257,7 +257,7 @@ func WitComposeRed(files []string) []string {
 // program. A recorded version with no line here still falls back to the compile,
 // so a core that moves its pin is slower, never wrong. The member is stripped to
 // /usr/local/bin by withTarballBinary; its sum was computed from the asset on
-// 2026-10-16 and the asset is seeded in the tool mirror (`just mirror-seed`).
+// 2026-10-16 and the asset is fetched from its own URL.
 const (
 	WasmTools1250Version = "1.250.0"
 	WasmTools1250URL     = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.250.0/wasm-tools-1.250.0-x86_64-linux.tar.gz"
@@ -268,8 +268,7 @@ const (
 // ("wasm-tools 1.261.0"): dev:go-regen composes with it, because a different
 // wasm-tools writes a different component around the very same core modules
 // (MEASURED on classescore: 1.262.0 left every embedded module and the bindings
-// byte-identical and changed guest.wasm). The sum is the asset's, seeded in the
-// tool mirror.
+// byte-identical and changed guest.wasm). The sum is the asset's.
 const (
 	WasmTools1261Version = "1.261.0"
 	WasmTools1261URL     = "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.261.0/wasm-tools-1.261.0-x86_64-linux.tar.gz"

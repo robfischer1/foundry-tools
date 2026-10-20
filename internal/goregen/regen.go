@@ -151,7 +151,7 @@ type runner struct {
 	ctx  context.Context
 	in   atomkit.In
 	work string
-	// sources are the stellar-core-rust trees unpacked, by commit.
+	// sources are the Rust kit's trees unpacked, by commit.
 	sources map[string]string
 	// chains are the compilers selected, by the rustc line they print; laid are
 	// the ones installed, by version.
@@ -333,7 +333,7 @@ func (r *runner) wasmStd() *failure {
 }
 
 // lay installs a rust toolchain from its pinned dist tarballs under the work
-// directory: each is fetched mirror-first and held to its sum, unpacked, and
+// directory: each is fetched from its URL and held to its sum, unpacked, and
 // installed by its own install.sh into one prefix. It is laid once per version.
 // want is the line it must print ("" for a toolchain chosen by version alone).
 func (r *runner) lay(version, want, nativeVersion string) (toolchain, *failure) {
@@ -385,14 +385,14 @@ func held(t toolchain, want string) *failure {
 	return nil
 }
 
-// source unpacks stellar-core-rust at a commit, once.
+// source unpacks the Rust kit at a commit, once.
 func (r *runner) source(commit string) (string, *failure) {
 	if dir, ok := r.sources[commit]; ok {
 		return dir, nil
 	}
 	dir, err := regenkit.UnpackCore(r.runner(), filepath.Join(r.work, "core-"+commit[:min(12, len(commit))]), commit)
 	if err != nil {
-		return "", cannot("fetch", "stellar-core-rust: %v", err)
+		return "", cannot("fetch", "%s: %v", checks.RustKit.Name(), err)
 	}
 	r.sources[commit] = dir
 	return dir, nil

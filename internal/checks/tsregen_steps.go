@@ -155,7 +155,7 @@ func SHA256File(path string) (string, error) {
 // THE NODE THE TRANSPILE RUNS UNDER. The chain ran it in the node image
 // (ImageNode, node 24.21.0 at its pin); a pod's container is one toolchain's, so
 // the atom brings the same release as a pinned tarball and checks its sum like
-// every asset here (ToolSources: the mirror first, upstream second).
+// every asset here (ToolSources: its own URL, held to the sum).
 const (
 	Node24Version = "24.21.0"
 	NodeRegenURL  = "https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-x64.tar.gz"
@@ -164,8 +164,8 @@ const (
 // THE GUEST'S COMPILE TARGET. The star's build script runs `rustup target add
 // wasm32-unknown-unknown`, which downloads the standard library from
 // static.rust-lang.org; a pod's egress is closed, so the atom brings the same
-// component as a pinned dist tarball (ToolSources: the mirror first, upstream
-// second), lays it into its copy of the rustup home and registers it, and the
+// component as a pinned dist tarball (ToolSources: its own URL, held to the
+// sum), lays it into its copy of the rustup home and registers it, and the
 // script's own add finds it installed. The version is the rust-wasm image's
 // (RustWasmComponentsTag); a test holds the two together. Member is the
 // component's tree inside the tarball: lib/ and manifest.in.

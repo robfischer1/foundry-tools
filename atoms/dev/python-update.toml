@@ -1,0 +1,21 @@
+schema = "command-atom@1"
+id = "dev:python-update"
+stage = "dev"
+lane = "python"
+group = "language"
+desc = "uv lock --upgrade rewrites uv.lock with every dependency at its newest allowed version; -P pkg narrows it."
+surface = "root:pyproject.toml"
+toolchain = "python"
+argv = ["uv", "lock", "--python", "python3"]
+args = "append"
+per_module = false
+judge = "exit"
+needs = ["tool:uv"]
+writes_tree = true
+
+# The python twin of dev:rust-update. Naming a package (-P / --upgrade-package)
+# or passing -U / --upgrade yourself replaces the default --upgrade.
+[[default]]
+args = ["--upgrade"]
+unless = ["--upgrade", "-U", "--upgrade-package", "-P"]
+tail = true

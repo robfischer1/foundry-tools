@@ -117,9 +117,9 @@ func TestNodeRegenPinAgrees(t *testing.T) {
 
 func sumOf(b string) string { h := sha256.Sum256([]byte(b)); return hex.EncodeToString(h[:]) }
 
-// THE FETCH TRIES EACH SOURCE IN ORDER AND HOLDS EVERY ONE TO THE SAME SUM: a
-// mirror that is missing or serves other bytes is a failed source, never an
-// install.
+// THE FETCH TRIES EACH SOURCE IT IS GIVEN IN ORDER AND HOLDS EVERY ONE TO THE
+// SAME SUM: a source that is missing or serves other bytes is a failed source,
+// never an install.
 func TestFetchPinnedFallsThroughABadSourceAndVerifiesTheSum(t *testing.T) {
 	good := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("asset")) }))
 	defer good.Close()

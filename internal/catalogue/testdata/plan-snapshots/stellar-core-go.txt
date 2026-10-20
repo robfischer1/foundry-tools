@@ -7,6 +7,7 @@ run:
   fleet:stop-justifications
   fleet:sast-ruleset-lanes
   fleet:copier-answers-intact
+  fleet:speckit-render-current
   fleet:ourea-config-retired-keys
   fleet:wit-topics
   fleet:pdp-wired
@@ -79,6 +80,7 @@ run:
   law:budget
   go:mutation
   bases:chairman
+  bases:go-release
   bases:release
   bundle:fleet
   bundle:policy
@@ -91,6 +93,7 @@ run:
   dev:go-test
   dev:go-test-live
   dev:go-tidy
+  dev:go-typecheck
   dev:go-update
   dev:go-vendor
   dev:go-vet
@@ -117,9 +120,12 @@ absent:
   python:mutation
   rust:mutation
   ts:mutation
+  dev:python-build
   dev:python-check
+  dev:python-lock
   dev:python-test
   dev:python-typecheck
+  dev:python-update
   dev:rust-build
   dev:rust-check
   dev:rust-clippy
@@ -128,13 +134,17 @@ absent:
   dev:rust-lock
   dev:rust-replay
   dev:rust-test
+  dev:rust-typecheck
   dev:rust-update
+  dev:ts-build
   dev:ts-check
   dev:ts-fmt
   dev:ts-lint
+  dev:ts-lock
   dev:ts-regen
   dev:ts-test
   dev:ts-typecheck
+  dev:ts-update
   rust:cast-release
   ts:pack
 fork:

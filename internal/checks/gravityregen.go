@@ -165,8 +165,8 @@ func PlanGravity(files map[string]string, regenTests []string) (GravityPlan, err
 
 // GravityPrebuilt is the gravity binary built once at a rev, by the very
 // `cargo install` the lane would run, on ImageRust (bookworm, glibc 2.36), and
-// seeded in the tool mirror under its sha256 (`oras push ...:sha256-<sum>`, the
-// mirror-seed shape; the fork has no release assets to fetch). rev -> sha256 of
+// pushed to the registry under its sha256 (`oras push ...:sha256-<sum>`, see
+// GravityBlobURL; the fork has no release assets to fetch). rev -> sha256 of
 // the binary. A rev with no line here is compiled in the lane, as before: a
 // pin that moves is slower on its first run, never wrong. 68d8146 built
 // 2026-10-16; aeb03bf (WIT tuples, forks/gravity#16) built 2026-10-18. 68d8146
@@ -175,6 +175,15 @@ var GravityPrebuilt = map[string]string{
 	"68d8146b88e53e619bfbc0a36b9d70ef9c3bcf06": "db5a9f0bec3976e9fe84ae8e6f4d6afa2409c0fb556d9646f489b44e96afa395",
 	"aeb03bfd4a6f14e29b1a91dcdfad05e02695db39": "7580e6e5e58efe11ec2427e79ad6e242397745778e418331e9de8365dc700253",
 }
+
+// GravityBlobBase is the URL prefix of a gravity prebuilt in the registry: zot's
+// repository foundry/tool/mirror, kept by its name because the blobs already
+// there stay (the retired tool mirror's other assets are fetched from their own
+// URLs now). A prebuilt has no upstream, so its registry blob is its own URL.
+const GravityBlobBase = "https://registry.notusmi.com/v2/foundry/tool/mirror/blobs/sha256:"
+
+// GravityBlobURL is where the registry serves the prebuilt whose sha256 is sum.
+func GravityBlobURL(sum string) string { return GravityBlobBase + sum }
 
 // GravityTool is the name tools.toml gives the prebuilt at rev, the program the
 // executor's pod provisions: gravity-<the rev's first seven hex digits>. One

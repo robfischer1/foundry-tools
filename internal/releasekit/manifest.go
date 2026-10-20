@@ -33,6 +33,9 @@ const ManifestFile = "release.toml"
 const RootPackage = "."
 
 type manifest struct {
+	// Module is the Go module's directory under a base (bases/<b>/release.toml
+	// only; a star's is its root module).
+	Module string `toml:"module"`
 	Binary []struct {
 		Package string   `toml:"package"`
 		Out     string   `toml:"out"`
@@ -45,45 +48,80 @@ type manifest struct {
 // ReadManifest parses a release.toml into the binaries it declares, sorted by
 // name. Every refusal is about the file and settles the atom as a could-not-run.
 func ReadManifest(body string) ([]checks.ReleaseBinary, error) {
+	module, out, err := readManifest(body, false)
+	if err == nil && module != "" {
+		return nil, fmt.Errorf("%s has an unknown key module", ManifestFile)
+	}
+	return out, err
+}
+
+// ReadBaseManifest is ReadManifest for a base's bases/<b>/release.toml, which may
+// also name the Go module's directory inside the base ("." when it does not).
+func ReadBaseManifest(body string) (module string, bins []checks.ReleaseBinary, err error) {
+	if module, bins, err = readManifest(body, true); err != nil {
+		return "", nil, err
+	}
+	switch {
+	case module == "":
+		module = "."
+	case path.IsAbs(module) || path.Clean(module) != module || module == ".." || strings.HasPrefix(module, "../"):
+		return "", nil, fmt.Errorf("%s module %q is not a directory inside the base", ManifestFile, module)
+	}
+	return module, bins, nil
+}
+
+// isImportPath is a Go import path: elements separated by single slashes, the
+// first holding a dot (a host), none empty, dotted or flag-like.
+func isImportPath(p string) bool {
+	first, _, _ := strings.Cut(p, "/")
+	return strings.Contains(first, ".") && !strings.HasPrefix(p, "-") && !strings.ContainsAny(p, " \t\n") &&
+		path.Clean(p) == p && !path.IsAbs(p) && p != ".." && !strings.HasPrefix(p, "../") && !strings.HasPrefix(first, ".")
+}
+
+func readManifest(body string, allowImport bool) (string, []checks.ReleaseBinary, error) {
 	var m manifest
 	md, err := toml.Decode(body, &m)
 	if err != nil {
-		return nil, fmt.Errorf("%s does not parse: %w", ManifestFile, err)
+		return "", nil, fmt.Errorf("%s does not parse: %w", ManifestFile, err)
 	}
 	if un := md.Undecoded(); len(un) > 0 {
-		return nil, fmt.Errorf("%s has an unknown key %s", ManifestFile, un[0])
+		return "", nil, fmt.Errorf("%s has an unknown key %s", ManifestFile, un[0])
 	}
 	if len(m.Binary) == 0 {
-		return nil, fmt.Errorf("%s declares no [[binary]], so the release build has nothing to compile", ManifestFile)
+		return "", nil, fmt.Errorf("%s declares no [[binary]], so the release build has nothing to compile", ManifestFile)
 	}
 	var out []checks.ReleaseBinary
 	for _, b := range m.Binary {
 		pkg := strings.TrimPrefix(b.Package, "./")
 		switch {
 		case b.Package == "":
-			return nil, fmt.Errorf("a [[binary]] in %s names no package", ManifestFile)
+			return "", nil, fmt.Errorf("a [[binary]] in %s names no package", ManifestFile)
 		case b.Package == RootPackage:
 			// the module root itself: a star whose main package is the module
+		case allowImport && pkg == b.Package && isImportPath(b.Package):
+			// a package of the module's requirements (a base's tool)
+		case allowImport && (pkg == b.Package || pkg == "" || path.Clean(pkg) != pkg || strings.HasPrefix(pkg, "../") || pkg == ".."):
+			return "", nil, fmt.Errorf("%s package %q is not a ./ package or an import path", ManifestFile, b.Package)
 		case pkg == b.Package || pkg == "" || path.Clean(pkg) != pkg || strings.HasPrefix(pkg, "../") || pkg == "..":
-			return nil, fmt.Errorf("%s package %q is not a ./ package inside the module", ManifestFile, b.Package)
+			return "", nil, fmt.Errorf("%s package %q is not a ./ package inside the module", ManifestFile, b.Package)
 		}
 		name, ok := strings.CutPrefix(b.Out, buildlane.ReleaseDir+"/")
 		if !ok || name == "" || strings.ContainsAny(name, `/\`) || strings.HasPrefix(name, ".") || strings.HasPrefix(name, "-") {
-			return nil, fmt.Errorf("%s out %q must be release/<name>", ManifestFile, b.Out)
+			return "", nil, fmt.Errorf("%s out %q must be release/<name>", ManifestFile, b.Out)
 		}
 		for _, tag := range b.Tags {
 			if tag == "" || strings.ContainsAny(tag, " \t\n,") {
-				return nil, fmt.Errorf("%s tag %q is not a build tag", ManifestFile, tag)
+				return "", nil, fmt.Errorf("%s tag %q is not a build tag", ManifestFile, tag)
 			}
 		}
 		if strings.ContainsAny(b.Ldflags, "\n\r") {
-			return nil, fmt.Errorf("%s ldflags for %s spans lines", ManifestFile, name)
+			return "", nil, fmt.Errorf("%s ldflags for %s spans lines", ManifestFile, name)
 		}
 		if slices.ContainsFunc(out, func(o checks.ReleaseBinary) bool { return o.Name == name }) {
-			return nil, fmt.Errorf("%s declares %s twice", ManifestFile, b.Out)
+			return "", nil, fmt.Errorf("%s declares %s twice", ManifestFile, b.Out)
 		}
 		out = append(out, checks.ReleaseBinary{Name: name, Package: b.Package, Cgo: b.Cgo, Tags: b.Tags, Ldflags: b.Ldflags})
 	}
 	slices.SortFunc(out, func(a, b checks.ReleaseBinary) int { return strings.Compare(a.Name, b.Name) })
-	return out, nil
+	return m.Module, out, nil
 }

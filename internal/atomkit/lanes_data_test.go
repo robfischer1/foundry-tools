@@ -78,7 +78,7 @@ func TestUT_614_BundlePhases(t *testing.T) {
 func TestUT_613_ReleasePhasesNameTheFourReleaseAtoms(t *testing.T) {
 	want := []string{"go:release", "python:release", "rust:release", "ts:release"}
 	// The bases lane adds the per-base release of the layers that carry their own.
-	for l, want := range map[string][]string{"build": want, "bases": append(slices.Clone(want), "bases:release")} {
+	for l, want := range map[string][]string{"build": want, "bases": append(slices.Clone(want), "bases:release", "bases:go-release")} {
 		if got := landedLanes(t)[l].Phases[0].Atoms; !slices.Equal(got, want) {
 			t.Errorf("%s release: %v", l, got)
 		}

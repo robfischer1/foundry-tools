@@ -300,7 +300,6 @@ func TestAWitToolThatWillNotFetchIsLeftOff(t *testing.T) {
 		engine.reset()
 		engine.withTree(everyLaneTree)
 		engine.contents(tc.needle, witVerdict(tc.id))
-		engine.fail(checks.ToolMirrorURL(checks.ToolSHA256[tc.url]), "mirror-cause")
 		engine.fail(tc.url, "github-cause")
 		wantState(t, runAtom(t, tc.id, ""), 0)
 		if c := engine.chain(tc.needle, "contents"); tc.onPath(c) {

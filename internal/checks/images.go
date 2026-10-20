@@ -54,7 +54,7 @@ package checks
 // vendor registry) is a pull the fleet does not mirror, and the test says so.
 // The digests are content-addressed and did not move with the names.
 const (
-	ImageGo     = "docker.io/library/golang:1.26.9-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c"
+	ImageGo     = "docker.io/library/golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61"
 	ImagePython = "docker.io/library/python:3.14-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f"
 	ImageRust   = "docker.io/library/rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e75fea57e2a2a5c3073"
 	// ImageRustWasm is the toolchain stellar-core-ts's cores were BUILT with
@@ -230,8 +230,8 @@ const (
 	// renovate: datasource=deb depName=jq registryUrl=https://deb.debian.org/debian?suite=bookworm&components=main&binaryArch=amd64
 	JqDebVersion = "1.6-2.1+deb12u2"
 
-	StaticcheckModule = "honnef.co/go/tools/cmd/staticcheck@2025.1.1"
-	GovulncheckModule = "golang.org/x/vuln/cmd/govulncheck@v1.1.4"
+	StaticcheckModule = "honnef.co/go/tools/cmd/staticcheck@2026.2.2"
+	GovulncheckModule = "golang.org/x/vuln/cmd/govulncheck@v1.9.0"
 	// GomutantsModule is the Go mutation runner. It replaced gremlins v0.6.0 on
 	// 2026-09-29 and the flip was decided by measurement, on ourea's
 	// internal/gatejob at 5743c86 against 8d9f610 — the same tree and the same
@@ -572,6 +572,13 @@ const (
 	// could-not-run (gate-infra-cce87f4). Docker Hub itself, not a mirror's
 	// cache, is what a home is measured against: hub=401, ghcr=200.
 	ImageKubeconform = "ghcr.io/yannh/kubeconform:v0.7.0-alpine@sha256:8f0eeaaa96ba27ba1500b0e4b1c215acc358d159c62a7ecae58d7a03403287b0"
+	// ImageKubectl is kubectl for the executor's pod, as an image tool (tools.toml
+	// [tool.kubectl], bins bin/kubectl): registry.k8s.io is a registry the engine
+	// and the kubelet pull through the fleet's mirror, while dl.k8s.io is a host
+	// the transparent cache does not serve. The binary is the one KubectlURL
+	// names (sha256 65691ff7... read from both, 2026-10-19); the Dagger lane keeps
+	// the URL. A test holds the tag to KubectlVersion; the digest is the index's.
+	ImageKubectl = "registry.k8s.io/kubectl:v1.37.1@sha256:b7cab618e281b1ee7484e7b706a96e2135fbb6e072c2a573a7dab4e87d7f2385"
 	// ImageKubeLinter — likewise alpine, and likewise held still.
 	ImageKubeLinter = "docker.io/stackrox/kube-linter:v0.8.3-alpine@sha256:b8311611c27032d4922bc67719225e373e4a0ab0c767bbdcf5f20a9306b1a3bb"
 	// RenovateTag / ImageRenovate: the Renovate the fleet DEPLOYS, read from
@@ -673,5 +680,5 @@ const (
 const (
 	// renovate: datasource=github-releases depName=open-policy-agent/opa extractVersion=^v(?<version>.*)$
 	OpaVersion = "1.21.2"
-	OpaURL     = "https://openpolicyagent.org/downloads/v" + OpaVersion + "/opa_linux_amd64_static"
+	OpaURL     = "https://github.com/open-policy-agent/opa/releases/download/v" + OpaVersion + "/opa_linux_amd64_static"
 )

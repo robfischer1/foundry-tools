@@ -76,8 +76,8 @@ func TestTodaysManifestsAreNotTheOptInShapes(t *testing.T) {
 	if members, bare := checks.TSBareWorkspaceMembers(tsRoot, []string{"package.json", "src/index.ts"}); bare || members != nil {
 		t.Errorf("stellar-core-ts's root is a package with scripts: %v %v", members, bare)
 	}
-	// and the kit defaults are today's repositories
-	if checks.RustKit.GitURL() != "https://git.notusmi.com/stellar-core-rust.git" || checks.RustKit.Subdir != "" || checks.GoKit.Repo != "rob/stellar-core-go" || checks.GoKit.Subdir != "" {
+	// and the Rust kit is the monorepo's rust/ (D-B5); the Go kit has not moved
+	if checks.RustKit.GitURL() != "https://git.notusmi.com/stellar-core.git" || checks.RustKit.Subdir != "rust" || checks.GoKit.Repo != "rob/stellar-core-go" || checks.GoKit.Subdir != "" {
 		t.Errorf("%+v %+v", checks.RustKit, checks.GoKit)
 	}
 }
