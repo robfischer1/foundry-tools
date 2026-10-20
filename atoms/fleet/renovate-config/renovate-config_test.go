@@ -2,6 +2,7 @@ package fleetrenovateconfig
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -244,5 +245,28 @@ func TestTheDeclarationIsTheRowItReplaced(t *testing.T) {
 	}
 	if !slices.Equal(Def.Needs, nil) {
 		t.Errorf("needs %v", Def.Needs)
+	}
+}
+
+// The surface is the one file the atom reads: a pod with no root config.js
+// plans no renovate container, and the index still carries the atom's own
+// ABSENT sentence for the pod's stood-down verdict.
+func TestSurfaceIsTheRootConfigFileAndTheIndexKeepsTheAbsentSentence(t *testing.T) {
+	if Def.Surface != "root:"+configFile {
+		t.Errorf("surface %q", Def.Surface)
+	}
+	raw, err := atomkit.Describe(Def)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var e struct {
+		Surface      string `json:"surface"`
+		AbsentReason string `json:"absent_reason"`
+	}
+	if err := json.Unmarshal(raw, &e); err != nil {
+		t.Fatal(err)
+	}
+	if e.Surface != "root:config.js" || e.AbsentReason != id+": ABSENT - this tree carries no root config.js, so it holds no Renovate global config" {
+		t.Errorf("%+v", e)
 	}
 }
