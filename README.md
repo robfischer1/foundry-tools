@@ -181,3 +181,7 @@ internal/checks/    the pure core, engine-free and unit-tested
 ```
 
 `internal/checks` imports nothing from the Dagger SDK, which is why `go test ./...` runs without an engine.
+
+## The atom index follows the default tip
+
+Every landing on this repo's default branch owes the `atoms` lane: daedalus asks it for the tip, and its green settle republishes `foundry/atoms/index:main`, whose source sha is the tip it was built from. The ask does not depend on the tip's own gate running: a landing whose tree a parent already proved settles its gate from that proof (ourea `tree_proven`), and the door still notes the tip so the index follows it (measured 2026-10-20: three such landings left the index at 8930ebf).
