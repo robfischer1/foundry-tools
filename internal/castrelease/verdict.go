@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"dagger/foundry-tools/internal/buildlane"
@@ -28,6 +29,14 @@ func absent(a checks.AtomDef, why string) *checks.Verdict {
 	return &v
 }
 
+// readOnly is a tool failing to write a file on a read-only filesystem. The
+// pod's root is read-only and the lane lays every path a tool may write, so this
+// is the lane's own fault, never a verdict on the tree. MEASURED 2026-10-20,
+// forks/gravity 08a969e (DEF-B6-029): rustup, syncing the toolchain the tree
+// pins, "could not create temp file /usr/local/rustup/tmp/...: Read-only file
+// system (os error 30)", which settled FINDINGS on four casts.
+var readOnly = regexp.MustCompile(`(?i)read-only file system`)
+
 // ran is the tool's output when it exited zero and its verdict when it did not.
 // A tool that would not start never ran (what did not run: Dagger's subject for
 // it). One that exited non-zero is classified as the Dagger lane classifies it
@@ -40,6 +49,10 @@ func ran(a checks.AtomDef, step, what, out string, code int) (string, *checks.Ve
 		return out, nil
 	case code < 0:
 		return "", cannot(a, fmt.Sprintf("could not run: %s did not run: %s", what, out))
+	}
+	if hit := readOnly.FindString(out); hit != "" {
+		v := checks.VerdictOf(a, buildlane.CouldNotRun, fmt.Sprintf("could not run: %s could not write the lane's filesystem (%s) - the lane's fault, not the tree's; the tool never looked\n%s", what, hit, out))
+		return "", &v
 	}
 	cls, why := buildlane.ToolFailed(step, out)
 	v := checks.VerdictOf(a, cls, why+"\n"+out)
