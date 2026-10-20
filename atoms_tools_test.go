@@ -95,8 +95,8 @@ func TestEveryPinnedToolHasOneVerifiedSource(t *testing.T) {
 	// the tools, the python layer's interpreter, and the rust lane's two cargo
 	// tool tarballs (runtime.go withCargoTarball) and oras, plus the regen lane's wasm-tools and node,
 	// and the executor's sccache and cargo-mutants (provisioned into the node cache, not by the engine),
-	// and dev:go-regen's gofmt and the rust compilers it lays (checks.RustDists).
-	fetched := []string{checks.GofmtURL, checks.PythonStandaloneURL, checks.PythonStandalone315URL, checks.CargoAuditURL, checks.CargoNextestURL, checks.SccacheURL, checks.CargoMutantsURL, checks.MoldURL, checks.JqURL, checks.CurlURL, checks.RustClippyURL, checks.RustRustfmtURL, checks.RustWasmClippyURL, checks.RustWasmRustfmtURL, checks.WacURL, checks.OrasURL, checks.WasmTools1250URL, checks.WasmTools1261URL, checks.NodeRegenURL, checks.RustStdWasmURL, checks.RustStdURL}
+	// and dev:go-regen's gofmt (the Dagger lane's tarball and the pod's toolchain zip) and the rust compilers it lays (checks.RustDists).
+	fetched := []string{checks.GofmtURL, checks.GofmtToolchainURL, checks.PythonStandaloneURL, checks.PythonStandalone315URL, checks.CargoAuditURL, checks.CargoNextestURL, checks.SccacheURL, checks.CargoMutantsURL, checks.MoldURL, checks.JqURL, checks.CurlURL, checks.RustClippyURL, checks.RustRustfmtURL, checks.RustWasmClippyURL, checks.RustWasmRustfmtURL, checks.WacURL, checks.OrasURL, checks.WasmTools1250URL, checks.WasmTools1261URL, checks.NodeRegenURL, checks.RustStdWasmURL, checks.RustStdURL}
 	for _, d := range checks.RustDists {
 		fetched = append(fetched, d.URLs...)
 	}
