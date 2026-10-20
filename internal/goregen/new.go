@@ -128,24 +128,25 @@ func (r *runner) bring(nc NewCore) (string, *failure) {
 			return "", cannot("write", "%v", err)
 		}
 	}
-	return fmt.Sprintf("%s: NEW from stellar-core-rust %s (%s), %s; wrote guest.wasm %s, zz_generated.go %s, %s %s, build-guest.sh, provenance.json; %s (%s); left for a human: %s",
-		nc.Core, nc.Rev, commit[:7], nc.World, short(sum(guestBytes)), short(sum(gen.files["zz_generated.go"])), module, short(sum(gen.files[module])),
+	return fmt.Sprintf("%s: NEW from %s %s (%s), %s; wrote guest.wasm %s, zz_generated.go %s, %s %s, build-guest.sh, provenance.json; %s (%s); left for a human: %s",
+		nc.Core, checks.RustKit.Name(), nc.Rev, commit[:7], nc.World, short(sum(guestBytes)), short(sum(gen.files["zz_generated.go"])), module, short(sum(gen.files[module])),
 		chain.line, chain.how, strings.Join(LeftForAHuman(wit, world.Pkg), ", ")), nil
 }
 
-// resolve answers the commit a tag or a commit names in stellar-core-rust: a
-// commit is itself, and a tag is looked up on the remote, its peeled commit
-// when it is annotated.
+// resolve answers the commit a tag or a commit names in the Rust kit's
+// repository: a commit is itself (a stellar-core-rust commit the one it became,
+// checks.KitSource.Commit), and a tag is looked up on the remote under the kit's
+// prefix (rust/v0.89.0), its peeled commit when it is annotated.
 func (r *runner) resolve(rev string) (string, *failure) {
 	if commitRE.MatchString(rev) {
-		return rev, nil
+		return checks.RustKit.Commit(rev), nil
 	}
 	if err := os.MkdirAll(r.work, 0o755); err != nil {
 		return "", cannot("resolve", "%v", err)
 	}
 	out, err := r.run(r.work, regenkit.GitEnv, "git", "ls-remote", checks.RustKit.GitURL(), checks.RustKit.TagRef(rev)+"^{}", checks.RustKit.TagRef(rev))
 	if err != nil {
-		return "", cannot("resolve", "stellar-core-rust: %v", err)
+		return "", cannot("resolve", "%s: %v", checks.RustKit.Name(), err)
 	}
 	var plain string
 	for _, l := range strings.Split(out, "\n") {
@@ -159,7 +160,7 @@ func (r *runner) resolve(rev string) (string, *failure) {
 		}
 	}
 	if plain == "" {
-		return "", cannot("resolve", "stellar-core-rust has no tag %s", rev)
+		return "", cannot("resolve", "%s has no tag %s", checks.RustKit.Name(), checks.RustKit.TagRef(rev))
 	}
 	return plain, nil
 }
@@ -170,15 +171,15 @@ func (r *runner) resolve(rev string) (string, *failure) {
 func checkWorld(src, rev string, w World) (string, *failure) {
 	manifest, err := os.ReadFile(filepath.Join(src, "Cargo.toml"))
 	if err != nil {
-		return "", cannot("resolve", "stellar-core-rust %s: Cargo.toml would not read: %v", rev, err)
+		return "", cannot("resolve", "%s %s: Cargo.toml would not read: %v", checks.RustKit.Name(), rev, err)
 	}
 	feature := checks.WitGuestPrefix + w.Pkg
 	if worlds := checks.WitGuestWorlds(string(manifest)); !slices.Contains(worlds, feature) {
-		return "", finding("resolve", "stellar-core-rust %s has no %s feature (it builds: %s)", rev, feature, strings.Join(worlds, ", "))
+		return "", finding("resolve", "%s %s has no %s feature (it builds: %s)", checks.RustKit.Name(), rev, feature, strings.Join(worlds, ", "))
 	}
 	text, err := os.ReadFile(filepath.Join(src, "wit", "aiws-"+w.Pkg+".wit"))
 	if err != nil {
-		return "", finding("resolve", "stellar-core-rust %s has no wit/aiws-%s.wit: %v", rev, w.Pkg, err)
+		return "", finding("resolve", "%s %s has no wit/aiws-%s.wit: %v", checks.RustKit.Name(), rev, w.Pkg, err)
 	}
 	m := packageRE.FindStringSubmatch(string(text))
 	if m == nil || m[1] != w.Pkg || m[2] != w.Version {
@@ -186,10 +187,10 @@ func checkWorld(src, rev string, w World) (string, *failure) {
 		if m != nil {
 			got = "aiws:" + m[1] + "@" + m[2]
 		}
-		return "", finding("resolve", "wit/aiws-%s.wit at stellar-core-rust %s declares %s, not aiws:%s@%s", w.Pkg, rev, got, w.Pkg, w.Version)
+		return "", finding("resolve", "wit/aiws-%s.wit at %s %s declares %s, not aiws:%s@%s", w.Pkg, checks.RustKit.Name(), rev, got, w.Pkg, w.Version)
 	}
 	if !regexp.MustCompile(fmt.Sprintf(worldDeclS, regexp.QuoteMeta(w.Name))).MatchString(string(text)) {
-		return "", finding("resolve", "wit/aiws-%s.wit at stellar-core-rust %s declares no world %s", w.Pkg, rev, w.Name)
+		return "", finding("resolve", "wit/aiws-%s.wit at %s %s declares no world %s", w.Pkg, checks.RustKit.Name(), rev, w.Name)
 	}
 	return string(text), nil
 }

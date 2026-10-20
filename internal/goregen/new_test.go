@@ -11,7 +11,7 @@ const sqlportWit = "// sqlport\npackage aiws:sqlport@0.2.0;\n\nuse aiws:%result/
 
 const tagSHA = "0123456789abcdef0123456789abcdef01234567"
 
-// newScene2 is a tree with one gravity core, and a stellar-core-rust that has a
+// newScene2 is a tree with one gravity core, and a Rust kit that has a
 // sqlport world to bootstrap.
 func newbie(t *testing.T) *scene {
 	t.Helper()
@@ -19,7 +19,7 @@ func newbie(t *testing.T) *scene {
 	fetchRecorder(t)
 	s.add(coreSpec{name: "alarm"})
 	s.f.tree["wit/aiws-sqlport.wit"] = sqlportWit
-	s.f.lsRemote = tagSHA + "\trefs/tags/v0.78.0^{}\n" + "9999999999999999999999999999999999999999\trefs/tags/v0.78.0\n"
+	s.f.lsRemote = tagSHA + "\trefs/tags/rust/v0.78.0^{}\n" + "9999999999999999999999999999999999999999\trefs/tags/rust/v0.78.0\n"
 	s.f.guests["sqlport"] = []byte("the sqlport guest")
 	s.f.gens["sqlport"] = map[string][]byte{"zz_generated.go": []byte("package sqlport\n"), "sqlport_core_0.wasm": []byte("the sqlport module")}
 	return s
@@ -28,7 +28,7 @@ func newbie(t *testing.T) *scene {
 func TestANewCoreIsBuiltTheComposeWayAndItsFilesAreWritten(t *testing.T) {
 	s := newbie(t)
 	v := s.check("--new", "sqlport", "--rev", "v0.78.0", "--world", "aiws:sqlport/sqlport-core@0.2.0")
-	wantReason(t, v, 0, "sqlport: NEW from stellar-core-rust v0.78.0 ("+tagSHA[:7]+")", "aiws:sqlport/sqlport-core@0.2.0",
+	wantReason(t, v, 0, "sqlport: NEW from stellar-core v0.78.0 ("+tagSHA[:7]+")", "aiws:sqlport/sqlport-core@0.2.0",
 		"sqlport_core_0.wasm", "build-guest.sh, provenance.json", line1990+" (laid)",
 		"left for a human: wit.commit, tape, wit_result (the world uses aiws:%result)")
 	if s.read("sqlport/guest.wasm") != "the sqlport guest" || s.read("sqlport/zz_generated.go") != "package sqlport\n" || s.read("sqlport/sqlport_core_0.wasm") != "the sqlport module" {
@@ -65,17 +65,35 @@ func TestANewCoreIsBuiltTheComposeWayAndItsFilesAreWritten(t *testing.T) {
 	if _, set := envOf(compose, "CARGO_ENCODED_RUSTFLAGS"); set {
 		t.Errorf("a remap onto the cargo home the run already has: %v", compose.Env)
 	}
-	if s.f.has("git ls-remote "+"https://git.notusmi.com/stellar-core-rust.git refs/tags/v0.78.0^{} refs/tags/v0.78.0") == false {
+	if s.f.has("git ls-remote "+"https://git.notusmi.com/stellar-core.git refs/tags/rust/v0.78.0^{} refs/tags/rust/v0.78.0") == false {
 		t.Errorf("calls:\n%s", s.f.dump())
 	}
 	// and a second run is a refusal, not a rewrite
 	wantReason(t, s.check("--new", "sqlport", "--rev", "v0.78.0", "--world", "aiws:sqlport/sqlport-core@0.2.0"), 1, "sqlport/provenance.json exists", "name the core to regenerate it")
 }
 
+// A --rev NAMING A stellar-core-rust COMMIT is recorded as the stellar-core
+// commit it became, so the new core's pins are the monorepo's.
+func TestANewCoreFromAStellarCoreRustCommitRecordsTheCommitItBecame(t *testing.T) {
+	const old, moved = "01337847eb0e8e3ffd1caac7764d69f097e5983d", "c735c1f792013022e651986ca34e7ab8af0ef7f3"
+	s := newbie(t)
+	wantReason(t, s.check("--new", "sqlport", "--rev", old, "--world", "aiws:sqlport/sqlport-core@0.2.0"), 0, "sqlport: NEW from stellar-core "+old+" ("+moved[:7]+")")
+	p, err := ParseProv(s.read("sqlport/provenance.json"))
+	if err != nil || p.CoreCommit != moved {
+		t.Errorf("%+v %v", p, err)
+	}
+	if bg, err := ParseBuildGuest(s.read("sqlport/build-guest.sh")); err != nil || bg.Rev != moved {
+		t.Errorf("%+v %v", bg, err)
+	}
+	if s.f.has("git ls-remote") {
+		t.Error("a commit was looked up as a tag")
+	}
+}
+
 func TestANewCoreInAnotherCargoHomeIsRemappedToTheDefault(t *testing.T) {
 	s := newbie(t)
 	t.Setenv("CARGO_HOME", "/work/cargo")
-	wantReason(t, s.check("--new", "sqlport", "--rev", tagSHA, "--world", "aiws:sqlport/sqlport-core@0.2.0"), 0, "sqlport: NEW from stellar-core-rust "+tagSHA)
+	wantReason(t, s.check("--new", "sqlport", "--rev", tagSHA, "--world", "aiws:sqlport/sqlport-core@0.2.0"), 0, "sqlport: NEW from stellar-core "+tagSHA)
 	if flags, _ := envOf(s.f.call("compose.sh"), "CARGO_ENCODED_RUSTFLAGS"); flags != "--remap-path-prefix=/work/cargo=/usr/local/cargo" {
 		t.Errorf("flags %q", flags)
 	}
@@ -101,12 +119,12 @@ func TestNewAndExistingCoresMixInOneRun(t *testing.T) {
 
 func TestATagIsResolvedToItsPeeledCommitOrItsOwn(t *testing.T) {
 	s := newbie(t)
-	s.f.lsRemote = "junk line\nnotasha\trefs/tags/v0.78.0\n" + tagSHA + "\trefs/tags/v0.78.0\n"
+	s.f.lsRemote = "junk line\nnotasha\trefs/tags/rust/v0.78.0\n" + tagSHA + "\trefs/tags/rust/v0.78.0\n"
 	wantReason(t, s.check("--new", "sqlport", "--rev", "v0.78.0", "--world", "aiws:sqlport/sqlport-core@0.2.0"), 0, "("+tagSHA[:7]+")")
 
 	none := newbie(t)
 	none.f.lsRemote = ""
-	wantReason(t, none.check("--new", "sqlport", "--rev", "v9.9.9", "--world", "aiws:sqlport/sqlport-core@0.2.0"), 2, "sqlport: FAILED at resolve", "no tag v9.9.9")
+	wantReason(t, none.check("--new", "sqlport", "--rev", "v9.9.9", "--world", "aiws:sqlport/sqlport-core@0.2.0"), 2, "sqlport: FAILED at resolve", "no tag refs/tags/rust/v9.9.9")
 
 	down := newbie(t)
 	down.f.fail["ls-remote"] = "fatal: unable to access"

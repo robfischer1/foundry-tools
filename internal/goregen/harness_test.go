@@ -36,7 +36,8 @@ type fake struct {
 	// rustc laid for it prints.
 	native string
 	laid   map[string]string
-	// tree is the stellar-core-rust tree every unpack writes, by path.
+	// tree is the Rust kit's tree every unpack writes, by path under the kit's
+	// directory (rust/ in the monorepo's whole-commit archive).
 	tree map[string]string
 	// guests and gens are what the build leaves and gravity writes, by core.
 	guests map[string][]byte
@@ -177,7 +178,7 @@ func (f *fake) run(_ context.Context, c atoms.Cmd) (string, int) {
 		return f.lsRemote, 0
 	case name == "tar" && c.Args[0] == "-xf":
 		for path, body := range f.tree {
-			writeFile(f.t, filepath.Join(c.Args[3], path), []byte(body))
+			writeFile(f.t, filepath.Join(c.Args[3], checks.RustKit.Subdir, path), []byte(body))
 		}
 	case name == "tar" && c.Args[0] == "-xzf":
 		base := strings.TrimSuffix(filepath.Base(c.Args[1]), ".tar.gz")

@@ -150,8 +150,9 @@ func withRustKit(t *testing.T, k checks.KitSource) {
 	t.Cleanup(func() { checks.RustKit = old })
 }
 
-// THE DEFAULT SCRIPT IS TODAY'S, line for line.
-func TestRenderBuildGuestClonesTheKitsOwnRepositoryByDefault(t *testing.T) {
+// A KIT WITH A REPOSITORY OF ITS OWN builds from the clone's root.
+func TestRenderBuildGuestClonesAKitsOwnRepository(t *testing.T) {
+	withRustKit(t, checks.KitSource{Repo: "rob/stellar-core-rust"})
 	w := World{Pkg: "sqlport", Name: "sqlport-core", Version: "0.2.0"}
 	text := RenderBuildGuest(w, "0123456789abcdef0123456789abcdef01234567", "1.262.0", "0.12.0")
 	for _, want := range []string{
@@ -164,13 +165,15 @@ func TestRenderBuildGuestClonesTheKitsOwnRepositoryByDefault(t *testing.T) {
 	}
 }
 
+// THE DEFAULT IS THE MONOREPO: the whole repository is cloned (its root holds the
+// workspace and the lock) and the compose runs from rust/.
 func TestRenderBuildGuestFollowsTheOneSetting(t *testing.T) {
-	withRustKit(t, checks.KitSource{Repo: "rob/stellar-core", Subdir: "rust"})
 	w := World{Pkg: "sqlport", Name: "sqlport-core", Version: "0.2.0"}
 	text := RenderBuildGuest(w, "0123456789abcdef0123456789abcdef01234567", "1.262.0", "0.12.0")
 	for _, want := range []string{
 		"git clone --quiet https://git.notusmi.com/stellar-core.git \"$TMP/src\"\n",
 		"(cd \"$TMP/src/rust\" && tools/compose/compose.sh",
+		"# Build the component this package embeds: stellar-core rust/ at the pinned\n",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("missing %q in\n%s", want, text)
@@ -189,13 +192,12 @@ func TestRenderProvenanceNamesTheKitsRepositoryAndSubdirOnlyWhenThereIsOne(t *te
 		Bindings: Rec{File: "zz_generated.go", SHA256: strings.Repeat("d", 64), Bytes: 3},
 	}
 	text := RenderProvenance(in)
-	if !strings.Contains(text, `"repo": "rob/stellar-core-rust"`) || strings.Contains(text, "subdir") {
-		t.Errorf("the default records today's repository and no subdir:\n%s", text)
-	}
-	withRustKit(t, checks.KitSource{Repo: "rob/stellar-core", Subdir: "rust"})
-	text = RenderProvenance(in)
-	if !strings.Contains(text, `"repo": "rob/stellar-core"`) || !strings.Contains(text, `"subdir": "rust"`) {
+	if !strings.Contains(text, `"repo": "rob/stellar-core"`) || !strings.Contains(text, `"subdir": "rust"`) || !strings.Contains(text, `"note": "stellar-core rust/ v0.78.0 (0123456)`) {
 		t.Errorf("\n%s", text)
+	}
+	withRustKit(t, checks.KitSource{Repo: "rob/stellar-core-rust"})
+	if own := RenderProvenance(in); !strings.Contains(own, `"repo": "rob/stellar-core-rust"`) || strings.Contains(own, "subdir") {
+		t.Errorf("a kit with a repository of its own records no subdir:\n%s", own)
 	}
 	if _, err := ParseProv(text); err != nil {
 		t.Errorf("a provenance with a subdir does not read back: %v", err)

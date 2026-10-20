@@ -12,7 +12,7 @@ import (
 )
 
 // BuildGuest is what a core's build-guest.sh does, read off the script: the
-// stellar-core-rust commit it builds, and either the worlds it composes or the
+// Rust kit commit it builds, and either the worlds it composes or the
 // cargo build it runs. The script is the authority for what runs; provenance.json
 // records the same in prose, and the two are held to each other.
 type BuildGuest struct {
@@ -91,7 +91,7 @@ func RenderBuildGuest(w World, commit, wasmTools, wac string) string {
 		kitDir += "/" + checks.RustKit.Subdir
 	}
 	return fmt.Sprintf(`#!/bin/sh
-# Build the component this package embeds: stellar-core-rust at the pinned
+# Build the component this package embeds: %[8]s at the pinned
 # commit, the aiws:%[1]s world (feature wit-guest-%[1]s) made a component and
 # composed through tools/compose/compose.sh (one world in the composition), so
 # the module is the one a composed fleet component carries. Its exports are
@@ -113,7 +113,16 @@ git clone --quiet %[6]s "$TMP/src"
 git -C "$TMP/src" checkout --quiet "$REV"
 (cd "%[7]s" && tools/compose/compose.sh "$TMP/composed.wasm" %[1]s >/dev/null)
 cp "$TMP/composed.wasm" "$OUT"
-`, w.Pkg, w.Name, commit, wasmTools, wac, checks.RustKit.GitURL(), kitDir)
+`, w.Pkg, w.Name, commit, wasmTools, wac, checks.RustKit.GitURL(), kitDir, kitLabel())
+}
+
+// kitLabel names the Rust kit in prose: its repository, and its directory when
+// it has one ("stellar-core rust/").
+func kitLabel() string {
+	if checks.RustKit.Subdir == "" {
+		return checks.RustKit.Name()
+	}
+	return checks.RustKit.Name() + " " + checks.RustKit.Subdir + "/"
 }
 
 // GeneratorCommand is the gravity command a composed core records: the world is
@@ -170,7 +179,7 @@ func RenderProvenance(p NewProv) string {
 	b.WriteString("{\n")
 	block("wit", [][2]string{
 		{"repo", q("rob/stellar-core")}, {"path", q("wit/aiws-" + pkg + ".wit")}, {"commit", q("")}, {"sha256", q(p.WitSHA256)},
-		{"note", q("written by dev:go-regen --new: the sha256 is of the WIT vendored in stellar-core-rust " + p.Rev + " (aiws:" + pkg + "@" + p.World.Version + "); the rob/stellar-core commit it was pinned at is for a person to fill")},
+		{"note", q("written by dev:go-regen --new: the sha256 is of the WIT vendored in " + kitLabel() + " " + p.Rev + " (aiws:" + pkg + "@" + p.World.Version + "); the rob/stellar-core commit it was pinned at is for a person to fill")},
 	}, false)
 	core := [][2]string{{"repo", q(checks.RustKit.Repo)}}
 	if checks.RustKit.Subdir != "" {
@@ -178,7 +187,7 @@ func RenderProvenance(p NewProv) string {
 	}
 	block("core", append(core,
 		[2]string{"commit", q(p.Commit)}, [2]string{"build", q(ComposeBuild(p.World))}, [2]string{"toolchain", q(p.Toolchain)},
-		[2]string{"note", q("stellar-core-rust " + p.Rev + " (" + p.Commit[:7] + "), aiws:" + pkg + "@" + p.World.Version + ", world " + p.World.Name + "; written by dev:go-regen --new")}), false)
+		[2]string{"note", q(kitLabel() + " " + p.Rev + " (" + p.Commit[:7] + "), aiws:" + pkg + "@" + p.World.Version + ", world " + p.World.Name + "; written by dev:go-regen --new")}), false)
 	block("generator", [][2]string{
 		{"repo", q("forks/gravity")}, {"commit", q(p.GenCommit)}, {"command", q(GeneratorCommand(p.Core, p.World))},
 	}, false)
