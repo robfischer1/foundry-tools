@@ -119,3 +119,38 @@ func TestUT_GoPlanBuildsTheRootPackageWithoutACmdDirectory(t *testing.T) {
 		t.Fatalf("%+v %q", plan, why)
 	}
 }
+
+// A base's release.toml may also name the Go module inside the base's directory.
+func TestReadBaseManifestNamesTheModuleAndTheBinaries(t *testing.T) {
+	t.Parallel()
+	const bin = "[[binary]]\npackage = \".\"\nout = \"release/chairman-svid\"\n"
+	for body, want := range map[string]string{
+		bin:                         ".",
+		"module = \"svid\"\n" + bin: "svid",
+		"module = \"a/b\"\n" + bin:  "a/b",
+		"module = \".\"\n" + bin:    ".",
+	} {
+		module, bins, err := ReadBaseManifest(body)
+		if err != nil || module != want || len(bins) != 1 || bins[0].Name != "chairman-svid" || bins[0].Package != RootPackage {
+			t.Errorf("%q: %q %+v %v", body, module, bins, err)
+		}
+	}
+	for name, c := range map[string]struct{ body, why string }{
+		"absolute":  {"module = \"/svid\"\n" + bin, "not a directory inside the base"},
+		"escape":    {"module = \"../x\"\n" + bin, "not a directory inside the base"},
+		"dotdot":    {"module = \"..\"\n" + bin, "not a directory inside the base"},
+		"unclean":   {"module = \"a//b\"\n" + bin, "not a directory inside the base"},
+		"trailing":  {"module = \"a/\"\n" + bin, "not a directory inside the base"},
+		"no binary": {"module = \"svid\"\n", "declares no [[binary]]"},
+		"not toml":  {"[[binary", "release.toml"},
+		"unknown":   {"modul = \"svid\"\n" + bin, "unknown key"},
+	} {
+		if _, _, err := ReadBaseManifest(c.body); err == nil || !strings.Contains(err.Error(), c.why) {
+			t.Errorf("%s: %v, want %q", name, err, c.why)
+		}
+	}
+	// a star's release.toml is its root module's: it names no module
+	if _, err := ReadManifest("module = \"svid\"\n" + bin); err == nil || !strings.Contains(err.Error(), "unknown key module") {
+		t.Errorf("a star's manifest took a module: %v", err)
+	}
+}

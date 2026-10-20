@@ -580,3 +580,63 @@ func TestBaseRootsNameWhatCouldNotBeRead(t *testing.T) {
 		t.Errorf("file: %v", err)
 	}
 }
+
+// A base with a release.toml, a go.mod in its module directory and a Dockerfile
+// that copies from release/<name>/ has a Go release root of its own.
+func TestBaseGoRootsAreTheBasesThatNameTheirOwnModule(t *testing.T) {
+	t.Parallel()
+	layer := func(n string) string { return "FROM scratch\nCOPY release/" + n + "/x /x\n" }
+	tree := mem{files: map[string]string{
+		"bases/chairman/Dockerfile": layer("chairman"), "bases/chairman/release.toml": "module = \"svid\"\n[[binary]]\npackage = \".\"\nout = \"release/chairman-svid\"\n",
+		"bases/chairman/svid/go.mod": "module x\n", "bases/chairman/svid/go.sum": "",
+		"bases/vend/Dockerfile": layer("vend"), "bases/vend/release.toml": "[[binary]]\npackage = \"./cmd/v\"\nout = \"release/v\"\n",
+		"bases/vend/go.mod": "module v\n", "bases/vend/vendor/modules.txt": "# v\n",
+		"bases/nomod/Dockerfile": layer("nomod"), "bases/nomod/release.toml": "[[binary]]\npackage = \".\"\nout = \"release/n\"\n",
+		"bases/wrong/Dockerfile": "FROM scratch\nCOPY release/other/x /x\n", "bases/wrong/release.toml": "[[binary]]\npackage = \".\"\nout = \"release/w\"\n", "bases/wrong/go.mod": "module w\n",
+		"bases/idle/Dockerfile": "FROM scratch\nCOPY bases/idle/staged/ /\n", "bases/idle/release.toml": "[[binary]]\npackage = \".\"\nout = \"release/i\"\n", "bases/idle/go.mod": "module i\n",
+		"bases/bad/Dockerfile": layer("bad"), "bases/bad/release.toml": "[[binary", "bases/bad/go.mod": "module b\n",
+		"bases/nodockerfile/release.toml": "[[binary]]\npackage = \".\"\nout = \"release/n\"\n", "bases/nodockerfile/go.mod": "module n\n",
+		"release.toml": "[[binary]]\npackage = \".\"\nout = \"release/root\"\n", "go.mod": "module root\n",
+	}}
+	roots, refused, err := BaseGoRoots(context.Background(), tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(roots) != 2 || roots[0].Name != "chairman" || roots[0].Module != "bases/chairman/svid" || roots[0].Vendored || roots[0].Binaries[0].Name != "chairman-svid" ||
+		roots[1].Name != "vend" || roots[1].Module != "bases/vend" || !roots[1].Vendored || roots[1].Binaries[0].Package != "./cmd/v" {
+		t.Errorf("roots %+v", roots)
+	}
+	if roots[0].Dockerfile != "bases/chairman/Dockerfile" {
+		t.Errorf("dockerfile %s", roots[0].Dockerfile)
+	}
+	want := []string{
+		"bases/bad/release.toml: release.toml does not parse",
+		"bases/nomod/release.toml: no go.mod at bases/nomod, which the manifest names as its module",
+		"bases/wrong/Dockerfile copies from release/ but not from release/wrong/, where its release is staged",
+	}
+	if len(refused) != 3 {
+		t.Fatalf("refused %q", refused)
+	}
+	for i, w := range want {
+		if !strings.Contains(refused[i], w) {
+			t.Errorf("refused[%d] = %q, want %q", i, refused[i], w)
+		}
+	}
+	if roots, refused, err := BaseGoRoots(context.Background(), mem{files: map[string]string{"go.mod": "module r\n"}}); err != nil || roots != nil || refused != nil {
+		t.Errorf("%v %v %v", roots, refused, err)
+	}
+}
+
+func TestBaseGoRootsNameWhatCouldNotBeRead(t *testing.T) {
+	t.Parallel()
+	if _, _, err := BaseGoRoots(context.Background(), mem{fail: map[string]error{"Population": errors.New("boom")}}); err == nil || err.Error() != "boom" {
+		t.Errorf("population: %v", err)
+	}
+	files := map[string]string{"bases/a/Dockerfile": "FROM scratch\nCOPY release/a/x /x\n", "bases/a/release.toml": "[[binary]]\npackage = \".\"\nout = \"release/a\"\n", "bases/a/go.mod": "module a\n"}
+	for _, f := range []string{"bases/a/Dockerfile", "bases/a/release.toml"} {
+		tree := mem{files: files, fail: map[string]error{"File:" + f: errors.New("gone")}}
+		if _, _, err := BaseGoRoots(context.Background(), tree); err == nil || !strings.Contains(err.Error(), f+" could not be read: gone") {
+			t.Errorf("%s: %v", f, err)
+		}
+	}
+}

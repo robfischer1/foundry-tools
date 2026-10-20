@@ -153,6 +153,7 @@ var atomLibraries = map[string][]string{
 	"ts:release":                 releaseDirs,
 	"bases:release":              releaseDirs,
 	"bases:chairman":             {"internal/chairmanfixed/**"},
+	"bases:go-release":           releaseDirs,
 	"template:render-matrix":     libraryDirs,
 	"ts:regen":                   {"internal/regenlane/**", "internal/regenkit/**"},
 	"dev:ts-regen":               {"internal/regenlane/**", "internal/regenkit/**"},

@@ -76,6 +76,7 @@ run:
   ts:visual
   ts:mutation
   bases:chairman
+  bases:go-release
   bases:release
   bundle:fleet
   bundle:orbits
