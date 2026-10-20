@@ -464,3 +464,23 @@ func TestDEF_B6_cast_ABinaryThatCannotBeCarriedIsCouldNotRun(t *testing.T) {
 	}
 	atomtest.Expect(t, Rust(context.Background(), in, rustRow), checks.StateCannotRun, atomtest.Cannot, "could not copy")
 }
+
+// DEF-B6-029 (forks/gravity 08a969e): rustup could not write its own home on
+// the pod's read-only root. A tool that cannot write the lane's filesystem says
+// nothing about the tree, so it is could-not-run, never findings.
+func TestF13_AToolThatCannotWriteTheLanesFilesystemIsCouldNotRun(t *testing.T) {
+	erofs := "info: syncing channel updates for 1.90.0-x86_64-unknown-linux-gnu\nerror: could not create temp file /usr/local/rustup/tmp/x: Read-only file system (os error 30)"
+	c := &toolchain{exit: map[string]int{"metadata": 1}, out: map[string]string{"metadata": erofs}}
+	in, _, _ := start(t, rustTree(nil), c)
+	v := Rust(context.Background(), in, rustRow)
+	atomtest.Expect(t, v, checks.StateCannotRun, atomtest.Cannot, "could not run: cargo metadata could not write the lane's filesystem", "Read-only file system")
+
+	c = &toolchain{metadata: meta("tongs"), exit: map[string]int{"build": 1}, out: map[string]string{"build": erofs}}
+	in, _, _ = start(t, rustTree(nil), c)
+	atomtest.Expect(t, Rust(context.Background(), in, rustRow), checks.StateCannotRun, atomtest.Cannot, "the release build could not write the lane's filesystem")
+
+	// a tree's own words about a file mode are its business
+	c = &toolchain{metadata: meta("tongs"), exit: map[string]int{"build": 101}, out: map[string]string{"build": "error: build.rs asserts the file is not read-only"}}
+	in, _, _ = start(t, rustTree(nil), c)
+	atomtest.Expect(t, Rust(context.Background(), in, rustRow), checks.StateFindings, atomtest.Findings, "findings in cargo build")
+}
