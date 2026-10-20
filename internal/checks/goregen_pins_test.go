@@ -78,3 +78,14 @@ func TestGofmtIsTheGoOfTheToolchainImage(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// MR1: the pod's gofmt (the Go module proxy's toolchain zip) is the release the
+// Dagger lane's tarball is, so a hand bump of one without the other fails here.
+func TestGofmtToolchainZipIsTheSameGoReleaseAsTheTarball(t *testing.T) {
+	if want := "https://proxy.golang.org/golang.org/toolchain/@v/v0.0.1-go" + GofmtGoRelease + ".linux-amd64.zip"; GofmtToolchainURL != want {
+		t.Errorf("%s, want %s", GofmtToolchainURL, want)
+	}
+	if _, _, err := ToolSources(GofmtToolchainURL, ToolSHA256); err != nil {
+		t.Error(err)
+	}
+}

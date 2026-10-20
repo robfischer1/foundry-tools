@@ -12,15 +12,23 @@ import (
 // GOFMT. Gravity's `--gofmt` execs $GOFMT, else `gofmt` on PATH (forks/gravity
 // cmd/gravity/src/gofmt.rs at aeb03bfd), and that is the ONLY Go the regeneration
 // needs. The official linux-amd64 release is staged as a url tool (tools.toml
-// [tool.gofmt]) at the version of the Go toolchain image (ImageGo, go1.26.9), so
+// [tool.gofmt]) at the version of the Go toolchain image (ImageGo, go1.27.2), so
 // a regenerated binding is formatted by the formatter the gate's go:gofmt checks
 // it with. The sum is go.dev's own (https://go.dev/dl/?mode=json), equal to the
 // downloaded bytes. The tarball unpacks to go/, whose bin/ holds gofmt (and go).
 const (
-	GofmtGoRelease = "1.26.9"
-	GofmtURL       = "https://go.dev/dl/go1.26.9.linux-amd64.tar.gz"
+	GofmtGoRelease = "1.27.2"
+	GofmtURL       = "https://go.dev/dl/go1.27.2.linux-amd64.tar.gz"
 	// GofmtMember is the formatter inside that tarball.
 	GofmtMember = "go/bin/gofmt"
+	// GofmtToolchainURL is the SAME Go release as the Go module proxy's toolchain
+	// zip (golang.org/toolchain), which is what the executor's pod fetches for
+	// tools.toml [tool.gofmt]: proxy.golang.org is a host the transparent cache
+	// serves (go.dev/dl 302s to dl.google.com, which it does not). The zip unpacks
+	// to golang.org/toolchain@v0.0.1-go<release>.linux-amd64/, whose bin/ holds
+	// gofmt (and go). It is a literal, as pinsync's URL pins require; a test holds
+	// it to GofmtGoRelease. Its sum is the downloaded bytes' (2026-10-19).
+	GofmtToolchainURL = "https://proxy.golang.org/golang.org/toolchain/@v/v0.0.1-go1.27.2.linux-amd64.zip"
 )
 
 // A CORE'S GUEST IS A FUNCTION OF ITS COMPILER (provenance.json core.toolchain,
@@ -28,8 +36,8 @@ const (
 // ImageRust tag, RustComponentsTag) and a core pinned to another is built with
 // that one, laid by the atom from static.rust-lang.org's own dist tarballs: the
 // compiler, cargo, and the standard library for the host and for wasm32. Each is
-// served mirror-first and held to the sum below (ToolSources), and each version
-// is also a url tool in tools.toml so the mirror holds it. The sums are the
+// fetched from its URL and held to the sum below (ToolSources), and each version
+// is also a url tool in tools.toml. The sums are the
 // .sha256 files beside the tarballs, equal to the downloaded bytes.
 //
 // A version with no line here is CANNOT RUN (RegenRustLine), never the nearest

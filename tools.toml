@@ -10,7 +10,7 @@ schema = "tools@1"
 go = "registry.notusmi.com/foundry/base-images/go:stable@sha256:99bd0b3b464b64dc0bee7a8d95c7107b8f0a456b3c45798323f4cd03d3f72bcd"
 
 [toolchain.go]
-image = "docker.io/library/golang:1.26.9-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c"
+image = "docker.io/library/golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61"
 preflight = ["go", "mod", "download"]
 
 [toolchain.python]
@@ -66,7 +66,7 @@ image = "registry.k8s.io/etcd:3.6.8-0@sha256:397189418d1a00e500c0605ad18d1baf3b5
 
 [tool.opa]
 kind = "url"
-spec = "https://openpolicyagent.org/downloads/v1.21.2/opa_linux_amd64_static"
+spec = "https://github.com/open-policy-agent/opa/releases/download/v1.21.2/opa_linux_amd64_static"
 version = "1.21.2"
 sha256 = "830ab11f61ffec760b5e19db0d7ad02bf037e13f5ef4d665faeaf17632177527"
 
@@ -83,10 +83,9 @@ version = "2.15.1"
 sha256 = "c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507"
 
 [tool.kubectl]
-kind = "url"
-spec = "https://dl.k8s.io/release/v1.37.1/bin/linux/amd64/kubectl"
-version = "1.37.1"
-sha256 = "65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8"
+kind = "image"
+image = "registry.k8s.io/kubectl:v1.37.1@sha256:b7cab618e281b1ee7484e7b706a96e2135fbb6e072c2a573a7dab4e87d7f2385"
+bins = ["bin/kubectl"]
 
 [tool.chezmoi]
 kind = "url"
@@ -203,17 +202,19 @@ version = "1.90.0"
 sha256 = "61407015edaeafa9b61b3ffefb5077624cd4017ac50be05e246bcadafbb56d99"
 
 # dev:go-regen's formatter: the official Go release (the Go of toolchain.go's image),
-# whose go/bin/gofmt gravity execs through $GOFMT (checks.GofmtURL).
+# whose bin/gofmt gravity execs through $GOFMT. Fetched as the Go module proxy's
+# toolchain zip (checks.GofmtToolchainURL), a host the transparent cache serves.
 [tool.gofmt]
 kind = "url"
-spec = "https://go.dev/dl/go1.26.9.linux-amd64.tar.gz"
-version = "1.26.9"
-sha256 = "42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d"
+spec = "https://proxy.golang.org/golang.org/toolchain/@v/v0.0.1-go1.27.2.linux-amd64.zip"
+version = "1.27.2"
+sha256 = "3a467ed067f27cd55bf3a702f8e2bf12479f53c9d8ae0de548f48ebcb3c67796"
 
 # The rust compilers dev:go-regen lays for a core pinned to a rustc the rust image
 # does not carry (checks.RustDists): static.rust-lang.org's dist tarballs for the
 # compiler, cargo and the host and wasm32 standard libraries. The atom fetches them
-# itself, mirror first; they are url tools so the mirror holds them.
+# itself, from static.rust-lang.org, held to the sum; they are url tools so the
+# executor's pod provisions them too.
 
 [tool.rustc-1-97-1]
 kind = "url"
@@ -287,12 +288,12 @@ sha256 = "9549c3789acb25209da019cc8506ea5b1684b81fb4b471dc64cb47d1d04d6422"
 [tool.staticcheck]
 kind = "go"
 spec = "honnef.co/go/tools/cmd/staticcheck"
-version = "2025.1.1"
+version = "2026.2.2"
 
 [tool.govulncheck]
 kind = "go"
 spec = "golang.org/x/vuln/cmd/govulncheck"
-version = "v1.1.4"
+version = "v1.9.0"
 
 [tool.gomutants]
 kind = "go"
@@ -327,7 +328,7 @@ image = "docker.io/oven/bun:1.4-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa8
 # the container's.
 [tool.git]
 kind = "image"
-image = "docker.io/library/golang:1.26.9-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c"
+image = "docker.io/library/golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61"
 bins = ["usr/bin/git"]
 
 # node for a container that has none or only bun's stand-in (the bun image puts
@@ -372,7 +373,8 @@ kind = "image"
 image = "docker.io/stackrox/kube-linter:v0.8.3-alpine@sha256:b8311611c27032d4922bc67719225e373e4a0ab0c767bbdcf5f20a9306b1a3bb"
 
 # gravity at each rev a tree's provenance.json may pin (checks.GravityPrebuilt):
-# the binary `cargo install` builds, seeded in the tool mirror under its sha256.
+# the binary `cargo install` builds, pushed to the registry under its sha256 (it
+# has no release assets: the registry blob is its own URL, checks.GravityBlobURL).
 # One tool per rev, named gravity-<first 7 of the rev> (checks.GravityTool); the
 # go suites (go:test, go:test-race, go:diff-coverage) need them all and run the
 # one the tree pins, GRAVITY naming it for the regen tests.

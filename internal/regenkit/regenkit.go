@@ -2,7 +2,7 @@
 // (internal/regenlane) and dev:go-regen (internal/goregen). Both rebuild a
 // core's guest from stellar-core-rust at a recorded commit, so both fetch that
 // commit the same way, run programs and word their failures the same way, and
-// download a pinned asset the same way (the mirror first, the sum held). The
+// download a pinned asset the same way (from its own URL, the sum held). The
 // pieces live here once (R36) and carry no knowledge of either atom's steps.
 package regenkit
 
@@ -48,8 +48,7 @@ func Step(exec ExecFunc, env []string, argv ...string) error {
 	return fmt.Errorf("%s exited %d: %s", strings.Join(argv, " "), code, Tail(out))
 }
 
-// Fetch downloads a pinned asset: the mirror first, upstream second, both held
-// to the pinned sum (checks.ToolSources).
+// Fetch downloads a pinned asset from its own URL, held to the pinned sum (checks.ToolSources).
 func Fetch(ctx context.Context, fetch FetchFunc, url, dest string) error {
 	sources, sum, err := checks.ToolSources(url, checks.ToolSHA256)
 	if err != nil {

@@ -62,7 +62,6 @@ var urlPins = []struct {
 	{"opa", checks.OpaURL, checks.OpaVersion},
 	{"opengrep", checks.OpengrepURL, checks.OpengrepVersion},
 	{"hadolint", checks.HadolintURL, checks.HadolintVersion},
-	{"kubectl", checks.KubectlURL, checks.KubectlVersion},
 	{"chezmoi", checks.ChezmoiURL, checks.ChezmoiVersion},
 	{"docker-compose", checks.ComposeURL, checks.ComposeVersion},
 	{"wasm-tools", checks.WasmToolsURL, checks.WasmToolsVersion},
@@ -85,7 +84,7 @@ var urlPins = []struct {
 	{"rust-wasm-rustfmt", checks.RustWasmRustfmtURL, checks.RustWasmComponentsTag},
 	{"python-standalone", checks.PythonStandaloneURL, checks.FleetPythonVersion},
 	{"python-3-15", checks.PythonStandalone315URL, checks.PythonStandalone315Release},
-	{"gofmt", checks.GofmtURL, checks.GofmtGoRelease},
+	{"gofmt", checks.GofmtToolchainURL, checks.GofmtGoRelease},
 	{"rustc-1-97-1", checks.RustDist1971RustcURL, checks.RustDist1971Tag},
 	{"cargo-1-97-1", checks.RustDist1971CargoURL, checks.RustDist1971Tag},
 	{"rust-std-1-97-1", checks.RustDist1971StdURL, checks.RustDist1971Tag},
@@ -107,7 +106,7 @@ var goPins = map[string]string{
 var imagePins = map[string]string{
 	"uv": checks.ImageUV, "python": checks.ImagePython, "trivy": checks.ImageTrivy, "syft": checks.ImageSyft, "cosign": checks.ImageCosign,
 	"signing-tools": checks.ImageSigningTools, "bun": checks.ImageTS, "git": checks.ImageGo, "node": checks.ImageNode, "kubeconform": checks.ImageKubeconform,
-	"kube-linter": checks.ImageKubeLinter, "narc": checks.ImageNarcissus, "static": checks.ImageStatic, "debian": checks.ImageTools,
+	"kube-linter": checks.ImageKubeLinter, "kubectl": checks.ImageKubectl, "narc": checks.ImageNarcissus, "static": checks.ImageStatic, "debian": checks.ImageTools,
 }
 
 var toolchainPins = map[string]string{
@@ -161,13 +160,13 @@ func TestToolsTomlMatchesGo(t *testing.T) {
 		}
 	}
 	// gravity is the prebuilt the Dagger lane fetches (checks.GravityPrebuilt),
-	// pinned here for the pod by the same rev and sha256, from the same mirror:
+	// pinned here for the pod by the same rev and sha256, from the same registry blob:
 	// one tool per rev, because a tree is held to the generator its own
 	// provenance.json pins and the pod stages the one that tree names.
 	for rev, sum := range checks.GravityPrebuilt {
 		name := checks.GravityTool(rev)
 		seen[name] = true
-		if g := f.Tools[name]; g.Kind != "url" || g.Version != rev || g.SHA256 != sum || g.Spec != checks.ToolMirrorURL(sum) {
+		if g := f.Tools[name]; g.Kind != "url" || g.Version != rev || g.SHA256 != sum || g.Spec != checks.GravityBlobURL(sum) {
 			t.Errorf("tool %s: %+v, want the url tool GravityPrebuilt names", name, g)
 		}
 	}

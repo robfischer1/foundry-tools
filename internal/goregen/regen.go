@@ -333,7 +333,7 @@ func (r *runner) wasmStd() *failure {
 }
 
 // lay installs a rust toolchain from its pinned dist tarballs under the work
-// directory: each is fetched mirror-first and held to its sum, unpacked, and
+// directory: each is fetched from its URL and held to its sum, unpacked, and
 // installed by its own install.sh into one prefix. It is laid once per version.
 // want is the line it must print ("" for a toolchain chosen by version alone).
 func (r *runner) lay(version, want, nativeVersion string) (toolchain, *failure) {

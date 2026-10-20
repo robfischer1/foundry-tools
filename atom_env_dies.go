@@ -39,8 +39,7 @@ func init() {
 }
 
 // withPinnedOpa puts opa on PATH from its pinned release asset, VERIFIED BY THE
-// ENGINE AT FETCH TIME (pinnedFile): the mirror first, the release URL second,
-// both held to the one sha256. IT FAILS CLOSED: a pin with no sum gets an exec
+// ENGINE AT FETCH TIME (pinnedFile): the release URL, held to its sha256. IT FAILS CLOSED: a pin with no sum gets an exec
 // that cannot succeed, never an unverified fetch.
 func withPinnedOpa(ctr *dagger.Container) *dagger.Container {
 	return withPinnedOpaSums(ctr, checks.ToolSHA256)

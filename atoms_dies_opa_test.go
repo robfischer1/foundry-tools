@@ -46,7 +46,7 @@ func TestTheOpaClientRefusesEveryProvisioningFailure(t *testing.T) {
 		script  func()
 		needles []string
 	}{
-		{"the release URL has no such asset", func() { failBoth(checks.OpaURL, "404") },
+		{"the release URL has no such asset", func() { failTool(checks.OpaURL, "404") },
 			[]string{"could not be fetched", checks.OpaVersion}},
 		{"the probe never ran", func() { engine.fail(`"opa","version"`, "engine went away") },
 			[]string{"the opa version probe never ran", "engine went away"}},

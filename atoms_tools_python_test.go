@@ -23,7 +23,7 @@ func TestThePythonInterpreterStageNamesWhatStoppedIt(t *testing.T) {
 			delete(checks.ToolSHA256, url)
 			t.Cleanup(func() { checks.ToolSHA256[url] = sum })
 		}, "has no checksum"},
-		{"an asset that will not fetch", func(*testing.T) { failBothLeaf(url, "sync", "dial tcp: i/o timeout") }, "could not fetch"},
+		{"an asset that will not fetch", func(*testing.T) { failToolLeaf(url, "sync", "dial tcp: i/o timeout") }, "could not fetch"},
 		{"an archive that will not unpack", func(*testing.T) { engine.failLeaf(`"/opt/python/bin/python3","--version"`, "sync", "bad archive") }, "did not verify and unpack"},
 		{"a stage that ran", func(*testing.T) {}, ""},
 	} {

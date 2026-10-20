@@ -276,7 +276,7 @@ func fetchRecorder(t *testing.T) *[]string {
 	old := fetchPinned
 	fetchPinned = func(_ context.Context, _ *http.Client, sources []string, sum, dest string) error {
 		urls = append(urls, sources[len(sources)-1])
-		if sum != checks.ToolSHA256[sources[len(sources)-1]] || !strings.Contains(sources[0], sum) {
+		if len(sources) != 1 || sum != checks.ToolSHA256[sources[0]] {
 			t.Errorf("fetch of %v held to %s", sources, sum)
 		}
 		writeFile(t, dest, []byte("tgz"))

@@ -95,8 +95,8 @@ func TestEveryPinnedToolHasOneVerifiedSource(t *testing.T) {
 	// the tools, the python layer's interpreter, and the rust lane's two cargo
 	// tool tarballs (runtime.go withCargoTarball) and oras, plus the regen lane's wasm-tools and node,
 	// and the executor's sccache and cargo-mutants (provisioned into the node cache, not by the engine),
-	// and dev:go-regen's gofmt and the rust compilers it lays (checks.RustDists).
-	fetched := []string{checks.GofmtURL, checks.PythonStandaloneURL, checks.PythonStandalone315URL, checks.CargoAuditURL, checks.CargoNextestURL, checks.SccacheURL, checks.CargoMutantsURL, checks.MoldURL, checks.JqURL, checks.CurlURL, checks.RustClippyURL, checks.RustRustfmtURL, checks.RustWasmClippyURL, checks.RustWasmRustfmtURL, checks.WacURL, checks.OrasURL, checks.WasmTools1250URL, checks.WasmTools1261URL, checks.NodeRegenURL, checks.RustStdWasmURL, checks.RustStdURL}
+	// and dev:go-regen's gofmt (the Dagger lane's tarball and the pod's toolchain zip) and the rust compilers it lays (checks.RustDists).
+	fetched := []string{checks.GofmtURL, checks.GofmtToolchainURL, checks.PythonStandaloneURL, checks.PythonStandalone315URL, checks.CargoAuditURL, checks.CargoNextestURL, checks.SccacheURL, checks.CargoMutantsURL, checks.MoldURL, checks.JqURL, checks.CurlURL, checks.RustClippyURL, checks.RustRustfmtURL, checks.RustWasmClippyURL, checks.RustWasmRustfmtURL, checks.WacURL, checks.OrasURL, checks.WasmTools1250URL, checks.WasmTools1261URL, checks.NodeRegenURL, checks.RustStdWasmURL, checks.RustStdURL}
 	for _, d := range checks.RustDists {
 		fetched = append(fetched, d.URLs...)
 	}
@@ -290,7 +290,7 @@ func TestToolFileRefusesWhatItCannotVerify(t *testing.T) {
 		want   string
 	}{
 		{"a release asset with no checksum", pinnedTool{name: "x", url: "https://example.invalid/x"}, func() {}, "has no checksum"},
-		{"an asset that will not fetch", toolNamed(t, "hadolint"), func() { failBothLeaf(checks.HadolintURL, "sync", "dial tcp: i/o timeout") }, "could not fetch"},
+		{"an asset that will not fetch", toolNamed(t, "hadolint"), func() { failToolLeaf(checks.HadolintURL, "sync", "dial tcp: i/o timeout") }, "could not fetch"},
 		{"an asset that fails its checksum", toolNamed(t, "hadolint"), func() { engine.failLeaf(sumFile(checks.HadolintURL), "sync", "sha256sum: FAILED") }, "did not verify against its pinned checksum"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -333,7 +333,7 @@ func TestADroppedToolIsLoggedWithItsCause(t *testing.T) {
 		cause string
 	}{
 		{"a checksum that does not match", "opa", func() { engine.failLeaf(sumFile(checks.OpaURL), "sync", "sha256sum: FAILED") }, "did not verify against its pinned checksum"},
-		{"an asset that will not fetch", "hadolint", func() { failBothLeaf(checks.HadolintURL, "sync", "dial tcp: i/o timeout") }, "could not fetch"},
+		{"an asset that will not fetch", "hadolint", func() { failToolLeaf(checks.HadolintURL, "sync", "dial tcp: i/o timeout") }, "could not fetch"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			engine.reset()
@@ -505,7 +505,7 @@ func TestTheCollectionsAreExactReleases(t *testing.T) {
 	got := map[string]string{}
 	for _, c := range doc.Collections {
 		got[c.Name] = c.Version
-		// The executor installs these offline from the tool mirror, so each
+		// The executor installs these offline from the pinned tarballs, so each
 		// names the artifact it is and the bytes it must be.
 		file := strings.ReplaceAll(c.Name, ".", "-") + "-" + c.Version + ".tar.gz"
 		if !strings.HasPrefix(c.URL, "https://galaxy.ansible.com/") || !strings.HasSuffix(c.URL, "/"+file) {

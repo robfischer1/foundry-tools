@@ -6,16 +6,16 @@ import (
 	"testing"
 )
 
-func TestToolSourcesIsMirrorThenUpstreamBothAtTheSamePin(t *testing.T) {
+// MR1: a pinned asset has one source, its own URL, held to its pin.
+func TestToolSourcesIsTheAssetsOwnURLAtThePin(t *testing.T) {
 	const url = "https://example.invalid/tool.tgz"
 	sum := strings.Repeat("ab", 32)
 	sources, got, err := ToolSources(url, map[string]string{url: sum})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"https://registry.notusmi.com/v2/foundry/tool/mirror/blobs/sha256:" + sum, url}
-	if !reflect.DeepEqual(sources, want) {
-		t.Errorf("sources %v, want mirror then upstream %v", sources, want)
+	if want := []string{url}; !reflect.DeepEqual(sources, want) {
+		t.Errorf("sources %v, want only %v", sources, want)
 	}
 	if got != sum {
 		t.Errorf("verified against %q, want the pin %q", got, sum)
@@ -43,22 +43,26 @@ func TestToolSourcesFailsClosed(t *testing.T) {
 	}
 }
 
-// Every asset the lane pins is mirrorable: a sha256 pin gives a well-formed blob URL.
-func TestEveryPinHasAMirrorURL(t *testing.T) {
+// MR1: every pinned asset resolves to its own URL alone, and none to the registry.
+func TestEveryPinResolvesToItsOwnURLAlone(t *testing.T) {
 	for url, sum := range ToolSHA256 {
-		sources, _, err := ToolSources(url, ToolSHA256)
+		sources, got, err := ToolSources(url, ToolSHA256)
 		if err != nil {
 			t.Errorf("%s: %v", url, err)
 			continue
 		}
-		if sources[0] != ToolMirrorBlobBase+sum || sources[1] != url {
-			t.Errorf("%s: sources %v", url, sources)
+		if len(sources) != 1 || sources[0] != url || got != sum {
+			t.Errorf("%s: sources %v sum %s", url, sources, got)
+		}
+		if strings.Contains(sources[0], "/foundry/tool/mirror/") {
+			t.Errorf("%s resolves to the retired mirror", url)
 		}
 	}
 }
 
-func TestToolMirrorRepoIsInTheBlobBase(t *testing.T) {
-	if !strings.Contains(ToolMirrorBlobBase, "/v2/"+ToolMirrorRepo+"/blobs/sha256:") {
-		t.Errorf("repo %q and blob base %q name different repositories", ToolMirrorRepo, ToolMirrorBlobBase)
+func TestGravityBlobURLIsTheRegistryBlobOfTheSum(t *testing.T) {
+	const sum = "db5a9f0bec3976e9fe84ae8e6f4d6afa2409c0fb556d9646f489b44e96afa395"
+	if got, want := GravityBlobURL(sum), "https://registry.notusmi.com/v2/foundry/tool/mirror/blobs/sha256:"+sum; got != want {
+		t.Errorf("%s, want %s", got, want)
 	}
 }

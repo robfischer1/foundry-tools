@@ -68,7 +68,10 @@ func TestTheTablesCoverTheTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	for key := range maps.Keys(sums) {
-		if !slices.Contains(urls, key) && key != "WasmTools1250URL" && key != "WasmTools1261URL" && key != "NodeRegenURL" {
+		if !slices.Contains(urls, key) && key != "WasmTools1250URL" && key != "WasmTools1261URL" && key != "NodeRegenURL" &&
+			// the Dagger lane's own downloads of tools the pod gets another way (kubectl as
+			// an image, gofmt as the module proxy's toolchain zip): hand-moved with their release.
+			key != "KubectlURL" && key != "GofmtURL" {
 			t.Errorf("ToolSHA256[%s] is no url pin's", key)
 		}
 	}
@@ -99,8 +102,8 @@ func TestEveryLiteralThatCarriesAVersionFollowsIt(t *testing.T) {
 		v = strings.TrimPrefix(v, "v")
 		for cname, cd := range src.consts {
 			lit, ok := cd.expr.(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING || cname == vname || strings.HasSuffix(cname, "Version") {
-				continue
+			if !ok || lit.Kind != token.STRING || cname == vname || strings.HasSuffix(cname, "Version") || cname == "ImageKubectl" {
+				continue // ImageKubectl's tag is held to KubectlVersion by checks' own test: its digest cannot follow
 			}
 			s, _ := strconv.Unquote(lit.Value)
 			if slices.Contains(versionToken.FindAllString(s, -1), v) {

@@ -48,7 +48,7 @@ const PythonStandaloneURL = "https://github.com/astral-sh/python-build-standalon
 // download-metadata.json, cpython-3.15.0rc2-linux-x86_64-gnu), the same
 // install_only_stripped asset as PythonStandaloneURL. The Dagger lanes' uv
 // downloads it at run time; a pod never fetches an interpreter, so the pod
-// fetches this pinned one, mirror first, and unpacks it as a uv-managed install.
+// fetches this pinned one and unpacks it as a uv-managed install.
 // The sum is the release's own SHA256SUMS line, equal to the asset's sum read
 // 2026-10-18. A new rc or the final 3.15.x is a new release tag and a new pair.
 const (
@@ -58,8 +58,8 @@ const (
 
 // ToolSHA256 is the checksum of every pinned release asset the module fetches
 // (the tools container's, the lanes', the cargo tool tarballs', oras), hex. Every
-// one is served mirror-first (ToolSources), so every one is seeded
-// (`just mirror-seed <url> <sum>`).
+// one is fetched from its own URL (ToolSources)
+// and held to its line.
 // A pin is a version AND a checksum: the engine's HTTP fetch is addressed by
 // URL, so without this a release asset replaced upstream would be installed
 // silently. Where the publisher states a checksum (kubectl, opa, compose,
@@ -116,7 +116,8 @@ var ToolSHA256 = map[string]string{
 
 	// dev:go-regen's formatter and the rust compilers it lays (goregen_pins.go):
 	// go.dev's and static.rust-lang.org's own sums, equal to the downloaded bytes.
-	GofmtURL:               "42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d",
+	GofmtURL:               "ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5",
+	GofmtToolchainURL:      "3a467ed067f27cd55bf3a702f8e2bf12479f53c9d8ae0de548f48ebcb3c67796",
 	RustDist1971RustcURL:   "1c441e430c1cca49dff54a8d59c41038bf6f79f7b8756596cb2f36511a015eba",
 	RustDist1971CargoURL:   "90cbeb8adfe8ca0fcbe01a18bd9b99d3e5e98fd29c003032828ebf3ffba0e4ed",
 	RustDist1971StdURL:     "45b927ecf776b9645ca2ed5b287fc6814824a073c30c7c5d5c0ad4425295ecee",
@@ -128,8 +129,7 @@ var ToolSHA256 = map[string]string{
 
 	// The oras client the build, bundle, cast and govern lanes push with: the
 	// publisher's own oras_1.3.4_checksums.txt line, equal to the asset's sum
-	// read 2026-10-12, when every fetch began going through the mirror (which
-	// serves a blob only by the digest of its bytes, so it needs a pin).
+	// read 2026-10-12, when every fetch began being held to a pin.
 	OrasURL: "f27adb935022d94df8dc77719c322dda592c78a0d57a6f7dcdd8d900b248c454",
 }
 
