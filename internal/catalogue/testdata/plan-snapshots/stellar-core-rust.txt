@@ -84,6 +84,7 @@ run:
   orbit:repo
   rust:mutation
   bases:chairman
+  bases:go-release
   bases:release
   bundle:fleet
   bundle:orbits
