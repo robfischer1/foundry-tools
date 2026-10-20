@@ -48,7 +48,7 @@ type manifest struct {
 // ReadManifest parses a release.toml into the binaries it declares, sorted by
 // name. Every refusal is about the file and settles the atom as a could-not-run.
 func ReadManifest(body string) ([]checks.ReleaseBinary, error) {
-	module, out, err := readManifest(body)
+	module, out, err := readManifest(body, false)
 	if err == nil && module != "" {
 		return nil, fmt.Errorf("%s has an unknown key module", ManifestFile)
 	}
@@ -58,7 +58,7 @@ func ReadManifest(body string) ([]checks.ReleaseBinary, error) {
 // ReadBaseManifest is ReadManifest for a base's bases/<b>/release.toml, which may
 // also name the Go module's directory inside the base ("." when it does not).
 func ReadBaseManifest(body string) (module string, bins []checks.ReleaseBinary, err error) {
-	if module, bins, err = readManifest(body); err != nil {
+	if module, bins, err = readManifest(body, true); err != nil {
 		return "", nil, err
 	}
 	switch {
@@ -70,7 +70,15 @@ func ReadBaseManifest(body string) (module string, bins []checks.ReleaseBinary, 
 	return module, bins, nil
 }
 
-func readManifest(body string) (string, []checks.ReleaseBinary, error) {
+// isImportPath is a Go import path: elements separated by single slashes, the
+// first holding a dot (a host), none empty, dotted or flag-like.
+func isImportPath(p string) bool {
+	first, _, _ := strings.Cut(p, "/")
+	return strings.Contains(first, ".") && !strings.HasPrefix(p, "-") && !strings.ContainsAny(p, " \t\n") &&
+		path.Clean(p) == p && !path.IsAbs(p) && p != ".." && !strings.HasPrefix(p, "../") && !strings.HasPrefix(first, ".")
+}
+
+func readManifest(body string, allowImport bool) (string, []checks.ReleaseBinary, error) {
 	var m manifest
 	md, err := toml.Decode(body, &m)
 	if err != nil {
@@ -90,6 +98,10 @@ func readManifest(body string) (string, []checks.ReleaseBinary, error) {
 			return "", nil, fmt.Errorf("a [[binary]] in %s names no package", ManifestFile)
 		case b.Package == RootPackage:
 			// the module root itself: a star whose main package is the module
+		case allowImport && pkg == b.Package && isImportPath(b.Package):
+			// a package of the module's requirements (a base's tool)
+		case allowImport && (pkg == b.Package || pkg == "" || path.Clean(pkg) != pkg || strings.HasPrefix(pkg, "../") || pkg == ".."):
+			return "", nil, fmt.Errorf("%s package %q is not a ./ package or an import path", ManifestFile, b.Package)
 		case pkg == b.Package || pkg == "" || path.Clean(pkg) != pkg || strings.HasPrefix(pkg, "../") || pkg == "..":
 			return "", nil, fmt.Errorf("%s package %q is not a ./ package inside the module", ManifestFile, b.Package)
 		}

@@ -154,3 +154,33 @@ func TestReadBaseManifestNamesTheModuleAndTheBinaries(t *testing.T) {
 		t.Errorf("a star's manifest took a module: %v", err)
 	}
 }
+
+// A base's tools are built from the module's requirements: its [[binary]] may
+// name a package by import path. A star's manifest still takes only ./ packages.
+func TestReadBaseManifestTakesAnImportPath(t *testing.T) {
+	t.Parallel()
+	out := func(n string) string { return "out = \"release/" + n + "\"\n" }
+	body := "[[binary]]\npackage = \"golang.org/x/vuln/cmd/govulncheck\"\n" + out("govulncheck") +
+		"[[binary]]\npackage = \"honnef.co/go/tools/cmd/staticcheck\"\n" + out("staticcheck") + "[[binary]]\npackage = \"./cmd/local\"\n" + out("local")
+	_, bins, err := ReadBaseManifest(body)
+	if err != nil || len(bins) != 3 || bins[0].Package != "golang.org/x/vuln/cmd/govulncheck" || bins[1].Package != "./cmd/local" || bins[2].Package != "honnef.co/go/tools/cmd/staticcheck" {
+		t.Errorf("%+v %v", bins, err)
+	}
+	if _, err := ReadManifest(body); err == nil || !strings.Contains(err.Error(), "not a ./ package inside the module") {
+		t.Errorf("a star's manifest took an import path: %v", err)
+	}
+	for name, pkg := range map[string]string{
+		"no dot in the first element": "tools/cmd/x",
+		"a flag":                      "-x.y/z",
+		"absolute":                    "/a.b/c",
+		"unclean":                     "a.b//c",
+		"parent":                      "a.b/../c",
+		"trailing":                    "a.b/c/",
+		"blank":                       "a.b/ c",
+		"dotdot first":                "../a.b",
+	} {
+		if _, _, err := ReadBaseManifest("[[binary]]\npackage = \"" + pkg + "\"\n" + out("x")); err == nil || !strings.Contains(err.Error(), "is not a ./ package or an import path") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
