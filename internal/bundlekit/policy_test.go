@@ -13,7 +13,7 @@ import (
 
 const derived = `{"keys":{"k":{"c":{"x":{"v":1}},"d":{}}},"prefix":{"a":1},"caps":{"b":1},"reasons":[]}`
 
-func TestPolicyBuildsTheTwoBundlesFromACopyNamedPolicy(t *testing.T) {
+func TestPolicyBuildsTheOneUnsignedBundleFromACopyNamedPolicy(t *testing.T) {
 	w := newWorld(t, nil)
 	if f := Policy(context.Background(), w.run()); f != nil {
 		t.Fatal(f)
@@ -24,16 +24,16 @@ func TestPolicyBuildsTheTwoBundlesFromACopyNamedPolicy(t *testing.T) {
 			builds = append(builds, c)
 		}
 	}
-	if len(builds) != 2 {
+	if len(builds) != 1 {
 		t.Fatalf("builds %v", builds)
 	}
-	plain, signed := strings.Join(builds[0], " "), strings.Join(builds[1], " ")
+	plain := strings.Join(builds[0], " ")
 	wantPlain := "opa build -b policy/ -o " + filepath.Join(w.out, "bundle.tar.gz") + " --revision " + sha + " --ignore *_test.rego"
 	if plain != wantPlain {
 		t.Errorf("plain build\n%s\nwant\n%s", plain, wantPlain)
 	}
-	if !strings.HasPrefix(signed, strings.Replace(wantPlain, "bundle.tar.gz", "bundle-signed.tar.gz", 1)) || !strings.HasSuffix(signed, "--signing-alg ES256") || !strings.Contains(signed, "--signing-key ") {
-		t.Errorf("signed build %s", signed)
+	if strings.Contains(plain, "--signing") {
+		t.Errorf("the bundle is built unsigned: %s", plain)
 	}
 	// opa names a rego file by the path it was built from: the copy is policy/ in its parent.
 	if filepath.Base(w.builtPolicyRoot) == "" || !strings.Contains(filepath.Base(w.builtPolicyRoot), "bundle-policy-") {
@@ -47,13 +47,14 @@ func TestPolicyBuildsTheTwoBundlesFromACopyNamedPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	if m.Die != bundlelane.PolicyDie || m.Pin != "g0123456" || m.Revision != sha || !m.Publish || m.PublishIfMissing || m.Kind != "bundle" ||
-		len(m.Artifacts) != 3 || m.Artifacts[2] != (Artifact{"bundle-signed.tar.gz", "-signed-kms", "signed-kms"}) || m.Signing[0] != "bundle-signed.tar.gz" || m.Schema != MetaSchema {
+		len(m.Artifacts) != 1 || m.Artifacts[0] != (Artifact{"bundle.tar.gz", "", "stable"}) || m.Schema != MetaSchema {
 		t.Errorf("meta %+v", m)
 	}
-	// The signing input is the header.payload with the key id ouranos pins.
-	input := w.read("bundle-signed.tar.gz.signing-input")
-	if parts := strings.Split(input, "."); len(parts) != 2 {
-		t.Errorf("signing input %q", input)
+	if b, _ := os.ReadFile(filepath.Join(w.out, "policy"+MetaSuffix)); strings.Contains(string(b), "signing") {
+		t.Errorf("meta names a signing step: %s", b)
+	}
+	if entries, _ := filepath.Glob(filepath.Join(w.out, "*signed*")); len(entries) != 0 {
+		t.Errorf("signed leftovers: %v", entries)
 	}
 }
 
@@ -231,9 +232,7 @@ func TestPolicyWriteFaults(t *testing.T) {
 		needles string
 	}{
 		{"/policy/admission/a.rego", nil, "policy/ could not be copied"},
-		{"sign.key", nil, "ephemeral signing key could not be made"},
 		{"probe-session.json", nil, "probe could not be written"},
-		{"bundle-signed.tar.gz.signing-input", nil, "signing input of bundle-signed.tar.gz could not be written"},
 		{"policy" + MetaSuffix, nil, "policy.meta.json"},
 		{"decisions-stage", derive, "roster could not be staged"},
 		{"grants/decisions/data.json", derive, "decision table could not be laid"},
@@ -257,14 +256,6 @@ func TestPolicyNeedsAScratchDirectory(t *testing.T) {
 	w := newWorld(t, nil)
 	t.Setenv("ATOM_WORK", filepath.Join(t.TempDir(), "gone"))
 	expect(t, Policy(context.Background(), w.run()), false, "scratch directory could not be made")
-}
-
-func TestWriteSigningInputRefusals(t *testing.T) {
-	dir := t.TempDir()
-	expect(t, WriteSigningInput(filepath.Join(dir, "absent.tar.gz")), false, "absent.tar.gz")
-	unsigned := filepath.Join(dir, "unsigned.tar.gz")
-	os.WriteFile(unsigned, bundleOf(t, map[string]string{"/data.json": "{}"}, false), 0o644)
-	expect(t, WriteSigningInput(unsigned), false, "bundleresign input unsigned.tar.gz")
 }
 
 func TestPolicyDerivedTableReadFaults(t *testing.T) {

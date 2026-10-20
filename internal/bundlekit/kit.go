@@ -1,14 +1,13 @@
 // Package bundlekit is the bundle lane's build, as the executor runs it: the
-// atoms bundle:policy, bundle:fleet and bundle:resign build and
+// atoms bundle:policy and bundle:fleet build and
 // gate the dies foundry-dies publishes, and leave them in the bundle out
-// directory for the lane's capabilities to sign and push. The decisions are
-// internal/bundlelane's, which the Dagger bundle lane (bundle.go at the module
-// root) runs too; this package is the chain.
+// directory for the lane's push capability. The decisions are
+// internal/bundlelane's; this package is the chain.
 //
-// WHAT IS LEFT FOR THE CAPABILITIES is everything that touches the registry or
-// the KMS: pushing, the immutable pins, the cosign signature of every pushed
-// digest, and the KMS signature over the OPA twins' signing inputs. The atoms
-// read no credential and write no registry.
+// THE BUNDLES ARE UNSIGNED (Rob, 2026-10-20): ouranos-opa loads the plain
+// artifacts with no key. WHAT IS LEFT FOR THE CAPABILITY is everything that
+// touches the registry: pushing and the immutable pins. The atoms read no
+// credential and write no registry.
 package bundlekit
 
 import (
@@ -105,9 +104,6 @@ type Meta struct {
 	// the files in it.
 	Dir   string   `json:"dir,omitempty"`
 	Files []string `json:"files,omitempty"`
-	// Signing names the tarballs whose OPA signature the KMS makes: each has a
-	// <file>.signing-input beside it.
-	Signing []string `json:"signing,omitempty"`
 }
 
 // WriteMeta leaves m as <name>.meta.json in the out directory.

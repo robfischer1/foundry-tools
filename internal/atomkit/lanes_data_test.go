@@ -50,24 +50,29 @@ func TestUT_614_BundlePhases(t *testing.T) {
 	for _, p := range d.Phases {
 		names = append(names, p.Name)
 	}
-	if !slices.Equal(names, []string{"build", "policy", "fleet", "sign", "resign", "push"}) {
+	if !slices.Equal(names, []string{"build", "policy", "fleet", "push"}) {
 		t.Fatalf("%v", names)
 	}
 	by := map[string]PhaseDef{}
 	for _, p := range d.Phases {
 		by[p.Name] = p
 	}
-	// The gates the Dagger lane re-runs, the four atoms that build, and the two
-	// capabilities that touch the KMS and the registry.
+	// The gates the Dagger lane re-runs, the three atoms that build, and the
+	// capability that touches the registry.
 	if !slices.Equal(by["build"].Atoms, []string{"dies:opa-test", "dies:admission-dogfood"}) ||
-		!slices.Equal(by["policy"].Atoms, []string{"bundle:policy"}) || !slices.Equal(by["fleet"].Atoms, []string{"bundle:fleet"}) ||
-		!slices.Equal(by["resign"].Atoms, []string{"bundle:resign"}) {
+		!slices.Equal(by["policy"].Atoms, []string{"bundle:policy"}) || !slices.Equal(by["fleet"].Atoms, []string{"bundle:fleet"}) {
 		t.Errorf("atoms: %+v", d.Phases)
 	}
-	if by["sign"].Capability != "kms-sign" || !slices.Equal(by["sign"].After, []string{"policy", "fleet"}) {
-		t.Errorf("sign: %+v", by["sign"])
+	// Nothing signs: the bundles are unsigned (Rob, 2026-10-20), so no phase names a KMS.
+	if _, ok := by["sign"]; ok {
+		t.Errorf("the bundle lane still has a sign phase")
 	}
-	if by["push"].Capability != "push-bundle" || !slices.Equal(by["push"].After, []string{"resign"}) {
+	for _, p := range d.Phases {
+		if p.Capability == "kms-sign" {
+			t.Errorf("phase %s still names kms-sign", p.Name)
+		}
+	}
+	if by["push"].Capability != "push-bundle" || !slices.Equal(by["push"].After, []string{"policy", "fleet"}) {
 		t.Errorf("push: %+v", by["push"])
 	}
 }

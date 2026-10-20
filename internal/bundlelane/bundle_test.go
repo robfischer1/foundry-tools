@@ -1,10 +1,8 @@
 package bundlelane
 
 import (
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
-	"encoding/pem"
 	"reflect"
 	"strings"
 	"testing"
@@ -95,24 +93,6 @@ func TestOrphansAreCatalogEntriesTheMapLacks(t *testing.T) {
 	}
 	if _, _, err := Orphans(entries, "{not json"); err == nil {
 		t.Error("an unreadable data.json must be an error, not an empty map")
-	}
-}
-
-func TestSignedReadsTheListingWhole(t *testing.T) {
-	// The listing the ceb0c1c run's opa build produced carries the member at
-	// the root, with or without the leading slash tar keeps.
-	for _, listing := range []string{
-		"/data.json\n/policy/authz/visible.rego\n/.signatures.json\n/.manifest\n",
-		"data.json\n.signatures.json\n",
-	} {
-		if !Signed(listing) {
-			t.Errorf("Signed(%q) = false", listing)
-		}
-	}
-	for _, listing := range []string{"", "/data.json\n/.manifest\n", "/policy/.signatures.json\n", "/.signatures.json.bak\n"} {
-		if Signed(listing) {
-			t.Errorf("Signed(%q) = true; only a root .signatures.json is a signature", listing)
-		}
 	}
 }
 
@@ -249,41 +229,6 @@ func TestDockerConfigLogsTheUserInToTheHost(t *testing.T) {
 	raw, err := base64.StdEncoding.DecodeString(cfg.Auths["foundry.notusmi.com"].Auth)
 	if err != nil || string(raw) != "rob:tok" {
 		t.Fatalf("auth for foundry.notusmi.com decodes to %q, %v", raw, err)
-	}
-}
-
-func TestDecodeKeyWantsBase64PEMAndNeverEchoesIt(t *testing.T) {
-	key, _ := EphemeralKey()
-	got, err := DecodeKey("OPA_BUNDLE_SIGNING_KEY", base64.StdEncoding.EncodeToString([]byte(key)))
-	if err != nil || got != key {
-		t.Fatalf("DecodeKey round trip: %v", err)
-	}
-	for _, in := range []string{"not base64!", base64.StdEncoding.EncodeToString([]byte("plainly not a key"))} {
-		_, err := DecodeKey("COSIGN_PRIVATE_KEY", in)
-		if err == nil {
-			t.Fatalf("DecodeKey(%q) accepted it", in)
-		}
-		if !strings.Contains(err.Error(), "COSIGN_PRIVATE_KEY") || strings.Contains(err.Error(), in) {
-			t.Errorf("the error must name the key and never carry it: %v", err)
-		}
-	}
-}
-
-func TestEphemeralKeyIsAP256PEMOpaCanSignWith(t *testing.T) {
-	k, err := EphemeralKey()
-	if err != nil {
-		t.Fatal(err)
-	}
-	block, _ := pem.Decode([]byte(k))
-	if block == nil || block.Type != "EC PRIVATE KEY" {
-		t.Fatalf("not an EC PRIVATE KEY PEM: %q", k)
-	}
-	parsed, err := x509.ParseECPrivateKey(block.Bytes)
-	if err != nil || parsed.Curve.Params().Name != "P-256" {
-		t.Fatalf("not a P-256 key: %v", err)
-	}
-	if other, _ := EphemeralKey(); other == k {
-		t.Error("two ephemeral keys must differ")
 	}
 }
 

@@ -4,9 +4,9 @@ import (
 	"dagger/foundry-tools/internal/dagger"
 )
 
-// THE HELPER CLIs. Eight small programs in this module's own directories run in
+// THE HELPER CLIs. Seven small programs in this module's own directories run in
 // the lanes' containers (castpin, hadescall, verdict, witnesscall, copyout,
-// casttarget, bundleresign, svidcred). (pgroupps and execmem were two more; the
+// casttarget, svidcred). (pgroupps and execmem were two more; the
 // mutation atoms carry them in their own binary now, atoms.RunHelper.) Each used to be built from dag.CurrentModule().Source() WHOLE, so
 // the build's cache key was a function of every file in the module and an
 // edit to a README rebuilt all six; moduleBinary also built with no cache
@@ -23,7 +23,7 @@ type helperSource struct {
 	// omits is a `go build` that fails in the engine where no test can see it,
 	// and a stale entry rebuilds the helper for edits it does not read.
 	internal []string
-	// offline builds with the network refused. verdict, copyout and bundleresign
+	// offline builds with the network refused. verdict and copyout
 	// import the standard library only and have to build when nothing could be
 	// fetched (internal/verdict has the measurement); the others import
 	// third-party modules the cache volume or the proxy supplies.
@@ -32,14 +32,13 @@ type helperSource struct {
 
 // helperSources is every helper, by the directory and binary name.
 var helperSources = map[string]helperSource{
-	"castpin":      {internal: []string{"internal/buildlane", "internal/castlane"}},
-	"hadescall":    {internal: []string{"internal/hadescall"}},
-	"verdict":      {internal: []string{"internal/verdict"}, offline: true},
-	"witnesscall":  {internal: []string{"internal/checks", "internal/checks/rulesets", "internal/execmem", "internal/hadescall", "internal/unitkey", "internal/witnesscall"}},
-	"copyout":      {internal: []string{"internal/copyout"}, offline: true},
-	"casttarget":   {internal: []string{"internal/castcache", "internal/casttarget"}},
-	"bundleresign": {internal: []string{"internal/bundleresign"}, offline: true},
-	"svidcred":     {internal: []string{"internal/svidcred"}},
+	"castpin":     {internal: []string{"internal/buildlane", "internal/castlane"}},
+	"hadescall":   {internal: []string{"internal/hadescall"}},
+	"verdict":     {internal: []string{"internal/verdict"}, offline: true},
+	"witnesscall": {internal: []string{"internal/checks", "internal/checks/rulesets", "internal/execmem", "internal/hadescall", "internal/unitkey", "internal/witnesscall"}},
+	"copyout":     {internal: []string{"internal/copyout"}, offline: true},
+	"casttarget":  {internal: []string{"internal/castcache", "internal/casttarget"}},
+	"svidcred":    {internal: []string{"internal/svidcred"}},
 }
 
 // helperInclude is the filtered source of a helper: the module files, the

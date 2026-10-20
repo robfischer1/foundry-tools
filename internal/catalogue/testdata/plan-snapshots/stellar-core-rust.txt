@@ -82,7 +82,6 @@ run:
   bases:release
   bundle:fleet
   bundle:policy
-  bundle:resign
   dev:python-fmt
   dev:python-lint
   dev:rust-build

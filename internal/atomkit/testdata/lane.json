@@ -1,1 +1,1 @@
-{"schema":"lane@1","lane":"bundle","phases":[{"name":"build","kind":"fanout","atoms":["stage:prepush"]},{"name":"sign","kind":"sequence","capability":"kms-sign","secrets":["infisical-kms"],"after":["build"]},{"name":"push","kind":"fanout","capability":"push-bundle","after":["sign"]}]}
+{"schema":"lane@1","lane":"bundle","phases":[{"name":"build","kind":"fanout","atoms":["stage:prepush"]},{"name":"sign","kind":"sequence","capability":"scan","secrets":["infisical-kms"],"after":["build"]},{"name":"push","kind":"fanout","capability":"push-bundle","after":["sign"]}]}

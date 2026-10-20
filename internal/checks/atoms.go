@@ -54,8 +54,8 @@ const (
 	// names the two atoms, so no gate, check or push builds them.
 	StagePublish = "publish"
 	// StageBundle is the bundle lane's build (b6): the dies foundry-dies
-	// publishes, built and gated by bundle:policy, bundle:fleet and
-	// bundle:resign. Like StageCast it is in no lane's stages: lanes/bundle.toml
+	// publishes, built and gated by bundle:policy and bundle:fleet.
+	// Like StageCast it is in no lane's stages: lanes/bundle.toml
 	// names the atoms, so a gate, a check or a push never builds a die.
 	StageBundle = "bundle"
 	// StageBases is the bases lane's per-base release (D7): the files a

@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"dagger/foundry-tools/internal/bundlelane"
 	"dagger/foundry-tools/internal/dagger"
 	"dagger/foundry-tools/internal/svidcred"
 )
@@ -205,46 +204,13 @@ func TestATipWithoutRegistrySvidFetchesNoToken(t *testing.T) {
 	}
 }
 
-// ---- bundle
-
-func bundleSvid(t *testing.T, m *FoundryTools, spire *dagger.Socket, token *dagger.Secret) {
-	t.Helper()
-	if err := m.Bundle(context.Background(), dag.SetSecret("opa-key", pem64()), token, dag.SetSecret("cosign-key", pem64()),
-		dag.SetSecret("cosign-password", "pw"), false, "", nil, spire, svidAudience, ""); err != nil {
-		t.Fatalf("bundle: %v", err)
-	}
-}
+// ---- gate
 
 func TestGateFileKeepsTheRegistrySvidAudience(t *testing.T) {
 	m := gateOn(t, cleanVector)
 	if _, err := m.GateFile(context.Background(), fakeTree, gatePin, "base-sha", "visual", nil, false, nil, nil, svidAudience); err != nil || m.registrySvid != svidAudience {
 		t.Fatalf("registrySvid %q err %v", m.registrySvid, err)
 	}
-}
-
-// A bundle with the flag and the socket needs no registry token; oras and
-// cosign get the helper, and no token-bearing docker config is built.
-func TestABundleWithRegistrySvidNeedsNoToken(t *testing.T) {
-	m := bundleOn(t, nil)
-	scriptAGreenBundle()
-	bundleSvid(t, m, dag.LoadSocketFromID("spire-agent-socket"), nil)
-	settledOn(t, "0", "published and signed")
-	push := pushed(bundlelane.PolicyDie, pinOfDie(t, bundlelane.PolicyDie))
-	wantCalls(t, push,
-		[]string{"withFile", `path:"/usr/local/bin/docker-credential-svid"`},
-		[]string{"withEnvVariable", `"SVIDCRED_AUDIENCE"`, `"registry.notusmi.com"`},
-	)
-	wantCalls(t, engine.chain(`"--yes"`), []string{"withFile", `path:"/usr/local/bin/docker-credential-svid"`})
-	if engine.chain("bundle-registry-config") != "" {
-		t.Error("the static docker config was built")
-	}
-}
-
-// The flag with no socket keeps the static path: the token is still required.
-func TestABundleWithRegistrySvidButNoSocketStillNeedsTheToken(t *testing.T) {
-	m := bundleOn(t, nil)
-	bundleSvid(t, m, nil, nil)
-	settledOn(t, "2", "--opa-signing-key and --registry-token are both required")
 }
 
 // An engine that fails the token exec, or answers nothing usable, stops the

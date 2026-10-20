@@ -1,20 +1,14 @@
 // Package bundlelane holds the bundle lane's decisions as pure functions: which
 // die a landing publishes, whether the fleet's two tiers agree, what the built
-// artifacts must carry, and what the registry answered. bundle.go at the module
-// root is left with the chain.
+// artifacts must carry, and what the registry answered.
 //
 // Ported from foundry-dies ci/bundle.sh, rule for rule; each function names the
 // step it replaces.
 package bundlelane
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
-	"encoding/pem"
 	"fmt"
 	"path"
 	"regexp"
@@ -78,11 +72,6 @@ func Publishes(changed []string) (policy, fleet bool) {
 	return policy, fleet
 }
 
-// SignedKMSChannel is the channel the KMS-signed twin is published under whenever
-// --opa-kms is given. With --opa-signing-key too, :signed stays file-key signed;
-// alone, :signed carries the same KMS-signed bytes. ouranos polls this channel.
-const SignedKMSChannel = "signed-kms"
-
 // Pin is a die's immutable tag for a commit: g and the commit's first seven.
 func Pin(sha string) (string, error) {
 	if len(sha) < 7 {
@@ -140,18 +129,6 @@ func Orphans(entries []string, dataJSON string) (orphans []string, mapped int, e
 	}
 	sort.Strings(orphans)
 	return orphans, len(d.Map), nil
-}
-
-// Signed answers whether a `tar tzf` listing carries .signatures.json at the
-// bundle root — the signature OPA verifies. Its absence is a build failure,
-// not something a consumer discovers by being served an empty policy.
-func Signed(listing string) bool {
-	for _, line := range strings.Split(listing, "\n") {
-		if l := strings.TrimSpace(line); l == ".signatures.json" || l == "/.signatures.json" {
-			return true
-		}
-	}
-	return false
 }
 
 // FleetManifest is the manifest the staged roster carries. The bundle root
@@ -314,32 +291,4 @@ func DockerConfig(host, user, token string) string {
 	auth := base64.StdEncoding.EncodeToString([]byte(user + ":" + token))
 	b, _ := json.Marshal(map[string]any{"auths": map[string]any{host: map[string]string{"auth": auth}}})
 	return string(b)
-}
-
-// DecodeKey reads a base64-wrapped PEM key, the shape OPA_BUNDLE_SIGNING_KEY
-// and COSIGN_PRIVATE_KEY arrive in. The error never carries the key.
-func DecodeKey(name, encoded string) (string, error) {
-	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encoded))
-	if err != nil {
-		return "", fmt.Errorf("%s is not base64", name)
-	}
-	if block, _ := pem.Decode(raw); block == nil {
-		return "", fmt.Errorf("%s decodes to something that is not a PEM key", name)
-	}
-	return string(raw), nil
-}
-
-// EphemeralKey mints a throwaway P-256 key as SEC1 PEM. A dry run with no
-// signing key builds and gates the signed twins with it, because the
-// alternative is skipping three gates and calling that verified.
-func EphemeralKey() (string, error) {
-	k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return "", err
-	}
-	der, err := x509.MarshalECPrivateKey(k)
-	if err != nil {
-		return "", err
-	}
-	return string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})), nil
 }

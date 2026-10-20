@@ -66,14 +66,14 @@ func importClosure(t *testing.T, dir string) []string {
 	return out
 }
 
-// THE FILTERED SOURCE IS ONLY AS GOOD AS ITS LIST, for each of the eight helpers
+// THE FILTERED SOURCE IS ONLY AS GOOD AS ITS LIST, for each of the seven helpers
 // as for the atoms binary (TestAtomsSourceCoversImports): a package the helper
 // imports that its include list omits is a `go build` that fails in the engine
 // where no unit test can see it, and a package the list names that the helper
 // does not import is a rebuild for an edit the helper never reads.
 func TestHelperSourcesCoverTheirImports(t *testing.T) {
-	if len(helperSources) != 8 {
-		t.Errorf("%d helpers, want castpin, hadescall, verdict, witnesscall, copyout, casttarget, bundleresign and svidcred", len(helperSources))
+	if len(helperSources) != 7 {
+		t.Errorf("%d helpers, want castpin, hadescall, verdict, witnesscall, copyout, casttarget and svidcred", len(helperSources))
 	}
 	for name, src := range helperSources {
 		t.Run(name, func(t *testing.T) {

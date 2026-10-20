@@ -132,33 +132,3 @@ func ReadFile(path string) ([]byte, *Fault) {
 	}
 	return b, nil
 }
-
-// Twin gates a signed twin against its plain bundle: the signature is there,
-// and the two carry the same data.json, because only the signature may differ —
-// a data.json that drifted means the gates graded one artifact while the fleet
-// runs the other (bundle.go twin).
-func Twin(plainPath, signedPath, what string) *Fault {
-	plain, bad := ReadFile(plainPath)
-	if bad != nil {
-		return bad
-	}
-	signed, bad := ReadFile(signedPath)
-	if bad != nil {
-		return bad
-	}
-	names, err := Members(signed)
-	if err != nil || !bundlelane.Signed(strings.Join(names, "\n")) {
-		return Findings("%s carries no .signatures.json — OPA would refuse it and serve nothing", what)
-	}
-	a, okA, errA := Member(plain, "/data.json")
-	b, okB, errB := Member(signed, "/data.json")
-	switch {
-	case errA != nil || !okA:
-		return Findings("%s carries no /data.json: %v", plainPath, errA)
-	case errB != nil || !okB:
-		return Findings("%s carries no /data.json: %v", signedPath, errB)
-	case a != b:
-		return Findings("%s and %s carry different data.json — the gates would grade the wrong artifact", plainPath, signedPath)
-	}
-	return nil
-}
