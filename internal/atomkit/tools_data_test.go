@@ -83,7 +83,6 @@ var urlPins = []struct {
 	{"rust-wasm-clippy", checks.RustWasmClippyURL, checks.RustWasmComponentsTag},
 	{"rust-wasm-rustfmt", checks.RustWasmRustfmtURL, checks.RustWasmComponentsTag},
 	{"python-standalone", checks.PythonStandaloneURL, checks.FleetPythonVersion},
-	{"python-3-15", checks.PythonStandalone315URL, checks.PythonStandalone315Release},
 	{"gofmt", checks.GofmtToolchainURL, checks.GofmtGoRelease},
 	{"rustc-1-97-1", checks.RustDist1971RustcURL, checks.RustDist1971Tag},
 	{"cargo-1-97-1", checks.RustDist1971CargoURL, checks.RustDist1971Tag},
