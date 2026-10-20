@@ -21,6 +21,14 @@ const (
 	GofmtURL       = "https://go.dev/dl/go1.27.2.linux-amd64.tar.gz"
 	// GofmtMember is the formatter inside that tarball.
 	GofmtMember = "go/bin/gofmt"
+	// GofmtToolchainURL is the SAME Go release as the Go module proxy's toolchain
+	// zip (golang.org/toolchain), which is what the executor's pod fetches for
+	// tools.toml [tool.gofmt]: proxy.golang.org is a host the transparent cache
+	// serves (go.dev/dl 302s to dl.google.com, which it does not). The zip unpacks
+	// to golang.org/toolchain@v0.0.1-go<release>.linux-amd64/, whose bin/ holds
+	// gofmt (and go). It is a literal, as pinsync's URL pins require; a test holds
+	// it to GofmtGoRelease. Its sum is the downloaded bytes' (2026-10-19).
+	GofmtToolchainURL = "https://proxy.golang.org/golang.org/toolchain/@v/v0.0.1-go1.27.2.linux-amd64.zip"
 )
 
 // A CORE'S GUEST IS A FUNCTION OF ITS COMPILER (provenance.json core.toolchain,

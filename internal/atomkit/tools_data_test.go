@@ -62,7 +62,6 @@ var urlPins = []struct {
 	{"opa", checks.OpaURL, checks.OpaVersion},
 	{"opengrep", checks.OpengrepURL, checks.OpengrepVersion},
 	{"hadolint", checks.HadolintURL, checks.HadolintVersion},
-	{"kubectl", checks.KubectlURL, checks.KubectlVersion},
 	{"chezmoi", checks.ChezmoiURL, checks.ChezmoiVersion},
 	{"docker-compose", checks.ComposeURL, checks.ComposeVersion},
 	{"wasm-tools", checks.WasmToolsURL, checks.WasmToolsVersion},
@@ -85,7 +84,7 @@ var urlPins = []struct {
 	{"rust-wasm-rustfmt", checks.RustWasmRustfmtURL, checks.RustWasmComponentsTag},
 	{"python-standalone", checks.PythonStandaloneURL, checks.FleetPythonVersion},
 	{"python-3-15", checks.PythonStandalone315URL, checks.PythonStandalone315Release},
-	{"gofmt", checks.GofmtURL, checks.GofmtGoRelease},
+	{"gofmt", checks.GofmtToolchainURL, checks.GofmtGoRelease},
 	{"rustc-1-97-1", checks.RustDist1971RustcURL, checks.RustDist1971Tag},
 	{"cargo-1-97-1", checks.RustDist1971CargoURL, checks.RustDist1971Tag},
 	{"rust-std-1-97-1", checks.RustDist1971StdURL, checks.RustDist1971Tag},
@@ -107,7 +106,7 @@ var goPins = map[string]string{
 var imagePins = map[string]string{
 	"uv": checks.ImageUV, "python": checks.ImagePython, "trivy": checks.ImageTrivy, "syft": checks.ImageSyft, "cosign": checks.ImageCosign,
 	"signing-tools": checks.ImageSigningTools, "bun": checks.ImageTS, "git": checks.ImageGo, "node": checks.ImageNode, "kubeconform": checks.ImageKubeconform,
-	"kube-linter": checks.ImageKubeLinter, "narc": checks.ImageNarcissus, "static": checks.ImageStatic, "debian": checks.ImageTools,
+	"kube-linter": checks.ImageKubeLinter, "kubectl": checks.ImageKubectl, "narc": checks.ImageNarcissus, "static": checks.ImageStatic, "debian": checks.ImageTools,
 }
 
 var toolchainPins = map[string]string{

@@ -581,6 +581,13 @@ const (
 	// could-not-run (gate-infra-cce87f4). Docker Hub itself, not a mirror's
 	// cache, is what a home is measured against: hub=401, ghcr=200.
 	ImageKubeconform = "ghcr.io/yannh/kubeconform:v0.7.0-alpine@sha256:8f0eeaaa96ba27ba1500b0e4b1c215acc358d159c62a7ecae58d7a03403287b0"
+	// ImageKubectl is kubectl for the executor's pod, as an image tool (tools.toml
+	// [tool.kubectl], bins bin/kubectl): registry.k8s.io is a registry the engine
+	// and the kubelet pull through the fleet's mirror, while dl.k8s.io is a host
+	// the transparent cache does not serve. The binary is the one KubectlURL
+	// names (sha256 65691ff7... read from both, 2026-10-19); the Dagger lane keeps
+	// the URL. A test holds the tag to KubectlVersion; the digest is the index's.
+	ImageKubectl = "registry.k8s.io/kubectl:v1.37.1@sha256:b7cab618e281b1ee7484e7b706a96e2135fbb6e072c2a573a7dab4e87d7f2385"
 	// ImageKubeLinter — likewise alpine, and likewise held still.
 	ImageKubeLinter = "docker.io/stackrox/kube-linter:v0.8.3-alpine@sha256:b8311611c27032d4922bc67719225e373e4a0ab0c767bbdcf5f20a9306b1a3bb"
 	// ImageNarcissus names the image that carries narc (narcissus's analyzer, at

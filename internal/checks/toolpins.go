@@ -117,6 +117,7 @@ var ToolSHA256 = map[string]string{
 	// dev:go-regen's formatter and the rust compilers it lays (goregen_pins.go):
 	// go.dev's and static.rust-lang.org's own sums, equal to the downloaded bytes.
 	GofmtURL:               "ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5",
+	GofmtToolchainURL:      "3a467ed067f27cd55bf3a702f8e2bf12479f53c9d8ae0de548f48ebcb3c67796",
 	RustDist1971RustcURL:   "1c441e430c1cca49dff54a8d59c41038bf6f79f7b8756596cb2f36511a015eba",
 	RustDist1971CargoURL:   "90cbeb8adfe8ca0fcbe01a18bd9b99d3e5e98fd29c003032828ebf3ffba0e4ed",
 	RustDist1971StdURL:     "45b927ecf776b9645ca2ed5b287fc6814824a073c30c7c5d5c0ad4425295ecee",

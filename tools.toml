@@ -83,10 +83,9 @@ version = "2.15.1"
 sha256 = "c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507"
 
 [tool.kubectl]
-kind = "url"
-spec = "https://dl.k8s.io/release/v1.37.1/bin/linux/amd64/kubectl"
-version = "1.37.1"
-sha256 = "65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8"
+kind = "image"
+image = "registry.k8s.io/kubectl:v1.37.1@sha256:b7cab618e281b1ee7484e7b706a96e2135fbb6e072c2a573a7dab4e87d7f2385"
+bins = ["bin/kubectl"]
 
 [tool.chezmoi]
 kind = "url"
@@ -203,12 +202,13 @@ version = "1.90.0"
 sha256 = "61407015edaeafa9b61b3ffefb5077624cd4017ac50be05e246bcadafbb56d99"
 
 # dev:go-regen's formatter: the official Go release (the Go of toolchain.go's image),
-# whose go/bin/gofmt gravity execs through $GOFMT (checks.GofmtURL).
+# whose bin/gofmt gravity execs through $GOFMT. Fetched as the Go module proxy's
+# toolchain zip (checks.GofmtToolchainURL), a host the transparent cache serves.
 [tool.gofmt]
 kind = "url"
-spec = "https://go.dev/dl/go1.27.2.linux-amd64.tar.gz"
+spec = "https://proxy.golang.org/golang.org/toolchain/@v/v0.0.1-go1.27.2.linux-amd64.zip"
 version = "1.27.2"
-sha256 = "ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5"
+sha256 = "3a467ed067f27cd55bf3a702f8e2bf12479f53c9d8ae0de548f48ebcb3c67796"
 
 # The rust compilers dev:go-regen lays for a core pinned to a rustc the rust image
 # does not carry (checks.RustDists): static.rust-lang.org's dist tarballs for the

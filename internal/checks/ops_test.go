@@ -97,3 +97,10 @@ func TestFluxRoot(t *testing.T) {
 		}
 	}
 }
+
+// MR1: the pod's kubectl image is the version the Dagger lane downloads.
+func TestKubectlImageCarriesKubectlVersion(t *testing.T) {
+	if !strings.HasPrefix(ImageKubectl, "registry.k8s.io/kubectl:v"+KubectlVersion+"@sha256:") {
+		t.Errorf("%s does not carry v%s", ImageKubectl, KubectlVersion)
+	}
+}
