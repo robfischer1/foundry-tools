@@ -55,6 +55,7 @@ import (
 	fleetrenovatelockstep "dagger/foundry-tools/atoms/fleet/renovate-lockstep"
 	fleetretiredverbs "dagger/foundry-tools/atoms/fleet/retired-verbs"
 	fleetsastrulesetlanes "dagger/foundry-tools/atoms/fleet/sast-ruleset-lanes"
+	fleetspeckitrendercurrent "dagger/foundry-tools/atoms/fleet/speckit-render-current"
 	fleetstopjustifications "dagger/foundry-tools/atoms/fleet/stop-justifications"
 	fleetwittopics "dagger/foundry-tools/atoms/fleet/wit-topics"
 	fleetwitness "dagger/foundry-tools/atoms/fleet/witness"
@@ -171,6 +172,7 @@ var Defs = []*atomkit.Def{
 	&fleetrenovatelockstep.Def,
 	&fleetretiredverbs.Def,
 	&fleetsastrulesetlanes.Def,
+	&fleetspeckitrendercurrent.Def,
 	&fleetstopjustifications.Def,
 	&fleetwittopics.Def,
 	&fleetwitness.Def,

@@ -22,6 +22,7 @@ var catalogueOrder = []string{
 	"fleet:stop-justifications",
 	"fleet:sast-ruleset-lanes",
 	"fleet:copier-answers-intact",
+	"fleet:speckit-render-current",
 	"fleet:ourea-config-retired-keys",
 	"fleet:wit-topics",
 	"fleet:pdp-wired",
