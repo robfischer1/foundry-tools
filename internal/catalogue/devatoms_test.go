@@ -41,6 +41,14 @@ var devAtoms = []struct {
 	{"dev:python-fmt", "python", "any:**/*.py", "python", true},
 	{"dev:python-typecheck", "python", "root:pyproject.toml", "python", false},
 	{"dev:python-check", "python", "root:pyproject.toml", "python", false},
+	{"dev:python-lock", "python", "root:pyproject.toml", "python", true},
+	{"dev:python-update", "python", "root:pyproject.toml", "python", true},
+	{"dev:python-build", "python", "root:pyproject.toml", "python", true},
+	{"dev:ts-build", "ts", "root:package.json", "bun", true},
+	{"dev:ts-lock", "ts", "root:package.json", "bun", true},
+	{"dev:ts-update", "ts", "root:package.json", "bun", true},
+	{"dev:go-typecheck", "go", "root:go.mod", "go", false},
+	{"dev:rust-typecheck", "rust", "root:Cargo.toml", "rust", false},
 	{"dev:ts-test", "ts", "root:package.json", "bun", true},
 	{"dev:ts-lint", "ts", "root:package.json", "bun", true},
 	{"dev:ts-fmt", "ts", "root:package.json", "bun", true},
@@ -48,7 +56,7 @@ var devAtoms = []struct {
 	{"dev:ts-check", "ts", "root:package.json", "bun", true},
 }
 
-// TestUT_514_TheDevAtomsKeepTheirShape: all 27 parse, sit in the dev stage with
+// TestUT_514_TheDevAtomsKeepTheirShape: all 35 parse, sit in the dev stage with
 // the Dev surface's fields, and write the tree for the go test (it rewrites
 // goldens), the go update and the six rewriting go/rust verbs, the python fmt
 // and the four ts ones (a ts install lands in node_modules,
@@ -66,8 +74,8 @@ func TestUT_514_TheDevAtomsKeepTheirShape(t *testing.T) {
 			t.Errorf("%s: %+v", tc.id, m)
 		}
 	}
-	if got := len(devAtoms); got != 27 {
-		t.Errorf("%d dev atoms in the table, want 27", got)
+	if got := len(devAtoms); got != 35 {
+		t.Errorf("%d dev atoms in the table, want 35", got)
 	}
 }
 
@@ -137,6 +145,12 @@ var (
 		"dev:python-fmt":       {"tool:ruff"},
 		"dev:python-typecheck": {"tool:uv"},
 		"dev:python-check":     {"tool:uv"},
+		"dev:python-lock":      {"tool:uv"},
+		"dev:python-update":    {"tool:uv"},
+		"dev:python-build":     {"tool:uv"},
+		"dev:ts-build":         {"tool:node", "tool:curl"},
+		"dev:ts-lock":          {"tool:node", "tool:curl"},
+		"dev:ts-update":        {"tool:node", "tool:curl"},
 		"dev:ts-test":          {"tool:node", "tool:curl"},
 		"dev:ts-lint":          {"tool:node", "tool:curl"},
 		"dev:ts-fmt":           {"tool:node", "tool:curl"},
@@ -162,7 +176,7 @@ var (
 			"UV_PROJECT_ENVIRONMENT":  "/tmp/dev-python-check/venv",
 		},
 	}
-	devLong = []string{"dev:go-test", "dev:rust-build", "dev:rust-test", "dev:python-test", "dev:python-typecheck", "dev:python-check", "dev:ts-test", "dev:ts-lint", "dev:ts-typecheck", "dev:ts-check"}
+	devLong = []string{"dev:go-test", "dev:rust-build", "dev:rust-test", "dev:python-test", "dev:python-typecheck", "dev:python-check", "dev:python-build", "dev:ts-build", "dev:ts-test", "dev:ts-lint", "dev:ts-typecheck", "dev:ts-check"}
 )
 
 // TestTheDevAtomsTimeoutsEnvAndNeeds: the long verbs get 30m, go test mounts
@@ -213,29 +227,31 @@ func manifestOf(t *testing.T, id string) atomkit.Manifest {
 // manifests carried it before the argument rules (foundry-tools#503): the
 // proofs that ran on that shape depend on it staying byte-identical.
 var todaysArgv = map[string][]string{
-	"dev:go-build":    {"go", "build", "./..."},
-	"dev:go-vet":      {"go", "vet", "./..."},
-	"dev:go-check":    {"go", "vet", "./..."},
-	"dev:go-lint":     {"staticcheck", "-checks", gateStaticcheckChecks, "./..."},
-	"dev:go-update":   {"go", "get", "-u", "./..."},
-	"dev:rust-lint":   {"cargo", "clippy", "--workspace", "--all-targets", "--", "-W", "clippy::all", "-D", "warnings"},
-	"dev:go-test":     {"go", "test", "-race", "./..."},
-	"dev:go-fmt":      {"go", "fmt", "./..."},
-	"dev:go-tidy":     {"go", "mod", "tidy"},
-	"dev:go-vendor":   {"go", "mod", "vendor"},
-	"dev:rust-check":  {"cargo", "check", "--workspace"},
-	"dev:rust-build":  {"cargo", "build", "--workspace"},
-	"dev:rust-test":   {"cargo", "test", "--workspace"},
-	"dev:rust-clippy": {"cargo", "clippy", "--workspace", "--all-targets", "--", "-W", "clippy::all", "-D", "warnings"},
-	"dev:rust-fmt":    {"cargo", "fmt", "--all"},
-	"dev:rust-lock":   {"cargo", "generate-lockfile"},
-	"dev:rust-update": {"cargo", "update"},
+	"dev:go-build":       {"go", "build", "./..."},
+	"dev:go-vet":         {"go", "vet", "./..."},
+	"dev:go-check":       {"go", "vet", "./..."},
+	"dev:go-lint":        {"staticcheck", "-checks", gateStaticcheckChecks, "./..."},
+	"dev:go-update":      {"go", "get", "-u", "./..."},
+	"dev:rust-lint":      {"cargo", "clippy", "--workspace", "--all-targets", "--", "-W", "clippy::all", "-D", "warnings"},
+	"dev:go-test":        {"go", "test", "-race", "./..."},
+	"dev:go-fmt":         {"go", "fmt", "./..."},
+	"dev:go-tidy":        {"go", "mod", "tidy"},
+	"dev:go-vendor":      {"go", "mod", "vendor"},
+	"dev:rust-check":     {"cargo", "check", "--workspace"},
+	"dev:rust-build":     {"cargo", "build", "--workspace"},
+	"dev:rust-test":      {"cargo", "test", "--workspace"},
+	"dev:rust-clippy":    {"cargo", "clippy", "--workspace", "--all-targets", "--", "-W", "clippy::all", "-D", "warnings"},
+	"dev:rust-fmt":       {"cargo", "fmt", "--all"},
+	"dev:rust-lock":      {"cargo", "generate-lockfile"},
+	"dev:rust-update":    {"cargo", "update"},
+	"dev:go-typecheck":   {"go", "vet", "./..."},
+	"dev:rust-typecheck": {"cargo", "check", "--workspace"},
 }
 
 // TestTheDevAtomsKeepTodaysArgvWithNoArguments: the byte-identical guarantee.
 func TestTheDevAtomsKeepTodaysArgvWithNoArguments(t *testing.T) {
-	if len(todaysArgv) != 17 {
-		t.Fatalf("%d rows, want 17", len(todaysArgv))
+	if len(todaysArgv) != 19 {
+		t.Fatalf("%d rows, want 19", len(todaysArgv))
 	}
 	for id, want := range todaysArgv {
 		m := manifestOf(t, id)
@@ -341,7 +357,7 @@ func TestTheDevAtomsDocumentedArguments(t *testing.T) {
 // is about to change) would refuse before the verb could mend it.
 func TestOnlyTheLockfileVerbsSkipThePreflight(t *testing.T) {
 	for _, tc := range devAtoms {
-		want := tc.id != "dev:rust-lock" && tc.id != "dev:rust-update" && tc.id != "dev:go-update"
+		want := !slices.Contains([]string{"dev:rust-lock", "dev:rust-update", "dev:go-update", "dev:ts-lock", "dev:ts-update"}, tc.id)
 		if got := manifestOf(t, tc.id).RunsPreflight(); got != want {
 			t.Errorf("%s: RunsPreflight %v, want %v", tc.id, got, want)
 		}
@@ -355,6 +371,12 @@ var pytsArgv = map[string][]string{
 	"dev:python-fmt":       {"ruff", "format"},
 	"dev:python-typecheck": {"uv", "run", "--python", "python3", "--all-extras", "mypy", "src", "tests"},
 	"dev:python-check":     {"uv", "run", "--python", "python3", "--all-extras", "mypy", "src", "tests"},
+	"dev:python-lock":      {"uv", "lock", "--python", "python3"},
+	"dev:python-update":    {"uv", "lock", "--python", "python3", "--upgrade"},
+	"dev:python-build":     {"uv", "build", "--python", "python3"},
+	"dev:ts-build":         {"bun", "run", "build"},
+	"dev:ts-lock":          {"bun", "install", "--lockfile-only"},
+	"dev:ts-update":        {"bun", "update"},
 	"dev:ts-test":          {"bun", "run", "test"},
 	"dev:ts-lint":          {"bun", "run", "lint"},
 	"dev:ts-fmt":           {"bun", "run", "format"},
@@ -365,8 +387,8 @@ var pytsArgv = map[string][]string{
 // TestThePythonAndTSDevAtomsKeepTheirArgv: what the local loop runs with no
 // arguments, and nothing else.
 func TestThePythonAndTSDevAtomsKeepTheirArgv(t *testing.T) {
-	if len(pytsArgv) != 10 {
-		t.Fatalf("%d rows, want 10", len(pytsArgv))
+	if len(pytsArgv) != 16 {
+		t.Fatalf("%d rows, want 16", len(pytsArgv))
 	}
 	for id, want := range pytsArgv {
 		m := manifestOf(t, id)
@@ -411,6 +433,10 @@ func TestThePythonAndTSDevAtomsComposeWithCallerArguments(t *testing.T) {
 		{"dev:python-typecheck", []string{"--strict"}, []string{"uv", "run", "--python", "python3", "--all-extras", "mypy", "--strict", "src", "tests"}},
 		{"dev:python-typecheck", []string{"-m", "pkg.mod"}, []string{"uv", "run", "--python", "python3", "--all-extras", "mypy", "-m", "pkg.mod"}},
 		{"dev:python-typecheck", []string{"--package=pkg"}, []string{"uv", "run", "--python", "python3", "--all-extras", "mypy", "--package=pkg"}},
+		{"dev:python-lock", []string{"--check"}, []string{"uv", "lock", "--python", "python3", "--check"}},
+		{"dev:python-update", []string{"-P", "requests"}, []string{"uv", "lock", "--python", "python3", "-P", "requests"}},
+		{"dev:python-update", []string{"--upgrade-package", "requests"}, []string{"uv", "lock", "--python", "python3", "--upgrade-package", "requests"}},
+		{"dev:python-update", []string{"-U"}, []string{"uv", "lock", "--python", "python3", "-U"}},
 		{"dev:ts-test", []string{"--filter=web"}, []string{"bun", "run", "test", "--filter=web"}},
 		{"dev:ts-fmt", []string{"--check"}, []string{"bun", "run", "format", "--check"}},
 	} {
