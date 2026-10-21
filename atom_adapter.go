@@ -118,6 +118,7 @@ var atomLibraries = map[string][]string{
 	"fleet:witness":              witnessDirs,
 	"compose:no-tracked-secrets": libraryDirs,
 	"compose:third-party-pins":   libraryDirs,
+	"fleet:lane-sa-check":        libraryDirs,
 	"ops:ansible":                libraryDirs,
 	"ops:chezmoi":                libraryDirs,
 	"ops:declaration":            libraryDirs,

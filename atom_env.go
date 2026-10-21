@@ -133,6 +133,7 @@ var atomEnvironments = map[string]atomEnv{
 	"ops:metrics":            {tools: true},
 	"ops:specs":              {tools: true},
 	"ops:star-sa":            {tools: true},
+	"fleet:lane-sa-check":    {tools: true},
 	"ops:world-patches":      {tools: true},
 	"template:render-matrix": {tools: true},
 	// ... and the ones that judge the change or the origin are also handed them.

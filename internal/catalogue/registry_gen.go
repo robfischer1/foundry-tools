@@ -43,6 +43,7 @@ import (
 	fleetdaggerlockstep "dagger/foundry-tools/atoms/fleet/dagger-lockstep"
 	fleethadolint "dagger/foundry-tools/atoms/fleet/hadolint"
 	fleetkafkaflows "dagger/foundry-tools/atoms/fleet/kafka-flows"
+	fleetlanesacheck "dagger/foundry-tools/atoms/fleet/lane-sa-check"
 	fleetmanifestonecommand "dagger/foundry-tools/atoms/fleet/manifest-one-command"
 	fleetnodekindsdeclared "dagger/foundry-tools/atoms/fleet/node-kinds-declared"
 	fleetopengrepsast "dagger/foundry-tools/atoms/fleet/opengrep-sast"
@@ -151,6 +152,7 @@ var Defs = []*atomkit.Def{
 	&fleetdaggerlockstep.Def,
 	&fleethadolint.Def,
 	&fleetkafkaflows.Def,
+	&fleetlanesacheck.Def,
 	&fleetmanifestonecommand.Def,
 	&fleetnodekindsdeclared.Def,
 	&fleetopengrepsast.Def,

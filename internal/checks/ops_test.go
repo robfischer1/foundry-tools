@@ -25,6 +25,7 @@ func TestIsOpsTreeReadsEachMarkerAlone(t *testing.T) {
 		"console-specs":       {"tools/console-specs"},
 		"metric-allowlist":    {"tools/metric-allowlist"},
 		"star-sa-list":        {"tools/star-sa-list"},
+		"lane-sa-check":       {"tools/lane-sa-check"},
 		"world-patches":       {"tools/world-patches"},
 		"compose":             {"compose.yaml"},
 		"compose yml":         {"stacks/compose.yml"},
