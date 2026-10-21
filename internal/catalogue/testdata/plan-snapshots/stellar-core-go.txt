@@ -84,7 +84,6 @@ run:
   bases:release
   bundle:fleet
   bundle:policy
-  bundle:resign
   dev:go-build
   dev:go-check
   dev:go-fmt

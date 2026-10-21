@@ -13,7 +13,7 @@ var KnownLanes = []string{"gate", "check", "visual", "build", "mutation", "mutat
 
 var (
 	knownStages = []string{"precommit", "prepush", "mutation", "visual", "govern", "dev", "atoms", "cast", "publish", "bundle", "bases"}
-	knownCaps   = []string{"release", "assemble", "scan", "kms-sign", "publish", "push-bundle", "layer-cast", "build-atoms", "dev-output", "push-visual"}
+	knownCaps   = []string{"release", "assemble", "scan", "publish", "push-bundle", "layer-cast", "build-atoms", "dev-output", "push-visual"}
 )
 
 // PhaseDef is a phase as a lane file declares it. A run plan holds the same shape.

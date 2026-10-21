@@ -4,15 +4,6 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/sha256"
-	"crypto/x509"
-	"encoding/base64"
-	"encoding/hex"
-	"encoding/json"
-	"encoding/pem"
 	"os"
 	"path/filepath"
 	"slices"
@@ -147,7 +138,6 @@ func (w *world) opa(c atoms.Cmd, args string) (string, int) {
 			return "build error", w.buildCode
 		}
 		out := valueAfter(c.Args, "-o")
-		signed := slices.Contains(c.Args, "--signing-key")
 		root := valueAfter(c.Args, "-b")
 		files := map[string]string{"/.manifest": `{"revision":"r"}`, "/p/x.rego": "package x\n"}
 		switch {
@@ -174,7 +164,7 @@ func (w *world) opa(c atoms.Cmd, args string) (string, int) {
 				return "", 0
 			}
 		}
-		if err := os.WriteFile(out, bundleOf(w.t, files, signed), 0o644); err != nil {
+		if err := os.WriteFile(out, bundleOf(w.t, files), 0o644); err != nil {
 			w.t.Fatal(err)
 		}
 		return "", 0
@@ -211,34 +201,14 @@ func valueAfter(args []string, flag string) string {
 	return ""
 }
 
-// bundleOf writes a gzip tar the way opa does: leading-slash names, mode 0600
-// and, for a twin, a .signatures.json signed ES256 by a throwaway key.
-func bundleOf(t *testing.T, files map[string]string, signed bool) []byte {
+// bundleOf writes a gzip tar the way opa does: leading-slash names, mode 0600.
+func bundleOf(t *testing.T, files map[string]string) []byte {
 	t.Helper()
 	var order []string
 	for n := range files {
 		order = append(order, n)
 	}
 	slices.Sort(order)
-	if signed {
-		k, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-		var listed []map[string]string
-		for _, n := range order {
-			h := sha256.Sum256([]byte(files[n]))
-			listed = append(listed, map[string]string{"name": strings.TrimPrefix(n, "/"), "hash": hex.EncodeToString(h[:]), "algorithm": "SHA-256"})
-		}
-		b64 := base64.RawURLEncoding
-		hdr, _ := json.Marshal(map[string]string{"alg": "ES256", "kid": "default", "typ": "JWT"})
-		pay, _ := json.Marshal(map[string]any{"files": listed, "keyid": "default"})
-		in := b64.EncodeToString(hdr) + "." + b64.EncodeToString(pay)
-		h := sha256.Sum256([]byte(in))
-		r, s, _ := ecdsa.Sign(rand.Reader, k, h[:])
-		sig := make([]byte, 64)
-		r.FillBytes(sig[:32])
-		s.FillBytes(sig[32:])
-		files["/.signatures.json"] = `{"signatures":["` + in + "." + b64.EncodeToString(sig) + `"]}`
-		order = append(order, "/.signatures.json")
-	}
 	var out bytes.Buffer
 	zw := gzip.NewWriter(&out)
 	tw := tar.NewWriter(zw)
@@ -251,47 +221,6 @@ func bundleOf(t *testing.T, files map[string]string, signed bool) []byte {
 	tw.Close()
 	zw.Close()
 	return out.Bytes()
-}
-
-// kms is the OPA key in the KMS: it signs what the signing input says and its
-// public half is what the twins are verified under.
-type kms struct{ key *ecdsa.PrivateKey }
-
-func newKMS(t *testing.T) kms {
-	t.Helper()
-	k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return kms{k}
-}
-
-func (k kms) pub(t *testing.T) string {
-	t.Helper()
-	der, err := x509.MarshalPKIXPublicKey(&k.key.PublicKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
-}
-
-func (k kms) sign(t *testing.T, message string) string {
-	t.Helper()
-	h := sha256.Sum256([]byte(message))
-	d, err := ecdsa.SignASN1(rand.Reader, k.key, h[:])
-	if err != nil {
-		t.Fatal(err)
-	}
-	return base64.StdEncoding.EncodeToString(d)
-}
-
-func (w *world) read(rel string) string {
-	w.t.Helper()
-	b, err := os.ReadFile(filepath.Join(w.out, rel))
-	if err != nil {
-		w.t.Fatal(err)
-	}
-	return string(b)
 }
 
 func expect(t *testing.T, f *Fault, findings bool, needles ...string) {

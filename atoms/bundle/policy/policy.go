@@ -1,4 +1,4 @@
-// Package bundlepolicy is the atom bundle:policy: the policy die built plain and as a twin the KMS signs, from policy/ with its decision table. It is the bundle lane's alone
+// Package bundlepolicy is the atom bundle:policy: the policy die built once, unsigned, from policy/ with its decision table. It is the bundle lane's alone
 // (stage bundle is in no other lane's stages); the work is internal/bundlekit's.
 package bundlepolicy
 
@@ -18,7 +18,7 @@ const id = "bundle:policy"
 var Def = atomkit.Def{
 	ID: "bundle:policy", Stage: checks.StageBundle, Lane: checks.LaneAny,
 	Group:     checks.GroupLanguage,
-	Desc:      "The policy die builds plain and as a KMS-signed twin from policy/ with its decision table, and the artifact carries its data and hides what it should.",
+	Desc:      "The policy die builds once, unsigned, from policy/ with its decision table, and the artifact carries its data and hides what it should.",
 	Surface:   "all:policy/.manifest,fleet/data.json",
 	Toolchain: "none",
 	Needs:     []string{"tool:opa"},

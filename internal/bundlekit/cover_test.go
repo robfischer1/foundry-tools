@@ -106,7 +106,7 @@ func TestBuiltArtifactsThatAreNotWhatTheyShouldBe(t *testing.T) {
 	}{
 		{"policy: nothing written", Policy, func(w *world) { w.noOutput = []string{"/bundle.tar.gz"} }, false, "bundle.tar.gz"},
 		{"policy: no data.json", Policy, func(w *world) { w.noData = true }, true, "carries no /data.json"},
-		{"fleet: nothing written", Fleet, func(w *world) { w.noOutput = []string{"fleet-bundle-signed"} }, false, "fleet-bundle-signed.tar.gz"},
+		{"fleet: nothing written", Fleet, func(w *world) { w.noOutput = []string{"fleet-bundle.tar.gz"} }, false, "fleet-bundle.tar.gz"},
 		{"fleet: no manifest", Fleet, func(w *world) { w.noManifest = true }, true, "carries no /.manifest"},
 	} {
 		w := newWorld(t, nil)

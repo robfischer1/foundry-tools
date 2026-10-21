@@ -13,8 +13,7 @@ import (
 
 // The fleet die's files in the out directory.
 const (
-	FleetPlain  = "fleet-bundle.tar.gz"
-	FleetSigned = "fleet-bundle-signed.tar.gz"
+	FleetPlain = "fleet-bundle.tar.gz"
 )
 
 // Flux is the foundry/flux checkout the fetch role laid and the commit main
@@ -34,9 +33,9 @@ func ReadFlux(dir string) (Flux, *Fault) {
 	return Flux{Tree: atoms.Input{Root: dir}.Tree(), SHA: strings.TrimSpace(string(raw))}, nil
 }
 
-// Fleet is the roster die, after bundle.go fleet() and bundle_inject.go: the two
+// Fleet is the roster die,: the two
 // tiers gated, the catalog entries and flux's facts injected, the roster built
-// plain and as a twin from a staged tree, and the artifact gated for the roster
+// once, unsigned, from a staged tree, and the artifact gated for the roster
 // it claims to carry and for composing with the policy.
 func Fleet(ctx context.Context, r Run) *Fault {
 	sha, bad := r.Sha(ctx)
@@ -88,40 +87,24 @@ func Fleet(ctx context.Context, r Run) *Fault {
 		return CouldNotRun("a scratch directory could not be made: %v", err)
 	}
 	defer os.RemoveAll(scratch)
-	key, bad := ephemeralKey(scratch)
-	if bad != nil {
-		return bad
-	}
 	if err := os.MkdirAll(OutDir(), 0o755); err != nil {
 		return CouldNotRun("the bundle directory could not be made: %v", err)
 	}
-	for _, b := range []struct {
-		file string
-		sign bool
-	}{{FleetPlain, false}, {FleetSigned, true}} {
-		args := []string{"build", "-b", StageDir(), "-o", filepath.Join(OutDir(), b.file), "--revision", revision}
-		if b.sign {
-			args = append(args, "--signing-key", key, "--signing-alg", "ES256")
-		}
-		out, code, bad := r.Exec(ctx, "opa build", r.In.Root, "", "opa", args...)
-		if bad != nil {
-			return bad
-		}
-		if code != 0 {
-			return Findings("opa build over the staged roster failed:\n%s", out)
-		}
-	}
-	if bad := r.gateFleet(ctx, scratch, inj, flux.SHA); bad != nil {
+	args := []string{"build", "-b", StageDir(), "-o", filepath.Join(OutDir(), FleetPlain), "--revision", revision}
+	out, code, bad := r.Exec(ctx, "opa build", r.In.Root, "", "opa", args...)
+	if bad != nil {
 		return bad
 	}
-	if bad := WriteSigningInput(filepath.Join(OutDir(), FleetSigned)); bad != nil {
+	if code != 0 {
+		return Findings("opa build over the staged roster failed:\n%s", out)
+	}
+	if bad := r.gateFleet(ctx, scratch, inj, flux.SHA); bad != nil {
 		return bad
 	}
 	pin, _ := bundlelane.FleetPin(sha, flux.SHA)
 	meta := Meta{
 		Die: bundlelane.FleetDie, Kind: "bundle", Pin: pin, Revision: revision, Sha: sha, Publish: publish, PublishIfMissing: true,
-		Artifacts: []Artifact{{FleetPlain, "", "stable"}, {FleetSigned, "-signed", "signed"}, {FleetSigned, "-signed-kms", bundlelane.SignedKMSChannel}},
-		Signing:   []string{FleetSigned},
+		Artifacts: []Artifact{{FleetPlain, "", "stable"}},
 	}
 	if err := WriteMeta("fleet", meta); err != nil {
 		return CouldNotRun("%v", err)
@@ -196,16 +179,16 @@ func (r Run) stage(inj bundlelane.Injection) *Fault {
 // evaluates to, what was injected, and the composition with the policy.
 func (r Run) gateFleet(ctx context.Context, scratch string, inj bundlelane.Injection, fluxSHA string) *Fault {
 	plain := filepath.Join(OutDir(), FleetPlain)
-	signed, bad := ReadFile(filepath.Join(OutDir(), FleetSigned))
+	built, bad := ReadFile(plain)
 	if bad != nil {
 		return bad
 	}
-	manifest, ok, err := Member(signed, "/.manifest")
+	manifest, ok, err := Member(built, "/.manifest")
 	if err != nil || !ok {
-		return Findings("%s carries no /.manifest: %v", FleetSigned, err)
+		return Findings("%s carries no /.manifest: %v", FleetPlain, err)
 	}
 	if !bundlelane.RootsAreFleet(manifest) {
-		return Findings("the signed roster's manifest no longer declares exactly [fleet]: %s", manifest)
+		return Findings("the roster's manifest no longer declares exactly [fleet]: %s", manifest)
 	}
 	// Evaluated, not read out of the tarball: data.fleet.stars may be a rule.
 	roster, code, bad := r.Exec(ctx, "evaluating the built roster", r.In.Root, "", "opa", "eval", "-b", plain, "--format", "raw", "data")

@@ -50,10 +50,9 @@ var atomsSourceInclude = []string{
 	"internal/witreplay/**",
 	"internal/retiredverbs/**",
 	"internal/releasekit/**",
-	// the bundle lane's build (bundle:policy, :fleet, :resign) and its decisions
+	// the bundle lane's build (bundle:policy, :fleet) and its decisions
 	"internal/bundlekit/**",
 	"internal/bundlelane/**",
-	"internal/bundleresign/**",
 	// the chairman base's validation (bases:chairman)
 	"internal/chairmanfixed/**",
 	// the cast lane's compile (rust:cast-release, go:cast-release) and its decisions

@@ -36,7 +36,7 @@ func TestLaneErrors(t *testing.T) {
 		{"UT-606", ph("name = \"x\"\nkind = \"fanout\"\n"), "phase x: names no atoms and no capability"},
 		{"UT-607", ph("name = \"a\"\nkind = \"fanout\"\natoms = [\"stage:precommit\"]\nafter = [\"b\"]\n[[phase]]\nname = \"b\"\nkind = \"fanout\"\natoms = [\"stage:precommit\"]\n"), "phase a: after b, which is not an earlier phase"},
 		{"UT-608", ph("name = \"x\"\nkind = \"fanout\"\natoms = [\"stage:precommit\"]\n[[phase]]\nname = \"x\"\nkind = \"fanout\"\natoms = [\"stage:precommit\"]\n"), "phase x is named twice"},
-		{"UT-609", ph("name = \"sign\"\nkind = \"sequence\"\ncapability = \"kms-sign\"\nsecrets = [\"infisical-kms\"]\n[[phase]]\nname = \"push\"\nkind = \"fanout\"\ncapability = \"push-bundle\"\nsecrets = [\"infisical-kms\"]\n"), "secret infisical-kms is named by phases sign and push"},
+		{"UT-609", ph("name = \"sign\"\nkind = \"sequence\"\ncapability = \"scan\"\nsecrets = [\"infisical-kms\"]\n[[phase]]\nname = \"push\"\nkind = \"fanout\"\ncapability = \"push-bundle\"\nsecrets = [\"infisical-kms\"]\n"), "secret infisical-kms is named by phases sign and push"},
 	} {
 		_, err := ParseLane([]byte(c.src))
 		if err == nil || err.Error() != c.want {
@@ -70,7 +70,7 @@ func TestEveryKnownLaneAccepted(t *testing.T) {
 }
 
 func TestEveryCapabilityAccepted(t *testing.T) {
-	for _, c := range []string{"release", "assemble", "scan", "kms-sign", "publish", "push-bundle", "layer-cast", "build-atoms", "dev-output", "push-visual"} {
+	for _, c := range []string{"release", "assemble", "scan", "publish", "push-bundle", "layer-cast", "build-atoms", "dev-output", "push-visual"} {
 		src := "schema = \"lane@1\"\nlane = \"build\"\n\n[[phase]]\nname = \"p\"\nkind = \"fanout\"\ncapability = \"" + c + "\"\n"
 		if _, err := ParseLane([]byte(src)); err != nil {
 			t.Errorf("capability %s: %v", c, err)
@@ -96,13 +96,13 @@ func TestUT_611_ExpandPhasesAsGiven(t *testing.T) {
 func TestIT_171_BundlePhases(t *testing.T) {
 	src := "schema = \"lane@1\"\nlane = \"bundle\"\n" +
 		"[[phase]]\nname = \"build\"\nkind = \"fanout\"\natoms = [\"stage:prepush\"]\n" +
-		"[[phase]]\nname = \"sign\"\nkind = \"sequence\"\ncapability = \"kms-sign\"\nafter = [\"build\"]\nsecrets = [\"infisical-kms\"]\n" +
+		"[[phase]]\nname = \"sign\"\nkind = \"sequence\"\ncapability = \"scan\"\nafter = [\"build\"]\nsecrets = [\"infisical-kms\"]\n" +
 		"[[phase]]\nname = \"push\"\nkind = \"fanout\"\ncapability = \"push-bundle\"\nafter = [\"sign\"]\n"
 	d, err := ParseLane([]byte(src))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(d.Phases) != 3 || d.Phases[1].Capability != "kms-sign" || d.Phases[2].After[0] != "sign" || d.Phases[1].Secrets[0] != "infisical-kms" {
+	if len(d.Phases) != 3 || d.Phases[1].Capability != "scan" || d.Phases[2].After[0] != "sign" || d.Phases[1].Secrets[0] != "infisical-kms" {
 		t.Fatalf("%+v", d.Phases)
 	}
 }
@@ -114,7 +114,7 @@ func TestUT_615_LaneGoldenDecodes(t *testing.T) {
 	if err := json.Unmarshal(readGolden(t, "lane"), &d); err != nil {
 		t.Fatal(err)
 	}
-	if d.Lane != "bundle" || len(d.Phases) != 3 || d.Phases[1].Capability != "kms-sign" {
+	if d.Lane != "bundle" || len(d.Phases) != 3 || d.Phases[1].Capability != "scan" {
 		t.Fatalf("%+v", d)
 	}
 	if err := roundTrip[LaneDef](readGolden(t, "lane")); err != nil {

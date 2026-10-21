@@ -33,7 +33,7 @@ func TestFleetStagesTheRosterAndBuildsItFromTheStageDirectory(t *testing.T) {
 	}
 	// opa names a rego file by the path it was built from: the stage's own.
 	want := "opa build -b " + w.stage + " -o " + filepath.Join(w.out, "fleet-bundle.tar.gz") + " --revision " + sha + "-ffedcba9"
-	if w.ran(want) != 1 || w.ran("-o "+filepath.Join(w.out, "fleet-bundle-signed.tar.gz")+" --revision "+sha+"-ffedcba9 --signing-key") != 1 {
+	if w.ran(want) != 1 || w.ran("--signing") != 0 {
 		t.Errorf("builds: %v", w.calls)
 	}
 	m, err := ReadMeta("fleet")
@@ -41,14 +41,14 @@ func TestFleetStagesTheRosterAndBuildsItFromTheStageDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	if m.Die != bundlelane.FleetDie || m.Pin != "g0123456-ffedcba9" || m.Revision != sha+"-ffedcba9" || !m.Publish || !m.PublishIfMissing ||
-		m.Artifacts[1] != (Artifact{"fleet-bundle-signed.tar.gz", "-signed", "signed"}) || m.Signing[0] != "fleet-bundle-signed.tar.gz" {
+		len(m.Artifacts) != 1 || m.Artifacts[0] != (Artifact{"fleet-bundle.tar.gz", "", "stable"}) {
 		t.Errorf("meta %+v", m)
 	}
 	if w.ran("--revision gate") != 1 || w.ran("data.admission.deny") != 1 || w.ran("--format raw data") != 1 {
 		t.Errorf("gates: %v", w.calls)
 	}
-	if _, err := os.Stat(filepath.Join(w.out, "fleet-bundle-signed.tar.gz.signing-input")); err != nil {
-		t.Error(err)
+	if entries, _ := filepath.Glob(filepath.Join(w.out, "*signed*")); len(entries) != 0 {
+		t.Errorf("signed leftovers: %v", entries)
 	}
 }
 
@@ -158,9 +158,7 @@ func TestFleetWriteFaults(t *testing.T) {
 		{".manifest", ".manifest could not be staged"},
 		{"stage/fleet/data.json", "fleet/ could not be staged"},
 		{"fleet/declared/data.json", "could not be staged"},
-		{"sign.key", "ephemeral signing key"},
 		{"planted-seams.json", "composition probe could not be written"},
-		{"fleet-bundle-signed.tar.gz.signing-input", "signing input of fleet-bundle-signed.tar.gz"},
 		{"fleet" + MetaSuffix, "fleet.meta.json"},
 	} {
 		w := newWorld(t, nil)

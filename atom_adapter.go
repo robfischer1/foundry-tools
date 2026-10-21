@@ -103,8 +103,8 @@ var (
 	// release directory's resolution and the exit vocabulary.
 	publishPackDirs = []string{"internal/publishpack/**", "internal/publishlane/**", "internal/releasekit/**", "internal/buildlane/**"}
 	// bundleDirs are what the bundle lane's atoms share: the build and its
-	// gates, the lane's decisions about the dies and the KMS re-sign's byte work.
-	bundleDirs = []string{"internal/bundlekit/**", "internal/bundlelane/**", "internal/bundleresign/**"}
+	// gates and the lane's decisions about the dies.
+	bundleDirs = []string{"internal/bundlekit/**", "internal/bundlelane/**"}
 )
 
 // atomLibraries are the packages an atom imports that not every atom does, by
@@ -133,7 +133,6 @@ var atomLibraries = map[string][]string{
 	"go:release":                 releaseDirs,
 	"bundle:policy":              bundleDirs,
 	"bundle:fleet":               bundleDirs,
-	"bundle:resign":              bundleDirs,
 	"go:cast-release":            castReleaseDirs,
 	"python:artifacts":           publishPackDirs,
 	"ts:pack":                    publishPackDirs,

@@ -8,23 +8,18 @@ import (
 
 	"dagger/foundry-tools/internal/atoms"
 	"dagger/foundry-tools/internal/bundlelane"
-	"dagger/foundry-tools/internal/bundleresign"
 	"dagger/foundry-tools/internal/checks"
 )
 
 // The policy die's files in the out directory.
 const (
-	PolicyPlain  = "bundle.tar.gz"
-	PolicySigned = "bundle-signed.tar.gz"
-	// SigningInputSuffix ends the file beside a twin holding the header.payload
-	// the KMS signs.
-	SigningInputSuffix = ".signing-input"
+	PolicyPlain = "bundle.tar.gz"
 )
 
 // Policy is the policy die, built twice and gated, after the Dagger bundle lane's
 // policy() (bundle.go): the decision table derived and laid into a copy of
-// policy/, the die built plain and as a twin whose signature the KMS replaces
-// (bundle:resign), and the artifact gated for what it carries. The unit suite and
+// policy/, the die built once and UNSIGNED (ouranos loads it with no key), and
+// the artifact gated for what it carries. The unit suite and
 // the admission dogfood are the lane's gate atoms (dies:opa-test,
 // dies:admission-dogfood), which run before this.
 //
@@ -58,74 +53,26 @@ func Policy(ctx context.Context, r Run) *Fault {
 	if bad != nil {
 		return bad
 	}
-	key, bad := ephemeralKey(scratch)
-	if bad != nil {
-		return bad
-	}
 	if err := os.MkdirAll(OutDir(), 0o755); err != nil {
 		return CouldNotRun("the bundle directory could not be made: %v", err)
 	}
-	for _, b := range []struct {
-		file string
-		sign bool
-	}{{PolicyPlain, false}, {PolicySigned, true}} {
-		args := []string{"build", "-b", "policy/", "-o", filepath.Join(OutDir(), b.file), "--revision", sha, "--ignore", "*_test.rego"}
-		if b.sign {
-			args = append(args, "--signing-key", key, "--signing-alg", "ES256")
-		}
-		out, code, bad := r.Exec(ctx, "opa build", scratch, "", "opa", args...)
-		if bad != nil {
-			return bad
-		}
-		if code != 0 {
-			return Findings("opa build over policy/ failed:\n%s", out)
-		}
+	args := []string{"build", "-b", "policy/", "-o", filepath.Join(OutDir(), PolicyPlain), "--revision", sha, "--ignore", "*_test.rego"}
+	out, code, bad := r.Exec(ctx, "opa build", scratch, "", "opa", args...)
+	if bad != nil {
+		return bad
+	}
+	if code != 0 {
+		return Findings("opa build over policy/ failed:\n%s", out)
 	}
 	if bad := r.gatePolicy(ctx, scratch, table); bad != nil {
 		return bad
 	}
-	if bad := WriteSigningInput(filepath.Join(OutDir(), PolicySigned)); bad != nil {
-		return bad
-	}
 	meta := Meta{
 		Die: bundlelane.PolicyDie, Kind: "bundle", Pin: pin, Revision: sha, Sha: sha, Publish: publish,
-		Artifacts: []Artifact{{PolicyPlain, "", "stable"}, {PolicySigned, "-signed", "signed"}, {PolicySigned, "-signed-kms", bundlelane.SignedKMSChannel}},
-		Signing:   []string{PolicySigned},
+		Artifacts: []Artifact{{PolicyPlain, "", "stable"}},
 	}
 	if err := WriteMeta("policy", meta); err != nil {
 		return CouldNotRun("%v", err)
-	}
-	return nil
-}
-
-// ephemeralKey writes the throwaway P-256 key the twin is built with: OPA needs
-// SOME key to compute the file hashes and the canonical payload, and the
-// signature it makes is replaced by the KMS's.
-func ephemeralKey(dir string) (string, *Fault) {
-	p := filepath.Join(dir, "sign.key")
-	pem, err := bundlelane.EphemeralKey()
-	if err == nil {
-		err = osWrite(p, []byte(pem), 0o600)
-	}
-	if err != nil {
-		return "", CouldNotRun("an ephemeral signing key could not be made: %v", err)
-	}
-	return p, nil
-}
-
-// WriteSigningInput leaves <twin>.signing-input beside a twin: the
-// header.payload its throwaway signature covers, with the key id ouranos pins.
-func WriteSigningInput(twin string) *Fault {
-	tgz, bad := ReadFile(twin)
-	if bad != nil {
-		return bad
-	}
-	input, err := bundleresign.SigningInput(tgz, bundlelane.OPAKeyID)
-	if err != nil {
-		return CouldNotRun("bundleresign input %s: %v", filepath.Base(twin), err)
-	}
-	if err := osWrite(twin+SigningInputSuffix, []byte(input), 0o644); err != nil {
-		return CouldNotRun("the signing input of %s could not be written: %v", filepath.Base(twin), err)
 	}
 	return nil
 }
