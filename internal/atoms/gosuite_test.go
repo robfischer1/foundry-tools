@@ -340,6 +340,24 @@ func TestGoSuiteCannotRunWhenTheTreeWillNotShowItsProvenance(t *testing.T) {
 	}
 }
 
+// A WIT snapshot record the suite cannot read, or a tree it cannot walk, is a could-not-run
+// like an unreadable provenance: the snapshot test cannot be required of what is not seen.
+func TestGoSuiteCannotRunWhenTheTreeWillNotShowItsWitSnapshotRecord(t *testing.T) {
+	f := &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}}}
+	in := gosuiteIn(t, f, map[string]string{"go.mod": gosuiteGo})
+	put(t, in.Root, "pkg/wit/other", "")
+	if err := os.Symlink("nowhere", filepath.Join(in.Root, "pkg", "wit", "SOURCE.json")); err != nil {
+		t.Fatal(err)
+	}
+	v := GoSuite(t.Context(), in, GoRaceRow, ".", false)
+	if v.State != 2 || !strings.Contains(v.Reason, "CANNOT RUN - the tree's provenance could not be read") {
+		t.Errorf("%+v", v)
+	}
+	if _, err := witSnapshotPlan(Input{Root: "/nonexistent-tree-for-the-suite"}); !errors.Is(err, errGoGravityRead) {
+		t.Errorf("a tree that will not walk: %v", err)
+	}
+}
+
 // EACH SCOPE LINE IS ITS OWN, on every branch of the reads: the database line
 // and the broker line both say why, and a reason one of them carries must not
 // pass for the other's.
