@@ -63,7 +63,7 @@ func TestStopJustifications(t *testing.T) {
 }
 
 // Justification expiry is the reason this atom is whole-tree scope. The grant
-// below ends 2026-10-20 (checks.DirectoryExemption); Now is converted to UTC
+// below ends 2026-11-20 (checks.DirectoryExemption); Now is converted to UTC
 // before the date is taken, so 23:30 on the 20th in New York — already the
 // 21st in UTC — is past it.
 func TestStopJustificationsReadsTheUTCDate(t *testing.T) {
@@ -75,9 +75,9 @@ func TestStopJustificationsReadsTheUTCDate(t *testing.T) {
 		now       time.Time
 		wantState int
 	}{
-		{"the grant's last day, UTC", time.Date(2026, 10, 20, 10, 0, 0, 0, time.UTC), 0},
-		{"the day after, UTC", time.Date(2026, 10, 21, 0, 0, 1, 0, time.UTC), 1},
-		{"the 20th in New York is the 21st in UTC", time.Date(2026, 10, 20, 23, 30, 0, 0, newYork), 1},
+		{"the grant's last day, UTC", time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC), 0},
+		{"the day after, UTC", time.Date(2026, 11, 21, 0, 0, 1, 0, time.UTC), 1},
+		{"the 20th in New York is the 21st in UTC", time.Date(2026, 11, 20, 23, 30, 0, 0, newYork), 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			in := atomkit.In{Root: dir, Tracked: []string{"bases/blade-go/Dockerfile"}, Origin: "http://door/foundry-stocks.git", Now: tc.now}
