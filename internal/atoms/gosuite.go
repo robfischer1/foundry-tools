@@ -93,6 +93,19 @@ func goSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race b
 		}
 		env = append(env, checks.GravitySHA256Env+"="+sum)
 	}
+	// THE WIT SNAPSHOT TESTS RUN INSTEAD OF SKIPPING where the tree holds snapshots
+	// (<pkg>/wit/SOURCE.json): the wasm-tools they need is the lane's.
+	wits, err := witSnapshotPlan(in)
+	if err != nil {
+		return checks.VerdictOf(a, 2, a.ID+": CANNOT RUN - "+err.Error())
+	}
+	for _, w := range wits {
+		env = append(env, w.Env+"=1")
+	}
+	var witScope string
+	if len(wits) > 0 {
+		witScope = checks.WitSnapshotScope(wits) + "\n"
+	}
 	// THE SUITE RUNS AS A DEVELOPER RUNS IT: the pod's per-atom variables name
 	// the atom's work directory, which tests that provoke an unwritable
 	// TMPDIR would otherwise be redirected around (WorkDir). An empty value
@@ -152,7 +165,7 @@ func goSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race b
 		return CouldNotStart(a, out)
 	}
 	v := checks.VerdictOf(a, code, out)
-	v.Reason = scope + "\n" + plan.Scope + "\n" + v.Reason
+	v.Reason = scope + "\n" + plan.Scope + "\n" + witScope + v.Reason
 	return v
 }
 
@@ -272,4 +285,25 @@ func goGravityPlan(in Input) (checks.GravityPlan, error) {
 		return checks.GravityPlan{}, fmt.Errorf("%w: %v", errGoGravityRead, err)
 	}
 	return checks.PlanGravity(files, tests)
+}
+
+// witSnapshotPlan finds the packages whose WIT snapshots the suite re-extracts.
+func witSnapshotPlan(in Input) ([]checks.WitSnapshot, error) {
+	all, err := in.tree().files()
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", errGoGravityRead, err)
+	}
+	files := map[string]string{}
+	var readErrs []error
+	for _, p := range all {
+		if path.Base(p) == checks.WitSnapshotSource && path.Base(path.Dir(p)) == "wit" {
+			body, rerr := in.tree().read(p)
+			readErrs = append(readErrs, rerr)
+			files[p] = body
+		}
+	}
+	if err := errors.Join(readErrs...); err != nil {
+		return nil, fmt.Errorf("%w: %v", errGoGravityRead, err)
+	}
+	return checks.WitSnapshots(files), nil
 }

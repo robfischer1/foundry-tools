@@ -39,14 +39,19 @@ func RegenEnv(dir string) string {
 	if dir == "." {
 		return "REGEN_REQUIRED"
 	}
-	base := strings.ToUpper(path.Base(dir))
-	b := []byte(base)
+	return envBase(dir) + "_REGEN_REQUIRED"
+}
+
+// envBase is a package directory's base name as an environment-variable stem:
+// upper-cased, anything that is not a letter or digit an underscore.
+func envBase(dir string) string {
+	b := []byte(strings.ToUpper(path.Base(dir)))
 	for i, c := range b {
 		if (c < 'A' || c > 'Z') && (c < '0' || c > '9') {
 			b[i] = '_'
 		}
 	}
-	return string(b) + "_REGEN_REQUIRED"
+	return string(b)
 }
 
 // RegenTestFile is the file name a package carries when it has the
