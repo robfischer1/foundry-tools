@@ -134,7 +134,9 @@ type ExemptRow struct {
 //	2026-10-20: "Extend the grant" (session e1dba511, turn 3585,
 //	2026-09-16T21:46:23Z), Rob's answer over the two-container split and a
 //	setuid launcher; the root-then-runuser redesign stays open as
-//	foundry-stocks work.
+//	foundry-stocks work. Extended again to 2026-11-20 on 2026-10-21: "Extend
+//	only." (Rob's call, relayed by dispatch hopper43-b4-DLX1; the session turn
+//	is not recorded here).
 //
 //	wrecksys docker/ and src/wrecksys_one/, DL3026 — "give wrecksys an approved
 //	exemption to that rule. If it needs a quote - Wrecksys is my own personal,
@@ -156,14 +158,14 @@ var DirectoryExempt = []ExemptRow{
 	},
 	{
 		Repo: "foundry-stocks", Prefix: "bases/blade-", Rule: "DL3002", Approved: "2026-09-13",
-		Expires:    "2026-10-20",
-		Provenance: "session b4bbf354, turn 3370; extended in session e1dba511, turn 3585",
+		Expires:    "2026-11-20",
+		Provenance: "session b4bbf354, turn 3370; extended in session e1dba511, turn 3585; extended again 2026-10-21 (Rob: \"Extend only.\", relayed by dispatch hopper43-b4-DLX1)",
 		Reason:     "the entrypoint runusers the gate and the work; non-root cannot",
 	},
 	{
 		Repo: "foundry-stocks", Prefix: "bases/chairman/", Rule: "DL3002", Approved: "2026-09-13",
-		Expires:    "2026-10-20",
-		Provenance: "session b4bbf354, turn 3370; confirmed in session c128c3c8, turn 1975; extended in session e1dba511, turn 3585",
+		Expires:    "2026-11-20",
+		Provenance: "session b4bbf354, turn 3370; confirmed in session c128c3c8, turn 1975; extended in session e1dba511, turn 3585; extended again 2026-10-21 (Rob: \"Extend only.\", relayed by dispatch hopper43-b4-DLX1)",
 		Reason:     "the same runuser seam as the blade bases",
 	},
 	{

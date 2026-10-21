@@ -263,7 +263,7 @@ func TestStopJustificationsDirectoryExemption(t *testing.T) {
 	wantSJ(t, "a bare suppression names nothing", 1, "cerberus", map[string]string{"probes/drive.py": "p = Popen([x])  # " + sjNoqa + "\n"})
 	wantSJ(t, "a different rule", 1, "cerberus", map[string]string{"probes/other.py": "x = 1  # " + sjNoqa + ": BLE001\n"})
 	blade := "FROM x\n# " + sjHado + " ignore=DL3002\n"
-	if out := wantSJ(t, "the temporary grant prints its expiry", 0, "foundry-stocks", map[string]string{"bases/blade-go/Dockerfile": blade}); !strings.Contains(out, "DL3002 — the entrypoint runusers the gate and the work; non-root cannot — EXPIRES 2026-10-20") {
+	if out := wantSJ(t, "the temporary grant prints its expiry", 0, "foundry-stocks", map[string]string{"bases/blade-go/Dockerfile": blade}); !strings.Contains(out, "DL3002 — the entrypoint runusers the gate and the work; non-root cannot — EXPIRES 2026-11-20") {
 		t.Errorf("the expiry rides on the excuse:\n%s", out)
 	}
 }
@@ -276,8 +276,8 @@ func TestDirectoryExemptionHonoursTheExpiryAndNothingWider(t *testing.T) {
 		label, repo, rel, line, today string
 		excused                       bool
 	}{
-		{"a blade base on its last day", "foundry-stocks", "bases/blade-go/Dockerfile", pragma, "2026-10-20", true},
-		{"and nothing the day after", "foundry-stocks", "bases/blade-go/Dockerfile", pragma, "2026-10-21", false},
+		{"a blade base on its last day", "foundry-stocks", "bases/blade-go/Dockerfile", pragma, "2026-11-20", true},
+		{"and nothing the day after", "foundry-stocks", "bases/blade-go/Dockerfile", pragma, "2026-11-21", false},
 		{"chairman carries the same row", "foundry-stocks", "bases/chairman/Dockerfile", pragma, "2026-09-13", true},
 		{"a second rule", "foundry-stocks", "bases/blade-go/Dockerfile", pragma + ",DL3008", "2026-09-13", false},
 		{"the same rule twice is one rule", "foundry-stocks", "bases/blade-go/Dockerfile", pragma + ", DL3002", "2026-09-13", true},
