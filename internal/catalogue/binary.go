@@ -14,8 +14,8 @@ import (
 // package at run time) and a container on every repository's gate for atoms that
 // settle absent inside their own check. The adapter stays their re-ask.
 //
-// The eight python ops and template atoms (ops:ansible, ops:declaration,
-// ops:dup, ops:metrics, ops:specs, ops:star-sa, ops:world-patches and
+// The nine python ops, fleet and template atoms (ops:ansible, ops:declaration,
+// ops:dup, ops:metrics, ops:specs, ops:star-sa, fleet:lane-sa-check, ops:world-patches and
 // template:render-matrix) are not here: they declare toolchain none and Needs
 // pytools. On the executor they run in lead, whose image has git and no python,
 // with the python and uv image tools and the venv daedalus builds from

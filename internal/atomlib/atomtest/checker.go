@@ -46,7 +46,7 @@ func CheckerTree(t testing.TB, tool string, mode os.FileMode, answer func(atoms.
 // checker's presence, the probe, the run and the settle. run is the atom's check.
 func CheckerSuite(t testing.TB, run func(context.Context, atoms.Input) checks.Verdict, c Checker) {
 	t.Helper()
-	phase := strings.TrimPrefix(c.ID, "ops:")
+	_, phase, _ := strings.Cut(c.ID, ":")
 	for _, k := range []struct {
 		name    string
 		code    int
