@@ -10,7 +10,7 @@ schema = "tools@1"
 go = "registry.notusmi.com/foundry/base-images/go:stable@sha256:99bd0b3b464b64dc0bee7a8d95c7107b8f0a456b3c45798323f4cd03d3f72bcd"
 
 [toolchain.go]
-image = "docker.io/library/golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61"
+image = "docker.io/library/golang:1.27.3-bookworm@sha256:5c3e9b43cfd3bb95c7937462e29d87ada57b481a96fa23ad0eb61778d7a00110"
 preflight = ["go", "mod", "download"]
 
 [toolchain.python]
@@ -206,9 +206,9 @@ sha256 = "61407015edaeafa9b61b3ffefb5077624cd4017ac50be05e246bcadafbb56d99"
 # toolchain zip (checks.GofmtToolchainURL), a host the transparent cache serves.
 [tool.gofmt]
 kind = "url"
-spec = "https://proxy.golang.org/golang.org/toolchain/@v/v0.0.1-go1.27.2.linux-amd64.zip"
-version = "1.27.2"
-sha256 = "3a467ed067f27cd55bf3a702f8e2bf12479f53c9d8ae0de548f48ebcb3c67796"
+spec = "https://proxy.golang.org/golang.org/toolchain/@v/v0.0.1-go1.27.3.linux-amd64.zip"
+version = "1.27.3"
+sha256 = "af4c06478303fdd1bfb335fab86c7ccb9b12e529044a946a16a1c4bcc779f8d7"
 
 # The rust compilers dev:go-regen lays for a core pinned to a rustc the rust image
 # does not carry (checks.RustDists): static.rust-lang.org's dist tarballs for the
@@ -319,7 +319,7 @@ image = "docker.io/oven/bun:1.4-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa8
 # the container's.
 [tool.git]
 kind = "image"
-image = "docker.io/library/golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61"
+image = "docker.io/library/golang:1.27.3-bookworm@sha256:5c3e9b43cfd3bb95c7937462e29d87ada57b481a96fa23ad0eb61778d7a00110"
 bins = ["usr/bin/git"]
 
 # node for a container that has none or only bun's stand-in (the bun image puts
