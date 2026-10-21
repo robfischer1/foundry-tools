@@ -285,6 +285,23 @@ func TestGoSuiteRequiresTheRegenTestsOfPackagesThatOptedIn(t *testing.T) {
 	}
 }
 
+// THE WIT SNAPSHOT TEST IS REQUIRED where the tree holds snapshots: its variable rides the
+// suite's exec, and the scope line says so.
+func TestGoSuiteRequiresTheWitSnapshotTestWhereTheTreeHoldsSnapshots(t *testing.T) {
+	f := &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}}}
+	v := gosuiteVerdict(t, f, map[string]string{
+		"go.mod":                      gosuiteGo,
+		"genregistry/wit/SOURCE.json": `{"tool":"wasm-tools 1.261.0","command":"wasm-tools component wit --json {pkg}/guest.wasm"}`,
+	}, false)
+	if v.State != 0 || !strings.Contains(v.Reason, "wit: GENREGISTRY_WIT_REQUIRED=1 makes a missing wasm-tools a failure") {
+		t.Fatalf("%+v", v)
+	}
+	env := strings.Join(f.envs[len(f.envs)-1], " ")
+	if env != "GENREGISTRY_WIT_REQUIRED=1 "+strings.Join(suiteScrub, " ") {
+		t.Errorf("the suite's exec carries %q", env)
+	}
+}
+
 func TestGoSuiteFilesAProvenanceItCannotHonourAsAFinding(t *testing.T) {
 	f := &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}}}
 	v := gosuiteVerdict(t, f, map[string]string{
@@ -320,6 +337,24 @@ func TestGoSuiteCannotRunWhenTheTreeWillNotShowItsProvenance(t *testing.T) {
 	v = GoSuite(t.Context(), Input{Root: "/nonexistent-tree-for-the-suite", Exec: f.exec}, GoRaceRow, ".", false)
 	if v.State != 2 || !strings.Contains(v.Reason, "CANNOT RUN - the tree's provenance could not be read") {
 		t.Errorf("%+v", v)
+	}
+}
+
+// A WIT snapshot record the suite cannot read, or a tree it cannot walk, is a could-not-run
+// like an unreadable provenance: the snapshot test cannot be required of what is not seen.
+func TestGoSuiteCannotRunWhenTheTreeWillNotShowItsWitSnapshotRecord(t *testing.T) {
+	f := &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}}}
+	in := gosuiteIn(t, f, map[string]string{"go.mod": gosuiteGo})
+	put(t, in.Root, "pkg/wit/other", "")
+	if err := os.Symlink("nowhere", filepath.Join(in.Root, "pkg", "wit", "SOURCE.json")); err != nil {
+		t.Fatal(err)
+	}
+	v := GoSuite(t.Context(), in, GoRaceRow, ".", false)
+	if v.State != 2 || !strings.Contains(v.Reason, "CANNOT RUN - the tree's provenance could not be read") {
+		t.Errorf("%+v", v)
+	}
+	if _, err := witSnapshotPlan(Input{Root: "/nonexistent-tree-for-the-suite"}); !errors.Is(err, errGoGravityRead) {
+		t.Errorf("a tree that will not walk: %v", err)
 	}
 }
 

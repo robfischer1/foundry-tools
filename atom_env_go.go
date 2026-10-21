@@ -26,6 +26,19 @@ func goGravity(ctx context.Context, r *run, ctr *dagger.Container) *dagger.Conta
 	return staged
 }
 
+// goWitTools puts wasm-tools on PATH where the tree holds WIT snapshots
+// (<pkg>/wit/SOURCE.json, checks.WitSnapshots), so the suite's snapshot-vs-guest test
+// runs; the suite itself sets the variable that makes it fail rather than skip. The
+// lane's pinned wasm-tools, not the 1.261.0 the snapshots record: checks.WitSnapshotNeeds
+// has the measurement. A tree with none pays nothing.
+func goWitTools(ctx context.Context, r *run, ctr *dagger.Container) *dagger.Container {
+	found, err := r.src.Glob(ctx, "**/wit/"+checks.WitSnapshotSource)
+	if err != nil || len(found) == 0 {
+		return ctr
+	}
+	return witTools(false)(ctx, r, ctr)
+}
+
 // goSuiteLane binds, to the container the suite runs in, the gravity binary and
 // the servers the tree's suites need. A scope names the lane's own servers: two
 // atoms that run the suite at once (go:test-race and go:diff-coverage) must not
@@ -33,7 +46,7 @@ func goGravity(ctx context.Context, r *run, ctr *dagger.Container) *dagger.Conta
 // for the unit suite, which compiles no tag.
 func goSuiteLane(scope string, servers bool) func(context.Context, *run, *dagger.Container) *dagger.Container {
 	return func(ctx context.Context, r *run, ctr *dagger.Container) *dagger.Container {
-		ctr = goGravity(ctx, r, ctr)
+		ctr = goWitTools(ctx, r, goGravity(ctx, r, ctr))
 		if !servers {
 			return ctr
 		}

@@ -117,7 +117,7 @@ func TestTheDeclarationValidatesAndNamesItsRow(t *testing.T) {
 	}
 	if Def.ID != id || Def.Stage != checks.StagePrepush || Def.Lane != checks.LaneGo || Def.Group != checks.GroupOf(id) ||
 		Def.Toolchain != "go" || Def.Surface != "any:**/go.mod" || Def.NotOnForks != checks.ForkChangeBar || Def.SubsumedBy != "" ||
-		strings.Join(Def.Needs, ",") != "dies,service:postgres,service:pgvector,service:redpanda,service:redis,service:etcd,service:kube-apiserver,service:timescale,"+strings.Join(checks.GravityNeeds(), ",") {
+		strings.Join(Def.Needs, ",") != "dies,service:postgres,service:pgvector,service:redpanda,service:redis,service:etcd,service:kube-apiserver,service:timescale,"+strings.Join(checks.GravityNeeds(), ",")+",tool:wasm-tools" {
 		t.Errorf("%+v", Def)
 	}
 }

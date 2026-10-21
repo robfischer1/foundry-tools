@@ -395,3 +395,25 @@ func TestGoTestStagesNothingForAProvenanceItCannotHonourOrRead(t *testing.T) {
 		}
 	}
 }
+
+const witSource = `{"tool":"wasm-tools 1.261.0","command":"wasm-tools component wit --json {pkg}/guest.wasm","cores":{}}`
+
+// THE SNAPSHOT TEST GETS ITS wasm-tools where the tree holds WIT snapshots: the lane's
+// pinned one, fetched, extracted and proved, so the test the suite requires can run.
+func TestGoTestStagesWasmToolsWhereTheTreeHoldsWitSnapshots(t *testing.T) {
+	c := gravityRun(t, map[string]string{"go/genregistry/wit/SOURCE.json": witSource})
+	wantCalls(t, c,
+		[]string{"withExec", `args:["tar","xzf","/tmp/wasm-tools.tar.gz","-C","/usr/local/bin","--strip-components=1","` + checks.WasmToolsMember + `"]`},
+		[]string{"withExec", `args:["wasm-tools","--version"]`},
+	)
+	if pinnedFetch(checks.WasmToolsURL, "id") == "" {
+		t.Errorf("the pinned wasm-tools was not fetched:\n%v", engine.chains())
+	}
+}
+
+func TestGoTestStagesNoWasmToolsWithoutWitSnapshots(t *testing.T) {
+	c := gravityRun(t, map[string]string{"go/other/SOURCE.json": witSource})
+	if hasCall(c, "withExec", `args:["wasm-tools","--version"]`) {
+		t.Errorf("wasm-tools was staged for a tree with no wit/SOURCE.json:\n%s", c)
+	}
+}
