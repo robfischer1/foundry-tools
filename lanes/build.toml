@@ -30,7 +30,10 @@ after = ["assemble"]
 name = "scan"
 kind = "sequence"
 capability = "scan"
-after = ["validate"]
+# assemble is named as well as validate: on a tree with no bases/ the validate
+# phase's only atom is ABSENT, the phase is empty and done at once, and scan
+# would otherwise start before assemble has written /work/image.
+after = ["assemble", "validate"]
 
 # ca-build-registry is BUILD_JOB_SECRETS in flux prime/daedalus-jobs.yaml.
 [[phase]]

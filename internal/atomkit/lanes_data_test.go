@@ -181,8 +181,14 @@ func TestBasesPhasesValidateBetweenAssembleAndScan(t *testing.T) {
 		if !slices.Equal(names, []string{"release", "assemble", "validate", "scan", "publish"}) {
 			t.Fatalf("%s: %v", l, names)
 		}
-		if !slices.Equal(by["validate"].Atoms, []string{"bases:chairman"}) || !slices.Equal(by["validate"].After, []string{"assemble"}) || !slices.Equal(by["scan"].After, []string{"validate"}) {
+		if !slices.Equal(by["validate"].Atoms, []string{"bases:chairman"}) || !slices.Equal(by["validate"].After, []string{"assemble"}) || !slices.Equal(by["scan"].After, []string{"assemble", "validate"}) {
 			t.Errorf("%s: %+v", l, d.Phases)
+		}
+		// DEF-B6-048: on a tree with no bases/ the validate phase's only atom is
+		// ABSENT, the phase is empty and counts as done at once, so scan must name
+		// assemble itself or it runs before /work/image exists; publish follows scan.
+		if !slices.Contains(by["scan"].After, "assemble") || !slices.Contains(by["publish"].After, "scan") {
+			t.Errorf("%s: scan must wait for assemble and publish for scan: scan.After=%v publish.After=%v", l, by["scan"].After, by["publish"].After)
 		}
 	}
 }
