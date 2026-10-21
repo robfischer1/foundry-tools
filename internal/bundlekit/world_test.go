@@ -223,15 +223,6 @@ func bundleOf(t *testing.T, files map[string]string) []byte {
 	return out.Bytes()
 }
 
-func (w *world) read(rel string) string {
-	w.t.Helper()
-	b, err := os.ReadFile(filepath.Join(w.out, rel))
-	if err != nil {
-		w.t.Fatal(err)
-	}
-	return string(b)
-}
-
 func expect(t *testing.T, f *Fault, findings bool, needles ...string) {
 	t.Helper()
 	if f == nil {
