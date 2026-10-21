@@ -174,7 +174,7 @@ const (
 	// infisical://<name>` reaches a non-exportable Infisical KMS key (plan
 	// "Trust Roots to KMS", T1). It is the fleet's own registry, not a mirror of
 	// an upstream: the carrier is built here. Digest resolved 2026-10-05.
-	ImageSigningTools = "registry.notusmi.com/foundry/base-images/signing-tools:stable@sha256:e15ba67886b94bec6cb11f58cbe7746812f3372857e4042294ec7d389a808e82"
+	ImageSigningTools = "registry.notusmi.com/foundry/base-images/signing-tools:stable@sha256:b3c6a9486f2b548af34fc4bfefc9bd1ba4faa7b1a08782aa49cbca43bb8a0a4f"
 	ImageSyft         = "docker.io/anchore/syft:v1.33.0@sha256:f94e5d9fce1f2278491a8e3a63bd5f6ddb81fdfdbb8bf7a1637565c1d5344357"
 	ImageStatic       = "gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab"
 
