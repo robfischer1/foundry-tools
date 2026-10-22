@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"dagger/foundry-tools/internal/checks"
@@ -24,7 +27,7 @@ import (
 // GoSuite runs one module's suite: race + the record's live databases when
 // race is set (the push), the plain unit run when it is not (the commit).
 //
-// THE PUSH'S RUN WRITES A COVERAGE PROFILE (checks.GoCoverProfile), and that is
+// THE PUSH'S RUN WRITES A COVERAGE PROFILE (GoCoverProfile), and that is
 // the only difference the flag makes: -race already forces -covermode=atomic,
 // the exit code and the output's FAIL lines are go test's either way, and the
 // file sits outside the tree. NO -coverpkg, so each package's coverage is its
@@ -34,18 +37,64 @@ import (
 var suiteScrub = []string{"ATOM_WORK=", "ATOM_OUT=", "ATOM_TREE="}
 
 func GoSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race bool) checks.Verdict {
-	return goSuite(ctx, in, a, dir, race, nil)
+	return goSuite(ctx, in, a, dir, race, nil, a.ID)
 }
+
+// GoRaceSuiteAs is the push's race run with its profile written under owner's
+// name instead of the row's: go:diff-coverage runs go:test-race's suite (the
+// row) when it has no profile of go:test-race's to read, and its own run must
+// not write over the one go:test-race is writing in the same pod.
+func GoRaceSuiteAs(ctx context.Context, in Input, a checks.AtomDef, dir, owner string) checks.Verdict {
+	return goSuite(ctx, in, a, dir, true, nil, owner)
+}
+
+// GoCoverRoot is where the race runs write their coverage profiles: under the
+// pod's /work, which the executor mounts read-write into every container of
+// the pod (daedalus executor body_volumes.go), so go:diff-coverage can read the
+// profile go:test-race wrote. A variable so a test can say where.
+//
+// NOT /tmp, AND NOT ONE PATH FOR EVERY RUN. Until 2026-10-22 every race run
+// wrote /tmp/go-test-race.cover. /tmp is pod-wide too, and the two atoms that
+// run the race suite (go:test-race, go:diff-coverage) run it at the same time
+// in the same pod, so both runs appended to ONE file and go:diff-coverage could
+// read a profile interleaved with the other run's; a repo of two modules also
+// overwrote the first module's profile with the second's. The path is now per
+// atom and per module.
+var GoCoverRoot = "/work/cover"
+
+// GoCoverProfile is where owner's race run writes the profile of the module at
+// dir (repository-relative, "." at the root): GoCoverRoot/<owner>/<module>.out.
+// Where GoCoverRoot cannot be made (a hook's run on a workstation, which has no
+// /work), it is the same layout under the process's temporary directory, which
+// a profile is never read across.
+func GoCoverProfile(owner, dir string) string {
+	root := GoCoverRoot
+	if err := os.MkdirAll(filepath.Join(root, coverOwner(owner)), 0o755); err != nil {
+		root = filepath.Join(os.TempDir(), "go-cover")
+		_ = os.MkdirAll(filepath.Join(root, coverOwner(owner)), 0o755)
+	}
+	name := "root"
+	if d := path.Clean(dir); d != "." {
+		name = url.PathEscape(d)
+	}
+	return filepath.Join(root, coverOwner(owner), name+".out")
+}
+
+// coverOwner is an atom id as a directory name, spelled as the pod spells its
+// verdict files (atomkit.EscapeID, which this package cannot import).
+func coverOwner(id string) string { return strings.ReplaceAll(id, ":", "__") }
 
 // GoSuiteFor is the push's race run for a caller who asked for it by hand
 // (dev:go-test-live): the same servers, tags and -p 1, with the caller's own
 // arguments folded in (SuiteArgs). It writes no coverage profile and skips the
 // parallel build warm-up, which exist for go:diff-coverage's sake.
 func GoSuiteFor(ctx context.Context, in Input, a checks.AtomDef, dir string, caller SuiteArgs) checks.Verdict {
-	return goSuite(ctx, in, a, dir, true, &caller)
+	return goSuite(ctx, in, a, dir, true, &caller, "")
 }
 
-func goSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race bool, caller *SuiteArgs) checks.Verdict {
+// goSuite runs the suite; owner names whose profile a race run without a
+// caller writes (GoCoverProfile).
+func goSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race bool, caller *SuiteArgs, owner string) checks.Verdict {
 	cwd := GoModuleRoot(in, dir)
 	if v, ok := Provision(ctx, in, a, cwd, "go", "mod", "download"); !ok {
 		return v
@@ -112,6 +161,7 @@ func goSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race b
 	// reads as unset to every os.Getenv(...) != "" test.
 	env = append(env, suiteScrub...)
 	args := []string{"test"}
+	var profile string
 	scope := "unit suite: no race detector and no database — go:test-race runs those at the push"
 	if race {
 		var dbs []checks.TestDB
@@ -151,7 +201,10 @@ func goSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race b
 		}
 		if caller == nil {
 			warmBuildCache(ctx, in, cwd, tagArgs)
-			args = append(args, "-coverprofile", checks.GoCoverProfile)
+			profile = GoCoverProfile(owner, dir)
+			// A profile left by an earlier run in this pod is not this run's.
+			_ = os.Remove(profile)
+			args = append(args, "-coverprofile", profile)
 		}
 	}
 	if caller != nil {
@@ -161,6 +214,12 @@ func goSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race b
 		args = append(args, "./...")
 	}
 	out, code := in.run(ctx, Cmd{Dir: cwd, Name: "go", Args: args, Env: env, Both: true})
+	if code != 0 && profile != "" {
+		// go test writes the profile of a failing run too. A suite that did not
+		// pass measures no coverage, and a profile left behind would be read as
+		// one that did (go:diff-coverage reads it only while it is there).
+		_ = os.Remove(profile)
+	}
 	if code < 0 {
 		return CouldNotStart(a, out)
 	}
