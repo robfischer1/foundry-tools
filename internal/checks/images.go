@@ -125,7 +125,11 @@ const (
 	// conformance to the wrong substrate. This is the SAME digest
 	// forge-testkit-go's containers.Kafka fixture pulls, so a suite moving off
 	// that fixture and onto the lane's service does not also change broker build.
-	ImageRedpanda = "docker.notusmi.com/redpandadata/redpanda@sha256:6d627e3ebdc05438d1e8e3b55695ac1a7a0f79e7d5ca90b3b0f12dc984633e83"
+	// v26.2.2, the build redpanda-0 runs (measured 2026-10-22: Metadata v0-12,
+	// topic ids on every topic). The v24.2.10 pin before it answered Metadata at
+	// v8 at most, with no topic ids, so a suite proved a tail unfenced that the
+	// fleet's broker fences.
+	ImageRedpanda = "docker.notusmi.com/redpandadata/redpanda@sha256:468bd13a9f2bd24794cb7fddc867c767fb1008b9a07b297b89fde48c564d7d96"
 
 	// THE TEST CACHE a Go star's Redis-gated suites run against (testdb.go's
 	// TestCaches, tag `live_redis`): upstream redis 7-alpine through docker.io, the tag
