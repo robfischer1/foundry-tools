@@ -462,8 +462,13 @@ func TestDEF_B4_PERF_3_RaceRunIsPrecededByAParallelBuildOnlyPass(t *testing.T) {
 	if v.State != 0 {
 		t.Fatalf("%+v", v)
 	}
+	// the warm pass precedes the suite; the split's package listing may sit
+	// between them (gosuite_split.go)
 	n := len(f.runs)
 	warm, real := f.runs[n-2], f.runs[n-1]
+	if strings.Contains(warm, ": go list -tags") {
+		warm = f.runs[n-3]
+	}
 	if !strings.HasSuffix(warm, ": go test -race -tags live_db -cover -exec true ./...") {
 		t.Errorf("the pass before the suite is %q", warm)
 	}

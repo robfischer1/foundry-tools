@@ -162,6 +162,10 @@ func goSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race b
 	env = append(env, suiteScrub...)
 	args := []string{"test"}
 	var profile string
+	// live is what marks a package as one that reaches the bound servers: the
+	// fleet tags the run compiles and the variables the servers are named by
+	// (splitRace). Empty for a run that binds none.
+	var live []string
 	scope := "unit suite: no race detector and no database — go:test-race runs those at the push"
 	if race {
 		var dbs []checks.TestDB
@@ -198,6 +202,7 @@ func goSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race b
 			if caller == nil || !caller.P {
 				args = append(args, "-p", "1")
 			}
+			live = append(strings.Split(word, ","), serverEnvs(dbs, brokers, caches, kubes)...)
 		}
 		if caller == nil {
 			warmBuildCache(ctx, in, cwd, tagArgs)
@@ -213,7 +218,18 @@ func goSuite(ctx context.Context, in Input, a checks.AtomDef, dir string, race b
 	if caller == nil || !caller.Packages {
 		args = append(args, "./...")
 	}
-	out, code := in.run(ctx, Cmd{Dir: cwd, Name: "go", Args: args, Env: env, Both: true})
+	// code is the module listing's above; the suite's own is assigned here.
+	var out string
+	split, ok := raceSplit{}, false
+	if caller == nil && len(live) > 0 {
+		split, ok = splitRace(ctx, in, cwd, args, live)
+	}
+	if ok {
+		out, code = split.run(ctx, in, cwd, args, env, profile)
+		scope += "\n" + split.scope()
+	} else {
+		out, code = in.run(ctx, Cmd{Dir: cwd, Name: "go", Args: args, Env: env, Both: true})
+	}
 	if code != 0 && profile != "" {
 		// go test writes the profile of a failing run too. A suite that did not
 		// pass measures no coverage, and a profile left behind would be read as
