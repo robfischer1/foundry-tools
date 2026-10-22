@@ -40,6 +40,14 @@ type Def struct {
 	// costliest answer in the fleet to throw away. The index carries it as
 	// reasks_own, and only when it is set.
 	ReasksOwn bool
+	// AfterAny are the atoms this one follows on ANY verdict (the index's
+	// after_any; daedalus AFA1): the runner hands this atom its token once each
+	// has a verdict, and when one did not pass it stands this atom down as
+	// excluded itself rather than unreached. go:diff-coverage follows
+	// go:test-race so it reads the profile that run left instead of running the
+	// suite a second time. A runner that does not know the field ignores it, and
+	// the atom must then do its whole work unordered.
+	AfterAny []string
 	// NeedsManifest is checks.AtomDef.NeedsManifest: the atom's subject is the
 	// lane's root manifest, and its absent sentence says so.
 	NeedsManifest bool
@@ -72,6 +80,7 @@ type described struct {
 	SubsumedBy   string   `json:"subsumed_by"`
 	NotOnForks   string   `json:"not_on_forks"`
 	ReasksOwn    bool     `json:"reasks_own,omitempty"`
+	AfterAny     []string `json:"after_any,omitempty"`
 	AbsentReason string   `json:"absent_reason"`
 	ForkReason   string   `json:"fork_reason"`
 }
@@ -87,7 +96,7 @@ func Describe(d Def) ([]byte, error) {
 		Surface: d.Surface, Toolchain: d.Toolchain, Needs: append([]string{}, d.Needs...),
 		TimeoutS: int(d.Timeout / time.Second), History: d.History, WritesTree: d.WritesTree,
 		SubsumedBy: d.SubsumedBy, NotOnForks: d.NotOnForks, ReasksOwn: d.ReasksOwn,
-		AbsentReason: absentSentence(d),
+		AfterAny: slices.Clone(d.AfterAny), AbsentReason: absentSentence(d),
 	}
 	slices.Sort(e.Needs)
 	if d.Timeout == 0 {
@@ -131,10 +140,68 @@ func Validate(d Def) error {
 	if d.NotOnForks != "" && !slices.Contains(checks.ForkReasons, d.NotOnForks) {
 		return fmt.Errorf("not_on_forks %s is not one of checks.ForkReasons", d.NotOnForks)
 	}
+	for i, a := range d.AfterAny {
+		switch {
+		case a == d.ID:
+			return fmt.Errorf("after_any names the atom itself, %s", a)
+		case !idRE.MatchString(a):
+			return fmt.Errorf("after_any %s is not <ns>:<name>", a)
+		case slices.Contains(d.AfterAny[:i], a):
+			return fmt.Errorf("after_any names %s twice", a)
+		}
+	}
 	if d.Check == nil {
 		return errors.New("check is nil")
 	}
 	return nil
+}
+
+// AfterAnyCycle is the first cycle the after_any edges of defs close, as the
+// ids around it ("a -> b -> a"), or "" when they close none. daedalus orders by
+// the edges and does not check them: a cycle would hold every atom on it to the
+// pod's deadline, so the catalogue refuses one at load. An edge to an id no def
+// carries is not a cycle; the planner drops an edge to an atom it does not run.
+func AfterAnyCycle(defs []*Def) string {
+	edges := map[string][]string{}
+	var ids []string
+	for _, d := range defs {
+		edges[d.ID] = d.AfterAny
+		ids = append(ids, d.ID)
+	}
+	slices.Sort(ids)
+	const (
+		unseen = iota
+		open
+		done
+	)
+	state := map[string]int{}
+	var path []string
+	var visit func(id string) string
+	visit = func(id string) string {
+		switch state[id] {
+		case open:
+			i := slices.Index(path, id)
+			return strings.Join(append(slices.Clone(path[i:]), id), " -> ")
+		case done:
+			return ""
+		}
+		state[id] = open
+		path = append(path, id)
+		for _, next := range edges[id] {
+			if c := visit(next); c != "" {
+				return c
+			}
+		}
+		path = path[:len(path)-1]
+		state[id] = done
+		return ""
+	}
+	for _, id := range ids {
+		if c := visit(id); c != "" {
+			return c
+		}
+	}
+	return ""
 }
 
 // validSurface is a surface with one of the three prefixes and something after it.
