@@ -25,7 +25,11 @@ func splitTree(t *testing.T) (in Input, list string) {
 		"env/env.go":        "package env\n\nvar dsn = os.Getenv(\"TEST_DATABASE_URL\")\n",
 		"pure/pure.go":      "package pure\n",
 		"pure/pure_test.go": "package pure\n",
-		"signer/s.go":       "package signer\n",
+		// what is not a .go file of the directory is not read: a note that names
+		// the database, and a nested package that reaches it
+		"pure/NOTES.txt":        "TEST_DATABASE_URL\n",
+		"pure/nested/n_test.go": "//go:build live_db\n\npackage nested\n",
+		"signer/s.go":           "package signer\n",
 	})
 	for _, l := range [][2]string{{"x/db", "db"}, {"x/env", "env"}, {"x/pure", "pure"}, {splitSigner, "signer"}} {
 		list += l[0] + "\t" + filepath.Join(in.Root, l[1]) + "\n"
