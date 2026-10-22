@@ -1,0 +1,4 @@
+schema = "lane@1"
+lane = "gate-go"
+stages = ["precommit", "prepush"]
+atom_lanes = ["go"]

@@ -9,7 +9,10 @@ import (
 const LaneSchema = "lane@1"
 
 // KnownLanes are the lanes the dispatcher knows how to run.
-var KnownLanes = []string{"gate", "check", "visual", "build", "mutation", "mutation-bg", "bundle", "publish", "bases", "cast", "govern", "atoms", "dev"}
+var KnownLanes = []string{"gate", "check", "visual", "build", "mutation", "mutation-bg", "bundle", "publish", "bases", "cast", "govern", "atoms", "dev", "gate-go", "gate-rust", "gate-ts"}
+
+// knownAtomLanes are the IndexAtom.Lane values atom_lanes may name.
+var knownAtomLanes = []string{"go", "python", "rust", "ts"}
 
 var (
 	knownStages = []string{"precommit", "prepush", "mutation", "visual", "govern", "dev", "atoms", "cast", "publish", "bundle", "bases"}
@@ -21,11 +24,15 @@ type PhaseDef = Phase
 
 // LaneDef is lane@1: which atoms a lane runs, in what phases.
 type LaneDef struct {
-	Schema string     `json:"schema" toml:"schema"`
-	Lane   string     `json:"lane" toml:"lane"`
-	Stages []string   `json:"stages,omitempty" toml:"stages"`
-	Rider  string     `json:"rider,omitempty" toml:"rider"`
-	Phases []PhaseDef `json:"phases,omitempty" toml:"phase"`
+	Schema string   `json:"schema" toml:"schema"`
+	Lane   string   `json:"lane" toml:"lane"`
+	Stages []string `json:"stages,omitempty" toml:"stages"`
+	// AtomLanes narrows stage:* expansion to the atoms whose IndexAtom.Lane is
+	// named: how gate-go, gate-rust and gate-ts plan one language each. Empty
+	// narrows nothing. Lockstep with daedalus' wire copy of lane@1.
+	AtomLanes []string   `json:"atom_lanes,omitempty" toml:"atom_lanes"`
+	Rider     string     `json:"rider,omitempty" toml:"rider"`
+	Phases    []PhaseDef `json:"phases,omitempty" toml:"phase"`
 }
 
 // ParseLane decodes a lane@1 file strictly and checks it (lld.md FN-107).
@@ -43,6 +50,11 @@ func ParseLane(b []byte) (LaneDef, error) {
 	for _, s := range d.Stages {
 		if !slices.Contains(knownStages, s) {
 			return LaneDef{}, fmt.Errorf("stage %s is unknown", s)
+		}
+	}
+	for _, l := range d.AtomLanes {
+		if !slices.Contains(knownAtomLanes, l) {
+			return LaneDef{}, fmt.Errorf("atom_lanes: lane %s is unknown", l)
 		}
 	}
 	if err := checkPhases(d.Phases); err != nil {

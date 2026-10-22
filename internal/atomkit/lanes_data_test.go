@@ -32,7 +32,7 @@ func landedLanes(t *testing.T) map[string]LaneDef {
 	return out
 }
 
-func TestUT_612_TheFourteenLaneFilesParse(t *testing.T) {
+func TestUT_612_TheLaneFilesParse(t *testing.T) {
 	lanes := landedLanes(t)
 	if len(lanes) != len(KnownLanes) {
 		t.Fatalf("%d lane files, want %d", len(lanes), len(KnownLanes))
@@ -194,6 +194,22 @@ func TestBasesPhasesValidateBetweenAssembleAndScan(t *testing.T) {
 		// assemble itself or it runs before /work/image exists; publish follows scan.
 		if !slices.Contains(by["scan"].After, "assemble") || !slices.Contains(by["publish"].After, "scan") {
 			t.Errorf("%s: scan must wait for assemble and publish for scan: scan.After=%v publish.After=%v", l, by["scan"].After, by["publish"].After)
+		}
+	}
+}
+
+func TestSplitLaneFilesNameTheirOwnLanguage(t *testing.T) {
+	lanes := landedLanes(t)
+	if g := lanes["gate"]; len(g.AtomLanes) != 0 {
+		t.Errorf("gate narrows by atom_lanes %v; the base gate is narrowed by the marker, not its file", g.AtomLanes)
+	}
+	for _, lang := range []string{"go", "rust", "ts"} {
+		d, ok := lanes["gate-"+lang]
+		if !ok {
+			t.Fatalf("no lanes/gate-%s.toml", lang)
+		}
+		if !slices.Equal(d.Stages, []string{"precommit", "prepush"}) || !slices.Equal(d.AtomLanes, []string{lang}) || len(d.Phases) != 0 || d.Rider != "" {
+			t.Errorf("gate-%s: %+v", lang, d)
 		}
 	}
 }
