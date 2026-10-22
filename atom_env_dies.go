@@ -36,6 +36,9 @@ func init() {
 	atomEnvironments["dies:grants-stamp"] = atomEnv{container: func(r *run) *dagger.Container { return r.lane(checks.ImageFleet) }, facts: true}
 	// dies:render-author asks git only, as ops:immutable does: the tools container.
 	atomEnvironments["dies:render-author"] = atomEnv{tools: true, facts: true}
+	// fleet:l7-render reads who made the pull's commits too (nyx's render worker), so it
+	// is handed the base and asks git only.
+	atomEnvironments["fleet:l7-render"] = atomEnv{tools: true, facts: true}
 }
 
 // withPinnedOpa puts opa on PATH from its pinned release asset, VERIFIED BY THE
