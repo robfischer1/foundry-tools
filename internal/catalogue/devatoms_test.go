@@ -142,7 +142,7 @@ var (
 		"dev:go-test":          {"dies"},
 		"dev:go-lint":          {"tool:staticcheck"},
 		"dev:rust-vuln":        {"tool:cargo-audit"},
-		"dev:python-test":      {"tool:git", "tool:uv", "tool:jq", "tool:curl"},
+		"dev:python-test":      {"tool:git", "tool:uv", "tool:jq", "tool:curl", "tool:just"},
 		"dev:python-lint":      {"tool:ruff"},
 		"dev:python-fmt":       {"tool:ruff"},
 		"dev:python-typecheck": {"tool:uv"},

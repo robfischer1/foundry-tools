@@ -10,7 +10,7 @@ argv = ["uv", "run", "--python", "python3", "--all-extras", "pytest"]
 args = "append"
 per_module = false
 judge = "exit"
-needs = ["tool:git", "tool:uv", "tool:jq", "tool:curl"]
+needs = ["tool:git", "tool:uv", "tool:jq", "tool:curl", "tool:just"]
 timeout = "30m"
 
 # THE GATE TWIN IS python:pytest (atoms/python/pytest): the same toolchain, the
