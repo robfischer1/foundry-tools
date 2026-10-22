@@ -1,0 +1,4 @@
+schema = "lane@1"
+lane = "gate-rust"
+stages = ["precommit", "prepush"]
+atom_lanes = ["rust"]

@@ -22,6 +22,24 @@ func TestUT_600_ParseLane(t *testing.T) {
 	}
 }
 
+func TestParseLaneAtomLanes(t *testing.T) {
+	got, err := ParseLane([]byte(lane("atom_lanes = [\"go\", \"ts\"]\n")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got.AtomLanes, []string{"go", "ts"}) {
+		t.Fatalf("got %+v", got.AtomLanes)
+	}
+	for _, l := range []string{"go", "python", "rust", "ts"} {
+		if _, err := ParseLane([]byte(lane("atom_lanes = [\"" + l + "\"]\n"))); err != nil {
+			t.Errorf("atom_lanes %s: %v", l, err)
+		}
+	}
+	if plain, err := ParseLane([]byte(lane(""))); err != nil || plain.AtomLanes != nil {
+		t.Errorf("no atom_lanes narrows nothing: %+v %v", plain.AtomLanes, err)
+	}
+}
+
 func TestLaneErrors(t *testing.T) {
 	ph := func(body string) string { return lane("\n[[phase]]\n" + body) }
 	for _, c := range []struct{ row, src, want string }{
@@ -29,6 +47,8 @@ func TestLaneErrors(t *testing.T) {
 		{"UT-601", strings.Replace(lane(""), "lane@1", "lane@2", 1), "schema is lane@2, want lane@1"},
 		{"FN-107 · 1", "lane = \"gate\"\n", "schema is missing, want lane@1"},
 		{"UT-602", strings.Replace(lane(""), `"gate"`, `"gat"`, 1), "lane gat is unknown"},
+		{"atom_lanes", lane("atom_lanes = [\"perl\"]\n"), "atom_lanes: lane perl is unknown"},
+		{"atom_lanes", lane("atom_lanes = [\"go\", \"\"]\n"), "atom_lanes: lane  is unknown"},
 		{"UT-603/IT-173", strings.Replace(lane(""), `["precommit"]`, `["precommmit"]`, 1), "stage precommmit is unknown"},
 		{"UT-604", ph("name = \"x\"\nkind = \"parallel\"\natoms = [\"stage:precommit\"]\n"), "phase x: kind parallel is not fanout or sequence"},
 		{"UT-605/IT-172", ph("name = \"x\"\nkind = \"fanout\"\ncapability = \"sbom\"\n"), "capability sbom is unknown"},
@@ -59,8 +79,8 @@ func TestUT_603_AllStagesAccepted(t *testing.T) {
 }
 
 func TestEveryKnownLaneAccepted(t *testing.T) {
-	if len(KnownLanes) != 13 {
-		t.Fatalf("KnownLanes has %d, want 13", len(KnownLanes))
+	if len(KnownLanes) != 16 {
+		t.Fatalf("KnownLanes has %d, want 16", len(KnownLanes))
 	}
 	for _, l := range KnownLanes {
 		if _, err := ParseLane([]byte(strings.Replace(lane(""), `"gate"`, `"`+l+`"`, 1))); err != nil {
