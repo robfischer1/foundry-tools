@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"dagger/foundry-tools/internal/checks"
 )
@@ -115,9 +117,15 @@ func TestSplitArgsSetsPProfileAndPackages(t *testing.T) {
 
 // splitExec answers each `go test` with code by its -p, writing body to its
 // -coverprofile when body is set.
+// The two sets run at once, so the record of runs is kept under a lock and read
+// in -p order (byP).
 func splitExec(runs *[][]string, codes map[string]int, bodies map[string]string) Exec {
+	var mu sync.Mutex
 	return func(_ context.Context, c Cmd) (string, int) {
+		mu.Lock()
 		*runs = append(*runs, c.Args)
+		slices.SortFunc(*runs, byP)
+		mu.Unlock()
 		p := c.Args[slices.Index(c.Args, "-p")+1]
 		prof := c.Args[slices.Index(c.Args, "-coverprofile")+1]
 		if b, ok := bodies[p]; ok {
@@ -127,7 +135,42 @@ func splitExec(runs *[][]string, codes map[string]int, bodies map[string]string)
 	}
 }
 
-// THE TWO RUNS, serial set first, each with its own -p and profile; the profiles
+// byP orders recorded go test argv by their -p value.
+func byP(a, b []string) int {
+	return strings.Compare(a[slices.Index(a, "-p")+1], b[slices.Index(b, "-p")+1])
+}
+
+// THE TWO RUNS AT ONCE: each starts before the other ends. A run held until both
+// have started would wait forever for an implementation that runs them one
+// after the other, so the barrier gives up after a minute and says so.
+func TestRaceSplitStartsBothSetsTogether(t *testing.T) {
+	dir := t.TempDir()
+	profile := filepath.Join(dir, "root.out")
+	args := []string{"test", "-race", "-p", "1", "-coverprofile", profile, "./..."}
+	var started sync.WaitGroup
+	started.Add(2)
+	together := make(chan struct{})
+	go func() { started.Wait(); close(together) }()
+	var mu sync.Mutex
+	var late []string
+	in := Input{Root: dir, Exec: func(_ context.Context, c Cmd) (string, int) {
+		started.Done()
+		select {
+		case <-together:
+		case <-time.After(time.Minute):
+			mu.Lock()
+			late = append(late, strings.Join(c.Args, " "))
+			mu.Unlock()
+		}
+		_ = os.WriteFile(c.Args[slices.Index(c.Args, "-coverprofile")+1], []byte("mode: atomic\n"), 0o644)
+		return "", 0
+	}}
+	if _, code := (raceSplit{serial: []string{"x/db"}, parallel: []string{"x/a"}}).run(t.Context(), in, dir, args, nil, profile); code != 0 || len(late) != 0 {
+		t.Errorf("code %d; ran alone: %v", code, late)
+	}
+}
+
+// THE TWO RUNS, each with its own -p and profile; the profiles
 // merged into the one the run owes, the parts gone; the exit the worse of the two.
 func TestRaceSplitRunsBothSetsAndMergesTheirProfiles(t *testing.T) {
 	dir := t.TempDir()
@@ -201,7 +244,8 @@ func TestMergeProfilesKeepsOneModeLine(t *testing.T) {
 }
 
 // THROUGH THE SUITE: a tagged tree whose packages split runs the two sets and
-// says so; the profile the run owes is the merge.
+// says so; the profile the run owes is the merge. The sets run at once, so the
+// fake answers under a lock.
 func TestGoSuiteRaceRunsTheSplit(t *testing.T) {
 	in, list := splitTree(t)
 	coverRootIn(t, t.TempDir())
@@ -211,10 +255,14 @@ func TestGoSuiteRaceRunsTheSplit(t *testing.T) {
 		{"grep -rhoE", "//go:build live_db\n", 0},
 	}}
 	var tests []string
+	var mu sync.Mutex
 	in.Exec = func(ctx context.Context, c Cmd) (string, int) {
+		mu.Lock()
+		defer mu.Unlock()
 		out, code := f.exec(ctx, c)
 		if c.Name == "go" && slices.Contains(c.Args, "-coverprofile") {
 			tests = append(tests, strings.Join(c.Args, " "))
+			slices.Sort(tests)
 			_ = os.WriteFile(c.Args[slices.Index(c.Args, "-coverprofile")+1], []byte("mode: atomic\n"), 0o644)
 		}
 		return out, code

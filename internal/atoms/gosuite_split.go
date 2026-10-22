@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"dagger/foundry-tools/internal/checks"
 )
@@ -21,7 +22,7 @@ import (
 // run spent 789 CPU-seconds over 987 s of wall on a 6-CPU container, 0.8 cores,
 // and 6 of its 111 packages reach a server.
 //
-// So the run is two `go test` invocations over the module, one after the other:
+// So the run is two `go test` invocations over the module, AT THE SAME TIME:
 //
 //   - the SERIAL set at `-p 1`: every package that reaches a bound server (a .go
 //     file of its directory names a compiled fleet tag or a server's variable),
@@ -29,10 +30,13 @@ import (
 //   - the rest at `-p GoRaceParallel`.
 //
 // Each writes its own profile; the two are merged into the one the run owes
-// (GoCoverProfile). Sequential, not concurrent, so the run's memory peak stays
-// the larger of the two sets', not their sum: wherever the runner does not
-// order go:diff-coverage behind go:test-race (after_any), two race runs share
-// the go container.
+// (GoCoverProfile). The sets share nothing: the parallel set is, by
+// construction, the packages that reach no bound server. CONCURRENT SINCE
+// 2026-10-22 (Hopper64): run one after the other they took 205 s + 430 s on
+// stellar-core (a pod on llm01) and 10m39s in gate run 1497, with the go
+// container at 7.61GiB of its 20Gi; together the run is the longer set, and the
+// peak about the sum. go:diff-coverage no longer runs a suite of its own in the
+// pod (after_any, #575/#578), so this is the only race run there.
 //
 // EVERY DOUBT IS THE OLD RUN: a module that will not list, a directory that
 // will not read, or no package left to run in parallel answers ok false, and the
@@ -145,32 +149,52 @@ func (s raceSplit) scope() string {
 		len(s.serial), len(s.parallel), GoRaceParallel)
 }
 
-// run is the two invocations, serial set first, each the single run's args with
-// its own -p, its own profile and its packages for ./.... Their output is joined
-// and their exit is the worse: a program that would not start (-1) wins, then
-// the larger code. The profiles are merged into profile only when both runs
-// left one; the caller removes it for a run that did not pass.
+// run is the two invocations, started together, each the single run's args
+// with its own -p, its own profile and its packages for ./.... Their output is
+// joined in set order (serial first) and their exit is the worse: a program
+// that would not start (-1) wins, then the larger code. The profiles are merged
+// into profile only when both runs left one; the caller removes it for a run
+// that did not pass.
 func (s raceSplit) run(ctx context.Context, in Input, cwd string, args, env []string, profile string) (string, int) {
-	var outs, parts []string
-	code := 0
-	for _, set := range []struct {
+	type result struct {
+		out, part string
+		code      int
+		ran       bool
+	}
+	sets := []struct {
 		pkgs []string
 		p    int
 		name string
-	}{{s.serial, 1, "serial"}, {s.parallel, GoRaceParallel, "parallel"}} {
+	}{{s.serial, 1, "serial"}, {s.parallel, GoRaceParallel, "parallel"}}
+	results := make([]result, len(sets))
+	var wg sync.WaitGroup
+	for i, set := range sets {
 		if len(set.pkgs) == 0 {
 			continue
 		}
 		part := profile + "." + set.name
 		_ = os.Remove(part)
-		out, c := in.run(ctx, Cmd{Dir: cwd, Name: "go", Args: splitArgs(args, set.p, part, set.pkgs), Env: env, Both: true})
-		outs = append(outs, out)
-		parts = append(parts, part)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			out, c := in.run(ctx, Cmd{Dir: cwd, Name: "go", Args: splitArgs(args, set.p, part, set.pkgs), Env: env, Both: true})
+			results[i] = result{out: out, part: part, code: c, ran: true}
+		}()
+	}
+	wg.Wait()
+	var outs, parts []string
+	code := 0
+	for _, r := range results {
+		if !r.ran {
+			continue
+		}
+		outs = append(outs, r.out)
+		parts = append(parts, r.part)
 		switch {
-		case c < 0 || code < 0:
+		case r.code < 0 || code < 0:
 			code = -1
 		default:
-			code = max(code, c)
+			code = max(code, r.code)
 		}
 	}
 	_ = os.Remove(profile)
