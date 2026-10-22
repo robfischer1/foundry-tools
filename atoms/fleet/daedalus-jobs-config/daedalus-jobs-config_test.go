@@ -136,3 +136,14 @@ func TestRDL1_ATreeWithoutTheConfigMapIsAbsent(t *testing.T) {
 		t.Errorf("ran %q / %q over a tree without the ConfigMap", s.installArgs, s.checkName)
 	}
 }
+
+// A work directory the atom cannot make its scratch in is could-not-run, and no program starts.
+func TestRDL1_AnUnwritableWorkDirIsCannotRun(t *testing.T) {
+	t.Setenv("ATOM_WORK", t.TempDir()+"/not-there")
+	s := &script{}
+	v := run(t, s, map[string]string{jobs: "data: {}", pins: images("1792622669-4b68a21")})
+	atomtest.Expect(t, v, atomtest.StateOf(2), atomtest.Cannot, "the atom never ran")
+	if s.installArgs != "" {
+		t.Errorf("installed %q with no scratch directory", s.installArgs)
+	}
+}
