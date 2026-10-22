@@ -25,6 +25,7 @@ var catalogueOrder = []string{
 	"fleet:speckit-render-current",
 	"fleet:ourea-config-retired-keys",
 	"fleet:wit-topics",
+	"fleet:daedalus-jobs-config",
 	"fleet:lane-sa-check",
 	"fleet:pdp-wired",
 	"fleet:renovate-config",
