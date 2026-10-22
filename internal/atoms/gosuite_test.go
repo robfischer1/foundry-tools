@@ -1,6 +1,7 @@
 package atoms
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -17,6 +18,7 @@ import (
 // its gravity and Kafka facts) whose execs the fake answers.
 func gosuiteIn(t *testing.T, f *golaneFake, files map[string]string) Input {
 	t.Helper()
+	coverRootIn(t, t.TempDir())
 	in := treeIn(t, files)
 	in.Exec = f.exec
 	return in
@@ -105,7 +107,7 @@ func TestGoSuiteRaceCompilesALiveRedisTagSerially(t *testing.T) {
 	if v.State != 0 || !strings.Contains(v.Reason, "test caches: live_redis → TEST_REDIS_URL") || strings.Contains(v.Reason, "uncompiled") {
 		t.Fatalf("%+v", v)
 	}
-	if last := f.runs[len(f.runs)-1]; !strings.HasSuffix(last, ": go test -race -tags live_redis -p 1 -coverprofile "+checks.GoCoverProfile+" ./...") {
+	if last := f.runs[len(f.runs)-1]; !strings.HasSuffix(last, ": go test -race -tags live_redis -p 1 -coverprofile "+GoCoverProfile(GoRaceRow.ID, ".")+" ./...") {
 		t.Errorf("the suite ran as %q", last)
 	}
 }
@@ -122,7 +124,7 @@ func TestGoSuiteRaceCompilesTheTreesTagsSeriallyAndWritesTheProfile(t *testing.T
 		t.Fatalf("%+v", v)
 	}
 	last := f.runs[len(f.runs)-1]
-	if !strings.HasSuffix(last, ": go test -race -tags live_db,live_db_novector -p 1 -coverprofile "+checks.GoCoverProfile+" ./...") {
+	if !strings.HasSuffix(last, ": go test -race -tags live_db,live_db_novector -p 1 -coverprofile "+GoCoverProfile(GoRaceRow.ID, ".")+" ./...") {
 		t.Errorf("the suite ran as %q", last)
 	}
 
@@ -171,7 +173,7 @@ func TestGoSuiteRaceCompilesAKubeOnlyTreesTagWhenAllThreeVariablesAreBound(t *te
 	v := gosuiteVerdictEnv(t, f, kubeEnv(kubeBound...), true)
 	last := f.runs[len(f.runs)-1]
 	if v.State != 0 || !strings.Contains(v.Reason, "test kubes: live_kube → TEST_KUBE_URL, TEST_KUBE_TOKEN, TEST_KUBE_CA_FILE") ||
-		!strings.HasSuffix(last, ": go test -race -tags live_kube -p 1 -coverprofile "+checks.GoCoverProfile+" ./...") {
+		!strings.HasSuffix(last, ": go test -race -tags live_kube -p 1 -coverprofile "+GoCoverProfile(GoRaceRow.ID, ".")+" ./...") {
 		t.Errorf("%+v ran %q", v, last)
 	}
 	if strings.Contains(v.Reason, "uncompiled") {
@@ -780,5 +782,105 @@ func TestPackageLike(t *testing.T) {
 		if got := PackageLike(arg); got != want {
 			t.Errorf("%q: %v, want %v", arg, got, want)
 		}
+	}
+}
+
+// coverRootIn points GoCoverRoot at dir for the test.
+func coverRootIn(t *testing.T, dir string) {
+	t.Helper()
+	old := GoCoverRoot
+	GoCoverRoot = dir
+	t.Cleanup(func() { GoCoverRoot = old })
+}
+
+// THE PROFILE IS PER ATOM AND PER MODULE, under GoCoverRoot: two atoms that run
+// the race suite at once in one pod, and two modules of one tree, never write
+// one file.
+func TestGoCoverProfileIsPerAtomAndPerModule(t *testing.T) {
+	root := t.TempDir()
+	coverRootIn(t, root)
+	for _, tc := range []struct{ owner, dir, want string }{
+		{"go:test-race", ".", "go__test-race/root.out"},
+		{"go:test-race", "", "go__test-race/root.out"},
+		{"go:test-race", "styx", "go__test-race/styx.out"},
+		{"go:test-race", "tools/forge/", "go__test-race/tools%2Fforge.out"},
+		{"go:diff-coverage", ".", "go__diff-coverage/root.out"},
+	} {
+		if got := GoCoverProfile(tc.owner, tc.dir); got != filepath.Join(root, tc.want) {
+			t.Errorf("GoCoverProfile(%q, %q) = %s, want %s", tc.owner, tc.dir, got, filepath.Join(root, tc.want))
+		}
+	}
+	if fi, err := os.Stat(filepath.Join(root, "go__diff-coverage")); err != nil || !fi.IsDir() {
+		t.Errorf("the owner's directory was not made: %v", err)
+	}
+}
+
+// A ROOT THAT CANNOT BE MADE (a workstation has no /work) falls back to the same
+// layout under the temporary directory, rather than a suite that cannot write.
+func TestGoCoverProfileFallsBackWhereTheRootCannotBeMade(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "a-file")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	coverRootIn(t, filepath.Join(file, "cover"))
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	want := filepath.Join(tmp, "go-cover", "go__test-race", "root.out")
+	if got := GoCoverProfile("go:test-race", "."); got != want {
+		t.Errorf("got %s, want %s", got, want)
+	}
+	if fi, err := os.Stat(filepath.Dir(want)); err != nil || !fi.IsDir() {
+		t.Errorf("the fallback directory was not made: %v", err)
+	}
+}
+
+// A RED SUITE LEAVES NO PROFILE, and no run reads one an earlier run left: go
+// test writes the profile of a failing run too, and go:diff-coverage reads the
+// one go:test-race left while it is there.
+func TestGoSuiteLeavesAProfileOnlyForASuiteThatPassed(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		code int
+		kept bool
+	}{
+		{"a pass keeps what the suite wrote", 0, true},
+		{"findings remove it", 1, false},
+		{"a suite that never ran removes it", -1, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}, {"grep -rhoE", "", 1}}}
+			in := gosuiteIn(t, f, map[string]string{"go.mod": gosuiteGo})
+			profile := GoCoverProfile(GoRaceRow.ID, ".")
+			if err := os.WriteFile(profile, []byte("stale"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			in.Exec = func(ctx context.Context, c Cmd) (string, int) {
+				out, code := f.exec(ctx, c)
+				if c.Name == "go" && len(c.Args) > 1 && c.Args[0] == "test" && slices.Contains(c.Args, "-coverprofile") {
+					if _, err := os.Stat(profile); err == nil {
+						t.Errorf("the run started over the profile an earlier run left")
+					}
+					_ = os.WriteFile(profile, []byte("mode: atomic\n"), 0o644)
+					return "", tc.code
+				}
+				return out, code
+			}
+			GoSuite(t.Context(), in, GoRaceRow, ".", true)
+			if _, err := os.Stat(profile); (err == nil) != tc.kept {
+				t.Errorf("profile kept: %v, want %v", err == nil, tc.kept)
+			}
+		})
+	}
+}
+
+// THE RACE RUN go:diff-coverage MAKES writes under its own name, never over
+// the profile go:test-race is writing in the same pod.
+func TestGoRaceSuiteAsWritesItsOwnersProfile(t *testing.T) {
+	f := &golaneFake{rules: []golaneRule{{"go list", "11\n", 0}, {"grep -rhoE", "", 1}}}
+	in := gosuiteIn(t, f, map[string]string{"go.mod": gosuiteGo})
+	v := GoRaceSuiteAs(t.Context(), in, GoRaceRow, ".", "go:diff-coverage")
+	last := f.runs[len(f.runs)-1]
+	if v.State != 0 || v.Atom != GoRaceRow.ID || !strings.HasSuffix(last, ": go test -race -coverprofile "+GoCoverProfile("go:diff-coverage", ".")+" ./...") {
+		t.Errorf("%+v ran %q", v, last)
 	}
 }

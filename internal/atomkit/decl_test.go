@@ -136,7 +136,11 @@ func TestIT_124_DescribeKeysAreAnIndexEntrys(t *testing.T) {
 		}
 	}
 	want = append(want, "desc")
-	m := described2(t, goDef())
+	// an omitempty key (reasks_own, after_any) is printed only when set, so the
+	// declaration sets every one of them
+	d := goDef()
+	d.ReasksOwn, d.AfterAny = true, []string{"st:y"}
+	m := described2(t, d)
 	got := make([]string, 0, len(m))
 	for k := range m {
 		got = append(got, k)
@@ -218,5 +222,77 @@ func TestDescribeCarriesReasksOwnOnlyWhenSet(t *testing.T) {
 	own, err := Describe(d)
 	if err != nil || !strings.Contains(string(own), `"reasks_own":true`) {
 		t.Fatalf("%s %v", own, err)
+	}
+}
+
+// AN ATOM THAT FOLLOWS ANOTHER ON ANY VERDICT says so in its index entry, as
+// daedalus's IndexAtom reads it (after_any, AFA1); every other entry is
+// unchanged, the field absent unless set.
+func TestDescribeCarriesAfterAnyOnlyWhenSet(t *testing.T) {
+	plain, err := Describe(goDef())
+	if err != nil || strings.Contains(string(plain), "after_any") {
+		t.Fatalf("%s %v", plain, err)
+	}
+	d := goDef()
+	d.AfterAny = []string{"go:test-race", "go:build"}
+	got, err := Describe(d)
+	if err != nil || !strings.Contains(string(got), `"after_any":["go:test-race","go:build"]`) {
+		t.Fatalf("%s %v", got, err)
+	}
+	// the entry's own slice, not the declaration's
+	var e described
+	if err := json.Unmarshal(got, &e); err != nil || !slices.Equal(e.AfterAny, d.AfterAny) {
+		t.Fatalf("%+v %v", e, err)
+	}
+}
+
+// AN after_any EDGE NAMES ANOTHER ATOM, ONCE, BY ITS ID: an atom that followed
+// itself would wait on its own verdict to the pod's deadline.
+func TestValidateRefusesABadAfterAny(t *testing.T) {
+	for name, tc := range map[string]struct {
+		after []string
+		want  string
+	}{
+		"itself":    {[]string{"st:x"}, "after_any names the atom itself, st:x"},
+		"not an id": {[]string{"test-race"}, "after_any test-race is not <ns>:<name>"},
+		"twice":     {[]string{"go:a", "go:b", "go:a"}, "after_any names go:a twice"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d := goDef()
+			d.AfterAny = tc.after
+			if err := Validate(d); err == nil || err.Error() != tc.want {
+				t.Errorf("got %v, want %q", err, tc.want)
+			}
+		})
+	}
+	d := goDef()
+	d.AfterAny = []string{"go:a", "go:b"}
+	if err := Validate(d); err != nil {
+		t.Errorf("two distinct edges: %v", err)
+	}
+}
+
+// THE CATALOGUE REFUSES A CYCLE OF after_any EDGES: daedalus orders by them and
+// does not check them, and every atom on a cycle would wait to the deadline.
+func TestAfterAnyCycle(t *testing.T) {
+	def := func(id string, after ...string) *Def { return &Def{ID: id, AfterAny: after} }
+	for name, tc := range map[string]struct {
+		defs []*Def
+		want string
+	}{
+		"none":              {[]*Def{def("a:a"), def("a:b", "a:a")}, ""},
+		"an unknown target": {[]*Def{def("a:b", "a:z")}, ""},
+		"a chain":           {[]*Def{def("a:c", "a:b"), def("a:b", "a:a"), def("a:a")}, ""},
+		"a diamond":         {[]*Def{def("a:d", "a:b", "a:c"), def("a:b", "a:a"), def("a:c", "a:a"), def("a:a")}, ""},
+		"two":               {[]*Def{def("a:b", "a:a"), def("a:a", "a:b")}, "a:a -> a:b -> a:a"},
+		"three":             {[]*Def{def("a:c", "a:a"), def("a:b", "a:c"), def("a:a", "a:b")}, "a:a -> a:b -> a:c -> a:a"},
+		"behind a tail":     {[]*Def{def("a:a", "a:b"), def("a:b", "a:c"), def("a:c", "a:b")}, "a:b -> a:c -> a:b"},
+		"itself":            {[]*Def{def("a:a", "a:a")}, "a:a -> a:a"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := AfterAnyCycle(tc.defs); got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

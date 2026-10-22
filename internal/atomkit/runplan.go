@@ -37,21 +37,25 @@ type Container struct {
 
 // PlanAtom is one atom the run planned.
 type PlanAtom struct {
-	ID           string   `json:"id"`
-	Kind         string   `json:"kind"` // logic | command
-	Container    string   `json:"container"`
-	Mount        string   `json:"mount"`    // "" for command
-	Manifest     string   `json:"manifest"` // "" for logic
-	Stage        string   `json:"stage"`
-	Lane         string   `json:"lane"` // the atom's checks.Lane value; "" = any lane
-	Surface      string   `json:"surface"`
-	Needs        []string `json:"needs"`
-	TimeoutS     int      `json:"timeout_s"`
-	WritesTree   bool     `json:"writes_tree"`
-	History      string   `json:"history"` // shallow | full
-	After        []string `json:"after"`
-	SubsumedBy   string   `json:"subsumed_by"`
-	Group        string   `json:"group"`
+	ID         string   `json:"id"`
+	Kind       string   `json:"kind"` // logic | command
+	Container  string   `json:"container"`
+	Mount      string   `json:"mount"`    // "" for command
+	Manifest   string   `json:"manifest"` // "" for logic
+	Stage      string   `json:"stage"`
+	Lane       string   `json:"lane"` // the atom's checks.Lane value; "" = any lane
+	Surface    string   `json:"surface"`
+	Needs      []string `json:"needs"`
+	TimeoutS   int      `json:"timeout_s"`
+	WritesTree bool     `json:"writes_tree"`
+	History    string   `json:"history"` // shallow | full
+	After      []string `json:"after"`
+	SubsumedBy string   `json:"subsumed_by"`
+	Group      string   `json:"group"`
+	ReasksOwn  bool     `json:"reasks_own,omitempty"`
+	// AfterAny is the part of After that hands on any verdict (IndexAtom.AfterAny);
+	// every id in it is also in After.
+	AfterAny     []string `json:"after_any,omitempty"`
 	AbsentReason string   `json:"absent_reason"` // the sentence lead writes if the surface does not match
 }
 

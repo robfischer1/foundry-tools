@@ -43,10 +43,6 @@ const GoDiffCoverageCause = "not-covered"
 // the mutation lane and diff-coverage never disagree about which files are graded.
 const GoMutationExclude = `^vendor/|(^|/)dagger\.gen\.go$|\.pb\.go$|(^|/)zz_generated`
 
-// GoCoverProfile is where go:test-race writes its profile, outside the tree so
-// no test that reads the checkout ever sees it.
-const GoCoverProfile = "/tmp/go-test-race.cover"
-
 // GoDiffCoverageInput is everything one module's evaluation reads.
 type GoDiffCoverageInput struct {
 	// Dir is the module's directory, repository-relative ("." at the root).

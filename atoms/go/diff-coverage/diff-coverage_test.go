@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -32,14 +33,21 @@ type rule struct {
 
 // fake is an Exec that records every run and answers from its rules, first
 // match wins; a run no rule matches exits 0 saying nothing.
+//
+// A `go test -coverprofile <p>` writes profile to p, as the suite does, when
+// profile is set.
 type fake struct {
-	rules []rule
-	runs  []string
+	rules   []rule
+	runs    []string
+	profile string
 }
 
 func (f *fake) exec(_ context.Context, c atoms.Cmd) (string, int) {
 	line := strings.Join(append([]string{c.Name}, c.Args...), " ")
 	f.runs = append(f.runs, c.Dir+": "+line)
+	if i := slices.Index(c.Args, "-coverprofile"); c.Name == "go" && i >= 0 && i+1 < len(c.Args) && f.profile != "" {
+		_ = os.WriteFile(c.Args[i+1], []byte(f.profile), 0o644)
+	}
 	for _, r := range f.rules {
 		if strings.Contains(line, r.needle) {
 			return r.out, r.code
@@ -87,15 +95,12 @@ func newPull(t *testing.T, module string) *pull {
 	put(t, root, filepath.Join(module, "go.mod"), "module x\n\ngo 1.26\n")
 	put(t, root, filepath.Join(module, "f.go"), covSrc)
 	put(t, root, filepath.Join(module, "f_test.go"), "package x\n")
-	profile := filepath.Join(t.TempDir(), "cover.out")
-	if err := os.WriteFile(profile, []byte(covProfile), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	old := profilePath
-	profilePath = profile
-	t.Cleanup(func() { profilePath = old })
+	t.Setenv("ATOM_OUT", "")
+	old := atoms.GoCoverRoot
+	atoms.GoCoverRoot = t.TempDir()
+	t.Cleanup(func() { atoms.GoCoverRoot = old })
 
-	f := &fake{rules: []rule{
+	f := &fake{profile: covProfile, rules: []rule{
 		{"merge-base", "since0\n", 0},
 		{"git diff --unified=0", covDiff, 0},
 		{"go list -f {{len", "11\n", 0},
@@ -117,6 +122,7 @@ func TestTheDeclarationValidatesAndNamesItsRow(t *testing.T) {
 	}
 	if Def.ID != id || Def.Stage != checks.StagePrepush || Def.Lane != checks.LaneGo || Def.Group != checks.GroupOf(id) ||
 		Def.Toolchain != "go" || Def.Surface != "any:**/go.mod" || Def.NotOnForks != checks.ForkChangeBar || Def.SubsumedBy != "" ||
+		!slices.Equal(Def.AfterAny, []string{atoms.GoRaceRow.ID}) ||
 		strings.Join(Def.Needs, ",") != "dies,service:postgres,service:pgvector,service:redpanda,service:redis,service:etcd,service:kube-apiserver,service:timescale,"+strings.Join(checks.GravityNeeds(), ",")+",tool:wasm-tools" {
 		t.Errorf("%+v", Def)
 	}
@@ -145,16 +151,15 @@ func TestGoDiffCoverageNamesEachChangedLineNoTestRuns(t *testing.T) {
 			t.Errorf("run %d is %q, want ...%s", i, p.f.runs[i], w)
 		}
 	}
-	if !p.f.ran("go test -race -coverprofile "+checks.GoCoverProfile+" ./...") || !p.f.ran(`go list -e -f {{.ImportPath}}{{"\t"}}{{.Dir}}{{"\n"}} ./...`) {
+	// its own run writes under its own name, never over go:test-race's
+	if !p.f.ran("go test -race -coverprofile "+atoms.GoCoverProfile(id, ".")+" ./...") || !p.f.ran(`go list -e -f {{.ImportPath}}{{"\t"}}{{.Dir}}{{"\n"}} ./...`) {
 		t.Errorf("ran %v", p.f.runs)
 	}
 }
 
 func TestGoDiffCoveragePassesWhenEveryChangedLineRan(t *testing.T) {
 	p := newPull(t, ".")
-	if err := os.WriteFile(profilePath, []byte(strings.ReplaceAll(covProfile, " 0\n", " 2\n")), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	p.f.profile = strings.ReplaceAll(covProfile, " 0\n", " 2\n")
 	v := p.run()
 	if v.State != 0 || v.Result != "pass" || v.Findings != nil || !strings.Contains(v.Reason, "go:diff-coverage: PASS") ||
 		strings.Join(v.Logs, "\n") != "go:diff-coverage: every changed line in 1 Go file(s) ran under the suite" {
@@ -193,7 +198,7 @@ func TestGoDiffCoverageStandsDownOrCannotRun(t *testing.T) {
 			"ABSENT - go:test-race did not pass (findings)", "go list -e"},
 		{"the suite could not run", func(p *pull) { p.first(rule{"go list -f", "go: not found", -1}) }, 0, true,
 			"ABSENT - go:test-race did not pass (cannot-run)", "go test"},
-		{"no profile", func(p *pull) { _ = os.Remove(profilePath) }, 2, false,
+		{"no profile", func(p *pull) { p.f.profile = "" }, 2, false,
 			"CANNOT RUN - the suite passed and its coverage profile could not be read: ", "go list -e"},
 		{"the packages cannot be listed", func(p *pull) { p.first(rule{"go list -e", "", 1}) }, 2, false,
 			"CANNOT RUN - the module's packages could not be listed, so the profile cannot be placed: go list exited 1", ""},
@@ -239,5 +244,126 @@ func TestGoDiffCoverageInANestedModuleKeepsItsFindings(t *testing.T) {
 		if !strings.HasPrefix(r, p.dir+":") {
 			t.Errorf("%q ran outside the module's directory %s", r, p.dir)
 		}
+	}
+}
+
+// raced is a pod in which go:test-race has settled as verdict: its verdict file
+// beside this atom's ATOM_OUT and, when profile is set, its profile of the
+// module at dir.
+func (p *pull) raced(verdict checks.Verdict, profile string) {
+	p.t.Helper()
+	out := p.t.TempDir()
+	p.t.Setenv("ATOM_OUT", filepath.Join(out, atomkit.EscapeID(id)+".json"))
+	if err := atomkit.WriteFile(filepath.Join(out, atomkit.EscapeID(atoms.GoRaceRow.ID)+".json"), verdict); err != nil {
+		p.t.Fatal(err)
+	}
+	if profile != "" {
+		if err := os.WriteFile(atoms.GoCoverProfile(atoms.GoRaceRow.ID, p.where), []byte(profile), 0o644); err != nil {
+			p.t.Fatal(err)
+		}
+	}
+}
+
+// WHERE go:test-race HAS SETTLED IN THIS POD, ITS PROFILE IS THE ONE READ: no
+// second suite runs, no server is touched, and the reason says whose profile it
+// was.
+func TestGoDiffCoverageReadsTheProfileGoTestRaceLeftInThePod(t *testing.T) {
+	for _, module := range []string{".", "tools/forge"} {
+		t.Run(module, func(t *testing.T) {
+			p := newPull(t, module)
+			p.f.profile = "" // a suite run here would leave nothing to read
+			p.raced(checks.Verdict{Atom: atoms.GoRaceRow.ID, State: 0, Result: "pass"}, covProfile)
+			v := p.run()
+			if v.State != 1 || !strings.Contains(v.Reason, "coverage: the profile of go:test-race's run in this pod") || len(v.Findings) != 1 {
+				t.Fatalf("%+v", v)
+			}
+			if p.f.ran("go test") || p.f.ran("go mod download") {
+				t.Errorf("ran a suite of its own: %v", p.f.runs)
+			}
+		})
+	}
+}
+
+// A RED go:test-race STANDS THIS ATOM DOWN AS EXCLUDED, in every module at
+// once: state 0 with result `excluded` and one `excluded` finding (the shape the
+// runner writes itself, daedalus wire.Excluded), so the lane folds to the
+// verdict of go:test-race. Never ABSENT (it was not absent), never could-not-run
+// (it did not fail to run), never a suite of its own.
+func TestGoDiffCoverageIsExcludedAfterARedGoTestRace(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		verdict checks.Verdict
+	}{
+		{"findings", checks.Verdict{State: 1, Result: "findings"}},
+		{"could not run", checks.Verdict{State: 2, Result: "cannot-run"}},
+		{"itself excluded", checks.Verdict{State: 0, Result: "excluded"}},
+	} {
+		for _, module := range []string{".", "tools/forge"} {
+			t.Run(tc.name+" in "+module, func(t *testing.T) {
+				p := newPull(t, module)
+				p.raced(tc.verdict, covProfile) // a profile left behind is not read
+				v := p.run()
+				if v.Atom != id || v.State != 0 || v.Result != "excluded" ||
+					v.Reason != id+": EXCLUDED - go:test-race did not pass ("+tc.verdict.Result+"), so the profile this reads does not exist; go:test-race reports why" {
+					t.Fatalf("%+v", v)
+				}
+				want := []checks.Finding{{Verdict: "excluded", Subject: id, Cause: "predecessor-red", Detail: "go:test-race did not pass", Probe: id}}
+				if !slices.Equal(v.Findings, want) || v.Logs == nil || len(v.Logs) != 0 || v.Stage != checks.StagePrepush || v.Lane != string(checks.LaneGo) {
+					t.Errorf("%+v", v)
+				}
+				if len(p.f.runs) != 0 {
+					t.Errorf("asked something: %v", p.f.runs)
+				}
+			})
+		}
+	}
+}
+
+// WHERE go:test-race SETTLED WITHOUT A RED AND LEFT NO PROFILE (it passed and
+// wrote none where this atom can see, or it stood down absent), the change set is
+// measured again by a suite of this atom's own, never waved through.
+func TestGoDiffCoverageMeasuresItselfWhenGoTestRaceLeftNoProfile(t *testing.T) {
+	for _, verdict := range []checks.Verdict{{State: 0, Result: "pass"}, {State: 0, Result: "absent"}} {
+		t.Run(verdict.Result, func(t *testing.T) {
+			p := newPull(t, ".")
+			p.raced(verdict, "")
+			v := p.run()
+			if v.State != 1 || !p.f.ran("go test -race") || !strings.Contains(v.Reason, "coverage: this atom's own run of the suite") {
+				t.Errorf("%+v ran %v", v, p.f.runs)
+			}
+		})
+	}
+}
+
+// A VERDICT THAT WILL NOT READ, or none yet, is go:test-race not settled: the
+// atom measures the suite itself.
+func TestGoDiffCoverageMeasuresItselfWithoutASettledGoTestRace(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(p *pull)
+	}{
+		{"no verdict yet", func(p *pull) { p.t.Setenv("ATOM_OUT", filepath.Join(p.t.TempDir(), "x.json")) }},
+		{"an unreadable verdict", func(p *pull) {
+			out := p.t.TempDir()
+			p.t.Setenv("ATOM_OUT", filepath.Join(out, "x.json"))
+			if err := os.WriteFile(filepath.Join(out, atomkit.EscapeID(atoms.GoRaceRow.ID)+".json"), []byte("{"), 0o644); err != nil {
+				p.t.Fatal(err)
+			}
+		}},
+		{"an empty profile", func(p *pull) { p.raced(checks.Verdict{State: 0, Result: "pass"}, "") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newPull(t, ".")
+			tc.setup(p)
+			if tc.name == "an empty profile" {
+				if err := os.WriteFile(atoms.GoCoverProfile(atoms.GoRaceRow.ID, "."), nil, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			v := p.run()
+			if v.State != 1 || !p.f.ran("go test -race") || !strings.Contains(v.Reason, "coverage: this atom's own run of the suite") {
+				t.Errorf("%+v ran %v", v, p.f.runs)
+			}
+		})
 	}
 }
