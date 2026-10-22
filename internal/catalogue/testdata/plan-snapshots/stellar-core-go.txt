@@ -88,8 +88,10 @@ run:
   dev:go-build
   dev:go-check
   dev:go-fmt
+  dev:go-fmt-check
   dev:go-lint
   dev:go-regen
+  dev:go-sast
   dev:go-test
   dev:go-test-live
   dev:go-tidy
@@ -97,6 +99,7 @@ run:
   dev:go-update
   dev:go-vendor
   dev:go-vet
+  dev:go-vuln
   dev:python-fmt
   dev:python-lint
   go:cast-release
@@ -136,6 +139,7 @@ absent:
   dev:rust-test
   dev:rust-typecheck
   dev:rust-update
+  dev:rust-vuln
   dev:ts-build
   dev:ts-check
   dev:ts-fmt

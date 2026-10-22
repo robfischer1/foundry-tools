@@ -1,0 +1,13 @@
+schema = "command-atom@1"
+id = "dev:rust-vuln"
+stage = "dev"
+lane = "rust"
+group = "language"
+desc = "cargo audit reports no known vulnerability (rust:cargo-audit's command), run by hand from the dev lane."
+surface = "root:Cargo.toml"
+toolchain = "rust"
+argv = ["cargo", "audit"]
+args = "append"
+per_module = false
+judge = "exit"
+needs = ["tool:cargo-audit"]

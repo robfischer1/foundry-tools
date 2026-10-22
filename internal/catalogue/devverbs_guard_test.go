@@ -15,6 +15,12 @@ var devVerbs = []string{
 	"regen", "replay", "lint", "typecheck", "test-live",
 }
 
+// checkVerbs are the read-only check verbs a star's recipes ask for beyond the
+// list foundry-stocks pins: fmt-check (the gofmt listing), vuln (the advisory
+// scan) and sast (the opengrep scan). They route like any verb, to
+// dev:<lang>-<verb>.
+var checkVerbs = []string{"fmt-check", "vuln", "sast"}
+
 // devNotApplicable is every language x verb that has no dev atom ON PURPOSE,
 // with the reason. Anything else a star can ask must resolve to dev:<lang>-<verb>.
 var devNotApplicable = map[string]string{
@@ -25,6 +31,11 @@ var devNotApplicable = map[string]string{
 	"python/regen": "go and ts worlds only", "python/replay": "rust wit replay only", "python/test-live": "go only",
 	"ts/vet": "go only", "ts/clippy": "rust only", "ts/tidy": "go only", "ts/vendor": "go only",
 	"ts/replay": "rust wit replay only", "ts/test-live": "go only",
+	// the check verbs: go has all three; rust has vuln (its fmt check is `fmt --check`
+	// and no rust recipe asks for sast); python and ts have none
+	"rust/fmt-check": "rust asks `fmt --check`, the fmt verb with its flag", "rust/sast": "no rust star recipe asks for it",
+	"python/fmt-check": "no python star recipe asks for it", "python/vuln": "no python star recipe asks for it", "python/sast": "no python star recipe asks for it",
+	"ts/fmt-check": "no ts star recipe asks for it", "ts/vuln": "no ts star recipe asks for it", "ts/sast": "no ts star recipe asks for it",
 }
 
 // TestEveryDevVerbResolvesOrIsDocumentedNotApplicable is the guard foundry-stocks
@@ -32,7 +43,7 @@ var devNotApplicable = map[string]string{
 // explicit reason it should not.
 func TestEveryDevVerbResolvesOrIsDocumentedNotApplicable(t *testing.T) {
 	for _, lang := range []string{"go", "rust", "python", "ts"} {
-		for _, verb := range devVerbs {
+		for _, verb := range append(slices.Clone(devVerbs), checkVerbs...) {
 			key := lang + "/" + verb
 			_, has := Lookup("dev:" + lang + "-" + verb)
 			reason, na := devNotApplicable[key]
@@ -48,7 +59,7 @@ func TestEveryDevVerbResolvesOrIsDocumentedNotApplicable(t *testing.T) {
 	}
 	for key := range devNotApplicable {
 		lang, verb, _ := strings.Cut(key, "/")
-		if !slices.Contains(devVerbs, verb) || lang == "" {
+		if !(slices.Contains(devVerbs, verb) || slices.Contains(checkVerbs, verb)) || lang == "" {
 			t.Errorf("not-applicable entry %q names no known verb", key)
 		}
 	}

@@ -11,8 +11,11 @@ import (
 	composeconfig "dagger/foundry-tools/atoms/compose/config"
 	composenotrackedsecrets "dagger/foundry-tools/atoms/compose/no-tracked-secrets"
 	composethirdpartypins "dagger/foundry-tools/atoms/compose/third-party-pins"
+	devgofmtcheck "dagger/foundry-tools/atoms/dev/go-fmt-check"
 	devgoregen "dagger/foundry-tools/atoms/dev/go-regen"
+	devgosast "dagger/foundry-tools/atoms/dev/go-sast"
 	devgotestlive "dagger/foundry-tools/atoms/dev/go-test-live"
+	devgovuln "dagger/foundry-tools/atoms/dev/go-vuln"
 	devrustreplay "dagger/foundry-tools/atoms/dev/rust-replay"
 	devtsregen "dagger/foundry-tools/atoms/dev/ts-regen"
 	diesadmissiondogfood "dagger/foundry-tools/atoms/dies/admission-dogfood"
@@ -120,8 +123,11 @@ var Defs = []*atomkit.Def{
 	&composeconfig.Def,
 	&composenotrackedsecrets.Def,
 	&composethirdpartypins.Def,
+	&devgofmtcheck.Def,
 	&devgoregen.Def,
+	&devgosast.Def,
 	&devgotestlive.Def,
+	&devgovuln.Def,
 	&devrustreplay.Def,
 	&devtsregen.Def,
 	&diesadmissiondogfood.Def,
@@ -247,6 +253,7 @@ var ManifestSources = []ManifestSource{
 	{Path: "atoms/dev/rust-test.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:rust-test\"\nstage = \"dev\"\nlane = \"rust\"\ngroup = \"language\"\ndesc = \"cargo test --workspace passes, run by hand from the dev lane.\"\nsurface = \"root:Cargo.toml\"\ntoolchain = \"rust\"\nargv = [\"cargo\", \"test\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\ntimeout = \"30m\"\n\n[[default]]\nargs = [\"--workspace\"]\nunless = [\"-p\", \"--package\", \"--workspace\", \"--all\", \"--manifest-path\"]\nuntil = \"--\"\n"},
 	{Path: "atoms/dev/rust-typecheck.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:rust-typecheck\"\nstage = \"dev\"\nlane = \"rust\"\ngroup = \"language\"\ndesc = \"cargo check --workspace succeeds, run by hand under the name `typecheck` (dev:rust-check's twin).\"\nsurface = \"root:Cargo.toml\"\ntoolchain = \"rust\"\nargv = [\"cargo\", \"check\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\n\n[[default]]\nargs = [\"--workspace\"]\nunless = [\"-p\", \"--package\", \"--workspace\", \"--all\", \"--manifest-path\"]\nuntil = \"--\"\n"},
 	{Path: "atoms/dev/rust-update.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:rust-update\"\nstage = \"dev\"\nlane = \"rust\"\ngroup = \"language\"\ndesc = \"cargo update rewrites Cargo.lock in place.\"\nsurface = \"root:Cargo.toml\"\ntoolchain = \"rust\"\nargv = [\"cargo\", \"update\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\nwrites_tree = true\npreflight = false\n"},
+	{Path: "atoms/dev/rust-vuln.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:rust-vuln\"\nstage = \"dev\"\nlane = \"rust\"\ngroup = \"language\"\ndesc = \"cargo audit reports no known vulnerability (rust:cargo-audit's command), run by hand from the dev lane.\"\nsurface = \"root:Cargo.toml\"\ntoolchain = \"rust\"\nargv = [\"cargo\", \"audit\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\nneeds = [\"tool:cargo-audit\"]\n"},
 	{Path: "atoms/dev/ts-build.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:ts-build\"\nstage = \"dev\"\nlane = \"ts\"\ngroup = \"language\"\ndesc = \"the repo's build script succeeds, run by hand from the dev lane.\"\nsurface = \"root:package.json\"\ntoolchain = \"bun\"\nargv = [\"bun\", \"run\", \"build\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\nneeds = [\"tool:node\", \"tool:curl\"]\ntimeout = \"30m\"\nwrites_tree = true\n\n# Same toolchain, tool:node and frozen install as dev:ts-test. A star without a\n# `build` script answers bun's missing-script error.\n"},
 	{Path: "atoms/dev/ts-check.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:ts-check\"\nstage = \"dev\"\nlane = \"ts\"\ngroup = \"language\"\ndesc = \"the repo's typecheck script is clean, run by hand from the dev lane under its other name, `check` (dev:ts-typecheck's twin).\"\nsurface = \"root:package.json\"\ntoolchain = \"bun\"\nargv = [\"bun\", \"run\", \"typecheck\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\nneeds = [\"tool:node\", \"tool:curl\"]\ntimeout = \"30m\"\nwrites_tree = true\n\n# `check` IS A LANGUAGE'S COMPILE-BEARING VERB (dev:go-check is go vet, dev:rust-check\n# is cargo check). A ts repo's is its typecheck script: this is dev:ts-typecheck\n# under the name the refusal shim routes.\n#\n# THE GATE TWIN IS ts:bun-gate, which runs the repo's `gate` script; this runs\n# the repo's `typecheck` script, one of the scripts the gate script\n# chains. Same toolchain image (the pinned bun), same tool:node first on PATH,\n# and the install is the toolchain's own preflight (tools.toml [toolchain.bun]),\n# the gate's `bun install --frozen-lockfile`. The install writes node_modules,\n# so the verb runs on the atom's own copy of the tree. NOT SHARED: the gate lays\n# the fleet's eslint.config.mjs over the repo's before it runs; this verb reads\n# the repo's.\n"},
 	{Path: "atoms/dev/ts-fmt.toml", Body: "schema = \"command-atom@1\"\nid = \"dev:ts-fmt\"\nstage = \"dev\"\nlane = \"ts\"\ngroup = \"language\"\ndesc = \"the repo's format script rewrites the tree in place.\"\nsurface = \"root:package.json\"\ntoolchain = \"bun\"\nargv = [\"bun\", \"run\", \"format\"]\nargs = \"append\"\nper_module = false\njudge = \"exit\"\nneeds = [\"tool:node\", \"tool:curl\"]\nwrites_tree = true\n\n# THE GATE TWIN IS ts:bun-gate, whose script opens with `format:check`; this is\n# the rewrite, the repo's `format` script (prettier --write), on the atom's own\n# copy of the tree. Same toolchain image, same tool:node, same frozen install as\n# the toolchain's preflight (tools.toml [toolchain.bun]). A star without a\n# `format` script (stellar-core-ts) answers bun's missing-script error.\n"},
