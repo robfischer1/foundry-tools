@@ -353,7 +353,7 @@ image = "ghcr.io/sigstore/cosign/cosign:v3.1.1@sha256:6bbe0d281d955c79f85b325f0f
 
 [tool.signing-tools]
 kind = "image"
-image = "registry.notusmi.com/foundry/base-images/signing-tools:stable@sha256:b3c6a9486f2b548af34fc4bfefc9bd1ba4faa7b1a08782aa49cbca43bb8a0a4f"
+image = "registry.notusmi.com/foundry/base-images/signing-tools:stable@sha256:db3f7848ae265c0ee93c1cf1292d53b2a008ea79183f60fd5a632631b4916b87"
 
 [tool.kubeconform]
 kind = "image"
