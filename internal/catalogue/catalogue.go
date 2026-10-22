@@ -68,6 +68,9 @@ func build() []Entry {
 			panic("catalogue: atom " + out[i].ID + " is declared twice")
 		}
 	}
+	if c := atomkit.AfterAnyCycle(Defs); c != "" {
+		panic("catalogue: the after_any edges close a cycle: " + c)
+	}
 	return out
 }
 

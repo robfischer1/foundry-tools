@@ -307,6 +307,46 @@ func TestBuildRefusesABadManifestAndADuplicate(t *testing.T) {
 	}
 }
 
+// A CYCLE OF after_any EDGES IS AN AUTHORING ERROR AT LOAD, like a duplicate:
+// every atom on it would wait for the others to the pod's deadline. The live
+// catalogue closes none.
+func TestBuildRefusesAnAfterAnyCycle(t *testing.T) {
+	defs, sources := Defs, ManifestSources
+	t.Cleanup(func() { Defs, ManifestSources = defs, sources })
+	if c := atomkit.AfterAnyCycle(defs); c != "" {
+		t.Fatalf("the live catalogue closes a cycle: %s", c)
+	}
+	ManifestSources = nil
+	Defs = []*atomkit.Def{{ID: "st:a", AfterAny: []string{"st:b"}}, {ID: "st:b", AfterAny: []string{"st:a"}}}
+	if msg := panicOf(func() { build() }); msg != "catalogue: the after_any edges close a cycle: st:a -> st:b -> st:a" {
+		t.Errorf("a cycle: %q", msg)
+	}
+}
+
+// EVERY after_any EDGE OF THE LIVE CATALOGUE NAMES AN ATOM IT CARRIES, in the
+// same stage: the planner drops an edge to an atom it does not run, so an edge
+// to a misspelt id would silently order nothing.
+func TestEveryAfterAnyEdgeNamesACatalogueAtomOfItsStage(t *testing.T) {
+	stage := map[string]string{}
+	for _, e := range Entries() {
+		if e.Def != nil {
+			stage[e.ID] = e.Def.Stage
+		}
+	}
+	edges := 0
+	for _, d := range Defs {
+		for _, a := range d.AfterAny {
+			edges++
+			if s, ok := stage[a]; !ok || s != d.Stage {
+				t.Errorf("%s follows %s, which is not a logic atom of stage %s", d.ID, a, d.Stage)
+			}
+		}
+	}
+	if edges == 0 {
+		t.Error("no atom follows another: go:diff-coverage follows go:test-race")
+	}
+}
+
 func panicOf(f func()) (msg string) {
 	defer func() {
 		if r := recover(); r != nil {

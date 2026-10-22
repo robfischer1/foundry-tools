@@ -22,10 +22,16 @@ import (
 // Def is the atom. It judges the change, so its environment hands it the base
 // and the fork record (atom_env.go). NeedsDies BECAUSE IT CAN RUN THE SUITE
 // ITSELF: an atom answers one verdict, and the suite is go:test-race's own run.
-// In the executor's pod the two share /work, and where go:test-race has already
-// settled this atom reads the profile it left (raceProfile); anywhere else - the
-// Dagger adapter, a workstation, or a pod where it started first - it runs the
-// same `go test` on servers of its own.
+//
+// IT FOLLOWS go:test-race ON ANY VERDICT (AfterAny). In the executor's pod the
+// two share /work: the runner hands this atom its token once go:test-race has
+// settled, and this atom reads the profile that run left (raceProfile) instead
+// of running the suite a second time. A red go:test-race stands it down as
+// excluded, the runner's own verdict or this atom's (raceRed). Anywhere the
+// edge is not honoured - the Dagger adapter, a workstation, a runner that
+// predates after_any - go:test-race has no verdict yet when this atom looks, and
+// it runs the same `go test` on servers of its own, which is why it keeps the
+// suite's Needs.
 var Def = atomkit.Def{
 	ID: "go:diff-coverage", Stage: checks.StagePrepush, Lane: checks.LaneGo,
 	Group:      checks.GroupLanguage,
@@ -34,6 +40,7 @@ var Def = atomkit.Def{
 	Toolchain:  "go",
 	Needs:      append(append([]string{"dies", "service:postgres", "service:pgvector", "service:redpanda", "service:redis", "service:etcd", "service:kube-apiserver", "service:timescale"}, checks.GravityNeeds()...), checks.WitSnapshotNeeds...),
 	NotOnForks: checks.ForkChangeBar,
+	AfterAny:   []string{atoms.GoRaceRow.ID},
 	Timeout:    45 * time.Minute,
 	Check:      check,
 }
@@ -55,9 +62,13 @@ const noBase = "ABSENT - no usable PR base sha, so there is no change set to hol
 // findings are every module's, gathered here: a fold over modules keeps the
 // states and the reasons, and a finding from a nested module is still one.
 func check(ctx context.Context, in atomkit.In) checks.Verdict {
+	race, settled := raceVerdict()
+	if settled && raceRed(race) {
+		return excludedAfter(race)
+	}
 	var found []checks.Finding
 	v := atoms.EachGoModule(in, row, func(dir string) checks.Verdict {
-		mv := module(ctx, in, dir)
+		mv := module(ctx, in, dir, settled)
 		found = append(found, mv.Findings...)
 		return mv
 	})
@@ -72,7 +83,11 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 // ABSENT then — a failing run's profile measures a suite that did not finish,
 // and a second red over the same cause is noise. It does so for a could-not-run
 // too, rather than re-asking.
-func module(ctx context.Context, in atomkit.In, dir string) checks.Verdict {
+//
+// settled is go:test-race having passed in this pod: its profile of the module
+// is read where its run left it, and only where it left none does this atom run
+// the suite itself.
+func module(ctx context.Context, in atomkit.In, dir string, settled bool) checks.Verdict {
 	settle := func(state int, reason string) checks.Verdict { return checks.VerdictOf(row, state, id+": "+reason) }
 	if in.Base == "" {
 		return settle(0, noBase)
@@ -95,9 +110,9 @@ func module(ctx context.Context, in atomkit.In, dir string) checks.Verdict {
 		return settle(0, "ABSENT - this pull adds no line to a non-test, non-generated Go file of this module")
 	}
 
-	profile, red := raceProfile(dir)
-	if red {
-		return settle(0, "ABSENT - go:test-race did not pass in this module; a suite that did not finish measures no coverage, and go:test-race reports it")
+	var profile []byte
+	if settled {
+		profile = raceProfile(dir)
 	}
 	from := "the profile of go:test-race's run in this pod"
 	if profile == nil {
@@ -131,36 +146,60 @@ func module(ctx context.Context, in atomkit.In, dir string) checks.Verdict {
 	return v
 }
 
-// raceProfile is go:test-race's profile of the module at dir, when go:test-race
-// has already settled in this pod: its verdict sits beside this atom's own
-// (ATOM_OUT, in the pod's shared /work/out) and the profile where its run left
-// it (atoms.GoCoverProfile). red is go:test-race having settled with no profile
-// for the module and no pass: its suite there did not pass (the run removes the
-// profile of a suite that did not), so there is no coverage to hold the change
-// against, and go:test-race reports why.
-//
-// NIL AND NOT RED IS "MEASURE IT YOURSELF": no ATOM_OUT (the Dagger adapter, a
-// workstation), no verdict yet (go:test-race still running, or not planned), a
-// verdict that will not read, or one that PASSED and left no profile here. The
-// last is not a red: a passing suite whose profile this atom cannot see is a
-// profile to measure again, never a change set waved through.
-func raceProfile(dir string) (profile []byte, red bool) {
+// raceVerdict is go:test-race's verdict in this pod, beside this atom's own
+// (ATOM_OUT, in the pod's shared /work/out). settled is false where there is
+// none to read: no ATOM_OUT (the Dagger adapter, a workstation), no verdict yet
+// (go:test-race still running, or a runner that does not order by after_any), or
+// one that will not parse. Each of those is "measure it yourself", never a pass.
+func raceVerdict() (race checks.Verdict, settled bool) {
 	out := os.Getenv("ATOM_OUT")
 	if out == "" {
-		return nil, false
+		return checks.Verdict{}, false
 	}
 	b, err := os.ReadFile(filepath.Join(filepath.Dir(out), atomkit.EscapeID(atoms.GoRaceRow.ID)+".json"))
 	if err != nil {
-		return nil, false
+		return checks.Verdict{}, false
 	}
-	var race checks.Verdict
 	if err := json.Unmarshal(b, &race); err != nil {
-		return nil, false
+		return checks.Verdict{}, false
 	}
+	return race, true
+}
+
+// raceRed is go:test-race not having passed, as the runner reads it (daedalus
+// lead tokens.failed): any state but 0, or a verdict that is itself excluded.
+// An absence (state 0, absent) is not red.
+func raceRed(race checks.Verdict) bool {
+	return race.State != int(checks.StatePass) || race.Result == checks.VerdictExcluded
+}
+
+// excludedAfter is this atom stood down because go:test-race did not pass: what
+// it reads (the suite's profile) does not exist, and go:test-race already
+// carries the red. State 0 with result `excluded` and one `excluded` finding,
+// the shape the runner writes itself when it stands an after_any atom down
+// (daedalus wire.Excluded), so the lane folds to go:test-race's verdict and this
+// line reads excluded, never holds and never could-not-run.
+func excludedAfter(race checks.Verdict) checks.Verdict {
+	pred := atoms.GoRaceRow.ID
+	return checks.Verdict{
+		Atom: id, Stage: row.Stage, Lane: string(row.Lane), State: int(checks.StatePass), Result: checks.VerdictExcluded,
+		Reason: id + ": EXCLUDED - " + pred + " did not pass (" + race.Result + "), so the profile this reads does not exist; " + pred + " reports why",
+		Logs:   []string{},
+		Findings: []checks.Finding{{
+			Verdict: checks.VerdictExcluded, Subject: id, Cause: "predecessor-red", Detail: pred + " did not pass", Probe: id,
+		}},
+	}
+}
+
+// raceProfile is go:test-race's profile of the module at dir, where its run in
+// this pod left it (atoms.GoCoverProfile); nil when there is none or it is
+// empty. A run removes the profile of a suite that did not pass, so a profile
+// that is there is a passing run's.
+func raceProfile(dir string) []byte {
 	if p, err := os.ReadFile(atoms.GoCoverProfile(atoms.GoRaceRow.ID, dir)); err == nil && len(p) > 0 {
-		return p, false
+		return p
 	}
-	return nil, race.State != int(checks.StatePass) || race.Result != checks.StatePass.String()
+	return nil
 }
 
 // readFailed words a read that did not answer: a program that would not start
