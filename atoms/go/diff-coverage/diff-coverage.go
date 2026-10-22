@@ -27,18 +27,22 @@ import (
 // two share /work: the runner hands this atom its token once go:test-race has
 // settled, and this atom reads the profile that run left (raceProfile) instead
 // of running the suite a second time. A red go:test-race stands it down as
-// excluded, the runner's own verdict or this atom's (raceRed). Anywhere the
-// edge is not honoured - the Dagger adapter, a workstation, a runner that
-// predates after_any - go:test-race has no verdict yet when this atom looks, and
-// it runs the same `go test` on servers of its own, which is why it keeps the
-// suite's Needs.
+// excluded, the runner's own verdict or this atom's (raceRed).
+//
+// IT HOLDS NO SERVERS IN THE POD. The executor binds a service sidecar per
+// consuming atom, so `service:*` Needs here were a second set of six servers
+// (about 1.1Gi requested) for a suite this atom no longer runs there (proven on
+// stellar-core gate 1484: 2.2 s, the profile read). In the pod a missing verdict
+// or profile is therefore its could-not-run, never a suite run without servers
+// (inPod). Off the executor (the Dagger adapter binds servers from the tree's
+// tags, not from Needs; a workstation) it still runs the suite itself.
 var Def = atomkit.Def{
 	ID: "go:diff-coverage", Stage: checks.StagePrepush, Lane: checks.LaneGo,
 	Group:      checks.GroupLanguage,
 	Desc:       "Every line this pull changes in non-test, non-generated Go that holds code ran under go:test-race's suite — NOT COVERED, read off its coverage profile.",
 	Surface:    "any:**/go.mod",
 	Toolchain:  "go",
-	Needs:      append(append([]string{"dies", "service:postgres", "service:pgvector", "service:redpanda", "service:redis", "service:etcd", "service:kube-apiserver", "service:timescale"}, checks.GravityNeeds()...), checks.WitSnapshotNeeds...),
+	Needs:      append(append([]string{"dies"}, checks.GravityNeeds()...), checks.WitSnapshotNeeds...),
 	NotOnForks: checks.ForkChangeBar,
 	AfterAny:   []string{atoms.GoRaceRow.ID},
 	Timeout:    45 * time.Minute,
@@ -115,6 +119,12 @@ func module(ctx context.Context, in atomkit.In, dir string, settled bool) checks
 		profile = raceProfile(dir)
 	}
 	from := "the profile of go:test-race's run in this pod"
+	if profile == nil && inPod() {
+		// after_any hands this atom its token only once go:test-race has a
+		// verdict, and a passing run leaves its profile: either is missing only
+		// when something broke, and there are no servers here to measure with.
+		return settle(2, "CANNOT RUN - go:test-race left no passing verdict and profile for this module in the pod, and this atom reads that profile rather than running the suite on servers it does not hold")
+	}
 	if profile == nil {
 		suite := atoms.GoRaceSuiteAs(ctx, in, atoms.GoRaceRow, dir, id)
 		if suite.State != int(checks.StatePass) {
@@ -165,6 +175,11 @@ func raceVerdict() (race checks.Verdict, settled bool) {
 	}
 	return race, true
 }
+
+// inPod is this atom running in the executor's pod, where the tree facts are
+// handed over (ATOM_TREE, atomkit.LoadIn) and go:test-race's run is beside it.
+// The Dagger adapter hands none.
+func inPod() bool { return os.Getenv("ATOM_TREE") != "" }
 
 // raceRed is go:test-race not having passed, as the runner reads it (daedalus
 // lead tokens.failed): any state but 0, or a verdict that is itself excluded.

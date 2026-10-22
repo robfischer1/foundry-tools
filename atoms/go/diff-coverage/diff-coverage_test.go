@@ -96,6 +96,7 @@ func newPull(t *testing.T, module string) *pull {
 	put(t, root, filepath.Join(module, "f.go"), covSrc)
 	put(t, root, filepath.Join(module, "f_test.go"), "package x\n")
 	t.Setenv("ATOM_OUT", "")
+	t.Setenv("ATOM_TREE", "")
 	old := atoms.GoCoverRoot
 	atoms.GoCoverRoot = t.TempDir()
 	t.Cleanup(func() { atoms.GoCoverRoot = old })
@@ -123,7 +124,7 @@ func TestTheDeclarationValidatesAndNamesItsRow(t *testing.T) {
 	if Def.ID != id || Def.Stage != checks.StagePrepush || Def.Lane != checks.LaneGo || Def.Group != checks.GroupOf(id) ||
 		Def.Toolchain != "go" || Def.Surface != "any:**/go.mod" || Def.NotOnForks != checks.ForkChangeBar || Def.SubsumedBy != "" ||
 		!slices.Equal(Def.AfterAny, []string{atoms.GoRaceRow.ID}) ||
-		strings.Join(Def.Needs, ",") != "dies,service:postgres,service:pgvector,service:redpanda,service:redis,service:etcd,service:kube-apiserver,service:timescale,"+strings.Join(checks.GravityNeeds(), ",")+",tool:wasm-tools" {
+		strings.Join(Def.Needs, ",") != "dies,"+strings.Join(checks.GravityNeeds(), ",")+",tool:wasm-tools" {
 		t.Errorf("%+v", Def)
 	}
 }
@@ -365,5 +366,32 @@ func TestGoDiffCoverageMeasuresItselfWithoutASettledGoTestRace(t *testing.T) {
 				t.Errorf("%+v ran %v", v, p.f.runs)
 			}
 		})
+	}
+}
+
+// IN THE POD THIS ATOM HOLDS NO SERVERS: where go:test-race left no verdict, or
+// passed and left no profile, it cannot run, and never runs the suite without
+// the servers it would need.
+func TestGoDiffCoverageCannotRunInThePodWithoutGoTestRacesProfile(t *testing.T) {
+	for name, setup := range map[string]func(p *pull){
+		"no verdict":                  func(p *pull) { p.t.Setenv("ATOM_OUT", filepath.Join(p.t.TempDir(), "x.json")) },
+		"a pass that left no profile": func(p *pull) { p.raced(checks.Verdict{State: 0, Result: "pass"}, "") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := newPull(t, ".")
+			setup(p)
+			t.Setenv("ATOM_TREE", "/work/tree.json")
+			v := p.run()
+			if v.State != 2 || !strings.Contains(v.Reason, "go:diff-coverage: CANNOT RUN - go:test-race left no passing verdict and profile for this module in the pod") || p.f.ran("go test") {
+				t.Errorf("%+v ran %v", v, p.f.runs)
+			}
+		})
+	}
+	// the profile there is read in the pod as anywhere
+	p := newPull(t, ".")
+	p.raced(checks.Verdict{State: 0, Result: "pass"}, covProfile)
+	t.Setenv("ATOM_TREE", "/work/tree.json")
+	if v := p.run(); v.State != 1 || !strings.Contains(v.Reason, "coverage: the profile of go:test-race's run in this pod") {
+		t.Errorf("%+v", v)
 	}
 }
