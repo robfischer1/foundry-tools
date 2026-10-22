@@ -30,8 +30,9 @@ import (
 //
 // Each writes its own profile; the two are merged into the one the run owes
 // (GoCoverProfile). Sequential, not concurrent, so the run's memory peak stays
-// the larger of the two sets', not their sum: until go:diff-coverage reads
-// go:test-race's profile (after_any), two race runs share the go container.
+// the larger of the two sets', not their sum: wherever the runner does not
+// order go:diff-coverage behind go:test-race (after_any), two race runs share
+// the go container.
 //
 // EVERY DOUBT IS THE OLD RUN: a module that will not list, a directory that
 // will not read, or no package left to run in parallel answers ok false, and the
