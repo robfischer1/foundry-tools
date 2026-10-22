@@ -16,12 +16,14 @@ import (
 	"dagger/foundry-tools/internal/checks"
 )
 
-// Def is the atom. The checker is daedalus' own, built by the lane's go.
+// Def is the atom. The checker is daedalus' own, built by the lane's go. Surface and
+// Toolchain are string literals on purpose: daedalus reads a Def with go/ast and
+// understands nothing else (catalogue/literal_surface_test.go).
 var Def = atomkit.Def{
 	ID: "fleet:daedalus-jobs-config", Stage: checks.StagePrecommit, Lane: checks.LaneAny,
 	Group:     checks.GroupBasic,
 	Desc:      "prime/daedalus-jobs.yaml parses under daedalus' own settings parser, built at the daedalus commit prime/images/kustomization.yaml deploys, or it prints the parser's refusal (flux#5748: REFPOD_LANES without REFPOD_PEER_ID kept the runner off and stalled fleet CI).",
-	Surface:   "any:" + jobs,
+	Surface:   "any:prime/daedalus-jobs.yaml",
 	Toolchain: "go",
 	Check:     check,
 }
