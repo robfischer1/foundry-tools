@@ -54,9 +54,10 @@ var devAtoms = []struct {
 	{"dev:ts-fmt", "ts", "root:package.json", "bun", true},
 	{"dev:ts-typecheck", "ts", "root:package.json", "bun", true},
 	{"dev:ts-check", "ts", "root:package.json", "bun", true},
+	{"dev:rust-vuln", "rust", "root:Cargo.toml", "rust", false},
 }
 
-// TestUT_514_TheDevAtomsKeepTheirShape: all 35 parse, sit in the dev stage with
+// TestUT_514_TheDevAtomsKeepTheirShape: all 36 parse, sit in the dev stage with
 // the Dev surface's fields, and write the tree for the go test (it rewrites
 // goldens), the go update and the six rewriting go/rust verbs, the python fmt
 // and the four ts ones (a ts install lands in node_modules,
@@ -74,8 +75,8 @@ func TestUT_514_TheDevAtomsKeepTheirShape(t *testing.T) {
 			t.Errorf("%s: %+v", tc.id, m)
 		}
 	}
-	if got := len(devAtoms); got != 35 {
-		t.Errorf("%d dev atoms in the table, want 35", got)
+	if got := len(devAtoms); got != 36 {
+		t.Errorf("%d dev atoms in the table, want 36", got)
 	}
 }
 
@@ -140,6 +141,7 @@ var (
 	devNeeds = map[string][]string{
 		"dev:go-test":          {"dies"},
 		"dev:go-lint":          {"tool:staticcheck"},
+		"dev:rust-vuln":        {"tool:cargo-audit"},
 		"dev:python-test":      {"tool:git", "tool:uv", "tool:jq", "tool:curl", "tool:just"},
 		"dev:python-lint":      {"tool:ruff"},
 		"dev:python-fmt":       {"tool:ruff"},
@@ -649,5 +651,24 @@ func TestThePythonAndTSCheckVerbsAreTheirTypecheckTwins(t *testing.T) {
 		if strings.Contains(v, "dev-python-typecheck") {
 			t.Errorf("dev:python-check env %s=%s shares the typecheck atom's cache", k, v)
 		}
+	}
+}
+
+// TestTheRustVulnVerbIsTheGatesCargoAudit: dev:rust-vuln runs what rust:cargo-audit
+// runs: the same argv, tool, toolchain, surface and judge, so `just vuln` and the
+// push stage cannot disagree. It is a read-only verb that takes the caller's
+// arguments (`--deny warnings`).
+func TestTheRustVulnVerbIsTheGatesCargoAudit(t *testing.T) {
+	e, ok := Lookup("rust:cargo-audit")
+	if !ok || e.Manifest == nil {
+		t.Fatal("rust:cargo-audit has no manifest")
+	}
+	dev := manifestOf(t, "dev:rust-vuln")
+	if !slices.Equal(dev.Argv, e.Manifest.Argv) || !slices.Equal(dev.Needs, e.Manifest.Needs) || dev.Toolchain != e.Manifest.Toolchain ||
+		dev.Surface != e.Manifest.Surface || dev.Judge != e.Manifest.Judge || dev.WritesTree || dev.Stage != "dev" || dev.Args != "append" {
+		t.Errorf("dev:rust-vuln %+v is not rust:cargo-audit %+v", dev, *e.Manifest)
+	}
+	if got := dev.Compose([]string{"--deny", "warnings"}); !slices.Equal(got, []string{"cargo", "audit", "--deny", "warnings"}) {
+		t.Errorf("composed %v", got)
 	}
 }

@@ -48,6 +48,11 @@ var atomsSourceInclude = []string{
 	"internal/goregen/**",
 	// rust:wit-compose and dev:rust-replay share one body
 	"internal/witreplay/**",
+	// the question a gate atom and its dev verb both ask: go:gofmt and
+	// dev:go-fmt-check, go:govulncheck and dev:go-vuln, fleet:opengrep-sast and dev:go-sast
+	"internal/gofmtcheck/**",
+	"internal/vulncheck/**",
+	"internal/sastcheck/**",
 	"internal/retiredverbs/**",
 	"internal/releasekit/**",
 	// the bundle lane's build (bundle:policy, :fleet) and its decisions

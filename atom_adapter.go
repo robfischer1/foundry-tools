@@ -86,6 +86,11 @@ var (
 	libraryDirs = []string{"internal/atomlib/**"}
 	// witnessDirs: fleet:witness asks as the pod's SVID in its own process.
 	witnessDirs = []string{"internal/hadescall/**", "internal/witnesscall/**"}
+	// gofmtDirs, vulncheckDirs and sastDirs: the gate's atom and its dev verb ask one
+	// question, which lives in the package named.
+	gofmtDirs     = []string{"internal/gofmtcheck/**"}
+	vulncheckDirs = []string{"internal/vulncheck/**"}
+	sastDirs      = []string{"internal/sastcheck/**"}
 	// witreplayDirs: rust:wit-compose and dev:rust-replay are one body.
 	witreplayDirs = []string{"internal/witreplay/**"}
 	// releaseDirs are what the release atoms share: the release build's one
@@ -148,6 +153,12 @@ var atomLibraries = map[string][]string{
 	"ts:regen":                   {"internal/regenlane/**", "internal/regenkit/**"},
 	"dev:ts-regen":               {"internal/regenlane/**", "internal/regenkit/**"},
 	"dev:go-regen":               {"internal/goregen/**", "internal/regenkit/**"},
+	"go:gofmt":                   gofmtDirs,
+	"dev:go-fmt-check":           gofmtDirs,
+	"go:govulncheck":             vulncheckDirs,
+	"dev:go-vuln":                vulncheckDirs,
+	"fleet:opengrep-sast":        sastDirs,
+	"dev:go-sast":                sastDirs,
 	"rust:wit-compose":           witreplayDirs,
 	"dev:rust-replay":            witreplayDirs,
 	"ts:visual":                  {"internal/visuallane/**", "internal/buildlane/**"},

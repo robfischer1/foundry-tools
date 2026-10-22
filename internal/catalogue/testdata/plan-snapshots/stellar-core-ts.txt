@@ -118,8 +118,10 @@ absent:
   dev:go-build
   dev:go-check
   dev:go-fmt
+  dev:go-fmt-check
   dev:go-lint
   dev:go-regen
+  dev:go-sast
   dev:go-test
   dev:go-test-live
   dev:go-tidy
@@ -127,6 +129,7 @@ absent:
   dev:go-update
   dev:go-vendor
   dev:go-vet
+  dev:go-vuln
   dev:python-build
   dev:python-check
   dev:python-fmt
@@ -145,6 +148,7 @@ absent:
   dev:rust-test
   dev:rust-typecheck
   dev:rust-update
+  dev:rust-vuln
   go:cast-release
   python:artifacts
   rust:cast-release
