@@ -33,6 +33,8 @@ type IndexAtom struct {
 	WritesTree   bool     `json:"writes_tree"`
 	SubsumedBy   string   `json:"subsumed_by"`
 	NotOnForks   string   `json:"not_on_forks"`
+	ReasksOwn    bool     `json:"reasks_own,omitempty"`
+	AfterAny     []string `json:"after_any,omitempty"`
 	AbsentReason string   `json:"absent_reason"`
 	ForkReason   string   `json:"fork_reason"`
 }

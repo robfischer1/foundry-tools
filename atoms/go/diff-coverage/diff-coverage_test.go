@@ -122,6 +122,7 @@ func TestTheDeclarationValidatesAndNamesItsRow(t *testing.T) {
 	}
 	if Def.ID != id || Def.Stage != checks.StagePrepush || Def.Lane != checks.LaneGo || Def.Group != checks.GroupOf(id) ||
 		Def.Toolchain != "go" || Def.Surface != "any:**/go.mod" || Def.NotOnForks != checks.ForkChangeBar || Def.SubsumedBy != "" ||
+		!slices.Equal(Def.AfterAny, []string{atoms.GoRaceRow.ID}) ||
 		strings.Join(Def.Needs, ",") != "dies,service:postgres,service:pgvector,service:redpanda,service:redis,service:etcd,service:kube-apiserver,service:timescale,"+strings.Join(checks.GravityNeeds(), ",")+",tool:wasm-tools" {
 		t.Errorf("%+v", Def)
 	}
@@ -283,35 +284,52 @@ func TestGoDiffCoverageReadsTheProfileGoTestRaceLeftInThePod(t *testing.T) {
 	}
 }
 
-// WHERE go:test-race SETTLED AND LEFT NO PROFILE, a suite that did not pass
-// stands this atom down, as its own red suite would; a suite that passed and left none
-// where this atom can see is measured again, never waved through.
-func TestGoDiffCoverageWhenGoTestRaceLeftNoProfile(t *testing.T) {
+// A RED go:test-race STANDS THIS ATOM DOWN AS EXCLUDED, in every module at
+// once: state 0 with result `excluded` and one `excluded` finding (the shape the
+// runner writes itself, daedalus wire.Excluded), so the lane folds to the
+// verdict of go:test-race. Never ABSENT (it was not absent), never could-not-run
+// (it did not fail to run), never a suite of its own.
+func TestGoDiffCoverageIsExcludedAfterARedGoTestRace(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		verdict checks.Verdict
-		suite   bool
 	}{
-		{"findings", checks.Verdict{State: 1, Result: "findings"}, false},
-		{"could not run", checks.Verdict{State: 2, Result: "cannot-run"}, false},
-		{"absent", checks.Verdict{State: 0, Result: "absent"}, false},
-		{"passed", checks.Verdict{State: 0, Result: "pass"}, true},
+		{"findings", checks.Verdict{State: 1, Result: "findings"}},
+		{"could not run", checks.Verdict{State: 2, Result: "cannot-run"}},
+		{"itself excluded", checks.Verdict{State: 0, Result: "excluded"}},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			p := newPull(t, ".")
-			p.raced(tc.verdict, "")
-			v := p.run()
-			if p.f.ran("go test -race") != tc.suite {
-				t.Fatalf("ran a suite: %v, want %v: %v", !tc.suite, tc.suite, p.f.runs)
-			}
-			if tc.suite {
-				if v.State != 1 || !strings.Contains(v.Reason, "coverage: this atom's own run of the suite") {
+		for _, module := range []string{".", "tools/forge"} {
+			t.Run(tc.name+" in "+module, func(t *testing.T) {
+				p := newPull(t, module)
+				p.raced(tc.verdict, covProfile) // a profile left behind is not read
+				v := p.run()
+				if v.Atom != id || v.State != 0 || v.Result != "excluded" ||
+					v.Reason != id+": EXCLUDED - go:test-race did not pass ("+tc.verdict.Result+"), so the profile this reads does not exist; go:test-race reports why" {
+					t.Fatalf("%+v", v)
+				}
+				want := []checks.Finding{{Verdict: "excluded", Subject: id, Cause: "predecessor-red", Detail: "go:test-race did not pass", Probe: id}}
+				if !slices.Equal(v.Findings, want) || v.Logs == nil || len(v.Logs) != 0 || v.Stage != checks.StagePrepush || v.Lane != string(checks.LaneGo) {
 					t.Errorf("%+v", v)
 				}
-				return
-			}
-			if v.State != 0 || v.Result != "absent" || !strings.Contains(v.Reason, "go:diff-coverage: ABSENT - go:test-race did not pass in this module") {
-				t.Errorf("%+v", v)
+				if len(p.f.runs) != 0 {
+					t.Errorf("asked something: %v", p.f.runs)
+				}
+			})
+		}
+	}
+}
+
+// WHERE go:test-race SETTLED WITHOUT A RED AND LEFT NO PROFILE (it passed and
+// wrote none where this atom can see, or it stood down absent), the change set is
+// measured again by a suite of this atom's own, never waved through.
+func TestGoDiffCoverageMeasuresItselfWhenGoTestRaceLeftNoProfile(t *testing.T) {
+	for _, verdict := range []checks.Verdict{{State: 0, Result: "pass"}, {State: 0, Result: "absent"}} {
+		t.Run(verdict.Result, func(t *testing.T) {
+			p := newPull(t, ".")
+			p.raced(verdict, "")
+			v := p.run()
+			if v.State != 1 || !p.f.ran("go test -race") || !strings.Contains(v.Reason, "coverage: this atom's own run of the suite") {
+				t.Errorf("%+v ran %v", v, p.f.runs)
 			}
 		})
 	}

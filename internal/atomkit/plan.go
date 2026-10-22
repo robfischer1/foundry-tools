@@ -12,13 +12,16 @@ type ContainerPlan struct {
 
 // PlanEntry is one atom of a ContainerPlan.
 type PlanEntry struct {
-	ID         string            `json:"id"`
-	Kind       string            `json:"kind"` // logic | command | capability
-	Exec       string            `json:"exec"` // /atoms/<ns>/<name>/atom, /work/catalogue/atoms/<ns>/<name>.toml or /executor/atomrun
-	Stage      string            `json:"stage"`
-	Lane       string            `json:"lane"`
-	TimeoutS   int               `json:"timeout_s"`
-	After      []string          `json:"after"`
+	ID       string   `json:"id"`
+	Kind     string   `json:"kind"` // logic | command | capability
+	Exec     string   `json:"exec"` // /atoms/<ns>/<name>/atom, /work/catalogue/atoms/<ns>/<name>.toml or /executor/atomrun
+	Stage    string   `json:"stage"`
+	Lane     string   `json:"lane"`
+	TimeoutS int      `json:"timeout_s"`
+	After    []string `json:"after"`
+	// AfterAny is the part of After that hands on any verdict: a red one makes
+	// this entry excluded, not unreached.
+	AfterAny   []string          `json:"after_any,omitempty"`
 	WritesTree bool              `json:"writes_tree"`
 	Needs      []string          `json:"needs"`
 	Args       []string          `json:"args"`          // lane dev, and capability entries
