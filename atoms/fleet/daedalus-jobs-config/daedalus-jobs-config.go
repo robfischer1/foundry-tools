@@ -61,6 +61,11 @@ var tagSHA = regexp.MustCompile(`^\d+-([0-9a-f]{7,40})$`)
 // A BUILD THAT PREDATES THE CHECKER IS ABSENT, not red: rolling the image back to
 // before the checker existed must not need the check that the rollback removes.
 func check(ctx context.Context, in atomkit.In) checks.Verdict {
+	// The index asks this Check over an empty tree for the sentence it carries as
+	// its absent reason, so the answer over a tree without the ConfigMap is it.
+	if _, err := os.Stat(filepath.Join(in.Root, jobs)); err != nil {
+		return checks.VerdictOf(row, int(checks.StatePass), id+": ABSENT - this tree carries no "+jobs+", so it holds no runner settings to parse")
+	}
 	sha, why := deployedCommit(in.Root)
 	if why != "" {
 		return checks.VerdictOf(row, int(checks.StateCannotRun), id+": CANNOT RUN - "+why)

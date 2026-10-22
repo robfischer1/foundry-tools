@@ -126,3 +126,13 @@ func TestRDL1_ACheckerThatWillNotStartIsCannotRun(t *testing.T) {
 	s := &script{checkOut: "fork/exec: no such file", checkCode: -1}
 	atomtest.Expect(t, run(t, s, map[string]string{jobs: "data: {}", pins: images("1792622669-4b68a21")}), atomtest.StateOf(2), atomtest.Cannot, "no such file")
 }
+
+// A tree without the ConfigMap is absent, and says so in the words the index keeps.
+func TestRDL1_ATreeWithoutTheConfigMapIsAbsent(t *testing.T) {
+	s := &script{}
+	v := run(t, s, map[string]string{"README.md": "x"})
+	atomtest.Expect(t, v, atomtest.StateOf(0), atomtest.Absent, "carries no "+jobs)
+	if s.installArgs != "" || s.checkName != "" {
+		t.Errorf("ran %q / %q over a tree without the ConfigMap", s.installArgs, s.checkName)
+	}
+}
