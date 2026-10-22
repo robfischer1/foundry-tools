@@ -67,6 +67,9 @@ func TestUT_485_TheDeclarationIsTheRowItReplaced(t *testing.T) {
 func TestTheRaceSuiteRunsInEveryModuleAgainstTheTreesDatabases(t *testing.T) {
 	f := &fake{tags: "//go:build live_db\n"}
 	dir := tree(t, "go.mod", "styx/go.mod")
+	old := atoms.GoCoverRoot
+	atoms.GoCoverRoot = t.TempDir()
+	t.Cleanup(func() { atoms.GoCoverRoot = old })
 	v := check(t.Context(), atomkit.In{Root: dir, Files: []string{"go.mod", "styx/go.mod", "styx/s.go"}, Exec: f.exec})
 	if v.State != 0 || !strings.Contains(v.Reason, "go:test-race: PASS in 2 Go modules (., styx)") || !strings.Contains(v.Reason, "test databases: live_db → TEST_DATABASE_URL") {
 		t.Fatalf("%+v", v)
@@ -78,8 +81,12 @@ func TestTheRaceSuiteRunsInEveryModuleAgainstTheTreesDatabases(t *testing.T) {
 			tests = append(tests, r)
 		}
 	}
-	want := ": go test -race -tags live_db -p 1 -coverprofile " + checks.GoCoverProfile + " ./..."
-	if len(tests) != 2 || !strings.HasSuffix(tests[0], want) || !strings.HasSuffix(tests[1], want) || !strings.Contains(tests[1], "/styx:") {
+	// EACH MODULE'S PROFILE IS ITS OWN: one path for both had the second
+	// module's run overwrite the first's.
+	want := ": go test -race -tags live_db -p 1 -coverprofile "
+	root, styx := atoms.GoCoverProfile(Def.ID, "."), atoms.GoCoverProfile(Def.ID, "styx")
+	if len(tests) != 2 || !strings.HasSuffix(tests[0], want+root+" ./...") || !strings.HasSuffix(tests[1], want+styx+" ./...") ||
+		!strings.Contains(tests[1], "/styx:") || root == styx || filepath.Dir(root) != filepath.Join(atoms.GoCoverRoot, "go__test-race") {
 		t.Errorf("the race suite ran as %v", tests)
 	}
 }

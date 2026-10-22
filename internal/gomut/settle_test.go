@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"dagger/foundry-tools/internal/atoms"
-	"dagger/foundry-tools/internal/checks"
 )
 
 // What the run measured decides the verdict, through checks.GoMutationVerdict.
@@ -310,7 +309,8 @@ func TestTheProfileIsReadOffGomutantsCache(t *testing.T) {
 			t.Errorf("the lane covered the pull itself: %s", r)
 		}
 	}
-	if _, ok := p.call("-coverprofile " + checks.GoCoverProfile); ok {
+	// go:test-race's profile is <GoCoverRoot>/go__test-race/<module>.out.
+	if _, ok := p.call("go__test-race/"); ok {
 		t.Error("the atom ran the pull's suite for a profile")
 	}
 }

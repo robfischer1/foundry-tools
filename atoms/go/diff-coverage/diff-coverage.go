@@ -6,6 +6,7 @@ package godiffcoverage
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path"
@@ -19,10 +20,12 @@ import (
 )
 
 // Def is the atom. It judges the change, so its environment hands it the base
-// and the fork record (atom_env.go). NeedsDies BECAUSE IT RUNS THE SUITE ITSELF:
-// an atom answers one verdict, and the suite is go:test-race's own run in
-// another container, so this atom runs the same `go test` on a server of its
-// own (the profile cannot be handed from one atom's evaluation to another's).
+// and the fork record (atom_env.go). NeedsDies BECAUSE IT CAN RUN THE SUITE
+// ITSELF: an atom answers one verdict, and the suite is go:test-race's own run.
+// In the executor's pod the two share /work, and where go:test-race has already
+// settled this atom reads the profile it left (raceProfile); anywhere else - the
+// Dagger adapter, a workstation, or a pod where it started first - it runs the
+// same `go test` on servers of its own.
 var Def = atomkit.Def{
 	ID: "go:diff-coverage", Stage: checks.StagePrepush, Lane: checks.LaneGo,
 	Group:      checks.GroupLanguage,
@@ -44,10 +47,6 @@ var row = checks.AtomDef{ID: id, Stage: checks.StagePrepush, Lane: checks.LaneGo
 // the same module-relative paths, so the two never disagree about which files
 // are graded.
 var excluded = regexp.MustCompile(checks.GoMutationExclude)
-
-// profilePath is where the suite leaves its profile; a variable so a test can
-// say where it is.
-var profilePath = checks.GoCoverProfile
 
 // noBase is the stand-down for a run with no change set.
 const noBase = "ABSENT - no usable PR base sha, so there is no change set to hold the suite's coverage against"
@@ -96,13 +95,21 @@ func module(ctx context.Context, in atomkit.In, dir string) checks.Verdict {
 		return settle(0, "ABSENT - this pull adds no line to a non-test, non-generated Go file of this module")
 	}
 
-	suite := atoms.GoSuite(ctx, in, atoms.GoRaceRow, dir, true)
-	if suite.State != int(checks.StatePass) {
-		return settle(0, "ABSENT - go:test-race did not pass ("+suite.Result+"); a suite that did not finish measures no coverage, and go:test-race reports it")
+	profile, red := raceProfile(dir)
+	if red {
+		return settle(0, "ABSENT - go:test-race did not pass in this module; a suite that did not finish measures no coverage, and go:test-race reports it")
 	}
-	profile, err := os.ReadFile(profilePath)
-	if err != nil {
-		return settle(2, "CANNOT RUN - the suite passed and its coverage profile could not be read: "+err.Error())
+	from := "the profile of go:test-race's run in this pod"
+	if profile == nil {
+		suite := atoms.GoRaceSuiteAs(ctx, in, atoms.GoRaceRow, dir, id)
+		if suite.State != int(checks.StatePass) {
+			return settle(0, "ABSENT - go:test-race did not pass ("+suite.Result+"); a suite that did not finish measures no coverage, and go:test-race reports it")
+		}
+		var err error
+		if profile, err = os.ReadFile(atoms.GoCoverProfile(id, dir)); err != nil {
+			return settle(2, "CANNOT RUN - the suite passed and its coverage profile could not be read: "+err.Error())
+		}
+		from = "this atom's own run of the suite"
 	}
 	pkgs, code := run(ctx, atoms.Cmd{Dir: cwd, Name: "go", Args: []string{"list", "-e", "-f", checks.GoPackagesFormat, "./..."}})
 	if code != 0 {
@@ -116,10 +123,44 @@ func module(ctx context.Context, in atomkit.In, dir string) checks.Verdict {
 		}
 		sources[f] = string(body)
 	}
-	return checks.GoDiffCoverageVerdict(row, len(files), checks.GoUncoveredLines(checks.GoDiffCoverageInput{
+	v := checks.GoDiffCoverageVerdict(row, len(files), checks.GoUncoveredLines(checks.GoDiffCoverageInput{
 		Dir: dir, Root: cwd, Diff: diff, Packages: pkgs, Profile: string(profile),
 		Exclude: excluded, Sources: sources,
 	}))
+	v.Reason = "coverage: " + from + "\n" + v.Reason
+	return v
+}
+
+// raceProfile is go:test-race's profile of the module at dir, when go:test-race
+// has already settled in this pod: its verdict sits beside this atom's own
+// (ATOM_OUT, in the pod's shared /work/out) and the profile where its run left
+// it (atoms.GoCoverProfile). red is go:test-race having settled with no profile
+// for the module and no pass: its suite there did not pass (the run removes the
+// profile of a suite that did not), so there is no coverage to hold the change
+// against, and go:test-race reports why.
+//
+// NIL AND NOT RED IS "MEASURE IT YOURSELF": no ATOM_OUT (the Dagger adapter, a
+// workstation), no verdict yet (go:test-race still running, or not planned), a
+// verdict that will not read, or one that PASSED and left no profile here. The
+// last is not a red: a passing suite whose profile this atom cannot see is a
+// profile to measure again, never a change set waved through.
+func raceProfile(dir string) (profile []byte, red bool) {
+	out := os.Getenv("ATOM_OUT")
+	if out == "" {
+		return nil, false
+	}
+	b, err := os.ReadFile(filepath.Join(filepath.Dir(out), atomkit.EscapeID(atoms.GoRaceRow.ID)+".json"))
+	if err != nil {
+		return nil, false
+	}
+	var race checks.Verdict
+	if err := json.Unmarshal(b, &race); err != nil {
+		return nil, false
+	}
+	if p, err := os.ReadFile(atoms.GoCoverProfile(atoms.GoRaceRow.ID, dir)); err == nil && len(p) > 0 {
+		return p, false
+	}
+	return nil, race.State != int(checks.StatePass) || race.Result != checks.StatePass.String()
 }
 
 // readFailed words a read that did not answer: a program that would not start
