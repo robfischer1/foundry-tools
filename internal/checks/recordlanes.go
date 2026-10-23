@@ -32,6 +32,9 @@ import (
 const (
 	RecordLanesJobsFile  = "prime/daedalus-jobs.yaml"
 	RecordLanesOureaFile = "prime/ourea-config.yaml"
+	// RecordLanesJobsGreenFile is the green colour's copy of the jobs ConfigMap
+	// (BG1). Judged when present, by the rule the blue file is.
+	RecordLanesJobsGreenFile = "prime/daedalus-jobs-green.yaml"
 
 	recordLanesKey   = "RECORD_LANES"
 	executorLanesKey = "EXECUTOR_LANES"
@@ -44,20 +47,38 @@ var recordLanesAlways = []string{"atoms", "dev"}
 
 // IsRecordLanesFile reports whether path is one of the two files this atom reads.
 func IsRecordLanesFile(path string) bool {
-	return path == RecordLanesJobsFile || path == RecordLanesOureaFile
+	return path == RecordLanesJobsFile || path == RecordLanesOureaFile || path == RecordLanesJobsGreenFile
 }
 
 // RecordLanes judges files (path -> contents of the two flux files). State 0
 // when the lists agree and are complete, 1 naming each missing lane and its
 // file, 2 when a file is absent or unreadable.
 func RecordLanes(files map[string]string) (int, string) {
+	state, report := recordLanesOf(RecordLanesJobsFile, files)
+	green, ok := files[RecordLanesJobsGreenFile]
+	if !ok {
+		return state, report
+	}
+	gs, gr := recordLanesOf(RecordLanesJobsGreenFile, map[string]string{RecordLanesJobsGreenFile: green, RecordLanesOureaFile: files[RecordLanesOureaFile]})
+	switch {
+	case gs == int(StatePass):
+		return state, report
+	case state == int(StatePass):
+		return gs, gr
+	}
+	return max(state, gs), report + "\n" + gr
+}
+
+// recordLanesOf judges one jobs ConfigMap (blue or green, jobsFile names which)
+// against the door's list.
+func recordLanesOf(jobsFile string, files map[string]string) (int, string) {
 	const id = "ops:record-lanes"
 	cannot := func(format string, a ...any) (int, string) {
 		return int(StateCannotRun), fmt.Sprintf("%s: CANNOT RUN - %s", id, fmt.Sprintf(format, a...))
 	}
-	jobsBody, ok := files[RecordLanesJobsFile]
+	jobsBody, ok := files[jobsFile]
 	if !ok {
-		return cannot("%s is not here (the other is): the flux manifests moved, and this atom grades nothing until it knows where", RecordLanesJobsFile)
+		return cannot("%s is not here (the other is): the flux manifests moved, and this atom grades nothing until it knows where", jobsFile)
 	}
 	oureaBody, ok := files[RecordLanesOureaFile]
 	if !ok {
@@ -65,15 +86,15 @@ func RecordLanes(files map[string]string) (int, string) {
 	}
 	data, err := configMapData(jobsBody)
 	if err != nil {
-		return cannot("%s would not parse: %v", RecordLanesJobsFile, err)
+		return cannot("%s would not parse: %v", jobsFile, err)
 	}
 	jobsRecord, err := jsonLanes(data, recordLanesKey, true)
 	if err != nil {
-		return cannot("%s: %v", RecordLanesJobsFile, err)
+		return cannot("%s: %v", jobsFile, err)
 	}
 	executor, err := jsonLanes(data, executorLanesKey, false)
 	if err != nil {
-		return cannot("%s: %v", RecordLanesJobsFile, err)
+		return cannot("%s: %v", jobsFile, err)
 	}
 	oureaData, err := configMapData(oureaBody)
 	if err != nil {
@@ -105,7 +126,7 @@ func RecordLanes(files map[string]string) (int, string) {
 	}
 	for _, l := range owed {
 		if !slices.Contains(jobsRecord, l) {
-			out = append(out, fmt.Sprintf("  %s: missing from %s in %s", l, recordLanesKey, RecordLanesJobsFile))
+			out = append(out, fmt.Sprintf("  %s: missing from %s in %s", l, recordLanesKey, jobsFile))
 		}
 	}
 	for _, l := range owed {

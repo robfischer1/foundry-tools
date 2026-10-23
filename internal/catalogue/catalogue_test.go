@@ -402,7 +402,7 @@ func TestTheCommitAndPushStagesHoldTheirAtoms(t *testing.T) {
 		return strings.Join(out, ",")
 	}
 	commit := "fleet:check-yaml,fleet:check-added-large-files,fleet:check-merge-conflict,fleet:manifest-one-command,fleet:stop-justifications," +
-		"fleet:sast-ruleset-lanes,fleet:copier-answers-intact,fleet:speckit-render-current,fleet:ourea-config-retired-keys,fleet:wit-topics,fleet:daedalus-jobs-config,fleet:lane-sa-check,fleet:pdp-wired,fleet:renovate-config,fleet:retired-verbs,fleet:opengrep-sast,fleet:kafka-flows,fleet:hadolint," +
+		"fleet:sast-ruleset-lanes,fleet:copier-answers-intact,fleet:speckit-render-current,fleet:ourea-config-retired-keys,fleet:wit-topics,fleet:daedalus-jobs-config,fleet:lane-sa-check,fleet:pdp-wired,fleet:bg-parity,fleet:renovate-config,fleet:retired-verbs,fleet:opengrep-sast,fleet:kafka-flows,fleet:hadolint," +
 		"ops:shell,ops:chezmoi,ops:yaml,ops:dup,ops:declaration,ops:specs,ops:metrics,ops:star-sa,ops:world-patches,ops:record-lanes,ops:ansible,ops:flux,ops:kube-linter," +
 		"go:gofmt,go:vet,go:test," +
 		"python:ruff-check,python:ruff-format,python:forge-testkit-assertion-free,python:forge-testkit-fake-placement,python:forge-testkit-schema-budget,python:mypy,python:pytest," +

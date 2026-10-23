@@ -184,3 +184,48 @@ func TestIsRecordLanesFile(t *testing.T) {
 		}
 	}
 }
+
+// BG1: the green colour's ConfigMap is judged against the same ourea list when
+// the tree has it, and its absence is a tree from before the second colour.
+func greenFiles(blue, green, ourea string) map[string]string {
+	f := laneFiles(blue, ourea)
+	f[RecordLanesJobsGreenFile] = green
+	return f
+}
+
+func TestBG1_RecordLanesJudgesTheGreenColourToo(t *testing.T) {
+	ok := jobsYAML(`["gate","check","atoms","dev"]`, `["check"]`)
+	ourea := oureaYAML(`record_lanes = ["gate","check","atoms","dev"]`)
+	if state, report := RecordLanes(greenFiles(ok, ok, ourea)); state != int(StatePass) {
+		t.Fatalf("equal colours: state %d:\n%s", state, report)
+	}
+	drift := jobsYAML(`["gate","atoms","dev"]`, `["check"]`)
+	state, report := RecordLanes(greenFiles(ok, drift, ourea))
+	if state != int(StateFindings) || !strings.Contains(report, "check: missing from RECORD_LANES in "+RecordLanesJobsGreenFile) {
+		t.Fatalf("green missing a lane: state %d:\n%s", state, report)
+	}
+	if strings.Contains(report, "in "+RecordLanesJobsFile) {
+		t.Fatalf("blue is fine and must not be named:\n%s", report)
+	}
+	if state, _ := RecordLanes(greenFiles(ok, "a: [", ourea)); state != int(StateCannotRun) {
+		t.Fatalf("an unreadable green file must be could-not-run, got %d", state)
+	}
+	if state, _ := RecordLanes(laneFiles(ok, ourea)); state != int(StatePass) {
+		t.Fatalf("a tree with no green file is judged as before, got %d", state)
+	}
+}
+
+func TestBG1_IsRecordLanesFileNamesTheGreenFile(t *testing.T) {
+	if !IsRecordLanesFile(RecordLanesJobsGreenFile) {
+		t.Fatal("the green ConfigMap is one of the files this atom reads")
+	}
+}
+
+func TestBG1_RecordLanesNamesBothColoursWhenBothDrift(t *testing.T) {
+	ourea := oureaYAML(`record_lanes = ["gate","check","atoms","dev"]`)
+	bad := jobsYAML(`["gate","atoms","dev"]`, `["check"]`)
+	state, report := RecordLanes(greenFiles(bad, bad, ourea))
+	if state != int(StateFindings) || !strings.Contains(report, "in "+RecordLanesJobsFile) || !strings.Contains(report, "in "+RecordLanesJobsGreenFile) {
+		t.Fatalf("state %d:\n%s", state, report)
+	}
+}

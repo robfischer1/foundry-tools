@@ -23,7 +23,7 @@ var Def = atomkit.Def{
 	ID: "fleet:daedalus-jobs-config", Stage: checks.StagePrecommit, Lane: checks.LaneAny,
 	Group:     checks.GroupBasic,
 	Desc:      "prime/daedalus-jobs.yaml parses under daedalus' own settings parser, built at the daedalus commit prime/images/kustomization.yaml deploys, or it prints the parser's refusal (flux#5748: REFPOD_LANES without REFPOD_PEER_ID kept the runner off and stalled fleet CI).",
-	Surface:   "any:prime/daedalus-jobs.yaml",
+	Surface:   "any:prime/daedalus-jobs*.yaml",
 	Toolchain: "go",
 	Check:     check,
 }
@@ -33,6 +33,9 @@ const (
 	jobs  = "prime/daedalus-jobs.yaml"
 	pins  = "prime/images/kustomization.yaml"
 	image = "registry.notusmi.com/rob/daedalus"
+	// BG1: the green colour's ConfigMap is parsed by the build ITS pin names.
+	jobsGreen  = "prime/daedalus-jobs-green.yaml"
+	imageGreen = "registry.notusmi.com/rob/daedalus-green"
 	// pkg is daedalus' checker: internal/config's parser behind a main.
 	pkg = "git.notusmi.com/rob/daedalus/cmd/jobs-config-check"
 	// noPackage is go's word for a module version that predates the checker.
@@ -68,7 +71,36 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 	if _, err := os.Stat(filepath.Join(in.Root, jobs)); err != nil {
 		return checks.VerdictOf(row, int(checks.StatePass), id+": ABSENT - this tree carries no "+jobs+", so it holds no runner settings to parse")
 	}
-	sha, why := deployedCommit(in.Root)
+	v := checkFile(ctx, in, jobs, image)
+	if v.State != int(checks.StatePass) {
+		return v
+	}
+	// BG1: the green colour's map, when the tree has one, is judged by the build the
+	// green pin names (the colours do not run the same build while one is the dev slot).
+	if _, err := os.Stat(filepath.Join(in.Root, jobsGreen)); err != nil {
+		return v
+	}
+	g := checkFile(ctx, in, jobsGreen, imageGreen)
+	if g.State != int(checks.StatePass) {
+		return g
+	}
+	// Both pass. A colour whose build predates the checker is absent, and says nothing
+	// to join; if both are, the answer is the green one's.
+	var said []string
+	for _, p := range []checks.Verdict{v, g} {
+		if p.Result != "absent" {
+			said = append(said, strings.Join(p.Logs, "\n"))
+		}
+	}
+	if len(said) == 0 {
+		return g
+	}
+	return checks.VerdictOf(row, int(checks.StatePass), strings.Join(said, "\n"))
+}
+
+// checkFile parses one colour's ConfigMap under the build its image pin names.
+func checkFile(ctx context.Context, in atomkit.In, file, img string) checks.Verdict {
+	sha, why := deployedCommit(in.Root, img)
 	if why != "" {
 		return checks.VerdictOf(row, int(checks.StateCannotRun), id+": CANNOT RUN - "+why)
 	}
@@ -83,16 +115,16 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 	case code < 0:
 		return atoms.CouldNotStart(row, out)
 	case code != 0 && strings.Contains(out, noPackage):
-		return checks.VerdictOf(row, int(checks.StatePass), id+": ABSENT - daedalus@"+sha+" predates cmd/jobs-config-check, so there is no parser to run over "+jobs)
+		return checks.VerdictOf(row, int(checks.StatePass), id+": ABSENT - daedalus@"+sha+" predates cmd/jobs-config-check, so there is no parser to run over "+file)
 	case code != 0:
 		return checks.VerdictOf(row, int(checks.StateCannotRun), id+": CANNOT RUN - `go install "+pkg+"@"+sha+"` exited "+strconv.Itoa(code)+": "+atoms.LastLine(out))
 	}
-	out, code = atoms.RunCmd(ctx, in, atoms.Cmd{Dir: in.Root, Name: filepath.Join(bin, "jobs-config-check"), Args: []string{jobs}, Both: true})
+	out, code = atoms.RunCmd(ctx, in, atoms.Cmd{Dir: in.Root, Name: filepath.Join(bin, "jobs-config-check"), Args: []string{file}, Both: true})
 	switch {
 	case code < 0:
 		return atoms.CouldNotStart(row, out)
 	case code == 1:
-		return checks.VerdictOf(row, int(checks.StateFindings), id+": FINDINGS - daedalus@"+sha+" refuses "+jobs+"\n"+out)
+		return checks.VerdictOf(row, int(checks.StateFindings), id+": FINDINGS - daedalus@"+sha+" refuses "+file+"\n"+out)
 	case code != 0:
 		return checks.VerdictOf(row, int(checks.StateCannotRun), id+": CANNOT RUN - jobs-config-check exited "+strconv.Itoa(code)+": "+out)
 	}
@@ -101,7 +133,7 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 
 // deployedCommit is the daedalus commit the tree's image pin names. why is the
 // reason it could not be read, "" when sha is good.
-func deployedCommit(root string) (sha, why string) {
+func deployedCommit(root, image string) (sha, why string) {
 	body, err := os.ReadFile(filepath.Join(root, pins))
 	if err != nil {
 		return "", "could not read " + pins + ": " + err.Error()

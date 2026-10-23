@@ -28,6 +28,7 @@ var catalogueOrder = []string{
 	"fleet:daedalus-jobs-config",
 	"fleet:lane-sa-check",
 	"fleet:pdp-wired",
+	"fleet:bg-parity",
 	"fleet:renovate-config",
 	"fleet:retired-verbs",
 	"fleet:dagger-lockstep",

@@ -25,6 +25,11 @@ type script struct {
 	installCode int
 	checkOut    string
 	checkCode   int
+	// greenOut and greenCode answer the checker when it is run over the green file.
+	greenOut  string
+	greenCode int
+	ran       []string
+	installs  []string
 	// what the atom ran
 	installArgs   string
 	installedInto string
@@ -35,6 +40,7 @@ type script struct {
 func (s *script) exec(_ context.Context, c atoms.Cmd) (string, int) {
 	if c.Name == "go" {
 		s.installArgs = strings.Join(c.Args, " ")
+		s.installs = append(s.installs, s.installArgs)
 		for _, e := range c.Env {
 			if strings.HasPrefix(e, "GOBIN=") {
 				s.installedInto = strings.TrimPrefix(e, "GOBIN=")
@@ -43,6 +49,10 @@ func (s *script) exec(_ context.Context, c atoms.Cmd) (string, int) {
 		return s.installOut, s.installCode
 	}
 	s.checkName, s.checkArgs = c.Name, strings.Join(c.Args, " ")
+	s.ran = append(s.ran, s.checkArgs)
+	if s.checkArgs == jobsGreen {
+		return s.greenOut, s.greenCode
+	}
 	return s.checkOut, s.checkCode
 }
 
@@ -58,7 +68,7 @@ func TestRDL1_TheDeclarationValidatesAndNamesItsRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	if Def.ID != id || Def.Stage != checks.StagePrecommit || Def.Lane != checks.LaneAny || Def.Toolchain != "go" ||
-		Def.Surface != "any:"+jobs || Def.Group != checks.GroupOf(id) {
+		Def.Surface != "any:prime/daedalus-jobs*.yaml" || Def.Group != checks.GroupOf(id) {
 		t.Errorf("%+v", Def)
 	}
 }
@@ -146,4 +156,56 @@ func TestRDL1_AnUnwritableWorkDirIsCannotRun(t *testing.T) {
 	if s.installArgs != "" {
 		t.Errorf("installed %q with no scratch directory", s.installArgs)
 	}
+}
+
+// imagesBoth is the pin list with a pin for each colour.
+func imagesBoth(blue, green string) string {
+	return images(blue) + "  - name: registry.notusmi.com/rob/daedalus-green\n    newName: registry.notusmi.com/rob/daedalus\n    newTag: " + green + " # {\"$imagepolicy\": \"flux-system:daedalus-green:tag\"}\n    digest: sha256:fb34\n"
+}
+
+// BG1: the green ConfigMap is parsed by the build the green pin names, which is
+// not necessarily the build blue runs.
+func TestBG1_TheGreenConfigMapIsParsedAtTheGreenPin(t *testing.T) {
+	s := &script{checkOut: "ok blue", greenOut: "ok green"}
+	v := run(t, s, map[string]string{jobs: "data: {}", jobsGreen: "data: {}", pins: imagesBoth("1792622669-4b68a21", "1792700000-9999999")})
+	atomtest.Expect(t, v, atomtest.StateOf(0), atomtest.Pass, "ok blue", "ok green")
+	if len(s.installs) != 2 || !strings.HasSuffix(s.installs[0], "@4b68a21") || !strings.HasSuffix(s.installs[1], "@9999999") {
+		t.Errorf("installs = %q: blue at blue's build, green at green's", s.installs)
+	}
+	if len(s.ran) != 2 || s.ran[0] != jobs || s.ran[1] != jobsGreen {
+		t.Errorf("ran %q over", s.ran)
+	}
+}
+
+// A refusal in the green map is a finding that names the green file and build.
+func TestBG1_AGreenRefusalIsAFindingNamingTheGreenFile(t *testing.T) {
+	s := &script{checkOut: "ok blue", greenOut: "jobs: refused — " + refusal, greenCode: 1}
+	v := run(t, s, map[string]string{jobs: "data: {}", jobsGreen: "data: {}", pins: imagesBoth("1792622669-4b68a21", "1792700000-9999999")})
+	atomtest.Expect(t, v, atomtest.StateOf(1), atomtest.Findings, refusal, jobsGreen, "9999999")
+}
+
+// A green map with no green pin cannot be judged: could-not-run, never a pass.
+func TestBG1_AGreenMapWithNoGreenPinIsCannotRun(t *testing.T) {
+	s := &script{}
+	v := run(t, s, map[string]string{jobs: "data: {}", jobsGreen: "data: {}", pins: images("1792622669-4b68a21")})
+	if v.State != 2 {
+		t.Errorf("state %d\n%s", v.State, v.Reason)
+	}
+}
+
+// A tree with the blue map alone is judged as before.
+func TestBG1_NoGreenMapIsTheOldBehaviour(t *testing.T) {
+	s := &script{checkOut: "ok blue"}
+	atomtest.Expect(t, run(t, s, map[string]string{jobs: "data: {}", pins: images("1792622669-4b68a21")}), atomtest.StateOf(0), atomtest.Pass, "ok blue")
+	if len(s.ran) != 1 {
+		t.Errorf("ran %q", s.ran)
+	}
+}
+
+// Both colours on a build that predates the checker: nothing to parse with, and the
+// rollback it would block must not be blocked.
+func TestBG1_BothColoursOnABuildWithoutTheCheckerIsAbsent(t *testing.T) {
+	s := &script{installOut: "go: git.notusmi.com/rob/daedalus@4b68a21 (v0.0.0-x) found, but does not contain package git.notusmi.com/rob/daedalus/cmd/jobs-config-check", installCode: 1}
+	v := run(t, s, map[string]string{jobs: "data: {}", jobsGreen: "data: {}", pins: imagesBoth("1792622669-4b68a21", "1792622669-4b68a21")})
+	atomtest.Expect(t, v, atomtest.StateOf(0), atomtest.Absent, "predates")
 }
