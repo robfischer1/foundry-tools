@@ -124,7 +124,7 @@ func TestTheDeclarationValidatesAndNamesItsRow(t *testing.T) {
 	if Def.ID != id || Def.Stage != checks.StagePrepush || Def.Lane != checks.LaneGo || Def.Group != checks.GroupOf(id) ||
 		Def.Toolchain != "go" || Def.Surface != "any:**/go.mod" || Def.NotOnForks != checks.ForkChangeBar || Def.SubsumedBy != "" ||
 		!slices.Equal(Def.AfterAny, []string{atoms.GoRaceRow.ID}) ||
-		strings.Join(Def.Needs, ",") != "dies,"+strings.Join(checks.GravityNeeds(), ",")+",tool:wasm-tools" {
+		strings.Join(Def.Needs, ",") != "dies,"+strings.Join(checks.GravityNeeds(), ",")+",tool:wasm-tools,tool:jq" {
 		t.Errorf("%+v", Def)
 	}
 }

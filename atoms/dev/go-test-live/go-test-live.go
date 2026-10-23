@@ -30,7 +30,7 @@ var Def = atomkit.Def{
 	Desc:      "go test -race against the live servers the tree's build tags name, run by hand from the dev lane.",
 	Surface:   "root:go.mod",
 	Toolchain: "go",
-	Needs:     append(append([]string{"dies", "service:postgres", "service:pgvector", "service:redpanda", "service:redis", "service:etcd", "service:kube-apiserver"}, checks.GravityNeeds()...), checks.WitSnapshotNeeds...),
+	Needs:     append(append(append([]string{"dies", "service:postgres", "service:pgvector", "service:redpanda", "service:redis", "service:etcd", "service:kube-apiserver"}, checks.GravityNeeds()...), checks.WitSnapshotNeeds...), checks.SuiteJqNeeds...),
 	Timeout:   45 * time.Minute,
 	Check:     check,
 }
