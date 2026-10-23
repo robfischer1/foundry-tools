@@ -83,3 +83,8 @@ func WitSnapshotScope(ws []WitSnapshot) string {
 	}
 	return "wit: " + strings.Join(envs, "=1, ") + "=1 makes a missing wasm-tools a failure, not a skip (" + ws[0].Tool + " recorded)"
 }
+
+// SuiteJqNeeds is the need the atoms that run a tree's suite declare so a test that execs jq
+// (daedalus tools/bg/test-daedalus-bg) has the lane's pinned one (JqURL) on PATH instead of
+// failing on exit 127. The python lane's suites already declare it.
+var SuiteJqNeeds = []string{"tool:jq"}

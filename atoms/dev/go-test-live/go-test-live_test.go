@@ -65,7 +65,7 @@ func TestTheDeclarationIsTheDevVerbWithTheRaceAtomsNeeds(t *testing.T) {
 		Def.Toolchain != "go" || Def.Surface != "root:go.mod" || Def.Timeout != 45*time.Minute || Def.WritesTree {
 		t.Errorf("%+v", Def)
 	}
-	want := append([]string{"dies", "service:postgres", "service:pgvector", "service:redpanda", "service:redis", "service:etcd", "service:kube-apiserver"}, append(checks.GravityNeeds(), checks.WitSnapshotNeeds...)...)
+	want := append([]string{"dies", "service:postgres", "service:pgvector", "service:redpanda", "service:redis", "service:etcd", "service:kube-apiserver"}, append(checks.GravityNeeds(), append(slices.Clone(checks.WitSnapshotNeeds), checks.SuiteJqNeeds...)...)...)
 	if !slices.Equal(Def.Needs, want) {
 		t.Errorf("needs %v, go:test-race's are %v", Def.Needs, want)
 	}

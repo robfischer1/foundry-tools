@@ -42,7 +42,7 @@ var Def = atomkit.Def{
 	Desc:       "Every line this pull changes in non-test, non-generated Go that holds code ran under go:test-race's suite — NOT COVERED, read off its coverage profile.",
 	Surface:    "any:**/go.mod",
 	Toolchain:  "go",
-	Needs:      append(append([]string{"dies"}, checks.GravityNeeds()...), checks.WitSnapshotNeeds...),
+	Needs:      append(append(append([]string{"dies"}, checks.GravityNeeds()...), checks.WitSnapshotNeeds...), checks.SuiteJqNeeds...),
 	NotOnForks: checks.ForkChangeBar,
 	AfterAny:   []string{atoms.GoRaceRow.ID},
 	Timeout:    45 * time.Minute,
