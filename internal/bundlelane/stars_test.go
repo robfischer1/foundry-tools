@@ -945,3 +945,55 @@ spec:
 		t.Fatalf("without the port: Interface = %v, want %v", got["x"].Interface, want)
 	}
 }
+
+// The hades.notusmi.com/no-gateway annotation on a star's Service is the
+// star's no_gateway fact, read from FluxFacts' manifest and from the Service
+// ServiceFacts follows alike. It changes nothing else: the openapi-http port
+// stays in the interface (nyx resolves the REST port by its name), and a star
+// without the annotation emits exactly what it did.
+func TestNoGatewayAnnotationIsTheStarsFact(t *testing.T) {
+	const reason = "ares's tee is its only caller"
+	star := `kind: Service
+metadata:
+  name: x
+  annotations: {hades.notusmi.com/no-gateway: "` + reason + `"}
+spec:
+  ports:
+    - {name: http, port: 8220}
+    - {name: mtls, port: 8221}
+    - {name: openapi-http, port: 8203}
+---
+kind: Service
+metadata: {name: y}
+spec:
+  ports:
+    - {name: mcp, port: 8000}
+`
+	got, err := FluxFacts(map[string]string{"prime/star-x.yaml": star}, map[string]bool{"x": true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := FluxFact{Ports: &Ports{Listen: 8220, MTLS: 8221}, Interface: []string{"http", "openapi-http:8203"}, NoGateway: reason}
+	if !reflect.DeepEqual(got["x"], want) {
+		a, _ := json.Marshal(got["x"])
+		b, _ := json.Marshal(want)
+		t.Fatalf("FluxFacts[x] = %s, want %s", a, b)
+	}
+	if s := Stage(map[string]FluxFact{"x": want}); !strings.Contains(s, `"no_gateway": "`+reason+`"`) {
+		t.Fatalf("the staged fact carries no no_gateway: %s", s)
+	}
+
+	plain := "kind: Service\nmetadata: {name: z, namespace: prime}\nspec:\n  ports:\n    - {name: http, port: 3000}\n"
+	marked := "kind: Service\nmetadata:\n  name: w\n  namespace: prime\n  annotations: {hades.notusmi.com/no-gateway: \"  " + reason + " \"}\nspec:\n  ports:\n    - {name: http, port: 3001}\n"
+	svc, err := ServiceFacts(map[string]string{"prime/z.yaml": plain, "prime/w.yaml": marked}, map[string]bool{"z": true, "w": true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSvc := map[string]FluxFact{
+		"z": {Ports: &Ports{Listen: 3000}, Interface: []string{"http"}},
+		"w": {Ports: &Ports{Listen: 3001}, Interface: []string{"http"}, NoGateway: reason},
+	}
+	if a, b := Stage(svc), Stage(wantSvc); a != b {
+		t.Fatalf("ServiceFacts =\n%s\nwant\n%s", a, b)
+	}
+}

@@ -110,7 +110,18 @@ type FluxFact struct {
 	// when no Service port carries one of those names.
 	Interface []string `json:"interface,omitempty"`
 	DB        []string `json:"db,omitempty"`
+	// NoGateway is the star's NoGatewayAnnotation, the reason the session
+	// gateway does not call it; absent when no Service of the star carries one.
+	NoGateway string `json:"no_gateway,omitempty"`
 }
+
+// NoGatewayAnnotation, on a star's Service, says the session gateway (hades)
+// is not one of the star's callers, and why. fleet/derive.rego copies it onto
+// the star's row as no_gateway, and hades routes no such row: no dial, no
+// index, no verbs. The star keeps serving its declared callers on its faces
+// (aletheia: ares's tee on openapi-http), which is why the port name cannot say
+// it — nyx resolves the REST port by that name.
+const NoGatewayAnnotation = "hades.notusmi.com/no-gateway"
 
 // sslRootCert is the CA directory a star's DSN pins: the CNPG cluster's
 // server CA mounts at /etc/stellar/<cluster>-ca/.
@@ -182,6 +193,7 @@ func FluxFacts(manifests map[string]string, stars, clusters map[string]bool) (ma
 			fact.Ports = &ports
 		}
 		fact.Interface = interfaces(star, docs)
+		fact.NoGateway = noGatewayOf(starServices(star, docs))
 		fact.DB = databases(docs, clusters)
 		if fact.Ports != nil || len(fact.DB) > 0 {
 			out[star] = fact
@@ -234,6 +246,7 @@ func ServiceFacts(manifests map[string]string, repos map[string]bool, have map[s
 			fact.Ports = &ports
 		}
 		fact.Interface = interfacesOf([]manifest{svc})
+		fact.NoGateway = noGatewayOf([]manifest{svc})
 		out[name] = fact
 	}
 	return out, nil
@@ -394,6 +407,16 @@ func interfacesOf(svcs []manifest) []string {
 		return nil
 	}
 	return sortedKeys(seen)
+}
+
+// noGatewayOf is the first NoGatewayAnnotation among the Services, or "".
+func noGatewayOf(svcs []manifest) string {
+	for _, s := range svcs {
+		if s.NoGateway != "" {
+			return s.NoGateway
+		}
+	}
+	return ""
 }
 
 // servicePorts reads the star's ports off its Services (FluxFacts).
@@ -615,6 +638,8 @@ type manifest struct {
 	Type, ExternalName string
 	// Ports is a Service's spec.ports.
 	Ports []servicePort
+	// NoGateway is a Service's NoGatewayAnnotation.
+	NoGateway string
 	// Pods is a workload's pod templates.
 	Pods []podTemplate
 	// Star is a workload's pistis.star label, from the object or its pod
@@ -626,9 +651,10 @@ type head struct {
 	APIVersion string `yaml:"apiVersion"`
 	Kind       string `yaml:"kind"`
 	Metadata   struct {
-		Name      string            `yaml:"name"`
-		Namespace string            `yaml:"namespace"`
-		Labels    map[string]string `yaml:"labels"`
+		Name        string            `yaml:"name"`
+		Namespace   string            `yaml:"namespace"`
+		Labels      map[string]string `yaml:"labels"`
+		Annotations map[string]string `yaml:"annotations"`
 	} `yaml:"metadata"`
 }
 
@@ -732,6 +758,7 @@ func documents(body string) ([]manifest, error) {
 			}
 			m.Ports = svc.Spec.Ports
 			m.Type, m.ExternalName = svc.Spec.Type, svc.Spec.ExternalName
+			m.NoGateway = strings.TrimSpace(h.Metadata.Annotations[NoGatewayAnnotation])
 		case h.Kind == "Kustomization":
 			var k kustomizationDoc
 			_ = node.Decode(&k) // a Kustomization whose spec does not read places nothing
