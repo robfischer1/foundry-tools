@@ -16,9 +16,9 @@
 //     verb only Charon may call (ourea merge force, retire confirm, ...), and the
 //     renderer writes that verb's rule as every sub-path except a segment that
 //     is one of those words (nyx verbPath/segmentNotIn, fed only by robDeny).
-//     So a route the rules refuse, but admit once its words are neutral, and
-//     refuse again with any one carved word put back, is that declaration read
-//     off the committed rule (flux#5952), and is counted, not refused.
+//     So a route the rules refuse but admit once its word segments are neutral
+//     is that declaration read off the committed rule (flux#5952), and is
+//     counted, not refused.
 //   - SCOPE. The door lets nyx push anywhere (the git_edge row is unscoped), so
 //     a pull carrying a commit authored or committed as nyx may change only the
 //     file and the published copies.
@@ -169,36 +169,21 @@ const neutral = "_"
 // force/confirm/live); a template variable is not one.
 var word = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
-// carvedOut is whether the rules refuse r only for words the rule carves out:
-// with every word segment after /v1/<verb> made neutral the route is admitted,
-// and putting back at least one of them, alone, refuses it again. A route
-// refused for any other reason (no rule for the verb, a rule that admits only
-// the bare path, the wrong method) is admitted by no neutral form, so it stays
-// a finding.
+// carvedOut is whether a route the rules refuse is admitted once every word
+// segment after /v1/<verb> is neutral: then its verb's rule admits the route's
+// shape and refuses it only for a word, and the renderer refuses a word only
+// when rob_tier names it. A route refused for any other reason (no rule for
+// the verb, a rule that admits only the bare path, the wrong method) has no
+// neutral form a rule admits, so it stays a finding. Call it only on a route
+// match refused.
 func (s ruleSet) carvedOut(r route) bool {
 	segs := strings.Split(r.Path, "/")
-	if len(segs) < 4 || segs[0] != "" || segs[1] != "v1" {
-		return false
-	}
-	var at []int
-	for i := 3; i < len(segs); i++ {
-		if word.MatchString(segs[i]) {
-			at = append(at, i)
+	for i, seg := range segs {
+		if i >= 3 && word.MatchString(seg) {
+			segs[i] = neutral
 		}
 	}
-	keeping := func(keep int) route {
-		out := slices.Clone(segs)
-		for _, i := range at {
-			if i != keep {
-				out[i] = neutral
-			}
-		}
-		return route{Method: r.Method, Path: strings.Join(out, "/")}
-	}
-	if len(at) == 0 || !s.match(keeping(-1)) {
-		return false
-	}
-	return slices.ContainsFunc(at, func(i int) bool { return !s.match(keeping(i)) })
+	return s.match(route{Method: r.Method, Path: strings.Join(segs, "/")})
 }
 
 // ruleSet is the http rules of a document's ingress items that admit hades-sa.

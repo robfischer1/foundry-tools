@@ -319,7 +319,7 @@ func TestASubRouteTheVerbsRuleCarvesOutIsNotAMissingPath(t *testing.T) {
 	f := carvedDoc("merge", "tripwire")
 	f = strings.Replace(f, `"^/v1/merge(?:/[^/?.%][^/?%]*)*(?:\\?.*)?$"`, forceCarved, 1)
 	files[File] = strings.Replace(f, `"^/v1/tripwire(?:/[^/?.%][^/?%]*)*(?:\\?.*)?$"`, liveCarved, 1)
-	atomtest.Expect(t, run(t, files), checks.StatePass, atomtest.Pass, "7 Rob-tier sub-routes")
+	atomtest.Expect(t, run(t, files), checks.StatePass, atomtest.Pass, "every published verb has its hades-sa path", "; 7 Rob-tier sub-routes")
 }
 
 // UT-l7-6 (CONSISTENCY kept): a carve-out excuses only the word its own verb's
