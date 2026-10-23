@@ -106,6 +106,7 @@ var catalogueOrder = []string{
 	"dies:capabilities-served",
 	"dies:tool-schemas-served",
 	"dies:render-author",
+	"fleet:l7-render",
 	"dies:authz-grid",
 	"law:lint",
 	"law:verb-liveness",
