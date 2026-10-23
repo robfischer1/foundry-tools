@@ -64,6 +64,8 @@ type grading struct {
 	runner string
 	// tree is where bun installs and stryker runs.
 	tree string
+	// carried is the nightly's carried ranges (atoms.ReadCarried); nil is none.
+	carried *atoms.Carried
 }
 
 // settle files a verdict: the scope, the runner note, then the reason.
@@ -104,7 +106,8 @@ func Check(ctx context.Context, in atomkit.In) checks.Verdict {
 	answers, _ := atoms.ReadIfPresent(in.Root, ".copier-answers.yml")
 	mods := checks.CriticalModules(answers)
 	g := &grading{in: in, mods: mods, scope: checks.MutationScope(id, mods)}
-	return g.grade(ctx)
+	v := g.grade(ctx)
+	return g.carried.Into(v)
 }
 
 func (g *grading) grade(ctx context.Context) checks.Verdict {
@@ -135,7 +138,10 @@ func (g *grading) grade(ctx context.Context) checks.Verdict {
 	if s.code != 0 {
 		return g.settle(2, "CANNOT RUN - git could not diff the pull against its base "+since+": "+strings.TrimSpace(s.out))
 	}
-	diff := strings.TrimSpace(s.out)
+	if g.carried, err = atoms.ReadCarried(ctx, in, since, id, tsSource); err != nil {
+		return g.settle(2, "CANNOT RUN - the carried ranges: "+err.Error())
+	}
+	diff := strings.TrimSpace(g.carried.WithCarried(strings.TrimSpace(s.out), in.Root))
 	if diff == "" {
 		return g.settle(0, "this pull touched none of the critical modules — nothing to mutate")
 	}
@@ -160,3 +166,13 @@ func (g *grading) grade(ctx context.Context) checks.Verdict {
 
 // work is the atom's directory.
 func work() string { return filepath.Join(atoms.WorkDir(), "ts") }
+
+// tsSource is a file Stryker mutates: the script dialects the lane grades.
+func tsSource(f string) bool {
+	for _, ext := range []string{".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"} {
+		if strings.HasSuffix(f, ext) {
+			return true
+		}
+	}
+	return false
+}

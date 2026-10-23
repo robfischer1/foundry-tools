@@ -111,6 +111,8 @@ type module struct {
 	work string
 	// scope is the tree's server reads, which ride every verdict of the module.
 	scope string
+	// extra is the nightly's carried ranges (extra.go); nil is none asked.
+	extra *extraScope
 }
 
 func (g *session) ask(ctx context.Context, dir string) checks.Verdict {
@@ -178,6 +180,10 @@ func (m *module) grade(ctx context.Context) checks.Verdict {
 	if since == "" {
 		return m.settle(atoms.MissingBase(m.in, noBase))
 	}
+	var why string
+	if m.extra, why = m.readExtra(ctx, since); why != "" {
+		return m.settle(2, "CANNOT RUN - the carried ranges: "+why)
+	}
 	// AN EMPTY DIFF MEANS "MUTATE EVERYTHING" TO GOMUTANTS, written for "no
 	// --diff was given". A pull that changes no Go produces exactly that, so it
 	// stands down here instead of mutating the whole module.
@@ -189,6 +195,7 @@ func (m *module) grade(ctx context.Context) checks.Verdict {
 	if code != 0 {
 		return m.settle(2, "CANNOT RUN - git could not diff the pull against its base "+since+": "+changed)
 	}
+	changed = m.extra.withExtraFiles(changed)
 	if strings.TrimSpace(changed) == "" {
 		return m.settle(0, "this pull changes no Go file — nothing to mutate")
 	}

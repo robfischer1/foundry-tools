@@ -46,7 +46,8 @@ func Check(ctx context.Context, in atomkit.In) checks.Verdict {
 	answers, _ := atoms.ReadIfPresent(in.Root, ".copier-answers.yml")
 	mods := checks.CriticalModules(answers)
 	g := &grading{in: in, mods: mods, scope: checks.MutationScope(id, mods)}
-	return g.grade(ctx)
+	v := g.grade(ctx)
+	return g.carried.Into(v)
 }
 
 // workingTree is atoms.WorkingTree, a variable so a test can say the copy fails.
@@ -60,6 +61,8 @@ type grading struct {
 	work  string
 	// tree is where cargo builds and cargo-mutants copies from.
 	tree string
+	// carried is the nightly's carried ranges (atoms.ReadCarried); nil is none.
+	carried *atoms.Carried
 }
 
 // settle files a verdict, its scope line first.
@@ -110,6 +113,12 @@ func (g *grading) grade(ctx context.Context) checks.Verdict {
 	if code != 0 {
 		return g.settle(2, "CANNOT RUN - git could not diff the pull against its base "+since+": "+diff)
 	}
+	// THE NIGHTLY'S CARRIED LINES join the diff cargo-mutants reads (-D), with
+	// their text from the tree, which it checks the `+` lines against.
+	if g.carried, err = atoms.ReadCarried(ctx, in, since, id, func(f string) bool { return strings.HasSuffix(f, ".rs") }); err != nil {
+		return g.settle(2, "CANNOT RUN - the carried ranges: "+err.Error())
+	}
+	diff = g.carried.WithCarried(diff, in.Root)
 	if diff == "" {
 		return g.settle(0, "this pull touched none of the critical modules — nothing to mutate")
 	}
@@ -159,6 +168,9 @@ func (g *grading) mutate(ctx context.Context, since, diff string, specs []string
 	}
 	if code != 0 {
 		return g.settle(2, "CANNOT RUN - git could not list the files the pull changed: "+files)
+	}
+	for _, f := range g.carried.Files() {
+		files += f + "\x00"
 	}
 	metaCmd := atoms.Cmd{Dir: g.tree, Name: "cargo", Args: []string{"metadata", "--no-deps", "--format-version", "1"}, Unset: unset}
 	meta, code := atoms.RunCmd(ctx, in, metaCmd)

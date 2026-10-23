@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"dagger/foundry-tools/internal/atomkit"
@@ -63,6 +64,8 @@ type grading struct {
 	// tree is the primary copy: init, scope, plan and the final report are asked
 	// there. The workers are copies of it.
 	tree string
+	// carried is the nightly's carried ranges (atoms.ReadCarried); nil is none.
+	carried *atoms.Carried
 }
 
 // settle files a verdict, its scope line first.
@@ -111,7 +114,8 @@ func Check(ctx context.Context, in atomkit.In) checks.Verdict {
 	answers, _ := atoms.ReadIfPresent(in.Root, ".copier-answers.yml")
 	mods := checks.CriticalModules(answers)
 	g := &grading{in: in, scope: checks.MutationScope(id, mods), work: filepath.Join(atoms.WorkDir(), "python")}
-	return g.grade(ctx, strings.Fields(mods))
+	v := g.grade(ctx, strings.Fields(mods))
+	return g.carried.Into(v)
 }
 
 func (g *grading) grade(ctx context.Context, declared []string) checks.Verdict {
@@ -135,6 +139,9 @@ func (g *grading) grade(ctx context.Context, declared []string) checks.Verdict {
 	if since == "" {
 		return g.settle(atoms.MissingBase(in, noBase))
 	}
+	if g.carried, err = atoms.ReadCarried(ctx, in, since, id, func(f string) bool { return strings.HasSuffix(f, ".py") }); err != nil {
+		return g.settle(2, "CANNOT RUN - the carried ranges: "+err.Error())
+	}
 
 	// RESOLVE: the declared modules, or every python source the pull added or
 	// changed outside the tests; less the generated ones.
@@ -148,6 +155,12 @@ func (g *grading) grade(ctx context.Context, declared []string) checks.Verdict {
 			return g.settle(2, "CANNOT RUN - git could not list the python the pull changed: "+strings.TrimSpace(s.out))
 		}
 		modules = strings.Fields(s.out)
+		// A night's carried survivors are in scope though nothing new touched them.
+		for _, f := range g.carried.Files() {
+			if !slices.Contains(modules, f) {
+				modules = append(modules, f)
+			}
+		}
 	}
 	var kept []string
 	for _, m := range modules {
@@ -168,7 +181,7 @@ func (g *grading) grade(ctx context.Context, declared []string) checks.Verdict {
 	if s.code != 0 {
 		return g.settle(2, "CANNOT RUN - git could not diff the pull against its base "+since+": "+strings.TrimSpace(s.out))
 	}
-	diff := checks.PythonDiffFor(s.out, kept)
+	diff := g.carried.WithCarried(checks.PythonDiffFor(s.out, kept), in.Root)
 	// A PURE-DELETION PULL touches the module and adds no mutable line, and scope
 	// leaves the session intact for it: exec would run every site init enumerated
 	// (oceanus: a two-line deletion became a 43-minute gate).
