@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"dagger/foundry-tools/internal/checks"
+	"dagger/foundry-tools/internal/unitkey"
 )
 
 func TestCarriedReadsMapsAndKeeps(t *testing.T) {
@@ -49,5 +50,21 @@ func TestTreeLinesReadsOnceAndAnswersEmptyPastTheEnd(t *testing.T) {
 	line := TreeLines(root)
 	if line("f.rs", 2) != "two" || line("f.rs", 0) != "" || line("f.rs", 9) != "" || line("nope", 1) != "" {
 		t.Fatal("tree lines")
+	}
+}
+
+func TestCarriedRefusesRangesThatDoNotParseAndRendersWithTheTreesText(t *testing.T) {
+	t.Setenv(checks.EnvMutationRanges, "a.go")
+	in := Input{Root: "/r", Exec: func(context.Context, Cmd) (string, int) { return "", 0 }}
+	if _, err := ReadCarried(context.Background(), in, "s", "x", func(string) bool { return true }); err == nil {
+		t.Fatal("ranges that do not parse were believed")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(root+"/a.rs", []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := &Carried{Ranges: map[string][]unitkey.Range{"a.rs": {{Start: 2, End: 2}}}}
+	if got := c.WithCarried("", root); got != "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -0,0 +2,1 @@\n+two\n" {
+		t.Fatalf("got %q", got)
 	}
 }

@@ -139,3 +139,20 @@ func TestPrefixMutationRangesKeepsTheModulesOwnFiles(t *testing.T) {
 		t.Fatalf("root keeps all: %v", got)
 	}
 }
+
+// Diff text that is not git's shape maps nothing and breaks nothing: a header
+// with no b/ side, a hunk header with no new side, numbers that are not numbers.
+func TestMapMutationRangesSkipsMalformedDiffText(t *testing.T) {
+	diff := "diff --git nothing-here\n@@ -1 +1 @@\n" +
+		"diff --git a/a.go b/a.go\n--- a/a.go\n+++ b/a.go\n@@ -x +1 @@\n@@ -1,y +1 @@\n@@ -1 @@\n@@ -2 +2,z @@\n@@ -9 +9 @@\n"
+	got, moved := MapMutationRanges(map[string][]unitkey.Range{"a.go": {{Start: 3, End: 3}, {Start: 9, End: 9}}}, diff)
+	if !reflect.DeepEqual(got, map[string][]unitkey.Range{"a.go": {{Start: 3, End: 3}}}) || len(moved) != 0 {
+		t.Fatalf("got %v moved %v", got, moved)
+	}
+}
+
+func TestRenderMutationRangesSkipsAFileWithNoRange(t *testing.T) {
+	if got := RenderMutationRanges(map[string][]unitkey.Range{"a.go": nil}, nil); got != "" {
+		t.Fatalf("got %q", got)
+	}
+}

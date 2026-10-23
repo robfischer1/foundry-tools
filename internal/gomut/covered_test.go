@@ -116,3 +116,26 @@ func TestCoveredNoChangedTestRunsNothing(t *testing.T) {
 		t.Fatal("default bound")
 	}
 }
+
+// A changed test file that declares no test runs nothing; a work directory that
+// cannot hold the profile is said, not failed.
+func TestCoveredAFileWithNoTestsAndAnUnwritableProfile(t *testing.T) {
+	p := testOnly(t, coveredProfile, 0)
+	putFile(t, p.in.Root, "a_test.go", "package x\n\nfunc helper() {}\n")
+	p.run()
+	if p.ran("go test -count=1 -run") {
+		t.Fatal("a test file with no test ran tests")
+	}
+	p = testOnly(t, coveredProfile, 0)
+	putFile(t, filepath.Join(p.work, "go", "root"), "testcov", "a file where the directory goes")
+	if v := p.run(); v.State == 2 || !strings.Contains(said(v), "changed tests in .: mkdir") {
+		t.Fatalf("%s", said(v))
+	}
+}
+
+func TestLookGitAsksThePath(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	if _, err := lookGit(); err == nil {
+		t.Fatal("a PATH with no git found one")
+	}
+}
