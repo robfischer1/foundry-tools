@@ -277,7 +277,7 @@ func (m *module) folded(run checks.GoMutationRun, reused map[string]checks.Reuse
 	v := m.settle(f.State, f.Reason)
 	// THE REUSE RIDES BESIDE THE VERDICT, like the scope line: a pass keeps no
 	// output, and what a pass did not grade itself is what its reader needs.
-	for _, line := range []string{note, checks.ReuseLine(id, list, len(list)+len(misses))} {
+	for _, line := range []string{note, checks.ReuseLine(id, list, len(list)+len(misses)), m.coverNote} {
 		if line != "" {
 			v.Reason = line + "\n" + v.Reason
 		}
