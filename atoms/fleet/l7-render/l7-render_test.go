@@ -281,3 +281,61 @@ func TestAnotherRenderModeDocumentIsNotGraded(t *testing.T) {
 	files[File] = doc("ci_await", "ci_canary") + "---\n" + other
 	atomtest.Expect(t, run(t, files), checks.StatePass, atomtest.Pass)
 }
+
+// The rules nyx's renderer emits for a verb with a rob_tier matcher in the
+// compiled grants (verbPath with segmentNotIn): every sub-path of the verb
+// except a segment that is the Rob-tier word. Copied from flux#5952's file.
+const (
+	pauseCarved   = `"^/v1/ci_run(?:/(?:[^/?%.p][^/?%]*|p(?:[^/?%a][^/?%]*|a(?:[^/?%u][^/?%]*|u(?:[^/?%s][^/?%]*|s(?:[^/?%e][^/?%]*|e(?:[^/?%]+)|)|)|)|)))*(?:\\?.*)?$"`
+	forceCarved   = `"^/v1/merge(?:/(?:[^/?%.f][^/?%]*|f(?:[^/?%o][^/?%]*|o(?:[^/?%r][^/?%]*|r(?:[^/?%c][^/?%]*|c(?:[^/?%e][^/?%]*|e(?:[^/?%]+)|)|)|)|)))*(?:\\?.*)?$"`
+	liveCarved    = `"^/v1/tripwire(?:/(?:[^/?%.l][^/?%]*|l(?:[^/?%i][^/?%]*|i(?:[^/?%v][^/?%]*|v(?:[^/?%e][^/?%]*|e(?:[^/?%]+)|)|)|)))*(?:\\?.*)?$"`
+	confirmCarved = `"^/v1/retire(?:/(?:[^/?%.c][^/?%]*|c(?:[^/?%o][^/?%]*|o(?:[^/?%n][^/?%]*|n(?:[^/?%f][^/?%]*|f(?:[^/?%i][^/?%]*|i(?:[^/?%r][^/?%]*|r(?:[^/?%m][^/?%]*|m(?:[^/?%]+)|)|)|)|)|)|)))*(?:\\?.*)?$"`
+)
+
+// carvedDoc is grants-daedalus with ci_run and retire rendered as nyx renders
+// their Rob-tier carve-outs (pause; confirm), and the other verbs plain.
+func carvedDoc(plain ...string) string {
+	f := doc(append([]string{"ci_run", "retire"}, plain...)...)
+	f = strings.Replace(f, `"^/v1/ci_run(?:/[^/?.%][^/?%]*)*(?:\\?.*)?$"`, pauseCarved, 1)
+	return strings.Replace(f, `"^/v1/retire(?:/[^/?.%][^/?%]*)*(?:\\?.*)?$"`, confirmCarved, 1)
+}
+
+const carvedRoutes = `"ci_run": [{"method": "POST", "path": "/v1/ci_run"}, {"method": "POST", "path": "/v1/ci_run/pause"},
+	{"method": "POST", "path": "/v1/ci_run/pause/repo/{repo}"}, {"method": "POST", "path": "/v1/ci_run/run/repo/{repo}"}],
+	"retire": [{"method": "DELETE", "path": "/v1/retire"}, {"method": "DELETE", "path": "/v1/retire/confirm"},
+	{"method": "DELETE", "path": "/v1/retire/force"}, {"method": "DELETE", "path": "/v1/retire/force/confirm"}]`
+
+// UT-l7-5 (flux#5952): the grants list ci_run, retire, merge and tripwire at
+// verb level, and hades serves their Rob-tier sub-routes (ci_run pause, retire
+// confirm, merge force, tripwire trip/live) too. The committed rule carves
+// exactly those words out (they stay on the mTLS door via Charon), so they are
+// not a missing path; the gate holds and says how many it left to the carve-out.
+func TestASubRouteTheVerbsRuleCarvesOutIsNotAMissingPath(t *testing.T) {
+	g := `{"tx": "1", "stars": {"daedalus": ["ci_run", "retire", "merge", "tripwire"]}}`
+	routes := carvedRoutes + `, "merge": [{"method": "POST", "path": "/v1/merge"}, {"method": "POST", "path": "/v1/merge/force"},
+	{"method": "POST", "path": "/v1/merge/repo/{repo}/force"}], "tripwire": [{"method": "POST", "path": "/v1/tripwire/trip"},
+	{"method": "POST", "path": "/v1/tripwire/trip/live"}]`
+	files := flux(nil, g, published(routes))
+	f := carvedDoc("merge", "tripwire")
+	f = strings.Replace(f, `"^/v1/merge(?:/[^/?.%][^/?%]*)*(?:\\?.*)?$"`, forceCarved, 1)
+	files[File] = strings.Replace(f, `"^/v1/tripwire(?:/[^/?.%][^/?%]*)*(?:\\?.*)?$"`, liveCarved, 1)
+	atomtest.Expect(t, run(t, files), checks.StatePass, atomtest.Pass, "7 Rob-tier sub-routes")
+}
+
+// UT-l7-6 (CONSISTENCY kept): a carve-out excuses only the word its own verb's
+// rule excludes. A granted route that no rule admits is still refused: a verb
+// with no rule, a verb whose rule admits only its bare path, and a carved word
+// under a verb whose rule does not carve it.
+func TestACarveOutExcusesOnlyItsOwnVerbsWord(t *testing.T) {
+	g := `{"tx": "1", "stars": {"daedalus": ["ci_run", "retire", "ci_canary", "ci_logs", "ci_await"]}}`
+	routes := carvedRoutes + `, "ci_canary": [{"method": "POST", "path": "/v1/ci_canary/pause"}],
+	"ci_logs": [{"method": "POST", "path": "/v1/ci_logs/confirm"}], "ci_await": [{"method": "POST", "path": "/v1/ci_await"}]`
+	files := flux(nil, g, published(routes))
+	files[File] = strings.Replace(carvedDoc("ci_await"), `              - method: "GET"`,
+		`              - path: "^/v1/ci_logs(?:\\?.*)?$"`+"\n"+`              - method: "GET"`, 1)
+	v := run(t, files)
+	atomtest.Expect(t, v, checks.StateFindings, atomtest.Findings, "POST /v1/ci_canary/pause", "POST /v1/ci_logs/confirm")
+	if strings.Contains(v.Reason, "/v1/ci_run/pause") || strings.Contains(v.Reason, "/v1/retire/") {
+		t.Errorf("a carved-out Rob-tier sub-route was named:\n%s", v.Reason)
+	}
+}

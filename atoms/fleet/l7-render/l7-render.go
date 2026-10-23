@@ -11,6 +11,14 @@
 //     routes, and every one of those routes is matched by a rule of that star's
 //     hades-sa ingress in the committed file. A verb a star serves and authz
 //     allows with no path is a 403 at the network (daedalus ci_canary, flux#5839).
+//     A route the verb's OWN rule carves out is not a missing path: grants.json
+//     is verb-level, but the compiled grants' rob_tier names the sub-routes of a
+//     verb only Charon may call (ourea merge force, retire confirm, ...), and the
+//     renderer writes that verb's rule as every sub-path except a segment that
+//     is one of those words (nyx verbPath/segmentNotIn, fed only by robDeny).
+//     So a route the rules refuse, but admit once its words are neutral, and
+//     refuse again with any one carved word put back, is that declaration read
+//     off the committed rule (flux#5952), and is counted, not refused.
 //   - SCOPE. The door lets nyx push anywhere (the git_edge row is unscoped), so
 //     a pull carrying a commit authored or committed as nyx may change only the
 //     file and the published copies.
@@ -83,7 +91,7 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 		return settle(checks.StateCannotRun, "CANNOT RUN - "+File+" would not read: "+err.Error())
 	}
 	var findings []string
-	gaps, err := unpathed(in.Root, string(file))
+	gaps, carved, err := unpathed(in.Root, string(file))
 	if err != nil {
 		return settle(checks.StateCannotRun, "CANNOT RUN - "+err.Error())
 	}
@@ -96,24 +104,30 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 	if len(findings) > 0 {
 		return settle(checks.StateFindings, "FINDINGS -\n  "+strings.Join(findings, "\n  "))
 	}
-	return settle(checks.StatePass, "PASS - every published verb has its hades-sa path, and no nyx commit reaches outside the render")
+	reason := "PASS - every published verb has its hades-sa path, and no nyx commit reaches outside the render"
+	if carved > 0 {
+		reason += fmt.Sprintf("; %d Rob-tier sub-routes are carved out by their verb's own hades-sa rule", carved)
+	}
+	return settle(checks.StatePass, reason)
 }
 
-// unpathed lists the published routes the committed file has no hades-sa rule for.
-func unpathed(root, file string) ([]string, error) {
+// unpathed lists the published routes the committed file has no hades-sa rule
+// for, and counts the ones their verb's rule deliberately carves out.
+func unpathed(root, file string) ([]string, int, error) {
 	raw, err := os.ReadFile(filepath.Join(root, Published, "grants.json"))
 	if os.IsNotExist(err) {
-		return nil, nil // nothing published yet: the worker's first run is the baseline
+		return nil, 0, nil // nothing published yet: the worker's first run is the baseline
 	}
 	if err != nil {
-		return nil, fmt.Errorf("%sgrants.json would not read: %w", Published, err)
+		return nil, 0, fmt.Errorf("%sgrants.json would not read: %w", Published, err)
 	}
 	var grants publishedGrants
 	if err := json.Unmarshal(raw, &grants); err != nil {
-		return nil, fmt.Errorf("%sgrants.json does not parse: %w", Published, err)
+		return nil, 0, fmt.Errorf("%sgrants.json does not parse: %w", Published, err)
 	}
 	rules := hadesRules(file)
 	var out []string
+	carved := 0
 	for _, star := range sortedStars(grants.Stars) {
 		doc, ok := rules[star]
 		if !ok {
@@ -126,7 +140,7 @@ func unpathed(root, file string) ([]string, error) {
 			err = json.Unmarshal(raw, &pub)
 		}
 		if err != nil {
-			return nil, fmt.Errorf("%s%s.json would not read: %w", Published, star, err)
+			return nil, 0, fmt.Errorf("%s%s.json would not read: %w", Published, star, err)
 		}
 		for _, verb := range grants.Stars[star] {
 			routes := pub.Routes[verb]
@@ -134,13 +148,57 @@ func unpathed(root, file string) ([]string, error) {
 				out = append(out, fmt.Sprintf("%s: verb %s is allowed but %s%s.json publishes no route for it", star, verb, Published, star))
 			}
 			for _, r := range routes {
-				if !doc.match(r) {
+				switch {
+				case doc.match(r):
+				case doc.carvedOut(r):
+					carved++
+				default:
 					out = append(out, fmt.Sprintf("%s: verb %s is served on %s %s and allowed, but grants-%s has no hades-sa path for it", star, verb, r.Method, r.Path, star))
 				}
 			}
 		}
 	}
-	return out, nil
+	return out, carved, nil
+}
+
+// neutral stands in for a word segment: no Rob-tier word spells it, and the
+// renderer's segment class admits it.
+const neutral = "_"
+
+// word is a literal path segment that could be a Rob-tier word (an action, or
+// force/confirm/live); a template variable is not one.
+var word = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
+// carvedOut is whether the rules refuse r only for words the rule carves out:
+// with every word segment after /v1/<verb> made neutral the route is admitted,
+// and putting back at least one of them, alone, refuses it again. A route
+// refused for any other reason (no rule for the verb, a rule that admits only
+// the bare path, the wrong method) is admitted by no neutral form, so it stays
+// a finding.
+func (s ruleSet) carvedOut(r route) bool {
+	segs := strings.Split(r.Path, "/")
+	if len(segs) < 4 || segs[0] != "" || segs[1] != "v1" {
+		return false
+	}
+	var at []int
+	for i := 3; i < len(segs); i++ {
+		if word.MatchString(segs[i]) {
+			at = append(at, i)
+		}
+	}
+	keeping := func(keep int) route {
+		out := slices.Clone(segs)
+		for _, i := range at {
+			if i != keep {
+				out[i] = neutral
+			}
+		}
+		return route{Method: r.Method, Path: strings.Join(out, "/")}
+	}
+	if len(at) == 0 || !s.match(keeping(-1)) {
+		return false
+	}
+	return slices.ContainsFunc(at, func(i int) bool { return !s.match(keeping(i)) })
 }
 
 // ruleSet is the http rules of a document's ingress items that admit hades-sa.
