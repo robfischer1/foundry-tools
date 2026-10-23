@@ -200,7 +200,7 @@ func TestUnreadablePublishedCopiesCannotRun(t *testing.T) {
 // published copies; a human's pull is not so bound.
 func TestANyxPullIsScopedToTheRender(t *testing.T) {
 	ok := flux([]string{"ci_await", "ci_canary"}, grants, published(bothRoutes))
-	render := map[string]string{File: doc("ci_await", "ci_canary", "extra"), Published + "daedalus.json": published(bothRoutes)}
+	render := map[string]string{File: doc("ci_await", "ci_canary", "extra"), Published + "daedalus.json": published(bothRoutes) + "\n"}
 	for _, c := range []struct {
 		name  string
 		pull  []commit
@@ -263,5 +263,21 @@ func TestUncompilableAndBareRulesAreHandled(t *testing.T) {
 	atomtest.Expect(t, run(t, files), checks.StateFindings, atomtest.Findings, "ci_canary")
 	bare := strings.Replace(doc("ci_await", "ci_canary"), `"^/v1/ci_canary(?:/[^/?.%][^/?%]*)*(?:\\?.*)?$"`, `^/v1/ci_canary$`, 1)
 	files[File] = bare
+	atomtest.Expect(t, run(t, files), checks.StatePass, atomtest.Pass)
+}
+
+// A published grants copy that exists but cannot be read (a directory where the
+// file should be) is a could-not-run, not the first-run baseline.
+func TestAnUnreadableGrantsCopyIsNotTheBaseline(t *testing.T) {
+	files := map[string]string{File: doc("ci_await"), Published + "grants.json/x": "x"}
+	atomtest.Expect(t, run(t, files), checks.StateCannotRun, atomtest.Cannot, "grants.json would not read")
+}
+
+// A document of the file that is not in rest render-mode holds no rules; only
+// the rest-mode document is graded.
+func TestAnotherRenderModeDocumentIsNotGraded(t *testing.T) {
+	other := strings.Replace(doc("only_here"), `render-mode: "rest"`, `render-mode: "mesh"`, 1)
+	files := flux([]string{"ci_await", "ci_canary"}, grants, published(bothRoutes))
+	files[File] = doc("ci_await", "ci_canary") + "---\n" + other
 	atomtest.Expect(t, run(t, files), checks.StatePass, atomtest.Pass)
 }
