@@ -131,6 +131,7 @@ var atomLibraries = map[string][]string{
 	"ops:flux":                   libraryDirs,
 	"ops:metrics":                libraryDirs,
 	"ops:record-lanes":           libraryDirs,
+	"fleet:bg-parity":            libraryDirs,
 	"ops:shell":                  libraryDirs,
 	"ops:specs":                  libraryDirs,
 	"ops:star-sa":                libraryDirs,
