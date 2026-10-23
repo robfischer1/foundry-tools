@@ -76,6 +76,7 @@ var atomRuntimeDirs = []string{
 	"internal/checks/**",
 	"internal/execmem/**",
 	"internal/pgroupps/**",
+	"internal/gitextra/**",
 	"internal/govlaw/**",
 	"internal/unitkey/**",
 	"internal/retiredverbs/**",

@@ -35,6 +35,7 @@ var atomsSourceInclude = []string{
 	"internal/checks/**",
 	"internal/execmem/**",
 	"internal/pgroupps/**",
+	"internal/gitextra/**",
 	"internal/gomut/**",
 	"internal/pymut/**",
 	"internal/rustmut/**",
