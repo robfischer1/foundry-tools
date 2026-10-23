@@ -110,3 +110,19 @@ func TestBG1_IsBGParityFile(t *testing.T) {
 		}
 	}
 }
+
+func TestBG1_ParityDefaultsAndAbsences(t *testing.T) {
+	// A group set on blue and left to the default on green is the same name.
+	if state, report := BGParity(colours(cm(with()...), cm(with("DAEDALUS_JOBS_GROUP", "\x00")...))); state != int(StatePass) {
+		t.Fatalf("green on the default group: state %d:\n%s", state, report)
+	}
+	// Neither colour has recipe lanes: nothing to compare.
+	none := with("RECIPE_JOB_LANES", "\x00")
+	if state, report := BGParity(colours(cm(none...), cm(none...))); state != int(StatePass) {
+		t.Fatalf("no recipe lanes on either: state %d:\n%s", state, report)
+	}
+	// The blue colour's recipe lanes unreadable is as unjudged as the green's.
+	if state, _ := BGParity(colours(cm(with("RECIPE_JOB_LANES", "{")...), cm(with()...))); state != int(StateCannotRun) {
+		t.Fatalf("blue RECIPE_JOB_LANES not JSON: state %d", state)
+	}
+}

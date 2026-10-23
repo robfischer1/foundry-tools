@@ -220,3 +220,12 @@ func TestBG1_IsRecordLanesFileNamesTheGreenFile(t *testing.T) {
 		t.Fatal("the green ConfigMap is one of the files this atom reads")
 	}
 }
+
+func TestBG1_RecordLanesNamesBothColoursWhenBothDrift(t *testing.T) {
+	ourea := oureaYAML(`record_lanes = ["gate","check","atoms","dev"]`)
+	bad := jobsYAML(`["gate","atoms","dev"]`, `["check"]`)
+	state, report := RecordLanes(greenFiles(bad, bad, ourea))
+	if state != int(StateFindings) || !strings.Contains(report, "in "+RecordLanesJobsFile) || !strings.Contains(report, "in "+RecordLanesJobsGreenFile) {
+		t.Fatalf("state %d:\n%s", state, report)
+	}
+}

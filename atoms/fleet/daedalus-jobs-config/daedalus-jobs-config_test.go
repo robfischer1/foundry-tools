@@ -201,3 +201,11 @@ func TestBG1_NoGreenMapIsTheOldBehaviour(t *testing.T) {
 		t.Errorf("ran %q", s.ran)
 	}
 }
+
+// Both colours on a build that predates the checker: nothing to parse with, and the
+// rollback it would block must not be blocked.
+func TestBG1_BothColoursOnABuildWithoutTheCheckerIsAbsent(t *testing.T) {
+	s := &script{installOut: "go: git.notusmi.com/rob/daedalus@4b68a21 (v0.0.0-x) found, but does not contain package git.notusmi.com/rob/daedalus/cmd/jobs-config-check", installCode: 1}
+	v := run(t, s, map[string]string{jobs: "data: {}", jobsGreen: "data: {}", pins: imagesBoth("1792622669-4b68a21", "1792622669-4b68a21")})
+	atomtest.Expect(t, v, atomtest.StateOf(0), atomtest.Absent, "predates")
+}
