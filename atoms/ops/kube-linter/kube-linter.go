@@ -5,6 +5,7 @@ package opskubelinter
 
 import (
 	"context"
+	"os"
 
 	"dagger/foundry-tools/internal/atomkit"
 	"dagger/foundry-tools/internal/atoms"
@@ -69,10 +70,27 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 	// The refusal arrives on stderr and the findings on stdout, and the code
 	// is the same 1 for both - so both streams are read before anything is
 	// decided.
-	out, code := in.Run(ctx, atoms.Cmd{Dir: in.Root, Name: "kube-linter", Args: append([]string{"lint", "--fail-if-no-objects-found"}, targets...), Both: true})
+	//
+	// HOW MUCH OF THE TREE. A pull that changed only image pins, or nothing a
+	// target reads, owes a narrower lint (atoms.PlanKubeLinter); everything
+	// else, and every doubt, lints the whole population as before.
+	plan := atoms.PlanKubeLinter(ctx, in, targets)
+	if plan.Skip {
+		return checks.VerdictOf(row, int(checks.StatePass), id+": clean ("+plan.Note+")")
+	}
+	args := []string{"lint"}
+	if plan.Config != "" {
+		defer func() { _ = os.Remove(plan.Config) }()
+		args = append(args, "--config", plan.Config)
+	}
+	args = append(append(args, "--fail-if-no-objects-found"), plan.Targets...)
+	out, code := in.Run(ctx, atoms.Cmd{Dir: in.Root, Name: "kube-linter", Args: args, Both: true})
 	if code < 0 {
 		return checks.VerdictOf(row, int(checks.StateCannotRun), "the atom never ran: "+out)
 	}
 	state, reason := checks.KubeLinterState(code, out)
+	if plan.Config != "" && state == int(checks.StatePass) {
+		reason += " (" + plan.Note + ")"
+	}
 	return checks.VerdictOf(row, state, reason)
 }
