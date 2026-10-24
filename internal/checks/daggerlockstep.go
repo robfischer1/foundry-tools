@@ -14,10 +14,12 @@ import (
 // fleet:dagger-lockstep's judgement. Rob, 2026-10-04: "Bump CLI and engine in
 // lockstep for dagger."
 //
-// THE PINS LIVE IN TWO REPOSITORIES. foundry/flux pins the engine four times
-// (the dagger-helm chart, the engine DaemonSet's image.ref, and the gate Jobs'
-// BUILD_JOB_IMAGE and LANE_CALL_IMAGE — a gate's CLI IS the engine image), and
-// foundry/base-images pins the CLI a Chairman dials the engine with. Renovate
+// THE PINS LIVE IN TWO REPOSITORIES. foundry/flux pins the engine twice, both
+// in forge/dagger-engine-helm.yaml (the dagger-helm chart's version and the
+// engine's image.ref), and foundry/base-images pins the CLI a Chairman dials
+// the engine with. The gate Jobs no longer run a dagger image
+// (prime/daedalus-jobs.yaml dropped BUILD_JOB_IMAGE and LANE_CALL_IMAGE), so
+// that file is not read. Renovate
 // cannot open one pull across two repositories, so the ENGINE LEADS: flux is
 // the one place dagger is taken from upstream (renovate-config's fence), and
 // the CLI follows what flux's main runs (its custom.dagger-engine datasource).
@@ -27,7 +29,7 @@ import (
 //
 //   - in a tree that holds the engine source (flux), every engine pin must
 //     name the same version and digest, and the chart must be that version —
-//     a pull that moves one of the four alone is a finding;
+//     a pull that moves one engine pin alone is a finding;
 //   - in any other tree, a CLI pin must EQUAL the engine flux's main runs, and
 //     a dagger MODULE's engineVersion (a dagger.json with an sdk) must not be
 //     newer than it — an engine refuses a module that asks for a later engine.
@@ -62,7 +64,6 @@ type DaggerPinFile struct {
 // it means the spelling moved and this atom would otherwise compare nothing.
 var DaggerPinFiles = []DaggerPinFile{
 	{DaggerEngineSource, daggerEngine},
-	{"prime/daedalus-jobs.yaml", daggerEngine},
 	{"bases/layer-dagger-cli/Dockerfile", daggerCLI},
 }
 
@@ -170,7 +171,7 @@ func DaggerLockstep(ctx context.Context, files map[string]string, door Door) (in
 		for _, p := range engines {
 			switch {
 			case p.version != engine:
-				findings = append(findings, fmt.Sprintf("%s: %s %s, but the engine is %s (%s). The four engine pins move in one pull.", p.path, p.what, p.version, engine, from))
+				findings = append(findings, fmt.Sprintf("%s: %s %s, but the engine is %s (%s). The engine pins move in one pull.", p.path, p.what, p.version, engine, from))
 			case p.digest != "" && p.digest != digest:
 				findings = append(findings, fmt.Sprintf("%s: %s %s@%s, but %s pins the same tag at %s. One version, one digest.", p.path, p.what, p.version, p.digest, DaggerEngineSource, digest))
 			default:
