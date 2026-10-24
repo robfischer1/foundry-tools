@@ -106,10 +106,14 @@ func TestUT_452_APanicIsCouldNotRun(t *testing.T) {
 func TestUT_453_ADeadlineIsCouldNotRun(t *testing.T) {
 	d := defWith(func(ctx context.Context, _ In) checks.Verdict { <-ctx.Done(); return checks.Verdict{} })
 	d.Timeout = time.Second
-	began := time.Now()
 	code, v := runAtom(t, d)
-	if code != 2 || v.Reason != "deadline 1s passed" || time.Since(began) > 1500*time.Millisecond {
-		t.Fatalf("exit %d, %+v after %v", code, v, time.Since(began))
+	// The cut is read off the verdict's own span, not the test's wall clock:
+	// under -race on a loaded node the runner's start-up alone took over 0.5s
+	// (gate forge/gate-foundry-tools-56bafb4-qcvxv: 2.11s wall, a 1.000s span).
+	began, berr := time.Parse(checks.TimeLayout, v.StartedAt)
+	ended, eerr := time.Parse(checks.TimeLayout, v.FinishedAt)
+	if code != 2 || v.Reason != "deadline 1s passed" || berr != nil || eerr != nil || ended.Sub(began) > 1500*time.Millisecond {
+		t.Fatalf("exit %d, %+v (%v %v)", code, v, berr, eerr)
 	}
 }
 
