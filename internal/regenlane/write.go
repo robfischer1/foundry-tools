@@ -96,6 +96,7 @@ func KnownWorlds(root string) (named, others []string) {
 
 // CheckWrite regenerates the worlds named and writes them into the tree.
 func CheckWrite(ctx context.Context, in atomkit.In) checks.Verdict {
+	in = writeScope(in)
 	worlds, err := ParseWorlds(in.Args)
 	if err != nil {
 		return checks.VerdictOf(writeRow, 2, fmt.Sprintf("%s: CANNOT RUN - the arguments do not read: %v (%s)", writeID, err, writeUsage))
@@ -120,6 +121,23 @@ func CheckWrite(ctx context.Context, in atomkit.In) checks.Verdict {
 	// the lines are the run's report: the engine and the pod keep an atom's stderr
 	fmt.Fprintln(os.Stderr, v.Reason)
 	return v
+}
+
+// writeScope is the tree the worlds live in. A bare workspace root (the monorepo's:
+// checks.TSBareWorkspaceMembers) has no justfile, scripts or cores of its own, they
+// are its one member's, as ts:regen reads them; the dev lane hands the atom the
+// repo root whatever subtree the request came from. A root with no single member
+// is the tree as it is.
+func writeScope(in atomkit.In) atomkit.In {
+	manifest, err := os.ReadFile(filepath.Join(in.Root, "package.json"))
+	if err != nil {
+		return in
+	}
+	members, bare := checks.TSBareWorkspaceMembers(string(manifest), in.Files)
+	if !bare || len(members) != 1 {
+		return in
+	}
+	return memberInput(in, members[0])
 }
 
 // foldWrite settles on the worst world: could-not-run beats a finding beats a pass.
