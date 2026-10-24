@@ -50,9 +50,9 @@ func klTree(t *testing.T, extra map[string]string) Input {
 // klGit scripts the git questions the plan asks. A zero field answers the
 // healthy reply.
 type klGit struct {
-	revParse, mergeBase, diff, show string
-	revCode, mbCode, diffCode       int
-	showCode                        int
+	mergeBase, diff, show     string
+	revCode, mbCode, diffCode int
+	showCode                  int
 }
 
 func (g klGit) exec(_ context.Context, c Cmd) (string, int) {
