@@ -152,10 +152,14 @@ func writeAll(files map[string]string) error {
 // worker is one copy of the tree and its own environment.
 func (g *grading) worker(i int) string { return filepath.Join(g.work, "w"+strconv.Itoa(i+1)) }
 
+// pyTestMem is the data ceiling of one pytest process (checks.PythonTestCommand's
+// prlimit, 4 GiB): the memory one xdist worker is sized to.
+const pyTestMem int64 = checks.PythonMutationMemory
+
 // xdistShare is the environment that sizes `pytest -n auto` to one worker's share
 // of the CPU budget. Without it xdist takes the node's core count, per worker.
 func xdistShare(workers int) string {
-	budget := checks.CPUBudget()
+	budget := checks.MemBudget(pyTestMem)
 	return "PYTEST_XDIST_AUTO_NUM_WORKERS=" + strconv.Itoa(checks.CoresPerSlot(budget, workers, budget))
 }
 

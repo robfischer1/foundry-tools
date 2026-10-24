@@ -21,6 +21,11 @@ const (
 	// in whole cores. It wins over the cgroup, which an atom run in a child
 	// cgroup (cpu.max "max") cannot see.
 	CPUsEnv = "ATOM_CPUS"
+	// MemEnv is the executor's word for the pod's memory budget, in bytes. Absent
+	// or not a positive number, memory caps nothing.
+	MemEnv = "ATOM_MEM_BYTES"
+	// RustWorkerMem is what one rustc or cargo job is sized to hold: 2 GiB.
+	RustWorkerMem int64 = 2 << 30
 	// lldDefaultMinor is the first rust release whose x86_64-unknown-linux-gnu
 	// target links with rust-lld by default (1.90, 2025-09).
 	lldDefaultMinor = 90
@@ -62,6 +67,22 @@ func BudgetFrom(atomCPUs, cpuMax string, ncpu int) int {
 func CPUBudget() int {
 	raw, _ := os.ReadFile(cpuMaxFile)
 	return BudgetFrom(os.Getenv(CPUsEnv), string(raw), runtime.NumCPU())
+}
+
+// MemCap is budget held to what the memory budget (the MemEnv text) holds at
+// perWorker bytes each: min(budget, floor(mem / perWorker)), never below one.
+// With no usable memory word, or no usable perWorker, it is budget unchanged.
+func MemCap(budget int, memBytes string, perWorker int64) int {
+	mem, err := strconv.ParseInt(strings.TrimSpace(memBytes), 10, 64)
+	if err != nil || mem <= 0 || perWorker <= 0 {
+		return budget
+	}
+	return max(1, min(budget, int(min(mem/perWorker, int64(budget)))))
+}
+
+// MemBudget is CPUBudget held to the pod's memory at perWorker bytes a worker.
+func MemBudget(perWorker int64) int {
+	return MemCap(CPUBudget(), os.Getenv(MemEnv), perWorker)
 }
 
 // CoresPerSlot is what each of slots concurrent units of work gets from the

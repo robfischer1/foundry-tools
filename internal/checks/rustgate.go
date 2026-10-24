@@ -1,6 +1,9 @@
 package checks
 
-import "strconv"
+import (
+	"os"
+	"strconv"
+)
 
 // THE GATE'S MEMORY AND CPU BOUND for the atoms that COMPILE (clippy, test, the
 // wit guest), as the environment variables the atoms set on their cargo execs.
@@ -35,8 +38,11 @@ const (
 // codegen, written and mapped per unit, and a gate's target volume is rebuilt
 // from a stamped tree anyway).
 func CargoBoundedEnv() []string {
-	return []string{"CARGO_BUILD_JOBS=" + strconv.Itoa(RustGateJobs), "CARGO_INCREMENTAL=0"}
+	return []string{"CARGO_BUILD_JOBS=" + strconv.Itoa(MemCap(RustGateJobs, os.Getenv(MemEnv), RustWorkerMem)), "CARGO_INCREMENTAL=0"}
 }
+
+// The jobs are RustGateJobs, held to the pod's memory (ATOM_MEM_BYTES) at 2 GiB
+// a job; with no memory word they are RustGateJobs.
 
 // CargoLineTablesEnv is the debuginfo clippy and test need and no more.
 func CargoLineTablesEnv() []string {
