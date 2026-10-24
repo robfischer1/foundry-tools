@@ -27,6 +27,11 @@ import (
 //     another account, a 403 on every Job of the lane (flux#5622);
 //   - the CI_IDENTITY_V*_LANES lists, as sets: which lanes mint which SVID.
 //
+// RECORD_LANES and the identity lists compare only the lanes some colour's
+// EXECUTOR_LANES names (plus atoms and dev): a retired lane may sit in one
+// colour's lists until the other is edited, since the serving colour's map cannot
+// be touched without rolling it.
+//
 // A FILE NOT READ IS A FILE NOT JUDGED: a colour that is missing or does not parse
 // is could-not-run, never "they agree". A tree with neither file (or with only the
 // blue one, from before the second colour) is the atom's ABSENT, decided there.
@@ -87,13 +92,17 @@ func BGParity(files map[string]string) (int, string) {
 	for _, k := range unionKeys(blue, green, func(k string) bool { return strings.HasSuffix(k, "_JOB_SERVICE_ACCOUNT") }) {
 		scalar(k, "")
 	}
+	live, err := liveLanes(blue, green)
+	if err != nil {
+		return cannot("%v", err)
+	}
 	for _, k := range append([]string{recordLanesKey}, unionKeys(blue, green, isIdentityLanesKey)...) {
 		if k == recordLanesKey {
 			b, g, err := listPair(blue, green, k)
 			if err != nil {
 				return cannot("%v", err)
 			}
-			if !slices.Equal(b, g) {
+			if !slices.Equal(onlyLive(b, live), onlyLive(g, live)) {
 				out = append(out, fmt.Sprintf("  %s: blue %v, green %v", k, b, g))
 			}
 			continue
@@ -104,7 +113,7 @@ func BGParity(files map[string]string) (int, string) {
 			note(k, orUnset(bRaw, bok), orUnset(gRaw, gok))
 			continue
 		}
-		if !slices.Equal(commaSet(bRaw), commaSet(gRaw)) {
+		if !slices.Equal(onlyLive(commaSet(bRaw), live), onlyLive(commaSet(gRaw), live)) {
 			note(k, fmt.Sprintf("%v", commaSet(bRaw)), fmt.Sprintf("%v", commaSet(gRaw)))
 		}
 	}
@@ -134,6 +143,39 @@ func BGParity(files map[string]string) (int, string) {
 		return int(StatePass), id + ": the colours agree on the group, the namespace, RECORD_LANES, every lane's ServiceAccount and the identity lanes"
 	}
 	return int(StateFindings), fmt.Sprintf("%s: the colours differ where a flip would turn it into an outage:\n%s", id, strings.Join(out, "\n"))
+}
+
+// liveLanes is every lane either colour's EXECUTOR_LANES names (a scoped
+// `lane@repo` names its lane), plus the lanes every record list owes whatever
+// the executor runs. A lane outside it is retired or dead: no colour runs it.
+func liveLanes(blue, green map[string]string) (map[string]bool, error) {
+	live := map[string]bool{}
+	for _, l := range recordLanesAlways {
+		live[l] = true
+	}
+	for i, m := range []map[string]string{blue, green} {
+		entries, err := jsonLanes(m, executorLanesKey, false)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %v", []string{BGParityBlueFile, BGParityGreenFile}[i], err)
+		}
+		names, _, _ := executorLaneNames(entries)
+		for _, n := range names {
+			live[n] = true
+		}
+	}
+	return live, nil
+}
+
+// onlyLive is the lanes of list that a colour could run: the rest may differ
+// between the colours without a flip turning it into an outage.
+func onlyLive(list []string, live map[string]bool) []string {
+	var out []string
+	for _, l := range list {
+		if live[l] {
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 func orUnset(v string, set bool) string {

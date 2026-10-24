@@ -22,6 +22,7 @@ var parityBase = []string{
 	"DAEDALUS_JOBS_GROUP", "daedalus-jobs",
 	"GATE_JOB_NAMESPACE", "forge",
 	"RECORD_LANES", `["gate","atoms","dev"]`,
+	"EXECUTOR_LANES", `["gate","check","cast"]`,
 	"GATE_JOB_SERVICE_ACCOUNT", "ci",
 	"MUTATION_JOB_SERVICE_ACCOUNT", "ci",
 	"CI_IDENTITY_V2_LANES", "gate,check",
@@ -124,5 +125,39 @@ func TestBG1_ParityDefaultsAndAbsences(t *testing.T) {
 	// The blue colour's recipe lanes unreadable is as unjudged as the green's.
 	if state, _ := BGParity(colours(cm(with("RECIPE_JOB_LANES", "{")...), cm(with()...))); state != int(StateCannotRun) {
 		t.Fatalf("blue RECIPE_JOB_LANES not JSON: state %d", state)
+	}
+}
+
+// A lane that neither colour's EXECUTOR_LANES names is retired or dead: the
+// colours may differ by it (the passive one is edited first, the active one after
+// the next flip). Anything else stays strict.
+func TestBG1_ParityRetiredLaneMayDiffer(t *testing.T) {
+	blue := cm(with("RECORD_LANES", `["gate","atoms","dev","mutation-bg"]`, "CI_IDENTITY_V2_LANES", "gate,check,mutation-bg", "CI_IDENTITY_V3_LANES", "gate,mutation-bg")...)
+	green := cm(with("CI_IDENTITY_V2_LANES", "gate,check", "CI_IDENTITY_V3_LANES", "gate")...)
+	for _, c := range [][2]string{{blue, green}, {green, blue}} {
+		if state, report := BGParity(colours(c[0], c[1])); state != int(StatePass) {
+			t.Fatalf("a retired lane on one side: state %d:\n%s", state, report)
+		}
+	}
+}
+
+func TestBG1_ParityLiveLaneStaysStrict(t *testing.T) {
+	for _, tc := range []struct{ name, blueExec, greenExec, blueRec, greenRec string }{
+		{"named by both", `["gate","mutation-bg"]`, `["gate","mutation-bg"]`, `["gate","atoms","dev","mutation-bg"]`, `["gate","atoms","dev"]`},
+		{"named by blue only", `["gate","mutation-bg"]`, `["gate"]`, `["gate","atoms","dev"]`, `["gate","atoms","dev","mutation-bg"]`},
+		{"named by green only, scoped", `["gate"]`, `["gate","mutation-bg@x/y"]`, `["gate","atoms","dev","mutation-bg"]`, `["gate","atoms","dev"]`},
+		{"always-owed lane", `["gate"]`, `["gate"]`, `["gate","atoms","dev"]`, `["gate","atoms"]`},
+	} {
+		blue := cm(with("EXECUTOR_LANES", tc.blueExec, "RECORD_LANES", tc.blueRec)...)
+		green := cm(with("EXECUTOR_LANES", tc.greenExec, "RECORD_LANES", tc.greenRec)...)
+		if state, _ := BGParity(colours(blue, green)); state != int(StateFindings) {
+			t.Errorf("%s: state %d, want findings", tc.name, state)
+		}
+	}
+}
+
+func TestBG1_ParityExecutorLanesNotJSONCannotRun(t *testing.T) {
+	if state, _ := BGParity(colours(cm(with()...), cm(with("EXECUTOR_LANES", "gate")...))); state != int(StateCannotRun) {
+		t.Fatalf("EXECUTOR_LANES not JSON: state %d", state)
 	}
 }
