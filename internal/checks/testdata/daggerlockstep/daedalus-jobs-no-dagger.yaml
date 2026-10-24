@@ -1,0 +1,361 @@
+# daedalus-jobs — the CA runner's settings, moved from ourea-config.yaml.
+#
+# THE RUNNER LEFT THE DOOR (Scheduler Redistribution Part I Phase 4, daedalus
+# #6/#8/#9/#10; F18 D3 deleted the door's runner). internal/jobs in Daedalus
+# reads every gate_job_* / build_job_* / mutation_job_* / recipe_job_* /
+# record_lanes / gate_module* key Ourea once read from its
+# TOML, as an environment variable named after the TOML key in upper case.
+# Scalars are spelled as they were; a list or a table is JSON, because an
+# environment variable has no TOML. Keys absent here (gate_module,
+# gate_module_repo) take Daedalus's own defaults.
+#
+# THIS FILE IS THE ONLY COPY. ourea-config.yaml no longer carries any runner
+# key (F18 D3, 2026-10-03), so a change to a lane's settings goes here alone.
+# The one exception is RECORD_LANES: the door still reads its own record_lanes
+# (ourea-config.yaml) to say on each ask whether the lane owes a record, so
+# that list is still kept equal in both files.
+#
+# BG1 (blue/green): THIS MAP IS THE BLUE COLOUR'S (Deployment/daedalus). The green colour
+# reads daedalus-jobs-green.yaml, a full copy; fleet:bg-parity holds the group, namespace,
+# RECORD_LANES, lane ServiceAccounts and CI_IDENTITY_V*_LANES equal across the two. A
+# change to a lane setting still goes to this file for the serving colour and reaches the
+# other by the release step; the settings consumers read both files.
+#
+# DAEDALUS_JOBS=on is set on the Deployment (star-daedalus.yaml), not here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: daedalus-jobs
+  namespace: prime
+  labels: {owner: rob}
+data:
+  # THE BACKGROUND TIER (daedalus #78, hook-check addendum §4): tier-5 work
+  # (lane mutation-bg) runs only with no foreground lane parked, on an engine
+  # under its budget targets with BACKGROUND_RESERVE units to spare, at most
+  # BACKGROUND_MAX_IN_FLIGHT fleet-wide and BACKGROUND_REPO_MAX_IN_FLIGHT per
+  # repo, and is preempted by a foreground lane that fits nowhere else.
+  # BACKGROUND_MUTATION_CHECKS is Rob's kill switch ("turns the behavior off if
+  # the performance impact becomes too great"): "off" here, and the reloader's
+  # roll, drop every background ask at intake and cancel the running ones.
+  BACKGROUND_MAX_IN_FLIGHT: "2"
+  BACKGROUND_MUTATION_CHECKS: "on"
+  BACKGROUND_QUEUE_TIMEOUT: "24h"
+  BACKGROUND_REPO_MAX_IN_FLIGHT: "1"
+  BACKGROUND_RESERVE: "2"
+  BUILD_JOB_DEADLINE: "75m"
+  BUILD_JOB_ENV: "ca-build-env"
+  BUILD_JOB_SECRETS: "ca-build-registry"
+  BUILD_JOB_SERVICE_ACCOUNT: "ci"
+  # THE COMMIT HOOK'S CHECK (daedalus #77): the precommit atoms of a staged
+  # tree, tier 2, outside its repo's cap, at most LANE_MAX_IN_FLIGHT.check at
+  # once.
+  CHECK_JOB_DEADLINE: "10m"
+  # CI IDENTITY V2 (Rob, 2026-10-12): lanes listed here mint
+  # spiffe://notusmi.com/ci/<owner.name>/<lane>/<main|branch>/<run> (ClusterSPIFFEID
+  # ci-v2) instead of job/<lane>/<job>. Gate went first (narcissus admits ci.gate);
+  # every lane since 2026-10-12 — no other lane makes an SVID call to a star (7d
+  # request logs). `dev` (2026-10-18): a dev run pushes its output commit to the
+  # door's refs/checks/ as its SVID (git_edge dev grant). `govern` (2026-10-19,
+  # build step 6): the executor's governance cast mints through hades
+  # layer_cast as spiffe://notusmi.com/ci/foundry.foundry-stocks/govern/main/<job>,
+  # the subject the CronJob forge/governance-cast.yaml already carries by label
+  # and the one foundry-dies authz_grants admit (ci/*/govern/main/*). It names
+  # only executor govern Jobs: the Dagger governance cast is that CronJob, not a
+  # daedalus Job. Revert = drop the lane from the list.
+  CI_IDENTITY_V2_LANES: "gate,gate-go,gate-rust,gate-ts,check,mutation,mutation-bg,visual,build,bundle,publish,cast,atoms,dev,govern"
+  # CI IDENTITY V3 (wave-id B1/B2, 2026-10-20): a lane named here mints
+  # spiffe://notusmi.com/ci/<owner.name>/<main|branch>/<job> (ClusterSPIFFEID
+  # ci-v3, SA unchanged) instead of the v2 four-segment id. A lane in both lists
+  # is v3, so `check` stays in V2 as the rollback. `check` first: a commit-hook
+  # lane, branch refkind, no delivery. B2 adds gate, visual, mutation,
+  # mutation-bg and dev (dev pushes refs/checks/ only). No delivery lane yet
+  # (B2 live 2026-10-20, flux#5572). B4 adds atoms and build (and BUILD_JOB_SERVICE_ACCOUNT=ci). B5 adds cast and govern (cast service_account=ci; govern reuses it). B6 adds publish (RECIPE_JOB_SERVICE_ACCOUNT=ci). B7 adds bundle (service_account=ci).
+  # Revert = drop the lane from this list.
+  CI_IDENTITY_V3_LANES: "check,gate,gate-go,gate-rust,gate-ts,visual,mutation,mutation-bg,dev,atoms,build,cast,govern,publish,bundle"
+  # BG1 S2 (daedalus#520): the Lease prime/daedalus-active decides which colour runs
+  # the CI runner. Both colours carry the same value (fleet:bg-parity keeps the maps
+  # equal). Off: DAEDALUS_STANDBY alone decides, as before S2.
+  DAEDALUS_BG_LEASE: "on"
+  # In-pod atom executor settings. Daedalus reads them. `atoms` builds the
+  # foundry-tools atom images on each default-tip event (it is also in
+  # CI_IDENTITY_V2_LANES so zot maps its pod to group ci-atoms-main). Build step 4
+  # cuts the check lanes over one at a time after R20 parity and time-to-verdict
+  # are shown: `check` first. Rollback = drop the lane from the list.
+  # build@eris (2026-10-19, build step 6): the first delivery lane, canary-first.
+  # Parity on eris@af75ab6 (live daedalus 87eaffe, non-production push): config
+  # and filesystem equal to Dagger's image but the created label, a root dir
+  # entry and the Go build ID's action hash; same stamp tag and pins line.
+  # Rollback = drop the entry.
+  # build@themis: a second canary with traffic (eris saw no landing in 2 h);
+  # parity themis@892b4dc same as eris (created label, root dir entry, Go build
+  # ID differ; HEALTHCHECK config equal).
+  # build@poseidon, build@urania (08:5xZ): widen the Go-star canary for traffic;
+  # themis' first executor build (pull 72de6a2) settled green through the door.
+  # build FLEET-WIDE (2026-10-19, build step 6): after eris's first executor tip
+  # publish (962a083) deployed cleanly. Carved out: calliope, charon (boot smoke:
+  # no container runtime in a pod, daedalus#21231), hephaestus and theia (RUN in
+  # the Dockerfile), foundry/base-images (bases, after
+  # govern). tartarus lifted 2026-10-19 with daedalus#414 (build-args.env feeds
+  # the ARGs; tartarus@7bfb84f config equal to Dagger's). midas lifted 2026-10-19: a plain Go star (go:stable base, COPY,
+  # EXPOSE, HEALTHCHECK, CMD; no RUN, no build args). Rollback = drop "build"
+  # and the !build entries.
+  # cast@bellows (2026-10-19, build step 6): the cast lane, canary-first. Parity on
+  # bellows@153d5f8: every payload file byte-identical to app/bellows:stable (pin
+  # g5db0ea753d37), so an executor cast of that content is a hephaestus NoOp.
+  # Rollback = drop the entry.
+  # visual (2026-10-19, step 4): gijmo-ui is the only repo that runs it. Its 32
+  # screenshot baselines were re-accepted from the executor's Playwright image
+  # (gijmo-ui#92), the ruled-values transition flake fixed (gijmo-ui#93), and
+  # push-visual made to run after a red suite (daedalus#398). gijmo-ui@4eefce9
+  # settled pass on the executor. Rollback = drop "visual" (the baselines then
+  # disagree with Dagger's rasteriser: re-accept from a Dagger artifact).
+  # cast@argus (11:1xZ): a cast canary with traffic (23 casts in 12 h; bellows none
+  # since cutover). Go: payload equal to Dagger's but the binaries' vcs build
+  # stamps (DEF-B6-016), so its first executor cast mints one new version.
+  # cast@anvil, cast@gavel, cast@tongs (13:1xZ): the other rust cast repos, for
+  # traffic (no cast landed in 3 h). rust payloads were byte-identical on gavel
+  # and bellows.
+  # publish@stellar-core-ts (2026-10-19, build step 6): the publish lane, canary-first,
+  # in parallel with cast (separate lanes attribute separately). Parity: the
+  # executor's ts:pack tarball for 0.78.0 = the registry's (sha512 identical);
+  # svid-auth 0.2.0 wheel and sdist identical. Rollback = drop the entry.
+  # cast FLEET-WIDE (2026-10-20, build step 6): the canary's first executor cast,
+  # argus 3f885b9, minted app/argus index 110, signed by hephaestus and verified
+  # against cosign.pub; rust payloads were byte-identical (gavel, bellows). Rollback =
+  # drop "cast".
+  # calliope re-lifted 2026-10-20 (hopper46-b6): its landing 1f91f3a (another session's
+  # PR, 04:21Z) built on Dagger before a just-in-time lift could be timed; lifted now
+  # so its next pull and landing build on the executor and are watched. Parity and the
+  # boot smoke were proven on live daedalus (cw ledger, DEF-CW-018). Rollback: re-add.
+  # publish canary widened (2026-10-20): stellar-core-ts has not published since
+  # 18:33Z; the python publishers (svid-auth 0.2.0 wheel/sdist byte-identical) and
+  # cerberus/chaos bring traffic. Rollback = drop the entries.
+  # bundle canary (2026-10-20, build step 6): foundry-dies is the lane's only repo, so
+  # the canary is the lane. Proven on live daedalus: policy bundle byte-identical to
+  # Dagger's g731f6d6, fleet bundle differing only in the flux sha. SIGNING WAS DROPPED
+  # 2026-10-20 (Rob): no kms-sign, no cosign, no Sigstore egress; ouranos reads :stable.
+  # The Dagger bundle lane is retired, so there is no rollback by dropping the entry.
+  # publish@stellar-core-ts re-cut 2026-10-20 after its rollback (DEF-B6-026: bun
+  # publish refused the read-only /src/package.json). daedalus#435 (01ad694, live)
+  # runs bun from the private HOME with a stub manifest; a lane-side EACCES now
+  # settles could-not-run. Rollback = drop the entry.
+  # publish@stellar-core (2026-10-20): stellar-core-ts is frozen after its import into
+  # the stellar-core monorepo (ts/, same npm name), so the npm canary follows it there.
+  # Root package.json is a private workspace root with ts/ the one member declaring
+  # publishConfig.registry; Dagger's publish of 61d5838 ran only ts:pack + publish.
+  # Rollback = drop the entry.
+  # publish fleet-wide (2026-10-20, build step 6): canaries stellar-core-ts, stellar-core,
+  # stellar-core-python, svid-auth, chaos, cerberus. First real executor npm upload:
+  # stellar-core 895fe67 -> @forge/stellar-core-ts@0.82.1 (file list = Dagger's 0.82.0).
+  # Wheel/sdist/tgz byte-identical in parity; daedalus#443/#444: a failed npm or PyPI
+  # upload settles could-not-run (re-askable) unless the version exists or the package
+  # is invalid. Rollback = put back the publish@<repo> canaries, or !publish@<repo>.
+  # forks/gravity cast back on the executor 2026-10-20: daedalus#446 (59d0c91, live)
+  # gives a cast of a toolchain-pinned tree a composed RUSTUP_HOME + the pinned install
+  # (DEF-B6-029; parity gravity@08a969e rust:cast-release PASS). Rollback = re-add
+  # !cast@forks/gravity.
+  # govern joined 2026-10-20 (DEF-B6-031): daedalus asks it every GOVERN_EVERY and at once for a
+  # nomos trigger Job (forge/governance-cast.yaml, now a suspended CronJob whose template is the
+  # trigger). Rollback = drop "govern" here and restore the Dagger template (that file's header).
+  # foundry/base-images builds on the executor (2026-10-20, build step 6): the build lane
+  # carries bases:release / bases:go-release / validate bases:chairman (foundry-tools#559),
+  # the assembler lays symlinks, symlinked destinations, WORKDIR and pulls via the fleet
+  # mirrors (daedalus#458/#459); per-base failure isolation + change detection (#396) keep
+  # an unchanged or refused base's :stable untouched. The RUN-free Dockerfiles land AFTER
+  # this (Dagger ignores packages.lock/tarballs.lock). Rollback = re-add
+  # !build@foundry/base-images ONLY together with reverting base-images to RUN Dockerfiles.
+  EXECUTOR_LANES: '["atoms","check","gate","gate-go","gate-rust","gate-ts","mutation-bg","mutation","visual","build","cast","publish","bundle@foundry/foundry-dies","govern"]'
+  # refPod tables (hopper43-b4-RP1): lanes whose runs sit in a warm seated pod (forge/refpod-standby-*)
+  # instead of a Job, same grammar as EXECUTOR_LANES (`lane`, `lane@repo`, `!lane@repo`), the
+  # gate family only (gate, check, visual). EMPTY = no table is ever claimed; a run with no
+  # fitting standby is a Job as now. Needs the identity wave's Phase B (SA `ci`, v3 SVIDs) and a standby
+  # Deployment forge/refpod-standby-<class>-<node>.yaml generated AT LANDING by `daedalus refpod-template`
+  # against the rolled image (a template pins atom digests; a stale one is refused at claim and the run is a Job).
+  REFPOD_LANES: '["check@nomos"]'
+  # The one caller a table's agent authorises: daedalus' own SPIFFE id. Required whenever REFPOD_LANES is non-empty (config refuses to arm without it, and the runner stays off).
+  REFPOD_PEER_ID: 'spiffe://notusmi.com/star/daedalus'
+  # Warm standby seats kept per class and node (hopper43-b4-RP2), read by `daedalus refpod-template`
+  # when it renders forge/refpod-standby-<class>-<node>.yaml: {"<class>": {"<node>": n, "*": n}}, a node's
+  # entry beats the class's "*", n is 0 to 8. A seat idles at 10m CPU per container and is raised only for a
+  # course, so a seat costs its images and memory floor, not CPU. One gate seat per node is the default;
+  # the Deployment's replicas change only when the template is rendered again and landed (flux owns the
+  # Deployment: ci-refpod-guard rule 4), so a change here is a template re-render, not a daedalus roll.
+  REFPOD_SEATS: '{"gate":{"*":1}}'
+  EXECUTOR_NODES: '["dev01","llm01"]'
+  EXECUTOR_INDEX_REF: registry.notusmi.com/foundry/atoms/index:main
+  EXECUTOR_CACHE_CLAIMS: '{"dev01":"ci-cache-dev01","llm01":"ci-cache-llm01"}'
+  # Rust containers keep sccache in the ci-cache bucket (prefix sccache/, STS
+  # credentials the lead leaves at /work/l2/creds.json), so a compile on one node
+  # is a hit on the other; a server that cannot start on the bucket falls back to
+  # the node's L1. Forks keep /work/local. Rollback = l1. GOCACHEPROG's L2 needs
+  # no setting: it is on whenever the lead holds credentials.
+  EXECUTOR_SCCACHE_BACKEND: s3
+  GOVERN_EVERY: 10m
+  # THE EXECUTOR PROVES ITSELF AT BOOT (daedalus feat/self-proof). The escape
+  # hatch holds daedalus' own lanes on Dagger after a roll onto a new image
+  # digest until two other repos' gates have run green on the executor; with
+  # ~4 rolls a day and quiet traffic that is most of the day. A minute after an
+  # armed boot daedalus asks the executor for these two gates itself, at pinned
+  # shas that settled green on the executor (the settle is inert for the door:
+  # its own coordinate, nothing on daedalus.ci.runs, erebus workflow
+  # "self-proof"). naiad: a small Go repo, no services, 33 s gate (run
+  # 356, 2026-10-19), renovate gives it a green gate every few hours. flux: 23 s
+  # gate (run 11953). A sha that stops going green is replaced here; empty or
+  # unset = off, and the hatch then waits for organic proof alone.
+  GATE_JOB_SELF_PROOF: '[{"repo":"foundry/flux","lane":"gate","sha":"39efb16356780c31ee3ae9a0f46a8f7a343c3ec4"},{"repo":"naiad","lane":"gate","sha":"b7d39c4b5ae8851bdb04a68cea7c4127f9aa9891"}]'
+  GATE_JOB_DEADLINE: "40m"
+  GATE_JOB_DOOR: "http://ourea.prime.svc.cluster.local:8215"
+  GATE_JOB_ENV: "ca-gate-env"
+  # MUTATION IS PRICED PER REPO (2026-10-12; daedalus lane-cost-per-repo). A key
+  # "lane@repo" overrides the lane's price for that repo, spelled as the
+  # pistis.ci/repo annotation carries it (bare "bellows", owner-qualified
+  # "foundry/gravity" with the slash, not the label's "foundry.gravity").
+  # Measured over 24h of mutation-bg runs, avg cores = CPU-s / wall:
+  #   rust (stellar-core-rust median 5.3, bellows 5.1)  ~5-9 cores -> 6
+  #   go / ts / python                                  ~0.4-2.4    -> 2 (the default below)
+  # `mold -run cargo mutants -j 2` builds two mutants at once, each with cargo's
+  # -j nproc, a mold link at one thread per core and nextest across every core:
+  # one rust mutation lane saturated dev01's 24 cores (load 96, PSI some 0.7)
+  # while priced 2. A flat 6 over-reserved every Go/TS/Python lane 3-6x, and a
+  # per-language key would need a schema change to the ourea->daedalus ask
+  # event, so the heavy ones are named. The Rust repos are the roots with a
+  # Cargo.toml that ran a mutation or mutation-bg Job in the last 7d
+  # (kube_job_labels): anvil, bellows, cerberus, foundry/gravity, gavel,
+  # stellar-core-rust, tongs, tron. furnace has a Cargo.toml and no mutation Job.
+  # A NEW HEAVY (Rust) REPO NEEDS AN ENTRY HERE or it is priced light (2).
+  # Needs daedalus lane-cost-per-repo live: an older daedalus ignores the @ keys.
+  # 6 until the atom caps its own parallelism (foundry-tools follow-up).
+  # RUST GATES ARE 4 (2026-10-12). The same 8 repos' gates compile and test a
+  # workspace with cargo -j nproc: two stellar-core-rust gates plus an ourea gate,
+  # admitted at 1 each, put llm01 (16 cores) at load 52 with PSI some 0.52. An
+  # idle engine still admits any cost (engines.go Running==0), so 4 cannot strand.
+  # RUST LANES ARE PRICED FOR MEMORY: 8 (2026-10-15). dev01's 16:16Z global OOM
+  # was two rust compiles at once in one engine (144 rustc, 14G anon), and the
+  # engine pod is now 34Gi with /buildkit 13G (forge/dagger-engine-helm.yaml),
+  # which one rust build fits and two do not. MEASURED, buildkit-exec-peak lines
+  # 10-13..10-15 (both engines, 224 execs over 6GiB): peaks are bimodal, 2762
+  # over 1GiB of which 2,500+ under 4GiB and a heavy mode at 7-16GiB. The lanes
+  # running during a heavy exec, against a random instant: cerberus gate 32% vs
+  # 3% (lift 9.8), bellows gate lift 10, stellar-core-rust gate 4.5 and
+  # mutation-bg 3.1, cerberus cast 2.7; no Go repo is enriched (thalia gate 0.6,
+  # ares gate 0 of 16). The other rust repos ran too few lanes to clear, and are
+  # priced with them. The budget runs 2-16 per engine (GATE_JOB_BUDGET_CEILING):
+  # 8 + 8 fits only at the ceiling with NOTHING else running, so two rust lanes
+  # share an engine rarely, and never beside other work; backfill is bounded
+  # (dispatch.go backfill), so an 8 is not starved by light lanes.
+  # Revert: drop the cast@ keys and restore gate@ 4 / mutation@ 6.
+  # The *@stellar-core keys were *@stellar-core-rust until the rust crate moved into the stellar-core monorepo (2026-10-22): the lane@repo key is the pistis.ci/repo label, so the old name priced nothing. Same costs.
+  # gate@stellar-core is 8 again (2026-10-22): flux#5866 priced it 1 for the
+  # split, but stellar-core carries no .door/gate.toml yet, so its base gate
+  # still runs every language at ~8 cores of burst. At 1 unit, two of them ran
+  # at once on llm01 (16 cores) and stalled it (19:34-19:41Z). Drop it back
+  # toward 1 only when the marker splits all three languages out.
+  GATE_JOB_LANE_COSTS: "{\"gate\":1,\"build\":2,\"mutation\":2,\"check\":1,\"mutation-bg\":2,\"visual\":2,\"gate@anvil\":8,\"gate@bellows\":8,\"gate@cerberus\":8,\"gate@foundry/gravity\":8,\"gate@gavel\":8,\"gate@stellar-core\":8,\"gate-go@stellar-core\":2,\"gate-rust@stellar-core\":8,\"gate-ts@stellar-core\":1,\"gate@tongs\":8,\"gate@tron\":8,\"mutation@anvil\":8,\"mutation@bellows\":8,\"mutation@cerberus\":8,\"mutation@foundry/gravity\":8,\"mutation@gavel\":8,\"mutation@stellar-core\":8,\"mutation@tongs\":8,\"mutation@tron\":8,\"mutation-bg@anvil\":8,\"mutation-bg@bellows\":8,\"mutation-bg@cerberus\":8,\"mutation-bg@foundry/gravity\":8,\"mutation-bg@gavel\":8,\"mutation-bg@stellar-core\":8,\"mutation-bg@tongs\":8,\"mutation-bg@tron\":8,\"cast@anvil\":8,\"cast@bellows\":8,\"cast@cerberus\":8,\"cast@foundry/gravity\":8,\"cast@gavel\":8,\"cast@stellar-core\":8,\"cast@tongs\":8,\"cast@tron\":8}"
+  GATE_JOB_MAX_IN_FLIGHT: "8"
+  # THE ADAPTIVE BUDGET'S ROOM (Rob 2026-10-02, "I don't think we're upscaling
+  # the budget enough"). Each engine's budget starts at MAX_IN_FLIGHT on every
+  # Daedalus roll and climbs one unit per adapt interval, only while it binds
+  # and its node reads under the targets; the defaults were ceiling 12 (six
+  # mutations), targets 60% CPU / 75% memory, every 30 s. Measured 23:11-23:17Z:
+  # llm01 (16 cores) crept 8->11 at 19-33% CPU with requests parked behind it.
+  # The 90% node ceilings (GATE_JOB_NODE_*_CEILING, unset = 90) stay the
+  # backstop; these only let the controller use the room they leave. The
+  # controller itself (seed from load, remember across a roll, raise by
+  # headroom) is the next daedalus slice.
+  #
+  # TRIMMED 2026-10-06 (Rob: a 50% cut to 12 is excessive). dev01 (24 cores,
+  # also the control plane and most stars) went CPU-stalled repeatedly
+  # (HostCPUStalledFast, and the 10-05 00:40Z k3s crash) while llm01 (16
+  # cores) idled at 19-33%. Both knobs are PER ENGINE, i.e. per node. The
+  # target is the one that tells the nodes apart: dev01 stops climbing at 65%,
+  # llm01 never reaches it. The ceiling came down a sixth, not a half.
+  # 20 -> 16 (2026-10-06 ~21:20Z): dev01 still went CPU-stalled at 20 during a
+  # Renovate rebuild wave (HostCPUStalledFast). 16 is a third off the original
+  # 24 — still not the half Rob ruled excessive.
+  # 16 -> 24 (Rob, 2026-10-19 ~01:45Z): gate, check, atoms and mutation-bg
+  # now run in executor pods with real requests, so node_fit bounds memory; the
+  # 16-slot cap (set for Dagger rebuild stalls) held llm01 at 12/12 slots while it
+  # sat at 33% CPU / 51% memory requested. The adaptive budget and its stall brake
+  # still cut a hot node.
+  GATE_JOB_BUDGET_CEILING: "24"
+  GATE_JOB_BUDGET_TARGET_CPU: "65"
+  GATE_JOB_BUDGET_TARGET_MEMORY: "80"
+  GATE_JOB_BUDGET_ADAPT_EVERY: "15s"
+  # A refused dev run holds the next freed slot; at most this many hold at once
+  # (jobs/devclaims.go, default 2). 2 -> 4 (Rob, 2026-10-18 ~02:00Z): with ~230
+  # lanes parked, a third waiting session only polled and lost every freed slot
+  # to the queue — builders waited up to two hours for a lease.
+  GATE_JOB_DEV_CLAIM_MAX: "4"
+  GATE_JOB_NAMESPACE: "forge"
+  # The engine's pods are read and labelled in their own namespace (2026-10-12,
+  # dagger/namespace.yaml): forge enforces restricted and the engine cannot.
+  # Needs daedalus with GATE_JOB_ENGINE_NAMESPACE (b36-fh2-dagger-ns); an older
+  # image ignores it and finds no engine in forge, so dispatch parks.
+  GATE_JOB_ENGINE_NAMESPACE: "dagger"
+  # OFF since 2026-10-02 (Rob: "find a better solution than my heavy-handed
+  # serialization"). The rule held a repo to one commit at a time so its caches
+  # would be warm for the next head; measured, they are not warmer: a gate
+  # starting 1-15 min after the repo's last one is no faster than one starting
+  # hours later (infra 76 s vs 75 s, flux 31 vs 31, ourea 150 vs 151, nyx 46 vs
+  # 46; narcissus alone gains, 75 vs 106). Every cache volume is SHARED and keyed
+  # per toolchain, so any run warms the next, and a third of a repo's consecutive
+  # runs land on the other engine anyway. Its cost was 297 park-minutes on 10-01
+  # and 484 on 10-02. The soft per-repo cap still applies. Evidence: the vault
+  # note "CI pipeline audit — durations, repeats and levers". Ourea's TOML key
+  # of the same name is inert (the door runs no lanes) and leaves with it.
+  GATE_JOB_REPO_SERIAL: "false"
+  # NODE CPU STALL (PSI) is the budget's third load signal (daedalus
+  # budget-cpu-stall). dev01 fired HostCPUStalledFast five times in six hours
+  # (2026-10-11/12) at 50-74% CPU with its engine held at the ceiling: cargo
+  # lanes at -j nproc queue threads while utilisation looks moderate. Daedalus
+  # reads rate(node_pressure_cpu_waiting_seconds_total[2m]) from this Prometheus
+  # once per drain (instance label = node name). Stall >= 0.50 lowers the budget
+  # by two and holds the engine; >= 0.35 refuses a raise (code defaults, unset
+  # here). Empty URL = off; a failed read is no opinion, never a block. No
+  # NetworkPolicy gates it: daedalus has no egress policy and prime's
+  # ingress-fence admits prime pods.
+  # a stalled node is cut only when its CPU use is at least this % of allocatable (else it is pod throttling); negative = stall alone cuts
+  # INTERIM until PSC2 (2026-10-22): -1 = stall alone cuts, on every node. At
+  # 19:17:24Z llm01 logged "node cpu stall is over its line but the node is not
+  # busy" at stall 0.507, cpu 68 < 80, and cut nothing, while its CPU PSI
+  # avg60 was 69%. High stall is contention whatever the CPU %. Over-cutting
+  # a throttling-only stall only slows admission. PSC2 restores the
+  # throttling skip from cgroup throttling evidence. This replaces the
+  # interim llm01 ceiling of 60 (flux#5868).
+  GATE_JOB_NODE_CPU_STALL_CUT_CPU: "-1"
+  # llm01 CEILING (2026-10-22, re-added): llm01 (16 cores, ~3 of them system)
+  # stalled a third time even with stall-alone-cuts live. Its CPU ceiling is
+  # 60 so the budget cuts at the CPU it stalls at. Interim, alongside
+  # STALL_CUT_CPU=-1, until PSC2 and the stellar-core gate burst bound land.
+  GATE_JOB_NODE_CPU_CEILINGS: "{\"llm01\":60}"
+  GATE_JOB_PROMETHEUS_URL: "http://hemera-prometheus.prime.svc.cluster.local:9090"
+  GATE_JOB_SERVICE_ACCOUNT: "ci"
+  GATE_JOB_SILENCE_TIMEOUTS: "{\"mutation\":\"40m\",\"mutation-bg\":\"40m\",\"visual\":\"30m\"}"
+  LANE_MAX_IN_FLIGHT: "{\"check\":4}"
+  MUTATION_JOB_DEADLINE: "75m"
+  MUTATION_JOB_SERVICE_ACCOUNT: "ci"
+  # THE VISUAL LANE (foundry-tools ts:visual, daedalus feat/visual-lane): a
+  # tree's Playwright screenshot suites, asked by the door only where the tree
+  # carries a root visual.toml (gijmo-ui today). ADVISORY: the door waits on
+  # none of its settles (ourea cirun.AdvisoryLanes) until it has run a week
+  # without a flake; then it gates. Cost 2 — Chromium at two workers is
+  # heavier than a gate. VISUAL_JOB_SECRETS is ca-build-registry's
+  # REGISTRY_AUTH_JSON: a red run pushes its diffs and the baselines it would
+  # accept to registry.notusmi.com/foundry/visual/<star>:<sha> (zot keeps sha
+  # tags a day).
+  VISUAL_JOB_DEADLINE: "40m"
+  VISUAL_JOB_SECRETS: "ca-build-registry"
+  VISUAL_JOB_SERVICE_ACCOUNT: "ci"
+  RECIPE_JOB_DEADLINE: "30m"
+  RECIPE_JOB_ENV: "ca-recipe-env"
+  # THE BUNDLE LANE SIGNS NOTHING (Rob, 2026-10-20). It runs on the executor
+  # alone (EXECUTOR_LANES): the Dagger bundle lane and its KMS/cosign call
+  # (--kms, --kms-token, --opa-kms) are retired with foundry-tools#563, and
+  # ouranos-opa reads the plain :stable bundles.
+  # bundle keeps its declaration for its ACCOUNT: the executor bundle Spec is built from it
+  # (ci since B7, ca-bundle-lane), and without it the lane falls to ca-recipe, which
+  # ci-lane-sa-guard refuses for bundle — the refused Job held the ask partition and
+  # stalled every ask behind it (2026-10-21 ~01:35Z).
+  RECIPE_JOB_LANES: "{\"publish\":{\"secrets\":\"ca-publish-lane\"},\"cast\":{\"secrets\":\"ca-cast-lane\",\"service_account\":\"ci\",\"deadline\":\"60m\"},\"bundle\":{\"secrets\":\"ca-bundle-lane\",\"service_account\":\"ci\"}}"
+  RECIPE_JOB_SERVICE_ACCOUNT: "ci"
+  RECORD_LANES: "[\"gate\",\"gate-go\",\"gate-rust\",\"gate-ts\",\"mutation\",\"build\",\"check\",\"mutation-bg\",\"visual\",\"atoms\",\"dev\",\"cast\",\"publish\",\"bundle\",\"govern\"]"

@@ -176,14 +176,24 @@ func TestDaggerLockstep(t *testing.T) {
 }
 
 // A tree that IS the engine source is judged on itself; the door is not asked.
+// Its gate Jobs carry no dagger image (flux b2f34e41), and the jobs file is
+// not read, so the chart and the image are the two pins.
 func TestDaggerLockstepJudgesFluxOnItsOwnTree(t *testing.T) {
 	ref := "registry.dagger.io/engine:v0.21.9@sha256:" + strings.Repeat("c", 64)
 	in := treeIn(t, map[string]string{
 		"forge/dagger-engine-helm.yaml": "chart: dagger-helm\n  version: 0.21.9\nref: " + ref + "\n",
-		"prime/daedalus-jobs.yaml":      "BUILD_JOB_IMAGE: \"" + ref + "\"\nLANE_CALL_IMAGE: \"" + ref + "\"\n",
+		"prime/daedalus-jobs.yaml":      "data:\n  GATE_JOB_ENGINE_NAMESPACE: \"dagger\"\n",
 	})
 	in.Door = deadDoor(t)
-	expect(t, run(t, in), stateOf(0), pass, "lockstep: 4 pin(s) agree with the engine v0.21.9")
+	expect(t, run(t, in), stateOf(0), pass, "lockstep: 2 pin(s) agree with the engine v0.21.9")
+}
+
+// An engine image moved alone in flux's own tree is a finding.
+func TestDaggerLockstepFindsAnEngineMovedAloneInFlux(t *testing.T) {
+	ref := "registry.dagger.io/engine:v0.21.10@sha256:" + strings.Repeat("c", 64)
+	in := treeIn(t, map[string]string{"forge/dagger-engine-helm.yaml": "chart: dagger-helm\n  version: 0.21.9\nref: " + ref + "\n"})
+	in.Door = deadDoor(t)
+	expect(t, run(t, in), stateOf(1), findings, "forge/dagger-engine-helm.yaml: dagger-helm chart v0.21.9, but the engine is v0.21.10")
 }
 
 // THE CLI IS HELD TO FLUX MAIN'S ENGINE, read from the door by name.

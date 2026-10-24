@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -20,10 +21,9 @@ func helmPins(chart, tag, digest string) string {
 		"      image:\n        ref: registry.dagger.io/engine:" + tag + "@" + digest + "\n"
 }
 
-// jobPins is prime/daedalus-jobs.yaml's two engine images.
-func jobPins(build, lane string) string {
-	return "  BUILD_JOB_IMAGE: \"registry.dagger.io/engine:" + build + "\"\n" +
-		"  LANE_CALL_IMAGE: \"registry.dagger.io/engine:" + lane + "\"\n"
+// extraImage is a second engine image in the engine source, held to the first.
+func extraImage(ref string) string {
+	return "  other: registry.dagger.io/engine:" + ref + "\n"
 }
 
 func cliPin(v string) string {
@@ -52,23 +52,9 @@ func countingDoor(t *testing.T, body string) (Door, *int) {
 
 func TestDaggerLockstepJudgesEveryPinAgainstTheEngine(t *testing.T) {
 	agreeing := map[string]string{
-		DaggerEngineSource:         helmPins("0.21.9", "v0.21.9", lockDigest),
-		"prime/daedalus-jobs.yaml": jobPins("v0.21.9@"+lockDigest, "v0.21.9@"+lockDigest),
+		DaggerEngineSource: helmPins("0.21.9", "v0.21.9", lockDigest),
 	}
-	with := func(over map[string]string) map[string]string {
-		out := map[string]string{}
-		for k, v := range agreeing {
-			out[k] = v
-		}
-		for k, v := range over {
-			if v == "" {
-				delete(out, k)
-				continue
-			}
-			out[k] = v
-		}
-		return out
-	}
+	source := func(body string) map[string]string { return map[string]string{DaggerEngineSource: body} }
 	fluxMain := helmPins("0.21.9", "v0.21.9", lockDigest)
 
 	for _, tc := range []struct {
@@ -85,24 +71,24 @@ func TestDaggerLockstepJudgesEveryPinAgainstTheEngine(t *testing.T) {
 			[]string{"ABSENT"}, nil, false},
 
 		// flux: its own tree is the engine, and the door is never asked.
-		{"flux, four pins agree", agreeing, "", 0,
-			[]string{"lockstep: 4 pin(s) agree with the engine v0.21.9 (forge/dagger-engine-helm.yaml (this tree))"}, []string{"ABSENT"}, false},
-		{"flux, the chart moved alone", with(map[string]string{DaggerEngineSource: helmPins("0.21.10", "v0.21.9", lockDigest)}), "", 1,
+		{"flux, the chart and the image agree", agreeing, "", 0,
+			[]string{"lockstep: 2 pin(s) agree with the engine v0.21.9 (forge/dagger-engine-helm.yaml (this tree))"}, []string{"ABSENT"}, false},
+		{"flux, the chart moved alone", source(helmPins("0.21.10", "v0.21.9", lockDigest)), "", 1,
 			[]string{"1 pin(s) out of lockstep", "forge/dagger-engine-helm.yaml: dagger-helm chart v0.21.10, but the engine is v0.21.9", "move in one pull"}, nil, false},
-		{"flux, the engine moved but not the gate jobs", with(map[string]string{DaggerEngineSource: helmPins("0.21.10", "v0.21.10", lockOther)}), "", 1,
-			[]string{"2 pin(s) out of lockstep", "prime/daedalus-jobs.yaml: engine image v0.21.9, but the engine is v0.21.10"}, nil, false},
-		{"flux, one tag at two digests", with(map[string]string{"prime/daedalus-jobs.yaml": jobPins("v0.21.9@"+lockDigest, "v0.21.9@"+lockOther)}), "", 1,
+		{"flux, the engine image moved but not the chart", source(helmPins("0.21.9", "v0.21.10", lockOther)), "", 1,
+			[]string{"1 pin(s) out of lockstep", "forge/dagger-engine-helm.yaml: dagger-helm chart v0.21.9, but the engine is v0.21.10", "move in one pull"}, nil, false},
+		{"flux, one tag at two digests", source(helmPins("0.21.9", "v0.21.9", lockDigest) + extraImage("v0.21.9@"+lockOther)), "", 1,
 			[]string{"1 pin(s) out of lockstep", "engine image v0.21.9@" + lockOther + ", but forge/dagger-engine-helm.yaml pins the same tag at " + lockDigest, "One version, one digest"}, nil, false},
-		{"flux, the first image in the source is the engine", with(map[string]string{DaggerEngineSource: helmPins("0.21.9", "v0.21.9", lockDigest) + "  other: registry.dagger.io/engine:v0.21.10@" + lockOther + "\n"}), "", 1,
+		{"flux, the first image in the source is the engine", source(helmPins("0.21.9", "v0.21.9", lockDigest) + extraImage("v0.21.10@"+lockOther)), "", 1,
 			[]string{"1 pin(s) out of lockstep", "engine image v0.21.10, but the engine is v0.21.9"}, nil, false},
-		{"flux, a second chart in the source is read too", with(map[string]string{DaggerEngineSource: helmPins("0.21.9", "v0.21.9", lockDigest) + "  chart: dagger-helm\n  version: 0.21.10\n"}), "", 1,
+		{"flux, a second chart in the source is read too", source(helmPins("0.21.9", "v0.21.9", lockDigest) + "  chart: dagger-helm\n  version: 0.21.10\n"), "", 1,
 			[]string{"1 pin(s) out of lockstep", "dagger-helm chart v0.21.10, but the engine is v0.21.9"}, nil, false},
-		{"flux, the gate jobs without the source", with(map[string]string{DaggerEngineSource: ""}), fluxMain, 1,
-			[]string{"forge/dagger-engine-helm.yaml names no engine image"}, nil, false},
-		{"flux, a source with only the chart", with(map[string]string{DaggerEngineSource: "chart: dagger-helm\n  version: 0.21.9\n"}), fluxMain, 1,
-			[]string{"names no engine image, so there is no engine"}, []string{"agree"}, false},
-		{"a pin file whose spelling moved", with(map[string]string{"prime/daedalus-jobs.yaml": "BUILD_JOB_IMAGE: registry.dagger.io/engine:latest\n"}), "", 1,
-			[]string{"prime/daedalus-jobs.yaml: names no dagger version this atom can read", "compared nothing there"}, nil, false},
+		{"flux, a source with only the chart", source("chart: dagger-helm\n  version: 0.21.9\n"), fluxMain, 1,
+			[]string{"forge/dagger-engine-helm.yaml names no engine image, so there is no engine"}, []string{"agree"}, false},
+		{"flux, the jobs file is not a pin file", map[string]string{DaggerEngineSource: agreeing[DaggerEngineSource], "prime/daedalus-jobs.yaml": "BUILD_JOB_IMAGE: registry.dagger.io/engine:latest\n"}, "", 0,
+			[]string{"lockstep: 2 pin(s) agree"}, []string{"daedalus-jobs"}, false},
+		{"an engine pin whose spelling moved", source("image: registry.dagger.io/engine:latest\n"), fluxMain, 1,
+			[]string{"forge/dagger-engine-helm.yaml: names no dagger version this atom can read", "compared nothing there"}, nil, true},
 
 		// base-images: the CLI is held to flux main's engine, read through the door.
 		{"the CLI equals flux main", map[string]string{"bases/layer-dagger-cli/Dockerfile": cliPin("v0.21.9")}, fluxMain, 0,
@@ -153,17 +139,42 @@ func TestDaggerLockstepJudgesEveryPinAgainstTheEngine(t *testing.T) {
 	}
 }
 
+// REGRESSION: flux's gate Jobs stopped carrying a dagger image
+// (feat/strip-dagger-call-config, b2f34e41). prime/daedalus-jobs.yaml as that
+// branch carries it, beside a consistent engine source, holds: the jobs file is
+// not a pin file, so naming no dagger version there is not a finding.
+func TestDaggerLockstepHoldsAFluxTreeWhoseJobsCarryNoDaggerImage(t *testing.T) {
+	jobs, err := os.ReadFile("testdata/daggerlockstep/daedalus-jobs-no-dagger.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(jobs), "registry.dagger.io/engine:") {
+		t.Fatal("the fixture still carries a dagger engine image")
+	}
+	door, asks := countingDoor(t, "")
+	state, out := DaggerLockstep(context.Background(), map[string]string{
+		DaggerEngineSource:         helmPins("0.21.10", "v0.21.10", lockOther),
+		"prime/daedalus-jobs.yaml": string(jobs),
+	}, door)
+	if state != 0 || !strings.Contains(out, "lockstep: 2 pin(s) agree with the engine v0.21.10") || strings.Contains(out, "daedalus-jobs") {
+		t.Errorf("state %d, want 0 with the two engine-source pins agreeing:\n%s", state, out)
+	}
+	if *asks != 0 {
+		t.Errorf("door asked %d time(s); flux's own tree is the engine", *asks)
+	}
+}
+
 // Findings are sorted, so a report is the same whatever order the files came in.
 func TestDaggerLockstepSortsItsFindings(t *testing.T) {
-	// The unreadable jobs file is found first and the chart second; the
-	// report still reads forge/ before prime/.
+	// The chart is found first and the unreadable Dockerfile second; the
+	// report still reads bases/ before forge/.
 	_, out := DaggerLockstep(context.Background(), map[string]string{
-		DaggerEngineSource:         helmPins("0.21.8", "v0.21.9", lockDigest),
-		"prime/daedalus-jobs.yaml": "BUILD_JOB_IMAGE: none\n",
+		DaggerEngineSource:                  helmPins("0.21.8", "v0.21.9", lockDigest),
+		"bases/layer-dagger-cli/Dockerfile": "FROM scratch\n",
 	}, Door{})
 	lines := strings.Split(out, "\n")
-	if len(lines) != 3 || !strings.HasPrefix(lines[1], "forge/") || !strings.HasPrefix(lines[2], "prime/") {
-		t.Errorf("want the header then forge/ before prime/:\n%s", out)
+	if len(lines) != 3 || !strings.HasPrefix(lines[1], "bases/") || !strings.HasPrefix(lines[2], "forge/") {
+		t.Errorf("want the header then bases/ before forge/:\n%s", out)
 	}
 }
 

@@ -36,7 +36,7 @@ func (f *Fleet) PdpWired(ctx context.Context) (string, error) {
 
 // The dagger CLI, engine and module pins in this tree agree with the engine
 // foundry/flux runs. CLI and engine move in lockstep and the engine leads: in
-// flux the four engine pins must agree, elsewhere a CLI pin must equal flux
+// flux the engine pins must agree, elsewhere a CLI pin must equal flux
 // main's engine and a module's engineVersion must not be newer than it.
 //
 // +check
