@@ -1,5 +1,10 @@
 # foundry-tools — the fleet's checks, as code.
 
+# THE BUILD AND TEST LOOP: push the branch, then `just _dev test ./internal/checks/...`.
+# `_dev` (dev.just, rendered by foundry-stocks) asks the door's dev lane, which tests
+# the tree on the cluster; no Dagger engine and no module path are involved.
+import? 'dev.just'
+
 # Regenerate the SDK bindings, then undo the SDK's own vulnerable pin.
 #
 # `dagger develop` re-adds four `replace` directives holding
