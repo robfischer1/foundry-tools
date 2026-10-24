@@ -10,7 +10,7 @@ argv = ["go", "test"]
 args = "append"
 per_module = false
 judge = "exit"
-needs = ["dies"]
+needs = ["dies", "tool:jq"]
 timeout = "30m"
 writes_tree = true
 

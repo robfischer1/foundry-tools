@@ -138,7 +138,7 @@ func TestTheDevAtomsCoverEveryDevlaneVerb(t *testing.T) {
 // its argv; an id absent from a table has none (needs, env) or the 10m default.
 var (
 	devNeeds = map[string][]string{
-		"dev:go-test":          {"dies"},
+		"dev:go-test":          {"dies", "tool:jq"}, // checks.SuiteJqNeeds: a suite that execs jq (daedalus tools/bg)
 		"dev:go-lint":          {"tool:staticcheck"},
 		"dev:rust-vuln":        {"tool:cargo-audit"},
 		"dev:python-lint":      {"tool:ruff"},
