@@ -20,8 +20,8 @@ import (
 // BY CRATE, NOT BY LINE: the lane's toolchain (rust-trixie, upstream's
 // rust:1.97.0-trixie) carries neither cargo-llvm-cov nor the llvm-tools
 // component, so there is no line coverage to read; the tools.toml pin set has
-// none either. The owning crate's source files join the scope whole, under the
-// same bound as the other languages' covered lines, and the verdict says the
+// none either. The owning crate's source files join the scope whole, under
+// rust's own lower bound (ATOM_MUTATION_COVERED_CAP_RUST), and the verdict says the
 // scope is the crate's. cargo-mutants never mutates the tests themselves: tests/
 // is no source file here, and it skips #[cfg(test)] items in the ones that are.
 
@@ -63,7 +63,9 @@ func (g *grading) testCrates(ctx context.Context, since string) (map[string][]un
 			covered[f] = rs
 		}
 	}
-	kept, say := checks.CoveredScope(id, "of their crate(s)", covered)
+	// RUST'S OWN BOUND (checks.RustMutationCoveredCap): a crate is far more
+	// mutants than the lines a test runs.
+	kept, say := checks.CoveredScopeBy(id, "of their crate(s)", covered, checks.EnvMutationCoveredCapRust, checks.RustMutationCoveredCap())
 	return kept, say + " (no line coverage in this toolchain: cargo-llvm-cov is not in the lane's image, so the crate is the scope: " +
 		strings.Join(slices.Sorted(maps.Keys(crates)), ", ") + ")"
 }

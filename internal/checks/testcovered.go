@@ -21,27 +21,51 @@ import (
 // failure.
 const EnvMutationCoveredCap = "ATOM_MUTATION_COVERED_CAP"
 
+// EnvMutationCoveredCapRust is rust:mutation's own bound on a test-only scope.
+const EnvMutationCoveredCapRust = "ATOM_MUTATION_COVERED_CAP_RUST"
+
 // DefaultMutationCoveredCap is the bound when the knob is unset: about a
 // night's worth of one module's mutants at the lane's measured cost.
 const DefaultMutationCoveredCap = 2000
 
 // MutationCoveredCap reads EnvMutationCoveredCap; unset or unreadable is the
 // default, and a value of 0 or less is no bound.
-func MutationCoveredCap() int {
-	if n, err := strconv.Atoi(os.Getenv(EnvMutationCoveredCap)); err == nil {
+func MutationCoveredCap() int { return coveredCapOf(EnvMutationCoveredCap, DefaultMutationCoveredCap) }
+
+// DefaultMutationCoveredCapRust is rust's bound when its knob is unset. Rust's
+// test-only scope is the owning crate's whole source (no line coverage in its
+// toolchain), far more mutants per line a test touches, and at the lane's
+// measured ~44s a mutant two at a time, 2000 lines would overrun the 75-minute
+// deadline; 500 is about a lane's worth.
+const DefaultMutationCoveredCapRust = 500
+
+// RustMutationCoveredCap reads EnvMutationCoveredCapRust as MutationCoveredCap
+// reads its knob. The shared knob does not move it.
+func RustMutationCoveredCap() int {
+	return coveredCapOf(EnvMutationCoveredCapRust, DefaultMutationCoveredCapRust)
+}
+
+// coveredCapOf reads a bound off env; unset or unreadable is def.
+func coveredCapOf(env string, def int) int {
+	if n, err := strconv.Atoi(os.Getenv(env)); err == nil {
 		return n
 	}
-	return DefaultMutationCoveredCap
+	return def
 }
 
 // CoveredScope bounds covered by MutationCoveredCap and answers what is kept and
 // the verdict's line for it. whose says whose files they are ("they run", "of
 // their crate(s)"); an empty covered is kept as nothing and said as zero.
 func CoveredScope(probe, whose string, covered map[string][]unitkey.Range) (map[string][]unitkey.Range, string) {
-	kept, cutLines, cutFiles := CapMutationRanges(covered, MutationCoveredCap())
+	return CoveredScopeBy(probe, whose, covered, EnvMutationCoveredCap, MutationCoveredCap())
+}
+
+// CoveredScopeBy is CoveredScope under the bound limit, which the knob env sets.
+func CoveredScopeBy(probe, whose string, covered map[string][]unitkey.Range, env string, limit int) (map[string][]unitkey.Range, string) {
+	kept, cutLines, cutFiles := CapMutationRanges(covered, limit)
 	say := fmt.Sprintf("%s: changed tests: %d source line(s) in %d file(s) %s joined the scope", probe, RangeLines(kept), len(kept), whose)
 	if cutLines > 0 {
-		say += fmt.Sprintf("; %d line(s) in %d file(s) cut at the %s bound (%s)", cutLines, len(cutFiles), EnvMutationCoveredCap, strings.Join(cutFiles[:min(len(cutFiles), 5)], ", "))
+		say += fmt.Sprintf("; %d line(s) in %d file(s) cut at the %s bound (%s)", cutLines, len(cutFiles), env, strings.Join(cutFiles[:min(len(cutFiles), 5)], ", "))
 	}
 	return kept, say
 }

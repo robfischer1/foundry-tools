@@ -20,6 +20,18 @@ func TestMutationCoveredCapReadsTheKnob(t *testing.T) {
 	}
 }
 
+func TestRustMutationCoveredCapIsItsOwnKnob(t *testing.T) {
+	t.Setenv(EnvMutationCoveredCap, "7")
+	t.Setenv(EnvMutationCoveredCapRust, "")
+	if RustMutationCoveredCap() != DefaultMutationCoveredCapRust || DefaultMutationCoveredCapRust != 500 {
+		t.Fatal("rust's default")
+	}
+	t.Setenv(EnvMutationCoveredCapRust, "9")
+	if RustMutationCoveredCap() != 9 {
+		t.Fatal("rust's knob")
+	}
+}
+
 func TestCoveredScopeSaysWhatJoinedAndWhatWasCut(t *testing.T) {
 	t.Setenv(EnvMutationCoveredCap, "2")
 	kept, say := CoveredScope("p", "they run", map[string][]unitkey.Range{"a": {{Start: 1, End: 2}}, "b": {{Start: 4, End: 4}}})

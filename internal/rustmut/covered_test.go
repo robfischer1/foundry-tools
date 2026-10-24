@@ -113,10 +113,25 @@ func TestCoveredRustEdges(t *testing.T) {
 // The bound applies to the crate's lines.
 func TestCoveredRustLinesAreBoundedByTheCap(t *testing.T) {
 	p := testOnly(t, "")
-	t.Setenv(checks.EnvMutationCoveredCap, "1")
+	t.Setenv(checks.EnvMutationCoveredCapRust, "1")
 	v := p.run()
 	raw, _ := os.ReadFile(filepath.Join(p.work, "rust", "pr.diff"))
-	if !strings.Contains(said(v), "1 line(s) in 1 file(s) cut at the "+checks.EnvMutationCoveredCap+" bound (src/util.rs)") || strings.Contains(string(raw), "util.rs") {
+	if !strings.Contains(said(v), "1 line(s) in 1 file(s) cut at the "+checks.EnvMutationCoveredCapRust+" bound (src/util.rs)") || strings.Contains(string(raw), "util.rs") {
 		t.Fatalf("pr.diff %q: %s", raw, said(v))
+	}
+}
+
+// A CRATE IS BOUNDED BY RUST'S OWN CAP, 500 lines by default, not the shared
+// 2000: a crate's whole source is far more mutants than the lines a test runs,
+// and 2000 of them would overrun the lane's 75 minutes. The shared knob does
+// not move it.
+func TestCoveredRustCrateScopeHasItsOwnLowerCap(t *testing.T) {
+	p := testOnly(t, "")
+	t.Setenv(checks.EnvMutationCoveredCap, "1")
+	putFile(t, p.in.Root, "src/util.rs", strings.Repeat("pub fn g() {}\n", 600))
+	v := p.run()
+	if !strings.Contains(said(v), "600 line(s) in 1 file(s) cut at the "+checks.EnvMutationCoveredCapRust+" bound (src/util.rs)") ||
+		!strings.Contains(said(v), "1 source line(s) in 1 file(s) of their crate(s) joined the scope") {
+		t.Fatalf("%s", said(v))
 	}
 }
