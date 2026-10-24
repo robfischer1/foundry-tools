@@ -149,7 +149,7 @@ func TestLaneShapes(t *testing.T) {
 	if g := lanes["gate"]; !slices.Equal(g.Stages, []string{"precommit", "prepush"}) || g.Rider != "" || len(g.Phases) != 0 {
 		t.Errorf("gate: %+v", g)
 	}
-	for l, stage := range map[string]string{"check": "precommit", "mutation": "mutation", "mutation-bg": "mutation"} {
+	for l, stage := range map[string]string{"check": "precommit", "mutation": "mutation"} {
 		if d := lanes[l]; !slices.Equal(d.Stages, []string{stage}) || len(d.Phases) != 0 || d.Rider != "" {
 			t.Errorf("%s: %+v", l, d)
 		}

@@ -3,6 +3,7 @@ package atomkit
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -78,9 +79,19 @@ func TestUT_603_AllStagesAccepted(t *testing.T) {
 	}
 }
 
+// mutation-bg is retired (no lane by that name is asked): it must not parse.
+func TestRetiredMutationBgLaneRefused(t *testing.T) {
+	if slices.Contains(KnownLanes, "mutation-bg") {
+		t.Fatal("mutation-bg is still a known lane")
+	}
+	if _, err := ParseLane([]byte(strings.Replace(lane(""), `"gate"`, `"mutation-bg"`, 1))); err == nil {
+		t.Error("a lane file named mutation-bg parsed")
+	}
+}
+
 func TestEveryKnownLaneAccepted(t *testing.T) {
-	if len(KnownLanes) != 16 {
-		t.Fatalf("KnownLanes has %d, want 16", len(KnownLanes))
+	if len(KnownLanes) != 15 {
+		t.Fatalf("KnownLanes has %d, want 15", len(KnownLanes))
 	}
 	for _, l := range KnownLanes {
 		if _, err := ParseLane([]byte(strings.Replace(lane(""), `"gate"`, `"`+l+`"`, 1))); err != nil {
