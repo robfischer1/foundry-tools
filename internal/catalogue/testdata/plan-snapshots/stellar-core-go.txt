@@ -92,6 +92,7 @@ run:
   dev:go-fmt
   dev:go-fmt-check
   dev:go-lint
+  dev:go-lock-apt
   dev:go-regen
   dev:go-sast
   dev:go-test
@@ -104,6 +105,7 @@ run:
   dev:go-vuln
   dev:python-fmt
   dev:python-lint
+  dev:python-lock-apt
   dev:python-test
   go:cast-release
   python:artifacts
@@ -137,6 +139,7 @@ absent:
   dev:rust-fmt
   dev:rust-lint
   dev:rust-lock
+  dev:rust-lock-apt
   dev:rust-replay
   dev:rust-test
   dev:rust-typecheck
@@ -147,6 +150,7 @@ absent:
   dev:ts-fmt
   dev:ts-lint
   dev:ts-lock
+  dev:ts-lock-apt
   dev:ts-regen
   dev:ts-test
   dev:ts-typecheck

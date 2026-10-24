@@ -17,9 +17,10 @@ var devVerbs = []string{
 
 // checkVerbs are the read-only check verbs a star's recipes ask for beyond the
 // list foundry-stocks pins: fmt-check (the gofmt listing), vuln (the advisory
-// scan) and sast (the opengrep scan). They route like any verb, to
+// scan), sast (the opengrep scan) and lock-apt (daedalus#22977: re-lock the apt
+// packages.lock; every language has the atom). They route like any verb, to
 // dev:<lang>-<verb>.
-var checkVerbs = []string{"fmt-check", "vuln", "sast"}
+var checkVerbs = []string{"fmt-check", "vuln", "sast", "lock-apt"}
 
 // devNotApplicable is every language x verb that has no dev atom ON PURPOSE,
 // with the reason. Anything else a star can ask must resolve to dev:<lang>-<verb>.

@@ -1,0 +1,27 @@
+schema = "command-atom@1"
+id = "dev:go-lock-apt"
+stage = "dev"
+lane = "go"
+group = "language"
+desc = "deblock -relock re-resolves the apt packages.lock beside the Dockerfile against the archive."
+surface = "root:packages.lock"
+toolchain = "go"
+argv = ["deblock", "-relock", "-dockerfile", "Dockerfile", "-out", "packages.lock"]
+args = "append"
+per_module = false
+judge = "exit"
+needs = ["tool:deblock"]
+writes_tree = true
+preflight = false
+
+# The apt twin of dev:go-tidy: a RUN-free star's packages.lock is the .debs its
+# image takes from the Debian archive (daedalus internal/deblayer), and a CVE fix
+# moves the versions in it. deblock -relock reads the lock's own suite, sources
+# and package names, takes the base's dpkg status from the Dockerfile's FROM
+# image (the one the assembler lays the lock on) and writes the lock back,
+# delivered as the diff of the atom's copy. Every language has one because the
+# verb names the language of the star it runs in; a star without a packages.lock
+# stands the atom down. toolchain go: deblock is a go tool, and go tools install
+# only in the go container, which is also why preflight is off (the star's own
+# manifest is not a Go module). A caller's arguments follow, and the last
+# -dockerfile wins, so `-dockerfile build/Dockerfile` points at another one.

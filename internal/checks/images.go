@@ -275,6 +275,13 @@ const (
 	// the honest verdict. So ScoreGoMutation's `ungraded` bucket is expected to
 	// stay EMPTY, and the control is what says so rather than this pin.
 	MutationGateModule = "git.notusmi.com/rob/forge-testkit-go/cmd/mutation-gate@v0.10.0"
+	// DeblockModule is daedalus' cmd/deblock, run by the dev:<lang>-lock-apt atoms to
+	// re-lock a star's packages.lock on the cluster (daedalus#22977). Installed the
+	// way MutationGateModule is, through the door's goproxy, which serves a tag or
+	// the tip of a branch and no other commit. daedalus mints no tags, so the pin is
+	// its main: a moving pin, cached by name@version once installed. Swap in a tag
+	// the day daedalus has one.
+	DeblockModule = "git.notusmi.com/rob/daedalus/cmd/deblock@main"
 	// renovate: datasource=crate depName=cargo-audit
 	CargoAuditVersion = "0.22.2"
 	// renovate: datasource=crate depName=cargo-mutants

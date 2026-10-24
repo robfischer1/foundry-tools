@@ -97,7 +97,7 @@ var urlPins = []struct {
 // goPins are the `go install` tools, as the module@version constants.
 var goPins = map[string]string{
 	"staticcheck": checks.StaticcheckModule, "govulncheck": checks.GovulncheckModule,
-	"gomutants": checks.GomutantsModule, "mutation-gate": checks.MutationGateModule,
+	"gomutants": checks.GomutantsModule, "mutation-gate": checks.MutationGateModule, "deblock": checks.DeblockModule,
 }
 
 // imagePins are the tools that are an image, and the toolchains and services.

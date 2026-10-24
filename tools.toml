@@ -296,6 +296,11 @@ kind = "go"
 spec = "git.notusmi.com/rob/forge-testkit-go/cmd/mutation-gate"
 version = "v0.10.0"
 
+[tool.deblock]
+kind = "go"
+spec = "git.notusmi.com/rob/daedalus/cmd/deblock"
+version = "main"
+
 [tool.ruff]
 kind = "uv"
 spec = "ruff"
