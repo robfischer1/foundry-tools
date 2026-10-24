@@ -47,6 +47,10 @@ var devAtoms = []struct {
 	{"dev:ts-typecheck", "ts", "root:package.json", "bun", true},
 	{"dev:ts-check", "ts", "root:package.json", "bun", true},
 	{"dev:rust-vuln", "rust", "root:Cargo.toml", "rust", false},
+	{"dev:go-lock-apt", "go", "root:packages.lock", "go", true},
+	{"dev:rust-lock-apt", "rust", "root:packages.lock", "go", true},
+	{"dev:python-lock-apt", "python", "root:packages.lock", "go", true},
+	{"dev:ts-lock-apt", "ts", "root:packages.lock", "go", true},
 }
 
 // TestUT_514_TheDevAtomsKeepTheirShape: all 27 parse, sit in the dev stage with
@@ -67,8 +71,8 @@ func TestUT_514_TheDevAtomsKeepTheirShape(t *testing.T) {
 			t.Errorf("%s: %+v", tc.id, m)
 		}
 	}
-	if got := len(devAtoms); got != 27 {
-		t.Errorf("%d dev atoms in the table, want 27", got)
+	if got := len(devAtoms); got != 31 {
+		t.Errorf("%d dev atoms in the table, want 31", got)
 	}
 }
 
@@ -155,22 +159,26 @@ func TestTheDevAtomsCoverEveryDevlaneVerb(t *testing.T) {
 // its argv; an id absent from a table has none (needs, env) or the 10m default.
 var (
 	devNeeds = map[string][]string{
-		"dev:go-test":       {"dies", "tool:jq"}, // checks.SuiteJqNeeds: a suite that execs jq (daedalus tools/bg)
-		"dev:go-lint":       {"tool:staticcheck"},
-		"dev:rust-vuln":     {"tool:cargo-audit"},
-		"dev:python-lint":   {"tool:ruff"},
-		"dev:python-fmt":    {"tool:ruff"},
-		"dev:python-lock":   {"tool:uv"},
-		"dev:python-update": {"tool:uv"},
-		"dev:python-build":  {"tool:uv"},
-		"dev:ts-build":      {"tool:node", "tool:curl"},
-		"dev:ts-lock":       {"tool:node", "tool:curl"},
-		"dev:ts-update":     {"tool:node", "tool:curl"},
-		"dev:ts-test":       {"tool:node", "tool:curl"},
-		"dev:ts-lint":       {"tool:node", "tool:curl"},
-		"dev:ts-fmt":        {"tool:node", "tool:curl"},
-		"dev:ts-typecheck":  {"tool:node", "tool:curl"},
-		"dev:ts-check":      {"tool:node", "tool:curl"},
+		"dev:go-test":         {"dies", "tool:jq"}, // checks.SuiteJqNeeds: a suite that execs jq (daedalus tools/bg)
+		"dev:go-lint":         {"tool:staticcheck"},
+		"dev:rust-vuln":       {"tool:cargo-audit"},
+		"dev:python-lint":     {"tool:ruff"},
+		"dev:python-fmt":      {"tool:ruff"},
+		"dev:python-lock":     {"tool:uv"},
+		"dev:python-update":   {"tool:uv"},
+		"dev:python-build":    {"tool:uv"},
+		"dev:ts-build":        {"tool:node", "tool:curl"},
+		"dev:ts-lock":         {"tool:node", "tool:curl"},
+		"dev:ts-update":       {"tool:node", "tool:curl"},
+		"dev:ts-test":         {"tool:node", "tool:curl"},
+		"dev:ts-lint":         {"tool:node", "tool:curl"},
+		"dev:ts-fmt":          {"tool:node", "tool:curl"},
+		"dev:ts-typecheck":    {"tool:node", "tool:curl"},
+		"dev:ts-check":        {"tool:node", "tool:curl"},
+		"dev:go-lock-apt":     {"tool:deblock"},
+		"dev:rust-lock-apt":   {"tool:deblock"},
+		"dev:python-lock-apt": {"tool:deblock"},
+		"dev:ts-lock-apt":     {"tool:deblock"},
 	}
 	devEnv = map[string]map[string]string{
 		"dev:go-vendor":   {"GOFLAGS": "-mod=mod"},
@@ -333,7 +341,7 @@ func TestTheDevAtomsDocumentedArguments(t *testing.T) {
 // is about to change) would refuse before the verb could mend it.
 func TestOnlyTheLockfileVerbsSkipThePreflight(t *testing.T) {
 	for _, tc := range devAtoms {
-		want := !slices.Contains([]string{"dev:rust-lock", "dev:rust-update", "dev:go-update", "dev:ts-lock", "dev:ts-update"}, tc.id)
+		want := !slices.Contains([]string{"dev:rust-lock", "dev:rust-update", "dev:go-update", "dev:ts-lock", "dev:ts-update", "dev:go-lock-apt", "dev:rust-lock-apt", "dev:python-lock-apt", "dev:ts-lock-apt"}, tc.id)
 		if got := manifestOf(t, tc.id).RunsPreflight(); got != want {
 			t.Errorf("%s: RunsPreflight %v, want %v", tc.id, got, want)
 		}
