@@ -13,6 +13,16 @@ import (
 // strykerWorkers is Stryker's --concurrency where the CPU budget has room.
 const strykerWorkers = 4
 
+// strykerWorkerMem is the memory one Stryker test runner is sized to: no figure
+// is measured for it, so the rust job's 2 GiB.
+const strykerWorkerMem = checks.RustWorkerMem
+
+// strykerConcurrency is --concurrency: strykerWorkers where the CPU and memory
+// budgets cover one runner each, fewer where they do not.
+func strykerConcurrency() int {
+	return checks.CoresPerSlot(checks.MemBudget(strykerWorkerMem), 1, strykerWorkers)
+}
+
 // runPackages runs Stryker in each planned package, in the order the diff first
 // names them, and settles them as one verdict.
 func (g *grading) runPackages(ctx context.Context, plan []checks.StrykerPackage, owned map[string]string) checks.Verdict {
@@ -28,7 +38,7 @@ func (g *grading) runPackages(ctx context.Context, plan []checks.StrykerPackage,
 	path := "PATH=" + filepath.Dir(bin) + string(os.PathListSeparator) + os.Getenv("PATH")
 	// Four test runners where the CPU budget has room (the measured setting),
 	// fewer where it has not.
-	workers := strconv.Itoa(checks.CoresPerSlot(checks.CPUBudget(), 1, strykerWorkers))
+	workers := strconv.Itoa(strykerConcurrency())
 	runs := make([]checks.StrykerRun, 0, len(plan))
 	for _, pkg := range plan {
 		dir := filepath.Join(g.tree, pkg.Dir)

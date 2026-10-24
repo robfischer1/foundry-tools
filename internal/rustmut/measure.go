@@ -72,6 +72,12 @@ func (g *grading) toolchain(ctx context.Context) string {
 	return checks.RustcToolchain(out)
 }
 
+// rustCores is each mutant's share of the CPU budget, held to the pod's memory
+// at a rustc job (2 GiB) per core across the rustMutationJobs mutants.
+func rustCores() int {
+	return checks.CoresPerSlot(checks.MemBudget(checks.RustWorkerMem), rustMutationJobs, rustMutantCores)
+}
+
 // measure runs cargo-mutants and settles what it left.
 //
 // THE PER-MUTANT COST, measured on bellows #31a47b3 (2026-09-18, 169 mutants):
@@ -123,7 +129,7 @@ func (g *grading) measure(ctx context.Context, diff string, packages []string, k
 		return g.settle(2, "CANNOT RUN - the atom never ran: "+err.Error())
 	}
 	args := []string{"--"}
-	cores := checks.CoresPerSlot(checks.CPUBudget(), rustMutationJobs, rustMutantCores)
+	cores := rustCores()
 	env := []string{
 		"TMPDIR=" + tmp, "CARGO_PROFILE_DEV_DEBUG=0", "CARGO_PROFILE_TEST_DEBUG=0",
 		rustTestRunnerEnv + "=" + rustTestRunner, "CARGO_BUILD_JOBS=" + strconv.Itoa(cores),

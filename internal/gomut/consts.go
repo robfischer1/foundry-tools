@@ -140,7 +140,11 @@ const (
 // and nothing a session types.
 var goMutationDisable = strings.Join(checks.SkippedMutators(checks.MutatorGo), ",")
 
+// goMutantMem is the resident size gomutants kills a mutant's test tree at
+// (measure.go): the memory one worker is sized to.
+const goMutantMem int64 = 2 << 30
+
 // goWorkers is gomutants' -workers for this run: goMutationWorkers where the CPU
 // budget (checks.CPUBudget) covers one core each, and one per core where it does
 // not.
-func goWorkers() int { return checks.CoresPerSlot(checks.CPUBudget(), 1, goMutationWorkers) }
+func goWorkers() int { return checks.CoresPerSlot(checks.MemBudget(goMutantMem), 1, goMutationWorkers) }

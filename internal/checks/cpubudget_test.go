@@ -158,3 +158,55 @@ func TestRustcToolchain(t *testing.T) {
 		}
 	}
 }
+
+func TestMemCap(t *testing.T) {
+	const gib = 1 << 30
+	for name, tc := range map[string]struct {
+		budget    int
+		mem       string
+		perWorker int64
+		want      int
+	}{
+		"no word is unchanged":       {6, "", 2 * gib, 6},
+		"junk is unchanged":          {6, "lots", 2 * gib, 6},
+		"zero is unchanged":          {6, "0", 2 * gib, 6},
+		"negative is unchanged":      {6, "-5", 2 * gib, 6},
+		"roomy memory keeps the cpu": {6, "32212254720", 2 * gib, 6},
+		"memory binds":               {12, "10737418240", 2 * gib, 5},
+		"floor, not round":           {12, "11811160064", 2 * gib, 5},
+		"never below one":            {4, "1073741824", 2 * gib, 1},
+		"the measured figure binds":  {8, "10737418240", 4 * gib, 2},
+		"no per-worker is unchanged": {4, "1073741824", 0, 4},
+	} {
+		if got := MemCap(tc.budget, tc.mem, tc.perWorker); got != tc.want {
+			t.Errorf("%s: MemCap(%d, %q, %d) = %d; want %d", name, tc.budget, tc.mem, tc.perWorker, got, tc.want)
+		}
+	}
+}
+
+func TestMemBudgetReadsTheEnvironment(t *testing.T) {
+	t.Setenv(CPUsEnv, "8")
+	t.Setenv(MemEnv, "")
+	if got := MemBudget(RustWorkerMem); got != 8 {
+		t.Errorf("without ATOM_MEM_BYTES: %d, want 8", got)
+	}
+	t.Setenv(MemEnv, "6442450944") // 6 GiB
+	if got := MemBudget(RustWorkerMem); got != 3 {
+		t.Errorf("with 6 GiB: %d, want 3", got)
+	}
+}
+
+func TestCargoBoundedEnvJobs(t *testing.T) {
+	t.Setenv(MemEnv, "")
+	if got := CargoBoundedEnv()[0]; got != "CARGO_BUILD_JOBS=6" {
+		t.Errorf("no memory word: %s", got)
+	}
+	t.Setenv(MemEnv, "5368709120") // 5 GiB
+	if got := CargoBoundedEnv()[0]; got != "CARGO_BUILD_JOBS=2" {
+		t.Errorf("5 GiB: %s", got)
+	}
+	t.Setenv(MemEnv, "1")
+	if got := CargoBoundedEnv()[0]; got != "CARGO_BUILD_JOBS=1" {
+		t.Errorf("tiny memory: %s", got)
+	}
+}
