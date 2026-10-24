@@ -172,4 +172,34 @@ func TestUT_KL8_TheDerivedConfigKeepsEveryExcludeAndAddsTheCrossObjectChecks(t *
 	if _, err = KubeLinterConfigWith("checks: 3\n", []string{"x"}); err == nil {
 		t.Error("a checks key that is not a mapping must be refused")
 	}
+	if _, err = KubeLinterConfigWith("checks:\n  exclude: nope\n", []string{"x"}); err == nil {
+		t.Error("a checks.exclude that is not a list must be refused")
+	}
+}
+
+func TestUT_KL9_AReferenceReachedTwiceIsFollowedOnceAndABrokenOneFailsFull(t *testing.T) {
+	changes := []KubeChange{{"M", "prime/images/kustomization.yaml"}}
+	base := map[string]string{"prime/images/kustomization.yaml": comp("1")}
+	// blades names the Component twice and prime once more through ../prime:
+	// the second visit must not loop or double-count.
+	head := map[string]string{
+		"prime/images/kustomization.yaml": comp("2"),
+		"prime/kustomization.yaml":        "resources:\n  - star-a.yaml\ncomponents:\n  - images\n",
+		"aiws/kustomization.yaml":         "resources:\n  - op.yaml\n",
+		"blades/kustomization.yaml":       "components:\n  - ../prime/images\n  - ../prime/images\nresources:\n  - ../prime\n",
+		"spire/kustomization.yaml":        "resources:\n  - server.yaml\n",
+	}
+	got := scope(changes, head, base)
+	if got.Full || !slices.Equal(got.Targets, []string{"prime", "blades"}) {
+		t.Errorf("want prime and blades once each: %+v", got)
+	}
+	// A directory reached through a reference whose own kustomization is broken
+	// cannot be read: the whole decision fails toward full.
+	head["aiws/kustomization.yaml"] = "resources:\n  - ../broken\n"
+	head["broken/kustomization.yaml"] = "resources: [\n"
+	files := append(slices.Clone(fluxFiles), "broken/kustomization.yaml")
+	got = ScopeKubeLinter(KubeScopeIn{Targets: fluxTargets, Files: files, Changes: changes, Head: reader(head), Base: reader(base)})
+	if !got.Full {
+		t.Errorf("a nested kustomization that does not parse: %+v", got)
+	}
 }

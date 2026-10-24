@@ -1,7 +1,6 @@
 package checks
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -300,11 +299,8 @@ func KubeLinterConfigWith(src string, exclude []string) (string, error) {
 	}
 	checks["exclude"] = list
 	doc["checks"] = checks
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-	if err := enc.Encode(doc); err != nil {
-		return "", fmt.Errorf("the derived kube-linter config could not be written: %w", err)
-	}
-	return buf.String(), nil
+	// doc is what Unmarshal yielded plus strings: Marshal fails only on values
+	// (channels, funcs) that neither can hold, so there is no error to branch on.
+	out, _ := yaml.Marshal(doc)
+	return string(out), nil
 }
