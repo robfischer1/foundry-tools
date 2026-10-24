@@ -240,4 +240,13 @@ func TestRUSTDEV_7_PreflightAndRedSets(t *testing.T) {
 	if v = Check(t.Context(), in, test); v.State != 2 {
 		t.Errorf("a cargo that never started: %+v", v)
 	}
+	in, f = scopingIn(t, "", "")
+	f.rules = append([]rule{{"cargo fetch", "exec: cargo: not found", -1}}, f.rules...)
+	if v = Check(t.Context(), in, test); v.State != 2 || !strings.Contains(v.Reason, "cargo: not found") || len(f.cargoRuns()) != 1 {
+		t.Errorf("a preflight that never started: %+v, ran %q", v, f.cargoRuns())
+	}
+	in, _ = scopingIn(t, "", "")
+	if v = Check(t.Context(), in, Verb{ID: "dev:rust-x", Cargo: "bench", Scope: "test"}); v.State != 2 || !strings.Contains(v.Reason, "not a Rust verb") {
+		t.Errorf("a verb devlane does not spell: %+v", v)
+	}
 }
