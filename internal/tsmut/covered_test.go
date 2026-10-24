@@ -122,6 +122,14 @@ func TestCoveredTSEdges(t *testing.T) {
 		t.Errorf("%d %s", v.State, said(v))
 	}
 
+	p = testOnly(t, "")
+	p.first(rule{"--name-only --diff-filter=AM", "apps/a/src/x.test.ts\n", 0})
+	p.in.Files = append(p.in.Files, "apps/a/stryker.config.json")
+	p.run()
+	if run, ok := p.call("bun test --coverage"); !ok || !strings.HasSuffix(run.Dir, "apps/a") || !slices.Contains(run.Args, "./src/x.test.ts") {
+		t.Errorf("a package's tests ran from %s: %v", run.Dir, run.Args)
+	}
+
 	p = testOnly(t, "critical_modules: src/\n")
 	p.run()
 	if c, _ := p.call("--mutate"); !strings.Contains(strings.Join(c.Args, " "), "src/util.ts:4-4") || strings.Contains(strings.Join(c.Args, " "), "test.ts") {

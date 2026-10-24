@@ -91,9 +91,20 @@ func TestCoveredRustEdges(t *testing.T) {
 		t.Errorf("a test no crate holds joined a scope: %s", said(v))
 	}
 
-	p = testOnly(t, "critical_modules: src/util.rs\n")
+	p = testOnly(t, "")
+	putFile(t, p.in.Root, "tools/gen/Cargo.toml", "[package]\nname='gen'\n")
+	putFile(t, p.in.Root, "tools/gen/src/main.rs", "fn main() {}\n")
+	putFile(t, p.in.Root, "build.rs", "fn main() {}\n")
+	p.in.Files = append(p.in.Files, "tools/gen/Cargo.toml", "tools/gen/src/main.rs", "build.rs")
 	p.run()
 	raw, _ := os.ReadFile(filepath.Join(p.work, "rust", "pr.diff"))
+	if strings.Contains(string(raw), "tools/gen") || strings.Contains(string(raw), "build.rs") || !strings.Contains(string(raw), "src/util.rs") {
+		t.Errorf("another crate's files or a build script joined: pr.diff = %q", raw)
+	}
+
+	p = testOnly(t, "critical_modules: src/util.rs\n")
+	p.run()
+	raw, _ = os.ReadFile(filepath.Join(p.work, "rust", "pr.diff"))
 	if !strings.Contains(string(raw), "+++ b/src/util.rs") || strings.Contains(string(raw), "src/lib.rs") {
 		t.Errorf("pr.diff = %q", raw)
 	}

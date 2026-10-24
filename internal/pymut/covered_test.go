@@ -131,6 +131,12 @@ func TestCoveredPythonEdges(t *testing.T) {
 		t.Errorf("%s", said(v))
 	}
 
+	p = testOnly(t, "critical_modules: src\n")
+	p.run()
+	if run, _ := p.call("coverage run"); !slices.Contains(run.Args, filepath.Join(p.work, "python", "src", "src", "*")) {
+		t.Errorf("a declared package is not --include'd whole: %v", run.Args)
+	}
+
 	p = testOnly(t, "")
 	mkdirAll = func(dir string, m os.FileMode) error {
 		if strings.HasSuffix(dir, "testcov") {

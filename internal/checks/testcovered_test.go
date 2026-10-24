@@ -42,6 +42,13 @@ func TestLineRangesAndWholeFile(t *testing.T) {
 	}
 }
 
+func TestKeepCoveredDropsWhatKeepRefuses(t *testing.T) {
+	got := KeepCovered(map[string][]unitkey.Range{"a": {{Start: 1, End: 1}}, "b": {{Start: 2, End: 2}}}, func(f string) bool { return f == "a" })
+	if !reflect.DeepEqual(got, map[string][]unitkey.Range{"a": {{Start: 1, End: 1}}}) {
+		t.Fatalf("%v", got)
+	}
+}
+
 func TestUnderAny(t *testing.T) {
 	for f, want := range map[string]bool{"src/a.py": true, "src": true, "srcx/a.py": false, "lib/a.py": false} {
 		if UnderAny(f, []string{"src/"}) != want {
