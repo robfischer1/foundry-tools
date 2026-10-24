@@ -18,7 +18,8 @@ import (
 // THE RULE. Flux names the lanes that owe a run record twice: Daedalus reads
 // RECORD_LANES (prime/daedalus-jobs.yaml, a JSON list inside a string value) and
 // the door reads record_lanes (the TOML inside prime/ourea-config.yaml). The two
-// must be the same SET, and each must hold every lane the in-pod executor runs
+// must be the same SET over the lanes the executor runs (a retired lane may sit
+// in one only), and each must hold every lane the in-pod executor runs
 // (EXECUTOR_LANES, same ConfigMap, absent means none) plus "atoms" and "dev".
 // A lane that owes a record in one reader and not the other settles
 // differently depending on who is asked, and a lane missing from both yields
@@ -134,7 +135,13 @@ func recordLanesOf(jobsFile string, files map[string]string) (int, string) {
 			out = append(out, fmt.Sprintf("  %s: missing from record_lanes in %s", l, RecordLanesOureaFile))
 		}
 	}
-	if only := symmetricDiff(jobsRecord, oureaRecord); len(only) > 0 {
+	// A lane the executor does not run is retired or dead: it may sit in one list
+	// until the other is edited (the serving colour's map cannot be touched alone).
+	live := map[string]bool{}
+	for _, l := range owed {
+		live[l] = true
+	}
+	if only := symmetricDiff(onlyLive(jobsRecord, live), onlyLive(oureaRecord, live)); len(only) > 0 {
 		out = append(out, fmt.Sprintf("  the two lists are not equal as sets: %s", strings.Join(only, ", ")))
 	}
 	if len(out) == 0 {
