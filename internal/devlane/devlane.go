@@ -233,9 +233,10 @@ func GoArgv(verb string, args []string, race bool) ([]string, error) {
 	return nil, fmt.Errorf("%s is not a Go verb (build, vet, test, fmt, tidy)", verb)
 }
 
-// cargoScoped says whether the caller already chose which packages cargo acts
-// on, in cargo's own arguments (before any `--`).
-func cargoScoped(args []string) bool {
+// CargoScoped says whether the caller already chose which packages cargo acts
+// on, in cargo's own arguments (before any `--`). The dev rust atoms
+// (internal/devrust) read it too: a caller who chose is never re-scoped.
+func CargoScoped(args []string) bool {
 	for _, a := range cargoOwn(args) {
 		switch {
 		case a == "--package", a == "--workspace", a == "--all", a == "--manifest-path":
@@ -272,13 +273,13 @@ func RustArgv(verb string, args []string) ([]string, error) {
 	switch verb {
 	case "check", "build", "test":
 		head := []string{"cargo", verb}
-		if !cargoScoped(args) {
+		if !CargoScoped(args) {
 			head = append(head, "--workspace")
 		}
 		return slices.Concat(head, args), nil
 	case "clippy":
 		head := []string{"cargo", "clippy"}
-		if !cargoScoped(args) {
+		if !CargoScoped(args) {
 			head = append(head, "--workspace")
 		}
 		own := cargoOwn(args)

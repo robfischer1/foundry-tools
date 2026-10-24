@@ -252,8 +252,8 @@ func TestCargoScoped(t *testing.T) {
 		{[]string{"--manifest-path"}, true}, {[]string{"--manifest-path=a"}, true}, {[]string{"name"}, false},
 		{[]string{"--", "-p"}, false}, {[]string{"-q", "-p", "x"}, true},
 	} {
-		if got := cargoScoped(c.args); got != c.want {
-			t.Errorf("cargoScoped(%v) = %v, want %v", c.args, got, c.want)
+		if got := CargoScoped(c.args); got != c.want {
+			t.Errorf("CargoScoped(%v) = %v, want %v", c.args, got, c.want)
 		}
 	}
 }
