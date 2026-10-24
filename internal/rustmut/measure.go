@@ -73,7 +73,7 @@ func (g *grading) toolchain(ctx context.Context) string {
 }
 
 // rustCores is each mutant's share of the CPU budget, held to the pod's memory
-// at a rustc job (2 GiB) per core across the rustMutationJobs mutants.
+// at a rustc job (1 GiB) per core across the rustMutationJobs mutants.
 func rustCores() int {
 	return checks.CoresPerSlot(checks.MemBudget(checks.RustWorkerMem), rustMutationJobs, rustMutantCores)
 }

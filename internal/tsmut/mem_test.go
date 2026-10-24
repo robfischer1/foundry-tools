@@ -8,9 +8,9 @@ func TestStrykerConcurrencyHonoursMemory(t *testing.T) {
 	if got := strykerConcurrency(); got != strykerWorkers {
 		t.Errorf("no memory word: %d, want %d", got, strykerWorkers)
 	}
-	t.Setenv("ATOM_MEM_BYTES", "4294967296") // 4 GiB: two runners
+	t.Setenv("ATOM_MEM_BYTES", "2147483648") // 2 GiB: two runners
 	if got := strykerConcurrency(); got != 2 {
-		t.Errorf("4 GiB: %d, want 2", got)
+		t.Errorf("2 GiB: %d, want 2", got)
 	}
 	t.Setenv("ATOM_MEM_BYTES", "1")
 	if got := strykerConcurrency(); got != 1 {

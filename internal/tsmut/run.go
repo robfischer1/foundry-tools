@@ -14,7 +14,7 @@ import (
 const strykerWorkers = 4
 
 // strykerWorkerMem is the memory one Stryker test runner is sized to: no figure
-// is measured for it, so the rust job's 2 GiB.
+// is measured for it, so the rust job's 1 GiB.
 const strykerWorkerMem = checks.RustWorkerMem
 
 // strykerConcurrency is --concurrency: strykerWorkers where the CPU and memory

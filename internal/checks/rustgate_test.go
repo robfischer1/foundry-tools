@@ -42,8 +42,8 @@ func TestGateJobsFollowTheShape(t *testing.T) {
 		mold      string
 	}{
 		"no shape, the fallback":    {"", "", 6, "4"},
-		"no shape, memory binds":    {"", strconv.Itoa(4 * gib), 2, "4"},
-		"C4 is twelve cores":        {"12", strconv.Itoa(10 * gib), 5, "4"},
+		"no shape, memory binds":    {"", strconv.Itoa(4 * gib), 4, "4"},
+		"C4 is twelve cores, 10G":   {"12", strconv.Itoa(10 * gib), 10, "4"},
 		"B4 memory is plenty":       {"8", strconv.Itoa(20 * gib), 8, "4"},
 		"the shape is wider than 6": {"12", strconv.Itoa(30 * gib), 12, "4"},
 		"cores bind":                {"2", strconv.Itoa(30 * gib), 2, "2"},

@@ -56,7 +56,7 @@ func shapeCPUs() int {
 }
 
 // RustGateJobsNow is CARGO_BUILD_JOBS for this run: under a shape (ATOM_CPUS
-// set) min(ATOM_CPUS, floor(ATOM_MEM_BYTES / 2 GiB)), at least one; with no
+// set) min(ATOM_CPUS, floor(ATOM_MEM_BYTES / 1 GiB)), at least one; with no
 // ATOM_CPUS the RustGateJobs fallback, held to the memory word when there is one.
 func RustGateJobsNow() int {
 	budget := RustGateJobs

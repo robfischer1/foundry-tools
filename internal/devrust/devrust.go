@@ -57,7 +57,7 @@ var preflight = []string{"cargo", "fetch", "--locked"}
 
 // Env is the bound every dev cargo run carries: the GATE'S knobs, one home
 // (checks/rustgate.go). CARGO_BUILD_JOBS is the shape's cores held to its
-// memory at 2 GiB a job (checks.RustGateJobsNow), and 6 only where the executor
+// memory at 1 GiB a job (checks.RustGateJobsNow), and 6 only where the executor
 // names no shape (no ATOM_CPUS), so a full-workspace run is no wider than the
 // pod it runs in; CARGO_INCREMENTAL=0, since the target is per pod and an
 // incremental cache is a second copy of every crate's codegen; line-tables
