@@ -9,7 +9,7 @@ import (
 const LaneSchema = "lane@1"
 
 // KnownLanes are the lanes the dispatcher knows how to run.
-var KnownLanes = []string{"gate", "check", "visual", "build", "mutation", "mutation-bg", "bundle", "publish", "bases", "cast", "govern", "atoms", "dev", "gate-go", "gate-rust", "gate-ts"}
+var KnownLanes = []string{"gate", "check", "visual", "build", "mutation", "bundle", "publish", "bases", "cast", "govern", "atoms", "dev", "gate-go", "gate-rust", "gate-ts"}
 
 // knownAtomLanes are the IndexAtom.Lane values atom_lanes may name.
 var knownAtomLanes = []string{"go", "python", "rust", "ts"}
