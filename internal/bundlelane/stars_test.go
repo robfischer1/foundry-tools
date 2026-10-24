@@ -997,3 +997,17 @@ spec:
 		t.Fatalf("ServiceFacts =\n%s\nwant\n%s", a, b)
 	}
 }
+
+// TestFluxReadGlobsPinned fails when the set of foundry/flux globs this lane
+// reads changes. ourea's internal/verbs fluxFactGlobs mirrors this literal
+// list (the door asks this lane on a flux landing that matches it): update
+// that mirror in the same change, then update this list.
+func TestFluxReadGlobsPinned(t *testing.T) {
+	want := []string{
+		"prime/star-*.yaml", "data/*.yaml",
+		"prime/*.yaml", "blades/*.yaml", "hemera/*.yaml", "clusters/pantheon/*.yaml",
+	}
+	if got := FluxReadGlobs(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("the lane's flux read set moved: %v, pinned %v. Update ourea internal/verbs/flux_downstream.go fluxFactGlobs to match, then this list.", got, want)
+	}
+}
