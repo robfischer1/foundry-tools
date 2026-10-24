@@ -144,6 +144,11 @@ const (
 	MypyVersion = "2.4.0"
 	// renovate: datasource=pypi depName=pytest
 	PytestVersion = "9.1.1"
+	// PyrightVersion is the npm pyright the dev type check runs under bun
+	// (devpython.Typecheck): vault-mcp's own pin, which the pypi wrapper of the same
+	// version fetched node for at runtime, a node the python image could not load.
+	// renovate: datasource=npm depName=pyright
+	PyrightVersion = "1.1.414"
 	// FleetPythonVersion is the exact interpreter the rust lane installs with uv
 	// (FleetPython is its minor line); `uv python install 3.14` took whatever
 	// patch uv's list held when the layer was built.

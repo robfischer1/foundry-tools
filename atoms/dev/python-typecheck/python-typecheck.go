@@ -15,13 +15,14 @@ import (
 // and tool:uv pin. The check is devpython.Typecheck: mypy, then pyright where
 // the tree configures it, as the stars' `just types` runs them. It was a
 // command manifest, which runs one command and so could not run the second.
+// tool:bun runs the npm pyright (devpython.pyrightArgv).
 var Def = atomkit.Def{
 	ID: id, Stage: "dev", Lane: checks.LanePython,
 	Group:         checks.GroupLanguage,
 	Desc:          "mypy is clean over src and tests, and pyright where the tree configures it, run by hand from the dev lane.",
 	Surface:       "root:pyproject.toml",
 	Toolchain:     "python",
-	Needs:         []string{"tool:uv"},
+	Needs:         []string{"tool:uv", "tool:bun"},
 	Timeout:       30 * time.Minute,
 	NeedsManifest: true,
 	Check:         check,
