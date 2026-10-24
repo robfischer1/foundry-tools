@@ -111,6 +111,11 @@ type module struct {
 	work string
 	// scope is the tree's server reads, which ride every verdict of the module.
 	scope string
+	// extra is the nightly's carried ranges (extra.go) and the source the
+	// change's tests run (covered.go); nil is neither.
+	extra *extraScope
+	// coverNote says what the changed tests added to the scope; "" is none ran.
+	coverNote string
 }
 
 func (g *session) ask(ctx context.Context, dir string) checks.Verdict {
@@ -178,6 +183,10 @@ func (m *module) grade(ctx context.Context) checks.Verdict {
 	if since == "" {
 		return m.settle(atoms.MissingBase(m.in, noBase))
 	}
+	var why string
+	if m.extra, why = m.readExtra(ctx, since); why != "" {
+		return m.settle(2, "CANNOT RUN - the carried ranges: "+why)
+	}
 	// AN EMPTY DIFF MEANS "MUTATE EVERYTHING" TO GOMUTANTS, written for "no
 	// --diff was given". A pull that changes no Go produces exactly that, so it
 	// stands down here instead of mutating the whole module.
@@ -189,6 +198,7 @@ func (m *module) grade(ctx context.Context) checks.Verdict {
 	if code != 0 {
 		return m.settle(2, "CANNOT RUN - git could not diff the pull against its base "+since+": "+changed)
 	}
+	changed = m.extra.withExtraFiles(changed)
 	if strings.TrimSpace(changed) == "" {
 		return m.settle(0, "this pull changes no Go file — nothing to mutate")
 	}
@@ -200,7 +210,12 @@ func (m *module) grade(ctx context.Context) checks.Verdict {
 	if word := checks.BuildTags(dbs, brokers, caches, kubes); word != "" {
 		tags = []string{"-tags", word}
 	}
-	return m.measure(ctx, since, changed, tags)
+	// A TEST-ONLY CHANGE IS GRADED BY WHAT ITS TESTS RUN (covered.go): the
+	// source lines join the scope here, after the module is downloaded and
+	// before anything is keyed or mutated.
+	covered, note := m.testCovered(ctx, since, changed, tags)
+	m.extra, m.coverNote = m.extra.plus(covered, m.dir), note
+	return m.measure(ctx, since, m.extra.withExtraFiles(changed), tags)
 }
 
 // run is the atom's one way to start a program, through the input's seam.

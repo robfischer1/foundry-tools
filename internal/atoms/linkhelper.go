@@ -5,12 +5,13 @@ import (
 	"path/filepath"
 
 	"dagger/foundry-tools/internal/execmem"
+	"dagger/foundry-tools/internal/gitextra"
 	"dagger/foundry-tools/internal/pgroupps"
 )
 
 // THE HELPERS AN ATOM CARRIES IN ITS OWN BINARY. The mutation atoms run two
-// small programs beside the tool they drive: `ps` for gomutants (pgroupps) and
-// `execmem` for cargo-mutants. They were built into the lane's container as
+// small programs beside the tool they drive: `ps` for gomutants (pgroupps),
+// `execmem` for cargo-mutants, and `git` for gomutants' nightly scope (gitextra). They were built into the lane's container as
 // files of their own. An atom is one file now, and the executor's toolchain
 // image is upstream's, with nothing of ours in it, so the atom's binary is the
 // helper: it makes a link to itself under the helper's name, puts the link's
@@ -23,6 +24,7 @@ import (
 var helpers = map[string]func(args []string) int{
 	"ps":      pgroupps.Run,
 	"execmem": func(args []string) int { return execmem.Main(args, os.Stderr) },
+	"git":     gitextra.Run,
 }
 
 // RunHelper runs the helper argv[0] names and answers its exit code, or false

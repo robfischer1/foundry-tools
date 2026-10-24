@@ -59,6 +59,7 @@ func (m *module) gradingKeys(ctx context.Context, since, changed string, tags []
 	failed := readFailed("git ls-tree", tree, code)
 	diff, code := m.run(ctx, atoms.Cmd{Dir: m.cwd, Name: "git", Args: []string{"-C", root, "diff", "--unified=0", "--no-color", "--no-ext-diff", since, "HEAD"}})
 	failed = cmp.Or(failed, readFailed("git diff", diff, code))
+	diff = m.extra.keyDiff(diff)
 	args := append(append([]string{"list", "-e", "-deps", "-test", "-f", checks.GoListDepsFormat}, tags...), "./...")
 	list, code := m.run(ctx, atoms.Cmd{Dir: m.cwd, Name: "go", Args: args})
 	failed = cmp.Or(failed, readFailed("go list", list, code))

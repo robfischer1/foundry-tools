@@ -197,6 +197,10 @@ func (m *module) mutate(ctx context.Context, report, cache, since string, tags, 
 	if err != nil {
 		return atoms.Cmd{Name: "gomutants"}, "the ps for gomutants' memory cap could not be made: " + err.Error(), -1
 	}
+	gitEnv, err := m.extra.gitEnv(bin)
+	if err != nil {
+		return atoms.Cmd{Name: "gomutants"}, "the git that hands gomutants the carried ranges could not be made: " + err.Error(), -1
+	}
 	args := []string{"-output", report, "-config", goMutationNoConfig, "-workers", strconv.Itoa(goWorkers()),
 		"-disable", goMutationDisable, "-exclude-files", goMutationExclude, "-cache", cache, "-changed-since", since}
 	args = append(append(args, tags...), scope...)
@@ -204,6 +208,7 @@ func (m *module) mutate(ctx context.Context, report, cache, since string, tags, 
 		"PATH=" + filepath.Dir(bin) + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"GOMAXPROCS=1", "GOFLAGS=" + goMutationGoflags,
 	}, atoms.GitConfig("diff.relative=true", "diff.context=0")...)
+	env = append(env, gitEnv...)
 	cmd := atoms.Cmd{Dir: m.cwd, Name: "gomutants", Args: args, Env: env, Both: true}
 	out, code := m.run(ctx, cmd)
 	return cmd, out, code
@@ -272,12 +277,15 @@ func (m *module) folded(run checks.GoMutationRun, reused map[string]checks.Reuse
 	v := m.settle(f.State, f.Reason)
 	// THE REUSE RIDES BESIDE THE VERDICT, like the scope line: a pass keeps no
 	// output, and what a pass did not grade itself is what its reader needs.
-	for _, line := range []string{note, checks.ReuseLine(id, list, len(list)+len(misses))} {
+	for _, line := range []string{note, checks.ReuseLine(id, list, len(list)+len(misses)), m.coverNote} {
 		if line != "" {
 			v.Reason = line + "\n" + v.Reason
 		}
 	}
 	v.Findings = f.Findings
+	if m.extra != nil {
+		v.Findings = append(v.Findings, m.extra.moved...)
+	}
 	v.Gradings = checks.GoGradings(f.Fresh, m.dir, goMutationEngine(), checks.GoGradingTrusted(f.State, run.Canary), misses, owner)
 	if len(audited) > 0 {
 		v.Audit = checks.AuditGradings(checks.Reused(audited), v.Gradings)
