@@ -45,6 +45,20 @@ func TestDEF_22977_TheAptLockAtomTakesDeblocksOwnArguments(t *testing.T) {
 	}
 }
 
+// LOCKAPT2 (FLIP10, run forge/dev-theia-1af0ca0-kpztz): deblock pulls the
+// Dockerfile's base from the registry under the pod's JWT-SVID, and the executor
+// mounts the SPIRE socket (and sets SPIFFE_ENDPOINT_SOCKET) only into a container
+// whose atoms need svid. Without the need deblock dialled a socket the go
+// container did not have.
+func TestLOCKAPT2_TheAptLockAtomNeedsTheSVID(t *testing.T) {
+	for _, lang := range []string{"go", "rust", "python", "ts"} {
+		id := "dev:" + lang + "-lock-apt"
+		if m := manifestOf(t, id); !slices.Contains(m.Needs, "svid") || !slices.Contains(m.Needs, "tool:deblock") {
+			t.Errorf("%s needs %v, want svid and tool:deblock", id, m.Needs)
+		}
+	}
+}
+
 // The tool is a go install of the daedalus command at the version the Go
 // constant pins, and tools.toml agrees (TestToolsTomlMatchesGo holds the rest).
 func TestDEF_22977_DeblockIsAPinnedGoTool(t *testing.T) {
