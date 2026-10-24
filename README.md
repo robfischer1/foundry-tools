@@ -12,66 +12,19 @@ So: **a check that could not run is never a pass.** That discipline already exis
 | **One repository** | The tree under check is bound once, in `New`, from the caller's own context directory (`+defaultPath="/"`). |
 | **Three states** | `0` pass · `1` findings · `2` could not run. Every exit that is not 0 or 1 — a 127 missing binary, a 137 OOM kill, a 143 cancellation — maps to **2**, because reading any of those as findings is wrong and reading them as a pass is the failure this module deletes. |
 | **Absent says so** | A lane with no surface in the tree — no `go.mod`, no `pyproject.toml` — reports `ABSENT`, exits 0, and **prints why**. Silence would be indistinguishable from a clean scan. An atom that finds its own absence *inside* the tree says so on stdout, and the vector renders that as `absent` rather than `pass` — "nothing to check" is not "checked and clean". |
-| **Namespaced** | `fleet:` · `go:` · `python:` · `rust:` · `ts:` on a pull's path, beside `compose:` · `dies:` · `ops:` · `template:` · `wit:`. `dagger check -l` lists all of them with descriptions. |
-| **One definition** | The atom table in `internal/checks/atoms.go` drives both the check functions and the verdict vector, so `dagger check -l` and the catalogue cannot drift apart. The census counted that drift 31 times across two independently-maintained surfaces; there is one surface here. |
+| **Namespaced** | `fleet:` · `go:` · `python:` · `rust:` · `ts:` on a pull's path, beside `compose:` · `dies:` · `ops:` · `template:` · `wit:`. The catalogue (`internal/catalogue`) lists all of them with descriptions. |
+| **One definition** | The atom table in `internal/checks/atoms.go` drives both the check functions and the verdict vector, so the runner and the catalogue cannot drift apart. The census counted that drift 31 times across two independently-maintained surfaces; there is one surface here. |
 
 ## Using it
 
-```sh
-# List every atom this module carries, from a pinned ref through the door.
-dagger check -l -m git.notusmi.com/rob/foundry-tools@<sha>
-
-# Run them against the repository you are standing in.
-dagger check                     # all of them
-dagger check go: python:         # one namespace at a time
-dagger check go:staticcheck      # one atom
-
-# The verdict VECTOR — one element per atom, each preserving its own 0/1/2,
-# rather than a single exit code that flattens a 2 into "the run failed".
-# Standing in ANOTHER repo with the module resolved remotely, name the tree —
-# see "A remotely-resolved module binds its own tree" below. --source is the
-# constructor's parameter; nothing below New takes a directory.
-dagger call -m git.notusmi.com/rob/foundry-tools@<sha> --source=. verdicts
-
-dagger call check                    # the commit stage: basic + language fanouts, one settled answer
-dagger call check exit               # …exiting 0, 1 or 2 with the stage's log
-dagger call push --base=<sha>        # the push stage: the complex checks in sequence, beside mutation
-dagger call release                  # the binaries the image will carry, compiled once by the push
-dagger call push --base=<sha> exit   # …exiting on the worst of the two
-dagger call verdicts                 # every PULL stage — precommit and prepush
-dagger call verdicts --stage=prepush
-dagger call verdicts --stage=visual  # the visual lane's vector, asked for by name
-dagger call catalogue            # the atom table as catalogue rows
-dagger call lanes                # which lanes this repository actually builds
-```
-
-A gate resolves this module **at a pinned git ref through the door** — `git.notusmi.com` serves `go-import` without SSO; `git.notusmi.com` sits behind the portal and a machine cannot log in.
-
-**A repository declares this module as its toolchain** (2026-09-14). The four repo templates render a `dagger.json` — name, `engineVersion`, one unpinned entry under `toolchains` naming `git.notusmi.com/rob/foundry-tools` — and infra carries the same file by hand. Standing in such a repo, `dagger check` and `dagger call foundry-tools …` bind **that repo's** tree, which is the documented Dagger workflow and the end of the `--source=.` trap below. Unpinned on purpose: the door resolves this module at `main` for every dispatch (ourea #109), and an unpinned toolchain resolves the same way (measured 2026-09-13 against the cluster engine). A consumer's `dagger.json` declares no `sdk`; that key is how hephaestus's tree probe tells a consumer from a module.
+The atoms run on the cluster's in-pod executor (daedalus), never on a workstation and never on a Dagger engine (the module and the engine were retired 2026-10-24).
 
 ```sh
-dagger check                          # every atom, against the repo you are standing in
-dagger check foundry-tools:go:        # one namespace
-dagger call foundry-tools lanes       # a function, same binding
+just check                            # the commit stage: `foundry-toolbox ask check`, the door's check lane on your staged tree
+just _dev test ./internal/checks/...  # a narrower loop: the door's dev lane tests your worktree on the cluster
 ```
 
-**The door's runner names the commit instead of a tree.** `New` also takes `--repo` (the door's clone URL) and `--sha`: the engine fetches the commit itself, with full history (`fleet:witness` and the mutation lane diff against the pull's base, which the engine also fetches by sha), caches it by commit, and `dagger call … tree` answers `HEAD^{tree}` so the runner still proves it is grading the tree the door named before it asks for a vector. `ca-gate` (infra `flux/apps/ca-gate.yaml`) is the one caller; a session never needs it.
-
-```sh
-dagger call -m git.notusmi.com/rob/foundry-tools@<sha> \
-  --repo=http://ourea:8215/<repo>.git --sha=<commit> \
-  verdicts --base=<merge-base>
-```
-
-**A remotely-resolved module binds ITS OWN tree, not yours — name the source.** Measured 2026-09-08 against the in-cluster engine: standing in `infra` and running `dagger call -m git.notusmi.com/rob/foundry-tools@<sha> lanes` answers `go (go.mod)`. `infra` has no `go.mod`; foundry-tools does. `+defaultPath="/"` resolves against the module's context, and for a module fetched from git that context is the module's git tree. `dagger check -m <remote>` behaves the same way — `ops:kube-linter` (then `sweep:kube-linter`) returned OK in 0.4s against a tree that yields 371 findings in nine seconds.
-
-That failure is silent and it is green, which makes it the exact shape this repository exists to delete: a fleet-wide run over sixty repos would have returned sixty identical passes, every one of them a true statement about the wrong repository. So a caller that is not standing inside a repo whose own `dagger.json` declares the dependency **must name the tree**:
-
-```sh
-dagger call -m git.notusmi.com/rob/foundry-tools@<sha> --source=. verdicts
-```
-
-`--source` is the constructor's parameter and the ONLY place a directory may be named — the charter is that nothing *below* `New` takes one, so no atom can be pointed somewhere else once the tree is bound. A repo that carries the toolchain declaration above binds its own workspace from `dagger check` and needs neither flag.
+A pushed branch's lanes are its gate: the door runs them on the head, `git_pr open` parks on them, and `repo_ci_logs` reads them, atom by atom. Each atom lives in its own directory, `atoms/<ns>/<name>/<name>.go` (a logic atom) or `atoms/<ns>/<name>.toml` (a command atom); the `atoms` lane compiles them into the index the executor runs (see the last section).
 
 ## The atoms
 
@@ -79,14 +32,14 @@ dagger call -m git.notusmi.com/rob/foundry-tools@<sha> --source=. verdicts
 
 **An unrelated edit re-runs nothing (CA F12).** The atoms that compile, vet, lint or test mount the tree less `checks.InertPaths` — the root prose by name (README, CHANGELOG, CONTRIBUTING, SECURITY, CODE_OF_CONDUCT, the governance furnace pours), licences, `docs/`, `specs/`, the CI directories, the hooks, the justfiles, pre-commit's and copier's files — so their execs are keyed on the code. A commit that touches only those hits the engine's cache for every language atom; the basic fanout (secrets, large files) still reads the whole tree, because a secret in a README is exactly what it is for. The set is an exclude measured against what the fleet's tests actually open (a Dockerfile, a `.melt`, `migrations/`, `plugins/`, `CLAUDE-INIT.md`), never an include derived from `go list`; every pattern is root-anchored so nothing reaches a package's fixtures, and **no prose is excluded by glob** — the first cut shipped `*.md` and hephaestus went red on the one `.md` its module-map test reads (`open /src/CLAUDE-INIT.md: no such file`). A glob excludes what nobody enumerated; a name goes on the list only after the grep finds nothing opening it. The mutation lane and the witness keep the whole tree — they run git against it.
 
-**The hooks are two calls (CA F15).** `just hooks` points this clone's `core.hooksPath` at the tracked `hooks/` directory: the commit hook is `just check` (`dagger call check exit`), the push hook runs nothing since 2026-10-02 (the door asks a pushed branch's lanes on the cluster), and `just gate` only says so. The hooks are one line each and never change; the recipes in the justfile are what a commit must pass, and a session runs the same recipes by hand. They are the same stages the door runs, so a commit that passes here passes there. The engine is a dependency on purpose — it is where the git origin already lives — and an engine that cannot be reached refuses the commit rather than waving it through. `just unhooks` puts a clone back on the pre-commit framework while the fleet is mid-flip. In foundry-tools itself the recipes call `-m .`, because a module whose job is gating must gate its own changes with the code being changed, not with main; the fleet's copy (foundry-stocks `speckit/stages.just`, imported by each star's justfile) calls the module at main.
+**The hooks are two calls (CA F15).** `just hooks` points this clone's `core.hooksPath` at the tracked `hooks/` directory: the commit hook is `just check` (`foundry-toolbox ask check`), the push hook runs nothing since 2026-10-02 (the door asks a pushed branch's lanes on the cluster), and `just gate` only says so. The hooks are one line each and never change; the recipes in the justfile are what a commit must pass, and a session runs the same recipes by hand. They are the same stages the door runs, so a commit that passes here passes there. The engine is a dependency on purpose — it is where the git origin already lives — and an engine that cannot be reached refuses the commit rather than waving it through. `just unhooks` puts a clone back on the pre-commit framework while the fleet is mid-flip. In foundry-tools itself the recipes call `-m .`, because a module whose job is gating must gate its own changes with the code being changed, not with main; the fleet's copy (foundry-stocks `speckit/stages.just`, imported by each star's justfile) calls the module at main.
 
-**Stages (CA F12, 2026-09-17).** `precommit` is the **commit** stage — `dagger call check` — and holds the basic checks every tree gets (the `fleet:` namespace) beside the language checks for what the tree contains: format, lint and tests. `prepush` is the **push** stage — `dagger call push` — and holds the complex checks — deep lint, vulnerability audits, the build, the race + live-database suite, the bundle probes, the witness — run **in sequence, cheapest first, stopping at the first one that finds something**, beside the mutation lane, which runs concurrently and is allowed to finish. A stopped sequence names the atoms it never reached. `internal/checks/stage_test.go` pins both lists.
+**Stages (CA F12, 2026-09-17).** `precommit` is the **commit** stage (the `check` lane) — and holds the basic checks every tree gets (the `fleet:` namespace) beside the language checks for what the tree contains: format, lint and tests. `prepush` is the **push** stage (the `gate` lane) — and holds the complex checks — deep lint, vulnerability audits, the build, the race + live-database suite, the bundle probes, the witness — run **in sequence, cheapest first, stopping at the first one that finds something**, beside the mutation lane, which runs concurrently and is allowed to finish. A stopped sequence names the atoms it never reached. `internal/checks/stage_test.go` pins both lists.
 
 **The Go suite is split by cadence (CA F13).** `go:test` is the commit's unit run — the same packages with no race detector, no database and no build tags, so the DB-gated suites do not compile in — and `go:test-race` is the push's run, with `-race` and the live databases the record declares. A caller that asks for both stages at once (the door's gate lane, until F16 runs the stages separately) gets the race run and an omission line for the unit one: `AtomDef.SubsumedBy` stands it down rather than compiling the suite twice.
 
 **`fleet:`** — every repository, whatever it is written in.
-`check-yaml` · `check-added-large-files` · `check-merge-conflict` · `stop-justifications` · `hadolint` · `sast-ruleset-lanes` · `opengrep-sast` (commit) · `dagger-lockstep` · `renovate-lockstep` · `witness` (push)
+`check-yaml` · `check-added-large-files` · `check-merge-conflict` · `stop-justifications` · `hadolint` · `sast-ruleset-lanes` · `opengrep-sast` (commit) · `renovate-lockstep` · `witness` (push)
 
 **`go:`** (`go.mod`) — `gofmt` · `vet` · `test` (commit) · `staticcheck` · `govulncheck` · `build` · `release` · `test-race` (push)
 
@@ -161,27 +114,20 @@ The one check that is deliberately **absent entirely** is the **mutation nightly
 ## Working on it
 
 ```sh
-just develop      # regenerate the SDK bindings, then re-drop the otel replaces
-just gate         # gofmt · vet · build · test -race · staticcheck · govulncheck
+just _dev test <pkgs>   # the door's dev lane: tests this worktree on the cluster
+just check              # the commit stage, as hooks/pre-commit runs it
 ```
-
-**`dagger develop` re-adds four `replace` directives** pinning `go.opentelemetry.io/otel/exporters/otlp/otlplog/*`, `otel/log` and `otel/sdk/log` back to `v0.16.0`. That version carries **GO-2026-4985**, so a bare `dagger develop` turns this repo's own `govulncheck` red. Dropping the four replaces and re-tidying builds, tests and loads identically — verified — and `just develop` does exactly that. This is the module's own rule applied to itself: the finding is fixed, not silenced.
-
-The generated bindings (`dagger.gen.go`, `internal/dagger/`) are **committed**, against the SDK's default `.gitignore`. CI has no Dagger engine until the in-cluster engine lands (CA F5), so the repository has to build and test with the Go toolchain alone.
 
 ## Layout
 
 ```
-main.go             the module root: the source binding, the lane namespaces, the vector
-checks_*.go         the // +check functions — one per atom, each a call into the table
-internal/checks/    the pure core, engine-free and unit-tested
-  atoms.go          THE TABLE: id, stage, lane, image, description, body
-  lane.go           lane detection from root manifests
-  verdict.go        the three states and the exit-code mapping
-  images.go         the lane images, in one place
+atoms/<ns>/<name>/  one atom: <name>.go and its tests, nothing else
+atoms/<ns>/*.toml   the command atoms' manifests
+lanes/*.toml        each lane's phases, as lane@1
+internal/checks/    the shared judgements, engine-free and unit-tested
+internal/catalogue/ the generated registry of every atom (registry_gen.go)
+tools.toml          the pinned third-party tools the atoms exec
 ```
-
-`internal/checks` imports nothing from the Dagger SDK, which is why `go test ./...` runs without an engine.
 
 ## The atom index follows the default tip
 

@@ -5,22 +5,6 @@
 # the tree on the cluster; no Dagger engine and no module path are involved.
 import? 'dev.just'
 
-# Regenerate the SDK bindings, then undo the SDK's own vulnerable pin.
-#
-# `dagger develop` re-adds four `replace` directives holding
-# go.opentelemetry.io/otel/exporters/otlp/otlplog/* , otel/log and otel/sdk/log
-# at v0.16.0, and v0.16.0 carries GO-2026-4985. Dropping them and re-tidying
-# builds, tests and loads identically. A module whose whole point is that a
-# check must not be silenced does not silence its own.
-develop:
-    dagger develop
-    go mod edit \
-      -dropreplace=go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp \
-      -dropreplace=go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc \
-      -dropreplace=go.opentelemetry.io/otel/log \
-      -dropreplace=go.opentelemetry.io/otel/sdk/log
-    go mod tidy
-
 # THE TWO STAGES A COMMIT AND A PUSH MUST PASS (CA master-plan F15), as the
 # recipes the tracked hooks call: hooks/pre-commit is `just check`; hooks/pre-push
 # ran `just gate` until 2026-10-02 and now runs nothing (see `gate` below).
@@ -28,12 +12,12 @@ develop:
 # `check` is the fleet's one line, `foundry-toolbox ask check`: the staged tree goes
 # to the door's refs/checks/<c> and lane check runs on the cluster (SYS-008), the
 # same as speckit/stages.just. That runs the DEPLOYED executor, not this tree's
-# atoms: to grade a change to the atoms themselves with the code being changed,
-# `just check-local` is the old `dagger call -m .` call.
+# atoms: a change to the atoms themselves is graded by the branch's own lanes
+# once pushed, and its unit tests by `just _dev test`.
 #
-# THE ENGINE IS A DEPENDENCY, DELIBERATELY. The stages run on the cluster's Dagger
-# engine, so a commit needs the cluster — which is where the git origin already
-# lives (Rob, 2026-09-17). An engine that cannot be reached refuses the commit
+# THE CLUSTER IS A DEPENDENCY, DELIBERATELY. The stages run on the cluster's
+# executor, so a commit needs the cluster — which is where the git origin already
+# lives (Rob, 2026-09-17). A door that cannot be reached refuses the commit
 # rather than waving it through: a check that could not run is not a check that
 # passed. NO SKIP LIST AND NO --no-verify: this is the gate the door runs.
 
@@ -50,23 +34,13 @@ develop:
 check:
     foundry-toolbox ask check
 
-# The commit stage on the engine with THIS tree's module (`-m .`, never main): a
-# module whose job is gating gates its own changes with the code being changed.
-check-local:
-    dagger call -m . check exit
-
 # The push stage runs nothing since 2026-10-02 (Rob, "Option 1": the lanes are
 # the gate): the door asks a pushed branch's lanes on the cluster, metered by
 # daedalus, and the pull that opens on the head reuses them (ourea #355).
 # hooks/pre-push says so and exits 0; the recipe keeps its name for its callers
-# and says the same. To grade a foundry-tools change against itself by hand,
-# `dagger call -m . push --base=<merge-base> exit` is still the call.
+# and says the same.
 gate:
     @echo "gate: this branch's lanes are its gate: the door runs them on the cluster for the head you pushed (metered by daedalus); git_pr open parks on them, and repo_ci_logs reads them" >&2
-
-# List the atoms this module carries.
-atoms:
-    dagger check -l
 
 # Point this clone's git hooks at the two stage calls (CA F15).
 #

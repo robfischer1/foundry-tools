@@ -31,7 +31,6 @@ var catalogueOrder = []string{
 	"fleet:bg-parity",
 	"fleet:renovate-config",
 	"fleet:retired-verbs",
-	"fleet:dagger-lockstep",
 	"fleet:renovate-lockstep",
 	"fleet:node-kinds-declared",
 	"fleet:consumed-events-emitted",

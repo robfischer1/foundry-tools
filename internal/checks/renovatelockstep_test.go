@@ -11,7 +11,7 @@ import (
 
 const (
 	renRefA = "ghcr.io/renovatebot/renovate:43.261.4@sha256:adc66d8ffba5d835b9ef27768bd3176d07e7ea98c8dba274b07f511beea5fe81"
-	renRefB = "ghcr.io/renovatebot/renovate:43.262.0@" + lockOther
+	renRefB = "ghcr.io/renovatebot/renovate:43.262.0@sha256:2a7c054e0864e297671c24a0726ebf1c9747d70291b8843b1726daaff200a334"
 )
 
 func renFlux(a, b string) string {

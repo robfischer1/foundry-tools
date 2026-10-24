@@ -410,7 +410,7 @@ func TestTheCommitAndPushStagesHoldTheirAtoms(t *testing.T) {
 		"ts:bun-gate," +
 		"compose:config,compose:no-tracked-secrets,compose:third-party-pins," +
 		"dies:opa-test,dies:contracts,dies:contract-copies,dies:schema,dies:findings,dies:schemas,dies:wit-regenerated,dies:schema-rendered,dies:canonical,dies:refusal-codes,dies:wire-grammar,dies:resource-referents,dies:capabilities-served,dies:tool-schemas-served,law:lint,law:verb-liveness,law:budget"
-	push := "fleet:dagger-lockstep,fleet:renovate-lockstep,fleet:node-kinds-declared,fleet:consumed-events-emitted,ops:immutable,template:render-matrix,wit:validate,go:staticcheck,go:govulncheck,go:build,go:release,go:test-race,go:diff-coverage,python:pip-audit,python:release,rust:release,rust:cargo-audit,rust:wit-guest,rust:wit-compose,ts:bun-audit,ts:regen,ts:release," +
+	push := "fleet:renovate-lockstep,fleet:node-kinds-declared,fleet:consumed-events-emitted,ops:immutable,template:render-matrix,wit:validate,go:staticcheck,go:govulncheck,go:build,go:release,go:test-race,go:diff-coverage,python:pip-audit,python:release,rust:release,rust:cargo-audit,rust:wit-guest,rust:wit-compose,ts:bun-audit,ts:regen,ts:release," +
 		"dies:admission-dogfood,dies:data-keys,dies:canary-visibility,fleet:witness,dies:grants-stamp,dies:render-author,fleet:l7-render,dies:authz-grid"
 	if got := ids(checks.StagePrecommit); got != commit {
 		t.Errorf("commit stage\n got %s\nwant %s", got, commit)
