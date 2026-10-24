@@ -190,20 +190,21 @@ func TestMemBudgetReadsTheEnvironment(t *testing.T) {
 	if got := MemBudget(RustWorkerMem); got != 8 {
 		t.Errorf("without ATOM_MEM_BYTES: %d, want 8", got)
 	}
-	t.Setenv(MemEnv, "6442450944") // 6 GiB
+	t.Setenv(MemEnv, "3221225472") // 3 GiB
 	if got := MemBudget(RustWorkerMem); got != 3 {
-		t.Errorf("with 6 GiB: %d, want 3", got)
+		t.Errorf("with 3 GiB: %d, want 3", got)
 	}
 }
 
 func TestCargoBoundedEnvJobs(t *testing.T) {
+	t.Setenv(CPUsEnv, "")
 	t.Setenv(MemEnv, "")
 	if got := CargoBoundedEnv()[0]; got != "CARGO_BUILD_JOBS=6" {
 		t.Errorf("no memory word: %s", got)
 	}
-	t.Setenv(MemEnv, "5368709120") // 5 GiB
+	t.Setenv(MemEnv, "2147483648") // 2 GiB
 	if got := CargoBoundedEnv()[0]; got != "CARGO_BUILD_JOBS=2" {
-		t.Errorf("5 GiB: %s", got)
+		t.Errorf("2 GiB: %s", got)
 	}
 	t.Setenv(MemEnv, "1")
 	if got := CargoBoundedEnv()[0]; got != "CARGO_BUILD_JOBS=1" {

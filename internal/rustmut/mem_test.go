@@ -8,9 +8,9 @@ func TestRustCoresHonoursMemory(t *testing.T) {
 	if got := rustCores(); got != 4 {
 		t.Errorf("no memory word: %d, want 4", got)
 	}
-	t.Setenv("ATOM_MEM_BYTES", "8589934592") // 8 GiB: four rustc jobs, two mutants
+	t.Setenv("ATOM_MEM_BYTES", "4294967296") // 4 GiB: four rustc jobs, two mutants
 	if got := rustCores(); got != 2 {
-		t.Errorf("8 GiB: %d, want 2", got)
+		t.Errorf("4 GiB: %d, want 2", got)
 	}
 	t.Setenv("ATOM_MEM_BYTES", "1")
 	if got := rustCores(); got != 1 {

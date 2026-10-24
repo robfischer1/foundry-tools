@@ -24,8 +24,8 @@ const (
 	// MemEnv is the executor's word for the pod's memory budget, in bytes. Absent
 	// or not a positive number, memory caps nothing.
 	MemEnv = "ATOM_MEM_BYTES"
-	// RustWorkerMem is what one rustc or cargo job is sized to hold: 2 GiB.
-	RustWorkerMem int64 = 2 << 30
+	// RustWorkerMem is what one rustc or cargo job is sized to hold: 1 GiB (measured: rust lanes peak at 0.5-1.4 GiB a job).
+	RustWorkerMem int64 = 1 << 30
 	// lldDefaultMinor is the first rust release whose x86_64-unknown-linux-gnu
 	// target links with rust-lld by default (1.90, 2025-09).
 	lldDefaultMinor = 90

@@ -56,9 +56,10 @@ type Verb struct {
 var preflight = []string{"cargo", "fetch", "--locked"}
 
 // Env is the bound every dev cargo run carries: the GATE'S knobs, one home
-// (checks/rustgate.go). CARGO_BUILD_JOBS=6 is the rust dev container's CPU
-// limit (ATOM_CPUS, measured width 6), so a full-workspace run is no wider than
-// the gate's; CARGO_INCREMENTAL=0, since the target is per pod and an
+// (checks/rustgate.go). CARGO_BUILD_JOBS is the shape's cores held to its
+// memory at 1 GiB a job (checks.RustGateJobsNow), and 6 only where the executor
+// names no shape (no ATOM_CPUS), so a full-workspace run is no wider than the
+// pod it runs in; CARGO_INCREMENTAL=0, since the target is per pod and an
 // incremental cache is a second copy of every crate's codegen; line-tables
 // debuginfo, which keeps file:line in a backtrace and shrinks every test
 // binary the page cache holds. A linking verb adds mold's thread cap.
