@@ -54,6 +54,8 @@ var atomsSourceInclude = []string{
 	"internal/gofmtcheck/**",
 	"internal/vulncheck/**",
 	"internal/sastcheck/**",
+	// dev:python-typecheck and dev:python-check run one type check
+	"internal/devpython/**",
 	"internal/retiredverbs/**",
 	"internal/releasekit/**",
 	// the bundle lane's build (bundle:policy, :fleet) and its decisions

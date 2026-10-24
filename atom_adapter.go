@@ -92,6 +92,8 @@ var (
 	gofmtDirs     = []string{"internal/gofmtcheck/**"}
 	vulncheckDirs = []string{"internal/vulncheck/**"}
 	sastDirs      = []string{"internal/sastcheck/**"}
+	// devpythonDirs: dev:python-typecheck and dev:python-check run one type check.
+	devpythonDirs = []string{"internal/devpython/**"}
 	// witreplayDirs: rust:wit-compose and dev:rust-replay are one body.
 	witreplayDirs = []string{"internal/witreplay/**"}
 	// releaseDirs are what the release atoms share: the release build's one
@@ -159,6 +161,8 @@ var atomLibraries = map[string][]string{
 	"dev:go-fmt-check":           gofmtDirs,
 	"go:govulncheck":             vulncheckDirs,
 	"dev:go-vuln":                vulncheckDirs,
+	"dev:python-typecheck":       devpythonDirs,
+	"dev:python-check":           devpythonDirs,
 	"fleet:opengrep-sast":        sastDirs,
 	"dev:go-sast":                sastDirs,
 	"rust:wit-compose":           witreplayDirs,
