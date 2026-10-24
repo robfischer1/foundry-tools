@@ -19,11 +19,14 @@
 //     So a route the rules refuse but admit once its word segments are neutral
 //     is that declaration read off the committed rule (flux#5952), and is
 //     counted, not refused.
+//   - ERASURE. No CNP, CCNP or NetworkPolicy admits a peer to an attributed
+//     face (hades :8101) at L4: an L4 allow voids the L7 stamp, so the peer
+//     could forge X-Forge-Peer (internal/l4erasure).
 //   - SCOPE. The door lets nyx push anywhere (the git_edge row is unscoped), so
 //     a pull carrying a commit authored or committed as nyx may change only the
 //     file and the published copies.
 //
-// It reads committed files and the pull's own history; it dials nothing.
+// It reads committed files (every tracked policy, for ERASURE) and the pull's own history; it dials nothing.
 package fleetl7render
 
 import (
@@ -40,13 +43,14 @@ import (
 	"dagger/foundry-tools/internal/atomkit"
 	"dagger/foundry-tools/internal/atoms"
 	"dagger/foundry-tools/internal/checks"
+	"dagger/foundry-tools/internal/l4erasure"
 )
 
 // Def is the atom.
 var Def = atomkit.Def{
 	ID: "fleet:l7-render", Stage: checks.StagePrepush, Lane: checks.LaneAny,
 	Group:     checks.GroupBasic,
-	Desc:      "flux's prime/first-l7-enforcement.yaml gives every verb a star serves and the grants allow (the published prime/first-l7-enforcement.openapi/) a matching hades-sa path, and a pull with a commit by nyx's render worker changes only that file and its published copies.",
+	Desc:      "flux's prime/first-l7-enforcement.yaml gives every verb a star serves and the grants allow (the published prime/first-l7-enforcement.openapi/) a matching hades-sa path, no policy admits a peer to hades's attributed :8101 at L4 (which would void its L7 stamp), and a pull with a commit by nyx's render worker changes only that file and its published copies.",
 	Surface:   "any:**",
 	Toolchain: "none",
 	Check:     check,
@@ -96,6 +100,11 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 		return settle(checks.StateCannotRun, "CANNOT RUN - "+err.Error())
 	}
 	findings = append(findings, gaps...)
+	l4, err := l4erasure.Erased(in.Root, in.Committable)
+	if err != nil {
+		return settle(checks.StateCannotRun, "CANNOT RUN - "+err.Error())
+	}
+	findings = append(findings, l4...)
 	outside, err := scope(ctx, in)
 	if err != nil {
 		return settle(checks.StateCannotRun, "CANNOT RUN - "+err.Error())
@@ -104,7 +113,7 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 	if len(findings) > 0 {
 		return settle(checks.StateFindings, "FINDINGS -\n  "+strings.Join(findings, "\n  "))
 	}
-	reason := "PASS - every published verb has its hades-sa path, and no nyx commit reaches outside the render"
+	reason := "PASS - every published verb has its hades-sa path, no policy admits an attributed face (hades :8101) at L4, and no nyx commit reaches outside the render"
 	if carved > 0 {
 		reason += fmt.Sprintf("; %d Rob-tier sub-routes are carved out by their verb's own hades-sa rule", carved)
 	}

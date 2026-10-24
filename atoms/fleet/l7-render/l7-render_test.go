@@ -339,3 +339,24 @@ func TestACarveOutExcusesOnlyItsOwnVerbsWord(t *testing.T) {
 		t.Errorf("a carved-out Rob-tier sub-route was named:\n%s", v.Reason)
 	}
 }
+
+// UT-l7-5 (wiring): an L4 floor on hades's face is a finding of this atom, a
+// policy that does not parse is a could-not-run, and the pass says the face was
+// looked at. The cases live in internal/l4erasure.
+func TestTheAtomRefusesAnL4AdmissionToHadesFace(t *testing.T) {
+	floor := `apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata: {name: forge-baseline-nyx-prober}
+spec:
+  endpointSelector: {matchLabels: {io.kubernetes.pod.namespace: prime}}
+  ingress:
+    - fromEndpoints: [{matchLabels: {io.cilium.k8s.policy.serviceaccount: nyx-sa}}]
+      toPorts: [{ports: [{port: "0", protocol: TCP}]}]
+`
+	f := flux([]string{"ci_await"}, "", "")
+	f["network/floor.yaml"] = floor
+	atomtest.Expect(t, run(t, f), checks.StateFindings, atomtest.Findings, "forge-baseline-nyx-prober", "voids the L7 stamp")
+	f["network/floor.yaml"] = "kind: CiliumNetworkPolicy\nspec: [\n"
+	atomtest.Expect(t, run(t, f), checks.StateCannotRun, atomtest.Cannot, "does not parse")
+	atomtest.Expect(t, run(t, flux([]string{"ci_await"}, "", "")), checks.StatePass, atomtest.Pass, "hades :8101")
+}
