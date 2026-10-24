@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"dagger/foundry-tools/internal/checks/rulesets"
 )
 
 func TestPythonSourceDirsKeepsTheShellsOrder(t *testing.T) {
@@ -329,34 +331,14 @@ func TestDevUvRunIsTheGatesFormOnTheImagesPython(t *testing.T) {
 	}
 }
 
-func TestRuffLineLengthAsksWhetherTheTreeBUILDSADistribution(t *testing.T) {
-	// TWO EARLIER RULES WERE WRONG, and both are rows here so neither comes
-	// back. "any pyproject -> 80" reddens cerberus (38 files); "python plus
-	// any other manifest -> 100" reddens chaos (22 files). [build-system] is
-	// what tells them apart, because it is what says the python is the
-	// SUBJECT of the repository rather than its tooling.
-	const hatch = "[build-system]\nrequires = [\"hatchling\"]\n"
-	const env = "[project]\nname = \"cerberus-plane\"\ndependencies = []\n"
-	for _, tc := range []struct {
-		name      string
-		entries   []string
-		pyproject string
-		want      string
-	}{
-		{"a python star", []string{"pyproject.toml", "src"}, hatch, "80"},
-		{"chaos: a wheel beside a go sibling", []string{"pyproject.toml", "go.mod", "src"}, hatch, "80"},
-		{"cerberus: a pyproject that declares an ENVIRONMENT", []string{"pyproject.toml", "Cargo.toml"}, env, "100"},
-		{"a pyproject with no build-system and nothing else", []string{"pyproject.toml"}, env, "100"},
-		{"no pyproject at all", []string{"go.mod", "scripts"}, "", "100"},
-		{"a tree declaring nothing", []string{"README.md"}, "", "100"},
-		{"dagger's leading ./ still resolves", []string{"./pyproject.toml"}, hatch, "80"},
-		{"a commented-out build-system does not count", []string{"pyproject.toml"}, "# [build-system]\n", "100"},
-		{"an indented [build-system] is still the table", []string{"pyproject.toml"}, "  [build-system]\n", "80"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := RuffLineLength(tc.entries, tc.pyproject); got != tc.want {
-				t.Errorf("RuffLineLength(%v, %q) = %q, want %q", tc.entries, tc.pyproject, got, tc.want)
-			}
-		})
+// THE FLEET HAS ONE WIDTH (Rob, 2026-10-24): 100 for every python tree, a
+// wheel builder or not, and the ruleset file the gate hands ruff says the same.
+// The atom-level rows (a wheel builder, a go star) live in python:ruff-format.
+func TestRuffLineLengthIsTheFleetWidth(t *testing.T) {
+	if RuffLineLength != "100" {
+		t.Errorf("RuffLineLength = %q, want 100", RuffLineLength)
+	}
+	if !strings.Contains(rulesets.Ruff, "\nline-length = "+RuffLineLength+"\n") {
+		t.Error("rulesets/ruff.toml must declare line-length = 100")
 	}
 }

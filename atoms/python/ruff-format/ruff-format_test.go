@@ -67,15 +67,15 @@ func TestTheDeclarationValidatesAndKeepsTheRowItReplaces(t *testing.T) {
 	}
 }
 
-// A wheel builder is graded at 80: the python is the product.
-func TestRuffFormatGradesAWheelBuilderAtEighty(t *testing.T) {
+// A wheel builder is graded at the fleet's one width, 100, like every tree.
+func TestRuffFormatGradesAWheelBuilderAtTheFleetWidth(t *testing.T) {
 	s := &script{}
 	in := tree(t, s, map[string]string{"pyproject.toml": "[project]\nname = \"x\"\n\n[build-system]\nrequires = [\"hatchling\"]\n", "src/x.py": ""})
 	if v := check(context.Background(), in); v.State != 0 || v.Reason != "python:ruff-format: PASS" {
 		t.Fatalf("%+v", v)
 	}
 	cfg := filepath.Join(os.Getenv("ATOM_WORK"), "ruff.toml")
-	if got := s.argv(t); !slices.Equal(got, []string{"format", "--config", cfg, "--line-length", "80", "--check", "."}) {
+	if got := s.argv(t); !slices.Equal(got, []string{"format", "--config", cfg, "--line-length", "100", "--check", "."}) {
 		t.Errorf("%v", got)
 	}
 	if got, err := os.ReadFile(cfg); err != nil || string(got) != rulesets.Ruff {
@@ -86,8 +86,8 @@ func TestRuffFormatGradesAWheelBuilderAtEighty(t *testing.T) {
 	}
 }
 
-// A go star with product python: src and tests, never the whole tree, at 100
-// because its pyproject builds no distribution.
+// A go star with product python: src and tests, never the whole tree, at the
+// fleet's one width.
 func TestRuffFormatScopesAGoStarToItsProductPython(t *testing.T) {
 	s := &script{}
 	in := tree(t, s, map[string]string{"go.mod": "module x\n", "pyproject.toml": "[project]\nname = \"x\"\n", "src/x.py": "", "tests/test_x.py": ""})

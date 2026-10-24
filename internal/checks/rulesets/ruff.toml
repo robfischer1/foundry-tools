@@ -17,10 +17,11 @@
 # WHAT IT IS. The ruleset the four repo templates have poured since they
 # existed (python-repo-template pyproject.toml.jinja [tool.ruff], and the
 # ruff.toml the go/rust/frontend templates pour for their embedded python),
-# which are one ruleset in two files. The two differed in exactly one value:
-# line-length, 80 for a python star and 100 for python embedded in another
-# lane. That is not a rule, it is a formatter width, and the atom passes it
-# as --line-length by lane; everything else is identical here.
+# which are one ruleset in two files. The two differed in exactly one value,
+# line-length (80 for a python star, 100 for python embedded in another lane),
+# until Rob ruled one width for the whole fleet on 2026-10-24: 100, chosen by
+# fewest edits. The atom also passes it as --line-length
+# (checks.RuffLineLength); everything else is identical here.
 #
 # THE TEMPLATES STILL POUR THEIR COPIES so a local editor reads the same
 # rules; the copies are mirrors and this is the original. A repo's copy that
@@ -36,7 +37,7 @@
 # TYPE_CHECKING imports with eager-annotation eyes — nine phantom findings on
 # nereus, measured 2026-09-11 by the first dispatch to meet this file.
 target-version = "py314"
-line-length = 80
+line-length = 100
 # testdata IS NOT SOURCE, and formatting it is a defect rather than tidiness.
 # A golden fixture's exact line layout is the thing under test: narcissus's
 # analyzer goldens encode unit spans, so `ruff format` over
