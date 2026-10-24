@@ -3,6 +3,7 @@ package checks
 import (
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -347,4 +348,12 @@ func UvRun(entries []string, tool string, args ...string) []string {
 		return append([]string{"uv", "run", "--all-extras", tool}, args...)
 	}
 	return append([]string{"uv", "run", "--no-project", "--with", PythonWith(tool), tool}, args...)
+}
+
+// DevUvRun is UvRun for the dev verbs: the gate's spelling, project or not, plus
+// one addition, `--python python3`, the toolchain image's own interpreter, which
+// outranks a .python-version the image cannot satisfy (an executor never
+// downloads one: UV_PYTHON_DOWNLOADS=never). The gate twins do not pass it.
+func DevUvRun(entries []string, tool string, args ...string) []string {
+	return slices.Insert(UvRun(entries, tool, args...), 2, "--python", "python3")
 }

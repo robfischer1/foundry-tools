@@ -36,7 +36,6 @@ var devAtoms = []struct {
 	{"dev:rust-fmt", "rust", "root:Cargo.toml", "rust", true},
 	{"dev:rust-lock", "rust", "root:Cargo.toml", "rust", true},
 	{"dev:rust-update", "rust", "root:Cargo.toml", "rust", true},
-	{"dev:python-test", "python", "root:pyproject.toml", "python", false},
 	{"dev:python-lint", "python", "any:**/*.py", "python", false},
 	{"dev:python-fmt", "python", "any:**/*.py", "python", true},
 	{"dev:python-typecheck", "python", "root:pyproject.toml", "python", false},
@@ -57,7 +56,7 @@ var devAtoms = []struct {
 	{"dev:rust-vuln", "rust", "root:Cargo.toml", "rust", false},
 }
 
-// TestUT_514_TheDevAtomsKeepTheirShape: all 36 parse, sit in the dev stage with
+// TestUT_514_TheDevAtomsKeepTheirShape: all 35 parse, sit in the dev stage with
 // the Dev surface's fields, and write the tree for the go test (it rewrites
 // goldens), the go update and the six rewriting go/rust verbs, the python fmt
 // and the four ts ones (a ts install lands in node_modules,
@@ -75,8 +74,8 @@ func TestUT_514_TheDevAtomsKeepTheirShape(t *testing.T) {
 			t.Errorf("%s: %+v", tc.id, m)
 		}
 	}
-	if got := len(devAtoms); got != 36 {
-		t.Errorf("%d dev atoms in the table, want 36", got)
+	if got := len(devAtoms); got != 35 {
+		t.Errorf("%d dev atoms in the table, want 35", got)
 	}
 }
 
@@ -142,7 +141,6 @@ var (
 		"dev:go-test":          {"dies"},
 		"dev:go-lint":          {"tool:staticcheck"},
 		"dev:rust-vuln":        {"tool:cargo-audit"},
-		"dev:python-test":      {"tool:git", "tool:uv", "tool:jq", "tool:curl", "tool:just"},
 		"dev:python-lint":      {"tool:ruff"},
 		"dev:python-fmt":       {"tool:ruff"},
 		"dev:python-typecheck": {"tool:uv"},
@@ -160,12 +158,7 @@ var (
 		"dev:ts-check":         {"tool:node", "tool:curl"},
 	}
 	devEnv = map[string]map[string]string{
-		"dev:go-vendor": {"GOFLAGS": "-mod=mod"},
-		"dev:python-test": {
-			"PYTHONDONTWRITEBYTECODE": "1",
-			"PYTEST_ADDOPTS":          "-o cache_dir=/tmp/dev-python-test/pytest-cache",
-			"UV_PROJECT_ENVIRONMENT":  "/tmp/dev-python-test/venv",
-		},
+		"dev:go-vendor":   {"GOFLAGS": "-mod=mod"},
 		"dev:python-lint": {"RUFF_CACHE_DIR": "/tmp/dev-python-lint/ruff-cache"},
 		"dev:python-typecheck": {
 			"MYPY_CACHE_DIR":          "/tmp/dev-python-typecheck/mypy-cache",
@@ -178,7 +171,7 @@ var (
 			"UV_PROJECT_ENVIRONMENT":  "/tmp/dev-python-check/venv",
 		},
 	}
-	devLong = []string{"dev:go-test", "dev:rust-build", "dev:rust-test", "dev:python-test", "dev:python-typecheck", "dev:python-check", "dev:python-build", "dev:ts-build", "dev:ts-test", "dev:ts-lint", "dev:ts-typecheck", "dev:ts-check"}
+	devLong = []string{"dev:go-test", "dev:rust-build", "dev:rust-test", "dev:python-typecheck", "dev:python-check", "dev:python-build", "dev:ts-build", "dev:ts-test", "dev:ts-lint", "dev:ts-typecheck", "dev:ts-check"}
 )
 
 // TestTheDevAtomsTimeoutsEnvAndNeeds: the long verbs get 30m, go test mounts
@@ -368,7 +361,6 @@ func TestOnlyTheLockfileVerbsSkipThePreflight(t *testing.T) {
 
 // pytsArgv is each python and ts dev atom's argv with no caller arguments.
 var pytsArgv = map[string][]string{
-	"dev:python-test":      {"uv", "run", "--python", "python3", "--all-extras", "pytest", "-q"},
 	"dev:python-lint":      {"ruff", "check"},
 	"dev:python-fmt":       {"ruff", "format"},
 	"dev:python-typecheck": {"uv", "run", "--python", "python3", "--all-extras", "mypy", "src", "tests"},
@@ -389,8 +381,8 @@ var pytsArgv = map[string][]string{
 // TestThePythonAndTSDevAtomsKeepTheirArgv: what the local loop runs with no
 // arguments, and nothing else.
 func TestThePythonAndTSDevAtomsKeepTheirArgv(t *testing.T) {
-	if len(pytsArgv) != 16 {
-		t.Fatalf("%d rows, want 16", len(pytsArgv))
+	if len(pytsArgv) != 15 {
+		t.Fatalf("%d rows, want 15", len(pytsArgv))
 	}
 	for id, want := range pytsArgv {
 		m := manifestOf(t, id)
@@ -423,11 +415,6 @@ func TestThePythonAndTSDevAtomsComposeWithCallerArguments(t *testing.T) {
 		args []string
 		want []string
 	}{
-		{"dev:python-test", []string{"tests/test_a.py"}, []string{"uv", "run", "--python", "python3", "--all-extras", "pytest", "-q", "tests/test_a.py"}},
-		{"dev:python-test", []string{"-k", "canon", "-x"}, []string{"uv", "run", "--python", "python3", "--all-extras", "pytest", "-q", "-k", "canon", "-x"}},
-		{"dev:python-test", []string{"-v"}, []string{"uv", "run", "--python", "python3", "--all-extras", "pytest", "-v"}},
-		{"dev:python-test", []string{"-vv", "tests/"}, []string{"uv", "run", "--python", "python3", "--all-extras", "pytest", "-vv", "tests/"}},
-		{"dev:python-test", []string{"--quiet"}, []string{"uv", "run", "--python", "python3", "--all-extras", "pytest", "--quiet"}},
 		{"dev:python-lint", []string{"src/x.py"}, []string{"ruff", "check", "src/x.py"}},
 		{"dev:python-lint", []string{"--select", "E"}, []string{"ruff", "check", "--select", "E"}},
 		{"dev:python-fmt", []string{"--check"}, []string{"ruff", "format", "--check"}},
@@ -450,11 +437,24 @@ func TestThePythonAndTSDevAtomsComposeWithCallerArguments(t *testing.T) {
 
 // gateTwins pair each dev atom with the discrete gate atom that runs the same tool.
 var gateTwins = []struct{ dev, gate string }{
-	{"dev:python-test", "python:pytest"},
 	{"dev:python-lint", "python:ruff-check"},
 	{"dev:python-fmt", "python:ruff-format"},
 	{"dev:python-typecheck", "python:mypy"},
 	{"dev:python-check", "python:mypy"},
+}
+
+// DEVSCOPE: dev:python-test is a logic atom on its gate twin's surface, so a
+// tree with python and no pyproject.toml (paneless) runs it as its gate runs
+// python:pytest; a manifest could only spell the project form.
+func TestDevPythonTestRunsWhereItsGateTwinRuns(t *testing.T) {
+	dev, ok := Lookup("dev:python-test")
+	if !ok || dev.Def == nil || dev.Manifest != nil {
+		t.Fatalf("dev:python-test is not a logic atom: %+v", dev)
+	}
+	twin, _ := Lookup("python:pytest")
+	if dev.Def.Surface != twin.Def.Surface || dev.Def.Toolchain != twin.Def.Toolchain || !slices.Equal(dev.Def.Needs, twin.Def.Needs) {
+		t.Errorf("dev %s/%s %v, twin %s/%s %v", dev.Def.Surface, dev.Def.Toolchain, dev.Def.Needs, twin.Def.Surface, twin.Def.Toolchain, twin.Def.Needs)
+	}
 }
 
 // landedToolsFile is the module's tools.toml, parsed.
@@ -511,7 +511,7 @@ func TestThePythonDevAtomsShareTheirGateTwinsResolution(t *testing.T) {
 	}
 	project := []string{"pyproject.toml"}
 	for id, tool := range map[string][]string{
-		"dev:python-test": {"pytest", "-q"}, "dev:python-typecheck": {"mypy"}, "dev:python-check": {"mypy"},
+		"dev:python-typecheck": {"mypy"}, "dev:python-check": {"mypy"},
 	} {
 		// the gate's spelling plus the one addition, the image's own interpreter.
 		want := slices.Insert(checks.UvRun(project, tool[0], tool[1:]...), 2, "--python", "python3")

@@ -319,6 +319,16 @@ func TestUvRunAsksForAProjectOnlyWhenThereIsOne(t *testing.T) {
 	}
 }
 
+// The dev verbs spell the gate's form, project or not, on the image's python.
+func TestDevUvRunIsTheGatesFormOnTheImagesPython(t *testing.T) {
+	if got := strings.Join(DevUvRun([]string{"pyproject.toml"}, "mypy", "src"), " "); got != "uv run --python python3 --all-extras mypy src" {
+		t.Errorf("project: %s", got)
+	}
+	if got := strings.Join(DevUvRun(nil, "pytest"), " "); got != "uv run --python python3 --no-project --with pytest=="+PytestVersion+" pytest" {
+		t.Errorf("no project: %s", got)
+	}
+}
+
 func TestRuffLineLengthAsksWhetherTheTreeBUILDSADistribution(t *testing.T) {
 	// TWO EARLIER RULES WERE WRONG, and both are rows here so neither comes
 	// back. "any pyproject -> 80" reddens cerberus (38 files); "python plus
