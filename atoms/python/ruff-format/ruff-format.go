@@ -38,16 +38,13 @@ var row = checks.AtomDef{ID: id, Stage: checks.StagePrecommit, Lane: checks.Lane
 // under src/ and tests/ is. checks.RuffFormatTargets decides that, from the
 // root entries.
 //
-// The width reads the manifest's CONTENTS, not just its name: a pyproject that
-// declares an environment rather than a distribution is not a python star
-// (checks.RuffLineLength). --line-length is passed because the ruleset file
-// carries ONE width and the fleet has two.
+// The width is the fleet's one width (checks.RuffLineLength), passed on the
+// command line as well as carried in the ruleset so the argv names it.
 func check(ctx context.Context, in atomkit.In) checks.Verdict {
 	entries, stop := atoms.PythonRootEntries(row, in)
 	if stop != nil {
 		return *stop
 	}
-	pyproject, _ := atoms.ReadIfPresent(in.Root, "pyproject.toml")
 	targets, ok := checks.RuffFormatTargets(entries)
 	if !ok {
 		return checks.VerdictOf(row, int(checks.StatePass), id+": ABSENT - a go star with no product python under src/ or tests/")
@@ -59,6 +56,6 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 	if bad := atoms.Probe(ctx, in, row, "ruff", "--version"); bad != nil {
 		return *bad
 	}
-	args := append([]string{"format", "--config", cfg, "--line-length", checks.RuffLineLength(entries, pyproject), "--check"}, targets...)
+	args := append([]string{"format", "--config", cfg, "--line-length", checks.RuffLineLength, "--check"}, targets...)
 	return atoms.SettleTool(ctx, in, row, atoms.Cmd{Dir: in.Root, Name: "ruff", Args: args})
 }

@@ -33,62 +33,19 @@ func PythonSourceDirs(entries []string) []string {
 	return out
 }
 
-// RuffLineLength is the formatter width this tree is graded at, as a string
-// ready for the command line. It reads the ROOT pyproject.toml's contents,
-// not just its presence.
+// RuffLineLength is the formatter width every python tree is graded at, as a
+// string ready for the command line.
 //
-// THE FLEET HAS ONE RULESET AND TWO WIDTHS. rulesets/ruff.toml says so in as
-// many words — "80 for a python star and 100 for python embedded in another
-// lane ... the atom passes it as --line-length by lane" — and until #173 the
-// atom did not pass it at all.
+// THE FLEET HAS ONE WIDTH: 100, for every repo, variant and setting (Rob,
+// 2026-10-24, chosen by fewest edits: 3,492 at 100 against 7,665 at 88 and
+// 13,190 at 80). The rule it replaces graded a tree that declared
+// [build-system] at 80 and everything else at 100. rulesets/ruff.toml carries
+// the same value, and the templates pour it into every repo's own config, so
+// the gate, the dev lane's fmt and a local editor all agree.
 //
-// A PYTHON STAR IS ONE THAT BUILDS A DISTRIBUTION. [build-system] is the test,
-// and it is the only one that survives contact with the fleet. Presence of a
-// pyproject.toml is not enough and neither is the absence of a sibling
-// manifest; both were tried and both were wrong:
-//
-//	chaos     pyproject + go.mod, hatchling, publishes a wheel.
-//	          Its python IS the product (src/chaos) and its own [tool.ruff]
-//	          declares 80. "python + any other manifest -> 100" graded it at
-//	          100 and reddened 22 files that were already correct.
-//
-//	cerberus  pyproject + Cargo.toml, NO build-system. Its own comment says
-//	          it: "IT IS NOT A PACKAGE AND DOES NOT PUBLISH ... This declares
-//	          an ENVIRONMENT". The artifact is the Rust binary; the python is
-//	          hooks and probes, and its ruff.toml declares 100. "any
-//	          pyproject -> 80" would grade it at 80 and redden 38 files.
-//
-// One rule answers both, because [build-system] is the thing that says the
-// python is the SUBJECT of this repository rather than its tooling. Measured
-// 2026-09-25 across all 24 repos the gate grades, against the atom's own
-// scope: every repo is clean at the width this returns, and every repo's own
-// declared line-length agrees with it.
-//
-// ONLY THE FORMATTER NEEDS IT. Measured at both widths: `ruff check` reports
-// identically, because E501 is in the ruleset's ignore list and nothing else
-// selected reads line-length. If E501 is ever un-ignored, the lint atom needs
-// this too and does not have it.
-func RuffLineLength(entries []string, pyproject string) string {
-	if !DeclaresManifest(entries, ManifestFor(LanePython)) {
-		return "100"
-	}
-	if !declaresBuildSystem(pyproject) {
-		return "100"
-	}
-	return "80"
-}
-
-// declaresBuildSystem reports whether this pyproject.toml builds a
-// distribution — a [build-system] table at the start of a line, which is the
-// only place TOML puts one.
-func declaresBuildSystem(pyproject string) bool {
-	for _, line := range strings.Split(pyproject, "\n") {
-		if strings.TrimSpace(line) == "[build-system]" {
-			return true
-		}
-	}
-	return false
-}
+// ONLY THE FORMATTER NEEDS IT: E501 is in the ruleset's ignore list and
+// nothing else selected reads line-length.
+const RuffLineLength = "100"
 
 // RuffFormatTargets answers what `ruff format --check` is pointed at, and
 // whether there is anything to point it at.

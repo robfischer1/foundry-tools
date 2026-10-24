@@ -6,7 +6,7 @@ group = "language"
 desc = "ruff check is clean over the tree's python, run by hand from the dev lane."
 surface = "any:**/*.py"
 toolchain = "python"
-argv = ["ruff", "check"]
+argv = ["ruff", "check", "--line-length", "100"]
 args = "append"
 per_module = false
 judge = "exit"
@@ -22,6 +22,8 @@ needs = ["tool:ruff"]
 # runs. A manifest has no step that lays a file, so this verb reads the tree's
 # own pyproject.toml / ruff.toml, as the star's `ruff check` does. The templates
 # pour a mirror of the fleet's ruleset, so the two agree until a star drifts.
+# The width is pinned on the command line, `--line-length 100`, the fleet's one
+# width (checks.RuffLineLength), so it cannot drift with the tree.
 #
 # ruff keeps its cache beside the sources and /src is read-only here.
 [env]

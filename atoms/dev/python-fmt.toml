@@ -6,7 +6,7 @@ group = "language"
 desc = "ruff format rewrites the tree's python in place."
 surface = "any:**/*.py"
 toolchain = "python"
-argv = ["ruff", "format"]
+argv = ["ruff", "format", "--line-length", "100"]
 args = "append"
 per_module = false
 judge = "exit"
@@ -15,7 +15,10 @@ writes_tree = true
 
 # THE GATE TWIN IS python:ruff-format, which runs `--check`; this is the rewrite
 # the twin refuses to be, on the atom's own copy of the tree. Same ruff, from the
-# same tool:ruff pin. With no path ruff formats the working directory. NOT
-# SHARED: the twin's `--config <fleet ruleset> --line-length <by lane>` and its
-# src/ + tests/ scope (checks.RuffFormatTargets); this verb takes the tree's own
-# ruff config. A caller who wants the twin's scope passes `src tests`.
+# same tool:ruff pin. With no path ruff formats the working directory.
+# SHARED: the width. `--line-length 100` is the fleet's one width
+# (checks.RuffLineLength, Rob 2026-10-24), so a tree with no setting of its own
+# is rewritten at the width the twin grades rather than ruff's default 88. NOT
+# SHARED: the twin's `--config <fleet ruleset>` and its src/ + tests/ scope
+# (checks.RuffFormatTargets); this verb otherwise takes the tree's own ruff
+# config. A caller who wants the twin's scope passes `src tests`.

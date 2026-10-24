@@ -347,8 +347,8 @@ func TestOnlyTheLockfileVerbsSkipThePreflight(t *testing.T) {
 
 // pytsArgv is each python and ts dev atom's argv with no caller arguments.
 var pytsArgv = map[string][]string{
-	"dev:python-lint":   {"ruff", "check"},
-	"dev:python-fmt":    {"ruff", "format"},
+	"dev:python-lint":   {"ruff", "check", "--line-length", "100"},
+	"dev:python-fmt":    {"ruff", "format", "--line-length", "100"},
 	"dev:python-lock":   {"uv", "lock", "--python", "python3"},
 	"dev:python-update": {"uv", "lock", "--python", "python3", "--upgrade"},
 	"dev:python-build":  {"uv", "build", "--python", "python3"},
@@ -399,9 +399,9 @@ func TestThePythonAndTSDevAtomsComposeWithCallerArguments(t *testing.T) {
 		args []string
 		want []string
 	}{
-		{"dev:python-lint", []string{"src/x.py"}, []string{"ruff", "check", "src/x.py"}},
-		{"dev:python-lint", []string{"--select", "E"}, []string{"ruff", "check", "--select", "E"}},
-		{"dev:python-fmt", []string{"--check"}, []string{"ruff", "format", "--check"}},
+		{"dev:python-lint", []string{"src/x.py"}, []string{"ruff", "check", "--line-length", "100", "src/x.py"}},
+		{"dev:python-lint", []string{"--select", "E"}, []string{"ruff", "check", "--line-length", "100", "--select", "E"}},
+		{"dev:python-fmt", []string{"--check"}, []string{"ruff", "format", "--line-length", "100", "--check"}},
 		{"dev:python-lock", []string{"--check"}, []string{"uv", "lock", "--python", "python3", "--check"}},
 		{"dev:python-update", []string{"-P", "requests"}, []string{"uv", "lock", "--python", "python3", "-P", "requests"}},
 		{"dev:python-update", []string{"--upgrade-package", "requests"}, []string{"uv", "lock", "--python", "python3", "--upgrade-package", "requests"}},
@@ -515,9 +515,11 @@ func TestThePythonDevAtomsShareTheirGateTwinsResolution(t *testing.T) {
 	if pin := tools.Tools["ruff"]; pin.Kind != "uv" || pin.Version != checks.RuffVersion {
 		t.Errorf("tools.toml pins ruff %+v, the gate atoms run %s", pin, checks.RuffVersion)
 	}
+	// and at the twin's width: the fleet's one --line-length.
 	for id, sub := range map[string]string{"dev:python-lint": "check", "dev:python-fmt": "format"} {
-		if got := manifestOf(t, id).Argv; !slices.Equal(got, []string{"ruff", sub}) {
-			t.Errorf("%s: argv %v, the gate twin execs ruff %s by name", id, got, sub)
+		want := []string{"ruff", sub, "--line-length", checks.RuffLineLength}
+		if got := manifestOf(t, id).Argv; !slices.Equal(got, want) {
+			t.Errorf("%s: argv %v, the gate twin execs ruff %s by name at width %s", id, got, sub, checks.RuffLineLength)
 		}
 	}
 }
