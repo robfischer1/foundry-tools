@@ -1,9 +1,3 @@
-# The generated SDK bindings are COMMITTED, against the SDK's default. CI has no
-# Dagger engine until the in-cluster engine lands (CA F5), so this repository has
-# to build and test with the Go toolchain alone. `just develop` regenerates them.
-#   /dagger.gen.go
-#   /internal/dagger
-#   /internal/telemetry
 /.env
 
 # Go build output

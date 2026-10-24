@@ -66,8 +66,11 @@ func TestOpaAtLeast(t *testing.T) {
 }
 
 // TestOpaPinsAreAboveTheFloor holds BOTH pins: the binary the dies atoms fetch
-// (OpaVersion) and the OPA Go module the bundle-resign tests link (go.mod). The
-// plan asks >= 1.21.2 for both, and nothing below OpaFloor in any case.
+// (OpaVersion) and the OPA Go module, when go.mod links one. The plan asks
+// >= 1.21.2 for both, and nothing below OpaFloor in any case. The bundle-resign
+// tests that linked the module went with the Dagger module (2026-10-24), so
+// today go.mod requires none and only the binary's pin is held; a module that
+// comes back is held to the same floor.
 func TestOpaPinsAreAboveTheFloor(t *testing.T) {
 	const want = "1.21.2"
 	if !OpaAtLeast(OpaVersion, want) {
@@ -79,7 +82,7 @@ func TestOpaPinsAreAboveTheFloor(t *testing.T) {
 	}
 	m := regexp.MustCompile(`(?m)^\s*github\.com/open-policy-agent/opa\s+v(\S+)`).FindSubmatch(mod)
 	if m == nil {
-		t.Fatal("go.mod does not require github.com/open-policy-agent/opa")
+		return // nothing links the module, so there is no module pin to hold
 	}
 	if got := string(m[1]); !OpaAtLeast(got, want) {
 		t.Errorf("go.mod pins opa %s, below %s (and the floor is %s)", got, want, OpaFloor)

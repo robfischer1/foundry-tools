@@ -48,7 +48,6 @@ import (
 	fleetconsumedeventsemitted "dagger/foundry-tools/atoms/fleet/consumed-events-emitted"
 	fleetcopieranswersintact "dagger/foundry-tools/atoms/fleet/copier-answers-intact"
 	fleetdaedalusjobsconfig "dagger/foundry-tools/atoms/fleet/daedalus-jobs-config"
-	fleetdaggerlockstep "dagger/foundry-tools/atoms/fleet/dagger-lockstep"
 	fleethadolint "dagger/foundry-tools/atoms/fleet/hadolint"
 	fleetkafkaflows "dagger/foundry-tools/atoms/fleet/kafka-flows"
 	fleetl7render "dagger/foundry-tools/atoms/fleet/l7-render"
@@ -166,7 +165,6 @@ var Defs = []*atomkit.Def{
 	&fleetconsumedeventsemitted.Def,
 	&fleetcopieranswersintact.Def,
 	&fleetdaedalusjobsconfig.Def,
-	&fleetdaggerlockstep.Def,
 	&fleethadolint.Def,
 	&fleetkafkaflows.Def,
 	&fleetl7render.Def,
