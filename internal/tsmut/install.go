@@ -13,26 +13,39 @@ import (
 // install installs the tree against its frozen lockfile, patches the vitest
 // runners it brought and runs each planned package.
 func (g *grading) install(ctx context.Context, plan []checks.StrykerPackage, owned map[string]string) checks.Verdict {
+	if v, ok := g.setup(ctx); !ok {
+		return v
+	}
+	return g.runPackages(ctx, plan, owned)
+}
+
+// setup installs the tree once a run: the coverage of a change's tests and the
+// Stryker runs share it. A verdict with false is the run's end.
+func (g *grading) setup(ctx context.Context) (checks.Verdict, bool) {
+	if g.installed {
+		return checks.Verdict{}, true
+	}
 	// bun writes node_modules into the tree it installs in; on the executor the
 	// tree is locked, so it installs in a copy (atoms.WorkingTree).
 	tree, _, err := atoms.WorkingTree(g.in.Root, work())
 	if err != nil {
-		return g.settle(2, "CANNOT RUN - the tree could not be copied to install in: "+err.Error())
+		return g.settle(2, "CANNOT RUN - the tree could not be copied to install in: "+err.Error()), false
 	}
 	g.tree = tree
 	installed := g.do(ctx, g.tree, "bun", "install", "--frozen-lockfile")
 	if !atoms.ToolRan(installed.code) {
-		return g.neverRan(installed)
+		return g.neverRan(installed), false
 	}
 	if installed.code != 0 {
-		return g.settle(checks.DiagnoseInstall(installed.out, installed.code, g.registry(ctx)))
+		return g.settle(checks.DiagnoseInstall(installed.out, installed.code, g.registry(ctx))), false
 	}
 	patch := g.patchVitestRunners()
 	g.runner = "\n" + patch.Note
 	if patch.Blocked != "" {
-		return g.settle(2, "CANNOT RUN - "+patch.Blocked)
+		return g.settle(2, "CANNOT RUN - "+patch.Blocked), false
 	}
-	return g.runPackages(ctx, plan, owned)
+	g.installed = true
+	return checks.Verdict{}, true
 }
 
 // registry answers checks.DiagnoseInstall's questions with curl, from the lane the

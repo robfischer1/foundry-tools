@@ -48,6 +48,8 @@ type pull struct {
 	// printed is what stryker says, and code how it exits.
 	printed string
 	code    int
+	// lcov is what `bun test --coverage` writes to its coverage dir; "" is none.
+	lcov string
 }
 
 func putFile(t *testing.T, root, rel, body string) {
@@ -90,6 +92,14 @@ func (p *pull) exec(_ context.Context, c atoms.Cmd) (string, int) {
 	line := strings.Join(append([]string{c.Name}, c.Args...), " ")
 	p.runs = append(p.runs, line)
 	p.cmds = append(p.cmds, c)
+	// bun writes its coverage however the suite exits.
+	if strings.Contains(line, "bun test --coverage") && p.lcov != "" {
+		for i, a := range c.Args {
+			if a == "--coverage-dir" {
+				putFile(p.t, c.Args[i+1], "lcov.info", p.lcov)
+			}
+		}
+	}
 	for _, r := range p.rules {
 		if strings.Contains(line, r.needle) {
 			return r.out, r.code
