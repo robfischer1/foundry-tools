@@ -1,0 +1,86 @@
+# Ruff for this repo's incidental Python.
+#
+# This is not a Python repo. The Python here is hook scripts, probes, fixture
+# generators, conformance recorders — the tooling that accretes around a real
+# codebase and that, until 2026-08-16, nothing linted anywhere in the fleet.
+#
+# SELECT AND IGNORE ARE THE PYTHON TEMPLATE'S, VERBATIM
+# (python-repo-template/template/pyproject.toml.jinja, [tool.ruff.lint]).
+# Copied rather than invented, and kept in sync with it: a per-repo drift in
+# what "linted" means is how the fleet accumulated 533 `# noqa: BLE001`.
+#
+# Two deviations, both structural rather than preferential:
+#   target-version  py311, not py312 — this Python runs under whatever
+#                   interpreter is to hand, not a pinned project venv.
+#   line-length     100, not 80. E501 is in the ignore list either way, so this
+#                   only affects the rules that read it.
+#
+# HISTORY, because this file has been withdrawn once already. The hook that
+# reads it was added on 2026-08-16 and reverted the same day, on the finding
+# that it did not land green — which was true, and measured honestly, after a
+# first measurement that used `ruff check --quiet` and grepped for the summary
+# line that `--quiet` suppresses. The revert then concluded "NO RULESET FIXES
+# IT" and that a check whose main finding is that fail-soft code is fail-soft is
+# a check fighting its subject. That half did not hold: all seven affected repos
+# were taken to 0 under this exact config, and in cerberus — 319 findings, the
+# worst of them — the fail-soft hits were not the pattern the code was written
+# in. 96 were silent swallows in a single file with one observable emitter,
+# concealing three recorded multi-day incidents.
+#
+# If this ever lands red on a repo, fix the repo. A gate that arrives red is not
+# a guard, it is a backlog with a veto.
+
+target-version = "py311"
+line-length = 100
+
+# furnace owns these; the gate's atoms exclude them too.
+extend-exclude = [".claude", ".specify", ".furnace", "vendor", "node_modules"]
+
+[lint]
+select = ["ALL"]
+ignore = [
+    "COM", "ISC", "Q", "E501",
+    "D203", "D213",
+    "ANN001", "ANN002", "ANN003", "ANN202", "ANN204", "ANN401",
+    "EM", "TRY003",
+    "C901", "PLR09", "PLR2004",
+    "T201", "PLC0415", "FBT", "SLF001",
+    "PLW0603", "TRY300", "TRY301", "ARG002",
+    "PERF401", "PERF403", "A002", "EXE",
+]
+
+# Mirrors the python template: accept the REUSE / SPDX per-file header instead
+# of ruff's default literal "Copyright <year>".
+[lint.flake8-copyright]
+notice-rgx = '(?i)SPDX-FileCopyrightText:.*\d{4}'
+
+# INP001 does not apply to script surfaces. Its premise is that a
+# package-shaped directory is missing __init__.py so its imports are ambiguous —
+# but nothing in these directories is imported as a package member: each file is
+# run directly, or loaded by path. An __init__.py would assert a package that
+# does not exist. Mirrors the python template's own per-file-ignores for
+# "tests/**".
+#
+# THIS LIST IS AUTHORITATIVE, NOT A DEFAULT. ruff.toml is copier-owned and
+# merges on update — it is deliberately NOT in `_skip_if_exists`, because the
+# gate config is law rather than a per-repo preference. That means these globs
+# have to cover every consumer's layout, not just a tidy one: a path missing
+# here reds a repo on its next update.
+#
+# MEASURED 2026-08-16 against all seven repos that hold incidental Python, at
+# the commit each reached zero: all seven answer 0 under this file. The
+# `.cerberus/` and `crates/` entries exist because cerberus keeps its plugins
+# and its pooled plugin worker there — the worker is not even imported, the
+# appliance reads it as source and runs it with `python3 -c`.
+#
+# Add directories here as they appear; do NOT widen it to other rules.
+[lint.per-file-ignores]
+".cerberus/**/*.py" = ["INP001"]
+"conformance/**/*.py" = ["INP001"]
+"crates/**/*.py" = ["INP001"]
+"probe/**/*.py" = ["INP001"]
+"probes/**/*.py" = ["INP001"]
+"scripts/**/*.py" = ["INP001"]
+"specs/**/*.py" = ["INP001"]
+"studies/**/*.py" = ["INP001"]
+"tools/**/*.py" = ["INP001"]
