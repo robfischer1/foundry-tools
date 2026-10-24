@@ -112,7 +112,7 @@ func TestCoveredNoChangedTestRunsNothing(t *testing.T) {
 	if p.ran("go test -count=1 -run") {
 		t.Fatal("a change with no test file ran tests for its scope")
 	}
-	if coveredCap() != defaultCoveredCap {
+	if checks.MutationCoveredCap() != checks.DefaultMutationCoveredCap {
 		t.Fatal("default bound")
 	}
 }
