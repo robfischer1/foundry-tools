@@ -142,6 +142,17 @@ func (g *grading) grade(ctx context.Context, declared []string) checks.Verdict {
 	if g.carried, err = atoms.ReadCarried(ctx, in, since, id, func(f string) bool { return strings.HasSuffix(f, ".py") }); err != nil {
 		return g.settle(2, "CANNOT RUN - the carried ranges: "+err.Error())
 	}
+	// A TEST-ONLY CHANGE IS GRADED BY WHAT ITS TESTS RUN (covered.go): the
+	// source lines join the carried ones, so a pull that changed no source still
+	// has a scope, and they ride every verdict's scope line from here.
+	covered, note, failed := g.testCovered(ctx, since, declared)
+	if failed != nil {
+		return *failed
+	}
+	g.carried = g.carried.Plus(covered)
+	if note != "" {
+		g.scope += "\n" + note
+	}
 
 	// RESOLVE: the declared modules, or every python source the pull added or
 	// changed outside the tests; less the generated ones.

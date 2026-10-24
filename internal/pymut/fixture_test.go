@@ -41,6 +41,8 @@ type pull struct {
 	scopeOut string
 	// failSyncFrom, when set, fails the nth uv sync and every one after it.
 	failSyncFrom, syncs int
+	// covJSON is what `coverage json` writes to its -o; "" writes nothing.
+	covJSON string
 }
 
 func putFile(t *testing.T, root, rel, body string) {
@@ -122,6 +124,8 @@ func (p *pull) exec(_ context.Context, c atoms.Cmd) (string, int) {
 				putFile(p.t, "/", v, p.scopeOut)
 			}
 		}
+	case strings.Contains(line, "coverage json") && p.covJSON != "":
+		putFile(p.t, "/", flag("-o"), p.covJSON)
 	case strings.Contains(line, "forge-testkit-mutation plugin"):
 		putFile(p.t, flag("--out"), "_forge_mutation_select.py", "plugin")
 	case strings.Contains(line, "forge-testkit-mutation map"):

@@ -26,6 +26,26 @@ func (g *grading) uvSync(ctx context.Context, dir string) (checks.Verdict, bool)
 	return checks.Verdict{}, true
 }
 
+// prepare makes the primary copy and syncs its environment, once a run: the
+// coverage of a change's tests and the measure share it.
+func (g *grading) prepare(ctx context.Context) (checks.Verdict, bool) {
+	if g.tree != "" {
+		return checks.Verdict{}, true
+	}
+	tree := filepath.Join(g.work, "src")
+	if err := removeAll(g.work); err != nil {
+		return g.settle(2, "CANNOT RUN - the atom never ran: "+err.Error()), false
+	}
+	if err := copyTree(g.in.Root, tree, ".venv"); err != nil {
+		return g.settle(2, "CANNOT RUN - the atom never ran: the tree could not be copied to work in: "+err.Error()), false
+	}
+	if v, ok := g.uvSync(ctx, tree); !ok {
+		return v, false
+	}
+	g.tree = tree
+	return checks.Verdict{}, true
+}
+
 // concurrently runs f for 0..n-1 at once and answers the results in order.
 func concurrently[T any](n int, f func(i int) T) []T {
 	out := make([]T, n)
@@ -41,14 +61,7 @@ func concurrently[T any](n int, f func(i int) T) []T {
 // the session initialised, scoped and planned, then measured and executed by the
 // workers and scored.
 func (g *grading) measure(ctx context.Context, since, diff string, kept []string) checks.Verdict {
-	g.tree = filepath.Join(g.work, "src")
-	if err := removeAll(g.work); err != nil {
-		return g.settle(2, "CANNOT RUN - the atom never ran: "+err.Error())
-	}
-	if err := copyTree(g.in.Root, g.tree, ".venv"); err != nil {
-		return g.settle(2, "CANNOT RUN - the atom never ran: the tree could not be copied to work in: "+err.Error())
-	}
-	if v, ok := g.uvSync(ctx, g.tree); !ok {
+	if v, ok := g.prepare(ctx); !ok {
 		return v
 	}
 	diffFile := filepath.Join(g.work, "pr.diff")
@@ -72,7 +85,16 @@ func (g *grading) measure(ctx context.Context, since, diff string, kept []string
 	// scope too. So do the fleet's skipped operator classes (checks.RatifiedMutators,
 	// testkit 2.1.0): deleted here rather than filtered, because a filtered job
 	// reports as "unknown" on every run.
-	scopeArgs := []string{"scope", session, "--diff", diffFile, "--base", since}
+	//
+	// NOT WITH CARRIED OR COVERED LINES: every line a night carries or a changed
+	// test only runs sits in a unit whose AST is unchanged since the base, so
+	// --base would drop them all (forge-testkit mutation.py drop_ast_unchanged)
+	// and the widened scope would grade nothing. Such a run mutates its diff's
+	// reformatted lines too, the smaller cost.
+	scopeArgs := []string{"scope", session, "--diff", diffFile}
+	if g.carried.Empty() {
+		scopeArgs = append(scopeArgs, "--base", since)
+	}
 	for _, op := range checks.SkippedMutators(checks.MutatorPython) {
 		scopeArgs = append(scopeArgs, "--exclude-operator", op)
 	}
