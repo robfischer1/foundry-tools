@@ -88,6 +88,7 @@ run:
   bundle:policy
   dev:python-fmt
   dev:python-lint
+  dev:python-test
   dev:rust-build
   dev:rust-check
   dev:rust-clippy
@@ -140,7 +141,6 @@ absent:
   dev:python-build
   dev:python-check
   dev:python-lock
-  dev:python-test
   dev:python-typecheck
   dev:python-update
   dev:ts-build
