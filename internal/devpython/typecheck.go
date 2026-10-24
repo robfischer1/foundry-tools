@@ -5,6 +5,7 @@ package devpython
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -35,8 +36,10 @@ var pyrightTable = regexp.MustCompile(`(?m)^[ \t]*\[\[?[ \t]*tool\.pyright[ \t]*
 // mypy is `uv run --all-extras mypy` (checks.DevUvRun: python:mypy's form plus
 // the image's own interpreter); it reads the tree's own [tool.mypy], not the
 // gate twin's fleet mypy.ini, and takes the caller's arguments. pyright is the
-// project's own (its dev dependency) and reads its own configuration, so it
-// takes none of mypy's arguments. No gate atom runs pyright.
+// npm package at the fleet's pin (checks.PyrightVersion) under bun, inside the
+// project's environment (pyrightArgv); it reads its own configuration, so it
+// takes none of mypy's arguments. A pyright that cannot run is a finding of its
+// own beside mypy's answer. No gate atom runs pyright.
 //
 // cache names the atom's directories under /tmp: the venv and .mypy_cache stay
 // off the read-only /src, and two verbs never share them.
@@ -62,14 +65,42 @@ func Typecheck(ctx context.Context, in atomkit.In, row checks.AtomDef, cache str
 	if !pyright {
 		return checks.VerdictOf(row, code, out)
 	}
-	pout, pcode, bad := run(ctx, in, row, env, checks.DevUvRun(entries, "pyright"))
-	if bad != nil {
-		return *bad
+	pout, pcode, bad := run(ctx, in, row, env, pyrightArgv(entries))
+	switch {
+	case bad != nil:
+		pcode, pout = 2, bad.Reason
+	case pcode > 1:
+		pout = fmt.Sprintf("exit %d\n%s", pcode, pout)
+	}
+	if pcode > 1 {
+		// A PYRIGHT THAT CANNOT RUN IS ITS OWN FINDING, never the verb's
+		// could-not-run: mypy's answer stands beside it (DEVSCOPE, run
+		// forge/dev-vault-mcp-12816db-g5l6g, a fetched node that wanted libatomic).
+		// mypy clean or finding: the verb has findings. mypy itself unable to
+		// run: the verb could not run, as mypy alone says.
+		if checks.StateFor(code) == checks.StatePass {
+			code = int(checks.StateFindings)
+		}
+		return checks.VerdictOf(row, code, "mypy:\n"+out+"\npyright could not run:\n"+pout)
 	}
 	if checks.StateFor(pcode) > checks.StateFor(code) {
 		code = pcode
 	}
 	return checks.VerdictOf(row, code, "mypy:\n"+out+"\npyright:\n"+pout)
+}
+
+// pyrightArgv is the npm pyright at the fleet's pin, run by bun (tool:bun)
+// inside the project's environment: `uv run` puts the venv's python first on
+// PATH, which pyright resolves imports through. Bun runs it (`--bun`), so no
+// node is fetched: the pypi wrapper's runtime node needed a libatomic.so.1 the
+// python image does not carry.
+// A tree with a pyrightconfig.json and no project has no environment to enter.
+func pyrightArgv(entries []string) []string {
+	bunx := []string{"bun", "x", "--bun", "pyright@" + checks.PyrightVersion}
+	if !slices.Contains(entries, "pyproject.toml") {
+		return bunx
+	}
+	return append([]string{"uv", "run", "--python", "python3", "--all-extras"}, bunx...)
 }
 
 // run is one checker over the tree, both streams answered.

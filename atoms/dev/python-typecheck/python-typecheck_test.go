@@ -18,7 +18,7 @@ func TestTheDeclarationKeepsTheManifestsRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	if Def.ID != "dev:python-typecheck" || Def.Stage != "dev" || Def.Lane != checks.LanePython || Def.Group != checks.GroupLanguage ||
-		Def.Toolchain != "python" || Def.Surface != "root:pyproject.toml" || !slices.Equal(Def.Needs, []string{"tool:uv"}) ||
+		Def.Toolchain != "python" || Def.Surface != "root:pyproject.toml" || !slices.Equal(Def.Needs, []string{"tool:uv", "tool:bun"}) ||
 		Def.WritesTree || Def.Timeout != 30*time.Minute || !Def.NeedsManifest {
 		t.Errorf("%+v", Def)
 	}

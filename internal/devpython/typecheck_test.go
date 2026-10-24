@@ -22,7 +22,7 @@ type script struct {
 // tool is the type checker a call runs: the argument after the uv flags.
 func tool(c atoms.Cmd) string {
 	for _, t := range []string{"mypy", "pyright"} {
-		if slices.Contains(c.Args, t) {
+		if slices.ContainsFunc(c.Args, func(a string) bool { return a == t || strings.HasPrefix(a, t+"@") }) {
 			return t
 		}
 	}
@@ -101,7 +101,7 @@ func TestPyrightRunsWhereTheTreeConfiguresIt(t *testing.T) {
 			t.Errorf("%s: %+v", name, v)
 		}
 		if len(s.calls) != 2 || tool(s.calls[0]) != "mypy" ||
-			!slices.Equal(s.calls[1].Args, []string{"run", "--python", "python3", "--all-extras", "pyright"}) {
+			!slices.Equal(s.calls[1].Args, []string{"run", "--python", "python3", "--all-extras", "bun", "x", "--bun", "pyright@" + checks.PyrightVersion}) {
 			t.Errorf("%s: calls %v", name, s.calls)
 		}
 	}
@@ -128,7 +128,7 @@ func TestTheCallersArgumentsAreMypys(t *testing.T) {
 		if got := s.calls[0].Args[5:]; !slices.Equal(got, tc.want) {
 			t.Errorf("%v: mypy %v, want %v", tc.args, got, tc.want)
 		}
-		if got := s.calls[1].Args; got[len(got)-1] != "pyright" {
+		if got := s.calls[1].Args; got[len(got)-1] != "pyright@"+checks.PyrightVersion {
 			t.Errorf("%v: pyright %v", tc.args, got)
 		}
 	}
@@ -144,17 +144,41 @@ func TestTheWorseOfTheTwoWins(t *testing.T) {
 		"both clean":     {nil, checks.StatePass},
 		"mypy finds":     {map[string]int{"mypy": 1}, checks.StateFindings},
 		"pyright finds":  {map[string]int{"pyright": 1}, checks.StateFindings},
-		"pyright can't":  {map[string]int{"mypy": 1, "pyright": 2}, checks.StateCannotRun},
+		"pyright fatal":  {map[string]int{"mypy": 1, "pyright": 2}, checks.StateFindings},
 		"mypy killed":    {map[string]int{"mypy": 137}, checks.StateCannotRun},
-		"pyright killed": {map[string]int{"pyright": 137}, checks.StateCannotRun},
+		"pyright killed": {map[string]int{"pyright": 137}, checks.StateFindings},
+		"pyright absent": {map[string]int{"pyright": 127}, checks.StateFindings},
 	} {
 		s := &script{exits: tc.exits, outs: map[string]string{"mypy": "src/a.py:1: error: mypy says", "pyright": "src/a.py:1:1 - error: pyright says"}}
 		v := Typecheck(context.Background(), tree(t, s, files), row, cache)
 		if v.State != int(tc.state) {
 			t.Errorf("%s: %+v", name, v)
 		}
-		if tc.state == checks.StateFindings && (!strings.Contains(v.Reason, "mypy says") || !strings.Contains(v.Reason, "pyright says")) {
+		if tc.state == checks.StateFindings && tc.exits["pyright"] <= 1 && (!strings.Contains(v.Reason, "mypy says") || !strings.Contains(v.Reason, "pyright says")) {
 			t.Errorf("%s: reason %q carries both outputs", name, v.Reason)
+		}
+	}
+}
+
+// A pyrightconfig.json with no project has no environment for pyright to enter.
+func TestPyrightOutsideAProjectRunsBareUnderBun(t *testing.T) {
+	s := &script{}
+	Typecheck(context.Background(), tree(t, s, map[string]string{"pyrightconfig.json": "{}"}), row, cache)
+	if len(s.calls) != 2 || !slices.Equal(s.calls[1].Args, []string{"x", "--bun", "pyright@" + checks.PyrightVersion}) || s.calls[1].Name != "bun" {
+		t.Errorf("calls %v", s.calls)
+	}
+}
+
+// A pyright that cannot start (forge/dev-vault-mcp-12816db-g5l6g: the node it
+// fetched wanted libatomic.so.1, exit 127) is a finding of its own, not a
+// could-not-run of the verb: mypy's clean answer still stands beside it.
+func TestAPyrightThatCannotStartIsADistinctFinding(t *testing.T) {
+	files := map[string]string{"pyproject.toml": "[tool.pyright]\n"}
+	for name, code := range map[string]int{"exit 127": 127, "killed": 137, "fatal": 2} {
+		s := &script{exits: map[string]int{"pyright": code}, outs: map[string]string{"mypy": "Success: no issues found", "pyright": "error while loading shared libraries: libatomic.so.1"}}
+		v := Typecheck(context.Background(), tree(t, s, files), row, cache)
+		if v.State != int(checks.StateFindings) || !strings.Contains(v.Reason, "pyright could not run") || !strings.Contains(v.Reason, "Success: no issues found") {
+			t.Errorf("%s: %+v", name, v)
 		}
 	}
 }
