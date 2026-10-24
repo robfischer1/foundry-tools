@@ -65,6 +65,15 @@ const (
 // namespace in its own manifests.
 var ServiceGlobs = []string{"prime/*.yaml", "blades/*.yaml", "hemera/*.yaml", "clusters/pantheon/*.yaml"}
 
+// FluxReadGlobs is every glob of foundry/flux this lane reads, the set a flux
+// landing must touch to change what the lane would stage. The ourea door
+// mirrors it (internal/verbs fluxFactGlobs) to decide when a flux landing asks
+// this lane again; TestFluxReadGlobsPinned fails when the set moves so the
+// mirror is updated with it.
+func FluxReadGlobs() []string {
+	return append([]string{StarManifestGlob, ClusterGlob}, ServiceGlobs...)
+}
+
 // starLabel is the label every star's workload carries.
 const starLabel = "pistis.star"
 
