@@ -52,6 +52,25 @@ func TestRecordLanesPass(t *testing.T) {
 	}
 }
 
+// A lane the executor does not run (retired) may be in one list and not the other:
+// the door's list is edited first while the serving colour's map waits for a flip.
+func TestRecordLanesRetiredLaneMayDiffer(t *testing.T) {
+	jobs := jobsYAML(`["gate","atoms","dev","mutation-bg"]`, `["gate"]`)
+	for name, files := range map[string]map[string]string{
+		"only daedalus-jobs lists it": laneFiles(jobs, oureaYAML(`record_lanes = ["gate","atoms","dev"]`)),
+		"only the door lists it":      laneFiles(jobsYAML(`["gate","atoms","dev"]`, `["gate"]`), oureaYAML(`record_lanes = ["gate","atoms","dev","mutation-bg"]`)),
+	} {
+		if state, report := RecordLanes(files); state != int(StatePass) {
+			t.Errorf("%s: state %d, want pass:\n%s", name, state, report)
+		}
+	}
+	// A live lane stays strict.
+	live := laneFiles(jobsYAML(`["gate","atoms","dev","mutation"]`, `["gate","mutation"]`), oureaYAML(`record_lanes = ["gate","atoms","dev"]`))
+	if state, _ := RecordLanes(live); state != int(StateFindings) {
+		t.Errorf("a live lane in one list only: state %d, want findings", state)
+	}
+}
+
 func TestRecordLanesFindings(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -70,7 +89,7 @@ func TestRecordLanesFindings(t *testing.T) {
 		},
 		{
 			"unequal lists",
-			laneFiles(jobsYAML(`["gate","atoms","dev","mutation"]`, ""), oureaYAML(`record_lanes = ["gate","atoms","dev","visual"]`)),
+			laneFiles(jobsYAML(`["gate","atoms","dev","mutation"]`, `["mutation","visual"]`), oureaYAML(`record_lanes = ["gate","atoms","dev","visual"]`)),
 			[]string{"mutation", "visual", "not equal"},
 		},
 		{

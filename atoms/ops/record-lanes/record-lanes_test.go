@@ -52,7 +52,7 @@ func TestOpsRecordLanes(t *testing.T) {
 			map[string]string{jobs: lanesJobs(`["gate","check","atoms","dev"]`, `["check"]`), ourea: lanesOurea(`["gate","atoms","dev"]`)},
 			1, atomtest.Findings, []string{"check", "missing from record_lanes in prime/ourea-config.yaml"}},
 		{"unequal lists are findings",
-			map[string]string{jobs: lanesJobs(`["gate","atoms","dev","visual"]`, ""), ourea: lanesOurea(`["gate","atoms","dev"]`)},
+			map[string]string{jobs: lanesJobs(`["gate","atoms","dev","visual"]`, `["visual"]`), ourea: lanesOurea(`["gate","atoms","dev"]`)},
 			1, atomtest.Findings, []string{"not equal", "visual"}},
 		{"atoms missing is a finding",
 			map[string]string{jobs: lanesJobs(`["gate","dev"]`, ""), ourea: lanesOurea(`["gate","dev"]`)},
