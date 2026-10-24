@@ -62,8 +62,9 @@ type grading struct {
 	// is. Empty until the patcher has run, so a stand-down before the install
 	// reads exactly as it did.
 	runner string
-	// tree is where bun installs and stryker runs.
-	tree string
+	// tree is where bun installs and stryker runs; installed says it is done.
+	tree      string
+	installed bool
 	// carried is the nightly's carried ranges (atoms.ReadCarried); nil is none.
 	carried *atoms.Carried
 }
@@ -140,6 +141,16 @@ func (g *grading) grade(ctx context.Context) checks.Verdict {
 	}
 	if g.carried, err = atoms.ReadCarried(ctx, in, since, id, tsSource); err != nil {
 		return g.settle(2, "CANNOT RUN - the carried ranges: "+err.Error())
+	}
+	// A TEST-ONLY CHANGE IS GRADED BY WHAT ITS TESTS RUN (covered.go): the
+	// source lines join the carried ones before the empty-change-set exit.
+	covered, note, failed := g.testCovered(ctx, since)
+	if failed != nil {
+		return *failed
+	}
+	g.carried = g.carried.Plus(covered)
+	if note != "" {
+		g.scope += "\n" + note
 	}
 	diff := strings.TrimSpace(g.carried.WithCarried(strings.TrimSpace(s.out), in.Root))
 	if diff == "" {

@@ -68,3 +68,17 @@ func TestCarriedRefusesRangesThatDoNotParseAndRendersWithTheTreesText(t *testing
 		t.Fatalf("got %q", got)
 	}
 }
+
+// Covered lines widen the scope as carried ones do; nothing added is the same
+// value, nil included.
+func TestCarriedPlusUnionsCoveredLines(t *testing.T) {
+	var none *Carried
+	if none.Plus(nil) != nil {
+		t.Fatal("nothing added to nil is nil")
+	}
+	c := none.Plus(map[string][]unitkey.Range{"a.py": {{Start: 1, End: 2}}})
+	c = c.Plus(map[string][]unitkey.Range{"a.py": {{Start: 3, End: 3}}, "b.py": {{Start: 5, End: 5}}})
+	if len(c.Ranges) != 2 || c.Ranges["a.py"][0].End != 3 || len(c.Moved) != 0 || c.Plus(nil) != c {
+		t.Fatalf("%+v", c)
+	}
+}

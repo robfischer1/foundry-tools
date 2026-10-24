@@ -8,7 +8,6 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 
 	"dagger/foundry-tools/internal/atoms"
@@ -23,21 +22,8 @@ import (
 // test file in it runs nothing here.
 
 // EnvCoveredCap bounds the lines a run's changed tests may add to its scope; the
-// rest are cut, said on the verdict, and never a failure.
-const EnvCoveredCap = "ATOM_MUTATION_COVERED_CAP"
-
-// defaultCoveredCap is the bound when the knob is unset: about a night's worth of
-// one module's mutants at the lane's measured cost.
-const defaultCoveredCap = 2000
-
-// coveredCap reads EnvCoveredCap; unset or unreadable is the default, and a value
-// of 0 or less is no bound.
-func coveredCap() int {
-	if n, err := strconv.Atoi(os.Getenv(EnvCoveredCap)); err == nil {
-		return n
-	}
-	return defaultCoveredCap
-}
+// knob is every mutation atom's (checks.EnvMutationCoveredCap).
+const EnvCoveredCap = checks.EnvMutationCoveredCap
 
 // testCovered answers the source lines the change's tests execute, named from the
 // repository root, and a line for the verdict saying what ran and what was cut.
@@ -80,17 +66,7 @@ func (m *module) testCovered(ctx context.Context, since, changed string, tags []
 			notes = append(notes, note)
 		}
 	}
-	kept, cutLines, cutFiles := checks.CapMutationRanges(covered, coveredCap())
-	lines := 0
-	for _, rs := range kept {
-		for _, r := range rs {
-			lines += r.End - r.Start + 1
-		}
-	}
-	say := fmt.Sprintf("%s: changed tests: %d source line(s) in %d file(s) they run joined the scope", id, lines, len(kept))
-	if cutLines > 0 {
-		say += fmt.Sprintf("; %d line(s) in %d file(s) cut at the %s bound (%s)", cutLines, len(cutFiles), EnvCoveredCap, strings.Join(cutFiles[:min(len(cutFiles), 5)], ", "))
-	}
+	kept, say := checks.CoveredScope(id, "they run", covered)
 	root := map[string][]unitkey.Range{}
 	for f, rs := range kept {
 		root[path.Join(m.dir, f)] = rs

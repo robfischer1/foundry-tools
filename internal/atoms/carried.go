@@ -76,6 +76,20 @@ func (e carriedDiffError) Error() string {
 	return "git could not diff the carried ranges' base " + e.since + " against HEAD: " + e.out
 }
 
+// Plus is c with more lines to grade, named from the root: the source a
+// change's tests run (checks/testcovered.go). They widen the scope exactly as
+// carried lines do and move no finding. Nothing added is c, nil included.
+func (c *Carried) Plus(r map[string][]unitkey.Range) *Carried {
+	if len(r) == 0 {
+		return c
+	}
+	if c == nil {
+		c = &Carried{}
+	}
+	c.Ranges = checks.UnionMutationRanges(c.Ranges, r)
+	return c
+}
+
 // Into adds the moved findings to a verdict that graded (state 0 or 1); a
 // could-not-run carries nothing, because nothing it says was measured.
 func (c *Carried) Into(v checks.Verdict) checks.Verdict {

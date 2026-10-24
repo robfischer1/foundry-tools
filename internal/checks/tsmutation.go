@@ -183,14 +183,7 @@ func PlanStryker(ranges []StrykerRange, configDirs map[string]bool) ([]StrykerPa
 	at := map[string]int{}
 	orphaned := map[string]bool{}
 	for _, r := range ranges {
-		owner := ""
-		for d := path.Dir(r.File); owner == ""; d = path.Dir(d) {
-			if configDirs[d] {
-				owner = d
-			} else if d == "." || d == "/" {
-				break
-			}
-		}
+		owner := StrykerOwner(r.File, configDirs)
 		if owner == "" {
 			orphaned[r.File] = true
 			continue

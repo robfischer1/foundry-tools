@@ -118,6 +118,13 @@ func (g *grading) grade(ctx context.Context) checks.Verdict {
 	if g.carried, err = atoms.ReadCarried(ctx, in, since, id, func(f string) bool { return strings.HasSuffix(f, ".rs") }); err != nil {
 		return g.settle(2, "CANNOT RUN - the carried ranges: "+err.Error())
 	}
+	// A TEST-ONLY CHANGE IS GRADED BY ITS CRATE (covered.go): the crate's
+	// source joins the carried lines before the empty-change-set exit.
+	covered, note := g.testCrates(ctx, since)
+	g.carried = g.carried.Plus(covered)
+	if note != "" {
+		g.scope += "\n" + note
+	}
 	diff = g.carried.WithCarried(diff, in.Root)
 	if diff == "" {
 		return g.settle(0, "this pull touched none of the critical modules — nothing to mutate")
