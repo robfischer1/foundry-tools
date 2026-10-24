@@ -197,6 +197,7 @@ func TestMemBudgetReadsTheEnvironment(t *testing.T) {
 }
 
 func TestCargoBoundedEnvJobs(t *testing.T) {
+	t.Setenv(CPUsEnv, "")
 	t.Setenv(MemEnv, "")
 	if got := CargoBoundedEnv()[0]; got != "CARGO_BUILD_JOBS=6" {
 		t.Errorf("no memory word: %s", got)
