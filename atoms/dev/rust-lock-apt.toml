@@ -10,7 +10,7 @@ argv = ["deblock", "-relock", "-dockerfile", "Dockerfile", "-out", "packages.loc
 args = "append"
 per_module = false
 judge = "exit"
-needs = ["tool:deblock"]
+needs = ["svid", "tool:deblock"]
 writes_tree = true
 preflight = false
 
@@ -25,3 +25,5 @@ preflight = false
 # only in the go container, which is also why preflight is off (the star's own
 # manifest is not a Go module). A caller's arguments follow, and the last
 # -dockerfile wins, so `-dockerfile build/Dockerfile` points at another one.
+# needs svid: deblock pulls that base from the registry under the pod's JWT-SVID,
+# and the executor mounts the SPIRE socket only where an atom needs svid.

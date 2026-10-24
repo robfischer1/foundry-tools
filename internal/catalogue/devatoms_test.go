@@ -175,10 +175,10 @@ var (
 		"dev:ts-fmt":          {"tool:node", "tool:curl"},
 		"dev:ts-typecheck":    {"tool:node", "tool:curl"},
 		"dev:ts-check":        {"tool:node", "tool:curl"},
-		"dev:go-lock-apt":     {"tool:deblock"},
-		"dev:rust-lock-apt":   {"tool:deblock"},
-		"dev:python-lock-apt": {"tool:deblock"},
-		"dev:ts-lock-apt":     {"tool:deblock"},
+		"dev:go-lock-apt":     {"svid", "tool:deblock"},
+		"dev:rust-lock-apt":   {"svid", "tool:deblock"},
+		"dev:python-lock-apt": {"svid", "tool:deblock"},
+		"dev:ts-lock-apt":     {"svid", "tool:deblock"},
 	}
 	devEnv = map[string]map[string]string{
 		"dev:go-vendor":   {"GOFLAGS": "-mod=mod"},
