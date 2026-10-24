@@ -53,11 +53,23 @@ type klGit struct {
 	mergeBase, diff, show     string
 	revCode, mbCode, diffCode int
 	showCode                  int
+
+	// merge: HEAD is a two-parent merge (a tip gate of a landing); parentCode
+	// is the exit of resolving its first parent.
+	merge      bool
+	parentCode int
 }
 
 func (g klGit) exec(_ context.Context, c Cmd) (string, int) {
 	a := strings.Join(c.Args, " ")
 	switch {
+	case strings.HasPrefix(a, "rev-parse") && strings.HasSuffix(a, "HEAD^2"):
+		if g.merge {
+			return "second\n", 0
+		}
+		return "", 1
+	case strings.HasPrefix(a, "rev-parse") && strings.HasSuffix(a, "HEAD^1"):
+		return "mb\n", g.parentCode
 	case strings.HasPrefix(a, "rev-parse"):
 		return "ok\n", g.revCode
 	case strings.HasPrefix(a, "merge-base"):
@@ -128,6 +140,27 @@ func TestUT_KL22_TheFullTreeIsKeptWheneverTheScopeIsNotEstablished(t *testing.T)
 	// A kube-linter config that does not parse is not replaced by a guess.
 	bad := klTree(t, map[string]string{".kube-linter.yaml": "checks: [\n"})
 	klFull(t, klPlan(t, bad, klGit{diff: klPinDiff, show: pin}), "does not parse")
+}
+
+// A TIP GATE HAS NO BASE (the door asks it of main after a landing), and a
+// pin bump lands with no gate of its own, so the tip gate is where the cost is:
+// the landing's own change is the first-parent diff of the merge.
+func TestUT_KL25_ATipGateOfAMergeIsMeasuredAgainstItsFirstParent(t *testing.T) {
+	noBase := klTree(t, nil)
+	noBase.Base = ""
+	pin := strings.Replace(klPins, "%s", "1", 1)
+	p := klPlan(t, noBase, klGit{merge: true, diff: klPinDiff, show: pin})
+	if p.Skip || !slices.Equal(p.Targets, []string{"aiws", "prime"}) || p.Config == "" {
+		t.Errorf("a merge tip narrows like a pull does: %+v", p)
+	}
+	skip := klPlan(t, noBase, klGit{merge: true, diff: "M\x00docs/notes.md\x00"})
+	if !skip.Skip {
+		t.Errorf("a landing that changed nothing a target reads: %+v", skip)
+	}
+	// Not a merge (a root, a fast-forward, a snapshot): nothing to measure from.
+	klFull(t, klPlan(t, noBase, klGit{diff: klPinDiff, show: pin}), "no base")
+	// A first parent that will not resolve is not a change set.
+	klFull(t, klPlan(t, noBase, klGit{merge: true, parentCode: 1, diff: klPinDiff, show: pin}), "first parent")
 }
 
 func TestUT_KL23_ATreeWithOnlyTheYmlConfigOrNoneStillDerivesOne(t *testing.T) {

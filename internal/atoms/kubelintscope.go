@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"dagger/foundry-tools/internal/checks"
 )
@@ -26,12 +27,9 @@ type KubeLintPlan struct {
 // removes Config when it is not "".
 func PlanKubeLinter(ctx context.Context, in Input, targets []string) KubeLintPlan {
 	full := func(why string) KubeLintPlan { return KubeLintPlan{Targets: targets, Note: "full tree: " + why} }
-	if in.Base == "" {
-		return full("no base to measure the change from")
-	}
-	mb, err := ChangeBase(ctx, in, in.Root)
-	if err != nil || mb == "" {
-		return full("the merge base could not be established")
+	mb, why := scopeBase(ctx, in)
+	if mb == "" {
+		return full(why)
 	}
 	out, code := in.run(ctx, Cmd{Dir: in.Root, Name: "git", Args: []string{"diff", "-z", "--name-status", "--no-renames", mb + "..HEAD"}})
 	if code != 0 {
@@ -63,6 +61,33 @@ func PlanKubeLinter(ctx context.Context, in Input, targets []string) KubeLintPla
 		return full(err.Error())
 	}
 	return KubeLintPlan{Targets: scope.Targets, Config: cfg, Note: "scoped to the targets that build the changed pins"}
+}
+
+// scopeBase is the commit the change is measured from, or "" and why not.
+//
+// A pull's or candidate's gate names a base, and the change is measured from
+// its merge base (ChangeBase). A TIP gate - the door's run on main after a
+// landing - names none, and it is where the cost is: a pin bump lands with no
+// gate of its own, so this is the only lint it gets. A landing is a two-parent
+// merge, so the tip's change is its diff against the first parent. Anything
+// that is not a merge (a root commit, a fast-forward, a hook's snapshot) has
+// no such change and keeps the full tree.
+func scopeBase(ctx context.Context, in Input) (string, string) {
+	if in.Base != "" {
+		mb, err := ChangeBase(ctx, in, in.Root)
+		if err != nil || mb == "" {
+			return "", "the merge base could not be established"
+		}
+		return mb, ""
+	}
+	if _, code := in.run(ctx, Cmd{Dir: in.Root, Name: "git", Args: []string{"rev-parse", "--verify", "--quiet", "HEAD^2"}}); code != 0 {
+		return "", "no base to measure the change from"
+	}
+	out, code := in.run(ctx, Cmd{Dir: in.Root, Name: "git", Args: []string{"rev-parse", "--verify", "--quiet", "HEAD^1"}})
+	if p := strings.TrimSpace(out); code == 0 && p != "" {
+		return p, ""
+	}
+	return "", "the merge's first parent could not be resolved"
 }
 
 // derivedKubeConfig writes the tree's kube-linter config with the cross-object
