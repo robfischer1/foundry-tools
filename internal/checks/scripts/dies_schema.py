@@ -73,9 +73,7 @@ def check_schema_file(path: str) -> dict:
     props = set(doc.get("properties", {}))
     missing = [k for k in doc.get("required", []) if k not in props]
     if missing:
-        sys.exit(
-            f"::error file={path}::required names properties that are not defined: {missing}"
-        )
+        sys.exit(f"::error file={path}::required names properties that are not defined: {missing}")
     print(f"valid Draft 2020-12 schema - {doc.get('$id')}")
     print(f"{len(doc.get('required', []))} required keys, all defined in properties")
     return doc
@@ -118,9 +116,7 @@ if entries:
             continue
         findings = [
             f"{'/'.join(str(x) for x in e.path) or '<root>'}: {e.message}"
-            for e in sorted(
-                catalog.iter_errors(doc), key=lambda e: [str(x) for x in e.path]
-            )
+            for e in sorted(catalog.iter_errors(doc), key=lambda e: [str(x) for x in e.path])
         ]
         if not isinstance(doc, dict) or doc.get("name") != stem:
             findings.append(f"name: name must equal the filename {stem!r}")

@@ -79,9 +79,7 @@ def stage(script: str, tree: Path) -> None:
         script: the script's file name in this directory.
         tree: the temporary repository to run it against.
     """
-    (tree / "probe.py").write_text(
-        (SCRIPTS / script).read_text(encoding="utf-8"), encoding="utf-8"
-    )
+    (tree / "probe.py").write_text((SCRIPTS / script).read_text(encoding="utf-8"), encoding="utf-8")
 
 
 def stub_jsonschema(tree: Path) -> None:
