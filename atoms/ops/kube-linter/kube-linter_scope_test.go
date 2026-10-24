@@ -42,6 +42,8 @@ func gitScript(diff string, base map[string]string) func(atoms.Cmd) (string, int
 		}
 		a := strings.Join(c.Args, " ")
 		switch {
+		case strings.HasPrefix(a, "rev-parse") && strings.HasSuffix(a, "HEAD^2"):
+			return "", 1 // the tree under test is no merge: a tip gate has no first parent to measure from
 		case strings.HasPrefix(a, "rev-parse"):
 			return "ok\n", 0
 		case strings.HasPrefix(a, "merge-base"):
