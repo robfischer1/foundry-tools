@@ -1,4 +1,4 @@
-// hadescall asks hades one verb over mTLS, as the SVID the SPIRE agent's
+// hadescall asks hades one verb, as the SVID the SPIRE agent's
 // socket issues. The logic, and why it looks the way it does, is in
 // internal/hadescall; this is only its process.
 //
