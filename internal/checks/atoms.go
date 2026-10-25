@@ -58,10 +58,10 @@ const (
 	// Like StageCast it is in no lane's stages: lanes/bundle.toml
 	// names the atoms, so a gate, a check or a push never builds a die.
 	StageBundle = "bundle"
-	// StageBases is the bases lane's per-base release (D7): the files a
+	// StageBases is a repository of bases' per-base release (D7): the files a
 	// FROM-scratch layer image's Dockerfile copies, which bases:release builds
 	// from the inputs the base carries. Like StageCast it is in no lane's stages:
-	// lanes/bases.toml names the atom, so a gate, a check or a push never runs it.
+	// lanes/build.toml names the atom, so a gate, a check or a push never runs it.
 	StageBases = "bases"
 )
 

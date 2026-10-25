@@ -79,19 +79,22 @@ func TestUT_603_AllStagesAccepted(t *testing.T) {
 	}
 }
 
-// mutation-bg is retired (no lane by that name is asked): it must not parse.
-func TestRetiredMutationBgLaneRefused(t *testing.T) {
-	if slices.Contains(KnownLanes, "mutation-bg") {
-		t.Fatal("mutation-bg is still a known lane")
-	}
-	if _, err := ParseLane([]byte(strings.Replace(lane(""), `"gate"`, `"mutation-bg"`, 1))); err == nil {
-		t.Error("a lane file named mutation-bg parsed")
+// mutation-bg and bases are retired (no lane by either name is asked): neither
+// may parse. A repository of bases builds on the build lane (DEF-B6-035).
+func TestRetiredLanesRefused(t *testing.T) {
+	for _, l := range []string{"mutation-bg", "bases"} {
+		if slices.Contains(KnownLanes, l) {
+			t.Fatalf("%s is still a known lane", l)
+		}
+		if _, err := ParseLane([]byte(strings.Replace(lane(""), `"gate"`, `"`+l+`"`, 1))); err == nil {
+			t.Errorf("a lane file named %s parsed", l)
+		}
 	}
 }
 
 func TestEveryKnownLaneAccepted(t *testing.T) {
-	if len(KnownLanes) != 15 {
-		t.Fatalf("KnownLanes has %d, want 15", len(KnownLanes))
+	if len(KnownLanes) != 14 {
+		t.Fatalf("KnownLanes has %d, want 14", len(KnownLanes))
 	}
 	for _, l := range KnownLanes {
 		if _, err := ParseLane([]byte(strings.Replace(lane(""), `"gate"`, `"`+l+`"`, 1))); err != nil {

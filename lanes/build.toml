@@ -3,7 +3,7 @@ lane = "build"
 
 # There is no release stage (the release atoms sit in prepush), so the phase
 # names its atoms. The door asks only this lane for a repository of bases
-# (ourea laneForProduct), so the lane carries lanes/bases.toml's per-base
+# (ourea laneForProduct), so the lane carries the per-base
 # release atoms and its chairman validation (DEF-B6-035): each is ABSENT by its
 # own surface where the tree has no bases/, so no other repository's build
 # plans or runs one.

@@ -78,16 +78,16 @@ func TestUT_614_BundlePhases(t *testing.T) {
 }
 
 // TestUT_613_ReleasePhasesNameTheFourReleaseAtoms: the atoms of the release
-// phases of build, bases and publish are real catalogue ids (the release
+// phases of build and publish are real catalogue ids (the release
 // stage does not exist, DEF-8-019, so they are named, not staged).
 func TestUT_613_ReleasePhasesNameTheFourReleaseAtoms(t *testing.T) {
 	want := []string{"go:release", "python:release", "rust:release", "ts:release"}
-	// The build lane and the bases lane add the per-base release of the layers
-	// that carry their own: the door asks only build for a repository of bases
+	// The build lane adds the per-base release of the layers that carry
+	// their own: the door asks only build for a repository of bases
 	// (DEF-B6-035), and each of the three atoms is absent where the tree has no
 	// bases/ (its surface), so no other repository's build changes.
 	withBases := append(slices.Clone(want), "bases:release", "bases:go-release")
-	for l, want := range map[string][]string{"build": withBases, "bases": withBases} {
+	for l, want := range map[string][]string{"build": withBases} {
 		if got := landedLanes(t)[l].Phases[0].Atoms; !slices.Equal(got, want) {
 			t.Errorf("%s release: %v", l, got)
 		}
@@ -128,7 +128,7 @@ func TestLaneAtomsAreCatalogueAtoms(t *testing.T) {
 
 func TestEachSecretIsNamedOnce(t *testing.T) {
 	want := map[string]string{
-		"build": "publish:ca-build-registry", "bases": "publish:ca-build-registry", "bundle": "push:ca-bundle-lane",
+		"build": "publish:ca-build-registry", "bundle": "push:ca-bundle-lane",
 		"publish": "publish:ca-publish-lane", "cast": "cast:ca-cast-lane", "govern": "cast:ca-cast-lane",
 	}
 	for name, d := range landedLanes(t) {
@@ -169,13 +169,12 @@ func TestLaneShapes(t *testing.T) {
 	}
 }
 
-// The build and bases lanes validate between assemble and scan: bases:chairman
-// holds the assembled chairman layout to its fixed-file table before anything is
-// scanned. The door asks the build lane for a repository of bases (DEF-B6-035),
-// so the build lane carries the same phases.
+// The build lane validates between assemble and scan: bases:chairman holds the
+// assembled chairman layout to its fixed-file table before anything is
+// scanned. The door asks the build lane for a repository of bases (DEF-B6-035).
 func TestBasesPhasesValidateBetweenAssembleAndScan(t *testing.T) {
 	lanes := landedLanes(t)
-	for _, l := range []string{"build", "bases"} {
+	for _, l := range []string{"build"} {
 		d := lanes[l]
 		var names []string
 		by := map[string]PhaseDef{}

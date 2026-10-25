@@ -4,7 +4,7 @@
 // when go.mod is not in the base's own directory, the module's directory; this
 // atom compiles it there with the fleet's release flags and stages the binary at
 // <release out>/<b>/, where the base's Dockerfile COPYs it from release/<b>/.
-// It is the bases lane's alone (stage bases is in no other lane's stages); the
+// Only lanes/build.toml names it (stage bases is in no lane's stages); the
 // decisions are internal/releasekit's, the compile is go:release's.
 package basesgorelease
 
