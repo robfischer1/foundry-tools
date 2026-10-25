@@ -201,7 +201,12 @@ func caseShape(c Case) []string {
 // Node is one ledger child as the graph holds it.
 type Node struct {
 	ID, Key, Name, Status string
-	Commits               []string
+	// Commits are the literal hasCommit receipts, each held to commitRe.
+	Commits []string
+	// Linked counts hasCommit edges to a Commit node: athena resolves a full
+	// sha or repo@sha to ourea's Commit and writes the edge, so the receipt
+	// is the node itself and has no literal to check.
+	Linked int
 }
 
 // Closed reports whether the status ends a node.
@@ -253,7 +258,7 @@ func Compare(cases []string, nodes []Node) []string {
 				out = append(out, fmt.Sprintf("%s: check passes (or was removed) while its item is open (node %s is %s, no red case)", id, short(n.ID), n.Status))
 			}
 			if n.Closed() {
-				if len(n.Commits) == 0 {
+				if len(n.Commits) == 0 && n.Linked == 0 {
 					out = append(out, fmt.Sprintf("%s: node %s is %s with no hasCommit receipt", id, short(n.ID), n.Status))
 				}
 				for _, c := range n.Commits {
@@ -323,6 +328,7 @@ type row struct {
 	Edges  []struct {
 		Predicate string `json:"predicate"`
 		To        string `json:"to"`
+		IsNode    bool   `json:"is_node"`
 	} `json:"edges"`
 }
 
@@ -399,7 +405,11 @@ func receipts(ctx context.Context, ask Ask, nodes []Node) error {
 				return fmt.Errorf("plan_task_read answered a node (%s) that was not asked", short(r.ID))
 			}
 			for _, e := range r.Edges {
-				if e.Predicate == "hasCommit" {
+				switch {
+				case e.Predicate != "hasCommit":
+				case e.IsNode:
+					nodes[i].Linked++
+				default:
 					nodes[i].Commits = append(nodes[i].Commits, e.To)
 				}
 			}

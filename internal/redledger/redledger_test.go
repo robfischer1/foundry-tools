@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -99,7 +100,11 @@ func (h *hades) ask(_ context.Context, verb, args string) (int, string, error) {
 				if n.id == id {
 					edges := []map[string]any{{"predicate": "hasName", "to": "x"}}
 					for _, c := range n.commits {
-						edges = append(edges, map[string]any{"predicate": "hasCommit", "to": c})
+						edge := map[string]any{"predicate": "hasCommit", "to": c}
+						if commitNode.MatchString(c) {
+							edge["is_node"] = true
+						}
+						edges = append(edges, edge)
 					}
 					rows = append(rows, map[string]any{"id": n.id, "edges": edges})
 				}
@@ -113,6 +118,12 @@ func (h *hades) ask(_ context.Context, verb, args string) (int, string, error) {
 func open(id string) node {
 	return node{id: "open-" + id, key: Prefix + id, name: "[pending] " + id, status: "backlog"}
 }
+
+// commitTok is a Commit node's token: the fake serves a 64-hex receipt as a
+// hasCommit edge (is_node), the shape athena writes for a resolved sha.
+const commitTok = "c0ffee00000000000000000000000000000000000000000000000000000000c1"
+
+var commitNode = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 func closed(id, name string, commits ...string) node {
 	return node{id: "done-" + id, key: Prefix + id, name: name, status: "done", commits: commits}
@@ -231,6 +242,13 @@ func TestAClosedNodeNeedsAReceiptAndAResolution(t *testing.T) {
 		h := &hades{nodes: []node{open(a), open(b), n}}
 		has(t, Check(context.Background(), twoCases(), h.ask), Pass)
 	}
+	// A hasCommit EDGE to a Commit node is a receipt with no literal to check.
+	linked := closed("g.h/i", "[I] x", commitTok)
+	has(t, Check(context.Background(), twoCases(), (&hades{nodes: []node{open(a), open(b), linked}}).ask), Pass)
+	// ...but it does not excuse a malformed literal beside it.
+	mixed := closed("g.h/i", "[I] x", commitTok, "abc123")
+	has(t, Check(context.Background(), twoCases(), (&hades{nodes: []node{open(a), open(b), mixed}}).ask),
+		Findings, `receipt "abc123" is not rob/<repo>@<40-hex>`)
 	// ...and a cut without one is not.
 	n := closed("g.h/i", "[III] x")
 	n.status = "cut"
