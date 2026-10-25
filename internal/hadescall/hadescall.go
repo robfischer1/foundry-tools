@@ -1,6 +1,14 @@
-// Package hadescall asks hades one verb over mTLS, as the SVID the SPIRE
-// agent's socket issues. A lane function execs the hadescall binary (its thin
-// main, at the module's hadescall/) with the socket the calling pod forwarded.
+// Package hadescall asks hades one verb as the SVID the SPIRE agent's socket
+// issues. A lane function execs the hadescall binary (its thin main, at the
+// module's hadescall/) with the socket the calling pod forwarded.
+//
+// THE SCHEME PICKS THE DIAL. An http:// HADESCALL_HADES (the default,
+// http://hades.prime.svc.cluster.local:8101) is hades's attributed plaintext
+// face: Cilium stamps the caller by ServiceAccount (hades edge S5; the mTLS
+// door :8102 is retired), the client presents no certificate and follows no
+// redirect. An https:// one is a mutual-TLS door: the SVID is presented and
+// hades is authorized by its SPIFFE id. The SVID is fetched either way: it is
+// what the call logs itself as and what HADESCALL_SVID_FIELD writes.
 //
 // THE SOCKET IS THE CALLER'S IDENTITY. A Socket argument is dialed by the
 // dagger CLI that called the function, so the agent attests the pod the CLI
@@ -43,8 +51,11 @@ import (
 const usage = `usage: hadescall <verb> <json-args>
 
 Reads HADESCALL_SOCKET (unix:///run/spire/agent.sock), HADESCALL_HADES
-(https://hades:8102), HADESCALL_HADES_ID
+(http://hades.prime.svc.cluster.local:8101), HADESCALL_HADES_ID
 (spiffe://notusmi.com/star/hades) and HADESCALL_IDENTITY_WAIT (120s).`
+
+// defaultHades is hades's attributed plaintext face (hades edge S5).
+const defaultHades = "http://hades.prime.svc.cluster.local:8101"
 
 // Identity is what a call needs from the agent: the SVID it presents, and the
 // bundle it verifies hades against.
@@ -89,11 +100,11 @@ type config struct {
 func configOf(env func(string) string) (config, error) {
 	c := config{
 		socket: or(env("HADESCALL_SOCKET"), "unix:///run/spire/agent.sock"),
-		// The fallback is a BARE name: it said hades.default.svc.cluster.local
-		// until 2026-09-25, which pinned a namespace the fleet has since left.
-		// HADESCALL_HADES overrides it, and this binary runs in a container, so
-		// unlike the module-side constants the env var genuinely reaches it.
-		hades: strings.TrimRight(or(env("HADESCALL_HADES"), "https://hades:8102"), "/"),
+		// The fallback is hades's attributed face by FQDN: a caller pod may run
+		// outside ns prime. HADESCALL_HADES overrides it, and this binary runs
+		// in a container, so unlike the module-side constants the env var
+		// genuinely reaches it.
+		hades: strings.TrimRight(or(env("HADESCALL_HADES"), defaultHades), "/"),
 		wait:  120 * time.Second,
 	}
 	id, err := spiffeid.FromString(or(env("HADESCALL_HADES_ID"), "spiffe://notusmi.com/star/hades"))
@@ -167,15 +178,28 @@ func Run(ctx context.Context, args []string, env func(string) string, stdout, st
 		stamped, _ := json.Marshal(fields)
 		body = string(stamped)
 	}
-	return ask(ctx, clientFor(id, cfg.hadesID), cfg.hades+"/v1/call/"+verb, verb, body, stdout, stderr)
+	return ask(ctx, clientFor(id, cfg.hadesID, cfg.hades), cfg.hades+"/v1/call/"+verb, verb, body, stdout, stderr)
 }
 
-// clientFor is the mTLS client: this identity's SVID presented, and hades
-// verified against the bundle and authorized by its SPIFFE id alone. Three
-// minutes end to end, because hades answers a durable produce.
-func clientFor(id Identity, hadesID spiffeid.ID) *http.Client {
+// callTimeout is three minutes end to end, because hades answers a durable
+// produce.
+const callTimeout = 180 * time.Second
+
+// clientFor is the client for base. http:// is the attributed face: no TLS, no
+// client certificate, and no redirect followed, so the call goes only to the
+// address that was configured. Anything else is the mTLS client: this
+// identity's SVID presented, and hades verified against the bundle and
+// authorized by its SPIFFE id alone.
+func clientFor(id Identity, hadesID spiffeid.ID, base string) *http.Client {
+	if strings.HasPrefix(strings.ToLower(base), "http://") {
+		return &http.Client{
+			Timeout:       callTimeout,
+			Transport:     &http.Transport{},
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		}
+	}
 	return &http.Client{
-		Timeout: 180 * time.Second,
+		Timeout: callTimeout,
 		Transport: &http.Transport{
 			TLSClientConfig: tlsconfig.MTLSClientConfig(id, id, tlsconfig.AuthorizeID(hadesID)),
 		},

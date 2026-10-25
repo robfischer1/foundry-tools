@@ -58,7 +58,7 @@ func TestTheDefaultsAreTheFleets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.socket != "unix:///run/spire/agent.sock" || c.hades != "https://hades:8102" ||
+	if c.socket != "unix:///run/spire/agent.sock" || c.hades != "http://hades.prime.svc.cluster.local:8101" ||
 		c.hadesID.String() != "spiffe://notusmi.com/star/hades" || c.wait != 120*time.Second {
 		t.Fatalf("defaults: %+v", c)
 	}
@@ -70,10 +70,20 @@ func TestTheDefaultsAreTheFleets(t *testing.T) {
 	}
 }
 
-// The client gives hades three minutes, and presents this identity.
+// The client gives hades three minutes on either dial. The face client
+// carries no TLS and follows no redirect; the mTLS client carries TLS.
 func TestTheClientWaitsThreeMinutes(t *testing.T) {
-	if c := clientFor(&fakeIdentity{}, spiffeid.RequireFromString("spiffe://notusmi.com/star/hades")); c.Timeout != 3*time.Minute {
-		t.Fatalf("timeout %s", c.Timeout)
+	hadesID := spiffeid.RequireFromString("spiffe://notusmi.com/star/hades")
+	m := clientFor(&fakeIdentity{}, hadesID, "https://h:1")
+	if m.Timeout != 3*time.Minute || m.Transport.(*http.Transport).TLSClientConfig == nil {
+		t.Fatalf("mTLS client: timeout %s", m.Timeout)
+	}
+	f := clientFor(&fakeIdentity{}, hadesID, "HTTP://h:1")
+	if f.Timeout != 3*time.Minute || f.Transport.(*http.Transport).TLSClientConfig != nil {
+		t.Fatalf("face client: timeout %s", f.Timeout)
+	}
+	if f.CheckRedirect == nil || !errors.Is(f.CheckRedirect(nil, nil), http.ErrUseLastResponse) {
+		t.Fatal("the face client follows redirects")
 	}
 }
 
@@ -339,6 +349,51 @@ func TestAServerThatIsNotHadesIsNeverAsked(t *testing.T) {
 	defer h.mu.Unlock()
 	if h.asked {
 		t.Fatal("the impostor was asked")
+	}
+}
+
+// An http:// HADESCALL_HADES is the attributed face: the call goes in
+// plaintext with no client certificate, prints hades's answer, still logs the
+// SVID it acts as, and a redirect is answered, never followed.
+func TestAnHTTPAddressAsksTheFaceInPlaintext(t *testing.T) {
+	var mu sync.Mutex
+	var path, body string
+	var viaTLS bool
+	elsewhere := 0
+	other := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		mu.Lock()
+		elsewhere++
+		mu.Unlock()
+	}))
+	t.Cleanup(other.Close)
+	face := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		path, body, viaTLS = r.URL.Path, string(b), r.TLS != nil
+		mu.Unlock()
+		if r.URL.Path == "/v1/call/moved" {
+			http.Redirect(w, r, other.URL+"/v1/call/moved", http.StatusTemporaryRedirect)
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	t.Cleanup(face.Close)
+	p := newPKI(t)
+	id := &fakeIdentity{svid: p.svid(t, "spiffe://notusmi.com/ci/prime/red-ledger")}
+	code, stdout, stderr := callAs(t, id, face.URL+"/", "forge_mold", `{"name":"ares"}`)
+	if code != 0 || stdout != "HTTP 200\n{\"ok\":true}" || !strings.Contains(stderr, "acting as spiffe://notusmi.com/ci/prime/red-ledger") {
+		t.Fatalf("code %d stdout %q stderr %q", code, stdout, stderr)
+	}
+	mu.Lock()
+	if path != "/v1/call/forge_mold" || body != `{"name":"ares"}` || viaTLS {
+		t.Fatalf("the face was asked %q %q tls=%v", path, body, viaTLS)
+	}
+	mu.Unlock()
+	code, stdout, _ = callAs(t, id, face.URL, "moved", `{}`)
+	mu.Lock()
+	defer mu.Unlock()
+	if code != 0 || !strings.HasPrefix(stdout, "HTTP 307\n") || elsewhere != 0 {
+		t.Fatalf("code %d stdout %q, the redirect target saw %d calls", code, stdout, elsewhere)
 	}
 }
 
