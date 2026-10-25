@@ -4,7 +4,7 @@
 // whose "release" script leaves the layer's files under the base's own release/)
 // and this atom runs them, one base after another, with the base's directory as
 // the root, staging what each leaves for the Dockerfile that copies it from
-// release/<base>/. It is the bases lane's alone (stage bases is in no other
+// release/<base>/. Only lanes/build.toml names it (stage bases is in no
 // lane's stages); the decisions are internal/releasekit's.
 package basesrelease
 

@@ -26,7 +26,7 @@ func Dockerfiles(files []string) []string { return checks.DockerfilePopulation(f
 // error, never "does not ask".
 func ReleaseDockerfile(ctx context.Context, t Tree, dockerfiles []string) (string, string, error) {
 	for _, p := range dockerfiles {
-		// A base's Dockerfile is the bases lane's: bases:release and
+		// A base's Dockerfile is the per-base release's: bases:release and
 		// bases:go-release build what it copies (DEF-B6-037).
 		if strings.HasPrefix(p, BasesDir+"/") {
 			continue

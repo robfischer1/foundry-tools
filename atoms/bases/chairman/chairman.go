@@ -1,6 +1,6 @@
 // Package baseschairman is the atom bases:chairman: the validation of the
 // chairman base's RUN-free image, whose work is internal/chairmanfixed's. It runs
-// in the bases lane between assemble and scan, over the committed files and the
+// in the build lane, for a repository of bases, between assemble and scan, over the committed files and the
 // assembled layout.
 package baseschairman
 
@@ -17,7 +17,7 @@ import (
 )
 
 // ImageEnv names the directory the assemble capability lays its OCI layouts in,
-// one directory per image (the executor sets it for the bases lane's atoms).
+// one directory per image (the executor sets it for the build lane's atoms).
 const ImageEnv = "ATOM_IMAGE_DIR"
 
 const (

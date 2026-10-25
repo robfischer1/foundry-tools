@@ -5,11 +5,11 @@
 // not run at all. This package holds the two to each other: the committed files to
 // the tables that describe them and to the Dockerfile that lays them, the lock to
 // the hashes of every maintainer script it was reviewed against, and, when the
-// bases lane has assembled the image, the assembled filesystem to the table.
+// build lane has assembled a base, the assembled filesystem to the table.
 //
 // WHAT IT CANNOT DO is run the image: the checks that would execute inside it
 // (visudo -c, `id agent`, `sudo -n true` as agent, getent, systemctl is-enabled)
-// need the chairman's own rootfs and a systemd, and the bases lane has neither.
+// need the chairman's own rootfs and a systemd, and the build lane has neither.
 // Each has a structural counterpart here (the sudoers files' exact content and
 // mode, the account files read against each other, every enable link and mask
 // read against the units' [Install] sections), and the exec checks belong to
@@ -42,7 +42,7 @@ func Validate(root, imageDir string) (Result, error) {
 	}
 	s.sourceChecks()
 	layout := filepath.Join(imageDir, "chairman")
-	note := "no assembled layout at " + layout + " (the assemble stood down, or this is not the bases lane): the committed files only"
+	note := "no assembled layout at " + layout + " (the assemble stood down, or this lane assembles no base): the committed files only"
 	if _, err := os.Stat(filepath.Join(layout, "index.json")); err == nil {
 		hash, watch := map[string]bool{"var/lib/dbus/machine-id": true}, map[string]bool{"etc/passwd": true, "etc/group": true}
 		for _, r := range s.set {
