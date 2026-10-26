@@ -59,6 +59,7 @@ import (
 	fleetl7render "dagger/foundry-tools/atoms/fleet/l7-render"
 	fleetlanesacheck "dagger/foundry-tools/atoms/fleet/lane-sa-check"
 	fleetmanifestonecommand "dagger/foundry-tools/atoms/fleet/manifest-one-command"
+	fleetnorejfiles "dagger/foundry-tools/atoms/fleet/no-rej-files"
 	fleetnodekindsdeclared "dagger/foundry-tools/atoms/fleet/node-kinds-declared"
 	fleetopengrepsast "dagger/foundry-tools/atoms/fleet/opengrep-sast"
 	fleetoureaconfigretiredkeys "dagger/foundry-tools/atoms/fleet/ourea-config-retired-keys"
@@ -182,6 +183,7 @@ var Defs = []*atomkit.Def{
 	&fleetl7render.Def,
 	&fleetlanesacheck.Def,
 	&fleetmanifestonecommand.Def,
+	&fleetnorejfiles.Def,
 	&fleetnodekindsdeclared.Def,
 	&fleetopengrepsast.Def,
 	&fleetoureaconfigretiredkeys.Def,
