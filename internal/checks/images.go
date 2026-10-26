@@ -593,7 +593,7 @@ const (
 	// ImageKubeLinter — likewise alpine, and likewise held still.
 	ImageKubeLinter = "docker.io/stackrox/kube-linter:v0.8.3-alpine@sha256:b8311611c27032d4922bc67719225e373e4a0ab0c767bbdcf5f20a9306b1a3bb"
 	// RenovateTag / ImageRenovate: the Renovate the fleet DEPLOYS, read from
-	// flux renovate/renovate.yaml on main 2026-10-19 (both containers carry this
+	// flux renovate/renovate.yaml on main 2026-10-26 (both containers carry this
 	// exact ref). fleet:renovate-config validates renovate-config's config.js with
 	// the validator inside it. A validator older than the deployed image rejects
 	// options the image accepts (42.99.0 reports postUpgradeTasks.installTools
@@ -604,8 +604,8 @@ const (
 	// ToolSHA256 line, no mirror seed) and no npm install to cache. It is pulled
 	// through the engine's ghcr.io mirror like every lane image, and the layers
 	// are cached by digest.
-	RenovateTag   = "44.167.5"
-	ImageRenovate = "ghcr.io/renovatebot/renovate:44.167.5@sha256:c33150ec6407624a9399a2d827fd125becafdbe4519d7584488cbdd17f99081e"
+	RenovateTag   = "44.181.7"
+	ImageRenovate = "ghcr.io/renovatebot/renovate:44.181.7@sha256:4f5a2621afd6629fda621e5c66221d1000f0ef3330ec14c828d7e8d357f03522"
 )
 
 // MirroredRegistries are the upstream registries the engine pulls through the

@@ -49,3 +49,12 @@ func TestAFileListThatCannotBeReadIsNotAPass(t *testing.T) {
 		t.Fatalf("an unenumerated tree passed: %+v", v)
 	}
 }
+
+func TestAScanCutShortIsNotAPass(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	v := check(ctx, atomkit.In{Files: []string{"a.go.rej"}})
+	if v.State == int(checks.StatePass) || v.State == int(checks.StateFindings) {
+		t.Fatalf("a cancelled scan settled %d: %+v", v.State, v)
+	}
+}
