@@ -41,7 +41,7 @@ image = "docker.io/library/node:24-bookworm-slim@sha256:2fe369e969550cde8e867afc
 image = "mcr.microsoft.com/playwright:v1.62.0-noble@sha256:baed2032d533817f3dbe6425de795788430ba345e819a1201337009ba17c9d07"
 
 [toolchain.renovate]
-image = "ghcr.io/renovatebot/renovate:44.181.7@sha256:4f5a2621afd6629fda621e5c66221d1000f0ef3330ec14c828d7e8d357f03522"
+image = "ghcr.io/renovatebot/renovate:44.181.11@sha256:050ecf98a30c64b5dd4c51343218d52dcb6cce6875cc47cb5a754f7adee65af7"
 
 [service.postgres]
 image = "docker.io/library/postgres:18-bookworm@sha256:a10c981235b4f635e65df0cfb66a5598064628128505dbc6a3ed4ca303717521"
