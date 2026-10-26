@@ -33,6 +33,7 @@ type script struct {
 	// what the atom ran
 	installArgs   string
 	installedInto string
+	installEnv    []string
 	checkName     string
 	checkArgs     string
 }
@@ -41,6 +42,7 @@ func (s *script) exec(_ context.Context, c atoms.Cmd) (string, int) {
 	if c.Name == "go" {
 		s.installArgs = strings.Join(c.Args, " ")
 		s.installs = append(s.installs, s.installArgs)
+		s.installEnv = c.Env
 		for _, e := range c.Env {
 			if strings.HasPrefix(e, "GOBIN=") {
 				s.installedInto = strings.TrimPrefix(e, "GOBIN=")
@@ -208,4 +210,29 @@ func TestBG1_BothColoursOnABuildWithoutTheCheckerIsAbsent(t *testing.T) {
 	s := &script{installOut: "go: git.notusmi.com/rob/daedalus@4b68a21 (v0.0.0-x) found, but does not contain package git.notusmi.com/rob/daedalus/cmd/jobs-config-check", installCode: 1}
 	v := run(t, s, map[string]string{jobs: "data: {}", jobsGreen: "data: {}", pins: imagesBoth("1792622669-4b68a21", "1792622669-4b68a21")})
 	atomtest.Expect(t, v, atomtest.StateOf(0), atomtest.Absent, "predates")
+}
+
+// The pin is a commit, which neither the door's goproxy nor proxy.golang.org can
+// answer for the forge's module, so the install fetches daedalus direct from the
+// in-cluster forge. Only that module: GOPROXY and GOPRIVATE stay the lane's, and the
+// fleet modules daedalus needs at tags keep the door.
+func TestTheInstallFetchesDaedalusDirectAndNothingElse(t *testing.T) {
+	s := &script{checkOut: "jobs-config-check: prime/daedalus-jobs.yaml parses; the runner would boot on it", checkCode: 0}
+	run(t, s, map[string]string{jobs: "data: {}", pins: images("1792622669-4b68a21")})
+	if !strings.HasPrefix(pkg, module+"/") {
+		t.Fatalf("pkg %q is not in module %q, so GONOPROXY would not reach it", pkg, module)
+	}
+	var noproxy []string
+	for _, e := range s.installEnv {
+		k, v, _ := strings.Cut(e, "=")
+		switch k {
+		case "GONOPROXY":
+			noproxy = append(noproxy, v)
+		case "GOPROXY", "GOPRIVATE", "GONOSUMDB", "GOSUMDB":
+			t.Errorf("the install sets %s; the lane's value must stand", e)
+		}
+	}
+	if len(noproxy) != 1 || noproxy[0] != "git.notusmi.com/rob/daedalus" {
+		t.Errorf("GONOPROXY %q, want exactly the daedalus module (env %q)", noproxy, s.installEnv)
+	}
 }
