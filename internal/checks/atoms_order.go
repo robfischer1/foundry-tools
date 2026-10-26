@@ -18,6 +18,7 @@ var catalogueOrder = []string{
 	"fleet:check-yaml",
 	"fleet:check-added-large-files",
 	"fleet:check-merge-conflict",
+	"fleet:no-rej-files",
 	"fleet:manifest-one-command",
 	"fleet:stop-justifications",
 	"fleet:sast-ruleset-lanes",
