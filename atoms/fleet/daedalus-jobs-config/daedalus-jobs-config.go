@@ -40,7 +40,35 @@ const (
 	pkg = "git.notusmi.com/rob/daedalus/cmd/jobs-config-check"
 	// noPackage is go's word for a module version that predates the checker.
 	noPackage = "does not contain package"
+	// module is the module pkg lives in: the one path this install fetches direct.
+	module = "git.notusmi.com/rob/daedalus"
 )
+
+// installEnv is the environment of the one `go install`. GONOPROXY=module sends
+// the daedalus module straight to the forge and leaves every other module on the
+// lane's GOPROXY.
+//
+// THE PIN IS A COMMIT, AND NO PROXY ON THE LANE CAN ANSWER ONE. The door's goproxy
+// serves branches and tags only (`@v/2708758.info` and the full sha both 404 "is
+// not a branch or tag", 2026-10-26), so `door|proxy.golang.org,direct` asked
+// proxy.golang.org five times per run for a module it can never hold (it cannot
+// resolve git.notusmi.com) before reaching `direct`. proxy.golang.org timed out 3
+// times in 7 days and one of those held flux#6921's gate. MEASURED 2026-10-26 on
+// dev01, from a pod carrying pistis.ci/executor=atomrun (the executor-egress
+// policy) with the gate's DNS and fleet trust, with a warm module cache: the lane's
+// env made 5 proxy.golang.org gets for daedalus@2708758; with this GONOPROXY it made
+// 0 to proxy.golang.org and 0 to the door. The forge answered go-get in 16 ms and
+// `git ls-remote` in 56 ms, and the checker built. Inside the cluster
+// git.notusmi.com is the in-cluster forge, not the SSO portal that checks.GoPrivate
+// guards against. A cold cache still fetches public deps through the lane's GOPROXY.
+//
+// ONE MODULE, NOT THE HOST. stellar-core-go and the other fleet modules daedalus
+// needs are pinned at tags, which the door serves, so they keep the lane's path.
+// GOPRIVATE stays the lane's empty value. This setting reaches nothing but this
+// command.
+func installEnv(bin string) []string {
+	return []string{"GOBIN=" + bin, "GOFLAGS=-mod=mod", "GOTOOLCHAIN=local", "GONOPROXY=" + module}
+}
 
 // row is the part of the catalogue row a verdict reads: its identity.
 var row = checks.AtomDef{ID: id, Stage: checks.StagePrecommit, Lane: checks.LaneAny}
@@ -110,7 +138,7 @@ func checkFile(ctx context.Context, in atomkit.In, file, img string) checks.Verd
 	}
 	defer func() { _ = os.RemoveAll(bin) }()
 	out, code := atoms.RunCmd(ctx, in, atoms.Cmd{Dir: in.Root, Name: "go", Args: []string{"install", pkg + "@" + sha},
-		Env: []string{"GOBIN=" + bin, "GOFLAGS=-mod=mod", "GOTOOLCHAIN=local"}, Both: true})
+		Env: installEnv(bin), Both: true})
 	switch {
 	case code < 0:
 		return atoms.CouldNotStart(row, out)
