@@ -384,6 +384,15 @@ func (b TestBroker) AdvertiseFor(scope string) string {
 // passing test somewhere else. That is hygiene, not a measured defect — no suite in
 // the fleet depends on it today, and it is cheap enough to keep on that basis alone.
 // Struck rather than deleted so the next reader does not re-derive the wrong theory.
+//
+// BOTH METRICS ENDPOINTS ARE OFF. Redpanda's instance_metrics service
+// (src/v/metrics/instance_metrics.cc detect_and_register) probes EC2 IMDS at
+// 169.254.169.254 with a 10 s connect timeout whenever either the internal or the
+// public metrics endpoint is enabled, and in a lane pod that connect is an egress
+// drop. Nothing scrapes a throwaway test broker, so the endpoints go and the probe
+// with them; enable_metrics_reporter does not gate it. daedalus's executor sidecar
+// carries the same args (internal/runner/sidecar rpArgs, daedalus #601): change
+// them together.
 func (b TestBroker) StartArgs(scope string) []string {
 	return []string{
 		"redpanda", "start",
@@ -391,6 +400,7 @@ func (b TestBroker) StartArgs(scope string) []string {
 		"--memory", "1G", "--reserve-memory", "0M",
 		"--mode", "dev-container",
 		"--set", "redpanda.auto_create_topics_enabled=false",
+		"--set", "redpanda.disable_metrics=true", "--set", "redpanda.disable_public_metrics=true",
 		"--kafka-addr", b.ListenFor(),
 		"--advertise-kafka-addr", b.AdvertiseFor(scope),
 	}

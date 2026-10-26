@@ -733,11 +733,40 @@ func TestParseSuiteArgs(t *testing.T) {
 		"tags no value":    {[]string{"-tags"}, SuiteArgs{}},
 		"p is the callers": {[]string{"-p", "4", "./..."}, SuiteArgs{P: true, Packages: true, Rest: []string{"-p", "4", "./..."}}},
 		"args to binary":   {[]string{"./p", "-args", "-race", "./x", "-tags", "z"}, SuiteArgs{Packages: true, Rest: []string{"./p", "-args", "-race", "./x", "-tags", "z"}}},
+		"value flag path":  {[]string{"-coverprofile", "./c.out"}, SuiteArgs{Rest: []string{"-coverprofile", "./c.out"}}},
+		"package after it": {[]string{"-o", "./bin/x", "./p"}, SuiteArgs{Packages: true, Rest: []string{"-o", "./bin/x", "./p"}}},
 	} {
 		got := ParseSuiteArgs(c.in)
 		if !slices.Equal(got.Tags, c.want.Tags) || got.Packages != c.want.Packages || got.P != c.want.P || !slices.Equal(got.Rest, c.want.Rest) {
 			t.Errorf("%s: %+v, want %+v", name, got, c.want)
 		}
+	}
+}
+
+// TestNamesPackage: a package-like word names a package unless it is the value
+// of the go flag before it (-o ./bin/x is a file); either dash spelling counts,
+// and an attached value (-o=x) consumes nothing after it.
+func TestNamesPackage(t *testing.T) {
+	for name, c := range map[string]struct {
+		in   []string
+		want bool
+	}{
+		"none":              {nil, false},
+		"a package":         {[]string{"./p"}, true},
+		"-o path":           {[]string{"-o", "./bin/x"}, false},
+		"--o path":          {[]string{"--o", "./bin/x"}, false},
+		"-o= then package":  {[]string{"-o=./bin/x", "./p"}, true},
+		"-o path, package":  {[]string{"-o", "./bin/x", "./p"}, true},
+		"bool flag":         {[]string{"-v", "./p"}, true},
+		"-C dir":            {[]string{"-C", "../other"}, false},
+		"-run then package": {[]string{"-run", "TestX", "./..."}, true},
+	} {
+		if got := NamesPackage(c.in); got != c.want {
+			t.Errorf("%s: NamesPackage(%v) = %v, want %v", name, c.in, got, c.want)
+		}
+	}
+	if !GoValueFlag("-o") || !GoValueFlag("--tags") || GoValueFlag("-v") || GoValueFlag("-") {
+		t.Error("GoValueFlag")
 	}
 }
 
