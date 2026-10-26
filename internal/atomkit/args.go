@@ -86,10 +86,18 @@ func ownArgs(args []string, until string) []string {
 	return args
 }
 
-// decided says whether any argument matches any of the tokens.
+// decided says whether any argument matches any of the tokens. @package reads
+// the list as a whole (atoms.NamesPackage): the value of a go flag such as
+// `-o ./bin/x` is a file, not a package, and keeps the default.
 func decided(args, tokens []string) bool {
-	for _, a := range args {
-		for _, tok := range tokens {
+	for _, tok := range tokens {
+		if tok == PackageToken {
+			if atoms.NamesPackage(args) {
+				return true
+			}
+			continue
+		}
+		for _, a := range args {
 			if matches(a, tok) {
 				return true
 			}

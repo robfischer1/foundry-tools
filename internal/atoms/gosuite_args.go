@@ -36,8 +36,14 @@ type SuiteArgs struct {
 // ParseSuiteArgs reads a caller's arguments.
 func ParseSuiteArgs(args []string) SuiteArgs {
 	var s SuiteArgs
+	skip := false // the previous argument was a go flag that takes this one as its value
 	for i := 0; i < len(args); i++ {
 		a := args[i]
+		if skip {
+			skip = false
+			s.Rest = append(s.Rest, a)
+			continue
+		}
 		if a == "-args" {
 			s.Rest = append(s.Rest, args[i:]...)
 			break
@@ -64,8 +70,10 @@ func ParseSuiteArgs(args []string) SuiteArgs {
 		case flag == "p":
 			s.P = true
 			s.Rest = append(s.Rest, a)
+			skip = !hasVal
 		default:
 			s.Rest = append(s.Rest, a)
+			skip = !hasVal && GoValueFlag(flag)
 		}
 	}
 	return s
@@ -115,10 +123,49 @@ func (s SuiteArgs) Note(dbs []checks.TestDB, brokers []checks.TestBroker, caches
 	return fmt.Sprintf("\ncaller tags compiled with no server bound: %s — a suite behind one reads its own DSN variable, which nothing here sets", strings.Join(odd, ", "))
 }
 
+// goValueFlags are the `go build`/`go test`/`go vet` flags whose NEXT argument
+// is their value, so that value is never mistaken for a package.
+var goValueFlags = map[string]bool{
+	"run": true, "skip": true, "bench": true, "count": true, "timeout": true, "tags": true,
+	"p": true, "parallel": true, "cpu": true, "coverprofile": true, "covermode": true,
+	"coverpkg": true, "vet": true, "ldflags": true, "gcflags": true, "o": true, "mod": true,
+	"exec": true, "fuzz": true, "fuzztime": true, "benchtime": true, "outputdir": true,
+	"asmflags": true, "modfile": true, "overlay": true, "pkgdir": true, "toolexec": true,
+	"blockprofile": true, "cpuprofile": true, "memprofile": true, "mutexprofile": true,
+	"trace": true, "C": true,
+}
+
+// GoValueFlag says whether a go flag, in either dash spelling and without an
+// attached =value, takes the next argument as its value (-o ./bin/x).
+func GoValueFlag(flag string) bool { return goValueFlags[strings.TrimLeft(flag, "-")] }
+
+// NamesPackage says whether the go command's own arguments name a package: a
+// package-like word that is not the value of the flag before it, so
+// `-o ./bin/x` keeps the default ./... while `-o ./bin/x ./cmd/x` replaces it.
+// The caller cuts the arguments at -args first.
+func NamesPackage(args []string) bool {
+	skip := false
+	for _, a := range args {
+		if skip {
+			skip = false
+			continue
+		}
+		if strings.HasPrefix(a, "-") {
+			name, _, hasValue := strings.Cut(a, "=")
+			skip = !hasValue && GoValueFlag(name)
+			continue
+		}
+		if PackageLike(a) {
+			return true
+		}
+	}
+	return false
+}
+
 // PackageLike says whether one argument names a Go package pattern: ".", "..",
 // "./x", "../x", "x/...", or a path whose first element is a host (a.b/c).
-// Flag-shaped arguments never are. The arguments of go's value flags
-// (-o ./bin/x) are not told apart from packages: see the dev lane's notes.
+// Flag-shaped arguments never are. Whether a word is a flag's value is the
+// argument list's question (NamesPackage), not this one's.
 func PackageLike(arg string) bool {
 	if strings.HasPrefix(arg, "-") {
 		return false

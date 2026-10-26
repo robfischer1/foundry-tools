@@ -18,6 +18,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	"dagger/foundry-tools/internal/atoms"
 	"dagger/foundry-tools/internal/checks"
 )
 
@@ -138,30 +139,6 @@ func RepoKey(repo, lang, manifest, lock string) string {
 	return Identity(lang, manifest, lock)
 }
 
-// goValueFlags are the `go test`/`go build`/`go vet` flags whose NEXT argument is
-// their value, so that value is never mistaken for a package.
-var goValueFlags = map[string]bool{
-	"-run": true, "-skip": true, "-bench": true, "-count": true, "-timeout": true, "-tags": true,
-	"-p": true, "-parallel": true, "-cpu": true, "-coverprofile": true, "-covermode": true,
-	"-coverpkg": true, "-vet": true, "-ldflags": true, "-gcflags": true, "-o": true, "-mod": true,
-	"-exec": true, "-fuzz": true, "-fuzztime": true, "-benchtime": true, "-outputdir": true,
-	"-asmflags": true, "-modfile": true, "-overlay": true, "-pkgdir": true, "-toolexec": true,
-	"-blockprofile": true, "-cpuprofile": true, "-memprofile": true, "-mutexprofile": true,
-	"-trace": true, "-C": true,
-}
-
-// packageLike says whether one argument names a package pattern.
-func packageLike(arg string) bool {
-	switch {
-	case arg == "." || arg == "..":
-		return true
-	case strings.HasPrefix(arg, "./"), strings.HasPrefix(arg, "../"), strings.HasSuffix(arg, "..."):
-		return true
-	}
-	first, _, slashed := strings.Cut(arg, "/")
-	return slashed && strings.Contains(first, ".")
-}
-
 // goArgsEnd is where the go command's own arguments stop: at `-args`, past which
 // everything belongs to the test binary. len(args) when there is none.
 func goArgsEnd(args []string) int {
@@ -173,27 +150,9 @@ func goArgsEnd(args []string) int {
 	return len(args)
 }
 
-// hasPackage says whether the go command's own arguments already name a package.
-// One pass with a flag saying "the previous argument was a flag that takes a
-// value", so the loop ends with the arguments and nothing moves its index.
-func hasPackage(args []string) bool {
-	skip := false
-	for _, a := range args[:goArgsEnd(args)] {
-		if skip {
-			skip = false
-			continue
-		}
-		if strings.HasPrefix(a, "-") {
-			name, _, hasValue := strings.Cut(a, "=")
-			skip = goValueFlags[name] && !hasValue
-			continue
-		}
-		if packageLike(a) {
-			return true
-		}
-	}
-	return false
-}
+// hasPackage says whether the go command's own arguments already name a
+// package, a go flag's value (-o ./bin/x) not counted (atoms.NamesPackage).
+func hasPackage(args []string) bool { return atoms.NamesPackage(args[:goArgsEnd(args)]) }
 
 // withDefaultPackage adds ./... to the go command's own arguments when none
 // names a package, ahead of `-args`.
@@ -263,6 +222,13 @@ func cargoOwn(args []string) []string {
 // --all-targets stands down for them.
 var targetSelectors = []string{"--all-targets", "--lib", "--bins", "--bin", "--tests", "--test", "--benches", "--bench", "--examples", "--example"}
 
+// selectsTarget says whether one of cargo's own arguments is a target
+// selector, in either spelling: `--bin x` and `--bin=x` choose the same target.
+func selectsTarget(arg string) bool {
+	name, _, _ := strings.Cut(arg, "=")
+	return slices.Contains(targetSelectors, name)
+}
+
 // clippyLints is the fleet's lint set, named after `--` so a crate's own lint
 // table cannot narrow it (atoms_rust.go rustCargoClippy says why).
 var clippyLints = []string{"-W", "clippy::all", "-D", "warnings"}
@@ -283,7 +249,7 @@ func RustArgv(verb string, args []string) ([]string, error) {
 			head = append(head, "--workspace")
 		}
 		own := cargoOwn(args)
-		if !slices.ContainsFunc(own, func(a string) bool { return slices.Contains(targetSelectors, a) }) {
+		if !slices.ContainsFunc(own, selectsTarget) {
 			head = append(head, "--all-targets")
 		}
 		out := slices.Concat(head, args)
