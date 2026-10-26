@@ -3,6 +3,7 @@ package checks
 import (
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -277,6 +278,15 @@ func TestStartArgsRefusesToInventTopics(t *testing.T) {
 	// unknown topic. See StartArgs' doc for the correction.
 	if !strings.Contains(joined, "redpanda.auto_create_topics_enabled=false") {
 		t.Errorf("a broker that auto-creates topics cannot refuse an undeclared one: %q", joined)
+	}
+	// Both metrics endpoints off: redpanda's instance_metrics detector dials EC2 IMDS
+	// (169.254.169.254, 10 s connect timeout) whenever either is on, and in a lane pod
+	// that dial is an egress drop. The pair is the only switch that stops it
+	// (daedalus #601, the executor sidecar's copy of these args).
+	for _, prop := range []string{"redpanda.disable_metrics=true", "redpanda.disable_public_metrics=true"} {
+		if i := slices.Index(args, prop); i < 1 || args[i-1] != "--set" {
+			t.Errorf("--set %s missing, so the broker probes EC2 IMDS: %q", prop, joined)
+		}
 	}
 	// Listened on every interface, advertised as the alias. Swap them and the broker
 	// answers the first connection, then hands the client an address it cannot dial.
