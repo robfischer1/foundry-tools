@@ -97,6 +97,10 @@ func TestComposeTable(t *testing.T) {
 		{"args marker", []string{"-args", "-v"}, []string{"go", "test", "-race", "./...", "-args", "-v"}},
 		{"package before the args marker", []string{"./x", "-args", "-v"}, []string{"go", "test", "-race", "./x", "-args", "-v"}},
 		{"package-shaped word after the args marker", []string{"-args", "./x"}, []string{"go", "test", "-race", "./...", "-args", "./x"}},
+		{"a value flag's path is not a package", []string{"-o", "./bin/x"}, []string{"go", "test", "-race", "-o", "./bin/x", "./..."}},
+		{"a double-dash value flag's path is not a package", []string{"--coverprofile", "./c.out"}, []string{"go", "test", "-race", "--coverprofile", "./c.out", "./..."}},
+		{"an attached value takes nothing after it", []string{"-o=./bin/x", "./cmd/x"}, []string{"go", "test", "-race", "-o=./bin/x", "./cmd/x"}},
+		{"a package after a value flag's path", []string{"-o", "./bin/x", "./cmd/x"}, []string{"go", "test", "-race", "-o", "./bin/x", "./cmd/x"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if got := m.Compose(c.args); !slices.Equal(got, c.want) {

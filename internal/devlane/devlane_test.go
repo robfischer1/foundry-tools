@@ -148,6 +148,10 @@ func TestRustArgv(t *testing.T) {
 		{"clippy defaults", "clippy", nil, "cargo clippy --workspace --all-targets " + lints, false},
 		{"clippy -p", "clippy", []string{"-p", "x"}, "cargo clippy --all-targets -p x " + lints, false},
 		{"clippy with a target selector", "clippy", []string{"--lib"}, "cargo clippy --workspace --lib " + lints, false},
+		{"clippy --bin=x is a target selector", "clippy", []string{"--bin=x"}, "cargo clippy --workspace --bin=x " + lints, false},
+		{"clippy --bin x is the same selector", "clippy", []string{"--bin", "x"}, "cargo clippy --workspace --bin x " + lints, false},
+		{"clippy --test=t is a target selector", "clippy", []string{"--test=t"}, "cargo clippy --workspace --test=t " + lints, false},
+		{"clippy --binsx is no selector", "clippy", []string{"--binsx"}, "cargo clippy --workspace --all-targets --binsx " + lints, false},
 		{"clippy with its own lints", "clippy", []string{"--", "-W", "clippy::pedantic"}, "cargo clippy --workspace --all-targets -- -W clippy::pedantic", false},
 		{"a selector after the separator does not count", "clippy", []string{"--", "--lib"}, "cargo clippy --workspace --all-targets -- --lib", false},
 		{"fmt is the workspace", "fmt", nil, "cargo fmt --all", false},
@@ -213,18 +217,6 @@ func TestIgnoreKeepsTheBigThingsHome(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("Ignore lacks %s", want)
-		}
-	}
-}
-
-func TestPackageLike(t *testing.T) {
-	for arg, want := range map[string]bool{
-		".": true, "..": true, "./a": true, "../a": true, "a/...": true, "...": true,
-		"example.com/x": true, "a.b/c": true,
-		"": false, "foo": false, "x.y": false, "cmd/x": false, "TestX": false, "Test/sub": false, "-v": false,
-	} {
-		if got := packageLike(arg); got != want {
-			t.Errorf("packageLike(%q) = %v, want %v", arg, got, want)
 		}
 	}
 }
