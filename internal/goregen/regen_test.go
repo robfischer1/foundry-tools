@@ -249,6 +249,36 @@ func TestARequestWithNoCoreListsWhatCanBeRegenerated(t *testing.T) {
 	wantReason(t, s.check("--fast"), 2, "the arguments do not read", "unknown option --fast", "usage:")
 }
 
+// A MONOREPO'S GO MODULE IS ONE LEVEL DOWN (stellar-core's go/): the core is
+// named from it and written back under it. Two modules below a moduleless root
+// name no one of them, and the root stays the root.
+func TestACoreInTheOneGoModuleBelowTheRootIsNamedFromThatModule(t *testing.T) {
+	s := newScene(t)
+	s.add(coreSpec{name: "alarm", bindings: true})
+	writeFile(t, filepath.Join(s.root, "go.mod"), []byte("module x\n"))
+	mono := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(mono, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(s.root, filepath.Join(mono, "go")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(mono, "rust", "Cargo.toml"), []byte("[workspace]\n"))
+	s.root = mono
+	s.f.guests["alarm"] = []byte("a new guest")
+	wantReason(t, s.check("alarm"), 0, "dev:go-regen: PASS - 1 core(s) regenerated", "alarm: guest ")
+	if s.read("go/alarm/guest.wasm") != "a new guest" {
+		t.Error("the regenerated guest was not written under the module")
+	}
+	if moduleRoot(filepath.Join(mono, "go")) != filepath.Join(mono, "go") {
+		t.Error("a root that is the module was moved")
+	}
+	writeFile(t, filepath.Join(mono, "other", "go.mod"), []byte("module y\n"))
+	if moduleRoot(mono) != mono {
+		t.Error("two modules below the root named one of them")
+	}
+}
+
 func TestACoreTheTreeDoesNotHaveIsCannotRunListingTheOnesItDoes(t *testing.T) {
 	s := newScene(t)
 	s.add(coreSpec{name: "alarm"})
