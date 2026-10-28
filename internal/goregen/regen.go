@@ -51,6 +51,7 @@ const workstationCargoHome = "/home/rob/.cargo"
 
 // Check regenerates every core named and writes the result into the tree.
 func Check(ctx context.Context, in atomkit.In) checks.Verdict {
+	in.Root = moduleRoot(in.Root)
 	req, err := ParseArgs(in.Args)
 	if err != nil {
 		return checks.VerdictOf(row, 2, fmt.Sprintf("%s: CANNOT RUN - the arguments do not read: %v (%s)", id, err, usage))
@@ -72,6 +73,32 @@ func Check(ctx context.Context, in atomkit.In) checks.Verdict {
 	// the lines are the run's report: the engine and the pod keep an atom's stderr
 	fmt.Fprintln(os.Stderr, v.Reason)
 	return v
+}
+
+// moduleRoot is the directory a core is named from: the tree's root when it is
+// the Go module, else the one top-level directory that holds a go.mod.
+//
+// THE MONOREPO MOVED THE CORES DOWN A LEVEL. stellar-core carries the Go module
+// at go/, and the dev lane hands this atom the repository root (the Dagger
+// adapter, retired 2026-10-24, mounted the asked-from module as /src instead),
+// so `regen topiccontract` read <root>/topiccontract and listed no core at all.
+// A root with no go.mod and none, or more than one, beneath it is left as it is:
+// the read failure then names what is missing.
+func moduleRoot(root string) string {
+	if _, err := os.Stat(filepath.Join(root, "go.mod")); err == nil {
+		return root
+	}
+	ents, _ := os.ReadDir(root) // an unreadable root keeps its own name
+	var found []string
+	for _, e := range ents {
+		if _, err := os.Stat(filepath.Join(root, e.Name(), "go.mod")); e.IsDir() && err == nil {
+			found = append(found, filepath.Join(root, e.Name()))
+		}
+	}
+	if len(found) == 1 {
+		return found[0]
+	}
+	return root
 }
 
 // outcome is one core's run: the line it answers with, or the step it failed.
