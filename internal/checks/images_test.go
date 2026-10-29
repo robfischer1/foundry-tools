@@ -199,7 +199,7 @@ func TestTheProvisionedToolsArePinnedAndTheReleaseURLCarriesTheVersion(t *testin
 func TestNoServiceAddressNamesANamespace(t *testing.T) {
 	for name, addr := range map[string]string{
 		"GoProxy":        GoProxy,
-		"WitnessMTLSURL": WitnessMTLSURL,
+		"WitnessRESTURL": WitnessRESTURL,
 	} {
 		if strings.Contains(addr, ".svc.cluster.local") {
 			t.Errorf("%s pins a namespace: %q — a bare service name resolves in any namespace", name, addr)

@@ -10,7 +10,7 @@ import (
 
 func TestWitnessReadyURLKeepsTheHostAndReplacesThePath(t *testing.T) {
 	t.Parallel()
-	if got := WitnessReadyURL("https://narcissus:8201/mcp?x=1#f"); got != "https://narcissus:8201/ready" {
+	if got := WitnessReadyURL("http://narcissus:8203/v1/witness?x=1#f"); got != "http://narcissus:8203/openapi.json" {
 		t.Fatalf("got %q", got)
 	}
 	if WitnessReadyURL("::not a url") != "" || WitnessReadyURL("/mcp") != "" {
@@ -48,14 +48,14 @@ func TestWitnessReadiness(t *testing.T) {
 			var n int
 			probe := func(_ context.Context, u string) (int, string, error) {
 				n++
-				if u != "https://narcissus:8201/ready" {
+				if u != "http://narcissus:8203/openapi.json" {
 					t.Errorf("probed %q", u)
 				}
 				return c.answer(n)
 			}
 			var slept int
 			sleep := func(context.Context, time.Duration) error { slept++; return nil }
-			ok, detail := WitnessReadiness(t.Context(), probe, WitnessMTLSURL, 3, time.Second, sleep)
+			ok, detail := WitnessReadiness(t.Context(), probe, WitnessRESTURL, 3, time.Second, sleep)
 			if ok != c.ok || n != c.calls || detail != c.detail {
 				t.Fatalf("ok=%v calls=%d detail=%q; want ok=%v calls=%d detail=%q", ok, n, detail, c.ok, c.calls, c.detail)
 			}
@@ -70,7 +70,7 @@ func TestWitnessReadinessStopsWhenTheContextEnds(t *testing.T) {
 	t.Parallel()
 	probe := func(context.Context, string) (int, string, error) { return 503, "", nil }
 	sleep := func(context.Context, time.Duration) error { return context.Canceled }
-	ok, detail := WitnessReadiness(t.Context(), probe, WitnessMTLSURL, 3, time.Second, sleep)
+	ok, detail := WitnessReadiness(t.Context(), probe, WitnessRESTURL, 3, time.Second, sleep)
 	if ok || !strings.Contains(detail, "context canceled") {
 		t.Fatalf("ok=%v detail=%q", ok, detail)
 	}

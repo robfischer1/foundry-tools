@@ -173,36 +173,6 @@ func TestClassifyWitness(t *testing.T) {
 	}
 }
 
-func TestWitnessEnvelope(t *testing.T) {
-	result := `{"content":[{"type":"text","text":"x"}]}`
-	env := `{"jsonrpc":"2.0","id":1,"result":` + result + `}`
-	for _, c := range []struct {
-		name, contentType, body string
-		status                  int
-		wantStatus              int
-		want                    string
-	}{
-		{"not 200 passes through", "text/plain", "busy", 503, 503, "busy"},
-		{"a json envelope", "application/json", env, 200, 200, result},
-		{"an event stream, last data line", "text/event-stream; charset=utf-8", "event: message\r\ndata: {\"x\":1}\r\ndata: " + env + "\r\n\r\n", 200, 200, result},
-		{"an event stream with no data", "text/event-stream", "event: ping\n", 200, 200, ""},
-		{"not json", "application/json", "oops", 200, 200, "oops"},
-		{"no result", "application/json", `{"jsonrpc":"2.0"}`, 200, 200, "{}"},
-		{"a json-rpc error", "application/json", `{"error":{"code":-1,"message":"boom"}}`, 200, 200,
-			`{"isError": true, "content": [{"type": "text", "text": "{\"code\":-1,\"message\":\"boom\"}"}]}`},
-	} {
-		status, got := WitnessEnvelope(c.status, c.contentType, c.body)
-		if status != c.wantStatus || got != c.want {
-			t.Errorf("%s: (%d, %q), want (%d, %q)", c.name, status, got, c.wantStatus, c.want)
-		}
-	}
-	// An error envelope classifies as the verb erroring, with the error as its text.
-	_, errored := WitnessEnvelope(200, "application/json", `{"error":{"message":"boom"}}`)
-	if row := ClassifyWitness("a.py", 200, errored); !strings.Contains(row.Reason, `the witness verb errored: {"message":"boom"}`) {
-		t.Errorf("error envelope: %+v", row)
-	}
-}
-
 func rows(classes ...string) []WitnessRow {
 	out := make([]WitnessRow, len(classes))
 	for i, c := range classes {
@@ -289,14 +259,12 @@ func TestStarNameAndRequest(t *testing.T) {
 			t.Errorf("StarName(%q) = %q, want %q", url, got, want)
 		}
 	}
-	var req map[string]any
-	if err := json.Unmarshal([]byte(WitnessRequest(7, "q\"", "go", "ci:gate:x@HEAD", "a.go")), &req); err != nil {
+	var args map[string]any
+	if err := json.Unmarshal([]byte(WitnessArgs("q\"", "go", "ci:gate:x@HEAD", "a.go")), &args); err != nil {
 		t.Fatal(err)
 	}
-	args := req["params"].(map[string]any)["arguments"].(map[string]any)
-	if req["id"] != float64(7) || req["method"] != "tools/call" || req["params"].(map[string]any)["name"] != "witness" ||
-		args["query"] != "q\"" || args["language"] != "go" || args["caller"] != "ci:gate:x@HEAD" || args["path"] != "a.go" || args["granularity"] != "code" {
-		t.Errorf("request %v", req)
+	if len(args) != 5 || args["query"] != "q\"" || args["language"] != "go" || args["caller"] != "ci:gate:x@HEAD" || args["path"] != "a.go" || args["granularity"] != "code" {
+		t.Errorf("args %v", args)
 	}
 }
 

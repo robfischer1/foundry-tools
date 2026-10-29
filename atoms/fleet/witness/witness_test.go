@@ -6,22 +6,22 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"dagger/foundry-tools/internal/atomkit"
 	"dagger/foundry-tools/internal/atoms"
 	"dagger/foundry-tools/internal/checks"
-	"dagger/foundry-tools/internal/hadescall"
 )
 
 // put writes a file, making its directories.
@@ -85,18 +85,17 @@ var cannot = checks.StateCannotRun.String()
 // stateOf is a table's plain int as the catalogue's State.
 func stateOf(n int) checks.State { return checks.State(n) }
 
-// narcissus is a stand-in for the witness's mTLS door, reached through the
-// helper's exec: it records every request and answers per file, by the path the
-// request names. There is no plaintext port to stand in for: the atom reads
-// /ready over the same door it asks on.
+// narcissus is a stand-in for the witness's REST door, reached through the
+// atom's Do seam: it records every request and answers per file, by the path the
+// request names. GET /openapi.json is the readiness read; POST /v1/witness the ask.
 type narcissus struct {
 	t  *testing.T
 	mu sync.Mutex
-	// readyStatus is what GET /ready answers (0 is 200); readyHits counts the probes.
+	// readyStatus is what GET /openapi.json answers (0 is 200); readyHits counts the probes.
 	readyStatus atomic.Int64
 	readyHits   atomic.Int64
-	// readyExit, when not 0, is the helper's exit for a get (2 could not ask, 4 no answer).
-	readyExit atomic.Int64
+	// readyFail, when not 0, makes a probe fail: 2 never reached the door, 4 no answer in time.
+	readyFail atomic.Int64
 	// readyURLs is every address a probe went to.
 	readyURLs []string
 	hits      map[string]int
@@ -112,38 +111,53 @@ func newNarcissus(t *testing.T, answer func(w http.ResponseWriter, path string, 
 	return &narcissus{t: t, hits: map[string]int{}, answer: answer}
 }
 
-// ready answers one GET of /ready the way the helper prints it.
-func (n *narcissus) ready(u string) (string, int) {
-	n.readyHits.Add(1)
-	n.mu.Lock()
-	n.readyURLs = append(n.readyURLs, u)
-	n.mu.Unlock()
-	if code := int(n.readyExit.Load()); code != 0 {
-		return "witnesscall: the witness did not answer: Get \"" + u + "\": connection refused", code
-	}
-	status := int(n.readyStatus.Load())
-	if status == 0 {
-		return "HTTP 200\napplication/json\n{}", 0
-	}
-	return fmt.Sprintf("HTTP %d\napplication/json\n%s", status, `{"service":"narcissus","status":"starting","ready":false,"store":"waiting"}`), 0
+// timeout is a deadline failure as the client reports one.
+type timeout struct{}
+
+func (timeout) Error() string   { return "Client.Timeout exceeded while awaiting headers" }
+func (timeout) Timeout() bool   { return true }
+func (timeout) Temporary() bool { return true }
+
+var _ net.Error = timeout{}
+
+// response is an answer as the client hands it back.
+func response(status int, header http.Header, body string) *http.Response {
+	return &http.Response{StatusCode: status, Header: header, Body: io.NopCloser(strings.NewReader(body))}
 }
 
-// ask answers one request the way the mTLS door does: the same stand-in logic
-// as a server would run, reached through the helper's exec instead of a socket.
-func (n *narcissus) ask(raw string) (string, int) {
-	var call struct {
-		Params struct {
-			Arguments struct {
-				Path string `json:"path"`
-			} `json:"arguments"`
-		} `json:"params"`
+// do stands in for the client: the request goes to the stand-in, nowhere else.
+func (n *narcissus) do(req *http.Request) (*http.Response, error) {
+	u := req.URL.String()
+	if req.Method == http.MethodGet && req.URL.Path == "/openapi.json" {
+		n.readyHits.Add(1)
+		n.mu.Lock()
+		n.readyURLs = append(n.readyURLs, u)
+		n.mu.Unlock()
+		switch n.readyFail.Load() {
+		case 2:
+			return nil, errors.New(`Get "` + u + `": dial tcp: connection refused`)
+		case 4:
+			return nil, timeout{}
+		}
+		status := int(n.readyStatus.Load())
+		if status == 0 {
+			return response(http.StatusOK, http.Header{"X-Star": {"narcissus"}}, "{}"), nil
+		}
+		return response(status, http.Header{}, `{"service":"narcissus","status":"starting","ready":false,"store":"waiting"}`), nil
 	}
-	_ = json.Unmarshal([]byte(raw), &call)
-	p := call.Params.Arguments.Path
+	if req.Method != http.MethodPost || u != checks.WitnessAskURL || req.Header.Get("Content-Type") != "application/json" {
+		n.t.Errorf("%s %s (%s) is not the ask", req.Method, u, req.Header.Get("Content-Type"))
+	}
+	raw, _ := io.ReadAll(req.Body)
+	var args struct {
+		Path string `json:"path"`
+	}
+	_ = json.Unmarshal(raw, &args)
+	p := args.Path
 	n.mu.Lock()
 	n.hits[p]++
 	count := n.hits[p]
-	n.bodies = append(n.bodies, raw)
+	n.bodies = append(n.bodies, string(raw))
 	n.mu.Unlock()
 	cur := n.live.Add(1)
 	for old := n.peak.Load(); cur > old && !n.peak.CompareAndSwap(old, cur); old = n.peak.Load() {
@@ -152,34 +166,12 @@ func (n *narcissus) ask(raw string) (string, int) {
 	w := &door{header: http.Header{}, status: http.StatusOK}
 	n.answer(w, p, count)
 	if w.dropped {
-		return "witnesscall: the connection closed with no answer", 2
+		return nil, errors.New("read tcp: connection reset by peer")
 	}
-	return fmt.Sprintf("HTTP %d\n%s\n%s", w.status, w.header.Get("Content-Type"), w.body.String()), 0
+	return response(w.status, w.header, w.body.String()), nil
 }
 
-// exec stands in for the witnesscall helper over this narcissus: it is who the
-// lane's SVID says, and it posts to the stand-in.
-func (n *narcissus) exec(_ context.Context, c atoms.Cmd) (string, int) {
-	if c.Name != "witnesscall" {
-		n.t.Errorf("exec of %q", c.Name)
-		return "", 0
-	}
-	if c.Args[0] == "whoami" {
-		return testSVID, 0
-	}
-	if c.Args[0] == "get" {
-		return n.ready(c.Args[1])
-	}
-	raw, err := os.ReadFile(c.Args[2])
-	if err != nil {
-		n.t.Errorf("the request file is not there when the helper reads it: %v", err)
-	}
-	return n.ask(string(raw))
-}
-
-const testSVID = "spiffe://notusmi.com/job/gate/gate-x-1"
-
-// door is the ResponseWriter an mTLS answer is built on; Hijack is how a test
+// door is the ResponseWriter an answer is built on; Hijack is how a test
 // answer drops the connection.
 type door struct {
 	header  http.Header
@@ -208,16 +200,16 @@ func (n *narcissus) total() int {
 	return total
 }
 
-// said is a witness answer carrying a verdict, as MCP wraps it.
+// said is a witness answer carrying a verdict, as the REST door sends the verb's text.
 func said(verdict, recommendation string) string {
 	inner, _ := json.Marshal(map[string]any{"verdict": verdict, "recommendation": recommendation})
-	text, _ := json.Marshal(string(inner))
-	return `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":` + string(text) + `}]}}`
+	return string(inner)
 }
 
 func reply(verdict string) func(http.ResponseWriter, string, int) {
 	return func(w http.ResponseWriter, _ string, _ int) {
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Star", "narcissus")
 		_, _ = fmt.Fprint(w, said(verdict, "reuse it"))
 	}
 }
@@ -230,8 +222,7 @@ func dropped(w http.ResponseWriter) {
 }
 
 // witnessIn is an input over a tree of the named files, a change set naming
-// them (and anything else), holding the lane's socket and a helper that reaches the
-// stand-in, with no waiting.
+// them (and anything else), and a Do that reaches the stand-in, with no waiting.
 func witnessIn(t *testing.T, n *narcissus, tree map[string]string, changed ...string) (atomkit.In, *[]time.Duration) {
 	t.Helper()
 	in := treeIn(t, tree)
@@ -245,9 +236,8 @@ func witnessIn(t *testing.T, n *narcissus, tree map[string]string, changed ...st
 		pauses = append(pauses, d)
 		return nil
 	}}
-	in.Spire = "/run/spire/agent.sock"
 	if n != nil {
-		in.Witness.Call = n.exec
+		in.Witness.Do = n.do
 	}
 	return in, &pauses
 }
@@ -267,10 +257,9 @@ func TestFleetWitnessAsksOnlyForSourceTheStarAuthored(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			n := newNarcissus(t, reply("novel"))
 			in, _ := witnessIn(t, n, map[string]string{"README.md": "x"}, tc.changed...)
-			in.Spire = "/run/spire/agent.sock"
-			in.Witness.Call = func(_ context.Context, c atoms.Cmd) (string, int) {
-				t.Errorf("a change with nothing to witness exec'd %s %v", c.Name, c.Args)
-				return "", 0
+			in.Witness.Do = func(req *http.Request) (*http.Response, error) {
+				t.Errorf("a change with nothing to witness sent %s %s", req.Method, req.URL)
+				return nil, errors.New("no")
 			}
 			v := run(t, in)
 			expect(t, v, stateOf(0), pass, append(tc.needles, "narcissus — fleet:witness:")...)
@@ -322,8 +311,7 @@ func TestFleetWitnessSettlesOnTheWitnessAnswer(t *testing.T) {
 		}, 0, pass, 4, 2, []string{"clean"}},
 		{"a refusal naming no unit is nothing to witness, clean", func(w http.ResponseWriter, _ string, _ int) {
 			inner, _ := json.Marshal(map[string]any{"verdict": "refused", "failure": map[string]any{"detail": "no function/method/class unit"}})
-			text, _ := json.Marshal(string(inner))
-			_, _ = fmt.Fprint(w, `{"result":{"content":[{"type":"text","text":`+string(text)+`}]}}`)
+			_, _ = w.Write(inner)
 		}, 0, pass, 2, 0, []string{"nothing to witness — every changed source file had no unit"}},
 		{"a finding beside a file that could not be consulted is a finding that says so", func(w http.ResponseWriter, p string, n int) {
 			if p == "b.py" {
@@ -337,7 +325,7 @@ func TestFleetWitnessSettlesOnTheWitnessAnswer(t *testing.T) {
 			n := newNarcissus(t, tc.answer)
 			in, pauses := witnessIn(t, n, tree, "a.go", "b.py", "notes.md")
 			v := run(t, in)
-			expect(t, v, stateOf(tc.state), tc.result, append(tc.needles, "identity: asked as "+testSVID+" at "+checks.WitnessMTLSURL)...)
+			expect(t, v, stateOf(tc.state), tc.result, append(tc.needles, checks.WitnessAskedAs())...)
 			if n.total() != tc.asks {
 				t.Errorf("%d request(s), want %d", n.total(), tc.asks)
 			}
@@ -360,7 +348,7 @@ func TestFleetWitnessAsksAboutTheFileAsTheChainDid(t *testing.T) {
 	if len(n.bodies) != 1 {
 		t.Fatalf("%d request(s)", len(n.bodies))
 	}
-	want := checks.WitnessRequest(1, "package a\n", "go", "ci:gate:some-star@HEAD", "pkg/a.go")
+	want := checks.WitnessArgs("package a\n", "go", "ci:gate:some-star@HEAD", "pkg/a.go")
 	if n.bodies[0] != want {
 		t.Errorf("the request was\n%s\nwant\n%s", n.bodies[0], want)
 	}
@@ -403,14 +391,6 @@ func TestFleetWitnessRowsKeepTheChangeSetsOrderWhateverOrderTheAnswersArriveIn(t
 	a, b, c := strings.Index(said, "| a.go"), strings.Index(said, "| b.go"), strings.Index(said, "| c.go")
 	if a < 0 || a >= b || b >= c {
 		t.Errorf("rows are out of the change set's order (a %d, b %d, c %d):\n%s", a, b, c, said)
-	}
-	// And each request carried the id of its place in the change set.
-	for _, body := range n.bodies {
-		for i, p := range []string{"a.go", "b.go", "c.go"} {
-			if strings.Contains(body, `"path":"`+p+`"`) && !strings.Contains(body, fmt.Sprintf(`"id":%d,`, i+1)) {
-				t.Errorf("the request for %s carried the wrong id:\n%s", p, body)
-			}
-		}
 	}
 }
 
@@ -466,155 +446,72 @@ func TestFleetWitnessAChangeSetThatWouldNotComputeIsSaidAsIt(t *testing.T) {
 	}
 }
 
-// witnessHelper stands in for the witnesscall helper.
-type witnessHelper struct {
-	t      *testing.T
-	mu     sync.Mutex
-	calls  []atoms.Cmd
-	whoami func() (string, int)
-	post   func(c atoms.Cmd, body string) (string, int)
-	seen   []string
-}
-
-func (h *witnessHelper) exec(_ context.Context, c atoms.Cmd) (string, int) {
-	h.mu.Lock()
-	h.calls = append(h.calls, c)
-	h.mu.Unlock()
-	if c.Name != "witnesscall" {
-		h.t.Errorf("exec of %q", c.Name)
-		return "", 0
-	}
-	if c.Args[0] == "whoami" {
-		return h.whoami()
-	}
-	if c.Args[0] == "get" {
-		h.mu.Lock()
-		h.calls = h.calls[:len(h.calls)-1]
-		h.mu.Unlock()
-		return "HTTP 200\napplication/json\n{}", 0
-	}
-	raw, err := os.ReadFile(c.Args[2])
-	if err != nil {
-		h.t.Errorf("the request file is not there when the helper reads it: %v", err)
-	}
-	h.mu.Lock()
-	h.seen = append(h.seen, c.Args[2])
-	h.mu.Unlock()
-	return h.post(c, string(raw))
-}
-
-func (h *witnessHelper) posts() int {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return len(h.calls) - 1
-}
-
-func TestFleetWitnessAsksAsTheLanesIdentity(t *testing.T) {
-	const svid = "spiffe://notusmi.com/job/gate/gate-x-1"
-	okPost := func(c atoms.Cmd, body string) (string, int) {
-		return "HTTP 200\napplication/json\n" + said("novel", ""), 0
-	}
+// THE ASK IS POST /v1/witness ON THE REST DOOR, as the lane pod's
+// ServiceAccount: one request per file, the verb's arguments as the body, and
+// the transport's word decides whether it is asked again.
+func TestFleetWitnessAsksOnTheRESTDoor(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
-		post    func(c atoms.Cmd, body string) (string, int)
+		do      func(n int) (*http.Response, error)
 		state   int
 		result  string
-		posts   int
+		asks    int
 		needles []string
 	}{
-		{"an identified ask is the whole answer", okPost, 0, pass, 1,
-			[]string{"identity: asked as " + svid + " at " + checks.WitnessMTLSURL}},
-		{"an ask that could not be made is asked again to the bound, and never in the clear",
-			func(atoms.Cmd, string) (string, int) { return "witnesscall: connect refused", 2 }, 2, cannot, 3,
-			[]string{"asked as " + svid, "could not ask the witness: witnesscall: connect refused", "could not consult 1 of 1 file(s)"}},
-		{"a helper that would not start on an ask is the file's could-not-consult",
-			func(atoms.Cmd, string) (string, int) { return "witnesscall: not found", -1 }, 2, cannot, 3,
-			[]string{"could not ask the witness: witnesscall: not found"}},
-		{"an ask that was sent and drew no answer is never repeated", func(atoms.Cmd, string) (string, int) { return "deadline", checks.WitnessNoAnswerExit }, 2, cannot, 1,
-			[]string{"could not ask the witness:", "did not answer the identified ask in time", "asked as " + svid}},
-		{"an answer on a failed exit is not an answer",
-			func(atoms.Cmd, string) (string, int) { return "HTTP 200\napplication/json\n" + said("novel", ""), 2 }, 2, cannot, 3,
-			[]string{"could not consult 1 of 1 file(s)"}},
-		{"a helper that prints no status line is an error", func(atoms.Cmd, string) (string, int) { return "garbage", 0 }, 2, cannot, 3,
-			[]string{"witnesscall printed no status line: garbage"}},
+		{"an answer is the whole answer", func(int) (*http.Response, error) {
+			return response(200, http.Header{"X-Star": {"narcissus"}}, said("novel", "")), nil
+		}, 0, pass, 1, []string{"clean", checks.WitnessAskedAs()}},
+		{"an ask that never reached the witness is asked again to the bound", func(int) (*http.Response, error) {
+			return nil, errors.New("dial tcp: connection refused")
+		}, 2, cannot, 3, []string{"could not ask the witness: dial tcp: connection refused", "could not consult 1 of 1 file(s)"}},
+		{"an ask that was sent and drew no answer is never repeated", func(int) (*http.Response, error) {
+			return nil, timeout{}
+		}, 2, cannot, 1, []string{"could not ask the witness:", "did not answer the ask in time"}},
+		{"an answer cut short is never repeated", func(int) (*http.Response, error) {
+			return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(iotest.ErrReader(errors.New("reset")))}, nil
+		}, 2, cannot, 1, []string{"did not answer the ask in time", "the answer was cut short: reset"}},
+		{"the star's own refusal is the verb erroring, not asked again", func(int) (*http.Response, error) {
+			return response(400, http.Header{"X-Star": {"narcissus"}}, `{"code":"bad_args","detail":"x"}`), nil
+		}, 2, cannot, 1, []string{"the witness verb errored:", "bad_args"}},
+		{"a proxy's 403 is narcissus's HTTP status, not asked again", func(int) (*http.Response, error) {
+			return response(403, http.Header{}, "Access denied"), nil
+		}, 2, cannot, 1, []string{"narcissus returned HTTP 403"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			n := newNarcissus(t, reply("novel"))
-			in, _ := witnessIn(t, n, map[string]string{"a.go": "package a\n"}, "a.go")
-			h := &witnessHelper{t: t, whoami: func() (string, int) { return svid, 0 }, post: tc.post}
-			in.Witness.Call = h.exec
+			in, _ := witnessIn(t, nil, map[string]string{"a.go": "package a\n"}, "a.go")
+			var asks int
+			var got []string
+			in.Witness.Do = func(req *http.Request) (*http.Response, error) {
+				if req.URL.Path == "/openapi.json" {
+					return response(200, http.Header{}, "{}"), nil
+				}
+				asks++
+				raw, _ := io.ReadAll(req.Body)
+				got = append(got, req.Method+" "+req.URL.String()+" "+req.Header.Get("Content-Type")+" "+string(raw))
+				return tc.do(asks)
+			}
 			expect(t, run(t, in), stateOf(tc.state), tc.result, tc.needles...)
-			if h.posts() != tc.posts {
-				t.Errorf("the helper posted %d time(s), want %d", h.posts(), tc.posts)
+			if asks != tc.asks {
+				t.Errorf("asked %d time(s), want %d", asks, tc.asks)
 			}
-			for _, c := range h.calls {
-				if strings.Join(c.Env, " ") != "WITNESSCALL_SOCKET=unix:///run/spire/agent.sock" || c.Dir != in.Root {
-					t.Errorf("the helper ran with env %v in %q", c.Env, c.Dir)
-				}
-				if c.Args[0] == "post" && c.Args[1] != checks.WitnessMTLSURL {
-					t.Errorf("the helper posted to %s", c.Args[1])
+			want := "POST " + checks.WitnessAskURL + " application/json " + checks.WitnessArgs("package a\n", "go", "ci:gate:some-star@HEAD", "a.go")
+			for _, g := range got {
+				if g != want {
+					t.Errorf("sent\n%s\nwant\n%s", g, want)
 				}
 			}
-			for _, f := range h.seen {
-				if _, err := os.Stat(f); err == nil {
-					t.Errorf("the request file %s was left behind", f)
-				}
-			}
-			// newNarcissus fails the test if anything reached the plaintext port.
 		})
 	}
-	t.Run("the helper is handed the request the chain would have posted", func(t *testing.T) {
-		in, _ := witnessIn(t, nil, map[string]string{"a.go": "package a\n"}, "a.go")
-		var got string
-		in.Witness.Call = (&witnessHelper{t: t, whoami: func() (string, int) { return svid, 0 }, post: func(_ atoms.Cmd, body string) (string, int) {
-			got = body
-			return "HTTP 200\napplication/json\n" + said("novel", ""), 0
-		}}).exec
-		run(t, in)
-		if want := checks.WitnessRequest(1, "package a\n", "go", "ci:gate:some-star@HEAD", "a.go"); got != want {
-			t.Errorf("the helper read\n%s\nwant\n%s", got, want)
-		}
-	})
 }
 
-// NO SOCKET, NO ASK. THE FALLBACK TO THE PLAINTEXT PORT IS GONE (foundry-tools#109):
-// a lane that forwarded no SPIRE socket, or whose helper cannot say who it is,
-// settles could-not-run with the reason, and not one request leaves the atom,
-// not to the clear port and not to /ready.
-func TestFleetWitnessWithoutAnIdentityCannotRunAndAsksNothing(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		spire   string
-		whoami  func() (string, int)
-		needles []string
-	}{
-		{"no socket was forwarded", "", nil,
-			[]string{"CANNOT RUN - the lane forwarded no --spire socket", "never in the clear", "No file was asked"}},
-		{"the helper has no identity", "/run/spire/agent.sock", func() (string, int) { return "witnesscall: no identity", 3 },
-			[]string{"CANNOT RUN - the lane has no identity to ask as: witnesscall: no identity", "No file was asked"}},
-		{"the helper never ran", "/run/spire/agent.sock", func() (string, int) { return "witnesscall: gone", -1 },
-			[]string{"CANNOT RUN - witnesscall never ran: witnesscall: gone", "No file was asked"}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			n := newNarcissus(t, reply("standard"))
-			in, _ := witnessIn(t, n, map[string]string{"a.go": "package a\nfunc A() {}\n"}, "a.go")
-			in.Spire = tc.spire
-			h := &witnessHelper{t: t, whoami: tc.whoami, post: func(atoms.Cmd, string) (string, int) {
-				t.Error("an ask was posted with no identity")
-				return "", 0
-			}}
-			in.Witness.Call = h.exec
-			if tc.whoami == nil {
-				in.Witness.Call = func(_ context.Context, c atoms.Cmd) (string, int) {
-					t.Errorf("a lane with no socket exec'd %s %v", c.Name, c.Args)
-					return "", 0
-				}
-			}
-			expect(t, run(t, in), stateOf(2), cannot, tc.needles...)
-			if n.total() != 0 || n.readyHits.Load() != 0 {
-				t.Errorf("an atom with no identity touched narcissus: %d ask(s), %d probe(s)", n.total(), n.readyHits.Load())
-			}
-		})
+// With no seam set, the atom asks on the plaintext client.
+func TestWitnessDefaultDoIsTheWitnessClient(t *testing.T) {
+	if do(atoms.Witness{}) == nil {
+		t.Fatal("no default client")
+	}
+	called := false
+	if _, err := do(atoms.Witness{Do: func(*http.Request) (*http.Response, error) { called = true; return nil, errors.New("x") }})(nil); err == nil || !called {
+		t.Fatal("the seam was not used")
 	}
 }
 
@@ -623,21 +520,6 @@ func TestWitnessDefaults(t *testing.T) {
 	cancel()
 	if err := sleep(atoms.Witness{})(ctx, time.Hour); err != context.Canceled {
 		t.Errorf("the default sleep answered %v for a cancelled context", err)
-	}
-}
-
-func TestFleetWitnessAnIdentifiedRequestThatCannotBeWrittenIsNotAskedInTheClear(t *testing.T) {
-	n := newNarcissus(t, reply("novel"))
-	in, _ := witnessIn(t, n, map[string]string{"a.go": "package a\n"}, "a.go")
-	h := &witnessHelper{t: t, whoami: func() (string, int) { return "spiffe://x", 0 }, post: func(atoms.Cmd, string) (string, int) {
-		t.Error("the helper was handed a request that was never written")
-		return "", 0
-	}}
-	in.Witness.Call = h.exec
-	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "not-there"))
-	expect(t, run(t, in), stateOf(2), cannot, "could not consult 1 of 1 file(s)", "the request could not be written for the helper")
-	if n.total() != 0 || h.posts() != 0 {
-		t.Errorf("%d request(s) at the stand-in, %d helper post(s)", n.total(), h.posts())
 	}
 }
 
@@ -661,14 +543,13 @@ func TestFleetWitnessCannotRunWhenTheWitnessIsNotReady(t *testing.T) {
 	}
 }
 
-// THE PROBE IS ON THE MTLS DOOR (b4-witness-probe): every readiness read goes
-// through the identity helper to :8201, none to the clear port, and narcissus
-// being down, refusing or slow is the same could-not-run as a 503.
-func TestFleetWitnessProbesReadinessOnTheMTLSDoor(t *testing.T) {
+// THE PROBE IS ON THE REST DOOR IT ASKS ON: GET /openapi.json at :8203, and
+// narcissus being down, refusing or slow is the same could-not-run as a 503.
+func TestFleetWitnessProbesReadinessOnTheRESTDoor(t *testing.T) {
 	n := newNarcissus(t, reply("novel"))
 	in, _ := witnessIn(t, n, map[string]string{"a.go": "package a\nfunc A() {}\n"}, "a.go")
 	expect(t, run(t, in), stateOf(0), pass, "clean")
-	if len(n.readyURLs) != 1 || n.readyURLs[0] != "https://narcissus:8201/ready" {
+	if len(n.readyURLs) != 1 || n.readyURLs[0] != "http://narcissus:8203/openapi.json" {
 		t.Errorf("probed %v", n.readyURLs)
 	}
 }
@@ -677,13 +558,13 @@ func TestFleetWitnessAWitnessThatIsDownRefusingOrSlowIsCouldNotRun(t *testing.T)
 	for _, tc := range []struct {
 		name string
 		exit int64
-	}{{"down or refusing (could not ask)", 2}, {"slow (no answer in time)", 4}} {
+	}{{"down or refusing (never reached)", 2}, {"slow (no answer in time)", 4}} {
 		t.Run(tc.name, func(t *testing.T) {
 			n := newNarcissus(t, reply("standard"))
-			n.readyExit.Store(tc.exit)
+			n.readyFail.Store(tc.exit)
 			in, pauses := witnessIn(t, n, map[string]string{"a.go": "package a\nfunc A() {}\n"}, "a.go")
 			expect(t, run(t, in), stateOf(2), cannot,
-				"CANNOT RUN - the witness (narcissus) is not ready: unreachable: witnesscall: the witness did not answer", "No file was asked")
+				"CANNOT RUN - the witness (narcissus) is not ready: unreachable:", "No file was asked")
 			if n.total() != 0 || n.readyHits.Load() != int64(checks.WitnessReadyAttempts) || len(*pauses) != checks.WitnessReadyAttempts-1 {
 				t.Errorf("%d ask(s), %d probe(s), pauses %v", n.total(), n.readyHits.Load(), *pauses)
 			}
@@ -749,30 +630,18 @@ func TestTheDeclarationIsTheRowItReplaced(t *testing.T) {
 	if Def.Desc != "Every changed .py/.go source file is shown to the code witness (narcissus), never a test: a canonical-class or Standard match is a finding, a Convention is advisory, novel is clean." {
 		t.Errorf("the description moved: %q", Def.Desc)
 	}
-	if !slices.Equal(Def.Needs, []string{"svid"}) {
+	if len(Def.Needs) != 0 {
 		t.Errorf("needs %v", Def.Needs)
 	}
 }
 
-// TestB4MTLS_DefaultAskIsInProcessNotAnExec: the executor's lead has no
-// witnesscall program, so with no seam set the atom asks the SPIRE agent in its
-// own process and never execs one. An agent that gives no identity is the
-// helper's own reason, unchanged, and nothing reaches narcissus.
-func TestB4MTLS_DefaultAskIsInProcessNotAnExec(t *testing.T) {
-	opened := hadescall.Open
-	t.Cleanup(func() { hadescall.Open = opened })
-	hadescall.Open = func(context.Context, string) (hadescall.Identity, error) {
-		return nil, errors.New("no agent behind the socket")
-	}
-	n := newNarcissus(t, reply("novel"))
-	in, _ := witnessIn(t, n, map[string]string{"a.go": "package a\n"}, "a.go")
-	in.Witness.Call = nil
-	in.Exec = func(_ context.Context, c atoms.Cmd) (string, int) {
-		t.Errorf("the atom exec'd %s %v: the executor pod has no such program", c.Name, c.Args)
-		return "", -1
-	}
-	expect(t, run(t, in), stateOf(2), cannot, "witnesscall: no identity from unix:///run/spire/agent.sock", "no agent behind the socket")
-	if n.total() != 0 {
-		t.Errorf("%d request(s) reached narcissus", n.total())
+// A request that cannot be built is never sent.
+func TestWitnessSendRefusesAnAddressItCannotBuild(t *testing.T) {
+	w := atoms.Witness{Do: func(*http.Request) (*http.Response, error) {
+		t.Error("a request that could not be built was sent")
+		return nil, errors.New("no")
+	}}
+	if _, _, _, err := send(context.Background(), w, http.MethodGet, "http://bad host/", nil); err == nil {
+		t.Fatal("no error for an address with a space in its host")
 	}
 }

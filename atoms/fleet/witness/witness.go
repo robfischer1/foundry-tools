@@ -8,33 +8,35 @@
 // NUL-separated, so a name with a space is one path.
 //
 // A CHANGE SET WITH NO SOURCE NEVER TOUCHES THE NETWORK. The classification is
-// decided before the asker is built: a push that changed a README settles
-// "nothing to witness" with no request, no helper exec and no socket.
+// decided before anything is asked: a push that changed a README settles
+// "nothing to witness" with no request.
 package fleetwitness
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"os"
+	"io"
+	"net"
+	"net/http"
 	"sync"
 	"time"
 
 	"dagger/foundry-tools/internal/atomkit"
 	"dagger/foundry-tools/internal/atoms"
 	"dagger/foundry-tools/internal/checks"
-	"dagger/foundry-tools/internal/witnesscall"
 )
 
-// Def is the atom. It asks narcissus as the run's SVID, so it needs one; its
-// deadline grows with the sources it asks about.
+// Def is the atom. It asks narcissus's REST door as the lane pod's
+// ServiceAccount (forge/ci), so it needs no SVID; its deadline grows with the
+// sources it asks about.
 var Def = atomkit.Def{
 	ID: "fleet:witness", Stage: checks.StagePrepush, Lane: checks.LaneAny,
 	Group:      checks.GroupBasic,
 	Desc:       "Every changed .py/.go source file is shown to the code witness (narcissus), never a test: a canonical-class or Standard match is a finding, a Convention is advisory, novel is clean.",
 	Surface:    "any:**",
 	Toolchain:  "none",
-	Needs:      []string{"svid"},
 	NotOnForks: checks.ForkFleetStyle,
 	Deadline:   deadline,
 	Check:      check,
@@ -53,95 +55,86 @@ func sleep(w atoms.Witness) func(context.Context, time.Duration) error {
 	return w.Sleep
 }
 
-// call runs the identity helper: the seam when a test set one, else the lane
-// pod's SPIRE agent in this process. The helper used to be a program on the
-// PATH, which the in-pod executor's lead container does not carry.
-func call(w atoms.Witness) atoms.Exec {
-	if w.Call != nil {
-		return w.Call
+// do sends one request: the seam when a test set one, else the plaintext client.
+func do(w atoms.Witness) func(*http.Request) (*http.Response, error) {
+	if w.Do != nil {
+		return w.Do
 	}
-	return func(ctx context.Context, c atoms.Cmd) (string, int) {
-		return witnesscall.Exec(ctx, c.Args, c.Env)
-	}
+	return checks.WitnessClient().Do
 }
 
-// asking is how one run asks narcissus: ask posts one request, and say is the
-// line the atom's output carries about the identity it asked as.
-type asking struct {
-	ask   func(context.Context, string) (int, string, string, error)
-	ready checks.WitnessProbe
-	say   func() string
-}
+// THE DOOR IS NARCISSUS'S REST FACE (rest-mesh P4, wonka68-rm2). The ask is
+// POST /v1/witness with the verb's arguments, plaintext from the lane pod, and
+// Cilium L7 by ServiceAccount is the authorization: grants-narcissus admits
+// forge/ci there and stamps it forge-ci (flux#7207), and forge's
+// executor-egress lets the lane out to :8203 (flux#7224). It replaced the
+// per-run SVID's MCP tools/call on the mTLS door (:8201); the run is still named,
+// by the request's own caller argument.
 
-// asker answers how this run asks narcissus, or why it cannot.
-//
-// THE IDENTITY IS THE LANE POD'S SPIRE SVID, through the witnesscall helper (in this process: the
-// executor's lead has no such program), at
-// narcissus's mTLS door, and there is no other way to ask. A run with no forwarded
-// agent socket (In.Spire), or whose helper cannot say who it is, has no way to
-// ask: the reason comes back and the atom settles could-not-run. NOTHING HERE
-// EVER POSTS TO THE PLAINTEXT PORT. The clear port filed every such ask as an
-// `unidentified` caller; the fallback is gone (foundry-tools#109), so a lane that
-// lost its socket is loud instead of anonymous. An ask that was made and failed
-// is that file's could-not-consult row, retried over the same door.
-func asker(ctx context.Context, in atomkit.In) (asking, string) {
-	if in.Spire == "" {
-		return asking{}, "the lane forwarded no --spire socket, and the witness is asked only as the lane's SVID over mTLS, never in the clear"
-	}
-	env := []string{"WITNESSCALL_SOCKET=unix://" + in.Spire}
-	who, code := call(in.Witness)(ctx, atoms.Cmd{Dir: in.Root, Name: "witnesscall", Args: []string{"whoami"}, Env: env})
-	if code < 0 {
-		return asking{}, "witnesscall never ran: " + who
-	}
-	if code != 0 {
-		return asking{}, "the lane has no identity to ask as: " + who
-	}
-	ask := func(ctx context.Context, body string) (int, string, string, error) {
-		return checks.AskWitnessRetried(ctx, identifiedPost(in, env), body,
-			checks.WitnessAttempts, checks.WitnessRetryPause, sleep(in.Witness))
-	}
-	return asking{ask: ask, ready: readyProbe(in, env), say: func() string { return checks.WitnessAskedAs(who) }}, ""
-}
-
-// readyProbe reads the witness's /ready through the helper, at the mTLS door
-// beside the ask and as the same SVID: the clear port is never dialled, so the
-// star can close it. Whatever kept the helper from an answer (narcissus down,
-// refusing, or silent past the probe's timeout) is the probe's error, which
-// checks.WitnessReadiness words as "unreachable" exactly as it did a refused
-// dial.
-func readyProbe(in atomkit.In, env []string) checks.WitnessProbe {
+// readyProbe reads the door's GET /openapi.json, the readiness the REST door
+// serves. Whatever kept it from an answer (narcissus down, refusing, or silent
+// past the probe's timeout) is the probe's error, which
+// checks.WitnessReadiness words as "unreachable".
+func readyProbe(w atoms.Witness) checks.WitnessProbe {
 	return func(ctx context.Context, u string) (int, string, error) {
 		ctx, cancel := context.WithTimeout(ctx, checks.WitnessReadyTimeout)
 		defer cancel()
-		out, code := call(in.Witness)(ctx, atoms.Cmd{Dir: in.Root, Name: "witnesscall", Args: []string{"get", u}, Env: env})
-		if code != 0 {
-			return 0, "", errors.New(out)
-		}
-		status, _, body, err := checks.ParseWitnessCall(out)
+		status, _, body, err := send(ctx, w, http.MethodGet, u, nil)
 		return status, body, err
 	}
 }
 
-// identifiedPost posts one request through witnesscall at narcissus's mTLS door.
-// Anything but an answer is an error, which the caller retries. A request that
-// was sent and drew no answer in time is ErrWitnessNoAnswer and is not retried:
-// the witness is slow, and a repeat only doubles its load. The request rides in
-// a file of its own, because the helper reads a file and the asks run at once.
-func identifiedPost(in atomkit.In, env []string) checks.WitnessAsk {
+// send makes one request and reads its answer whole. A request that went out
+// and drew no answer in time, or an answer cut short, is ErrWitnessNoAnswer;
+// one that never reached the witness is the transport's error, which the ask
+// retries.
+func send(ctx context.Context, w atoms.Witness, method, u string, body []byte) (int, http.Header, string, error) {
+	var rd io.Reader
+	if body != nil {
+		rd = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u, rd)
+	if err != nil {
+		return 0, nil, "", err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := do(w)(req)
+	if err != nil {
+		if timedOut(err) {
+			return 0, nil, "", fmt.Errorf("%w: %v", checks.ErrWitnessNoAnswer, err)
+		}
+		return 0, nil, "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, nil, "", fmt.Errorf("%w: the answer was cut short: %v", checks.ErrWitnessNoAnswer, err)
+	}
+	return resp.StatusCode, resp.Header, string(raw), nil
+}
+
+// timedOut is a deadline failure, which context.DeadlineExceeded and the
+// client timeout both report through net.Error.Timeout.
+func timedOut(err error) bool {
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
+}
+
+// ask posts one file's arguments and answers the status and tool result
+// ClassifyWitness reads (checks.WitnessResult), retried while nothing answered.
+func ask(w atoms.Witness) func(context.Context, string) (int, string, string, error) {
+	post := func(ctx context.Context, body string) (int, string, string, error) {
+		status, h, answer, err := send(ctx, w, http.MethodPost, checks.WitnessAskURL, []byte(body))
+		if err != nil {
+			return 0, "", "", err
+		}
+		status, result := checks.WitnessResult(status, h.Get("X-Star"), h.Get("Content-Type"), answer)
+		return status, "application/json", result, nil
+	}
 	return func(ctx context.Context, body string) (int, string, string, error) {
-		file := atoms.TempPath("witness-request", ".json")
-		defer func() { _ = os.Remove(file) }()
-		if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
-			return 0, "", "", fmt.Errorf("the request could not be written for the helper: %w", err)
-		}
-		out, code := call(in.Witness)(ctx, atoms.Cmd{Dir: in.Root, Name: "witnesscall", Args: []string{"post", checks.WitnessMTLSURL, file}, Env: env})
-		if code == checks.WitnessNoAnswerExit {
-			return 0, "", "", fmt.Errorf("%w: %s", checks.ErrWitnessNoAnswer, out)
-		}
-		if code != 0 {
-			return 0, "", "", errors.New(out)
-		}
-		return checks.ParseWitnessCall(out)
+		return checks.AskWitnessRetried(ctx, post, body, checks.WitnessAttempts, checks.WitnessRetryPause, sleep(w))
 	}
 }
 
@@ -177,21 +170,15 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 		state, reason := checks.AggregateWitness(nil, skipped, vendored, tests)
 		return settle(state, reason, nil)
 	}
-	// NO IDENTITY, NO ASK, AND NO NETWORK: this is settled before the witness's
-	// /ready is read (over the same mTLS door), so a lane without a socket touches nothing.
-	via, why := asker(ctx, in)
-	if why != "" {
-		return settle(int(checks.StateCannotRun), "CANNOT RUN - "+why+". No file was asked.", nil)
-	}
-
 	// THE TARGET MAY BE THE THING THE CHANGE REPAIRS. A witness that does not say
 	// ready is a could-not-run about narcissus, named so, with no ask sent
 	// (checks/witness_ready.go says why).
-	if ok, detail := checks.WitnessReadiness(ctx, via.ready, checks.WitnessMTLSURL,
+	if ok, detail := checks.WitnessReadiness(ctx, readyProbe(in.Witness), checks.WitnessRESTURL,
 		checks.WitnessReadyAttempts, checks.WitnessReadyPause, sleep(in.Witness)); !ok {
 		return settle(int(checks.StateCannotRun), checks.WitnessNotReadyReason(detail), nil)
 	}
 	star := checks.StarName(in.Origin)
+	asking := ask(in.Witness)
 
 	// A FEW AT ONCE. The rows keep git's order, whatever order the answers
 	// arrive in, and one file's failure is that file's row, not the run's.
@@ -208,17 +195,16 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 				rows[i] = checks.WitnessRow{Path: p, Class: "could-not-consult", Reason: "could not ask: " + err.Error()}
 				return
 			}
-			body := checks.WitnessRequest(i+1, query, checks.WitnessLanguage(p), "ci:gate:"+star+"@HEAD", p)
-			status, contentType, answer, err := via.ask(ctx, body)
+			body := checks.WitnessArgs(query, checks.WitnessLanguage(p), "ci:gate:"+star+"@HEAD", p)
+			status, _, result, err := asking(ctx, body)
 			if err != nil {
 				rows[i] = checks.WitnessRow{Path: p, Class: "could-not-consult", Reason: "could not ask the witness: " + err.Error()}
 				return
 			}
-			status, result := checks.WitnessEnvelope(status, contentType, answer)
 			rows[i] = checks.ClassifyWitness(p, status, result)
 		})
 	}
 	wg.Wait()
 	state, reason := checks.AggregateWitness(rows, skipped, vendored, tests)
-	return settle(state, reason+"\n"+via.say(), rows)
+	return settle(state, reason+"\n"+checks.WitnessAskedAs(), rows)
 }

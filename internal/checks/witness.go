@@ -164,39 +164,8 @@ type WitnessRow struct {
 	Canonical *WitnessCanonical
 }
 
-// WitnessEnvelope reads narcissus's HTTP answer to one tools/call into the
-// call's RESULT, JSON-encoded. MCP over streamable HTTP answers a JSON body or
-// an event stream whose last `data:` line carries the same envelope; a JSON-RPC
-// error becomes an isError result. A non-200 status passes through.
-func WitnessEnvelope(status int, contentType, body string) (int, string) {
-	if status != 200 {
-		return status, body
-	}
-	if strings.Contains(contentType, "text/event-stream") {
-		last := ""
-		for _, ln := range strings.Split(body, "\n") {
-			if data, ok := strings.CutPrefix(strings.TrimRight(ln, "\r"), "data:"); ok {
-				last = strings.TrimSpace(data)
-			}
-		}
-		body = last
-	}
-	var envelope map[string]json.RawMessage
-	if json.Unmarshal([]byte(body), &envelope) != nil {
-		return 200, body
-	}
-	if e, ok := envelope["error"]; ok {
-		text, _ := json.Marshal(string(e))
-		return 200, `{"isError": true, "content": [{"type": "text", "text": ` + string(text) + `}]}`
-	}
-	if result, ok := envelope["result"]; ok {
-		return 200, string(result)
-	}
-	return 200, "{}"
-}
-
 // ClassifyWitness folds the witness's answer about one file — an HTTP status
-// and an MCP tools/call result, JSON-encoded — into its row.
+// and a tool result, JSON-encoded (WitnessResult) — into its row.
 func ClassifyWitness(p string, status int, raw string) WitnessRow {
 	row := WitnessRow{Path: p, Class: "could-not-consult"}
 	notAnAnswer := "narcissus returned a body that is not a witness answer — could not consult."
@@ -459,14 +428,12 @@ func StarName(originURL string) string {
 	return name
 }
 
-// WitnessRequest is the JSON-RPC tools/call body that asks the witness about
-// one file. path lets narcissus tell a test from source (narcissus#9078).
-func WitnessRequest(id int, query, language, caller, p string) string {
+// WitnessArgs is the body that asks the witness about one file: the verb's
+// arguments, posted to WitnessAskURL. path lets narcissus tell a test from
+// source (narcissus#9078).
+func WitnessArgs(query, language, caller, p string) string {
 	b, _ := json.Marshal(map[string]any{
-		"jsonrpc": "2.0", "id": id, "method": "tools/call",
-		"params": map[string]any{"name": "witness", "arguments": map[string]any{
-			"query": query, "granularity": "code", "caller": caller, "language": language, "path": p,
-		}},
+		"query": query, "granularity": "code", "caller": caller, "language": language, "path": p,
 	})
 	return string(b)
 }
