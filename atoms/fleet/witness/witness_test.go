@@ -634,3 +634,14 @@ func TestTheDeclarationIsTheRowItReplaced(t *testing.T) {
 		t.Errorf("needs %v", Def.Needs)
 	}
 }
+
+// A request that cannot be built is never sent.
+func TestWitnessSendRefusesAnAddressItCannotBuild(t *testing.T) {
+	w := atoms.Witness{Do: func(*http.Request) (*http.Response, error) {
+		t.Error("a request that could not be built was sent")
+		return nil, errors.New("no")
+	}}
+	if _, _, _, err := send(context.Background(), w, http.MethodGet, "http://bad host/", nil); err == nil {
+		t.Fatal("no error for an address with a space in its host")
+	}
+}
