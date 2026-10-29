@@ -33,7 +33,6 @@ var Programs = []string{
 	"opengrep", "hadolint", "shellcheck", "chezmoi", "kubectl", "kubeconform",
 	"docker-compose", "wasm-tools", "just", "kube-linter",
 	"python3", "python", "copier", "ansible-playbook", "ansible-lint", "ansible-galaxy",
-	"witnesscall",
 }
 
 // indent is a tool's output set in from the line that introduced it.

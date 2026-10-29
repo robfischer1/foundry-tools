@@ -17,8 +17,10 @@ import (
 // "the witness is down" from "the witness could not read this file" gives a
 // reviewer nothing to act on.
 //
-// So the atom asks narcissus's /ready first (the op-contract every star serves;
-// 503 until the store answers, since narcissus#readiness-follows-the-store).
+// So the atom reads narcissus's GET /openapi.json first, on the REST door it
+// asks on (the door serves no /ready, and forge/ci's grant there is the verb and
+// the REST protocol routes alone). A door that does not answer, or answers 5xx,
+// is not ready.
 // A witness that does not say ready is a COULD-NOT-RUN about the target, named
 // as such, with no ask sent: state 2, never a finding, never a pass. That is the
 // state the gate's own ladder already routes to a manual merge, which is how a
@@ -32,17 +34,17 @@ const (
 	WitnessReadyPause    = time.Duration(3e9) // 3 s, spelled with no operator a mutant could flip
 )
 
-// WitnessReadyTimeout bounds one probe: /ready answers from memory.
+// WitnessReadyTimeout bounds one probe: the document answers from memory.
 const WitnessReadyTimeout = time.Duration(10e9)
 
-// WitnessReadyURL is the readiness endpoint beside an MCP endpoint: same host,
-// path /ready. "" when the URL does not parse.
-func WitnessReadyURL(mcpURL string) string {
-	u, err := url.Parse(mcpURL)
+// WitnessReadyURL is the readiness read on the door at base: same host, path
+// /openapi.json. "" when the URL does not parse.
+func WitnessReadyURL(base string) string {
+	u, err := url.Parse(base)
 	if err != nil || u.Host == "" {
 		return ""
 	}
-	u.Path, u.RawQuery, u.Fragment = "/ready", "", ""
+	u.Path, u.RawQuery, u.Fragment = "/openapi.json", "", ""
 	return u.String()
 }
 
@@ -56,8 +58,8 @@ type WitnessProbe func(ctx context.Context, url string) (int, string, error)
 // not become a new way to block a gate, so only an unreachable star or a 5xx
 // readiness answer (503 is the op-contract's "not ready") is unhealthy. detail
 // says why, for the verdict.
-func WitnessReadiness(ctx context.Context, probe WitnessProbe, mcpURL string, attempts int, pause time.Duration, sleep func(context.Context, time.Duration) error) (ok bool, detail string) {
-	u := WitnessReadyURL(mcpURL)
+func WitnessReadiness(ctx context.Context, probe WitnessProbe, base string, attempts int, pause time.Duration, sleep func(context.Context, time.Duration) error) (ok bool, detail string) {
+	u := WitnessReadyURL(base)
 	if u == "" {
 		return true, ""
 	}
