@@ -698,6 +698,23 @@ func GoMutationVerdictReusing(run GoMutationRun, dir string, reused []ReusedGrad
 	return GoFold{State: state, Reason: reason, Findings: found, Score: &s, Fresh: fresh}
 }
 
+// goMainControlLine is the package-main control's answer, in words, for a run
+// that excluded files because of it (ungraded mutants, or a lane that could not
+// list the files to exclude). "" for a healthy control and for a run it changed
+// nothing about. Broken and Unknown engage the same exclusion and MEAN OPPOSITE
+// THINGS: the control that found gremlins#268 lifts itself the day a fixed
+// gremlins lands; the control that did not answer never can, because it cannot
+// answer OK, so the exclusion would stay on unseen.
+func goMainControlLine(run GoMutationRun, ungraded bool) string {
+	if run.MainCanary == CanaryOK || !(ungraded || run.MisgradedFilesErr != "") {
+		return ""
+	}
+	if run.MainCanary == CanaryBroken {
+		return "package-main control: FOUND THE BUG — it ran and this gremlins grades a `package main` against the wrong package (gremlins#268). The exclusion is doing its job and lifts itself when the control answers ok."
+	}
+	return "package-main control: DID NOT ANSWER — it did not build, its test failed, or its report could not be read. Nothing has cleared this runner, so the exclusion stays on and CANNOT lift until the control answers; this is not evidence that gremlins#268 is present. Fix the control."
+}
+
 // goScoredVerdict settles a run whose report scored: its exit, the timeout
 // budget, the controls, then the survivors.
 func goScoredVerdict(run GoMutationRun, s GoMutationScore, noise GoMutationNoise, classifyErr string) (int, string, []Finding) {
@@ -706,7 +723,12 @@ func goScoredVerdict(run GoMutationRun, s GoMutationScore, noise GoMutationNoise
 	if s.MsPerMutant >= 0 {
 		measured += fmt.Sprintf(", %.1fms of wall clock per mutant", s.MsPerMutant)
 	}
-	with := func(line string) string { return line + "\n" + measured + "\n\n" + s.Summary }
+	// WHEN THE PACKAGE-MAIN CONTROL EXCLUDED ANYTHING, THE REPORT SAYS WHAT IT ANSWERED.
+	control := ""
+	if line := goMainControlLine(run, len(s.Ungraded) > 0); line != "" {
+		control = "\n" + line + "\n"
+	}
+	with := func(line string) string { return line + "\n" + measured + "\n" + control + "\n" + s.Summary }
 	if run.Status != 0 {
 		return 2, with(fmt.Sprintf("gomutants exited %d — a broken run, not a survivor report", run.Status)), nil
 	}

@@ -634,3 +634,41 @@ func TestGoMutationOverBudgetNamesOnlyTheTimeoutCouldNotRun(t *testing.T) {
 		}
 	}
 }
+
+// THE REPORT NAMES THE PACKAGE-MAIN CONTROL'S ANSWER, whenever something was
+// excluded because of it, and the two non-OK answers read as what they are.
+// Broken: the control ran and found gremlins#268, the exclusion is working and
+// lifts itself. Unknown: the control did not answer, nothing has cleared this
+// runner, and the exclusion cannot lift. The VERDICT is the same for both (the
+// exclusion engages, nothing becomes a pass it was not) and is pinned here too.
+func TestGoMutationReportDistinguishesAControlThatDidNotAnswer(t *testing.T) {
+	kill := `{"files":[{"file_name":"cmd/tool/main.go","mutations":[{"type":"T","status":"KILLED","line":4,"column":35}]}]}`
+	files := GoMisgradedFiles{"cmd/tool/main.go": true}
+	const answered, silent = "FOUND THE BUG", "DID NOT ANSWER"
+	for _, c := range []struct {
+		name, canary, listErr string
+		files                 GoMisgradedFiles
+		state                 int
+		want, absent          string
+	}{
+		{"broken", CanaryBroken, "", files, 0, answered, silent},
+		{"unknown", CanaryUnknown, "", files, 0, silent, answered},
+		{"unknown and the files cannot be listed", CanaryUnknown, "go list exited 1", nil, 2, silent, answered},
+		{"broken and the files cannot be listed", CanaryBroken, "go list exited 1", nil, 2, answered, silent},
+		// Healthy: nothing is excluded, so the control is not mentioned.
+		{"healthy", CanaryOK, "", files, 0, "every viable mutant was caught", "package-main control"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			state, reason, _ := GoMutationVerdict(GoMutationRun{
+				Report: []byte(kill), Canary: CanaryOK, Workers: 1, Classified: []byte(`{"noise":[]}`),
+				MainCanary: c.canary, MisgradedFiles: c.files, MisgradedFilesErr: c.listErr,
+			})
+			if state != c.state {
+				t.Errorf("settled %d, want %d:\n%s", state, c.state, reason)
+			}
+			if !strings.Contains(reason, c.want) || strings.Contains(reason, c.absent) {
+				t.Errorf("reason must carry %q and not %q:\n%s", c.want, c.absent, reason)
+			}
+		})
+	}
+}
