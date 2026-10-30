@@ -86,6 +86,7 @@ run:
   law:verb-liveness
   law:budget
   go:mutation
+  bases:blade
   bases:chairman
   bases:go-release
   bases:release
