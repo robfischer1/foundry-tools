@@ -8,10 +8,11 @@
 #
 # Sources are external/untrusted inputs (HTTP request data, argv, stdin), NOT
 # os.environ / config values, to avoid config-flow false positives. sys.argv is a
-# source in three of the four rules and deliberately NOT in path-traversal - see
-# the note there. Vendored + pinned (no registry / `auto`); that local, offline
-# posture is why we run opengrep. ASCII-only on purpose: opengrep reads rule
-# files under the runner's C locale, which chokes on non-ASCII punctuation.
+# source in two of the four rules (SSRF, SQLi) and deliberately NOT in
+# path-traversal or command-injection - see the notes there. Vendored + pinned
+# (no registry / `auto`); that local, offline posture is why we run opengrep.
+# ASCII-only on purpose: opengrep reads rule files under the runner's C locale,
+# which chokes on non-ASCII punctuation.
 #
 # SEED set: the SCOPING (local, curated, taint-mode, non-overlap) is settled;
 # the rule *content* grows as real flows surface across the fleet. Runs
@@ -80,11 +81,18 @@ rules:
       category: security
       cwe: "CWE-78: OS Command Injection"
     pattern-sources:
+      # sys.argv is NOT a source HERE, deliberately - same confused-deputy
+      # argument as the path-traversal rule below. Whoever sets argv already
+      # runs the process at its own privilege, so `tool --bin /usr/bin/x` is a
+      # shell with extra steps, not an escalation. Measured against
+      # cerberus/probes/ (29 .py driver scripts): argv -> subprocess.Popen fired
+      # 5/5 and all 5 were false positives, each an operator naming the binary
+      # they can already run. HTTP request data and stdin STAY: they cross a
+      # trust boundary the argv supplier does not.
       - pattern-either:
           - pattern: request.query_params
           - pattern: request.path_params
           - pattern: (await request.json())
-          - pattern: sys.argv
           - pattern: input(...)
     pattern-sinks:
       - patterns:
@@ -122,16 +130,10 @@ rules:
       # `input(...)` STAYS: piped stdin is not always the operator, and it has
       # never produced a finding either way - removing it would be a change with
       # no evidence behind it.
-      # argv also STAYS a source in the SSRF / SQLi / command-injection rules
-      # above - but NOT because it is clean there, and the difference is worth
-      # stating. Pointed at cerberus/probes/ (a Rust star, so its 29 .py are not
-      # scanned by this lane today) command-injection fires 5/5 on the identical
-      # shape: sys.argv -> subprocess.Popen in dev probe drivers, every one an
-      # operator naming the binary they are already able to run. The confused-
-      # deputy argument applies there verbatim. It is left alone HERE only
-      # because it is a separate change on a rule whose evidence comes from a
-      # tree this lane does not cover - foundry-stocks#4585, not this commit.
-      # foundry-stocks#4582.
+      # argv is ALSO not a source in the command-injection rule (same argument,
+      # measured 5/5 false positives on cerberus/probes/). It STAYS a source in
+      # the SSRF and SQLi rules above, which have no evidence either way yet.
+      # foundry-stocks#4582 (path-traversal), #4585 (command-injection).
       - pattern-either:
           - pattern: request.query_params
           - pattern: request.path_params
