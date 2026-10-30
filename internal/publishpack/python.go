@@ -15,6 +15,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/BurntSushi/toml"
+
 	"dagger/foundry-tools/internal/atoms"
 	"dagger/foundry-tools/internal/buildlane"
 	"dagger/foundry-tools/internal/checks"
@@ -24,7 +26,8 @@ import (
 
 // Python is python:artifacts: `uv build --out-dir <release>/dist`, the Python half of
 // the publish lane. A tree decides which half runs, as the Dagger lane has it: a
-// pyproject.toml or setup.py at the root is Python.
+// pyproject.toml or setup.py at the root is Python, unless its pyproject
+// declares [tool.uv] package = false (ABSENT, with that reason).
 //
 // uv resolves the build backend from its default index (pypi.org), which is
 // what the Dagger lane's --index-url is set to in the fleet's recipe
@@ -42,6 +45,12 @@ func Python(ctx context.Context, in atoms.Input, a checks.AtomDef) checks.Verdic
 	}
 	if !pythonRoot(entries) {
 		return absent(a, "the tree has neither a pyproject.toml nor a setup.py, so it publishes no Python package")
+	}
+	// [tool.uv] package = false declares there is nothing to build. Building it
+	// anyway reds the backend (hatchling finds no package) or, bypassed, would
+	// publish an empty wheel.
+	if body, ok := atoms.ReadIfPresent(in.Root, "pyproject.toml"); ok && declaresNoPackage(body) {
+		return absent(a, "pyproject.toml declares [tool.uv] package = false, so there is nothing to build and this tree publishes no Python package")
 	}
 	dist := filepath.Join(releasekit.OutDir(), "dist")
 	// what an earlier build left there is not this build's
@@ -68,4 +77,20 @@ func Python(ctx context.Context, in atoms.Input, a checks.AtomDef) checks.Verdic
 		return checks.VerdictOf(a, buildlane.Findings, fmt.Sprintf("findings: uv build exited clean and wrote no wheel or sdist to %s (it wrote: %s)", dist, list(names)))
 	}
 	return checks.VerdictOf(a, 0, fmt.Sprintf("publish build: uv build wrote %s to %s", list(artifacts), dist))
+}
+
+// declaresNoPackage reads pyproject.toml for [tool.uv] package = false. A file
+// that does not parse declares nothing: uv build is left to report it.
+func declaresNoPackage(pyproject string) bool {
+	var doc struct {
+		Tool struct {
+			UV struct {
+				Package *bool `toml:"package"`
+			} `toml:"uv"`
+		} `toml:"tool"`
+	}
+	if _, err := toml.Decode(pyproject, &doc); err != nil {
+		return false
+	}
+	return doc.Tool.UV.Package != nil && !*doc.Tool.UV.Package
 }
