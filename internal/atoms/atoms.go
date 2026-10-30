@@ -242,7 +242,8 @@ func admittedBy(stage string) map[string]bool {
 // grades: the catalogue's own answer (checks.AtomsForStage, where "" is the
 // pull path, precommit and prepush) narrowed to what this binary carries. It
 // is the one definition of "the atoms of a stage", shared by the binary, which
-// runs them, and the voter, which asks the chains for the rest.
+// runs them (the voter that asked the chains for the rest went with the Dagger
+// module, 2026-10-24).
 func StageIDs(stage string) []string {
 	admitted := admittedBy(stage)
 	var ids []string

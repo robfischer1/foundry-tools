@@ -7,9 +7,10 @@ import (
 
 // THE IMAGE IS THE BASE PLUS THE ARTIFACT (CA master-plan F14/F17; Rob:
 // "Build - Copy the binary from the previous complex run"; "FROM base +
-// COPY"). The Gate compiled the star's release once (foundry-tools Release,
-// the go:release atom's own exec, so the engine answers it from cache), and
-// the Dockerfile's job shrinks to naming the base and copying the artifact in:
+// COPY"). The build lane's release phase (lanes/build.toml) runs the
+// release atom (go:release) itself, a fresh compile in the lane's own run:
+// nothing is reused from the gate's compile and no engine caches it. The Dockerfile's job
+// shrinks to naming the base and copying the artifact in:
 //
 //	FROM registry.notusmi.com/foundry/base-images/go:stable@sha256:…
 //	COPY release/<star> /<star>
@@ -20,13 +21,13 @@ import (
 // still carries its own build stage copies nothing from release/, gets no
 // artifact staged, and builds as it always did — which is what lets the fleet
 // flip one star at a time instead of all at once. A Dockerfile that copies
-// from release/ is asking for the Gate's build, and the lane stages it at
+// from release/ is asking for the lane's release build, and the lane stages it at
 // that path in the build context before the Dockerfile runs. Nothing else
 // reads or writes the directory: it is never in the tree, and the template's
 // .gitignore refuses it.
 
 // ReleaseDir is the path in the build context where the lane stages the
-// Gate's release artifact — the directory a Dockerfile COPYs from.
+// lane's release artifact — the directory a Dockerfile COPYs from.
 const ReleaseDir = "release"
 
 // releaseSources walks a Dockerfile's COPY lines the way the lane stages them
