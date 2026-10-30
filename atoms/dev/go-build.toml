@@ -10,9 +10,15 @@ argv = ["go", "build"]
 args = "append"
 per_module = false
 judge = "exit"
+writes_tree = true
 
 [[default]]
 args = ["./..."]
 unless = ["@package"]
 tail = true
 until = "-args"
+
+# Builds on the atom's own copy of the tree, like dev:python-build and dev:ts-build: a
+# `-o <file>` lands in that copy, and dev-output delivers what the run changed back
+# to the caller. On the read-only /src nothing the build wrote would come back,
+# and the run answered "not delivered: no atom writes the tree" beside a green build.
