@@ -30,9 +30,12 @@ type manifestContract struct {
 //
 // THE TARGET IS READ OUT OF THE MANIFEST — the first remote copy of the
 // first-named contract that has one — never named, so the probe follows whatever the checker will fetch.
-// ANY HTTP ANSWER MEANS REACHABLE, a 404 or a 503 included: what the door said
-// about one file is the checker's finding to make. Only a request that got no
-// answer at all is the probe's.
+// A 2xx, 3xx OR 4xx MEANS REACHABLE, a 404 included: the door answered, and
+// what it said about one file is the checker's finding to make. A 5xx is the
+// door failing, not answering: the checker's fetch of its copies would fail the
+// same way and land as a finding (1) for a fault of the substrate, so the probe
+// settles it 2 with the status named. So does a request that got no answer at
+// all. (A 5xx is asked again first: Door.Get retries a transient one.)
 func DoorProbe(ctx context.Context, manifest string, door Door) (int, string) {
 	var doc struct {
 		Contracts map[string]manifestContract `toml:"contracts"`
@@ -52,6 +55,8 @@ func DoorProbe(ctx context.Context, manifest string, door Door) (int, string) {
 	switch {
 	case err != nil:
 		return 2, fmt.Sprintf("the door's archive read is unreachable (%s): %v", target, err)
+	case status >= 500:
+		return 2, fmt.Sprintf("the door's archive read failed (%s -> HTTP %d): the door is erroring, so the remote copies cannot be read", target, status)
 	}
 	return 0, fmt.Sprintf("door archive read reachable (%s -> HTTP %d); what it said about the file is the checker's finding to make, not a provisioning failure", target, status)
 }

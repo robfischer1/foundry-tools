@@ -93,15 +93,34 @@ func TestDoorProbeIsTwoOnlyWhenNothingAnswered(t *testing.T) {
 		t.Errorf("dead door: %d %q", code, out)
 	}
 
-	for _, status := range []int{200, 204, 301, 404, 500, 503} {
+	noRedirect := func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	for _, status := range []int{200, 204, 301, 404} {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(status) }))
-		code, out := DoorProbe(ctx, manifest, Door{Base: srv.URL, Client: &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}})
+		code, out := DoorProbe(ctx, manifest, Door{Base: srv.URL, Client: &http.Client{CheckRedirect: noRedirect}})
 		srv.Close()
 		if code != 0 {
 			t.Errorf("status %d: an answer is reachable, got %d %q", status, code, out)
 		}
 		if want := "reachable (r:p -> HTTP " + strconv.Itoa(status) + ")"; !strings.Contains(out, want) {
 			t.Errorf("status %d: report %q lacks %q", status, out, want)
+		}
+	}
+}
+
+// A 5xx is the door failing, not the door answering about a file: the checker's
+// fetch would fail the same way and land as a finding, so the probe settles
+// could-not-run and names the status.
+func TestDoorProbeReadsA5xxAsTheDoorBeingDown(t *testing.T) {
+	manifest := "[contracts.a]\ncopies = [{ source = { repo = \"r\", path = \"p\" } }]\n"
+	for _, status := range []int{500, 502, 503, 504} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(status) }))
+		code, out := DoorProbe(context.Background(), manifest, Door{Base: srv.URL, NoRetry: true})
+		srv.Close()
+		if code != 2 {
+			t.Errorf("status %d: the door failed, want 2, got %d %q", status, code, out)
+		}
+		if want := "HTTP " + strconv.Itoa(status); !strings.Contains(out, want) || !strings.Contains(out, "r:p") {
+			t.Errorf("status %d: report %q must name the target and %q", status, out, want)
 		}
 	}
 }
