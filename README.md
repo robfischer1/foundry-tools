@@ -90,6 +90,7 @@ They exist because the **act-runner is being removed**, and what it validated is
 | `dies:contracts` | `contracts.yml` | every copy of every shared closed set agrees — after 7 fixtures fail and 3 controls pass | ″ |
 | `dies:contract-copies` | foundry-tools#15237 | every vendored copy **this tree holds** matches foundry-dies' authority (closed set and bytes), graded here instead of on the next dies pull | a tree that holds no copy `contracts.toml` declares; foundry-dies itself |
 | `dies:schema` | `schema.yml` | every `fleet/repos/<name>.json` catalog entry satisfies `schema/fleet-star.schema.json` (and a tree still carrying `fleet/stars/`, the retired slag, is refused) | ″ |
+| `dies:vale-styles` | new, with `fleet:vale` | the Forge Vale style's own cases pass under `vale test --coverage styles/`, every rule exercised — graded in the tree that carries the style, because `fleet:vale` reads it in every consumer's gate | no root `.vale.ini` beside a `styles/` directory |
 
 Three things the ports changed on purpose, each because the workflow's assumption was about its runner rather than about the check:
 

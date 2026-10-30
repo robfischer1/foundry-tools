@@ -66,7 +66,9 @@ func ValeStylesPath(dies string) (string, error) {
 // The sections are the per-artifact profiles (Master List 10.5). ArgumentSlot
 // bites only where Claude Code substitutes arguments, which is a skill body:
 // references, rules and governance keep their dollar signs (measured
-// 2026-10-30: every hit outside a body was a reference or a rule).
+// 2026-10-30: every hit outside a body was a reference or a rule). Retired,
+// the retired-names substitution, is off in the naming-things skill, which is
+// the table those names come from: the rule's own source cannot be its finding.
 func ValeConfig(stylesPath string) string {
 	return "# The fleet's Vale configuration, written by foundry-tools (fleet:vale) for\n" +
 		"# one run. The repository's own .vale.ini is not read; the style is\n" +
@@ -77,8 +79,14 @@ func ValeConfig(stylesPath string) string {
 		"BasedOnStyles = " + ValeStyle + "\n" +
 		ValeStyle + ".ArgumentSlot = NO\n\n" +
 		"[{" + strings.Join(ValeSkillBodyGlobs, ",") + "}]\n" +
-		ValeStyle + ".ArgumentSlot = YES\n"
+		ValeStyle + ".ArgumentSlot = YES\n\n" +
+		"[" + ValeRetiredSourceGlob + "]\n" +
+		ValeStyle + ".Retired = NO\n"
 }
+
+// ValeRetiredSourceGlob is the naming-things skill wherever it is laid: the
+// source of the Retired rule's table, exempt from the rule.
+const ValeRetiredSourceGlob = "**/naming-things/**"
 
 // ValeSkillBodyGlobs name the files Claude Code loads as a skill body and
 // substitutes arguments into: SKILL.md anywhere, and the `<name>.md` beside a
