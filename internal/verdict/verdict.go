@@ -43,7 +43,12 @@ func Run(args []string, stderr io.Writer) int {
 	// `verdict 1 @/reason` reads the reason from a file: a long reason as an
 	// argument is echoed by the engine into the exec's span title, so the same
 	// text is printed twice. A file it cannot read is a could-not-run.
-	if path, ok := strings.CutPrefix(reason, "@"); ok && len(args) == 2 {
+	// `@@` escapes the form: `verdict 1 @@alice` prints "@alice", so a reason
+	// that itself starts with '@' is not read as a path (ReasonArg writes it).
+	// `@@x` named the file "@x" before, so no working caller changes.
+	if lit, ok := strings.CutPrefix(reason, "@@"); ok && len(args) == 2 {
+		reason = "@" + lit
+	} else if path, ok := strings.CutPrefix(reason, "@"); ok && len(args) == 2 {
 		b, err := readFile(path)
 		if err != nil {
 			fmt.Fprintf(stderr, "verdict: cannot read the reason: %v\n", err)
@@ -60,3 +65,14 @@ func Run(args []string, stderr io.Writer) int {
 // readFile is how the @file form reads, and a variable so a test can say what
 // the file holds.
 var readFile = os.ReadFile
+
+// ReasonArg is the single argument that carries reason, so that Run prints
+// reason back: a reason starting with '@' gains a second '@' (the escape), any
+// other is its own argument. Pass it as the only reason argument; a reason
+// split over several arguments is always literal and needs no encoding.
+func ReasonArg(reason string) string {
+	if strings.HasPrefix(reason, "@") {
+		return "@" + reason
+	}
+	return reason
+}
