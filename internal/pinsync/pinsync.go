@@ -3,7 +3,8 @@
 //
 // renovate-config's foundry-tools manager reads each `// renovate:` marker in
 // internal/checks and rewrites the `<Name>Version = "…"` on the next line. Four
-// things depend on that version and are not that line:
+// things depend on that version and are not that line (a fifth, the ansible
+// collections' url and sha256, follows a version Renovate moved in a YAML file):
 //
 //  1. URL and tarball-member LITERALS that carry the version. They are
 //     literals, not joins, on purpose (witlane.go: a `+` in a const block is a
@@ -12,6 +13,8 @@
 //  3. tools.toml, held equal to the constants by TestToolsTomlMatchesGo.
 //  4. pytools/requirements.in and its lock, where copier is held to
 //     checks.CopierVersion.
+//  5. pytools/ansible-collections.yml, whose url and sha256 name the artifact
+//     of the version Renovate's customManager moved (collections.go).
 //
 // Run is idempotent: on a tree that is already in step it reads, fetches
 // nothing and writes nothing. Renovate runs it as a postUpgradeTask.
@@ -148,7 +151,14 @@ func (e *Env) Run(ctx context.Context) (Result, error) {
 	if err := syncUVTools(src, doc); err != nil {
 		return res, err
 	}
+	collections, err := e.syncCollections(ctx)
+	if err != nil {
+		return res, err
+	}
 	out := map[string][]byte{}
+	if collections != "" {
+		out[filepath.FromSlash(CollectionsFile)] = []byte(collections)
+	}
 	for _, f := range mergeSorted(followed, summed) {
 		out[filepath.Join("internal", "checks", f)] = src.files[f]
 	}

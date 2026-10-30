@@ -24,4 +24,56 @@
   // otel/log v0.21.0+, or on 2026-12-01 when those allowances lapse, whichever
   // comes first.
   vulnerabilityAlerts: { enabled: false },
+
+  // THE ANSIBLE COLLECTIONS pytools/ansible-collections.yml PINS ARE RENOVATE'S
+  // (absent-wire-filter). Nothing watched them: the ansible-galaxy manager's
+  // default file pattern does not match the file, and CANNOT be pointed at it. Its
+  // extractor (lib/modules/manager/ansible-galaxy/collections.ts, renovate
+  // 44.181.11) marks an entry "unsupported" and skips it as soon as it meets a key
+  // other than name, version, source or type, and every entry here also carries
+  // `url` and `sha256`. So a regex manager reads name and version, and moves the
+  // version alone.
+  //
+  // THE URL AND SHA256 FOLLOW THE VERSION and are not Renovate's to move: the url
+  // spells the version, and no datasource states a galaxy tarball's sum.
+  // `go run ./pinsync` (internal/pinsync/collections.go) moves both, holding the
+  // measured sum to galaxy's own record of the version, in the packageRule below.
+  // TestTheLandedCollectionsFileNamesTheArtifactOfEachVersion fails the branch if
+  // that task did not run, so a version-only bump cannot land.
+  //
+  // The pip side needs nothing here: renovate-config's pip_requirements rule
+  // relocks pytools/requirements.txt (`pinsync -relock`) and its custom.regex rule
+  // follows the copier pin, both for rob/foundry-tools.
+  customManagers: [
+    {
+      customType: 'regex',
+      description: 'foundry-tools pytools/ansible-collections.yml — the version of each galaxy collection',
+      managerFilePatterns: ['/^pytools/ansible-collections\\.ya?ml$/'],
+      // `- name: ns.coll`, then `version: "x.y.z"` on the next line: the entry's
+      // shape in the file, so a comment that mentions `name:` is not an entry.
+      matchStrings: [
+        '-\\s+name:\\s*(?<depName>[\\w-]+\\.[\\w-]+)\\s+version:\\s*"?(?<currentValue>\\d+(?:\\.\\d+)+)"?',
+      ],
+      datasourceTemplate: 'galaxy-collection',
+    },
+  ],
+
+  packageRules: [
+    {
+      description: 'pytools ansible collections — pinsync moves the url and sha256 that follow a bumped version',
+      matchRepositories: ['rob/foundry-tools'],
+      matchManagers: ['custom.regex'],
+      matchFileNames: ['pytools/ansible-collections.yml'],
+      // exact versions, as renovate-config's pinsync rule: install-tool takes no
+      // ranges. golang moves with go.mod's `go` line. Only go is needed: pinsync
+      // runs uv only when the copier pin moved, and this rule does not move it.
+      constraints: { golang: '1.26.6' },
+      postUpgradeTasks: {
+        commands: ['go run ./pinsync'],
+        installTools: { golang: {} },
+        fileFilters: ['pytools/ansible-collections.yml'],
+        executionMode: 'update',
+      },
+    },
+  ],
 }
