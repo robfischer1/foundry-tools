@@ -20,7 +20,7 @@ var devAtoms = []struct {
 	id, lang, surface, toolchain string
 	writes                       bool
 }{
-	{"dev:go-build", "go", "root:go.mod", "go", false},
+	{"dev:go-build", "go", "root:go.mod", "go", true},
 	{"dev:go-vet", "go", "root:go.mod", "go", false},
 	{"dev:go-check", "go", "root:go.mod", "go", false},
 	{"dev:go-lint", "go", "root:go.mod", "go", false},
@@ -53,8 +53,8 @@ var devAtoms = []struct {
 	{"dev:ts-lock-apt", "ts", "root:packages.lock", "go", true},
 }
 
-// TestUT_514_TheDevAtomsKeepTheirShape: all 27 parse, sit in the dev stage with
-// the Dev surface's fields, and write the tree for the go test (it rewrites
+// TestUT_514_TheDevAtomsKeepTheirShape: all parse, sit in the dev stage with
+// the Dev surface's fields, and write the tree for the go build (its -o output is delivered), the go test (it rewrites
 // goldens), the go update and the six rewriting go/rust verbs, the python fmt
 // and the four ts ones (a ts install lands in node_modules,
 // beside the tree, so every ts verb runs on its own copy).
@@ -665,6 +665,24 @@ func TestTheRustVulnVerbIsTheGatesCargoAudit(t *testing.T) {
 		t.Errorf("dev:rust-vuln %+v is not rust:cargo-audit %+v", dev, *e.Manifest)
 	}
 	if got := dev.Compose([]string{"--deny", "warnings"}); !slices.Equal(got, []string{"cargo", "audit", "--deny", "warnings"}) {
+		t.Errorf("composed %v", got)
+	}
+}
+
+// A build's `-o <file>` is delivered only when the verb runs on its own copy of
+// the tree: the dev lane hands back what a writing atom changed, and an atom
+// that writes nothing answers "not delivered: no atom writes the tree" beside a
+// green build (narcissus `build -o ./narc.bin ./cmd/narc`). So every verb that
+// can leave a file the caller asked for writes the tree: go and python and ts
+// builds, and `-o` composes through to go build untouched.
+func TestTheBuildVerbsDeliverTheirOutput(t *testing.T) {
+	for _, id := range []string{"dev:go-build", "dev:python-build", "dev:ts-build"} {
+		if !manifestOf(t, id).WritesTree {
+			t.Errorf("%s does not write the tree, so a file it builds is never delivered", id)
+		}
+	}
+	got := manifestOf(t, "dev:go-build").Compose([]string{"-o", "./narc.bin", "./cmd/narc"})
+	if !slices.Equal(got, []string{"go", "build", "-o", "./narc.bin", "./cmd/narc"}) {
 		t.Errorf("composed %v", got)
 	}
 }
