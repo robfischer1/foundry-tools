@@ -1,6 +1,11 @@
 package checks
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -10,7 +15,7 @@ func TestRustMutationSpecsAreTheDeclarationOrEveryRustSource(t *testing.T) {
 		t.Errorf("declared modules: %s", got)
 	}
 	for _, blank := range []string{"", "   "} {
-		if got := strings.Join(RustMutationSpecs(blank), "|"); got != "*.rs|:!tests/" {
+		if got := strings.Join(RustMutationSpecs(blank), "|"); got != "*.rs|:(glob,exclude)**/tests/**" {
 			t.Errorf("an empty declaration %q is the whole diff's rust sources, got %s", blank, got)
 		}
 	}
@@ -97,7 +102,7 @@ func TestRustMutationVerdict(t *testing.T) {
 			[]string{"**Timed out** — the suite noticed each", "src/lib.rs:9: loop\n```", "| 5 | 1 | 0 | 1 | 85% of 7 viable |"}, nil},
 		// The headline is the first error, cut to 160 runes; the tail follows.
 		{"a broken baseline", RustMutationRun{Status: 4, Log: "Found 3 mutants\nwarning: x\nERROR " + strings.Repeat("é", 200) + "\nerror: second"}, 2,
-			[]string{"cargo mutants exited 4", "a broken run, not a survivor report", ": ERROR " + strings.Repeat("é", 154) + "\n",
+			[]string{"cargo mutants exited 4", "the baseline is already red", ": ERROR " + strings.Repeat("é", 154) + "\n",
 				"the tail of its output:\n```\nFound 3 mutants\n", "\nerror: second\n```"},
 			[]string{"| caught |"}},
 		{"a usage error with nothing to say", RustMutationRun{Status: 1, Log: "Usage: cargo mutants"}, 2,
@@ -192,5 +197,85 @@ func TestRustMutationVerdictCarriesTheSlowestTests(t *testing.T) {
 	_, reason, _ = RustMutationVerdict(RustMutationRun{Status: 0, Caught: "a\n"})
 	if strings.Contains(reason, "**Where the test half") {
 		t.Errorf("no baseline, no section:\n%s", reason)
+	}
+}
+
+// The default pathspec, run through real git over a workspace: every crate's
+// tests/ directory leaves the diff (the old root-anchored `:!tests/` dropped
+// only a repository-root tests/), and the neighbours a looser rule would eat
+// stay in.
+func TestRustMutationSpecsExcludeEveryCratesTestsDir(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Fatalf("git is required: %v", err)
+	}
+	dir := t.TempDir()
+	git := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null",
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return string(out)
+	}
+	kept := []string{"src/lib.rs", "src/tests.rs", "src/attests/x.rs", "src/contests/y.rs", "crates/a/src/lib.rs", "crates/a/src/tests.rs"}
+	dropped := []string{"tests/root.rs", "crates/a/tests/t.rs", "crates/a/tests/sub/u.rs", "crates/b/tests/v.rs"}
+	all := append(append([]string{}, kept...), dropped...)
+	git("init", "-q")
+	for _, f := range all {
+		p := filepath.Join(dir, f)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("a\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git(append([]string{"add"}, all...)...)
+	git("commit", "-qm", "base")
+	for _, f := range all {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte("a\nb\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	args := append([]string{"diff", "--name-only", "HEAD", "--"}, RustMutationSpecs("")...)
+	got := strings.Fields(git(args...))
+	sort.Strings(got)
+	want := append([]string{}, kept...)
+	sort.Strings(want)
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("files in the mutation diff:\n got  %v\n want %v", got, want)
+	}
+}
+
+// The cannot-run reason names the cause the exit code identifies (cargo-mutants'
+// src/exit_code.rs), and no longer lists causes the number already excluded.
+func TestCannotRunRustNamesTheCauseOfTheExitCode(t *testing.T) {
+	for _, c := range []struct {
+		status int
+		want   string
+		absent []string
+	}{
+		{1, "usage error", []string{"hung", "baseline", "does not match"}},
+		{2, "it reported missed mutants", []string{"HUNG", "baseline", "no known meaning"}},
+		{3, "a mutant HUNG", []string{"baseline", "did not match", "usage error"}},
+		{4, "the baseline is already red", []string{"HUNG", "did not match", "usage error"}},
+		{5, "does not match the tree", []string{"HUNG", "baseline", "usage error"}},
+		{6, "could not be parsed", []string{"HUNG", "baseline", "usage error"}},
+		{70, "internal error", []string{"HUNG", "baseline", "usage error"}},
+		{139, "no known meaning", []string{"HUNG", "baseline is already red", "does not match"}},
+	} {
+		got := cannotRunRust(RustMutationRun{Status: c.status, Log: "boom"})
+		if !strings.Contains(got, "CANNOT RUN - cargo mutants exited "+strconv.Itoa(c.status)) || !strings.Contains(got, c.want) {
+			t.Errorf("exit %d: reason lacks %q:\n%s", c.status, c.want, got)
+		}
+		for _, a := range c.absent {
+			if strings.Contains(got, a) {
+				t.Errorf("exit %d: reason carries %q:\n%s", c.status, a, got)
+			}
+		}
 	}
 }
