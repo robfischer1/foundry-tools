@@ -160,9 +160,18 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 	// of which compiled the crate's test binary again and re-ran every
 	// ungated lib test.
 	testDir := filepath.Join(target, checks.WitGuestTestDir)
-	tested := atoms.CargoRunIn(ctx, in, crate, row, env, testArgv(strings.Join(worlds, ","), testDir)...)
+	//
+	// A PASS REPORTS THE COUNTS cargo printed ("test result: ok. N passed"), in
+	// its logs and as one finding in the record, so "the new tests ran" is
+	// readable from the record and not only from the pod log. Reporting only:
+	// the verdict is cargo's exit, as it was, and a run of zero tests is still
+	// a pass (the line says NO NATIVE TEST RAN).
+	tested, out := atoms.CargoRunInOut(ctx, in, crate, row, env, testArgv(strings.Join(worlds, ","), testDir)...)
 	if tested.State == int(checks.StatePass) {
-		return checks.VerdictOf(row, 0, strings.Join(logs, "\n"))
+		counts := checks.ParseCargoTestCounts(out)
+		pass := checks.VerdictOf(row, 0, strings.Join(append(logs, counts.Line()), "\n"))
+		pass.Findings = counts.Finding(id)
+		return pass
 	}
 	return attribute(ctx, in, crate, env, worlds, testDir, tested)
 }
