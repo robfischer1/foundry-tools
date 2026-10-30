@@ -98,3 +98,26 @@ func TestChangeBaseStillErrorsOnATrulyUnrelatedBase(t *testing.T) {
 		t.Errorf("want the could-not-run error, got %v", err)
 	}
 }
+
+// A subtree added by plain commits, with no merge at all, keeps the merge base
+// (the rev-list answers nothing), and so does one whose history git cannot list.
+func TestChangeBaseKeepsTheMergeBaseWithoutMergesOrAHistoryItCanList(t *testing.T) {
+	dir, base := importFixture(t)
+	put(t, dir, "go/a.go", "package a\n")
+	commitAll(t, dir, "plain subtree, no merge")
+	got, err := ChangeBase(t.Context(), Input{Root: dir, Base: base}, dir+"/go")
+	if err != nil || got != base {
+		t.Errorf("no merge in the range keeps the merge base %s, got %q %v", base, got, err)
+	}
+
+	f := &golaneFake{rules: []golaneRule{
+		{"merge-base abc123 HEAD", "since0\n", 0},
+		{"--show-prefix", "go/\n", 0},
+		{"rev-parse --verify --quiet since0:go", "", 1},
+		{"rev-list", "fatal: bad range", 128},
+	}}
+	got, err = ChangeBase(t.Context(), Input{Root: "/src", Base: "abc123", Exec: f.exec}, "/src/go")
+	if err != nil || got != "since0" {
+		t.Errorf("a rev-list git fails keeps the merge base, got %q %v", got, err)
+	}
+}
