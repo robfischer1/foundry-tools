@@ -76,3 +76,16 @@ func TestRuffSettlesCleanFormatAndMissingTool(t *testing.T) {
 		t.Errorf("no ruff on PATH is could-not-run and runs nothing else: %+v %d", v, len(r.calls))
 	}
 }
+
+// A ruleset that cannot be written is could-not-run and ruff never starts.
+func TestRuffCannotRunWhenTheRulesetCannotBeWritten(t *testing.T) {
+	blocker := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocker, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ATOM_WORK", filepath.Join(blocker, "under"))
+	r := &ruffRun{}
+	if v := Ruff(t.Context(), atomkit.In{Root: t.TempDir(), Exec: r.exec}, ruffRow, "check", ""); v.State != int(checks.StateCannotRun) || len(r.calls) != 0 {
+		t.Errorf("%+v %d", v, len(r.calls))
+	}
+}

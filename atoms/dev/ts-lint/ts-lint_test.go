@@ -122,3 +122,55 @@ func TestLintRunsEachMemberOfABareWorkspaceRoot(t *testing.T) {
 		t.Errorf("%+v %v", v, b.calls)
 	}
 }
+
+// Every way the run cannot start settles could-not-run, and nothing is left
+// laid: a config path that is not a file, a sibling the write cannot use, a
+// tool that never started (install, then the script), no package.json at all.
+func TestLintCannotRunWhenItCannotLayTheConfigOrStartTheTools(t *testing.T) {
+	for name, tc := range map[string]struct {
+		prep func(t *testing.T, b *bunRun, in atomkit.In)
+		run  *bunRun
+	}{
+		"config path is a directory": {run: &bunRun{}, prep: func(t *testing.T, b *bunRun, _ atomkit.In) {
+			if err := os.Mkdir(filepath.Join(b.root, eslintConfig), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		"sibling is a directory": {run: &bunRun{}, prep: func(t *testing.T, b *bunRun, _ atomkit.In) {
+			if err := os.Mkdir(filepath.Join(b.root, eslintConfig+".tmp"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		"install never started": {run: &bunRun{install: -1}},
+		"script never started":  {run: &bunRun{lint: -1}},
+	} {
+		in := tree(t, tc.run, pkgWithScripts)
+		if tc.prep != nil {
+			tc.prep(t, tc.run, in)
+		}
+		if v := check(t.Context(), in); v.State != int(checks.StateCannotRun) {
+			t.Errorf("%s: %+v", name, v)
+		}
+	}
+}
+
+// No package.json to read still runs at the root (the verb's surface decides
+// whether it is asked at all), and a failing member of a bare workspace root
+// is named in the reason.
+func TestLintNamesTheFailingMemberAndRunsWithoutAManifestRead(t *testing.T) {
+	b := &bunRun{}
+	in := tree(t, b, `{"private":true,"workspaces":["packages/*"]}`)
+	in.Files = []string{"package.json", "packages/a/package.json", "packages/b/package.json"}
+	b.lint = 1
+	if v := check(t.Context(), in); v.State != int(checks.StateFindings) || !strings.Contains(v.Reason, "dev:ts-lint [a]") {
+		t.Errorf("%+v", v)
+	}
+	b = &bunRun{}
+	in = tree(t, b, pkgWithScripts)
+	if err := os.Remove(filepath.Join(b.root, "package.json")); err != nil {
+		t.Fatal(err)
+	}
+	if v := check(t.Context(), in); v.State != int(checks.StatePass) {
+		t.Errorf("%+v", v)
+	}
+}

@@ -119,32 +119,35 @@ func lintDirs(in atomkit.In) ([]string, *checks.Verdict) {
 }
 
 // layConfig writes the fleet's eslint config at path and answers the function
-// that puts the file back as it was: its bytes and mode, or gone.
+// that puts the file back as it was: its bytes and mode, or gone. A file is
+// replaced by rename, so a read-only tracked file is no obstacle (the directory
+// is the atom's own copy).
 func layConfig(path string) (restore func(), err error) {
 	old, rerr := os.ReadFile(path)
+	if rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
+		return nil, rerr
+	}
+	existed := rerr == nil
 	mode := fs.FileMode(0o644)
 	if fi, serr := os.Stat(path); serr == nil {
 		mode = fi.Mode().Perm()
 	}
-	existed := rerr == nil
-	if rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
-		return nil, rerr
-	}
-	if existed {
-		// a tracked file may be read-only; this is the atom's own copy
-		if err := os.Chmod(path, mode|0o200); err != nil {
-			return nil, err
-		}
-	}
-	if err := os.WriteFile(path, []byte(rulesets.ESLint), 0o644); err != nil {
+	if err := put(path, []byte(rulesets.ESLint), 0o644); err != nil {
 		return nil, err
 	}
 	return func() {
 		if existed {
-			_ = os.WriteFile(path, old, mode|0o200)
-			_ = os.Chmod(path, mode)
+			_ = put(path, old, mode)
 			return
 		}
 		_ = os.Remove(path)
 	}, nil
+}
+
+// put writes body at path through a sibling file and a rename; a failure of
+// either is the error (a failed write leaves nothing to rename, so the rename
+// fails too).
+func put(path string, body []byte, mode fs.FileMode) error {
+	tmp := path + ".tmp"
+	return errors.Join(os.WriteFile(tmp, body, mode), os.Rename(tmp, path))
 }
