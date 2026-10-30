@@ -70,3 +70,44 @@ func TestAReasonCanComeFromAFile(t *testing.T) {
 		t.Errorf("code %d, stderr %q", code, out.String())
 	}
 }
+
+// A reason that itself starts with '@' round-trips: ReasonArg encodes it, Run
+// prints it back. Every reason, with or without a leading '@', comes out as
+// it went in, and nothing is read as a file.
+func TestAReasonStartingWithAtRoundTrips(t *testing.T) {
+	old := readFile
+	defer func() { readFile = old }()
+	readFile = func(path string) ([]byte, error) { return nil, os.ErrNotExist }
+	for _, reason := range []string{
+		"@alice broke the build", "@/etc/passwd", "@", "@@", "@@x", "plain", "user@host", "two\nlines",
+	} {
+		var out bytes.Buffer
+		if code := Run([]string{"1", ReasonArg(reason)}, &out); code != 1 || out.String() != reason+"\n" {
+			t.Errorf("%q: code %d, stderr %q", reason, code, out.String())
+		}
+	}
+}
+
+// The escape is `@@`: it is the only new meaning, and the existing forms are
+// as they were. `@@x` was never a readable file (the path `@x`), so no working
+// caller changes.
+func TestTheAtEscapeKeepsTheExistingForms(t *testing.T) {
+	old := readFile
+	defer func() { readFile = old }()
+	readFile = func(path string) ([]byte, error) { return []byte("from file\n"), nil }
+	var out bytes.Buffer
+	if code := Run([]string{"1", "@/reason"}, &out); code != 1 || out.String() != "from file\n" {
+		t.Errorf("the file form: code %d, stderr %q", code, out.String())
+	}
+	out.Reset()
+	if code := Run([]string{"1", "@@/reason"}, &out); code != 1 || out.String() != "@/reason\n" {
+		t.Errorf("the escaped form: code %d, stderr %q", code, out.String())
+	}
+	out.Reset()
+	if code := Run([]string{"1", "@/reason", "more"}, &out); code != 1 || out.String() != "@/reason more\n" {
+		t.Errorf("a multi-argument reason is literal: code %d, stderr %q", code, out.String())
+	}
+	if got := ReasonArg("plain"); got != "plain" {
+		t.Errorf("a reason with no leading @ is its own argument, got %q", got)
+	}
+}
