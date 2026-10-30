@@ -3,6 +3,7 @@
 package catalogue
 
 import (
+	basesblade "dagger/foundry-tools/atoms/bases/blade"
 	baseschairman "dagger/foundry-tools/atoms/bases/chairman"
 	basesgorelease "dagger/foundry-tools/atoms/bases/go-release"
 	basesrelease "dagger/foundry-tools/atoms/bases/release"
@@ -130,6 +131,7 @@ import (
 
 // Defs is every logic atom, sorted by id.
 var Defs = []*atomkit.Def{
+	&basesblade.Def,
 	&baseschairman.Def,
 	&basesgorelease.Def,
 	&basesrelease.Def,

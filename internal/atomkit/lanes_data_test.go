@@ -185,7 +185,7 @@ func TestBasesPhasesValidateBetweenAssembleAndScan(t *testing.T) {
 		if !slices.Equal(names, []string{"release", "assemble", "validate", "scan", "publish"}) {
 			t.Fatalf("%s: %v", l, names)
 		}
-		if !slices.Equal(by["validate"].Atoms, []string{"bases:chairman"}) || !slices.Equal(by["validate"].After, []string{"assemble"}) || !slices.Equal(by["scan"].After, []string{"assemble", "validate"}) {
+		if !slices.Equal(by["validate"].Atoms, []string{"bases:chairman", "bases:blade"}) || !slices.Equal(by["validate"].After, []string{"assemble"}) || !slices.Equal(by["scan"].After, []string{"assemble", "validate"}) {
 			t.Errorf("%s: %+v", l, d.Phases)
 		}
 		// DEF-B6-048: on a tree with no bases/ the validate phase's only atom is
