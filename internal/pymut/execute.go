@@ -79,7 +79,7 @@ func (g *grading) execute(ctx context.Context, workers int, sessions, selectEnv 
 
 	// SCORE: the honest report, stdout and stderr apart.
 	var stderr string
-	report := atoms.Cmd{Dir: g.tree, Name: "uv", Env: selectEnv, Stderr: &stderr, Args: []string{"run", "--no-project", "--isolated",
+	report := atoms.Cmd{Dir: g.tree, Name: "uv", Env: selectEnv, Stderr: &stderr, Args: []string{"run", "--no-project", "--isolated", "--refresh-package", "forge-testkit",
 		"--with", checks.PythonMutationTestkit, "forge-testkit-mutation", "report", session, "--fail-under", strconv.Itoa(checks.PythonMutationFailUnder)}}
 	stdout, rc := atoms.RunCmd(ctx, g.in, report)
 	if !atoms.ToolRan(rc) {

@@ -9,7 +9,7 @@ import (
 	"dagger/foundry-tools/internal/checks"
 )
 
-const testkit = "run --no-project --isolated --with forge-testkit>=2.1.0 forge-testkit-mutation"
+const testkit = "run --no-project --isolated --refresh-package forge-testkit --with forge-testkit>=2.1.0 forge-testkit-mutation"
 
 // python:mutation runs git, uv, cosmic-ray and forge-testkit-mutation as plain
 // execs, measures and mutates on one copy of the tree per worker, and runs no
@@ -213,8 +213,18 @@ func TestPythonMutationStandsDownOrCannotRun(t *testing.T) {
 		{"init enumerates nothing", "abc123", func(p *pull) { p.first(rule{"cosmic-ray init", "", 1, ""}) }, 2,
 			[]string{"cosmic-ray init enumerated no mutation sites (exit 1)"}, nil, []string{"testkit scope", "forge-testkit-mutation scope"}},
 		{"the diff matches no site", "abc123", func(p *pull) {
-			p.first(rule{"forge-testkit-mutation scope", "no job's module is in the diff", 2, ""})
-		}, 1, []string{"forge-testkit-mutation scope exited 2", "check critical-modules", "no job's module is in the diff"}, nil, []string{"forge-testkit-mutation plugin"}},
+			p.first(rule{"forge-testkit-mutation scope", "ValueError: scope matched none of 797 mutation sites — refusing to run a vacuous gate", 1, ""})
+		}, 1, []string{"forge-testkit-mutation scope exited 1", "check critical-modules", "scope matched none of 797"}, nil, []string{"forge-testkit-mutation plugin"}},
+		// A scope that failed for any other reason (uv could not resolve the
+		// testkit, the CLI crashed) measured nothing: could-not-run, never a
+		// finding the star is told to fix in its declaration.
+		{"scope cannot resolve the testkit", "abc123", func(p *pull) {
+			p.first(rule{"forge-testkit-mutation scope", "No solution found when resolving tool dependencies: forge-testkit>=2.1.0 was not found in the package registry", 1, ""})
+		}, 2, []string{"CANNOT RUN", "the scope step", "No solution found"}, nil, []string{"forge-testkit-mutation plugin"}},
+		{"scope crashes", "abc123", func(p *pull) {
+			p.first(rule{"forge-testkit-mutation scope", "Traceback (most recent call last):", 1, ""})
+		}, 2,
+			[]string{"CANNOT RUN", "the scope step"}, nil, []string{"forge-testkit-mutation plugin"}},
 		{"nothing mutable", "abc123", func(p *pull) { p.scopeOut = "kept=0\nunmutable=true\n" }, 0, nil,
 			[]string{"forge-testkit-mutation scope"}, []string{"forge-testkit-mutation plugin"}},
 		{"the plugin cannot be written", "abc123", func(p *pull) { p.first(rule{"forge-testkit-mutation plugin", "", 1, ""}) }, 2,

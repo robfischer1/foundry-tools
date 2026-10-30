@@ -107,10 +107,15 @@ func (g *grading) measure(ctx context.Context, since, diff string, kept []string
 		return g.neverRan(scoped)
 	}
 	if scoped.code != 0 {
-		// The diff's paths match no enumerated site: a green over zero mutants is
-		// the failure this gate exists to close, and the declaration is the star's
-		// to fix.
-		return g.settle(1, fmt.Sprintf("forge-testkit-mutation scope exited %d — the diff's paths match no enumerated mutation site; check critical-modules against the tree\n%s", scoped.code, lastLines(scoped.out, 20)))
+		// Only the testkit's own refusal (scope_session's ValueError) says the
+		// diff's paths match no enumerated site: a green over zero mutants is
+		// the failure this gate exists to close, and the declaration is the
+		// star's to fix. Any other non-zero exit (uv could not resolve the
+		// testkit, the CLI crashed) measured nothing and is could-not-run.
+		if strings.Contains(scoped.out, scopeRefusal) {
+			return g.settle(1, fmt.Sprintf("forge-testkit-mutation scope exited %d — the diff's paths match no enumerated mutation site; check critical-modules against the tree\n%s", scoped.code, lastLines(scoped.out, 20)))
+		}
+		return g.cannot("the scope step could not run", scoped)
 	}
 	written, _ := readFile(stepOut)
 	if checks.PythonUnmutable(string(written)) {

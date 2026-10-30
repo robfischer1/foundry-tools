@@ -202,15 +202,23 @@ func (g *grading) grade(ctx context.Context, declared []string) checks.Verdict {
 	return g.measure(ctx, since, diff, kept)
 }
 
+// scopeRefusal is the text forge-testkit's scope verb prints when the diff's
+// paths appear in none of the session's mutation sites (mutation.py
+// scope_session).
+const scopeRefusal = "scope matched none of"
+
 // testkit is one forge-testkit-mutation call.
 //
 // THE GATE MUST NOT INHERIT THE CONSUMER'S LOCK. Every call is
-// `uv run --no-project --isolated --with <floor>`: --no-project detaches the
-// resolution from the project, the floor selects a testkit that has the CLI
-// (eros#112 resolved 0.3.1 without it), --isolated keeps the star's synced .venv
-// out (forge-testkit#3 ran its own tree), and --index names the one index that
-// serves it (forge-testkit#3 at 002c25e). Do not tidy any of the four away.
+// `uv run --no-project --isolated --refresh-package forge-testkit --with <floor>`:
+// --no-project detaches the resolution from the project, the floor selects a
+// testkit that has the CLI (eros#112 resolved 0.3.1 without it), --isolated
+// keeps the star's synced .venv out (forge-testkit#3 ran its own tree), and
+// --refresh-package makes uv re-read the testkit's index page on every call: a
+// cached page that predates a release makes `>=` unsatisfiable until the cache
+// expires (2.1.0 sat unresolvable ~15h after it reached devpi). Do not tidy any
+// of the four away.
 func (g *grading) testkit(ctx context.Context, env []string, args ...string) step {
-	return g.do(ctx, g.tree, env, "uv", append([]string{"run", "--no-project", "--isolated",
+	return g.do(ctx, g.tree, env, "uv", append([]string{"run", "--no-project", "--isolated", "--refresh-package", "forge-testkit",
 		"--with", checks.PythonMutationTestkit, "forge-testkit-mutation"}, args...)...)
 }
