@@ -32,8 +32,6 @@ var devAtoms = []struct {
 	{"dev:rust-fmt", "rust", "root:Cargo.toml", "rust", true},
 	{"dev:rust-lock", "rust", "root:Cargo.toml", "rust", true},
 	{"dev:rust-update", "rust", "root:Cargo.toml", "rust", true},
-	{"dev:python-lint", "python", "any:**/*.py", "python", false},
-	{"dev:python-fmt", "python", "any:**/*.py", "python", true},
 	{"dev:python-lock", "python", "root:pyproject.toml", "python", true},
 	{"dev:python-update", "python", "root:pyproject.toml", "python", true},
 	{"dev:python-build", "python", "root:pyproject.toml", "python", true},
@@ -42,7 +40,6 @@ var devAtoms = []struct {
 	{"dev:ts-update", "ts", "root:package.json", "bun", true},
 	{"dev:go-typecheck", "go", "root:go.mod", "go", false},
 	{"dev:ts-test", "ts", "root:package.json", "bun", true},
-	{"dev:ts-lint", "ts", "root:package.json", "bun", true},
 	{"dev:ts-fmt", "ts", "root:package.json", "bun", true},
 	{"dev:ts-typecheck", "ts", "root:package.json", "bun", true},
 	{"dev:ts-check", "ts", "root:package.json", "bun", true},
@@ -53,7 +50,7 @@ var devAtoms = []struct {
 	{"dev:ts-lock-apt", "ts", "root:packages.lock", "go", true},
 }
 
-// TestUT_514_TheDevAtomsKeepTheirShape: all parse, sit in the dev stage with
+// TestUT_514_TheDevAtomsKeepTheirShape: all 28 parse, sit in the dev stage with
 // the Dev surface's fields, and write the tree for the go build (its -o output is delivered), the go test (it rewrites
 // goldens), the go update and the six rewriting go/rust verbs, the python fmt
 // and the four ts ones (a ts install lands in node_modules,
@@ -71,8 +68,8 @@ func TestUT_514_TheDevAtomsKeepTheirShape(t *testing.T) {
 			t.Errorf("%s: %+v", tc.id, m)
 		}
 	}
-	if got := len(devAtoms); got != 31 {
-		t.Errorf("%d dev atoms in the table, want 31", got)
+	if got := len(devAtoms); got != 28 {
+		t.Errorf("%d dev atoms in the table, want 28", got)
 	}
 }
 
@@ -162,8 +159,6 @@ var (
 		"dev:go-test":         {"dies", "tool:jq"}, // checks.SuiteJqNeeds: a suite that execs jq (daedalus tools/bg)
 		"dev:go-lint":         {"tool:staticcheck"},
 		"dev:rust-vuln":       {"tool:cargo-audit"},
-		"dev:python-lint":     {"tool:ruff"},
-		"dev:python-fmt":      {"tool:ruff"},
 		"dev:python-lock":     {"tool:uv"},
 		"dev:python-update":   {"tool:uv"},
 		"dev:python-build":    {"tool:uv"},
@@ -171,7 +166,6 @@ var (
 		"dev:ts-lock":         {"tool:node", "tool:curl"},
 		"dev:ts-update":       {"tool:node", "tool:curl"},
 		"dev:ts-test":         {"tool:node", "tool:curl"},
-		"dev:ts-lint":         {"tool:node", "tool:curl"},
 		"dev:ts-fmt":          {"tool:node", "tool:curl"},
 		"dev:ts-typecheck":    {"tool:node", "tool:curl"},
 		"dev:ts-check":        {"tool:node", "tool:curl"},
@@ -181,10 +175,9 @@ var (
 		"dev:ts-lock-apt":     {"svid", "tool:deblock"},
 	}
 	devEnv = map[string]map[string]string{
-		"dev:go-vendor":   {"GOFLAGS": "-mod=mod"},
-		"dev:python-lint": {"RUFF_CACHE_DIR": "/tmp/dev-python-lint/ruff-cache"},
+		"dev:go-vendor": {"GOFLAGS": "-mod=mod"},
 	}
-	devLong = []string{"dev:go-test", "dev:python-build", "dev:ts-build", "dev:ts-test", "dev:ts-lint", "dev:ts-typecheck", "dev:ts-check"}
+	devLong = []string{"dev:go-test", "dev:python-build", "dev:ts-build", "dev:ts-test", "dev:ts-typecheck", "dev:ts-check"}
 )
 
 // TestTheDevAtomsTimeoutsEnvAndNeeds: the long verbs get 30m, go test mounts
@@ -350,8 +343,6 @@ func TestOnlyTheLockfileVerbsSkipThePreflight(t *testing.T) {
 
 // pytsArgv is each python and ts dev atom's argv with no caller arguments.
 var pytsArgv = map[string][]string{
-	"dev:python-lint":   {"ruff", "check", "--line-length", "100"},
-	"dev:python-fmt":    {"ruff", "format", "--line-length", "100"},
 	"dev:python-lock":   {"uv", "lock", "--python", "python3"},
 	"dev:python-update": {"uv", "lock", "--python", "python3", "--upgrade"},
 	"dev:python-build":  {"uv", "build", "--python", "python3"},
@@ -359,7 +350,6 @@ var pytsArgv = map[string][]string{
 	"dev:ts-lock":       {"bun", "install", "--lockfile-only"},
 	"dev:ts-update":     {"bun", "update"},
 	"dev:ts-test":       {"bun", "run", "test"},
-	"dev:ts-lint":       {"bun", "run", "lint"},
 	"dev:ts-fmt":        {"bun", "run", "format"},
 	"dev:ts-typecheck":  {"bun", "run", "typecheck"},
 	"dev:ts-check":      {"bun", "run", "typecheck"},
@@ -368,8 +358,8 @@ var pytsArgv = map[string][]string{
 // TestThePythonAndTSDevAtomsKeepTheirArgv: what the local loop runs with no
 // arguments, and nothing else.
 func TestThePythonAndTSDevAtomsKeepTheirArgv(t *testing.T) {
-	if len(pytsArgv) != 13 {
-		t.Fatalf("%d rows, want 13", len(pytsArgv))
+	if len(pytsArgv) != 10 {
+		t.Fatalf("%d rows, want 10", len(pytsArgv))
 	}
 	for id, want := range pytsArgv {
 		m := manifestOf(t, id)
@@ -402,9 +392,6 @@ func TestThePythonAndTSDevAtomsComposeWithCallerArguments(t *testing.T) {
 		args []string
 		want []string
 	}{
-		{"dev:python-lint", []string{"src/x.py"}, []string{"ruff", "check", "--line-length", "100", "src/x.py"}},
-		{"dev:python-lint", []string{"--select", "E"}, []string{"ruff", "check", "--line-length", "100", "--select", "E"}},
-		{"dev:python-fmt", []string{"--check"}, []string{"ruff", "format", "--line-length", "100", "--check"}},
 		{"dev:python-lock", []string{"--check"}, []string{"uv", "lock", "--python", "python3", "--check"}},
 		{"dev:python-update", []string{"-P", "requests"}, []string{"uv", "lock", "--python", "python3", "-P", "requests"}},
 		{"dev:python-update", []string{"--upgrade-package", "requests"}, []string{"uv", "lock", "--python", "python3", "--upgrade-package", "requests"}},
@@ -418,10 +405,46 @@ func TestThePythonAndTSDevAtomsComposeWithCallerArguments(t *testing.T) {
 	}
 }
 
-// gateTwins pair each dev atom with the discrete gate atom that runs the same tool.
+// gateTwins pair each dev logic atom that lays the fleet's ruleset with the gate
+// atom that runs the same tool.
 var gateTwins = []struct{ dev, gate string }{
 	{"dev:python-lint", "python:ruff-check"},
 	{"dev:python-fmt", "python:ruff-format"},
+	{"dev:ts-lint", "ts:bun-gate"},
+}
+
+// absorb-alien-island: the dev lint and fmt verbs lay the fleet's ruleset as
+// their gate twins do, which a command manifest (one fixed argv, no step that
+// lays a file) cannot. Each is a logic atom that keeps its twin's toolchain,
+// lane and needs, so both resolve the tool from the same tools.toml entry.
+func TestTheDevLintVerbsAreLogicAtomsOnTheirGateTwinsResolution(t *testing.T) {
+	tools := landedToolsFile(t)
+	for _, tc := range gateTwins {
+		dev, ok := Lookup(tc.dev)
+		if !ok || dev.Def == nil || dev.Manifest != nil {
+			t.Fatalf("%s is not a logic atom: %+v", tc.dev, dev)
+		}
+		twin, ok := Lookup(tc.gate)
+		if !ok || twin.Def == nil {
+			t.Fatalf("%s: no logic atom in the catalogue", tc.gate)
+		}
+		d, g := dev.Def, twin.Def
+		if d.Stage != "dev" || d.Toolchain != g.Toolchain || d.Lane != g.Lane || d.Surface != g.Surface && tc.gate != "python:ruff-check" && tc.gate != "python:ruff-format" {
+			t.Errorf("%s: %s/%s/%s, gate twin %s has %s/%s/%s", tc.dev, d.Stage, d.Toolchain, d.Lane, tc.gate, g.Stage, g.Toolchain, g.Lane)
+		}
+		for _, need := range g.Needs {
+			if !slices.Contains(d.Needs, need) {
+				t.Errorf("%s: needs %v, but the gate twin %s needs %s", tc.dev, d.Needs, tc.gate, need)
+			}
+		}
+		for _, need := range d.Needs {
+			if name, isTool := strings.CutPrefix(need, "tool:"); isTool {
+				if _, ok := tools.Tools[name]; !ok {
+					t.Errorf("%s needs %s, which tools.toml does not pin", tc.dev, need)
+				}
+			}
+		}
+	}
 }
 
 // DEVSCOPE: dev:python-test is a logic atom on its gate twin's surface, so a
@@ -487,43 +510,9 @@ func landedToolsFile(t *testing.T) atomkit.ToolsFile {
 // twin's command where the twin is a command the manifest can spell.
 func TestThePythonDevAtomsShareTheirGateTwinsResolution(t *testing.T) {
 	tools := landedToolsFile(t)
-	for _, tc := range gateTwins {
-		dev := manifestOf(t, tc.dev)
-		e, ok := Lookup(tc.gate)
-		if !ok || e.Def == nil {
-			t.Fatalf("%s: no logic atom in the catalogue", tc.gate)
-		}
-		gate := e.Def
-		if dev.Toolchain != gate.Toolchain || dev.Lane != string(gate.Lane) {
-			t.Errorf("%s: toolchain/lane %s/%s, gate twin %s has %s/%s", tc.dev, dev.Toolchain, dev.Lane, tc.gate, gate.Toolchain, gate.Lane)
-		}
-		// every need of the twin is a need of the dev atom, so both resolve the
-		// tool from the same tools.toml entry.
-		for _, need := range gate.Needs {
-			if !slices.Contains(dev.Needs, need) {
-				t.Errorf("%s: needs %v, but the gate twin %s needs %s", tc.dev, dev.Needs, tc.gate, need)
-			}
-		}
-		for _, need := range dev.Needs {
-			name, isTool := strings.CutPrefix(need, "tool:")
-			if !isTool {
-				continue
-			}
-			if _, ok := tools.Tools[name]; !ok {
-				t.Errorf("%s needs %s, which tools.toml does not pin", tc.dev, need)
-			}
-		}
-	}
 	// the pin itself: ruff is the version the gate atoms run.
 	if pin := tools.Tools["ruff"]; pin.Kind != "uv" || pin.Version != checks.RuffVersion {
 		t.Errorf("tools.toml pins ruff %+v, the gate atoms run %s", pin, checks.RuffVersion)
-	}
-	// and at the twin's width: the fleet's one --line-length.
-	for id, sub := range map[string]string{"dev:python-lint": "check", "dev:python-fmt": "format"} {
-		want := []string{"ruff", sub, "--line-length", checks.RuffLineLength}
-		if got := manifestOf(t, id).Argv; !slices.Equal(got, want) {
-			t.Errorf("%s: argv %v, the gate twin execs ruff %s by name at width %s", id, got, sub, checks.RuffLineLength)
-		}
 	}
 }
 
@@ -541,7 +530,7 @@ func TestTheTSDevAtomsShareTheBunGatesResolution(t *testing.T) {
 	if got := tools.Preflights["bun"]; !slices.Equal(got, []string{"bun", "install", "--frozen-lockfile"}) {
 		t.Errorf("toolchain bun preflight %v, want the gate's frozen install", got)
 	}
-	for _, verb := range []string{"test", "lint", "fmt", "typecheck", "check"} {
+	for _, verb := range []string{"test", "fmt", "typecheck", "check"} {
 		m := manifestOf(t, "dev:ts-"+verb)
 		if m.Toolchain != e.Def.Toolchain || string(e.Def.Lane) != m.Lane || !slices.Equal(m.Needs, e.Def.Needs) || m.Surface != e.Def.Surface {
 			t.Errorf("dev:ts-%s: %s/%s %v %s, ts:bun-gate has %s/%s %v %s", verb, m.Toolchain, m.Lane, m.Needs, m.Surface,

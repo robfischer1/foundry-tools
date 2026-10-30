@@ -195,8 +195,8 @@ func TestUT_511_AShellScriptManifestFailsTheWalk(t *testing.T) {
 
 func TestUT_512_TheLandedManifestsPass(t *testing.T) {
 	files, _ := filepath.Glob(filepath.Join(repoRoot, "atoms", "*", "*.toml"))
-	if len(files) != 38 {
-		t.Fatalf("%d manifests, want 38 (7 checks, 31 dev): %v", len(files), files)
+	if len(files) != 35 {
+		t.Fatalf("%d manifests, want 35 (7 checks, 28 dev): %v", len(files), files)
 	}
 	if got := manifestFailures(repoRoot); len(got) != 0 {
 		t.Fatalf("%v", got)
