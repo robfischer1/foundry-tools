@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -33,6 +34,16 @@ var doorTree = func() bool { return os.Getenv("ATOM_ORIGIN") != "" }
 // exits non-zero (unrelated histories) or answers nothing is an error the atom
 // settles as could-not-run — a change set with no origin is not a change set
 // nothing touched.
+//
+// AN IMPORT MERGE IS THE BASE OF THE SUBTREE IT BROUGHT. When dir is a
+// subdirectory that the merge base does not have, and a first-parent merge
+// between the merge base and HEAD joined an unrelated history (no common
+// ancestor between its parents) and is what first put the directory in the
+// tree, the answer is that merge: the imported lines are history the pull
+// carries, not lines it wrote, and only what follows the import is its change
+// (stellar-core: go:diff-coverage graded the whole imported go/ kit, 294
+// lines). A directory the merge base already has, the repository root, and a
+// history with no such merge keep the merge base.
 func ChangeBase(ctx context.Context, in Input, dir string) (string, error) {
 	out, code := in.run(ctx, Cmd{Dir: dir, Name: "git", Args: []string{"rev-parse", "--verify", "--quiet", in.Base + "^{commit}"}})
 	if code < 0 {
@@ -49,7 +60,50 @@ func ChangeBase(ctx context.Context, in Input, dir string) (string, error) {
 	if code != 0 || since == "" {
 		return "", fmt.Errorf("git found no merge base between the base %s and HEAD (exit %d): %s", in.Base, code, out)
 	}
-	return since, nil
+	return importBase(ctx, in, dir, since), nil
+}
+
+// importBase answers the unrelated-histories merge that brought dir into the
+// tree after since, or since itself. Every question it asks that git cannot
+// answer leaves since in place: the merge base is the answer it refines, never
+// a reason to fail.
+func importBase(ctx context.Context, in Input, dir, since string) string {
+	if filepath.Clean(dir) == filepath.Clean(in.Root) {
+		return since // the repository root is no subtree
+	}
+	out, code := in.run(ctx, Cmd{Dir: dir, Name: "git", Args: []string{"rev-parse", "--show-prefix"}})
+	prefix := strings.TrimSuffix(strings.TrimSpace(out), "/")
+	if code != 0 || prefix == "" {
+		return since
+	}
+	if _, code = in.run(ctx, Cmd{Dir: dir, Name: "git", Args: []string{"rev-parse", "--verify", "--quiet", since + ":" + prefix}}); code != 1 {
+		return since // the merge base has the directory (or git could not say)
+	}
+	out, code = in.run(ctx, Cmd{Dir: dir, Name: "git", Args: []string{"rev-list", "--merges", "--first-parent", "--parents", since + "..HEAD"}})
+	if code != 0 {
+		return since
+	}
+	found := since
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 3 {
+			continue
+		}
+		merge, first, others := f[0], f[1], f[2:]
+		if _, c := in.run(ctx, Cmd{Dir: dir, Name: "git", Args: []string{"rev-parse", "--verify", "--quiet", first + ":" + prefix}}); c != 1 {
+			continue // the first parent already had the directory
+		}
+		if _, c := in.run(ctx, Cmd{Dir: dir, Name: "git", Args: []string{"rev-parse", "--verify", "--quiet", merge + ":" + prefix}}); c != 0 {
+			continue // the merge did not bring it
+		}
+		for _, o := range others {
+			if _, c := in.run(ctx, Cmd{Dir: dir, Name: "git", Args: []string{"merge-base", first, o}}); c == 1 {
+				found = merge // exit 1 is no common ancestor; any other code is git failing
+				break
+			}
+		}
+	}
+	return found
 }
 
 // MissingBase is how a diff-scoped atom settles when the door named a base and
