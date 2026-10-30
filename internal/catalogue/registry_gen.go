@@ -70,6 +70,7 @@ import (
 	fleetsastrulesetlanes "dagger/foundry-tools/atoms/fleet/sast-ruleset-lanes"
 	fleetspeckitrendercurrent "dagger/foundry-tools/atoms/fleet/speckit-render-current"
 	fleetstopjustifications "dagger/foundry-tools/atoms/fleet/stop-justifications"
+	fleetvale "dagger/foundry-tools/atoms/fleet/vale"
 	fleetwittopics "dagger/foundry-tools/atoms/fleet/wit-topics"
 	fleetwitness "dagger/foundry-tools/atoms/fleet/witness"
 	gocastrelease "dagger/foundry-tools/atoms/go/cast-release"
@@ -194,6 +195,7 @@ var Defs = []*atomkit.Def{
 	&fleetsastrulesetlanes.Def,
 	&fleetspeckitrendercurrent.Def,
 	&fleetstopjustifications.Def,
+	&fleetvale.Def,
 	&fleetwittopics.Def,
 	&fleetwitness.Def,
 	&gocastrelease.Def,

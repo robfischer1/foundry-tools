@@ -45,6 +45,7 @@ var URLPins = []URLPin{
 	{"wac", "WacURL", "WacVersion"},
 	{"just", "JustURL", "JustVersion"},
 	{"shellcheck", "ShellcheckURL", "ShellcheckVersion"},
+	{"vale", "ValeURL", "ValeVersion"},
 	{"oras", "OrasURL", "OrasVersion"},
 	{"cargo-audit", "CargoAuditURL", "CargoAuditVersion"},
 	{"cargo-nextest", "CargoNextestURL", "CargoNextestVersion"},

@@ -56,6 +56,9 @@ func TestTheGoTestAtomsCarryTheFleetRecordTree(t *testing.T) {
 	// layer-cast reads the star's record there.
 	// AND ONE MORE: dev:go-test is the Dev surface's `go test -race ./...` as a
 	// manifest; Dagger's dev test mounts dies for the same goldens (dev.go planGo).
+	// AND fleet:vale: the Forge style it lints prose against is foundry-dies'
+	// styles/Forge, so the ruleset is the fleet's and read from the pinned
+	// checkout, not fetched off the door file by file at every gate.
 	var asked []string
 	for _, a := range checks.Atoms() {
 		if a.NeedsDies {
@@ -63,7 +66,7 @@ func TestTheGoTestAtomsCarryTheFleetRecordTree(t *testing.T) {
 		}
 	}
 	sort.Strings(asked)
-	if strings.Join(asked, ",") != "dev:go-test,dev:go-test-live,go:cast-release,go:diff-coverage,go:mutation,go:release,go:test,go:test-race,python:release,rust:cast-release,rust:release,ts:release" {
+	if strings.Join(asked, ",") != "dev:go-test,dev:go-test-live,fleet:vale,go:cast-release,go:diff-coverage,go:mutation,go:release,go:test,go:test-race,python:release,rust:cast-release,rust:release,ts:release" {
 		t.Errorf("NeedsDies is declared by %v; go:test, go:test-race, go:diff-coverage and go:mutation (the four atoms that run a repo's `go test`) "+
 			"and the four release atoms that name a star by its record are expected. Adding one is fine — say why "+
 			"here, because each one is another clone of foundry-dies on every gate "+

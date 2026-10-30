@@ -123,6 +123,12 @@ spec = "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellch
 version = "0.11.0"
 sha256 = "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198"
 
+[tool.vale]
+kind = "url"
+spec = "https://github.com/errata-ai/vale/releases/download/v3.25.1/vale_3.25.1_Linux_64-bit.tar.gz"
+version = "3.25.1"
+sha256 = "4bf5c5176b682b1da0830f471584d3494f1c2e27ee3029e1ad6f6661d4962182"
+
 [tool.oras]
 kind = "url"
 spec = "https://github.com/oras-project/oras/releases/download/v1.3.4/oras_1.3.4_linux_amd64.tar.gz"
