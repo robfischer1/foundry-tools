@@ -128,6 +128,44 @@ func TestDEF_B6_publish_PythonAbsentWithoutAPythonProject(t *testing.T) {
 	}
 }
 
+// [tool.uv] package = false is the declared not-a-package marker: a tooling-only
+// project (python-repo-template's tooling_only render) has nothing to build, and
+// uv build on it fails in the backend (hatchling) or, bypassed, would publish an
+// empty wheel.
+func TestPythonArtifactsAbsentOnAToolingOnlyPyproject(t *testing.T) {
+	s := &shop{wrote: []string{"x-0.0.0-py3-none-any.whl"}}
+	tooling := "[project]\nname = \"paneless-scripts\"\nversion = \"0.0.0\"\n\n[build-system]\nrequires = [\"hatchling\"]\nbuild-backend = \"hatchling.build\"\n\n[tool.uv]\npackage = false\n"
+	in, out := start(t, map[string]string{"pyproject.toml": tooling}, s)
+	atomtest.Expect(t, Python(context.Background(), in, pyRow), checks.StatePass, "absent", "python:artifacts: ABSENT", "[tool.uv] package = false", "nothing to build")
+	if len(s.calls) != 0 {
+		t.Errorf("uv build ran on a project that declares there is nothing to build: %v", s.ran())
+	}
+	if _, err := os.Stat(filepath.Join(out, "dist")); err == nil {
+		t.Error("dist was staged for a project that publishes nothing")
+	}
+}
+
+// The neighbours still build: package = true, no [tool.uv] table, and a
+// pyproject too broken to read (uv build owns that error).
+func TestPythonArtifactsStillBuildsWhenPackageIsNotFalse(t *testing.T) {
+	for name, body := range map[string]string{
+		"package true": pyproject + "\n[tool.uv]\npackage = true\n",
+		"other uv key": pyproject + "\n[tool.uv]\ndev-dependencies = []\n",
+		"no uv table":  pyproject,
+		"unreadable":   "[project\nname = ",
+		"comment only": pyproject + "\n# package = false\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := &shop{wrote: []string{"svid_auth-0.3.0-py3-none-any.whl"}}
+			in, _ := start(t, map[string]string{"pyproject.toml": body}, s)
+			atomtest.Expect(t, Python(context.Background(), in, pyRow), checks.StatePass, atomtest.Pass, "svid_auth-0.3.0-py3-none-any.whl")
+			if len(s.ran()) != 1 {
+				t.Errorf("uv build did not run: %v", s.ran())
+			}
+		})
+	}
+}
+
 func TestDEF_B6_publish_PythonBuildFailuresAreClassifiedLikeDagger(t *testing.T) {
 	s := &shop{exit: map[string]int{"uv build --python python3": 2}, out: map[string]string{"uv build --python python3": "error: Failed to build `x`\n  Caused by: No module named hatchling"}}
 	in, _ := start(t, map[string]string{"pyproject.toml": pyproject}, s)
