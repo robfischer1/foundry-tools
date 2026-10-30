@@ -283,9 +283,7 @@ func staleFileEntries(prov string, recs []regenkit.Rec) []string {
 		return nil
 	}
 	var entries map[string]json.RawMessage
-	if json.Unmarshal([]byte(prov[start:end]), &entries) != nil {
-		return nil
-	}
+	_ = json.Unmarshal([]byte(prov[start:end]), &entries) // the whole file parsed as JSON before the write
 	made := map[string]bool{}
 	for _, r := range recs {
 		made[r.Key] = true

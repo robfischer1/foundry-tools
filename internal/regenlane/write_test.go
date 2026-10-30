@@ -293,3 +293,31 @@ func TestDevTSRegenLeavesAFilesRecordThatHoldsAndNamesAnEntryItLacks(t *testing.
 		t.Error("an entry the author must add was invented or another was changed")
 	}
 }
+
+// A regenerated file that cannot be read back to be hashed is could-not-run,
+// never a record left at the old hash.
+func TestDevTSRegenCannotRunWhenARegeneratedFileCannotBeHashed(t *testing.T) {
+	_, in, _ := withFake(t, writeStar(t, "1.250.0", "stamp"))
+	withFilesRecord(t, in, fileEntry("stamp-core.config.js", sum([]byte("old")), 3))
+	reads := 0
+	old := readFile
+	readFile = func(name string) ([]byte, error) {
+		reads++
+		if reads > 1 { // the install read each file once; the hashing is the second read
+			return nil, errors.New("disk gone")
+		}
+		return os.ReadFile(name)
+	}
+	t.Cleanup(func() { readFile = old })
+	wantWrite(t, CheckWrite(t.Context(), in), 2, "disk gone")
+}
+
+// A files entry with no sha256 cannot be moved; that is a finding naming the
+// entry, not a record silently left stale.
+func TestDevTSRegenNamesAFilesEntryItCannotRewrite(t *testing.T) {
+	_, in, _ := withFake(t, writeStar(t, "1.250.0", "stamp"))
+	withFilesRecord(t, in, `  "stamp-core.config.js": {
+   "note": "no hash here"
+  }`)
+	wantWrite(t, CheckWrite(t.Context(), in), 1, "files entry stamp-core.config.js")
+}
