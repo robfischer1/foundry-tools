@@ -230,3 +230,66 @@ func TestKnownWorldsOfATreeWithNoJustfileOrSrc(t *testing.T) {
 		t.Errorf("%v %v", named, others)
 	}
 }
+
+// withFilesRecord adds a `files` object to the stamp world's provenance.json,
+// as the real ones carry, laid out the way they are (one entry per file).
+func withFilesRecord(t *testing.T, in atomkit.In, entries string) {
+	t.Helper()
+	p := filepath.Join(in.Root, "src/stampcore-gen/provenance.json")
+	b, _ := os.ReadFile(p)
+	s := strings.TrimSuffix(strings.TrimSpace(string(b)), "}") + `,
+ "files": {
+` + entries + `
+ },
+ "substrate": "aiws:stamp@0.1.0"}
+`
+	put(t, in.Root, "src/stampcore-gen/provenance.json", s)
+}
+
+func fileEntry(name, sha string, bytes int) string {
+	return `  "` + name + `": {
+   "sha256": "` + sha + `",
+   "bytes": ` + strconv.Itoa(bytes) + `
+  }`
+}
+
+// absorb-adult-erode: ts-regen rewrote the shipped files and the two wasm
+// hashes but left provenance.json's `files` entries at the old hashes.
+func TestDevTSRegenRewritesTheFilesRecordOfWhatItRegenerated(t *testing.T) {
+	_, in, _ := withFake(t, writeStar(t, "1.250.0", "stamp"))
+	put(t, in.Root, "src/stampcore-gen/stamp-core.config.js", "old js")
+	withFilesRecord(t, in, fileEntry("stamp-core.config.js", sum([]byte("old js")), 6)+",\n"+fileEntry("retired.d.ts", strings.Repeat("1", 64), 7))
+	wantWrite(t, CheckWrite(t.Context(), in), 0, "provenance.json rewritten",
+		"1 entr(ies) in its files record name a file the regeneration no longer makes and need removing: retired.d.ts")
+	got := mustRead(t, in.Root, "src/stampcore-gen/provenance.json")
+	want := `"stamp-core.config.js": {
+   "sha256": "` + sum([]byte("js")) + `",
+   "bytes": 2
+  }`
+	if !strings.Contains(got, want) {
+		t.Errorf("the regenerated file's entry was not moved:\n%s", got)
+	}
+	if !strings.Contains(got, fileEntry("retired.d.ts", strings.Repeat("1", 64), 7)) || !strings.Contains(got, `"substrate": "aiws:stamp@0.1.0"`) {
+		t.Errorf("an entry the regeneration did not make, or a neighbour, was touched:\n%s", got)
+	}
+}
+
+// The neighbouring case: a files record that already matches comes back byte
+// for byte, and a regenerated file with no entry is named, not invented.
+func TestDevTSRegenLeavesAFilesRecordThatHoldsAndNamesAnEntryItLacks(t *testing.T) {
+	_, in, _ := withFake(t, writeStar(t, "1.250.0", "stamp"))
+	withFilesRecord(t, in, fileEntry("stamp-core.config.js", sum([]byte("js")), 2))
+	before := treeOf(t, in.Root)
+	wantWrite(t, CheckWrite(t.Context(), in), 0, "provenance.json unchanged")
+	if after := treeOf(t, in.Root); after["src/stampcore-gen/provenance.json"] != before["src/stampcore-gen/provenance.json"] {
+		t.Errorf("a record that held was rewritten:\n%s", after["src/stampcore-gen/provenance.json"])
+	}
+
+	_, in, _ = withFake(t, writeStar(t, "1.250.0", "stamp"))
+	withFilesRecord(t, in, fileEntry("other.js", strings.Repeat("2", 64), 3))
+	before = treeOf(t, in.Root)
+	wantWrite(t, CheckWrite(t.Context(), in), 0, "1 regenerated file(s) have no entry in its files record and need adding: stamp-core.config.js")
+	if after := treeOf(t, in.Root); after["src/stampcore-gen/provenance.json"] != before["src/stampcore-gen/provenance.json"] {
+		t.Error("an entry the author must add was invented or another was changed")
+	}
+}

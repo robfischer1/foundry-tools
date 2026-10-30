@@ -76,3 +76,23 @@ func TestRewriteSaysWhatItCouldNotFind(t *testing.T) {
 		}
 	}
 }
+
+func TestRewriteFilesMovesOnlyTheNamedEntries(t *testing.T) {
+	text := "{\n \"guest_wasm\": {\"sha256\": \"" + strings.Repeat("0", 64) + "\", \"bytes\": 1},\n \"files\": {\n  \"a.js\": {\"sha256\": \"" + strings.Repeat("a", 64) + "\", \"bytes\": 1},\n  \"interfaces/b.d.ts\": {\"sha256\": \"" + strings.Repeat("b", 64) + "\", \"bytes\": 2}\n }\n}\n"
+	same, absent, err := RewriteFiles(text, []Rec{{Key: "a.js", SHA256: strings.Repeat("a", 64), Bytes: 1}})
+	if err != nil || absent != nil || same != text {
+		t.Fatalf("an entry that held was rewritten: %v %v\n%s", err, absent, same)
+	}
+	got, absent, err := RewriteFiles(text, []Rec{{Key: "interfaces/b.d.ts", SHA256: strings.Repeat("c", 64), Bytes: 9}, {Key: "new.js", SHA256: strings.Repeat("d", 64), Bytes: 4}})
+	want := strings.NewReplacer(strings.Repeat("b", 64), strings.Repeat("c", 64), `"bytes": 2`, `"bytes": 9`).Replace(text)
+	if err != nil || got != want || len(absent) != 1 || absent[0] != "new.js" {
+		t.Errorf("%v %v\n%s", err, absent, got)
+	}
+	// the top-level guest_wasm is not a files entry, and a file with no files record has none to move
+	if out, absent, err := RewriteFiles(`{"guest_wasm": {"sha256": "x", "bytes": 1}}`, []Rec{{Key: "guest_wasm", SHA256: "y", Bytes: 2}}); err != nil || absent != nil || !strings.Contains(out, `"x"`) {
+		t.Errorf("%v %v %s", err, absent, out)
+	}
+	if _, _, err := RewriteFiles(`{"files": {"a.js": {"note": "no hash"}}}`, []Rec{{Key: "a.js", SHA256: "y", Bytes: 2}}); err == nil {
+		t.Error("an entry with no sha256 was left stale without an error")
+	}
+}
