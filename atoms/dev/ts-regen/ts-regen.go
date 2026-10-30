@@ -16,13 +16,13 @@ import (
 // the provenance records (rust-wasm, rustc 1.90.0), node, jco and wasm-tools
 // arrive as pinned tarballs placed under ATOM_WORK like ts:regen's, and it needs
 // nothing of its own. What differs is the product: the regenerated files of
-// src/<world>core-gen and the new guest and component hashes in its
-// provenance.json, delivered as the diff of the atom's copy of the tree, and the
+// src/<world>core-gen and the new guest and component hashes and the hash of
+// each regenerated file in its provenance.json, delivered as the diff of the atom's copy of the tree, and the
 // world names it takes from the dev request.
 var Def = atomkit.Def{
 	ID: "dev:ts-regen", Stage: "dev", Lane: checks.LaneTS,
 	Group:      checks.GroupLanguage,
-	Desc:       "Regenerates the worlds named (guest, component, transpile) under their recorded pins and writes the generated files and provenance.json's hashes into the tree.",
+	Desc:       "Regenerates the worlds named (guest, component, transpile) under their recorded pins and writes the generated files and provenance.json's hashes (guest, component and each file) into the tree.",
 	Surface:    "root:package.json",
 	Toolchain:  "rust-wasm",
 	WritesTree: true,

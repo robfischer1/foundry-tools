@@ -29,18 +29,54 @@ func Rewrite(text string, recs []Rec) (string, error) {
 		if !ok {
 			return "", fmt.Errorf("provenance.json has no %s record to rewrite", r.Key)
 		}
-		block := text[start:end]
-		if !shaField.MatchString(block) {
-			return "", fmt.Errorf("provenance.json %s has no sha256 to rewrite", r.Key)
+		block, err := rewriteBlock(text[start:end], r)
+		if err != nil {
+			return "", err
 		}
-		if !bytesField.MatchString(block) {
-			return "", fmt.Errorf("provenance.json %s has no bytes to rewrite", r.Key)
-		}
-		block = shaField.ReplaceAllString(block, "${1}"+r.SHA256+"${2}")
-		block = bytesField.ReplaceAllString(block, fmt.Sprintf("${1}%d", r.Bytes))
 		text = text[:start] + block + text[end:]
 	}
 	return text, nil
+}
+
+// rewriteBlock puts a record's sha256 and size into one object's text.
+func rewriteBlock(block string, r Rec) (string, error) {
+	if !shaField.MatchString(block) {
+		return "", fmt.Errorf("provenance.json %s has no sha256 to rewrite", r.Key)
+	}
+	if !bytesField.MatchString(block) {
+		return "", fmt.Errorf("provenance.json %s has no bytes to rewrite", r.Key)
+	}
+	block = shaField.ReplaceAllString(block, "${1}"+r.SHA256+"${2}")
+	return bytesField.ReplaceAllString(block, fmt.Sprintf("${1}%d", r.Bytes)), nil
+}
+
+// RewriteFiles puts each record's sha256 and size into its entry of the
+// top-level `files` object, whose keys are the generated files' paths (the
+// transpile's output: provenance.json records what each shipped file hashes
+// to). It touches nothing else, as Rewrite does. A record whose path has no
+// entry is answered in absent and written nowhere: adding an entry is the
+// author's, and the caller says so. A file with no `files` object keeps no such
+// record, and nothing is absent. An entry with no sha256 or no bytes is an
+// error: the record would be left stale.
+func RewriteFiles(text string, recs []Rec) (out string, absent []string, err error) {
+	start, end, ok := ObjectSpan(text, "files")
+	if !ok {
+		return text, nil, nil
+	}
+	files := text[start:end]
+	for _, r := range recs {
+		s, e, found := ObjectSpan(files, r.Key)
+		if !found {
+			absent = append(absent, r.Key)
+			continue
+		}
+		block, err := rewriteBlock(files[s:e], r)
+		if err != nil {
+			return "", nil, fmt.Errorf("provenance.json files entry %s: %w", r.Key, err)
+		}
+		files = files[:s] + block + files[e:]
+	}
+	return text[:start] + files + text[end:], absent, nil
 }
 
 // ObjectSpan finds the object that is the value of a top-level key: the span

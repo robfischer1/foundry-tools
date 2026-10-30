@@ -3,6 +3,7 @@ package regenlane
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -32,7 +33,8 @@ import (
 // versions are what the output is a function of, and a regeneration under a pin
 // that moved is not the regeneration the record describes. The two hashes the
 // regeneration exists to change (guest.wasm, <world>.component.wasm) are not pins
-// here; they are what is written.
+// here; they are what is written, and so are the `files` entries of the
+// provenance.json (each regenerated file's hash and size).
 //
 // NOTHING BUT GENERATED FILES REACHES THE TREE (DEF-B5D-018: the executor's
 // delivery diffs the WHOLE tree copy). The core, the build, node, jco, its npm
@@ -218,6 +220,18 @@ func writeWorld(ctx context.Context, in atomkit.In, p *provision, name string) c
 		res.Problems = []string{err.Error()}
 		return res
 	}
+	// the files record is a hash of every shipped file: the regenerated ones
+	// moved, so their entries move with them
+	recs, err := fileRecs(filepath.Join(w.dir, "gen"))
+	if err != nil {
+		res.Err = err.Error()
+		return res
+	}
+	rewritten, absent, err := regenkit.RewriteFiles(rewritten, recs)
+	if err != nil {
+		res.Problems = []string{err.Error()}
+		return res
+	}
 	provNote := "provenance.json unchanged"
 	if rewritten != string(body) {
 		if err := writeFile(filepath.Join(shipped, "provenance.json"), []byte(rewritten), 0o644); err != nil {
@@ -226,9 +240,62 @@ func writeWorld(ctx context.Context, in atomkit.In, p *provision, name string) c
 		}
 		provNote = "provenance.json rewritten"
 	}
+	if len(absent) > 0 {
+		slices.Sort(absent)
+		provNote += fmt.Sprintf("; %d regenerated file(s) have no entry in its files record and need adding: %s", len(absent), strings.Join(absent, ", "))
+	}
+	if gone := staleFileEntries(rewritten, recs); len(gone) > 0 {
+		provNote += fmt.Sprintf("; %d entr(ies) in its files record name a file the regeneration no longer makes and need removing: %s", len(gone), strings.Join(gone, ", "))
+	}
 	res.Lines = append(res.Lines, fmt.Sprintf("guest.wasm %s; %s.component.wasm %s; %s; %s", delta(prov.GuestWasm.SHA256, b.guest),
 		name, delta(prov.ComponentWasm.SHA256, b.component), moved, provNote))
 	return res
+}
+
+// fileRecs hashes every regenerated file under dir, keyed by its slash path
+// from dir, as provenance.json's files record keys them. The transpile's
+// .jco-version is the tool's stamp, not a shipped file.
+func fileRecs(dir string) ([]regenkit.Rec, error) {
+	var recs []regenkit.Rec
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || !d.Type().IsRegular() {
+			return err
+		}
+		rel, _ := filepath.Rel(dir, path)
+		if rel == ".jco-version" {
+			return nil
+		}
+		body, err := readFile(path)
+		if err != nil {
+			return err
+		}
+		recs = append(recs, regenkit.Rec{Key: filepath.ToSlash(rel), SHA256: checks.SHA256Hex(string(body)), Bytes: len(body)})
+		return nil
+	})
+	return recs, err
+}
+
+// staleFileEntries are the paths the files record names that no regenerated
+// file matches, sorted. A provenance with no files record names none.
+func staleFileEntries(prov string, recs []regenkit.Rec) []string {
+	start, end, ok := regenkit.ObjectSpan(prov, "files")
+	if !ok {
+		return nil
+	}
+	var entries map[string]json.RawMessage
+	_ = json.Unmarshal([]byte(prov[start:end]), &entries) // the whole file parsed as JSON before the write
+	made := map[string]bool{}
+	for _, r := range recs {
+		made[r.Key] = true
+	}
+	var gone []string
+	for k := range entries {
+		if !made[k] {
+			gone = append(gone, k)
+		}
+	}
+	slices.Sort(gone)
+	return gone
 }
 
 // delta words a hash: unchanged, or old->new.
