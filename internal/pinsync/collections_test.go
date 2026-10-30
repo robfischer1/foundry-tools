@@ -161,3 +161,31 @@ func TestTheLandedCollectionsFileNamesTheArtifactOfEachVersion(t *testing.T) {
 		t.Errorf("%s is not in step with its versions (run `go run ./pinsync`): %v %v\n%s", CollectionsFile, err, web.asked, got)
 	}
 }
+
+// The rest of the ways it stops: a path that is not a readable file, a galaxy
+// record that states no sum (the measured one stands, logged), and an entry
+// that does not read, through Run.
+func TestCollectionsEdgesStopOrLogAndNeverGuess(t *testing.T) {
+	e := &Env{Root: t.TempDir(), HTTP: &http.Client{Transport: &fakeWeb{}}, Log: &bytes.Buffer{}}
+	if err := os.MkdirAll(filepath.Join(e.Root, CollectionsFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := e.syncCollections(t.Context()); err == nil || got != "" {
+		t.Errorf("a directory where the file should be is an error: %q %v", got, err)
+	}
+
+	web := &fakeWeb{bodies: map[string]string{routerosNew: "t", galaxyVersions + "community/routeros/versions/3.23.0/": `{"artifact":{}}`}}
+	e2, log := collectionsEnv(t, collectionsFile("3.23.0", routerosOld, sum("o")), web, true)
+	got, err := e2.syncCollections(t.Context())
+	if err != nil || !strings.Contains(got, sum("t")) || !strings.Contains(log.String(), "states no sha256") {
+		t.Errorf("%v %s", err, log)
+	}
+
+	fixturePins(t)
+	files := fixtureFiles()
+	files[CollectionsFile] = "collections:\n  - name: community.routeros\n    version: \"3.23.0\"\n"
+	env, _ := newEnv(writeTree(t, files), &fakeWeb{}, &lockRun{}, true)
+	if _, err := env.Run(t.Context()); err == nil || !strings.Contains(err.Error(), CollectionsFile) {
+		t.Errorf("Run with an entry that does not read: %v", err)
+	}
+}
