@@ -469,3 +469,44 @@ func TestABudgetFileThatWillNotReadIsACouldNotRun(t *testing.T) {
 		t.Errorf("%+v ran %v", v, f.runs)
 	}
 }
+
+// A PASS REPORTS THE NATIVE TEST COUNTS cargo printed, in its logs and as one
+// finding, without changing the verdict: zero tests is still a pass (and says so),
+// an output with no count is a pass that says the count is unknown, and a red
+// test stays red.
+func TestAPassCarriesTheNativeTestCounts(t *testing.T) {
+	ok := "running 223 tests\n\ntest result: ok. 197 passed; 0 failed; 26 ignored; 0 measured; 0 filtered out; finished in 0.45s\n"
+	zero := "running 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n"
+	red := "test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n"
+	for _, c := range []struct {
+		name, out    string
+		code, state  int
+		log, finding string
+	}{
+		{"counts", ok, 0, 0, "native tests: 197 passed; 0 failed; 26 ignored across 1 test results", checks.VerdictHolds},
+		{"zero tests", zero, 0, 0, "NO NATIVE TEST RAN", checks.VerdictInert},
+		{"no count printed", "", 0, 0, "the count is unknown", ""},
+		{"a red test", red, 101, 1, "", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := &fake{rules: []rule{{"cargo test", c.out, c.code}}}
+			v := check(t.Context(), input(t, f, one))
+			if v.State != c.state {
+				t.Fatalf("state %d, want %d: %+v", v.State, c.state, v)
+			}
+			logs := strings.Join(v.Logs, "\n")
+			if c.log != "" && !strings.Contains(logs, c.log) {
+				t.Errorf("logs lack %q:\n%s", c.log, logs)
+			}
+			if c.state == 1 && strings.Contains(logs, "native tests:") {
+				t.Errorf("a red run must not report a pass's count line:\n%s", logs)
+			}
+			switch {
+			case c.finding == "" && len(v.Findings) != 0 && c.state == 0:
+				t.Errorf("findings %+v, want none", v.Findings)
+			case c.finding != "" && (len(v.Findings) != 1 || v.Findings[0].Verdict != c.finding || v.Findings[0].Probe != id):
+				t.Errorf("findings %+v, want one %s", v.Findings, c.finding)
+			}
+		})
+	}
+}

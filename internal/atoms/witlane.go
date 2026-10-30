@@ -94,11 +94,18 @@ func CargoRun(ctx context.Context, in Input, a checks.AtomDef, env []string, arg
 // wit facade of a virtual workspace (WitFacade), where cargo finds the
 // workspace by walking up and the facade is the package the run is about.
 func CargoRunIn(ctx context.Context, in Input, dir string, a checks.AtomDef, env []string, argv ...string) checks.Verdict {
+	v, _ := CargoRunInOut(ctx, in, dir, a, env, argv...)
+	return v
+}
+
+// CargoRunInOut is CargoRunIn that also answers what cargo printed ("" when it
+// never ran), for an atom that reads a pass's output (rust:wit-guest's counts).
+func CargoRunInOut(ctx context.Context, in Input, dir string, a checks.AtomDef, env []string, argv ...string) (checks.Verdict, string) {
 	out, code, never := RunTool(ctx, in, a, Cmd{Dir: dir, Name: argv[0], Args: argv[1:], Env: env})
 	if never != nil {
-		return *never
+		return *never, ""
 	}
-	return CargoVerdict(a, out, code)
+	return CargoVerdict(a, out, code), out
 }
 
 // WitFacade is where the wit atoms find the crate they grade.
