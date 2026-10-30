@@ -43,7 +43,11 @@ type fluxTools struct {
 	conform   string
 	conformRc int
 	probeRc   map[string]int
-	rendered  []string
+	// crd is the catalogue pass's answer, crdProbe the probe's exit.
+	crd      string
+	crdRc    int
+	crdProbe int
+	rendered []string
 }
 
 func (s *fluxTools) answer(t *testing.T) func(atoms.Cmd) (string, int) {
@@ -66,6 +70,12 @@ func (s *fluxTools) answer(t *testing.T) func(atoms.Cmd) (string, int) {
 			}
 			s.rendered = append(s.rendered, c.Args[3])
 			return "", 0
+		}
+		if strings.Contains(atomtest.Flagged(c), checks.CRDSchemaLocation) {
+			if !strings.Contains(atomtest.Flagged(c), "-ignore-missing-schemas") {
+				return "probe", s.crdProbe
+			}
+			return s.crd, s.crdRc
 		}
 		return s.conform, s.conformRc
 	}
@@ -119,13 +129,72 @@ func TestOpsFlux(t *testing.T) {
 		tools := &fluxTools{}
 		f.Answer = tools.answer(t)
 		run(in)
-		last := f.Calls[len(f.Calls)-1]
+		last := f.Calls[len(f.Calls)-3]
 		want := "-strict -summary -ignore-missing-schemas -skip CustomResourceDefinition -schema-location default " + strings.Join(tools.rendered, " ")
 		if last.Name != "kubeconform" || atomtest.Flagged(last) != want || len(tools.rendered) != 2 {
 			t.Errorf("kubeconform ran as %q, want %q", atomtest.Flagged(last), want)
 		}
 		if got := atomtest.Flagged(f.Calls[2]); got != "kustomize flux/apps -o "+tools.rendered[0] {
 			t.Errorf("kubectl ran as %q", got)
+		}
+	})
+	t.Run("the CRD catalogue is probed, then read as a warn-only second pass", func(t *testing.T) {
+		in, f := atomtest.ToolTree(t, fluxTree(), nil)
+		tools := &fluxTools{crd: "Summary: 9 resources found in 1 file - Valid: 6, Invalid: 1, Errors: 0, Skipped: 2", crdRc: 1}
+		f.Answer = tools.answer(t)
+		atomtest.Expect(t, run(in), atomtest.StateOf(0), atomtest.Pass,
+			"CRD catalogue pass (warn-only", "2 resource(s) skipped for a missing schema")
+		n := len(f.Calls)
+		probe, pass := atomtest.Flagged(f.Calls[n-2]), atomtest.Flagged(f.Calls[n-1])
+		if !strings.Contains(probe, "-schema-location "+checks.CRDSchemaLocation) || strings.Contains(probe, "-ignore-missing-schemas") {
+			t.Errorf("the probe must fail on a missing schema, ran %q", probe)
+		}
+		if !strings.Contains(pass, "-schema-location default -schema-location "+checks.CRDSchemaLocation) || !strings.Contains(pass, "-ignore-missing-schemas") {
+			t.Errorf("the catalogue pass ran %q", pass)
+		}
+	})
+	t.Run("a catalogue the lane cannot reach is said UNCHECKED, and the warn-only pass blocks nothing", func(t *testing.T) {
+		in, f := atomtest.ToolTree(t, fluxTree(), nil)
+		tools := &fluxTools{crdProbe: 1}
+		f.Answer = tools.answer(t)
+		atomtest.Expect(t, run(in), atomtest.StateOf(0), atomtest.Pass, "went UNCHECKED this run, not clean", "could not be read")
+		for _, c := range f.Calls {
+			if strings.Contains(atomtest.Flagged(c), "-ignore-missing-schemas") && strings.Contains(atomtest.Flagged(c), checks.CRDSchemaLocation) {
+				t.Errorf("the catalogue was scanned after its probe failed")
+			}
+		}
+	})
+	t.Run("a catalogue pass that hit a network fault is said UNCHECKED, never clean", func(t *testing.T) {
+		in, f := atomtest.ToolTree(t, fluxTree(), nil)
+		tools := &fluxTools{crd: "dial tcp: i/o timeout", crdRc: 1}
+		f.Answer = tools.answer(t)
+		atomtest.Expect(t, run(in), atomtest.StateOf(0), atomtest.Pass, "went UNCHECKED this run, not clean")
+	})
+	t.Run("a catalogue pass that never ran is said UNCHECKED, never clean", func(t *testing.T) {
+		in, f := atomtest.ToolTree(t, fluxTree(), nil)
+		tools := &fluxTools{crd: "kubeconform: signal: killed", crdRc: -1}
+		f.Answer = tools.answer(t)
+		atomtest.Expect(t, run(in), atomtest.StateOf(0), atomtest.Pass, "went UNCHECKED this run, not clean", "signal: killed")
+	})
+	t.Run("the probe hands kubeconform the HelmRelease on stdin", func(t *testing.T) {
+		in, f := atomtest.ToolTree(t, fluxTree(), nil)
+		tools := &fluxTools{}
+		f.Answer = tools.answer(t)
+		run(in)
+		probe := f.Calls[len(f.Calls)-2]
+		if !strings.Contains(probe.Stdin, "kind: HelmRelease") {
+			t.Errorf("the probe read %q on stdin", probe.Stdin)
+		}
+	})
+	t.Run("the catalogue pass is not asked when the default pass already found something", func(t *testing.T) {
+		in, f := atomtest.ToolTree(t, fluxTree(), nil)
+		tools := &fluxTools{conform: "Summary: 1 invalid", conformRc: 1}
+		f.Answer = tools.answer(t)
+		run(in)
+		for _, c := range f.Calls {
+			if strings.Contains(atomtest.Flagged(c), checks.CRDSchemaLocation) {
+				t.Errorf("catalogue consulted after a finding: %v", f.Ran())
+			}
 		}
 	})
 	for name, tc := range map[string]struct {
