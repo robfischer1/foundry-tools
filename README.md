@@ -91,6 +91,7 @@ They exist because the **act-runner is being removed**, and what it validated is
 | `dies:contract-copies` | foundry-tools#15237 | every vendored copy **this tree holds** matches foundry-dies' authority (closed set and bytes), graded here instead of on the next dies pull | a tree that holds no copy `contracts.toml` declares; foundry-dies itself |
 | `dies:schema` | `schema.yml` | every `fleet/repos/<name>.json` catalog entry satisfies `schema/fleet-star.schema.json` (and a tree still carrying `fleet/stars/`, the retired slag, is refused) | ″ |
 | `dies:vale-styles` | new, with `fleet:vale` | the Forge Vale style's own cases pass under `vale test --coverage styles/`, every rule exercised — graded in the tree that carries the style, because `fleet:vale` reads it in every consumer's gate | no root `.vale.ini` beside a `styles/` directory |
+| `dies:verb-hints` | `gate:verb-hints` (pytest only) | `tools/verb_hints.py --check`: every served verb has a row in `schema/verb-hints.json`, no row is stale, and the table and the kit projection `schema/verb-annotations.json` equal what the dies' facts derive. The script exits 1 on an uncaught exception as well as on a defect; the atom reads a traceback as 2 | no `policy/.manifest` and `fleet/repos/` (any tree but foundry-dies) |
 
 Three things the ports changed on purpose, each because the workflow's assumption was about its runner rather than about the check:
 

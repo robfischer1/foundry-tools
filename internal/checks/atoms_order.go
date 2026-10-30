@@ -107,6 +107,7 @@ var catalogueOrder = []string{
 	"dies:capabilities-served",
 	"dies:tool-schemas-served",
 	"dies:vale-styles",
+	"dies:verb-hints",
 	"dies:render-author",
 	"fleet:l7-render",
 	"dies:authz-grid",

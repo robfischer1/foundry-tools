@@ -46,6 +46,7 @@ import (
 	diesschemas "dagger/foundry-tools/atoms/dies/schemas"
 	diestoolschemasserved "dagger/foundry-tools/atoms/dies/tool-schemas-served"
 	diesvalestyles "dagger/foundry-tools/atoms/dies/vale-styles"
+	diesverbhints "dagger/foundry-tools/atoms/dies/verb-hints"
 	dieswiregrammar "dagger/foundry-tools/atoms/dies/wire-grammar"
 	dieswitregenerated "dagger/foundry-tools/atoms/dies/wit-regenerated"
 	fleetbgparity "dagger/foundry-tools/atoms/fleet/bg-parity"
@@ -172,6 +173,7 @@ var Defs = []*atomkit.Def{
 	&diesschemas.Def,
 	&diestoolschemasserved.Def,
 	&diesvalestyles.Def,
+	&diesverbhints.Def,
 	&dieswiregrammar.Def,
 	&dieswitregenerated.Def,
 	&fleetbgparity.Def,
