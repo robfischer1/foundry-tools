@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"dagger/foundry-tools/internal/atomkit"
@@ -33,8 +34,63 @@ const id = "ops:flux"
 var row = checks.AtomDef{ID: id, Stage: checks.StagePrecommit, Lane: checks.LaneAny}
 
 // kubeconformArgs are ops.sh's flags: strict, missing schemas ignored, CRDs
-// skipped, the default schema location. The built files follow.
+// skipped, the default schema location. The built files follow. This pass
+// gates; crdPass appends the CRD catalogue to the same flags and only warns.
 var kubeconformArgs = []string{"-strict", "-summary", "-ignore-missing-schemas", "-skip", "CustomResourceDefinition", "-schema-location", "default"}
+
+// crdSkipped is the count kubeconform's -summary line ends on.
+var crdSkipped = regexp.MustCompile(`Skipped: (\d+)`)
+
+// crdProbeDoc is one HelmRelease the catalogue has a schema for
+// (checks.CRDSchemaProbe names the same file). Validated WITHOUT
+// -ignore-missing-schemas, so a schema that cannot be fetched fails the probe
+// where the scan would have counted it skipped.
+const crdProbeDoc = `apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: probe
+spec:
+  interval: 1h
+`
+
+// crdPass validates the built trees against the default store AND the CRDs
+// catalogue, so HelmRelease, Kustomization, CiliumNetworkPolicy and the rest
+// are read instead of skipped. It is WARN-ONLY, faults included: its invalid
+// findings are printed and never change the exit (replayed over flux's last 20
+// merges, the catalogue's ObjectStore schema refuses all eight barman
+// ObjectStores on every one of them), and a catalogue the lane cannot fetch is
+// printed as UNCHECKED rather than turning the atom into a 2, so a flaky
+// catalogue cannot block a flux landing the gating pass cleared. What it never
+// is: silent. The probe runs WITHOUT -ignore-missing-schemas, so an
+// unreachable catalogue is named instead of rendered as "skipped". When this
+// pass graduates to gating, its faults become 2s.
+func crdPass(ctx context.Context, in atomkit.In, rendered []string, out *strings.Builder) {
+	unchecked := func(why string) {
+		fmt.Fprintf(out, "CRD catalogue pass (warn-only): custom resources went UNCHECKED this run, not clean: %s\n", why)
+	}
+	// kubeconform reads stdin when it is named no file.
+	o, rc := in.Run(ctx, atoms.Cmd{Dir: in.Root, Name: "kubeconform", Args: []string{"-strict", "-schema-location", checks.CRDSchemaLocation}, Stdin: crdProbeDoc, Both: true})
+	if rc != 0 {
+		unchecked(fmt.Sprintf("the catalogue could not be read (%s, rc=%d): %s", checks.CRDSchemaProbe, rc, strings.TrimSpace(o)))
+		return
+	}
+	args := append(append([]string{}, kubeconformArgs...), "-schema-location", checks.CRDSchemaLocation)
+	o, rc = in.Run(ctx, atoms.Cmd{Dir: in.Root, Name: "kubeconform", Args: append(args, rendered...), Both: true})
+	if rc < 0 {
+		unchecked(strings.TrimSpace(o))
+		return
+	}
+	if rc != 0 {
+		if state, text := atomlib.OpsSettled("flux CRD catalogue pass", rc, o); state == 2 {
+			unchecked(strings.TrimSpace(text))
+			return
+		}
+	}
+	out.WriteString("CRD catalogue pass (warn-only; findings here do not fail the atom):\n" + strings.TrimRight(o, "\n") + "\n")
+	if m := crdSkipped.FindStringSubmatch(o); m != nil {
+		fmt.Fprintf(out, "%s resource(s) skipped for a missing schema (the catalogue lacks the kind)\n", m[1])
+	}
+}
 
 // check: every tree a Flux Kustomization CR under flux/clusters/ applies,
 // built with `kubectl kustomize` the way kustomize-controller will, and then
@@ -128,6 +184,9 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 		return atomlib.NeverRan(row, validated)
 	}
 	out.WriteString(validated)
+	if rc == 0 {
+		crdPass(ctx, in, rendered, &out)
+	}
 	// A tree its CR applies with no targetNamespace must place every namespaced
 	// object itself (checks.OpsNamespacelessReport; flux #264).
 	report, bad, err := checks.OpsNamespacelessReport(paths, streams, checks.OpsFluxUnscoped(manifests))
