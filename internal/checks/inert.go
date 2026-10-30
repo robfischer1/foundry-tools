@@ -2,6 +2,10 @@ package checks
 
 import "strings"
 
+// NO PRODUCTION CODE READS THIS SET NOW. It keyed the retired Dagger mounts
+// (2026-10-24); nothing in this tree caches an atom's exec on it. It remains the
+// measured record of what the fleet's tests open.
+//
 // InertPaths is what the TOOLCHAIN atoms never read: the files a tree carries
 // for readers, for the door, and for other tools, which a compile, a vet, a
 // lint or a test suite does not open. A mount without them keys an atom's

@@ -237,7 +237,7 @@ func GoReleaseStampedArgs(b ReleaseBinary, vendored bool, module, version string
 }
 
 // GoReleaseArgsTo is GoReleaseStampedArgs with the output directory named: the
-// lane's ReleaseOut for the engine's chain, the atom's own release directory
+// lane's ReleaseOut for the retired Dagger chain, the atom's own release directory
 // for a pod. It is the one place the compile's argv is built.
 func GoReleaseArgsTo(out string, b ReleaseBinary, vendored bool, module, version string) []string {
 	args := []string{"go", "build"}
@@ -297,7 +297,7 @@ func RustReleaseBuilt(b ReleaseBinary) string {
 }
 
 // RustReleaseBuiltIn is where cargo leaves one built binary under a target
-// directory: the volume's for the engine's chain, CARGO_TARGET_DIR's for a pod.
+// directory: the volume's for the retired Dagger chain, CARGO_TARGET_DIR's for a pod.
 func RustReleaseBuiltIn(target string, b ReleaseBinary) string {
 	return path.Join(target, "release", b.Name)
 }

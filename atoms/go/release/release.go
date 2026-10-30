@@ -56,7 +56,7 @@ var row = checks.AtomDef{ID: id, Stage: checks.StagePrepush, Lane: checks.LaneGo
 // the verdict names the binary that did not compile.
 //
 // -buildvcs=false: a pod's checkout is a repository, and go build stamps
-// vcs.revision from one by default; the engine's release tree never had one.
+// vcs.revision from one by default; the Dagger engine's release tree (retired 2026-10-24) never had one.
 // The binaries the executor carries into an image must not differ by commit.
 func check(ctx context.Context, in atomkit.In) checks.Verdict {
 	tree := releasekit.DiskOf(in)
