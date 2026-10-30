@@ -68,6 +68,7 @@ var urlPins = []struct {
 	{"wac", checks.WacURL, checks.WacVersion},
 	{"just", checks.JustURL, checks.JustVersion},
 	{"shellcheck", checks.ShellcheckURL, checks.ShellcheckVersion},
+	{"vale", checks.ValeURL, checks.ValeVersion},
 	{"oras", checks.OrasURL, checks.OrasVersion},
 	{"cargo-audit", checks.CargoAuditURL, checks.CargoAuditVersion},
 	{"cargo-nextest", checks.CargoNextestURL, checks.CargoNextestVersion},

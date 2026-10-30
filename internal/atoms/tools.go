@@ -31,7 +31,7 @@ import (
 var Programs = []string{
 	"git", "tar", "opa",
 	"opengrep", "hadolint", "shellcheck", "chezmoi", "kubectl", "kubeconform",
-	"docker-compose", "wasm-tools", "just", "kube-linter",
+	"docker-compose", "wasm-tools", "just", "kube-linter", "vale",
 	"python3", "python", "copier", "ansible-playbook", "ansible-lint", "ansible-galaxy",
 }
 

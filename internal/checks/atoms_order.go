@@ -38,6 +38,7 @@ var catalogueOrder = []string{
 	"fleet:opengrep-sast",
 	"fleet:kafka-flows",
 	"fleet:hadolint",
+	"fleet:vale",
 	"ops:shell",
 	"ops:chezmoi",
 	"ops:yaml",

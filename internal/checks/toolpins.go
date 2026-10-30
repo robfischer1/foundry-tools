@@ -71,6 +71,9 @@ var ToolSHA256 = map[string]string{
 	WacURL:           "7cd490edbd452221ef89e6750fc43eacc9b71b1242095eb577cb9a3bf0d3beda",
 	JustURL:          "409044617b6f06517c1035e55ca38c8c856ff8b650e41bc2aa1ef82d5903a23e",
 	ShellcheckURL:    "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198",
+	// fleet:vale's linter (valelane.go): the publisher's own
+	// vale_3.25.1_checksums.txt line, equal to the asset's sum read 2026-10-30.
+	ValeURL: "4bf5c5176b682b1da0830f471584d3494f1c2e27ee3029e1ad6f6661d4962182",
 
 	PythonStandaloneURL: "d8faa1b588506b9e3e5a3f57807bb056d534a1641a6b10d15b6ea3f0b413b960",
 
