@@ -203,7 +203,7 @@ func TestRustMutationCannotRunSaysWhy(t *testing.T) {
 	}
 	// The summary line wins the headline over an error line.
 	_, reason, _ = RustMutationVerdict(RustMutationRun{Status: 70, Log: "error: a\n7 mutants tested in 1m: 7 caught\n"})
-	if !strings.Contains(reason, "a crash): 7 mutants tested in 1m: 7 caught\n") {
+	if !strings.Contains(reason, "not a survivor report: 7 mutants tested in 1m: 7 caught\n") {
 		t.Errorf("the summary line is the headline:\n%s", reason)
 	}
 	// An outcome exit whose list did not read is not a report.

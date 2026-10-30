@@ -19,22 +19,31 @@ import (
 // survivor and rustc drops the unviable for free, so the exit code is the
 // answer and the counts are for the reader. Exit 3 — a mutant timed out — is a
 // report too, read the same way (TimedOutMutantIsDetected, RustTimeoutGuard).
-// Every other non-zero exit — a baseline that did not build, a diff that did
-// not match the tree (5) — measured nothing, and is a could-not-run, never a
-// pass.
+// Every other non-zero exit — a baseline that did not build (4), a diff that
+// did not match the tree (5) — measured nothing, and is a could-not-run, never
+// a pass; cannotRunRust names which, from the number.
 //
 // Only what the atom reached was ported. rust.sh also took a full mode, a
 // workdir, a named package list and a gate switch; the atom set none of them,
 // and a repo has no say in any of them (MutationScope).
 
 // RustMutationSpecs is the pathspec a pull's diff is taken over: the declared
-// critical modules when there are any, otherwise every rust source outside the
-// integration tests. A plain `*` in a git pathspec crosses `/`.
+// critical modules when there are any, otherwise every rust source outside any
+// `tests/` directory. A plain `*` in a git pathspec crosses `/`.
+//
+// THE EXCLUSION IS `**/tests/**`, NOT `tests/`: a pathspec without `**/` is
+// anchored at the repository root, and in a cargo workspace the integration
+// tests live at crates/<name>/tests/ (rob/paneless: three of eight diff files
+// were test files). Under `glob` magic the leading `**/` also matches zero
+// directories, so a single crate's root tests/ still leaves. It matches whole
+// path components: src/tests.rs, src/attests/ and src/contests/ stay in. What
+// else leaves is a directory named exactly `tests` anywhere, src/tests/ module
+// directories included - test code by convention.
 func RustMutationSpecs(mods string) []string {
 	if specs := strings.Fields(mods); len(specs) > 0 {
 		return specs
 	}
-	return []string{"*.rs", ":!tests/"}
+	return []string{"*.rs", ":(glob,exclude)**/tests/**"}
 }
 
 // DiffAddsLines reports whether a unified diff adds any line. A diff that
@@ -311,8 +320,34 @@ func cannotRunRust(run RustMutationRun) string {
 	if said == "" {
 		said = "it printed no summary and no error"
 	}
-	return fmt.Sprintf("CANNOT RUN - cargo mutants exited %d — a broken run, not a survivor report (a baseline that did not build, a diff that did not match the tree, a crash): %s\n\nthe tail of its output:\n```\n%s\n```",
-		run.Status, said, boundedTail(run.Log, 20, 4000))
+	return fmt.Sprintf("CANNOT RUN - cargo mutants exited %d — %s: %s\n\nthe tail of its output:\n```\n%s\n```",
+		run.Status, rustExitCause(run.Status), said, boundedTail(run.Log, 20, 4000))
+}
+
+// rustExitCause is what a cargo-mutants exit code means (its src/exit_code.rs,
+// 27.1.0). cargo-mutants gives each case a distinct code so that nothing need
+// guess; the reason names the one the code identifies. Code 2 reaches here only with
+// no missed mutant listed behind it (the caller says so); a code with no
+// known meaning says exactly that.
+func rustExitCause(status int) string {
+	switch status {
+	case 1:
+		return "a usage error: cargo mutants did not accept its arguments, and measured nothing"
+	case cargoMutantsMissed:
+		return "it reported missed mutants"
+	case cargoMutantsTimeout:
+		return "a mutant HUNG (timeout): find the unbounded loop it caused, or raise --minimum-test-timeout"
+	case 4:
+		return "the baseline is already red: the tests fail in the unmutated tree, so this says nothing about mutants"
+	case 5:
+		return "the -D diff does not match the tree: the lane built it against the wrong base or tree"
+	case 6:
+		return "the -D diff could not be parsed"
+	case 70:
+		return "an internal error in cargo mutants (a software error), not a survivor report"
+	default:
+		return "an exit with no known meaning to this gate, not a survivor report"
+	}
 }
 
 // lineCount is `grep -c .`: the lines that hold at least one character.

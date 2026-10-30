@@ -328,8 +328,8 @@ func TestRustMutationScopesAnUndeclaredPullToTheWholeDiffAndItsMembers(t *testin
 		t.Fatalf("%s", said(v))
 	}
 	d, _ := p.call("git diff --relative since0 HEAD")
-	if strings.Join(d.Args, " ") != "diff --relative since0 HEAD -- *.rs :!tests/" {
-		t.Errorf("an undeclared pull is diffed over every rust source outside tests: %q", d.Args)
+	if strings.Join(d.Args, " ") != "diff --relative since0 HEAD -- *.rs :(glob,exclude)**/tests/**" {
+		t.Errorf("an undeclared pull is diffed over every rust source outside any tests/ directory: %q", d.Args)
 	}
 	c, _ := p.call("cargo mutants --colors")
 	if !strings.Contains(strings.Join(c.Args, " "), "--test-tool nextest -p gen -p x --exclude-re") || strings.Contains(strings.Join(c.Args, " "), " -f ") {
