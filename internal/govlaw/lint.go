@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -120,6 +121,12 @@ func Lint(t Tree) Result {
 	if res != nil {
 		return *res
 	}
+	if len(reg.unreached) > 0 {
+		// A die source the lane could not read is not a die that is fine, and
+		// not a die that is wrong: the run did not look.
+		sort.Strings(reg.unreached)
+		return cannotRun(LintID, "%d die source(s) in other repositories could not be read:\n  %s", len(reg.unreached), strings.Join(reg.unreached, "\n  "))
+	}
 	findings = append(findings, reg.findings...)
 
 	rf, res := t.lintRenders(stems)
@@ -128,8 +135,8 @@ func Lint(t Tree) Result {
 	}
 	findings = append(findings, rf...)
 
-	return verdict(LintID, fmt.Sprintf("%d block(s), %d kit(s) and %d span map(s) are sound; registry: %d die(s), %d consumer(s) and %d matrix cell(s) are sound, %d die source(s) in other repositories were not resolved (no network in the gate)",
-		len(stems), len(kitsDoc.Kits), t.countSpans(), reg.dies, reg.consumers, reg.cells, reg.unresolved), findings, warnings)
+	return verdict(LintID, fmt.Sprintf("%d block(s), %d kit(s) and %d span map(s) are sound; registry: %d die(s), %d consumer(s) and %d matrix cell(s) are sound, %d die source(s) in other repositories were not resolved (%s)",
+		len(stems), len(kitsDoc.Kits), t.countSpans(), reg.dies, reg.consumers, reg.cells, reg.unresolved, reg.lookedNote(t)), findings, warnings)
 }
 
 func (t Tree) countSpans() int {
@@ -293,4 +300,12 @@ func spanFindings(path, body string, docLen int, stems []string) []string {
 		}
 	}
 	return out
+}
+
+// lookedNote says why a source was left unresolved and what was resolved.
+func (r registryResult) lookedNote(t Tree) string {
+	if t.Resolve == nil {
+		return "no network in the gate"
+	}
+	return fmt.Sprintf("not on the door's host; %d more found at their ref", r.resolved)
 }

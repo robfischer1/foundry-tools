@@ -5,6 +5,7 @@
 package govlaw
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"path"
@@ -35,7 +36,9 @@ var (
 // it did not resolve, so a pass never claims more than was looked at.
 type registryResult struct {
 	findings   []string
-	unresolved int // source-form dies whose repository is not this tree
+	unresolved int // source-form dies whose repository is not this tree and was not looked up
+	resolved   int // source-form dies in another repository whose ref and path were found
+	unreached  []string
 	dies       int
 	consumers  int
 	cells      int
@@ -59,9 +62,12 @@ type registryResult struct {
 // DIES. An entry is either a kit die (`kit` alone, naming a kit) or a tree die
 // (`source` = "<url>@<ref>" with a relative `path`, and optionally `exclude`, a
 // list of strings, and `wheel`, a bool). When the source is foundry-stocks itself
-// the path must exist in this tree. A source in another repository is NOT resolved:
-// that is a network fetch, and a gate that fetched would owe a 2 for every outage.
-// They are counted and the pass says so.
+// the path must exist in this tree. A source in another repository is looked up
+// through Tree.Resolve when the lane was given one: a ref the repository does not
+// hold, or a path it holds nothing under at that ref, is a finding. A lookup that
+// failed (the door down) is a could-not-run, never a pass and never a finding.
+// A source Resolve cannot read (another host), or any source when no Resolve was
+// given, is counted and the pass says so.
 func (t Tree) lintRegistry(kits map[string]struct{}) (registryResult, *Result) {
 	var r registryResult
 	read := func(file string, into any) (ok bool, res *Result) {
@@ -152,28 +158,49 @@ func (t Tree) lintRegistry(kits map[string]struct{}) (registryResult, *Result) {
 			r.findings = append(r.findings, diesFile+": declares no die")
 		}
 		for _, name := range sortedKeys(dies.Dies) {
-			f, unresolved := t.lintDie(name, dies.Dies[name], kits)
+			f, how := t.lintDie(name, dies.Dies[name], kits)
 			r.findings = append(r.findings, f...)
-			if unresolved {
+			switch how.kind {
+			case foreign:
 				r.unresolved++
+			case looked:
+				r.resolved++
+			case unreached:
+				r.unreached = append(r.unreached, how.why)
 			}
 		}
 	}
 	return r, nil
 }
 
-// lintDie grades one dies.toml entry; unresolved is true for a tree die sourced
-// from a repository other than this one.
-func (t Tree) lintDie(name string, d map[string]any, kits map[string]struct{}) (findings []string, unresolved bool) {
+// lookup is how lintDie settled a tree die sourced from another repository.
+type lookup struct {
+	kind int
+	why  string
+}
+
+// What lintDie did with a die: nothing to look up (own tree, a kit die, or a
+// die already wrong); counted and not looked up (foreign); its ref and path
+// found (looked); the lookup could not be made (unreached, with why).
+const (
+	none = iota
+	foreign
+	looked
+	unreached
+)
+
+// lintDie grades one dies.toml entry; the lookup says what became of a tree die
+// sourced from a repository other than this one.
+func (t Tree) lintDie(name string, d map[string]any, kits map[string]struct{}) (findings []string, how lookup) {
 	at := fmt.Sprintf("%s: die %q", diesFile, name)
 	findings = unknownKeys(at, d, dieKeys)
 	kitV, hasKit := d["kit"]
 	srcV, hasSource := d["source"]
 	switch {
 	case hasKit && hasSource:
-		return append(findings, at+" names both a kit and a source: it is one or the other"), false
+		return append(findings, at+" names both a kit and a source: it is one or the other"), lookup{}
 	case !hasKit && !hasSource:
-		return append(findings, at+" names neither a kit nor a source"), false
+		return append(findings, at+" names neither a kit nor a source"), lookup{}
 	case hasKit:
 		for _, k := range []string{"path", "exclude", "wheel"} {
 			if _, has := d[k]; has {
@@ -182,16 +209,16 @@ func (t Tree) lintDie(name string, d map[string]any, kits map[string]struct{}) (
 		}
 		k, ok := kitV.(string)
 		if !ok {
-			return append(findings, at+" has a kit that is not a string"), false
+			return append(findings, at+" has a kit that is not a string"), lookup{}
 		}
 		if _, known := kits[k]; !known {
 			findings = append(findings, fmt.Sprintf("%s names kit %q, which is not in %s", at, k, kitsFile))
 		}
-		return findings, false
+		return findings, lookup{}
 	}
 
 	src, ok := srcV.(string)
-	repo := ""
+	repo, srcURL, ref := "", "", ""
 	if !ok {
 		findings = append(findings, at+" has a source that is not a string")
 	} else if at2 := strings.LastIndex(src, "@"); at2 <= 0 || at2 == len(src)-1 {
@@ -199,7 +226,7 @@ func (t Tree) lintDie(name string, d map[string]any, kits map[string]struct{}) (
 	} else if u, err := url.Parse(src[:at2]); err != nil || u.Scheme == "" || u.Host == "" {
 		findings = append(findings, fmt.Sprintf("%s: source %q has no absolute URL before the @", at, src))
 	} else {
-		repo = strings.TrimSuffix(path.Base(u.Path), ".git")
+		repo, srcURL, ref = strings.TrimSuffix(path.Base(u.Path), ".git"), src[:at2], src[at2+1:]
 	}
 	if v, has := d["exclude"]; has {
 		list, isList := v.([]any)
@@ -220,16 +247,40 @@ func (t Tree) lintDie(name string, d map[string]any, kits map[string]struct{}) (
 	p, ok := d["path"].(string)
 	switch {
 	case !ok || strings.TrimSpace(p) == "":
-		return append(findings, at+" has no path"), false
+		return append(findings, at+" has no path"), lookup{}
 	case strings.HasPrefix(p, "/") || slices.Contains(strings.Split(p, "/"), ".."):
-		return append(findings, fmt.Sprintf("%s: path %q is not relative to its source's root", at, p)), false
+		return append(findings, fmt.Sprintf("%s: path %q is not relative to its source's root", at, p)), lookup{}
+	case repo == "":
+		return findings, lookup{}
 	case repo != ownRepo:
-		return findings, repo != ""
+		return t.lookUp(at, findings, srcURL, ref, p)
 	}
 	if clean := path.Clean(p); clean != "." && !t.hasTree(clean) {
 		findings = append(findings, fmt.Sprintf("%s: path %q is not in this tree, and the source is %s", at, p, ownRepo))
 	}
-	return findings, false
+	return findings, lookup{}
+}
+
+// lookUp asks the source's own repository whether the die's ref exists and
+// holds the path. A repository, ref or path that is not there is a finding. A
+// lookup that could not be made is never one and never a pass: it is unreached,
+// and the lane settles could-not-run over it.
+func (t Tree) lookUp(at string, findings []string, srcURL, ref, p string) ([]string, lookup) {
+	if t.Resolve == nil {
+		return findings, lookup{kind: foreign}
+	}
+	got, err := t.Resolve(srcURL, ref, p)
+	switch {
+	case errors.Is(err, ErrForeign):
+		return findings, lookup{kind: foreign}
+	case err != nil:
+		return findings, lookup{kind: unreached, why: fmt.Sprintf("%s: %s@%s could not be read: %v", at, srcURL, ref, err)}
+	case got == NoRef:
+		return append(findings, fmt.Sprintf("%s: ref %q does not exist in %s", at, ref, srcURL)), lookup{}
+	case got == NoPath:
+		return append(findings, fmt.Sprintf("%s: path %q is not in %s at %q", at, p, srcURL, ref)), lookup{}
+	}
+	return findings, lookup{kind: looked}
 }
 
 // hasTree reports whether a tracked file is at p or under it.
