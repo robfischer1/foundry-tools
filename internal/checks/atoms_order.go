@@ -53,6 +53,7 @@ var catalogueOrder = []string{
 	"ops:flux",
 	"ops:kube-linter",
 	"ops:immutable",
+	"ops:star-grants",
 	"template:render-matrix",
 	"wit:validate",
 	"go:gofmt",

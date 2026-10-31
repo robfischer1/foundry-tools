@@ -38,6 +38,7 @@ run:
   ops:flux
   ops:kube-linter
   ops:immutable
+  ops:star-grants
   template:render-matrix
   wit:validate
   python:ruff-check

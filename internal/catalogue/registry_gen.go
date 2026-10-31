@@ -102,6 +102,7 @@ import (
 	opsrecordlanes "dagger/foundry-tools/atoms/ops/record-lanes"
 	opsshell "dagger/foundry-tools/atoms/ops/shell"
 	opsspecs "dagger/foundry-tools/atoms/ops/specs"
+	opsstargrants "dagger/foundry-tools/atoms/ops/star-grants"
 	opsstarsa "dagger/foundry-tools/atoms/ops/star-sa"
 	opsworldpatches "dagger/foundry-tools/atoms/ops/world-patches"
 	opsyaml "dagger/foundry-tools/atoms/ops/yaml"
@@ -234,6 +235,7 @@ var Defs = []*atomkit.Def{
 	&opsrecordlanes.Def,
 	&opsshell.Def,
 	&opsspecs.Def,
+	&opsstargrants.Def,
 	&opsstarsa.Def,
 	&opsworldpatches.Def,
 	&opsyaml.Def,
