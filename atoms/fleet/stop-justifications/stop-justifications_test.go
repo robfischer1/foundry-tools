@@ -63,10 +63,13 @@ func TestStopJustifications(t *testing.T) {
 }
 
 // Justification expiry is the reason this atom is whole-tree scope. The grant
-// below ends 2026-11-20 (checks.DirectoryExemption); Now is converted to UTC
-// before the date is taken, so 23:30 on the 20th in New York — already the
-// 21st in UTC — is past it.
+// below is installed for the test and ends 2026-11-20 (checks.DirectoryExemption);
+// Now is converted to UTC before the date is taken, so 23:30 on the 20th in New
+// York — already the 21st in UTC — is past it.
 func TestStopJustificationsReadsTheUTCDate(t *testing.T) {
+	saved := checks.DirectoryExempt
+	t.Cleanup(func() { checks.DirectoryExempt = saved })
+	checks.DirectoryExempt = append(slices.Clone(saved), checks.ExemptRow{Repo: "foundry-stocks", Prefix: "bases/blade-", Rule: "DL3002", Expires: "2026-11-20"})
 	dir := t.TempDir()
 	put(t, dir, "bases/blade-go/Dockerfile", "FROM x\n# hado"+"lint ignore=DL3002\n")
 	newYork := time.FixedZone("EST", -5*3600)
