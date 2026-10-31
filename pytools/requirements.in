@@ -17,6 +17,7 @@
 #   jsonschema      dies:schema, dies:findings, dies:schemas
 #   ansible-core    ops:ansible (ansible-playbook --syntax-check)
 #   ansible-lint    ops:ansible
+#   google-re2      ops:flux (the Cilium L7 regex pass: RE2's real ProgramSize, checks.CiliumRE2Script)
 #   copier          template:render-matrix (checks.CopierVersion; a test holds the two equal)
 pyyaml
 tomli>=2.0
@@ -24,3 +25,4 @@ jsonschema>=4.20
 ansible-core
 ansible-lint
 copier==9.19.1
+google-re2
