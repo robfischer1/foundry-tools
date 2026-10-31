@@ -42,6 +42,9 @@ var contextPathRe = regexp.MustCompile(`^renders/([^/]+)/([^/]+)/` + regexp.Quot
 // includes that name what was deleted, and the assembler only meets them when a
 // consumer asks for that kit. A cycle through includes is an error.
 //
+// REGISTRY. dies.toml, consumers.toml and matrix.toml parse and agree with kits.toml and each
+// other (lintRegistry).
+//
 // RENDERS. Every renders/<consumer>/<provider>/.furnace/spans.json parses, has
 // the context document it maps, and its spans lie inside that document, in
 // order, without overlap, each naming a block that exists. A non-blank context
@@ -109,13 +112,24 @@ func Lint(t Tree) Result {
 		findings = append(findings, fmt.Sprintf("%s: kits include each other in a cycle: %s", kitsFile, strings.Join(cycle, " -> ")))
 	}
 
+	kitSet := map[string]struct{}{}
+	for name := range kitsDoc.Kits {
+		kitSet[name] = struct{}{}
+	}
+	reg, res := t.lintRegistry(kitSet)
+	if res != nil {
+		return *res
+	}
+	findings = append(findings, reg.findings...)
+
 	rf, res := t.lintRenders(stems)
 	if res != nil {
 		return *res
 	}
 	findings = append(findings, rf...)
 
-	return verdict(LintID, fmt.Sprintf("%d block(s), %d kit(s) and %d span map(s) are sound", len(stems), len(kitsDoc.Kits), t.countSpans()), findings, warnings)
+	return verdict(LintID, fmt.Sprintf("%d block(s), %d kit(s) and %d span map(s) are sound; registry: %d die(s), %d consumer(s) and %d matrix cell(s) are sound, %d die source(s) in other repositories were not resolved (no network in the gate)",
+		len(stems), len(kitsDoc.Kits), t.countSpans(), reg.dies, reg.consumers, reg.cells, reg.unresolved), findings, warnings)
 }
 
 func (t Tree) countSpans() int {

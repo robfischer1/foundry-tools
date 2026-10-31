@@ -179,6 +179,10 @@ func StocksTree(extra map[string]string) map[string]string {
 		"kits.toml":                  "[kits.root]\nblocks = [\"forge\"]\n",
 		"retired-verbs.toml":         Ledger,
 		"governance/blocks/forge.md": "CI logs through `repo_ci_logs`.\n",
+		// the registry law:lint grades beside the kits
+		"dies.toml":      "[dies.\"tool/x\"]\nsource = \"https://git.example.test/rob/x.git@main\"\npath = \".\"\n",
+		"consumers.toml": "[consumers.c]\npath = \"../c\"\nprovider = \"claude\"\n",
+		"matrix.toml":    "[skills]\nclaude = \"native\"\n",
 	}
 	for k, v := range extra {
 		files[k] = v
