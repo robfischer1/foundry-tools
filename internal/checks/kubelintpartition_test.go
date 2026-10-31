@@ -41,3 +41,11 @@ func TestKubeLintTargetsKeepsAPathFromAJSON6902Patch(t *testing.T) {
 		t.Errorf("a patch from a file is not known to be a delete: %v", got)
 	}
 }
+
+func TestDeleteOnlyBaseRefusesWhatItCannotRead(t *testing.T) {
+	for _, src := range []string{"", ": [bad", "- a list\n", "null\n"} {
+		if b, ok := deleteOnlyBase("p", src); ok {
+			t.Errorf("%q answered base %q", src, b)
+		}
+	}
+}

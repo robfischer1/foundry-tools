@@ -125,3 +125,25 @@ func TestOpsKubeLinterRunsOnARootFluxTree(t *testing.T) {
 		t.Errorf("no lint may run on an unreadable cluster manifest: %v", f.Ran())
 	}
 }
+
+// A CR path that only deletes from one sibling tree lints as that tree, so its
+// cross-object checks see the whole set (flux fx1: prime-core and
+// prime-workloads split prime). A CR path with no kustomization.yaml is kept.
+func TestOpsKubeLinterLintsADeleteOnlyPartitionAsItsBase(t *testing.T) {
+	cr := "apiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nspec:\n  path: ./%s\n  sourceRef: {name: flux-system}\n"
+	del := "resources: [../prime]\npatches:\n  - target: {kind: Deployment}\n    patch: |\n      $patch: delete\n      apiVersion: v1\n      kind: X\n      metadata: {name: x}\n"
+	in, f := kubeLinter(t, map[string]string{
+		"clusters/pantheon/kustomization.yaml": "resources: [a.yaml, b.yaml, c.yaml]\n",
+		"clusters/pantheon/a.yaml":             strings.Replace(cr, "%s", "prime-core", 1),
+		"clusters/pantheon/b.yaml":             strings.Replace(cr, "%s", "prime-workloads", 1),
+		"clusters/pantheon/c.yaml":             strings.Replace(cr, "%s", "bare", 1),
+		"prime/kustomization.yaml":             "resources: []\n",
+		"prime-core/kustomization.yaml":        del,
+		"prime-workloads/kustomization.yaml":   del,
+		"bare/notes.md":                        "x",
+	}, nil)
+	atomtest.Expect(t, run(in), atomtest.StateOf(0), atomtest.Pass)
+	if got := atomtest.Flagged(f.Call("kube-linter")); got != "lint --fail-if-no-objects-found clusters/ bare prime" {
+		t.Errorf("the partitions must lint as their base: %s", got)
+	}
+}
