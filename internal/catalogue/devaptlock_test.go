@@ -21,7 +21,7 @@ func TestDEF_22977_EveryLanguageHasTheAptLockAtom(t *testing.T) {
 		if got := m.Compose(nil); !slices.Equal(got, aptLockHead) {
 			t.Errorf("%s: argv %v, want %v", id, got, aptLockHead)
 		}
-		if m.Surface != "root:packages.lock" || m.Toolchain != "go" || !m.WritesTree || m.PerModule {
+		if m.Surface != "any:**/packages.lock" || m.Toolchain != "go" || !m.WritesTree || m.PerModule {
 			t.Errorf("%s: %+v", id, m)
 		}
 		// the verb mends a lock the star's own preflight knows nothing of, and
