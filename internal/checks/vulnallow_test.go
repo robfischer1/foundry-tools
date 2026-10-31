@@ -11,13 +11,11 @@ import (
 // one — if that line ever changes, this fixture is what notices.
 const govulnReport = `=== Symbol Results ===
 
-Vulnerability #1: GO-2026-6508
-    OpenTelemetry-Go: Log gRPC exporter ignores env TLS certs, bypassing
-    mTLS/pinning in go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc
-  More info: https://pkg.go.dev/vuln/GO-2026-6508
-  Module: go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc
-    Found in: go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc@v0.19.0
-    Fixed in: go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc@v0.21.0
+Vulnerability #1: GO-2026-6225
+    docker-credential-acr-env: reachable through cli.CleanCmd -> remote.Delete
+  More info: https://pkg.go.dev/vuln/GO-2026-6225
+  Module: github.com/chrismellard/docker-credential-acr-env
+    Found in: github.com/chrismellard/docker-credential-acr-env@v0.0.0-20230304212654-82a0ddb27589
 
 Your code is affected by 1 vulnerability from 1 module.
 `
@@ -27,24 +25,24 @@ Your code is affected by 1 vulnerability from 1 module.
 // does not silently turn these into tests of nothing.
 func beforeExpiry(t *testing.T) time.Time {
 	t.Helper()
-	a, ok := AllowedVuln("GO-2026-6508", time.Date(2026, time.September, 28, 0, 0, 0, 0, time.UTC))
+	a, ok := AllowedVuln("GO-2026-6225", time.Date(2026, time.September, 28, 0, 0, 0, 0, time.UTC))
 	if !ok {
-		t.Fatal("the shipped allowance for GO-2026-6508 is gone — if dagger shipped the fix, delete these tests with it")
+		t.Fatal("the shipped allowance for GO-2026-6225 is gone — if dagger shipped the fix, delete these tests with it")
 	}
 	return a.Until.AddDate(0, 0, -1)
 }
 
 func afterExpiry(t *testing.T) time.Time {
 	t.Helper()
-	a, _ := AllowedVuln("GO-2026-6508", time.Date(2026, time.September, 28, 0, 0, 0, 0, time.UTC))
+	a, _ := AllowedVuln("GO-2026-6225", time.Date(2026, time.September, 28, 0, 0, 0, 0, time.UTC))
 	return a.Until.AddDate(0, 0, 1)
 }
 
 // THE ADVISORY IS READ OFF THE TOOL'S OWN LINE, not guessed at.
 func TestTheAdvisoryIdsAreReadFromTheReport(t *testing.T) {
 	got := FoundVulnIDs(govulnReport)
-	if len(got) != 1 || got[0] != "GO-2026-6508" {
-		t.Fatalf("FoundVulnIDs = %v, want [GO-2026-6508]", got)
+	if len(got) != 1 || got[0] != "GO-2026-6225" {
+		t.Fatalf("FoundVulnIDs = %v, want [GO-2026-6225]", got)
 	}
 }
 
@@ -52,7 +50,7 @@ func TestTheAdvisoryIdsAreReadFromTheReport(t *testing.T) {
 // under one heading, but a second heading for the same id must not make the
 // allowance look like it covered two things.
 func TestARepeatedAdvisoryIsCountedOnce(t *testing.T) {
-	doubled := govulnReport + "\nVulnerability #2: GO-2026-6508\n"
+	doubled := govulnReport + "\nVulnerability #2: GO-2026-6225\n"
 	if got := FoundVulnIDs(doubled); len(got) != 1 {
 		t.Fatalf("a repeated id is one id, got %v", got)
 	}
@@ -65,7 +63,7 @@ func TestAnAllowedAdvisoryPassesAndNamesItself(t *testing.T) {
 	if !ok {
 		t.Fatal("the shipped allowance must cover its own advisory before the expiry")
 	}
-	for _, want := range []string{"GO-2026-6508", "ALLOWED", "not a clean scan", "allowed until", "dagger/otel-go"} {
+	for _, want := range []string{"GO-2026-6225", "ALLOWED", "not a clean scan", "allowed until", "cosign"} {
 		if !strings.Contains(why, want) {
 			t.Errorf("the reason must carry %q:\n%s", want, why)
 		}
@@ -79,7 +77,7 @@ func TestTheAllowanceStopsAtItsExpiry(t *testing.T) {
 	if _, ok := SuppressedVulnReason(govulnReport, afterExpiry(t)); ok {
 		t.Fatal("an expired allowance must not suppress anything")
 	}
-	if _, ok := AllowedVuln("GO-2026-6508", afterExpiry(t)); ok {
+	if _, ok := AllowedVuln("GO-2026-6225", afterExpiry(t)); ok {
 		t.Fatal("AllowedVuln must refuse past the expiry")
 	}
 }
@@ -87,8 +85,8 @@ func TestTheAllowanceStopsAtItsExpiry(t *testing.T) {
 // THE EXPIRY DAY ITSELF STILL COUNTS, so the boundary is a date rather than an
 // instant somebody has to reason about across time zones.
 func TestTheExpiryDayIsTheLastDayItApplies(t *testing.T) {
-	a, _ := AllowedVuln("GO-2026-6508", beforeExpiry(t))
-	if _, ok := AllowedVuln("GO-2026-6508", a.Until); !ok {
+	a, _ := AllowedVuln("GO-2026-6225", beforeExpiry(t))
+	if _, ok := AllowedVuln("GO-2026-6225", a.Until); !ok {
 		t.Fatal("the expiry day is the last day the allowance applies")
 	}
 }
@@ -119,7 +117,7 @@ func TestAReportWithNoRecognisableAdvisoryFailsClosed(t *testing.T) {
 		"",
 		"Your code is affected by 1 vulnerability from 1 module.\n",
 		"Vulnerability: something entirely new\n",
-		"GO-2026-6508 mentioned in passing, not on its own line\n",
+		"GO-2026-6225 mentioned in passing, not on its own line\n",
 	} {
 		if _, ok := SuppressedVulnReason(out, beforeExpiry(t)); ok {
 			t.Fatalf("an unparseable report must not suppress: %q", out)
@@ -205,7 +203,7 @@ func TestOneExpiredEntryAmongSeveralStillReds(t *testing.T) {
 // made a suppressed vulnerability read exactly like a clean scan.
 func TestAnAllowedVerdictPassesAndStillSaysWhatItAllowed(t *testing.T) {
 	a := AtomDef{ID: "go:govulncheck", Stage: StagePrepush, Lane: LaneGo}
-	v := AllowedVulnVerdict(a, "1 known vulnerability(ies) found and ALLOWED", "Vulnerability #1: GO-2026-6508\nFixed in: v0.21.0\n")
+	v := AllowedVulnVerdict(a, "1 known vulnerability(ies) found and ALLOWED", "Vulnerability #1: GO-2026-6225\nFixed in: v0.21.0\n")
 
 	if v.State != int(StatePass) {
 		t.Fatalf("an allowed advisory is a pass, got state %d", v.State)
@@ -223,7 +221,7 @@ func TestAnAllowedVerdictPassesAndStillSaysWhatItAllowed(t *testing.T) {
 	// exactly as a red run's would be, so the allowance can be checked rather
 	// than taken on trust.
 	joined := strings.Join(v.Logs, "\n")
-	if !strings.Contains(joined, "GO-2026-6508") || !strings.Contains(joined, "Fixed in") {
+	if !strings.Contains(joined, "GO-2026-6225") || !strings.Contains(joined, "Fixed in") {
 		t.Fatalf("the report must survive as the atom's lines:\n%v", v.Logs)
 	}
 }
@@ -238,20 +236,20 @@ func TestAnAllowedVerdictNeverCarriesANilLogList(t *testing.T) {
 	}
 }
 
-// The dagger/otel-go wall covers two advisories now, and a run that finds both
-// passes — loudly, naming each — until either allowance lapses.
-func TestBothOtelLogAdvisoriesAreAllowedTogether(t *testing.T) {
-	out := "Vulnerability #1: GO-2026-6615\nVulnerability #2: GO-2026-6508\n"
-	reason, ok := SuppressedVulnReason(out, beforeExpiry(t))
-	if !ok {
-		t.Fatal("a run naming only the two otel/log advisories was not allowed")
-	}
-	for _, want := range []string{"2 known vulnerability(ies)", "GO-2026-6508", "GO-2026-6615", "otel/sdk/log"} {
-		if !strings.Contains(reason, want) {
-			t.Errorf("the reason does not name %q:\n%s", want, reason)
+// The dagger/otel-go wall is gone (go.mod requires neither dagger nor otel, and
+// every fleet go.mod is at otlplog v0.23.0), so the two advisories it excused are
+// findings again. Each is refused on its own and beside an allowed one.
+func TestTheRetiredOtelLogAdvisoriesAreNoLongerAllowed(t *testing.T) {
+	for _, id := range []string{"GO-2026-6508", "GO-2026-6615"} {
+		if _, ok := AllowedVuln(id, time.Date(2026, time.October, 31, 0, 0, 0, 0, time.UTC)); ok {
+			t.Errorf("%s is allowed, but the dependency that forced the allowance is gone", id)
 		}
-	}
-	if _, ok := SuppressedVulnReason(out+"Vulnerability #3: GO-2026-6505\n", beforeExpiry(t)); ok {
-		t.Error("GO-2026-6505 was bumped, not allowed — a run naming it must red")
+		out := "Vulnerability #1: " + id + "\n"
+		if _, ok := SuppressedVulnReason(out, beforeExpiry(t)); ok {
+			t.Errorf("a run naming only %s was suppressed", id)
+		}
+		if _, ok := SuppressedVulnReason(govulnReport+"Vulnerability #2: "+id+"\n", beforeExpiry(t)); ok {
+			t.Errorf("%s beside an allowed advisory was suppressed", id)
+		}
 	}
 }

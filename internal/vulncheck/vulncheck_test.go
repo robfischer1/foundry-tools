@@ -40,7 +40,7 @@ func input(f *fake, files ...string) atomkit.In {
 	return atomkit.In{Root: "/src", Files: files, Exec: f.exec, Now: time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)}
 }
 
-const allowedReport = "Vulnerability #1: GO-2026-6508\n    Fixed in: go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc@v0.21.0\n"
+const allowedReport = "Vulnerability #1: GO-2026-6225\n    Fixed in: (no fixed version)\n"
 
 // row is go:govulncheck's, the row the tests below judge under; the dev atom's
 // own is held by TestTheVerdictSaysTheRowThatAsked.
