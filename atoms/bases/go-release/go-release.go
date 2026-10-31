@@ -72,9 +72,13 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 				return v
 			}
 		}
+		module, version, fault := releasekit.Stamp(ctx, in, dir)
+		if fault != "" {
+			return checks.VerdictOf(row, int(checks.StateCannotRun), id+": CANNOT RUN - "+root.Name+": "+fault)
+		}
 		last = checks.VerdictOf(row, int(checks.StatePass), "")
 		for _, b := range root.Binaries {
-			argv := checks.GoReleaseArgsTo(out, b, root.Vendored, "", "")
+			argv := checks.GoReleaseArgsTo(out, b, root.Vendored, module, version)
 			env := []string{"CGO_ENABLED=" + checks.ReleaseCgo(b), goflags}
 			o, code, bad := atoms.RunTool(ctx, in, row, atoms.Cmd{Dir: dir, Name: argv[0], Args: argv[1:], Env: env, Both: true})
 			if bad != nil {

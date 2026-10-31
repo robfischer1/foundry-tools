@@ -101,7 +101,8 @@ func TestTheOutputDirectoryIsTheCallersToName(t *testing.T) {
 	into := filepath.Join(t.TempDir(), "assembled")
 	t.Setenv("ATOM_RELEASE_OUT", into)
 	t.Setenv("ATOM_WORK", t.TempDir())
-	in, f := atomtest.ToolTree(t, merge(star("hades", copiesHades, nil), cmds("hades")), nil)
+	t.Setenv("ATOM_SHA", "b3db6f1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	in, f := atomtest.ToolTree(t, merge(star("hades", copiesHades, nil), cmds("hades")), committedAt)
 	f.Free = []string{"go"}
 	atomtest.Expect(t, check(context.Background(), in), checks.StatePass, atomtest.Pass)
 	if !strings.Contains(line(f.Last()), "-o "+filepath.Join(into, "hades")+" ") {
@@ -391,4 +392,58 @@ func TestABrokenReleaseTomlIsCouldNotRun(t *testing.T) {
 	if len(f.Calls) != 0 {
 		t.Errorf("ran %v", f.Calls)
 	}
+}
+
+// THE BUILD LANE'S BINARIES CARRY THE STAMP (foundry-tools#18676): the landed
+// commit's committer time and sha7, linked into every convention the fleet keeps
+// a version var in. The executor names a release directory only in the lanes that
+// ship the binaries, so that is where the compile is stamped; the gate's is not
+// (TestGoReleaseBuildsWhatTheImageWillCarry pins its argv without a -X).
+func TestADeliveryLanesCompileIsStamped(t *testing.T) {
+	into := filepath.Join(t.TempDir(), "assembled")
+	t.Setenv("ATOM_RELEASE_OUT", into)
+	t.Setenv("ATOM_WORK", t.TempDir())
+	t.Setenv("ATOM_SHA", "b3db6f1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	in, f := atomtest.ToolTree(t, merge(star("hades", copiesHades, nil), cmds("hades")), func(c atoms.Cmd) (string, int) {
+		if c.Name == "git" {
+			return "1792086104\n", 0
+		}
+		return "", 0
+	})
+	f.Free = []string{"go"}
+	atomtest.Expect(t, check(context.Background(), in), checks.StatePass, atomtest.Pass)
+	mod := "git.notusmi.com/rob/hades"
+	want := "go build -trimpath -ldflags=-s -w" +
+		" -X main.Version=1792086104-b3db6f1 -X main.version=1792086104-b3db6f1" +
+		" -X " + mod + "/internal/config.Version=1792086104-b3db6f1" +
+		" -X " + mod + "/internal/verbs.Version=1792086104-b3db6f1" +
+		" -X " + mod + "/verbs.Version=1792086104-b3db6f1" +
+		" -o " + filepath.Join(into, "hades") + " ./cmd/hades"
+	if got := line(f.Last()); got != want {
+		t.Errorf("compile %q, want %q", got, want)
+	}
+}
+
+// A delivery lane that cannot say what it stamps does not ship an unstamped
+// binary: it could not run.
+func TestADeliveryLaneThatCannotStampCouldNotRun(t *testing.T) {
+	t.Setenv("ATOM_RELEASE_OUT", filepath.Join(t.TempDir(), "assembled"))
+	t.Setenv("ATOM_WORK", t.TempDir())
+	t.Setenv("ATOM_SHA", "")
+	in, f := atomtest.ToolTree(t, merge(star("hades", copiesHades, nil), cmds("hades")), nil)
+	f.Free = []string{"go"}
+	atomtest.Expect(t, check(context.Background(), in), checks.StateCannotRun, atomtest.Cannot, "ATOM_SHA")
+	for _, c := range f.Calls {
+		if c.Name == "go" && len(c.Args) > 0 && c.Args[0] == "build" {
+			t.Errorf("compiled anyway: %s", line(c))
+		}
+	}
+}
+
+// committedAt answers git's committer-time question for a delivery lane's stamp.
+func committedAt(c atoms.Cmd) (string, int) {
+	if c.Name == "git" {
+		return "1792086104\n", 0
+	}
+	return "", 0
 }

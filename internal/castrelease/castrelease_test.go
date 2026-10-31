@@ -49,6 +49,8 @@ func (c *toolchain) answer(cmd atoms.Cmd) (string, int) {
 	c.calls = append(c.calls, cmd)
 	key := ""
 	switch {
+	case cmd.Name == "git":
+		return "1792086104\n", 0
 	case cmd.Name == "cargo" && cmd.Args[0] == "metadata":
 		key = "metadata"
 	case cmd.Name == "cargo" && cmd.Args[0] == "build":
@@ -483,4 +485,21 @@ func TestF13_AToolThatCannotWriteTheLanesFilesystemIsCouldNotRun(t *testing.T) {
 	c = &toolchain{metadata: meta("tongs"), exit: map[string]int{"build": 101}, out: map[string]string{"build": "error: build.rs asserts the file is not read-only"}}
 	in, _, _ = start(t, rustTree(nil), c)
 	atomtest.Expect(t, Rust(context.Background(), in, rustRow), checks.StateFindings, atomtest.Findings, "findings in cargo build")
+}
+
+// A DELIVERY LANE'S GO BINARIES CARRY THE STAMP (foundry-tools#18676): the
+// executor names a release directory only in the lanes that ship them.
+func TestDEF_B6_cast_GoBinariesAreStampedInADeliveryLane(t *testing.T) {
+	c := &toolchain{list: "main example.com/x/cmd/x\n"}
+	in, _, work := start(t, goTree(nil), c)
+	t.Setenv("ATOM_RELEASE_OUT", filepath.Join(work, "assembled"))
+	t.Setenv("ATOM_SHA", "b3db6f1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	atomtest.Expect(t, Go(context.Background(), in, goRow), checks.StatePass, atomtest.Pass)
+	b := c.named("go", "build")
+	if len(b) != 1 {
+		t.Fatalf("builds: %v", b)
+	}
+	if got := strings.Join(b[0].Args, " "); !strings.Contains(got, "-X main.Version=1792086104-b3db6f1 ") {
+		t.Errorf("the compile is not stamped: %q", got)
+	}
 }

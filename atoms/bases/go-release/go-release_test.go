@@ -97,11 +97,23 @@ func TestTheOutputDirectoryIsTheExecutorsToName(t *testing.T) {
 	into := filepath.Join(t.TempDir(), "assembled")
 	t.Setenv("ATOM_RELEASE_OUT", into)
 	t.Setenv("ATOM_WORK", t.TempDir())
-	in, f := atomtest.ToolTree(t, bases(), nil)
+	t.Setenv("ATOM_SHA", "b3db6f1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	in, f := atomtest.ToolTree(t, bases(), func(c atoms.Cmd) (string, int) {
+		if c.Name == "git" {
+			return "1792086104\n", 0
+		}
+		return "", 0
+	})
 	f.Free = []string{"go"}
 	atomtest.Expect(t, check(context.Background(), in), checks.StatePass, atomtest.Pass)
-	if !strings.Contains(line(f.Calls[1]), "-o "+filepath.Join(into, "chairman", "chairman-svid")+" ") {
-		t.Errorf("compiled to %q", line(f.Calls[1]))
+	var compiled []string
+	for _, c := range f.Calls {
+		if c.Name == "go" && c.Args[0] == "build" {
+			compiled = append(compiled, line(c))
+		}
+	}
+	if len(compiled) == 0 || !strings.Contains(compiled[0], "-o "+filepath.Join(into, "chairman", "chairman-svid")+" ") {
+		t.Errorf("compiled to %q", compiled)
 	}
 }
 
@@ -181,4 +193,31 @@ func TestWhatCannotBeReadOrMadeCannotRun(t *testing.T) {
 	in, f := atomtest.ToolTree(t, bases(), nil)
 	f.Free = []string{"go"}
 	atomtest.Expect(t, check(context.Background(), in), checks.StateCannotRun, atomtest.Cannot, "the release directory could not be made")
+}
+
+// A DELIVERY LANE'S BASE BINARIES CARRY THE STAMP (foundry-tools#18676): each is
+// stamped with its own module's path and the landed commit's stamp.
+func TestADeliveryLanesBasesAreStamped(t *testing.T) {
+	into := filepath.Join(t.TempDir(), "assembled")
+	t.Setenv("ATOM_RELEASE_OUT", into)
+	t.Setenv("ATOM_WORK", t.TempDir())
+	t.Setenv("ATOM_SHA", "b3db6f1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	in, f := atomtest.ToolTree(t, bases(), func(c atoms.Cmd) (string, int) {
+		if c.Name == "git" {
+			return "1792086104\n", 0
+		}
+		return "", 0
+	})
+	f.Free = []string{"go"}
+	atomtest.Expect(t, check(context.Background(), in), checks.StatePass, atomtest.Pass)
+	var builds []string
+	for _, c := range f.Calls {
+		if c.Name == "go" && c.Args[0] == "build" {
+			builds = append(builds, line(c))
+		}
+	}
+	if len(builds) != 2 || !strings.Contains(builds[0], " -X chairman-svid/internal/config.Version=1792086104-b3db6f1 ") ||
+		!strings.Contains(builds[1], " -X v/verbs.Version=1792086104-b3db6f1 ") || !strings.Contains(builds[1], "-tags=netgo") {
+		t.Errorf("builds: %q", builds)
+	}
 }
