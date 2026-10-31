@@ -106,6 +106,7 @@ run:
   dev:rust-typecheck
   dev:rust-update
   dev:rust-vuln
+  fleet:bun-package-test
   python:artifacts
   rust:cast-release
 absent:
