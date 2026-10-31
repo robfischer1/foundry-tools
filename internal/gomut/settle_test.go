@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"dagger/foundry-tools/internal/atoms"
 )
 
 // What the run measured decides the verdict, through checks.GoMutationVerdict.
@@ -312,17 +310,5 @@ func TestTheProfileIsReadOffGomutantsCache(t *testing.T) {
 	// go:test-race's profile is <GoCoverRoot>/go__test-race/<module>.out.
 	if _, ok := p.call("go__test-race/"); ok {
 		t.Error("the atom ran the pull's suite for a profile")
-	}
-}
-
-// A ps the atom cannot link is the atom's could-not-run: gomutants would run
-// with a memory cap that never fires.
-func TestGoMutationCannotRunWithoutItsPS(t *testing.T) {
-	p := newPull(t, ".")
-	linkHelper = func(string, string) (string, error) { return "", os.ErrPermission }
-	t.Cleanup(func() { linkHelper = atoms.LinkHelper })
-	v := p.run()
-	if v.State != 2 || !strings.Contains(said(v), "the ps for gomutants' memory cap could not be made: permission denied") {
-		t.Errorf("%s", said(v))
 	}
 }

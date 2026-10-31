@@ -2,6 +2,8 @@ package gomut
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -57,6 +59,13 @@ func TestNightlyACarriedSurvivorIsGradedWhenNothingNewChanged(t *testing.T) {
 	}
 	if envOf(c, gitextra.EnvRealGit) != "/usr/bin/git" {
 		t.Fatalf("the real git is not named: %v", c.Env)
+	}
+	// The git that hands it the ranges is linked beside the PATH's first entry.
+	if want := "PATH=" + filepath.Join(p.work, "bin") + string(os.PathListSeparator); !slices.ContainsFunc(c.Env, func(e string) bool { return strings.HasPrefix(e, want) }) {
+		t.Errorf("the linked git is not first on PATH: %v", c.Env)
+	}
+	if _, err := os.Lstat(filepath.Join(p.work, "bin", "git")); err != nil {
+		t.Errorf("git is not linked: %v", err)
 	}
 	if v.State != 1 || !slices.ContainsFunc(v.Findings, func(f checks.Finding) bool { return f.Subject == "a.go:2" }) {
 		t.Fatalf("the carried survivor that lived again is a finding: %+v", v.Findings)

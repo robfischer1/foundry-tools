@@ -1,6 +1,17 @@
-package pgroupps
+// Package psshim answers the one `ps` question Stryker's tree-kill asks, from
+// /proc, and hands every other question to the real ps.
+//
+// WHY IT EXISTS. The executor's python, bun and node images carry no procps, and
+// a procps mounted from another image cannot load its libraries, so Stryker's
+// teardown (`ps -o pid --no-headers --ppid <pid>`) met ENOENT and died right
+// after the dry run (theia #57). The Go mutation exec once put this on PATH for
+// gomutants' `ps -o rss= -g <pgid>` too (v0.6.1, whose RSS cap never fired under
+// procps); gomutants v0.7.1 reads /proc itself on Linux and that question is no
+// longer answered here.
+package psshim
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -15,6 +26,12 @@ import (
 // kills Stryker right after the dry run (theia #57). The executor's python, bun
 // and node images carry no procps, and a procps mounted from another image cannot
 // load its libraries, so the atom's own binary answers this one too, from /proc.
+
+// errNoProcess is ps's own answer for a selection that matched nothing.
+var errNoProcess = errors.New("no process in the group")
+
+// RealPS is the ps every other question is handed to.
+const RealPS = "/bin/ps"
 
 // Parent answers the pid in args when args are exactly tree-kill's question, and
 // false otherwise.
@@ -48,7 +65,7 @@ func Children(proc string, ppid int) ([]int, error) {
 }
 
 // parentOf is the parent pid (field 4) of a /proc/<pid>/stat line, counted after
-// the LAST ')' as statFields counts.
+// the LAST ')' because the command name before it may hold parentheses.
 func parentOf(stat string) (int, bool) {
 	f := strings.Fields(stat[strings.LastIndexByte(stat, ')')+1:])
 	if len(f) < 2 {
@@ -66,7 +83,7 @@ func AnswerChildren(proc string, ppid int, out, errOut io.Writer) int {
 		err = errNoProcess
 	}
 	if err != nil {
-		fmt.Fprintf(errOut, "ps (pgroupps): ppid %d: %v\n", ppid, err)
+		fmt.Fprintf(errOut, "ps (psshim): ppid %d: %v\n", ppid, err)
 		return 1
 	}
 	for _, p := range pids {
