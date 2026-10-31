@@ -21,7 +21,7 @@ import (
 var Def = atomkit.Def{
 	ID: "ops:flux", Stage: checks.StagePrecommit, Lane: checks.LaneAny,
 	Group:     checks.GroupLanguage,
-	Desc:      "Every Flux Kustomization under flux/ builds with kubectl kustomize — a duplicate resource id, a missing base or a bad patch is a finding before flux meets it, and so is a namespaced object that names no namespace under a CR that sets no targetNamespace.",
+	Desc:      "Every Flux Kustomization under flux/ builds with kubectl kustomize — a duplicate resource id, a missing base or a bad patch is a finding before flux meets it, and so is a namespaced object that names no namespace under a CR that sets no targetNamespace, and an Alloy config (a ConfigMap's *.alloy key or a tracked *.alloy file) that does not parse.",
 	Surface:   "any:**",
 	Toolchain: "none",
 	Needs:     []string{"tool:kubectl", "tool:kubeconform"},
@@ -201,6 +201,30 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 		bad = true
 	}
 	out.WriteString(report)
+	// Every Alloy config the tree carries must parse (flux 1243cf43; checks.AlloyConfigs).
+	alloyFiles := map[string]string{}
+	for _, f := range tracked {
+		if !strings.HasSuffix(f, checks.AlloyKey) {
+			continue
+		}
+		src, err := t.Read(f)
+		if err != nil {
+			return atomlib.NeverRan(row, err.Error())
+		}
+		alloyFiles[f] = src
+	}
+	var all []string
+	for _, p := range paths {
+		all = append(all, streams[p])
+	}
+	cfgs, err := checks.AlloyConfigs(all, alloyFiles)
+	if err != nil {
+		out.WriteString(err.Error() + "\n")
+		bad = true
+	}
+	alloyReport, alloyBad := checks.AlloyReport(cfgs)
+	out.WriteString(alloyReport)
+	bad = bad || alloyBad
 	if bad && rc == 0 {
 		rc = 1
 	}
