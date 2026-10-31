@@ -5,17 +5,22 @@ go 1.26.6
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/google/pprof v0.0.0-20261016150608-1facf8f91b50
+	github.com/grafana/alloy/syntax v0.1.0
 	github.com/minio/minio-go/v7 v7.4.1
 	go.yaml.in/yaml/v3 v3.0.5
 )
 
 require (
 	github.com/dustin/go-humanize v1.1.0 // indirect
+	github.com/fatih/color v1.19.0 // indirect
 	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.1 // indirect
 	github.com/klauspost/crc32 v1.3.0 // indirect
+	github.com/mattn/go-colorable v0.1.15 // indirect
+	github.com/mattn/go-isatty v0.0.22 // indirect
 	github.com/minio/crc64nvme v1.1.1 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
+	github.com/ohler55/ojg v1.20.1 // indirect
 	github.com/philhofer/fwd v1.2.1 // indirect
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/tinylib/msgp v1.6.5 // indirect
