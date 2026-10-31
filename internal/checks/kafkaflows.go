@@ -32,8 +32,8 @@ import (
 // function parameters (the call sites in the same repository), struct fields
 // set in a composite literal, an assignment or a flag default, env lookups
 // that carry a literal default, `+` and Sprintf concatenation (an unknown part
-// becomes `*`, a family), and the stellar-core-go kafkatopics constants (read
-// from that repository through the door, at main). Python, TypeScript and Rust
+// becomes `*`, a family), and the kafkatopics constants (read from stellar-core's
+// go/ through the door, at main). Python, TypeScript and Rust
 // are read by pattern: their client calls are few and regular, and their
 // constants resolve the same way. Test files, vendor/ and testdata/ are not
 // read: a suite's private topic is not a flow the star runs.
@@ -192,7 +192,7 @@ func KafkaSourceFile(p string) bool {
 // answers nothing.
 type KnownTopics func(name string) (string, bool)
 
-// The core's topic constants live in the Go kit (GoKit: stellar-core-go today),
+// The core's topic constants live in the Go kit (GoKit: stellar-core's go/),
 // at main: the contract topics in kafkatopics, the heartbeat family's suffix in
 // heartbeat. Their location is the kit's one setting.
 

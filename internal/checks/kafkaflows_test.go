@@ -368,8 +368,8 @@ func TestRegexGlob(t *testing.T) {
 
 func TestFetchKnownTopics(t *testing.T) {
 	bodies := map[string]string{
-		"kafkatopics/topics.go":  "package kafkatopics\nconst (\n\tTopicSessionTurns = \"session-turns\"\n\tN = 3\n)\nconst A, B = \"a\"\n",
-		"heartbeat/heartbeat.go": "package heartbeat\nconst TopicSuffix = \"._ops.heartbeat\"\nvar V = \"not a const\"\n",
+		"go/kafkatopics/topics.go":  "package kafkatopics\nconst (\n\tTopicSessionTurns = \"session-turns\"\n\tN = 3\n)\nconst A, B = \"a\"\n",
+		"go/heartbeat/heartbeat.go": "package heartbeat\nconst TopicSuffix = \"._ops.heartbeat\"\nvar V = \"not a const\"\n",
 	}
 	status := http.StatusOK
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -402,7 +402,7 @@ func TestFetchKnownTopics(t *testing.T) {
 		t.Errorf("a 404 answered %v", err)
 	}
 	status = http.StatusOK
-	bodies["heartbeat/heartbeat.go"] = "package {"
+	bodies["go/heartbeat/heartbeat.go"] = "package {"
 	if _, err := FetchKnownTopics(context.Background(), door); err == nil || !strings.Contains(err.Error(), "did not parse") {
 		t.Errorf("a broken file answered %v", err)
 	}
@@ -412,8 +412,7 @@ func TestFetchKnownTopics(t *testing.T) {
 	}
 }
 
-// The core's constants are read from the Go kit's one setting: today's repository
-// at its root, and the monorepo's subdirectory once the setting moves.
+// The core's constants are read from the Go kit's one setting: the monorepo's go/ directory, and whatever the setting is repointed to.
 func TestFetchKnownTopicsReadsTheGoKitsSetting(t *testing.T) {
 	var asked []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -425,17 +424,17 @@ func TestFetchKnownTopicsReadsTheGoKitsSetting(t *testing.T) {
 	if _, err := FetchKnownTopics(context.Background(), door); err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(asked, ","); got != "rob/stellar-core-go kafkatopics/topics.go,rob/stellar-core-go heartbeat/heartbeat.go" {
+	if got := strings.Join(asked, ","); got != "rob/stellar-core go/kafkatopics/topics.go,rob/stellar-core go/heartbeat/heartbeat.go" {
 		t.Errorf("by default the door is asked for %s", got)
 	}
 	old := GoKit
-	GoKit = KitSource{Repo: "rob/stellar-core", Subdir: "go"}
+	GoKit = KitSource{Repo: "rob/stellar-core-go"}
 	t.Cleanup(func() { GoKit = old })
 	asked = nil
 	if _, err := FetchKnownTopics(context.Background(), door); err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(asked, ","); got != "rob/stellar-core go/kafkatopics/topics.go,rob/stellar-core go/heartbeat/heartbeat.go" {
-		t.Errorf("after the move the door is asked for %s", got)
+	if got := strings.Join(asked, ","); got != "rob/stellar-core-go kafkatopics/topics.go,rob/stellar-core-go heartbeat/heartbeat.go" {
+		t.Errorf("a repointed setting asks the door for %s", got)
 	}
 }
