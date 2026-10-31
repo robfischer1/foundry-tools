@@ -83,7 +83,7 @@ func TestValeConfigIsTheFleetsAndScopesTheSlotRuleToSkillBodies(t *testing.T) {
 		"MinAlertLevel = suggestion\n",
 		"[*.md]\nBasedOnStyles = Forge\nForge.ArgumentSlot = NO\n",
 		"[{SKILL.md,**/SKILL.md,skills/*/*.md,**/skills/*/*.md}]\nForge.ArgumentSlot = YES\n",
-		"[**/naming-things/**]\nForge.Retired = NO\n",
+		"[**/naming-things/**]\nForge.Retired = NO\nForge.DeclaredTerms = NO\n",
 	} {
 		if !strings.Contains(c, want) {
 			t.Errorf("config lacks %q:\n%s", want, c)

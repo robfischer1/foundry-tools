@@ -69,6 +69,10 @@ func ValeStylesPath(dies string) (string, error) {
 // 2026-10-30: every hit outside a body was a reference or a rule). Retired,
 // the retired-names substitution, is off in the naming-things skill, which is
 // the table those names come from: the rule's own source cannot be its finding.
+// DeclaredTerms, the rule for two live names of one thing in one file, is off
+// there for the same reason: references/retired.md names "star record" beside
+// its successor on purpose (measured 2026-10-31: the only hit in the fleet's
+// model-read files was that line).
 func ValeConfig(stylesPath string) string {
 	return "# The fleet's Vale configuration, written by foundry-tools (fleet:vale) for\n" +
 		"# one run. The repository's own .vale.ini is not read; the style is\n" +
@@ -81,11 +85,12 @@ func ValeConfig(stylesPath string) string {
 		"[{" + strings.Join(ValeSkillBodyGlobs, ",") + "}]\n" +
 		ValeStyle + ".ArgumentSlot = YES\n\n" +
 		"[" + ValeRetiredSourceGlob + "]\n" +
-		ValeStyle + ".Retired = NO\n"
+		ValeStyle + ".Retired = NO\n" +
+		ValeStyle + ".DeclaredTerms = NO\n"
 }
 
 // ValeRetiredSourceGlob is the naming-things skill wherever it is laid: the
-// source of the Retired rule's table, exempt from the rule.
+// source of the Retired rule's table and of DeclaredTerms' pairs, exempt from both.
 const ValeRetiredSourceGlob = "**/naming-things/**"
 
 // ValeSkillBodyGlobs name the files Claude Code loads as a skill body and
