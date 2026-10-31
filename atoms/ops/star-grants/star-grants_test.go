@@ -2,6 +2,8 @@ package opsstargrants
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -98,5 +100,24 @@ func TestOpsStarGrants(t *testing.T) {
 		atomtest.Put(t, dir, "README.md", "one\n")
 		base := atomtest.CommitAll(t, dir, "base")
 		atomtest.Expect(t, run(inAt(dir, base)), atomtest.StateOf(0), atomtest.Absent, "no prime/star-*.yaml in this tree")
+	})
+	t.Run("a tree git cannot read makes the added-file list a 2", func(t *testing.T) {
+		dir, base := primeRepo(t)
+		atomtest.Put(t, dir, "prime/star-new.yaml", deployment("new"))
+		atomtest.CommitAll(t, dir, "pull")
+		in := inAt(dir, base)
+		tree := atomtest.GitIn(t, dir, "rev-parse", "HEAD^{tree}")
+		if err := os.Remove(filepath.Join(dir, ".git", "objects", tree[:2], tree[2:])); err != nil {
+			t.Fatal(err)
+		}
+		atomtest.Expect(t, run(in), atomtest.StateOf(2), atomtest.Cannot, "the added files against "+base+" would not list (exit ")
+	})
+	t.Run("a prime manifest that will not read is a 2, and says which", func(t *testing.T) {
+		dir, base := primeRepo(t)
+		atomtest.Put(t, dir, "prime/star-new.yaml", deployment("new"))
+		atomtest.CommitAll(t, dir, "pull")
+		in := inAt(dir, base)
+		in.Files = append(in.Files, "prime/ghost.yaml")
+		atomtest.Expect(t, run(in), atomtest.StateOf(2), atomtest.Cannot, "prime/ghost.yaml could not be read")
 	})
 }
