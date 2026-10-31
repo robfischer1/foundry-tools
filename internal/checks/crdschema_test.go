@@ -2,6 +2,8 @@ package checks
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -108,5 +110,36 @@ func TestCRDReportHasNoWarnState(t *testing.T) {
 				t.Errorf("state %d (want %d), report %q lacks %q", state, tc.state, report, tc.has)
 			}
 		})
+	}
+}
+
+func TestWriteCRDSchemasLaysTheTreeAndReportsWhatItCannotWrite(t *testing.T) {
+	dir, err := WriteCRDSchemas(map[string][]byte{"g.io/k_v1.json": []byte("{}")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	if b, err := os.ReadFile(filepath.Join(dir, "g.io", "k_v1.json")); err != nil || string(b) != "{}" {
+		t.Errorf("not laid: %q %v", b, err)
+	}
+	// a file where a group directory must go
+	d2, err := WriteCRDSchemas(map[string][]byte{"a": []byte("x"), "a/b.json": []byte("x")})
+	if d2 != "" {
+		defer os.RemoveAll(d2)
+	}
+	if err == nil {
+		t.Error("a schema under a file was laid")
+	}
+	// a path that is itself a directory cannot be written as a file
+	d3, err := WriteCRDSchemas(map[string][]byte{"a/b.json": []byte("x"), "a/b.json/c": []byte("x")})
+	if d3 != "" {
+		defer os.RemoveAll(d3)
+	}
+	if err == nil {
+		t.Error("a schema under a schema was laid")
+	}
+	t.Setenv("TMPDIR", filepath.Join(dir, "no", "such"))
+	if d, err := WriteCRDSchemas(nil); err == nil || d != "" {
+		t.Errorf("a missing temp dir was accepted: %q %v", d, err)
 	}
 }

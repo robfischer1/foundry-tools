@@ -221,6 +221,14 @@ func TestOpsFlux(t *testing.T) {
 		f.Answer = tools.answer(t)
 		atomtest.Expect(t, run(in), atomtest.StateOf(2), atomtest.Cannot, "UNREADABLE", "UNANALYZABLE")
 	})
+	t.Run("schemas that cannot be laid out are a 2", func(t *testing.T) {
+		in, f := atomtest.ToolTree(t, fluxTree(), nil)
+		// w.io/widget_v1.json is a file for one CRD and a directory for the other.
+		clash := strings.Replace(crdStream, "group: w.io", "group: w.io/widget_v1.json", 1)
+		tools := &fluxTools{build: func(string) (string, int) { return crdStream + "---\n" + clash, 0 }}
+		f.Answer = tools.answer(t)
+		atomtest.Expect(t, run(in), atomtest.StateOf(2), atomtest.Cannot, "CRD pass UNANALYZABLE")
+	})
 	t.Run("a CRD pass that never ran is a 2", func(t *testing.T) {
 		in, f := atomtest.ToolTree(t, fluxTree(), nil)
 		tools := &fluxTools{crd: "kubeconform: signal: killed", crdRc: -1}

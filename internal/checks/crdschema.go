@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -63,6 +65,26 @@ func CRDSchemas(streams ...string) (map[string][]byte, error) {
 		}
 	}
 	return out, nil
+}
+
+// WriteCRDSchemas lays the schemas under a new temporary directory and answers
+// it; the caller removes it. On an error the directory is still answered when it
+// was made, so a partial write is not left behind.
+func WriteCRDSchemas(schemas map[string][]byte) (string, error) {
+	dir, err := os.MkdirTemp("", "crd-schemas-")
+	if err != nil {
+		return "", err
+	}
+	for rel, body := range schemas {
+		file := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+			return dir, err
+		}
+		if err := os.WriteFile(file, body, 0o644); err != nil {
+			return dir, err
+		}
+	}
+	return dir, nil
 }
 
 // crdVersions adds one schema per version of a CRD document.

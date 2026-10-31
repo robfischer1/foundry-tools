@@ -72,22 +72,13 @@ func crdPass(ctx context.Context, in atomkit.In, rendered, streams []string, out
 		fmt.Fprintf(out, "CRD pass UNANALYZABLE: %v\n", err)
 		return 2
 	}
-	dir, err := os.MkdirTemp("", "crd-schemas-")
+	dir, err := checks.WriteCRDSchemas(schemas)
+	if dir != "" {
+		defer func() { _ = os.RemoveAll(dir) }()
+	}
 	if err != nil {
 		fmt.Fprintf(out, "CRD pass UNANALYZABLE: %v\n", err)
 		return 2
-	}
-	defer func() { _ = os.RemoveAll(dir) }()
-	for rel, body := range schemas {
-		file := filepath.Join(dir, filepath.FromSlash(rel))
-		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
-			fmt.Fprintf(out, "CRD pass UNANALYZABLE: %v\n", err)
-			return 2
-		}
-		if err := os.WriteFile(file, body, 0o644); err != nil {
-			fmt.Fprintf(out, "CRD pass UNANALYZABLE: %v\n", err)
-			return 2
-		}
 	}
 	args := append(append([]string{}, kubeconformArgs...), "-output", "json", "-verbose",
 		"-schema-location", filepath.Join(dir, checks.CRDSchemaFile), "-schema-location", checks.CRDSchemaLocation)
