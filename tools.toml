@@ -294,8 +294,8 @@ version = "v1.9.0"
 
 [tool.gomutants]
 kind = "go"
-spec = "github.com/szhekpisov/gomutants"
-version = "v0.6.1"
+spec = "github.com/gomutants/gomutants"
+version = "v0.7.2"
 
 [tool.mutation-gate]
 kind = "go"
