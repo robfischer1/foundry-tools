@@ -13,7 +13,10 @@ import (
 
 // Def is the atom. It judges the change, so its environment hands it the base.
 // cargo-mutants and the nextest it drives are tools of its own: only this atom
-// runs them, so no other rust atom waits on, or pays for, either.
+// runs them, so no other rust atom waits on, or pays for, either. It runs the
+// cargo suite under nextest, so it carries the suite's jq (checks.SuiteJqNeeds)
+// as rust:cargo-test does: a test that execs jq prints SKIP without it, and its
+// mutants read killed or surviving on a test that never ran.
 //
 // THE DEADLINE IS THE LANE'S, as go:mutation's (75 minutes).
 var Def = atomkit.Def{
@@ -22,7 +25,7 @@ var Def = atomkit.Def{
 	Desc:       "Every viable mutant cargo-mutants makes of this pull's changes to the declared critical modules is killed by the tests.",
 	Surface:    "root:Cargo.toml",
 	Toolchain:  "rust-trixie",
-	Needs:      []string{"tool:cargo-mutants", "tool:cargo-nextest", "tool:python-standalone", "tool:uv"},
+	Needs:      append([]string{"tool:cargo-mutants", "tool:cargo-nextest", "tool:python-standalone", "tool:uv"}, checks.SuiteJqNeeds...),
 	NotOnForks: checks.ForkChangeBar,
 	History:    "full",
 	Timeout:    75 * time.Minute,
