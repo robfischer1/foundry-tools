@@ -15,12 +15,12 @@ import (
 // WHY THIS EXISTS AT ALL. govulncheck asks a LIVE advisory database, so a repo
 // that was green an hour ago is red now with nobody having touched it — the
 // finding arrives from outside the tree. That is usually correct and the answer
-// is to upgrade. It is not always possible: on 2026-09-28 GO-2026-6508 landed
-// against otlploggrpc <= v0.20.x while github.com/dagger/otel-go@v1.43.0 — the
-// LATEST, `go list -m -versions` answers only v1.41.0 and v1.43.0 — is built
-// against the otel/log API that v0.21.0 removes. Bumping it produced thirteen
-// undefined-symbol errors. Every foundry-tools pull in the fleet was red on a
-// dependency nobody had changed and nobody could change.
+// is to upgrade. It is not always possible: a fix can be missing upstream, or
+// sit behind a dependency the repo cannot move. The list opened on 2026-09-28
+// for GO-2026-6508 and GO-2026-6615 (otel/log v0.21 against
+// github.com/dagger/otel-go@v1.43.0); those two entries are gone, because
+// foundry-tools no longer requires dagger or otel and every fleet go.mod is at
+// otlplog v0.23.0. What remains is the signing-tools cosign fork.
 //
 // AN ALLOWANCE IS NOT A DISMISSAL. Three properties make this safe to have:
 //
@@ -35,8 +35,7 @@ import (
 //     vulnerability. The full govulncheck output is kept as the atom's lines.
 //
 // THIS CHANGES THE CANONICAL GATE FOR EVERY GO REPO IN THE FLEET. Rob's call,
-// 2026-09-28, over freezing foundry-tools until dagger ships a compatible
-// otel-go.
+// 2026-09-28.
 
 // VulnAllowance is one advisory the gate will not red on, until it will.
 type VulnAllowance struct {
@@ -67,29 +66,6 @@ var vulnAllowed = []VulnAllowance{
 			"forks/cosign reaches the unmaintained golang.org/x/crypto/openpgp (x/crypto v0.57.0) via " +
 			"dsseEntry / NewProposedEntry; govulncheck reports no fixed version. CLEARED BY cosign/rekor moving off " +
 			"x/crypto/openpgp, taken into forks/cosign.",
-	},
-	{
-		ID:    "GO-2026-6508",
-		Until: time.Date(2026, time.December, 1, 0, 0, 0, 0, time.UTC),
-		Why: "otlploggrpc's fix is v0.21.0, whose otel/log API github.com/dagger/otel-go@v1.43.0 " +
-			"does not compile against (13 undefined symbols: log.KeyValue, log.Value, log.Kind*), and " +
-			"v1.43.0 is the latest release. Nothing in this fleet imports otlplog — the only reachability " +
-			"is dagger's own generated dispatch — and OTLP log shipping was reverted at Rob's instruction. " +
-			"CLEARED BY: a dagger/otel-go release built against otel/log v0.21.0 or later, then drop this entry.",
-	},
-	{
-		// THE SAME WALL, ONE MODULE OVER (2026-10-01). GO-2026-6615 is otel/sdk/log
-		// <= v0.20.x, fixed in v0.21.0 — and sdk/log v0.21.0 pulls otel/log v0.21.0,
-		// which otlploghttp v0.19.0 and dagger/otel-go@v1.43.0 do not compile
-		// against (measured: `undefined: api.KeyValue`). Its sibling GO-2026-6505
-		// (otlptrace) was not this: v1.46.0 builds, and was bumped instead.
-		ID:    "GO-2026-6615",
-		Until: time.Date(2026, time.December, 1, 0, 0, 0, 0, time.UTC),
-		Why: "otel/sdk/log's fix is v0.21.0, which drags otel/log to v0.21.0, whose API " +
-			"github.com/dagger/otel-go@v1.43.0 (the latest release) and otlploghttp v0.19.0 do not compile " +
-			"against. The only reachability is dagger's own generated dispatch (otel.InitEmbedded / otel.Close). " +
-			"CLEARED BY: a dagger/otel-go release built against otel/log v0.21.0 or later, then drop this entry " +
-			"with GO-2026-6508's.",
 	},
 }
 
