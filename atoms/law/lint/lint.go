@@ -31,7 +31,7 @@ var row = checks.AtomDef{ID: id, Stage: checks.StagePrecommit, Lane: checks.Lane
 // check hands the tree to the lane.
 func check(ctx context.Context, in atomkit.In) checks.Verdict {
 	return atoms.RunLaw(row, in, func(t govlaw.Tree) govlaw.Result {
-		t.Resolve = resolver(ctx, in.DoorOf())
+		t.Resolve = atoms.LawResolver(ctx, in.DoorOf())
 		return govlaw.Lint(t)
 	})
 }

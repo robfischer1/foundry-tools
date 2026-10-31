@@ -1,4 +1,4 @@
-package lawlint
+package atoms
 
 import (
 	"context"
@@ -25,8 +25,8 @@ type treeManifest struct {
 	Truncated bool `json:"truncated"`
 }
 
-// resolver is govlaw.Tree.Resolve over the door.
-func resolver(ctx context.Context, door checks.Door) func(source, ref, p string) (govlaw.Presence, error) {
+// LawResolver is govlaw.Tree.Resolve over the door.
+func LawResolver(ctx context.Context, door checks.Door) func(source, ref, p string) (govlaw.Presence, error) {
 	base, _ := url.Parse(door.Base)
 	return func(source, ref, p string) (govlaw.Presence, error) {
 		u, err := url.Parse(source)

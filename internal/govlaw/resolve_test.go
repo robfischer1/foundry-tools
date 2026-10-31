@@ -25,7 +25,7 @@ func TestResolveFindsTheRefAndPathAndSaysSo(t *testing.T) {
 	tr, log := resolving(t, nil, Found, nil)
 	r := Lint(tr)
 	want(t, r, StatePass, "1 die(s)", "0 die source(s) in other repositories were not resolved")
-	if len(*log) != 1 || (*log)[0] != (asked{"https://git.example.test/rob/x", "main", "."}) {
+	if len(*log) != 1 || (*log)[0] != (asked{"https://git.example.test/rob/x.git", "main", "."}) {
 		t.Errorf("asked %+v", *log)
 	}
 	want(t, r, StatePass, "1 more found at their ref")
@@ -33,12 +33,12 @@ func TestResolveFindsTheRefAndPathAndSaysSo(t *testing.T) {
 
 func TestResolveAMissingRefIsAFinding(t *testing.T) {
 	tr, _ := resolving(t, nil, NoRef, nil)
-	want(t, Lint(tr), StateFindings, `die "tool/x": ref "main" does not exist in https://git.example.test/rob/x`)
+	want(t, Lint(tr), StateFindings, `die "tool/x": ref "main" does not exist in https://git.example.test/rob/x.git`)
 }
 
 func TestResolveAMissingPathIsAFinding(t *testing.T) {
 	tr, _ := resolving(t, map[string]string{"dies.toml": "[dies.d]\nsource = \"https://h.test/o/r.git@v1\"\npath = \"policy\"\n"}, NoPath, nil)
-	want(t, Lint(tr), StateFindings, `die "d": path "policy" is not in https://h.test/o/r at "v1"`)
+	want(t, Lint(tr), StateFindings, `die "d": path "policy" is not in https://h.test/o/r.git at "v1"`)
 }
 
 func TestResolveAFailedLookupIsCouldNotRunNotAPassNotAFinding(t *testing.T) {
