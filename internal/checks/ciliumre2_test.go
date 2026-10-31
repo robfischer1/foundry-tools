@@ -108,3 +108,13 @@ func TestCiliumRE2Report(t *testing.T) {
 		}
 	}
 }
+
+// A pattern over 90 characters is cut in the report line, and the cut is marked.
+func TestCiliumRE2ReportShortensALongPattern(t *testing.T) {
+	long := "^/" + strings.Repeat("a", 120) + "$"
+	rs := []CiliumRegex{{Tree: "network", Policy: "long", Field: "path", Pattern: long}}
+	state, report := CiliumRE2Report(rs, []string{long}, `[{"size":101,"error":""}]`)
+	if state != 1 || !strings.Contains(report, long[:90]+"...") || strings.Contains(report, long) {
+		t.Errorf("state %d:\n%s", state, report)
+	}
+}
