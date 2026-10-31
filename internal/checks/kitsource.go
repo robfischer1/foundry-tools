@@ -17,13 +17,14 @@ import (
 //
 // A source is a repository and an optional subdirectory of it. The Rust kit
 // moved into rob/stellar-core under rust/ (M2c, the import merge 98ef50d), and new
-// Rust work lands only there, so RustKit names the monorepo. The Go kit has not
-// moved yet: when it does, GoKit becomes {Repo: "rob/stellar-core", Subdir: "go"}.
+// Rust work lands only there, so RustKit names the monorepo. The Go kit has
+// moved too (2026-10-20, stellar-core's go/): rob/stellar-core-go now 404s, so the
+// topic constants fleet:kafka-flows resolves are read from stellar-core's go/.
 var (
 	// RustKit is the Rust kit: the guest sources ts:regen and dev:go-regen build.
 	RustKit = KitSource{Repo: "rob/stellar-core", Subdir: "rust", Moved: rustCommitMap}
 	// GoKit is the Go kit: the topic constants fleet:kafka-flows resolves.
-	GoKit = KitSource{Repo: "rob/stellar-core-go"}
+	GoKit = KitSource{Repo: "rob/stellar-core", Subdir: "go"}
 )
 
 // KitSource is where a kit's files are: the door's owner/name of the repository,

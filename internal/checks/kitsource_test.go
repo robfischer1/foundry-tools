@@ -10,7 +10,7 @@ func TestTheRustKitIsTheMonoreposRustDirectory(t *testing.T) {
 	if RustKit.Repo != "rob/stellar-core" || RustKit.Subdir != "rust" {
 		t.Errorf("%s %s", RustKit.Repo, RustKit.Subdir)
 	}
-	if GoKit.Repo != "rob/stellar-core-go" || GoKit.Subdir != "" {
+	if GoKit.Repo != "rob/stellar-core" || GoKit.Subdir != "go" {
 		t.Errorf("%+v", GoKit)
 	}
 	for _, c := range []struct{ name, got, want string }{
@@ -18,8 +18,8 @@ func TestTheRustKitIsTheMonoreposRustDirectory(t *testing.T) {
 		{"name", RustKit.Name(), "stellar-core"},
 		{"path", RustKit.Path("tools/compose/compose.sh"), "rust/tools/compose/compose.sh"},
 		{"tag", RustKit.TagRef("v0.89.0"), "refs/tags/rust/v0.89.0"},
-		{"gopath", GoKit.Path("kafkatopics/topics.go"), "kafkatopics/topics.go"},
-		{"gotag", GoKit.TagRef("v0.1.0"), "refs/tags/v0.1.0"},
+		{"gopath", GoKit.Path("kafkatopics/topics.go"), "go/kafkatopics/topics.go"},
+		{"gotag", GoKit.TagRef("v0.1.0"), "refs/tags/go/v0.1.0"},
 	} {
 		if c.got != c.want {
 			t.Errorf("%s: %q, want %q", c.name, c.got, c.want)
