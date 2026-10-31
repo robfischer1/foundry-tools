@@ -21,7 +21,7 @@ after = ["release"]
 # bases:chairman holds the assembled chairman layout to its fixed files before
 # anything is scanned or pushed (absent without bases/chairman). bases:blade holds the
 # blade bases' assembled images to the permission split their dropped build-time
-# asserts guarded; it is warn-only (absent without a blade layout).
+# asserts guarded; a problem fails the build (absent without a blade layout).
 [[phase]]
 name = "validate"
 kind = "fanout"

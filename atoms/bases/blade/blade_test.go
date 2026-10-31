@@ -35,8 +35,8 @@ func fake(t *testing.T, res bladefixed.Result, err error) *string {
 	return &seen
 }
 
-// The atom warns and does not refuse: problems pass with the list in the reason.
-func TestTheVerdictWarnsAndPasses(t *testing.T) {
+// The atom enforces: problems are findings with the list in the reason.
+func TestTheVerdictRefusesProblems(t *testing.T) {
 	t.Setenv(ImageEnv, "")
 	seen := fake(t, bladefixed.Result{Checked: []string{"blade-base", "blade-differ"}, Checks: 30}, nil)
 	atomtest.Expect(t, check(context.Background(), atomkit.In{}), checks.StatePass, atomtest.Pass, "PASS - 30 checks over blade-base, blade-differ")
@@ -46,7 +46,7 @@ func TestTheVerdictWarnsAndPasses(t *testing.T) {
 
 	t.Setenv(ImageEnv, "/elsewhere")
 	seen = fake(t, bladefixed.Result{Checked: []string{"blade-base"}, Problems: []string{"blade-base: /opt/blade is 0:0 0755", "second"}}, nil)
-	atomtest.Expect(t, check(context.Background(), atomkit.In{}), checks.StatePass, atomtest.Pass, "WARN (not enforced yet) - 2 problem(s)", "/opt/blade is 0:0 0755")
+	atomtest.Expect(t, check(context.Background(), atomkit.In{}), checks.StateFindings, atomtest.Findings, "FAIL - 2 problem(s)", "/opt/blade is 0:0 0755")
 	if *seen != "/elsewhere" {
 		t.Errorf("read %s", *seen)
 	}
@@ -57,16 +57,16 @@ func TestTheVerdictWarnsAndPasses(t *testing.T) {
 	}
 	fake(t, bladefixed.Result{Checked: []string{"blade-base"}, Problems: many}, nil)
 	v := check(context.Background(), atomkit.In{})
-	atomtest.Expect(t, v, checks.StatePass, atomtest.Pass, "100 problem(s)", "problem 059", "... and 40 more")
+	atomtest.Expect(t, v, checks.StateFindings, atomtest.Findings, "100 problem(s)", "problem 059", "... and 40 more")
 	if strings.Contains(v.Reason+strings.Join(v.Logs, "\n"), "problem 060") {
 		t.Error("the list was not cut")
 	}
 }
 
-func TestNothingLaidIsAbsentAndAnUnreadableLayoutIsUnchecked(t *testing.T) {
+func TestNothingLaidIsAbsentAndAnUnreadableLayoutCannotRun(t *testing.T) {
 	t.Setenv(ImageEnv, "/img")
 	fake(t, bladefixed.Result{}, nil)
 	atomtest.Expect(t, check(context.Background(), atomkit.In{}), checks.StatePass, atomtest.Absent, "ABSENT", "/img")
 	fake(t, bladefixed.Result{}, errors.New("the layout of blade-base could not be read: gone"))
-	atomtest.Expect(t, check(context.Background(), atomkit.In{}), checks.StatePass, atomtest.Pass, "went UNCHECKED, not clean", "could not be read")
+	atomtest.Expect(t, check(context.Background(), atomkit.In{}), checks.StateCannotRun, atomtest.Cannot, "CANNOT RUN", "could not be read")
 }
