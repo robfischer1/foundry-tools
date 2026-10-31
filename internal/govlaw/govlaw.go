@@ -18,6 +18,7 @@
 package govlaw
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"regexp"
@@ -51,7 +52,26 @@ const (
 type Tree struct {
 	Paths []string
 	Read  func(path string) (string, error)
+	// Resolve, when set, looks a tree die's source up in the repository that
+	// holds it: see Presence. It is the lane's one read outside the tree.
+	Resolve func(source, ref, path string) (Presence, error)
 }
+
+// Presence is what Resolve found of a die's ref and path in its source.
+type Presence int
+
+// What a source holds. NoRef is a ref the repository does not hold; NoPath is a
+// path the ref holds no file under.
+const (
+	Found Presence = iota
+	NoRef
+	NoPath
+)
+
+// ErrForeign is Resolve's answer for a source it has no way to read (a host
+// other than the door's): the die stays counted and unresolved, as it was before
+// the lane could look at all.
+var ErrForeign = errors.New("the source is not on a host this lane reads")
 
 // Result is one lane's verdict: the state and the report that explains it.
 type Result struct {

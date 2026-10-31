@@ -17,7 +17,7 @@ import (
 var Def = atomkit.Def{
 	ID: "law:lint", Stage: checks.StagePrecommit, Lane: checks.LaneAny,
 	Group:     checks.GroupLanguage,
-	Desc:      "foundry-stocks' blocks are non-empty with slug stems, every kit names only blocks that exist (an unknown include warns, a cycle fails), every render's span map parses and covers its context document, and dies.toml, consumers.toml and matrix.toml parse and agree with kits.toml (a die's own-tree path exists; a source in another repository is counted, not fetched).",
+	Desc:      "foundry-stocks' blocks are non-empty with slug stems, every kit names only blocks that exist (an unknown include warns, a cycle fails), every render's span map parses and covers its context document, and dies.toml, consumers.toml and matrix.toml parse and agree with kits.toml (a die's own-tree path exists; a source on the door's host must hold its ref and path; a source elsewhere is counted, not fetched).",
 	Surface:   "any:**",
 	Toolchain: "none",
 	Check:     check,
@@ -29,6 +29,9 @@ const id = "law:lint"
 var row = checks.AtomDef{ID: id, Stage: checks.StagePrecommit, Lane: checks.LaneAny}
 
 // check hands the tree to the lane.
-func check(_ context.Context, in atomkit.In) checks.Verdict {
-	return atoms.RunLaw(row, in, govlaw.Lint)
+func check(ctx context.Context, in atomkit.In) checks.Verdict {
+	return atoms.RunLaw(row, in, func(t govlaw.Tree) govlaw.Result {
+		t.Resolve = atoms.LawResolver(ctx, in.DoorOf())
+		return govlaw.Lint(t)
+	})
 }

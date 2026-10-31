@@ -96,24 +96,44 @@ func (d Door) URL(repo, path string) string {
 // failure (transientDoor) is asked again after each of DoorWaits, and the last
 // answer stands; the caller's own cancelled context ends the asking at once.
 func (d Door) Get(ctx context.Context, repo, path string) (int, []byte, error) {
-	status, body, err := d.get(ctx, repo, path)
+	return d.retried(ctx, d.URL(repo, path))
+}
+
+// TreeURL is the address of the manifest of repo at ref: the files whose path
+// starts with prefix. The slashes stay literal, as in URL.
+func (d Door) TreeURL(repo, ref, prefix string) string {
+	q := "repo=" + url.QueryEscape(repo) + "&ref=" + url.QueryEscape(ref) + "&prefix=" + url.QueryEscape(prefix)
+	return strings.TrimRight(d.Base, "/") + "/tree?" + strings.ReplaceAll(q, "%2F", "/")
+}
+
+// Tree answers the status and JSON body of the door's /tree manifest of repo at
+// ref under prefix, with Get's retries. The door answers 404 for a repository
+// or a ref it does not hold, and an empty entry list for a prefix with no file.
+func (d Door) Tree(ctx context.Context, repo, ref, prefix string) (int, []byte, error) {
+	return d.retried(ctx, d.TreeURL(repo, ref, prefix))
+}
+
+// retried is one read of u, asked again after each of DoorWaits while the
+// answer is transient.
+func (d Door) retried(ctx context.Context, u string) (int, []byte, error) {
+	status, body, err := d.get(ctx, u)
 	for _, w := range DoorWaits {
 		if d.NoRetry || ctx.Err() != nil || !transientDoor(status, err) {
 			break
 		}
 		doorSleep(ctx, time.Duration(float64(w)*(1+DoorJitter*(2*doorRand()-1))))
-		status, body, err = d.get(ctx, repo, path)
+		status, body, err = d.get(ctx, u)
 	}
 	return status, body, err
 }
 
 // get is one ask.
-func (d Door) get(ctx context.Context, repo, path string) (int, []byte, error) {
+func (d Door) get(ctx context.Context, u string) (int, []byte, error) {
 	client := d.Client
 	if client == nil {
 		client = &http.Client{Timeout: DoorTimeout}
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, d.URL(repo, path), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return 0, nil, err
 	}

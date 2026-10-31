@@ -270,3 +270,30 @@ type timeoutErr struct{}
 
 func (timeoutErr) Error() string { return "i/o timeout" }
 func (timeoutErr) Timeout() bool { return true }
+
+func TestTheDoorTreeURLNamesTheRefAndPrefixWithLiteralSlashes(t *testing.T) {
+	got := (Door{Base: "https://git.notusmi.com/"}).TreeURL("foundry/foundry-dies", "v1/x", "policy/a b")
+	if want := "https://git.notusmi.com/tree?repo=foundry/foundry-dies&ref=v1/x&prefix=policy/a+b"; got != want {
+		t.Errorf("got %s, want %s", got, want)
+	}
+}
+
+func TestTheDoorTreeAsksAgainOnATransientAnswer(t *testing.T) {
+	var asks int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asks++
+		if asks == 1 {
+			http.Error(w, "not ready", http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte(`{"entries":[]}`))
+	}))
+	defer srv.Close()
+	saved := DoorWaits
+	DoorWaits = []time.Duration{time.Millisecond}
+	defer func() { DoorWaits = saved }()
+	status, body, err := (Door{Base: srv.URL}).Tree(context.Background(), "r", "main", "p")
+	if err != nil || status != 200 || string(body) != `{"entries":[]}` || asks != 2 {
+		t.Errorf("status %d body %q err %v asks %d", status, body, err, asks)
+	}
+}
