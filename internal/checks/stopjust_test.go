@@ -3,6 +3,7 @@ package checks
 import (
 	"errors"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -262,28 +263,38 @@ func TestStopJustificationsDirectoryExemption(t *testing.T) {
 	wantSJ(t, "a second rule rides in", 1, "cerberus", map[string]string{"probes/drive.py": "p = Popen([x])  # " + sjNoqa + ": S603, E501\n"})
 	wantSJ(t, "a bare suppression names nothing", 1, "cerberus", map[string]string{"probes/drive.py": "p = Popen([x])  # " + sjNoqa + "\n"})
 	wantSJ(t, "a different rule", 1, "cerberus", map[string]string{"probes/other.py": "x = 1  # " + sjNoqa + ": BLE001\n"})
+	// The foundry-stocks DL3002 grant went with the bases it covered (they live
+	// in base-images, whose Dockerfiles carry no USER line): the pragma is a
+	// finding again, in the old directory and the new repository alike.
 	blade := "FROM x\n# " + sjHado + " ignore=DL3002\n"
-	if out := wantSJ(t, "the temporary grant prints its expiry", 0, "foundry-stocks", map[string]string{"bases/blade-go/Dockerfile": blade}); !strings.Contains(out, "DL3002 — the entrypoint runusers the gate and the work; non-root cannot — EXPIRES 2026-11-20") {
-		t.Errorf("the expiry rides on the excuse:\n%s", out)
-	}
+	wantSJ(t, "the retired blade grant excuses nothing", 1, "foundry-stocks", map[string]string{"bases/blade-go/Dockerfile": blade})
+	wantSJ(t, "nor does it follow the bases to base-images", 1, "base-images", map[string]string{"bases/blade-go/Dockerfile": blade})
 }
 
 // The grant's DATE is the rule, so it is tested with the date pinned — never
 // through the real clock, which would red this suite the day after the grant ends.
 func TestDirectoryExemptionHonoursTheExpiryAndNothingWider(t *testing.T) {
 	pragma := "# " + sjHado + " ignore=DL3002"
+	// No row in the table expires today, so the date logic is driven through a
+	// row installed for the test and restored after it.
+	saved := DirectoryExempt
+	t.Cleanup(func() { DirectoryExempt = saved })
+	DirectoryExempt = append(slices.Clone(saved), ExemptRow{Repo: "dated", Prefix: "bases/", Rule: "DL3002", Expires: "2026-11-20"})
 	for _, tc := range []struct {
 		label, repo, rel, line, today string
 		excused                       bool
 	}{
-		{"a blade base on its last day", "foundry-stocks", "bases/blade-go/Dockerfile", pragma, "2026-11-20", true},
-		{"and nothing the day after", "foundry-stocks", "bases/blade-go/Dockerfile", pragma, "2026-11-21", false},
-		{"chairman carries the same row", "foundry-stocks", "bases/chairman/Dockerfile", pragma, "2026-09-13", true},
-		{"a second rule", "foundry-stocks", "bases/blade-go/Dockerfile", pragma + ",DL3008", "2026-09-13", false},
-		{"the same rule twice is one rule", "foundry-stocks", "bases/blade-go/Dockerfile", pragma + ", DL3002", "2026-09-13", true},
-		{"a different rule", "foundry-stocks", "bases/blade-go/Dockerfile", "# " + sjHado + " ignore=DL3008", "2026-09-13", false},
+		{"a dated row on its last day", "dated", "bases/blade-go/Dockerfile", pragma, "2026-11-20", true},
+		{"and nothing the day after", "dated", "bases/blade-go/Dockerfile", pragma, "2026-11-21", false},
+		{"a second rule", "dated", "bases/blade-go/Dockerfile", pragma + ",DL3008", "2026-09-13", false},
+		{"the same rule twice is one rule", "dated", "bases/blade-go/Dockerfile", pragma + ", DL3002", "2026-09-13", true},
+		{"a different rule", "dated", "bases/blade-go/Dockerfile", "# " + sjHado + " ignore=DL3008", "2026-09-13", false},
 		{"another repository", "frontend-ci-image", "bases/blade-go/Dockerfile", pragma, "2026-09-13", false},
-		{"a base outside the grant", "foundry-stocks", "bases/frontend-next/Dockerfile", pragma, "2026-09-13", false},
+		{"a path outside the prefix", "dated", "other/Dockerfile", pragma, "2026-09-13", false},
+		// The retired foundry-stocks grant (bases/blade-, bases/chairman/).
+		{"retired: foundry-stocks blade", "foundry-stocks", "bases/blade-go/Dockerfile", pragma, "2026-09-13", false},
+		{"retired: foundry-stocks chairman", "foundry-stocks", "bases/chairman/Dockerfile", pragma, "2026-09-13", false},
+		{"retired: base-images blade", "base-images", "bases/blade-base/Dockerfile", pragma, "2026-09-13", false},
 		{"an undated row never expires", "cerberus", "probes/drive.py", "p = Popen([x])  # " + sjNoqa + ": S603", "9999-12-31", true},
 		// Rob's wrecksys DL3026 grant, 2026-09-15.
 		{"wrecksys: DL3026 under docker/", "wrecksys", "docker/jupyter/Dockerfile", "# " + sjHado + " ignore=DL3026", "2026-09-15", true},
