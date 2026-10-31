@@ -84,8 +84,20 @@ func TestTheDeclarationValidatesAndNamesItsRow(t *testing.T) {
 	}
 	if Def.ID != id || Def.Stage != checks.StagePrecommit || Def.Lane != checks.LaneRust || Def.Group != checks.GroupOf(id) ||
 		Def.Toolchain != "rust" || Def.Surface != "root:Cargo.toml" || Def.NotOnForks != "" ||
-		Def.SubsumedBy != "" || !slices.Equal(Def.Needs, []string{"tool:python-standalone", "tool:uv"}) || !Def.WritesTree {
+		Def.SubsumedBy != "" || !slices.Equal(Def.Needs, []string{"tool:python-standalone", "tool:uv", "tool:jq"}) || !Def.WritesTree {
 		t.Errorf("%+v", Def)
+	}
+}
+
+// A SUITE THAT EXECS jq MUST FIND IT. cerberus's postinstall_ends_orphans prints
+// SKIP and returns when bash, jq, ps, pgrep or sleep is missing, and the lane's
+// image lacked jq alone: the gate read "ok ... 0.00s" over a test that never ran.
+// The pod's other four are the toolchain image's (measured 2026-10-31).
+func TestTheSuiteHasJq(t *testing.T) {
+	for _, n := range checks.SuiteJqNeeds {
+		if !slices.Contains(Def.Needs, n) {
+			t.Errorf("Needs %v lacks %s", Def.Needs, n)
+		}
 	}
 }
 

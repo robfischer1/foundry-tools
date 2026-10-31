@@ -7,7 +7,18 @@ import (
 
 	"dagger/foundry-tools/internal/atomkit"
 	"dagger/foundry-tools/internal/atoms"
+	"dagger/foundry-tools/internal/checks"
 )
+
+// The dev verb runs the suite the gate runs, so it carries the gate's tools: a
+// test that execs jq skips in one and not the other otherwise.
+func TestTheDevVerbHasTheGatesJq(t *testing.T) {
+	for _, n := range checks.SuiteJqNeeds {
+		if !slices.Contains(Def.Needs, n) {
+			t.Errorf("Needs %v lacks %s", Def.Needs, n)
+		}
+	}
+}
 
 // RUSTDEV-8: the atom is the dev verb `test` over the shared body, and a bare
 // run in a tree with no scope script is the whole workspace, as before.
