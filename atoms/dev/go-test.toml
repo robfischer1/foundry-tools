@@ -28,3 +28,12 @@ until = "-args"
 # The atom runs on its own copy of the tree (writes_tree), because a golden suite
 # rewrites its goldens under -update and /src is read-only; dev-output delivers
 # what the run changed back to the caller.
+
+# The suite runs as a developer runs it, and as go:test runs it (atoms.GoSuite's
+# suiteScrub): the pod's per-atom variables name the atom's work directory, which
+# tests that provoke an unwritable TMPDIR would otherwise be redirected around
+# (atoms.WorkDir). An empty value reads as unset to every os.Getenv(...) != "".
+[env]
+ATOM_WORK = ""
+ATOM_OUT = ""
+ATOM_TREE = ""

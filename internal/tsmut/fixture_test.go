@@ -65,6 +65,9 @@ func putFile(t *testing.T, root, rel, body string) {
 
 func newPull(t *testing.T, answers string) *pull {
 	t.Setenv(checks.CPUsEnv, "12")
+	// The pod's memory budget (the dev lane's is 1.25 GiB) would cap the workers
+	// below the CPU budget these tests pin.
+	t.Setenv(checks.MemEnv, "")
 	t.Helper()
 	t.Setenv("ATOM_ORIGIN", "")
 	t.Setenv("ATOM_WORK", t.TempDir())

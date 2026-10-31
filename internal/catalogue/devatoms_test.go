@@ -176,6 +176,8 @@ var (
 	}
 	devEnv = map[string]map[string]string{
 		"dev:go-vendor": {"GOFLAGS": "-mod=mod"},
+		// The suite runs as go:test runs it (atoms.suiteScrub).
+		"dev:go-test": {"ATOM_WORK": "", "ATOM_OUT": "", "ATOM_TREE": ""},
 	}
 	devLong = []string{"dev:go-test", "dev:python-build", "dev:ts-build", "dev:ts-test", "dev:ts-typecheck", "dev:ts-check"}
 )
