@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
+	"time"
 
 	"dagger/foundry-tools/internal/checks"
 )
@@ -109,6 +111,10 @@ func venvMissing(name string) string {
 	return errNoVenv
 }
 
+// killWaitDelay is how long RunProgram waits for a killed program's output
+// pipes to close before it abandons them.
+const killWaitDelay = 5 * time.Second
+
 // RunProgram is the real Exec.
 func RunProgram(ctx context.Context, c Cmd) (string, int) {
 	if why := venvMissing(c.Name); why != "" {
@@ -120,6 +126,18 @@ func RunProgram(ctx context.Context, c Cmd) (string, int) {
 	if c.Stdin != "" {
 		cmd.Stdin = strings.NewReader(c.Stdin)
 	}
+	// The program leads its own process group, and a cancelled context signals
+	// the GROUP: exec.CommandContext alone kills the one pid, and a test binary
+	// the program started (holding a database lock, an open pipe) outlived the
+	// atom. WaitDelay bounds the wait on a pipe some survivor still holds.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+			return err
+		}
+		return nil
+	}
+	cmd.WaitDelay = killWaitDelay
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
