@@ -468,15 +468,15 @@ func fx3(t *testing.T) string {
 }
 
 // Started through a link named for one of the helpers an atom carries (ps, for
-// gomutants' memory cap), the process is that helper and not the atom.
+// Stryker's tree-kill), the process is that helper and not the atom.
 func TestMainRunsAsAHelperWhenLinkedUnderItsName(t *testing.T) {
 	args := os.Args
 	got := -1
 	old := exit
 	exit = func(code int) { got = code }
 	t.Cleanup(func() { exit, os.Args = old, args })
-	// a process group no process holds: ps's answer is exit 1 with nothing written
-	os.Args = []string{"/work/bin/ps", "-o", "rss=", "-g", "2147483646"}
+	// a parent no process has children of: ps's answer is exit 1 with nothing written
+	os.Args = []string{"/work/bin/ps", "-o", "pid", "--no-headers", "--ppid", "2147483646"}
 	Main(Def{ID: "x:y"})
 	if got != 1 {
 		t.Errorf("exit %d, want ps's 1", got)

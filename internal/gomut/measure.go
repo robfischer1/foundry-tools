@@ -187,16 +187,12 @@ func (m *module) misgraded(ctx context.Context, tags []string) (checks.GoMisgrad
 // narrow what git reports. THE BASELINE IS NEVER CACHED: -count=1 keeps every run
 // a real one, and the cache file is outside the tree and starts empty.
 //
-// AND gomutants' MEMORY CAP GETS A ps THAT ANSWERS IT. Each mutant's test tree is
-// meant to die at 2 GiB resident, read off `ps -o rss= -g <pgid>` — a
-// process-group selector on BSD that procps reads as a session, so the cap read 0
-// and never fired (internal/pgroupps has the measurement). The atom's own binary
-// answers as that ps, through a link first on PATH for this exec only.
+// GOMUTANTS' MEMORY CAP NEEDS NO ps. Since v0.7.1 (upstream #107) it reads each
+// mutant group's resident set from /proc itself on Linux
+// (internal/runner/worker_rss_linux.go; the `ps -A` path is for other Unixes, by
+// absolute path), so nothing on PATH stands in for ps.
 func (m *module) mutate(ctx context.Context, report, cache, since string, tags, scope []string) (atoms.Cmd, string, int) {
-	bin, err := linkHelper(filepath.Join(atoms.WorkDir(), "bin"), "ps")
-	if err != nil {
-		return atoms.Cmd{Name: "gomutants"}, "the ps for gomutants' memory cap could not be made: " + err.Error(), -1
-	}
+	bin := filepath.Join(atoms.WorkDir(), "bin")
 	gitEnv, err := m.extra.gitEnv(bin)
 	if err != nil {
 		return atoms.Cmd{Name: "gomutants"}, "the git that hands gomutants the carried ranges could not be made: " + err.Error(), -1
@@ -204,10 +200,12 @@ func (m *module) mutate(ctx context.Context, report, cache, since string, tags, 
 	args := []string{"-output", report, "-config", goMutationNoConfig, "-workers", strconv.Itoa(goWorkers()),
 		"-disable", goMutationDisable, "-exclude-files", goMutationExclude, "-cache", cache, "-changed-since", since}
 	args = append(append(args, tags...), scope...)
-	env := append([]string{
-		"PATH=" + filepath.Dir(bin) + string(os.PathListSeparator) + os.Getenv("PATH"),
-		"GOMAXPROCS=1", "GOFLAGS=" + goMutationGoflags,
-	}, atoms.GitConfig("diff.relative=true", "diff.context=0")...)
+	env := append([]string{"GOMAXPROCS=1", "GOFLAGS=" + goMutationGoflags},
+		atoms.GitConfig("diff.relative=true", "diff.context=0")...)
+	if len(gitEnv) > 0 {
+		// The linked git that hands gomutants the carried ranges is first on PATH.
+		env = append(env, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	}
 	env = append(env, gitEnv...)
 	cmd := atoms.Cmd{Dir: m.cwd, Name: "gomutants", Args: args, Env: env, Both: true}
 	out, code := m.run(ctx, cmd)

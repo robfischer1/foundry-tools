@@ -4,7 +4,6 @@ import (
 	"context"
 	"maps"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -77,7 +76,7 @@ func (x *extraScope) keyDiff(diff string) string {
 	return checks.RenderMutationRanges(checks.UnionMutationRanges(unitkey.ParseRanges(diff), x.root), nil)
 }
 
-// gitEnv links the git helper beside bin and answers the variables gomutants'
+// gitEnv links the git helper into bin and answers the variables gomutants'
 // exec carries for it; none without carried ranges.
 func (x *extraScope) gitEnv(bin string) ([]string, error) {
 	if x == nil || len(x.mod) == 0 {
@@ -87,7 +86,7 @@ func (x *extraScope) gitEnv(bin string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := linkHelper(filepath.Dir(bin), "git"); err != nil {
+	if _, err := linkHelper(bin, "git"); err != nil {
 		return nil, err
 	}
 	return []string{gitextra.EnvRealGit + "=" + real, gitextra.EnvRanges + "=" + checks.MutationRangesArg(x.mod)}, nil

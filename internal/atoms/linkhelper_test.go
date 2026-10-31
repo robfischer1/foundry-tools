@@ -13,8 +13,8 @@ func TestRunHelperKnowsTheHelpersByTheNameTheyAreRunUnder(t *testing.T) {
 			t.Errorf("%q ran as a helper: %d", argv, code)
 		}
 	}
-	// ps answers gomutants' question: a pgid no process holds exits 1 as ps does.
-	if code, ok := RunHelper([]string{"/work/bin/ps", "-o", "rss=", "-g", "2147483646"}); !ok || code != 1 {
+	// ps answers tree-kill's question: a parent no process has children of exits 1 as ps does.
+	if code, ok := RunHelper([]string{"/work/bin/ps", "-o", "pid", "--no-headers", "--ppid", "2147483646"}); !ok || code != 1 {
 		t.Errorf("ps: %d %v", code, ok)
 	}
 	// execmem's bare "--" is its usage error.

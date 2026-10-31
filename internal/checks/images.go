@@ -253,7 +253,7 @@ const (
 	// `github.com/gomutants/gomutants`, the repo path; through v0.6.x it
 	// declared `github.com/szhekpisov/gomutants`, and only that path installed.
 	// v0.7.1 fixed the RSS monitor that never fired on Linux (upstream #107/#108,
-	// `ps -g` selecting by session); internal/pgroupps worked around it.
+	// `ps -g` selecting by session); the atom no longer puts a ps shim on gomutants' PATH.
 	//
 	// renovate: datasource=go depName=github.com/gomutants/gomutants
 	GomutantsModule = "github.com/gomutants/gomutants@v0.7.2"
@@ -378,7 +378,7 @@ const (
 	// the bookworm python image and the trixie bun image alike (Debian's curl is
 	// not pinned on the Dagger side either: it floats with the suite).
 	// ps is not here: Stryker's tree-kill asks it one question and the atom's own
-	// binary answers it (internal/pgroupps, ts:mutation).
+	// binary answers it (internal/psshim, ts:mutation).
 	JqRelease = "1.6"
 	JqURL     = "https://github.com/jqlang/jq/releases/download/jq-1.6/jq-linux64"
 	// renovate: datasource=github-releases depName=stunnel/static-curl

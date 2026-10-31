@@ -1,4 +1,4 @@
-package pgroupps
+package psshim
 
 import (
 	"bytes"

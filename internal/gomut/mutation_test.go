@@ -40,14 +40,16 @@ func TestGoMutationMeasuresTheDiffAndSettlesInGo(t *testing.T) {
 		t.Errorf("gomutants runs in the module and reads both streams: %+v", c)
 	}
 	env := strings.Join(c.Env, "\n")
-	// gomutants' 2 GiB cap reads `ps -g`, which procps answers by session: the
-	// atom's own binary, linked as ps, is the ps this exec finds first.
-	link := filepath.Join(p.work, "bin", "ps")
-	if target, err := os.Readlink(link); err != nil || target == "" {
-		t.Errorf("ps is not linked: %v", err)
+	// gomutants v0.7.1+ reads its 2 GiB cap's resident sets from /proc itself
+	// (worker_rss_linux.go) and never execs ps on Linux, so no ps is linked and
+	// PATH is left as it was.
+	if _, err := os.Lstat(filepath.Join(p.work, "bin", "ps")); err == nil {
+		t.Error("a ps is linked for gomutants, which no longer asks one")
+	}
+	if strings.Contains(env, "PATH=") {
+		t.Errorf("a run with no carried ranges changed PATH:\n%s", env)
 	}
 	for _, need := range []string{
-		"PATH=" + filepath.Join(p.work, "bin") + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"GOMAXPROCS=1",
 		// -count=1: the runner's own baseline is what every mutant's timeout is
 		// derived from, and a CACHED baseline is ~1s for a module that tests in
