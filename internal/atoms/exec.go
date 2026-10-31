@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -50,6 +51,15 @@ type Cmd struct {
 	// dropped before Env is added. cargo-mutants must not see the CARGO_TARGET_DIR
 	// the executor sets for the atoms that share a target.
 	Unset []string
+	// Tee copies the program's stdout and stderr to the atom's own stderr, a whole
+	// line at a time and prefixed with its name, WHILE IT RUNS. The answer is
+	// unchanged: it is still the captured output. It is for a program that runs
+	// long and says nothing else until it ends (gomutants), whose pod log would
+	// otherwise be empty for the hour. Off by default because the executor keeps
+	// the atom's stderr tail to name a verdict-less exit, and a chatty child
+	// would crowd that out. The copy is for a reader, never a parser: no caller
+	// reads the atom's stdout for a payload (the verdict goes to ATOM_OUT).
+	Tee bool
 }
 
 // Exec runs a Cmd and answers what it printed and how it exited. A program that
@@ -144,7 +154,19 @@ func RunProgram(ctx context.Context, c Cmd) (string, int) {
 	cmd.WaitDelay = killWaitDelay
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	var tees []*lineTee
+	if c.Tee {
+		// Each stream has its own partial line; the sink serialises whole lines.
+		for _, w := range []*io.Writer{&cmd.Stdout, &cmd.Stderr} {
+			t := newLineTee(c.Name)
+			tees = append(tees, t)
+			*w = io.MultiWriter(*w, t)
+		}
+	}
 	err := cmd.Run()
+	for _, t := range tees {
+		t.Flush()
+	}
 	chargeChild(ctx, cmd.ProcessState)
 	code := 0
 	if err != nil {
