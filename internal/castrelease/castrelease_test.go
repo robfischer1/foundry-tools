@@ -503,3 +503,16 @@ func TestDEF_B6_cast_GoBinariesAreStampedInADeliveryLane(t *testing.T) {
 		t.Errorf("the compile is not stamped: %q", got)
 	}
 }
+
+// A delivery lane that cannot say what it stamps does not ship an unstamped
+// binary: the Go build could not run and built nothing.
+func TestDEF_B6_cast_GoThatCannotBeStampedCouldNotRun(t *testing.T) {
+	c := &toolchain{list: "main example.com/x/cmd/x\n"}
+	in, _, work := start(t, goTree(nil), c)
+	t.Setenv("ATOM_RELEASE_OUT", filepath.Join(work, "assembled"))
+	t.Setenv("ATOM_SHA", "")
+	atomtest.Expect(t, Go(context.Background(), in, goRow), checks.StateCannotRun, atomtest.Cannot, "ATOM_SHA")
+	if b := c.named("go", "build"); len(b) != 0 {
+		t.Errorf("built anyway: %v", b)
+	}
+}

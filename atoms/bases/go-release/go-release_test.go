@@ -221,3 +221,19 @@ func TestADeliveryLanesBasesAreStamped(t *testing.T) {
 		t.Errorf("builds: %q", builds)
 	}
 }
+
+// A delivery lane that cannot say what it stamps does not ship an unstamped
+// base binary: it could not run, naming the base, and compiled nothing.
+func TestADeliveryLaneThatCannotStampABaseCouldNotRun(t *testing.T) {
+	t.Setenv("ATOM_RELEASE_OUT", filepath.Join(t.TempDir(), "assembled"))
+	t.Setenv("ATOM_WORK", t.TempDir())
+	t.Setenv("ATOM_SHA", "")
+	in, f := atomtest.ToolTree(t, bases(), nil)
+	f.Free = []string{"go"}
+	atomtest.Expect(t, check(context.Background(), in), checks.StateCannotRun, atomtest.Cannot, "chairman", "ATOM_SHA")
+	for _, c := range f.Calls {
+		if c.Name == "go" && c.Args[0] == "build" {
+			t.Errorf("compiled anyway: %s", line(c))
+		}
+	}
+}

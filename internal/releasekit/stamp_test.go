@@ -91,3 +91,14 @@ func TestStampFaultsAreNamed(t *testing.T) {
 		})
 	}
 }
+
+// An unquoted module path is the path as written.
+func TestStampReadsAPlainModuleLine(t *testing.T) {
+	t.Setenv(OutEnv, t.TempDir())
+	t.Setenv("ATOM_SHA", stampSha)
+	in, dir, _ := stampIn(t, "module git.notusmi.com/rob/plain\n\ngo 1.25\n", committedAt(""))
+	mod, ver, fault := Stamp(context.Background(), in, dir)
+	if mod != "git.notusmi.com/rob/plain" || ver != "1792086104-b3db6f1" || fault != "" {
+		t.Errorf("got %q %q %q", mod, ver, fault)
+	}
+}
