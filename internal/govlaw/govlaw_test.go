@@ -453,6 +453,13 @@ func TestLintRegistryFindsWhatIsWrong(t *testing.T) {
 		{"die wheel not a bool", map[string]string{"dies.toml": "[dies.d]\nsource = \"https://h.test/r.git@main\"\npath = \".\"\nwheel = \"yes\"\n"}, "wheel that is not a bool"},
 		{"kit die carrying a path", map[string]string{"dies.toml": "[dies.d]\nkit = \"root\"\npath = \".\"\n"}, `carries "path"`},
 		{"die from this repo whose path is not in the tree", map[string]string{"dies.toml": "[dies.d]\nsource = \"" + own + "\"\npath = \"renders/ghost/claude\"\n"}, `path "renders/ghost/claude" is not in this tree`},
+		{"matrix with no capability", map[string]string{"matrix.toml": "# empty\n"}, "matrix.toml: declares no capability"},
+		{"consumers with none", map[string]string{"consumers.toml": "# empty\n"}, "consumers.toml: declares no consumer"},
+		{"dies with none", map[string]string{"dies.toml": "# empty\n"}, "dies.toml: declares no die"},
+		{"consumer kit not a string", map[string]string{"consumers.toml": "[consumers.c]\npath = \"../c\"\nkit = 3\n"}, "has a kit that is not a string"},
+		{"consumer provider not a string", map[string]string{"consumers.toml": "[consumers.c]\npath = \"../c\"\nprovider = 3\n"}, "has a provider that is not a string"},
+		{"die kit not a string", map[string]string{"dies.toml": "[dies.d]\nkit = 3\n"}, "has a kit that is not a string"},
+		{"die source not a string", map[string]string{"dies.toml": "[dies.d]\nsource = 3\npath = \".\"\n"}, "has a source that is not a string"},
 		{"dies that do not parse", map[string]string{"dies.toml": "[dies.d\n"}, "dies.toml: does not parse"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
