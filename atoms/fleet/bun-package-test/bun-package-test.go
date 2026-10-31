@@ -24,8 +24,11 @@ var Def = atomkit.Def{
 	Desc:      "A TypeScript package with tests and no package.json, in a tree with no root package.json (so ts:bun-gate is absent), has its tests run by bun test; a tsconfig.json beside such a package is could-not-run, because no tsc is pinned for it.",
 	Surface:   "any:**/*.test.ts",
 	Toolchain: "bun",
-	Timeout:   10 * time.Minute,
-	Check:     check,
+	// The package's tests may shell out to git (cerberus' pi-cerberus git and
+	// gitguard tests build throwaway repos); the bun image carries none.
+	Needs:   []string{"tool:git"},
+	Timeout: 10 * time.Minute,
+	Check:   check,
 }
 
 const id = "fleet:bun-package-test"
