@@ -24,7 +24,7 @@ var Def = atomkit.Def{
 	Desc:      "Every Flux Kustomization under flux/ builds with kubectl kustomize — a duplicate resource id, a missing base or a bad patch is a finding before flux meets it, and so is a namespaced object that names no namespace under a CR that sets no targetNamespace, and an Alloy config (a ConfigMap's *.alloy key or a tracked *.alloy file) that does not parse.",
 	Surface:   "any:**",
 	Toolchain: "none",
-	Needs:     []string{"tool:kubectl", "tool:kubeconform"},
+	Needs:     []string{"tool:kubectl", "tool:kubeconform", "pytools"},
 	Check:     check,
 }
 
@@ -91,6 +91,30 @@ func crdPass(ctx context.Context, in atomkit.In, rendered, streams []string, out
 	state, report := checks.CRDReport(o)
 	fmt.Fprintf(out, "CRD pass (%d schema(s) generated from the built trees' CRDs):\n%s", len(schemas), report)
 	return state
+}
+
+// ciliumRegexPass measures the RE2 program of every rules.http[] path, method and
+// host in the built trees with a real RE2 (checks.CiliumRE2Script, in the pytools
+// venv). A tree with no such regex never touches python, so a repository without
+// Cilium policy cannot be broken by the venv. States: 0 clean, 1 an offender, 2
+// the measure could not run.
+func ciliumRegexPass(ctx context.Context, in atomkit.In, streams map[string]string) (int, string) {
+	rs, err := checks.CiliumRegexes(streams)
+	if err != nil {
+		return 1, err.Error() + "\n"
+	}
+	if len(rs) == 0 {
+		return 0, "Cilium regex pass: no rules.http regex in the built trees\n"
+	}
+	patterns, request := checks.CiliumRE2Patterns(rs)
+	if o, rc := in.Run(ctx, atoms.Cmd{Dir: in.Root, Name: "python3", Args: []string{"-c", "from re2 import _re2"}, Both: true}); rc != 0 {
+		return 2, fmt.Sprintf("Cilium regex pass UNANALYZABLE: python3 cannot import google-re2 from the pytools venv (rc=%d): %s\n", rc, strings.TrimSpace(o))
+	}
+	o, rc := in.Run(ctx, atoms.Cmd{Dir: in.Root, Name: "python3", Args: []string{"-c", checks.CiliumRE2Script}, Stdin: request, Env: []string{"PYTHONDONTWRITEBYTECODE=1"}})
+	if rc != 0 {
+		return 2, fmt.Sprintf("Cilium regex pass UNANALYZABLE: RE2 did not run (rc=%d): %s\n", rc, strings.TrimSpace(o))
+	}
+	return checks.CiliumRE2Report(rs, patterns, o)
 }
 
 // check: every tree a Flux Kustomization CR under flux/clusters/ applies,
@@ -225,6 +249,15 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 	alloyReport, alloyBad := checks.AlloyReport(cfgs)
 	out.WriteString(alloyReport)
 	bad = bad || alloyBad
+	// Every Cilium L7 regex must fit Envoy's RE2 program cap (flux 84f6efa5; checks.CiliumRegexes).
+	re2State, re2Report := ciliumRegexPass(ctx, in, streams)
+	out.WriteString(re2Report)
+	if re2State == 1 {
+		bad = true
+	}
+	if re2State == 2 && crd == 0 {
+		crd = 2
+	}
 	if bad && rc == 0 {
 		rc = 1
 	}
