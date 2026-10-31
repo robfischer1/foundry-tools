@@ -126,6 +126,26 @@ func TestOpsNamespacelessReport(t *testing.T) {
 		t.Errorf("a scoped tree and an unbuilt tree are not checked:\n%s", out)
 	}
 
+	// A kind whose scope nothing knows is a finding by itself: its objects went unchecked, and an unchecked
+	// tree is not a clean one (the flux gate named five kinds that passed this way).
+	out, bad, err = OpsNamespacelessReport(paths, map[string]string{"prime": "apiVersion: y.io/v1\nkind: Mystery\nmetadata: {name: m}\n"}, unscoped)
+	if err != nil || !bad || !strings.Contains(out, "prime: y.io/Mystery has no known scope") {
+		t.Errorf("an unknown scope alone is a finding: bad=%v err=%v\n%s", bad, err, out)
+	}
+
+	// The kinds flux b244f64 named are cluster-scoped, so naming no namespace is right for them.
+	var cluster strings.Builder
+	for _, k := range [][2]string{
+		{"trust.cert-manager.io/v1alpha1", "Bundle"}, {"policy.cert-manager.io/v1alpha1", "CertificateRequestPolicy"},
+		{"kueue.x-k8s.io/v1beta2", "ClusterQueue"}, {"kueue.x-k8s.io/v1beta2", "ResourceFlavor"}, {"kueue.x-k8s.io/v1beta2", "WorkloadPriorityClass"},
+	} {
+		cluster.WriteString("---\napiVersion: " + k[0] + "\nkind: " + k[1] + "\nmetadata: {name: x}\n")
+	}
+	out, bad, err = OpsNamespacelessReport(paths, map[string]string{"prime": cluster.String()}, unscoped)
+	if err != nil || bad || strings.Contains(out, "no known scope") {
+		t.Errorf("the named cluster-scoped kinds are known: bad=%v err=%v\n%s", bad, err, out)
+	}
+
 	out, bad, err = OpsNamespacelessReport(paths, map[string]string{"prime": "apiVersion: v1\nkind: Service\nmetadata: {name: s, namespace: prime}\n"}, unscoped)
 	if err != nil || bad || !strings.HasPrefix(out, "1 tree(s) applied") {
 		t.Errorf("a placed object passes: bad=%v err=%v\n%s", bad, err, out)
