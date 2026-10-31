@@ -11,7 +11,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // THE VENV'S PROGRAMS ARE FOUND BY PATH, NOT BY THE CONTAINER'S PATH. A run
@@ -189,5 +191,70 @@ func TestDEF_B3_047_TheVenvIsFoundByTheEnvironment(t *testing.T) {
 	}
 	if PyBinEnv != "ATOMS_PY_BIN" || AnsibleCollectionsEnv != "ATOMS_ANSIBLE_COLLECTIONS" {
 		t.Errorf("the executor sets %s and %s", PyBinEnv, AnsibleCollectionsEnv)
+	}
+}
+
+// A DEADLINE KILLS THE WHOLE TREE, NOT ONLY THE CHILD. exec.CommandContext
+// signals the one pid, so a test binary the program started kept running, and
+// kept its database lock, after the atom reported could-not-run. The program
+// leads its own process group and the cancel signals the group.
+func TestRunProgramDeadlineKillsGrandchildren(t *testing.T) {
+	pidfile := filepath.Join(t.TempDir(), "pid")
+	ctx, cancel := context.WithTimeout(context.Background(), 700*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, code := RunProgram(ctx, Cmd{Dir: t.TempDir(), Name: "sh", Args: []string{"-c", "sleep 300 & echo $! > " + pidfile + "; wait"}})
+	if code == 0 {
+		t.Fatalf("a program killed at its deadline exited 0")
+	}
+	if d := time.Since(start); d > 20*time.Second {
+		t.Errorf("RunProgram returned after %v: the grandchild's open pipe held it", d)
+	}
+	raw, err := os.ReadFile(pidfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil {
+		t.Fatalf("pidfile %q: %v", raw, err)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+	// The kill is delivered before Run returns; a reaped zombie can take a moment.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if syscall.Kill(pid, 0) == syscall.ESRCH {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Errorf("grandchild %d survived the deadline", pid)
+}
+
+// THE GROUP KILL SIGNALS THE NEGATED PID, TREATS A GONE GROUP AS DONE, AND
+// REPORTS ANY OTHER REFUSAL.
+func TestKillGroup(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want error
+	}{
+		{"delivered", nil, nil},
+		{"already gone", syscall.ESRCH, nil},
+		{"refused", syscall.EPERM, syscall.EPERM},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotPid int
+			var gotSig syscall.Signal
+			err := killGroup(func(pid int, sig syscall.Signal) error {
+				gotPid, gotSig = pid, sig
+				return tc.err
+			}, 4242)
+			if err != tc.want {
+				t.Errorf("killGroup = %v, want %v", err, tc.want)
+			}
+			if gotPid != -4242 || gotSig != syscall.SIGKILL {
+				t.Errorf("signalled (%d, %v), want (-4242, SIGKILL)", gotPid, gotSig)
+			}
+		})
 	}
 }

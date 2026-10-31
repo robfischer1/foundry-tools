@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
+	"time"
 
 	"dagger/foundry-tools/internal/checks"
 )
@@ -109,6 +111,19 @@ func venvMissing(name string) string {
 	return errNoVenv
 }
 
+// killWaitDelay is how long RunProgram waits for a killed program's output
+// pipes to close before it abandons them.
+const killWaitDelay = 5 * time.Second
+
+// killGroup SIGKILLs the process group pid leads. A group already gone (ESRCH)
+// is the kill having nothing left to do, not a failure.
+func killGroup(kill func(int, syscall.Signal) error, pid int) error {
+	if err := kill(-pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return err
+	}
+	return nil
+}
+
 // RunProgram is the real Exec.
 func RunProgram(ctx context.Context, c Cmd) (string, int) {
 	if why := venvMissing(c.Name); why != "" {
@@ -120,6 +135,13 @@ func RunProgram(ctx context.Context, c Cmd) (string, int) {
 	if c.Stdin != "" {
 		cmd.Stdin = strings.NewReader(c.Stdin)
 	}
+	// The program leads its own process group, and a cancelled context signals
+	// the GROUP: exec.CommandContext alone kills the one pid, and a test binary
+	// the program started (holding a database lock, an open pipe) outlived the
+	// atom. WaitDelay bounds the wait on a pipe some survivor still holds.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return killGroup(syscall.Kill, cmd.Process.Pid) }
+	cmd.WaitDelay = killWaitDelay
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
