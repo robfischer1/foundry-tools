@@ -44,10 +44,10 @@ var devAtoms = []struct {
 	{"dev:ts-typecheck", "ts", "root:package.json", "bun", true},
 	{"dev:ts-check", "ts", "root:package.json", "bun", true},
 	{"dev:rust-vuln", "rust", "root:Cargo.toml", "rust", false},
-	{"dev:go-lock-apt", "go", "root:packages.lock", "go", true},
-	{"dev:rust-lock-apt", "rust", "root:packages.lock", "go", true},
-	{"dev:python-lock-apt", "python", "root:packages.lock", "go", true},
-	{"dev:ts-lock-apt", "ts", "root:packages.lock", "go", true},
+	{"dev:go-lock-apt", "go", "any:**/packages.lock", "go", true},
+	{"dev:rust-lock-apt", "rust", "any:**/packages.lock", "go", true},
+	{"dev:python-lock-apt", "python", "any:**/packages.lock", "go", true},
+	{"dev:ts-lock-apt", "ts", "any:**/packages.lock", "go", true},
 }
 
 // TestUT_514_TheDevAtomsKeepTheirShape: all 28 parse, sit in the dev stage with

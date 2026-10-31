@@ -4,7 +4,7 @@ stage = "dev"
 lane = "go"
 group = "language"
 desc = "deblock -relock re-resolves the apt packages.lock beside the Dockerfile against the archive."
-surface = "root:packages.lock"
+surface = "any:**/packages.lock"
 toolchain = "go"
 argv = ["deblock", "-relock", "-dockerfile", "Dockerfile", "-out", "packages.lock"]
 args = "append"
@@ -27,3 +27,8 @@ preflight = false
 # -dockerfile wins, so `-dockerfile build/Dockerfile` points at another one.
 # needs svid: deblock pulls that base from the registry under the pod's JWT-SVID,
 # and the executor mounts the SPIRE socket only where an atom needs svid.
+# The surface is any:**/packages.lock, not the root's: a tree that holds its locks
+# below the root (base-images: bases/*/packages.lock, no language declared) is
+# planned this atom too (daedalus 8ccd8d6). The command runs at the scope's root,
+# so a nested lock is named the way the comment above says: `-dockerfile
+# bases/x/Dockerfile -out bases/x/packages.lock` (the last of each flag wins).
