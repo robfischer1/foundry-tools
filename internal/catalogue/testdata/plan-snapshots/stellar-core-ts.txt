@@ -92,6 +92,7 @@ run:
   dev:ts-test
   dev:ts-typecheck
   dev:ts-update
+  fleet:bun-package-test
   ts:pack
 absent:
   go:gofmt

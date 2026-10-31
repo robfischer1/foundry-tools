@@ -112,6 +112,7 @@ run:
   dev:python-lint
   dev:python-lock-apt
   dev:python-test
+  fleet:bun-package-test
   go:cast-release
   python:artifacts
 absent:

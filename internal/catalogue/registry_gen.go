@@ -54,6 +54,7 @@ import (
 	dieswiregrammar "dagger/foundry-tools/atoms/dies/wire-grammar"
 	dieswitregenerated "dagger/foundry-tools/atoms/dies/wit-regenerated"
 	fleetbgparity "dagger/foundry-tools/atoms/fleet/bg-parity"
+	fleetbunpackagetest "dagger/foundry-tools/atoms/fleet/bun-package-test"
 	fleetcheckaddedlargefiles "dagger/foundry-tools/atoms/fleet/check-added-large-files"
 	fleetcheckmergeconflict "dagger/foundry-tools/atoms/fleet/check-merge-conflict"
 	fleetcheckyaml "dagger/foundry-tools/atoms/fleet/check-yaml"
@@ -185,6 +186,7 @@ var Defs = []*atomkit.Def{
 	&dieswiregrammar.Def,
 	&dieswitregenerated.Def,
 	&fleetbgparity.Def,
+	&fleetbunpackagetest.Def,
 	&fleetcheckaddedlargefiles.Def,
 	&fleetcheckmergeconflict.Def,
 	&fleetcheckyaml.Def,
