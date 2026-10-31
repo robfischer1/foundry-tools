@@ -51,9 +51,13 @@ func Go(ctx context.Context, in atoms.Input, a checks.AtomDef) checks.Verdict {
 		return *findings(a, "findings: "+err.Error())
 	}
 	goflags := "GOFLAGS=" + strings.TrimSpace(os.Getenv("GOFLAGS")+" -buildvcs=false")
+	module, version, fault := releasekit.Stamp(ctx, in, in.Root)
+	if fault != "" {
+		return *cannot(a, "could not run: "+fault)
+	}
 	for _, name := range binaries {
 		b := checks.ReleaseBinary{Name: name, Package: "./cmd/" + name}
-		argv := checks.GoReleaseArgsTo(out, b, have.vendored, "", "")
+		argv := checks.GoReleaseArgsTo(out, b, have.vendored, module, version)
 		o, code := atoms.RunCmd(ctx, in, atoms.Cmd{Dir: in.Root, Name: argv[0], Args: argv[1:], Env: []string{cgo, goflags}})
 		if _, bad := ran(a, "go build "+b.Package, "the release build of "+b.Package, o, code); bad != nil {
 			return *bad

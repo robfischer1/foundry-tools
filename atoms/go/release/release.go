@@ -81,9 +81,14 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 		}
 	}
 	goflags := "GOFLAGS=" + strings.TrimSpace(os.Getenv("GOFLAGS")+" -buildvcs=false")
+	// A delivery lane's binaries carry the stamp; the gate's compile does not.
+	module, version, fault := releasekit.Stamp(ctx, in, in.Root)
+	if fault != "" {
+		return checks.VerdictOf(row, int(checks.StateCannotRun), id+": CANNOT RUN - "+fault)
+	}
 	v := checks.VerdictOf(row, int(checks.StatePass), "")
 	for _, b := range plan.Binaries {
-		argv := checks.GoReleaseArgsTo(out, b, plan.Vendored, "", "")
+		argv := checks.GoReleaseArgsTo(out, b, plan.Vendored, module, version)
 		env := []string{"CGO_ENABLED=" + checks.ReleaseCgo(b), goflags}
 		o, code, bad := atoms.RunTool(ctx, in, row, atoms.Cmd{Dir: in.Root, Name: argv[0], Args: argv[1:], Env: env, Both: true})
 		if bad != nil {
