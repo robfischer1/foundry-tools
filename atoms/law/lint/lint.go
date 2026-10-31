@@ -1,5 +1,5 @@
 // Package lawlint is the atom law:lint, one of the law lanes (Nomos F5b):
-// blocks, kits and span maps are sound.
+// blocks, kits, span maps and the dies, consumers and matrix registries are sound.
 // The judgement is internal/govlaw's; this hands it the tree. The lane is ABSENT
 // on a tree that is not foundry-stocks, decided there from the path list.
 package lawlint
@@ -17,7 +17,7 @@ import (
 var Def = atomkit.Def{
 	ID: "law:lint", Stage: checks.StagePrecommit, Lane: checks.LaneAny,
 	Group:     checks.GroupLanguage,
-	Desc:      "foundry-stocks' blocks are non-empty with slug stems, every kit names only blocks that exist (an unknown include warns, a cycle fails), and every render's span map parses and covers its context document.",
+	Desc:      "foundry-stocks' blocks are non-empty with slug stems, every kit names only blocks that exist (an unknown include warns, a cycle fails), every render's span map parses and covers its context document, and dies.toml, consumers.toml and matrix.toml parse and agree with kits.toml (a die's own-tree path exists; a source in another repository is counted, not fetched).",
 	Surface:   "any:**",
 	Toolchain: "none",
 	Check:     check,

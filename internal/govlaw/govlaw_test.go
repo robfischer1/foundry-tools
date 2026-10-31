@@ -22,6 +22,14 @@ successor = "session_latest_checkpoint(...)"
 retired_by = "F3"
 `
 
+// The three registry files, valid. The dies source is another repository, the
+// consumer names no kit, so a test that rewrites kits.toml cannot dangle them.
+const (
+	diesOK      = "[dies.\"tool/x\"]\nsource = \"https://git.example.test/rob/x.git@main\"\npath = \".\"\n"
+	consumersOK = "[consumers.c]\npath = \"../c\"\nprovider = \"claude\"\n"
+	matrixOK    = "[skills]\nclaude = \"native\"\npi = \"shim\"\n"
+)
+
 // stocks is a foundry-stocks-shaped tree: the kit library and the ledger, plus
 // whatever the test adds. A value in files overrides the default for its path.
 func stocks(files map[string]string) Tree {
@@ -29,6 +37,9 @@ func stocks(files map[string]string) Tree {
 		"kits.toml":                  "[kits.root]\nblocks = [\"alpha\"]\n",
 		"retired-verbs.toml":         ledger,
 		"governance/blocks/alpha.md": "alpha text\n",
+		"dies.toml":                  diesOK,
+		"consumers.toml":             consumersOK,
+		"matrix.toml":                matrixOK,
 	}
 	for k, v := range files {
 		all[k] = v
@@ -150,7 +161,7 @@ func TestLintPassesSoundLaw(t *testing.T) {
 		"kits.toml":                   "[kits.a]\nblocks = [\"alpha\"]\nincludes = [\"b\", \"c\"]\n[kits.c]\nincludes = [\"b\"]\n",
 		"governance/blocks/beta-2.md": "beta\n",
 	}))
-	want(t, r, StatePass, "2 block(s), 2 kit(s) and 0 span map(s) are sound")
+	want(t, r, StatePass, "2 block(s), 2 kit(s) and 0 span map(s) are sound", "registry: 1 die(s), 1 consumer(s) and 2 matrix cell(s) are sound, 1 die source(s) in other repositories were not resolved")
 	wantNot(t, r, "WARNINGS")
 }
 
@@ -264,6 +275,7 @@ func TestLintRefusesLibrariesItCannotUse(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			files := map[string]string{
 				"kits.toml": "[kits.root]\n", "retired-verbs.toml": ledger, "governance/blocks/alpha.md": "x",
+				"dies.toml": diesOK, "consumers.toml": consumersOK, "matrix.toml": matrixOK,
 			}
 			for k, v := range c.files {
 				files[k] = v
@@ -347,6 +359,7 @@ func TestLintRefusesRendersItCannotRead(t *testing.T) {
 	for _, p := range []string{"renders/c/claude/AGENTS.md", "renders/c/claude/.furnace/spans.json"} {
 		files := map[string]string{
 			"kits.toml": "[kits.root]\n", "retired-verbs.toml": ledger, "governance/blocks/alpha.md": "x",
+			"dies.toml": diesOK, "consumers.toml": consumersOK, "matrix.toml": matrixOK,
 			"renders/c/claude/AGENTS.md": goodDoc, "renders/c/claude/.furnace/spans.json": spans,
 		}
 		want(t, Lint(mapTree(files, map[string]bool{p: true})), StateCannotRun, p+" would not read", "i/o error")
@@ -354,6 +367,7 @@ func TestLintRefusesRendersItCannotRead(t *testing.T) {
 	// A document with no map is read to see whether it is blank.
 	files := map[string]string{
 		"kits.toml": "[kits.root]\n", "retired-verbs.toml": ledger, "governance/blocks/alpha.md": "x",
+		"dies.toml": diesOK, "consumers.toml": consumersOK, "matrix.toml": matrixOK,
 		"renders/c/claude/AGENTS.md": goodDoc,
 	}
 	want(t, Lint(mapTree(files, map[string]bool{"renders/c/claude/AGENTS.md": true})), StateCannotRun, "renders/c/claude/AGENTS.md would not read")
@@ -395,4 +409,71 @@ func TestLintGradesAUserScopeDocumentAgainstItsForgeSpans(t *testing.T) {
 	wantNot(t, r, ".furnace/spans.json beside")
 	// A map with no document is a finding too.
 	want(t, Lint(without(user(good), doc)), StateFindings, spansP+": maps a context document that is not here ("+doc+")")
+}
+
+// ---- law:lint, the registry files ----
+
+func TestLintRegistryAcceptsTheShapesTheFleetUses(t *testing.T) {
+	r := Lint(stocks(map[string]string{
+		"kits.toml": "[kits.k]\nblocks = [\"alpha\"]\n",
+		"dies.toml": diesOK +
+			"[dies.\"gov/own\"]\nsource = \"https://git.example.test/foundry/foundry-stocks.git@main\"\npath = \"renders/x/claude\"\nexclude = [\"**/README.md\"]\n" +
+			"[dies.\"repo-gov/k\"]\nkit = \"k\"\n" +
+			"[dies.\"whl\"]\nsource = \"https://git.example.test/rob/w.git@main\"\npath = \".\"\nwheel = true\n",
+		"consumers.toml":             consumersOK + "[consumers.bare]\npath = \"../b\"\n[consumers.k]\npath = \"../k\"\nkit = \"k\"\nprovider = \"pi\"\n",
+		"renders/x/claude/AGENTS.md": "",
+	}))
+	// the own-tree path is a directory by its children; the render here has no span map and no text
+	want(t, r, StatePass, "4 die(s), 3 consumer(s)", "2 die source(s) in other repositories")
+}
+
+func TestLintRegistryFindsWhatIsWrong(t *testing.T) {
+	const own = "https://git.example.test/foundry/foundry-stocks.git@main"
+	for _, c := range []struct {
+		name  string
+		files map[string]string
+		want  string
+	}{
+		{"matrix cell outside the vocabulary", map[string]string{"matrix.toml": "[skills]\nclaude = \"nativ\"\n"}, `[skills] claude = nativ is not one of native | shim | degrade | drop+warn`},
+		{"matrix cell not a string", map[string]string{"matrix.toml": "[skills]\nclaude = true\n"}, "[skills] claude = true is not one of"},
+		{"matrix that does not parse", map[string]string{"matrix.toml": "[skills\n"}, "matrix.toml: does not parse"},
+		{"consumer with an unknown kit", map[string]string{"consumers.toml": "[consumers.c]\npath = \"../c\"\nkit = \"ghost\"\n"}, `consumer "c" names kit "ghost", which is not in kits.toml`},
+		{"consumer with a provider no column has", map[string]string{"consumers.toml": "[consumers.c]\npath = \"../c\"\nprovider = \"gemini\"\n"}, `provider "gemini", which is not a column of matrix.toml`},
+		{"consumer with no path", map[string]string{"consumers.toml": "[consumers.c]\nprovider = \"claude\"\n"}, `consumer "c" has no path`},
+		{"consumer with a stray key", map[string]string{"consumers.toml": "[consumers.c]\npath = \"../c\"\nkits = \"x\"\n"}, `consumer "c" has the key "kits"`},
+		{"consumers that do not parse", map[string]string{"consumers.toml": "[consumers.c\n"}, "consumers.toml: does not parse"},
+		{"die with an unknown kit", map[string]string{"dies.toml": "[dies.d]\nkit = \"ghost\"\n"}, `die "d" names kit "ghost"`},
+		{"die with neither", map[string]string{"dies.toml": "[dies.d]\npath = \".\"\n"}, `die "d" names neither a kit nor a source`},
+		{"die with both", map[string]string{"dies.toml": "[dies.d]\nkit = \"root\"\nsource = \"https://h.test/r.git@main\"\npath = \".\"\n"}, `die "d" names both a kit and a source`},
+		{"die source with no ref", map[string]string{"dies.toml": "[dies.d]\nsource = \"https://h.test/r.git\"\npath = \".\"\n"}, "is not <url>@<ref>"},
+		{"die source that is not a URL", map[string]string{"dies.toml": "[dies.d]\nsource = \"r@main\"\npath = \".\"\n"}, "has no absolute URL before the @"},
+		{"die path that escapes", map[string]string{"dies.toml": "[dies.d]\nsource = \"https://h.test/r.git@main\"\npath = \"../x\"\n"}, `path "../x" is not relative`},
+		{"die with no path", map[string]string{"dies.toml": "[dies.d]\nsource = \"https://h.test/r.git@main\"\n"}, `die "d" has no path`},
+		{"die exclude not a list of strings", map[string]string{"dies.toml": "[dies.d]\nsource = \"https://h.test/r.git@main\"\npath = \".\"\nexclude = [1]\n"}, "exclude that is not a list of strings"},
+		{"die wheel not a bool", map[string]string{"dies.toml": "[dies.d]\nsource = \"https://h.test/r.git@main\"\npath = \".\"\nwheel = \"yes\"\n"}, "wheel that is not a bool"},
+		{"kit die carrying a path", map[string]string{"dies.toml": "[dies.d]\nkit = \"root\"\npath = \".\"\n"}, `carries "path"`},
+		{"die from this repo whose path is not in the tree", map[string]string{"dies.toml": "[dies.d]\nsource = \"" + own + "\"\npath = \"renders/ghost/claude\"\n"}, `path "renders/ghost/claude" is not in this tree`},
+		{"dies that do not parse", map[string]string{"dies.toml": "[dies.d\n"}, "dies.toml: does not parse"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			want(t, Lint(stocks(c.files)), StateFindings, c.want)
+		})
+	}
+	// the same own-repo path, present, is clean (a directory is found by a file under it)
+	want(t, Lint(stocks(map[string]string{
+		"dies.toml":                  "[dies.d]\nsource = \"" + own + "\"\npath = \"renders/x/claude\"\n",
+		"renders/x/claude/AGENTS.md": "",
+	})), StatePass)
+}
+
+func TestLintRegistryFileMissingIsCannotRunNeverAPass(t *testing.T) {
+	for _, f := range []string{"dies.toml", "consumers.toml", "matrix.toml"} {
+		t.Run(f, func(t *testing.T) {
+			want(t, Lint(without(stocks(nil), f)), StateCannotRun, "CANNOT RUN", f+" is not in the tree")
+		})
+	}
+	want(t, Lint(mapTree(map[string]string{
+		"kits.toml": "[kits.root]\n", "retired-verbs.toml": ledger, "governance/blocks/alpha.md": "x",
+		"dies.toml": diesOK, "consumers.toml": consumersOK, "matrix.toml": matrixOK,
+	}, map[string]bool{"matrix.toml": true})), StateCannotRun, "matrix.toml would not read")
 }

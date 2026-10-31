@@ -172,7 +172,7 @@ func TestBrokenLinkIsAFileTheListingShowsAndNothingReads(t *testing.T) {
 
 func TestTheTreesCarryWhatTheirAtomsAskFor(t *testing.T) {
 	stocks := StocksTree(map[string]string{"budget.toml": "x", "kits.toml": "over"})
-	if stocks["kits.toml"] != "over" || stocks["budget.toml"] != "x" || stocks["retired-verbs.toml"] != Ledger || len(stocks) != 4 {
+	if stocks["kits.toml"] != "over" || stocks["budget.toml"] != "x" || stocks["retired-verbs.toml"] != Ledger || len(stocks) != 7 {
 		t.Errorf("%v", stocks)
 	}
 	die := DieTree(map[string]string{"x": "y", "policy/.manifest": "over"})
