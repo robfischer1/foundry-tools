@@ -229,3 +229,32 @@ func TestRunProgramDeadlineKillsGrandchildren(t *testing.T) {
 	}
 	t.Errorf("grandchild %d survived the deadline", pid)
 }
+
+// THE GROUP KILL SIGNALS THE NEGATED PID, TREATS A GONE GROUP AS DONE, AND
+// REPORTS ANY OTHER REFUSAL.
+func TestKillGroup(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want error
+	}{
+		{"delivered", nil, nil},
+		{"already gone", syscall.ESRCH, nil},
+		{"refused", syscall.EPERM, syscall.EPERM},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotPid int
+			var gotSig syscall.Signal
+			err := killGroup(func(pid int, sig syscall.Signal) error {
+				gotPid, gotSig = pid, sig
+				return tc.err
+			}, 4242)
+			if err != tc.want {
+				t.Errorf("killGroup = %v, want %v", err, tc.want)
+			}
+			if gotPid != -4242 || gotSig != syscall.SIGKILL {
+				t.Errorf("signalled (%d, %v), want (-4242, SIGKILL)", gotPid, gotSig)
+			}
+		})
+	}
+}
