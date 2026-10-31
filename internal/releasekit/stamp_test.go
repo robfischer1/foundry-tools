@@ -102,3 +102,31 @@ func TestStampReadsAPlainModuleLine(t *testing.T) {
 		t.Errorf("got %q %q %q", mod, ver, fault)
 	}
 }
+
+// THE TOOLCHAIN LINE NAMES THE IMAGE AND WHAT GO SAYS IT IS (foundry-tools#25784).
+// go's answer is asked as `go env GOVERSION`, and anything that is not one clean
+// word, or a non-zero exit, reads "unreadable": the digest is still there, and
+// no version is made up.
+func TestToolchainLineNamesTheImageAndGoesVersion(t *testing.T) {
+	const image = "docker.io/library/golang:1.27.3-bookworm@sha256:abc"
+	for _, tc := range []struct {
+		name string
+		out  string
+		code int
+		want string
+	}{
+		{"readable", "go1.27.3\n", 0, "toolchain: go image=" + image + " version=go1.27.3"},
+		{"a non-zero exit", "boom", 3, "toolchain: go image=" + image + " version=unreadable"},
+		{"nothing said", "\n", 0, "toolchain: go image=" + image + " version=unreadable"},
+		{"more than one word", "go version go1.27.3\n", 0, "toolchain: go image=" + image + " version=unreadable"},
+	} {
+		in, _, calls := stampIn(t, "", func(atoms.Cmd) (string, int) { return tc.out, tc.code })
+		got := ToolchainLine(context.Background(), in, image)
+		if got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
+		}
+		if len(*calls) != 1 || (*calls)[0].Name != "go" || strings.Join((*calls)[0].Args, " ") != "env GOVERSION" {
+			t.Errorf("%s: asked %v", tc.name, *calls)
+		}
+	}
+}

@@ -424,6 +424,56 @@ func TestADeliveryLanesCompileIsStamped(t *testing.T) {
 	}
 }
 
+// THE RELEASE SAYS WHICH GO TOOLCHAIN IT WAS BUILT WITH (foundry-tools#25784), so
+// daedalus can rebuild a fork whose release predates the toolchain the lane now
+// pins. The line carries the lane image's digest (the pin this atom was compiled
+// with is the one the executor's pod ran) and the version go itself reports. Only
+// a delivery lane says it; the gate's compile is evidence, not a release.
+func TestADeliveryLaneRecordsTheToolchainItBuiltWith(t *testing.T) {
+	t.Setenv("ATOM_RELEASE_OUT", filepath.Join(t.TempDir(), "assembled"))
+	t.Setenv("ATOM_WORK", t.TempDir())
+	t.Setenv("ATOM_SHA", "b3db6f1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	in, f := atomtest.ToolTree(t, merge(star("hades", copiesHades, nil), cmds("hades")), func(c atoms.Cmd) (string, int) {
+		switch {
+		case c.Name == "git":
+			return "1792086104\n", 0
+		case c.Name == "go" && len(c.Args) == 2 && c.Args[0] == "env" && c.Args[1] == "GOVERSION":
+			return "go1.27.3\n", 0
+		}
+		return "", 0
+	})
+	f.Free = []string{"go"}
+	atomtest.Expect(t, check(context.Background(), in), checks.StatePass, atomtest.Pass,
+		"toolchain: go image="+checks.ImageGo+" version=go1.27.3")
+}
+
+// A version go will not say does not hide the digest, and is not made up.
+func TestAToolchainVersionThatCannotBeReadIsSaidSo(t *testing.T) {
+	t.Setenv("ATOM_RELEASE_OUT", filepath.Join(t.TempDir(), "assembled"))
+	t.Setenv("ATOM_WORK", t.TempDir())
+	t.Setenv("ATOM_SHA", "b3db6f1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	in, f := atomtest.ToolTree(t, merge(star("hades", copiesHades, nil), cmds("hades")), func(c atoms.Cmd) (string, int) {
+		switch {
+		case c.Name == "git":
+			return "1792086104\n", 0
+		case c.Name == "go" && len(c.Args) > 0 && c.Args[0] == "env":
+			return "boom", 3
+		}
+		return "", 0
+	})
+	f.Free = []string{"go"}
+	atomtest.Expect(t, check(context.Background(), in), checks.StatePass, atomtest.Pass,
+		"toolchain: go image="+checks.ImageGo+" version=unreadable")
+}
+
+// The gate's compile builds nothing an image carries, so it records nothing.
+func TestTheGatesCompileRecordsNoToolchain(t *testing.T) {
+	v, _, _ := run(t, merge(star("hades", copiesHades, nil), cmds("hades")), nil)
+	if strings.Contains(v.Reason+strings.Join(v.Logs, "\n"), "toolchain:") {
+		t.Errorf("the gate's verdict names a toolchain:\n%s", v.Reason)
+	}
+}
+
 // A delivery lane that cannot say what it stamps does not ship an unstamped
 // binary: it could not run.
 func TestADeliveryLaneThatCannotStampCouldNotRun(t *testing.T) {

@@ -55,6 +55,11 @@ var row = checks.AtomDef{ID: id, Stage: checks.StagePrepush, Lane: checks.LaneGo
 // THE EXIT IS READ AFTER EACH BINARY and the first failure stops the chain, so
 // the verdict names the binary that did not compile.
 //
+// A DELIVERY LANE'S PASS NAMES THE TOOLCHAIN (foundry-tools#25784): a
+// `toolchain: go image=<ref@digest> version=<goN.N.N>` line, so a consumer can
+// tell a release built with a toolchain the lane has since moved off
+// (releasekit.ToolchainLine says what the image is and why it is the pod's).
+//
 // -buildvcs=false: a pod's checkout is a repository, and go build stamps
 // vcs.revision from one by default; the Dagger engine's release tree (retired 2026-10-24) never had one.
 // The binaries the executor carries into an image must not differ by commit.
@@ -86,6 +91,11 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 	if fault != "" {
 		return checks.VerdictOf(row, int(checks.StateCannotRun), id+": CANNOT RUN - "+fault)
 	}
+	// Asked before the compiles, so the last program run stays the last compile.
+	toolchain := ""
+	if os.Getenv(releasekit.OutEnv) != "" {
+		toolchain = releasekit.ToolchainLine(ctx, in, checks.ImageGo)
+	}
 	v := checks.VerdictOf(row, int(checks.StatePass), "")
 	for _, b := range plan.Binaries {
 		argv := checks.GoReleaseArgsTo(out, b, plan.Vendored, module, version)
@@ -97,6 +107,9 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 		if v = checks.VerdictOf(row, code, o); v.State != int(checks.StatePass) {
 			break
 		}
+	}
+	if v.State == int(checks.StatePass) && toolchain != "" {
+		v.Reason = toolchain + "\n" + v.Reason
 	}
 	return releasekit.Scoped(plan, v)
 }

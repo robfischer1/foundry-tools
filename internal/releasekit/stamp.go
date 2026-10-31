@@ -76,3 +76,22 @@ func modulePath(gomod string) string {
 	}
 	return ""
 }
+
+// ToolchainLine is the line a delivery lane's Go release records about the
+// toolchain it was built with: `toolchain: go image=<image> version=<goversion>`.
+//
+// THE IMAGE IS THE PIN THIS ATOM WAS COMPILED WITH, not something the pod
+// reports. The atom binary and the index that names the lane's Go image come
+// from one foundry-tools commit (TestToolsTomlMatchesGo holds the two equal), and
+// the executor pulls the image that index names, so the pod that ran this atom
+// ran that image. The version is asked of go itself (`go env GOVERSION`), because
+// the image says what was pulled and go says what compiled; a version go will not
+// say is written "unreadable", never guessed, and does not hold back the digest.
+func ToolchainLine(ctx context.Context, in atoms.Input, image string) string {
+	version := "unreadable"
+	out, code := atoms.RunCmd(ctx, in, atoms.Cmd{Dir: in.Root, Name: "go", Args: []string{"env", "GOVERSION"}})
+	if v := strings.TrimSpace(out); code == 0 && v != "" && !strings.ContainsAny(v, " \t\n") {
+		version = v
+	}
+	return "toolchain: go image=" + image + " version=" + version
+}
