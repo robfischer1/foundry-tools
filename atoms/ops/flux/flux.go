@@ -7,7 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"regexp"
+	"path/filepath"
 	"strings"
 
 	"dagger/foundry-tools/internal/atomkit"
@@ -34,12 +34,9 @@ const id = "ops:flux"
 var row = checks.AtomDef{ID: id, Stage: checks.StagePrecommit, Lane: checks.LaneAny}
 
 // kubeconformArgs are ops.sh's flags: strict, missing schemas ignored, CRDs
-// skipped, the default schema location. The built files follow. This pass
-// gates; crdPass appends the CRD catalogue to the same flags and only warns.
+// skipped, the default schema location. The built files follow. crdPass adds the
+// built trees' own CRDs and the catalogue to the same flags.
 var kubeconformArgs = []string{"-strict", "-summary", "-ignore-missing-schemas", "-skip", "CustomResourceDefinition", "-schema-location", "default"}
-
-// crdSkipped is the count kubeconform's -summary line ends on.
-var crdSkipped = regexp.MustCompile(`Skipped: (\d+)`)
 
 // crdProbeDoc is one HelmRelease the catalogue has a schema for
 // (checks.CRDSchemaProbe names the same file). Validated WITHOUT
@@ -53,43 +50,47 @@ spec:
   interval: 1h
 `
 
-// crdPass validates the built trees against the default store AND the CRDs
-// catalogue, so HelmRelease, Kustomization, CiliumNetworkPolicy and the rest
-// are read instead of skipped. It is WARN-ONLY, faults included: its invalid
-// findings are printed and never change the exit (replayed over flux's last 20
-// merges, the catalogue's ObjectStore schema refuses all eight barman
-// ObjectStores on every one of them), and a catalogue the lane cannot fetch is
-// printed as UNCHECKED rather than turning the atom into a 2, so a flaky
-// catalogue cannot block a flux landing the gating pass cleared. What it never
-// is: silent. The probe runs WITHOUT -ignore-missing-schemas, so an
-// unreachable catalogue is named instead of rendered as "skipped". When this
-// pass graduates to gating, its faults become 2s.
-func crdPass(ctx context.Context, in atomkit.In, rendered []string, out *strings.Builder) {
-	unchecked := func(why string) {
-		fmt.Fprintf(out, "CRD catalogue pass (warn-only): custom resources went UNCHECKED this run, not clean: %s\n", why)
-	}
+// crdPass validates the built trees against the default store, the schemas of
+// the CRDs the built trees themselves carry, and the CRDs catalogue, in that
+// order: a tree is graded against the CRD it installs, and the catalogue only
+// speaks for kinds the tree has no CRD for (HelmRelease, Kustomization,
+// CiliumNetworkPolicy and the rest). Its answer is a state like any phase's: a
+// resource invalid against its schema, or a kind no schema covers that
+// checks.crdNoSchema does not name, is a finding (1); a catalogue the lane
+// cannot read, a schema kubeconform cannot read or a kubeconform that did not
+// run is could-not-run (2). It does not warn: every outcome is a pass, a
+// finding or a 2.
+func crdPass(ctx context.Context, in atomkit.In, rendered, streams []string, out *strings.Builder) int {
 	// kubeconform reads stdin when it is named no file.
 	o, rc := in.Run(ctx, atoms.Cmd{Dir: in.Root, Name: "kubeconform", Args: []string{"-strict", "-schema-location", checks.CRDSchemaLocation}, Stdin: crdProbeDoc, Both: true})
 	if rc != 0 {
-		unchecked(fmt.Sprintf("the catalogue could not be read (%s, rc=%d): %s", checks.CRDSchemaProbe, rc, strings.TrimSpace(o)))
-		return
+		fmt.Fprintf(out, "CRD pass UNANALYZABLE: the catalogue could not be read (%s, rc=%d): %s\n", checks.CRDSchemaProbe, rc, strings.TrimSpace(o))
+		return 2
 	}
-	args := append(append([]string{}, kubeconformArgs...), "-schema-location", checks.CRDSchemaLocation)
-	o, rc = in.Run(ctx, atoms.Cmd{Dir: in.Root, Name: "kubeconform", Args: append(args, rendered...), Both: true})
+	schemas, err := checks.CRDSchemas(streams...)
+	if err != nil {
+		fmt.Fprintf(out, "CRD pass UNANALYZABLE: %v\n", err)
+		return 2
+	}
+	dir, err := checks.WriteCRDSchemas(schemas)
+	if dir != "" {
+		defer func() { _ = os.RemoveAll(dir) }()
+	}
+	if err != nil {
+		fmt.Fprintf(out, "CRD pass UNANALYZABLE: %v\n", err)
+		return 2
+	}
+	args := append(append([]string{}, kubeconformArgs...), "-output", "json", "-verbose",
+		"-schema-location", filepath.Join(dir, checks.CRDSchemaFile), "-schema-location", checks.CRDSchemaLocation)
+	// The streams are the JSON report: stderr stays out of it.
+	o, rc = in.Run(ctx, atoms.Cmd{Dir: in.Root, Name: "kubeconform", Args: append(args, rendered...)})
 	if rc < 0 {
-		unchecked(strings.TrimSpace(o))
-		return
+		fmt.Fprintf(out, "CRD pass UNANALYZABLE: kubeconform did not run: %s\n", strings.TrimSpace(o))
+		return 2
 	}
-	if rc != 0 {
-		if state, text := atomlib.OpsSettled("flux CRD catalogue pass", rc, o); state == 2 {
-			unchecked(strings.TrimSpace(text))
-			return
-		}
-	}
-	out.WriteString("CRD catalogue pass (warn-only; findings here do not fail the atom):\n" + strings.TrimRight(o, "\n") + "\n")
-	if m := crdSkipped.FindStringSubmatch(o); m != nil {
-		fmt.Fprintf(out, "%s resource(s) skipped for a missing schema (the catalogue lacks the kind)\n", m[1])
-	}
+	state, report := checks.CRDReport(o)
+	fmt.Fprintf(out, "CRD pass (%d schema(s) generated from the built trees' CRDs):\n%s", len(schemas), report)
+	return state
 }
 
 // check: every tree a Flux Kustomization CR under flux/clusters/ applies,
@@ -184,8 +185,13 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 		return atomlib.NeverRan(row, validated)
 	}
 	out.WriteString(validated)
+	crd := 0
 	if rc == 0 {
-		crdPass(ctx, in, rendered, &out)
+		var all []string
+		for _, p := range paths {
+			all = append(all, streams[p])
+		}
+		crd = crdPass(ctx, in, rendered, all, &out)
 	}
 	// A tree its CR applies with no targetNamespace must place every namespaced
 	// object itself (checks.OpsNamespacelessReport; flux #264).
@@ -197,6 +203,12 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 	out.WriteString(report)
 	if bad && rc == 0 {
 		rc = 1
+	}
+	if rc == 0 && crd != 0 {
+		return checks.VerdictOf(row, crd, out.String())
+	}
+	if rc == 0 {
+		return checks.VerdictOf(row, int(checks.StatePass), out.String())
 	}
 	state, text := atomlib.OpsSettled("flux", rc, out.String())
 	return checks.VerdictOf(row, state, text)

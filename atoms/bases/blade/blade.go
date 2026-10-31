@@ -2,10 +2,9 @@
 // RUN-free images, whose work is internal/bladefixed's. It runs in the build lane,
 // for a repository of bases, between assemble and scan, over the assembled layouts.
 //
-// WARN-ONLY. It reports what it finds and passes: the blade bases' build-time
-// asserts were dropped with their RUNs (base-images#80, #81) and this is their
-// replacement, laid down without a gate on the images already published until a
-// run has shown it agrees with every one.
+// ENFORCING. A problem is a finding and a layout it cannot read is a 2: the blade
+// bases' build-time asserts were dropped with their RUNs (base-images#80, #81)
+// and this is their replacement.
 package basesblade
 
 import (
@@ -34,7 +33,7 @@ const (
 var Def = atomkit.Def{
 	ID: "bases:blade", Stage: checks.StageBases, Lane: checks.LaneAny,
 	Group:     checks.GroupLanguage,
-	Desc:      "The assembled blade-base, blade-python-claude and blade-differ images keep the privilege split the dropped build-time asserts held: /opt/blade root:blade 0550, the agent and gate accounts, /run/blade and /work, the pytest, claude and differ binaries. Warn-only.",
+	Desc:      "The assembled blade-base, blade-python-claude and blade-differ images keep the privilege split the dropped build-time asserts held: /opt/blade root:blade 0550, the agent and gate accounts, /run/blade and /work, the pytest, claude and differ binaries. A problem fails the build; an unreadable layout cannot run.",
 	Surface:   "any:bases/blade-base/Dockerfile,bases/blade-python-claude/Dockerfile,bases/blade-differ/Dockerfile",
 	Toolchain: "none",
 	Timeout:   15 * time.Minute,
@@ -57,9 +56,7 @@ var validate = bladefixed.Validate
 func check(_ context.Context, _ atomkit.In) checks.Verdict {
 	res, err := validate(imageDir())
 	if err != nil {
-		// Warn-only, faults included: a layout it cannot read is said UNCHECKED and
-		// never blocks a bases build. When the atom graduates to gating, this is a 2.
-		return checks.VerdictOf(row, int(checks.StatePass), id+": WARN (not enforced yet) - the blade bases went UNCHECKED, not clean: "+err.Error())
+		return checks.VerdictOf(row, int(checks.StateCannotRun), id+": CANNOT RUN - the blade bases went unchecked: "+err.Error())
 	}
 	if len(res.Checked) == 0 {
 		return checks.VerdictOf(row, int(checks.StatePass), id+": ABSENT - no blade image is laid at "+imageDir()+" (the assemble stood down, or this lane assembles no blade base)")
@@ -69,7 +66,7 @@ func check(_ context.Context, _ atomkit.In) checks.Verdict {
 		if len(shown) > maxShown {
 			shown = append(shown[:maxShown:maxShown], fmt.Sprintf("... and %d more", len(res.Problems)-maxShown))
 		}
-		return checks.VerdictOf(row, int(checks.StatePass), fmt.Sprintf("%s: WARN (not enforced yet) - %d problem(s) in the blade bases:\n  %s", id, len(res.Problems), strings.Join(shown, "\n  ")))
+		return checks.VerdictOf(row, int(checks.StateFindings), fmt.Sprintf("%s: FAIL - %d problem(s) in the blade bases:\n  %s", id, len(res.Problems), strings.Join(shown, "\n  ")))
 	}
 	return checks.VerdictOf(row, int(checks.StatePass), fmt.Sprintf("%s: PASS - %d checks over %s", id, res.Checks, strings.Join(res.Checked, ", ")))
 }

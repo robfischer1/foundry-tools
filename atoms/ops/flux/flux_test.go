@@ -75,10 +75,46 @@ func (s *fluxTools) answer(t *testing.T) func(atoms.Cmd) (string, int) {
 			if !strings.Contains(atomtest.Flagged(c), "-ignore-missing-schemas") {
 				return "probe", s.crdProbe
 			}
+			if s.crd == "" {
+				return `{"resources":[]}`, s.crdRc
+			}
 			return s.crd, s.crdRc
 		}
 		return s.conform, s.conformRc
 	}
+}
+
+// crdStream is a built tree that carries one CRD.
+const crdStream = `apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: widgets.w.io
+spec:
+  group: w.io
+  names:
+    kind: Widget
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        type: object
+`
+
+// crdJSON is kubeconform's -output json report over the given resources.
+func crdJSON(resources ...string) string {
+	return `{"resources":[` + strings.Join(resources, ",") + `]}`
+}
+
+func valid(n int) string {
+	r := make([]string, n)
+	for i := range r {
+		r[i] = `{"kind":"Widget","name":"w","version":"w.io/v1","status":"statusValid"}`
+	}
+	return strings.Join(r, ",")
+}
+
+func skipped(kind, version string) string {
+	return `{"kind":"` + kind + `","name":"x","version":"` + version + `","status":"statusSkipped"}`
 }
 
 func TestOpsFlux(t *testing.T) {
@@ -113,7 +149,9 @@ func TestOpsFlux(t *testing.T) {
 				t.Errorf("the tools were not probed first: %v", f.Ran())
 			}
 			for _, c := range f.Calls[2:] {
-				if c.Dir != in.Root || !c.Both {
+				// The CRD pass reads stdout alone: stderr would corrupt its JSON.
+				json := strings.Contains(atomtest.Flagged(c), "-output json")
+				if c.Dir != in.Root || c.Both == json {
 					t.Errorf("%s ran in %q (both streams %v)", c.Name, c.Dir, c.Both)
 				}
 			}
@@ -138,43 +176,78 @@ func TestOpsFlux(t *testing.T) {
 			t.Errorf("kubectl ran as %q", got)
 		}
 	})
-	t.Run("the CRD catalogue is probed, then read as a warn-only second pass", func(t *testing.T) {
+	t.Run("the CRD pass reads the built trees' own CRDs ahead of the catalogue, and a clean read passes", func(t *testing.T) {
 		in, f := atomtest.ToolTree(t, fluxTree(), nil)
-		tools := &fluxTools{crd: "Summary: 9 resources found in 1 file - Valid: 6, Invalid: 1, Errors: 0, Skipped: 2", crdRc: 1}
+		tools := &fluxTools{crd: crdJSON(valid(3)), build: func(string) (string, int) { return crdStream, 0 }}
 		f.Answer = tools.answer(t)
-		atomtest.Expect(t, run(in), atomtest.StateOf(0), atomtest.Pass,
-			"CRD catalogue pass (warn-only", "2 resource(s) skipped for a missing schema")
+		atomtest.Expect(t, run(in), atomtest.StateOf(0), atomtest.Pass, "CRD pass (1 schema(s) generated", "3 valid, 0 invalid")
 		n := len(f.Calls)
 		probe, pass := atomtest.Flagged(f.Calls[n-2]), atomtest.Flagged(f.Calls[n-1])
 		if !strings.Contains(probe, "-schema-location "+checks.CRDSchemaLocation) || strings.Contains(probe, "-ignore-missing-schemas") {
 			t.Errorf("the probe must fail on a missing schema, ran %q", probe)
 		}
-		if !strings.Contains(pass, "-schema-location default -schema-location "+checks.CRDSchemaLocation) || !strings.Contains(pass, "-ignore-missing-schemas") {
-			t.Errorf("the catalogue pass ran %q", pass)
+		own := strings.Index(pass, checks.CRDSchemaFile)
+		if own < 0 || own > strings.Index(pass, checks.CRDSchemaLocation) || !strings.Contains(pass, "-output json -verbose") || !strings.Contains(pass, "-ignore-missing-schemas") {
+			t.Errorf("the CRD pass ran %q", pass)
 		}
 	})
-	t.Run("a catalogue the lane cannot reach is said UNCHECKED, and the warn-only pass blocks nothing", func(t *testing.T) {
+	t.Run("a resource invalid against its schema fails the atom", func(t *testing.T) {
+		in, f := atomtest.ToolTree(t, fluxTree(), nil)
+		bad := `{"resources":[{"filename":"a.yaml","kind":"ObjectStore","name":"x","version":"barmancloud.cnpg.io/v1","status":"statusInvalid","msg":"compression: value must be one of"}]}`
+		tools := &fluxTools{crd: bad, crdRc: 1}
+		f.Answer = tools.answer(t)
+		atomtest.Expect(t, run(in), atomtest.StateOf(1), atomtest.Findings, "INVALID a.yaml ObjectStore x", "compression")
+	})
+	t.Run("a kind with no schema anywhere fails the atom unless it is named", func(t *testing.T) {
+		in, f := atomtest.ToolTree(t, fluxTree(), nil)
+		tools := &fluxTools{crd: crdJSON(skipped("Mystery", "x.io/v1"))}
+		f.Answer = tools.answer(t)
+		atomtest.Expect(t, run(in), atomtest.StateOf(1), atomtest.Findings, "NO SCHEMA x.io/v1/Mystery x1")
+	})
+	t.Run("a catalogue the lane cannot reach is a 2, never a warning", func(t *testing.T) {
 		in, f := atomtest.ToolTree(t, fluxTree(), nil)
 		tools := &fluxTools{crdProbe: 1}
 		f.Answer = tools.answer(t)
-		atomtest.Expect(t, run(in), atomtest.StateOf(0), atomtest.Pass, "went UNCHECKED this run, not clean", "could not be read")
+		atomtest.Expect(t, run(in), atomtest.StateOf(2), atomtest.Cannot, "CRD pass UNANALYZABLE", "could not be read")
 		for _, c := range f.Calls {
 			if strings.Contains(atomtest.Flagged(c), "-ignore-missing-schemas") && strings.Contains(atomtest.Flagged(c), checks.CRDSchemaLocation) {
 				t.Errorf("the catalogue was scanned after its probe failed")
 			}
 		}
 	})
-	t.Run("a catalogue pass that hit a network fault is said UNCHECKED, never clean", func(t *testing.T) {
+	t.Run("a schema kubeconform could not read is a 2", func(t *testing.T) {
 		in, f := atomtest.ToolTree(t, fluxTree(), nil)
-		tools := &fluxTools{crd: "dial tcp: i/o timeout", crdRc: 1}
+		tools := &fluxTools{crd: `{"resources":[{"kind":"X","status":"statusError","msg":"dial tcp: i/o timeout"}]}`, crdRc: 1}
 		f.Answer = tools.answer(t)
-		atomtest.Expect(t, run(in), atomtest.StateOf(0), atomtest.Pass, "went UNCHECKED this run, not clean")
+		atomtest.Expect(t, run(in), atomtest.StateOf(2), atomtest.Cannot, "UNREADABLE", "UNANALYZABLE")
 	})
-	t.Run("a catalogue pass that never ran is said UNCHECKED, never clean", func(t *testing.T) {
+	t.Run("schemas that cannot be laid out are a 2", func(t *testing.T) {
+		in, f := atomtest.ToolTree(t, fluxTree(), nil)
+		// w.io/widget_v1.json is a file for one CRD and a directory for the other.
+		clash := strings.Replace(crdStream, "group: w.io", "group: w.io/widget_v1.json", 1)
+		tools := &fluxTools{build: func(string) (string, int) { return crdStream + "---\n" + clash, 0 }}
+		f.Answer = tools.answer(t)
+		atomtest.Expect(t, run(in), atomtest.StateOf(2), atomtest.Cannot, "CRD pass UNANALYZABLE")
+	})
+	t.Run("a CRD pass that never ran is a 2", func(t *testing.T) {
 		in, f := atomtest.ToolTree(t, fluxTree(), nil)
 		tools := &fluxTools{crd: "kubeconform: signal: killed", crdRc: -1}
 		f.Answer = tools.answer(t)
-		atomtest.Expect(t, run(in), atomtest.StateOf(0), atomtest.Pass, "went UNCHECKED this run, not clean", "signal: killed")
+		atomtest.Expect(t, run(in), atomtest.StateOf(2), atomtest.Cannot, "CRD pass UNANALYZABLE", "signal: killed")
+	})
+	t.Run("a built tree whose CRDs do not parse is a 2", func(t *testing.T) {
+		in, f := atomtest.ToolTree(t, fluxTree(), nil)
+		tools := &fluxTools{build: func(string) (string, int) { return "kind: [\n", 0 }}
+		f.Answer = tools.answer(t)
+		atomtest.Expect(t, run(in), atomtest.StateOf(1), atomtest.Findings, "a built tree did not parse")
+	})
+	t.Run("a CRD finding beside a namespace finding keeps both", func(t *testing.T) {
+		files := map[string]string{
+			"flux/clusters/prod/apps.yaml": strings.Replace(fluxCR, "  targetNamespace: apps\n", "", 1), "flux/apps/kustomization.yaml": "x"}
+		in, f := atomtest.ToolTree(t, files, nil)
+		tools := &fluxTools{crd: crdJSON(skipped("Mystery", "x.io/v1")), build: func(string) (string, int) { return "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: a\n", 0 }}
+		f.Answer = tools.answer(t)
+		atomtest.Expect(t, run(in), atomtest.StateOf(1), atomtest.Findings, "NO SCHEMA", "names no namespace")
 	})
 	t.Run("the probe hands kubeconform the HelmRelease on stdin", func(t *testing.T) {
 		in, f := atomtest.ToolTree(t, fluxTree(), nil)

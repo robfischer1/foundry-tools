@@ -634,13 +634,19 @@ var MirroredRegistries = []string{"docker.io/", "ghcr.io/", "gcr.io/", "registry
 // population and exits 0 is the partial-scan failure this module was built to
 // end, so the catalogue is not an enhancement here — it is the difference
 // between the atom being honest and being decoration.
+// PINNED TO A COMMIT, not `main`: the CRD pass gates every flux landing since
+// 2026-10-31, so an upstream catalogue edit must not be able to turn the
+// fleet's deploy path red between two identical flux commits. Bump the sha on
+// purpose (git ls-remote https://github.com/datreeio/CRDs-catalog main).
+const CRDCatalogueRev = "3eb90d47aba8d61919d4419dd38301536e32a94b"
+
 const (
-	CRDSchemaLocation = "https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
+	CRDSchemaLocation = "https://raw.githubusercontent.com/datreeio/CRDs-catalog/" + CRDCatalogueRev + "/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
 	// CRDSchemaProbe is one known-present schema. It is fetched BEFORE the
 	// scan, because `-ignore-missing-schemas` cannot tell "this CRD is not in
 	// the catalogue" from "the catalogue is unreachable": both render as
 	// `skipped`, and the second is a CANNOT RUN wearing a pass's clothes.
-	CRDSchemaProbe = "https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/helm.toolkit.fluxcd.io/helmrelease_v2.json"
+	CRDSchemaProbe = "https://raw.githubusercontent.com/datreeio/CRDs-catalog/" + CRDCatalogueRev + "/helm.toolkit.fluxcd.io/helmrelease_v2.json"
 )
 
 // OrasURL fetches the oras client: the build lane attaches its SBOM referrer
