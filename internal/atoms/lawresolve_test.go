@@ -99,3 +99,18 @@ func deadDoor(t *testing.T) checks.Door {
 	srv.Close()
 	return checks.Door{Base: base, NoRetry: true}
 }
+
+func TestResolverABrokenOrCutManifestIsAnErrorNotAnAbsence(t *testing.T) {
+	for name, body := range map[string]string{
+		"not json":  "<html>",
+		"truncated": `{"entries":[{"path":"other/x"}],"truncated":true}`,
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
+		door := checks.Door{Base: srv.URL, NoRetry: true}
+		got, err := LawResolver(context.Background(), door)(srv.URL+"/rob/x.git", "main", "policy")
+		srv.Close()
+		if err == nil || err == govlaw.ErrForeign {
+			t.Errorf("%s: answered %v, %v", name, got, err)
+		}
+	}
+}
