@@ -24,9 +24,10 @@ import (
 // WHICH KINDS ARE NAMESPACED is not in the manifest. It comes from two places:
 // the CRDs the tree itself renders, and kindscope.txt, the fleet API server's
 // discovery written down (the kinds charts and k3s install are never in a
-// render: #264's own CiliumNetworkPolicy is one). A kind in neither is NOT a
-// finding: it is noted as unchecked, because a false red would stop every pull
-// over a kind this check simply does not know.
+// render: #264's own CiliumNetworkPolicy is one). A kind in neither IS a
+// finding: its objects went unplaced-checked, and a pass that skipped objects
+// is not a pass (flux b244f64 named five kinds that sailed through as a note).
+// The fix for one is a line in kindscope.txt, regenerated from the cluster.
 //
 // Regenerate kindscope.txt against the cluster when an operator adds kinds:
 //
@@ -194,7 +195,8 @@ func OpsNamespacelessReport(paths []string, streams map[string]string, unscoped 
 				" sets no targetNamespace; kustomize-controller refuses the whole tree (namespace not specified). Give it metadata.namespace.\n")
 		}
 		for _, u := range unknown {
-			b.WriteString(p + ": " + u + " has no known scope (not in kindscope.txt, no CRD in the tree), so its objects went unchecked\n")
+			bad = true
+			b.WriteString(p + ": " + u + " has no known scope (not in kindscope.txt, no CRD in the tree), so its objects went unchecked; add it to kindscope.txt\n")
 		}
 	}
 	b.WriteString(strconv.Itoa(checked) + " tree(s) applied with no targetNamespace checked for objects that name none\n")

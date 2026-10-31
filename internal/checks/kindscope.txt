@@ -1,5 +1,5 @@
 # kindscope.txt — whether each kind the fleet's API server serves is namespaced.
-# Generated 2026-10-02 from the pantheon cluster's discovery (/api/v1 and every
+# Generated 2026-10-31 from the pantheon cluster's discovery (/api/v1 and every
 # /apis group, all served versions): kubectl get --raw. One line per group/Kind:
 # n namespaced, c cluster-scoped; the core group is empty ("/Service n").
 # Regenerate with the command in namespace.go's header; CRDs the tree itself
@@ -30,6 +30,7 @@ admissionregistration.k8s.io/ValidatingAdmissionPolicy c
 admissionregistration.k8s.io/ValidatingAdmissionPolicyBinding c
 admissionregistration.k8s.io/ValidatingWebhookConfiguration c
 agents.x-k8s.io/Sandbox n
+aiws.notusmi.com/World n
 apiextensions.k8s.io/CustomResourceDefinition c
 apiregistration.k8s.io/APIService c
 apps/ControllerRevision n
@@ -120,10 +121,12 @@ grafana.integreatly.org/GrafanaDashboard n
 grafana.integreatly.org/GrafanaDatasource n
 grafana.integreatly.org/GrafanaFolder n
 grafana.integreatly.org/GrafanaLibraryPanel n
+grafana.integreatly.org/GrafanaManifest n
 grafana.integreatly.org/GrafanaMuteTiming n
 grafana.integreatly.org/GrafanaNotificationPolicy n
 grafana.integreatly.org/GrafanaNotificationPolicyRoute n
 grafana.integreatly.org/GrafanaNotificationTemplate n
+grafana.integreatly.org/GrafanaServiceAccount n
 helm.cattle.io/HelmChart n
 helm.cattle.io/HelmChartConfig n
 helm.toolkit.fluxcd.io/HelmRelease n
@@ -183,6 +186,17 @@ internal.linstor.linbit.com/VolumeGroups c
 internal.linstor.linbit.com/Volumes c
 k3s.cattle.io/Addon n
 k3s.cattle.io/ETCDSnapshotFile c
+kueue.x-k8s.io/AdmissionCheck c
+kueue.x-k8s.io/ClusterQueue c
+kueue.x-k8s.io/Cohort c
+kueue.x-k8s.io/LocalQueue n
+kueue.x-k8s.io/MultiKueueCluster c
+kueue.x-k8s.io/MultiKueueConfig c
+kueue.x-k8s.io/ProvisioningRequestConfig c
+kueue.x-k8s.io/ResourceFlavor c
+kueue.x-k8s.io/Topology c
+kueue.x-k8s.io/Workload n
+kueue.x-k8s.io/WorkloadPriorityClass c
 kustomize.toolkit.fluxcd.io/Kustomization n
 metrics.k8s.io/NodeMetrics c
 metrics.k8s.io/PodMetrics n
@@ -212,6 +226,7 @@ piraeus.io/LinstorCluster c
 piraeus.io/LinstorNodeConnection c
 piraeus.io/LinstorSatellite c
 piraeus.io/LinstorSatelliteConfiguration c
+policy.cert-manager.io/CertificateRequestPolicy c
 policy/PodDisruptionBudget n
 postgresql.cnpg.io/Backup n
 postgresql.cnpg.io/Cluster n
@@ -270,3 +285,4 @@ traefik.io/ServersTransportTCP n
 traefik.io/TLSOption n
 traefik.io/TLSStore n
 traefik.io/TraefikService n
+trust.cert-manager.io/Bundle c
