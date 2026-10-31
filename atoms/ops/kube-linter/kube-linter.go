@@ -6,6 +6,7 @@ package opskubelinter
 import (
 	"context"
 	"os"
+	"path"
 
 	"dagger/foundry-tools/internal/atomkit"
 	"dagger/foundry-tools/internal/atoms"
@@ -64,6 +65,15 @@ func check(ctx context.Context, in atomkit.In) checks.Verdict {
 		if len(paths) == 0 {
 			paths = checks.OpsFluxFallback(checks.OpsFiles(in.Files), root)
 		}
+		// A path that only deletes from one sibling tree lints as that tree,
+		// so its cross-object checks see the whole set (checks.KubeLintTargets).
+		paths = checks.KubeLintTargets(paths, func(dir string) string {
+			src, err := t.Read(path.Join(dir, "kustomization.yaml"))
+			if err != nil {
+				return ""
+			}
+			return src
+		})
 		targets = append([]string{"clusters/"}, paths...)
 	}
 
