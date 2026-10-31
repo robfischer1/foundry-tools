@@ -207,7 +207,7 @@ func (m *module) mutate(ctx context.Context, report, cache, since string, tags, 
 		env = append(env, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	}
 	env = append(env, gitEnv...)
-	cmd := atoms.Cmd{Dir: m.cwd, Name: "gomutants", Args: args, Env: env, Both: true}
+	cmd := atoms.Cmd{Dir: m.cwd, Name: "gomutants", Args: args, Env: env, Both: true, Tee: true}
 	out, code := m.run(ctx, cmd)
 	return cmd, out, code
 }
