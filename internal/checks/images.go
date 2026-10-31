@@ -249,13 +249,14 @@ const (
 	// a loop body no test reaches. gremlins never GENERATED any of them, because
 	// its five mutators do not include the operators that make them.
 	//
-	// THE MODULE PATH IS NOT THE REPO PATH, and `go install
-	// github.com/gomutants/gomutants@latest` fails on exactly that: the go.mod
-	// declares `github.com/szhekpisov/gomutants`. Reported upstream; the declared
-	// path is what installs.
+	// THE MODULE PATH MOVED IN v0.7.0 (upstream #113): go.mod now declares
+	// `github.com/gomutants/gomutants`, the repo path; through v0.6.x it
+	// declared `github.com/szhekpisov/gomutants`, and only that path installed.
+	// v0.7.1 fixed the RSS monitor that never fired on Linux (upstream #107/#108,
+	// `ps -g` selecting by session); internal/pgroupps worked around it.
 	//
-	// renovate: datasource=go depName=github.com/szhekpisov/gomutants
-	GomutantsModule = "github.com/szhekpisov/gomutants@v0.6.1"
+	// renovate: datasource=go depName=github.com/gomutants/gomutants
+	GomutantsModule = "github.com/gomutants/gomutants@v0.7.2"
 	// MutationGateModule is forge-testkit-go's gate, run in the lane after
 	// the mutation run for its -json classification of what is unkillable — the AST
 	// walk that decides a top-level declaration or a case expression has no
