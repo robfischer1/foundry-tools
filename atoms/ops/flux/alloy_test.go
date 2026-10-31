@@ -50,3 +50,10 @@ func withFile(m map[string]string, name, src string) map[string]string {
 	m[name] = src
 	return m
 }
+
+func TestAlloyFileThatWillNotRead(t *testing.T) {
+	in, f := atomtest.ToolTree(t, fluxTree(), nil)
+	in.Committable = append(in.Committable, "alloy/ghost.alloy")
+	f.Answer = (&fluxTools{}).answer(t)
+	atomtest.Expect(t, run(in), atomtest.StateOf(2), atomtest.Cannot, "the atom never ran", "ghost.alloy")
+}
